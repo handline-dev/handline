@@ -45,6 +45,18 @@ def test_failclosed(home: Path) -> None:
     check("null pct_5h is not treated as 0", "null" in why)
     check("headroom is None when unknown", status.read("nulls").headroom() is None)
 
+    # The API returns these as floats, sometimes untidy ones. Rounding must go
+    # up, so a rounding error triggers sooner rather than later.
+    write_status(home, "floaty", pct_5h=28.999999999999996, pct_7d=10.0)
+    check("float percentage rounds up, not down", status.read("floaty").pct_5h == 29,
+          str(status.read("floaty").pct_5h))
+    write_status(home, "nearly", pct_5h=84.9, pct_7d=10)
+    allowed, why = status.read("nearly").assignable()
+    check("84.9% rounds to 85 and still assigns below the block", allowed, why)
+    write_status(home, "overish", pct_5h=89.6, pct_7d=10)
+    allowed, why = status.read("overish").assignable()
+    check("89.6% rounds to 90 and is refused", not allowed, why)
+
     write_status(home, "fresh", pct_5h=10, pct_7d=20)
     allowed, why = status.read("fresh").assignable()
     check("healthy account is assignable", allowed, why)

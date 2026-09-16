@@ -12,6 +12,7 @@ stays green. So anything we do not know is treated as a reason to refuse.
 from __future__ import annotations
 
 import json
+import math
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -82,6 +83,22 @@ class AccountStatus:
         return max(0, PCT_5H_BLOCK - self.pct_5h)
 
 
+def _as_pct(v):
+    """Coerce a usage percentage to an int, rounding UP.
+
+    The API returns these as floats, and not always clean ones: an observed
+    sample was 28.999999999999996 for what is plainly 29. Truncating would
+    report 28, and would turn 89.6 into 89, which delays the hard stop. Every
+    rounding error here should push toward acting sooner, not later, so this
+    rounds up. Timestamps and counts use _as_int instead.
+    """
+    if v is None or isinstance(v, bool):
+        return None
+    if not isinstance(v, (int, float)):
+        return None
+    return int(math.ceil(v))
+
+
 def _as_int(v):
     if v is None or isinstance(v, bool):
         return None
@@ -103,9 +120,9 @@ def read(acct: str, path: Path | None = None) -> AccountStatus:
         st.error = "top level is not an object"
         return st
     st.raw = raw
-    st.pct_5h = _as_int(raw.get("pct_5h"))
-    st.pct_7d = _as_int(raw.get("pct_7d"))
-    st.ctx_pct = _as_int(raw.get("ctx_pct"))
+    st.pct_5h = _as_pct(raw.get("pct_5h"))
+    st.pct_7d = _as_pct(raw.get("pct_7d"))
+    st.ctx_pct = _as_pct(raw.get("ctx_pct"))
     st.reset_5h = _as_int(raw.get("reset_5h"))
     st.reset_7d = _as_int(raw.get("reset_7d"))
     st.collected_at = _as_int(raw.get("collected_at"))
