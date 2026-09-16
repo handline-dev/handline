@@ -6,10 +6,13 @@ python is externally managed so we cannot just pip install into it. Supporting
 both removes that whole class of "works on my interpreter" failure.
 
 The fallback handles what our config files actually use: nested maps, lists
-(including lists of maps), comments, quoted strings, and int/float/bool/null.
-Anything it does not understand (anchors, block scalars, flow collections)
-raises ConfigError rather than silently mis-parsing. Stopping beats reading
-a routing table wrong.
+(including lists of maps), comments, quoted strings, int/float/bool/null, and
+flow collections like [a, b] and {k: v} - team.yaml is written in flow style
+throughout, so supporting it is not optional.
+
+Anything it still does not understand (anchors, block scalars, merge keys)
+raises ConfigError rather than silently mis-parsing. Stopping beats reading a
+routing table wrong.
 """
 from __future__ import annotations
 
@@ -36,13 +39,63 @@ except ImportError:
         return parse(text)
 
 
-_UNSUPPORTED = ("&", "*", "|", ">", "{", "[", "!!", "<<")
+_UNSUPPORTED = ("&", "|", ">", "!!", "<<")
+
+
+def _split_flow(body: str) -> list[str]:
+    """Split a flow collection body on commas at nesting depth 0."""
+    parts, buf, depth, quote = [], [], 0, None
+    for ch in body:
+        if quote:
+            buf.append(ch)
+            if ch == quote:
+                quote = None
+            continue
+        if ch in "\"'":
+            quote = ch
+            buf.append(ch)
+        elif ch in "[{":
+            depth += 1
+            buf.append(ch)
+        elif ch in "]}":
+            depth -= 1
+            buf.append(ch)
+        elif ch == "," and depth == 0:
+            parts.append("".join(buf))
+            buf = []
+        else:
+            buf.append(ch)
+    if quote:
+        raise ConfigError(f"unterminated quote in flow collection: {body!r}")
+    if depth != 0:
+        raise ConfigError(f"unbalanced brackets in flow collection: {body!r}")
+    tail = "".join(buf).strip()
+    if tail or parts:
+        parts.append("".join(buf))
+    return [p.strip() for p in parts]
+
+
+def _flow(t: str):
+    """Parse [a, b] and {k: v}, including nesting."""
+    if t.startswith("[") and t.endswith("]"):
+        return [_scalar(p) for p in _split_flow(t[1:-1]) if p != ""]
+    out = {}
+    for item in _split_flow(t[1:-1]):
+        if not item:
+            continue
+        if ":" not in item:
+            raise ConfigError(f"flow map entry has no ':': {item!r}")
+        k, _, v = item.partition(":")
+        out[k.strip().strip("\"'")] = _scalar(v.strip())
+    return out
 
 
 def _scalar(tok: str):
     t = tok.strip()
     if not t:
         return None
+    if (t.startswith("[") and t.endswith("]")) or (t.startswith("{") and t.endswith("}")):
+        return _flow(t)
     if len(t) > 1 and t[0] == t[-1] and t[0] in "\"'":
         return t[1:-1]
     low = t.lower()
@@ -126,6 +179,11 @@ def _seq(rows, i: int, indent: int):
         if ind > indent:
             raise ConfigError(f"line {n}: list item indentation does not line up")
         rest = body[2:].strip()
+        if rest.startswith(("[", "{")):
+            # A flow collection as a list item: - { from: "*", to: "reviewer" }
+            out.append(_scalar(rest))
+            i += 1
+            continue
         if ":" in rest and not rest.startswith(("\"", "'")):
             # The item is a map. Treat its first line as a map row at the
             # item's own indent, then absorb the more-indented lines under it.

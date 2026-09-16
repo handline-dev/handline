@@ -15,7 +15,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
-from ocp import agents, status, yamlcompat  # noqa: E402
+from ocp import agents, ask as askmod, db, status, team, yamlcompat  # noqa: E402
 
 PASS, FAIL = [], []
 
@@ -232,6 +232,200 @@ def test_launch(home: Path) -> None:
     check("missing status.json does not block first boot", r.returncode == 0, r.stdout)
 
 
+DESIGN_TEAM = """
+teams:
+  product: [product]
+  eng:     [backend, frontend]
+  growth:  [marketing, analytics]
+  ops:     [archivist]
+
+agents:
+  product:    { intake: dedicated, model: mid,   weight: light }
+  backend:    { intake: dedicated, model: high,  weight: heavy }
+  frontend:   { intake: dedicated, model: high,  weight: heavy }
+  marketing:  { intake: dedicated, model: mid,   weight: light }
+  analytics:  { intake: dedicated, model: mid,   weight: light }
+  archivist:  { intake: ephemeral, model: cheap, weight: light }
+  reviewer:   { intake: serial,    model: mid,   weight: light, reviews: [eng, growth, product] }
+
+edges:
+  - { from: "*",         to: "reviewer",     relation: peer,  response: async }
+  - { from: "reviewer",  to: "*",            kind: verdict,   response: async }
+  - { from: "product",   to: "eng.*",        relation: peer,  response: async }
+  - { from: "product",   to: "growth.*",     relation: peer,  response: async }
+  - { from: "analytics", to: "product",      relation: peer,  response: async }
+  - { from: "*",         to: "archivist",    relation: peer,  response: fire_and_forget }
+  - { from: "*",         to: "orchestrator", kind: escalate,  creates_gate: true }
+
+deny:
+  - { from: "eng.*",    to: "growth.*",  reason: "go through product" }
+  - { from: "growth.*", to: "eng.*",     reason: "same" }
+
+limits:
+  max_chain_depth: 4
+  ask_rate_per_hour: 20
+"""
+
+
+def test_team_routing() -> None:
+    t = team.Team(yamlcompat.parse(DESIGN_TEAM))
+    check("route: wildcard edge to reviewer", t.route("backend", "reviewer").allowed)
+    check("route: reviewer may answer anyone", t.route("reviewer", "backend").allowed)
+    check("route: product may reach eng team", t.route("product", "backend").allowed)
+    check("route: analytics may reach product", t.route("analytics", "product").allowed)
+
+    d = t.route("backend", "marketing")
+    check("route: cross-team deny fires", not d.allowed and "product" in d.reason, d.reason)
+    d = t.route("marketing", "backend")
+    check("route: deny is symmetric", not d.allowed, d.reason)
+
+    d = t.route("backend", "frontend")
+    check("route: unlisted edge denied by default", not d.allowed, d.reason)
+    check("route: refusal explains the default", "denied by default" in d.reason)
+
+    check("route: self-ask denied", not t.route("backend", "backend").allowed)
+    check("route: unknown target denied", not t.route("backend", "nobody").allowed)
+
+    d = t.route("backend", "orchestrator")
+    check("route: escalation target is routable", d.allowed and d.creates_gate, d.reason)
+    check("route: escalation kind preserved", d.kind == "escalate")
+
+    check("route: intake comes from the target", t.route("backend", "reviewer").intake == "serial")
+    check("route: fire_and_forget preserved",
+          t.route("backend", "archivist").response == "fire_and_forget")
+    check("route: chain depth limit", not t.route("backend", "reviewer", chain_depth=4).allowed)
+
+    # A deny must win even though an earlier wildcard edge would match.
+    t2 = team.Team(yamlcompat.parse(
+        "agents:\n  a: { intake: dedicated }\n  b: { intake: dedicated }\n"
+        'edges:\n  - { from: "*", to: "*", relation: peer }\n'
+        'deny:\n  - { from: "a", to: "b", reason: "no" }\n'
+    ))
+    check("route: deny beats a matching wildcard edge", not t2.route("a", "b").allowed)
+    check("route: wildcard still allows others", t2.route("b", "a").allowed)
+
+
+def test_team_validation() -> None:
+    for bad, label in [
+        ("agents:\n  a: { intake: nonsense }\n", "bad intake rejected"),
+        ('edges:\n  - { from: "a", to: "b", response: blocking }\n',
+         "blocking response rejected"),
+        ('edges:\n  - { to: "b" }\n', "edge without 'from' rejected"),
+    ]:
+        try:
+            team.Team(yamlcompat.parse(bad))
+            check(f"team validation: {label}", False, "no error raised")
+        except yamlcompat.ConfigError:
+            check(f"team validation: {label}", True)
+
+
+def test_ask_flow(home: Path) -> None:
+    home.mkdir(parents=True, exist_ok=True)
+    os.environ["OCP_HOME"] = str(home)
+    (home / "team.yaml").write_text(DESIGN_TEAM)
+    for name in ("backend", "reviewer", "archivist", "marketing"):
+        agents.register(name, "alpha")
+
+    ok, msg, rid = askmod.ask("reviewer", "review this", requester="backend")
+    check("ask: allowed edge queues", ok and rid is not None, msg)
+    inbox_file = home / "agents" / "reviewer" / "inbox" / f"{rid:06d}.json"
+    check("ask: writes an inbox file", inbox_file.exists())
+    payload = json.loads(inbox_file.read_text())
+    check("ask: inbox payload carries routing", payload["intake"] == "serial", str(payload))
+
+    ok, msg, _ = askmod.ask("marketing", "do this", requester="backend")
+    check("ask: denied edge refuses", not ok and "product" in msg, msg)
+
+    ok, msg, _ = askmod.ask("frontend", "do this", requester="backend")
+    check("ask: unlisted edge refuses", not ok, msg)
+
+    con = db.connect()
+    try:
+        denied = con.execute("SELECT COUNT(*) c FROM requests WHERE state='denied'").fetchone()["c"]
+        check("ask: denials are recorded, not silent", denied == 2, str(denied))
+        st = db.get_agent_state(con, "backend")
+        check("ask: async requester parks", st["state"] == "PARKED_AWAITING", str(dict(st)))
+    finally:
+        con.close()
+
+    ok, msg = askmod.resolve(rid, "looks good")
+    check("resolve: closes the request", ok, msg)
+    check("resolve: drains the inbox file", not inbox_file.exists())
+    con = db.connect()
+    try:
+        st = db.get_agent_state(con, "backend")
+        check("resolve: requester becomes wakeable", st["state"] == "WAKEABLE", str(dict(st)))
+    finally:
+        con.close()
+
+    # fire_and_forget must not park the requester. Asked from marketing, whose
+    # first matching edge really is `* -> archivist`. (From reviewer it would
+    # not be: `reviewer -> *` appears earlier and edges are first-match-wins.)
+    ok, _, _ = askmod.ask("archivist", "log this", requester="marketing")
+    check("ask: fire_and_forget ask is accepted", ok)
+    con = db.connect()
+    try:
+        st = db.get_agent_state(con, "marketing")
+        check("ask: fire_and_forget does not park the requester", st is None, str(st and dict(st)))
+    finally:
+        con.close()
+
+    # Edge order is significant, and the design's own policy relies on it.
+    t = team.Team(yamlcompat.parse(DESIGN_TEAM))
+    check("ask: earlier edge wins over a later one",
+          t.route("reviewer", "archivist").response == "async",
+          t.route("reviewer", "archivist").reason)
+
+    # Chain depth must actually stop a loop.
+    parent = rid
+    depth_blocked = False
+    for _ in range(6):
+        ok, msg, new = askmod.ask("reviewer", "again", requester="backend", parent_id=parent)
+        if not ok and "chain depth" in msg:
+            depth_blocked = True
+            break
+        parent = new
+    check("ask: chain depth stops runaway loops", depth_blocked)
+
+
+def test_ask_rate_limit(home: Path) -> None:
+    home.mkdir(parents=True, exist_ok=True)
+    os.environ["OCP_HOME"] = str(home)
+    (home / "team.yaml").write_text(
+        "agents:\n  a: { intake: dedicated }\n  b: { intake: dedicated }\n"
+        'edges:\n  - { from: "*", to: "*", relation: peer, response: fire_and_forget }\n'
+        "limits:\n  max_chain_depth: 99\n  ask_rate_per_hour: 3\n"
+    )
+    agents.register("a", "alpha")
+    agents.register("b", "alpha")
+    results = [askmod.ask("b", f"n{i}", requester="a")[0] for i in range(5)]
+    check("rate limit: allows up to the cap", results[:3] == [True, True, True], str(results))
+    check("rate limit: refuses past the cap", results[3:] == [False, False], str(results))
+
+
+def test_db_dedup(home: Path) -> None:
+    con = db.connect(home / "dedup.sqlite")
+    try:
+        first = db.add_event(con, "backend", "usage", {"in": 10}, dedup_key="msg_abc")
+        second = db.add_event(con, "backend", "usage", {"in": 10}, dedup_key="msg_abc")
+        check("db: first usage event stored", first is not None)
+        check("db: duplicate message.id is dropped", second is None)
+        check("db: no dedup key means always stored",
+              db.add_event(con, "backend", "note") is not None)
+
+        db.set_cursor(con, "fold", 0)
+        for i in range(5):
+            db.add_event(con, "backend", "e", {"i": i})
+        rows = db.events_after(con, db.get_cursor(con, "fold"), agent="backend")
+        check("db: cursor reads by row id", len(rows) >= 5)
+        top = max(r["id"] for r in rows)
+        db.set_cursor(con, "fold", top)
+        check("db: advanced cursor yields nothing new",
+              db.events_after(con, db.get_cursor(con, "fold"), agent="backend") == [])
+    finally:
+        con.close()
+
+
 def main() -> int:
     with tempfile.TemporaryDirectory() as td:
         home = Path(td) / "orcapipe"
@@ -241,6 +435,11 @@ def main() -> int:
         test_yaml()
         test_agents(home)
         test_launch(home)
+        test_team_routing()
+        test_team_validation()
+        test_db_dedup(home)
+        test_ask_flow(Path(td) / 'askhome')
+        test_ask_rate_limit(Path(td) / 'ratehome')
     print(f"\n{len(PASS)} passed, {len(FAIL)} failed")
     for f in FAIL:
         print(f"  FAILED: {f}")

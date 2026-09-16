@@ -12,7 +12,7 @@ import shutil
 import subprocess
 import sys
 
-from . import accounts, agents, doctor, guide, hooks, launch, paths, status
+from . import accounts, agents, ask as askmod, doctor, guide, hooks, launch, paths, status, team
 
 
 # ---------------------------------------------------------------- init
@@ -171,6 +171,73 @@ def cmd_guide(args) -> int:
     return guide.show(args.topic)
 
 
+# ---------------------------------------------------------------- team / ask
+def cmd_team_init(args) -> int:
+    p = paths.team_file()
+    if p.exists() and not args.force:
+        print(f"{p} already exists (use --force to overwrite)")
+        return 1
+    p.parent.mkdir(parents=True, exist_ok=True)
+    p.write_text(team.STARTER)
+    print(f"wrote {p}")
+    return 0
+
+
+def cmd_team_check(args) -> int:
+    try:
+        t = team.Team.load()
+    except Exception as e:  # noqa: BLE001
+        print(f"team.yaml is invalid: {e}")
+        return 1
+    names = sorted(set(t.agents) | {a for m in t.teams.values() for a in (m or [])})
+    print(f"{len(t.teams)} teams, {len(names)} agents, {len(t.edges)} edges, {len(t.deny)} denies")
+    print(f"max_chain_depth={t.max_chain_depth} ask_rate_per_hour={t.ask_rate_per_hour}")
+    registered = set(paths.list_agents())
+    for n in names:
+        mark = "ok" if n in registered else "not registered with ocp"
+        print(f"  {n:<14} intake={t.intake_of(n):<10} {mark}")
+    if args.matrix:
+        print("\nrouting matrix (rows ask columns):")
+        width = max(len(n) for n in names) + 2
+        print(" " * width + "".join(f"{n[:6]:>8}" for n in names))
+        for a in names:
+            cells = []
+            for b in names:
+                d = t.route(a, b)
+                cells.append("     -  " if a == b else ("   allow" if d.allowed else "    DENY"))
+            print(f"{a:<{width}}" + "".join(cells))
+    return 0
+
+
+def cmd_ask(args) -> int:
+    ok, msg, _ = askmod.ask(args.target, args.body, files=args.files,
+                            requester=args.of, parent_id=args.parent)
+    # ask() already phrases its own refusals; do not prefix them again.
+    print(msg)
+    return 0 if ok else 1
+
+
+def cmd_inbox(args) -> int:
+    agent = args.agent or askmod.current_agent()
+    if not agent:
+        print("no agent given and OCP_AGENT is unset")
+        return 1
+    rows = askmod.inbox(agent, unread_only=not args.all)
+    if not rows:
+        print(f"{agent}: inbox empty")
+        return 0
+    for r in rows:
+        print(f"#{r['id']:<5} from {r['requester']:<12} {r['state']:<9} "
+              f"depth={r['chain_depth']} {r['body'][:60]}")
+    return 0
+
+
+def cmd_resolve(args) -> int:
+    ok, msg = askmod.resolve(args.id, args.verdict, state=args.state)
+    print(msg)
+    return 0 if ok else 1
+
+
 # ---------------------------------------------------------------- parser
 def build_parser() -> argparse.ArgumentParser:
     ap = argparse.ArgumentParser(prog="ocp", description="orcapipe - multi-account agent pipeline")
@@ -218,6 +285,33 @@ def build_parser() -> argparse.ArgumentParser:
     p.set_defaults(fn=cmd_doctor)
 
     sub.add_parser("status", help="which account may take work").set_defaults(fn=cmd_status)
+
+    tm = sub.add_parser("team", help="routing policy").add_subparsers(dest="sub", required=True)
+    p = tm.add_parser("init", help="write a starter team.yaml")
+    p.add_argument("--force", action="store_true")
+    p.set_defaults(fn=cmd_team_init)
+    p = tm.add_parser("check", help="validate team.yaml")
+    p.add_argument("--matrix", action="store_true", help="print the full routing matrix")
+    p.set_defaults(fn=cmd_team_check)
+
+    p = sub.add_parser("ask", help="send a request to another agent")
+    p.add_argument("target")
+    p.add_argument("body")
+    p.add_argument("--files", default=None, help="comma-separated paths")
+    p.add_argument("--of", default=None, help="requester (defaults to $OCP_AGENT)")
+    p.add_argument("--parent", type=int, default=None, help="parent request id, for chain depth")
+    p.set_defaults(fn=cmd_ask)
+
+    p = sub.add_parser("inbox", help="show queued requests for an agent")
+    p.add_argument("agent", nargs="?")
+    p.add_argument("--all", action="store_true")
+    p.set_defaults(fn=cmd_inbox)
+
+    p = sub.add_parser("resolve", help="close a request with a verdict")
+    p.add_argument("id", type=int)
+    p.add_argument("verdict")
+    p.add_argument("--state", default="done", choices=["done", "rejected"])
+    p.set_defaults(fn=cmd_resolve)
 
     p = sub.add_parser("guide", help="load detail on demand")
     p.add_argument("topic", nargs="?")
