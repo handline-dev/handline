@@ -11,8 +11,11 @@ import os
 import shutil
 import subprocess
 import sys
+import time
+from pathlib import Path
 
-from . import accounts, agents, ask as askmod, doctor, guide, hooks, launch, paths, status, team
+from . import (accounts, agents, ask as askmod, db, digest, doctor, events, fold as foldmod,
+               guide, hooks, launch, paths, status, team)
 
 
 # ---------------------------------------------------------------- init
@@ -171,6 +174,106 @@ def cmd_guide(args) -> int:
     return guide.show(args.topic)
 
 
+# ---------------------------------------------------------------- record
+def cmd_fold(args) -> int:
+    targets = [args.agent] if args.agent else paths.list_agents()
+    if not targets:
+        print("no agents registered.")
+        return 1
+    bad = 0
+    for a in targets:
+        ok, msg = foldmod.fold(a, use_model=not args.no_model, model=args.model,
+                               fold_account=args.account,
+                               repo=Path(args.repo).resolve() if args.repo else None)
+        print(msg)
+        bad += 0 if ok else 1
+    return 1 if bad else 0
+
+
+def cmd_rollover(args) -> int:
+    targets = [args.agent] if args.agent else paths.list_agents()
+    for a in targets:
+        _, msg = foldmod.rollover(a)
+        print(msg)
+    return 0
+
+
+def cmd_digest(args) -> int:
+    p = foldmod.journal_path(args.agent, args.date or foldmod.today())
+    if not p.exists():
+        print(f"no digest at {p}")
+        return 1
+    print(p.read_text())
+    return 0
+
+
+def cmd_handoff(args) -> int:
+    p = foldmod.handoff_path(args.agent)
+    if not p.exists():
+        print(f"no handoff at {p}")
+        return 1
+    print(p.read_text())
+    return 0
+
+
+def cmd_events(args) -> int:
+    con = db.connect()
+    try:
+        rows = db.events_after(con, args.after, agent=args.agent, limit=args.limit)
+        if not rows:
+            print("no events")
+            return 0
+        for r in rows:
+            when = time.strftime("%m-%d %H:%M", time.localtime(r["ts"]))
+            print(f"{r['id']:<6} {when} {r['agent']:<12} {r['kind']:<16} {(r['payload'] or '')[:70]}")
+        print(f"\n{len(rows)} events; cursor for fold:<agent> advances only after a valid fold")
+    finally:
+        con.close()
+    return 0
+
+
+def cmd_hook(args) -> int:
+    if args.event == "commit":
+        agent = askmod.current_agent()
+        if not agent:
+            return 0
+        repo = subprocess.run(["git", "rev-parse", "--show-toplevel"], capture_output=True,
+                              text=True).stdout.strip()
+        sha = subprocess.run(["git", "rev-parse", "HEAD"], capture_output=True,
+                             text=True).stdout.strip()
+        subject = subprocess.run(["git", "log", "-1", "--pretty=%s"], capture_output=True,
+                                 text=True).stdout.strip()
+        stat = subprocess.run(["git", "show", "--stat", "--oneline", "HEAD"], capture_output=True,
+                              text=True).stdout.strip().splitlines()
+        events.record_commit(agent, repo, sha, subject, stat[-1] if stat else "")
+        return 0
+    return events.record_from_stdin([args.event])
+
+
+def cmd_hook_install(args) -> int:
+    """Add our event hooks to shared settings, next to Orca's mirrored ones."""
+    target = hooks.target_settings()
+    target.parent.mkdir(parents=True, exist_ok=True)
+    data = json.loads(target.read_text()) if target.exists() else {}
+    exe = os.environ.get("OCP_BIN") or shutil.which("ocp") or str(paths.repo_root() / "bin" / "ocp")
+    block = data.setdefault("hooks", {})
+    added = []
+    for event in sorted(events.CAPTURED):
+        groups = block.setdefault(event, [])
+        cmd = f"{exe} hook {event}"
+        if any(cmd == h.get("command")
+               for g in groups if isinstance(g, dict)
+               for h in g.get("hooks", []) if isinstance(h, dict)):
+            continue
+        groups.append({"hooks": [{"type": "command", "command": cmd, "timeout": 10}]})
+        added.append(event)
+    tmp = target.with_suffix(".json.tmp")
+    tmp.write_text(json.dumps(data, indent=2, ensure_ascii=False) + "\n")
+    tmp.replace(target)
+    print(f"installed ocp event hooks for {len(added)} events" if added else "already installed")
+    return 0
+
+
 # ---------------------------------------------------------------- team / ask
 def cmd_team_init(args) -> int:
     p = paths.team_file()
@@ -312,6 +415,40 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("verdict")
     p.add_argument("--state", default="done", choices=["done", "rejected"])
     p.set_defaults(fn=cmd_resolve)
+
+    p = sub.add_parser("fold", help="fold events into the digest (the one model call)")
+    p.add_argument("agent", nargs="?")
+    p.add_argument("--no-model", action="store_true", help="deterministic fold only")
+    p.add_argument("--model", default="haiku")
+    p.add_argument("--account", default=None, help="account to run the fold call on")
+    p.add_argument("--repo", default=None, help="repo to read git facts from")
+    p.set_defaults(fn=cmd_fold)
+
+    p = sub.add_parser("rollover", help="midnight rollover (no model)")
+    p.add_argument("agent", nargs="?")
+    p.set_defaults(fn=cmd_rollover)
+
+    p = sub.add_parser("digest", help="print an agent's digest")
+    p.add_argument("agent")
+    p.add_argument("--date", default=None)
+    p.set_defaults(fn=cmd_digest)
+
+    p = sub.add_parser("handoff", help="print an agent's handoff")
+    p.add_argument("agent")
+    p.set_defaults(fn=cmd_handoff)
+
+    p = sub.add_parser("events", help="list recorded events")
+    p.add_argument("--agent", default=None)
+    p.add_argument("--after", type=int, default=0)
+    p.add_argument("--limit", type=int, default=50)
+    p.set_defaults(fn=cmd_events)
+
+    p = sub.add_parser("hook", help="internal: record a hook event from stdin")
+    p.add_argument("event")
+    p.set_defaults(fn=cmd_hook)
+
+    p = sub.add_parser("install-hooks", help="add ocp event hooks to shared settings")
+    p.set_defaults(fn=cmd_hook_install)
 
     p = sub.add_parser("guide", help="load detail on demand")
     p.add_argument("topic", nargs="?")

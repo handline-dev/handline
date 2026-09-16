@@ -104,13 +104,25 @@ def add_event(con, agent: str, kind: str, payload: dict | None = None,
         return None  # duplicate dedup_key - the same API response seen again
 
 
-def events_after(con, row_id: int, agent: str | None = None, limit: int = 10000):
+# Fold's own bookkeeping rows. They are kept for audit but excluded from the
+# delta a fold reads, so a fold never ends up summarizing its own bookkeeping
+# (and so the cursor cannot chase its own tail).
+FOLD_META_KINDS = ("fold", "fold_failed")
+
+
+def events_after(con, row_id: int, agent: str | None = None, limit: int = 10000,
+                 exclude_kinds: tuple[str, ...] = ()):
+    clauses = ["id > ?"]
+    params: list = [row_id]
     if agent:
-        q = "SELECT * FROM events WHERE id > ? AND agent = ? ORDER BY id LIMIT ?"
-        return con.execute(q, (row_id, agent, limit)).fetchall()
-    return con.execute(
-        "SELECT * FROM events WHERE id > ? ORDER BY id LIMIT ?", (row_id, limit)
-    ).fetchall()
+        clauses.append("agent = ?")
+        params.append(agent)
+    if exclude_kinds:
+        clauses.append(f"kind NOT IN ({','.join('?' * len(exclude_kinds))})")
+        params.extend(exclude_kinds)
+    params.append(limit)
+    q = f"SELECT * FROM events WHERE {' AND '.join(clauses)} ORDER BY id LIMIT ?"
+    return con.execute(q, params).fetchall()
 
 
 def max_event_id(con) -> int:

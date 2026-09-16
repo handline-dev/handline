@@ -15,7 +15,8 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
-from ocp import agents, ask as askmod, db, status, team, yamlcompat  # noqa: E402
+from ocp import (agents, ask as askmod, db, digest, events as evmod, fold as foldmod,
+                 status, team, yamlcompat)  # noqa: E402
 
 PASS, FAIL = [], []
 
@@ -426,6 +427,172 @@ def test_db_dedup(home: Path) -> None:
         con.close()
 
 
+# ---------------------------------------------------------------- digest/fold
+def test_digest() -> None:
+    d = digest.Digest(date="2026-09-15", agent="backend", updated="14:32 (handoff #3)",
+                      folded_through=18432,
+                      sections={"done": ["auth refactor merged"], "in_progress": ["rate limiter"],
+                                "decided": ["sqlite for events"], "blocked": [],
+                                "next": ["write tests"], "base_candidates": []})
+    text = digest.render(d)
+    back = digest.parse(text)
+    check("digest: round-trips the header", back.date == "2026-09-15" and back.agent == "backend")
+    check("digest: round-trips folded_through", back.folded_through == 18432)
+    check("digest: round-trips items", back.items("done") == ["auth refactor merged"])
+    check("digest: all six sections present",
+          all(f"## {h}" in text for _, h in digest.SECTIONS))
+
+    ok, _ = digest.validate(text, None)
+    check("digest: a good digest validates", ok)
+
+    ok, problems = digest.validate(text.replace("## 완료", "## Done"), None)
+    check("digest: a missing section fails validation", not ok and "완료" in problems[0])
+
+    # The failure the design cares about: a fully written file that silently
+    # drops completed work.
+    lost = text.replace("- auth refactor merged\n", "")
+    ok, problems = digest.validate(lost, back)
+    check("digest: losing a completed item fails validation", not ok, str(problems))
+    check("digest: the failure names what was lost", "auth refactor merged" in problems[0])
+
+    ok, problems = digest.validate(text.replace("event 18432", "event 5"), back)
+    check("digest: folded_through must not go backwards", not ok, str(problems))
+
+    rolled = digest.carry_forward(back, "2026-09-16")
+    check("rollover: done is emptied", rolled.items("done") == [])
+    check("rollover: in_progress carries forward", rolled.items("in_progress") == ["rate limiter"])
+    check("rollover: blocked/next carry forward", rolled.items("next") == ["write tests"])
+
+
+def test_fold(home: Path) -> None:
+    home.mkdir(parents=True, exist_ok=True)
+    os.environ["OCP_HOME"] = str(home)
+    (home / "team.yaml").write_text(DESIGN_TEAM)
+    agents.register("backend", "alpha")
+
+    con = db.connect()
+    try:
+        for i in range(4):
+            db.add_event(con, "backend", "commit", {"sha": f"abc{i}", "subject": f"work {i}"})
+        top = db.max_event_id(con)
+    finally:
+        con.close()
+
+    day = foldmod.today()
+    good = digest.render(digest.Digest(
+        date=day, agent="backend", updated="10:00", folded_through=top,
+        sections={"done": ["work 0", "work 1"], "in_progress": ["work 2"], "decided": [],
+                  "blocked": [], "next": ["work 3"], "base_candidates": []}))
+
+    real = foldmod.run_model
+    try:
+        # --- happy path -------------------------------------------------
+        foldmod.run_model = lambda *a, **k: (True, good)
+        ok, msg = foldmod.fold("backend", use_model=True, fold_account="alpha")
+        check("fold: a valid fold succeeds", ok, msg)
+        con = db.connect()
+        try:
+            check("fold: cursor advances only on success",
+                  db.get_cursor(con, "fold:backend") == top,
+                  str(db.get_cursor(con, "fold:backend")))
+        finally:
+            con.close()
+        published = digest.parse(foldmod.journal_path("backend", day).read_text())
+        check("fold: digest is published", published.items("done") == ["work 0", "work 1"])
+        check("fold: deterministic block is attached", "events folded" in published.facts)
+        hp = foldmod.handoff_path("backend")
+        check("fold: handoff is written", hp.exists())
+        check("fold: handoff carries the machine facts", "events folded" in hp.read_text())
+
+        # --- a fully written garbage file must not replace a good one ----
+        con = db.connect()
+        try:
+            db.add_event(con, "backend", "commit", {"sha": "zzz", "subject": "work 4"})
+            top2 = db.max_event_id(con)
+        finally:
+            con.close()
+        garbage = good.replace("- work 0\n", "")  # drops a completed item
+        foldmod.run_model = lambda *a, **k: (True, garbage)
+        ok, msg = foldmod.fold("backend", use_model=True, fold_account="alpha")
+        check("fold: a garbage fold is rejected", not ok, msg)
+        check("fold: the rejection says what was lost", "work 0" in msg, msg)
+        con = db.connect()
+        try:
+            check("fold: cursor does NOT advance on rejection",
+                  db.get_cursor(con, "fold:backend") == top,
+                  f"expected {top}, got {db.get_cursor(con, 'fold:backend')}")
+        finally:
+            con.close()
+        after = foldmod.journal_path("backend", day).read_text()
+        check("fold: the degraded digest still keeps the completed work",
+              "work 0" in after and "work 1" in after)
+        check("fold: the degraded digest is marked as such", "degraded" in after)
+        check("fold: degraded output still has the machine facts", "events folded" in after)
+
+        # --- a failed model call takes the same safe path ----------------
+        foldmod.run_model = lambda *a, **k: (False, "boom")
+        ok, msg = foldmod.fold("backend", use_model=True, fold_account="alpha")
+        check("fold: a failed model call degrades rather than destroying", not ok, msg)
+        con = db.connect()
+        try:
+            check("fold: cursor still held after a failed call",
+                  db.get_cursor(con, "fold:backend") == top)
+        finally:
+            con.close()
+
+        # --- retrying the held delta must work once the model behaves ----
+        good2 = digest.render(digest.Digest(
+            date=day, agent="backend", updated="11:00", folded_through=top2,
+            sections={"done": ["work 0", "work 1", "work 4"], "in_progress": [], "decided": [],
+                      "blocked": [], "next": [], "base_candidates": []}))
+        foldmod.run_model = lambda *a, **k: (True, good2)
+        ok, msg = foldmod.fold("backend", use_model=True, fold_account="alpha")
+        check("fold: the held delta is retried successfully", ok, msg)
+        con = db.connect()
+        try:
+            check("fold: cursor finally advances past the retried delta",
+                  db.get_cursor(con, "fold:backend") == top2)
+        finally:
+            con.close()
+    finally:
+        foldmod.run_model = real
+
+
+def test_rollover(home: Path) -> None:
+    home.mkdir(parents=True, exist_ok=True)
+    os.environ["OCP_HOME"] = str(home)
+    agents.register("backend", "alpha")
+    yesterday = "2000-01-01"
+    foldmod.journal_path("backend", yesterday).write_text(digest.render(digest.Digest(
+        date=yesterday, agent="backend", updated="23:59", folded_through=7,
+        sections={"done": ["shipped X"], "in_progress": ["half-done Y"], "decided": ["chose Z"],
+                  "blocked": ["waiting on review"], "next": ["start W"], "base_candidates": []})))
+    ok, msg = foldmod.rollover("backend")
+    check("rollover: runs", ok, msg)
+    today_file = foldmod.journal_path("backend", foldmod.today())
+    check("rollover: creates today's digest", today_file.exists())
+    d = digest.parse(today_file.read_text())
+    check("rollover: yesterday's done is cleared", d.items("done") == [], str(d.items("done")))
+    check("rollover: in_progress survives", d.items("in_progress") == ["half-done Y"])
+    check("rollover: blocked survives", d.items("blocked") == ["waiting on review"])
+    check("rollover: next survives", d.items("next") == ["start W"])
+    ok, msg = foldmod.rollover("backend")
+    check("rollover: is idempotent", ok and "already exists" in msg, msg)
+
+
+def test_event_allowlist() -> None:
+    raw = {"hook_event_name": "UserPromptSubmit", "session_id": "s1",
+           "prompt": "secret business plan text", "cwd": "/tmp",
+           "model": {"id": "claude-sonnet-5"}, "api_key": "sk-should-never-appear",
+           "transcript_path": "/tmp/t.jsonl"}
+    slim = evmod._slim(raw)
+    check("events: prompt text is not stored", "prompt" not in slim, str(slim))
+    check("events: prompt length is stored", slim.get("prompt_length") == len(raw["prompt"]))
+    check("events: unlisted fields are dropped", "api_key" not in slim, str(slim))
+    check("events: model is flattened to its id", slim.get("model") == "claude-sonnet-5")
+    check("events: PostToolUse is not captured", "PostToolUse" not in evmod.CAPTURED)
+
+
 def main() -> int:
     with tempfile.TemporaryDirectory() as td:
         home = Path(td) / "orcapipe"
@@ -440,6 +607,10 @@ def main() -> int:
         test_db_dedup(home)
         test_ask_flow(Path(td) / 'askhome')
         test_ask_rate_limit(Path(td) / 'ratehome')
+        test_digest()
+        test_event_allowlist()
+        test_fold(Path(td) / 'foldhome')
+        test_rollover(Path(td) / 'rollhome')
     print(f"\n{len(PASS)} passed, {len(FAIL)} failed")
     for f in FAIL:
         print(f"  FAILED: {f}")
