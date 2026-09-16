@@ -304,7 +304,7 @@ def tick(con, log, use_model: bool = True, samples: dict | None = None) -> Tick:
 
         try:
             acct = agents.account_of(agent)
-            st = status.read(acct)
+            st = status.read_for_agent(agent, acct)
         except Exception as e:  # noqa: BLE001
             # A real failure, not a resource shortage: bad config, unreadable
             # status. This is what failed_attempts counts (8.5), and it is

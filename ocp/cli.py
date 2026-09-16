@@ -250,8 +250,8 @@ def cmd_triggers(args) -> int:
         except Exception as e:  # noqa: BLE001
             print(f"{a:<14} config error: {e}")
             continue
-        st = status.read(acct)
-        t = triggers.evaluate(st.pct_5h, st.ctx_pct)
+        st = status.read_for_agent(a, acct)
+        t = triggers.evaluate(st.trusted_pct_5h, st.trusted_ctx_pct)
         cell = lambda v: "  -" if v is None else f"{v:>3}"  # noqa: E731
         print(f"{a:<14}{acct:<10}{cell(st.pct_5h):>4}{cell(st.ctx_pct):>5}  "
               f"{'YES' if t.fired else 'no ':<6} {t.reason}")

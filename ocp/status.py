@@ -163,6 +163,28 @@ def read(acct: str, path: Path | None = None) -> AccountStatus:
     return st
 
 
+def read_for_agent(agent: str, account: str) -> AccountStatus:
+    """Usage as it applies to one agent.
+
+    Rate limits come from the account, because that is what they belong to.
+    Context comes from the agent's own session file when it has one, so two
+    agents sharing an account are not judged by each other's context.
+    """
+    acct_status = read(account)
+    agent_file = paths.agent_status_file(agent)
+    if not agent_file.exists():
+        return acct_status
+    own = read(account, agent_file)
+    if own.error or own.stale:
+        # Its own snapshot is unusable, so context is unknown rather than
+        # borrowed from whatever else last wrote the account file.
+        acct_status.ctx_pct = None
+        return acct_status
+    acct_status.ctx_pct = own.ctx_pct
+    acct_status.session_id = own.session_id
+    return acct_status
+
+
 def read_all() -> list[AccountStatus]:
     return [read(a) for a in paths.list_accounts()]
 

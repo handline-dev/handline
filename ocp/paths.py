@@ -47,7 +47,18 @@ def account_claude(acct: str) -> Path:
 
 
 def status_file(acct: str) -> Path:
+    """Account-wide snapshot: rate limits, and whichever session wrote last."""
     return account_dir(acct) / "status.json"
+
+
+def agent_status_file(name: str) -> Path:
+    """This agent's own session snapshot.
+
+    Rate limits are account-wide, but context usage is per session. When two
+    agents share an account the account file only holds one of their contexts,
+    so each agent keeps its own copy and the context trigger reads that.
+    """
+    return agent_dir(name) / "status.json"
 
 
 def agents_dir() -> Path:

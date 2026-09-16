@@ -1241,6 +1241,65 @@ def test_agent_rewrite_uses_parser(home: Path) -> None:
     check("agents: other fields survive the rewrite", cfg.get("model") == "opus", str(cfg))
 
 
+def test_shared_account_context_isolation(home: Path) -> None:
+    """Two agents on one account must not be judged by each other's context.
+
+    Rate limits are account-wide and shared correctly; context usage is per
+    session, and the account file only ever holds whichever session wrote last.
+    """
+    home.mkdir(parents=True, exist_ok=True)
+    os.environ["OCP_HOME"] = str(home)
+    agents.register("ag_a", "shared")
+    agents.register("ag_b", "shared")
+
+    payload = {
+        "session_id": "sess-a", "model": {"id": "m"},
+        "rate_limits": {"five_hour": {"used_percentage": 30, "resets_at": 1},
+                        "seven_day": {"used_percentage": 12, "resets_at": 2}},
+        "context_window": {"used_percentage": 70, "context_window_size": 1000,
+                           "total_input_tokens": 1, "total_output_tokens": 1,
+                           "current_usage": {}},
+    }
+    cfg = home / "accounts" / "shared" / ".claude"
+    cfg.mkdir(parents=True, exist_ok=True)
+
+    def collect(agent, ctx, session):
+        p = dict(payload)
+        p["context_window"] = dict(payload["context_window"], used_percentage=ctx)
+        p["session_id"] = session
+        subprocess.run([str(ROOT / "libexec" / "statusline-collect.sh")],
+                       input=json.dumps(p), capture_output=True, text=True,
+                       env=dict(os.environ, CLAUDE_CONFIG_DIR=str(cfg),
+                                OCP_HOME=str(home), OCP_AGENT=agent))
+
+    collect("ag_a", 70, "sess-a")   # ag_a is nearly full on context
+    collect("ag_b", 5, "sess-b")    # ag_b then writes the account file
+
+    check("collector: each agent writes its own status file",
+          (home / "agents" / "ag_a" / "status.json").exists()
+          and (home / "agents" / "ag_b" / "status.json").exists())
+
+    a = status.read_for_agent("ag_a", "shared")
+    b = status.read_for_agent("ag_b", "shared")
+    check("shared account: each agent keeps its own context",
+          (a.ctx_pct, b.ctx_pct) == (70, 5), f"a={a.ctx_pct} b={b.ctx_pct}")
+    check("shared account: rate limits are still shared",
+          a.pct_5h == b.pct_5h == 30, f"a={a.pct_5h} b={b.pct_5h}")
+
+    # The context trigger must fire for the full agent and not for the other.
+    ta = triggers.evaluate(a.pct_5h, a.ctx_pct)
+    tb = triggers.evaluate(b.pct_5h, b.ctx_pct)
+    check("shared account: the full agent's context trigger fires",
+          ta.fired and ta.kind == "context", ta.reason)
+    check("shared account: the other agent's does not", not tb.fired, tb.reason)
+
+    # An agent with no session file of its own must not borrow one.
+    agents.register("ag_c", "shared")
+    c = status.read_for_agent("ag_c", "shared")
+    check("shared account: an agent with no session file falls back to the account",
+          c.pct_5h == 30)
+
+
 def main() -> int:
     with tempfile.TemporaryDirectory() as td:
         home = Path(td) / "orcapipe"
@@ -1279,6 +1338,7 @@ def main() -> int:
         test_ask_respects_terminal_state(Path(td) / 'term')
         test_launch_refuses_stale(Path(td) / 'stale')
         test_collector_account_named_like_user(Path(td) / 'named')
+        test_shared_account_context_isolation(Path(td) / 'shared')
         test_db_dedup_only_swallows_dedup(Path(td) / 'strict')
         test_agent_rewrite_uses_parser(Path(td) / 'rw')
         test_daemon_pidfile(Path(td) / 'd6')

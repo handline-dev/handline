@@ -22,8 +22,21 @@ ACCT="$(basename "$(dirname "$CFG")")"
 # wrong directory and every agent on it stayed permanently unassignable.
 [ "$CFG" = "$HOME/.claude" ] && ACCT="default"
 
-OUT_DIR="${OCP_HOME:-$HOME/.orcapipe}/accounts/$ACCT"
+OCP="${OCP_HOME:-$HOME/.orcapipe}"
+OUT_DIR="$OCP/accounts/$ACCT"
 mkdir -p "$OUT_DIR" 2>/dev/null || exit 0
+
+# Rate limits are account-wide, so every session on an account reports the same
+# ones and the account file is the right home for them. Context usage,
+# session_id and transcript_path are per SESSION: with two agents on one
+# account they would overwrite each other, and the context trigger would judge
+# one agent by the other's context. So an agent launched by `ocp launch` also
+# writes its own copy, and the daemon reads context from there.
+AGENT_DIR=""
+if [ -n "${OCP_AGENT:-}" ]; then
+  AGENT_DIR="$OCP/agents/$OCP_AGENT"
+  mkdir -p "$AGENT_DIR" 2>/dev/null || AGENT_DIR=""
+fi
 
 # Never persist the raw stdin blob (KICKOFF rule 5 - it is a token-leak path).
 # Take only the allowlisted fields from the section 4 table.
@@ -36,9 +49,11 @@ if ! command -v jq >/dev/null 2>&1; then
 fi
 
 if true; then
-  SNAP="$(printf '%s' "$RAW" | jq -c --arg acct "$ACCT" --argjson now "$(date +%s)" '
+  SNAP="$(printf '%s' "$RAW" | jq -c --arg acct "$ACCT" --arg agent "${OCP_AGENT:-}" \
+                                      --argjson now "$(date +%s)" '
     {
       account:        $acct,
+      agent:          (if $agent == "" then null else $agent end),
       collected_at:   $now,
       session_id:     .session_id,
       transcript_path:.transcript_path,
@@ -69,6 +84,10 @@ fi
 if [ -n "$SNAP" ] && printf '%s' "$SNAP" | jq -e '.session_id != null' >/dev/null 2>&1; then
   TMP="$(mktemp "$OUT_DIR/.status.XXXXXX")" || exit 0
   printf '%s\n' "$SNAP" > "$TMP" && mv -f "$TMP" "$OUT_DIR/status.json" || rm -f "$TMP"
+  if [ -n "$AGENT_DIR" ]; then
+    TMP2="$(mktemp "$AGENT_DIR/.status.XXXXXX")" || exit 0
+    printf '%s\n' "$SNAP" > "$TMP2" && mv -f "$TMP2" "$AGENT_DIR/status.json" || rm -f "$TMP2"
+  fi
 fi
 
 # Raw dump for probing only, and only when explicitly enabled.
