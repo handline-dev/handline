@@ -55,25 +55,30 @@ def poll_interval(pct_5h: int | None, burn: float = 0.0,
     return POLL_NORMAL_S
 
 
-def burn_rate_per_s(samples: list[tuple[int, int]]) -> float:
-    """Percent per second, from (timestamp, pct) samples within one window.
+# pct_5h arrives as a whole number, so the smallest change we can ever see is
+# one point. Measured across a couple of seconds that single point reads as
+# 30%/min, which is quantization noise, not a burn rate - and it was enough to
+# hand off and clear a working agent. A rate is only meaningful once the window
+# is long enough that one point of resolution is a small part of it.
+MIN_BURN_SPAN_S = 120
 
-    Returns 0.0 when it cannot be measured. A reset makes pct drop; that
-    sample pair is skipped rather than producing a negative rate.
+
+def burn_rate_per_s(samples: list[tuple[int, int]]) -> float:
+    """Percent per second, measured across the whole sample window.
+
+    Returns 0.0 when it cannot be measured honestly: too few samples, too short
+    a span, or a drop (a reset), which would otherwise read as negative burn.
+    Measuring end to end rather than between adjacent pairs is what keeps one
+    quantized step from dominating the answer.
     """
-    usable = [(t, p) for t, p in samples if p is not None]
+    usable = sorted((t, p) for t, p in samples if p is not None)
     if len(usable) < 2:
         return 0.0
-    usable.sort()
-    rates = []
-    for (t0, p0), (t1, p1) in zip(usable, usable[1:]):
-        dt = t1 - t0
-        if dt <= 0 or p1 < p0:
-            continue
-        rates.append((p1 - p0) / dt)
-    if not rates:
+    (t0, p0), (t1, p1) = usable[0], usable[-1]
+    span = t1 - t0
+    if span < MIN_BURN_SPAN_S or p1 <= p0:
         return 0.0
-    return max(rates[-3:])
+    return (p1 - p0) / span
 
 
 def evaluate(pct_5h: int | None, ctx_pct: int | None, reserve_pct: int = DEFAULT_RESERVE_PCT,

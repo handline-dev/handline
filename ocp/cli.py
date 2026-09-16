@@ -99,11 +99,73 @@ def cmd_agent_register(args) -> int:
         print(f"warning: account '{args.account}' is not registered yet. "
               f"Run `ocp account register {args.account}` first.")
     d = agents.register(args.name, args.account, role=args.role, model=args.model,
-                        effort=args.effort)
+                        effort=args.effort, weight=args.weight, role_file=args.role_file)
     print(f"registered agent '{args.name}' -> account '{args.account}': {d}")
     print("launch it from Orca with:")
     print(f'  orca terminal create --worktree <selector> --command "{launch.command_for(args.name)}"')
     return 0
+
+
+def cmd_agent_show(args) -> int:
+    try:
+        cfg = agents.read(args.name)
+    except Exception as e:  # noqa: BLE001
+        print(f"error: {e}")
+        return 1
+    acct = str(cfg.get("account", ""))
+    st = status.read_for_agent(args.name, acct)
+    con = db.connect()
+    try:
+        row = db.get_agent_state(con, args.name)
+        queued = len(db.queued_for(con, args.name))
+    finally:
+        con.close()
+    info = {
+        "agent": args.name, "config": cfg,
+        "state": (row["state"] if row else "IDLE"),
+        "wake_at": (row["wake_at"] if row else None),
+        "terminal": (row["terminal"] if row else None),
+        "failed_attempts": (row["failed_attempts"] if row else 0),
+        "continuations": (row["continuations"] if row else 0),
+        "throttle_count": (row["throttle_count"] if row else 0),
+        "pct_5h": st.pct_5h, "ctx_pct": st.ctx_pct,
+        "inbox_queued": queued,
+        "budget": {fn: {"bytes": size, "limit": lim, "over": over}
+                   for fn, size, lim, over in agents.budget_report(args.name)},
+    }
+    if args.json:
+        print(json.dumps(info, indent=2, ensure_ascii=False))
+        return 0
+    for k, v in info.items():
+        print(f"{k:<17}{v}")
+    return 0
+
+
+def cmd_base_promote(args) -> int:
+    ok, msg = agents.promote_to_base(args.agent, args.item, force=args.force)
+    print(msg)
+    return 0 if ok else 1
+
+
+def cmd_handoff_write(args) -> int:
+    """Write a handoff now, without waiting for a trigger."""
+    ok, msg = foldmod.fold(args.agent, use_model=not args.no_model)
+    print(msg)
+    print(f"handoff: {foldmod.handoff_path(args.agent)}")
+    return 0 if ok else 1
+
+
+def cmd_resume(args) -> int:
+    con = db.connect()
+    try:
+        ok, msg = daemonmod.wake_agent(con, args.agent, print)
+        if ok:
+            db.set_agent_state(con, args.agent, daemonmod.QUEUED, wake_at=None,
+                               detail="resumed by hand")
+        print(msg)
+    finally:
+        con.close()
+    return 0 if ok else 1
 
 
 def cmd_agent_list(args) -> int:
@@ -167,7 +229,14 @@ def cmd_doctor(args) -> int:
 
 
 def cmd_status(args) -> int:
+    if args.table:
+        return dashboard.top(once=True)
     picked, reasons = status.pick_account()
+    if args.json:
+        print(json.dumps({"picked": picked,
+                          "candidates": [{"account": a, "reason": w} for a, w in reasons]},
+                         indent=2, ensure_ascii=False))
+        return 0 if picked else 1
     for a, why in reasons:
         print(f"  {a:<14} {why}")
     print()
@@ -414,7 +483,8 @@ def cmd_team_check(args) -> int:
 
 def cmd_ask(args) -> int:
     ok, msg, _ = askmod.ask(args.target, args.body, files=args.files,
-                            requester=args.of, parent_id=args.parent)
+                            requester=args.of, parent_id=args.parent,
+                            mergeable=args.mergeable)
     # ask() already phrases its own refusals; do not prefix them again.
     print(msg)
     return 0 if ok else 1
@@ -466,8 +536,14 @@ def build_parser() -> argparse.ArgumentParser:
                    help="model for this agent; on re-registration, omit to keep the current one")
     p.add_argument("--effort", default=None, choices=agents.VALID_EFFORT,
                    help=f"effort level (default {agents.DEFAULT_EFFORT}); a real cost lever")
+    p.add_argument("--weight", default=None, choices=["light", "heavy"])
+    p.add_argument("--role-file", default=None, help="file to install as ROLE.md")
     p.set_defaults(fn=cmd_agent_register)
     ag.add_parser("list", help="list agents").set_defaults(fn=cmd_agent_list)
+    p = ag.add_parser("show", help="everything known about one agent")
+    p.add_argument("name")
+    p.add_argument("--json", action="store_true")
+    p.set_defaults(fn=cmd_agent_show)
 
     p = sub.add_parser("launch", help="exec claude as this agent's account")
     p.add_argument("agent")
@@ -490,7 +566,10 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--no-color", action="store_true")
     p.set_defaults(fn=cmd_doctor)
 
-    sub.add_parser("status", help="which account may take work").set_defaults(fn=cmd_status)
+    p = sub.add_parser("status", help="which account may take work")
+    p.add_argument("--json", action="store_true")
+    p.add_argument("--table", action="store_true", help="the dashboard view")
+    p.set_defaults(fn=cmd_status)
 
     tm = sub.add_parser("team", help="routing policy").add_subparsers(dest="sub", required=True)
     p = tm.add_parser("init", help="write a starter team.yaml")
@@ -506,6 +585,8 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--files", default=None, help="comma-separated paths")
     p.add_argument("--of", default=None, help="requester (defaults to $OCP_AGENT)")
     p.add_argument("--parent", type=int, default=None, help="parent request id, for chain depth")
+    p.add_argument("--mergeable", action="store_true",
+                   help="fold into an already-queued ask to the same target")
     p.set_defaults(fn=cmd_ask)
 
     p = sub.add_parser("inbox", help="show queued requests for an agent")
@@ -558,6 +639,8 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--max-ticks", type=int, default=None)
     p.add_argument("--no-model", action="store_true", help="never spend tokens on folds")
     p.add_argument("--quiet", action="store_true")
+    p.add_argument("--foreground", action="store_true",
+                   help="accepted for symmetry; the daemon always runs in the foreground")
     p.set_defaults(fn=cmd_daemon)
 
     p = sub.add_parser("ps", help="daemon and agent state")
@@ -587,6 +670,28 @@ def build_parser() -> argparse.ArgumentParser:
     p = sub.add_parser("top", help="live dashboard")
     p.add_argument("--interval", type=float, default=3.0)
     p.add_argument("--once", action="store_true", help="print one frame and exit")
+    p.set_defaults(fn=cmd_top)
+
+    bs = sub.add_parser("base", help="the per-session fixed context").add_subparsers(
+        dest="sub", required=True)
+    p = bs.add_parser("promote", help="add a fact to an agent's base.md")
+    p.add_argument("agent")
+    p.add_argument("--item", required=True)
+    p.add_argument("--force", action="store_true", help="accept going over budget")
+    p.set_defaults(fn=cmd_base_promote)
+
+    p = sub.add_parser("write-handoff", help="fold and write a handoff now")
+    p.add_argument("agent")
+    p.add_argument("--no-model", action="store_true")
+    p.set_defaults(fn=cmd_handoff_write)
+
+    p = sub.add_parser("resume", help="hand a parked agent back its handoff")
+    p.add_argument("agent")
+    p.set_defaults(fn=cmd_resume)
+
+    p = sub.add_parser("watch", help="alias for top")
+    p.add_argument("--interval", type=float, default=3.0)
+    p.add_argument("--once", action="store_true")
     p.set_defaults(fn=cmd_top)
 
     p = sub.add_parser("guide", help="load detail on demand")

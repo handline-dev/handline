@@ -37,7 +37,8 @@ def read(name: str) -> dict:
 
 
 def register(name: str, account: str, role: str = "", model: str | None = None,
-             effort: str | None = None) -> Path:
+             effort: str | None = None, weight: str | None = None,
+             role_file: str | None = None) -> Path:
     if not name or "/" in name or name.startswith("."):
         raise ValueError(f"bad agent name: {name!r}")
     d = paths.agent_dir(name)
@@ -50,7 +51,8 @@ def register(name: str, account: str, role: str = "", model: str | None = None,
     if not f.exists():
         f.write_text(
             f"name: {name}\naccount: {account}\nmodel: {model or DEFAULT_MODEL}\n"
-            f"effort: {effort or DEFAULT_EFFORT}\nenabled: true\n"
+            f"effort: {effort or DEFAULT_EFFORT}\nweight: {weight or 'light'}\n"
+            "enabled: true\n"
         )
     else:
         # Already registered: update what was actually asked for and leave the
@@ -65,12 +67,19 @@ def register(name: str, account: str, role: str = "", model: str | None = None,
             cfg["model"] = model
         if effort:
             cfg["effort"] = effort
+        if weight:
+            cfg["weight"] = weight
         cfg.setdefault("effort", DEFAULT_EFFORT)
         f.write_text(dump(cfg))
 
-    role_file = d / "ROLE.md"
-    if not role_file.exists():
-        role_file.write_text(f"# {name}\n\n{role or '(describe the role, under 1KB)'}\n")
+    role_path = d / "ROLE.md"
+    if role_file:
+        src = Path(role_file).expanduser()
+        if not src.exists():
+            raise ValueError(f"--role-file not found: {src}")
+        role_path.write_text(src.read_text())
+    elif not role_path.exists():
+        role_path.write_text(f"# {name}\n\n{role or '(describe the role, under 1KB)'}\n")
     base_file = d / "base.md"
     if not base_file.exists():
         base_file.write_text(
@@ -85,6 +94,34 @@ def account_of(name: str) -> str:
     if not acct:
         raise ConfigError(f"agent '{name}' has no account")
     return str(acct)
+
+
+def promote_to_base(name: str, item: str, force: bool = False) -> tuple[bool, str]:
+    """Add a fact to base.md (team model section 1).
+
+    base.md is injected into every session, so anything added here is paid for
+    on every turn of every session forever. That is why promotion is a human
+    action with a budget rather than something an agent does to itself: left
+    alone base.md always grows, because useful facts keep being discovered.
+    """
+    d = paths.agent_dir(name)
+    if not d.is_dir():
+        return False, f"agent '{name}' is not registered"
+    p = d / "base.md"
+    text = p.read_text() if p.exists() else f"# base - {name}\n"
+    line = f"- {item.strip()}\n"
+    if line in text:
+        return False, "that item is already in base.md"
+    new = text.rstrip("\n") + "\n" + line
+    size = len(new.encode())
+    if size > BASE_BUDGET_BYTES and not force:
+        return False, (
+            f"base.md would be {size}B, over the {BASE_BUDGET_BYTES}B budget by "
+            f"{size - BASE_BUDGET_BYTES}B. This is per-session fixed cost, so take "
+            f"something out first, or pass --force if it genuinely earns its place."
+        )
+    p.write_text(new)
+    return True, f"promoted into {p} ({size}B / {BASE_BUDGET_BYTES}B budget)"
 
 
 def budget_report(name: str) -> list[tuple[str, int, int, bool]]:

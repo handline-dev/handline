@@ -51,6 +51,18 @@ MAX_FAILED_ATTEMPTS = 3      # 8.5: real failures only
 MAX_THROTTLE_STREAK = 5      # 8.6: then escalate to a human gate
 HANDOFF_DEADLINE_S = 90      # 8.3
 
+# 8.6: a repeatedly-degrading agent backs off rather than retrying at the same
+# cadence forever. Doubling from a minute, capped so it always comes back.
+BACKOFF_BASE_S = 60
+BACKOFF_MAX_S = 3600
+
+
+def backoff_for(streak: int) -> int:
+    """Seconds to wait before retrying, given how many attempts have failed."""
+    if streak <= 0:
+        return 0
+    return min(BACKOFF_MAX_S, BACKOFF_BASE_S * (2 ** (streak - 1)))
+
 
 # ---------------------------------------------------------------- pidfile
 def boot_time() -> int:
@@ -160,7 +172,7 @@ def _reclaim_context(con, agent: str, log) -> tuple[bool, str]:
                        "`ocp launch` inside an Orca terminal so its context can be reclaimed")
     if not orca.available():
         return False, "orca is not on PATH"
-    ok, why = orca.clear_context(handle)
+    ok, why = orca.clear_context(handle, timeout_ms=orca.IDLE_PROBE_MS)
     log(f"  {agent}: {why}")
     return ok, why
 
@@ -197,6 +209,16 @@ def expire_handoffs(con, log) -> list[str]:
         if not row["deadline"] or row["deadline"] >= now:
             continue
         agent = row["agent"]
+        # The clock says it is late, but the digest is what says whether the
+        # fold actually landed. A fold that finished just as the deadline
+        # passed must not be recorded as a timeout.
+        before = (row["detail"] or "")
+        if before.startswith("before=") and \
+                before[len("before="):] != str(foldmod.fold_fingerprint(agent)):
+            db.advance_handoff(con, row["id"], row["step"], state="done",
+                               detail="deadline passed, but the digest advanced")
+            log(f"  {agent}: fold landed just after its deadline - not a timeout")
+            continue
         # The cursor is deliberately not advanced, so the delta is retried.
         db.advance_handoff(con, row["id"], row["step"], state="degraded",
                            detail=f"deadline passed at {row['deadline']}")
@@ -262,12 +284,26 @@ def perform_handoff(con, agent: str, trigger: triggers.Trigger, log,
             f"'{trigger.kind}' as an added reason")
         return True
 
+    # An agent that is mid-turn cannot be handed off: the fold would miss the
+    # work in flight and the clear would throw it away. Check before starting,
+    # with a short probe so one busy agent does not stall the whole tick, and
+    # simply come back next tick - the trigger is a condition, so it still
+    # holds then.
+    handle = db.get_terminal(con, agent)
+    if handle and orca.available() and not orca.idle_now(handle):
+        log(f"  {agent}: {trigger.kind} fired but the agent is mid-turn - deferring")
+        return True
+
     hid = uuid.uuid4().hex[:12]
     st = status.read(agents.account_of(agent)) if agent in paths.list_agents() else None
     cursor_from = db.get_cursor(con, f"fold:{agent}")
     deadline = int(time.time()) + HANDOFF_DEADLINE_S
     db.start_handoff(con, hid, agent, st.session_id if st else None, trigger.kind,
                      cursor_from, deadline)
+    # Remember what the digest looked like going in, so "did the fold finish?"
+    # is answered by the digest itself rather than by the clock alone (8.3).
+    db.advance_handoff(con, hid, "requested",
+                       detail=f"before={foldmod.fold_fingerprint(agent)}")
     db.set_agent_state(con, agent, HANDOFF, detail=trigger.reason)
     log(f"  {agent}: HANDOFF ({trigger.kind}) - {trigger.reason}")
 
@@ -295,9 +331,17 @@ def perform_handoff(con, agent: str, trigger: triggers.Trigger, log,
     cleared, why = _reclaim_context(con, agent, log)
     db.advance_handoff(con, hid, "extracted", detail=why)
 
-    # Park until the usage window rolls over.
+    # Park until the usage window rolls over - or longer, if this agent keeps
+    # degrading, so a broken one is not retried at full cadence forever.
     reset = st.reset_5h if st else None
     wake = triggers.next_reset(reset)
+    fresh = db.get_agent_state(con, agent)
+    streak = int(fresh["throttle_count"]) if fresh else 0
+    if streak:
+        backoff = backoff_for(streak)
+        if int(time.time()) + backoff > wake:
+            wake = int(time.time()) + backoff
+            log(f"  {agent}: backing off {backoff}s after {streak} degraded handoff(s)")
     db.advance_handoff(con, hid, "released", state="done" if ok else "degraded")
     db.set_agent_state(con, agent, PARKED, wake_at=wake,
                        detail=f"{trigger.kind}; wakes at {time.strftime('%H:%M', time.localtime(wake))}")

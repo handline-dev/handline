@@ -648,10 +648,24 @@ def test_triggers() -> None:
     check("trigger: polling relaxes when quiet", T.poll_interval(10) == T.POLL_NORMAL_S)
 
     rate = T.burn_rate_per_s([(0, 10), (60, 13), (120, 17)])
-    check("burn: measured from samples", abs(rate * 60 - 4.0) < 0.01, str(rate * 60))
+    check("burn: measured across the window", abs(rate * 60 - 3.5) < 0.01, str(rate * 60))
     check("burn: a reset does not produce a negative rate",
           T.burn_rate_per_s([(0, 88), (60, 2)]) == 0.0)
     check("burn: too few samples means zero", T.burn_rate_per_s([(0, 10)]) == 0.0)
+
+    # pct_5h is a whole number, so one point over a couple of seconds reads as
+    # 30%/min. That noise was enough to hand off and clear a working agent.
+    noisy = T.burn_rate_per_s([(0, 62), (2, 63)])
+    check("burn: a quantized step over seconds is not a rate", noisy == 0.0,
+          f"{noisy * 60}%/min")
+    check("burn: and it does not fire a projection",
+          not T.evaluate(63, 10, burn=noisy).fired)
+    check("burn: a span shorter than the minimum is not measured",
+          T.burn_rate_per_s([(0, 60), (T.MIN_BURN_SPAN_S - 1, 75)]) == 0.0)
+    check("burn: a real climb over a long enough span still measures",
+          abs(T.burn_rate_per_s([(0, 60), (300, 75)]) * 60 - 3.0) < 0.01)
+    check("burn: and a real climb near the line still fires",
+          T.evaluate(83, 10, burn=0.05).kind == "usage_projected")
 
 
 # ---------------------------------------------------------------- daemon
@@ -1400,10 +1414,12 @@ def test_handoff_reclaims_context(home: Path) -> None:
     _daemon_home(home, 50)
     con = db.connect()
     cleared = []
-    real_clear, real_alive = orcamod.clear_context, orcamod.alive
+    real_clear, real_alive, real_idle = orcamod.clear_context, orcamod.alive, orcamod.idle_now
     try:
         orcamod.alive = lambda h: True
-        orcamod.clear_context = lambda h, wait=True: (cleared.append(h), (True, "context cleared"))[1]
+        orcamod.idle_now = lambda h: True
+        orcamod.clear_context = lambda h, wait=True, timeout_ms=0: (
+            cleared.append(h), (True, "context cleared"))[1]
 
         # No terminal recorded yet: it must say so rather than pretend.
         ok, why = dmn._reclaim_context(con, "backend", lambda _m: None)
@@ -1417,8 +1433,21 @@ def test_handoff_reclaims_context(home: Path) -> None:
         row = db.get_agent_state(con, "backend")
         check("handoff: still parks afterwards", row["state"] == dmn.PARKED, str(dict(row)))
         check("handoff: the terminal survives the park", row["terminal"] == "term_x")
+        # A busy agent must be left alone: folding would miss the work in
+        # flight and clearing would throw it away.
+        orcamod.idle_now = lambda h: False
+        cleared.clear()
+        before = len(db.in_flight_handoffs(con))
+        db.set_agent_state(con, "backend", dmn.RUNNING, detail="mid-turn")
+        dmn.perform_handoff(con, "backend", t, lambda _m: None, use_model=False)
+        check("handoff: a mid-turn agent is deferred, not cleared", cleared == [], str(cleared))
+        check("handoff: and no handoff is started for it",
+              len(db.in_flight_handoffs(con)) == before)
+        check("handoff: the agent keeps running",
+              db.get_agent_state(con, "backend")["state"] == dmn.RUNNING)
     finally:
         orcamod.clear_context, orcamod.alive = real_clear, real_alive
+        orcamod.idle_now = real_idle
         con.close()
 
 
@@ -1511,6 +1540,95 @@ def test_hooks_report_activity(home: Path) -> None:
         con.close()
 
 
+def test_cycle_and_escalation(home: Path) -> None:
+    """A runaway must be stopped AND escalated - a request that silently
+    vanishes leaves the team stuck with nobody knowing why."""
+    home.mkdir(parents=True, exist_ok=True)
+    os.environ["OCP_HOME"] = str(home)
+    (home / "team.yaml").write_text(DESIGN_TEAM)
+    for n in ("backend", "reviewer", "product", "marketing", "archivist"):
+        agents.register(n, "alpha")
+
+    # A -> B, then B -> A inside the same chain is a cycle.
+    ok, _, first = askmod.ask("reviewer", "please review", requester="backend")
+    check("chain: the first ask starts a chain", ok)
+    ok, msg, _ = askmod.ask("backend", "here are my notes", requester="reviewer",
+                            parent_id=first)
+    check("chain: A->B->A is stopped", not ok and "cycle" in msg, msg)
+    check("chain: and escalated, not dropped", "Escalated to orchestrator" in msg, msg)
+
+    con = db.connect()
+    try:
+        esc = con.execute(
+            "SELECT * FROM requests WHERE target='orchestrator' AND kind='escalate'"
+        ).fetchall()
+        check("chain: the escalation is a real queued request", len(esc) == 1, str(len(esc)))
+        check("chain: it carries the original body",
+              "here are my notes" in esc[0]["body"], esc[0]["body"][:80])
+        chain = db.chain_members(con, str(first))
+        check("chain: everything shares one chain_id", len(chain) >= 2, str(len(chain)))
+    finally:
+        con.close()
+
+
+def test_review_pingpong(home: Path) -> None:
+    home.mkdir(parents=True, exist_ok=True)
+    os.environ["OCP_HOME"] = str(home)
+    (home / "team.yaml").write_text(DESIGN_TEAM)
+    for n in ("backend", "reviewer", "product"):
+        agents.register(n, "alpha")
+
+    parent = None
+    outcomes = []
+    for i in range(5):
+        ok, msg, rid = askmod.ask("reviewer", f"round {i}", files="src/auth.ts",
+                                  requester="backend", parent_id=parent)
+        outcomes.append((ok, msg))
+        if not ok:
+            break
+        # The reviewer's answer continues the same chain without being a cycle.
+        parent = rid
+        con = db.connect()
+        try:
+            db.set_request_state(con, rid, "done", "ok")
+        finally:
+            con.close()
+
+    stopped = [m for ok, m in outcomes if not ok]
+    check("review: ping-pong on one file is eventually stopped", stopped, str(outcomes[-1]))
+    check("review: the reason names the file",
+          stopped and "src/auth.ts" in stopped[0], stopped[0] if stopped else "")
+    check("review: and says it is probably a spec question",
+          stopped and "spec question" in stopped[0], stopped[0] if stopped else "")
+
+
+def test_rate_limit_throttles(home: Path) -> None:
+    """Too many asks is a resource problem: it throttles and clears itself,
+    rather than needing a human the way a task defect does (section 8.6)."""
+    home.mkdir(parents=True, exist_ok=True)
+    os.environ["OCP_HOME"] = str(home)
+    (home / "team.yaml").write_text(
+        "agents:\n  a: { intake: dedicated }\n  b: { intake: dedicated }\n"
+        'edges:\n  - { from: "*", to: "*", relation: peer, response: fire_and_forget }\n'
+        "limits:\n  max_chain_depth: 99\n  ask_rate_per_hour: 2\n"
+    )
+    agents.register("a", "alpha")
+    agents.register("b", "alpha")
+    for i in range(3):
+        ok, msg, _ = askmod.ask("b", f"n{i}", requester="a")
+    check("rate limit: the over-cap ask is refused", not ok, msg)
+    check("rate limit: and says the agent is throttled", "THROTTLED" in msg, msg)
+    con = db.connect()
+    try:
+        row = db.get_agent_state(con, "a")
+        check("rate limit: the agent really is THROTTLED", row["state"] == "THROTTLED",
+              str(dict(row)))
+        check("rate limit: with a wake_at so it clears itself",
+              row["wake_at"] is not None, str(dict(row)))
+    finally:
+        con.close()
+
+
 def main() -> int:
     with tempfile.TemporaryDirectory() as td:
         home = Path(td) / "orcapipe"
@@ -1528,6 +1646,9 @@ def main() -> int:
         test_db_dedup(home)
         test_ask_flow(Path(td) / 'askhome')
         test_ask_rate_limit(Path(td) / 'ratehome')
+        test_cycle_and_escalation(Path(td) / 'cyc')
+        test_review_pingpong(Path(td) / 'pingpong')
+        test_rate_limit_throttles(Path(td) / 'throt')
         test_digest()
         test_event_allowlist()
         test_fold(Path(td) / 'foldhome')

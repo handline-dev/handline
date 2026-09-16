@@ -7,7 +7,9 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import shutil
+import subprocess
 from pathlib import Path
 
 from . import accounts, agents, hooks, paths, status
@@ -187,6 +189,68 @@ def _check_agents(r: Report) -> None:
                       f"{size}B > {budget}B, and this is per-session overhead")
 
 
+# statusLine's rate_limits arrived in this version; below it there is no usage
+# to read and the whole data source is missing.
+MIN_CLAUDE_VERSION = (2, 1, 0)
+
+
+def _check_claude_version(r: Report) -> None:
+    exe = shutil.which("claude")
+    if not exe:
+        return
+    try:
+        out = subprocess.run([exe, "--version"], capture_output=True, text=True,
+                             timeout=20).stdout.strip()
+    except (OSError, subprocess.SubprocessError) as e:
+        r.add(WARN, "could not read the Claude Code version", str(e))
+        return
+    m = re.search(r"(\d+)\.(\d+)\.(\d+)", out)
+    if not m:
+        r.add(WARN, "could not parse the Claude Code version", out[:80])
+        return
+    version = tuple(int(x) for x in m.groups())
+    shown = ".".join(str(v) for v in version)
+    if version < MIN_CLAUDE_VERSION:
+        r.add(FAIL, f"Claude Code {shown} is too old",
+              f"statusLine rate_limits needs >= "
+              f"{'.'.join(str(v) for v in MIN_CLAUDE_VERSION)}")
+    else:
+        r.add(OK, f"Claude Code {shown}")
+
+
+def _check_rate_limits_present(r: Report) -> None:
+    """The collector can run fine and still deliver no usage, which is the
+    fail-open shape section 4 exists to prevent. Check the field, not the file."""
+    seen = False
+    for acct in paths.list_accounts():
+        st = status.read(acct)
+        if not st.exists:
+            continue
+        seen = True
+        if st.pct_5h is None:
+            r.add(WARN, f"account {acct}: no rate_limits in the last snapshot",
+                  "the collector ran but usage was absent - assignment stays refused")
+        else:
+            r.add(OK, f"account {acct}: rate_limits present", f"5h {st.pct_5h}%")
+    if not seen and paths.list_accounts():
+        r.add(WARN, "no snapshot has rate_limits yet", "no session has run")
+
+
+def _check_pidfile(r: Report) -> None:
+    from . import daemon
+
+    p = paths.daemon_pid()
+    if not p.exists():
+        r.add(OK, "no daemon pidfile", "daemon is not running")
+        return
+    pid = daemon.running_elsewhere()
+    if pid:
+        r.add(OK, f"daemon running (pid {pid})")
+    else:
+        r.add(WARN, "stale pidfile was reclaimed",
+              "it named a dead process or a previous boot")
+
+
 def _check_autocontinue(r: Report) -> None:
     """Claude Code's own autoContinueAtUsageLimit overlaps our resume logic
     (section 4). One of them has to own it; doctor keeps the choice explicit."""
@@ -215,10 +279,13 @@ def _check_autocontinue(r: Report) -> None:
 def run() -> Report:
     r = Report()
     _check_tools(r)
+    _check_claude_version(r)
     _check_managed(r)
     _check_home(r)
     _check_orca_hooks(r)
     _check_accounts(r)
+    _check_rate_limits_present(r)
     _check_agents(r)
+    _check_pidfile(r)
     _check_autocontinue(r)
     return r

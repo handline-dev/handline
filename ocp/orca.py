@@ -20,9 +20,12 @@ import os
 import shutil
 import subprocess
 
-# How long we will wait for an agent to stop working before giving up. Sending
-# /clear mid-turn would discard work in flight, so we never force it.
+# Sending /clear mid-turn would discard work in flight, so we never force it.
+# The daemon asks with a short timeout because this call blocks its whole tick:
+# waiting two minutes on one busy agent stops supervision of every other agent.
+# A busy agent is not a failure, it is just busy, so we come back next tick.
 IDLE_TIMEOUT_MS = 120_000
+IDLE_PROBE_MS = 3_000
 
 
 def available() -> bool:
@@ -79,7 +82,13 @@ def alive(handle: str) -> bool:
     return any(t.get("handle") == handle for t in terms)
 
 
-def clear_context(handle: str, wait: bool = True) -> tuple[bool, str]:
+def idle_now(handle: str) -> bool:
+    """Is the agent idle right now? Does not block the caller waiting."""
+    return wait_idle(handle, IDLE_PROBE_MS)
+
+
+def clear_context(handle: str, wait: bool = True,
+                  timeout_ms: int = IDLE_TIMEOUT_MS) -> tuple[bool, str]:
     """Return the session's context without destroying the agent.
 
     Waits for the agent to finish what it is doing first: clearing mid-turn
@@ -87,8 +96,8 @@ def clear_context(handle: str, wait: bool = True) -> tuple[bool, str]:
     """
     if not alive(handle):
         return False, f"terminal {handle} is not alive"
-    if wait and not wait_idle(handle):
-        return False, "agent did not go idle before the timeout; not clearing mid-turn"
+    if wait and not wait_idle(handle, timeout_ms):
+        return False, "agent is mid-turn; not clearing"
     ok, out = send(handle, "/clear")
     return ok, "context cleared" if ok else f"could not send /clear: {out[:200]}"
 

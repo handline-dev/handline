@@ -18,6 +18,7 @@ to a deterministic digest rather than publishing the garbage.
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import shutil
 import subprocess
@@ -28,6 +29,23 @@ from pathlib import Path
 from . import accounts, agents, db, digest, paths, status
 
 FOLD_TIMEOUT_S = 180
+
+
+def fold_fingerprint(agent: str, day: str | None = None) -> str | None:
+    """Identity of the digest as it stands: its fold id plus a content hash.
+
+    Section 8.3 asks for this rather than mtime. mtime has second-level
+    resolution and is touched by anything that rewrites the file, so it cannot
+    tell "the fold finished" from "something touched the file". A fold id that
+    advanced, or content that changed, can.
+    """
+    p = journal_path(agent, day or today())
+    if not p.exists():
+        return None
+    text = p.read_text()
+    d = digest.parse(text)
+    body = hashlib.sha256(text.encode()).hexdigest()[:12]
+    return f"{d.folded_through}:{body}"
 
 
 def journal_path(agent: str, day: str) -> Path:

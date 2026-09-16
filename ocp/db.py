@@ -39,11 +39,15 @@ CREATE TABLE IF NOT EXISTS requests (
   kind        TEXT,
   chain_depth INTEGER NOT NULL DEFAULT 0,
   parent_id   INTEGER,
+  -- Every ask carries the id of the conversation it belongs to, so a cycle
+  -- (A->B->A) can be seen inside one chain rather than guessed at from depth.
+  chain_id    TEXT,
   state       TEXT    NOT NULL DEFAULT 'queued',
   verdict     TEXT
 );
 CREATE INDEX IF NOT EXISTS requests_target ON requests(target, state);
 CREATE INDEX IF NOT EXISTS requests_requester ON requests(requester, ts);
+CREATE INDEX IF NOT EXISTS requests_chain ON requests(chain_id, id);
 
 -- Advanced only after the fold output validates.
 CREATE TABLE IF NOT EXISTS cursors (
@@ -99,10 +103,10 @@ def connect(path: Path | None = None) -> sqlite3.Connection:
     con.execute("PRAGMA journal_mode=WAL")
     con.execute("PRAGMA synchronous=NORMAL")
     con.execute("PRAGMA foreign_keys=ON")
-    # Outdated tables must go before the schema runs: the new indexes
-    # reference columns an old table does not have, so CREATE INDEX would fail
-    # before any migration had a chance to act.
-    _drop_outdated(con)
+    # This runs before the schema: new indexes reference columns an old table
+    # may not have yet, and CREATE INDEX would fail before any migration had a
+    # chance to act.
+    _pre_schema_migrate(con)
     con.executescript(SCHEMA)
     _add_missing_columns(con)
     return con
@@ -112,17 +116,27 @@ def _cols(con, table: str) -> set[str]:
     return {r[1] for r in con.execute(f"PRAGMA table_info({table})")}
 
 
-def _drop_outdated(con) -> None:
-    """Drop tables that predate the current schema.
+def _pre_schema_migrate(con) -> None:
+    """Make an older database safe for the current schema to run against.
 
-    Only handoff qualifies. Its rows are transient progress state, so dropping
-    them is safe: anything that was in flight is re-derived by the daemon's
-    reconciliation pass on the next start. Events, requests and cursors are
-    durable and are never dropped.
+    Two kinds of change need to happen here rather than after: a table whose
+    shape changed incompatibly, and a column a new index is about to reference.
+
+    Only handoff is dropped. Its rows are transient progress state, so losing
+    them is safe - anything in flight is re-derived by the daemon's
+    reconciliation pass. Events, requests and cursors are durable and are never
+    dropped; they get columns added instead.
     """
     handoff_cols = _cols(con, "handoff")
     if handoff_cols and "step" not in handoff_cols:
         con.execute("DROP TABLE IF EXISTS handoff")
+
+    request_cols = _cols(con, "requests")
+    if request_cols and "chain_id" not in request_cols:
+        con.execute("ALTER TABLE requests ADD COLUMN chain_id TEXT")
+        # Existing rows keep their own id as their chain, which is what a
+        # parentless request would have had anyway.
+        con.execute("UPDATE requests SET chain_id = CAST(id AS TEXT) WHERE chain_id IS NULL")
 
 
 def _add_missing_columns(con) -> None:
@@ -133,6 +147,7 @@ def _add_missing_columns(con) -> None:
     for col in ("terminal", "worktree"):
         if col not in state_cols:
             con.execute(f"ALTER TABLE agent_state ADD COLUMN {col} TEXT")
+
 
 
 # ---------------------------------------------------------------- events
@@ -195,14 +210,37 @@ def set_cursor(con, name: str, row_id: int) -> None:
 def add_request(con, requester: str, target: str, body: str, files: str | None,
                 relation: str | None, response: str | None, kind: str | None,
                 chain_depth: int, parent_id: int | None, state: str = "queued",
-                verdict: str | None = None) -> int:
+                verdict: str | None = None, chain_id: str | None = None) -> int:
     cur = con.execute(
         "INSERT INTO requests(ts, requester, target, body, files, relation, response, "
-        "kind, chain_depth, parent_id, state, verdict) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)",
+        "kind, chain_depth, parent_id, state, verdict, chain_id) "
+        "VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)",
         (int(time.time()), requester, target, body, files, relation, response, kind,
-         chain_depth, parent_id, state, verdict),
+         chain_depth, parent_id, state, verdict, chain_id),
     )
-    return int(cur.lastrowid)
+    rid = int(cur.lastrowid)
+    if chain_id is None:
+        # A request with no parent starts its own chain, named after itself.
+        con.execute("UPDATE requests SET chain_id = ? WHERE id = ?", (str(rid), rid))
+    return rid
+
+
+def chain_of(con, rid: int) -> list:
+    """Every request in the same chain, oldest first."""
+    row = get_request(con, rid)
+    if row is None:
+        return []
+    return con.execute(
+        "SELECT * FROM requests WHERE chain_id = ? AND state != 'denied' ORDER BY id",
+        (row["chain_id"],),
+    ).fetchall()
+
+
+def chain_members(con, chain_id: str) -> list:
+    return con.execute(
+        "SELECT * FROM requests WHERE chain_id = ? AND state != 'denied' ORDER BY id",
+        (chain_id,),
+    ).fetchall()
 
 
 def queued_for(con, target: str):
