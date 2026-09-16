@@ -56,6 +56,12 @@ HANDOFF_DEADLINE_S = 90      # 8.3
 BACKOFF_BASE_S = 60
 BACKOFF_MAX_S = 3600
 
+# A handoff costs a fold, so two in quick succession is never right - the usage
+# that triggered the first cannot have meaningfully changed. This is a circuit
+# breaker, not a policy: if some other path ever un-parks an agent the way
+# SessionStart once did, this stops it from burning tokens in a loop.
+MIN_HANDOFF_INTERVAL_S = 120
+
 
 def backoff_for(streak: int) -> int:
     """Seconds to wait before retrying, given how many attempts have failed."""
@@ -289,6 +295,14 @@ def perform_handoff(con, agent: str, trigger: triggers.Trigger, log,
     # with a short probe so one busy agent does not stall the whole tick, and
     # simply come back next tick - the trigger is a condition, so it still
     # holds then.
+    last = con.execute(
+        "SELECT MAX(updated) AS t FROM handoff WHERE agent = ?", (agent,)
+    ).fetchone()["t"]
+    if last and int(time.time()) - int(last) < MIN_HANDOFF_INTERVAL_S:
+        log(f"  {agent}: {trigger.kind} fired again {int(time.time()) - int(last)}s after the "
+            f"last handoff - too soon, skipping (a fold is not free)")
+        return True
+
     handle = db.get_terminal(con, agent)
     if handle and orca.available() and not orca.idle_now(handle):
         log(f"  {agent}: {trigger.kind} fired but the agent is mid-turn - deferring")

@@ -789,6 +789,10 @@ def test_daemon_stall_escalation(home: Path) -> None:
                 if row and row["wake_at"]:
                     db.set_agent_state(con, "backend", row["state"],
                                        wake_at=int(time.time()) - 1, detail=row["detail"])
+                # These cycles are hours apart in reality; backdate so the
+                # handoff rate limiter does not read them as one runaway.
+                con.execute("UPDATE handoff SET updated = updated - ? WHERE agent = 'backend'",
+                            (dmn.MIN_HANDOFF_INTERVAL_S * 2,))
                 dmn.tick(con, lambda _m: None, use_model=False)
                 cur = db.get_agent_state(con, "backend")
                 seen.append((cur["state"], cur["throttle_count"]))
@@ -1657,6 +1661,77 @@ def test_tui_frame_geometry(home: Path) -> None:
           tui.vlen(tui.bar(None, 10)) == 10 and "░" not in tui.bar(None, 10))
 
 
+def test_clear_does_not_look_like_waking(home: Path) -> None:
+    """/clear ends one session and starts another. If SessionStart counted as
+    activity, the daemon's own context reclaim would clear the park it had just
+    set, the unchanged usage would trigger again, and the agent would hand off
+    in a loop - which is exactly what happened: 42 folds in seven minutes."""
+    home.mkdir(parents=True, exist_ok=True)
+    os.environ["OCP_HOME"] = str(home)
+    agents.register("loopy", "alpha")
+    env = dict(os.environ, OCP_AGENT="loopy", OCP_ACCOUNT="alpha", OCP_HOME=str(home))
+
+    con = db.connect()
+    try:
+        db.set_agent_state(con, "loopy", dmn.PARKED, wake_at=int(time.time()) + 9999,
+                           detail="parked by a handoff")
+    finally:
+        con.close()
+
+    for event in ("SessionEnd", "SessionStart"):
+        subprocess.run([sys.executable, str(ROOT / "bin" / "ocp"), "hook", event],
+                       input=json.dumps({"hook_event_name": event, "session_id": "new"}),
+                       capture_output=True, text=True, env=env)
+    con = db.connect()
+    try:
+        row = db.get_agent_state(con, "loopy")
+        check("clear: a new session does not un-park the agent",
+              row["state"] == dmn.PARKED, str(dict(row)))
+        check("clear: and the wake_at survives", row["wake_at"] is not None, str(dict(row)))
+    finally:
+        con.close()
+
+    # A real prompt still means real work.
+    subprocess.run([sys.executable, str(ROOT / "bin" / "ocp"), "hook", "UserPromptSubmit"],
+                   input=json.dumps({"hook_event_name": "UserPromptSubmit",
+                                     "session_id": "new", "prompt": "do it"}),
+                   capture_output=True, text=True, env=env)
+    con = db.connect()
+    try:
+        check("clear: a prompt still marks the agent as working",
+              db.get_agent_state(con, "loopy")["state"] == "RUNNING")
+    finally:
+        con.close()
+
+
+def test_handoff_rate_limited(home: Path) -> None:
+    """Two handoffs in quick succession is never right: the usage that caused
+    the first cannot have meaningfully changed. A fold is not free."""
+    _daemon_home(home, 95)
+    con = db.connect()
+    real_alive, real_idle, real_clear = orcamod.alive, orcamod.idle_now, orcamod.clear_context
+    try:
+        orcamod.alive = lambda h: True
+        orcamod.idle_now = lambda h: True
+        orcamod.clear_context = lambda h, wait=True, timeout_ms=0: (True, "context cleared")
+        db.set_terminal(con, "backend", "term_x", "wt")
+        t = triggers.Trigger(True, "usage", "pct_5h 95% >= 85%")
+
+        dmn.perform_handoff(con, "backend", t, lambda _m: None, use_model=False)
+        first = con.execute("SELECT COUNT(*) c FROM handoff WHERE agent='backend'").fetchone()["c"]
+
+        # Simulate something un-parking it and the trigger firing again at once.
+        db.set_agent_state(con, "backend", dmn.RUNNING, detail="un-parked somehow")
+        dmn.perform_handoff(con, "backend", t, lambda _m: None, use_model=False)
+        second = con.execute("SELECT COUNT(*) c FROM handoff WHERE agent='backend'").fetchone()["c"]
+
+        check("handoff: a second handoff right after the first is skipped",
+              second == first, f"{first} -> {second}")
+    finally:
+        orcamod.alive, orcamod.idle_now, orcamod.clear_context = real_alive, real_idle, real_clear
+        con.close()
+
+
 def main() -> int:
     with tempfile.TemporaryDirectory() as td:
         home = Path(td) / "orcapipe"
@@ -1710,6 +1785,8 @@ def main() -> int:
         test_wake_injects_handoff(Path(td) / 'wake')
         test_hooks_report_activity(Path(td) / 'hooky')
         test_tui_frame_geometry(Path(td) / 'tui')
+        test_clear_does_not_look_like_waking(Path(td) / 'loopy')
+        test_handoff_rate_limited(Path(td) / 'hrate')
         test_handoff_drift_header(Path(td) / 'hdhome')
     print(f"\n{len(PASS)} passed, {len(FAIL)} failed")
     for f in FAIL:

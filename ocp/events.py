@@ -85,8 +85,14 @@ def record_from_stdin(argv: list[str] | None = None) -> int:
     return 0
 
 
-# Events that mean the agent is alive and working right now.
-ACTIVE_EVENTS = {"SessionStart", "UserPromptSubmit"}
+# What counts as "this agent is working".
+#
+# Only a prompt does. A session starting does not: /clear ends one session and
+# starts another, so treating SessionStart as activity let the daemon's own
+# context reclaim look like the agent waking up. That cleared the park it had
+# just set, the usage trigger fired again on the unchanged number, and the
+# agent handed off in a loop - 42 folds in seven minutes before it was caught.
+ACTIVE_EVENTS = {"UserPromptSubmit"}
 
 # The daemon owns these; an agent must not move itself out of them.
 PROTECTED_STATES = {"STALLED", "HANDOFF"}
