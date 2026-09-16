@@ -14,7 +14,8 @@ import sys
 import time
 from pathlib import Path
 
-from . import (accounts, agents, ask as askmod, daemon as daemonmod, db, digest, doctor,
+from . import (accounts, agents, ask as askmod, daemon as daemonmod, dashboard, db,
+               digest, doctor,
                drift, events, fold as foldmod, guide, hooks, launch, paths, status,
                spawn as spawnmod, team, triggers)
 
@@ -191,6 +192,10 @@ def cmd_spawn(args) -> int:
                              prompt=args.prompt, dry_run=args.dry_run)
     print(msg)
     return 0 if ok else 1
+
+
+def cmd_top(args) -> int:
+    return dashboard.top(interval=args.interval, once=args.once)
 
 
 def cmd_guide(args) -> int:
@@ -578,6 +583,11 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--prompt", default=None, help="first task to send once it is up")
     p.add_argument("--dry-run", action="store_true")
     p.set_defaults(fn=cmd_spawn)
+
+    p = sub.add_parser("top", help="live dashboard")
+    p.add_argument("--interval", type=float, default=3.0)
+    p.add_argument("--once", action="store_true", help="print one frame and exit")
+    p.set_defaults(fn=cmd_top)
 
     p = sub.add_parser("guide", help="load detail on demand")
     p.add_argument("topic", nargs="?")
