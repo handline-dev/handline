@@ -16,8 +16,8 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
 from ocp import (agents, ask as askmod, daemon as dmn, db, digest, drift,
-                 events as evmod, fold as foldmod, paths, spawn as spawnmod, status,
-                 team, triggers, yamlcompat)  # noqa: E402
+                 events as evmod, fold as foldmod, orca as orcamod, paths,
+                 spawn as spawnmod, status, team, triggers, yamlcompat)  # noqa: E402
 
 PASS, FAIL = [], []
 
@@ -1342,6 +1342,114 @@ def test_spawn_base_selection(tmp: Path) -> None:
     check("spawn: tells the human to merge first", "Merge" in why or "merge" in why, why)
 
 
+def test_orca_idle_parsing() -> None:
+    """`ok` says the wait command ran; `satisfied` says the agent is idle.
+
+    Reading `ok` alone treats a timeout as idle, and clearing mid-turn throws
+    away work the fold has not recorded yet.
+    """
+    real = orcamod._run
+    try:
+        orcamod._run = lambda *a, **k: (True, json.dumps(
+            {"ok": True, "result": {"wait": {"satisfied": True}}}))
+        check("orca: satisfied=true reads as idle", orcamod.wait_idle("h", 1000))
+
+        orcamod._run = lambda *a, **k: (True, json.dumps(
+            {"ok": True, "result": {"wait": {"satisfied": False}}}))
+        check("orca: a timed-out wait is not idle", not orcamod.wait_idle("h", 1000))
+
+        orcamod._run = lambda *a, **k: (False, "boom")
+        check("orca: a failed wait is not idle", not orcamod.wait_idle("h", 1000))
+
+        orcamod._run = lambda *a, **k: (True, "not json at all")
+        check("orca: unparseable output is not idle", not orcamod.wait_idle("h", 1000))
+    finally:
+        orcamod._run = real
+
+
+def test_clear_refuses_mid_turn() -> None:
+    real_alive, real_wait, real_send = orcamod.alive, orcamod.wait_idle, orcamod.send
+    sent = []
+    try:
+        orcamod.alive = lambda h: True
+        orcamod.send = lambda h, t, enter=True: (sent.append(t), (True, ""))[1]
+
+        orcamod.wait_idle = lambda h, t=0: False
+        ok, why = orcamod.clear_context("h")
+        check("orca: refuses to clear a busy agent", not ok and "mid-turn" in why, why)
+        check("orca: and sends nothing", sent == [], str(sent))
+
+        orcamod.wait_idle = lambda h, t=0: True
+        ok, why = orcamod.clear_context("h")
+        check("orca: clears an idle agent", ok, why)
+        check("orca: by sending /clear", sent == ["/clear"], str(sent))
+
+        orcamod.alive = lambda h: False
+        ok, why = orcamod.clear_context("h")
+        check("orca: will not clear a dead terminal", not ok, why)
+    finally:
+        orcamod.alive, orcamod.wait_idle, orcamod.send = real_alive, real_wait, real_send
+
+
+def test_handoff_reclaims_context(home: Path) -> None:
+    """A handoff must return the context, not just write a digest.
+
+    Without this the context never drops, so a context trigger fires again on
+    the next tick and the agent hands off forever, paying for a fold each time.
+    """
+    _daemon_home(home, 50)
+    con = db.connect()
+    cleared = []
+    real_clear, real_alive = orcamod.clear_context, orcamod.alive
+    try:
+        orcamod.alive = lambda h: True
+        orcamod.clear_context = lambda h, wait=True: (cleared.append(h), (True, "context cleared"))[1]
+
+        # No terminal recorded yet: it must say so rather than pretend.
+        ok, why = dmn._reclaim_context(con, "backend", lambda _m: None)
+        check("handoff: says so when no terminal is recorded",
+              not ok and "no terminal" in why, why)
+
+        db.set_terminal(con, "backend", "term_x", "wt")
+        t = triggers.Trigger(True, "context", "context 72% >= 60%")
+        dmn.perform_handoff(con, "backend", t, lambda _m: None, use_model=False)
+        check("handoff: clears the agent's context", cleared == ["term_x"], str(cleared))
+        row = db.get_agent_state(con, "backend")
+        check("handoff: still parks afterwards", row["state"] == dmn.PARKED, str(dict(row)))
+        check("handoff: the terminal survives the park", row["terminal"] == "term_x")
+    finally:
+        orcamod.clear_context, orcamod.alive = real_clear, real_alive
+        con.close()
+
+
+def test_wake_injects_handoff(home: Path) -> None:
+    _daemon_home(home, 50)
+    con = db.connect()
+    sent = []
+    real_resume, real_alive = orcamod.resume_with, orcamod.alive
+    try:
+        orcamod.alive = lambda h: True
+        orcamod.resume_with = lambda h, text: (sent.append(text), (True, "handoff injected"))[1]
+
+        ok, why = dmn.wake_agent(con, "backend", lambda _m: None)
+        check("wake: nothing to wake without a terminal", not ok, why)
+
+        db.set_terminal(con, "backend", "term_x", "wt")
+        ok, why = dmn.wake_agent(con, "backend", lambda _m: None)
+        check("wake: nothing to resume from without a handoff", not ok, why)
+
+        foldmod.handoff_path("backend").write_text("# handoff · backend\n## 다음\n- finish the thing\n")
+        ok, why = dmn.wake_agent(con, "backend", lambda _m: None)
+        check("wake: injects the handoff", ok and sent, why)
+        check("wake: the agent is told its context was cleared",
+              "context was cleared" in sent[-1], sent[-1][:80])
+        check("wake: and gets its own record back",
+              "finish the thing" in sent[-1], sent[-1][:120])
+    finally:
+        orcamod.resume_with, orcamod.alive = real_resume, real_alive
+        con.close()
+
+
 def main() -> int:
     with tempfile.TemporaryDirectory() as td:
         home = Path(td) / "orcapipe"
@@ -1386,6 +1494,10 @@ def main() -> int:
         test_daemon_pidfile(Path(td) / 'd6')
         test_drift(Path(td) / 'drift')
         test_spawn_base_selection(Path(td) / 'spawn')
+        test_orca_idle_parsing()
+        test_clear_refuses_mid_turn()
+        test_handoff_reclaims_context(Path(td) / 'reclaim')
+        test_wake_injects_handoff(Path(td) / 'wake')
         test_handoff_drift_header(Path(td) / 'hdhome')
     print(f"\n{len(PASS)} passed, {len(FAIL)} failed")
     for f in FAIL:

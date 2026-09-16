@@ -90,12 +90,18 @@ def _check_home(r: Report) -> None:
     r.add(OK, f"OCP_HOME {h}")
 
     c = paths.collector()
+    src = paths.repo_root() / "libexec" / "statusline-collect.sh"
     if not c.exists():
         r.add(FAIL, "collector not installed", str(c))
     elif not os.access(c, os.X_OK):
         r.add(FAIL, "collector is not executable", str(c))
+    elif src.exists() and src.read_bytes() != c.read_bytes():
+        # The installed copy is what actually runs. Editing the repo copy and
+        # forgetting to reinstall means fixes silently never take effect.
+        r.add(FAIL, "installed collector differs from the repo copy",
+              f"{c} is stale - run `ocp init` to reinstall")
     else:
-        r.add(OK, "collector installed", str(c))
+        r.add(OK, "collector installed and current", str(c))
 
     s = paths.shared_claude() / "settings.json"
     if not s.exists():

@@ -115,8 +115,31 @@ def context_for(agent: str) -> str:
 
 def exec_agent(agent: str, extra: list[str] | None = None, force: bool = False) -> None:
     argv, env = build(agent, extra, force)
+    _record_terminal(agent)
     sys.stdout.flush()
     os.execve(argv[0], argv, env)
+
+
+def _record_terminal(agent: str) -> None:
+    """Remember the Orca terminal we are about to become the agent in.
+
+    Orca puts the handle in the environment of every terminal it launches, and
+    this is the only moment we can see it - after execve we are the agent. The
+    daemon needs it to clear the agent's context and hand it back its handoff.
+    """
+    from . import db, orca
+
+    handle = orca.terminal_handle()
+    if not handle:
+        return
+    try:
+        con = db.connect()
+        try:
+            db.set_terminal(con, agent, handle, os.environ.get("ORCA_WORKTREE_ID"))
+        finally:
+            con.close()
+    except Exception:  # noqa: BLE001 - never block a launch on bookkeeping
+        pass
 
 
 def command_for(agent: str) -> str:

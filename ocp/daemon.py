@@ -30,7 +30,7 @@ import time
 import uuid
 from dataclasses import dataclass
 
-from . import agents, db, fold as foldmod, paths, status, triggers
+from . import agents, db, fold as foldmod, orca, paths, status, triggers
 
 # Section 8.2 states.
 IDLE, QUEUED, RUNNING, DONE = "IDLE", "QUEUED", "RUNNING", "DONE"
@@ -150,6 +150,38 @@ def resume_handoff(con, row, log, use_model: bool = True) -> None:
     log(f"  {agent}: resumed handoff from '{step}' -> PARKED")
 
 
+def _reclaim_context(con, agent: str, log) -> tuple[bool, str]:
+    """Clear the agent's session so the handoff actually costs it its context."""
+    handle = db.get_terminal(con, agent)
+    if not handle:
+        return False, ("no terminal recorded; start the agent with `ocp spawn` or "
+                       "`ocp launch` inside an Orca terminal so its context can be reclaimed")
+    if not orca.available():
+        return False, "orca is not on PATH"
+    ok, why = orca.clear_context(handle)
+    log(f"  {agent}: {why}")
+    return ok, why
+
+
+def wake_agent(con, agent: str, log) -> tuple[bool, str]:
+    """Hand a cleared agent back its own handoff so it can carry on.
+
+    This is the other half of the cycle: the agent kept its terminal and its
+    account across the park, and the handoff is what it knows when it wakes.
+    """
+    handle = db.get_terminal(con, agent)
+    if not handle or not orca.available():
+        return False, "no terminal to wake"
+    p = foldmod.handoff_path(agent)
+    if not p.exists():
+        return False, "no handoff to resume from"
+    text = ("You were parked and have been resumed. Your context was cleared; this is "
+            "your own handoff record. Carry on from here.\n\n" + p.read_text())
+    ok, why = orca.resume_with(handle, text)
+    log(f"  {agent}: {why}")
+    return ok, why
+
+
 def expire_handoffs(con, log) -> list[str]:
     """Fail any handoff past its deadline (8.3).
 
@@ -253,6 +285,14 @@ def perform_handoff(con, agent: str, trigger: triggers.Trigger, log,
 
     db.advance_handoff(con, hid, "extracted")
 
+    # Return the context. Folding and writing a handoff is only half of a
+    # handoff; without this the context never drops, a context trigger fires
+    # again next tick, and the agent hands off forever paying for a fold each
+    # time. /clear keeps the terminal, worktree and account and empties only
+    # the conversation.
+    cleared, why = _reclaim_context(con, agent, log)
+    db.advance_handoff(con, hid, "extracted", detail=why)
+
     # Park until the usage window rolls over.
     reset = st.reset_5h if st else None
     wake = triggers.next_reset(reset)
@@ -329,6 +369,7 @@ def tick(con, log, use_model: bool = True, samples: dict | None = None) -> Tick:
             db.set_agent_state(con, agent, QUEUED, wake_at=None, detail="wake_at reached")
             actions.append(f"{agent}: {state} -> QUEUED (window rolled over)")
             log(f"  {agent}: {state} -> QUEUED (window rolled over)")
+            wake_agent(con, agent, log)
             state = QUEUED
 
         # Keep a short burn-rate history per account for the projection (8.1).

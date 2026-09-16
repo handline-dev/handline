@@ -572,7 +572,7 @@ ocp doctor
 |---|---|---|
 | A | `CLAUDE_CONFIG_DIR` 분리로 계정 2개 동시 실행 | **✔ 참 · 실측 확인 (2026-09-16).** 계정 2개를 **동시에** 띄워 각각 자기 `status.json` 을 정확히 갱신했다 (alpha 5h 0%/7d 40%, beta 5h 20%/7d 49% — 서로 다른 세션·비용). credential 상호 무효화 없음 |
 | B | 사용률을 파일에서 읽기 | **✘ 거짓.** statusLine `rate_limits` 가 공식 계약 |
-| D | 헤드리스 주입 + clear | **미확인.** Phase 3 전까지 불필요 |
+| D | 헤드리스 주입 + clear | **✔ 참 · 실측 확인 (2026-09-16).** `orca terminal send --text "/clear"` 로 컨텍스트가 실제로 반납된다: 살아있는 에이전트에서 `total_input_tokens` 45028 → 0, 세션 ID 교체. 터미널·워크트리·계정은 유지된다. 깨울 때 `handoff/latest.md` 를 첫 프롬프트로 주입하면 이어서 일한다 |
 | E | JSONL 라인 1개 = API 요청 1개 | **✘ 거짓.** `message.id` dedup 필수. **단 §8.1 트리거는 이제 transcript 를 안 쓴다** (I 참조) — dedup 은 번레이트 계산에만 필요 |
 | F | `autoContinueAtUsageLimit` 이 §8 과 충돌 안 함 | **✘ 기능 실재 확인** (바이너리 설정 키). 택일 강제 — `ocp doctor` 가 점검 |
 | G | `CLAUDE_CODE_OAUTH_TOKEN` 경로에서 `rate_limits` | **미확인.** 토큰 없음. 계정 부족 시에만 필요 |

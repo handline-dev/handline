@@ -64,7 +64,11 @@ CREATE TABLE IF NOT EXISTS agent_state (
   -- harder it is working.
   failed_attempts INTEGER NOT NULL DEFAULT 0,
   continuations   INTEGER NOT NULL DEFAULT 0,
-  throttle_count  INTEGER NOT NULL DEFAULT 0
+  throttle_count  INTEGER NOT NULL DEFAULT 0,
+  -- The Orca terminal this agent runs in, so the daemon can clear its context
+  -- and hand it back its own handoff without destroying the agent.
+  terminal        TEXT,
+  worktree        TEXT
 );
 
 -- Section 8.9: handoff progress is persisted per step, so a daemon restart
@@ -126,6 +130,9 @@ def _add_missing_columns(con) -> None:
     for col in ("failed_attempts", "continuations", "throttle_count"):
         if col not in state_cols:
             con.execute(f"ALTER TABLE agent_state ADD COLUMN {col} INTEGER NOT NULL DEFAULT 0")
+    for col in ("terminal", "worktree"):
+        if col not in state_cols:
+            con.execute(f"ALTER TABLE agent_state ADD COLUMN {col} TEXT")
 
 
 # ---------------------------------------------------------------- events
@@ -231,6 +238,20 @@ def set_agent_state(con, agent: str, state: str, wake_at: int | None = None,
         "detail=excluded.detail, updated=excluded.updated",
         (agent, state, wake_at, detail, int(time.time())),
     )
+
+
+def set_terminal(con, agent: str, terminal: str | None, worktree: str | None) -> None:
+    con.execute(
+        "INSERT INTO agent_state(agent, state, updated, terminal, worktree) VALUES(?,?,?,?,?) "
+        "ON CONFLICT(agent) DO UPDATE SET terminal=excluded.terminal, "
+        "worktree=excluded.worktree, updated=excluded.updated",
+        (agent, "RUNNING", int(time.time()), terminal, worktree),
+    )
+
+
+def get_terminal(con, agent: str) -> str | None:
+    row = con.execute("SELECT terminal FROM agent_state WHERE agent = ?", (agent,)).fetchone()
+    return row["terminal"] if row else None
 
 
 def bump_counter(con, agent: str, column: str, by: int = 1) -> None:
