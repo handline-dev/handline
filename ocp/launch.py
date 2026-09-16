@@ -64,10 +64,21 @@ def build(agent: str, extra: list[str] | None = None, force: bool = False) -> tu
     if not claude:
         raise SystemExit("cannot find claude on PATH")
 
+    cfg = agents.read(agent)
     argv = [claude]
-    model = agents.read(agent).get("model")
+    model = cfg.get("model")
     if model:
         argv += ["--model", str(model)]
+    # Always pass effort explicitly. Left unset it comes from whatever the
+    # environment carries, which is how an agent ends up silently running at a
+    # far more expensive level than intended.
+    effort = str(cfg.get("effort") or agents.DEFAULT_EFFORT)
+    if effort not in agents.VALID_EFFORT:
+        raise SystemExit(
+            f"agent '{agent}' has effort={effort!r}; must be one of "
+            f"{', '.join(agents.VALID_EFFORT)}"
+        )
+    argv += ["--effort", effort]
 
     # The agent's standing context (team model section 1). base.md is injected
     # every session - that is what its 2KB budget is a budget for - and the

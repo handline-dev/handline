@@ -16,8 +16,8 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
 from ocp import (agents, ask as askmod, daemon as dmn, db, digest, drift,
-                 events as evmod, fold as foldmod, paths, status, team, triggers,
-                 yamlcompat)  # noqa: E402
+                 events as evmod, fold as foldmod, paths, spawn as spawnmod, status,
+                 team, triggers, yamlcompat)  # noqa: E402
 
 PASS, FAIL = [], []
 
@@ -1300,6 +1300,48 @@ def test_shared_account_context_isolation(home: Path) -> None:
           c.pct_5h == 30)
 
 
+def test_spawn_base_selection(tmp: Path) -> None:
+    """Branching from the stale side silently loses work, so pick_base must not
+    guess - and must refuse outright when the two have diverged."""
+    env = dict(os.environ, GIT_AUTHOR_NAME="t", GIT_AUTHOR_EMAIL="t@t",
+               GIT_COMMITTER_NAME="t", GIT_COMMITTER_EMAIL="t@t")
+    run = lambda cwd, *a: subprocess.run(["git", *a], cwd=cwd, capture_output=True, env=env)  # noqa: E731
+
+    origin = tmp / "origin"
+    origin.mkdir(parents=True)
+    run(origin, "init", "-q", "-b", "main")
+    (origin / "f.txt").write_text("base\n")
+    run(origin, "add", "-A"); run(origin, "commit", "-qm", "base")
+
+    work = tmp / "work"
+    subprocess.run(["git", "clone", "-q", str(origin), str(work)], capture_output=True)
+
+    ref, why = spawnmod.pick_base(work, "main")
+    check("spawn: in sync, uses the local base", ref == "main", f"{ref} ({why})")
+
+    # Local ahead: branching from origin/main would drop the local commits.
+    (work / "f.txt").write_text("local work\n")
+    run(work, "add", "-A"); run(work, "commit", "-qm", "local only")
+    ref, why = spawnmod.pick_base(work, "main")
+    check("spawn: local ahead, branches from local", ref == "main", f"{ref} ({why})")
+    check("spawn: says why", "leads by 1" in why, why)
+
+    # Remote ahead only.
+    work2 = tmp / "work2"
+    subprocess.run(["git", "clone", "-q", str(origin), str(work2)], capture_output=True)
+    (origin / "f.txt").write_text("remote work\n")
+    run(origin, "add", "-A"); run(origin, "commit", "-qm", "remote only")
+    ref, why = spawnmod.pick_base(work2, "main")
+    check("spawn: remote ahead, branches from origin", ref == "origin/main", f"{ref} ({why})")
+
+    # Diverged: refuse rather than pick a side.
+    (work2 / "other.txt").write_text("diverge\n")
+    run(work2, "add", "-A"); run(work2, "commit", "-qm", "local diverge")
+    ref, why = spawnmod.pick_base(work2, "main")
+    check("spawn: diverged, refuses instead of guessing", ref is None, f"{ref} ({why})")
+    check("spawn: tells the human to merge first", "Merge" in why or "merge" in why, why)
+
+
 def main() -> int:
     with tempfile.TemporaryDirectory() as td:
         home = Path(td) / "orcapipe"
@@ -1343,6 +1385,7 @@ def main() -> int:
         test_agent_rewrite_uses_parser(Path(td) / 'rw')
         test_daemon_pidfile(Path(td) / 'd6')
         test_drift(Path(td) / 'drift')
+        test_spawn_base_selection(Path(td) / 'spawn')
         test_handoff_drift_header(Path(td) / 'hdhome')
     print(f"\n{len(PASS)} passed, {len(FAIL)} failed")
     for f in FAIL:

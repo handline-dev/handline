@@ -11,6 +11,13 @@ from . import paths
 from .yamlcompat import ConfigError, dump, load
 
 DEFAULT_MODEL = "sonnet"
+
+# Effort is a cost lever as real as the model, and leaving it unset means it is
+# inherited from whatever the environment happens to carry. Each agent declares
+# its own, so a journaling agent cannot quietly run at the same effort as one
+# doing architecture.
+VALID_EFFORT = ("low", "medium", "high", "xhigh", "max")
+DEFAULT_EFFORT = "medium"
 BASE_BUDGET_BYTES = 2048  # base.md <= 2KB (team model section 1)
 ROLE_BUDGET_BYTES = 1024  # ROLE.md <= 1KB
 
@@ -29,7 +36,8 @@ def read(name: str) -> dict:
     return data
 
 
-def register(name: str, account: str, role: str = "", model: str | None = None) -> Path:
+def register(name: str, account: str, role: str = "", model: str | None = None,
+             effort: str | None = None) -> Path:
     if not name or "/" in name or name.startswith("."):
         raise ValueError(f"bad agent name: {name!r}")
     d = paths.agent_dir(name)
@@ -37,10 +45,12 @@ def register(name: str, account: str, role: str = "", model: str | None = None) 
         (d / sub).mkdir(parents=True, exist_ok=True)
 
     f = agent_file(name)
+    if effort and effort not in VALID_EFFORT:
+        raise ValueError(f"effort must be one of {', '.join(VALID_EFFORT)}, not {effort!r}")
     if not f.exists():
         f.write_text(
             f"name: {name}\naccount: {account}\nmodel: {model or DEFAULT_MODEL}\n"
-            "enabled: true\n"
+            f"effort: {effort or DEFAULT_EFFORT}\nenabled: true\n"
         )
     else:
         # Already registered: update what was actually asked for and leave the
@@ -53,6 +63,9 @@ def register(name: str, account: str, role: str = "", model: str | None = None) 
         cfg["account"] = account
         if model:
             cfg["model"] = model
+        if effort:
+            cfg["effort"] = effort
+        cfg.setdefault("effort", DEFAULT_EFFORT)
         f.write_text(dump(cfg))
 
     role_file = d / "ROLE.md"

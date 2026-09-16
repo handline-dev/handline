@@ -16,7 +16,7 @@ from pathlib import Path
 
 from . import (accounts, agents, ask as askmod, daemon as daemonmod, db, digest, doctor,
                drift, events, fold as foldmod, guide, hooks, launch, paths, status,
-               team, triggers)
+               spawn as spawnmod, team, triggers)
 
 
 # ---------------------------------------------------------------- init
@@ -97,7 +97,8 @@ def cmd_agent_register(args) -> int:
     if args.account not in paths.list_accounts():
         print(f"warning: account '{args.account}' is not registered yet. "
               f"Run `ocp account register {args.account}` first.")
-    d = agents.register(args.name, args.account, role=args.role, model=args.model)
+    d = agents.register(args.name, args.account, role=args.role, model=args.model,
+                        effort=args.effort)
     print(f"registered agent '{args.name}' -> account '{args.account}': {d}")
     print("launch it from Orca with:")
     print(f'  orca terminal create --worktree <selector> --command "{launch.command_for(args.name)}"')
@@ -116,9 +117,12 @@ def cmd_agent_list(args) -> int:
             print(f"{n:<14} <error: {e}>")
             continue
         allowed, _ = status.read(acct).assignable()
+        cfg = agents.read(n)
         budget = " ".join(f"{fn}:{size}B{'!' if over else ''}"
                           for fn, size, _, over in agents.budget_report(n))
-        print(f"{n:<14} -> {acct:<10} {'ok' if allowed else 'BLOCKED':<8} {budget}")
+        print(f"{n:<11} -> {acct:<7} {str(cfg.get('model')):<7} "
+              f"{str(cfg.get('effort') or agents.DEFAULT_EFFORT):<7} "
+              f"{'ok' if allowed else 'BLOCKED':<8} {budget}")
     return 0
 
 
@@ -180,6 +184,13 @@ def cmd_drift(args) -> int:
             print(f"  {f}")
     print(f"\nresume header:\n  {d.resume_header()}")
     return 0 if d.ok and not d.significant else 1
+
+
+def cmd_spawn(args) -> int:
+    ok, msg = spawnmod.spawn(args.agent, Path(args.repo).resolve(), base=args.base,
+                             prompt=args.prompt, dry_run=args.dry_run)
+    print(msg)
+    return 0 if ok else 1
 
 
 def cmd_guide(args) -> int:
@@ -448,6 +459,8 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--role", default="")
     p.add_argument("--model", default=None,
                    help="model for this agent; on re-registration, omit to keep the current one")
+    p.add_argument("--effort", default=None, choices=agents.VALID_EFFORT,
+                   help=f"effort level (default {agents.DEFAULT_EFFORT}); a real cost lever")
     p.set_defaults(fn=cmd_agent_register)
     ag.add_parser("list", help="list agents").set_defaults(fn=cmd_agent_list)
 
@@ -557,6 +570,14 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--base", default="main")
     p.add_argument("--no-fetch", action="store_true")
     p.set_defaults(fn=cmd_drift)
+
+    p = sub.add_parser("spawn", help="give an agent its own worktree and start it there")
+    p.add_argument("agent")
+    p.add_argument("--repo", required=True)
+    p.add_argument("--base", default="main")
+    p.add_argument("--prompt", default=None, help="first task to send once it is up")
+    p.add_argument("--dry-run", action="store_true")
+    p.set_defaults(fn=cmd_spawn)
 
     p = sub.add_parser("guide", help="load detail on demand")
     p.add_argument("topic", nargs="?")
