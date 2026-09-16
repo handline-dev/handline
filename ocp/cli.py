@@ -513,7 +513,10 @@ def cmd_resolve(args) -> int:
 
 # ---------------------------------------------------------------- parser
 def build_parser() -> argparse.ArgumentParser:
+    from . import __version__
+
     ap = argparse.ArgumentParser(prog="ocp", description="orcapipe - multi-account agent pipeline")
+    ap.add_argument("--version", action="version", version=f"ocp {__version__}")
     sub = ap.add_subparsers(dest="cmd", required=True)
 
     sub.add_parser("init", help="create ~/.orcapipe and install shared settings").set_defaults(fn=cmd_init)
