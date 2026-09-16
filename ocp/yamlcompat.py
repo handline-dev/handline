@@ -2,19 +2,24 @@
 
 ocp must run under whichever python3 is on PATH. macOS ships PyYAML with
 /usr/bin/python3 but Homebrew's python3 has no yaml module, and the system
-python is externally managed so we cannot just pip install into it. Supporting
-both removes that whole class of "works on my interpreter" failure.
+python is externally managed so we cannot just pip install into it.
 
-The fallback handles what our config files actually use: nested maps, lists
-(including lists of maps), comments, quoted strings, int/float/bool/null, and
-flow collections like [a, b] and {k: v} - team.yaml is written in flow style
-throughout, so supporting it is not optional.
+The rule for the fallback is that it must never disagree with PyYAML *silently*.
+Two parsers that quietly read the same routing policy differently is worse than
+having no fallback at all - `creates_gate: no` meaning True under one and False
+under the other decides whether an escalation needs a human. So anything the
+fallback is not sure it reads the same way raises ConfigError instead of
+guessing. tests/test_ocp.py runs a differential test against PyYAML when it is
+available.
 
-Anything it still does not understand (anchors, block scalars, merge keys)
-raises ConfigError rather than silently mis-parsing. Stopping beats reading a
-routing table wrong.
+Supported: nested maps, lists (including lists of maps), comments, quoted
+strings, flow collections, and YAML 1.1 booleans (yes/no/on/off/true/false).
+Rejected loudly: anchors, block scalars, merge keys, tabs, multiple documents,
+unbalanced flow collections, and sexagesimals like 12:30.
 """
 from __future__ import annotations
+
+import re
 
 
 class ConfigError(Exception):
@@ -39,10 +44,74 @@ except ImportError:
         return parse(text)
 
 
-_UNSUPPORTED = ("&", "|", ">", "!!", "<<")
+_UNSUPPORTED = ("&", "*", "|", ">", "!!", "<<")
+
+# YAML 1.1 booleans, which PyYAML's safe_load accepts. Missing these is how
+# `creates_gate: no` became the string "no", which is truthy.
+_TRUE = {"true", "yes", "on", "y"}
+_FALSE = {"false", "no", "off", "n"}
+
+# Sexagesimal (12:30 -> 750) and similar legacy forms. We do not implement
+# them; we refuse them, so we cannot disagree with PyYAML about them.
+_SEXAGESIMAL = re.compile(r"^-?\d+(:[0-5]?\d)+(\.\d+)?$")
+
+# These mirror PyYAML's own resolver, because anywhere they differ we would
+# silently disagree with it. Notably YAML 1.1 has no "0o" octal (that is a
+# string), and an exponent needs an explicit sign and a decimal point, so
+# "1e3" is a string while "1.0e+3" is a float.
+_HEX = re.compile(r"^[-+]?0x[0-9a-fA-F]+$")
+_BIN = re.compile(r"^[-+]?0b[01]+$")
+_OCT = re.compile(r"^[-+]?0[0-7]+$")
+_DEC = re.compile(r"^[-+]?(0|[1-9][0-9]*)$")
+_FLOAT = re.compile(r"^[-+]?(\d+\.\d*|\.\d+)([eE][-+]\d+)?$")
 
 
-def _split_flow(body: str) -> list[str]:
+def _scalar(tok: str, line: int = 0):
+    t = tok.strip()
+    if not t:
+        return None
+    if (t.startswith("[") and t.endswith("]")) or (t.startswith("{") and t.endswith("}")):
+        return _flow(t, line)
+    if t.startswith(("[", "{")) or t.endswith(("]", "}")):
+        raise ConfigError(f"line {line}: unbalanced flow collection: {t!r}")
+    if len(t) > 1 and t[0] == t[-1] and t[0] in "\"'":
+        return t[1:-1]
+
+    low = t.lower()
+    if low in ("null", "~"):
+        return None
+    if low in _TRUE:
+        return True
+    if low in _FALSE:
+        return False
+    # PyYAML reads these as strings, not floats. Refuse rather than differ.
+    if low in ("inf", "-inf", "+inf", "nan", ".inf", "-.inf", ".nan"):
+        raise ConfigError(
+            f"line {line}: {t!r} is ambiguous across YAML parsers; quote it if you mean the string"
+        )
+    if _SEXAGESIMAL.match(t):
+        raise ConfigError(
+            f"line {line}: {t!r} is a YAML 1.1 sexagesimal; quote it if you mean the string"
+        )
+    if _HEX.match(t):
+        return int(t, 16)
+    if _BIN.match(t):
+        return int(t, 2)
+    if _OCT.match(t):
+        return int(t, 8)
+    if _DEC.match(t):
+        return int(t)
+    if _FLOAT.match(t):
+        return float(t)
+    # An unquoted bracket that did not form a flow collection is a typo, not a
+    # string. Returning it as text is how `- { from: "a"` became a list of one
+    # string instead of an error.
+    if any(c in t for c in "[]{}"):
+        raise ConfigError(f"line {line}: unbalanced or stray bracket in value: {t!r}")
+    return t
+
+
+def _split_flow(body: str, line: int = 0) -> list[str]:
     """Split a flow collection body on commas at nesting depth 0."""
     parts, buf, depth, quote = [], [], 0, None
     for ch in body:
@@ -66,56 +135,64 @@ def _split_flow(body: str) -> list[str]:
         else:
             buf.append(ch)
     if quote:
-        raise ConfigError(f"unterminated quote in flow collection: {body!r}")
+        raise ConfigError(f"line {line}: unterminated quote in flow collection: {body!r}")
     if depth != 0:
-        raise ConfigError(f"unbalanced brackets in flow collection: {body!r}")
-    tail = "".join(buf).strip()
-    if tail or parts:
-        parts.append("".join(buf))
+        raise ConfigError(f"line {line}: unbalanced brackets in flow collection: {body!r}")
+    tail = "".join(buf)
+    if tail.strip() or parts:
+        parts.append(tail)
     return [p.strip() for p in parts]
 
 
-def _flow(t: str):
+def _flow(t: str, line: int = 0):
     """Parse [a, b] and {k: v}, including nesting."""
-    if t.startswith("[") and t.endswith("]"):
-        return [_scalar(p) for p in _split_flow(t[1:-1]) if p != ""]
+    if t.startswith("["):
+        return [_scalar(p, line) for p in _split_flow(t[1:-1], line) if p != ""]
     out = {}
-    for item in _split_flow(t[1:-1]):
+    for item in _split_flow(t[1:-1], line):
         if not item:
             continue
-        if ":" not in item:
-            raise ConfigError(f"flow map entry has no ':': {item!r}")
-        k, _, v = item.partition(":")
-        out[k.strip().strip("\"'")] = _scalar(v.strip())
+        split = _split_key(item)
+        if not split:
+            raise ConfigError(f"line {line}: flow map entry is not 'key: value': {item!r}")
+        k, v = split
+        k = k.strip()
+        if len(k) > 1 and k[0] == k[-1] and k[0] in "\"'":
+            k = k[1:-1]
+        out[k] = _scalar(v.strip(), line)
     return out
 
 
-def _scalar(tok: str):
-    t = tok.strip()
-    if not t:
-        return None
-    if (t.startswith("[") and t.endswith("]")) or (t.startswith("{") and t.endswith("}")):
-        return _flow(t)
-    if len(t) > 1 and t[0] == t[-1] and t[0] in "\"'":
-        return t[1:-1]
-    low = t.lower()
-    if low in ("null", "~"):
-        return None
-    if low == "true":
-        return True
-    if low == "false":
-        return False
-    for cast in (int, float):
-        try:
-            return cast(t)
-        except ValueError:
-            pass
-    return t
+def _split_key(item: str) -> tuple[str, str] | None:
+    """Split 'key: value' at the first structural colon.
+
+    A colon only separates a key from a value when followed by whitespace or at
+    end of line. Splitting on a bare ':' turned the list item `- a:b` into the
+    map {'a': 'b'} and `- http://example.com` into {'http': '//example.com'}.
+    Colons inside quotes never separate.
+    """
+    quote = None
+    for i, ch in enumerate(item):
+        if quote:
+            if ch == quote:
+                quote = None
+            continue
+        if ch in "\"'":
+            quote = ch
+        elif ch == ":" and (i + 1 == len(item) or item[i + 1] in " \t"):
+            return item[:i], item[i + 1:]
+    return None
 
 
 def _strip_comment(line: str) -> str:
+    """Remove a trailing comment.
+
+    A '#' only starts a comment at the start of the line or after whitespace.
+    Treating every '#' as a comment turned `reason: go#1` into 'go' and
+    truncated any URL with a fragment.
+    """
     out, quote = [], None
-    for ch in line:
+    for i, ch in enumerate(line):
         if quote:
             out.append(ch)
             if ch == quote:
@@ -123,7 +200,7 @@ def _strip_comment(line: str) -> str:
         elif ch in "\"'":
             quote = ch
             out.append(ch)
-        elif ch == "#":
+        elif ch == "#" and (i == 0 or line[i - 1] in " \t"):
             break
         else:
             out.append(ch)
@@ -132,18 +209,30 @@ def _strip_comment(line: str) -> str:
 
 def _rows(text: str):
     """Yield (line_number, indent, content) for lines that carry data."""
+    emitted = False
     for n, raw in enumerate(text.splitlines(), 1):
+        if "\t" in raw[: len(raw) - len(raw.lstrip())]:
+            raise ConfigError(f"line {n}: tab used for indentation; YAML forbids it")
         if raw.lstrip().startswith("#"):
             continue
         line = _strip_comment(raw)
-        if not line.strip() or line.lstrip().startswith("---"):
+        stripped = line.strip()
+        if not stripped:
             continue
-        yield n, len(line) - len(line.lstrip()), line.strip()
+        if stripped.startswith("---"):
+            # A leading '---' opens the single document. One that appears after
+            # data starts a second document, which PyYAML rejects - so do we,
+            # rather than silently merging the two.
+            if emitted:
+                raise ConfigError(f"line {n}: multiple YAML documents; ocp reads exactly one")
+            continue
+        if stripped == "...":
+            continue
+        emitted = True
+        yield n, len(line) - len(line.lstrip()), stripped
 
 
 def _check(n: int, body: str) -> None:
-    """Reject syntax the subset parser would misread. Values only - keys may
-    legitimately contain '-'."""
     for bad in _UNSUPPORTED:
         if bad in body:
             raise ConfigError(
@@ -165,7 +254,7 @@ def parse(text: str):
 def _block(rows, i: int, indent: int):
     if i >= len(rows):
         return None, i
-    if rows[i][2].startswith("- "):
+    if rows[i][2].startswith("- ") or rows[i][2] == "-":
         return _seq(rows, i, indent)
     return _map(rows, i, indent)
 
@@ -174,17 +263,17 @@ def _seq(rows, i: int, indent: int):
     out = []
     while i < len(rows):
         n, ind, body = rows[i]
-        if ind < indent or not body.startswith("- "):
+        if ind < indent or not (body.startswith("- ") or body == "-"):
             break
         if ind > indent:
             raise ConfigError(f"line {n}: list item indentation does not line up")
-        rest = body[2:].strip()
+        rest = body[2:].strip() if body.startswith("- ") else ""
         if rest.startswith(("[", "{")):
-            # A flow collection as a list item: - { from: "*", to: "reviewer" }
-            out.append(_scalar(rest))
+            out.append(_scalar(rest, n))
             i += 1
             continue
-        if ":" in rest and not rest.startswith(("\"", "'")):
+        split = _split_key(rest) if rest else None
+        if split:
             # The item is a map. Treat its first line as a map row at the
             # item's own indent, then absorb the more-indented lines under it.
             synth = [(n, indent + 2, rest)]
@@ -197,10 +286,13 @@ def _seq(rows, i: int, indent: int):
                 raise ConfigError(f"line {synth[k][0]}: could not parse list item")
             out.append(item)
             i = j
-        else:
+        elif rest:
             _check(n, rest)
-            out.append(_scalar(rest))
+            out.append(_scalar(rest, n))
             i += 1
+        else:
+            child, i = _block(rows, i + 1, rows[i + 1][1]) if i + 1 < len(rows) else (None, i + 1)
+            out.append(child)
     return out, i
 
 
@@ -208,24 +300,65 @@ def _map(rows, i: int, indent: int):
     out = {}
     while i < len(rows):
         n, ind, body = rows[i]
-        if ind < indent or body.startswith("- "):
+        if ind < indent or body.startswith("- ") or body == "-":
             break
         if ind > indent:
             raise ConfigError(f"line {n}: unexpected indentation")
-        if ":" not in body:
-            raise ConfigError(f"line {n}: missing ':' in {body!r}")
-        key, _, rest = body.partition(":")
-        key = key.strip().strip("\"'")
+        split = _split_key(body)
+        if not split:
+            raise ConfigError(f"line {n}: expected 'key: value' but found {body!r}")
+        key, rest = split
+        key = key.strip()
+        if len(key) > 1 and key[0] == key[-1] and key[0] in "\"'":
+            key = key[1:-1]
         rest = rest.strip()
         if rest:
             _check(n, rest)
-            out[key] = _scalar(rest)
+            out[key] = _scalar(rest, n)
             i += 1
         elif i + 1 < len(rows) and rows[i + 1][1] > indent:
             out[key], i = _block(rows, i + 1, rows[i + 1][1])
-        elif i + 1 < len(rows) and rows[i + 1][1] == indent and rows[i + 1][2].startswith("- "):
+        elif i + 1 < len(rows) and rows[i + 1][1] == indent and (
+            rows[i + 1][2].startswith("- ") or rows[i + 1][2] == "-"
+        ):
             out[key], i = _seq(rows, i + 1, indent)
         else:
             out[key] = None
             i += 1
     return out, i
+
+
+def dump(data: dict) -> str:
+    """Serialize a shallow config map back to YAML.
+
+    Deliberately limited to what ocp writes: agent.yaml, which is a flat map of
+    scalars. Anything nested is rejected rather than emitted in a form the
+    subset parser might not read back the same way.
+    """
+    if not isinstance(data, dict):
+        raise ConfigError("dump expects a map")
+    lines = []
+    for key, value in data.items():
+        if isinstance(value, dict) or isinstance(value, list):
+            raise ConfigError(f"dump does not write nested values (key {key!r})")
+        if value is None:
+            rendered = "null"
+        elif isinstance(value, bool):
+            rendered = "true" if value else "false"
+        elif isinstance(value, (int, float)):
+            rendered = str(value)
+        else:
+            text = str(value)
+            # Quote anything that would read back as a different type, or that
+            # carries structural characters.
+            needs_quotes = (
+                text.strip() != text
+                or text == ""
+                or text.lower() in _TRUE | _FALSE | {"null", "~"}
+                or any(c in text for c in ":#[]{},&*|>'\"")
+                or _DEC.match(text) or _FLOAT.match(text) or _HEX.match(text)
+                or _SEXAGESIMAL.match(text)
+            )
+            rendered = '"' + text.replace("\\", "\\\\").replace('"', '\\"') + '"' if needs_quotes else text
+        lines.append(f"{key}: {rendered}")
+    return "\n".join(lines) + "\n"

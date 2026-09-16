@@ -56,6 +56,8 @@ class Drift:
     def summary(self) -> str:
         if not self.ok:
             return f"drift unknown: {self.error}"
+        if self.error:
+            return f"{self.error}"
         if not self.behind:
             return f"base {self.base}: no drift"
         if self.significant:
@@ -95,8 +97,12 @@ def check(repo: Path, base: str = "main", fetch: bool = True) -> Drift:
     if fetch:
         ok, out = _git(["fetch", "--quiet"], repo, timeout=60)
         if not ok:
-            # Offline is not fatal; judge on what we already have and say so.
-            d.error = f"fetch failed ({out[:120]}); judging on the local copy"
+            # A stale origin ref is not a verdict. Marking this ok would hand
+            # the agent the reassuring header on the strength of a check that
+            # did not run, which is the fail-open case resume_header() exists
+            # to avoid.
+            d.ok = False
+            d.error = f"fetch failed, origin/{base} may be out of date: {out[:120]}"
 
     ok, out = _git(["rev-list", "--count", f"HEAD..origin/{base}"], repo)
     if not ok:

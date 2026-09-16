@@ -25,10 +25,9 @@ import time
 from datetime import datetime
 from pathlib import Path
 
-from . import accounts, agents, db, digest, paths
+from . import accounts, agents, db, digest, paths, status
 
 FOLD_TIMEOUT_S = 180
-TRANSCRIPT_TAIL_BYTES = 40000
 
 
 def journal_path(agent: str, day: str) -> Path:
@@ -99,27 +98,6 @@ def deterministic_facts(agent: str, events, repo: Path | None = None) -> str:
         lines.append("- events folded: 0 (nothing new since the last fold)")
     lines.append(f"- generated: {time.strftime('%Y-%m-%d %H:%M:%S')}")
     return "\n".join(lines)
-
-
-def _transcript_tail(agent: str) -> str:
-    """Tail of the agent's most recent transcript, if we can find one."""
-    try:
-        acct = agents.account_of(agent)
-    except Exception:  # noqa: BLE001
-        return ""
-    from . import status
-
-    st = status.read(acct)
-    if not st.raw.get("transcript_path"):
-        return ""
-    p = Path(st.raw["transcript_path"])
-    if not p.exists():
-        return ""
-    try:
-        data = p.read_bytes()[-TRANSCRIPT_TAIL_BYTES:]
-        return data.decode("utf-8", errors="replace")
-    except OSError:
-        return ""
 
 
 def build_prompt(agent: str, previous: digest.Digest, events, day: str) -> str:
@@ -235,7 +213,11 @@ def fold(agent: str, use_model: bool = True, model: str = "haiku",
             reason = "model disabled"
 
         if candidate:
-            valid, problems = digest.validate(candidate, previous if previous.agent else None)
+            # Guard on whether there is previous *content*. Keying this on the
+            # header parsing meant a hand-edited or odd header skipped the one
+            # check that stops a fold from dropping completed work.
+            had_content = any(previous.items(k) for k in digest.SECTION_KEYS)
+            valid, problems = digest.validate(candidate, previous if had_content else None)
         else:
             valid, problems = False, [reason]
 
@@ -249,8 +231,9 @@ def fold(agent: str, use_model: bool = True, model: str = "haiku",
             return False, (f"{agent}: fold rejected, kept the previous digest and left the "
                            f"cursor at {cursor}. Reason: {'; '.join(problems)[:300]}")
 
-        # Valid. Publish, then advance the cursor in the same transaction that
-        # records the fold, so a crash cannot leave them disagreeing.
+        # Valid. Publish first, then advance the cursor. A crash in between
+        # leaves a published digest with an un-advanced cursor, which simply
+        # re-folds the same delta next time - the safe direction.
         merged = digest.parse(candidate)
         merged.facts = facts
         merged.folded_through = top
@@ -273,16 +256,20 @@ def fold(agent: str, use_model: bool = True, model: str = "haiku",
 
 
 def _cheapest_account() -> str | None:
-    from . import status
-
     picked, _ = status.pick_account()
     if picked:
         return picked
-    # Fall back to any logged-in account: a fold is small and it is better to
-    # record the day than to skip it.
+    # Fall back to any logged-in account that is not hard-blocked. A fold is
+    # small and recording the day beats skipping it, but running one on an
+    # account already at the hard stop would push it past the limit, which is
+    # the thing the whole system exists to avoid.
     for a in paths.list_accounts():
-        if accounts.logged_in(a):
-            return a
+        if not accounts.logged_in(a):
+            continue
+        st = status.read(a)
+        if st.pct_5h is not None and st.pct_5h >= status.PCT_5H_BLOCK:
+            continue
+        return a
     return None
 
 

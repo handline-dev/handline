@@ -94,7 +94,7 @@ refusal explains itself so they do not try to route around it.
 ## Tests
 
 ```bash
-python3 tests/test_ocp.py     # 183 checks, no network, no tokens
+python3 tests/test_ocp.py     # 240 checks, no network, no tokens
 ```
 
 Design docs are in `design/`; the Phase 0 findings and their evidence are in

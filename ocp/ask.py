@@ -18,6 +18,11 @@ from pathlib import Path
 
 from . import db, paths, team
 
+# States an agent may not move itself out of. STALLED is a task defect and
+# only a human clears it (section 8.6); without this an agent could launder
+# its own STALLED away just by sending a request.
+TERMINAL_STATES = {"STALLED"}
+
 # How long a requester waits on an async reply before the daemon re-evaluates
 # it anyway. Not a timeout on the request - just a guarantee that a lost reply
 # cannot strand an agent.
@@ -27,6 +32,11 @@ AWAIT_FALLBACK_S = 3600
 def current_agent() -> str | None:
     """Who is asking. Set by `ocp launch` when it execs claude."""
     return os.environ.get("OCP_AGENT")
+
+
+def _terminal(con, agent: str) -> bool:
+    row = db.get_agent_state(con, agent)
+    return bool(row and row["state"] in TERMINAL_STATES)
 
 
 def _inbox(target: str) -> Path:
@@ -102,15 +112,10 @@ def ask(target: str, body: str, files: str | None = None, requester: str | None 
             "response": decision.response, "chain_depth": depth,
         })
 
-        # async: the requester hands off and parks, so it is not holding an
-        # account while it waits (team model section 2, axis 3).
-        #
-        # PARKED is the design's own state name (section 8.2); the daemon
-        # evaluates it every tick. The wake is normally the arriving reply,
-        # which resolve() turns into QUEUED. The fallback wake_at exists so a
-        # reply that never arrives cannot park an agent forever - that is the
-        # permanent-stop failure section 8.4 warns about.
-        if decision.response == "async":
+        # async: the requester parks rather than hold an account while it
+        # waits. The fallback wake_at is there so a reply that never arrives
+        # cannot strand it (the permanent stop section 8.4 warns about).
+        if decision.response == "async" and not _terminal(con, requester):
             db.set_agent_state(con, requester, "PARKED",
                                wake_at=int(time.time()) + AWAIT_FALLBACK_S,
                                detail=f"awaiting reply to request {rid} from {target}")
@@ -146,9 +151,15 @@ def resolve(rid: int, verdict: str, state: str = "done") -> tuple[bool, str]:
 
         # The reply is the wake. QUEUED is the design's state for "ready to be
         # dispatched"; the daemon picks it up from there (section 8.2).
-        if row["response"] == "async":
-            db.set_agent_state(con, row["requester"], "QUEUED", wake_at=None,
-                               detail=f"request {rid} resolved: {state}")
+        # Only queue the requester when nothing else it asked for is still
+        # outstanding, and never out of a terminal state.
+        if row["response"] == "async" and not _terminal(con, row["requester"]):
+            outstanding = con.execute(
+                "SELECT COUNT(*) c FROM requests WHERE requester = ? AND state = 'queued' "
+                "AND response = 'async'", (row["requester"],)).fetchone()["c"]
+            if outstanding == 0:
+                db.set_agent_state(con, row["requester"], "QUEUED", wake_at=None,
+                                   detail=f"request {rid} resolved: {state}")
         p = _inbox(row["target"]) / f"{rid:06d}.json"
         if p.exists():
             p.unlink()

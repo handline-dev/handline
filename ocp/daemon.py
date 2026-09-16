@@ -37,8 +37,13 @@ IDLE, QUEUED, RUNNING, DONE = "IDLE", "QUEUED", "RUNNING", "DONE"
 HANDOFF, DEGRADED, PARKED = "HANDOFF", "DEGRADED", "PARKED"
 THROTTLED, STALLED = "THROTTLED", "STALLED"
 
-# Evaluated every tick (8.4). PARKED and THROTTLED are in here deliberately.
-EVALUATED = {RUNNING, HANDOFF, PARKED, QUEUED, THROTTLED, IDLE}
+# Evaluated every tick (8.4). PARKED, THROTTLED and DEGRADED are in here
+# deliberately: anything that is not STALLED must have a way back, or it
+# becomes a silent terminal state and the account sits idle forever.
+EVALUATED = {RUNNING, HANDOFF, PARKED, QUEUED, THROTTLED, IDLE, DEGRADED}
+
+# How long a DEGRADED agent waits before the daemon retries it.
+DEGRADED_RETRY_S = 600
 
 MAX_FAILED_ATTEMPTS = 3      # 8.5: real failures only
 MAX_THROTTLE_STREAK = 5      # 8.6: then escalate to a human gate
@@ -88,8 +93,11 @@ def running_elsewhere() -> int | None:
     pid, boot = info.get("pid"), info.get("boot", 0)
     if not pid:
         return None
-    # A pidfile from before the last boot cannot describe a live process.
-    if boot and boot != boot_time():
+    # A pidfile from before the last boot cannot describe a live process. If we
+    # cannot read the boot time (either side being 0), we do not know that, and
+    # guessing "stale" would let a second daemon start alongside a live one.
+    current_boot = boot_time()
+    if boot and current_boot and boot != current_boot:
         paths.daemon_pid().unlink(missing_ok=True)
         return None
     try:
@@ -107,6 +115,65 @@ class Tick:
     actions: list[str]
 
 
+def resume_handoff(con, row, log, use_model: bool = True) -> None:
+    """Finish a handoff from the step it reached (8.9).
+
+    Steps are ordered requested -> folded -> extracted -> released, and each is
+    committed, so a restart picks up where the kill landed instead of redoing
+    the fold or leaving the agent wedged in HANDOFF.
+    """
+    agent, step, hid = row["agent"], row["step"], row["id"]
+    done_ok = True
+    if step == "requested":
+        ok, msg = foldmod.fold(agent, use_model=use_model)
+        done_ok = ok
+        if ok:
+            db.advance_handoff(con, hid, "folded",
+                               cursor_to=db.get_cursor(con, f"fold:{agent}"))
+            db.reset_counter(con, agent, "throttle_count")
+        else:
+            db.advance_handoff(con, hid, "folded", state="degraded", detail=msg[:300])
+            db.bump_counter(con, agent, "throttle_count")
+    if step in ("requested", "folded"):
+        db.advance_handoff(con, hid, "extracted")
+
+    st = None
+    try:
+        st = status.read(agents.account_of(agent))
+    except Exception:  # noqa: BLE001 - a missing account must not wedge the resume
+        pass
+    wake = triggers.next_reset(st.reset_5h if st else None)
+    db.advance_handoff(con, hid, "released", state="done" if done_ok else "degraded")
+    db.set_agent_state(con, agent, PARKED, wake_at=wake,
+                       detail=f"resumed handoff; wakes at "
+                              f"{time.strftime('%H:%M', time.localtime(wake))}")
+    log(f"  {agent}: resumed handoff from '{step}' -> PARKED")
+
+
+def expire_handoffs(con, log) -> list[str]:
+    """Fail any handoff past its deadline (8.3).
+
+    This runs every tick, not only at startup. Checking it only in reconcile
+    meant a handoff that wedged while the daemon stayed up was never timed out,
+    and its agent sat in HANDOFF - excluded from trigger evaluation - forever.
+    """
+    actions: list[str] = []
+    now = int(time.time())
+    for row in db.in_flight_handoffs(con):
+        if not row["deadline"] or row["deadline"] >= now:
+            continue
+        agent = row["agent"]
+        # The cursor is deliberately not advanced, so the delta is retried.
+        db.advance_handoff(con, row["id"], row["step"], state="degraded",
+                           detail=f"deadline passed at {row['deadline']}")
+        db.bump_counter(con, agent, "throttle_count")
+        db.set_agent_state(con, agent, DEGRADED, wake_at=now + DEGRADED_RETRY_S,
+                           detail=f"handoff timed out at step '{row['step']}'")
+        actions.append(f"{agent}: handoff timed out at step '{row['step']}' -> DEGRADED")
+        log(f"  {agent}: handoff timed out at step '{row['step']}' -> DEGRADED")
+    return actions
+
+
 def reconcile(con, log) -> list[str]:
     """One unconditional pass at startup (8.4).
 
@@ -117,24 +184,19 @@ def reconcile(con, log) -> list[str]:
     actions: list[str] = []
     now = int(time.time())
 
-    # 1. Handoffs left in flight. Resume from the step each one reached.
+    # 1. Handoffs left in flight by a kill. Expire the ones past their
+    #    deadline, then actually finish the rest from the step they reached -
+    #    a log line claiming a resume is not a resume (8.9).
+    actions += expire_handoffs(con, log)
     for row in db.in_flight_handoffs(con):
         agent, step = row["agent"], row["step"]
-        if row["deadline"] and row["deadline"] < now:
-            # 8.3: timed out. Cursor does not move; produce a degraded handoff
-            # without a model; repeated occurrences throttle.
-            db.advance_handoff(con, row["id"], step, state="degraded",
-                               detail=f"deadline passed at {row['deadline']}")
-            db.set_agent_state(con, agent, DEGRADED, detail="handoff timed out")
-            db.bump_counter(con, agent, "throttle_count")
-            actions.append(f"{agent}: in-flight handoff timed out at step '{step}' -> DEGRADED")
-        else:
-            actions.append(f"{agent}: resuming in-flight handoff from step '{step}'")
+        resume_handoff(con, row, log)
+        actions.append(f"{agent}: resumed in-flight handoff from step '{step}'")
 
     # 2. wake_at deadlines that have come due.
     for row in db.due_agents(con, now):
         agent = row["agent"]
-        if row["state"] in (PARKED, THROTTLED):
+        if row["state"] in (PARKED, THROTTLED, DEGRADED):
             db.set_agent_state(con, agent, QUEUED, wake_at=None,
                                detail=f"woke from {row['state']} at reconciliation")
             actions.append(f"{agent}: {row['state']} -> QUEUED (wake_at was {row['wake_at']})")
@@ -160,8 +222,6 @@ def perform_handoff(con, agent: str, trigger: triggers.Trigger, log,
     """
     existing = db.in_flight_for(con, agent)
     if existing:
-        # A second trigger merges as an added reason. It does not start a
-        # competing handoff: min() over deadlines is not mutual exclusion.
         db.advance_handoff(con, existing["id"], existing["step"],
                            detail=f"{existing['detail'] or ''}; also {trigger.kind}".strip("; "))
         log(f"  {agent}: already handing off at step '{existing['step']}', merged "
@@ -180,12 +240,14 @@ def perform_handoff(con, agent: str, trigger: triggers.Trigger, log,
     ok, msg = foldmod.fold(agent, use_model=use_model)
     if ok:
         db.advance_handoff(con, hid, "folded", cursor_to=db.get_cursor(con, f"fold:{agent}"))
+        # A handoff that worked ends the streak. This is the only thing that
+        # clears it, so a run of failures accumulates until 8.6 escalates.
+        db.reset_counter(con, agent, "throttle_count")
     else:
         # The failure edge out of HANDOFF that section 8.2 insists on. Without
         # it, every fold failure converges here and the agent holds its slot
         # forever in no state at all.
         db.advance_handoff(con, hid, "folded", state="degraded", detail=msg[:300])
-        db.set_agent_state(con, agent, DEGRADED, detail=msg[:200])
         db.bump_counter(con, agent, "throttle_count")
         log(f"  {agent}: fold failed -> DEGRADED ({msg[:120]})")
 
@@ -203,10 +265,29 @@ def perform_handoff(con, agent: str, trigger: triggers.Trigger, log,
 
 
 # ---------------------------------------------------------------- tick
+_last_rollover_day = {"day": ""}
+
+
 def tick(con, log, use_model: bool = True, samples: dict | None = None) -> Tick:
     now = int(time.time())
     actions: list[str] = []
     samples = samples if samples is not None else {}
+
+    # A handoff past its deadline must fail here, not only at startup.
+    actions += expire_handoffs(con, log)
+
+    # Midnight rollover (section 5). Nothing else calls it, and without it
+    # yesterday's "in progress" stays in progress forever - and every fold
+    # after midnight has to keep repeating yesterday's completed items to pass
+    # the monotonicity check, so the digest grows without bound.
+    day = foldmod.today()
+    if _last_rollover_day["day"] and _last_rollover_day["day"] != day:
+        for agent in paths.list_agents():
+            ok, msg = foldmod.rollover(agent)
+            if ok and "already exists" not in msg:
+                actions.append(msg)
+                log(f"  rollover: {msg}")
+    _last_rollover_day["day"] = day
 
     for agent in paths.list_agents():
         row = db.get_agent_state(con, agent)
@@ -223,15 +304,29 @@ def tick(con, log, use_model: bool = True, samples: dict | None = None) -> Tick:
 
         try:
             acct = agents.account_of(agent)
+            st = status.read(acct)
         except Exception as e:  # noqa: BLE001
-            actions.append(f"{agent}: config error: {e}")
+            # A real failure, not a resource shortage: bad config, unreadable
+            # status. This is what failed_attempts counts (8.5), and it is
+            # capped, unlike continuations.
+            db.bump_counter(con, agent, "failed_attempts")
+            fresh = db.get_agent_state(con, agent)
+            actions.append(f"{agent}: error: {e}")
+            log(f"  {agent}: error: {e}")
+            if fresh and fresh["failed_attempts"] >= MAX_FAILED_ATTEMPTS:
+                db.set_agent_state(con, agent, STALLED,
+                                   detail=f"{fresh['failed_attempts']} failed attempts: {e}")
+                log(f"  {agent}: STALLED after {fresh['failed_attempts']} failed attempts")
             continue
-        st = status.read(acct)
 
         # Wake anything whose deadline has come due, whatever its state.
-        if row and row["wake_at"] and row["wake_at"] <= now and state in (PARKED, THROTTLED):
+        if row and row["wake_at"] and row["wake_at"] <= now and \
+                state in (PARKED, THROTTLED, DEGRADED):
+            # The streak is NOT cleared here. Waking is the normal end of every
+            # park, so resetting on wake pinned throttle_count at 1 and made
+            # the escalation in 8.6 unreachable. It is cleared by a handoff
+            # that actually succeeds.
             db.set_agent_state(con, agent, QUEUED, wake_at=None, detail="wake_at reached")
-            db.reset_counter(con, agent, "throttle_count")
             actions.append(f"{agent}: {state} -> QUEUED (window rolled over)")
             log(f"  {agent}: {state} -> QUEUED (window rolled over)")
             state = QUEUED
@@ -244,10 +339,14 @@ def tick(con, log, use_model: bool = True, samples: dict | None = None) -> Tick:
                 del hist[:-10]
         burn = triggers.burn_rate_per_s(hist)
 
-        if state in (PARKED, THROTTLED):
+        if state in (PARKED, THROTTLED, DEGRADED):
             continue  # waiting on wake_at, already handled above
 
-        t = triggers.evaluate(st.pct_5h, st.ctx_pct, burn=burn)
+        # trusted_* is None when the snapshot is stale. A frozen status.json
+        # keeps reporting its last value forever, and believing it is the same
+        # failure as reading a null as 0 - the trigger would simply never fire
+        # again after the collector died.
+        t = triggers.evaluate(st.trusted_pct_5h, st.trusted_ctx_pct, burn=burn)
         if t.fired:
             ok = perform_handoff(con, agent, t, log, use_model=use_model)
             actions.append(f"{agent}: handoff ({t.kind}){'' if ok else ' -> degraded'}")
@@ -304,9 +403,13 @@ def run(once: bool = False, use_model: bool = True, verbose: bool = True,
             ticks += 1
             if once or (max_ticks and ticks >= max_ticks):
                 break
-            worst = min((status.read(a).pct_5h for a in paths.list_accounts()
-                         if status.read(a).pct_5h is not None), default=None)
-            time.sleep(triggers.poll_interval(worst))
+            # The hottest account sets the pace, not the quietest: min() here
+            # let an account at 88% be polled every 30s because another sat at
+            # 10%. An account whose usage is unknown also polls fast.
+            pcts = [status.read(a).trusted_pct_5h for a in paths.list_accounts()]
+            hottest = None if (not pcts or any(p is None for p in pcts)) else max(pcts)
+            burn = max((triggers.burn_rate_per_s(h) for h in samples.values()), default=0.0)
+            time.sleep(triggers.poll_interval(hottest, burn))
         log(f"stopped after {ticks} tick(s)")
         return 0
     finally:

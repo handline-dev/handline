@@ -81,6 +81,39 @@ class Team:
                     f"edges[{i}].response={resp!r} is not one of {sorted(VALID_RESPONSE)}. "
                     "'blocking' is intentionally not supported."
                 )
+            self._check_pattern(f"edges[{i}].from", str(e["from"]))
+            self._check_pattern(f"edges[{i}].to", str(e["to"]))
+
+        # deny needs the same scrutiny as edges, and more: an edge that fails to
+        # parse denies by default, but a deny that fails to parse silently
+        # *allows*. A typo'd key, a misspelt team or a missing 'to' would each
+        # turn "explicit denies always win" into "this deny does nothing".
+        for i, d in enumerate(self.deny):
+            if not isinstance(d, dict):
+                raise ConfigError(
+                    f"deny[{i}] is not a map: {d!r}. "
+                    "An unquoted value like 'bug#42' can do this."
+                )
+            missing = [k for k in ("from", "to") if k not in d]
+            if missing:
+                raise ConfigError(
+                    f"deny[{i}] is missing {', '.join(missing)} (keys present: "
+                    f"{', '.join(sorted(d)) or 'none'}). A deny without both "
+                    "matches nothing and would silently allow."
+                )
+            self._check_pattern(f"deny[{i}].from", str(d["from"]))
+            self._check_pattern(f"deny[{i}].to", str(d["to"]))
+
+    def _check_pattern(self, where: str, pattern: str) -> None:
+        """A '<team>.*' pattern naming a team that does not exist matches
+        nothing, so it would silently allow. Catch it at load time."""
+        if pattern.endswith(".*") and pattern != "*":
+            group = pattern[:-2]
+            if group not in self.teams:
+                raise ConfigError(
+                    f"{where}={pattern!r} refers to team {group!r}, which is not in "
+                    f"teams ({', '.join(sorted(self.teams)) or 'none'})"
+                )
 
     # ------------------------------------------------------------ patterns
     def members(self, group: str) -> list[str]:

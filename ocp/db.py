@@ -1,16 +1,10 @@
 """SQLite state: events, requests, cursors, agent state, handoff progress.
 
-Two design rules are load-bearing here.
+Cursors are row ids, not timestamps; see fold.py for why that matters.
 
-Cursors are row ids, never timestamps (section 5). With a time-based cursor an
-event that arrives while a fold is running is either skipped forever or folded
-twice, depending on which side of the boundary it lands on. Row ids are
-monotonic and assigned by the database, so neither can happen.
-
-Usage events carry a dedup key (section 4, assumption E). One API response
-becomes several JSONL lines, each repeating the same usage object. Counting
-them all inflated burn rate by 2.4x in the design's sample, which would push
-runway down and park every agent.
+Usage events carry a dedup key (assumption E): one API response becomes several
+JSONL lines repeating the same usage object, which inflated burn rate by 2.4x
+in the design's sample.
 """
 from __future__ import annotations
 
@@ -51,7 +45,7 @@ CREATE TABLE IF NOT EXISTS requests (
 CREATE INDEX IF NOT EXISTS requests_target ON requests(target, state);
 CREATE INDEX IF NOT EXISTS requests_requester ON requests(requester, ts);
 
--- Fold and digest cursors. Advanced only after the output validates.
+-- Advanced only after the fold output validates.
 CREATE TABLE IF NOT EXISTS cursors (
   name    TEXT PRIMARY KEY,
   row_id  INTEGER NOT NULL,
@@ -138,16 +132,16 @@ def _add_missing_columns(con) -> None:
 def add_event(con, agent: str, kind: str, payload: dict | None = None,
               account: str | None = None, dedup_key: str | None = None) -> int | None:
     """Append an event. Returns the row id, or None if deduped away."""
-    try:
-        cur = con.execute(
-            "INSERT INTO events(ts, agent, account, kind, payload, dedup_key) "
-            "VALUES(?,?,?,?,?,?)",
-            (int(time.time()), agent, account, kind,
-             json.dumps(payload, ensure_ascii=False) if payload else None, dedup_key),
-        )
-        return cur.lastrowid
-    except sqlite3.IntegrityError:
-        return None  # duplicate dedup_key - the same API response seen again
+    # ON CONFLICT names dedup_key specifically. A blanket IntegrityError catch
+    # here would also swallow NOT NULL violations, dropping events with no trace
+    # and reporting them as if they had been deduped.
+    cur = con.execute(
+        "INSERT INTO events(ts, agent, account, kind, payload, dedup_key) "
+        "VALUES(?,?,?,?,?,?) ON CONFLICT(dedup_key) DO NOTHING",
+        (int(time.time()), agent, account, kind,
+         json.dumps(payload, ensure_ascii=False) if payload else None, dedup_key),
+    )
+    return cur.lastrowid if cur.rowcount else None
 
 
 # Fold's own bookkeeping rows. They are kept for audit but excluded from the

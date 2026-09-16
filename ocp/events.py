@@ -5,11 +5,6 @@ never from PostToolUse: that fires constantly and its signal-to-noise is poor.
 
 Nothing here uses a model. The hook reads the JSON Claude Code puts on stdin,
 takes an allowlisted handful of fields, and inserts one row.
-
-Two guards matter:
-  - only allowlisted fields are stored, never the raw payload (KICKOFF rule 5)
-  - usage rows carry message.id as a dedup key, because one API response
-    becomes several JSONL lines repeating the same usage object (assumption E)
 """
 from __future__ import annotations
 

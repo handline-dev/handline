@@ -16,14 +16,26 @@ RAW="$(cat)"
 
 CFG="${CLAUDE_CONFIG_DIR:-$HOME/.claude}"
 ACCT="$(basename "$(dirname "$CFG")")"
-[ "$ACCT" = "$(basename "$HOME")" ] && ACCT="default"
+# Compare the whole path, not the basename. Comparing basenames meant an
+# account literally named after the user (accounts/ron/.claude with
+# $HOME=/Users/ron) was renamed to "default", so its snapshot landed in the
+# wrong directory and every agent on it stayed permanently unassignable.
+[ "$CFG" = "$HOME/.claude" ] && ACCT="default"
 
 OUT_DIR="${OCP_HOME:-$HOME/.orcapipe}/accounts/$ACCT"
 mkdir -p "$OUT_DIR" 2>/dev/null || exit 0
 
 # Never persist the raw stdin blob (KICKOFF rule 5 - it is a token-leak path).
 # Take only the allowlisted fields from the section 4 table.
-if command -v jq >/dev/null 2>&1; then
+if ! command -v jq >/dev/null 2>&1; then
+  # Without jq there is no snapshot at all, and the daemon would read the
+  # silence as "usage unknown" forever. Say so on the status line; `ocp doctor`
+  # fails on this too.
+  printf '%s · NO jq — ocp collector disabled' "$ACCT"
+  exit 0
+fi
+
+if true; then
   SNAP="$(printf '%s' "$RAW" | jq -c --arg acct "$ACCT" --argjson now "$(date +%s)" '
     {
       account:        $acct,
@@ -49,13 +61,12 @@ if command -v jq >/dev/null 2>&1; then
       exceeds_200k:   (.exceeds_200k_tokens // null),
       version:        (.version // null)
     }' 2>/dev/null)"
-else
-  SNAP=""
 fi
 
-# No session_id means this was not statusLine JSON. Never let a garbage
-# payload overwrite a good snapshot.
-if [ -n "$SNAP" ] && printf '%s' "$SNAP" | grep -q '"session_id":"'; then
+# No session_id means this was not statusLine JSON. Never let a garbage payload
+# overwrite a good snapshot. Ask jq, rather than grepping for a substring whose
+# spelling depends on jq's own key order and quoting.
+if [ -n "$SNAP" ] && printf '%s' "$SNAP" | jq -e '.session_id != null' >/dev/null 2>&1; then
   TMP="$(mktemp "$OUT_DIR/.status.XXXXXX")" || exit 0
   printf '%s\n' "$SNAP" > "$TMP" && mv -f "$TMP" "$OUT_DIR/status.json" || rm -f "$TMP"
 fi

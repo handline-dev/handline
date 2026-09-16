@@ -34,16 +34,25 @@ def build(agent: str, extra: list[str] | None = None, force: bool = False) -> tu
             f"  {accounts.login_command(acct)}\n"
         )
 
-    # Only usage blocks a launch. A missing status.json is the normal first
-    # boot, and refusing on it would deadlock: status.json is written by the
-    # session we are trying to start.
+    # A missing status.json is the normal first boot and must not block, or
+    # nothing could ever start: status.json is written by the session we are
+    # trying to launch. A snapshot that exists but is stale is a different
+    # thing - it is a frozen reading that may be hiding a full account.
     st = status.read(acct)
-    if not force and st.exists and st.pct_5h is not None and st.pct_5h >= status.PCT_5H_BLOCK:
-        raise SystemExit(
-            f"account '{acct}' is at {st.pct_5h}% of the 5h limit "
-            f"(>= {status.PCT_5H_BLOCK}%) - refusing to start.\n"
-            f"resets at {st.reset_5h}; use --force to override"
-        )
+    if not force and st.exists:
+        if st.stale:
+            age = "unknown age" if st.age_s is None else f"{int(st.age_s)}s old"
+            raise SystemExit(
+                f"account '{acct}' has a stale status.json ({age}); its usage cannot be "
+                f"trusted - refusing to start.\n"
+                f"Run the account once to refresh it, or use --force to override."
+            )
+        if st.pct_5h is not None and st.pct_5h >= status.PCT_5H_BLOCK:
+            raise SystemExit(
+                f"account '{acct}' is at {st.pct_5h}% of the 5h limit "
+                f"(>= {status.PCT_5H_BLOCK}%) - refusing to start.\n"
+                f"resets at {st.reset_5h}; use --force to override"
+            )
 
     claude = shutil.which("claude")
     if not claude:

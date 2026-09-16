@@ -8,7 +8,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from . import paths
-from .yamlcompat import ConfigError, load
+from .yamlcompat import ConfigError, dump, load
 
 BASE_BUDGET_BYTES = 2048  # base.md <= 2KB (team model section 1)
 ROLE_BUDGET_BYTES = 1024  # ROLE.md <= 1KB
@@ -41,18 +41,15 @@ def register(name: str, account: str, role: str = "", model: str = "sonnet") -> 
             f"name: {name}\naccount: {account}\nmodel: {model}\nenabled: true\n"
         )
     else:
-        # Already registered: only the account moves. The rest of the mapping
-        # is fixed and is the human's to edit.
-        lines, seen = [], False
-        for line in f.read_text().splitlines():
-            if line.startswith("account:"):
-                lines.append(f"account: {account}")
-                seen = True
-            else:
-                lines.append(line)
-        if not seen:
-            lines.append(f"account: {account}")
-        f.write_text("\n".join(lines) + "\n")
+        # Already registered: only the account moves. Re-serialize from the
+        # parsed document rather than splicing lines - matching "account:" as a
+        # prefix broke on "account : alpha" (appending a duplicate key) and on
+        # any nested key of the same name.
+        cfg = load(f.read_text())
+        if not isinstance(cfg, dict):
+            raise ConfigError(f"{f}: top level is not a map")
+        cfg["account"] = account
+        f.write_text(dump(cfg))
 
     role_file = d / "ROLE.md"
     if not role_file.exists():

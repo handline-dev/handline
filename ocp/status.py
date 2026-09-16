@@ -24,6 +24,10 @@ from . import paths
 # helps but cannot cover a session that has exited).
 STALE_AFTER_S = 900
 
+# Small tolerance for ordinary clock jitter before a future timestamp is
+# treated as unreadable rather than fresh.
+CLOCK_SKEW_GRACE_S = 60
+
 # Above these, stop handing out new work.
 PCT_5H_BLOCK = 90
 PCT_7D_BLOCK = 95
@@ -36,7 +40,7 @@ class AccountStatus:
     raw: dict = field(default_factory=dict)
     error: str | None = None
 
-    # Values used for decisions. None when unknown - never coerced to 0.
+    # None when unknown - never coerced to 0.
     pct_5h: int | None = None
     pct_7d: int | None = None
     ctx_pct: int | None = None
@@ -49,14 +53,37 @@ class AccountStatus:
 
     @property
     def age_s(self) -> float | None:
+        """Age of the snapshot, or None when it cannot be trusted.
+
+        A timestamp in the future means a skewed clock or wrong units (a
+        milliseconds value is the likely bug). Clamping that to age 0 made it
+        look permanently fresh, which is fail-open. Unknown is the right answer.
+        """
         if self.collected_at is None:
             return None
-        return max(0.0, time.time() - self.collected_at)
+        age = time.time() - self.collected_at
+        if age < -CLOCK_SKEW_GRACE_S:
+            return None
+        return max(0.0, age)
 
     @property
     def stale(self) -> bool:
         age = self.age_s
         return age is None or age > STALE_AFTER_S
+
+    @property
+    def trusted_pct_5h(self) -> int | None:
+        """pct_5h only when the snapshot is current.
+
+        A frozen status.json (collector died, jq removed, session exited) keeps
+        reporting its last value forever. Reading that as the truth is the same
+        failure as reading a null as 0, so a stale snapshot reads as unknown.
+        """
+        return None if self.stale else self.pct_5h
+
+    @property
+    def trusted_ctx_pct(self) -> int | None:
+        return None if self.stale else self.ctx_pct
 
     def assignable(self) -> tuple[bool, str]:
         """May we give this account new work? Returns (allowed, reason)."""
@@ -77,7 +104,7 @@ class AccountStatus:
         return True, f"5h {self.pct_5h}%"
 
     def headroom(self) -> int | None:
-        """Remaining 5h headroom in percent. None when unknown - not 0, not 100."""
+        """Remaining 5h headroom in percent, or None when unknown."""
         if self.pct_5h is None:
             return None
         return max(0, PCT_5H_BLOCK - self.pct_5h)
@@ -88,13 +115,16 @@ def _as_pct(v):
 
     The API returns these as floats, and not always clean ones: an observed
     sample was 28.999999999999996 for what is plainly 29. Truncating would
-    report 28, and would turn 89.6 into 89, which delays the hard stop. Every
-    rounding error here should push toward acting sooner, not later, so this
-    rounds up. Timestamps and counts use _as_int instead.
+    report 28, and would turn 89.6 into 89, delaying the hard stop. Every
+    rounding error here should push toward acting sooner, so this rounds up.
     """
     if v is None or isinstance(v, bool):
         return None
     if not isinstance(v, (int, float)):
+        return None
+    # json.loads accepts bare NaN/Infinity. math.ceil(nan) raises, which would
+    # take the daemon down; unknown is the fail-closed answer, not a crash.
+    if not math.isfinite(v):
         return None
     return int(math.ceil(v))
 

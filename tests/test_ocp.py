@@ -630,8 +630,17 @@ def test_triggers() -> None:
           T.evaluate(82, 10, burn=0.10).kind == "usage_projected")
     check("trigger: projection does not fire when burn is low",
           not T.evaluate(82, 10, burn=0.01).fired)
-    check("trigger: projection only applies above the hot mark",
-          not T.evaluate(70, 10, burn=1.0).fired)
+    # Projection applies at any level once burn is high enough. Gating it on a
+    # fixed hot mark meant an agent at 76% burning 0.3%/s sailed past the
+    # reserve during one normal 30s sleep without ever firing.
+    check("trigger: a fast burner fires below the hot mark",
+          T.evaluate(76, 10, burn=0.3).kind == "usage_projected")
+    check("trigger: a slow burner well below the line does not fire",
+          not T.evaluate(40, 10, burn=0.01).fired)
+    check("trigger: a fast burner is also polled fast",
+          T.poll_interval(76, 0.3) == T.POLL_HOT_S)
+    check("trigger: a quiet agent is still polled slowly",
+          T.poll_interval(40, 0.0) == T.POLL_NORMAL_S)
 
     check("trigger: polling tightens when hot", T.poll_interval(85) == T.POLL_HOT_S)
     check("trigger: polling tightens when usage is unknown",
@@ -705,9 +714,16 @@ def test_daemon_kill_recovery(home: Path) -> None:
         db.set_agent_state(con, "backend", dmn.HANDOFF, detail="killed mid-handoff")
 
         actions = dmn.reconcile(con, lambda _m: None)
-        check("daemon: reconciliation finds the in-flight handoff",
-              any("resuming in-flight handoff from step 'folded'" in a for a in actions),
+        check("daemon: reconciliation resumes the in-flight handoff",
+              any("resumed in-flight handoff from step 'folded'" in a for a in actions),
               str(actions))
+        # It must actually finish it, not just say so.
+        check("daemon: the resumed handoff is no longer in flight",
+              db.in_flight_handoffs(con) == [],
+              str([dict(h) for h in db.in_flight_handoffs(con)]))
+        row = db.get_agent_state(con, "backend")
+        check("daemon: the resumed agent is parked, not stuck in HANDOFF",
+              row["state"] == dmn.PARKED, str(dict(row)))
 
         # An agent mid-handoff is excluded from trigger evaluation (8.9).
         write_status(home, "alpha", pct_5h=99, pct_7d=10, ctx_pct=90)
@@ -738,24 +754,127 @@ def test_daemon_handoff_timeout(home: Path) -> None:
 
 
 def test_daemon_stall_escalation(home: Path) -> None:
-    """STALLED is reached only after automatic recovery repeatedly failed."""
+    """STALLED must be reachable by the path the daemon actually takes.
+
+    Driving real park -> wake -> degrade cycles, rather than hand-setting the
+    counter, is the point: resetting the streak on every wake pinned it at 1
+    and made this escalation unreachable while a hand-bumped test still passed.
+    """
     _daemon_home(home, 95)
     con = db.connect()
     try:
-        for _ in range(dmn.MAX_THROTTLE_STREAK):
-            db.bump_counter(con, "backend", "throttle_count")
-        db.set_agent_state(con, "backend", dmn.QUEUED)
-        dmn.tick(con, lambda _m: None, use_model=False)
-        row = db.get_agent_state(con, "backend")
-        check("daemon: repeated degradation escalates to STALLED",
-              row["state"] == dmn.STALLED, str(dict(row)))
+        real = foldmod.fold
+        foldmod.fold = lambda *a, **k: (False, "fold keeps failing")
+        seen = []
+        try:
+            for _ in range(dmn.MAX_THROTTLE_STREAK + 3):
+                row = db.get_agent_state(con, "backend")
+                if row and row["state"] == dmn.STALLED:
+                    break
+                # Make it due, as the usage window rolling over would.
+                if row and row["wake_at"]:
+                    db.set_agent_state(con, "backend", row["state"],
+                                       wake_at=int(time.time()) - 1, detail=row["detail"])
+                dmn.tick(con, lambda _m: None, use_model=False)
+                cur = db.get_agent_state(con, "backend")
+                seen.append((cur["state"], cur["throttle_count"]))
 
-        # A STALLED agent is never auto-cleared.
-        dmn.tick(con, lambda _m: None, use_model=False)
-        check("daemon: STALLED is not cleared automatically",
-              db.get_agent_state(con, "backend")["state"] == dmn.STALLED)
+            check("daemon: the throttle streak accumulates across park/wake cycles",
+                  max(t for _, t in seen) > 1, str(seen))
+            final = db.get_agent_state(con, "backend")
+            check("daemon: repeated degradation escalates to STALLED",
+                  final["state"] == dmn.STALLED, str(seen))
+
+            dmn.tick(con, lambda _m: None, use_model=False)
+            check("daemon: STALLED is not cleared automatically",
+                  db.get_agent_state(con, "backend")["state"] == dmn.STALLED)
+        finally:
+            foldmod.fold = real
     finally:
         con.close()
+
+
+def test_daemon_success_clears_streak(home: Path) -> None:
+    """A handoff that works must end the streak, or every agent eventually
+    stalls just from having been busy."""
+    _daemon_home(home, 95)
+    con = db.connect()
+    try:
+        for _ in range(3):
+            db.bump_counter(con, "backend", "throttle_count")
+        real = foldmod.fold
+        foldmod.fold = lambda *a, **k: (True, "ok")
+        try:
+            db.set_agent_state(con, "backend", dmn.QUEUED)
+            dmn.tick(con, lambda _m: None, use_model=False)
+        finally:
+            foldmod.fold = real
+        row = db.get_agent_state(con, "backend")
+        check("daemon: a successful handoff clears the throttle streak",
+              row["throttle_count"] == 0, str(dict(row)))
+    finally:
+        con.close()
+
+
+def test_daemon_degraded_recovers(home: Path) -> None:
+    """DEGRADED must not be a silent terminal state."""
+    check("daemon: DEGRADED is evaluated every tick", dmn.DEGRADED in dmn.EVALUATED)
+    _daemon_home(home, 50)
+    con = db.connect()
+    try:
+        db.start_handoff(con, "h_exp", "backend", "s", "usage", 0, int(time.time()) - 5)
+        dmn.tick(con, lambda _m: None, use_model=False)
+        row = db.get_agent_state(con, "backend")
+        check("daemon: a timed-out handoff degrades with a wake_at",
+              row["state"] == dmn.DEGRADED and row["wake_at"] is not None, str(dict(row)))
+        db.set_agent_state(con, "backend", dmn.DEGRADED, wake_at=int(time.time()) - 1)
+        dmn.tick(con, lambda _m: None, use_model=False)
+        row = db.get_agent_state(con, "backend")
+        check("daemon: a due DEGRADED agent returns to QUEUED",
+              row["state"] in (dmn.QUEUED, dmn.PARKED), str(dict(row)))
+    finally:
+        con.close()
+
+
+def test_daemon_tick_expires_handoff(home: Path) -> None:
+    """The deadline must be enforced every tick, not only at startup."""
+    _daemon_home(home, 50)
+    con = db.connect()
+    try:
+        db.start_handoff(con, "h_tick", "backend", "s", "usage", 0, int(time.time()) - 600)
+        db.set_agent_state(con, "backend", dmn.HANDOFF)
+        dmn.tick(con, lambda _m: None, use_model=False)
+        check("daemon: tick expires a handoff past its deadline",
+              db.in_flight_handoffs(con) == [],
+              str([dict(h) for h in db.in_flight_handoffs(con)]))
+        check("daemon: the agent does not stay wedged in HANDOFF",
+              db.get_agent_state(con, "backend")["state"] != dmn.HANDOFF)
+    finally:
+        con.close()
+
+
+def test_daemon_ignores_stale_status(home: Path) -> None:
+    """A frozen status.json must not be believed (the collector may be dead)."""
+    _daemon_home(home, 40)
+    write_status(home, "alpha", pct_5h=40, pct_7d=10, ctx_pct=5,
+                 collected_at=int(time.time()) - 100000)
+    st = status.read("alpha")
+    check("stale snapshot: assignable() refuses", not st.assignable()[0])
+    check("stale snapshot: pct is not trusted for triggers", st.trusted_pct_5h is None,
+          str(st.trusted_pct_5h))
+    t = triggers.evaluate(st.trusted_pct_5h, st.trusted_ctx_pct)
+    check("stale snapshot: the trigger fires fail-closed rather than trusting it",
+          t.fired and t.kind == "usage_unknown", t.reason)
+
+
+def test_daemon_poll_uses_hottest(home: Path) -> None:
+    """The pace is set by the hottest account, not the quietest."""
+    check("poll: a hot account polls fast", triggers.poll_interval(88) == triggers.POLL_HOT_S)
+    check("poll: max() over accounts is what matters",
+          triggers.poll_interval(max([10, 88])) == triggers.POLL_HOT_S)
+    check("poll: min() would have been wrong",
+          triggers.poll_interval(min([10, 88])) == triggers.POLL_NORMAL_S)
+    check("poll: unknown usage polls fast", triggers.poll_interval(None) == triggers.POLL_HOT_S)
 
 
 def test_daemon_evaluates_parked(home: Path) -> None:
@@ -864,6 +983,251 @@ def test_handoff_drift_header(home: Path) -> None:
           drift.OVERLAP_HEADER in text, text[:300])
 
 
+# ---------------------------------------------------------------- yaml differential
+DIFFERENTIAL_CASES = [
+    "reason: go#1\n",
+    "url: http://x/#frag\n",
+    "a: b # real comment\n",
+    "d:\n  - a:b\n",
+    "d:\n  - http://example.com\n",
+    "enabled: yes\nother: no\n",
+    "on_flag: on\noff_flag: off\n",
+    '"a:b": c\n',
+    "n: 0x10\n",
+    "n: 0o17\n",
+    "f: 1.5\ng: -2\nh: 1e3\n",
+    "q: 'single'\nr: \"double\"\n",
+    "empty:\n",
+    "nested:\n  a:\n    b: 1\n",
+    "lst:\n  - 1\n  - two\n  - true\n",
+    'flow: { a: 1, b: "x, y" }\n',
+    "flowlist: [1, 2, three]\n",
+    "edges:\n  - { from: \"*\", to: reviewer, creates_gate: no }\n",
+    "edges:\n  - { from: \"*\", to: reviewer, creates_gate: yes }\n",
+]
+
+
+def test_yaml_differential() -> None:
+    """The fallback must never disagree with PyYAML silently.
+
+    Two parsers reading the same routing policy differently is worse than
+    having no fallback: `creates_gate: no` was True under one and False under
+    the other, which decides whether an escalation needs a human.
+    """
+    try:
+        import yaml as pyyaml
+    except ImportError:
+        check("yaml differential: skipped (no PyYAML on this interpreter)", True)
+        return
+
+    mismatches = []
+    for src in DIFFERENTIAL_CASES + [team.STARTER, DESIGN_TEAM]:
+        try:
+            expected = pyyaml.safe_load(src)
+        except pyyaml.YAMLError:
+            expected = "<error>"
+        try:
+            got = yamlcompat.parse(src)
+        except yamlcompat.ConfigError:
+            got = "<error>"
+        # Raising where PyYAML succeeds is acceptable (loud, not silent);
+        # returning a different value is not.
+        if got != expected and got != "<error>":
+            mismatches.append((src, expected, got))
+    check("yaml differential: no silent disagreement with PyYAML",
+          not mismatches,
+          "; ".join(f"{s!r}: pyyaml={e!r} ours={g!r}" for s, e, g in mismatches[:3]))
+
+
+def test_yaml_rejects_ambiguity() -> None:
+    for src, label in [
+        ("a: &anchor x\n", "anchors"),
+        ("a: 12:30\n", "sexagesimals"),
+        ("n: inf\n", "inf"),
+        ("n: nan\n", "nan"),
+        ("a:\n\tb: 1\n", "tab indentation"),
+        ("a: 1\n---\nb: 2\n", "multiple documents"),
+        ("d:\n  - { a: 1\n", "unbalanced flow collection"),
+        ("d: }broken\n", "stray closing brace"),
+    ]:
+        try:
+            yamlcompat.parse(src)
+            check(f"yaml: rejects {label}", False, "parsed instead of raising")
+        except yamlcompat.ConfigError:
+            check(f"yaml: rejects {label}", True)
+
+
+def test_yaml_booleans() -> None:
+    got = yamlcompat.parse("a: yes\nb: no\nc: on\nd: off\ne: true\nf: false\n")
+    check("yaml: YAML 1.1 booleans are booleans, not strings",
+          got == {"a": True, "b": False, "c": True, "d": False, "e": True, "f": False},
+          str(got))
+    check("yaml: a quoted 'no' stays a string",
+          yamlcompat.parse('a: "no"\n')["a"] == "no")
+
+
+# ---------------------------------------------------------------- regressions
+def test_status_edge_cases(home: Path) -> None:
+    home.mkdir(parents=True, exist_ok=True)
+    os.environ["OCP_HOME"] = str(home)
+
+    # json.loads accepts bare NaN/Infinity; these must read as unknown, not
+    # crash the daemon mid-tick.
+    d = home / "accounts" / "nanny"
+    d.mkdir(parents=True, exist_ok=True)
+    for literal, label in [("NaN", "NaN"), ("Infinity", "Infinity"), ("-Infinity", "-Infinity")]:
+        (d / "status.json").write_text(
+            '{"session_id":"s","collected_at":%d,"pct_5h":%s}' % (int(time.time()), literal))
+        st = status.read("nanny")
+        check(f"status: {label} reads as unknown, not a crash", st.pct_5h is None,
+              str(st.pct_5h))
+        check(f"status: {label} then refuses assignment", not st.assignable()[0])
+
+    (d / "status.json").write_text(
+        '{"session_id":"s","collected_at":%d,"pct_5h":"85"}' % int(time.time()))
+    check("status: a string percentage reads as unknown", status.read("nanny").pct_5h is None)
+
+    # A millisecond timestamp is a plausible collector bug. Clamping it to
+    # age 0 made it look permanently fresh.
+    write_status(home, "future", pct_5h=5, collected_at=int(time.time()) * 1000)
+    st = status.read("future")
+    check("status: a future timestamp is unknown age, not fresh", st.age_s is None,
+          str(st.age_s))
+    check("status: a future timestamp is stale", st.stale)
+    check("status: a future timestamp refuses assignment", not st.assignable()[0])
+
+
+def test_team_deny_validation() -> None:
+    """A malformed deny silently *allows*, so it must fail to load."""
+    base = ("teams:\n  eng: [backend]\n  growth: [marketing]\n"
+            "agents:\n  backend: { intake: dedicated }\n  marketing: { intake: dedicated }\n"
+            'edges:\n  - { from: "*", to: "*", relation: peer }\n')
+    for deny, label in [
+        ('deny:\n  - { form: "backend", to: "marketing", reason: "typo key" }\n',
+         "a typo'd key"),
+        ('deny:\n  - { from: "backend" }\n', "a missing 'to'"),
+        ('deny:\n  - { from: "engg.*", to: "growth.*" }\n', "an unknown team"),
+    ]:
+        try:
+            team.Team(yamlcompat.parse(base + deny))
+            check(f"team: rejects {label} in deny", False, "loaded instead of raising")
+        except yamlcompat.ConfigError:
+            check(f"team: rejects {label} in deny", True)
+
+    # An unknown team in an edge is just as silent.
+    try:
+        team.Team(yamlcompat.parse(
+            "teams:\n  eng: [backend]\n"
+            "agents:\n  backend: { intake: dedicated }\n"
+            'edges:\n  - { from: "nosuch.*", to: "backend" }\n'))
+        check("team: rejects an unknown team in an edge", False, "loaded")
+    except yamlcompat.ConfigError:
+        check("team: rejects an unknown team in an edge", True)
+
+    # And a well-formed deny must still win.
+    t = team.Team(yamlcompat.parse(
+        base + 'deny:\n  - { from: "eng.*", to: "growth.*", reason: "via product" }\n'))
+    check("team: a well-formed deny still wins over a wildcard edge",
+          not t.route("backend", "marketing").allowed)
+
+
+def test_ask_respects_terminal_state(home: Path) -> None:
+    home.mkdir(parents=True, exist_ok=True)
+    os.environ["OCP_HOME"] = str(home)
+    (home / "team.yaml").write_text(DESIGN_TEAM)
+    for n in ("backend", "reviewer"):
+        agents.register(n, "alpha")
+    con = db.connect()
+    try:
+        db.set_agent_state(con, "backend", "STALLED", detail="needs a human")
+    finally:
+        con.close()
+    askmod.ask("reviewer", "review this", requester="backend")
+    con = db.connect()
+    try:
+        st = db.get_agent_state(con, "backend")
+        check("ask: an agent cannot park its own STALLED away",
+              st["state"] == "STALLED", str(dict(st)))
+    finally:
+        con.close()
+
+
+def test_launch_refuses_stale(home: Path) -> None:
+    home.mkdir(parents=True, exist_ok=True)
+    os.environ["OCP_HOME"] = str(home)
+    bindir = home / "stub"
+    bindir.mkdir(parents=True, exist_ok=True)
+    (bindir / "claude").write_text("#!/bin/sh\necho started\n")
+    (bindir / "claude").chmod(0o755)
+    agents.register("st", "delta")
+    cfg = home / "accounts" / "delta" / ".claude"
+    cfg.mkdir(parents=True, exist_ok=True)
+    (cfg / ".credentials.json").write_text("{}")
+    env = dict(os.environ, PATH=f"{bindir}:{os.environ['PATH']}", OCP_HOME=str(home))
+
+    write_status(home, "delta", pct_5h=20, collected_at=int(time.time()) - 100000)
+    r = subprocess.run([sys.executable, str(ROOT / "bin" / "ocp"), "launch", "st"],
+                       capture_output=True, text=True, env=env)
+    check("launch: refuses a stale snapshot even when it reads low",
+          r.returncode != 0, r.stdout + r.stderr)
+    r = subprocess.run([sys.executable, str(ROOT / "bin" / "ocp"), "launch", "st", "--force"],
+                       capture_output=True, text=True, env=env)
+    check("launch: --force still overrides a stale snapshot", r.returncode == 0, r.stdout)
+
+
+def test_collector_account_named_like_user(home: Path) -> None:
+    """An account named after the user must not be renamed to 'default'."""
+    home.mkdir(parents=True, exist_ok=True)
+    user = Path(os.path.expanduser("~")).name
+    cfg = home / "accounts" / user / ".claude"
+    cfg.mkdir(parents=True, exist_ok=True)
+    payload = {"session_id": "s1", "model": {"id": "m"},
+               "rate_limits": {"five_hour": {"used_percentage": 77, "resets_at": 1},
+                               "seven_day": {"used_percentage": 5, "resets_at": 2}}}
+    env = dict(os.environ, CLAUDE_CONFIG_DIR=str(cfg), OCP_HOME=str(home))
+    subprocess.run([str(ROOT / "libexec" / "statusline-collect.sh")],
+                   input=json.dumps(payload), capture_output=True, text=True, env=env)
+    check(f"collector: an account named {user!r} keeps its own name",
+          (home / "accounts" / user / "status.json").exists(),
+          str(sorted(p.name for p in (home / "accounts").iterdir())))
+    check("collector: no phantom 'default' account is created",
+          not (home / "accounts" / "default").exists())
+
+
+def test_db_dedup_only_swallows_dedup(home: Path) -> None:
+    con = db.connect(home / "strict.sqlite")
+    try:
+        check("db: a real constraint violation is not silently swallowed",
+              _raises(lambda: con.execute(
+                  "INSERT INTO events(ts, agent, kind) VALUES(?,NULL,?)", (1, "k"))))
+    finally:
+        con.close()
+
+
+def _raises(fn) -> bool:
+    try:
+        fn()
+        return False
+    except Exception:  # noqa: BLE001
+        return True
+
+
+def test_agent_rewrite_uses_parser(home: Path) -> None:
+    home.mkdir(parents=True, exist_ok=True)
+    os.environ["OCP_HOME"] = str(home)
+    agents.register("rw", "alpha", model="opus")
+    # A spacing variant that prefix-matching would have duplicated.
+    agents.agent_file("rw").write_text("name: rw\naccount : alpha\nmodel: opus\n")
+    agents.register("rw", "beta")
+    cfg = agents.read("rw")
+    check("agents: re-register moves the account through the parser",
+          cfg.get("account") == "beta", str(cfg))
+    text = agents.agent_file("rw").read_text()
+    check("agents: no duplicate account key is left behind",
+          text.count("account") == 1, text)
+    check("agents: other fields survive the rewrite", cfg.get("model") == "opus", str(cfg))
+
+
 def main() -> int:
     with tempfile.TemporaryDirectory() as td:
         home = Path(td) / "orcapipe"
@@ -874,6 +1238,9 @@ def main() -> int:
         test_agents(home)
         test_launch(home)
         test_team_routing()
+        test_yaml_differential()
+        test_yaml_rejects_ambiguity()
+        test_yaml_booleans()
         test_team_validation()
         test_db_dedup(home)
         test_ask_flow(Path(td) / 'askhome')
@@ -889,6 +1256,18 @@ def main() -> int:
         test_daemon_kill_recovery(Path(td) / 'd3')
         test_daemon_handoff_timeout(Path(td) / 'd4')
         test_daemon_stall_escalation(Path(td) / 'd5')
+        test_daemon_success_clears_streak(Path(td) / 'd5b')
+        test_daemon_degraded_recovers(Path(td) / 'd5c')
+        test_daemon_tick_expires_handoff(Path(td) / 'd5d')
+        test_daemon_ignores_stale_status(Path(td) / 'd5e')
+        test_daemon_poll_uses_hottest(Path(td) / 'd5f')
+        test_status_edge_cases(Path(td) / 'se')
+        test_team_deny_validation()
+        test_ask_respects_terminal_state(Path(td) / 'term')
+        test_launch_refuses_stale(Path(td) / 'stale')
+        test_collector_account_named_like_user(Path(td) / 'named')
+        test_db_dedup_only_swallows_dedup(Path(td) / 'strict')
+        test_agent_rewrite_uses_parser(Path(td) / 'rw')
         test_daemon_pidfile(Path(td) / 'd6')
         test_drift(Path(td) / 'drift')
         test_handoff_drift_header(Path(td) / 'hdhome')

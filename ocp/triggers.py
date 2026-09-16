@@ -14,7 +14,7 @@ from __future__ import annotations
 import time
 from dataclasses import dataclass
 
-# Context: replaces the cache-expiry trigger that appendix A-2 removed.
+# Replaces the cache-expiry trigger that appendix A-2 removed.
 CONTEXT_PCT = 60
 
 # 90% is the hard stop. We act earlier by the reserve, which is the observed
@@ -22,7 +22,6 @@ CONTEXT_PCT = 60
 HARD_STOP_PCT = 90
 DEFAULT_RESERVE_PCT = 5
 
-# Above this, tighten polling and switch to projected judgement.
 HOT_PCT = 80
 POLL_NORMAL_S = 30
 POLL_HOT_S = 5
@@ -37,10 +36,21 @@ class Trigger:
     projected: float | None = None
 
 
-def poll_interval(pct_5h: int | None) -> int:
-    """Unknown usage polls at the fast rate: not knowing is not a reason to
-    relax, it is a reason to look sooner."""
+def poll_interval(pct_5h: int | None, burn: float = 0.0,
+                  reserve_pct: int = DEFAULT_RESERVE_PCT) -> int:
+    """How long we may sleep before looking again.
+
+    Unknown usage polls fast: not knowing is a reason to look sooner, not to
+    relax. Otherwise the question is whether a normal-length sleep could carry
+    us past the line, so burn decides it, not the fixed HOT_PCT mark alone. At
+    0.3%/s - the rate in this module's own 88->97 example - an agent at 76%
+    would clear the reserve during one 30s sleep, and a fixed mark never sees
+    it coming.
+    """
     if pct_5h is None or pct_5h >= HOT_PCT:
+        return POLL_HOT_S
+    limit = HARD_STOP_PCT - reserve_pct
+    if burn > 0 and pct_5h + burn * (POLL_NORMAL_S + FOLD_ETA_S) >= limit:
         return POLL_HOT_S
     return POLL_NORMAL_S
 
@@ -86,8 +96,11 @@ def evaluate(pct_5h: int | None, ctx_pct: int | None, reserve_pct: int = DEFAULT
         return Trigger(True, "usage", f"pct_5h {pct_5h}% >= {limit}% "
                                       f"(hard stop {HARD_STOP_PCT}% minus reserve {reserve_pct}%)")
 
-    if pct_5h >= HOT_PCT:
-        poll = poll_interval(pct_5h) if poll_s is None else poll_s
+    # Project from wherever we are, not only above HOT_PCT. The horizon is the
+    # sleep we are actually about to take plus the fold it would have to
+    # finish, so a fast burner is caught before it crosses rather than after.
+    if burn > 0:
+        poll = poll_interval(pct_5h, burn, reserve_pct) if poll_s is None else poll_s
         projected = pct_5h + burn * (poll + fold_eta_s)
         if projected >= limit:
             return Trigger(True, "usage_projected",
