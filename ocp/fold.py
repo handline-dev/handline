@@ -215,7 +215,7 @@ def fold(agent: str, use_model: bool = True, model: str = "haiku",
         if not events:
             # Nothing to fold, but still refresh the deterministic block so a
             # resume never reads stale facts.
-            _write_handoff(agent, previous, facts)
+            _write_handoff(agent, previous, facts, repo=repo)
             return True, f"{agent}: nothing new to fold (cursor at {cursor})"
 
         top = events[-1]["id"]
@@ -244,7 +244,7 @@ def fold(agent: str, use_model: bool = True, model: str = "haiku",
             # the cursor does not move, and the delta is retried next time.
             degraded = _degraded(agent, previous, events, day, facts)
             _publish(agent, jpath, degraded, commit_msg=f"fold {agent} {day} (degraded)")
-            _write_handoff(agent, digest.parse(degraded), facts)
+            _write_handoff(agent, digest.parse(degraded), facts, repo=repo)
             db.add_event(con, agent, "fold_failed", {"problems": problems, "cursor": cursor})
             return False, (f"{agent}: fold rejected, kept the previous digest and left the "
                            f"cursor at {cursor}. Reason: {'; '.join(problems)[:300]}")
@@ -256,7 +256,7 @@ def fold(agent: str, use_model: bool = True, model: str = "haiku",
         merged.folded_through = top
         text = digest.render(merged)
         _publish(agent, jpath, text, commit_msg=f"fold {agent} {day}")
-        _write_handoff(agent, merged, facts)
+        _write_handoff(agent, merged, facts, repo=repo)
 
         con.execute("BEGIN IMMEDIATE")
         try:
@@ -311,14 +311,25 @@ def _publish(agent: str, path: Path, text: str, commit_msg: str) -> None:
                        capture_output=True, check=False)
 
 
-def _write_handoff(agent: str, d: digest.Digest, facts: str) -> Path:
+def _write_handoff(agent: str, d: digest.Digest, facts: str,
+                   repo: Path | None = None, base: str = "main") -> Path:
     """handoff/latest.md - machine-extracted, injected on resume.
 
     The deterministic block is always included, so a resume after a failed fold
     still has the branch, the recent commits and the recent events.
     """
+    from . import drift as driftmod
+
     p = handoff_path(agent)
     parts = [f"# handoff · {agent}", f"generated: {time.strftime('%Y-%m-%d %H:%M:%S')}", ""]
+    if d.items("done"):
+        # Section 8.8: which header goes above the completed items depends on
+        # whether the base moved under the files this agent touched.
+        dr = driftmod.check(repo, base=base, fetch=False) if repo else driftmod.Drift(ok=False)
+        parts += [f"> {dr.resume_header()}", f"> ({dr.summary()})", "",
+                  f"## {digest.HEADINGS['done']}"]
+        parts += [f"- {i}" for i in d.items("done")]
+        parts.append("")
     for key in ("in_progress", "blocked", "next"):
         items = d.items(key)
         parts.append(f"## {digest.HEADINGS[key]}")

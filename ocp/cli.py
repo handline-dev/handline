@@ -14,8 +14,9 @@ import sys
 import time
 from pathlib import Path
 
-from . import (accounts, agents, ask as askmod, db, digest, doctor, events, fold as foldmod,
-               guide, hooks, launch, paths, status, team)
+from . import (accounts, agents, ask as askmod, daemon as daemonmod, db, digest, doctor,
+               drift, events, fold as foldmod, guide, hooks, launch, paths, status,
+               team, triggers)
 
 
 # ---------------------------------------------------------------- init
@@ -170,8 +171,91 @@ def cmd_status(args) -> int:
     return 0 if picked else 1
 
 
+def cmd_drift(args) -> int:
+    d = drift.check(Path(args.repo).resolve(), base=args.base, fetch=not args.no_fetch)
+    print(d.summary())
+    if d.overlap:
+        print("\noverlapping files:")
+        for f in d.overlap[:20]:
+            print(f"  {f}")
+    print(f"\nresume header:\n  {d.resume_header()}")
+    return 0 if d.ok and not d.significant else 1
+
+
 def cmd_guide(args) -> int:
     return guide.show(args.topic)
+
+
+# ---------------------------------------------------------------- daemon
+def cmd_daemon(args) -> int:
+    return daemonmod.run(once=args.once, use_model=not args.no_model,
+                         verbose=not args.quiet, max_ticks=args.max_ticks)
+
+
+def cmd_daemon_status(args) -> int:
+    pid = daemonmod.running_elsewhere()
+    print(f"daemon: {'running, pid ' + str(pid) if pid else 'not running'}")
+    con = db.connect()
+    try:
+        rows = db.all_agent_states(con)
+        if not rows:
+            print("no agent state recorded yet")
+        else:
+            print(f"\n{'AGENT':<14}{'STATE':<11}{'WAKE':<8}{'fail':>5}{'cont':>6}{'thr':>5}  DETAIL")
+            now = int(time.time())
+            for r in rows:
+                wake = "-" if not r["wake_at"] else time.strftime("%H:%M", time.localtime(r["wake_at"]))
+                if r["wake_at"] and r["wake_at"] <= now:
+                    wake += "!"
+                print(f"{r['agent']:<14}{r['state']:<11}{wake:<8}"
+                      f"{r['failed_attempts']:>5}{r['continuations']:>6}{r['throttle_count']:>5}  "
+                      f"{(r['detail'] or '')[:46]}")
+        flight = db.in_flight_handoffs(con)
+        if flight:
+            print("\nin-flight handoffs (resume from these steps):")
+            for h in flight:
+                print(f"  {h['agent']:<14} step={h['step']:<11} state={h['state']:<10} "
+                      f"deadline={time.strftime('%H:%M:%S', time.localtime(h['deadline']))}")
+    finally:
+        con.close()
+    return 0
+
+
+def cmd_unstall(args) -> int:
+    """STALLED is a task defect and only a human clears it (section 8.6)."""
+    con = db.connect()
+    try:
+        row = db.get_agent_state(con, args.agent)
+        if not row:
+            print(f"no state for {args.agent}")
+            return 1
+        if row["state"] != daemonmod.STALLED:
+            print(f"{args.agent} is {row['state']}, not STALLED")
+            return 1
+        db.set_agent_state(con, args.agent, daemonmod.QUEUED, detail="cleared by a human")
+        db.reset_counter(con, args.agent, "failed_attempts")
+        db.reset_counter(con, args.agent, "throttle_count")
+        print(f"{args.agent}: STALLED -> QUEUED")
+    finally:
+        con.close()
+    return 0
+
+
+def cmd_triggers(args) -> int:
+    """Show what the daemon would decide right now, without acting."""
+    print(f"{'AGENT':<14}{'ACCT':<10}{'5h':>4}{'ctx':>5}  FIRES  REASON")
+    for a in paths.list_agents():
+        try:
+            acct = agents.account_of(a)
+        except Exception as e:  # noqa: BLE001
+            print(f"{a:<14} config error: {e}")
+            continue
+        st = status.read(acct)
+        t = triggers.evaluate(st.pct_5h, st.ctx_pct)
+        cell = lambda v: "  -" if v is None else f"{v:>3}"  # noqa: E731
+        print(f"{a:<14}{acct:<10}{cell(st.pct_5h):>4}{cell(st.ctx_pct):>5}  "
+              f"{'YES' if t.fired else 'no ':<6} {t.reason}")
+    return 0
 
 
 # ---------------------------------------------------------------- record
@@ -449,6 +533,29 @@ def build_parser() -> argparse.ArgumentParser:
 
     p = sub.add_parser("install-hooks", help="add ocp event hooks to shared settings")
     p.set_defaults(fn=cmd_hook_install)
+
+    p = sub.add_parser("daemon", help="run the supervisor loop")
+    p.add_argument("--once", action="store_true", help="one tick, then exit")
+    p.add_argument("--max-ticks", type=int, default=None)
+    p.add_argument("--no-model", action="store_true", help="never spend tokens on folds")
+    p.add_argument("--quiet", action="store_true")
+    p.set_defaults(fn=cmd_daemon)
+
+    p = sub.add_parser("ps", help="daemon and agent state")
+    p.set_defaults(fn=cmd_daemon_status)
+
+    p = sub.add_parser("triggers", help="what the daemon would decide right now")
+    p.set_defaults(fn=cmd_triggers)
+
+    p = sub.add_parser("unstall", help="clear STALLED (humans only)")
+    p.add_argument("agent")
+    p.set_defaults(fn=cmd_unstall)
+
+    p = sub.add_parser("drift", help="has the base moved under this agent?")
+    p.add_argument("repo")
+    p.add_argument("--base", default="main")
+    p.add_argument("--no-fetch", action="store_true")
+    p.set_defaults(fn=cmd_drift)
 
     p = sub.add_parser("guide", help="load detail on demand")
     p.add_argument("topic", nargs="?")

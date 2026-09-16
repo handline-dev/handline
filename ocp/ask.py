@@ -18,6 +18,11 @@ from pathlib import Path
 
 from . import db, paths, team
 
+# How long a requester waits on an async reply before the daemon re-evaluates
+# it anyway. Not a timeout on the request - just a guarantee that a lost reply
+# cannot strand an agent.
+AWAIT_FALLBACK_S = 3600
+
 
 def current_agent() -> str | None:
     """Who is asking. Set by `ocp launch` when it execs claude."""
@@ -99,9 +104,16 @@ def ask(target: str, body: str, files: str | None = None, requester: str | None 
 
         # async: the requester hands off and parks, so it is not holding an
         # account while it waits (team model section 2, axis 3).
+        #
+        # PARKED is the design's own state name (section 8.2); the daemon
+        # evaluates it every tick. The wake is normally the arriving reply,
+        # which resolve() turns into QUEUED. The fallback wake_at exists so a
+        # reply that never arrives cannot park an agent forever - that is the
+        # permanent-stop failure section 8.4 warns about.
         if decision.response == "async":
-            db.set_agent_state(con, requester, "PARKED_AWAITING",
-                               detail=f"request {rid} to {target}")
+            db.set_agent_state(con, requester, "PARKED",
+                               wake_at=int(time.time()) + AWAIT_FALLBACK_S,
+                               detail=f"awaiting reply to request {rid} from {target}")
 
         note = f"queued as #{rid} for {target} (intake={decision.intake}, " \
                f"response={decision.response}, {note})"
@@ -132,10 +144,10 @@ def resolve(rid: int, verdict: str, state: str = "done") -> tuple[bool, str]:
         db.add_event(con, row["target"], "resolve",
                      {"request_id": rid, "state": state, "requester": row["requester"]})
 
-        # Waking the requester is the daemon's job (section 8.4); here we only
-        # record that it is now wakeable, so a daemon restart can still find it.
+        # The reply is the wake. QUEUED is the design's state for "ready to be
+        # dispatched"; the daemon picks it up from there (section 8.2).
         if row["response"] == "async":
-            db.set_agent_state(con, row["requester"], "WAKEABLE",
+            db.set_agent_state(con, row["requester"], "QUEUED", wake_at=None,
                                detail=f"request {rid} resolved: {state}")
         p = _inbox(row["target"]) / f"{rid:06d}.json"
         if p.exists():

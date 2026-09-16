@@ -15,8 +15,9 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
-from ocp import (agents, ask as askmod, db, digest, events as evmod, fold as foldmod,
-                 status, team, yamlcompat)  # noqa: E402
+from ocp import (agents, ask as askmod, daemon as dmn, db, digest, drift,
+                 events as evmod, fold as foldmod, paths, status, team, triggers,
+                 yamlcompat)  # noqa: E402
 
 PASS, FAIL = [], []
 
@@ -345,7 +346,9 @@ def test_ask_flow(home: Path) -> None:
         denied = con.execute("SELECT COUNT(*) c FROM requests WHERE state='denied'").fetchone()["c"]
         check("ask: denials are recorded, not silent", denied == 2, str(denied))
         st = db.get_agent_state(con, "backend")
-        check("ask: async requester parks", st["state"] == "PARKED_AWAITING", str(dict(st)))
+        check("ask: async requester parks", st["state"] == "PARKED", str(dict(st)))
+        check("ask: parking a requester sets a fallback wake_at so a lost "
+              "reply cannot strand it", st["wake_at"] is not None, str(dict(st)))
     finally:
         con.close()
 
@@ -355,7 +358,8 @@ def test_ask_flow(home: Path) -> None:
     con = db.connect()
     try:
         st = db.get_agent_state(con, "backend")
-        check("resolve: requester becomes wakeable", st["state"] == "WAKEABLE", str(dict(st)))
+        check("resolve: the reply queues the requester", st["state"] == "QUEUED", str(dict(st)))
+        check("resolve: queueing clears the fallback wake_at", st["wake_at"] is None)
     finally:
         con.close()
 
@@ -593,6 +597,261 @@ def test_event_allowlist() -> None:
     check("events: PostToolUse is not captured", "PostToolUse" not in evmod.CAPTURED)
 
 
+# ---------------------------------------------------------------- triggers
+def test_triggers() -> None:
+    T = triggers
+    check("trigger: quiet agent does not fire", not T.evaluate(10, 10).fired)
+    check("trigger: context at 60 fires", T.evaluate(10, 60).kind == "context")
+    check("trigger: context below 60 does not", not T.evaluate(10, 59).fired)
+
+    t = T.evaluate(85, 10)
+    check("trigger: usage at 90-reserve fires", t.fired and t.kind == "usage", t.reason)
+    check("trigger: usage at 84 does not fire", not T.evaluate(84, 10).fired)
+    check("trigger: hard stop fires", T.evaluate(90, 10).kind == "usage")
+
+    # Unknown usage must fire, not be treated as headroom (fail-closed).
+    t = T.evaluate(None, 10)
+    check("trigger: unknown usage fires fail-closed", t.fired and t.kind == "usage_unknown")
+
+    # Projection: a heavy agent can jump 88 -> 97 between ticks.
+    check("trigger: projection fires below the threshold when burn is high",
+          T.evaluate(82, 10, burn=0.10).kind == "usage_projected")
+    check("trigger: projection does not fire when burn is low",
+          not T.evaluate(82, 10, burn=0.01).fired)
+    check("trigger: projection only applies above the hot mark",
+          not T.evaluate(70, 10, burn=1.0).fired)
+
+    check("trigger: polling tightens when hot", T.poll_interval(85) == T.POLL_HOT_S)
+    check("trigger: polling tightens when usage is unknown",
+          T.poll_interval(None) == T.POLL_HOT_S)
+    check("trigger: polling relaxes when quiet", T.poll_interval(10) == T.POLL_NORMAL_S)
+
+    rate = T.burn_rate_per_s([(0, 10), (60, 13), (120, 17)])
+    check("burn: measured from samples", abs(rate * 60 - 4.0) < 0.01, str(rate * 60))
+    check("burn: a reset does not produce a negative rate",
+          T.burn_rate_per_s([(0, 88), (60, 2)]) == 0.0)
+    check("burn: too few samples means zero", T.burn_rate_per_s([(0, 10)]) == 0.0)
+
+
+# ---------------------------------------------------------------- daemon
+def _daemon_home(home: Path, pct: int | None) -> None:
+    home.mkdir(parents=True, exist_ok=True)
+    os.environ["OCP_HOME"] = str(home)
+    (home / "team.yaml").write_text(DESIGN_TEAM)
+    agents.register("backend", "alpha")
+    write_status(home, "alpha", pct_5h=pct, pct_7d=10, ctx_pct=5,
+                 reset_5h=int(time.time()) + 1800)
+
+
+def test_daemon_park(home: Path) -> None:
+    """At 95% the daemon must park the agent with no human involved."""
+    _daemon_home(home, 95)
+    logs: list[str] = []
+    con = db.connect()
+    try:
+        dmn.tick(con, logs.append, use_model=False)
+        row = db.get_agent_state(con, "backend")
+        check("daemon: parks an agent that is over the limit",
+              row["state"] == dmn.PARKED, str(dict(row)))
+        check("daemon: park sets a wake_at", row["wake_at"] is not None)
+        check("daemon: wake_at is the window reset", row["wake_at"] > int(time.time()))
+        check("daemon: handoff counts as a continuation, not a failure",
+              row["continuations"] == 1 and row["failed_attempts"] == 0, str(dict(row)))
+        check("daemon: the handoff was recorded as done",
+              all(h["state"] != "in_flight" for h in db.in_flight_handoffs(con)))
+    finally:
+        con.close()
+
+
+def test_daemon_resume(home: Path) -> None:
+    """A parked agent whose window rolled over resumes unattended."""
+    _daemon_home(home, 95)
+    con = db.connect()
+    try:
+        # Park it in the past, as if the reset had already happened.
+        db.set_agent_state(con, "backend", dmn.PARKED, wake_at=int(time.time()) - 10,
+                           detail="parked earlier")
+        write_status(home, "alpha", pct_5h=3, pct_7d=10, ctx_pct=5)
+        dmn.tick(con, lambda _m: None, use_model=False)
+        row = db.get_agent_state(con, "backend")
+        check("daemon: a due parked agent returns to QUEUED",
+              row["state"] == dmn.QUEUED, str(dict(row)))
+        check("daemon: waking clears wake_at", row["wake_at"] is None)
+    finally:
+        con.close()
+
+
+def test_daemon_kill_recovery(home: Path) -> None:
+    """SIGKILL leaves an in-flight handoff; a restart must recover it."""
+    _daemon_home(home, 50)
+    con = db.connect()
+    try:
+        # Exactly what a SIGKILL mid-handoff leaves behind.
+        db.start_handoff(con, "hid1", "backend", "sess", "usage", 0,
+                         int(time.time()) + 60)
+        db.advance_handoff(con, "hid1", "folded")
+        db.set_agent_state(con, "backend", dmn.HANDOFF, detail="killed mid-handoff")
+
+        actions = dmn.reconcile(con, lambda _m: None)
+        check("daemon: reconciliation finds the in-flight handoff",
+              any("resuming in-flight handoff from step 'folded'" in a for a in actions),
+              str(actions))
+
+        # An agent mid-handoff is excluded from trigger evaluation (8.9).
+        write_status(home, "alpha", pct_5h=99, pct_7d=10, ctx_pct=90)
+        before = len(db.in_flight_handoffs(con))
+        dmn.tick(con, lambda _m: None, use_model=False)
+        check("daemon: no competing handoff is started",
+              len(db.in_flight_handoffs(con)) == before, str(before))
+    finally:
+        con.close()
+
+
+def test_daemon_handoff_timeout(home: Path) -> None:
+    _daemon_home(home, 50)
+    con = db.connect()
+    try:
+        db.start_handoff(con, "hid2", "backend", "sess", "usage", 0, int(time.time()) - 5)
+        actions = dmn.reconcile(con, lambda _m: None)
+        check("daemon: an expired handoff is timed out",
+              any("timed out" in a for a in actions), str(actions))
+        row = db.get_agent_state(con, "backend")
+        check("daemon: a timed-out handoff degrades", row["state"] == dmn.DEGRADED)
+        check("daemon: timing out increments the throttle counter",
+              row["throttle_count"] == 1, str(dict(row)))
+        check("daemon: the cursor is not advanced by a timeout",
+              db.get_cursor(con, "fold:backend") == 0)
+    finally:
+        con.close()
+
+
+def test_daemon_stall_escalation(home: Path) -> None:
+    """STALLED is reached only after automatic recovery repeatedly failed."""
+    _daemon_home(home, 95)
+    con = db.connect()
+    try:
+        for _ in range(dmn.MAX_THROTTLE_STREAK):
+            db.bump_counter(con, "backend", "throttle_count")
+        db.set_agent_state(con, "backend", dmn.QUEUED)
+        dmn.tick(con, lambda _m: None, use_model=False)
+        row = db.get_agent_state(con, "backend")
+        check("daemon: repeated degradation escalates to STALLED",
+              row["state"] == dmn.STALLED, str(dict(row)))
+
+        # A STALLED agent is never auto-cleared.
+        dmn.tick(con, lambda _m: None, use_model=False)
+        check("daemon: STALLED is not cleared automatically",
+              db.get_agent_state(con, "backend")["state"] == dmn.STALLED)
+    finally:
+        con.close()
+
+
+def test_daemon_evaluates_parked(home: Path) -> None:
+    """Section 8.4: if only running agents were evaluated, an all-parked system
+    would never wake anything again."""
+    check("daemon: PARKED is evaluated every tick", dmn.PARKED in dmn.EVALUATED)
+    check("daemon: THROTTLED is evaluated every tick", dmn.THROTTLED in dmn.EVALUATED)
+    check("daemon: QUEUED is evaluated every tick", dmn.QUEUED in dmn.EVALUATED)
+    check("daemon: STALLED is not auto-evaluated", dmn.STALLED not in dmn.EVALUATED)
+
+
+def test_daemon_pidfile(home: Path) -> None:
+    home.mkdir(parents=True, exist_ok=True)
+    os.environ["OCP_HOME"] = str(home)
+    dmn.write_pidfile()
+    check("daemon: pidfile records this process", dmn.running_elsewhere() == os.getpid())
+
+    # A pidfile from before the last boot cannot describe a live process.
+    paths.daemon_pid().write_text(json.dumps({"pid": 99999, "boot": 1}))
+    check("daemon: a pre-boot pidfile is reclaimed", dmn.running_elsewhere() is None)
+    check("daemon: the stale pidfile is removed", not paths.daemon_pid().exists())
+
+    # A dead PID from this boot is also reclaimed.
+    paths.daemon_pid().write_text(json.dumps({"pid": 999999, "boot": dmn.boot_time()}))
+    check("daemon: a dead pid is reclaimed", dmn.running_elsewhere() is None)
+
+
+# ---------------------------------------------------------------- drift
+def _mkrepo(path: Path) -> None:
+    path.mkdir(parents=True, exist_ok=True)
+    env = dict(os.environ, GIT_AUTHOR_NAME="t", GIT_AUTHOR_EMAIL="t@t",
+               GIT_COMMITTER_NAME="t", GIT_COMMITTER_EMAIL="t@t")
+    run = lambda *a: subprocess.run(["git", *a], cwd=path, capture_output=True, env=env)  # noqa: E731
+    run("init", "-q", "-b", "main")
+    (path / "shared.txt").write_text("base\n")
+    (path / "other.txt").write_text("base\n")
+    run("add", "-A")
+    run("commit", "-qm", "base")
+
+
+def test_drift(tmp: Path) -> None:
+    origin = tmp / "origin"
+    _mkrepo(origin)
+    work = tmp / "work"
+    subprocess.run(["git", "clone", "-q", str(origin), str(work)], capture_output=True)
+    env = dict(os.environ, GIT_AUTHOR_NAME="t", GIT_AUTHOR_EMAIL="t@t",
+               GIT_COMMITTER_NAME="t", GIT_COMMITTER_EMAIL="t@t")
+    run = lambda cwd, *a: subprocess.run(["git", *a], cwd=cwd, capture_output=True, env=env)  # noqa: E731
+
+    d = drift.check(work, base="main", fetch=False)
+    check("drift: a fresh clone has no drift", d.ok and d.behind == 0, d.summary())
+
+    # The agent works on shared.txt.
+    (work / "shared.txt").write_text("agent edit\n")
+    run(work, "add", "-A")
+    run(work, "commit", "-qm", "agent work")
+    d = drift.check(work, base="main", fetch=False)
+    check("drift: the agent's own commits are not drift", d.behind == 0, d.summary())
+    check("drift: own commits are counted as touched files",
+          "shared.txt" in d.touched, str(d.touched))
+
+    # The base moves, on a file the agent did not touch.
+    (origin / "other.txt").write_text("base moved\n")
+    run(origin, "add", "-A")
+    run(origin, "commit", "-qm", "base moves other.txt")
+    run(work, "fetch", "-q")
+    d = drift.check(work, base="main", fetch=False)
+    check("drift: base movement is detected", d.behind == 1, d.summary())
+    check("drift: no overlap means not significant", not d.significant, str(d.overlap))
+    check("drift: no overlap uses the reassuring header",
+          d.resume_header() == drift.NO_OVERLAP_HEADER)
+
+    # The base moves again, this time on the agent's own file.
+    (origin / "shared.txt").write_text("base changed the shared file\n")
+    run(origin, "add", "-A")
+    run(origin, "commit", "-qm", "base moves shared.txt")
+    run(work, "fetch", "-q")
+    d = drift.check(work, base="main", fetch=False)
+    check("drift: overlap with the agent's files is detected",
+          d.significant and "shared.txt" in d.overlap, str(d.overlap))
+    check("drift: overlap switches to the cautious header",
+          d.resume_header() == drift.OVERLAP_HEADER)
+    check("drift: the verdict is the file intersection, not the commit count",
+          d.behind == 2 and d.overlap == ["shared.txt"], d.summary())
+
+    # Unknown drift must not reassure.
+    bad = drift.check(tmp / "nope", base="main", fetch=False)
+    check("drift: an unknown result is fail-closed",
+          not bad.ok and bad.resume_header() == drift.OVERLAP_HEADER, bad.summary())
+
+
+def test_handoff_drift_header(home: Path) -> None:
+    """The resume header must actually reach handoff/latest.md."""
+    home.mkdir(parents=True, exist_ok=True)
+    os.environ["OCP_HOME"] = str(home)
+    agents.register("backend", "alpha")
+    d = digest.Digest(date=foldmod.today(), agent="backend", updated="10:00", folded_through=1,
+                      sections={"done": ["shipped the thing"], "in_progress": [], "decided": [],
+                                "blocked": [], "next": [], "base_candidates": []})
+    foldmod._write_handoff("backend", d, "facts here", repo=None)
+    text = foldmod.handoff_path("backend").read_text()
+    check("handoff: completed items appear", "shipped the thing" in text)
+    check("handoff: a drift header is attached above them",
+          drift.OVERLAP_HEADER in text or drift.NO_OVERLAP_HEADER in text, text[:200])
+    check("handoff: unknown drift uses the cautious header",
+          drift.OVERLAP_HEADER in text, text[:300])
+
+
 def main() -> int:
     with tempfile.TemporaryDirectory() as td:
         home = Path(td) / "orcapipe"
@@ -611,6 +870,16 @@ def main() -> int:
         test_event_allowlist()
         test_fold(Path(td) / 'foldhome')
         test_rollover(Path(td) / 'rollhome')
+        test_triggers()
+        test_daemon_evaluates_parked(Path(td) / 'd0')
+        test_daemon_park(Path(td) / 'd1')
+        test_daemon_resume(Path(td) / 'd2')
+        test_daemon_kill_recovery(Path(td) / 'd3')
+        test_daemon_handoff_timeout(Path(td) / 'd4')
+        test_daemon_stall_escalation(Path(td) / 'd5')
+        test_daemon_pidfile(Path(td) / 'd6')
+        test_drift(Path(td) / 'drift')
+        test_handoff_drift_header(Path(td) / 'hdhome')
     print(f"\n{len(PASS)} passed, {len(FAIL)} failed")
     for f in FAIL:
         print(f"  FAILED: {f}")

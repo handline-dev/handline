@@ -59,19 +59,36 @@ CREATE TABLE IF NOT EXISTS cursors (
 );
 
 CREATE TABLE IF NOT EXISTS agent_state (
-  agent   TEXT PRIMARY KEY,
-  state   TEXT NOT NULL,
-  wake_at INTEGER,
-  detail  TEXT,
-  updated INTEGER NOT NULL
+  agent           TEXT PRIMARY KEY,
+  state           TEXT NOT NULL,
+  wake_at         INTEGER,
+  detail          TEXT,
+  updated         INTEGER NOT NULL,
+  -- Section 8.5: these count different things on purpose. failed_attempts
+  -- counts real failures and is capped; continuations come from handoff and
+  -- are unlimited, because capping them makes the system stop sooner the
+  -- harder it is working.
+  failed_attempts INTEGER NOT NULL DEFAULT 0,
+  continuations   INTEGER NOT NULL DEFAULT 0,
+  throttle_count  INTEGER NOT NULL DEFAULT 0
 );
 
+-- Section 8.9: handoff progress is persisted per step, so a daemon restart
+-- resumes from the step it reached instead of starting over.
 CREATE TABLE IF NOT EXISTS handoff (
-  agent   TEXT PRIMARY KEY,
-  stage   TEXT NOT NULL,
-  detail  TEXT,
-  updated INTEGER NOT NULL
+  id          TEXT PRIMARY KEY,
+  agent       TEXT NOT NULL,
+  session_id  TEXT,
+  trigger_kind TEXT,
+  cursor_from INTEGER,
+  cursor_to   INTEGER,
+  step        TEXT NOT NULL,
+  deadline    INTEGER,
+  state       TEXT NOT NULL,
+  detail      TEXT,
+  updated     INTEGER NOT NULL
 );
+CREATE INDEX IF NOT EXISTS handoff_agent ON handoff(agent, state);
 """
 
 
@@ -84,8 +101,37 @@ def connect(path: Path | None = None) -> sqlite3.Connection:
     con.execute("PRAGMA journal_mode=WAL")
     con.execute("PRAGMA synchronous=NORMAL")
     con.execute("PRAGMA foreign_keys=ON")
+    # Outdated tables must go before the schema runs: the new indexes
+    # reference columns an old table does not have, so CREATE INDEX would fail
+    # before any migration had a chance to act.
+    _drop_outdated(con)
     con.executescript(SCHEMA)
+    _add_missing_columns(con)
     return con
+
+
+def _cols(con, table: str) -> set[str]:
+    return {r[1] for r in con.execute(f"PRAGMA table_info({table})")}
+
+
+def _drop_outdated(con) -> None:
+    """Drop tables that predate the current schema.
+
+    Only handoff qualifies. Its rows are transient progress state, so dropping
+    them is safe: anything that was in flight is re-derived by the daemon's
+    reconciliation pass on the next start. Events, requests and cursors are
+    durable and are never dropped.
+    """
+    handoff_cols = _cols(con, "handoff")
+    if handoff_cols and "step" not in handoff_cols:
+        con.execute("DROP TABLE IF EXISTS handoff")
+
+
+def _add_missing_columns(con) -> None:
+    state_cols = _cols(con, "agent_state")
+    for col in ("failed_attempts", "continuations", "throttle_count"):
+        if col not in state_cols:
+            con.execute(f"ALTER TABLE agent_state ADD COLUMN {col} INTEGER NOT NULL DEFAULT 0")
 
 
 # ---------------------------------------------------------------- events
@@ -193,6 +239,31 @@ def set_agent_state(con, agent: str, state: str, wake_at: int | None = None,
     )
 
 
+def bump_counter(con, agent: str, column: str, by: int = 1) -> None:
+    if column not in ("failed_attempts", "continuations", "throttle_count"):
+        raise ValueError(f"not a counter column: {column}")
+    con.execute(
+        f"INSERT INTO agent_state(agent, state, updated, {column}) VALUES(?,?,?,?) "
+        f"ON CONFLICT(agent) DO UPDATE SET {column} = agent_state.{column} + ?, updated = ?",
+        (agent, "IDLE", int(time.time()), by, by, int(time.time())),
+    )
+
+
+def reset_counter(con, agent: str, column: str) -> None:
+    if column not in ("failed_attempts", "continuations", "throttle_count"):
+        raise ValueError(f"not a counter column: {column}")
+    con.execute(f"UPDATE agent_state SET {column} = 0 WHERE agent = ?", (agent,))
+
+
+def due_agents(con, now: int):
+    """Agents whose wake_at has come due. The persisted scan that section 8.4
+    relies on: an in-memory timer is an optimization, never the source of truth."""
+    return con.execute(
+        "SELECT * FROM agent_state WHERE wake_at IS NOT NULL AND wake_at <= ? ORDER BY wake_at",
+        (now,),
+    ).fetchall()
+
+
 def get_agent_state(con, agent: str):
     return con.execute("SELECT * FROM agent_state WHERE agent = ?", (agent,)).fetchone()
 
@@ -201,14 +272,38 @@ def all_agent_states(con):
     return con.execute("SELECT * FROM agent_state ORDER BY agent").fetchall()
 
 
-def set_handoff(con, agent: str, stage: str, detail: str | None = None) -> None:
+# Handoff steps, in order (section 8.9).
+HANDOFF_STEPS = ("requested", "folded", "extracted", "released")
+
+
+def start_handoff(con, hid: str, agent: str, session_id: str | None, trigger_kind: str,
+                  cursor_from: int, deadline: int) -> None:
     con.execute(
-        "INSERT INTO handoff(agent, stage, detail, updated) VALUES(?,?,?,?) "
-        "ON CONFLICT(agent) DO UPDATE SET stage=excluded.stage, detail=excluded.detail, "
-        "updated=excluded.updated",
-        (agent, stage, detail, int(time.time())),
+        "INSERT OR REPLACE INTO handoff(id, agent, session_id, trigger_kind, cursor_from, "
+        "cursor_to, step, deadline, state, detail, updated) "
+        "VALUES(?,?,?,?,?,NULL,'requested',?,'in_flight',NULL,?)",
+        (hid, agent, session_id, trigger_kind, cursor_from, deadline, int(time.time())),
     )
 
 
-def get_handoff(con, agent: str):
-    return con.execute("SELECT * FROM handoff WHERE agent = ?", (agent,)).fetchone()
+def advance_handoff(con, hid: str, step: str, cursor_to: int | None = None,
+                    state: str | None = None, detail: str | None = None) -> None:
+    """Commit one step. Each step is committed so a restart can resume from it."""
+    con.execute(
+        "UPDATE handoff SET step = ?, cursor_to = COALESCE(?, cursor_to), "
+        "state = COALESCE(?, state), detail = COALESCE(?, detail), updated = ? WHERE id = ?",
+        (step, cursor_to, state, detail, int(time.time()), hid),
+    )
+
+
+def in_flight_handoffs(con):
+    return con.execute(
+        "SELECT * FROM handoff WHERE state = 'in_flight' ORDER BY updated"
+    ).fetchall()
+
+
+def in_flight_for(con, agent: str):
+    return con.execute(
+        "SELECT * FROM handoff WHERE agent = ? AND state = 'in_flight' ORDER BY updated LIMIT 1",
+        (agent,),
+    ).fetchone()
