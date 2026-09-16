@@ -1450,6 +1450,67 @@ def test_wake_injects_handoff(home: Path) -> None:
         con.close()
 
 
+def test_hooks_report_activity(home: Path) -> None:
+    """A working agent must not still read as PARKED.
+
+    agent_state otherwise only changes when the daemon changes it, so an agent
+    that was parked and then given work directly stays PARKED - and the daemon
+    would "wake" it mid-task by injecting a handoff it never needed.
+    """
+    home.mkdir(parents=True, exist_ok=True)
+    os.environ["OCP_HOME"] = str(home)
+    agents.register("hooky", "alpha")
+    env = dict(os.environ, OCP_AGENT="hooky", OCP_ACCOUNT="alpha", OCP_HOME=str(home))
+
+    con = db.connect()
+    try:
+        db.set_agent_state(con, "hooky", dmn.PARKED, wake_at=int(time.time()) + 9999,
+                           detail="parked earlier")
+    finally:
+        con.close()
+
+    payload = json.dumps({"hook_event_name": "UserPromptSubmit", "session_id": "s",
+                          "prompt": "do the thing"})
+    subprocess.run([sys.executable, str(ROOT / "bin" / "ocp"), "hook", "UserPromptSubmit"],
+                   input=payload, capture_output=True, text=True, env=env)
+
+    con = db.connect()
+    try:
+        row = db.get_agent_state(con, "hooky")
+        check("hooks: a prompt moves the agent to RUNNING", row["state"] == "RUNNING",
+              str(dict(row)))
+        check("hooks: and clears the stale wake_at", row["wake_at"] is None, str(dict(row)))
+
+        # STALLED is the daemon's to clear, not the agent's.
+        db.set_agent_state(con, "hooky", dmn.STALLED, detail="needs a human")
+    finally:
+        con.close()
+    subprocess.run([sys.executable, str(ROOT / "bin" / "ocp"), "hook", "UserPromptSubmit"],
+                   input=payload, capture_output=True, text=True, env=env)
+    con = db.connect()
+    try:
+        check("hooks: activity does not clear STALLED",
+              db.get_agent_state(con, "hooky")["state"] == dmn.STALLED)
+    finally:
+        con.close()
+
+    # A mid-handoff agent must not be yanked back to RUNNING either.
+    con = db.connect()
+    try:
+        db.set_agent_state(con, "hooky", dmn.HANDOFF, detail="handing off")
+    finally:
+        con.close()
+    subprocess.run([sys.executable, str(ROOT / "bin" / "ocp"), "hook", "SessionStart"],
+                   input=json.dumps({"hook_event_name": "SessionStart", "session_id": "s"}),
+                   capture_output=True, text=True, env=env)
+    con = db.connect()
+    try:
+        check("hooks: activity does not interrupt a handoff",
+              db.get_agent_state(con, "hooky")["state"] == dmn.HANDOFF)
+    finally:
+        con.close()
+
+
 def main() -> int:
     with tempfile.TemporaryDirectory() as td:
         home = Path(td) / "orcapipe"
@@ -1498,6 +1559,7 @@ def main() -> int:
         test_clear_refuses_mid_turn()
         test_handoff_reclaims_context(Path(td) / 'reclaim')
         test_wake_injects_handoff(Path(td) / 'wake')
+        test_hooks_report_activity(Path(td) / 'hooky')
         test_handoff_drift_header(Path(td) / 'hdhome')
     print(f"\n{len(PASS)} passed, {len(FAIL)} failed")
     for f in FAIL:

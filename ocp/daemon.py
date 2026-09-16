@@ -40,6 +40,8 @@ THROTTLED, STALLED = "THROTTLED", "STALLED"
 # Evaluated every tick (8.4). PARKED, THROTTLED and DEGRADED are in here
 # deliberately: anything that is not STALLED must have a way back, or it
 # becomes a silent terminal state and the account sits idle forever.
+# RUNNING is set by the agent's own hooks, so a working agent is never treated
+# as parked and never woken mid-task.
 EVALUATED = {RUNNING, HANDOFF, PARKED, QUEUED, THROTTLED, IDLE, DEGRADED}
 
 # How long a DEGRADED agent waits before the daemon retries it.

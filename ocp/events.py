@@ -76,12 +76,38 @@ def record_from_stdin(argv: list[str] | None = None) -> int:
         con = db.connect()
         try:
             db.add_event(con, agent, event, _slim(raw), account=account)
+            _mark_activity(con, agent, event)
         finally:
             con.close()
     except Exception:  # noqa: BLE001 - a hook must never break the session
         pass
     print("{}")
     return 0
+
+
+# Events that mean the agent is alive and working right now.
+ACTIVE_EVENTS = {"SessionStart", "UserPromptSubmit"}
+
+# The daemon owns these; an agent must not move itself out of them.
+PROTECTED_STATES = {"STALLED", "HANDOFF"}
+
+
+def _mark_activity(con, agent: str, event: str) -> None:
+    """Let the daemon know the agent is actually working.
+
+    Without this, agent_state only ever changes when the daemon itself changes
+    it, so an agent that was parked and then given work directly still reads as
+    PARKED - and the daemon would "wake" it mid-task by injecting a handoff it
+    never needed. The hooks already fire on every turn; they just have to say so.
+    """
+    if event not in ACTIVE_EVENTS:
+        return
+    row = db.get_agent_state(con, agent)
+    if row and row["state"] in PROTECTED_STATES:
+        return
+    if row and row["state"] == "RUNNING" and not row["wake_at"]:
+        return  # already correct; do not rewrite on every prompt
+    db.set_agent_state(con, agent, "RUNNING", wake_at=None, detail=f"active ({event})")
 
 
 def record_commit(agent: str, repo: str, sha: str, subject: str, diffstat: str) -> None:
