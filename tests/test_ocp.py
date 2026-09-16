@@ -1165,14 +1165,27 @@ def test_launch_refuses_stale(home: Path) -> None:
     (cfg / ".credentials.json").write_text("{}")
     env = dict(os.environ, PATH=f"{bindir}:{os.environ['PATH']}", OCP_HOME=str(home))
 
+    # A stale snapshot must NOT block a launch. An idle account always goes
+    # stale, and the launch is the only thing that refreshes it, so refusing
+    # here deadlocks the whole system after STALE_AFTER_S of quiet.
     write_status(home, "delta", pct_5h=20, collected_at=int(time.time()) - 100000)
     r = subprocess.run([sys.executable, str(ROOT / "bin" / "ocp"), "launch", "st"],
                        capture_output=True, text=True, env=env)
-    check("launch: refuses a stale snapshot even when it reads low",
-          r.returncode != 0, r.stdout + r.stderr)
-    r = subprocess.run([sys.executable, str(ROOT / "bin" / "ocp"), "launch", "st", "--force"],
+    check("launch: a stale snapshot does not deadlock the launch",
+          r.returncode == 0, r.stdout + r.stderr)
+    check("launch: but it warns that the reading is old",
+          "may be out of date" in r.stderr, r.stderr)
+
+    # A current reading over the limit still blocks.
+    write_status(home, "delta", pct_5h=95)
+    r = subprocess.run([sys.executable, str(ROOT / "bin" / "ocp"), "launch", "st"],
                        capture_output=True, text=True, env=env)
-    check("launch: --force still overrides a stale snapshot", r.returncode == 0, r.stdout)
+    check("launch: a current over-limit reading still blocks", r.returncode != 0, r.stdout)
+
+    # Staleness stays fail-closed where it belongs: assignment.
+    write_status(home, "delta", pct_5h=20, collected_at=int(time.time()) - 100000)
+    check("launch: staleness is still fail-closed for assignment",
+          not status.read("delta").assignable()[0])
 
 
 def test_collector_account_named_like_user(home: Path) -> None:

@@ -20,7 +20,7 @@ import os
 import shutil
 import sys
 
-from . import accounts, agents, status
+from . import accounts, agents, paths, status
 
 
 def build(agent: str, extra: list[str] | None = None, force: bool = False) -> tuple[list[str], dict]:
@@ -34,25 +34,31 @@ def build(agent: str, extra: list[str] | None = None, force: bool = False) -> tu
             f"  {accounts.login_command(acct)}\n"
         )
 
-    # A missing status.json is the normal first boot and must not block, or
-    # nothing could ever start: status.json is written by the session we are
-    # trying to launch. A snapshot that exists but is stale is a different
-    # thing - it is a frozen reading that may be hiding a full account.
+    # Only a *current* reading may block a launch.
+    #
+    # Neither a missing nor a stale snapshot can, and for the same reason: the
+    # session we are about to start is the only thing that writes one. An idle
+    # account goes stale after STALE_AFTER_S, so refusing on staleness meant
+    # nothing could be started after a quarter hour of quiet - the same
+    # deadlock as refusing on first boot, just delayed.
+    #
+    # Staleness is still fail-closed where it belongs, in status.assignable():
+    # the daemon will not *assign* work on a reading it cannot trust. And an
+    # account that really is full self-corrects in seconds - the status line
+    # refreshes as soon as the session starts, and the daemon's trigger then
+    # hands off on fresh data.
     st = status.read(acct)
-    if not force and st.exists:
-        if st.stale:
-            age = "unknown age" if st.age_s is None else f"{int(st.age_s)}s old"
-            raise SystemExit(
-                f"account '{acct}' has a stale status.json ({age}); its usage cannot be "
-                f"trusted - refusing to start.\n"
-                f"Run the account once to refresh it, or use --force to override."
-            )
-        if st.pct_5h is not None and st.pct_5h >= status.PCT_5H_BLOCK:
-            raise SystemExit(
-                f"account '{acct}' is at {st.pct_5h}% of the 5h limit "
-                f"(>= {status.PCT_5H_BLOCK}%) - refusing to start.\n"
-                f"resets at {st.reset_5h}; use --force to override"
-            )
+    if st.exists and st.stale:
+        age = "unknown age" if st.age_s is None else f"{int(st.age_s)}s"
+        print(f"warning: account '{acct}' usage is {age} old and may be out of date; "
+              f"the status line will refresh it on start.", file=sys.stderr)
+    elif not force and st.exists and st.pct_5h is not None \
+            and st.pct_5h >= status.PCT_5H_BLOCK:
+        raise SystemExit(
+            f"account '{acct}' is at {st.pct_5h}% of the 5h limit "
+            f"(>= {status.PCT_5H_BLOCK}%) - refusing to start.\n"
+            f"resets at {st.reset_5h}; use --force to override"
+        )
 
     claude = shutil.which("claude")
     if not claude:
@@ -62,9 +68,38 @@ def build(agent: str, extra: list[str] | None = None, force: bool = False) -> tu
     model = agents.read(agent).get("model")
     if model:
         argv += ["--model", str(model)]
+
+    # The agent's standing context (team model section 1). base.md is injected
+    # every session - that is what its 2KB budget is a budget for - and the
+    # handoff is injected on resume so the agent picks up where it left off.
+    preamble = context_for(agent)
+    if preamble:
+        argv += ["--append-system-prompt", preamble]
     argv += list(extra or [])
 
     return argv, accounts.env_for(acct, agent)
+
+
+def context_for(agent: str) -> str:
+    """ROLE.md + base.md + the latest handoff, as one system-prompt appendix."""
+    d = paths.agent_dir(agent)
+    parts = [f"You are `{agent}`, one agent in an orcapipe team. "
+             f"Your name is also in $OCP_AGENT."]
+    for fn, label in (("ROLE.md", "role"), ("base.md", "standing context")):
+        p = d / fn
+        if p.exists():
+            text = p.read_text().strip()
+            if text:
+                parts.append(f"# Your {label} ({fn})\n{text}")
+    handoff = d / "handoff" / "latest.md"
+    if handoff.exists():
+        text = handoff.read_text().strip()
+        if text:
+            parts.append(
+                "# Where you left off (handoff/latest.md)\n"
+                "You were interrupted and resumed. This is your own record.\n" + text
+            )
+    return "\n\n".join(parts)
 
 
 def exec_agent(agent: str, extra: list[str] | None = None, force: bool = False) -> None:
