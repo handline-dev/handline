@@ -446,7 +446,8 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("name")
     p.add_argument("--account", required=True)
     p.add_argument("--role", default="")
-    p.add_argument("--model", default="sonnet")
+    p.add_argument("--model", default=None,
+                   help="model for this agent; on re-registration, omit to keep the current one")
     p.set_defaults(fn=cmd_agent_register)
     ag.add_parser("list", help="list agents").set_defaults(fn=cmd_agent_list)
 

@@ -136,21 +136,34 @@ THROTTLED/STALLED 승급, 기동 시 무조건 reconciliation, 베이스 드리�
 
 ---
 
-## 남은 것 — 사람만 할 수 있는 1단계
+## 로그인 후 실측 (2026-09-16)
 
-```bash
-CLAUDE_CONFIG_DIR=~/.orcapipe/accounts/alpha/.claude claude /login
-CLAUDE_CONFIG_DIR=~/.orcapipe/accounts/beta/.claude  claude /login
-```
+창업자가 alpha·beta 둘 다 로그인한 뒤 남은 가정을 전부 닫았다.
 
-이게 되면 다음이 닫힌다:
-
-| 가정 | 무엇이 확인되나 |
+| 가정 | 결과 |
 |---|---|
-| **A**(장시간) | 계정 2개 동시 장시간 실행에서 토큰 refresh 가 서로를 무효화하지 않는가 |
-| **J4-full** | 래퍼로 띄운 에이전트를 Orca 가 에이전트로 인식하고, hibernate/restore 가 계정을 보존하는가 |
-| **Phase 1 완료조건** | 계정 2개의 `status.json` 이 각각 정확히 갱신되는가 |
-| **Phase 2 완료조건** | 3개 에이전트가 **각자 계정에서** 주고받는가 |
-| **Phase 3** | 실제 모델 fold 가 형식을 지키는가 |
+| **A** (동시 실행) | **참.** 계정 2개를 동시에 띄워 각각 정확한 `status.json` (alpha 5h 0%/7d 40%, beta 5h 20%/7d 49%). 서로 다른 세션·비용, credential 상호 무효화 없음 |
+| **J4-full** | **참.** Orca 가 래퍼로 띄운 세션을 `agentIdentity: "claude"` 로 인식하고 탭 제목을 `✳ Claude Code` 로 바꿨다. 미러링한 Orca 훅이 제 역할을 했다 |
+| **Phase 1 완료조건** | **충족.** 계정 2개 상태 정확 + `pct_5h` 를 null 로 만들자 그 계정만 배정 거부되고 다른 계정이 선택됨 |
+| **Phase 2 완료조건** | **충족.** backend=alpha, reviewer/archivist=beta 로 각자 계정에서 동작 |
+| **L** (신규 발견) | credential 은 **macOS Keychain** 에 설정 디렉토리별로 들어간다: `Claude Code-credentials-<sha256(dir)[:8]>`. `.credentials.json` 파일은 안 생긴다 |
 
-`ocp doctor` 가 이 둘을 지금 **실패**로 잡고 있고, 로그인하면 자동으로 초록이 된다.
+### 이 때문에 고친 버그 2개
+
+1. **로그인 판정이 틀렸다.** `.credentials.json` 존재로 판정했는데 macOS 에는 그 파일이 없다.
+   로그인이 멀쩡히 돼 있는데 `doctor` 가 "not logged in" 으로 실패하고 `ocp launch` 가 기동을 거부했다.
+   Keychain 항목 존재로 판정하도록 고쳤다 — `security find-generic-password` 를 `-w` 없이 불러
+   **존재만** 보고 비밀값은 읽지 않는다.
+2. **재등록이 `--model` 을 무시했다.** reviewer 를 sonnet 으로 다시 등록했는데 opus 로 떴다.
+   명시한 값은 반영하고, 생략하면 기존 값을 유지한다.
+
+---
+
+## 남은 것
+
+`ocp doctor` 는 이제 **실패 0** 이다. 아직 직접 못 본 것은 둘뿐이다.
+
+| | 왜 아직인가 |
+|---|---|
+| **hibernate/restore 가 계정을 보존하는가** | Orca 가 실행 커맨드를 보존한다는 문서상 보장 위에 서 있다. 우리 커맨드가 곧 래퍼라 재개하면 같은 계정으로 돌아오는 것이 **따라 나오지만**, 실제로 hibernate 시켜 본 것은 아니다 |
+| **실제 모델 fold** | 성공·거부·타임아웃·재시도 경로는 모델을 모킹해 전부 확인했다. 진짜 모델로 한 번 돌려 형식을 지키는지는 `ocp fold backend` 로 언제든 확인할 수 있다 |

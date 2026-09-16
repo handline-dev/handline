@@ -10,6 +10,7 @@ from pathlib import Path
 from . import paths
 from .yamlcompat import ConfigError, dump, load
 
+DEFAULT_MODEL = "sonnet"
 BASE_BUDGET_BYTES = 2048  # base.md <= 2KB (team model section 1)
 ROLE_BUDGET_BYTES = 1024  # ROLE.md <= 1KB
 
@@ -28,7 +29,7 @@ def read(name: str) -> dict:
     return data
 
 
-def register(name: str, account: str, role: str = "", model: str = "sonnet") -> Path:
+def register(name: str, account: str, role: str = "", model: str | None = None) -> Path:
     if not name or "/" in name or name.startswith("."):
         raise ValueError(f"bad agent name: {name!r}")
     d = paths.agent_dir(name)
@@ -38,17 +39,20 @@ def register(name: str, account: str, role: str = "", model: str = "sonnet") -> 
     f = agent_file(name)
     if not f.exists():
         f.write_text(
-            f"name: {name}\naccount: {account}\nmodel: {model}\nenabled: true\n"
+            f"name: {name}\naccount: {account}\nmodel: {model or DEFAULT_MODEL}\n"
+            "enabled: true\n"
         )
     else:
-        # Already registered: only the account moves. Re-serialize from the
-        # parsed document rather than splicing lines - matching "account:" as a
-        # prefix broke on "account : alpha" (appending a duplicate key) and on
-        # any nested key of the same name.
+        # Already registered: update what was actually asked for and leave the
+        # rest of the mapping alone. Re-serialize from the parsed document
+        # rather than splicing lines - matching "account:" as a prefix broke on
+        # "account : alpha" and on any nested key of the same name.
         cfg = load(f.read_text())
         if not isinstance(cfg, dict):
             raise ConfigError(f"{f}: top level is not a map")
         cfg["account"] = account
+        if model:
+            cfg["model"] = model
         f.write_text(dump(cfg))
 
     role_file = d / "ROLE.md"

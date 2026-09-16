@@ -11,9 +11,12 @@ the collector.
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import shutil
+import subprocess
+import sys
 from pathlib import Path
 
 from . import paths
@@ -91,9 +94,40 @@ def register(acct: str, force: bool = False) -> Path:
     return cdir
 
 
+def keychain_service(config_dir: Path) -> str:
+    """The macOS Keychain service name Claude Code uses for this config dir.
+
+    Credentials are not a file on macOS. Claude Code keys them per config dir:
+    the default ~/.claude uses "Claude Code-credentials", and any other dir gets
+    that name plus the first 8 hex of the sha256 of its path. Verified against a
+    live login: ~/.orcapipe/accounts/alpha/.claude -> ...-c4b0821c.
+    """
+    if config_dir == Path.home() / ".claude":
+        return "Claude Code-credentials"
+    digest = hashlib.sha256(str(config_dir).encode()).hexdigest()[:8]
+    return f"Claude Code-credentials-{digest}"
+
+
 def logged_in(acct: str) -> bool:
-    """Existence check only. The file is never opened."""
-    return (paths.account_claude(acct) / ".credentials.json").exists()
+    """Whether this account has credentials, checked by existence only.
+
+    Never reads the secret: `security find-generic-password` is called without
+    -w, so it reports the item's presence and nothing else.
+    """
+    cdir = paths.account_claude(acct)
+    # File-backed storage (Linux, and macOS installs that opt out of Keychain).
+    if (cdir / ".credentials.json").exists():
+        return True
+    if sys.platform != "darwin":
+        return False
+    try:
+        r = subprocess.run(
+            ["security", "find-generic-password", "-s", keychain_service(cdir)],
+            capture_output=True, timeout=10,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return False
+    return r.returncode == 0
 
 
 def login_command(acct: str) -> str:

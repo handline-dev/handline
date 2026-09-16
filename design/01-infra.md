@@ -570,7 +570,7 @@ ocp doctor
 
 | # | 가정 | 판정 |
 |---|---|---|
-| A | `CLAUDE_CONFIG_DIR` 분리로 계정 2개 동시 실행 | **✔ 참 (격리 측면)** — 비기본 CONFIG_DIR 은 Keychain 을 안 쓰고 자기 credential 을 쓴다 (H 에서 확인). **장시간 refresh 충돌은 미확인** — 2번째 계정 로그인 필요 |
+| A | `CLAUDE_CONFIG_DIR` 분리로 계정 2개 동시 실행 | **✔ 참 · 실측 확인 (2026-09-16).** 계정 2개를 **동시에** 띄워 각각 자기 `status.json` 을 정확히 갱신했다 (alpha 5h 0%/7d 40%, beta 5h 20%/7d 49% — 서로 다른 세션·비용). credential 상호 무효화 없음 |
 | B | 사용률을 파일에서 읽기 | **✘ 거짓.** statusLine `rate_limits` 가 공식 계약 |
 | D | 헤드리스 주입 + clear | **미확인.** Phase 3 전까지 불필요 |
 | E | JSONL 라인 1개 = API 요청 1개 | **✘ 거짓.** `message.id` dedup 필수. **단 §8.1 트리거는 이제 transcript 를 안 쓴다** (I 참조) — dedup 은 번레이트 계산에만 필요 |
@@ -580,6 +580,8 @@ ocp doctor
 | I | 컨텍스트 사용률을 statusLine 에서 얻을 수 있는가 | **✔ 참, 예상보다 좋다.** `context_window.used_percentage` 가 **직접** 온다. 계산 불필요. 턴 전에는 `null` → fail-closed 대상 |
 | **J0** | Orca 가 자기 statusLine 을 CLI 로 강제하는가 | **✘ 거짓 = 우리에게 유리.** argv 는 맨 `claude`. Orca 통합은 statusLine 이 아니라 **훅**이다. 수집기 실제 동작 확인 |
 | **J4** | worktree `.envrc`(direnv) 가 Orca 에이전트에 먹히는가 | **해당 없음 — direnv 불필요.** Orca 가 `CLAUDE_CONFIG_DIR` 을 비워 두고 `--command` 가 임의 셸이라 **런처 래퍼**로 끝난다. `environmentRecipes` 는 원격 머신 기능이라 대안이 아니었다 |
+| **J4-full** | 래퍼로 띄운 에이전트를 Orca 가 **에이전트로 인식**하는가 | **✔ 참 · 실측 확인 (2026-09-16).** `orca terminal create --command "ocp launch backend"` 로 띄우자 Orca 가 `agentIdentity: "claude"` 로 기록하고 탭 제목을 `✳ Claude Code` 로 바꿨다. 상태줄에 `alpha · 5h 0% · 7d 40%` — 우리 수집기가 그 안에서 동작 |
+| **L** | credential 저장 위치 (신규) | **macOS 는 Keychain, 설정 디렉토리별로 분리.** `Claude Code-credentials-<sha256(config_dir)[:8]>` (기본 디렉토리만 접미사 없음). `.credentials.json` 파일은 생기지 않는다 |
 | **K** | Orca 네이티브 멀티계정으로 대체 가능한가 | **✘ 거짓.** 구현은 됐으나 **런타임당 활성 계정 1개**(전역 스왑). `--account` 플래그 없음. `CLAUDE_CONFIG_DIR` 방식 유지 |
 
 *(C = 캐시 만료 계산: 부록 A-2 로 트리거 자체가 삭제되어 검증 불필요)*
