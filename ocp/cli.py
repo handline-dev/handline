@@ -15,6 +15,7 @@ import time
 from pathlib import Path
 
 from . import (accounts, agents, ask as askmod, daemon as daemonmod, dashboard, db,
+               tui,
                digest, doctor,
                drift, events, fold as foldmod, guide, hooks, launch, paths, status,
                spawn as spawnmod, team, triggers)
@@ -230,7 +231,7 @@ def cmd_doctor(args) -> int:
 
 def cmd_status(args) -> int:
     if args.table:
-        return dashboard.top(once=True)
+        return tui.run(once=True)
     picked, reasons = status.pick_account()
     if args.json:
         print(json.dumps({"picked": picked,
@@ -264,7 +265,9 @@ def cmd_spawn(args) -> int:
 
 
 def cmd_top(args) -> int:
-    return dashboard.top(interval=args.interval, once=args.once)
+    if args.plain:
+        return dashboard.top(interval=args.interval, once=args.once)
+    return tui.run(interval=args.interval, once=args.once)
 
 
 def cmd_guide(args) -> int:
@@ -670,9 +673,10 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--dry-run", action="store_true")
     p.set_defaults(fn=cmd_spawn)
 
-    p = sub.add_parser("top", help="live dashboard")
-    p.add_argument("--interval", type=float, default=3.0)
+    p = sub.add_parser("top", help="live full-screen dashboard")
+    p.add_argument("--interval", type=float, default=2.0)
     p.add_argument("--once", action="store_true", help="print one frame and exit")
+    p.add_argument("--plain", action="store_true", help="scrolling output, no full screen")
     p.set_defaults(fn=cmd_top)
 
     bs = sub.add_parser("base", help="the per-session fixed context").add_subparsers(
@@ -693,8 +697,9 @@ def build_parser() -> argparse.ArgumentParser:
     p.set_defaults(fn=cmd_resume)
 
     p = sub.add_parser("watch", help="alias for top")
-    p.add_argument("--interval", type=float, default=3.0)
+    p.add_argument("--interval", type=float, default=2.0)
     p.add_argument("--once", action="store_true")
+    p.add_argument("--plain", action="store_true")
     p.set_defaults(fn=cmd_top)
 
     p = sub.add_parser("guide", help="load detail on demand")

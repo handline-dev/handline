@@ -17,7 +17,7 @@ sys.path.insert(0, str(ROOT))
 
 from ocp import (agents, ask as askmod, daemon as dmn, db, digest, drift,
                  events as evmod, fold as foldmod, orca as orcamod, paths,
-                 spawn as spawnmod, status, team, triggers, yamlcompat)  # noqa: E402
+                 spawn as spawnmod, status, team, triggers, tui, yamlcompat)  # noqa: E402
 
 PASS, FAIL = [], []
 
@@ -1629,6 +1629,34 @@ def test_rate_limit_throttles(home: Path) -> None:
         con.close()
 
 
+def test_tui_frame_geometry(home: Path) -> None:
+    """A frame must fill the screen exactly: every line the requested width,
+    and exactly as many lines as the terminal has. Anything else scrolls the
+    alternate screen and the display jumps."""
+    home.mkdir(parents=True, exist_ok=True)
+    os.environ["OCP_HOME"] = str(home)
+    agents.register("wide", "alpha")
+    write_status(home, "alpha", pct_5h=42, pct_7d=10, ctx_pct=7)
+
+    for width, height in ((80, 24), (120, 40), (200, 60)):
+        text = tui.frame(width, height)
+        lines = text.split("\n")
+        check(f"tui {width}x{height}: line count matches the terminal",
+              len(lines) == height, str(len(lines)))
+        too_wide = [tui.vlen(line) for line in lines if tui.vlen(line) > width]
+        check(f"tui {width}x{height}: nothing overflows the width",
+              not too_wide, str(too_wide[:3]))
+
+    check("tui: vlen ignores escape sequences", tui.vlen("\033[31mabc\033[0m") == 3)
+    check("tui: fit truncates on visible width",
+          tui.vlen(tui.fit("\033[31m" + "x" * 50 + "\033[0m", 10)) <= 10)
+    check("tui: fit leaves a short string alone", tui.fit("abc", 10) == "abc")
+    check("tui: unknown usage draws as ?, never as 0", "?" in tui.pct(None))
+    check("tui: a known 0 still draws as 0", tui.pct(0).strip() == "0")
+    check("tui: an unknown bar is not an empty bar",
+          tui.vlen(tui.bar(None, 10)) == 10 and "░" not in tui.bar(None, 10))
+
+
 def main() -> int:
     with tempfile.TemporaryDirectory() as td:
         home = Path(td) / "orcapipe"
@@ -1681,6 +1709,7 @@ def main() -> int:
         test_handoff_reclaims_context(Path(td) / 'reclaim')
         test_wake_injects_handoff(Path(td) / 'wake')
         test_hooks_report_activity(Path(td) / 'hooky')
+        test_tui_frame_geometry(Path(td) / 'tui')
         test_handoff_drift_header(Path(td) / 'hdhome')
     print(f"\n{len(PASS)} passed, {len(FAIL)} failed")
     for f in FAIL:
