@@ -27,12 +27,18 @@ import subprocess
 #
 # Measured 2026-09-17 against the shells left behind by three closed sessions,
 # because three reviews in a row declined to trust this probe against a terminal
-# with no TUI in it. It reports not-satisfied, and it takes the full timeout to
-# say so: idle_now 3.1s, wait_idle(20s) 20.1s, every time. Two things follow.
-# It fails in the safe direction - nothing will ever be typed at a bash prompt
-# on the strength of it - and a "no" is never cheap, so anything that probes an
-# agent whose session has already exited pays the whole timeout for an answer it
-# could have had for free.
+# with no TUI in it. Do not trust it there: it is not consistent. The short
+# probe said not-satisfied every time, at the full 3.1s, and so did two of the
+# three long waits - but the third returned satisfied after 63.7s on a terminal
+# whose session had ended half an hour earlier and did not start again for
+# another ten minutes. So "no TUI" does not reliably read as "not idle", and
+# nothing may be sent to a terminal on the strength of this probe alone when we
+# have any other way to know whether a session is there. The process table is
+# that other way, and it is in observe.py.
+#
+# The cost is consistent even when the answer is not: a "no" always takes the
+# whole timeout, so probing a session that has already exited pays two minutes
+# for an answer that was free elsewhere.
 IDLE_TIMEOUT_MS = 120_000
 IDLE_PROBE_MS = 3_000
 
