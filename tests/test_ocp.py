@@ -38,6 +38,37 @@ def restore_world() -> None:
         setattr(orcamod, n, f)
     for n, f in REAL_OBSERVE.items():
         setattr(obsmod, n, f)
+    # The tick's reading of the process table outlives the tick by design, so
+    # one test's world would otherwise answer the next test's send gate.
+    dmn._seen.clear()
+    dmn._seen_at["t"] = 0.0
+
+
+def relaunching_send(sent: list, table: dict[str, int]) -> object:
+    """An orca.send that records, and starts a session when it is a relaunch.
+
+    The daemon wakes a closed agent by typing its launch command into the shell
+    its session left behind, and everything it sends after that is sent to the
+    session that command started - so a fixture where the process table never
+    changes is a fixture where waking does not work.
+    """
+    def send(handle: str, text: str, enter: bool = True):
+        sent.append(text)
+        if " launch " in text:
+            table[text.split(" launch ")[1].split()[0]] = 4242
+        return True, ""
+    return send
+
+
+def sessions_are(*agents: str) -> dict[str, int]:
+    """Say which agents have a session running, as the process table would.
+
+    Returned so a test can end one - `table.pop("backend")` - or start one,
+    which is what closing and relaunching do to the world the daemon reads.
+    """
+    table = {a: 4200 + i for i, a in enumerate(agents)}
+    obsmod.live_sessions = lambda: dict(table)
+    return table
 
 
 def check(name: str, cond: bool, detail: str = "") -> None:
@@ -1779,7 +1810,14 @@ def test_idle_session_is_closed_and_resumed(home: Path) -> None:
         orcamod.live_terminals = lambda: {"term_x"}
         orcamod.alive = lambda h: True
         orcamod.wait_idle = lambda h, timeout_ms=0: True
-        orcamod.send = lambda h, text, enter=True: (sent.append((h, text)), (True, ""))[1]
+        # A session is running in that terminal - nothing is typed into one
+        # where the process table says there is only a shell - and it is gone
+        # once /exit has been sent, the mirror of what a relaunch does.
+        table = sessions_are("backend")
+        orcamod.send = lambda h, text, enter=True: (
+            sent.append((h, text)),
+            table.pop("backend", None) if text == "/exit" else None,
+            (True, ""))[2]
         db.set_terminal(con, "backend", "term_x", "wt")
         now = int(time.time())
         agent_dir = home / "agents" / "backend"
@@ -1876,6 +1914,8 @@ def test_a_running_agent_is_told_when_work_arrives(home: Path) -> None:
         orcamod.alive = lambda h: True
         orcamod.idle_now = lambda h: True
         orcamod.send = lambda h, text, enter=True: (sent.append(text), (True, ""))[1]
+        # A running agent, so there is something in that terminal to tell.
+        sessions_are("backend")
         db.set_terminal(con, "backend", "term_x", "wt")
         db.set_agent_state(con, "backend", dmn.IDLE)
 
@@ -1929,6 +1969,9 @@ def test_work_arriving_wakes_a_closed_agent(home: Path) -> None:
         orcamod.alive = lambda h: True
         orcamod.wait_idle = lambda h, timeout_ms=0: True
         orcamod.send = lambda h, text, enter=True: (sent.append(text), (True, ""))[1]
+        # The session runs until close_agent ends it, and then it does not -
+        # which is what the tick below has to work out for itself.
+        table = sessions_are("backend")
         db.set_terminal(con, "backend", "term_x", "wt")
         # A closed session that was left labelled RUNNING says the opposite of
         # what happened on every screen, and the daemon skips RUNNING agents.
@@ -1939,6 +1982,7 @@ def test_work_arriving_wakes_a_closed_agent(home: Path) -> None:
             "session_id": "sess-9", "pct_5h": 20}))
         dmn.close_agent(con, "backend", lambda _m: None,
                         status.read_for_agent("backend", "alpha"))
+        table.pop("backend")
         row = db.get_agent_state(con, "backend")
         check("close: a closed session is not left labelled RUNNING",
               row["state"] != dmn.RUNNING, row["state"])
@@ -1969,6 +2013,9 @@ def test_wake_without_a_closed_session_uses_the_handoff(home: Path) -> None:
         orcamod.alive = lambda h: True
         sent: list[str] = []
         orcamod.send = lambda h, text, enter=True: (sent.append(text), (True, ""))[1]
+        # Cleared, not closed: the session is still running, which is what
+        # makes typing the handoff into it the right move.
+        sessions_are("backend")
         db.set_terminal(con, "backend", "term_x", "wt")
         hp = foldmod.handoff_path("backend")
         hp.parent.mkdir(parents=True, exist_ok=True)
@@ -2015,6 +2062,26 @@ def test_reconcile_does_not_clear_closed_at_on_a_failed_wake(home: Path) -> None
               row["closed_at"] is not None, str(dict(row)))
         check("reconcile: resume_session survives it too - it is not repairable once gone",
               row["resume_session"] == "sess-1", str(dict(row)))
+        # And the deadline stays on the row. Clearing it before the wake had
+        # worked is how a failed wake became a permanent sleep: due_agents
+        # selects on wake_at, so a row with none is never looked at again.
+        check("reconcile: the wake stays due, so a later restart retries it",
+              row["wake_at"] is not None and row["state"] == dmn.PARKED, str(dict(row)))
+
+        # The terminal comes back - a human reopened it, or Orca was slow to
+        # start - and the next restart does what this one could not.
+        sent: list[str] = []
+        table = sessions_are()
+        orcamod.alive = lambda h: True
+        orcamod.live_terminals = lambda: {"term_gone"}
+        orcamod.wait_idle = lambda h, timeout_ms=0: True
+        orcamod.send = relaunching_send(sent, table)
+        dmn.reconcile(con, lambda _m: None)
+        row = db.get_agent_state(con, "backend")
+        check("reconcile: the retry resumes the session it kept",
+              any("--resume sess-1" in t for t in sent), str(sent))
+        check("reconcile: and only then is the deadline cleared",
+              row["state"] == dmn.QUEUED and row["wake_at"] is None, str(dict(row)))
     finally:
         orcamod.alive, orcamod.available = real
         con.close()
@@ -2536,7 +2603,10 @@ def test_a_closed_agent_is_not_handed_off(home: Path) -> None:
         orcamod.wait_idle = lambda h, timeout_ms=0: True
         orcamod.idle_now = lambda h: True
         orcamod.clear_context = lambda h, wait=True, timeout_ms=0: (True, "context cleared")
-        orcamod.send = lambda h, text, enter=True: (sent.append(text), (True, ""))[1]
+        # A session runs in that terminal until close_agent ends it, and
+        # the wake below starts another one.
+        table = sessions_are("backend")
+        orcamod.send = relaunching_send(sent, table)
         db.set_terminal(con, "backend", "term_x", "wt")
         db.set_agent_state(con, "backend", dmn.IDLE)
         (home / "agents" / "backend").mkdir(parents=True, exist_ok=True)
@@ -2545,6 +2615,7 @@ def test_a_closed_agent_is_not_handed_off(home: Path) -> None:
             "session_id": "sess-2", "pct_5h": 20}))
         dmn.close_agent(con, "backend", lambda _m: None,
                         status.read_for_agent("backend", "alpha"))
+        table.pop("backend")
         check("closed: the agent is marked closed",
               db.get_agent_state(con, "backend")["closed_at"] is not None)
 
@@ -2608,7 +2679,10 @@ def test_a_woken_agent_is_told_on_the_following_tick(home: Path) -> None:
         orcamod.alive = lambda h: True
         orcamod.wait_idle = lambda h, timeout_ms=0: True
         orcamod.idle_now = lambda h: True      # even so, it must not be told yet
-        orcamod.send = lambda h, text, enter=True: (sent.append(text), (True, ""))[1]
+        # A session runs in that terminal until close_agent ends it, and
+        # the wake below starts another one.
+        table = sessions_are("backend")
+        orcamod.send = relaunching_send(sent, table)
         db.set_terminal(con, "backend", "term_x", "wt")
         db.set_agent_state(con, "backend", dmn.IDLE)
         (home / "agents" / "backend").mkdir(parents=True, exist_ok=True)
@@ -2617,6 +2691,7 @@ def test_a_woken_agent_is_told_on_the_following_tick(home: Path) -> None:
             "session_id": "sess-4", "pct_5h": 20}))
         dmn.close_agent(con, "backend", lambda _m: None,
                         status.read_for_agent("backend", "alpha"))
+        table.pop("backend")
 
         db.add_request(con, "reviewer", "backend", "look at this", None,
                        "peer", "async", None, 0, None)
@@ -2654,7 +2729,10 @@ def test_a_woken_agent_is_not_judged_on_the_snapshot_it_left(home: Path) -> None
         orcamod.wait_idle = lambda h, timeout_ms=0: True
         orcamod.idle_now = lambda h: True     # the probe must not be what saves us
         orcamod.clear_context = lambda h, wait=True, timeout_ms=0: (True, "context cleared")
-        orcamod.send = lambda h, text, enter=True: (sent.append(text), (True, ""))[1]
+        # A session runs in that terminal until close_agent ends it, and
+        # the wake below starts another one.
+        table = sessions_are("backend")
+        orcamod.send = relaunching_send(sent, table)
         db.set_terminal(con, "backend", "term_x", "wt")
         db.set_agent_state(con, "backend", dmn.IDLE)
         (home / "agents" / "backend").mkdir(parents=True, exist_ok=True)
@@ -2663,6 +2741,7 @@ def test_a_woken_agent_is_not_judged_on_the_snapshot_it_left(home: Path) -> None
             "session_id": "sess-7", "pct_5h": 20}))
         dmn.close_agent(con, "backend", lambda _m: None,
                         status.read_for_agent("backend", "alpha"))
+        table.pop("backend")
 
         # The account was this agent's only session, so its snapshot ages out too.
         write_status(home, "alpha", pct_5h=20, pct_7d=10,
@@ -2707,7 +2786,10 @@ def test_a_park_that_was_also_closed_is_woken_without_being_judged(home: Path) -
         orcamod.wait_idle = lambda h, timeout_ms=0: True
         orcamod.idle_now = lambda h: True
         orcamod.clear_context = lambda h, wait=True, timeout_ms=0: (True, "context cleared")
-        orcamod.send = lambda h, text, enter=True: (sent.append(text), (True, ""))[1]
+        # A session runs in that terminal until close_agent ends it, and
+        # the wake below starts another one.
+        table = sessions_are("backend")
+        orcamod.send = relaunching_send(sent, table)
         db.set_terminal(con, "backend", "term_x", "wt")
         (home / "agents" / "backend").mkdir(parents=True, exist_ok=True)
         (home / "agents" / "backend" / "status.json").write_text(json.dumps({
@@ -2715,6 +2797,7 @@ def test_a_park_that_was_also_closed_is_woken_without_being_judged(home: Path) -
             "session_id": "sess-8", "pct_5h": 20}))
         dmn.close_agent(con, "backend", lambda _m: None,
                         status.read_for_agent("backend", "alpha"))
+        table.pop("backend")
         db.set_agent_state(con, "backend", dmn.PARKED, wake_at=int(time.time()) - 10,
                            detail="parked and closed")
         row = db.get_agent_state(con, "backend")
@@ -2760,7 +2843,10 @@ def test_reconcile_wakes_a_park_that_was_also_closed(home: Path) -> None:
         orcamod.wait_idle = lambda h, timeout_ms=0: True
         orcamod.idle_now = lambda h: True
         orcamod.clear_context = lambda h, wait=True, timeout_ms=0: (True, "context cleared")
-        orcamod.send = lambda h, text, enter=True: (sent.append(text), (True, ""))[1]
+        # A session runs in that terminal until close_agent ends it, and
+        # the wake below starts another one.
+        table = sessions_are("backend")
+        orcamod.send = relaunching_send(sent, table)
         db.set_terminal(con, "backend", "term_x", "wt")
         (home / "agents" / "backend").mkdir(parents=True, exist_ok=True)
         (home / "agents" / "backend" / "status.json").write_text(json.dumps({
@@ -2768,6 +2854,7 @@ def test_reconcile_wakes_a_park_that_was_also_closed(home: Path) -> None:
             "session_id": "sess-9", "pct_5h": 20}))
         dmn.close_agent(con, "backend", lambda _m: None,
                         status.read_for_agent("backend", "alpha"))
+        table.pop("backend")
         db.set_agent_state(con, "backend", dmn.PARKED, wake_at=int(time.time()) - 10,
                            detail="parked and closed, daemon was down since")
 
@@ -3023,6 +3110,108 @@ def test_an_agent_with_nowhere_to_run_is_not_handed_off(home: Path) -> None:
         con.close()
 
 
+def test_nothing_is_typed_into_a_shell_with_no_session(home: Path) -> None:
+    """Orca runs claude as a login shell's child, so a session that ends leaves
+    the terminal standing and our handle still working: `send` succeeds and the
+    text lands at a bash prompt. What we send is not inert there - a handoff's
+    backticks run and its `>` redirects - and `/exit` at that prompt exits the
+    shell, taking the terminal, the worktree and the only way back with it. So
+    every path that types checks the process table first, and a table it could
+    not read counts as no.
+    """
+    _daemon_home(home, 50)
+    con = db.connect()
+    sent: list[str] = []
+    cleared: list[str] = []
+    real = (orcamod.available, orcamod.alive, orcamod.idle_now, orcamod.wait_idle,
+            orcamod.send, orcamod.clear_context)
+    try:
+        orcamod.available = lambda: True
+        orcamod.live_terminals = lambda: {"term_x"}
+        orcamod.alive = lambda h: True          # the terminal outlives the session
+        orcamod.idle_now = lambda h: True       # and a bare shell probes as idle
+        orcamod.wait_idle = lambda h, timeout_ms=0: True
+        orcamod.send = lambda h, text, enter=True: (sent.append(text), (True, ""))[1]
+        orcamod.clear_context = lambda h, wait=True, timeout_ms=0: (
+            cleared.append(h), (True, "context cleared"))[1]
+        table = sessions_are()                  # the shell is there; nobody is in it
+        db.set_terminal(con, "backend", "term_x", "wt")
+        db.set_agent_state(con, "backend", dmn.IDLE)
+        (home / "agents" / "backend").mkdir(parents=True, exist_ok=True)
+        (home / "agents" / "backend" / "status.json").write_text(json.dumps({
+            "account": "alpha", "collected_at": int(time.time()),
+            "session_id": "sess-5", "pct_5h": 50}))
+        st = status.read_for_agent("backend", "alpha")
+
+        db.add_request(con, "reviewer", "backend", "look at this", None,
+                       "peer", "async", None, 0, None)
+        check("shell: a waiting request is not announced to a shell",
+              not dmn.deliver_queued(con, "backend", lambda _m: None) and not sent, str(sent))
+        check("shell: and it stays queued, for the wake to deliver",
+              len(db.queued_for(con, "backend")) == 1)
+
+        ok, why = dmn.close_agent(con, "backend", lambda _m: None, st)
+        check("shell: /exit is not typed at it - that would end the shell too",
+              not ok and not sent, f"{why} {sent}")
+        check("shell: and its terminal is left recorded",
+              db.get_agent_state(con, "backend")["terminal"] == "term_x")
+
+        foldmod.handoff_path("backend").write_text("# handoff · backend\n- carry on\n")
+        ok, why = dmn.wake_agent(con, "backend", lambda _m: None)
+        check("shell: a handoff is not typed at it either",
+              not ok and not sent, f"{why} {sent}")
+
+        # The clear is gated where it is sent, not only where it is decided:
+        # a handoff resumed after a restart reaches it without passing the
+        # check perform_handoff makes.
+        ok, why = dmn._reclaim_context(con, "backend", lambda _m: None)
+        check("shell: /clear is not typed at it, whoever asked for it",
+              not ok and not cleared, f"{why} {cleared}")
+
+        t = triggers.Trigger(True, "context", "context 72% >= 60%")
+        dmn.perform_handoff(con, "backend", t, lambda _m: None, use_model=False)
+        row = db.get_agent_state(con, "backend")
+        check("shell: no handoff is run for a session that is not there",
+              not cleared and not sent and not db.in_flight_handoffs(con), str(sent))
+        check("shell: so no fold is paid for either",
+              row["state"] != dmn.PARKED and row["continuations"] == 0, str(dict(row)))
+
+        # Fail-closed: "the process table could not be read" is not "no session",
+        # but it is not permission to send, which is the only question here.
+        obsmod.live_sessions = lambda: None
+        db.add_request(con, "reviewer", "backend", "and this", None,
+                       "peer", "async", None, 0, None)
+        check("shell: an unreadable process table is a no, not a maybe",
+              not dmn.deliver_queued(con, "backend", lambda _m: None) and not sent, str(sent))
+
+        # And with a session running, the same call does its job.
+        table["backend"] = 4242
+        obsmod.live_sessions = lambda: dict(table)
+        check("shell: a running agent is told what is waiting",
+              dmn.deliver_queued(con, "backend", lambda _m: None) and
+              any("ocp inbox" in t2 for t2 in sent), str(sent))
+
+        # One listing per tick, not one per send: the sweep already asked.
+        calls = {"n": 0}
+        base = dict(table)
+
+        def counted():
+            calls["n"] += 1
+            return dict(base)
+
+        obsmod.live_sessions = counted
+        db.set_cursor(con, "notify:backend", 0)
+        sent.clear()
+        dmn.tick(con, lambda _m: None, use_model=False)
+        check("shell: the tick reads the process table once, and the sends reuse it",
+              calls["n"] == 1 and any("ocp inbox" in t2 for t2 in sent),
+              f"{calls['n']} listings, sent {sent}")
+    finally:
+        (orcamod.available, orcamod.alive, orcamod.idle_now, orcamod.wait_idle,
+         orcamod.send, orcamod.clear_context) = real
+        con.close()
+
+
 def test_a_fold_is_a_process_not_a_session(home: Path) -> None:
     """`ocp fold` is a headless `claude -p` that inherits whatever OCP_AGENT its
     caller had. Counting it as the agent's session would tell the sweep an agent
@@ -3173,6 +3362,9 @@ def test_handoff_reclaims_context(home: Path) -> None:
         orcamod.idle_now = lambda h: True
         orcamod.clear_context = lambda h, wait=True, timeout_ms=0: (
             cleared.append(h), (True, "context cleared"))[1]
+        # The agent is running: a handoff is for a session that has a context
+        # to reclaim, and /clear at a shell prompt reclaims nothing.
+        sessions_are("backend")
 
         # With no terminal recorded it must say so rather than pretend.
         db.set_terminal(con, "backend", None, None)
@@ -3214,6 +3406,9 @@ def test_wake_injects_handoff(home: Path) -> None:
         orcamod.available = lambda: True
         orcamod.alive = lambda h: True
         orcamod.resume_with = lambda h, text: (sent.append(text), (True, "handoff injected"))[1]
+        # Cleared, not closed - the session is still there to be handed its
+        # own record back.
+        sessions_are("backend")
 
         ok, why = dmn.wake_agent(con, "backend", lambda _m: None)
         check("wake: nothing to wake without a terminal", not ok, why)
@@ -3643,6 +3838,7 @@ def main() -> int:
         run(lambda: test_installing_hooks_twice_does_not_double_them(Path(td) / 'hookdup'))
         run(lambda: test_the_sweep_corrects_what_it_can_see(Path(td) / 'sweep'))
         run(lambda: test_an_agent_with_nowhere_to_run_is_not_handed_off(Path(td) / 'noterm'))
+        run(lambda: test_nothing_is_typed_into_a_shell_with_no_session(Path(td) / 'shellgate'))
         run(lambda: test_a_fold_is_a_process_not_a_session(Path(td) / 'foldproc'))
         run(lambda: test_who_is_asking_is_not_guessed(Path(td) / 'whoasks'))
         run(lambda: test_a_rejected_fold_still_records_what_it_spent(Path(td) / 'spend'))
