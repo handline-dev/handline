@@ -119,12 +119,21 @@ def service_target() -> str:
 def install(home: Path | None = None) -> tuple[bool, str]:
     home = home or paths.home()
     log_dir(home).mkdir(parents=True, exist_ok=True)
+    was_loaded = status()["loaded"]
+    prior = plist_path().read_bytes() if plist_path().exists() else None
     path = write_plist(home=home)
     # bootstrap fails if the label is already loaded; bootout first so
     # `install` is idempotent (reinstalling after editing config, say).
-    run_launchctl(["bootout", service_target()])
+    if was_loaded:
+        run_launchctl(["bootout", service_target()])
     res = run_launchctl(["bootstrap", domain_target(), str(path)])
     if res.returncode != 0:
+        # A daemon that was supervised and running before this call must not
+        # end up unsupervised because the new plist failed to load - put the
+        # old one back and try to restore what was working.
+        if was_loaded and prior is not None:
+            path.write_bytes(prior)
+            run_launchctl(["bootstrap", domain_target(), str(path)])
         return False, (res.stderr or res.stdout or "launchctl bootstrap failed").strip()
     run_launchctl(["enable", service_target()])
     return True, f"installed {path}, label {LABEL}"

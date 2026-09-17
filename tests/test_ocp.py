@@ -1044,11 +1044,46 @@ def test_service_launchctl_gated(home: Path) -> None:
         ok, msg = service.install(home=home)
         check("service: install() reports success when launchctl does", ok, msg)
         check("service: install() writes the plist", plist_file.exists())
-        check("service: install() bootouts before bootstrapping (idempotent)",
-              calls[0][0] == "bootout")
+        check("service: a first install (nothing loaded yet) skips bootout",
+              "bootout" not in [c[0] for c in calls])
         check("service: install() bootstraps the built plist",
-              calls[1] == ["bootstrap", service.domain_target(), str(plist_file)])
-        check("service: install() enables the job", calls[2][0] == "enable")
+              calls[0] == ["bootstrap", service.domain_target(), str(plist_file)])
+        check("service: install() enables the job", calls[1][0] == "enable")
+
+        # Reinstalling over a job the fake now reports as loaded (`print`
+        # returns 0) must bootout first, so a stale plist is not left running.
+        calls.clear()
+
+        def fake_loaded(args):
+            calls.append(args)
+            if args[0] == "print":
+                return FakeResult(0, "\tpid = 1\n", "")
+            return FakeResult(0, "", "")
+
+        service.run_launchctl = fake_loaded
+        ok, msg = service.install(home=home)
+        check("service: reinstalling over a loaded job boots it out first",
+              ok and calls[1][0] == "bootout", str(calls))
+
+        # If the new plist fails to load, a previously-working job must not
+        # end up unsupervised - the old plist is restored and reloaded.
+        calls.clear()
+        attempts = {"n": 0}
+
+        def fake_bootstrap_fails_once(args):
+            calls.append(args)
+            if args[0] == "print":
+                return FakeResult(0, "\tpid = 1\n", "")
+            if args[0] == "bootstrap":
+                attempts["n"] += 1
+                return FakeResult(0, "", "") if attempts["n"] > 1 else FakeResult(1, "", "boom")
+            return FakeResult(0, "", "")
+
+        service.run_launchctl = fake_bootstrap_fails_once
+        ok, msg = service.install(home=home)
+        check("service: install() reports failure when bootstrap fails", not ok, msg)
+        check("service: a failed reinstall still retries bootstrap with the restored plist",
+              attempts["n"] == 2)
 
         calls.clear()
 

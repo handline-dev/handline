@@ -758,8 +758,13 @@ def run(once: bool = False, use_model: bool = True, verbose: bool = True,
             t = tick(con, log, use_model=use_model, samples=samples)
             ticks += 1
             # A supervisor that runs for weeks must not fill the disk. Cheap
-            # when under threshold: two stat() calls and nothing else.
-            service.rotate_logs()
+            # when under threshold: two stat() calls and nothing else. Caught
+            # separately so a rotation failure (e.g. a full disk) degrades
+            # logging rather than taking the whole daemon down with it.
+            try:
+                service.rotate_logs()
+            except OSError as e:
+                log(f"log rotation failed: {e}")
             if once or (max_ticks and ticks >= max_ticks):
                 break
             # The hottest account sets the pace, not the quietest: min() here
