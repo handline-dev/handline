@@ -2058,6 +2058,26 @@ def test_reconcile_does_not_clear_closed_at_on_a_failed_wake(home: Path) -> None
               row["closed_at"] is not None, str(dict(row)))
         check("reconcile: resume_session survives it too - it is not repairable once gone",
               row["resume_session"] == "sess-1", str(dict(row)))
+        # And the deadline stays on the row. Clearing it before the wake had
+        # worked is how a failed wake became a permanent sleep: due_agents
+        # selects on wake_at, so a row with none is never looked at again.
+        check("reconcile: the wake stays due, so a later restart retries it",
+              row["wake_at"] is not None and row["state"] == dmn.PARKED, str(dict(row)))
+
+        # The terminal comes back - a human reopened it, or Orca was slow to
+        # start - and the next restart does what this one could not.
+        sent: list[str] = []
+        table = sessions_are()
+        orcamod.alive = lambda h: True
+        orcamod.live_terminals = lambda: {"term_gone"}
+        orcamod.wait_idle = lambda h, timeout_ms=0: True
+        orcamod.send = relaunching_send(sent, table)
+        dmn.reconcile(con, lambda _m: None)
+        row = db.get_agent_state(con, "backend")
+        check("reconcile: the retry resumes the session it kept",
+              any("--resume sess-1" in t for t in sent), str(sent))
+        check("reconcile: and only then is the deadline cleared",
+              row["state"] == dmn.QUEUED and row["wake_at"] is None, str(dict(row)))
     finally:
         orcamod.alive, orcamod.available = real
         con.close()

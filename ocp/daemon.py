@@ -499,20 +499,24 @@ def reconcile(con, log) -> list[str]:
     # 2. wake_at deadlines that have come due.
     for row in db.due_agents(con, now):
         agent = row["agent"]
-        if row["state"] in (PARKED, THROTTLED, DEGRADED):
-            db.set_agent_state(con, agent, QUEUED, wake_at=None,
-                               detail=f"woke from {row['state']} at reconciliation")
-            actions.append(f"{agent}: {row['state']} -> QUEUED (wake_at was {row['wake_at']})")
-            # A closed agent has no session left to notice its own wake_at -
-            # the wake_at branch in supervise() is what would normally call
-            # this, and it needs wake_at still set to run, which the line
-            # above just cleared. Without waking it here, a park that was
-            # also closed comes back from every restart QUEUED forever, with
-            # nothing left that will ever relaunch it.
-            if row["closed_at"]:
-                ok, why = wake_agent(con, agent, log)
-                actions.append(f"{agent}: woken at reconciliation" if ok
-                               else f"{agent}: could not wake at reconciliation - {why}")
+        if row["state"] not in (PARKED, THROTTLED, DEGRADED):
+            continue
+        # A closed agent has no session left to notice its own wake_at - the
+        # wake_at branch in supervise() is what would normally call this, and
+        # it needs wake_at still set to run. So wake it here, before the
+        # deadline is cleared: a wake that failed - the dead terminal a reboot
+        # leaves behind is the ordinary way - has to stay due, or due_agents
+        # never selects it again and the agent sleeps until a human looks.
+        if row["closed_at"]:
+            ok, why = wake_agent(con, agent, log)
+            if not ok:
+                actions.append(f"{agent}: could not wake at reconciliation, "
+                               f"still due - {why}")
+                continue
+            actions.append(f"{agent}: woken at reconciliation")
+        db.set_agent_state(con, agent, QUEUED, wake_at=None,
+                           detail=f"woke from {row['state']} at reconciliation")
+        actions.append(f"{agent}: {row['state']} -> QUEUED (wake_at was {row['wake_at']})")
 
     # 3. Agents we know about but have no state row for.
     known = set(paths.list_agents())
