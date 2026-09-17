@@ -252,8 +252,15 @@ def fold(agent: str, use_model: bool = True, model: str = "haiku",
         # Valid. Publish first, then advance the cursor. A crash in between
         # leaves a published digest with an un-advanced cursor, which simply
         # re-folds the same delta next time - the safe direction.
+        # The header is our bookkeeping, not the model's narration, so it is
+        # stamped rather than accepted. Asked for the right values, a fold came
+        # back saying it was updated at 20:12 - the time of the last event it
+        # had just read, fourteen hours earlier.
         merged = digest.parse(candidate)
         merged.facts = facts
+        merged.date = day
+        merged.agent = agent
+        merged.updated = time.strftime("%H:%M")
         merged.folded_through = top
         text = digest.render(merged)
         _publish(agent, jpath, text, commit_msg=f"fold {agent} {day}")
