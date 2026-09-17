@@ -2501,6 +2501,39 @@ def test_the_sweep_corrects_what_it_can_see(home: Path) -> None:
               db.get_agent_state(con, "backend")["closed_at"] is None,
               str(dict(db.get_agent_state(con, "backend"))))
 
+        # 4. And it is stuck in RUNNING. It cannot get out on its own -
+        #    leaving RUNNING needs a Stop, a Stop needs a turn, and a turn needs
+        #    work it will never be told about while it reads RUNNING.
+        db.set_agent_state(con, "backend", dmn.RUNNING, detail="working")
+        db.add_event(con, "backend", "Stop", {})
+        con.execute("UPDATE events SET ts = ? WHERE agent = 'backend'",
+                    (int(time.time()) - dmn.STUCK_RUNNING_S - 60,))
+        real_idle = orcamod.idle_now
+        try:
+            # One witness is not enough: the probe is the one we have twice
+            # declined to trust on its own.
+            orcamod.idle_now = lambda h: False
+            dmn.sweep(con, lambda _m: None, [])
+            check("sweep: a long turn is left alone even when our events are silent",
+                  db.get_agent_state(con, "backend")["state"] == dmn.RUNNING)
+
+            orcamod.idle_now = lambda h: True
+            dmn.sweep(con, lambda _m: None, [])
+            check("sweep: silent for too long and idle at its prompt is unstuck",
+                  db.get_agent_state(con, "backend")["state"] == dmn.IDLE,
+                  str(dict(db.get_agent_state(con, "backend"))))
+
+            # And the other witness alone is not enough either.
+            db.set_agent_state(con, "backend", dmn.RUNNING, detail="working")
+            db.add_event(con, "backend", "UserPromptSubmit", {})
+            dmn.sweep(con, lambda _m: None, [])
+            check("sweep: an idle probe alone does not unstick a live agent",
+                  db.get_agent_state(con, "backend")["state"] == dmn.RUNNING,
+                  str(dict(db.get_agent_state(con, "backend"))))
+            db.set_agent_state(con, "backend", dmn.IDLE, detail="done")
+        finally:
+            orcamod.idle_now = real_idle
+
         # None is not an empty set. Reading "I could not ask" as "there are
         # none" would tear the team down the first time Orca answered slowly.
         orcamod.live_terminals = lambda: None
@@ -2891,7 +2924,7 @@ def test_hooks_report_activity(home: Path) -> None:
         # Being stuck in RUNNING is silent by nature, so doctor says it out loud.
         db.set_agent_state(con, "hooky", dmn.RUNNING, detail="working")
         con.execute("UPDATE events SET ts = ? WHERE agent = 'hooky'",
-                    (int(time.time()) - doctor.STUCK_RUNNING_S - 60,))
+                    (int(time.time()) - dmn.STUCK_RUNNING_S - 60,))
         con.commit()
     finally:
         con.close()

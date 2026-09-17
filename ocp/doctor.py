@@ -13,7 +13,7 @@ import subprocess
 import time
 from pathlib import Path
 
-from . import accounts, agents, db, hooks, paths, status
+from . import accounts, agents, daemon, db, hooks, paths, status
 
 OK, WARN, FAIL = "ok", "warn", "fail"
 
@@ -190,12 +190,6 @@ def _check_agents(r: Report) -> None:
                       f"{size}B > {budget}B, and this is per-session overhead")
 
 
-# How long an agent may read as RUNNING with nothing heard from it before that
-# is a stuck label rather than a long turn. Same number as the idle-close
-# threshold: past it, the daemon would have reclaimed the session anyway.
-STUCK_RUNNING_S = 1800
-
-
 def _check_stuck_running(r: Report) -> None:
     """RUNNING is the state that takes an agent out of service.
 
@@ -211,7 +205,7 @@ def _check_stuck_running(r: Report) -> None:
             if row["state"] != "RUNNING":
                 continue
             last = db.last_activity(con, row["agent"])
-            if last is None or (int(time.time()) - last) < STUCK_RUNNING_S:
+            if last is None or (int(time.time()) - last) < daemon.STUCK_RUNNING_S:
                 continue
             mins = int((time.time() - last) / 60)
             r.add(WARN, f"agent {row['agent']}: RUNNING with nothing heard for {mins}m",

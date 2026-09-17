@@ -58,6 +58,11 @@ MAX_THROTTLE_STREAK = 5      # 8.6: then escalate to a human gate
 # one did, because the cache lives on the server and expires on time, not on
 # whether our process stayed alive.
 IDLE_CLOSE_S = 1800
+
+# How long an agent may read as RUNNING with nothing heard from it before the
+# label is stuck rather than the turn being long. Same number as the idle-close
+# threshold: past it the daemon would have reclaimed the session anyway.
+STUCK_RUNNING_S = IDLE_CLOSE_S
 HANDOFF_DEADLINE_S = 90      # 8.3
 
 # 8.6: a repeatedly-degrading agent backs off rather than retrying at the same
@@ -521,6 +526,39 @@ def sweep(con, log, actions: list[str]) -> None:
             actions.append(f"{agent}: its session is gone; recorded as closed")
             log(f"  {agent}: session gone; recorded as closed "
                 f"(resume {st.session_id or 'unknown'})")
+        elif alive and row["state"] == RUNNING:
+            _unstick_running(con, agent, row, log, actions)
+
+
+def _unstick_running(con, agent: str, row, log, actions: list[str]) -> None:
+    """RUNNING is the label that takes an agent out of service.
+
+    Nothing is delivered to it and its session is never closed, so an agent that
+    entered RUNNING and never left is ignored by the daemon while every screen
+    reports it working. `Stop` returns it to IDLE now, but an agent that was
+    already stuck when that landed cannot get out on its own: leaving RUNNING
+    needs a Stop, a Stop needs a turn, and a turn needs work it will never be
+    told about. Three agents sat that way, and the founder found each of them.
+
+    This is the one correction here that rests on a probe rather than on a fact,
+    and getting it wrong means closing an agent that is working - so it wants
+    two witnesses that do not share a source. Our own event history says nothing
+    has been heard for longer than a session is allowed to idle; Orca says the
+    terminal is not mid-turn. Either alone is not enough: a long turn is silent
+    in our events, and the probe is the one we have twice declined to trust.
+    """
+    last = db.last_activity(con, agent)
+    if last is None or (int(time.time()) - last) < STUCK_RUNNING_S:
+        return
+    handle = row["terminal"]
+    if not handle or not orca.available() or not orca.idle_now(handle):
+        return
+    mins = int((time.time() - last) / 60)
+    db.set_agent_state(con, agent, IDLE,
+                       detail=f"RUNNING with nothing heard for {mins}m, and idle")
+    db.add_event(con, agent, "unstuck", {"was": RUNNING, "silent_minutes": mins})
+    actions.append(f"{agent}: RUNNING for {mins}m with nothing heard; back to IDLE")
+    log(f"  {agent}: stuck in RUNNING for {mins}m and idle at its prompt - back to IDLE")
 
 
 # ---------------------------------------------------------------- handoff
