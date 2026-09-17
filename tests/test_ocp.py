@@ -4,10 +4,12 @@ Run: python3 tests/test_ocp.py
 """
 from __future__ import annotations
 
+import contextlib
 import json
 import os
 import pty
 import select
+import signal
 import subprocess
 import sys
 import tempfile
@@ -73,6 +75,20 @@ def sessions_are(*agents: str) -> dict[str, int]:
     table = {a: 4200 + i for i, a in enumerate(agents)}
     obsmod.live_sessions = lambda: dict(table)
     return table
+
+
+@contextlib.contextmanager
+def _deadline(seconds: int):
+    """Fail a test that hangs instead of hanging the suite with it."""
+    def blew(_sig, _frm):
+        raise TimeoutError(f"still running after {seconds}s")
+    old = signal.signal(signal.SIGALRM, blew)
+    signal.alarm(seconds)
+    try:
+        yield
+    finally:
+        signal.alarm(0)
+        signal.signal(signal.SIGALRM, old)
 
 
 def check(name: str, cond: bool, detail: str = "") -> None:
@@ -3669,10 +3685,74 @@ def test_a_message_is_read_whole_and_answered_where_it_is_read(home: Path) -> No
         detail, _ = tui._in_detail(detail, "g", 100, 20)
         check("read: g comes back to the top", detail["top"] == 0)
 
+        # A zero width is what a pty reports before anyone has sized it, and
+        # what some terminals report for one frame mid-resize. Breaking lines
+        # to fit it used to never shrink the line: the screen stopped redrawing
+        # and stopped reading keys, with the daemon still running behind it.
+        try:
+            with _deadline(5):
+                ok = bool(tui.wrap(["nospaceshereatall"], 0)
+                          and tui.frame(0, 24, detail=detail))
+        except TimeoutError as e:
+            ok = False
+            check("read: a zero-width terminal does not hang the screen", False, str(e))
+        else:
+            check("read: a zero-width terminal does not hang the screen", ok)
+
+        # A body is whatever the sender typed. An escape in it is invisible to
+        # the width count, so it is never truncated - and `esc [ 2J` clears the
+        # screen this is drawing.
+        cleaned = tui.wrap(["\033[2J\033[Hpasted \033[31mtool output"], 40)
+        check("read: escapes in a body are text stripped, not commands drawn",
+              "\033" not in "".join(cleaned) and "pasted tool output" in " ".join(cleaned),
+              str(cleaned))
+
+        # An action that raises while something is open is that action's
+        # failure. The panel keys were wrapped for this; the detail keys were
+        # not, and the two editor cases that raise land exactly there.
+        real_answer = actions.answer
+        try:
+            actions.answer = lambda *a, **k: (_ for _ in ()).throw(RuntimeError("boom"))
+            os.environ["EDITOR"] = "/bin/sh -c 'echo an answer >> \"$0\"'"
+            still, said = tui._in_detail(dict(detail), "e", 100, 20)
+            check("read: a failing answer is caught where it happens, not at the exit",
+                  still is not None and "boom" in said, f"{still} {said}")
+        except RuntimeError:
+            check("read: a failing answer is caught where it happens, not at the exit",
+                  False, "it escaped _in_detail")
+        finally:
+            actions.answer = real_answer
+            os.environ.pop("EDITOR", None)
+
+        # An editor that exits non-zero is saying abandon this - :cq in vim.
+        os.environ["EDITOR"] = "/bin/sh -c 'echo written >> \"$0\"; exit 1'"
+        check("read: an editor that wrote and then abandoned sends nothing",
+              tui._editor("# seed\n") is None)
+        os.environ["EDITOR"] = "/bin/sh -c 'echo written >> \"$0\"'"
+        check("read: and one that wrote and left cleanly sends what it wrote",
+              tui._editor("# seed\n") == "written")
+        os.environ["EDITOR"] = "vim '"
+        check("read: and an unquotable $EDITOR is refused, not raised",
+              tui._editor("# seed\n") is None)
+        os.environ.pop("EDITOR", None)
+
         # The cursor in the panel is somewhere else entirely; the key acts on
         # what is open, which is what the reader is looking at.
         sel[tui.MESSAGES] = second
         detail, said = tui._in_detail(detail, "x", 100, 20)
+        # The view scrolls now, so the slices that existed because it could not
+        # are just silent cuts - and they were inside the thing being scrolled.
+        for i in range(9):
+            db.add_request(con, "marina", "backend", f"request {i}", None,
+                           "peer", "async", None, 0, None)
+        foldmod.handoff_path("backend").parent.mkdir(parents=True, exist_ok=True)
+        foldmod.handoff_path("backend").write_text(
+            "\n".join(f"- line {i}" for i in range(30)))
+        shown = "\n".join(actions.agent_detail(con, "backend"))
+        check("read: an opened agent shows its whole inbox",
+              all(f"request {i}" in shown for i in range(9)), shown[:120])
+        check("read: and its whole handoff", "- line 29" in shown, shown[-80:])
+
         check("read: dismissing closes the message being read, not the selected row",
               db.get_request(con, first)["state"] == "done"
               and db.get_request(con, second)["state"] == "queued", said)

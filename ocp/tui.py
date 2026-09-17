@@ -409,9 +409,14 @@ def wrap(lines: list[str], width: int) -> list[str]:
     width shows its first sentence and drops the rest - which is not reading
     the message.
     """
+    width = max(1, width)
     out: list[str] = []
     for line in lines:
-        line = line.rstrip()
+        # A body is whatever the sender typed. Escapes in it are invisible to
+        # vlen, so they are never counted and never truncated: a pasted colour
+        # runs past its line, and a pasted `esc [ 2J` clears the screen this is
+        # drawing. What a message says is its text.
+        line = _ANSI.sub("", line).rstrip()
         if not line:
             out.append("")
             continue
@@ -546,27 +551,34 @@ def _confirm(what: str, width: int, height: int) -> bool:
         return ch in ("y", "Y")
 
 
-def _suspend(argv: list[str], env: dict, fd, saved) -> str:
+def _suspend(argv: list[str], env: dict, fd, saved) -> tuple[int | None, str]:
     """Hand the whole terminal to another program, then take it back.
 
     Logging in is a human typing a code into claude's own screen: nothing about
     that can happen behind an alternate screen with the cursor hidden.
     """
-    sys.stdout.write(CUR_ON + ALT_OFF)
-    sys.stdout.flush()
+    # Only a screen that is up has to be taken down. Without a terminal there
+    # is no alternate screen to leave, and writing the escapes anyway puts them
+    # in whatever is reading our output.
+    on_screen = sys.stdout.isatty()
+    if on_screen:
+        sys.stdout.write(CUR_ON + ALT_OFF)
+        sys.stdout.flush()
     if saved:
         termios.tcsetattr(fd, termios.TCSADRAIN, saved)
+    code, out = None, ""
     try:
         r = subprocess.run(argv, env=env)
-        out = f"{argv[0]} exited {r.returncode}"
+        code, out = r.returncode, f"{argv[0]} exited {r.returncode}"
     except (OSError, subprocess.SubprocessError) as e:
         out = f"could not run {argv[0]}: {e}"
     finally:
         if saved:
             tty.setcbreak(fd)
-        sys.stdout.write(ALT_ON + CUR_OFF)
-        sys.stdout.flush()
-    return out
+        if on_screen:
+            sys.stdout.write(ALT_ON + CUR_OFF)
+            sys.stdout.flush()
+    return code, out
 
 
 def run(interval: float = 2.0, once: bool = False) -> int:
@@ -594,7 +606,10 @@ def run(interval: float = 2.0, once: bool = False) -> int:
             if k in ("q", "Q", "\x03"):
                 return 0
             if detail is not None:
-                detail, flash = _in_detail(detail, k, width, height, fd, saved)
+                try:
+                    detail, flash = _in_detail(detail, k, width, height, fd, saved)
+                except Exception as e:  # noqa: BLE001
+                    flash = f"{RED}{type(e).__name__}: {e}{R}"
                 continue
             flash = ""
             if k == "\t":
@@ -661,17 +676,30 @@ def _in_detail(detail: dict, k: str, width: int, height: int,
     rid = int(detail["key"])
     con = db.connect()
     try:
+        return _answer_key(con, detail, rid, k, width, height, fd, saved)
+    except Exception as e:  # noqa: BLE001
+        # Answering can fail in ways reading cannot - an editor that will not
+        # start, a request resolved from elsewhere between the read and the
+        # reply. That is this key's failure, not the screen's.
+        return detail, f"{RED}{type(e).__name__}: {e}{R}"
+    finally:
+        con.close()
+
+
+def _answer_key(con, detail: dict, rid: int, k: str, width: int, height: int,
+                fd, saved) -> tuple[dict | None, str]:
+    if True:
         if k == "x":
             return None, actions.dismiss(con, rid)
         text = (_editor(f"# answering #{rid}. Lines starting with # are dropped.\n",
                         fd, saved)
                 if k == "e" else _line(f"answer #{rid}:", width, height))
         if text is None:
-            return detail, "nothing sent"
+            return detail, ("nothing sent - $EDITOR is not set" if k == "e"
+                            and not os.environ.get("EDITOR")
+                            and not os.environ.get("VISUAL") else "nothing sent")
         _say(f"answering #{rid}", width, height)
         return None, actions.answer(con, rid, text)
-    finally:
-        con.close()
 
 
 def _editor(seed: str, fd=None, saved=None) -> str | None:
@@ -684,6 +712,10 @@ def _editor(seed: str, fd=None, saved=None) -> str | None:
     editor = os.environ.get("EDITOR") or os.environ.get("VISUAL")
     if not editor:
         return None
+    try:
+        argv = shlex.split(editor)
+    except ValueError:
+        return None                    # $EDITOR with an unclosed quote
     fd_, path = tempfile.mkstemp(prefix="ocp-answer-", suffix=".md")
     os.close(fd_)
     Path(path).write_text(seed)
@@ -691,12 +723,17 @@ def _editor(seed: str, fd=None, saved=None) -> str | None:
         # `saved` is the terminal as the human's shell had it. Handing an
         # editor the cbreak mode this screen runs in gives it a terminal in a
         # state it did not ask for and does not put back.
-        out = _suspend([*shlex.split(editor), path], dict(os.environ), fd, saved)
-        if "could not run" in out:
+        code, _out = _suspend([*argv, path], dict(os.environ), fd, saved)
+        if code != 0:
+            # Non-zero is how an editor says "abandon this" - `:cq` in vim, and
+            # what `git commit` honours. Sending the buffer anyway would send
+            # half an answer.
             return None
         body = "\n".join(ln for ln in Path(path).read_text().splitlines()
                          if not ln.startswith("#")).strip()
         return body or None
+    except OSError:
+        return None                    # the editor removed the file under us
     finally:
         Path(path).unlink(missing_ok=True)
 
@@ -709,6 +746,8 @@ def _say(what: str, width: int, height: int) -> None:
     the keypress, or the confirmation that was just answered, reads as a hang.
     The next redraw repaints every row, so this cannot outlive its action.
     """
+    if not sys.stdout.isatty():
+        return                      # no screen to put it on
     sys.stdout.write(f"\033[{height};1H" + CLEAR_EOL + fit(f"{DIM}{what}…{R}", width))
     sys.stdout.flush()
 
@@ -756,7 +795,7 @@ def _act(panel: int, sel: dict, key: str, width: int, height: int,
         line, argv, env = actions.login_argv(str(target))
         if not argv:
             return line, None
-        return _suspend(argv, env, fd, saved), None
+        return _suspend(argv, env, fd, saved)[1], None
 
     con = db.connect()
     try:

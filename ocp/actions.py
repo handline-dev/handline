@@ -300,14 +300,14 @@ def agent_detail(con, agent: str) -> list[str]:
     out.append("")
     waiting = db.queued_for(con, agent)
     out.append(f"inbox: {len(waiting)} waiting")
-    for r in waiting[:5]:
+    for r in waiting:
         first = (r["body"] or "").splitlines()[0] if r["body"] else ""
         out.append(f"  #{r['id']} from {r['requester']}: {first}")
     out.append("")
     hp = foldmod.handoff_path(agent)
     if hp.exists():
         out.append("handoff:")
-        out += ["  " + ln for ln in hp.read_text().splitlines()[:12]]
+        out += ["  " + ln for ln in hp.read_text().splitlines()]
     else:
         out.append("handoff: none written")
     out.append("")
