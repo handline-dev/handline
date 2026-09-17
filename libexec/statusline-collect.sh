@@ -48,9 +48,10 @@ if ! command -v jq >/dev/null 2>&1; then
   exit 0
 fi
 
-if true; then
-  SNAP="$(printf '%s' "$RAW" | jq -c --arg acct "$ACCT" --arg agent "${OCP_AGENT:-}" \
-                                      --argjson now "$(date +%s)" '
+NOW="$(date +%s)"
+
+SNAP="$(printf '%s' "$RAW" | jq -c --arg acct "$ACCT" --arg agent "${OCP_AGENT:-}" \
+                                    --argjson now "$NOW" '
     {
       account:        $acct,
       agent:          (if $agent == "" then null else $agent end),
@@ -76,6 +77,43 @@ if true; then
       exceeds_200k:   (.exceeds_200k_tokens // null),
       version:        (.version // null)
     }' 2>/dev/null)"
+
+# A window this payload does not report is not a window at zero, and it is not
+# this account going dark either. Claude Code reports a rate-limit window from
+# what its own session has learned, so a session that has made no request since
+# the window rolled over sends no block for it at all - measured: a session
+# started now reports five_hour 0%, while a 14-hour-old idle session on the
+# same account at the same moment reports no five_hour key.
+#
+# Writing that absence over the account file erased what an active session on
+# the same account had just reported, and every reader then saw "usage
+# unknown": the daemon handed off five healthy agents, each one costing a fold.
+# So a payload without a window leaves the previous reading in place, as long
+# as that reading still describes the window we are in. Once resets_at has
+# passed it describes a window that is over, and it goes.
+#
+# rl_at is when the 5h figure was actually observed, and rl_carried says it did
+# not come from this payload. Readers need both: collected_at only says the
+# collector is alive.
+if [ -n "$SNAP" ]; then
+  PREV="$(cat "$OUT_DIR/status.json" 2>/dev/null)"
+  printf '%s' "$PREV" | jq -e . >/dev/null 2>&1 || PREV=null
+  SNAP="$(jq -cn --argjson new "$SNAP" --argjson prev "$PREV" --argjson now "$NOW" '
+    reduce ("5h", "7d", "opus_7d") as $w (
+      $new;
+      ("pct_" + $w) as $pk | ("reset_" + $w) as $rk |
+      if .[$pk] != null then .
+      elif $prev != null and $prev[$pk] != null and (($prev[$rk] // 0) > $now)
+        then .[$pk] = $prev[$pk] | .[$rk] = $prev[$rk]
+           | .carried = ((.carried // []) + [$w])
+      else . end
+    )
+    | (((.carried // []) | index("5h")) != null) as $c
+    | .rl_carried = $c
+    | .rl_at = (if $c then ($prev.rl_at // $prev.collected_at)
+                elif .pct_5h != null then $now
+                else null end)
+    | del(.carried)' 2>/dev/null || printf '%s' "$SNAP")"
 fi
 
 # No session_id means this was not statusLine JSON. Never let a garbage payload

@@ -67,9 +67,16 @@ ocp triggers          # what the daemon would decide right now, without acting
 
 ## How it decides things
 
-**Fail-closed.** A null `pct_5h` is not a full tank, it is a refusal to assign.
-Reading a missing value as 0 makes the 90% trigger false forever: the feature is
-dead while the dashboard stays green.
+**Fail-closed.** A `pct_5h` we cannot trust - no snapshot, unreadable, or too old
+- is not a full tank, it is a refusal to assign. Reading it as 0 makes the 90%
+trigger false forever: the feature is dead while the dashboard stays green.
+
+**But quiet is not unknown.** Claude Code sends no `five_hour` block for a
+session that has made no request since the window rolled over, so a live
+collector reporting nothing means nobody has spent in this window. That reads as
+0% and assigns (`*` in `ocp status` and `ocp top`); a figure kept from an earlier
+payload while its window is still open reads as itself (`~`). Refusing here
+parked five idle agents and paid for a fold each.
 
 **No model in the loop.** Triggers, account choice and resume decisions are all
 deterministic. The only model call is one fold per handoff.

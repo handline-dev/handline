@@ -227,9 +227,15 @@ def _check_rate_limits_present(r: Report) -> None:
         if not st.exists:
             continue
         seen = True
-        if st.pct_5h is None:
-            r.add(WARN, f"account {acct}: no rate_limits in the last snapshot",
-                  "the collector ran but usage was absent - assignment stays refused")
+        src = st.pct_5h_source
+        if src == "unknown":
+            r.add(WARN, f"account {acct}: no usable rate_limits in the last snapshot",
+                  "the snapshot is missing, unreadable or too old - assignment stays refused")
+        elif src == "quiet":
+            r.add(OK, f"account {acct}: 5h window quiet",
+                  "no session has spent in the current window; reads as 0%")
+        elif src == "carried":
+            r.add(OK, f"account {acct}: rate_limits carried", f"5h {st.pct_5h}% (window still open)")
         else:
             r.add(OK, f"account {acct}: rate_limits present", f"5h {st.pct_5h}%")
     if not seen and paths.list_accounts():

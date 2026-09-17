@@ -39,11 +39,44 @@ def write_status(home: Path, acct: str, **fields) -> None:
 def test_failclosed(home: Path) -> None:
     os.environ["OCP_HOME"] = str(home)
 
-    write_status(home, "nulls", pct_5h=None, pct_7d=None)
-    allowed, why = status.read("nulls").assignable()
-    check("null pct_5h refuses assignment", not allowed, why)
-    check("null pct_5h is not treated as 0", "null" in why)
-    check("headroom is None when unknown", status.read("nulls").headroom() is None)
+    # A fresh snapshot whose payload carried no five_hour block is the quiet
+    # case, not the unknown one: the collector is alive and nothing has been
+    # spent in this window. Refusing here parked five idle agents once.
+    write_status(home, "quiet", pct_5h=None, pct_7d=None)
+    q = status.read("quiet")
+    check("no 5h window in a fresh snapshot reads as quiet", q.pct_5h_source == "quiet",
+          q.pct_5h_source)
+    allowed, why = q.assignable()
+    check("a quiet window assigns", allowed, why)
+    check("and says the 0% was inferred", "inferred" in why, why)
+    check("quiet headroom is the full window", q.headroom() == 90, str(q.headroom()))
+    check("the raw reading stays null", q.pct_5h is None, repr(q.pct_5h))
+
+    # Unknown is what fail-closed is for, and these are the shapes of it.
+    write_status(home, "unreadable", pct_5h="lots")
+    u = status.read("unreadable")
+    check("an unreadable pct_5h is unknown", u.pct_5h_source == "unknown", u.pct_5h_source)
+    allowed, why = u.assignable()
+    check("and refuses assignment", not allowed, why)
+    check("headroom is None when unknown", u.headroom() is None)
+
+    (home / "accounts" / "nofield").mkdir(parents=True, exist_ok=True)
+    (home / "accounts" / "nofield" / "status.json").write_text(
+        json.dumps({"account": "nofield", "collected_at": int(time.time()), "session_id": "s"}))
+    nf = status.read("nofield")
+    check("a snapshot with no pct_5h field at all is unknown",
+          nf.pct_5h_source == "unknown", nf.pct_5h_source)
+    check("and refuses", not nf.assignable()[0])
+
+    # A reading survives a payload that does not mention the window, while that
+    # window is still open - the collector carries it and says so.
+    write_status(home, "carried", pct_5h=40, reset_5h=int(time.time()) + 600,
+                 rl_carried=True, rl_at=int(time.time()) - 300)
+    c = status.read("carried")
+    check("a carried reading is used", c.trusted_pct_5h == 40, str(c.trusted_pct_5h))
+    allowed, why = c.assignable()
+    check("a carried reading assigns", allowed, why)
+    check("and is labelled carried", "carried" in why, why)
 
     # The API returns these as floats, sometimes untidy ones. Rounding must go
     # up, so a rounding error triggers sooner rather than later.
@@ -83,11 +116,20 @@ def test_failclosed(home: Path) -> None:
     check("corrupt status.json refuses", not allowed, why)
 
     # Selection must prefer headroom, and must refuse when nothing qualifies.
-    picked, _ = status.pick_account(["nulls", "fresh", "hot"])
+    picked, _ = status.pick_account(["unreadable", "fresh", "hot"])
     check("pick_account chooses the healthy one", picked == "fresh", str(picked))
-    picked, reasons = status.pick_account(["nulls", "hot", "stale"])
+    picked, reasons = status.pick_account(["unreadable", "hot", "stale"])
     check("pick_account returns None when nothing qualifies", picked is None, str(picked))
     check("pick_account explains every candidate", len(reasons) == 3)
+
+    # A quiet account has the most headroom there is, so it wins on headroom;
+    # at equal headroom the account we actually have a reading for wins.
+    picked, _ = status.pick_account(["quiet", "fresh"])
+    check("pick_account takes the quiet account over a busier one", picked == "quiet",
+          str(picked))
+    write_status(home, "reported0", pct_5h=0)
+    picked, _ = status.pick_account(["quiet", "reported0"])
+    check("a reported 0% beats an inferred one", picked == "reported0", str(picked))
 
     write_status(home, "roomy", pct_5h=2)
     picked, _ = status.pick_account(["fresh", "roomy"])
@@ -143,15 +185,38 @@ def test_collector(home: Path) -> None:
     after = (home / "accounts" / "alpha" / "status.json").read_text()
     check("garbage input does not clobber a good snapshot", before == after)
 
-    # A payload with no rate_limits must yield null, not 0 - this is the
-    # difference between fail-closed and a silently dead trigger.
+    # A payload with no rate_limits must never become 0 in the file - that is
+    # the difference between a real reading and a silently dead trigger. Here
+    # the window in the stored snapshot has already ended, so there is nothing
+    # left to carry and the field goes back to null.
     thin = {"session_id": "x", "model": {"id": "m"}}
     subprocess.run([str(ROOT / "libexec" / "statusline-collect.sh")],
                    input=json.dumps(thin), capture_output=True, text=True, env=env)
     st = status.read("alpha", home / "accounts" / "alpha" / "status.json")
     check("missing rate_limits becomes null, not 0", st.pct_5h is None, repr(st.pct_5h))
-    allowed, _ = st.assignable()
-    check("that null then refuses assignment", not allowed)
+    check("and reads as quiet, since the collector is alive",
+          st.pct_5h_source == "quiet", st.pct_5h_source)
+
+    # Inside the window it is the opposite: an idle session's payload carries no
+    # five_hour block, and must not erase what an active session on the same
+    # account just reported. Losing that is what made five agents look unknown.
+    live = dict(payload)
+    live["rate_limits"] = {
+        "five_hour": {"used_percentage": 63, "resets_at": int(time.time()) + 1800},
+        "seven_day": {"used_percentage": 41, "resets_at": int(time.time()) + 90000},
+    }
+    subprocess.run([str(ROOT / "libexec" / "statusline-collect.sh")],
+                   input=json.dumps(live), capture_output=True, text=True, env=env)
+    observed_at = status.read("alpha", home / "accounts" / "alpha" / "status.json").rl_at
+    subprocess.run([str(ROOT / "libexec" / "statusline-collect.sh")],
+                   input=json.dumps(thin), capture_output=True, text=True, env=env)
+    st = status.read("alpha", home / "accounts" / "alpha" / "status.json")
+    check("an idle payload does not erase the account's reading", st.pct_5h == 63,
+          repr(st.pct_5h))
+    check("the carried reading is marked as carried", st.rl_carried is True)
+    check("and keeps when it was observed, not when it was copied",
+          st.rl_at == observed_at, f"rl_at={st.rl_at} observed_at={observed_at}")
+    check("a carried reading still assigns", st.assignable()[0], st.assignable()[1])
 
 
 # ---------------------------------------------------------------- yaml

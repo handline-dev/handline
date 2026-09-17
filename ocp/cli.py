@@ -76,7 +76,9 @@ def cmd_account_list(args) -> int:
             allowed, why = st.assignable()
             out.append({
                 "account": a, "logged_in": accounts.logged_in(a),
-                "pct_5h": st.pct_5h, "pct_7d": st.pct_7d, "ctx_pct": st.ctx_pct,
+                "pct_5h": st.pct_5h, "pct_5h_effective": st.trusted_pct_5h,
+                "pct_5h_source": st.pct_5h_source,
+                "pct_7d": st.pct_7d, "ctx_pct": st.ctx_pct,
                 "age_s": st.age_s, "assignable": allowed, "reason": why,
             })
         print(json.dumps(out, indent=2))
@@ -88,9 +90,14 @@ def cmd_account_list(args) -> int:
         allowed, why = st.assignable()
         cell = lambda v: "  -" if v is None else f"{v:>3}"  # noqa: E731
         age = "-" if st.age_s is None else f"{int(st.age_s)}s"
+        # A figure we inferred is marked, never dressed up as one we read.
+        mark = {"quiet": "*", "carried": "~"}.get(st.pct_5h_source, "")
+        five = f"{cell(st.trusted_pct_5h)}{mark}"
         print(f"{a:<14}{'yes' if accounts.logged_in(a) else 'no':<8}"
-              f"{cell(st.pct_5h):>4}{cell(st.pct_7d):>5}{cell(st.ctx_pct):>6}{age:>8}  "
+              f"{five:>5}{cell(st.pct_7d):>5}{cell(st.ctx_pct):>6}{age:>8}  "
               f"{'yes' if allowed else 'NO':<4} {why}")
+    print("  * inferred: nothing spent in this window   ~ carried: "
+          "an earlier reading, window still open")
     return 0
 
 
@@ -129,7 +136,7 @@ def cmd_agent_show(args) -> int:
         "failed_attempts": (row["failed_attempts"] if row else 0),
         "continuations": (row["continuations"] if row else 0),
         "throttle_count": (row["throttle_count"] if row else 0),
-        "pct_5h": st.pct_5h, "ctx_pct": st.ctx_pct,
+        "pct_5h": st.pct_5h, "pct_5h_source": st.pct_5h_source, "ctx_pct": st.ctx_pct,
         "inbox_queued": queued,
         "budget": {fn: {"bytes": size, "limit": lim, "over": over}
                    for fn, size, lim, over in agents.budget_report(args.name)},

@@ -29,9 +29,15 @@ command across hibernation and restore.""",
   ocp status                       which account may take new work
   ocp account list --json          machine-readable
 
-A null pct_5h is not a full tank, it is a refusal. Reading a missing value as 0
-makes the 90% trigger false forever: the feature is dead while the dashboard
-stays green.""",
+A pct_5h we cannot trust - no snapshot, unreadable, or too old - is not a full
+tank, it is a refusal. Reading it as 0 makes the 90% trigger false forever: the
+feature is dead while the dashboard stays green.
+
+A window nobody has spent in is different. Claude Code sends no five_hour block
+for a session that has made no request since the window rolled over, so a live
+collector reporting nothing is the account telling us it is quiet. That reads as
+0% and assigns, marked `*` in `ocp status` and `ocp top`. A figure kept from an
+earlier payload while its window is still open is marked `~`.""",
     "hooks": """Orca hooks
   ocp hooks status                 show drift
   ocp hooks sync                   apply once

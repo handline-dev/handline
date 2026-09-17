@@ -221,7 +221,14 @@ statusLine은 `resets_at` 도달 시 자동 재실행되므로 리셋 타이머�
 - 세션이 살아있을 때만 갱신 → `refreshInterval`로 보완
 - managed settings의 `disableAllHooks` 계열이 걸리면 **경고 없이 비활성화**
 - usage 엔드포인트 자체에 rate limit이 있다. 공격적 폴링 시 stale 값으로 fail-open
-- `pct_5h`가 null이면 만점이 아니라 **배정 거부(fail-closed)** + 빨간불
+- `pct_5h`가 null인 데에는 두 가지가 있고, 답이 정반대다 (2026-09-17 실측)
+  - **수집기가 죽었거나 스냅샷이 낡음** → 만점이 아니라 **배정 거부(fail-closed)** + 빨간불
+  - **세션이 이번 창에서 요청을 한 번도 안 함** → Claude Code가 `five_hour` 블록 자체를
+    안 보낸다. 살아있는 수집기가 보내는 이 침묵은 "이 창에서 아무도 안 썼다"는 관측이므로
+    **0%로 읽고 배정한다.** 여기서 거부하면 노는 에이전트 5개를 handoff시키고 fold 비용만 태운다
+  - 그래서 **어떤 창을 보고하지 않는 페이로드는 그 창의 이전 값을 지우지 않는다.** `resets_at`이
+    아직 안 지났으면 그 값을 유지하고(`rl_carried`), 지났으면 버린다. 이걸 안 하면 같은 계정의
+    **노는 세션이 일하는 세션의 값을 덮어쓴다**
 - Claude Code v2.1.234+의 **`autoContinueAtUsageLimit`**이 우리 재개 A와 겹친다. 끄고 우리가 관리하거나 켜고 위임하거나 **택일**을 강제한다
 
 ### transcript 집계 시 dedup 필수

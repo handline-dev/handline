@@ -81,8 +81,10 @@ def render() -> str:
             st = status.read(acct)
             allowed, why = st.assignable()
             mark = f"{GREEN}✔{RESET}" if allowed else f"{RED}✘{RESET}"
+            five = st.trusted_pct_5h
+            src = {"quiet": "*", "carried": "~"}.get(st.pct_5h_source, " ")
             out.append(
-                f"  {acct:<8} 5h {_bar(st.pct_5h)} {_pct(st.pct_5h)} {_countdown(st.reset_5h)}"
+                f"  {acct:<8} 5h {_bar(five)} {_pct(five)}{src}{_countdown(st.reset_5h)}"
                 f"   7d {_bar(st.pct_7d)} {_pct(st.pct_7d)}"
                 f"   {mark} {DIM}{why[:38]}{RESET}"
             )

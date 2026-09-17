@@ -434,19 +434,22 @@ def tick(con, log, use_model: bool = True, samples: dict | None = None) -> Tick:
 
         # Keep a short burn-rate history per account for the projection (8.1).
         hist = samples.setdefault(acct, [])
-        if st.pct_5h is not None and st.collected_at:
+        pct = st.trusted_pct_5h
+        if pct is not None and st.collected_at:
             if not hist or hist[-1][0] != st.collected_at:
-                hist.append((st.collected_at, st.pct_5h))
+                hist.append((st.collected_at, pct))
                 del hist[:-10]
         burn = triggers.burn_rate_per_s(hist)
 
         if state in (PARKED, THROTTLED, DEGRADED):
             continue  # waiting on wake_at, already handled above
 
-        # trusted_* is None when the snapshot is stale. A frozen status.json
-        # keeps reporting its last value forever, and believing it is the same
-        # failure as reading a null as 0 - the trigger would simply never fire
-        # again after the collector died.
+        # trusted_* is None only when we genuinely do not know: no snapshot, or
+        # one too old to believe. A frozen status.json keeps reporting its last
+        # value forever, and believing it is the same failure as reading a null
+        # as 0 - the trigger would simply never fire again after the collector
+        # died. An account whose window is merely quiet reads as 0, not as
+        # unknown, so an idle agent is left alone instead of handed off.
         t = triggers.evaluate(st.trusted_pct_5h, st.trusted_ctx_pct, burn=burn)
         if t.fired:
             ok = perform_handoff(con, agent, t, log, use_model=use_model)

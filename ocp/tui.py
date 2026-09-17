@@ -141,7 +141,8 @@ def build(width: int) -> tuple[list[str], list[list[str]]]:
         state = f"{GRN}running{R} pid {pid}" if pid else f"{RED}NOT RUNNING{R}"
         header = [
             fit(f"{BOLD}ocp{R} {DIM}·{R} daemon {state} {DIM}·{R} "
-                f"{time.strftime('%H:%M:%S')}  {DIM}q quit · r refresh{R}", width),
+                f"{time.strftime('%H:%M:%S')}  {DIM}q quit · r refresh · "
+                f"5h * inferred ~ carried{R}", width),
             "",
         ]
 
@@ -154,8 +155,13 @@ def build(width: int) -> tuple[list[str], list[list[str]]]:
             allowed, why = st.assignable()
             mark = f"{GRN}✔{R}" if allowed else f"{RED}✘{R}"
             cost = "?" if st.cost_usd is None else f"${st.cost_usd:.2f}"
+            # Show the figure decisions are made on, with a mark saying where
+            # it came from. Drawing a quiet window as "?" while the daemon acts
+            # on 0% is the dashboard and the daemon disagreeing.
+            five = st.trusted_pct_5h
+            src = {"quiet": "*", "carried": "~"}.get(st.pct_5h_source, " ")
             acc.add(
-                f"{BOLD}{name:<10}{R}{bar(st.pct_5h)} {pct(st.pct_5h)}%  "
+                f"{BOLD}{name:<10}{R}{bar(five)} {pct(five)}%{src} "
                 f"{countdown(st.reset_5h):<7}{bar(st.pct_7d, 6)} {pct(st.pct_7d)}%  "
                 f"{age(st.age_s):<10}{cost:<9}{mark} {DIM}{why[:30]}{R}"
             )
