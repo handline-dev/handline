@@ -166,7 +166,8 @@ def cmd_close(args) -> int:
     """Close an agent's session by hand, keeping its terminal."""
     con = db.connect()
     try:
-        ok, msg = daemonmod.close_agent(con, args.agent, print)
+        st = status.read_for_agent(args.agent, agents.account_of(args.agent))
+        ok, msg = daemonmod.close_agent(con, args.agent, print, st)
         print(msg)
     finally:
         con.close()

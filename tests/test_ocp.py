@@ -15,9 +15,9 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
-from ocp import (accounts, agents, ask as askmod, daemon as dmn, db, digest, doctor, drift,
-                 events as evmod, fold as foldmod, launch, orca as orcamod, paths,
-                 spawn as spawnmod, status, team, triggers, tui, yamlcompat)  # noqa: E402
+from ocp import (accounts, agents, ask as askmod, daemon as dmn, dashboard, db, digest,
+                 doctor, drift, events as evmod, fold as foldmod, launch, orca as orcamod,
+                 paths, spawn as spawnmod, status, team, triggers, tui, yamlcompat)  # noqa: E402
 
 PASS, FAIL = [], []
 
@@ -1498,7 +1498,8 @@ def test_idle_session_is_closed_and_resumed(home: Path) -> None:
             "account": "alpha", "collected_at": int(time.time()), "session_id": "sess-1",
             "pct_5h": 20, "ctx_pct": 8,
             "transcript_path": "/tmp/sess-1.jsonl"}))
-        ok, _ = dmn.close_agent(con, "backend", lambda _m: None)
+        ok, _ = dmn.close_agent(con, "backend", lambda _m: None,
+                        status.read_for_agent("backend", "alpha"))
         check("close: the session is ended", ok and sent and sent[-1][1] == "/exit",
               str(sent[-1:]))
         row = db.get_agent_state(con, "backend")
@@ -1599,7 +1600,8 @@ def test_work_arriving_wakes_a_closed_agent(home: Path) -> None:
         (home / "agents" / "backend" / "status.json").write_text(json.dumps({
             "account": "alpha", "collected_at": int(time.time()),
             "session_id": "sess-9", "pct_5h": 20}))
-        dmn.close_agent(con, "backend", lambda _m: None)
+        dmn.close_agent(con, "backend", lambda _m: None,
+                        status.read_for_agent("backend", "alpha"))
         row = db.get_agent_state(con, "backend")
         check("close: a closed session is not left labelled RUNNING",
               row["state"] != dmn.RUNNING, row["state"])
@@ -2162,7 +2164,12 @@ def test_a_closed_agent_is_not_handed_off(home: Path) -> None:
         orcamod.send = lambda h, text, enter=True: (sent.append(text), (True, ""))[1]
         db.set_terminal(con, "backend", "term_x", "wt")
         db.set_agent_state(con, "backend", dmn.IDLE)
-        dmn.close_agent(con, "backend", lambda _m: None)
+        (home / "agents" / "backend").mkdir(parents=True, exist_ok=True)
+        (home / "agents" / "backend" / "status.json").write_text(json.dumps({
+            "account": "alpha", "collected_at": int(time.time()),
+            "session_id": "sess-2", "pct_5h": 20}))
+        dmn.close_agent(con, "backend", lambda _m: None,
+                        status.read_for_agent("backend", "alpha"))
         check("closed: the agent is marked closed",
               db.get_agent_state(con, "backend")["closed_at"] is not None)
 
@@ -2196,6 +2203,17 @@ def test_a_closed_agent_is_not_handed_off(home: Path) -> None:
               [ln for ln in frame.splitlines() if "backend" in ln])
         check("closed: the frame still fits its terminal",
               len(frame.split(chr(10))) == 40)
+
+        # Both renderers, and the columns stay under their header. A state that
+        # grew a "·closed" suffix outran a :<11 cell and pushed its whole row.
+        plain = [tui._ANSI.sub("", ln) for ln in dashboard.render().split(chr(10))]
+        head = next(ln for ln in plain if ln.strip().startswith("name "))
+        rows = [ln for ln in plain if ln.startswith("  backend ")]
+        check("closed: --plain says it too",
+              rows and "closed" in rows[0] and "usage_unknown" not in rows[0], str(rows))
+        check("closed: and its ctx column stands under the header",
+              rows and rows[0].index("?%") - head.index("ctx") in (0, 1, 2),
+              f"{head!r} {rows[0]!r}" if rows else "no row")
     finally:
         (orcamod.alive, orcamod.wait_idle, orcamod.idle_now, orcamod.send,
          orcamod.available, orcamod.clear_context) = real
@@ -2223,7 +2241,8 @@ def test_a_woken_agent_is_told_on_the_following_tick(home: Path) -> None:
         (home / "agents" / "backend" / "status.json").write_text(json.dumps({
             "account": "alpha", "collected_at": int(time.time()),
             "session_id": "sess-4", "pct_5h": 20}))
-        dmn.close_agent(con, "backend", lambda _m: None)
+        dmn.close_agent(con, "backend", lambda _m: None,
+                        status.read_for_agent("backend", "alpha"))
 
         db.add_request(con, "reviewer", "backend", "look at this", None,
                        "peer", "async", None, 0, None)
@@ -2267,7 +2286,8 @@ def test_a_woken_agent_is_not_judged_on_the_snapshot_it_left(home: Path) -> None
         (home / "agents" / "backend" / "status.json").write_text(json.dumps({
             "account": "alpha", "collected_at": int(time.time()),
             "session_id": "sess-7", "pct_5h": 20}))
-        dmn.close_agent(con, "backend", lambda _m: None)
+        dmn.close_agent(con, "backend", lambda _m: None,
+                        status.read_for_agent("backend", "alpha"))
 
         # The account was this agent's only session, so its snapshot ages out too.
         write_status(home, "alpha", pct_5h=20, pct_7d=10,
@@ -2289,6 +2309,54 @@ def test_a_woken_agent_is_not_judged_on_the_snapshot_it_left(home: Path) -> None
         check("wake: and it was not cleared", not any("/clear" in t for t in sent), str(sent))
         check("wake: the work that caused the wake is still queued",
               len(db.queued_for(con, "backend")) == 1)
+    finally:
+        (orcamod.alive, orcamod.wait_idle, orcamod.idle_now, orcamod.send,
+         orcamod.available, orcamod.clear_context) = real
+        con.close()
+
+
+def test_a_park_that_was_also_closed_is_woken_without_being_judged(home: Path) -> None:
+    """An agent can be parked and closed at once, and then the wake_at branch is
+    what restores its session - so the same rule has to hold there. It held only
+    because that branch never re-read the row, which is the first thing anyone
+    tidying this code would fix."""
+    _daemon_home(home, 20)
+    con = db.connect()
+    sent: list[str] = []
+    real = (orcamod.alive, orcamod.wait_idle, orcamod.idle_now, orcamod.send,
+            orcamod.available, orcamod.clear_context)
+    try:
+        orcamod.available = lambda: True
+        orcamod.alive = lambda h: True
+        orcamod.wait_idle = lambda h, timeout_ms=0: True
+        orcamod.idle_now = lambda h: True
+        orcamod.clear_context = lambda h, wait=True, timeout_ms=0: (True, "context cleared")
+        orcamod.send = lambda h, text, enter=True: (sent.append(text), (True, ""))[1]
+        db.set_terminal(con, "backend", "term_x", "wt")
+        (home / "agents" / "backend").mkdir(parents=True, exist_ok=True)
+        (home / "agents" / "backend" / "status.json").write_text(json.dumps({
+            "account": "alpha", "collected_at": int(time.time()),
+            "session_id": "sess-8", "pct_5h": 20}))
+        dmn.close_agent(con, "backend", lambda _m: None,
+                        status.read_for_agent("backend", "alpha"))
+        db.set_agent_state(con, "backend", dmn.PARKED, wake_at=int(time.time()) - 10,
+                           detail="parked and closed")
+        row = db.get_agent_state(con, "backend")
+        check("parked+closed: the state this is about is reachable",
+              row["state"] == dmn.PARKED and row["closed_at"] is not None, str(dict(row)))
+
+        # Its own snapshot stopped with the session, and it was the only one here.
+        write_status(home, "alpha", pct_5h=20, pct_7d=10,
+                     collected_at=int(time.time()) - status.STALE_AFTER_S - 60)
+        sent.clear()
+        dmn.tick(con, lambda _m: None, use_model=False)
+        row = db.get_agent_state(con, "backend")
+        check("parked+closed: wake_at brings the same session back",
+              any("--resume sess-8" in t for t in sent), str(sent))
+        check("parked+closed: and it is not parked again on the reading it left",
+              row["state"] != dmn.PARKED, str(dict(row)))
+        check("parked+closed: nothing was folded for it",
+              row["continuations"] == 0 and not db.in_flight_handoffs(con), str(dict(row)))
     finally:
         (orcamod.alive, orcamod.wait_idle, orcamod.idle_now, orcamod.send,
          orcamod.available, orcamod.clear_context) = real
@@ -2825,6 +2893,7 @@ def main() -> int:
         test_a_closed_agent_is_not_handed_off(Path(td) / 'closedtrig')
         test_a_woken_agent_is_told_on_the_following_tick(Path(td) / 'woketick')
         test_a_woken_agent_is_not_judged_on_the_snapshot_it_left(Path(td) / 'wakejudge')
+        test_a_park_that_was_also_closed_is_woken_without_being_judged(Path(td) / 'pclosed')
         test_a_wake_does_not_call_a_fresh_start_a_park(Path(td) / 'freshstart')
         test_who_is_asking_is_not_guessed(Path(td) / 'whoasks')
         test_a_rejected_fold_still_records_what_it_spent(Path(td) / 'spend')

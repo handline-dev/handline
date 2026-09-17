@@ -19,6 +19,10 @@ import shutil
 import time
 
 from . import agents, daemon, db, paths, status, triggers
+# The same visible-width padding the full-screen panel uses: a cell whose
+# contents carry colour must be padded on what is on the screen, not on the
+# characters nobody can see.
+from .tui import fit, pad
 
 RESET = "\033[0m"
 DIM = "\033[2m"
@@ -99,8 +103,8 @@ def render() -> str:
 
         # ---- agents ---------------------------------------------------
         out.append(BOLD + "AGENTS" + RESET)
-        out.append(DIM + f"  {'name':<11}{'acct':<7}{'model':<8}{'eff':<7}{'state':<11}"
-                         f"{'ctx':<6}{'wake':<7}{'trigger'}" + RESET)
+        out.append(DIM + f"  {'name':<11}{'acct':<7}{'model':<8}{'eff':<7}{'state':<14}"
+                         f"{'ctx':<7}{'wake':<7}{'trigger'}" + RESET)
         for name in paths.list_agents():
             try:
                 acct = agents.account_of(name)
@@ -123,10 +127,13 @@ def render() -> str:
             if st.ctx_pct is not None and st.ctx_pct >= triggers.CONTEXT_PCT:
                 ctx = YELLOW + ctx + RESET
             out.append(
-                f"  {name:<11}{acct:<7}{str(cfg.get('model')):<8}"
-                f"{str(cfg.get('effort') or agents.DEFAULT_EFFORT):<7}"
-                f"{color}{state:<11}{RESET}{ctx:<6} "
-                f"{_countdown(row['wake_at'] if row else None):<7}{fire}"
+                "  "
+                + pad(name, 11) + pad(acct, 7) + pad(str(cfg.get("model")), 8)
+                + pad(str(cfg.get("effort") or agents.DEFAULT_EFFORT), 7)
+                + pad(f"{color}{fit(state, 13)}{RESET}", 14)
+                + pad(ctx, 7)
+                + pad(_countdown(row["wake_at"] if row else None), 7)
+                + fire
             )
             if row and row["detail"]:
                 out.append(f"  {DIM}{'':<11}{row['detail'][:width - 16]}{RESET}")

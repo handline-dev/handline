@@ -269,20 +269,22 @@ def triggers_apply(row) -> bool:
     return not (row and row["closed_at"])
 
 
-def close_agent(con, agent: str, log, account: str | None = None) -> tuple[bool, str]:
+def close_agent(con, agent: str, log, st) -> tuple[bool, str]:
     """Give the machine back an idle agent's memory, keeping its terminal.
 
     This is not a handoff: nothing is folded and no context is reclaimed,
     because there is nothing wrong with this agent's context - it is simply
     not being used. The session id is recorded so waking can resume that same
-    session rather than starting a stranger in its place; when the agent's own
-    snapshot cannot supply one, none is recorded and waking starts a fresh
-    session, which is the safe direction.
+    session rather than starting a stranger in its place - and it is the caller's
+    reading, the same one `should_close` approved. Reading it again here would
+    let the predicate check one value and the act store another, in the one
+    place where the difference means closing with no way back.
     """
     handle = db.get_terminal(con, agent)
     if not handle or not orca.available():
         return False, "no terminal to close"
-    st = status.read_for_agent(agent, account or agents.account_of(agent))
+    if not st.session_id:
+        return False, "no session to resume; not closing"
     ok, why = orca.close_session(handle)
     if not ok:
         return False, why
@@ -562,6 +564,14 @@ def supervise(con, agent: str, log, now: int, samples: dict,
     acct = agents.account_of(agent)
     st = status.read_for_agent(agent, acct)
 
+    # An agent whose *closed* session was restored in this tick is judged on the
+    # next one: `st` was read above, before the wake, and a closed agent's
+    # snapshot is stale by construction. A parked agent that was never closed
+    # kept its session and its status line, so its reading is current and there
+    # is nothing to defer - deferring it anyway would only slow the degraded
+    # retry loop down by a tick per attempt.
+    woke_now = False
+
     # Wake anything whose deadline has come due, whatever its state.
     if row and row["wake_at"] and row["wake_at"] <= now and \
             state in (PARKED, THROTTLED, DEGRADED):
@@ -572,14 +582,18 @@ def supervise(con, agent: str, log, now: int, samples: dict,
         db.set_agent_state(con, agent, QUEUED, wake_at=None, detail="wake_at reached")
         actions.append(f"{agent}: {state} -> QUEUED (window rolled over)")
         log(f"  {agent}: {state} -> QUEUED (window rolled over)")
+        # A parked agent can also be a closed one, and then this wake restores
+        # the session - which is the case the gate below exists for.
+        restored = bool(row and row["closed_at"])
         wake_agent(con, agent, log)
+        row = db.get_agent_state(con, agent)
         state = QUEUED
+        woke_now = woke_now or restored
 
     # A closed session cannot read its own inbox, so the arrival of work is
     # what has to bring it back. Without this an `ocp ask` queues into a
     # terminal with nobody in it and waits forever, which is worse than the
     # memory it was saving: reviewer sat closed with two requests pending.
-    woke_now = False
     if row and row["closed_at"]:
         waiting = db.queued_for(con, agent)
         if waiting:
@@ -605,7 +619,7 @@ def supervise(con, agent: str, log, now: int, samples: dict,
     # nothing is folded, nothing is cleared - and waking it resumes the
     # same session, so the only thing that changes is who has the memory.
     if should_close(con, agent, state, row, now, st):
-        ok, _ = close_agent(con, agent, log, account=acct)
+        ok, _ = close_agent(con, agent, log, st)
         if ok:
             actions.append(f"{agent}: session closed while idle")
             row = db.get_agent_state(con, agent)
