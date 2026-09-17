@@ -1013,7 +1013,9 @@ def test_service_plist(home: Path) -> None:
     check("service: env carries OCP_HOME, pointed at this home",
           env.get("OCP_HOME") == str(home))
     check("service: program is an absolute path (launchd inherits no PATH)",
-          Path(plist["ProgramArguments"][1]).is_absolute())
+          Path(plist["ProgramArguments"][0]).is_absolute())
+    check("service: the interpreter is not pinned - bin/ocp's own shebang resolves it",
+          "python" not in plist["ProgramArguments"][0].lower())
 
     path = service.write_plist(path=home / "test.plist", home=home)
     check("service: write_plist creates the file", path.exists())
@@ -1182,6 +1184,38 @@ def test_service_crash_loop(home: Path) -> None:
     check("service: restarts spread across hours is not a crash loop",
           not service.crash_loop_detected(home, window_s=300, threshold=4))
 
+    # The most likely real crash loop: a hand-started daemon holds the
+    # pidfile, launchd's copy exits at once every restart without ever
+    # reaching reconcile. It must still be visible to the detector.
+    lines = [f"[{stamp(s)}] daemon starting - already running (pid 1), exiting"
+             for s in (0, 15, 30, 45)]
+    log.write_text("\n".join(lines) + "\n")
+    check("service: repeated pidfile refusals are a crash loop too",
+          service.crash_loop_detected(home, window_s=300, threshold=4))
+
+
+def test_daemon_refusal_logs_through_the_same_path(home: Path) -> None:
+    """The pidfile refusal used to be a bare `print`, invisible to
+    crash_loop_detected. It must share the logger and the 'daemon starting'
+    wording every other startup line uses."""
+    import contextlib
+    import io
+
+    home.mkdir(parents=True, exist_ok=True)
+    os.environ["OCP_HOME"] = str(home)
+    orig = dmn.running_elsewhere
+    buf = io.StringIO()
+    try:
+        dmn.running_elsewhere = lambda: 999999999  # never our own pid
+        with contextlib.redirect_stdout(buf):
+            rc = dmn.run(once=True)
+    finally:
+        dmn.running_elsewhere = orig
+    out = buf.getvalue()
+    check("daemon: refuses when another pid holds the pidfile", rc == 1)
+    check("daemon: the refusal is logged, not printed bare",
+          "daemon starting - already running" in out, out)
+
 
 def test_service_log_rotation(tmp: Path) -> None:
     tmp.mkdir(parents=True, exist_ok=True)
@@ -1224,8 +1258,18 @@ def test_doctor_service_check(home: Path) -> None:
                                   "last_exit_code": None}
         r = doctor.Report()
         doctor._check_service(r)
-        check("doctor: not-installed service warns, does not fail",
+        check("doctor: not-installed service warns when nothing is running",
               r.rows[-1][0] == doctor.WARN)
+
+        # A human deliberately running it by hand is a working setup, not a
+        # defect - doctor's warnings are what we read to know something is
+        # actually wrong, so this must not be one of them.
+        dmn.write_pidfile()
+        r = doctor.Report()
+        doctor._check_service(r)
+        check("doctor: not-installed is fine when a daemon is running by hand",
+              r.rows[-1][0] == doctor.OK, str(r.rows[-1]))
+        paths.daemon_pid().unlink(missing_ok=True)
 
         service.status = lambda: {"installed": True, "loaded": False, "pid": None,
                                   "last_exit_code": None}
@@ -3135,6 +3179,7 @@ def main() -> int:
         test_service_status_when_not_installed(Path(td) / 'svc3')
         test_service_supervisor_of(Path(td) / 'svc4')
         test_service_crash_loop(Path(td) / 'svc5')
+        test_daemon_refusal_logs_through_the_same_path(Path(td) / 'svc5b')
         test_service_log_rotation(Path(td) / 'svc6')
         test_doctor_service_check(Path(td) / 'svc7')
         test_drift(Path(td) / 'drift')

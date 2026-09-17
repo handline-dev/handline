@@ -731,7 +731,12 @@ def run(once: bool = False, use_model: bool = True, verbose: bool = True,
 
     other = running_elsewhere()
     if other and other != os.getpid():
-        print(f"a daemon is already running (pid {other})")
+        # Through the same logger as every other startup line, and sharing its
+        # "daemon starting" wording, so a launchd job that respawns into this
+        # refusal every ThrottleInterval is still visible to crash_loop_detected
+        # - a silent `print` here is what a launchd-driven crash loop looks like
+        # from the outside: healthy on every check, dead the whole time.
+        log(f"daemon starting - already running (pid {other}), exiting")
         return 1
     write_pidfile()
 

@@ -276,10 +276,18 @@ def _check_service(r: Report) -> None:
     """The daemon surviving overnight is the point of `ocp service` - a
     plist on disk that launchd never loaded, or a job stuck respawning, is
     the same as no supervisor at all."""
+    from . import daemon
+
     st = service.status()
     if not st["installed"]:
-        r.add(WARN, "no launchd service installed",
-              "daemon only runs while a human keeps it open - `ocp service install`")
+        # A human deliberately running it by hand in a terminal is a real,
+        # working setup, not a defect - only flag the case that is actually
+        # silent: nothing installed and nothing running either.
+        if daemon.running_elsewhere():
+            r.add(OK, "no launchd service installed", "a daemon is running by hand")
+        else:
+            r.add(WARN, "no launchd service installed, no daemon running",
+                  "`ocp service install` so it survives without a human")
         return
     if not st["loaded"]:
         r.add(FAIL, "service plist exists but is not loaded",

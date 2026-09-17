@@ -18,7 +18,6 @@ import os
 import plistlib
 import shutil
 import subprocess
-import sys
 import time
 from pathlib import Path
 
@@ -70,7 +69,12 @@ def build_plist(home: Path | None = None) -> dict:
     home = home or paths.home()
     return {
         "Label": LABEL,
-        "ProgramArguments": [sys.executable, ocp_executable(), "daemon"],
+        # bin/ocp's own "#!/usr/bin/env python3" shebang resolves the
+        # interpreter through PATH at run time, not sys.executable pinned at
+        # install time - a python upgrade or a removed venv would otherwise
+        # leave this pointed at an interpreter that no longer exists, and the
+        # failure would be a job that silently never starts.
+        "ProgramArguments": [ocp_executable(), "daemon"],
         "RunAtLoad": True,
         "KeepAlive": True,
         "ThrottleInterval": THROTTLE_INTERVAL_S,
@@ -187,20 +191,39 @@ def supervisor_of(pid: int | None) -> str:
 
 
 # ---------------------------------------------------------------- crash loop
+# Bytes of tail read for crash-loop detection, bounded so this stays cheap at
+# the rotation threshold (LOG_MAX_BYTES) instead of reading the whole file.
+TAIL_SCAN_BYTES = 200_000
+
+
+def _tail_lines(path: Path, max_bytes: int = TAIL_SCAN_BYTES) -> list[str]:
+    size = path.stat().st_size
+    with open(path, "rb") as f:
+        if size > max_bytes:
+            f.seek(size - max_bytes)
+        data = f.read()
+    lines = data.decode("utf-8", errors="replace").splitlines()
+    if size > max_bytes and lines:
+        lines = lines[1:]  # the seek point likely lands mid-line
+    return lines
+
+
 def crash_loop_detected(home: Path | None = None, window_s: int = 300, threshold: int = 4) -> bool:
     """A supervisor that respawns faster than it can do useful work is not
     supervising, it is thrashing. There is no launchd-exposed restart counter
     to read (scout, request #14), so this counts our own startup line in the
-    log instead - a real crash loop leaves several `daemon starting -
-    reconciling` lines within one `window_s` window.
+    log instead - a real crash loop leaves several `daemon starting` lines
+    (whether it got to reconcile or exited straight away because another
+    daemon already held the pidfile - both are launchd restarting us) within
+    one `window_s` window.
     """
     p = out_log(home)
     if not p.exists():
         return False
     now = time.localtime()
     hits = 0
-    for line in p.read_text(errors="replace").splitlines()[-2000:]:
-        if "daemon starting - reconciling" not in line:
+    for line in _tail_lines(p):
+        if "daemon starting" not in line:
             continue
         if not line.startswith("["):
             continue
@@ -227,7 +250,9 @@ def rotate_log(path: Path, max_bytes: int = LOG_MAX_BYTES, backups: int = LOG_BA
     where the next write lands - it would keep writing to the renamed inode.
     O_APPEND writes re-measure the file's size on every call, so truncating it
     in place is enough to make the daemon's next line land back at offset 0,
-    the same trick logrotate's `copytruncate` uses.
+    the same trick logrotate's `copytruncate` uses - including its caveat:
+    whatever is written between the copy and the truncate is lost, since
+    there is no way to pause the writer for a plain file. Not atomic.
     """
     if not path.exists() or path.stat().st_size < max_bytes:
         return False

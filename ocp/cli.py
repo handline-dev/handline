@@ -331,6 +331,10 @@ def cmd_daemon_status(args) -> int:
 
 # ---------------------------------------------------------------- service
 def cmd_service_install(args) -> int:
+    pid = daemonmod.running_elsewhere()
+    if pid:
+        print(f"note: pid {pid} is already running by hand - the launchd job will "
+              f"refuse to start (single-instance pidfile) until it exits")
     ok, msg = service.install()
     print(msg)
     return 0 if ok else 1
