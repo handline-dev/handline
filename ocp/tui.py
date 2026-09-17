@@ -187,7 +187,7 @@ def keybar(panel: int, width: int) -> str:
     """
     keys = {ACCOUNTS: ACCOUNT_KEYS, AGENTS: AGENT_KEYS, MESSAGES: MESSAGE_KEYS}[panel]
     head = f"{DIM}{PANEL_NAME[panel]}:{R} "
-    nav = f" {DIM}· tab panel · ↑↓ move · q quit{R}"
+    nav = f" {DIM}· tab panel · ↑↓ move · v events · q quit{R}"
     sep = f" {DIM}·{R} "
     parts = [f"{BOLD}{k}{R} {DIM}{label}{R}" for k, label in keys]
     full = head + sep.join(parts)
@@ -202,7 +202,8 @@ def keybar(panel: int, width: int) -> str:
     return fit(head, width)
 
 
-def build(width: int, sel: dict | None = None) -> tuple[list[str], list[Panel]]:
+def build(width: int, sel: dict | None = None,
+          verbose: bool = False) -> tuple[list[str], list[Panel]]:
     """Return (header lines, panels) for one frame.
 
     `sel` is {panel: key}: which row carries the cursor in each panel, so the
@@ -334,32 +335,30 @@ def build(width: int, sel: dict | None = None) -> tuple[list[str], list[Panel]]:
         if not waiting:
             ms.add(f"{DIM}  nothing waiting on you{R}")
 
-        # ---- in flight -----------------------------------------------
-        fl = Panel("IN FLIGHT", width)
-        flight = db.in_flight_handoffs(con)
-        queued = con.execute(
-            "SELECT id, requester, target, body FROM requests "
-            "WHERE state='queued' AND target != ? ORDER BY id", (actions.HUMAN,)
-        ).fetchall()
-        for h in flight:
-            fl.add(f"{YEL}handoff{R} {h['agent']:<11}step {h['step']:<12}"
-                   f"{DIM}deadline {countdown(h['deadline'])}{R}")
-        for q in queued:
-            fl.add(f"{CYA}request{R} #{q['id']:<5}{q['requester']} → {q['target']:<12}"
-                   f"{DIM}{q['body'].splitlines()[0] if q['body'] else ''}{R}")
-        if not flight and not queued:
-            fl.add(f"{DIM}  nothing queued, no handoff in progress{R}")
+        # ---- stuck -----------------------------------------------------
+        # This was "in flight", and almost nothing ever is: a handoff takes
+        # seconds, and what it actually drew was requests that had sat for a
+        # day and a half because their target had no terminal to be told with.
+        # Traffic drawn as traffic said the system was busy while it was stuck.
+        blocked = actions.stuck(con)
+        fl = Panel("STUCK" if blocked else "STUCK — nothing is waiting on anything", width)
+        for what, age_s, why in blocked:
+            fl.add(pad(f"{YEL}{what}{R}", 34)
+                   + pad(f"{DIM}{age(age_s) if age_s else ''}{R}", 7)
+                   + f"{DIM}{why}{R}")
 
-        # ---- recent --------------------------------------------------
-        rc = Panel("RECENT", width)
-        for e in con.execute(
-            "SELECT ts, agent, kind, payload FROM events ORDER BY id DESC LIMIT 40"
-        ).fetchall():
+        # ---- what was decided ------------------------------------------
+        rows, hooks = actions.decisions(con, 40, everything=verbose)
+        title = "EVERY EVENT" if verbose else "DECISIONS"
+        if hooks:
+            title += f" — {hooks} hook events hidden (v shows them)"
+        rc = Panel(title, width)
+        for e in rows:
             when = time.strftime("%H:%M:%S", time.localtime(e["ts"]))
             rc.add(f"{DIM}{when}{R}  {e['agent']:<11}{e['kind']:<18}"
                    f"{DIM}{(e['payload'] or '')[:width - 46]}{R}")
-        if not rc.rows:
-            rc.add(f"{DIM}  no events yet{R}")
+        if not rows:
+            rc.add(f"{DIM}  nothing decided yet{R}")
         return header, [acc, ag, ms, fl, rc]
     finally:
         con.close()
@@ -376,10 +375,10 @@ def opened(title: str, lines: list[str], panel: int = AGENTS, key: object = None
 
 
 def frame(width: int, height: int, sel: dict | None = None, panel: int = AGENTS,
-          flash: str = "", detail: dict | None = None) -> str:
+          flash: str = "", detail: dict | None = None, verbose: bool = False) -> str:
     if detail is not None:
         return _detail_frame(width, height, detail, flash)
-    header, panels = build(width, sel)
+    header, panels = build(width, sel, verbose)
     acc, ms, ag, fl, rc = panels[0], panels[2], panels[1], panels[3], panels[4]
     foot = [fit(flash, width) if flash else "", keybar(panel, width)]
     # ACCOUNTS and AGENTS are the whole team and are always drawn whole. FOR
@@ -578,7 +577,7 @@ def run(interval: float = 2.0, once: bool = False) -> int:
 
     fd = sys.stdin.fileno()
     saved = termios.tcgetattr(fd) if sys.stdin.isatty() else None
-    panel, sel, flash, detail = AGENTS, {}, "", None
+    panel, sel, flash, detail, verbose = AGENTS, {}, "", None, False
     try:
         if saved:
             tty.setcbreak(fd)
@@ -586,7 +585,8 @@ def run(interval: float = 2.0, once: bool = False) -> int:
         while True:
             size = shutil.get_terminal_size((100, 40))
             width, height = size.columns, size.lines
-            sys.stdout.write(HOME + frame(width, height, sel, panel, flash, detail))
+            sys.stdout.write(HOME + frame(width, height, sel, panel, flash, detail,
+                                          verbose))
             sys.stdout.flush()
             k = _key(interval)
             if k is None:
@@ -601,6 +601,9 @@ def run(interval: float = 2.0, once: bool = False) -> int:
                 panel = (panel + 1) % 3
                 continue
             if k in ("r", "R"):
+                continue
+            if k == "v":
+                verbose = not verbose
                 continue
             if k in ("j", "\033[B", "\033OB"):
                 sel[panel] = move(_keys_of(panel), sel.get(panel), 1)

@@ -14,10 +14,11 @@ over.
 from __future__ import annotations
 
 import os
+import time
 from pathlib import Path
 
-from . import (accounts, agents, ask as askmod, daemon, db, fold as foldmod, paths,
-               spawn as spawnmod, status, triggers)
+from . import (accounts, agents, ask as askmod, daemon, db, events as evmod,
+               fold as foldmod, paths, spawn as spawnmod, status, triggers)
 
 # The name a human's own requests are sent under, and the inbox `ocp top`
 # shows. Taken from `ask`, which is where escalations are addressed: a second
@@ -143,6 +144,88 @@ def messages(con) -> list[dict]:
         m["waiting"] = m["response"] == "async"
         out.append(m)
     return sorted(out, key=lambda m: (not m["gate"], not m["waiting"], m["id"]))
+
+
+# How long a request may sit undelivered before it is not in flight any more.
+# Delivery is a tick's work when it can happen at all, so past this the answer
+# is never "wait a moment" - something is in the way.
+STUCK_AFTER_S = 300
+
+
+def _blocked_by(con, agent: str) -> str:
+    """Why work is not reaching this agent, read from the same rows the daemon reads."""
+    row = db.get_agent_state(con, agent)
+    if not row:
+        return f"{agent} is not registered"
+    if not row["terminal"]:
+        return f"{agent} has no terminal - nothing can be typed to it (s starts one)"
+    if row["state"] == daemon.STALLED:
+        return f"{agent} is STALLED - the daemon will not touch it (u clears it)"
+    if row["state"] == daemon.HANDOFF:
+        return f"{agent} is mid-handoff"
+    try:
+        st = status.read(agents.account_of(agent))
+    except Exception:  # noqa: BLE001
+        return f"{agent} has no readable account"
+    pct = st.trusted_pct_5h
+    if pct is not None and pct >= status.PCT_5H_BLOCK:
+        return f"{agents.account_of(agent)} is at {pct}% - it cannot be launched into"
+    if row["closed_at"]:
+        return f"{agent} is closed; the next tick wakes it"
+    return f"{agent} is {row['state']}"
+
+
+def stuck(con) -> list[tuple[str, int, str]]:
+    """What is not moving, and what is in the way. (what, age_s, why)
+
+    This is the panel that used to draw "in flight". Almost nothing ever is: a
+    handoff takes seconds, and everything else it showed was a request that had
+    been sitting for a day and a half because its target had no terminal to be
+    told with. Drawing those as traffic said the system was busy when it was
+    stuck.
+    """
+    now = int(time.time())
+    out: list[tuple[str, int, str]] = []
+    for h in db.in_flight_handoffs(con):
+        left = (h["deadline"] or now) - now
+        out.append((f"handoff {h['agent']} at '{h['step']}'", 0,
+                    f"deadline in {left}s" if left > 0 else "past its deadline"))
+    for r in con.execute(
+        "SELECT id, requester, target, ts FROM requests WHERE state = 'queued' "
+        "AND target != ? ORDER BY ts", (HUMAN,),
+    ).fetchall():
+        age = now - int(r["ts"])
+        if age < STUCK_AFTER_S:
+            continue
+        out.append((f"#{r['id']} {r['requester']} → {r['target']}", age,
+                    _blocked_by(con, r["target"])))
+    for row in db.all_agent_states(con):
+        if row["state"] in (daemon.STALLED, daemon.DEGRADED):
+            out.append((f"{row['agent']} is {row['state']}",
+                        now - int(row["updated"]), row["detail"] or ""))
+    for acct in paths.list_accounts():
+        allowed, why = status.read(acct).assignable()
+        if not allowed:
+            out.append((f"account {acct} takes no work", 0, why))
+    return out
+
+
+def decisions(con, limit: int = 40, everything: bool = False) -> tuple[list[dict], int]:
+    """Recent events, and how many were only an agent breathing.
+
+    Six kinds of hook event say "a turn started" or "a turn ended", and the
+    agent's own state column already says which of those it is. They crowded
+    out the rows that say what was decided - woken, closed, folded, told - so
+    they are counted rather than drawn.
+    """
+    rows = [dict(r) for r in con.execute(
+        "SELECT ts, agent, kind, payload FROM events ORDER BY id DESC LIMIT ?",
+        (limit * 6,),
+    ).fetchall()]
+    hooks = sum(1 for r in rows if r["kind"] in evmod.CAPTURED)
+    if not everything:
+        rows = [r for r in rows if r["kind"] not in evmod.CAPTURED]
+    return rows[:limit], (0 if everything else hooks)
 
 
 def login_argv(acct: str, force: bool = False) -> tuple[str, list[str], dict]:

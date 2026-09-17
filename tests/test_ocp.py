@@ -3359,8 +3359,17 @@ def test_top_shows_what_is_waiting_on_the_human(home: Path) -> None:
         check("top: the panel is drawn with the question in it",
               any("which sea variant ships?" in ln for ln in plain),
               str([ln for ln in plain if "marina" in ln])[:200])
-        check("top: the other request is still shown as traffic",
-              any("marina → backend" in ln for ln in plain), "")
+        # Agent-to-agent traffic is not the human's mail, and it is not drawn
+        # at all while it is moving - only once it has stopped moving.
+        check("top: a request between agents is not in the human's panel",
+              not any("look at this diff" in ln for ln in plain), "")
+        con.execute("UPDATE requests SET ts = ? WHERE target = 'backend'",
+                    (int(time.time()) - actions.STUCK_AFTER_S - 60,))
+        db.set_terminal(con, "backend", None, None)
+        plain = [tui._ANSI.sub("", ln) for ln in tui.frame(120, 60).split(chr(10))]
+        check("top: once it has been waiting, it is drawn as stuck, with why",
+              any("marina → backend" in ln and "no terminal" in ln for ln in plain),
+              str([ln.strip()[:80] for ln in plain if "marina" in ln])[:200])
         check("top: and the frame still fits its terminal",
               len(plain) == 60 and not [ln for ln in plain if len(ln) > 120])
         check("top: the keys for the focused panel are on the last line",
@@ -3557,6 +3566,59 @@ def test_top_acts_through_the_same_calls_the_daemon_makes(home: Path) -> None:
         con.close()
 
 
+def test_the_screen_says_what_is_stuck_and_what_was_decided(home: Path) -> None:
+    """Two panels were drawing the wrong thing. "In flight" was almost never
+    anything - a handoff takes seconds - while what it did draw was requests
+    that had sat for a day and a half because their target had no terminal to
+    be told with, which is stuck, not traffic. And the event list was six in
+    ten hook events saying a turn started or ended, which the agent's own state
+    column says already."""
+    _daemon_home(home, 20)
+    con = db.connect()
+    try:
+        agents.register("marina", "alpha")
+        db.set_terminal(con, "backend", None, None)
+        db.add_request(con, "marina", "backend", "please look", None,
+                       "peer", "async", None, 0, None)
+        con.execute("UPDATE requests SET ts = ? WHERE target = 'backend'",
+                    (int(time.time()) - actions.STUCK_AFTER_S - 60,))
+
+        rows = actions.stuck(con)
+        check("stuck: a request nobody can be told about is named with its age",
+              any("marina → backend" in what and age > actions.STUCK_AFTER_S
+                  for what, age, _ in rows), str(rows))
+        check("stuck: and with what is in the way, not just that it is late",
+              any("no terminal" in why for _, _, why in rows), str(rows))
+
+        # A request that just arrived is not stuck; it is about to be delivered.
+        db.add_request(con, "marina", "backend", "and this", None,
+                       "peer", "async", None, 0, None)
+        fresh = [w for w, _, _ in actions.stuck(con) if "and this" in w]
+        check("stuck: something that has just arrived is not called stuck", not fresh)
+
+        db.set_terminal(con, "backend", "term_x", "wt")
+        db.set_agent_state(con, "backend", dmn.STALLED, detail="by hand")
+        check("stuck: a stalled agent is on the list with its reason",
+              any("backend is STALLED" in w for w, _, _ in actions.stuck(con)),
+              str(actions.stuck(con)))
+
+        # Decisions, and the breathing that was crowding them out.
+        for i in range(8):
+            db.add_event(con, "backend", "Stop", {"i": i})
+        db.add_event(con, "backend", "wake", {"resumed_session": "sess-1"})
+        rows, hidden = actions.decisions(con, 20)
+        check("events: a wake is a decision and is shown",
+              any(r["kind"] == "wake" for r in rows), str(rows[:2]))
+        check("events: the hook chatter is counted, not drawn",
+              hidden >= 8 and not any(r["kind"] in evmod.CAPTURED for r in rows),
+              f"{hidden} hidden")
+        everything, hidden = actions.decisions(con, 40, everything=True)
+        check("events: and asking for all of them gets all of them",
+              any(r["kind"] == "Stop" for r in everything) and hidden == 0)
+    finally:
+        con.close()
+
+
 def test_a_message_is_read_whole_and_answered_where_it_is_read(home: Path) -> None:
     """An agent's report arrives as one paragraph with no newline in it, and
     fitting that to the width shows its first sentence and drops the rest -
@@ -3669,7 +3731,7 @@ def test_the_frame_never_draws_wider_than_the_terminal(home: Path) -> None:
                   repr(bar))
         # The navigation is the same on every panel and is what a reader
         # already knows, so it goes before any action does.
-        wide = tui._ANSI.sub("", tui.keybar(tui.AGENTS, 120))
+        wide = tui._ANSI.sub("", tui.keybar(tui.AGENTS, 160))
         tight = tui._ANSI.sub("", tui.keybar(tui.AGENTS, 100))
         tighter = tui._ANSI.sub("", tui.keybar(tui.AGENTS, 60))
         check("top: a tight line keeps every action and drops the navigation",
@@ -4557,6 +4619,7 @@ def main() -> int:
         run(lambda: test_top_shows_what_is_waiting_on_the_human(Path(td) / 'foryou'))
         run(lambda: test_the_screen_reads_keys_from_the_terminal_not_from_a_buffer())
         run(lambda: test_top_acts_through_the_same_calls_the_daemon_makes(Path(td) / 'topact'))
+        run(lambda: test_the_screen_says_what_is_stuck_and_what_was_decided(Path(td) / 'topstuck'))
         run(lambda: test_a_message_is_read_whole_and_answered_where_it_is_read(Path(td) / 'topread'))
         run(lambda: test_a_key_never_acts_on_a_row_nobody_pointed_at(Path(td) / 'topsel'))
         run(lambda: test_the_frame_never_draws_wider_than_the_terminal(Path(td) / 'topwide'))
