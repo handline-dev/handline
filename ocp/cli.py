@@ -377,6 +377,10 @@ def cmd_unstall(args) -> int:
         db.set_agent_state(con, args.agent, daemonmod.QUEUED, detail="cleared by a human")
         db.reset_counter(con, args.agent, "failed_attempts")
         db.reset_counter(con, args.agent, "throttle_count")
+        # Every count that can stall an agent, or the sweep later reads a
+        # capped wake streak as a stall of its own making and lifts a stall a
+        # human never sanctioned.
+        db.reset_counter(con, args.agent, "wake_failures")
         print(f"{args.agent}: STALLED -> QUEUED")
     finally:
         con.close()

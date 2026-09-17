@@ -15,11 +15,10 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
-from ocp import (accounts, agents, ask as askmod, daemon as dmn, db, digest, doctor, drift,
-                 events as evmod, fold as foldmod, launch, observe as obsmod,
+from ocp import (accounts, agents, ask as askmod, cli as climod, daemon as dmn, db, digest,
+                 doctor, drift, events as evmod, fold as foldmod, launch, observe as obsmod,
                  orca as orcamod, paths, service, spawn as spawnmod, status, team, triggers,
-                 tui,
-                 yamlcompat)  # noqa: E402
+                 tui, yamlcompat)  # noqa: E402
 
 PASS, FAIL = [], []
 
@@ -3210,6 +3209,20 @@ def test_a_wake_is_believed_only_when_a_session_appears(home: Path) -> None:
               row["state"] == dmn.IDLE and row["closed_at"] is None, str(dict(row)))
         table.clear()
 
+        # `ocp unstall` is the only other way out of STALLED, and it has to
+        # clear this count as well: left at the cap, the sweep would later read
+        # someone else's stall as one of its own and lift it.
+        db.set_agent_state(con, "backend", dmn.STALLED, detail="stalled by wakes")
+        for _ in range(dmn.MAX_FAILED_ATTEMPTS):
+            db.bump_counter(con, "backend", "wake_failures")
+        con.close()
+        rc = climod.main(["unstall", "backend"])
+        con = db.connect()
+        row = db.get_agent_state(con, "backend")
+        check("wake: unstall clears the wake streak, not only the other two",
+              rc == 0 and row["wake_failures"] == 0 and row["state"] == dmn.QUEUED,
+              str(dict(row)))
+
         # The 5h wall is the one failure that heals itself, and `ocp launch`
         # refuses on a reading the daemon has already got. Spending the wake
         # timeout to be told that, and counting it against the agent, is how a
@@ -3251,6 +3264,50 @@ def test_a_wake_is_believed_only_when_a_session_appears(home: Path) -> None:
     finally:
         (orcamod.available, orcamod.alive, orcamod.wait_idle, orcamod.send,
          orcamod.resume_with, dmn.WAKE_SESSION_TIMEOUT_S) = real
+        con.close()
+
+
+def test_a_park_that_cannot_be_woken_keeps_its_deadline(home: Path) -> None:
+    """The deadline is the only thing that makes a parked agent due again, and
+    supervise cleared it before knowing whether the wake worked. A closed park
+    whose launch is refused - the account still at the wall when the window
+    rolls - then had no deadline, was not due for reconcile either, and waited
+    closed until some work happened to arrive."""
+    _daemon_home(home, 20)
+    con = db.connect()
+    sent: list[str] = []
+    real = (orcamod.available, orcamod.alive, orcamod.send)
+    try:
+        orcamod.available = lambda: True
+        orcamod.live_terminals = lambda: {"term_x"}
+        orcamod.alive = lambda h: True
+        orcamod.send = lambda h, text, enter=True: (sent.append(text), (True, ""))[1]
+        sessions_are()
+        db.set_terminal(con, "backend", "term_x", "wt")
+        db.set_closed(con, "backend", "sess-2")
+        db.set_agent_state(con, "backend", dmn.PARKED, wake_at=int(time.time()) - 10,
+                           detail="parked and closed")
+        write_status(home, "alpha", pct_5h=95, pct_7d=10, ctx_pct=5,
+                     reset_5h=int(time.time()) + 600)
+
+        dmn.supervise(con, "backend", lambda _m: None, int(time.time()), {}, False, [])
+        row = db.get_agent_state(con, "backend")
+        check("park: a wake the account refuses is not typed", not sent, str(sent))
+        check("park: and the deadline stays, so the next tick tries again",
+              row["state"] == dmn.PARKED and row["wake_at"] is not None, str(dict(row)))
+
+        # The window rolls over and the same tick does what it could not.
+        write_status(home, "alpha", pct_5h=20, pct_7d=10, ctx_pct=5,
+                     reset_5h=int(time.time()) + 1800)
+        table = sessions_are()
+        orcamod.send = relaunching_send(sent, table)
+        dmn.supervise(con, "backend", lambda _m: None, int(time.time()), {}, False, [])
+        row = db.get_agent_state(con, "backend")
+        check("park: once it rolls over the park is woken and the deadline cleared",
+              row["state"] == dmn.QUEUED and row["wake_at"] is None
+              and any("--resume sess-2" in t for t in sent), str(dict(row)))
+    finally:
+        orcamod.available, orcamod.alive, orcamod.send = real
         con.close()
 
 
@@ -4055,6 +4112,7 @@ def main() -> int:
         run(lambda: test_an_agent_with_nowhere_to_run_is_not_handed_off(Path(td) / 'noterm'))
         run(lambda: test_nothing_is_typed_into_a_shell_with_no_session(Path(td) / 'shellgate'))
         run(lambda: test_a_wake_is_believed_only_when_a_session_appears(Path(td) / 'wakereceipt'))
+        run(lambda: test_a_park_that_cannot_be_woken_keeps_its_deadline(Path(td) / 'parkdue'))
         run(lambda: test_doctor_says_when_the_record_and_the_process_table_disagree(Path(td) / 'docsess'))
         run(lambda: test_a_fold_is_a_process_not_a_session(Path(td) / 'foldproc'))
         run(lambda: test_who_is_asking_is_not_guessed(Path(td) / 'whoasks'))

@@ -446,8 +446,10 @@ def wake_agent(con, agent: str, log) -> tuple[bool, str]:
         acct_st = status.read(agents.account_of(agent))
         pct = acct_st.trusted_pct_5h
         if pct is not None and pct >= status.PCT_5H_BLOCK:
-            return False, (f"account {agents.account_of(agent)} is at {pct}% of the 5h "
-                           f"limit; not launching until the window rolls over")
+            why = (f"account {agents.account_of(agent)} is at {pct}% of the 5h limit; "
+                   f"not launching until the window rolls over")
+            log(f"  {agent}: {why}")
+            return False, why
         # The shell is still there; put the agent back into it. Resuming the
         # same session is what makes closing cheap, so it is tried first and
         # a fresh start is the fallback, not the plan.
@@ -887,13 +889,21 @@ def supervise(con, agent: str, log, now: int, samples: dict,
         # park, so resetting on wake pinned throttle_count at 1 and made
         # the escalation in 8.6 unreachable. It is cleared by a handoff
         # that actually succeeds.
-        db.set_agent_state(con, agent, QUEUED, wake_at=None, detail="wake_at reached")
-        actions.append(f"{agent}: {state} -> QUEUED (window rolled over)")
-        log(f"  {agent}: {state} -> QUEUED (window rolled over)")
         # A parked agent can also be a closed one, and then this wake restores
         # the session - which is the case the gate below exists for.
         restored = bool(row and row["closed_at"])
-        wake_agent(con, agent, log)
+        woke, why = wake_agent(con, agent, log)
+        if restored and not woke:
+            # Same rule reconcile's step 2 writes: for an agent whose session
+            # was closed, the wake is the whole point of the deadline, and the
+            # deadline is the only thing that makes it due again. Clearing it
+            # on a wake that did not work is how a park slept through every
+            # later tick until something else happened to want the agent.
+            log(f"  {agent}: stays {state}, still due - {why}")
+            return
+        db.set_agent_state(con, agent, QUEUED, wake_at=None, detail="wake_at reached")
+        actions.append(f"{agent}: {state} -> QUEUED (window rolled over)")
+        log(f"  {agent}: {state} -> QUEUED (window rolled over)")
         row = db.get_agent_state(con, agent)
         state = QUEUED
         woke_now = woke_now or restored
