@@ -184,8 +184,13 @@ def can(con, agent: str, key: str) -> bool:
                 and not db.queued_for(con, agent))
     if key == "unstall":
         return state == daemon.STALLED
-    if key in ("park", "fold"):
+    if key == "park":
         return not closed and bool(row["terminal"]) and not busy
+    if key == "fold":
+        # A fold reads events and runs `claude -p`; it never types into the
+        # terminal. An agent whose terminal is gone is one of the likelier ones
+        # to want folded.
+        return not busy
     if key == "start":
         return not row["terminal"]
     return True

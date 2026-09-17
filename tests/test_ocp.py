@@ -3503,6 +3503,14 @@ def test_top_acts_through_the_same_calls_the_daemon_makes(home: Path) -> None:
               and not actions.can(con, "backend", "park")
               and not actions.can(con, "backend", "close")
               and not actions.can(con, "backend", "fold"))
+        # A fold never types into the terminal, so a lost terminal does not
+        # stand in its way - that agent is a likelier one to want folded.
+        db.set_agent_state(con, "backend", dmn.IDLE, detail="cleared")
+        db.set_terminal(con, "backend", None, None)
+        check("top: folding is offered to an agent whose terminal is gone",
+              actions.can(con, "backend", "fold")
+              and not actions.can(con, "backend", "park"))
+        db.set_terminal(con, "backend", "term_x", "wt")
         db.set_agent_state(con, "backend", dmn.IDLE, detail="cleared")
 
         # Work waiting is the one case where closing only adds delay - the next
@@ -3591,11 +3599,21 @@ def test_the_frame_never_draws_wider_than_the_terminal(home: Path) -> None:
             wide = [ln for ln in lines if len(ln.rstrip()) > width]
             check(f"top: nothing is wider than a {width}-column terminal",
                   not wide and len(lines) == 40, str(wide[:1])[:120])
-        for width in (40, 60, 80, 120):
+        for width in (40, 55, 60, 80, 120):
             bar = tui._ANSI.sub("", tui.keybar(tui.AGENTS, width))
             check(f"top: the keys at {width} columns end on a whole word",
                   len(bar) <= width and not bar.rstrip().endswith(("…", "…more")),
                   repr(bar))
+        # The navigation is the same on every panel and is what a reader
+        # already knows, so it goes before any action does.
+        wide = tui._ANSI.sub("", tui.keybar(tui.AGENTS, 120))
+        tight = tui._ANSI.sub("", tui.keybar(tui.AGENTS, 100))
+        tighter = tui._ANSI.sub("", tui.keybar(tui.AGENTS, 60))
+        check("top: a tight line keeps every action and drops the navigation",
+              "tab panel" in wide and "tab panel" not in tight
+              and "unstall" in tight, repr(tight))
+        check("top: and a tighter one sheds actions, counting what it held back",
+              "more" in tighter and "unstall" not in tighter, repr(tighter))
     finally:
         con.close()
 

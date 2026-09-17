@@ -184,14 +184,17 @@ def keybar(panel: int, width: int) -> str:
     keys = {ACCOUNTS: ACCOUNT_KEYS, AGENTS: AGENT_KEYS, MESSAGES: MESSAGE_KEYS}[panel]
     head = f"{DIM}{PANEL_NAME[panel]}:{R} "
     nav = f" {DIM}· tab panel · ↑↓ move · q quit{R}"
-    parts = [f"{BOLD}{k}{R} {DIM}{label}{R}" for k, label in keys]
     sep = f" {DIM}·{R} "
-    for tail in (nav, ""):
-        for n in range(len(parts), 0, -1):
-            more = "" if n == len(parts) else f" {DIM}+{len(parts) - n} more{R}"
-            line = head + sep.join(parts[:n]) + more + tail
-            if vlen(line) <= width:
-                return line
+    parts = [f"{BOLD}{k}{R} {DIM}{label}{R}" for k, label in keys]
+    full = head + sep.join(parts)
+    if vlen(full + nav) <= width:
+        return full + nav
+    if vlen(full) <= width:
+        return full          # the navigation goes first: it is the same everywhere
+    for n in range(len(parts) - 1, 0, -1):
+        line = head + sep.join(parts[:n]) + f" {DIM}+{len(parts) - n} more{R}"
+        if vlen(line) <= width:
+            return line
     return fit(head, width)
 
 
@@ -553,14 +556,6 @@ def run(interval: float = 2.0, once: bool = False) -> int:
             if k in ("k", "\033[A", "\033OA"):
                 sel[panel] = move(_keys_of(panel), sel.get(panel), -1)
                 continue
-            busy = _busy_line(panel, sel, k)
-            if busy:
-                # An action can take half a minute - waking waits for a session
-                # to appear, parking pays for a fold. A frozen screen showing
-                # the frame from before the keypress reads as a hang.
-                sys.stdout.write(f"\033[{height};1H" + CLEAR_EOL
-                                 + fit(f"{DIM}{busy}…{R}", width))
-                sys.stdout.flush()
             try:
                 flash, detail = _act(panel, sel, k, width, height, fd, saved)
             except Exception as e:  # noqa: BLE001
@@ -576,14 +571,16 @@ def run(interval: float = 2.0, once: bool = False) -> int:
             termios.tcsetattr(fd, termios.TCSADRAIN, saved)
 
 
-def _busy_line(panel: int, sel: dict, key: str) -> str:
-    """What to say while a key that takes time is being carried out."""
-    if panel != AGENTS:
-        return ""
-    label = dict(AGENT_KEYS).get(key)
-    if label in (None, "open", "message", "start"):
-        return ""                      # instant, or asking for input first
-    return f"{label} {sel.get(panel, '')}"
+def _say(what: str, width: int, height: int) -> None:
+    """Put one line on the bottom row now, without waiting for a redraw.
+
+    An action can take half a minute - waking waits for a session to appear,
+    parking pays for a fold - and a screen still showing the frame from before
+    the keypress, or the confirmation that was just answered, reads as a hang.
+    The next redraw repaints every row, so this cannot outlive its action.
+    """
+    sys.stdout.write(f"\033[{height};1H" + CLEAR_EOL + fit(f"{DIM}{what}…{R}", width))
+    sys.stdout.flush()
 
 
 def _keys_of(panel: int) -> list:
@@ -645,6 +642,7 @@ def _act(panel: int, sel: dict, key: str, width: int, height: int,
                 repo = _line(f"repo for {name} [{os.getcwd()}]:", width, height)
                 if repo is None:
                     return "not started", None
+                _say(f"starting {name}", width, height)
                 return actions.start(con, name, repo.strip() or os.getcwd()), None
             if label == "message":
                 body = _line(f"message to {name}:", width, height)
@@ -652,6 +650,7 @@ def _act(panel: int, sel: dict, key: str, width: int, height: int,
                         else "nothing sent"), None
             if label in CONFIRM and not _confirm(f"{label} {name}", width, height):
                 return "left alone", None
+            _say(f"{label} {name}", width, height)
             return getattr(actions, label)(con, name), None
 
         if panel == MESSAGES:
