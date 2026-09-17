@@ -24,6 +24,15 @@ import subprocess
 # The daemon asks with a short timeout because this call blocks its whole tick:
 # waiting two minutes on one busy agent stops supervision of every other agent.
 # A busy agent is not a failure, it is just busy, so we come back next tick.
+#
+# Measured 2026-09-17 against the shells left behind by three closed sessions,
+# because three reviews in a row declined to trust this probe against a terminal
+# with no TUI in it. It reports not-satisfied, and it takes the full timeout to
+# say so: idle_now 3.1s, wait_idle(20s) 20.1s, every time. Two things follow.
+# It fails in the safe direction - nothing will ever be typed at a bash prompt
+# on the strength of it - and a "no" is never cheap, so anything that probes an
+# agent whose session has already exited pays the whole timeout for an answer it
+# could have had for free.
 IDLE_TIMEOUT_MS = 120_000
 IDLE_PROBE_MS = 3_000
 
