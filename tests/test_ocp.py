@@ -3306,6 +3306,26 @@ def test_a_park_that_cannot_be_woken_keeps_its_deadline(home: Path) -> None:
         check("park: once it rolls over the park is woken and the deadline cleared",
               row["state"] == dmn.QUEUED and row["wake_at"] is None
               and any("--resume sess-2" in t for t in sent), str(dict(row)))
+
+        # An agent that answers the prompt before the tick gets back to its row
+        # is RUNNING, and RUNNING is the label that keeps the daemon out of a
+        # working agent's way. The wake must not write QUEUED over it.
+        db.set_agent_state(con, "backend", dmn.PARKED, wake_at=int(time.time()) - 10,
+                           detail="parked and closed again")
+        db.set_closed(con, "backend", "sess-2")
+        hooked = db.connect()
+        real_resume = orcamod.resume_with
+        orcamod.resume_with = lambda h, text: (
+            evmod._mark_activity(hooked, "backend", "UserPromptSubmit"),
+            (True, "injected"))[1]
+        try:
+            dmn.supervise(con, "backend", lambda _m: None, int(time.time()), {}, False, [])
+        finally:
+            orcamod.resume_with = real_resume
+            hooked.close()
+        row = db.get_agent_state(con, "backend")
+        check("park: an agent that has already answered its prompt stays RUNNING",
+              row["state"] == dmn.RUNNING, str(dict(row)))
     finally:
         orcamod.available, orcamod.alive, orcamod.send = real
         con.close()

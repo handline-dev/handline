@@ -481,10 +481,11 @@ def wake_agent(con, agent: str, log) -> tuple[bool, str]:
             if fresh and fresh["wake_failures"] >= MAX_FAILED_ATTEMPTS:
                 # Work arriving retries the wake every tick, so a launch that
                 # will never work is a loop that never ends and never says so.
-                # Everything that ends here needs a human: a transcript that is
-                # gone, an account logged out, a session the machine cannot
-                # recognise. What heals on its own was turned away above,
-                # before it could count.
+                # Three launches that started nothing is not the wall - that
+                # was turned away above, before it could count - and not a
+                # resume that can be dropped, which the fallback above already
+                # did. It waits for a human, or for the sweep to see a session
+                # after all.
                 db.set_agent_state(con, agent, STALLED,
                                    detail=f"{fresh['wake_failures']} wakes started "
                                           f"no session: {why}")
@@ -899,7 +900,16 @@ def supervise(con, agent: str, log, now: int, samples: dict,
             # deadline is the only thing that makes it due again. Clearing it
             # on a wake that did not work is how a park slept through every
             # later tick until something else happened to want the agent.
-            log(f"  {agent}: stays {state}, still due - {why}")
+            log(f"  {agent}: stays {state}, still due")
+            return
+        # The prompt has been typed by now, so the agent may already have
+        # answered it: its own UserPromptSubmit writes RUNNING, and RUNNING is
+        # the label that keeps the daemon out of a working agent's way. Only
+        # write QUEUED if nothing has claimed it since.
+        fresh = db.get_agent_state(con, agent)
+        if fresh and fresh["state"] != state:
+            state = fresh["state"]
+            woke_now = woke_now or restored
             return
         db.set_agent_state(con, agent, QUEUED, wake_at=None, detail="wake_at reached")
         actions.append(f"{agent}: {state} -> QUEUED (window rolled over)")

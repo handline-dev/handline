@@ -364,7 +364,8 @@ def cmd_service_logs(args) -> int:
 
 
 def cmd_unstall(args) -> int:
-    """STALLED is a task defect and only a human clears it (section 8.6)."""
+    """A human clearing a stall - every kind but a wake stall the sweep has
+    refuted by observing a session (section 8.6)."""
     con = db.connect()
     try:
         row = db.get_agent_state(con, args.agent)
