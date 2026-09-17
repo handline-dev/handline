@@ -80,42 +80,61 @@ SNAP="$(printf '%s' "$RAW" | jq -c --arg acct "$ACCT" --arg agent "${OCP_AGENT:-
 
 # Rate limits belong to the account, and each session only knows what its own
 # last API response told it, so a session's ignorance must not overwrite the
-# account's knowledge. Three rules, stated in full in design 01-infra.md #4:
+# account's knowledge. Four rules, stated in full in design 01-infra.md #4:
 # keep a figure the payload does not mention while its window is still open;
-# drop it as rl_lost, not as silence, when we cannot tell whether its window
-# ended; and never let the account figure go down inside one window.
+# drop it as lost - and stay lost - when we cannot tell whether its window
+# ended; never let the account figure go down inside one window; and record
+# when the window was last observed, which is not when the figure was set.
 if [ -n "$SNAP" ]; then
   PREV="$(cat "$OUT_DIR/status.json" 2>/dev/null)"
   printf '%s' "$PREV" | jq -e . >/dev/null 2>&1 || PREV=null
-  SNAP="$(jq -cn --argjson new "$SNAP" --argjson prev "$PREV" --argjson now "$NOW" '
-    ($prev.rl_at // $prev.collected_at) as $prev_at
+  SNAP="$(jq -cn --argjson new "$SNAP" --argjson prev "$PREV" --argjson now "$NOW" \
+                 --argjson skew 60 '
+    ($prev.rl_at  // $prev.collected_at) as $prev_at
+    | ($prev.rl7_at // $prev.collected_at) as $prev7_at
     | reduce ("5h", "7d", "opus_7d") as $w (
-        $new + {carried: [], lost: []};
+        $new + {observed: [], carried: [], lost: []};
         ("pct_" + $w) as $pk | ("reset_" + $w) as $rk |
+        (if $w == "5h" then "rl_lost" elif $w == "7d" then "rl7_lost"
+                                      else "rlo_lost" end) as $lk |
         (if $prev == null then null else $prev[$pk] end) as $pv |
         (if $prev == null then null else $prev[$rk] end) as $pr |
+        # A window still ahead of us, with a little room for clock skew. The
+        # server sets resets_at and we compare against a local clock.
+        (($pr != null) and ($pr > ($now - $skew))) as $open |
         if .[$pk] != null then
-          # Live figure. Inside the same window it may only go up.
-          if $pv != null and $pr != null and $pr == .[$rk] and $pv > .[$pk]
-            then .[$pk] = $pv | .carried += [$w]
+          # This payload observed the window, which is what rl_at records -
+          # even when the figure it reported loses to the high-water mark.
+          .observed += [$w]
+          # Inside one window usage only rises. Compare at the resolution every
+          # reader uses: the raw floats carry noise (28.999999999999996 for 29)
+          # and a hair of downward noise would otherwise latch this forever.
+          | if $pv != null and $open and $pr == .[$rk]
+               and (($pv | ceil) > (.[$pk] | ceil))
+            then .[$pk] = $pv
             else . end
-        elif $pv == null then .
-        elif $pr == null then .lost += [$w]
-        elif $pr > $now then .[$pk] = $pv | .[$rk] = $pr | .carried += [$w]
-        else . end
+        elif $pv == null then
+          # Nothing to carry. A loss stays a loss until a payload reports the
+          # window again: one tick of ignorance that decays into "quiet" is a
+          # 95% account reading as 0% one refresh later.
+          if $prev != null and $prev[$lk] == true then .lost += [$w] else . end
+        elif $open | not then
+          # We cannot place this figure in a window: either it never carried a
+          # resets_at, or that window has ended and nothing has reported since.
+          if $pr == null then .lost += [$w] else . end
+        else .[$pk] = $pv | .[$rk] = $pr | .carried += [$w] end
       )
-    | ((.carried | index("5h")) != null) as $c
-    | ((.lost    | index("5h")) != null) as $l
-    | .rl_carried = $c
-    | .rl_lost = $l
-    | .rl_at = (if $c then $prev_at
-                elif .pct_5h != null then $now
+    | .rl_at = (if (.observed | index("5h")) then $now
+                elif (.carried | index("5h")) then $prev_at
                 else null end)
-    | .rl7_at = (if (.carried | index("7d")) then $prev_at
-                 elif .pct_7d != null then $now
+    | .rl_carried = ((.carried | index("5h")) != null)
+    | .rl_lost    = ((.lost    | index("5h")) != null)
+    | .rl7_at = (if (.observed | index("7d")) then $now
+                 elif (.carried | index("7d")) then $prev7_at
                  else null end)
     | .rl7_carried = ((.carried | index("7d")) != null)
-    | del(.carried) | del(.lost)')"
+    | .rl7_lost    = ((.lost    | index("7d")) != null)
+    | del(.observed) | del(.carried) | del(.lost)')"
   # A carry we could not compute is not a quiet window. Writing the uncarried
   # snapshot would read as one, so write nothing and let the previous file age
   # into staleness, which every reader already treats as unknown.

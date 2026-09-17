@@ -15,8 +15,8 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
-from ocp import (agents, ask as askmod, daemon as dmn, db, digest, drift,
-                 events as evmod, fold as foldmod, orca as orcamod, paths,
+from ocp import (accounts, agents, ask as askmod, daemon as dmn, db, digest, drift,
+                 events as evmod, fold as foldmod, launch, orca as orcamod, paths,
                  spawn as spawnmod, status, team, triggers, tui, yamlcompat)  # noqa: E402
 
 PASS, FAIL = [], []
@@ -1452,7 +1452,9 @@ def test_carry_bounds_and_losses(home: Path) -> None:
     idle = {"session_id": "idle"}          # a session with nothing to report
     now = int(time.time())
 
-    # 1. A figure with no resets_at cannot be placed in a window.
+    # 1. A figure with no resets_at cannot be placed in a window, and staying
+    #    lost is the whole of it: a loss that decays into "quiet" on the next
+    #    payload is a 95% account reading as 0% one refresh later.
     collect({"session_id": "a", "rate_limits": {"five_hour": {"used_percentage": 95}}})
     check("carry: a figure without a window is still read", read().pct_5h == 95)
     collect(idle)
@@ -1461,25 +1463,74 @@ def test_carry_bounds_and_losses(home: Path) -> None:
     check("carry: and reads as unknown, not as a quiet window",
           st.pct_5h_source == "unknown", st.pct_5h_source)
     check("carry: so it refuses assignment", not st.assignable()[0], st.assignable()[1])
+    collect(idle)
+    collect(idle)
+    st = read()
+    check("carry: the loss survives the payloads that follow it",
+          st.rl_lost is True and st.pct_5h_source == "unknown", st.pct_5h_source)
+    collect({"session_id": "b", "rate_limits":
+             {"five_hour": {"used_percentage": 7, "resets_at": now + 1800}}})
+    check("carry: and clears the moment a payload reports the window again",
+          read().rl_lost is False and read().pct_5h == 7)
 
-    # 2. Inside one window the account figure never goes down.
-    win = {"five_hour": {"used_percentage": 40, "resets_at": now + 1800}}
-    collect({"session_id": "live", "rate_limits": win})
+    # 2. Inside one window the account figure never goes down, but a payload
+    #    that reported the window still counts as having observed it - freezing
+    #    rl_at would age a live account into carried_old and stop its work.
+    collect({"session_id": "live", "rate_limits":
+             {"five_hour": {"used_percentage": 40, "resets_at": now + 1800}}})
+    raw = json.loads((home / "accounts" / "carry" / "status.json").read_text())
+    raw["rl_at"] = now - 7200
+    (home / "accounts" / "carry" / "status.json").write_text(json.dumps(raw))
     collect({"session_id": "staler", "rate_limits":
              {"five_hour": {"used_percentage": 30, "resets_at": now + 1800}}})
     st = read()
     check("carry: a staler session does not lower the account", st.pct_5h == 40,
           repr(st.pct_5h))
-    check("carry: and the account says the figure is not this payload's",
-          st.rl_carried is True)
+    check("carry: but it did observe the window, so the figure is not stale",
+          st.rl_at is not None and st.rl_at > now - 60, str(st.rl_at))
+    check("carry: and a live account does not read as carried",
+          st.pct_5h_source == "live", st.pct_5h_source)
     collect({"session_id": "newer", "rate_limits":
              {"five_hour": {"used_percentage": 55, "resets_at": now + 1800}}})
     check("carry: a higher figure is taken", read().pct_5h == 55, repr(read().pct_5h))
 
-    # 3. A carried figure goes old even while collected_at stays fresh.
+    # The API returns untidy floats, and this repo has seen 28.999999999999996
+    # for a plain 29. Comparing raw would latch the rule on invisible noise.
+    collect({"session_id": "n1", "rate_limits":
+             {"five_hour": {"used_percentage": 88.00000000000001, "resets_at": now + 1800}}})
+    collect({"session_id": "n2", "rate_limits":
+             {"five_hour": {"used_percentage": 87.99999999999999, "resets_at": now + 1800}}})
+    st = read()
+    check("carry: float noise below the same percent does not latch the rule",
+          st.pct_5h_source == "live", st.pct_5h_source)
+
+    # A window that has ended cannot be the window a new figure belongs to.
+    collect({"session_id": "old", "rate_limits":
+             {"five_hour": {"used_percentage": 95, "resets_at": now - 600}}})
+    collect({"session_id": "reset", "rate_limits":
+             {"five_hour": {"used_percentage": 0, "resets_at": now + 1800}}})
+    check("carry: a genuine reset is not suppressed by the window before it",
+          read().pct_5h == 0, repr(read().pct_5h))
+
+    # 3. The weekly window gets the same treatment, because its gate is written
+    #    as "block if the figure is high" - so a lost 7d is not a refusal, it is
+    #    the absence of one, and a 7d mistake costs the rest of the week.
+    collect({"session_id": "w", "rate_limits": {
+        "five_hour": {"used_percentage": 5, "resets_at": now + 1800},
+        "seven_day": {"used_percentage": 96}}})
+    check("carry: a blocking 7d refuses", not read().assignable()[0], read().assignable()[1])
+    collect(idle)
+    st = read()
+    check("carry: losing the 7d is recorded", st.rl7_lost is True)
+    check("carry: and a lost 7d still refuses, rather than vanishing",
+          not st.assignable()[0], st.assignable()[1])
+    check("carry: the refusal names the weekly gate", "7d" in st.assignable()[1])
+
+    # 4. A carried figure goes old even while collected_at stays fresh.
     p = home / "accounts" / "carry" / "status.json"
     raw = json.loads(p.read_text())
-    raw.update(rl_carried=True, rl_at=now - 4 * 3600, collected_at=now)
+    raw.update(pct_5h=55, reset_5h=now + 9000, rl_carried=True, rl_lost=False,
+               rl7_lost=False, pct_7d=10, rl_at=now - 4 * 3600, collected_at=now)
     p.write_text(json.dumps(raw))
     st = read()
     check("carry: a fresh collected_at does not make an old figure fresh",
@@ -1491,6 +1542,74 @@ def test_carry_bounds_and_losses(home: Path) -> None:
     t = triggers.evaluate(st.trusted_pct_5h, st.trusted_ctx_pct)
     check("carry: so an idle agent is not handed off for usage_unknown",
           t.kind != "usage_unknown", t.reason)
+
+
+def test_unobserved_spend_stays_off_unreadable_accounts(home: Path) -> None:
+    """A fold runs `claude -p`, which is headless and has no status line, so it
+    is the one spender no collector ever sees. Choosing by the raw figure sent
+    it to the accounts whose usage is already unobserved, because None passed
+    the "not at the hard stop" test."""
+    home.mkdir(parents=True, exist_ok=True)
+    os.environ["OCP_HOME"] = str(home)
+    real_login = accounts.logged_in
+    try:
+        accounts.logged_in = lambda a: True  # noqa: E731 - keychain is not the subject
+        now = int(time.time())
+        write_status(home, "blind", pct_5h=None, rl_lost=True)
+        write_status(home, "hot", pct_5h=93, reset_5h=now + 1800)
+        check("fold: an account whose reading was lost is not a fallback",
+              foldmod._cheapest_account() is None, str(foldmod._cheapest_account()))
+        write_status(home, "usable", pct_5h=20, reset_5h=now + 1800)
+        check("fold: a readable account is", foldmod._cheapest_account() == "usable",
+              str(foldmod._cheapest_account()))
+
+        # A carried figure is a floor, and a floor below the stop still has
+        # room. This one is deliberate: the fold is small, and refusing here
+        # would leave the day unrecorded on a quiet machine.
+        for acct in ("usable", "hot"):
+            (home / "accounts" / acct / "status.json").unlink()
+        write_status(home, "old", pct_5h=40, reset_5h=now + 9000,
+                     rl_carried=True, rl_at=now - 4 * 3600)
+        check("fold: a carried floor with room is still usable",
+              foldmod._cheapest_account() == "old", str(foldmod._cheapest_account()))
+        st = status.read("old")
+        check("fold: even though it takes no new agents",
+              not st.assignable()[0] and st.pct_5h_source == "carried_old")
+    finally:
+        accounts.logged_in = real_login
+
+
+def test_launch_judges_on_the_figure_it_may_act_on(home: Path) -> None:
+    """Inside a window usage only rises, so a carried figure is a floor - and a
+    floor at the wall is at the wall. Reading the raw field let a launch start
+    on an account a carry had just placed at 95%."""
+    home.mkdir(parents=True, exist_ok=True)
+    os.environ["OCP_HOME"] = str(home)
+    agents.register("late", "alpha")
+    now = int(time.time())
+    write_status(home, "alpha", pct_5h=95, reset_5h=now + 1800,
+                 rl_carried=True, rl_at=now - 300)
+    real_login = accounts.logged_in
+    try:
+        accounts.logged_in = lambda a: True  # noqa: E731 - keychain is not the subject
+        try:
+            launch.build("late")
+            check("launch: refuses on a carried figure at the wall", False, "it started")
+        except SystemExit as e:
+            check("launch: refuses on a carried figure at the wall", "95%" in str(e), str(e))
+
+        # A reading we have no figure for at all still starts: the session we
+        # are about to launch is the only thing that can report where the
+        # account stands, so refusing here is the deadlock, not the safeguard.
+        write_status(home, "alpha", pct_5h=None, rl_lost=True)
+        try:
+            launch.build("late")
+            check("launch: an unreadable account still starts, to get a reading", True)
+        except SystemExit as e:
+            check("launch: an unreadable account still starts, to get a reading",
+                  False, str(e))
+    finally:
+        accounts.logged_in = real_login
 
 
 def test_burn_rate_ignores_carried_samples(home: Path) -> None:
@@ -2007,6 +2126,8 @@ def main() -> int:
         test_drift(Path(td) / 'drift')
         test_spawn_base_selection(Path(td) / 'spawn')
         test_carry_bounds_and_losses(Path(td) / 'carry')
+        test_unobserved_spend_stays_off_unreadable_accounts(Path(td) / 'spend')
+        test_launch_judges_on_the_figure_it_may_act_on(Path(td) / 'lj')
         test_burn_rate_ignores_carried_samples(Path(td) / 'burn')
         test_display_agrees_with_the_daemon(Path(td) / 'disp')
         test_spawn_confirms_the_task_landed(Path(td) / 'spawnland')

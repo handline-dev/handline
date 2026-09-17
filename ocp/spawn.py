@@ -144,8 +144,12 @@ def spawn(agent: str, repo: Path, base: str = "main", prompt: str | None = None,
         if prompt_landed(agent, since):
             lines.append("  first task submitted")
         else:
+            # The agent exists and the worktree is real, but it was asked to do
+            # something and never got it. Anything driving spawns from a script
+            # reads the exit code, not this text.
             lines.append(f"  WARNING: {agent} never reported receiving the task. It is "
                          f"probably sitting in the input box unsent - check the terminal, "
                          f"clear it with an interrupt and send again.")
+            return False, "\n".join(lines)
 
     return True, "\n".join(lines)

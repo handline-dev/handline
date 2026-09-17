@@ -284,15 +284,20 @@ def _cheapest_account() -> str | None:
     picked, _ = status.pick_account()
     if picked:
         return picked
-    # Fall back to any logged-in account that is not hard-blocked. A fold is
-    # small and recording the day beats skipping it, but running one on an
-    # account already at the hard stop would push it past the limit, which is
-    # the thing the whole system exists to avoid.
+    # Fall back to any logged-in account we can still read. A fold is small and
+    # recording the day beats skipping it, but two accounts are off limits: one
+    # already at the hard stop, and one whose usage we cannot read at all.
+    #
+    # The second matters more than it looks. A fold runs `claude -p`, which is
+    # headless and has no status line, so it is the one spender no collector
+    # ever sees. Letting it fall back to the accounts we cannot read would send
+    # the unobservable spend precisely where the usage is already unobserved.
+    # Reading the raw figure did exactly that: None passed the test.
     for a in paths.list_accounts():
         if not accounts.logged_in(a):
             continue
-        st = status.read(a)
-        if st.pct_5h is not None and st.pct_5h >= status.PCT_5H_BLOCK:
+        pct = status.read(a).trusted_pct_5h
+        if pct is None or pct >= status.PCT_5H_BLOCK:
             continue
         return a
     return None

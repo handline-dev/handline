@@ -228,14 +228,26 @@ def _check_rate_limits_present(r: Report) -> None:
             continue
         seen = True
         src = st.pct_5h_source
-        if src == "unknown":
+        if src == "unknown" and st.rl_lost:
+            r.add(WARN, f"account {acct}: the 5h reading was lost",
+                  "a figure arrived with no resets_at, so we cannot place it in a window - "
+                  "assignment stays refused until a session reports the window again")
+        elif src == "unknown":
             r.add(WARN, f"account {acct}: no usable rate_limits in the last snapshot",
                   "the snapshot is missing, unreadable or too old - assignment stays refused")
+        elif src == "carried_old":
+            age = st.rl_age_s
+            r.add(WARN, f"account {acct}: the 5h figure is older than we assign on",
+                  f"5h {st.pct_5h}% observed {'?' if age is None else int(age / 60)}m ago; "
+                  f"still a floor for triggers, but no new work goes here")
         elif src == "quiet":
             r.add(OK, f"account {acct}: 5h window quiet",
                   "no session has spent in the current window; reads as 0%")
         elif src == "carried":
             r.add(OK, f"account {acct}: rate_limits carried", f"5h {st.pct_5h}% (window still open)")
+        if st.rl7_lost:
+            r.add(WARN, f"account {acct}: the 7d reading was lost",
+                  "the weekly gate cannot be checked, so assignment stays refused")
         else:
             r.add(OK, f"account {acct}: rate_limits present", f"5h {st.pct_5h}%")
     if not seen and paths.list_accounts():

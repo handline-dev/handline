@@ -140,10 +140,15 @@ def build(width: int) -> tuple[list[str], list[list[str]]]:
     try:
         pid = daemon.running_elsewhere()
         state = f"{GRN}running{R} pid {pid}" if pid else f"{RED}NOT RUNNING{R}"
+        # The legend earns its place only if it fits whole. Truncated, it cuts
+        # the last marks off entirely and glosses the first one mid-word, which
+        # is worse than not drawing it - and every mark it explains is also
+        # explained by `ocp status`.
+        bar_ = (f"{BOLD}ocp{R} {DIM}·{R} daemon {state} {DIM}·{R} "
+                f"{time.strftime('%H:%M:%S')}  {DIM}q quit · r refresh{R}")
+        with_legend = f"{bar_}{DIM} · 5h {status.SOURCE_LEGEND_SHORT}{R}"
         header = [
-            fit(f"{BOLD}ocp{R} {DIM}·{R} daemon {state} {DIM}·{R} "
-                f"{time.strftime('%H:%M:%S')}  {DIM}q quit · r refresh · "
-                f"5h {status.SOURCE_LEGEND}{R}", width),
+            fit(with_legend if vlen(with_legend) <= width else bar_, width),
             "",
         ]
 

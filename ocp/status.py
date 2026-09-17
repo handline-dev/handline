@@ -65,6 +65,9 @@ CARRY_MAX_AGE_S = STALE_AFTER_S
 SOURCE_MARK = {"live": " ", "carried": "~", "carried_old": "!", "quiet": "*", "unknown": " "}
 SOURCE_LEGEND = ("* inferred: nothing spent in this window · ~ carried: an earlier "
                  "reading · ! carried past its bound, no new work")
+# For a header that has to survive an 80-column terminal, where the long form
+# truncates mid-word and loses ~ and ! entirely.
+SOURCE_LEGEND_SHORT = "* inferred · ~ carried · ! too old"
 
 
 def mark(src: str) -> str:
@@ -102,6 +105,14 @@ class AccountStatus:
     # not tell whether that figure's window had ended. That is ignorance, and
     # it must not read as a quiet window.
     rl_lost: bool = False
+    # The same three for the weekly window. It has no age bound - a week-wide
+    # window barely moves in the minutes a 5h figure goes stale in - but a 7d
+    # figure we lost still has to refuse, because the 95% gate is written as
+    # "block if we have a figure and it is high", so a missing one is not a
+    # refusal, it is the absence of one.
+    rl7_at: int | None = None
+    rl7_carried: bool = False
+    rl7_lost: bool = False
     session_id: str | None = None
     model_id: str | None = None
     collected_at: int | None = None
@@ -190,6 +201,8 @@ class AccountStatus:
             return False, f"5h usage {pct}% >= {PCT_5H_BLOCK}%"
         if self.pct_7d is not None and self.pct_7d >= PCT_7D_BLOCK:
             return False, f"7d usage {self.pct_7d}% >= {PCT_7D_BLOCK}%"
+        if self.rl7_lost:
+            return False, "7d usage was lost - the weekly gate cannot be checked (fail-closed)"
         src = self.pct_5h_source
         if src == "carried_old":
             age = self.rl_age_s
@@ -263,6 +276,9 @@ def read(acct: str, path: Path | None = None) -> AccountStatus:
     st.rl_at = _as_int(raw.get("rl_at"))
     st.rl_carried = raw.get("rl_carried") is True
     st.rl_lost = raw.get("rl_lost") is True
+    st.rl7_at = _as_int(raw.get("rl7_at"))
+    st.rl7_carried = raw.get("rl7_carried") is True
+    st.rl7_lost = raw.get("rl7_lost") is True
     st.session_id = raw.get("session_id")
     st.model_id = raw.get("model_id")
     cost = raw.get("cost_usd")
@@ -307,7 +323,7 @@ def pick_account(candidates: list[str] | None = None) -> tuple[str | None, list[
     # Headroom decides, but between two accounts with the same headroom take the
     # one whose figure we actually saw. An inferred 0% is sound and still a
     # weaker claim than a reported 0%.
-    confidence = {"live": 3, "carried": 2, "quiet": 1, "carried_old": 0}
+    confidence = {"live": 3, "carried": 2, "quiet": 1}
     for n in names:
         st = read(n)
         allowed, why = st.assignable()

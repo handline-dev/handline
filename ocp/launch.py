@@ -52,10 +52,15 @@ def build(agent: str, extra: list[str] | None = None, force: bool = False) -> tu
         age = "unknown age" if st.age_s is None else f"{int(st.age_s)}s"
         print(f"warning: account '{acct}' usage is {age} old and may be out of date; "
               f"the status line will refresh it on start.", file=sys.stderr)
-    elif not force and st.exists and st.pct_5h is not None \
-            and st.pct_5h >= status.PCT_5H_BLOCK:
+    elif not force and st.exists and st.trusted_pct_5h is not None \
+            and st.trusted_pct_5h >= status.PCT_5H_BLOCK:
+        # The carried figure counts here: inside a window usage only rises, so
+        # a figure we carried is a floor and a floor at the wall is at the wall.
+        # A reading we have no figure for at all still starts, deliberately -
+        # the session we are about to launch is the only thing that can tell us
+        # where the account stands.
         raise SystemExit(
-            f"account '{acct}' is at {st.pct_5h}% of the 5h limit "
+            f"account '{acct}' is at {st.trusted_pct_5h}% of the 5h limit "
             f"(>= {status.PCT_5H_BLOCK}%) - refusing to start.\n"
             f"resets at {st.reset_5h}; use --force to override"
         )
