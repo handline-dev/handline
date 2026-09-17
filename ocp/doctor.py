@@ -10,9 +10,10 @@ import os
 import re
 import shutil
 import subprocess
+import time
 from pathlib import Path
 
-from . import accounts, agents, hooks, paths, service, status
+from . import accounts, agents, daemon, db, hooks, paths, service, status
 
 OK, WARN, FAIL = "ok", "warn", "fail"
 
@@ -189,6 +190,34 @@ def _check_agents(r: Report) -> None:
                       f"{size}B > {budget}B, and this is per-session overhead")
 
 
+def _check_stuck_running(r: Report) -> None:
+    """RUNNING is the state that takes an agent out of service.
+
+    Work is not delivered to it and its session is never closed, so an agent
+    that entered RUNNING and never left is ignored by the daemon while every
+    screen reports it working.
+
+    The sweep repairs this on its own, so this is not a report of something
+    nobody is doing anything about - it is the half the sweep declines to do.
+    Unsticking rests on a probe, so the sweep wants a second witness before it
+    acts, and stays its hand when Orca cannot be reached or says the terminal is
+    mid-turn. An agent that stays here across several runs of `doctor` is one
+    the sweep has looked at and left, which is either a genuinely long turn or
+    something a human needs to see.
+    """
+    con = db.connect()
+    try:
+        for row in db.all_agent_states(con):
+            mins = daemon.silent_minutes(con, row["agent"], row)
+            if mins is None:
+                continue
+            r.add(WARN, f"agent {row['agent']}: RUNNING with nothing heard for {mins}m",
+                  "no work is delivered to a RUNNING agent and its session is never "
+                  "closed; the sweep unsticks it once Orca agrees it is idle")
+    finally:
+        con.close()
+
+
 # statusLine's rate_limits arrived in this version; below it there is no usage
 # to read and the whole data source is missing.
 MIN_CLAUDE_VERSION = (2, 1, 0)
@@ -335,6 +364,7 @@ def run() -> Report:
     _check_accounts(r)
     _check_rate_limits_present(r)
     _check_agents(r)
+    _check_stuck_running(r)
     _check_pidfile(r)
     _check_service(r)
     _check_autocontinue(r)

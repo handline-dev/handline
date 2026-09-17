@@ -30,7 +30,8 @@ import time
 import uuid
 from dataclasses import dataclass
 
-from . import agents, db, fold as foldmod, launch, orca, paths, service, status, triggers
+from . import (agents, db, fold as foldmod, launch, observe as obs, orca, paths,
+               service, status, triggers)
 
 # Section 8.2 states.
 IDLE, QUEUED, RUNNING, DONE = "IDLE", "QUEUED", "RUNNING", "DONE"
@@ -57,6 +58,11 @@ MAX_THROTTLE_STREAK = 5      # 8.6: then escalate to a human gate
 # one did, because the cache lives on the server and expires on time, not on
 # whether our process stayed alive.
 IDLE_CLOSE_S = 1800
+
+# How long an agent may read as RUNNING with nothing heard from it before the
+# label is stuck rather than the turn being long. Same number as the idle-close
+# threshold: past it the daemon would have reclaimed the session anyway.
+STUCK_RUNNING_S = IDLE_CLOSE_S
 HANDOFF_DEADLINE_S = 90      # 8.3
 
 # 8.6: a repeatedly-degrading agent backs off rather than retrying at the same
@@ -262,11 +268,16 @@ def triggers_apply(row) -> bool:
 
     A closed agent has no session to hand off, and closing is precisely what
     makes it look like one that needs handing off: its status line stops, so the
-    snapshot goes stale and usage_unknown fires. Every screen asks this too -
-    drawing a warning the daemon will never act on is the dashboard arguing with
-    the daemon.
+    snapshot goes stale and usage_unknown fires. An agent with no terminal has
+    nowhere to run at all - nothing to fold, nothing to clear, nothing being
+    spent - and usage_unknown fires across a whole account at once, so it sweeps
+    up the registered-but-never-started agents with everyone else. backend and
+    manager were parked that way on 09-17 and manager's fold was charged for it.
+
+    Every screen asks this too - drawing a warning the daemon will never act on
+    is the dashboard arguing with the daemon.
     """
-    return not (row and row["closed_at"])
+    return bool(row and row["terminal"] and not row["closed_at"])
 
 
 def close_agent(con, agent: str, log, st) -> tuple[bool, str]:
@@ -459,6 +470,149 @@ def reconcile(con, log) -> list[str]:
     for a in actions:
         log(f"  reconcile: {a}")
     return actions
+
+
+# Which suspect the next tick probes. Round-robin rather than always the first,
+# or one agent that is merely busy would hold the slot and the genuinely stuck
+# one behind it would never be looked at.
+_probe_turn = {"n": 0}
+
+
+def sweep(con, log, actions: list[str]) -> None:
+    """Ask the world what is true, and correct the record where it is not.
+
+    Every other decision in this file reads a row we wrote ourselves, which is
+    how a state that went wrong stayed wrong: an agent was set RUNNING, nothing
+    ever set it back, and every screen faithfully reported a value nothing could
+    contradict. Hooks are edges, and an edge that is missed is missed forever;
+    this is the level-triggered half.
+
+    It corrects rather than reports, because a supervisor that only files
+    complaints leaves the human in the loop it was built to take them out of.
+    What it may correct on its own is limited to what it observed rather than
+    inferred: a terminal Orca does not list is gone, and a session with no
+    process is not running. Where the only evidence is a probe, it wants two
+    witnesses before it moves.
+    """
+    agent_names = paths.list_agents()
+    terminals = {a: db.get_terminal(con, a) for a in agent_names}
+    seen = obs.observe(agent_names, terminals)
+    suspects: list[tuple[str, object]] = []
+
+    for agent in agent_names:
+        row = db.get_agent_state(con, agent)
+        if not row:
+            continue
+        o = seen[agent]
+
+        # The house is gone. Nothing may be delivered to it and nothing can be
+        # closed in it, and both of those already key on having a terminal - so
+        # dropping the handle is the whole correction.
+        if o.terminal_alive is False and row["terminal"]:
+            db.set_terminal(con, agent, None, None)
+            db.add_event(con, agent, "terminal_gone", {"handle": row["terminal"]})
+            actions.append(f"{agent}: terminal is gone; handle dropped")
+            log(f"  {agent}: terminal is gone; handle dropped")
+            continue
+
+        if o.terminal_alive is not True or not o.session_seen:
+            # Whether a session is running is only answerable about an agent
+            # whose terminal we just confirmed. Without that, "no process" is
+            # as likely to mean "we could not look" - and acting on it would
+            # mark a live agent closed on the strength of an unread answer.
+            continue
+
+        alive = o.session_pid is not None
+        closed = bool(row["closed_at"])
+
+        if alive and closed:
+            # It came back without us - a human relaunched it, or a resume
+            # landed that we never recorded. Believing our own note here would
+            # close it a second time on top of a live session.
+            db.clear_closed(con, agent)
+            actions.append(f"{agent}: a session is running; the closed mark was wrong")
+            log(f"  {agent}: running again (pid {o.session_pid}); cleared the closed mark")
+        elif not alive and not closed and row["terminal"]:
+            # It died, or a human ended it. Recording it as closed is what makes
+            # work arriving wake it instead of being typed at a bash prompt.
+            #
+            # Read the agent's own snapshot directly rather than through
+            # read_for_agent, which nulls the session id once that snapshot is
+            # stale. That rule is there to stop an agent being handed another
+            # agent's session off the shared account file, and it is right - but
+            # a session that has just died leaves a snapshot that is stale by
+            # construction, and its own id is the one thing here that is not in
+            # doubt. Losing it loses the only pointer to that agent's context,
+            # and memory comes back where context does not.
+            own = status.read(agents.account_of(agent),
+                              paths.agent_status_file(agent))
+            session = None if own.error else own.session_id
+            db.set_closed(con, agent, session)
+            if row["state"] == RUNNING:
+                db.set_agent_state(con, agent, IDLE, detail="session ended without us")
+            db.add_event(con, agent, "session_gone", {"session": session})
+            actions.append(f"{agent}: its session is gone; recorded as closed")
+            log(f"  {agent}: session gone; recorded as closed "
+                f"(resume {session or 'unknown'})")
+        elif alive and row["state"] == RUNNING:
+            suspects.append((agent, row))
+
+    # The second witness is the only thing here that costs: a "not idle" answer
+    # always takes the probe's full timeout, and an agent working a long turn is
+    # a suspect on every tick for as long as the turn lasts. One per tick bounds
+    # the tick at one probe however many are stuck at once - three were, on
+    # 09-17 - and a stuck agent still comes back within seconds, because ticks
+    # are two seconds apart and nothing else is competing for the slot.
+    if suspects:
+        agent, row = suspects[_probe_turn["n"] % len(suspects)]
+        _probe_turn["n"] += 1
+        _unstick_running(con, agent, row, log, actions)
+
+
+def silent_minutes(con, agent: str, row) -> int | None:
+    """How long this agent has read RUNNING with nothing heard, if too long.
+
+    The first of the two witnesses, and the only one that costs nothing. `ocp
+    doctor` asks it too, and must get the same answer to the same question -
+    the threshold and the arithmetic used to live in both files.
+    """
+    if not row or row["state"] != RUNNING:
+        return None
+    last = db.last_activity(con, agent)
+    if last is None:
+        return None
+    silent = int(time.time()) - last
+    return silent // 60 if silent >= STUCK_RUNNING_S else None
+
+
+def _unstick_running(con, agent: str, row, log, actions: list[str]) -> None:
+    """RUNNING is the label that takes an agent out of service.
+
+    Nothing is delivered to it and its session is never closed, so an agent that
+    entered RUNNING and never left is ignored by the daemon while every screen
+    reports it working. `Stop` returns it to IDLE now, but an agent that was
+    already stuck when that landed cannot get out on its own: leaving RUNNING
+    needs a Stop, a Stop needs a turn, and a turn needs work it will never be
+    told about. Three agents sat that way, and the founder found each of them.
+
+    This is the one correction here that rests on a probe rather than on a fact,
+    and getting it wrong means closing an agent that is working - so it wants
+    two witnesses that do not share a source. Our own event history says nothing
+    has been heard for longer than a session is allowed to idle; Orca says the
+    terminal is not mid-turn. Either alone is not enough: a long turn is silent
+    in our events, and the probe is the one we have twice declined to trust.
+    """
+    mins = silent_minutes(con, agent, row)
+    if mins is None:
+        return
+    handle = row["terminal"]
+    if not handle or not orca.available() or not orca.idle_now(handle):
+        return
+    db.set_agent_state(con, agent, IDLE,
+                       detail=f"RUNNING with nothing heard for {mins}m, and idle")
+    db.add_event(con, agent, "unstuck", {"was": RUNNING, "silent_minutes": mins})
+    actions.append(f"{agent}: RUNNING for {mins}m with nothing heard; back to IDLE")
+    log(f"  {agent}: stuck in RUNNING for {mins}m and idle at its prompt - back to IDLE")
 
 
 # ---------------------------------------------------------------- handoff
@@ -694,6 +848,10 @@ def tick(con, log, use_model: bool = True, samples: dict | None = None) -> Tick:
     now = int(time.time())
     actions: list[str] = []
     samples = samples if samples is not None else {}
+
+    # Before anything is decided on what we believe, check what is true. Two
+    # calls out, whatever the size of the team, and they cost 0.2s together.
+    sweep(con, log, actions)
 
     # A handoff past its deadline must fail here, not only at startup.
     actions += expire_handoffs(con, log)

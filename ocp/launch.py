@@ -100,7 +100,12 @@ def context_for(agent: str) -> str:
     """ROLE.md + base.md + the latest handoff, as one system-prompt appendix."""
     d = paths.agent_dir(agent)
     parts = [f"You are `{agent}`, one agent in an orcapipe team. "
-             f"Your name is also in $OCP_AGENT."]
+             f"Your name is also in $OCP_AGENT.",
+             "Stay inside your own worktree. To read another branch's version of "
+             "a file, use `git show <ref>:<path>` - it needs nothing outside the "
+             "worktree. Copying a file out to /tmp to read it stops you on a "
+             "permission prompt only a human can answer, and you will sit there "
+             "until one does."]
     for fn, label in (("ROLE.md", "role"), ("base.md", "standing context")):
         p = d / fn
         if p.exists():

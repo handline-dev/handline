@@ -18,12 +18,23 @@ from . import db
 CAPTURED = {
     "SessionStart", "SessionEnd", "Stop", "StopFailure",
     "SubagentStop", "PostCompact", "UserPromptSubmit",
+    # An agent waiting on a permission prompt is neither working nor idle: it
+    # emits no Stop, so it reads RUNNING forever, and its status line stops
+    # refreshing, so the account's usage reading goes stale behind it. On
+    # 09-17 that took out every agent on the account for fail-closed
+    # usage_unknown, fifteen minutes after keeper stopped at a prompt nobody
+    # could see. Orca installs the hook; we simply were not listening.
+    "PermissionRequest",
+    # A second witness that an agent went quiet. Stop was the only one, and
+    # when Stop had no transition the whole system went blind for hours.
+    "TeammateIdle",
 }
 
 # Per event, the stdin fields worth keeping.
 ALLOWLIST = (
     "session_id", "hook_event_name", "source", "reason", "cwd",
     "prompt_length", "transcript_path", "model", "trigger",
+    "tool_name",
 )
 
 
@@ -94,26 +105,39 @@ def record_from_stdin(argv: list[str] | None = None) -> int:
 # agent handed off in a loop - 42 folds in seven minutes before it was caught.
 ACTIVE_EVENTS = {"UserPromptSubmit"}
 
+# And which one says it stopped. Stop fires when the agent has finished
+# responding and is back at its prompt; SubagentStop is deliberately absent,
+# because a subagent finishing says nothing about what the agent itself is doing.
+QUIET_EVENTS = {"Stop"}
+
 # The daemon owns these; an agent must not move itself out of them.
 PROTECTED_STATES = {"STALLED", "HANDOFF"}
 
 
 def _mark_activity(con, agent: str, event: str) -> None:
-    """Let the daemon know the agent is actually working.
+    """Let the daemon know whether the agent is working.
 
     Without this, agent_state only ever changes when the daemon itself changes
     it, so an agent that was parked and then given work directly still reads as
     PARKED - and the daemon would "wake" it mid-task by injecting a handoff it
     never needed. The hooks already fire on every turn; they just have to say so.
+
+    Both ends matter, and only one of them was recorded. RUNNING is the state
+    that stops work being delivered and stops the session being closed, so an
+    agent that entered it and never left was silently taken out of service: it
+    was never told about a single request again and never gave its memory back.
+    Three agents sat that way for over two hours.
     """
-    if event not in ACTIVE_EVENTS:
-        return
     row = db.get_agent_state(con, agent)
     if row and row["state"] in PROTECTED_STATES:
         return
-    if row and row["state"] == "RUNNING" and not row["wake_at"]:
-        return  # already correct; do not rewrite on every prompt
-    db.set_agent_state(con, agent, "RUNNING", wake_at=None, detail=f"active ({event})")
+    if event in ACTIVE_EVENTS:
+        if row and row["state"] == "RUNNING" and not row["wake_at"]:
+            return  # already correct; do not rewrite on every prompt
+        db.set_agent_state(con, agent, "RUNNING", wake_at=None, detail=f"active ({event})")
+    elif event in QUIET_EVENTS and row and row["state"] == "RUNNING":
+        db.set_agent_state(con, agent, "IDLE", wake_at=None,
+                           detail="finished its turn")
 
 
 def record_commit(agent: str, repo: str, sha: str, subject: str, diffstat: str) -> None:

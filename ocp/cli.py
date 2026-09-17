@@ -14,7 +14,7 @@ import sys
 import time
 from pathlib import Path
 
-from . import (accounts, agents, ask as askmod, daemon as daemonmod, dashboard, db,
+from . import (accounts, agents, ask as askmod, daemon as daemonmod, db,
                tui,
                digest, doctor,
                drift, events, fold as foldmod, guide, hooks, launch, paths, service,
@@ -283,8 +283,6 @@ def cmd_spawn(args) -> int:
 
 
 def cmd_top(args) -> int:
-    if args.plain:
-        return dashboard.top(interval=args.interval, once=args.once)
     return tui.run(interval=args.interval, once=args.once)
 
 
@@ -501,6 +499,21 @@ def cmd_hook(args) -> int:
     return events.record_from_stdin([args.event])
 
 
+def _is_our_hook(command: object, event: str) -> bool:
+    """Is this entry ours, whatever path it was written with?
+
+    `ocp` is on PATH as a symlink into the repo, so the same installation spells
+    itself two ways. Matching the exact string meant a second entry was added
+    the first time the spelling changed, and then every hook fired twice - two
+    events recorded per turn, and two of everything downstream.
+    """
+    if not isinstance(command, str):
+        return False
+    parts = command.split()
+    return (len(parts) >= 3 and parts[-2:] == ["hook", event]
+            and os.path.basename(parts[0]) == "ocp")
+
+
 def cmd_hook_install(args) -> int:
     """Add our event hooks to shared settings, next to Orca's mirrored ones."""
     target = hooks.target_settings()
@@ -508,20 +521,45 @@ def cmd_hook_install(args) -> int:
     data = json.loads(target.read_text()) if target.exists() else {}
     exe = os.environ.get("OCP_BIN") or shutil.which("ocp") or str(paths.repo_root() / "bin" / "ocp")
     block = data.setdefault("hooks", {})
-    added = []
-    for event in sorted(events.CAPTURED):
-        groups = block.setdefault(event, [])
-        cmd = f"{exe} hook {event}"
-        if any(cmd == h.get("command")
-               for g in groups if isinstance(g, dict)
-               for h in g.get("hooks", []) if isinstance(h, dict)):
-            continue
-        groups.append({"hooks": [{"type": "command", "command": cmd, "timeout": 10}]})
-        added.append(event)
-    tmp = target.with_suffix(".json.tmp")
-    tmp.write_text(json.dumps(data, indent=2, ensure_ascii=False) + "\n")
-    tmp.replace(target)
-    print(f"installed ocp event hooks for {len(added)} events" if added else "already installed")
+    added, pruned = [], 0
+    for event in sorted(events.CAPTURED | set(block)):
+        groups = block.get(event)
+        if groups is None:
+            if event not in events.CAPTURED:
+                continue
+            groups = block.setdefault(event, [])
+        # Ours, in whatever spelling, collapses to exactly one entry.
+        keep, seen = [], False
+        for g in groups:
+            if not isinstance(g, dict):
+                keep.append(g)
+                continue
+            entries = g.get("hooks", [])
+            mine = [h for h in entries
+                    if isinstance(h, dict) and _is_our_hook(h.get("command"), event)]
+            if not mine:
+                keep.append(g)
+                continue
+            if seen or len(entries) > len(mine):
+                g["hooks"] = [h for h in entries if h not in mine]
+                pruned += len(mine)
+                if g["hooks"]:
+                    keep.append(g)
+                continue
+            seen = True
+            keep.append(g)
+        groups[:] = keep
+        if not seen and event in events.CAPTURED:
+            groups.append({"hooks": [{"type": "command",
+                                      "command": f"{exe} hook {event}", "timeout": 10}]})
+            added.append(event)
+    hooks.write_settings(target, data)
+    msg = []
+    if added:
+        msg.append(f"installed ocp event hooks for {len(added)} events")
+    if pruned:
+        msg.append(f"removed {pruned} duplicate entries")
+    print("; ".join(msg) if msg else "already installed")
     return 0
 
 
@@ -771,7 +809,6 @@ def build_parser() -> argparse.ArgumentParser:
     p = sub.add_parser("top", help="live full-screen dashboard")
     p.add_argument("--interval", type=float, default=2.0)
     p.add_argument("--once", action="store_true", help="print one frame and exit")
-    p.add_argument("--plain", action="store_true", help="scrolling output, no full screen")
     p.set_defaults(fn=cmd_top)
 
     bs = sub.add_parser("base", help="the per-session fixed context").add_subparsers(
@@ -798,7 +835,6 @@ def build_parser() -> argparse.ArgumentParser:
     p = sub.add_parser("watch", help="alias for top")
     p.add_argument("--interval", type=float, default=2.0)
     p.add_argument("--once", action="store_true")
-    p.add_argument("--plain", action="store_true")
     p.set_defaults(fn=cmd_top)
 
     p = sub.add_parser("guide", help="load detail on demand")

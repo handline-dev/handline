@@ -15,12 +15,29 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
-from ocp import (accounts, agents, ask as askmod, daemon as dmn, dashboard, db, digest,
-                 doctor, drift, events as evmod, fold as foldmod, launch, orca as orcamod,
-                 paths, service, spawn as spawnmod, status, team, triggers, tui,
+from ocp import (accounts, agents, ask as askmod, daemon as dmn, db, digest, doctor, drift,
+                 events as evmod, fold as foldmod, launch, observe as obsmod,
+                 orca as orcamod, paths, service, spawn as spawnmod, status, team, triggers,
+                 tui,
                  yamlcompat)  # noqa: E402
 
 PASS, FAIL = [], []
+
+# Every test that needs an Orca stands in for one, and a restore tuple that
+# forgot a name used to leak that stand-in into every test after it. Captured
+# once, put back by _daemon_home, so no test inherits another's world.
+REAL_ORCA = {n: getattr(orcamod, n) for n in (
+    "available", "alive", "live_terminals", "wait_idle", "idle_now", "send",
+    "clear_context", "close_session", "relaunch", "resume_with")}
+REAL_OBSERVE = {n: getattr(obsmod, n) for n in ("live_sessions", "live_terminals")
+                if hasattr(obsmod, n)}
+
+
+def restore_world() -> None:
+    for n, f in REAL_ORCA.items():
+        setattr(orcamod, n, f)
+    for n, f in REAL_OBSERVE.items():
+        setattr(obsmod, n, f)
 
 
 def check(name: str, cond: bool, detail: str = "") -> None:
@@ -743,12 +760,27 @@ def test_triggers() -> None:
 
 # ---------------------------------------------------------------- daemon
 def _daemon_home(home: Path, pct: int | None) -> None:
+    restore_world()
     home.mkdir(parents=True, exist_ok=True)
     os.environ["OCP_HOME"] = str(home)
     (home / "team.yaml").write_text(DESIGN_TEAM)
     agents.register("backend", "alpha")
     write_status(home, "alpha", pct_5h=pct, pct_7d=10, ctx_pct=5,
                  reset_5h=int(time.time()) + 1800)
+    # An agent the daemon acts on has somewhere to run: nothing is folded,
+    # cleared or parked for one with no terminal. The fixture says so once, so
+    # the tests below are about triggers rather than about that.
+    con = db.connect()
+    try:
+        db.set_terminal(con, "backend", "term_x", "wt")
+    finally:
+        con.close()
+    # And this world has no Orca and no process table unless a test provides
+    # them. Otherwise the sweep asks the real machine, which has never heard of
+    # term_x and is running no session called backend, and correctly tears the
+    # fixture down.
+    orcamod.available = lambda: False
+    obsmod.live_sessions = lambda: None
 
 
 def test_daemon_park(home: Path) -> None:
@@ -1744,6 +1776,7 @@ def test_idle_session_is_closed_and_resumed(home: Path) -> None:
     real = (orcamod.alive, orcamod.wait_idle, orcamod.send, orcamod.available)
     try:
         orcamod.available = lambda: True
+        orcamod.live_terminals = lambda: {"term_x"}
         orcamod.alive = lambda h: True
         orcamod.wait_idle = lambda h, timeout_ms=0: True
         orcamod.send = lambda h, text, enter=True: (sent.append((h, text)), (True, ""))[1]
@@ -1839,6 +1872,7 @@ def test_a_running_agent_is_told_when_work_arrives(home: Path) -> None:
     real = (orcamod.alive, orcamod.idle_now, orcamod.send, orcamod.available)
     try:
         orcamod.available = lambda: True
+        orcamod.live_terminals = lambda: {"term_x"}
         orcamod.alive = lambda h: True
         orcamod.idle_now = lambda h: True
         orcamod.send = lambda h, text, enter=True: (sent.append(text), (True, ""))[1]
@@ -1891,6 +1925,7 @@ def test_work_arriving_wakes_a_closed_agent(home: Path) -> None:
     real = (orcamod.alive, orcamod.wait_idle, orcamod.send, orcamod.available)
     try:
         orcamod.available = lambda: True
+        orcamod.live_terminals = lambda: {"term_x"}
         orcamod.alive = lambda h: True
         orcamod.wait_idle = lambda h, timeout_ms=0: True
         orcamod.send = lambda h, text, enter=True: (sent.append(text), (True, ""))[1]
@@ -1930,6 +1965,7 @@ def test_wake_without_a_closed_session_uses_the_handoff(home: Path) -> None:
     real = (orcamod.alive, orcamod.available, orcamod.send)
     try:
         orcamod.available = lambda: True
+        orcamod.live_terminals = lambda: {"term_x"}
         orcamod.alive = lambda h: True
         sent: list[str] = []
         orcamod.send = lambda h, text, enter=True: (sent.append(text), (True, ""))[1]
@@ -2314,6 +2350,7 @@ def test_one_agents_bad_tick_is_not_everyones(home: Path) -> None:
     _daemon_home(home, 95)
     agents.register("zzlater", "alpha")
     con = db.connect()
+    db.set_terminal(con, "zzlater", "term_z", "wt")
     real = dmn.supervise
     try:
         def explode(con_, agent, *a, **k):
@@ -2494,6 +2531,7 @@ def test_a_closed_agent_is_not_handed_off(home: Path) -> None:
             orcamod.available, orcamod.clear_context)
     try:
         orcamod.available = lambda: True
+        orcamod.live_terminals = lambda: {"term_x"}
         orcamod.alive = lambda h: True
         orcamod.wait_idle = lambda h, timeout_ms=0: True
         orcamod.idle_now = lambda h: True
@@ -2541,14 +2579,12 @@ def test_a_closed_agent_is_not_handed_off(home: Path) -> None:
         check("closed: the frame still fits its terminal",
               len(frame.split(chr(10))) == 40)
 
-        # Both renderers, and the columns stay under their header. A state that
-        # grew a "·closed" suffix outran a :<11 cell and pushed its whole row.
-        plain = [tui._ANSI.sub("", ln) for ln in dashboard.render().split(chr(10))]
-        head = next(ln for ln in plain if ln.strip().startswith("name "))
-        rows = [ln for ln in plain if ln.startswith("  backend ")]
-        check("closed: --plain says it too",
-              rows and "closed" in rows[0] and "usage_unknown" not in rows[0], str(rows))
-        check("closed: and its ctx column stands under the header",
+        # The columns stay under their header: a state that grew a "·closed"
+        # suffix outran its cell and pushed the whole row sideways.
+        lines = [tui._ANSI.sub("", ln) for ln in frame.split(chr(10))]
+        head = next(ln for ln in lines if "agent " in ln and "ctx" in ln)
+        rows = [ln for ln in lines if "backend " in ln and "%" in ln]
+        check("closed: its ctx column stands under the header",
               rows and rows[0].index("?%") - head.index("ctx") in (0, 1, 2),
               f"{head!r} {rows[0]!r}" if rows else "no row")
     finally:
@@ -2568,6 +2604,7 @@ def test_a_woken_agent_is_told_on_the_following_tick(home: Path) -> None:
             orcamod.available)
     try:
         orcamod.available = lambda: True
+        orcamod.live_terminals = lambda: {"term_x"}
         orcamod.alive = lambda h: True
         orcamod.wait_idle = lambda h, timeout_ms=0: True
         orcamod.idle_now = lambda h: True      # even so, it must not be told yet
@@ -2612,6 +2649,7 @@ def test_a_woken_agent_is_not_judged_on_the_snapshot_it_left(home: Path) -> None
             orcamod.available, orcamod.clear_context)
     try:
         orcamod.available = lambda: True
+        orcamod.live_terminals = lambda: {"term_x"}
         orcamod.alive = lambda h: True
         orcamod.wait_idle = lambda h, timeout_ms=0: True
         orcamod.idle_now = lambda h: True     # the probe must not be what saves us
@@ -2664,6 +2702,7 @@ def test_a_park_that_was_also_closed_is_woken_without_being_judged(home: Path) -
             orcamod.available, orcamod.clear_context)
     try:
         orcamod.available = lambda: True
+        orcamod.live_terminals = lambda: {"term_x"}
         orcamod.alive = lambda h: True
         orcamod.wait_idle = lambda h, timeout_ms=0: True
         orcamod.idle_now = lambda h: True
@@ -2769,6 +2808,235 @@ def test_a_wake_does_not_call_a_fresh_start_a_park(home: Path) -> None:
           "You were parked" in told and "routing fix" in told, told[:200])
 
 
+def test_installing_hooks_twice_does_not_double_them(home: Path) -> None:
+    """`ocp` is on PATH as a symlink into the repo, so one installation spells
+    itself two ways. Matching the exact string added a second entry the first
+    time the spelling changed, and then every hook fired twice."""
+    home.mkdir(parents=True, exist_ok=True)
+    os.environ["OCP_HOME"] = str(home)
+    target = home / "shared" / ".claude" / "settings.json"
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text(json.dumps({"hooks": {
+        "Stop": [{"hooks": [{"type": "command",
+                             "command": "/somewhere/else/bin/ocp hook Stop"}]}],
+        "PreToolUse": [{"hooks": [{"type": "command", "command": "orca-hook pre"}]}],
+    }}))
+
+    env = dict(os.environ, OCP_HOME=str(home), OCP_BIN="/usr/local/bin/ocp")
+    for _ in range(2):
+        subprocess.run([sys.executable, str(ROOT / "bin" / "ocp"), "install-hooks"],
+                       capture_output=True, text=True, env=env)
+
+    data = json.loads(target.read_text())
+    ours = [h["command"] for ev, groups in data["hooks"].items() for g in groups
+            for h in g.get("hooks", []) if " hook " in h.get("command", "")]
+    stops = [c for c in ours if c.endswith("hook Stop")]
+    check("hooks: one entry per event however it was spelled before",
+          len(stops) == 1, str(stops))
+    check("hooks: every captured event is installed",
+          {c.rsplit(" ", 1)[1] for c in ours} == set(evmod.CAPTURED),
+          str(sorted({c.rsplit(" ", 1)[1] for c in ours})))
+    check("hooks: Orca's own entries are left alone",
+          any(h.get("command") == "orca-hook pre"
+              for g in data["hooks"]["PreToolUse"] for h in g.get("hooks", [])),
+          str(data["hooks"].get("PreToolUse")))
+    check("hooks: the prompt and idle witnesses are among them",
+          {"PermissionRequest", "TeammateIdle"} <= evmod.CAPTURED)
+
+
+def test_the_sweep_corrects_what_it_can_see(home: Path) -> None:
+    """Every other decision reads a row we wrote ourselves, which is how a state
+    that went wrong stayed wrong. This is the half that asks the world instead,
+    and it corrects rather than reports - a supervisor that only files
+    complaints leaves the human in the loop it exists to take them out of."""
+    _daemon_home(home, 20)
+    con = db.connect()
+    real = (orcamod.available, orcamod.live_terminals, obsmod.live_sessions)
+    try:
+        db.set_terminal(con, "backend", "term_x", "wt")
+        orcamod.available = lambda: True
+
+        # 1. Its terminal is gone. Nothing may be delivered to it and nothing
+        #    can be closed in it, and both already key on having a handle.
+        orcamod.live_terminals = lambda: set()
+        obsmod.live_sessions = lambda: {}
+        dmn.sweep(con, lambda _m: None, [])
+        check("sweep: a terminal Orca does not list is dropped",
+              db.get_agent_state(con, "backend")["terminal"] is None,
+              str(db.get_agent_state(con, "backend")["terminal"]))
+
+        # 2. Its session died without us. Recording it is what makes work
+        #    arriving wake it rather than be typed at a bash prompt.
+        db.set_terminal(con, "backend", "term_x", "wt")
+        (home / "agents" / "backend").mkdir(parents=True, exist_ok=True)
+        (home / "agents" / "backend" / "status.json").write_text(json.dumps({
+            "account": "alpha",
+            "collected_at": int(time.time()) - status.STALE_AFTER_S - 60,
+            "session_id": "sess-dead", "pct_5h": 20}))
+        orcamod.live_terminals = lambda: {"term_x"}
+        obsmod.live_sessions = lambda: {}
+        dmn.sweep(con, lambda _m: None, [])
+        check("sweep: a session with no process is recorded as closed",
+              db.get_agent_state(con, "backend")["closed_at"] is not None)
+        # A session that has just died leaves a snapshot that is stale by
+        # construction, and its own id is the one thing here not in doubt.
+        # Losing it loses the only pointer back to that agent's context.
+        check("sweep: and keeps the id that could resume it",
+              db.get_agent_state(con, "backend")["resume_session"] == "sess-dead",
+              str(db.get_agent_state(con, "backend")["resume_session"]))
+        check("sweep: so the daemon stops treating it as a candidate",
+              not dmn.triggers_apply(db.get_agent_state(con, "backend")))
+
+        # 3. And it came back without us - a human relaunched it. Believing our
+        #    own note here would close a live session a second time.
+        obsmod.live_sessions = lambda: {"backend": 4242}
+        dmn.sweep(con, lambda _m: None, [])
+        check("sweep: a running session clears a stale closed mark",
+              db.get_agent_state(con, "backend")["closed_at"] is None,
+              str(dict(db.get_agent_state(con, "backend"))))
+
+        # 4. And it is stuck in RUNNING. It cannot get out on its own -
+        #    leaving RUNNING needs a Stop, a Stop needs a turn, and a turn needs
+        #    work it will never be told about while it reads RUNNING.
+        db.set_agent_state(con, "backend", dmn.RUNNING, detail="working")
+        db.add_event(con, "backend", "Stop", {})
+        con.execute("UPDATE events SET ts = ? WHERE agent = 'backend'",
+                    (int(time.time()) - dmn.STUCK_RUNNING_S - 60,))
+        real_idle = orcamod.idle_now
+        try:
+            # One witness is not enough: the probe is the one we have twice
+            # declined to trust on its own.
+            orcamod.idle_now = lambda h: False
+            dmn.sweep(con, lambda _m: None, [])
+            check("sweep: a long turn is left alone even when our events are silent",
+                  db.get_agent_state(con, "backend")["state"] == dmn.RUNNING)
+
+            orcamod.idle_now = lambda h: True
+            dmn.sweep(con, lambda _m: None, [])
+            check("sweep: silent for too long and idle at its prompt is unstuck",
+                  db.get_agent_state(con, "backend")["state"] == dmn.IDLE,
+                  str(dict(db.get_agent_state(con, "backend"))))
+
+            # And the other witness alone is not enough either.
+            db.set_agent_state(con, "backend", dmn.RUNNING, detail="working")
+            db.add_event(con, "backend", "UserPromptSubmit", {})
+            dmn.sweep(con, lambda _m: None, [])
+            check("sweep: an idle probe alone does not unstick a live agent",
+                  db.get_agent_state(con, "backend")["state"] == dmn.RUNNING,
+                  str(dict(db.get_agent_state(con, "backend"))))
+            db.set_agent_state(con, "backend", dmn.IDLE, detail="done")
+
+            # The probe is the only thing here that costs, and a "no" always
+            # takes its full timeout - so an agent working a long turn is a
+            # suspect on every tick for as long as the turn lasts. One per tick
+            # bounds the tick however many are stuck at once.
+            agents.register("stucktwo", "alpha")
+            probed: list[str] = []
+            orcamod.idle_now = lambda h: (probed.append(h), True)[1]
+            old_ts = int(time.time()) - dmn.STUCK_RUNNING_S - 60
+            for name, handle in (("backend", "term_x"), ("stucktwo", "term_y")):
+                db.set_terminal(con, name, handle, "wt")
+                db.set_agent_state(con, name, dmn.RUNNING, detail="working")
+                db.add_event(con, name, "Stop", {})
+            con.execute("UPDATE events SET ts = ?", (old_ts,))
+            orcamod.live_terminals = lambda: {"term_x", "term_y"}
+            obsmod.live_sessions = lambda: {"backend": 1, "stucktwo": 2}
+
+            dmn.sweep(con, lambda _m: None, [])
+            check("sweep: only one suspect is probed per tick",
+                  len(probed) == 1, str(probed))
+            dmn.sweep(con, lambda _m: None, [])
+            check("sweep: and the next tick takes the other one",
+                  set(probed) == {"term_x", "term_y"}, str(probed))
+            check("sweep: so both are unstuck within a few seconds",
+                  all(db.get_agent_state(con, n)["state"] == dmn.IDLE
+                      for n in ("backend", "stucktwo")),
+                  str([db.get_agent_state(con, n)["state"]
+                       for n in ("backend", "stucktwo")]))
+        finally:
+            orcamod.idle_now = real_idle
+
+        # None is not an empty set. Reading "I could not ask" as "there are
+        # none" would tear the team down the first time Orca answered slowly.
+        orcamod.live_terminals = lambda: None
+        obsmod.live_sessions = lambda: {}
+        dmn.sweep(con, lambda _m: None, [])
+        check("sweep: an unanswered Orca changes nothing",
+              db.get_agent_state(con, "backend")["terminal"] == "term_x"
+              and db.get_agent_state(con, "backend")["closed_at"] is None)
+
+        orcamod.live_terminals = lambda: {"term_x"}
+        obsmod.live_sessions = lambda: None
+        dmn.sweep(con, lambda _m: None, [])
+        check("sweep: an unreadable process table changes nothing",
+              db.get_agent_state(con, "backend")["closed_at"] is None)
+    finally:
+        orcamod.available, orcamod.live_terminals, obsmod.live_sessions = real
+        con.close()
+
+    # The distinction has to survive into the implementation, not only the fake.
+    restore_world()
+    real_run = orcamod._run
+    try:
+        orcamod._run = lambda *a, **k: (False, "connection refused")
+        check("sweep: Orca failing to answer reads as unknown, not as empty",
+              orcamod.live_terminals() is None, str(orcamod.live_terminals()))
+        orcamod._run = lambda *a, **k: (True, "not json at all")
+        check("sweep: and so does an answer we cannot parse",
+              orcamod.live_terminals() is None)
+        orcamod._run = lambda *a, **k: (True, json.dumps(
+            {"result": {"terminals": [{"handle": "term_a"}, {"nohandle": 1}]}}))
+        check("sweep: a real answer is the set of handles",
+              orcamod.live_terminals() == {"term_a"}, str(orcamod.live_terminals()))
+    finally:
+        orcamod._run = real_run
+
+
+def test_an_agent_with_nowhere_to_run_is_not_handed_off(home: Path) -> None:
+    """usage_unknown fires across a whole account at once, so it sweeps up the
+    agents that are registered but were never started. There is nothing to fold,
+    nothing to clear and nothing being spent - backend and manager were parked
+    that way on 09-17 and manager's fold was charged for it."""
+    _daemon_home(home, 95)
+    con = db.connect()
+    try:
+        db.set_terminal(con, "backend", None, None)
+        row = db.get_agent_state(con, "backend")
+        check("no terminal: the trigger itself still fires",
+              triggers.evaluate(95, 5).fired)
+        check("no terminal: but the agent is not a candidate",
+              not dmn.triggers_apply(row), str(dict(row)))
+
+        dmn.tick(con, lambda _m: None, use_model=False)
+        row = db.get_agent_state(con, "backend")
+        check("no terminal: so it is not parked", row["state"] != dmn.PARKED, str(dict(row)))
+        check("no terminal: and no fold was paid for",
+              not db.in_flight_handoffs(con) and row["continuations"] == 0, str(dict(row)))
+
+        # And with somewhere to run, the same trigger does its job.
+        db.set_terminal(con, "backend", "term_x", "wt")
+        dmn.tick(con, lambda _m: None, use_model=False)
+        check("no terminal: an agent that has one is still parked",
+              db.get_agent_state(con, "backend")["state"] == dmn.PARKED,
+              str(dict(db.get_agent_state(con, "backend"))))
+    finally:
+        con.close()
+
+
+def test_a_fold_is_a_process_not_a_session(home: Path) -> None:
+    """`ocp fold` is a headless `claude -p` that inherits whatever OCP_AGENT its
+    caller had. Counting it as the agent's session would tell the sweep an agent
+    is alive for as long as a fold runs, and closed the moment it ends."""
+    check("observe: an agent's session counts",
+          obsmod.is_session("/usr/bin/claude --model sonnet --effort high"))
+    check("observe: a fold does not",
+          not obsmod.is_session("/usr/bin/claude --model haiku -p write me a digest"))
+    check("observe: nor a fold with the prompt last",
+          not obsmod.is_session("/usr/bin/claude --model haiku -p"))
+    check("observe: and nor does anything that is not claude",
+          not obsmod.is_session("/usr/bin/ssh somewhere"))
+
+
 def test_who_is_asking_is_not_guessed(home: Path) -> None:
     """A human at their own prompt is the orchestrator; a process that merely
     lost OCP_AGENT is not. Conflating them hands the escalation target and the
@@ -2867,6 +3135,7 @@ def test_clear_refuses_mid_turn() -> None:
     real_alive, real_wait, real_send = orcamod.alive, orcamod.wait_idle, orcamod.send
     sent = []
     try:
+        orcamod.available = lambda: True
         orcamod.alive = lambda h: True
         orcamod.send = lambda h, t, enter=True: (sent.append(t), (True, ""))[1]
 
@@ -2880,6 +3149,7 @@ def test_clear_refuses_mid_turn() -> None:
         check("orca: clears an idle agent", ok, why)
         check("orca: by sending /clear", sent == ["/clear"], str(sent))
 
+        orcamod.available = lambda: True
         orcamod.alive = lambda h: False
         ok, why = orcamod.clear_context("h")
         check("orca: will not clear a dead terminal", not ok, why)
@@ -2898,12 +3168,14 @@ def test_handoff_reclaims_context(home: Path) -> None:
     cleared = []
     real_clear, real_alive, real_idle = orcamod.clear_context, orcamod.alive, orcamod.idle_now
     try:
+        orcamod.available = lambda: True
         orcamod.alive = lambda h: True
         orcamod.idle_now = lambda h: True
         orcamod.clear_context = lambda h, wait=True, timeout_ms=0: (
             cleared.append(h), (True, "context cleared"))[1]
 
-        # No terminal recorded yet: it must say so rather than pretend.
+        # With no terminal recorded it must say so rather than pretend.
+        db.set_terminal(con, "backend", None, None)
         ok, why = dmn._reclaim_context(con, "backend", lambda _m: None)
         check("handoff: says so when no terminal is recorded",
               not ok and "no terminal" in why, why)
@@ -2939,6 +3211,7 @@ def test_wake_injects_handoff(home: Path) -> None:
     sent = []
     real_resume, real_alive = orcamod.resume_with, orcamod.alive
     try:
+        orcamod.available = lambda: True
         orcamod.alive = lambda h: True
         orcamod.resume_with = lambda h, text: (sent.append(text), (True, "handoff injected"))[1]
 
@@ -3018,6 +3291,71 @@ def test_hooks_report_activity(home: Path) -> None:
     try:
         check("hooks: activity does not interrupt a handoff",
               db.get_agent_state(con, "hooky")["state"] == dmn.HANDOFF)
+    finally:
+        con.close()
+
+    # The other end of the turn. RUNNING is what stops work being delivered and
+    # stops a session being closed, so an agent that entered it and never left
+    # was taken out of service without anything saying so: three agents sat
+    # RUNNING for over two hours, told about no request and holding their memory.
+    def hook(name: str, **extra) -> None:
+        subprocess.run([sys.executable, str(ROOT / "bin" / "ocp"), "hook", name],
+                       input=json.dumps({"hook_event_name": name, "session_id": "s", **extra}),
+                       capture_output=True, text=True, env=env)
+
+    con = db.connect()
+    try:
+        db.set_agent_state(con, "hooky", dmn.RUNNING, detail="working")
+    finally:
+        con.close()
+    hook("SubagentStop")
+    con = db.connect()
+    try:
+        check("hooks: a subagent finishing does not mean the agent is free",
+              db.get_agent_state(con, "hooky")["state"] == dmn.RUNNING,
+              str(db.get_agent_state(con, "hooky")["state"]))
+    finally:
+        con.close()
+
+    hook("Stop")
+    con = db.connect()
+    try:
+        row = db.get_agent_state(con, "hooky")
+        check("hooks: the end of a turn returns it to IDLE",
+              row["state"] == dmn.IDLE, str(dict(row)))
+
+        # The other way in. `ocp launch` records the terminal handle before
+        # execve, and that row used to be born RUNNING - so a new agent was out
+        # of service before it had done anything, and _mark_activity then
+        # declined to rewrite a state that was already RUNNING.
+        db.set_terminal(con, "newborn", "term_n", "wt")
+        born = db.get_agent_state(con, "newborn")
+        check("launch: recording a terminal does not claim the agent is working",
+              born["state"] == dmn.IDLE, str(dict(born)))
+        check("launch: and it can be closed and told about work like any idle one",
+              born["state"] not in (dmn.RUNNING, dmn.HANDOFF))
+
+        db.set_agent_state(con, "newborn", dmn.RUNNING, detail="working")
+        db.set_terminal(con, "newborn", "term_n2", "wt")
+        check("launch: and a later handle does not reset a state it knows nothing about",
+              db.get_agent_state(con, "newborn")["state"] == dmn.RUNNING,
+              str(dict(db.get_agent_state(con, "newborn"))))
+        check("hooks: and it can be told about work again",
+              row["state"] not in (dmn.RUNNING, dmn.HANDOFF))
+
+        # Being stuck in RUNNING is silent by nature, so doctor says it out loud.
+        db.set_agent_state(con, "hooky", dmn.RUNNING, detail="working")
+        con.execute("UPDATE events SET ts = ? WHERE agent = 'hooky'",
+                    (int(time.time()) - dmn.STUCK_RUNNING_S - 60,))
+        con.commit()
+    finally:
+        con.close()
+    rows = [d for lvl, name, d in doctor.run().rows if "RUNNING with nothing heard" in name]
+    check("doctor: a stuck RUNNING agent is reported", len(rows) == 1, str(rows))
+
+    con = db.connect()
+    try:
+        db.set_agent_state(con, "hooky", dmn.IDLE, detail="done")
     finally:
         con.close()
 
@@ -3189,6 +3527,7 @@ def test_handoff_rate_limited(home: Path) -> None:
     con = db.connect()
     real_alive, real_idle, real_clear = orcamod.alive, orcamod.idle_now, orcamod.clear_context
     try:
+        orcamod.available = lambda: True
         orcamod.alive = lambda h: True
         orcamod.idle_now = lambda h: True
         orcamod.clear_context = lambda h, wait=True, timeout_ms=0: (True, "context cleared")
@@ -3210,96 +3549,113 @@ def test_handoff_rate_limited(home: Path) -> None:
         con.close()
 
 
+def run(one) -> None:
+    """Every test starts from the real world.
+
+    Each test used to put back what it stood in for through a tuple of its
+    own, and a tuple that forgot a name leaked that stand-in into every
+    test after it - which is the bug class this suite exists to catch.
+    Restoring here means no test can inherit another's world, whatever its
+    own finally block remembers.
+    """
+    restore_world()
+    one()
+
+
 def main() -> int:
     with tempfile.TemporaryDirectory() as td:
         home = Path(td) / "orcapipe"
         home.mkdir()
-        test_failclosed(home)
-        test_collector(home)
-        test_yaml()
-        test_agents(home)
-        test_launch(home)
-        test_team_routing()
-        test_yaml_differential()
-        test_yaml_rejects_ambiguity()
-        test_yaml_booleans()
-        test_team_validation()
-        test_db_dedup(home)
-        test_ask_flow(Path(td) / 'askhome')
-        test_ask_rate_limit(Path(td) / 'ratehome')
-        test_cycle_and_escalation(Path(td) / 'cyc')
-        test_review_pingpong(Path(td) / 'pingpong')
-        test_rate_limit_throttles(Path(td) / 'throt')
-        test_digest()
-        test_event_allowlist()
-        test_fold(Path(td) / 'foldhome')
-        test_rollover(Path(td) / 'rollhome')
-        test_triggers()
-        test_daemon_evaluates_parked(Path(td) / 'd0')
-        test_daemon_park(Path(td) / 'd1')
-        test_daemon_resume(Path(td) / 'd2')
-        test_daemon_kill_recovery(Path(td) / 'd3')
-        test_daemon_handoff_timeout(Path(td) / 'd4')
-        test_daemon_stall_escalation(Path(td) / 'd5')
-        test_daemon_success_clears_streak(Path(td) / 'd5b')
-        test_daemon_degraded_recovers(Path(td) / 'd5c')
-        test_daemon_tick_expires_handoff(Path(td) / 'd5d')
-        test_daemon_ignores_stale_status(Path(td) / 'd5e')
-        test_daemon_poll_uses_hottest(Path(td) / 'd5f')
-        test_status_edge_cases(Path(td) / 'se')
-        test_team_deny_validation()
-        test_ask_respects_terminal_state(Path(td) / 'term')
-        test_launch_refuses_stale(Path(td) / 'stale')
-        test_collector_account_named_like_user(Path(td) / 'named')
-        test_shared_account_context_isolation(Path(td) / 'shared')
-        test_db_dedup_only_swallows_dedup(Path(td) / 'strict')
-        test_agent_rewrite_uses_parser(Path(td) / 'rw')
-        test_daemon_pidfile(Path(td) / 'd6')
-        test_service_plist(Path(td) / 'svc1')
-        test_service_launchctl_gated(Path(td) / 'svc2')
-        test_service_status_when_not_installed(Path(td) / 'svc3')
-        test_service_supervisor_of(Path(td) / 'svc4')
-        test_service_crash_loop(Path(td) / 'svc5')
-        test_daemon_refusal_logs_through_the_same_path(Path(td) / 'svc5b')
-        test_service_log_rotation(Path(td) / 'svc6')
-        test_doctor_service_check(Path(td) / 'svc7')
-        test_drift(Path(td) / 'drift')
-        test_spawn_base_selection(Path(td) / 'spawn')
-        test_idle_session_is_closed_and_resumed(Path(td) / 'idle')
-        test_wake_without_a_closed_session_uses_the_handoff(Path(td) / 'wakeh')
-        test_reconcile_does_not_clear_closed_at_on_a_failed_wake(Path(td) / 'crashwake')
-        test_work_arriving_wakes_a_closed_agent(Path(td) / 'wakework')
-        test_a_running_agent_is_told_when_work_arrives(Path(td) / 'deliver')
-        test_carry_bounds_and_losses(Path(td) / 'carry')
-        test_unobserved_spend_stays_off_unreadable_accounts(Path(td) / 'spend')
-        test_launch_judges_on_the_figure_it_may_act_on(Path(td) / 'lj')
-        test_burn_rate_ignores_carried_samples(Path(td) / 'burn')
-        test_a_session_figure_is_not_shown_as_an_accounts(Path(td) / 'sessfig')
-        test_doctor_says_one_thing_per_account(Path(td) / 'doc2')
-        test_fold_is_not_rejected_over_a_header_it_overwrites(Path(td) / 'fhdr')
-        test_display_agrees_with_the_daemon(Path(td) / 'disp')
-        test_spawn_confirms_the_task_landed(Path(td) / 'spawnland')
-        test_events_view_starts_at_the_newest(Path(td) / 'evview')
-        test_spawn_survives_its_own_main_path(Path(td) / 'spawnmain')
-        test_an_agent_is_never_handed_another_agents_session(Path(td) / 'ident')
-        test_a_closed_agent_is_not_handed_off(Path(td) / 'closedtrig')
-        test_a_woken_agent_is_told_on_the_following_tick(Path(td) / 'woketick')
-        test_a_woken_agent_is_not_judged_on_the_snapshot_it_left(Path(td) / 'wakejudge')
-        test_a_park_that_was_also_closed_is_woken_without_being_judged(Path(td) / 'pclosed')
-        test_reconcile_wakes_a_park_that_was_also_closed(Path(td) / 'pclosed2')
-        test_a_wake_does_not_call_a_fresh_start_a_park(Path(td) / 'freshstart')
-        test_who_is_asking_is_not_guessed(Path(td) / 'whoasks')
-        test_a_rejected_fold_still_records_what_it_spent(Path(td) / 'spend')
-        test_one_agents_bad_tick_is_not_everyones(Path(td) / 'badtick')
-        test_orca_idle_parsing()
-        test_clear_refuses_mid_turn()
-        test_handoff_reclaims_context(Path(td) / 'reclaim')
-        test_wake_injects_handoff(Path(td) / 'wake')
-        test_hooks_report_activity(Path(td) / 'hooky')
-        test_tui_frame_geometry(Path(td) / 'tui')
-        test_clear_does_not_look_like_waking(Path(td) / 'loopy')
-        test_handoff_rate_limited(Path(td) / 'hrate')
-        test_handoff_drift_header(Path(td) / 'hdhome')
+        run(lambda: test_failclosed(home))
+        run(lambda: test_collector(home))
+        run(lambda: test_yaml())
+        run(lambda: test_agents(home))
+        run(lambda: test_launch(home))
+        run(lambda: test_team_routing())
+        run(lambda: test_yaml_differential())
+        run(lambda: test_yaml_rejects_ambiguity())
+        run(lambda: test_yaml_booleans())
+        run(lambda: test_team_validation())
+        run(lambda: test_db_dedup(home))
+        run(lambda: test_ask_flow(Path(td) / 'askhome'))
+        run(lambda: test_ask_rate_limit(Path(td) / 'ratehome'))
+        run(lambda: test_cycle_and_escalation(Path(td) / 'cyc'))
+        run(lambda: test_review_pingpong(Path(td) / 'pingpong'))
+        run(lambda: test_rate_limit_throttles(Path(td) / 'throt'))
+        run(lambda: test_digest())
+        run(lambda: test_event_allowlist())
+        run(lambda: test_fold(Path(td) / 'foldhome'))
+        run(lambda: test_rollover(Path(td) / 'rollhome'))
+        run(lambda: test_triggers())
+        run(lambda: test_daemon_evaluates_parked(Path(td) / 'd0'))
+        run(lambda: test_daemon_park(Path(td) / 'd1'))
+        run(lambda: test_daemon_resume(Path(td) / 'd2'))
+        run(lambda: test_daemon_kill_recovery(Path(td) / 'd3'))
+        run(lambda: test_daemon_handoff_timeout(Path(td) / 'd4'))
+        run(lambda: test_daemon_stall_escalation(Path(td) / 'd5'))
+        run(lambda: test_daemon_success_clears_streak(Path(td) / 'd5b'))
+        run(lambda: test_daemon_degraded_recovers(Path(td) / 'd5c'))
+        run(lambda: test_daemon_tick_expires_handoff(Path(td) / 'd5d'))
+        run(lambda: test_daemon_ignores_stale_status(Path(td) / 'd5e'))
+        run(lambda: test_daemon_poll_uses_hottest(Path(td) / 'd5f'))
+        run(lambda: test_status_edge_cases(Path(td) / 'se'))
+        run(lambda: test_team_deny_validation())
+        run(lambda: test_ask_respects_terminal_state(Path(td) / 'term'))
+        run(lambda: test_launch_refuses_stale(Path(td) / 'stale'))
+        run(lambda: test_collector_account_named_like_user(Path(td) / 'named'))
+        run(lambda: test_shared_account_context_isolation(Path(td) / 'shared'))
+        run(lambda: test_db_dedup_only_swallows_dedup(Path(td) / 'strict'))
+        run(lambda: test_agent_rewrite_uses_parser(Path(td) / 'rw'))
+        run(lambda: test_daemon_pidfile(Path(td) / 'd6'))
+        run(lambda: test_service_plist(Path(td) / 'svc1'))
+        run(lambda: test_service_launchctl_gated(Path(td) / 'svc2'))
+        run(lambda: test_service_status_when_not_installed(Path(td) / 'svc3'))
+        run(lambda: test_service_supervisor_of(Path(td) / 'svc4'))
+        run(lambda: test_service_crash_loop(Path(td) / 'svc5'))
+        run(lambda: test_daemon_refusal_logs_through_the_same_path(Path(td) / 'svc5b'))
+        run(lambda: test_service_log_rotation(Path(td) / 'svc6'))
+        run(lambda: test_doctor_service_check(Path(td) / 'svc7'))
+        run(lambda: test_drift(Path(td) / 'drift'))
+        run(lambda: test_spawn_base_selection(Path(td) / 'spawn'))
+        run(lambda: test_idle_session_is_closed_and_resumed(Path(td) / 'idle'))
+        run(lambda: test_wake_without_a_closed_session_uses_the_handoff(Path(td) / 'wakeh'))
+        run(lambda: test_reconcile_does_not_clear_closed_at_on_a_failed_wake(Path(td) / 'crashwake'))
+        run(lambda: test_work_arriving_wakes_a_closed_agent(Path(td) / 'wakework'))
+        run(lambda: test_a_running_agent_is_told_when_work_arrives(Path(td) / 'deliver'))
+        run(lambda: test_carry_bounds_and_losses(Path(td) / 'carry'))
+        run(lambda: test_unobserved_spend_stays_off_unreadable_accounts(Path(td) / 'spend'))
+        run(lambda: test_launch_judges_on_the_figure_it_may_act_on(Path(td) / 'lj'))
+        run(lambda: test_burn_rate_ignores_carried_samples(Path(td) / 'burn'))
+        run(lambda: test_a_session_figure_is_not_shown_as_an_accounts(Path(td) / 'sessfig'))
+        run(lambda: test_doctor_says_one_thing_per_account(Path(td) / 'doc2'))
+        run(lambda: test_fold_is_not_rejected_over_a_header_it_overwrites(Path(td) / 'fhdr'))
+        run(lambda: test_display_agrees_with_the_daemon(Path(td) / 'disp'))
+        run(lambda: test_spawn_confirms_the_task_landed(Path(td) / 'spawnland'))
+        run(lambda: test_events_view_starts_at_the_newest(Path(td) / 'evview'))
+        run(lambda: test_spawn_survives_its_own_main_path(Path(td) / 'spawnmain'))
+        run(lambda: test_an_agent_is_never_handed_another_agents_session(Path(td) / 'ident'))
+        run(lambda: test_a_closed_agent_is_not_handed_off(Path(td) / 'closedtrig'))
+        run(lambda: test_a_woken_agent_is_told_on_the_following_tick(Path(td) / 'woketick'))
+        run(lambda: test_a_woken_agent_is_not_judged_on_the_snapshot_it_left(Path(td) / 'wakejudge'))
+        run(lambda: test_a_park_that_was_also_closed_is_woken_without_being_judged(Path(td) / 'pclosed'))
+        run(lambda: test_reconcile_wakes_a_park_that_was_also_closed(Path(td) / 'pclosed2'))
+        run(lambda: test_a_wake_does_not_call_a_fresh_start_a_park(Path(td) / 'freshstart'))
+        run(lambda: test_installing_hooks_twice_does_not_double_them(Path(td) / 'hookdup'))
+        run(lambda: test_the_sweep_corrects_what_it_can_see(Path(td) / 'sweep'))
+        run(lambda: test_an_agent_with_nowhere_to_run_is_not_handed_off(Path(td) / 'noterm'))
+        run(lambda: test_a_fold_is_a_process_not_a_session(Path(td) / 'foldproc'))
+        run(lambda: test_who_is_asking_is_not_guessed(Path(td) / 'whoasks'))
+        run(lambda: test_a_rejected_fold_still_records_what_it_spent(Path(td) / 'spend'))
+        run(lambda: test_one_agents_bad_tick_is_not_everyones(Path(td) / 'badtick'))
+        run(lambda: test_orca_idle_parsing())
+        run(lambda: test_clear_refuses_mid_turn())
+        run(lambda: test_handoff_reclaims_context(Path(td) / 'reclaim'))
+        run(lambda: test_wake_injects_handoff(Path(td) / 'wake'))
+        run(lambda: test_hooks_report_activity(Path(td) / 'hooky'))
+        run(lambda: test_tui_frame_geometry(Path(td) / 'tui'))
+        run(lambda: test_clear_does_not_look_like_waking(Path(td) / 'loopy'))
+        run(lambda: test_handoff_rate_limited(Path(td) / 'hrate'))
+        run(lambda: test_handoff_drift_header(Path(td) / 'hdhome'))
     print(f"\n{len(PASS)} passed, {len(FAIL)} failed")
     for f in FAIL:
         print(f"  FAILED: {f}")

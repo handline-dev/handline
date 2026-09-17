@@ -24,6 +24,21 @@ import subprocess
 # The daemon asks with a short timeout because this call blocks its whole tick:
 # waiting two minutes on one busy agent stops supervision of every other agent.
 # A busy agent is not a failure, it is just busy, so we come back next tick.
+#
+# Measured 2026-09-17 against the shells left behind by three closed sessions,
+# because three reviews in a row declined to trust this probe against a terminal
+# with no TUI in it. Do not trust it there: it is not consistent. The short
+# probe said not-satisfied every time, at the full 3.1s, and so did two of the
+# three long waits - but the third returned satisfied after 63.7s on a terminal
+# whose session had ended half an hour earlier and did not start again for
+# another ten minutes. So "no TUI" does not reliably read as "not idle", and
+# nothing may be sent to a terminal on the strength of this probe alone when we
+# have any other way to know whether a session is there. The process table is
+# that other way, and it is in observe.py.
+#
+# The cost is consistent even when the answer is not: a "no" always takes the
+# whole timeout, so probing a session that has already exited pays two minutes
+# for an answer that was free elsewhere.
 IDLE_TIMEOUT_MS = 120_000
 IDLE_PROBE_MS = 3_000
 
@@ -71,15 +86,25 @@ def send(handle: str, text: str, enter: bool = True) -> tuple[bool, str]:
     return _run(args)
 
 
-def alive(handle: str) -> bool:
+def live_terminals() -> set[str] | None:
+    """Every handle Orca currently has, or None when it could not say.
+
+    None is not an empty set. Reading "I could not ask" as "there are none"
+    would tear down a healthy team the first time Orca was slow to answer.
+    """
     ok, out = _run(["terminal", "list", "--json"])
     if not ok:
-        return False
+        return None
     try:
         terms = json.loads(out)["result"]["terminals"]
     except (json.JSONDecodeError, KeyError, TypeError):
-        return False
-    return any(t.get("handle") == handle for t in terms)
+        return None
+    return {t["handle"] for t in terms if isinstance(t, dict) and t.get("handle")}
+
+
+def alive(handle: str) -> bool:
+    handles = live_terminals()
+    return handles is not None and handle in handles
 
 
 def idle_now(handle: str) -> bool:
