@@ -227,7 +227,7 @@ def fold(agent: str, use_model: bool = True, model: str = "haiku",
                 else:
                     reason = out
             else:
-                reason = "no logged-in account available for the fold call"
+                reason = f"no account can pay for the fold call: {_account_reasons()}"
         else:
             reason = "model disabled"
 
@@ -319,6 +319,30 @@ def _cheapest_account() -> str | None:
         usable.append((pct, a))
     usable.sort()
     return usable[0][1] if usable else None
+
+
+def _account_reasons() -> str:
+    """Why each account was passed over, for the line the human reads.
+
+    "No logged-in account" was what this used to say, and it sent a reader to
+    the one thing that was not wrong: an account is refused here for being at
+    the wall, or for a usage figure nothing can read, far more often than for
+    credentials.
+    """
+    out = []
+    for a in paths.list_accounts():
+        if not accounts.logged_in(a):
+            out.append(f"{a} not logged in")
+            continue
+        st = status.read(a)
+        pct = st.trusted_pct_5h
+        if pct is None:
+            out.append(f"{a} usage unreadable ({st.assignable()[1]})")
+        elif pct >= status.PCT_5H_BLOCK:
+            out.append(f"{a} at {pct}%")
+        else:
+            out.append(f"{a} at {pct}% (usable)")
+    return ", ".join(out) or "no accounts registered"
 
 
 def _degraded(agent: str, previous: digest.Digest, events, day: str, facts: str) -> str:

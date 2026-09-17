@@ -3331,6 +3331,63 @@ def test_a_park_that_cannot_be_woken_keeps_its_deadline(home: Path) -> None:
         con.close()
 
 
+def test_login_points_at_the_account_and_touches_no_credential(home: Path) -> None:
+    """Logging in is the one thing ocp may not do for a human: a refresh token
+    rotates on single use, so a second copy of one credential invalidates the
+    first. All this decides is which config directory claude is pointed at."""
+    home.mkdir(parents=True, exist_ok=True)
+    os.environ["OCP_HOME"] = str(home)
+    accounts.register("alpha")
+
+    action, msg = accounts.login_plan("beta")
+    check("login: an account nobody registered says how to register it",
+          action == "unknown" and "ocp account register beta" in msg, msg)
+
+    action, msg = accounts.login_plan("alpha")
+    check("login: one with no credentials gets the command that makes them",
+          action == "login" and "claude /login" in msg, msg)
+    check("login: pointed at that account's own config directory",
+          str(paths.account_claude("alpha")) in msg, msg)
+
+    (paths.account_claude("alpha") / ".credentials.json").write_text("{}")
+    action, msg = accounts.login_plan("alpha")
+    check("login: an account already logged in is left alone", action == "already", msg)
+    action, _ = accounts.login_plan("alpha", force=True)
+    check("login: unless the human insists", action == "login")
+
+    # Which directory claude writes its credential into is the whole of what
+    # this decides; ocp never reads or copies what lands there.
+    env = accounts.env_for("alpha")
+    check("login: the session is pointed at that account's config directory",
+          env["CLAUDE_CONFIG_DIR"] == str(paths.account_claude("alpha"))
+          and env["OCP_ACCOUNT"] == "alpha", env["CLAUDE_CONFIG_DIR"])
+
+
+def test_a_fold_with_no_account_says_which_and_why(home: Path) -> None:
+    """"No logged-in account" sent the reader to the one thing that was not
+    wrong. An account is passed over here for being at the wall, or for a usage
+    figure nothing can read, far more often than for credentials."""
+    home.mkdir(parents=True, exist_ok=True)
+    os.environ["OCP_HOME"] = str(home)
+    for name in ("full", "unreadable", "out"):
+        accounts.register(name)
+    (paths.account_claude("full") / ".credentials.json").write_text("{}")
+    (paths.account_claude("unreadable") / ".credentials.json").write_text("{}")
+    write_status(home, "full", pct_5h=95, pct_7d=10, ctx_pct=5)
+    # Stale, not quiet: a fresh snapshot with no figure is read as 0%, which is
+    # a reading. What cannot be read at all is one nothing has refreshed.
+    write_status(home, "unreadable", pct_5h=None, pct_7d=10, ctx_pct=5,
+                 collected_at=int(time.time()) - status.STALE_AFTER_S - 60)
+
+    said = foldmod._account_reasons()
+    check("fold: the account at the wall is named with its figure",
+          "full at 95%" in said, said)
+    check("fold: the one nothing can read is named as that, not as logged out",
+          "unreadable usage unreadable" in said, said)
+    check("fold: and the one actually logged out is named as that",
+          "out not logged in" in said, said)
+
+
 def test_doctor_says_when_the_record_and_the_process_table_disagree(home: Path) -> None:
     """The check that has to fire when `observe.is_session` stops matching - and
     stay quiet in the states that are not that. It fires on a status line still
@@ -4133,6 +4190,8 @@ def main() -> int:
         run(lambda: test_nothing_is_typed_into_a_shell_with_no_session(Path(td) / 'shellgate'))
         run(lambda: test_a_wake_is_believed_only_when_a_session_appears(Path(td) / 'wakereceipt'))
         run(lambda: test_a_park_that_cannot_be_woken_keeps_its_deadline(Path(td) / 'parkdue'))
+        run(lambda: test_login_points_at_the_account_and_touches_no_credential(Path(td) / 'login'))
+        run(lambda: test_a_fold_with_no_account_says_which_and_why(Path(td) / 'foldacct'))
         run(lambda: test_doctor_says_when_the_record_and_the_process_table_disagree(Path(td) / 'docsess'))
         run(lambda: test_a_fold_is_a_process_not_a_session(Path(td) / 'foldproc'))
         run(lambda: test_who_is_asking_is_not_guessed(Path(td) / 'whoasks'))

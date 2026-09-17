@@ -21,6 +21,45 @@ from . import (accounts, agents, ask as askmod, daemon as daemonmod, db,
                status, spawn as spawnmod, team, triggers)
 
 
+# ---------------------------------------------------------------- login
+def cmd_login(args) -> int:
+    """Log an account in, or say who is logged in.
+
+    `claude /login` is interactive - a browser and a code typed back - so this
+    hands the terminal to claude with CLAUDE_CONFIG_DIR pointed at the account
+    and gets out of the way. Where it cannot do that (no terminal, or claude
+    not on PATH) it prints the command to run instead of pretending.
+    """
+    names = paths.list_accounts()
+    if not args.account:
+        if not names:
+            print("no accounts registered. `ocp account register <name>` first.")
+            return 1
+        for a in names:
+            state = "logged in" if accounts.logged_in(a) else "NOT logged in"
+            print(f"{a:<12}{state:<14}{paths.account_claude(a)}")
+        print(f"\nLog one in with: ocp login <account>")
+        return 0
+
+    action, message = accounts.login_plan(args.account, force=args.force)
+    if action == "unknown":
+        print(message, file=sys.stderr)
+        return 1
+    if action == "already":
+        print(message)
+        return 0
+
+    claude = shutil.which("claude")
+    if not claude or not sys.stdin.isatty():
+        print(f"run this where you can type into it:\n\n  {message}\n")
+        return 1
+    print(f"handing the terminal to claude for '{args.account}' - "
+          f"finish the login there, then come back.")
+    env = accounts.env_for(args.account)
+    os.execve(claude, [claude, "/login"], env)
+    return 0     # unreachable: execve replaces this process
+
+
 # ---------------------------------------------------------------- init
 def cmd_init(args) -> int:
     h = paths.home()
@@ -646,6 +685,12 @@ def build_parser() -> argparse.ArgumentParser:
     sub = ap.add_subparsers(dest="cmd", required=True)
 
     sub.add_parser("init", help="create ~/.orcapipe and install shared settings").set_defaults(fn=cmd_init)
+
+    p = sub.add_parser("login", help="log an account in (interactive), or list who is")
+    p.add_argument("account", nargs="?")
+    p.add_argument("--force", action="store_true",
+                   help="log in again even if credentials are already there")
+    p.set_defaults(fn=cmd_login)
 
     acc = sub.add_parser("account", help="accounts").add_subparsers(dest="sub", required=True)
     p = acc.add_parser("register", help="create the account dir and link it to shared")
