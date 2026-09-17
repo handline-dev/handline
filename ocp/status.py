@@ -303,6 +303,13 @@ def read_for_agent(agent: str, account: str) -> AccountStatus:
     acct_status = read(account)
     agent_file = paths.agent_status_file(agent)
     if not agent_file.exists():
+        # No snapshot of its own means no session of its own, so its context is
+        # unknown - not whatever the last session on this account happened to
+        # have. An agent that has never run was being shown another agent's
+        # context, and judged on it.
+        acct_status.ctx_pct = None
+        acct_status.session_id = None
+        acct_status.transcript_path = None
         return acct_status
     own = read(account, agent_file)
     if own.error or own.stale:
@@ -314,6 +321,32 @@ def read_for_agent(agent: str, account: str) -> AccountStatus:
     acct_status.session_id = own.session_id
     acct_status.transcript_path = own.transcript_path
     return acct_status
+
+
+def live_cost(account: str) -> float | None:
+    """What the sessions we can currently see have spent on this account.
+
+    `cost.total_cost_usd` belongs to one session, and the account file is
+    written by whichever session rendered last - so reading it from there makes
+    the account's cost flip between sessions every second, which is what it was
+    doing. Summing the live per-agent snapshots is a number that is at least
+    about the account.
+
+    It is not the account's spend: a session that has ended takes its cost out
+    of the sum, and work done outside ocp was never in it.
+    """
+    total, seen = 0.0, False
+    for agent in paths.list_agents():
+        f = paths.agent_status_file(agent)
+        if not f.exists():
+            continue
+        st = read(account, f)
+        if st.error or st.stale or st.raw.get("account") != account:
+            continue
+        if st.cost_usd is not None:
+            total += st.cost_usd
+            seen = True
+    return total if seen else None
 
 
 def read_all() -> list[AccountStatus]:

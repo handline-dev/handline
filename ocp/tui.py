@@ -155,30 +155,38 @@ def build(width: int) -> tuple[list[str], list[list[str]]]:
 
         # ---- accounts ------------------------------------------------
         acc = Panel("ACCOUNTS", width)
-        acc.add(f"{DIM}{'account':<10}{'5h usage':<22}{'reset':<7}"
-                f"{'7d':<16}{'snapshot':<10}{'cost':<9}assign{R}")
+        acc.add(f"{DIM}{'account':<10}{'5h usage':<18}{'reset':<8}"
+                f"{'7d':<13}{'snap':<7}{'live $':<9}assign{R}")
         for name in paths.list_accounts():
             st = status.read(name)
             allowed, why = st.assignable()
             mark = f"{GRN}✔{R}" if allowed else f"{RED}✘{R}"
-            cost = "?" if st.cost_usd is None else f"${st.cost_usd:.2f}"
+            live = status.live_cost(name)
+            cost = "?" if live is None else f"${live:.2f}"
             # Show the figure decisions are made on, with a mark saying where
             # it came from. Drawing a quiet window as "?" while the daemon acts
             # on 0% is the dashboard and the daemon disagreeing.
             five = st.trusted_pct_5h
             src = status.mark(st.pct_5h_source)
+            # Every cell is padded on its visible width: the bars carry escape
+            # sequences, so a plain :<n counts them and the columns drift out
+            # from under their own headings.
             acc.add(
-                f"{BOLD}{name:<10}{R}{bar(five)} {pct(five)}%{src} "
-                f"{countdown(st.reset_5h):<7}{bar(st.pct_7d, 6)} {pct(st.pct_7d)}%  "
-                f"{age(st.age_s):<10}{cost:<9}{mark} {DIM}{why[:30]}{R}"
+                pad(f"{BOLD}{name}{R}", 10)
+                + pad(f"{bar(five)} {pct(five)}%{src}", 18)
+                + pad(countdown(st.reset_5h), 8)
+                + pad(f"{bar(st.pct_7d, 6)} {pct(st.pct_7d)}%", 13)
+                + pad(age(st.age_s), 7)
+                + pad(cost, 9)
+                + f"{mark} {DIM}{why[:34]}{R}"
             )
         if not paths.list_accounts():
             acc.add(f"{DIM}  no accounts registered{R}")
 
         # ---- agents --------------------------------------------------
         ag = Panel("AGENTS", width)
-        ag.add(f"{DIM}{'agent':<11}{'acct':<8}{'model':<8}{'eff':<7}{'state':<11}"
-               f"{'ctx':<7}{'wake':<7}{'in':<4}trigger{R}")
+        ag.add(f"{DIM}{'agent':<11}{'acct':<8}{'model':<8}{'eff':<7}{'state':<15}"
+               f"{'ctx':>4}   {'wake':<7}{'in':<4}trigger{R}")
         for name in paths.list_agents():
             try:
                 acct = agents.account_of(name)
@@ -199,12 +207,17 @@ def build(width: int) -> tuple[list[str], list[list[str]]]:
             if st.ctx_pct is not None and st.ctx_pct >= triggers.CONTEXT_PCT:
                 ctxs = YEL + ctxs + R
             inbox = len(db.queued_for(con, name))
+            # Padded on visible width, like the accounts panel: a state that
+            # grew a "·closed" suffix used to push every column after it right.
             ag.add(
-                f"{BOLD}{name:<11}{R}{acct:<8}{str(cfg.get('model')):<8}"
-                f"{str(cfg.get('effort') or agents.DEFAULT_EFFORT):<7}"
-                f"{STATE_COLOR.get(s, '')}{s:<11}{R}{ctxs:<7}"
-                f"{countdown(row['wake_at'] if row else None):<7}"
-                f"{(str(inbox) if inbox else '·'):<4}{fire}"
+                pad(f"{BOLD}{name}{R}", 11)
+                + pad(acct, 8) + pad(str(cfg.get("model")), 8)
+                + pad(str(cfg.get("effort") or agents.DEFAULT_EFFORT), 7)
+                + pad(f"{STATE_COLOR.get(s, '')}{fit(s, 14)}{R}", 15)
+                + pad(ctxs, 7)
+                + pad(countdown(row["wake_at"] if row else None), 7)
+                + pad(str(inbox) if inbox else "·", 4)
+                + fire
             )
             if row and row["detail"]:
                 ag.add(f"{DIM}{'':<11}{row['detail']}{R}")

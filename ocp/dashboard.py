@@ -91,8 +91,10 @@ def render() -> str:
                 f"   {mark} {DIM}{why[:38]}{RESET}"
             )
             if st.exists:
-                cost = "?" if st.cost_usd is None else f"${st.cost_usd:.2f}"
-                out.append(f"  {DIM}{'':<8} snapshot {_age(st.age_s)} old · session cost {cost}{RESET}")
+                live = status.live_cost(acct)
+                cost = "?" if live is None else f"${live:.2f}"
+                out.append(f"  {DIM}{'':<8} snapshot {_age(st.age_s)} old · "
+                           f"live sessions {cost}{RESET}")
         out.append("")
 
         # ---- agents ---------------------------------------------------

@@ -1835,6 +1835,42 @@ def test_burn_rate_ignores_carried_samples(home: Path) -> None:
           not triggers.evaluate(83, None, burn=0.0, poll_s=30).fired)
 
 
+def test_a_session_figure_is_not_shown_as_an_accounts(home: Path) -> None:
+    """cost and context belong to one session, and the account file is written
+    by whichever session rendered last. Reading them from there made an
+    account's cost flip every second and gave an agent that has never run
+    somebody else's context - and the trigger then judged it on that."""
+    home.mkdir(parents=True, exist_ok=True)
+    os.environ["OCP_HOME"] = str(home)
+    agents.register("never_ran", "alpha")
+    agents.register("has_session", "alpha")
+    write_status(home, "alpha", pct_5h=20, ctx_pct=77, cost_usd=9.99)
+    (home / "agents" / "has_session").mkdir(parents=True, exist_ok=True)
+    (home / "agents" / "has_session" / "status.json").write_text(json.dumps({
+        "account": "alpha", "collected_at": int(time.time()), "session_id": "s1",
+        "pct_5h": 20, "ctx_pct": 12, "cost_usd": 4.0}))
+
+    st = status.read_for_agent("never_ran", "alpha")
+    check("an agent with no session has no context, not someone else's",
+          st.ctx_pct is None, str(st.ctx_pct))
+    check("and no session id to point at either", st.session_id is None)
+    check("but the account's rate limits still apply to it", st.pct_5h == 20)
+    check("so the trigger cannot fire on a context it does not have",
+          triggers.evaluate(st.trusted_pct_5h, st.trusted_ctx_pct).kind != "context")
+    own = status.read_for_agent("has_session", "alpha")
+    check("an agent with a session is judged on its own context", own.ctx_pct == 12,
+          str(own.ctx_pct))
+
+    check("account cost is the live sessions summed, not the last writer's",
+          status.live_cost("alpha") == 4.0, str(status.live_cost("alpha")))
+    stale = home / "agents" / "has_session" / "status.json"
+    d = json.loads(stale.read_text())
+    d["collected_at"] = int(time.time()) - 100000
+    stale.write_text(json.dumps(d))
+    check("a session too old to trust is not counted in it",
+          status.live_cost("alpha") is None, str(status.live_cost("alpha")))
+
+
 def test_doctor_says_one_thing_per_account(home: Path) -> None:
     """doctor's whole job is to say why assignment is refused, so it must not
     warn that a reading was lost and then report "rate_limits present" about the
@@ -2392,6 +2428,7 @@ def main() -> int:
         test_unobserved_spend_stays_off_unreadable_accounts(Path(td) / 'spend')
         test_launch_judges_on_the_figure_it_may_act_on(Path(td) / 'lj')
         test_burn_rate_ignores_carried_samples(Path(td) / 'burn')
+        test_a_session_figure_is_not_shown_as_an_accounts(Path(td) / 'sessfig')
         test_doctor_says_one_thing_per_account(Path(td) / 'doc2')
         test_fold_is_not_rejected_over_a_header_it_overwrites(Path(td) / 'fhdr')
         test_display_agrees_with_the_daemon(Path(td) / 'disp')
