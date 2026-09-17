@@ -109,6 +109,8 @@ def render() -> str:
             row = db.get_agent_state(con, name)
             state = row["state"] if row else "IDLE"
             color = STATE_COLOR.get(state, "")
+            if row and row["closed_at"]:
+                state += "·closed"
             t = triggers.evaluate(st.trusted_pct_5h, st.trusted_ctx_pct)
             fire = f"{YELLOW}⚠ {t.kind}{RESET}" if t.fired else f"{DIM}—{RESET}"
             ctx = _pct(st.ctx_pct)

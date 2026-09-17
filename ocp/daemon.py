@@ -30,7 +30,7 @@ import time
 import uuid
 from dataclasses import dataclass
 
-from . import agents, db, fold as foldmod, orca, paths, status, triggers
+from . import agents, db, fold as foldmod, launch, orca, paths, status, triggers
 
 # Section 8.2 states.
 IDLE, QUEUED, RUNNING, DONE = "IDLE", "QUEUED", "RUNNING", "DONE"
@@ -49,6 +49,14 @@ DEGRADED_RETRY_S = 600
 
 MAX_FAILED_ATTEMPTS = 3      # 8.5: real failures only
 MAX_THROTTLE_STREAK = 5      # 8.6: then escalate to a human gate
+
+# An agent that has done nothing for this long is holding memory and nothing
+# else: a resident session costs 250-500MB and no tokens at all. Closing it
+# gives the machine that back, and resuming costs nothing extra - measured, a
+# resumed session read its whole 68k prefix from cache exactly as a resident
+# one did, because the cache lives on the server and expires on time, not on
+# whether our process stayed alive.
+IDLE_CLOSE_S = 1800
 HANDOFF_DEADLINE_S = 90      # 8.3
 
 # 8.6: a repeatedly-degrading agent backs off rather than retrying at the same
@@ -183,6 +191,78 @@ def _reclaim_context(con, agent: str, log) -> tuple[bool, str]:
     return ok, why
 
 
+def should_close(con, agent: str, state: str, row, now: int) -> bool:
+    """Is this agent holding memory for nothing?
+
+    Closing is about the machine, not the account, so the only question is
+    whether anyone is using this session. Four things say no: it is working or
+    being handed off, a human has to look at it, someone is waiting on it, or
+    it has been busy recently. Anything else is a session whose only job right
+    now is to occupy 250-500MB.
+    """
+    if state in (RUNNING, HANDOFF, STALLED):
+        return False
+    if not row or row["closed_at"] or not row["terminal"]:
+        return False
+    if db.queued_for(con, agent):
+        return False          # work is waiting; closing would only delay it
+    last = db.last_activity(con, agent)
+    if last is None:
+        return False          # nothing has ever been seen from it - leave it alone
+    return (now - last) >= IDLE_CLOSE_S
+
+
+def close_agent(con, agent: str, log) -> tuple[bool, str]:
+    """Give the machine back an idle agent's memory, keeping its terminal.
+
+    This is not a handoff: nothing is folded and no context is reclaimed,
+    because there is nothing wrong with this agent's context - it is simply
+    not being used. The session id is recorded so waking can resume that same
+    session rather than starting a stranger in its place.
+    """
+    handle = db.get_terminal(con, agent)
+    if not handle or not orca.available():
+        return False, "no terminal to close"
+    st = status.read_for_agent(agent, agents.account_of(agent))
+    ok, why = orca.close_session(handle)
+    if not ok:
+        return False, why
+    db.set_closed(con, agent, st.session_id)
+    db.add_event(con, agent, "close", {"session": st.session_id,
+                                       "ctx_pct": st.ctx_pct})
+    log(f"  {agent}: session closed (resume {st.session_id or 'unknown'})")
+    return True, f"{agent}: session closed, terminal kept"
+
+
+def wake_prompt(agent: str, resumed: bool) -> str:
+    """What an agent is told when it comes back.
+
+    A resumed session already holds everything it knew, so it is told where it
+    is rather than what it did. A fresh one gets its handoff. Both get the path
+    to their own record: a digest is a summary, and the detail it dropped is
+    still on disk.
+    """
+    parts: list[str] = []
+    if resumed:
+        parts.append("Your session was closed while you were idle and has been resumed. "
+                     "Nothing was lost; carry on.")
+    else:
+        parts.append("You were parked and have been resumed. Your context was cleared; "
+                     "below is your own handoff record. Carry on from here.")
+        p = foldmod.handoff_path(agent)
+        if p.exists():
+            parts.append(p.read_text())
+    st = status.read_for_agent(agent, agents.account_of(agent))
+    if st.transcript_path:
+        parts.append(
+            f"Your previous session is {st.session_id}, recorded at "
+            f"{st.transcript_path}\n"
+            f"Grep it for what you need - do not read it whole, it is a JSONL "
+            f"transcript with every tool result in it, and reading it back would "
+            f"undo the point of parking you.")
+    return "\n\n".join(parts)
+
+
 def wake_agent(con, agent: str, log) -> tuple[bool, str]:
     """Hand a cleared agent back its own handoff so it can carry on.
 
@@ -192,13 +272,29 @@ def wake_agent(con, agent: str, log) -> tuple[bool, str]:
     handle = db.get_terminal(con, agent)
     if not handle or not orca.available():
         return False, "no terminal to wake"
-    p = foldmod.handoff_path(agent)
-    if not p.exists():
+
+    row = db.get_agent_state(con, agent)
+    closed = bool(row and row["closed_at"])
+    resumed = False
+    if closed:
+        # The shell is still there; put the agent back into it. Resuming the
+        # same session is what makes closing cheap, so it is tried first and
+        # a fresh start is the fallback, not the plan.
+        session = row["resume_session"]
+        cmd = launch.command_for(agent)
+        if session:
+            cmd += f" -- --resume {session}"
+        ok, why = orca.relaunch(handle, cmd)
+        if not ok:
+            return False, why
+        resumed = bool(session)
+        db.clear_closed(con, agent)
+        db.add_event(con, agent, "wake", {"resumed_session": session})
+    elif not foldmod.handoff_path(agent).exists():
         return False, "no handoff to resume from"
-    text = ("You were parked and have been resumed. Your context was cleared; this is "
-            "your own handoff record. Carry on from here.\n\n" + p.read_text())
-    ok, why = orca.resume_with(handle, text)
-    log(f"  {agent}: {why}")
+
+    ok, why = orca.resume_with(handle, wake_prompt(agent, resumed))
+    log(f"  {agent}: {why}{' (session resumed)' if resumed else ''}")
     return ok, why
 
 
@@ -431,6 +527,16 @@ def tick(con, log, use_model: bool = True, samples: dict | None = None) -> Tick:
             log(f"  {agent}: {state} -> QUEUED (window rolled over)")
             wake_agent(con, agent, log)
             state = QUEUED
+
+        # Memory is the scarce resource on one laptop running a team, and an
+        # idle session spends it while earning nothing: it holds its context,
+        # costs no tokens, and answers no one. Closing it is not a handoff -
+        # nothing is folded, nothing is cleared - and waking it resumes the
+        # same session, so the only thing that changes is who has the memory.
+        if should_close(con, agent, state, row, now):
+            ok, _ = close_agent(con, agent, log)
+            if ok:
+                actions.append(f"{agent}: session closed while idle")
 
         # Keep a short burn-rate history per account for the projection (8.1).
         # Only a figure this payload actually reported may enter the burn

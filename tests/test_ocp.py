@@ -1432,6 +1432,117 @@ def test_spawn_base_selection(tmp: Path) -> None:
     check("spawn: tells the human to merge first", "Merge" in why or "merge" in why, why)
 
 
+def test_idle_session_is_closed_and_resumed(home: Path) -> None:
+    """Memory is the scarce thing on one laptop running a team: an idle session
+    holds 250-500MB and earns nothing with it. Closing keeps the terminal, and
+    waking resumes the same session rather than starting a stranger in it."""
+    _daemon_home(home, 20)
+    con = db.connect()
+    sent: list[tuple[str, str]] = []
+    real = (orcamod.alive, orcamod.wait_idle, orcamod.send, orcamod.available)
+    try:
+        orcamod.available = lambda: True
+        orcamod.alive = lambda h: True
+        orcamod.wait_idle = lambda h, timeout_ms=0: True
+        orcamod.send = lambda h, text, enter=True: (sent.append((h, text)), (True, ""))[1]
+        db.set_terminal(con, "backend", "term_x", "wt")
+        now = int(time.time())
+
+        # Nothing has been seen from it yet - that is not the same as idle.
+        row = db.get_agent_state(con, "backend")
+        check("close: an agent we have never seen is left alone",
+              not dmn.should_close(con, "backend", dmn.IDLE, row, now))
+
+        db.add_event(con, "backend", "Stop", {}, )
+        con.execute("UPDATE events SET ts = ? WHERE agent = 'backend'", (now - 60,))
+        row = db.get_agent_state(con, "backend")
+        check("close: a recently active agent is left alone",
+              not dmn.should_close(con, "backend", dmn.IDLE, row, now))
+
+        con.execute("UPDATE events SET ts = ? WHERE agent = 'backend'",
+                    (now - dmn.IDLE_CLOSE_S - 60,))
+        row = db.get_agent_state(con, "backend")
+        check("close: an agent idle past the threshold is closed",
+              dmn.should_close(con, "backend", dmn.IDLE, row, now))
+        check("close: unless it is working", not dmn.should_close(
+            con, "backend", dmn.RUNNING, row, now))
+        check("close: or a human has to look at it", not dmn.should_close(
+            con, "backend", dmn.STALLED, row, now))
+        check("close: or it is being handed off", not dmn.should_close(
+            con, "backend", dmn.HANDOFF, row, now))
+
+        # Work waiting for it is the one case where closing only adds delay.
+        db.add_request(con, "reviewer", "backend", "please look at this", None,
+                       "peer", "async", None, 0, None)
+        row = db.get_agent_state(con, "backend")
+        check("close: an agent with work waiting is left alone",
+              not dmn.should_close(con, "backend", dmn.IDLE, row, now))
+        con.execute("UPDATE requests SET state = 'done'")
+
+        # Closing records which session to bring back.
+        write_status(home, "alpha", pct_5h=20, ctx_pct=8)
+        agent_dir = home / "agents" / "backend"
+        agent_dir.mkdir(parents=True, exist_ok=True)
+        (agent_dir / "status.json").write_text(json.dumps({
+            "account": "alpha", "collected_at": int(time.time()), "session_id": "sess-1",
+            "pct_5h": 20, "ctx_pct": 8,
+            "transcript_path": "/tmp/sess-1.jsonl"}))
+        ok, _ = dmn.close_agent(con, "backend", lambda _m: None)
+        check("close: the session is ended", ok and sent and sent[-1][1] == "/exit",
+              str(sent[-1:]))
+        row = db.get_agent_state(con, "backend")
+        check("close: it is recorded as closed", row["closed_at"] is not None)
+        check("close: with the session to resume", row["resume_session"] == "sess-1",
+              str(row["resume_session"]))
+        check("close: and the terminal is kept", row["terminal"] == "term_x")
+
+        # Waking puts the agent back into the shell its session left behind.
+        sent.clear()
+        ok, _ = dmn.wake_agent(con, "backend", lambda _m: None)
+        launched = [t for _h, t in sent if t.startswith("ocp") or "launch" in t]
+        check("wake: the agent is launched again", ok and launched, str(sent))
+        check("wake: resuming the same session, not starting a stranger",
+              "--resume sess-1" in launched[0], launched[0] if launched else "")
+        row = db.get_agent_state(con, "backend")
+        check("wake: the closed mark is cleared", row["closed_at"] is None)
+        told = sent[-1][1]
+        check("wake: a resumed agent is told nothing was lost", "Nothing was lost" in told, told[:120])
+        check("wake: and where its own record is", "/tmp/sess-1.jsonl" in told)
+        check("wake: with the warning that reading it whole undoes the point",
+              "do not read it whole" in told)
+    finally:
+        orcamod.alive, orcamod.wait_idle, orcamod.send, orcamod.available = real
+        con.close()
+
+
+def test_wake_without_a_closed_session_uses_the_handoff(home: Path) -> None:
+    """Closing is for memory; a handoff is for context. An agent that was
+    cleared rather than closed has no session worth resuming - what it needs is
+    its own record."""
+    _daemon_home(home, 20)
+    con = db.connect()
+    real = (orcamod.alive, orcamod.available, orcamod.send)
+    try:
+        orcamod.available = lambda: True
+        orcamod.alive = lambda h: True
+        sent: list[str] = []
+        orcamod.send = lambda h, text, enter=True: (sent.append(text), (True, ""))[1]
+        db.set_terminal(con, "backend", "term_x", "wt")
+        hp = foldmod.handoff_path("backend")
+        hp.parent.mkdir(parents=True, exist_ok=True)
+        hp.write_text("# handoff · backend\n- was mid-way through the routing fix")
+        ok, _ = dmn.wake_agent(con, "backend", lambda _m: None)
+        check("wake: a cleared agent gets its handoff", ok and "routing fix" in sent[-1],
+              sent[-1][:120] if sent else "")
+        check("wake: and is told its context was cleared",
+              "context was cleared" in sent[-1])
+        check("wake: no launch command is typed at an agent that is still running",
+              not any("launch" in t for t in sent), str(sent))
+    finally:
+        orcamod.alive, orcamod.available, orcamod.send = real
+        con.close()
+
+
 def test_carry_bounds_and_losses(home: Path) -> None:
     """The three ways a carried figure goes wrong, all found in review.
 
@@ -2125,6 +2236,8 @@ def main() -> int:
         test_daemon_pidfile(Path(td) / 'd6')
         test_drift(Path(td) / 'drift')
         test_spawn_base_selection(Path(td) / 'spawn')
+        test_idle_session_is_closed_and_resumed(Path(td) / 'idle')
+        test_wake_without_a_closed_session_uses_the_handoff(Path(td) / 'wakeh')
         test_carry_bounds_and_losses(Path(td) / 'carry')
         test_unobserved_spend_stays_off_unreadable_accounts(Path(td) / 'spend')
         test_launch_judges_on_the_figure_it_may_act_on(Path(td) / 'lj')

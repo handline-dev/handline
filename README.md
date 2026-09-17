@@ -54,6 +54,7 @@ ocp triggers          # what the daemon would decide right now, without acting
 
 | | |
 |---|---|
+| `ocp close <agent>` | end an idle session, keep its terminal (`ocp resume` brings it back) |
 | `ocp doctor` | verify the preconditions of every phase |
 | `ocp status` / `ocp account list` | usage, and which account may take work |
 | `ocp ask <target> "<req>"` | the only command agents use |
@@ -86,8 +87,17 @@ rises, but no new work goes to it. Inside one window the account figure never
 goes down, because every session reports from the moment of its own last API
 response and the staler one must not win.
 
+**Context and memory are different problems.** A handoff reclaims *context*: it
+folds the day, clears the session and costs one model call. Closing reclaims
+*memory*: an idle session holds 250-500MB and no one is using it, so the session
+ends and the terminal, worktree and account stay. Waking resumes that same
+session, which costs nothing extra - measured, a resumed session read its whole
+68k prefix from cache exactly as a resident one did, because the cache lives on
+the server and expires on time, not on whether our process stayed alive.
+
 **No model in the loop.** Triggers, account choice and resume decisions are all
-deterministic. The only model call is one fold per handoff.
+deterministic. The only model call is one fold per handoff - and closing an idle
+agent is not a handoff, so it costs none at all.
 
 **Conditions, not edges.** Triggers are re-evaluated from persisted state every
 tick, so a threshold crossed while the daemon was dead is still acted on.

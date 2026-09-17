@@ -102,6 +102,43 @@ def clear_context(handle: str, wait: bool = True,
     return ok, "context cleared" if ok else f"could not send /clear: {out[:200]}"
 
 
+def close_session(handle: str, wait: bool = True,
+                  timeout_ms: int = IDLE_TIMEOUT_MS) -> tuple[bool, str]:
+    """End the agent's session and leave its terminal standing.
+
+    Orca runs our launch command inside a login shell, so claude is the shell's
+    child: when it exits the shell survives and the tab, the worktree and the
+    cwd stay exactly as they were. Measured on a live agent: 401MB returned to
+    the machine, terminal still running, prompt in the same worktree.
+
+    Same guard as clearing - ending a session mid-turn throws away work that
+    nothing has recorded yet.
+    """
+    if not alive(handle):
+        return False, f"terminal {handle} is not alive"
+    if wait and not wait_idle(handle, timeout_ms):
+        return False, "agent is mid-turn; not closing"
+    ok, out = send(handle, "/exit")
+    return ok, "session closed" if ok else f"could not send /exit: {out[:200]}"
+
+
+def relaunch(handle: str, command: str, timeout_ms: int = IDLE_TIMEOUT_MS) -> tuple[bool, str]:
+    """Start an agent again in the shell its session left behind.
+
+    The command is ours, so the account comes back with it - which is why this
+    does not depend on anything preserving the launch environment for us.
+    """
+    if not alive(handle):
+        return False, f"terminal {handle} is not alive"
+    ok, out = send(handle, command)
+    if not ok:
+        return False, f"could not send the launch command: {out[:200]}"
+    # Typing into a TUI that is still booting loses the opening characters, so
+    # nothing may be sent to the agent until it has finished starting.
+    wait_idle(handle, timeout_ms)
+    return True, "relaunched"
+
+
 def resume_with(handle: str, text: str) -> tuple[bool, str]:
     """Wake a cleared agent by giving it back its own handoff."""
     if not alive(handle):

@@ -147,6 +147,13 @@ def _add_missing_columns(con) -> None:
     for col in ("terminal", "worktree"):
         if col not in state_cols:
             con.execute(f"ALTER TABLE agent_state ADD COLUMN {col} TEXT")
+    # A parked agent may also have had its session closed to give the machine
+    # its memory back. closed_at says it happened; resume_session is the
+    # session to bring back, which is the whole reason closing is cheap.
+    if "closed_at" not in state_cols:
+        con.execute("ALTER TABLE agent_state ADD COLUMN closed_at INTEGER")
+    if "resume_session" not in state_cols:
+        con.execute("ALTER TABLE agent_state ADD COLUMN resume_session TEXT")
 
 
 
@@ -309,6 +316,31 @@ def set_terminal(con, agent: str, terminal: str | None, worktree: str | None) ->
         "worktree=excluded.worktree, updated=excluded.updated",
         (agent, "RUNNING", int(time.time()), terminal, worktree),
     )
+
+
+def set_closed(con, agent: str, session_id: str | None) -> None:
+    """Record that this agent's session was closed, and how to get it back."""
+    con.execute(
+        "UPDATE agent_state SET closed_at = ?, resume_session = ?, updated = ? WHERE agent = ?",
+        (int(time.time()), session_id, int(time.time()), agent),
+    )
+
+
+def clear_closed(con, agent: str) -> None:
+    con.execute(
+        "UPDATE agent_state SET closed_at = NULL, resume_session = NULL, updated = ? "
+        "WHERE agent = ?", (int(time.time()), agent),
+    )
+
+
+def last_activity(con, agent: str) -> int | None:
+    """When this agent last did anything we can see. Its own hook events are
+    the record - the daemon's bookkeeping about an agent is not activity."""
+    row = con.execute(
+        "SELECT MAX(ts) AS t FROM events WHERE agent = ? AND kind NOT IN "
+        "('fold', 'fold_failed', 'handoff', 'park', 'close', 'wake')", (agent,)
+    ).fetchone()
+    return int(row["t"]) if row and row["t"] is not None else None
 
 
 def get_terminal(con, agent: str) -> str | None:

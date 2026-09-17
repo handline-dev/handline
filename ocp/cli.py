@@ -162,6 +162,17 @@ def cmd_handoff_write(args) -> int:
     return 0 if ok else 1
 
 
+def cmd_close(args) -> int:
+    """Close an agent's session by hand, keeping its terminal."""
+    con = db.connect()
+    try:
+        ok, msg = daemonmod.close_agent(con, args.agent, print)
+        print(msg)
+    finally:
+        con.close()
+    return 0 if ok else 1
+
+
 def cmd_resume(args) -> int:
     con = db.connect()
     try:
@@ -301,7 +312,8 @@ def cmd_daemon_status(args) -> int:
                 wake = "-" if not r["wake_at"] else time.strftime("%H:%M", time.localtime(r["wake_at"]))
                 if r["wake_at"] and r["wake_at"] <= now:
                     wake += "!"
-                print(f"{r['agent']:<14}{r['state']:<11}{wake:<8}"
+                shown = r["state"] + ("·closed" if r["closed_at"] else "")
+                print(f"{r['agent']:<14}{shown:<11}{wake:<8}"
                       f"{r['failed_attempts']:>5}{r['continuations']:>6}{r['throttle_count']:>5}  "
                       f"{(r['detail'] or '')[:46]}")
         flight = db.in_flight_handoffs(con)
@@ -709,6 +721,10 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("agent")
     p.add_argument("--no-model", action="store_true")
     p.set_defaults(fn=cmd_handoff_write)
+
+    p = sub.add_parser("close", help="end an idle agent's session, keeping its terminal")
+    p.add_argument("agent")
+    p.set_defaults(fn=cmd_close)
 
     p = sub.add_parser("resume", help="hand a parked agent back its handoff")
     p.add_argument("agent")

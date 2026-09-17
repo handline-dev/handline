@@ -40,6 +40,22 @@ collector reporting nothing is the account telling us it is quiet: 0%, marked
 age we will assign on - still a floor for triggers, no new work.
 
 Design section 4 has the five cases and why only one of them is fail-closed.""",
+    "memory": """closing an idle session
+  ocp close <agent>                end the session, keep the terminal
+  ocp resume <agent>               put it back, resuming the same session
+
+A session that is not being used holds 250-500MB and spends no tokens at all.
+Closing it ends the agent process; the terminal, its worktree and its account
+stay, because Orca runs our launch command inside a shell and claude is that
+shell's child. Waking types the launch command back into the same shell with
+`--resume <session>`, so the account comes back with it and the conversation is
+the one it had.
+
+This is not a handoff. Nothing is folded and no context is reclaimed, because
+there is nothing wrong with an idle agent's context. The daemon does it by
+itself after 30 minutes of silence, unless the agent is working, mid-handoff,
+STALLED, or has a request waiting.""",
+
     "hooks": """Orca hooks
   ocp hooks status                 show drift
   ocp hooks sync                   apply once

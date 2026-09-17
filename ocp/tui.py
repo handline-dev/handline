@@ -188,6 +188,10 @@ def build(width: int) -> tuple[list[str], list[list[str]]]:
             st = status.read_for_agent(name, acct)
             row = db.get_agent_state(con, name)
             s = row["state"] if row else "IDLE"
+            # A closed session holds no memory and answers no one; showing it
+            # as PARKED hides the one difference that matters on this machine.
+            if row and row["closed_at"]:
+                s += "·closed"
             t = triggers.evaluate(st.trusted_pct_5h, st.trusted_ctx_pct)
             fire = f"{YEL}⚠ {t.kind}{R}" if t.fired else f"{DIM}—{R}"
             ctxs = f"{pct(st.ctx_pct)}%"

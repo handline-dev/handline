@@ -114,6 +114,9 @@ class AccountStatus:
     rl7_carried: bool = False
     rl7_lost: bool = False
     session_id: str | None = None
+    # Where this session's own record lives. It belongs to the session, so
+    # read_for_agent carries the agent's, never the account file's.
+    transcript_path: str | None = None
     model_id: str | None = None
     collected_at: int | None = None
 
@@ -280,6 +283,7 @@ def read(acct: str, path: Path | None = None) -> AccountStatus:
     st.rl7_carried = raw.get("rl7_carried") is True
     st.rl7_lost = raw.get("rl7_lost") is True
     st.session_id = raw.get("session_id")
+    st.transcript_path = raw.get("transcript_path")
     st.model_id = raw.get("model_id")
     cost = raw.get("cost_usd")
     st.cost_usd = float(cost) if isinstance(cost, (int, float)) and not isinstance(cost, bool) else None
@@ -305,6 +309,7 @@ def read_for_agent(agent: str, account: str) -> AccountStatus:
         return acct_status
     acct_status.ctx_pct = own.ctx_pct
     acct_status.session_id = own.session_id
+    acct_status.transcript_path = own.transcript_path
     return acct_status
 
 
