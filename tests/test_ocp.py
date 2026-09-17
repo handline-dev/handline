@@ -1949,36 +1949,44 @@ def test_wake_without_a_closed_session_uses_the_handoff(home: Path) -> None:
         con.close()
 
 
-def test_reconcile_repairs_a_crash_mid_wake(home: Path) -> None:
-    """A launchd-restarted daemon can die between supervise() committing QUEUED
-    - the step it takes right before calling wake_agent - and wake_agent's own
-    db.clear_closed(), which only lands after orca.relaunch already returned.
-    That leaves closed_at stuck set while state reads QUEUED, and nothing else
-    ever produces that combination: the ordinary path always clears closed_at
-    in the same call that sets it. Reconcile runs unconditionally on every
-    restart (8.4) specifically to catch what died mid-step; this is exactly
-    that class of gap, and today reconcile does not know about it. Left alone,
-    triggers_apply(row) reads closed_at forever and the agent's usage triggers
-    never fire again - a silent, permanent hole in the fail-closed design."""
+def test_reconcile_does_not_clear_closed_at_on_a_failed_wake(home: Path) -> None:
+    """QUEUED with closed_at still set does not mean 'this was just woken and
+    the write was lost' - it is exactly what step 2 itself leaves behind the
+    instant its own wake_agent call fails, which happens whenever the dead
+    terminal a reboot leaves behind cannot be relaunched. That shape is
+    ambiguous by construction: a successful wake interrupted before its write
+    landed, and a wake that plainly failed, produce the same two columns. An
+    earlier version of this function resolved the ambiguity by guessing
+    "already woken" and clearing closed_at (and resume_session with it) for
+    every row matching that shape - which is exactly wrong for the failure
+    case, and destroys the one thing (resume_session) that pass 6 decided
+    must never be destroyed. Auditor and the orchestrator caught this before
+    it merged; there is no fix from persisted state alone, because the two
+    cases are not distinguishable from persisted state alone - only a live
+    witness (the process table, in observe.py) can tell them apart. So
+    reconcile leaves the marker exactly where step 2's own failure left it."""
     _daemon_home(home, 20)
     con = db.connect()
+    real = (orcamod.alive, orcamod.available)
     try:
-        db.set_terminal(con, "backend", "term_x", "wt")
+        orcamod.available = lambda: True
+        orcamod.alive = lambda h: False  # the terminal a reboot leaves behind
+        db.set_terminal(con, "backend", "term_gone", "wt")
         db.set_closed(con, "backend", "sess-1")
-        db.set_agent_state(con, "backend", dmn.QUEUED, wake_at=None,
-                           detail="wake_at reached")
-        row = db.get_agent_state(con, "backend")
-        check("setup: state is QUEUED with closed_at still set (the crash window)",
-              row["state"] == dmn.QUEUED and row["closed_at"] is not None)
-        check("setup: triggers are blind in this state, as designed for a truly closed agent",
-              not dmn.triggers_apply(row))
+        db.set_agent_state(con, "backend", dmn.PARKED, wake_at=int(time.time()) - 10,
+                           detail="parked and closed, daemon was down since")
 
-        dmn.reconcile(con, lambda _m: None)
+        logged: list[str] = []
+        dmn.reconcile(con, logged.append)
         row = db.get_agent_state(con, "backend")
-        check("reconcile: a stuck QUEUED+closed_at agent is repaired, not left silent",
-              row["closed_at"] is None, str(dict(row)))
-        check("reconcile: triggers apply again once repaired", dmn.triggers_apply(row))
+        check("reconcile: step 2's own wake attempt is logged as failing",
+              any("could not wake at reconciliation" in m for m in logged), str(logged))
+        check("reconcile: closed_at survives a failed wake attempt",
+              row["closed_at"] is not None, str(dict(row)))
+        check("reconcile: resume_session survives it too - it is not repairable once gone",
+              row["resume_session"] == "sess-1", str(dict(row)))
     finally:
+        orcamod.alive, orcamod.available = real
         con.close()
 
 
@@ -3265,7 +3273,7 @@ def main() -> int:
         test_spawn_base_selection(Path(td) / 'spawn')
         test_idle_session_is_closed_and_resumed(Path(td) / 'idle')
         test_wake_without_a_closed_session_uses_the_handoff(Path(td) / 'wakeh')
-        test_reconcile_repairs_a_crash_mid_wake(Path(td) / 'crashwake')
+        test_reconcile_does_not_clear_closed_at_on_a_failed_wake(Path(td) / 'crashwake')
         test_work_arriving_wakes_a_closed_agent(Path(td) / 'wakework')
         test_a_running_agent_is_told_when_work_arrives(Path(td) / 'deliver')
         test_carry_bounds_and_losses(Path(td) / 'carry')
