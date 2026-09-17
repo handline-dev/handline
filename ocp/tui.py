@@ -150,7 +150,11 @@ class Panel:
 
     def draw(self, limit: int | None = None) -> list[str]:
         inner = self.width - 2
-        head = f"{DIM}┌─{R} {BOLD}{self.title}{R} "
+        # The title is data now - it counts what is waiting - so it is fitted
+        # like any other row. A head wider than the terminal wraps, and a
+        # wrapped line is one row more than the frame promised, which is the
+        # one thing that scrolls the alternate screen.
+        head = f"{DIM}┌─{R} {BOLD}{fit(self.title, max(0, self.width - 6))}{R} "
         # Pad with the rule to exactly `width` visible columns. Mixing vlen()
         # with len() of an escape sequence is how this ended up one character
         # too long and truncating its own title.
@@ -170,17 +174,25 @@ class Panel:
 
 
 def keybar(panel: int, width: int) -> str:
+    """The keys this panel answers to, in as much room as there is.
+
+    Half an action's name is worse than no name: `u u…` tells a reader nothing
+    and looks like a bug. So the line sheds whole pieces - the navigation
+    first, since it is the same on every panel, then keys from the end - and
+    says how many it dropped.
+    """
     keys = {ACCOUNTS: ACCOUNT_KEYS, AGENTS: AGENT_KEYS, MESSAGES: MESSAGE_KEYS}[panel]
+    head = f"{DIM}{PANEL_NAME[panel]}:{R} "
+    nav = f" {DIM}· tab panel · ↑↓ move · q quit{R}"
     parts = [f"{BOLD}{k}{R} {DIM}{label}{R}" for k, label in keys]
-    line = (f"{DIM}{PANEL_NAME[panel]}:{R} " + f" {DIM}·{R} ".join(parts)
-            + f" {DIM}· tab panel · ↑↓ move · q quit{R}")
-    if vlen(line) <= width:
-        return line
-    # The keys are the point of the line; the navigation is the same on every
-    # panel and is the part a reader already knows. Drop it before truncating
-    # into the middle of an action's name.
-    short = f"{DIM}{PANEL_NAME[panel]}:{R} " + f" {DIM}·{R} ".join(parts)
-    return fit(short, width)
+    sep = f" {DIM}·{R} "
+    for tail in (nav, ""):
+        for n in range(len(parts), 0, -1):
+            more = "" if n == len(parts) else f" {DIM}+{len(parts) - n} more{R}"
+            line = head + sep.join(parts[:n]) + more + tail
+            if vlen(line) <= width:
+                return line
+    return fit(head, width)
 
 
 def build(width: int, sel: dict | None = None) -> tuple[list[str], list[Panel]]:
@@ -351,15 +363,20 @@ def frame(width: int, height: int, sel: dict | None = None, panel: int = AGENTS,
     if detail is not None:
         return _detail_frame(width, height, detail)
     header, panels = build(width, sel)
-    # Everything but RECENT gets the room it needs; RECENT takes what is left,
-    # so the frame always fills the screen exactly and never scrolls it.
-    fixed = list(header)
-    for p in panels[:-1]:
-        fixed += p.draw()
+    acc, ms, ag, fl, rc = panels[0], panels[2], panels[1], panels[3], panels[4]
     foot = [fit(flash, width) if flash else "", keybar(panel, width)]
+    # ACCOUNTS and AGENTS are the whole team and are always drawn whole. FOR
+    # YOU is the one that grows without bound - nothing clears it but a human -
+    # so it is the one that gives up rows, and it says how many it is holding
+    # back. Otherwise it pushed IN FLIGHT off a short screen silently.
+    fixed = list(header) + acc.draw() + ag.draw()
     room = height - len(fixed) - len(foot)
-    recent = panels[-1].draw(limit=max(1, room - 2)) if room > 3 else []
-    lines = fixed + recent
+    keep = len(fl.rows) + 2 + 3                # in flight, and a line of recent
+    limit = None if len(ms.rows) + 2 <= room - keep else max(1, room - keep - 2)
+    middle = ms.draw(limit=limit) + fl.draw()
+    room = height - len(fixed) - len(middle) - len(foot)
+    recent = rc.draw(limit=max(1, room - 2)) if room > 3 else []
+    lines = fixed + middle + recent
     lines = lines[:max(0, height - len(foot))]
     while len(lines) < height - len(foot):
         lines.append("")
@@ -536,7 +553,20 @@ def run(interval: float = 2.0, once: bool = False) -> int:
             if k in ("k", "\033[A", "\033OA"):
                 sel[panel] = move(_keys_of(panel), sel.get(panel), -1)
                 continue
-            flash, detail = _act(panel, sel, k, width, height, fd, saved)
+            busy = _busy_line(panel, sel, k)
+            if busy:
+                # An action can take half a minute - waking waits for a session
+                # to appear, parking pays for a fold. A frozen screen showing
+                # the frame from before the keypress reads as a hang.
+                sys.stdout.write(f"\033[{height};1H" + CLEAR_EOL
+                                 + fit(f"{DIM}{busy}…{R}", width))
+                sys.stdout.flush()
+            try:
+                flash, detail = _act(panel, sel, k, width, height, fd, saved)
+            except Exception as e:  # noqa: BLE001
+                # One action failing is that action's failure, not the end of
+                # the screen - the daemon wraps each agent for the same reason.
+                flash = f"{RED}{type(e).__name__}: {e}{R}"
     except KeyboardInterrupt:
         return 0
     finally:
@@ -544,6 +574,16 @@ def run(interval: float = 2.0, once: bool = False) -> int:
         sys.stdout.flush()
         if saved:
             termios.tcsetattr(fd, termios.TCSADRAIN, saved)
+
+
+def _busy_line(panel: int, sel: dict, key: str) -> str:
+    """What to say while a key that takes time is being carried out."""
+    if panel != AGENTS:
+        return ""
+    label = dict(AGENT_KEYS).get(key)
+    if label in (None, "open", "message", "start"):
+        return ""                      # instant, or asking for input first
+    return f"{label} {sel.get(panel, '')}"
 
 
 def _keys_of(panel: int) -> list:
@@ -568,11 +608,15 @@ def _act(panel: int, sel: dict, key: str, width: int, height: int,
     """One keypress on the selected row. Returns (line to show, detail or None)."""
     keys = _keys_of(panel)
     target = sel.get(panel)
-    if target not in keys:
-        target = keys[0] if keys else None
-        sel[panel] = target
-    if target is None:
+    if not keys:
         return "nothing to act on", None
+    if target not in keys:
+        # The row under the cursor is gone - a message answered elsewhere, an
+        # agent that went away - and nothing is drawn as selected. Acting on
+        # the first row would act on something the human never pointed at: it
+        # dismissed an unread message that way.
+        sel[panel] = keys[0]
+        return "selection moved - press again", None
 
     if panel == ACCOUNTS and key in ("\r", "\n"):
         con = db.connect()

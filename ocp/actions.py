@@ -19,9 +19,10 @@ from pathlib import Path
 from . import (accounts, agents, ask as askmod, daemon, db, fold as foldmod, paths,
                spawn as spawnmod, status, triggers)
 
-# The name a human's own requests are sent under. An agent asking for a ruling
-# addresses it, and this is the inbox `ocp top` shows.
-HUMAN = "orchestrator"
+# The name a human's own requests are sent under, and the inbox `ocp top`
+# shows. Taken from `ask`, which is where escalations are addressed: a second
+# copy of the name would empty the panel the day it changed.
+HUMAN = askmod.HUMAN
 
 
 def wake(con, agent: str) -> str:
@@ -34,7 +35,7 @@ def close(con, agent: str) -> str:
     """Give the machine back an idle agent's memory, keeping its terminal."""
     st = status.read_for_agent(agent, agents.account_of(agent))
     ok, why = daemon.close_agent(con, agent, lambda _m: None, st)
-    return f"{agent}: {why}" if ok else f"{agent}: not closed - {why}"
+    return why if ok else f"{agent}: not closed - {why}"
 
 
 def unstall(con, agent: str) -> str:
@@ -49,9 +50,19 @@ def unstall(con, agent: str) -> str:
 
 
 def park(con, agent: str) -> str:
-    """Fold, clear the context, and park until the window rolls over."""
+    """Fold, clear the context, and park until the window rolls over.
+
+    `perform_handoff` returns True for three things that are not a handoff -
+    merged into one already in flight, too soon after the last, and deferred
+    because the agent is mid-turn - so its own log line is the answer, not the
+    state afterwards. Reporting the state read RUNNING as though it were a
+    result.
+    """
     t = triggers.Trigger(True, "by hand", "parked by a human from the screen")
-    ok = daemon.perform_handoff(con, agent, t, lambda _m: None)
+    said: list[str] = []
+    ok = daemon.perform_handoff(con, agent, t, said.append)
+    if said:
+        return said[-1].strip()
     row = db.get_agent_state(con, agent)
     state = row["state"] if row else "?"
     return f"{agent}: {state}" if ok else f"{agent}: handoff degraded ({state})"
@@ -104,17 +115,15 @@ def messages(con) -> list[dict]:
     """Everything addressed to the human and not yet closed.
 
     Two things arrive in this one mailbox and they are not the same errand. An
-    escalation is a decision only a human can make, and the agent that sent it
-    parks until the answer comes - nothing else in this system will ever clear
-    it. A verdict or a report is an answer to something already asked, and
-    nobody is waiting on it. Both are addressed here, so the difference is
-    carried on the row rather than left for the reader to guess: `blocking` is
-    read from what the routing recorded at ask time, not inferred from the
-    text.
+    escalation is a decision the routing says only a human makes, and nothing
+    else in this system will ever clear it. A request sent `async` asked for a
+    reply and its sender parked on one. A report asked for neither. Which of
+    those a row is comes from what the routing recorded when it was made, not
+    from reading the text.
 
-    Decisions first, then senders that are parked, then the rest - and oldest
-    first inside each, because the order things arrived in is not the order
-    they matter in.
+    Decisions first, then the ones that asked for a reply, then the rest - and
+    oldest first inside each, because the order things arrived in is not the
+    order they matter in.
     """
     rows = con.execute(
         "SELECT id, ts, requester, kind, response, body FROM requests "
@@ -132,7 +141,6 @@ def messages(con) -> list[dict]:
         # the other.
         m["gate"] = m["kind"] == "escalate"
         m["waiting"] = m["response"] == "async"
-        m["blocking"] = m["gate"] or m["waiting"]
         out.append(m)
     return sorted(out, key=lambda m: (not m["gate"], not m["waiting"], m["id"]))
 
@@ -161,14 +169,23 @@ def can(con, agent: str, key: str) -> bool:
     if not row:
         return key in ("message", "start")
     closed = bool(row["closed_at"])
+    state = row["state"]
+    # The states nothing may be done to from here. RUNNING and HANDOFF are
+    # mid-something, and STALLED is the one state the daemon deliberately does
+    # not touch - handing a stalled agent off would clear the stall a human was
+    # meant to read, and pay for a fold doing it.
+    busy = state in (daemon.RUNNING, daemon.HANDOFF, daemon.STALLED)
     if key == "wake":
-        return closed or row["state"] in (daemon.PARKED, daemon.THROTTLED, daemon.DEGRADED)
+        return closed or state in (daemon.PARKED, daemon.THROTTLED, daemon.DEGRADED)
     if key == "close":
-        return not closed and bool(row["terminal"])
+        # Work waiting is the one case where closing only adds delay: the very
+        # next tick wakes it again. `should_close` refuses for the same reason.
+        return (not closed and bool(row["terminal"]) and not busy
+                and not db.queued_for(con, agent))
     if key == "unstall":
-        return row["state"] == daemon.STALLED
-    if key == "park":
-        return not closed and bool(row["terminal"]) and row["state"] != daemon.HANDOFF
+        return state == daemon.STALLED
+    if key in ("park", "fold"):
+        return not closed and bool(row["terminal"]) and not busy
     if key == "start":
         return not row["terminal"]
     return True

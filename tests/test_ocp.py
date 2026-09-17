@@ -3493,6 +3493,37 @@ def test_top_acts_through_the_same_calls_the_daemon_makes(home: Path) -> None:
         # work queued for it waits forever because there is nothing to type
         # into. Starting one is the screen's job, and it is offered only where
         # there is no terminal already.
+        # STALLED is the one state the daemon deliberately leaves alone, so the
+        # screen must not offer the keys that would clear it by accident: a
+        # handoff pays for a fold and ends PARKED, and the stall a human was
+        # meant to read is gone with none of the counters unstall resets.
+        db.set_agent_state(con, "backend", dmn.STALLED, detail="stalled")
+        check("top: a stalled agent is offered unstall and nothing that hides it",
+              actions.can(con, "backend", "unstall")
+              and not actions.can(con, "backend", "park")
+              and not actions.can(con, "backend", "close")
+              and not actions.can(con, "backend", "fold"))
+        db.set_agent_state(con, "backend", dmn.IDLE, detail="cleared")
+
+        # Work waiting is the one case where closing only adds delay - the next
+        # tick wakes it straight back up. should_close refuses for that reason.
+        db.add_request(con, "reviewer", "backend", "look at this", None,
+                       "peer", "async", None, 0, None)
+        check("top: closing is not offered while work is waiting",
+              not actions.can(con, "backend", "close"))
+        con.execute("UPDATE requests SET state = 'done' WHERE target = 'backend'")
+
+        # perform_handoff returns True for three things that are not a handoff.
+        # Reporting the state afterwards read "RUNNING" as though it were a
+        # result; the line it logged is the answer.
+        db.set_agent_state(con, "backend", dmn.RUNNING, detail="mid-turn")
+        orcamod.idle_now = lambda h: False
+        said = actions.park(con, "backend")
+        check("top: parking a busy agent says it was deferred, not its state",
+              "defer" in said and "RUNNING" not in said, said)
+        orcamod.idle_now = lambda h: True
+        db.set_agent_state(con, "backend", dmn.IDLE, detail="cleared")
+
         check("top: an agent with a terminal is not offered a second one",
               not actions.can(con, "backend", "start"))
         db.set_terminal(con, "backend", None, None)
@@ -3515,6 +3546,57 @@ def test_top_acts_through_the_same_calls_the_daemon_makes(home: Path) -> None:
               rid not in [m["id"] for m in actions.messages(con)])
     finally:
         (orcamod.available, orcamod.alive, orcamod.wait_idle, orcamod.send) = real
+        con.close()
+
+
+def test_a_key_never_acts_on_a_row_nobody_pointed_at(home: Path) -> None:
+    """The row under the cursor can be gone by the time a key is pressed - a
+    message answered elsewhere, an agent that went away - and then nothing is
+    drawn as selected. Falling back to the first row acts on something the
+    human never chose: it dismissed an unread message that way."""
+    _daemon_home(home, 20)
+    con = db.connect()
+    try:
+        db.add_request(con, "marina", actions.HUMAN, "first, unread",
+                       None, "peer", "async", None, 0, None)
+        first = actions.messages(con)[0]["id"]
+        sel = {tui.MESSAGES: first + 99}          # a cursor on something gone
+        said, detail = tui._act(tui.MESSAGES, sel, "x", 120, 40, None, None)
+        check("top: the key is refused and the cursor is put somewhere real",
+              "press again" in said and sel[tui.MESSAGES] == first, said)
+        check("top: and the message it would have hit is untouched",
+              db.get_request(con, first)["state"] == "queued")
+
+        said, _ = tui._act(tui.MESSAGES, sel, "x", 120, 40, None, None)
+        check("top: pressing it again acts on what is now selected",
+              db.get_request(con, first)["state"] == "done", said)
+    finally:
+        con.close()
+
+
+def test_the_frame_never_draws_wider_than_the_terminal(home: Path) -> None:
+    """A panel title counts what is waiting, so it grows with the queue. A head
+    wider than the terminal wraps, a wrapped line is one row more than the
+    frame promised, and the alternate screen scrolls - which this screen's
+    whole contract says it does not."""
+    _daemon_home(home, 20)
+    con = db.connect()
+    try:
+        for i in range(12):
+            db.add_request(con, "marina", actions.HUMAN, f"decision {i}",
+                           None, "peer", "fire_and_forget", "escalate", 0, None)
+        for width in (40, 44, 55, 59, 60, 80, 120):
+            text = tui.frame(width, 40)
+            lines = [tui._ANSI.sub("", ln) for ln in text.split(chr(10))]
+            wide = [ln for ln in lines if len(ln.rstrip()) > width]
+            check(f"top: nothing is wider than a {width}-column terminal",
+                  not wide and len(lines) == 40, str(wide[:1])[:120])
+        for width in (40, 60, 80, 120):
+            bar = tui._ANSI.sub("", tui.keybar(tui.AGENTS, width))
+            check(f"top: the keys at {width} columns end on a whole word",
+                  len(bar) <= width and not bar.rstrip().endswith(("…", "…more")),
+                  repr(bar))
+    finally:
         con.close()
 
 
@@ -4394,6 +4476,8 @@ def main() -> int:
         run(lambda: test_top_shows_what_is_waiting_on_the_human(Path(td) / 'foryou'))
         run(lambda: test_the_screen_reads_keys_from_the_terminal_not_from_a_buffer())
         run(lambda: test_top_acts_through_the_same_calls_the_daemon_makes(Path(td) / 'topact'))
+        run(lambda: test_a_key_never_acts_on_a_row_nobody_pointed_at(Path(td) / 'topsel'))
+        run(lambda: test_the_frame_never_draws_wider_than_the_terminal(Path(td) / 'topwide'))
         run(lambda: test_top_cursor_stays_inside_its_panel(Path(td) / 'topcur'))
         run(lambda: test_login_points_at_the_account_and_touches_no_credential(Path(td) / 'login'))
         run(lambda: test_a_fold_with_no_account_says_which_and_why(Path(td) / 'foldacct'))

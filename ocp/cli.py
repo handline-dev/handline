@@ -1,7 +1,10 @@
 """ocp - command dispatch.
 
-All logic lives here in the CLI. SKILL.md stays a stub and detail is pulled on
-demand through `ocp guide <topic>` (KICKOFF rule 3).
+Logic lives here, not in a library nobody reads: SKILL.md stays a stub and
+detail is pulled on demand through `ocp guide <topic>` (KICKOFF rule 3). The
+exception is what a human can also do from `ocp top` - `ocp/actions.py` holds
+those, so the screen and the command line cannot come to differ about what
+unstalling or closing an agent means.
 """
 from __future__ import annotations
 
@@ -14,7 +17,7 @@ import sys
 import time
 from pathlib import Path
 
-from . import (accounts, agents, ask as askmod, daemon as daemonmod, db,
+from . import (accounts, actions, agents, ask as askmod, daemon as daemonmod, db,
                tui,
                digest, doctor,
                drift, events, fold as foldmod, guide, hooks, launch, paths, service,
@@ -414,14 +417,7 @@ def cmd_unstall(args) -> int:
         if row["state"] != daemonmod.STALLED:
             print(f"{args.agent} is {row['state']}, not STALLED")
             return 1
-        db.set_agent_state(con, args.agent, daemonmod.QUEUED, detail="cleared by a human")
-        db.reset_counter(con, args.agent, "failed_attempts")
-        db.reset_counter(con, args.agent, "throttle_count")
-        # Every count that can stall an agent, or the sweep later reads a
-        # capped wake streak as a stall of its own making and lifts a stall a
-        # human never sanctioned.
-        db.reset_counter(con, args.agent, "wake_failures")
-        print(f"{args.agent}: STALLED -> QUEUED")
+        print(actions.unstall(con, args.agent))
     finally:
         con.close()
     return 0
