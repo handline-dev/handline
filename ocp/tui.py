@@ -1,18 +1,23 @@
-"""ocp top - the full-screen dashboard (design section 11).
+"""ocp top - the screen the team is run from (design section 11).
 
-A read-only join view with no logic of its own: everything drawn is read from
-the same state the daemon decides on, so the two cannot disagree. If a number
-looks wrong here, the daemon is acting on that same wrong number.
+A join view over the same state the daemon decides on, so the two cannot
+disagree: if a number looks wrong here, the daemon is acting on that same wrong
+number. It draws; it does not decide. What a key does is a call into `actions`,
+which calls the same function the daemon or the CLI calls - so the screen can
+act without ever holding an opinion of its own.
 
 Two drawing rules are deliberate. Every figure carries a mark for where it came
 from - inferred, carried, or carried past its bound - so an inference is never
 drawn as a measurement, and what we genuinely do not know is drawn as "?" and
 never as 0. The one unmarked case is a figure held at the window's high-water
-mark: a real number reported by an earlier payload than the one on screen. And an account's usage and an agent's context come from different
-files - rate limits belong to the account, context to the session - so they are
-shown as what they are rather than blended into one number.
+mark: a real number reported by an earlier payload than the one on screen. And
+an account's usage and an agent's context come from different files - rate
+limits belong to the account, context to the session - so they are shown as
+what they are rather than blended into one number.
 
-It runs on the alternate screen, so quitting leaves the scrollback as it was.
+It runs on the alternate screen, so quitting leaves the scrollback as it was -
+and hands that screen back whole for anything a human has to type into, which
+is why logging in works from here at all.
 """
 from __future__ import annotations
 
@@ -20,12 +25,13 @@ import os
 import re
 import select
 import shutil
+import subprocess
 import sys
 import termios
 import time
 import tty
 
-from . import agents, daemon, db, paths, status, triggers
+from . import actions, agents, daemon, db, paths, status, triggers
 
 ALT_ON, ALT_OFF = "\033[?1049h", "\033[?1049l"
 CUR_OFF, CUR_ON = "\033[?25l", "\033[?25h"
@@ -43,6 +49,20 @@ STATE_COLOR = {
     "HANDOFF": YEL, "PARKED": YEL, "THROTTLED": YEL,
     "DEGRADED": RED, "STALLED": RED,
 }
+
+# The three panels a cursor can sit in, in tab order.
+ACCOUNTS, AGENTS, MESSAGES = 0, 1, 2
+PANEL_NAME = {ACCOUNTS: "accounts", AGENTS: "agents", MESSAGES: "messages"}
+
+# Keys, per panel. Anything that cannot be undone asks first; the rest happen
+# on the keypress, because a confirmation nobody reads is just a second key.
+AGENT_KEYS = [
+    ("↵", "open"), ("w", "wake"), ("c", "close"), ("p", "park"),
+    ("f", "fold"), ("m", "message"), ("s", "start"), ("u", "unstall"),
+]
+ACCOUNT_KEYS = [("↵", "open"), ("l", "login")]
+MESSAGE_KEYS = [("↵", "read"), ("a", "answer"), ("x", "dismiss")]
+CONFIRM = {"close", "park", "unstall", "fold"}
 
 
 def vlen(s: str) -> int:
@@ -108,14 +128,25 @@ def age(secs: float | None) -> str:
 
 
 class Panel:
-    """A titled box that draws exactly the rows it is given."""
+    """A titled box that draws exactly the rows it is given.
+
+    Rows carry a key when they can be selected - an agent's name, a request's
+    id - and the cursor is drawn in a gutter every row shares, so selecting
+    something never moves the columns.
+    """
 
     def __init__(self, title: str, width: int):
         self.title, self.width = title, width
         self.rows: list[str] = []
+        self.keys: list[object] = []
+        self.selected: object = None
 
-    def add(self, row: str = "") -> None:
+    def add(self, row: str = "", key: object = None) -> None:
         self.rows.append(row)
+        self.keys.append(key)
+
+    def selectable(self) -> list[object]:
+        return [k for k in self.keys if k is not None]
 
     def draw(self, limit: int | None = None) -> list[str]:
         inner = self.width - 2
@@ -125,9 +156,12 @@ class Panel:
         # too long and truncating its own title.
         head += DIM + "─" * max(0, self.width - vlen(head) - 1) + "┐" + R
         out = [head]
-        body = self.rows if limit is None else self.rows[:limit]
-        for row in body:
-            out.append(f"{DIM}│{R}" + pad(fit(row, inner), inner) + f"{DIM}│{R}")
+        body = list(zip(self.rows, self.keys))
+        if limit is not None:
+            body = body[:limit]
+        for row, key in body:
+            gutter = f"{CYA}▸{R} " if key is not None and key == self.selected else "  "
+            out.append(f"{DIM}│{R}" + pad(fit(gutter + row, inner), inner) + f"{DIM}│{R}")
         if limit is not None and len(self.rows) > limit:
             more = f"{DIM}  … {len(self.rows) - limit} more{R}"
             out[-1] = f"{DIM}│{R}" + pad(fit(more, inner), inner) + f"{DIM}│{R}"
@@ -135,8 +169,27 @@ class Panel:
         return out
 
 
-def build(width: int) -> tuple[list[str], list[list[str]]]:
-    """Return (fixed header lines, panels-as-line-lists) for one frame."""
+def keybar(panel: int, width: int) -> str:
+    keys = {ACCOUNTS: ACCOUNT_KEYS, AGENTS: AGENT_KEYS, MESSAGES: MESSAGE_KEYS}[panel]
+    parts = [f"{BOLD}{k}{R} {DIM}{label}{R}" for k, label in keys]
+    line = (f"{DIM}{PANEL_NAME[panel]}:{R} " + f" {DIM}·{R} ".join(parts)
+            + f" {DIM}· tab panel · ↑↓ move · q quit{R}")
+    if vlen(line) <= width:
+        return line
+    # The keys are the point of the line; the navigation is the same on every
+    # panel and is the part a reader already knows. Drop it before truncating
+    # into the middle of an action's name.
+    short = f"{DIM}{PANEL_NAME[panel]}:{R} " + f" {DIM}·{R} ".join(parts)
+    return fit(short, width)
+
+
+def build(width: int, sel: dict | None = None) -> tuple[list[str], list[Panel]]:
+    """Return (header lines, panels) for one frame.
+
+    `sel` is {panel: key}: which row carries the cursor in each panel, so the
+    caller can keep a cursor across redraws without this knowing how it moves.
+    """
+    sel = sel or {}
     con = db.connect()
     try:
         pid = daemon.running_elsewhere()
@@ -146,7 +199,7 @@ def build(width: int) -> tuple[list[str], list[list[str]]]:
         # is worse than not drawing it - and every mark it explains is also
         # explained by `ocp status`.
         bar_ = (f"{BOLD}ocp{R} {DIM}·{R} daemon {state} {DIM}·{R} "
-                f"{time.strftime('%H:%M:%S')}  {DIM}q quit · r refresh{R}")
+                f"{time.strftime('%H:%M:%S')}")
         with_legend = f"{bar_}{DIM} · 5h {status.SOURCE_LEGEND_SHORT}{R}"
         header = [
             fit(with_legend if vlen(with_legend) <= width else bar_, width),
@@ -155,6 +208,7 @@ def build(width: int) -> tuple[list[str], list[list[str]]]:
 
         # ---- accounts ------------------------------------------------
         acc = Panel("ACCOUNTS", width)
+        acc.selected = sel.get(ACCOUNTS)
         acc.add(f"{DIM}{'account':<10}{'5h usage':<18}{'reset':<8}"
                 f"{'7d':<13}{'snap':<7}{'live $':<9}assign{R}")
         for name in paths.list_accounts():
@@ -178,13 +232,15 @@ def build(width: int) -> tuple[list[str], list[list[str]]]:
                 + pad(f"{bar(st.pct_7d, 6)} {pct(st.pct_7d)}%", 13)
                 + pad(age(st.age_s), 7)
                 + pad(cost, 9)
-                + f"{mark} {DIM}{why[:34]}{R}"
+                + f"{mark} {DIM}{why[:32]}{R}",
+                key=name,
             )
         if not paths.list_accounts():
             acc.add(f"{DIM}  no accounts registered{R}")
 
         # ---- agents --------------------------------------------------
         ag = Panel("AGENTS", width)
+        ag.selected = sel.get(AGENTS)
         ag.add(f"{DIM}{'agent':<11}{'acct':<8}{'model':<8}{'eff':<7}{'state':<15}"
                f"{'ctx':>4}   {'wake':<7}{'in':<4}trigger{R}")
         for name in paths.list_agents():
@@ -192,7 +248,7 @@ def build(width: int) -> tuple[list[str], list[list[str]]]:
                 acct = agents.account_of(name)
                 cfg = agents.read(name)
             except Exception as e:  # noqa: BLE001
-                ag.add(f"{name:<11}{RED}config error: {e}{R}")
+                ag.add(f"{name:<11}{RED}config error: {e}{R}", key=name)
                 continue
             st = status.read_for_agent(name, acct)
             row = db.get_agent_state(con, name)
@@ -220,18 +276,37 @@ def build(width: int) -> tuple[list[str], list[list[str]]]:
                 + pad(ctxs, 7)
                 + pad(countdown(row["wake_at"] if row else None), 7)
                 + pad(str(inbox) if inbox else "·", 4)
-                + fire
+                + fire,
+                key=name,
             )
             if row and row["detail"]:
                 ag.add(f"{DIM}{'':<11}{row['detail']}{R}")
         if not paths.list_agents():
             ag.add(f"{DIM}  no agents registered{R}")
 
+        # ---- messages ------------------------------------------------
+        # What is waiting for the human, which is the one queue nothing else in
+        # this system will ever clear: an agent's escalation sits here until it
+        # is answered, and it used to be visible only by running `ocp inbox`
+        # with the right name.
+        ms = Panel("FOR YOU", width)
+        ms.selected = sel.get(MESSAGES)
+        waiting = actions.messages(con)
+        for m in waiting:
+            when = time.strftime("%H:%M", time.localtime(m["ts"]))
+            first = (m["body"] or "").splitlines()[0] if m["body"] else ""
+            kind = m["kind"] or "ask"
+            ms.add(f"{DIM}{when}{R}  {CYA}#{m['id']:<5}{R}{BOLD}{m['requester']:<12}{R}"
+                   f"{pad(kind, 11)}{first}", key=m["id"])
+        if not waiting:
+            ms.add(f"{DIM}  nothing waiting on you{R}")
+
         # ---- in flight -----------------------------------------------
         fl = Panel("IN FLIGHT", width)
         flight = db.in_flight_handoffs(con)
         queued = con.execute(
-            "SELECT id, requester, target, body FROM requests WHERE state='queued' ORDER BY id"
+            "SELECT id, requester, target, body FROM requests "
+            "WHERE state='queued' AND target != ? ORDER BY id", (actions.HUMAN,)
         ).fetchall()
         for h in flight:
             fl.add(f"{YEL}handoff{R} {h['agent']:<11}step {h['step']:<12}"
@@ -252,34 +327,128 @@ def build(width: int) -> tuple[list[str], list[list[str]]]:
                    f"{DIM}{(e['payload'] or '')[:width - 46]}{R}")
         if not rc.rows:
             rc.add(f"{DIM}  no events yet{R}")
-        return header, [acc, ag, fl, rc]
+        return header, [acc, ag, ms, fl, rc]
     finally:
         con.close()
 
 
-def frame(width: int, height: int) -> str:
-    header, panels = build(width)
+def frame(width: int, height: int, sel: dict | None = None, panel: int = AGENTS,
+          flash: str = "", detail: list[str] | None = None) -> str:
+    if detail is not None:
+        return _detail_frame(width, height, detail)
+    header, panels = build(width, sel)
     # Everything but RECENT gets the room it needs; RECENT takes what is left,
     # so the frame always fills the screen exactly and never scrolls it.
     fixed = list(header)
     for p in panels[:-1]:
         fixed += p.draw()
-    room = height - len(fixed) - 1
+    foot = [fit(flash, width) if flash else "", keybar(panel, width)]
+    room = height - len(fixed) - len(foot)
     recent = panels[-1].draw(limit=max(1, room - 2)) if room > 3 else []
     lines = fixed + recent
-    lines = lines[:height]
-    while len(lines) < height:
+    lines = lines[:max(0, height - len(foot))]
+    while len(lines) < height - len(foot):
         lines.append("")
+    lines += foot
+    lines = lines[:height]
     return "\n".join(line + CLEAR_EOL for line in lines)
+
+
+def _detail_frame(width: int, height: int, detail: list[str]) -> str:
+    lines = [fit(ln, width) for ln in detail][:height - 2]
+    while len(lines) < height - 2:
+        lines.append("")
+    lines.append("")
+    lines.append(f"{DIM}esc back · q quit{R}")
+    return "\n".join(line + CLEAR_EOL for line in lines[:height])
+
+
+def move(keys: list, current, delta: int):
+    """The next key in a panel's list, staying inside it."""
+    if not keys:
+        return None
+    if current not in keys:
+        return keys[0]
+    return keys[max(0, min(len(keys) - 1, keys.index(current) + delta))]
 
 
 def _key(timeout: float) -> str | None:
     if not sys.stdin.isatty():
         time.sleep(timeout)
         return None
-    if select.select([sys.stdin], [], [], timeout)[0]:
-        return sys.stdin.read(1)
-    return None
+    if not select.select([sys.stdin], [], [], timeout)[0]:
+        return None
+    ch = sys.stdin.read(1)
+    if ch != "\033":
+        return ch
+    # An arrow arrives as three bytes and a bare esc as one, so the rest is
+    # read only if it is already there - waiting on it would swallow esc.
+    if select.select([sys.stdin], [], [], 0.05)[0]:
+        ch += sys.stdin.read(1)
+        if ch.endswith("[") and select.select([sys.stdin], [], [], 0.05)[0]:
+            ch += sys.stdin.read(1)
+    return ch
+
+
+def _line(prompt: str, width: int, height: int) -> str | None:
+    """Read one line with the screen still up. None when the human backs out."""
+    if not sys.stdin.isatty():
+        return None
+    buf = ""
+    while True:
+        sys.stdout.write(f"\033[{height};1H" + CLEAR_EOL
+                         + fit(f"{BOLD}{prompt}{R} {buf}▏", width))
+        sys.stdout.flush()
+        ch = _key(30.0)
+        if ch is None:
+            continue
+        if ch in ("\r", "\n"):
+            return buf
+        if ch == "\033":
+            return None
+        if ch in ("\x7f", "\b"):
+            buf = buf[:-1]
+            continue
+        if ch == "\x03":
+            return None
+        if ch.isprintable():
+            buf += ch
+
+
+def _confirm(what: str, width: int, height: int) -> bool:
+    if not sys.stdin.isatty():
+        return False
+    sys.stdout.write(f"\033[{height};1H" + CLEAR_EOL
+                     + fit(f"{YEL}{what}?{R} {DIM}y / n{R}", width))
+    sys.stdout.flush()
+    while True:
+        ch = _key(30.0)
+        if ch is None:
+            continue
+        return ch in ("y", "Y")
+
+
+def _suspend(argv: list[str], env: dict, fd, saved) -> str:
+    """Hand the whole terminal to another program, then take it back.
+
+    Logging in is a human typing a code into claude's own screen: nothing about
+    that can happen behind an alternate screen with the cursor hidden.
+    """
+    sys.stdout.write(CUR_ON + ALT_OFF)
+    sys.stdout.flush()
+    if saved:
+        termios.tcsetattr(fd, termios.TCSADRAIN, saved)
+    try:
+        r = subprocess.run(argv, env=env)
+        out = f"{argv[0]} exited {r.returncode}"
+    except (OSError, subprocess.SubprocessError) as e:
+        out = f"could not run {argv[0]}: {e}"
+    finally:
+        if saved:
+            tty.setcbreak(fd)
+        sys.stdout.write(ALT_ON + CUR_OFF)
+        sys.stdout.flush()
+    return out
 
 
 def run(interval: float = 2.0, once: bool = False) -> int:
@@ -290,17 +459,40 @@ def run(interval: float = 2.0, once: bool = False) -> int:
 
     fd = sys.stdin.fileno()
     saved = termios.tcgetattr(fd) if sys.stdin.isatty() else None
+    panel, sel, flash, detail = AGENTS, {}, "", None
     try:
         if saved:
             tty.setcbreak(fd)
         sys.stdout.write(ALT_ON + CUR_OFF)
         while True:
             size = shutil.get_terminal_size((100, 40))
-            sys.stdout.write(HOME + frame(size.columns, size.lines))
+            width, height = size.columns, size.lines
+            sys.stdout.write(HOME + frame(width, height, sel, panel, flash, detail))
             sys.stdout.flush()
             k = _key(interval)
+            if k is None:
+                continue
             if k in ("q", "Q", "\x03"):
                 return 0
+            if detail is not None:
+                # One screen at a time: while something is open, the only
+                # questions are "close it" and "quit".
+                if k in ("\033", "\x1b"):
+                    detail = None
+                continue
+            flash = ""
+            if k == "\t":
+                panel = (panel + 1) % 3
+                continue
+            if k in ("r", "R"):
+                continue
+            if k in ("j", "\033[B"):
+                sel[panel] = move(_keys_of(panel), sel.get(panel), 1)
+                continue
+            if k in ("k", "\033[A"):
+                sel[panel] = move(_keys_of(panel), sel.get(panel), -1)
+                continue
+            flash, detail = _act(panel, sel, k, width, height, fd, saved)
     except KeyboardInterrupt:
         return 0
     finally:
@@ -308,3 +500,88 @@ def run(interval: float = 2.0, once: bool = False) -> int:
         sys.stdout.flush()
         if saved:
             termios.tcsetattr(fd, termios.TCSADRAIN, saved)
+
+
+def _keys_of(panel: int) -> list:
+    """What the cursor can sit on in a panel, read fresh each time.
+
+    The list changes under the cursor - an agent is registered, a message is
+    answered - so it is asked for rather than remembered.
+    """
+    if panel == ACCOUNTS:
+        return paths.list_accounts()
+    if panel == AGENTS:
+        return paths.list_agents()
+    con = db.connect()
+    try:
+        return [m["id"] for m in actions.messages(con)]
+    finally:
+        con.close()
+
+
+def _act(panel: int, sel: dict, key: str, width: int, height: int,
+         fd, saved) -> tuple[str, list[str] | None]:
+    """One keypress on the selected row. Returns (line to show, detail or None)."""
+    keys = _keys_of(panel)
+    target = sel.get(panel)
+    if target not in keys:
+        target = keys[0] if keys else None
+        sel[panel] = target
+    if target is None:
+        return "nothing to act on", None
+
+    if panel == ACCOUNTS and key in ("\r", "\n"):
+        con = db.connect()
+        try:
+            return "", actions.account_detail(con, str(target))
+        finally:
+            con.close()
+    if panel == ACCOUNTS and key == "l":
+        line, argv, env = actions.login_argv(str(target))
+        if not argv:
+            return line, None
+        return _suspend(argv, env, fd, saved), None
+
+    con = db.connect()
+    try:
+        if panel == AGENTS:
+            name = str(target)
+            if key in ("\r", "\n"):
+                return "", actions.agent_detail(con, name)
+            label = dict(AGENT_KEYS).get(key)
+            if not label:
+                return "", None
+            if not actions.can(con, name, label):
+                return f"{name}: {label} does not apply right now", None
+            if label == "start":
+                repo = _line(f"repo for {name} [{os.getcwd()}]:", width, height)
+                if repo is None:
+                    return "not started", None
+                return actions.start(con, name, repo.strip() or os.getcwd()), None
+            if label == "message":
+                body = _line(f"message to {name}:", width, height)
+                return (actions.message(con, name, body) if body is not None
+                        else "nothing sent"), None
+            if label in CONFIRM and not _confirm(f"{label} {name}", width, height):
+                return "left alone", None
+            return getattr(actions, label)(con, name), None
+
+        if panel == MESSAGES:
+            rid = int(target)
+            row = con.execute("SELECT * FROM requests WHERE id = ?", (rid,)).fetchone()
+            if not row:
+                return f"#{rid} is gone", None
+            if key in ("\r", "\n"):
+                head = [f"{BOLD}#{rid} from {row['requester']}{R}  "
+                        f"{row['kind'] or 'ask'}  "
+                        f"{time.strftime('%Y-%m-%d %H:%M', time.localtime(row['ts']))}", ""]
+                return "", head + (row["body"] or "").splitlines()
+            if key == "a":
+                text = _line(f"answer #{rid}:", width, height)
+                return (actions.answer(con, rid, text) if text is not None
+                        else "nothing sent"), None
+            if key == "x":
+                return actions.dismiss(con, rid), None
+        return "", None
+    finally:
+        con.close()

@@ -15,7 +15,8 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
-from ocp import (accounts, agents, ask as askmod, cli as climod, daemon as dmn, db, digest,
+from ocp import (accounts, actions, agents, ask as askmod, cli as climod, daemon as dmn, db,
+                 digest,
                  doctor, drift, events as evmod, fold as foldmod, launch, observe as obsmod,
                  orca as orcamod, paths, service, spawn as spawnmod, status, team, triggers,
                  tui, yamlcompat)  # noqa: E402
@@ -3331,6 +3332,159 @@ def test_a_park_that_cannot_be_woken_keeps_its_deadline(home: Path) -> None:
         con.close()
 
 
+def test_top_shows_what_is_waiting_on_the_human(home: Path) -> None:
+    """An escalation addressed to the human is the one queue nothing in this
+    system ever clears on its own, and it used to be visible only by running
+    `ocp inbox` with the right name. It gets its own panel, and it is not also
+    drawn as traffic between agents."""
+    _daemon_home(home, 20)
+    con = db.connect()
+    try:
+        agents.register("marina", "alpha")
+        db.add_request(con, "marina", actions.HUMAN, "which sea variant ships?",
+                       None, "peer", "async", None, 0, None)
+        db.add_request(con, "marina", "backend", "look at this diff",
+                       None, "peer", "async", None, 0, None)
+
+        waiting = actions.messages(con)
+        check("top: a request addressed to the human is a message for them",
+              [m["requester"] for m in waiting] == ["marina"], str(waiting))
+        check("top: and agent-to-agent traffic is not",
+              all("diff" not in (m["body"] or "") for m in waiting), str(waiting))
+
+        text = tui.frame(120, 60)
+        plain = [tui._ANSI.sub("", ln) for ln in text.split(chr(10))]
+        check("top: the panel is drawn with the question in it",
+              any("which sea variant ships?" in ln for ln in plain),
+              str([ln for ln in plain if "marina" in ln])[:200])
+        check("top: the other request is still shown as traffic",
+              any("marina → backend" in ln for ln in plain), "")
+        check("top: and the frame still fits its terminal",
+              len(plain) == 60 and not [ln for ln in plain if len(ln) > 120])
+        check("top: the keys for the focused panel are on the last line",
+              "wake" in plain[-1] and "message" in plain[-1], plain[-1])
+        check("top: and the line is never cut through an action's name",
+              plain[-1].rstrip().endswith(("quit", "unstall")), plain[-1])
+    finally:
+        con.close()
+
+
+def test_top_acts_through_the_same_calls_the_daemon_makes(home: Path) -> None:
+    """The screen may act, but it may not decide: every key is a call into
+    `actions`, which calls what the daemon calls. What it does decide is which
+    keys to offer, and that answer is read from the same row the action reads -
+    offering `close` on an agent that is already closed is the screen and the
+    daemon disagreeing in the one place a human is looking."""
+    _daemon_home(home, 20)
+    con = db.connect()
+    sent: list[str] = []
+    real = (orcamod.available, orcamod.alive, orcamod.wait_idle, orcamod.send)
+    try:
+        orcamod.available = lambda: True
+        orcamod.live_terminals = lambda: {"term_x"}
+        orcamod.alive = lambda h: True
+        orcamod.wait_idle = lambda h, timeout_ms=0: True
+        table = sessions_are("backend")
+        orcamod.send = relaunching_send(sent, table)
+        db.set_terminal(con, "backend", "term_x", "wt")
+        db.set_agent_state(con, "backend", dmn.IDLE)
+        (home / "agents" / "backend").mkdir(parents=True, exist_ok=True)
+        (home / "agents" / "backend" / "status.json").write_text(json.dumps({
+            "account": "alpha", "collected_at": int(time.time()),
+            "session_id": "sess-6", "pct_5h": 20}))
+
+        check("top: a running agent may be closed, not woken",
+              actions.can(con, "backend", "close")
+              and not actions.can(con, "backend", "wake"))
+
+        said = actions.close(con, "backend")
+        row = db.get_agent_state(con, "backend")
+        check("top: closing from the screen is the daemon's own close",
+              row["closed_at"] is not None and row["resume_session"] == "sess-6", said)
+        check("top: and now it may be woken, not closed",
+              actions.can(con, "backend", "wake")
+              and not actions.can(con, "backend", "close"))
+
+        said = actions.wake(con, "backend")
+        row = db.get_agent_state(con, "backend")
+        check("top: waking from the screen resumes that same session",
+              row["closed_at"] is None and any("--resume sess-6" in t for t in sent), said)
+
+        # A stall is the one state the daemon will not leave on its own, so the
+        # screen is where it is cleared - including the wake streak, or the
+        # sweep would later read it as a stall of its own making.
+        db.set_agent_state(con, "backend", dmn.STALLED, detail="by hand")
+        for _ in range(dmn.MAX_FAILED_ATTEMPTS):
+            db.bump_counter(con, "backend", "wake_failures")
+        said = actions.unstall(con, "backend")
+        row = db.get_agent_state(con, "backend")
+        check("top: unstall clears the state and every count behind it",
+              row["state"] == dmn.QUEUED and row["wake_failures"] == 0
+              and row["failed_attempts"] == 0, said)
+
+        # Sending work from the screen is an ordinary ask, from the human -
+        # including the routing rules. A team that does not declare the human's
+        # edge refuses here exactly as `ocp ask` would, and says so.
+        said = actions.message(con, "backend", "have a look at the sea shader")
+        check("top: the screen does not smuggle a message past routing",
+              "denied" in said and not db.queued_for(con, "backend"), said)
+
+        escalate = '  - { from: "*",         to: "orchestrator", kind: escalate,  creates_gate: true }'
+        (home / "team.yaml").write_text(DESIGN_TEAM.replace(
+            escalate,
+            escalate + chr(10)
+            + '  - { from: "orchestrator", to: "*", relation: supervisor, '
+              'response: fire_and_forget }'))
+        said = actions.message(con, "backend", "have a look at the sea shader")
+        waiting = db.queued_for(con, "backend")
+        check("top: and where it is declared, it arrives as a request from the human",
+              waiting and waiting[-1]["requester"] == actions.HUMAN, said)
+        check("top: an empty one is not sent at all",
+              "nothing sent" in actions.message(con, "backend", "   "))
+
+        # An agent with no terminal is the one the daemon cannot help at all:
+        # work queued for it waits forever because there is nothing to type
+        # into. Starting one is the screen's job, and it is offered only where
+        # there is no terminal already.
+        check("top: an agent with a terminal is not offered a second one",
+              not actions.can(con, "backend", "start"))
+        db.set_terminal(con, "backend", None, None)
+        check("top: one with none is", actions.can(con, "backend", "start"))
+        said = actions.start(con, "backend", repo=str(home))
+        check("top: and starting it says why when it cannot",
+              "orca" in said or "worktree" in said or "base" in said, said)
+        db.set_terminal(con, "backend", "term_x", "wt")
+
+        # Answering closes the request and tells the agent, which is what
+        # `ocp resolve` does - the screen must not invent a second way.
+        db.add_request(con, "marina", actions.HUMAN, "which variant ships?",
+                       None, "peer", "async", None, 0, None)
+        rid = actions.messages(con)[-1]["id"]
+        said = actions.answer(con, rid, "variant 11")
+        row = db.get_request(con, rid)
+        check("top: answering resolves the request with the verdict",
+              row["state"] == "done" and "variant 11" in (row["verdict"] or ""), said)
+        check("top: and it is no longer waiting on the human",
+              rid not in [m["id"] for m in actions.messages(con)])
+    finally:
+        (orcamod.available, orcamod.alive, orcamod.wait_idle, orcamod.send) = real
+        con.close()
+
+
+def test_top_cursor_stays_inside_its_panel(home: Path) -> None:
+    """The lists change under the cursor - an agent is registered, a message is
+    answered - so moving is defined on what is there now, not on a remembered
+    index."""
+    keys = ["alpha", "beta", "gamma"]
+    check("top: down moves to the next", tui.move(keys, "alpha", 1) == "beta")
+    check("top: and stops at the end", tui.move(keys, "gamma", 1) == "gamma")
+    check("top: up stops at the start", tui.move(keys, "alpha", -1) == "alpha")
+    check("top: a cursor on something that is gone lands on the first row",
+          tui.move(keys, "deleted", 1) == "alpha")
+    check("top: and an empty panel has nothing to select",
+          tui.move([], None, 1) is None)
+
+
 def test_login_points_at_the_account_and_touches_no_credential(home: Path) -> None:
     """Logging in is the one thing ocp may not do for a human: a refresh token
     rotates on single use, so a second copy of one credential invalidates the
@@ -4190,6 +4344,9 @@ def main() -> int:
         run(lambda: test_nothing_is_typed_into_a_shell_with_no_session(Path(td) / 'shellgate'))
         run(lambda: test_a_wake_is_believed_only_when_a_session_appears(Path(td) / 'wakereceipt'))
         run(lambda: test_a_park_that_cannot_be_woken_keeps_its_deadline(Path(td) / 'parkdue'))
+        run(lambda: test_top_shows_what_is_waiting_on_the_human(Path(td) / 'foryou'))
+        run(lambda: test_top_acts_through_the_same_calls_the_daemon_makes(Path(td) / 'topact'))
+        run(lambda: test_top_cursor_stays_inside_its_panel(Path(td) / 'topcur'))
         run(lambda: test_login_points_at_the_account_and_touches_no_credential(Path(td) / 'login'))
         run(lambda: test_a_fold_with_no_account_says_which_and_why(Path(td) / 'foldacct'))
         run(lambda: test_doctor_says_when_the_record_and_the_process_table_disagree(Path(td) / 'docsess'))
