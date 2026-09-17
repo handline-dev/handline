@@ -18,7 +18,8 @@ import time
 from pathlib import Path
 
 from . import (accounts, agents, ask as askmod, daemon, db, events as evmod,
-               fold as foldmod, paths, spawn as spawnmod, status, triggers)
+               fold as foldmod, observe as obs, orca, paths, spawn as spawnmod,
+               status, triggers)
 
 # The name a human's own requests are sent under, and the inbox `ocp top`
 # shows. Taken from `ask`, which is where escalations are addressed: a second
@@ -146,33 +147,53 @@ def messages(con) -> list[dict]:
     return sorted(out, key=lambda m: (not m["gate"], not m["waiting"], m["id"]))
 
 
-# How long a request may sit undelivered before it is not in flight any more.
-# Delivery is a tick's work when it can happen at all, so past this the answer
-# is never "wait a moment" - something is in the way.
-STUCK_AFTER_S = 300
+# A reason that resolves itself has to be old before it counts as stuck: a
+# closed agent is woken on the next tick, and a long turn is what this system
+# is for - the daemon calls an agent healthy up to STUCK_RUNNING_S with nothing
+# heard. A reason that does not resolve itself counts at once.
+STUCK_AFTER_S = daemon.STUCK_RUNNING_S
 
 
-def _blocked_by(con, agent: str) -> str:
-    """Why work is not reaching this agent, read from the same rows the daemon reads."""
+def _delivery_block(con, agent: str, sessions: dict | None,
+                    handles: set | None) -> tuple[str, bool]:
+    """Why work is not reaching this agent. (reason, does it resolve itself)
+
+    The checks are `deliver_queued`'s own, in its order, so the panel gives the
+    daemon's reason rather than a state the reader has to interpret. The two
+    readings it needs - Orca's terminals and the process table - are taken once
+    for the whole panel and handed in: asking per row would cost a process
+    listing each, and the idle probe is not asked at all, because a "no" from
+    it costs its whole timeout and RUNNING already says it on the agent's row.
+    """
+    if agent not in paths.list_agents():
+        return f"{agent} is not registered - nothing will ever take this", False
     row = db.get_agent_state(con, agent)
     if not row:
-        return f"{agent} is not registered"
-    if not row["terminal"]:
-        return f"{agent} has no terminal - nothing can be typed to it (s starts one)"
+        return f"{agent} has never been started (s starts it)", False
+    handle = row["terminal"]
+    if not handle:
+        return f"{agent} has no terminal - nothing can be typed to it (s starts one)", False
     if row["state"] == daemon.STALLED:
-        return f"{agent} is STALLED - the daemon will not touch it (u clears it)"
-    if row["state"] == daemon.HANDOFF:
-        return f"{agent} is mid-handoff"
+        return f"{agent} is STALLED - the daemon will not touch it (u clears it)", False
+    if handles is not None and handle not in handles:
+        return f"{agent}'s terminal is gone - Orca no longer has it", False
     try:
-        st = status.read(agents.account_of(agent))
+        acct = agents.account_of(agent)
+        pct = status.read(acct).trusted_pct_5h
     except Exception:  # noqa: BLE001
-        return f"{agent} has no readable account"
-    pct = st.trusted_pct_5h
-    if pct is not None and pct >= status.PCT_5H_BLOCK:
-        return f"{agents.account_of(agent)} is at {pct}% - it cannot be launched into"
+        acct, pct = "?", None
     if row["closed_at"]:
-        return f"{agent} is closed; the next tick wakes it"
-    return f"{agent} is {row['state']}"
+        if pct is not None and pct >= status.PCT_5H_BLOCK:
+            return (f"{agent} is closed and {acct} is at {pct}% - it cannot be "
+                    f"launched into", False)
+        return f"{agent} is closed; the next tick wakes it", True
+    if sessions is not None and not sessions.get(agent):
+        return f"no session is running in {agent}'s terminal", False
+    if row["state"] == daemon.RUNNING:
+        return f"{agent} is mid-turn - nothing is typed at a working agent", True
+    if row["state"] == daemon.HANDOFF:
+        return f"{agent} is mid-handoff", True
+    return "", True
 
 
 def stuck(con) -> list[tuple[str, int, str]]:
@@ -183,6 +204,11 @@ def stuck(con) -> list[tuple[str, int, str]]:
     been sitting for a day and a half because its target had no terminal to be
     told with. Drawing those as traffic said the system was busy when it was
     stuck.
+
+    Membership is "the daemon cannot deliver this", not "this is old". Age is a
+    column, except for the reasons that clear themselves - being told and not
+    having answered yet is the ordinary state of a queue, and it only becomes a
+    finding when it has outlasted the longest turn the daemon calls healthy.
     """
     now = int(time.time())
     out: list[tuple[str, int, str]] = []
@@ -190,15 +216,29 @@ def stuck(con) -> list[tuple[str, int, str]]:
         left = (h["deadline"] or now) - now
         out.append((f"handoff {h['agent']} at '{h['step']}'", 0,
                     f"deadline in {left}s" if left > 0 else "past its deadline"))
+
+    # One look for the whole panel, not one per row.
+    sessions = obs.live_sessions()
+    handles = orca.live_terminals() if orca.available() else None
     for r in con.execute(
         "SELECT id, requester, target, ts FROM requests WHERE state = 'queued' "
         "AND target != ? ORDER BY ts", (HUMAN,),
     ).fetchall():
-        age = now - int(r["ts"])
-        if age < STUCK_AFTER_S:
+        age, what = now - int(r["ts"]), f"#{r['id']} {r['requester']} → {r['target']}"
+        why, self_clearing = _delivery_block(con, r["target"], sessions, handles)
+        if not why:
+            # The daemon can deliver it. Either it is about to, or it has
+            # already been told and has not answered - which is a queue working
+            # until it has gone on too long.
+            told = db.get_cursor(con, f"notify:{r['target']}") >= int(r["id"])
+            if not told or age < STUCK_AFTER_S:
+                continue
+            out.append((what, age, f"{r['target']} was told and has not answered"))
             continue
-        out.append((f"#{r['id']} {r['requester']} → {r['target']}", age,
-                    _blocked_by(con, r["target"])))
+        if self_clearing and age < STUCK_AFTER_S:
+            continue
+        out.append((what, age, why))
+
     for row in db.all_agent_states(con):
         if row["state"] in (daemon.STALLED, daemon.DEGRADED):
             out.append((f"{row['agent']} is {row['state']}",
@@ -217,15 +257,29 @@ def decisions(con, limit: int = 40, everything: bool = False) -> tuple[list[dict
     agent's own state column already says which of those it is. They crowded
     out the rows that say what was decided - woken, closed, folded, told - so
     they are counted rather than drawn.
+
+    The count is the ones that happened among the decisions on screen, which is
+    the question a reader has: how much noise is between these. Both halves are
+    asked of the database, because a busy hour can put the last decision
+    hundreds of rows back, and fetching a fixed multiple and filtering after
+    came back empty exactly then.
     """
-    rows = [dict(r) for r in con.execute(
-        "SELECT ts, agent, kind, payload FROM events ORDER BY id DESC LIMIT ?",
-        (limit * 6,),
-    ).fetchall()]
-    hooks = sum(1 for r in rows if r["kind"] in evmod.CAPTURED)
-    if not everything:
-        rows = [r for r in rows if r["kind"] not in evmod.CAPTURED]
-    return rows[:limit], (0 if everything else hooks)
+    marks = ",".join("?" * len(evmod.CAPTURED))
+    kinds = tuple(sorted(evmod.CAPTURED))
+    if everything:
+        rows = con.execute("SELECT id, ts, agent, kind, payload FROM events "
+                           "ORDER BY id DESC LIMIT ?", (limit,)).fetchall()
+        return [dict(r) for r in rows], 0
+    rows = con.execute(
+        f"SELECT id, ts, agent, kind, payload FROM events WHERE kind NOT IN ({marks}) "
+        f"ORDER BY id DESC LIMIT ?", (*kinds, limit),
+    ).fetchall()
+    oldest = min((r["id"] for r in rows), default=0)
+    hooks = con.execute(
+        f"SELECT COUNT(*) FROM events WHERE kind IN ({marks}) AND id > ?",
+        (*kinds, oldest),
+    ).fetchone()[0]
+    return [dict(r) for r in rows], hooks
 
 
 def login_argv(acct: str, force: bool = False) -> tuple[str, list[str], dict]:

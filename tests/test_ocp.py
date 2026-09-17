@@ -3618,10 +3618,89 @@ def test_the_screen_says_what_is_stuck_and_what_was_decided(home: Path) -> None:
               any("backend is STALLED" in w for w, _, _ in actions.stuck(con)),
               str(actions.stuck(con)))
 
+        # The reason has to be the daemon's reason, or the panel is a second
+        # opinion about what is wrong. These are deliver_queued's own checks.
+        db.set_agent_state(con, "backend", dmn.IDLE, detail="idle")
+        db.set_terminal(con, "backend", "term_x", "wt")
+        real = (orcamod.available, orcamod.live_terminals, obsmod.live_sessions)
+        try:
+            orcamod.available = lambda: True
+            orcamod.live_terminals = lambda: {"term_x"}
+            sessions_are()                       # the terminal is there, nobody is in it
+            why = dict((w, r) for w, _, r in actions.stuck(con))
+            check("stuck: a terminal with no session says so, not 'it is IDLE'",
+                  any("no session is running" in r for r in why.values()), str(why))
+
+            sessions_are("backend")
+            orcamod.live_terminals = lambda: set()
+            why = [r for _, _, r in actions.stuck(con)]
+            check("stuck: a terminal Orca no longer has says that",
+                  any("terminal is gone" in r for r in why), str(why))
+
+            # Told and not answered is a queue working, until it has outlasted
+            # the longest turn the daemon itself calls healthy.
+            orcamod.live_terminals = lambda: {"term_x"}
+            rid = max(r["id"] for r in db.queued_for(con, "backend"))
+            db.set_cursor(con, "notify:backend", rid)
+            con.execute("UPDATE requests SET ts = ? WHERE target = 'backend'",
+                        (int(time.time()) - 60,))
+            check("stuck: a request the agent was just told about is not stuck",
+                  not [w for w, _, _ in actions.stuck(con) if "→ backend" in w],
+                  str(actions.stuck(con)))
+            con.execute("UPDATE requests SET ts = ? WHERE target = 'backend'",
+                        (int(time.time()) - actions.STUCK_AFTER_S - 60,))
+            told = [r for w, _, r in actions.stuck(con) if "→ backend" in w]
+            check("stuck: once it has outlasted that, it says it was told and not answered",
+                  told and "told and has not answered" in told[0], str(told))
+            check("stuck: and the threshold is the daemon's own, not a second number",
+                  actions.STUCK_AFTER_S == dmn.STUCK_RUNNING_S)
+            # Neither unbounded panel may push the other, or what is under
+            # them, off the screen without saying it held something back.
+            for i in range(100):
+                db.add_request(con, "marina", "backend", f"flood {i}", None,
+                               "peer", "async", None, 0, None)
+                db.add_request(con, "marina", actions.HUMAN, f"pile {i}", None,
+                               "peer", "async", "escalate", 0, None)
+            con.execute("UPDATE requests SET ts = ? WHERE body LIKE 'flood%'",
+                        (int(time.time()) - actions.STUCK_AFTER_S - 60,))
+            db.set_terminal(con, "backend", None, None)
+            for height in (24, 40, 60):
+                plain = [tui._ANSI.sub("", ln)
+                         for ln in tui.frame(110, height).split(chr(10))]
+                titles = [ln for ln in plain if "┌─" in ln]
+                check(f"stuck: at {height} lines both growing panels are drawn",
+                      sum(1 for t in titles if "STUCK" in t or "FOR YOU" in t) == 2,
+                      str([t.strip()[:34] for t in titles]))
+                markers = [ln for ln in plain if "more" in ln]
+                check(f"stuck: and each shortened panel says so at {height} lines",
+                      len(markers) == 2, str(markers)[:140])
+            con.execute("DELETE FROM requests WHERE body LIKE 'flood%' "
+                        "OR body LIKE 'pile%'")
+            db.set_terminal(con, "backend", "term_x", "wt")
+        finally:
+            orcamod.available, orcamod.live_terminals, obsmod.live_sessions = real
+
         # Decisions, and the breathing that was crowding them out.
         for i in range(8):
             db.add_event(con, "backend", "Stop", {"i": i})
         db.add_event(con, "backend", "wake", {"resumed_session": "sess-1"})
+        # A decision hundreds of hook events back is exactly when the panel
+        # most needs to say something; fetching a fixed multiple came back
+        # empty and read as "nothing decided".
+        for i in range(240):
+            db.add_event(con, "backend", "Stop", {"i": i})
+        deep, hidden = actions.decisions(con, 20)
+        check("events: a decision is found however much breathing is on top of it",
+              any(r["kind"] == "wake" for r in deep), f"{len(deep)} rows")
+        # And the count is the breathing between what is on screen, not every
+        # hook event ever recorded - which is a number nobody can act on.
+        db.add_event(con, "backend", "close", {"session": "s"})
+        for i in range(5):
+            db.add_event(con, "backend", "Stop", {"after": i})
+        _, hidden = actions.decisions(con, 1)
+        check("events: the count is what is between the decisions on screen",
+              hidden == 5, str(hidden))
+
         rows, hidden = actions.decisions(con, 20)
         check("events: a wake is a decision and is shown",
               any(r["kind"] == "wake" for r in rows), str(rows[:2]))

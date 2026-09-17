@@ -143,16 +143,24 @@ class Panel:
         self.title, self.width = title, width
         self.rows: list[str] = []
         self.keys: list[object] = []
+        self.extra: list[bool] = []
         self.selected: object = None
 
-    def add(self, row: str = "", key: object = None) -> None:
+    def add(self, row: str = "", key: object = None, extra: bool = False) -> None:
+        """`extra` marks a row that says more about the one above it.
+
+        The team is the one list that is never shortened - an agent missing
+        from it reads as an agent that is not there - so when the screen is
+        short it is these that go, and the row they belong to stays.
+        """
         self.rows.append(row)
         self.keys.append(key)
+        self.extra.append(extra)
 
     def selectable(self) -> list[object]:
         return [k for k in self.keys if k is not None]
 
-    def draw(self, limit: int | None = None) -> list[str]:
+    def draw(self, limit: int | None = None, extras: bool = True) -> list[str]:
         inner = self.width - 2
         # The title is data now - it counts what is waiting - so it is fitted
         # like any other row. A head wider than the terminal wraps, and a
@@ -164,14 +172,17 @@ class Panel:
         # too long and truncating its own title.
         head += DIM + "─" * max(0, self.width - vlen(head) - 1) + "┐" + R
         out = [head]
-        body = list(zip(self.rows, self.keys))
-        if limit is not None:
+        body = [(r, k) for r, k, x in zip(self.rows, self.keys, self.extra)
+                if extras or not x]
+        held_back = 0
+        if limit is not None and len(body) > limit:
+            held_back = len(body) - limit
             body = body[:limit]
         for row, key in body:
             gutter = f"{CYA}▸{R} " if key is not None and key == self.selected else "  "
             out.append(f"{DIM}│{R}" + pad(fit(gutter + row, inner), inner) + f"{DIM}│{R}")
-        if limit is not None and len(self.rows) > limit:
-            more = f"{DIM}  … {len(self.rows) - limit} more{R}"
+        if held_back:
+            more = f"{DIM}  … {held_back} more{R}"
             out[-1] = f"{DIM}│{R}" + pad(fit(more, inner), inner) + f"{DIM}│{R}"
         out.append(DIM + "└" + "─" * inner + "┘" + R)
         return out
@@ -300,7 +311,7 @@ def build(width: int, sel: dict | None = None,
                 key=name,
             )
             if row and row["detail"]:
-                ag.add(f"{DIM}{'':<11}{row['detail']}{R}")
+                ag.add(f"{DIM}{'':<11}{row['detail']}{R}", extra=True)
         if not paths.list_agents():
             ag.add(f"{DIM}  no agents registered{R}")
 
@@ -385,11 +396,19 @@ def frame(width: int, height: int, sel: dict | None = None, panel: int = AGENTS,
     # YOU is the one that grows without bound - nothing clears it but a human -
     # so it is the one that gives up rows, and it says how many it is holding
     # back. Otherwise it pushed IN FLIGHT off a short screen silently.
+    # The team list keeps its rows and gives up the lines that explain them
+    # before anything else gives up a row at all.
     fixed = list(header) + acc.draw() + ag.draw()
+    if height - len(fixed) - len(foot) < 10:
+        fixed = list(header) + acc.draw() + ag.draw(extras=False)
     room = height - len(fixed) - len(foot)
-    keep = len(fl.rows) + 2 + 3                # in flight, and a line of recent
-    limit = None if len(ms.rows) + 2 <= room - keep else max(1, room - keep - 2)
-    middle = ms.draw(limit=limit) + fl.draw()
+    # Both of these grow without bound - one holds everything a human has not
+    # answered, the other everything that has stopped moving - so both shorten
+    # themselves and say by how much, and neither is allowed to push the other
+    # or the decisions below them off the screen.
+    ms_lines = ms.draw(limit=_share(len(ms.rows), len(fl.rows), room))
+    fl_lines = fl.draw(limit=_share(len(fl.rows), len(ms.rows), room))
+    middle = ms_lines + fl_lines
     room = height - len(fixed) - len(middle) - len(foot)
     recent = rc.draw(limit=max(1, room - 2)) if room > 3 else []
     lines = fixed + middle + recent
@@ -428,6 +447,20 @@ def wrap(lines: list[str], width: int) -> list[str]:
             line = line[cut:].lstrip()
         out.append(line)
     return out
+
+
+def _share(mine: int, theirs: int, room: int, floor: int = 3) -> int | None:
+    """How many rows this panel may draw when two of them want the same space.
+
+    None when everything fits. Otherwise each gets what it asks for up to an
+    even split, so a long list does not squeeze a short one to nothing, and
+    what is left over goes to whoever still wants it.
+    """
+    budget = room - floor - 4                      # the two panels' own borders
+    if mine + theirs <= budget:
+        return None
+    half = max(1, budget // 2)
+    return max(1, budget - theirs) if theirs < half else half
 
 
 def _detail_frame(width: int, height: int, detail: dict, flash: str = "") -> str:
@@ -688,18 +721,17 @@ def _in_detail(detail: dict, k: str, width: int, height: int,
 
 def _answer_key(con, detail: dict, rid: int, k: str, width: int, height: int,
                 fd, saved) -> tuple[dict | None, str]:
-    if True:
-        if k == "x":
-            return None, actions.dismiss(con, rid)
-        text = (_editor(f"# answering #{rid}. Lines starting with # are dropped.\n",
-                        fd, saved)
-                if k == "e" else _line(f"answer #{rid}:", width, height))
-        if text is None:
-            return detail, ("nothing sent - $EDITOR is not set" if k == "e"
-                            and not os.environ.get("EDITOR")
-                            and not os.environ.get("VISUAL") else "nothing sent")
-        _say(f"answering #{rid}", width, height)
-        return None, actions.answer(con, rid, text)
+    if k == "x":
+        return None, actions.dismiss(con, rid)
+    text = (_editor(f"# answering #{rid}. Lines starting with # are dropped.\n",
+                    fd, saved)
+            if k == "e" else _line(f"answer #{rid}:", width, height))
+    if text is None:
+        return detail, ("nothing sent - $EDITOR is not set" if k == "e"
+                        and not os.environ.get("EDITOR")
+                        and not os.environ.get("VISUAL") else "nothing sent")
+    _say(f"answering #{rid}", width, height)
+    return None, actions.answer(con, rid, text)
 
 
 def _editor(seed: str, fd=None, saved=None) -> str | None:
