@@ -61,9 +61,25 @@ is with `--of`.
 
 ```bash
 ocp daemon            # parks agents before they hit the wall, resumes them after
-ocp ps                # daemon and agent state
+ocp ps                # daemon and agent state, and which supervisor is running it
 ocp triggers          # what the daemon would decide right now, without acting
 ```
+
+`ocp daemon` on its own dies with the terminal that started it. To survive a
+reboot or a crash without a human restarting it, install it as a launchd
+LaunchAgent:
+
+```bash
+ocp service install    # write the plist, load it into launchd (RunAtLoad + KeepAlive)
+ocp service status     # installed / loaded / pid / crash-looping
+ocp service logs       # tail the daemon's launchd-captured stdout
+ocp service uninstall  # unload the job and remove the plist
+```
+
+`ocp ps` and `ocp doctor` both know about the launchd job, so a hand-started
+`ocp daemon` and a launchd-supervised one are never mistaken for each other -
+the pidfile in `~/.orcapipe/daemon.pid` is still the single source of truth for
+"is a daemon running", `ocp service` only decides who restarts it.
 
 ## Commands
 
@@ -79,6 +95,7 @@ ocp triggers          # what the daemon would decide right now, without acting
 | `ocp digest` / `ocp handoff <agent>` | the record |
 | `ocp drift <repo>` | has the base moved under this agent? |
 | `ocp hooks sync --watch` | keep Orca's agent hooks mirrored |
+| `ocp service install/uninstall/status/logs` | run the daemon as a launchd LaunchAgent |
 | `ocp guide [topic]` | detail, loaded on demand |
 
 ## How it decides things
@@ -123,8 +140,9 @@ refusal explains itself so they do not try to route around it.
 ## Layout
 
 ```
-~/.orcapipe/                 git repo; accounts/ is ignored
+~/.orcapipe/                 git repo; accounts/ and logs/ are ignored
   config.yaml team.yaml db.sqlite daemon.pid
+  logs/daemon.out.log logs/daemon.err.log   # launchd's StandardOut/ErrorPath
   shared/.claude/            settings + collector, symlinked into each account
   accounts/<acct>/.claude/   CLAUDE_CONFIG_DIR; credentials stay here, untouched
   accounts/<acct>/status.json

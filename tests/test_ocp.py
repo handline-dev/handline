@@ -17,7 +17,8 @@ sys.path.insert(0, str(ROOT))
 
 from ocp import (accounts, agents, ask as askmod, daemon as dmn, dashboard, db, digest,
                  doctor, drift, events as evmod, fold as foldmod, launch, orca as orcamod,
-                 paths, spawn as spawnmod, status, team, triggers, tui, yamlcompat)  # noqa: E402
+                 paths, service, spawn as spawnmod, status, team, triggers, tui,
+                 yamlcompat)  # noqa: E402
 
 PASS, FAIL = [], []
 
@@ -992,6 +993,307 @@ def test_daemon_pidfile(home: Path) -> None:
     check("daemon: a dead pid is reclaimed", dmn.running_elsewhere() is None)
 
 
+# ---------------------------------------------------------------- service
+def test_service_plist(home: Path) -> None:
+    home.mkdir(parents=True, exist_ok=True)
+    plist = service.build_plist(home=home)
+    check("service: label is set", plist["Label"] == service.LABEL)
+    check("service: RunAtLoad", plist["RunAtLoad"] is True)
+    check("service: KeepAlive is a bare true, not SuccessfulExit-gated",
+          plist["KeepAlive"] is True)
+    check("service: ThrottleInterval bounds the restart rate",
+          isinstance(plist["ThrottleInterval"], int) and plist["ThrottleInterval"] > 0)
+    check("service: stdout log is under OCP_HOME/logs",
+          plist["StandardOutPath"] == str(home / "logs" / "daemon.out.log"))
+    check("service: stderr log is under OCP_HOME/logs",
+          plist["StandardErrorPath"] == str(home / "logs" / "daemon.err.log"))
+    env = plist["EnvironmentVariables"]
+    check("service: env carries PATH", bool(env.get("PATH")))
+    check("service: env carries HOME", bool(env.get("HOME")))
+    check("service: env carries OCP_HOME, pointed at this home",
+          env.get("OCP_HOME") == str(home))
+    check("service: program is an absolute path (launchd inherits no PATH)",
+          Path(plist["ProgramArguments"][0]).is_absolute())
+    check("service: the interpreter is not pinned - bin/ocp's own shebang resolves it",
+          "python" not in plist["ProgramArguments"][0].lower())
+
+    path = service.write_plist(path=home / "test.plist", home=home)
+    check("service: write_plist creates the file", path.exists())
+    back = service.read_plist(path=path)
+    check("service: plist round-trips through plistlib", back == plist, str(back))
+
+
+def test_service_launchctl_gated(home: Path) -> None:
+    """No test may shell out to real launchctl - every call goes through
+    run_launchctl, so replacing that one name fakes the whole daemon."""
+    home.mkdir(parents=True, exist_ok=True)
+    plist_file = home / "LaunchAgents" / f"{service.LABEL}.plist"
+    calls: list[list[str]] = []
+
+    class FakeResult:
+        def __init__(self, returncode=0, stdout="", stderr=""):
+            self.returncode, self.stdout, self.stderr = returncode, stdout, stderr
+
+    def fake_ok(args):
+        calls.append(args)
+        return FakeResult(0, "", "")
+
+    orig_plist_path = service.plist_path
+    orig_runner = service.run_launchctl
+    try:
+        service.plist_path = lambda: plist_file
+        service.run_launchctl = fake_ok
+        ok, msg = service.install(home=home)
+        check("service: install() reports success when launchctl does", ok, msg)
+        check("service: install() writes the plist", plist_file.exists())
+        check("service: a first install (nothing loaded yet) skips bootout",
+              "bootout" not in [c[0] for c in calls])
+        check("service: install() bootstraps the built plist",
+              calls[0] == ["bootstrap", service.domain_target(), str(plist_file)])
+        check("service: install() enables the job", calls[1][0] == "enable")
+
+        # Reinstalling over a job the fake now reports as loaded (`print`
+        # returns 0) must bootout first, so a stale plist is not left running.
+        calls.clear()
+
+        def fake_loaded(args):
+            calls.append(args)
+            if args[0] == "print":
+                return FakeResult(0, "\tpid = 1\n", "")
+            return FakeResult(0, "", "")
+
+        service.run_launchctl = fake_loaded
+        ok, msg = service.install(home=home)
+        check("service: reinstalling over a loaded job boots it out first",
+              ok and calls[1][0] == "bootout", str(calls))
+
+        # If the new plist fails to load, a previously-working job must not
+        # end up unsupervised - the old plist is restored and reloaded.
+        calls.clear()
+        attempts = {"n": 0}
+
+        def fake_bootstrap_fails_once(args):
+            calls.append(args)
+            if args[0] == "print":
+                return FakeResult(0, "\tpid = 1\n", "")
+            if args[0] == "bootstrap":
+                attempts["n"] += 1
+                return FakeResult(0, "", "") if attempts["n"] > 1 else FakeResult(1, "", "boom")
+            return FakeResult(0, "", "")
+
+        service.run_launchctl = fake_bootstrap_fails_once
+        ok, msg = service.install(home=home)
+        check("service: install() reports failure when bootstrap fails", not ok, msg)
+        check("service: a failed reinstall still retries bootstrap with the restored plist",
+              attempts["n"] == 2)
+
+        calls.clear()
+
+        def fake_status(args):
+            calls.append(args)
+            return FakeResult(0, "\tpid = 4242\n\tlast exit code = 0\n", "")
+
+        service.run_launchctl = fake_status
+        st = service.status()
+        check("service: status() reports installed", st["installed"])
+        check("service: status() reports loaded from a fake `print`", st["loaded"])
+        check("service: status() parses the pid", st["pid"] == 4242)
+        check("service: status() parses the last exit code", st["last_exit_code"] == "0")
+
+        calls.clear()
+        service.run_launchctl = fake_ok
+        ok, msg = service.uninstall()
+        check("service: uninstall() reports success", ok, msg)
+        check("service: uninstall() removes the plist", not plist_file.exists())
+        check("service: uninstall() boots the job out", calls[0][0] == "bootout")
+    finally:
+        service.plist_path = orig_plist_path
+        service.run_launchctl = orig_runner
+
+
+def test_service_status_when_not_installed(home: Path) -> None:
+    home.mkdir(parents=True, exist_ok=True)
+    orig = service.plist_path
+    called = {"n": 0}
+
+    def must_not_run(args):
+        called["n"] += 1
+        raise AssertionError("run_launchctl called for an uninstalled service")
+
+    orig_runner = service.run_launchctl
+    try:
+        service.plist_path = lambda: home / "nope.plist"
+        service.run_launchctl = must_not_run
+        st = service.status()
+        check("service: status() skips launchctl when no plist exists",
+              not st["installed"] and not st["loaded"] and called["n"] == 0)
+    finally:
+        service.plist_path = orig
+        service.run_launchctl = orig_runner
+
+
+def test_service_supervisor_of(home: Path) -> None:
+    home.mkdir(parents=True, exist_ok=True)
+    orig = service.status
+    try:
+        service.status = lambda: {"installed": True, "loaded": True, "pid": 111,
+                                  "last_exit_code": "0"}
+        check("service: pid matches launchd -> supervised",
+              service.supervisor_of(111) == f"launchd ({service.LABEL})")
+        check("service: pid does not match launchd -> hand-started",
+              "hand-started" in service.supervisor_of(222))
+
+        service.status = lambda: {"installed": False, "loaded": False, "pid": None,
+                                  "last_exit_code": None}
+        check("service: no pid, no service -> not running",
+              service.supervisor_of(None) == "not running")
+
+        service.status = lambda: {"installed": True, "loaded": False, "pid": None,
+                                  "last_exit_code": None}
+        check("service: no pid, installed but unloaded -> says so",
+              "not loaded" in service.supervisor_of(None))
+    finally:
+        service.status = orig
+
+
+def test_service_crash_loop(home: Path) -> None:
+    home.mkdir(parents=True, exist_ok=True)
+    log = service.out_log(home)
+    log.parent.mkdir(parents=True, exist_ok=True)
+
+    now = time.localtime()
+
+    def stamp(seconds_ago: int) -> str:
+        t = time.localtime(time.mktime(now) - seconds_ago)
+        return time.strftime("%H:%M:%S", t)
+
+    # Four restarts inside a minute: a real crash loop.
+    lines = [f"[{stamp(s)}] daemon starting - reconciling" for s in (0, 15, 30, 45)]
+    log.write_text("\n".join(lines) + "\n")
+    check("service: four restarts in a minute is a crash loop",
+          service.crash_loop_detected(home, window_s=300, threshold=4))
+
+    # One startup line, long-running since: not a loop.
+    log.write_text(f"[{stamp(0)}] daemon starting - reconciling\n")
+    check("service: a single startup is not a crash loop",
+          not service.crash_loop_detected(home, window_s=300, threshold=4))
+
+    # Restarts, but spread across hours: not a loop.
+    lines = [f"[{stamp(s)}] daemon starting - reconciling" for s in (0, 3600, 7200, 10800)]
+    log.write_text("\n".join(lines) + "\n")
+    check("service: restarts spread across hours is not a crash loop",
+          not service.crash_loop_detected(home, window_s=300, threshold=4))
+
+    # The most likely real crash loop: a hand-started daemon holds the
+    # pidfile, launchd's copy exits at once every restart without ever
+    # reaching reconcile. It must still be visible to the detector.
+    lines = [f"[{stamp(s)}] daemon starting - already running (pid 1), exiting"
+             for s in (0, 15, 30, 45)]
+    log.write_text("\n".join(lines) + "\n")
+    check("service: repeated pidfile refusals are a crash loop too",
+          service.crash_loop_detected(home, window_s=300, threshold=4))
+
+
+def test_daemon_refusal_logs_through_the_same_path(home: Path) -> None:
+    """The pidfile refusal used to be a bare `print`, invisible to
+    crash_loop_detected. It must share the logger and the 'daemon starting'
+    wording every other startup line uses."""
+    import contextlib
+    import io
+
+    home.mkdir(parents=True, exist_ok=True)
+    os.environ["OCP_HOME"] = str(home)
+    orig = dmn.running_elsewhere
+    buf = io.StringIO()
+    try:
+        dmn.running_elsewhere = lambda: 999999999  # never our own pid
+        with contextlib.redirect_stdout(buf):
+            rc = dmn.run(once=True)
+    finally:
+        dmn.running_elsewhere = orig
+    out = buf.getvalue()
+    check("daemon: refuses when another pid holds the pidfile", rc == 1)
+    check("daemon: the refusal is logged, not printed bare",
+          "daemon starting - already running" in out, out)
+
+
+def test_service_log_rotation(tmp: Path) -> None:
+    tmp.mkdir(parents=True, exist_ok=True)
+    log = tmp / "daemon.out.log"
+    log.write_text("keep this line\n" * 100)
+    size_before = log.stat().st_size
+
+    check("service: rotate_log is a no-op below the size threshold",
+          not service.rotate_log(log, max_bytes=size_before + 1, backups=2))
+
+    rotated = service.rotate_log(log, max_bytes=size_before, backups=2)
+    check("service: rotate_log rotates once over threshold", rotated)
+    backup = log.with_name(f"{log.name}.1.gz")
+    check("service: rotate_log gzips the old content", backup.exists())
+    check("service: rotate_log truncates the live file in place", log.stat().st_size == 0)
+
+    import gzip as gzmod
+    with gzmod.open(backup, "rt") as f:
+        saved = f.read()
+    check("service: the rotated backup keeps the lines that explain the last incident",
+          "keep this line" in saved)
+
+    # A second rotation must not clobber the first backup - it shifts it down.
+    log.write_text("second incident\n" * 100)
+    service.rotate_log(log, max_bytes=size_before, backups=2)
+    backup2 = log.with_name(f"{log.name}.2.gz")
+    check("service: an older backup is kept, not overwritten", backup2.exists())
+    with gzmod.open(backup2, "rt") as f:
+        check("service: the shifted backup is the first incident, not the second",
+              "keep this line" in f.read())
+
+
+def test_doctor_service_check(home: Path) -> None:
+    home.mkdir(parents=True, exist_ok=True)
+    os.environ["OCP_HOME"] = str(home)
+    orig = service.status
+    orig_loop = service.crash_loop_detected
+    try:
+        service.status = lambda: {"installed": False, "loaded": False, "pid": None,
+                                  "last_exit_code": None}
+        r = doctor.Report()
+        doctor._check_service(r)
+        check("doctor: not-installed service warns when nothing is running",
+              r.rows[-1][0] == doctor.WARN)
+
+        # A human deliberately running it by hand is a working setup, not a
+        # defect - doctor's warnings are what we read to know something is
+        # actually wrong, so this must not be one of them.
+        dmn.write_pidfile()
+        r = doctor.Report()
+        doctor._check_service(r)
+        check("doctor: not-installed is fine when a daemon is running by hand",
+              r.rows[-1][0] == doctor.OK, str(r.rows[-1]))
+        paths.daemon_pid().unlink(missing_ok=True)
+
+        service.status = lambda: {"installed": True, "loaded": False, "pid": None,
+                                  "last_exit_code": None}
+        r = doctor.Report()
+        doctor._check_service(r)
+        check("doctor: installed-but-unloaded service fails",
+              r.rows[-1][0] == doctor.FAIL)
+
+        service.status = lambda: {"installed": True, "loaded": True, "pid": 5,
+                                  "last_exit_code": "0"}
+        service.crash_loop_detected = lambda: True
+        r = doctor.Report()
+        doctor._check_service(r)
+        check("doctor: a crash-looping service fails", r.rows[-1][0] == doctor.FAIL)
+
+        service.crash_loop_detected = lambda: False
+        r = doctor.Report()
+        doctor._check_service(r)
+        check("doctor: a healthy, loaded service is ok", r.rows[-1][0] == doctor.OK)
+    finally:
+        service.status = orig
+        service.crash_loop_detected = orig_loop
+
+
 # ---------------------------------------------------------------- drift
 def _mkrepo(path: Path) -> None:
     path.mkdir(parents=True, exist_ok=True)
@@ -1644,6 +1946,41 @@ def test_wake_without_a_closed_session_uses_the_handoff(home: Path) -> None:
               not any("launch" in t for t in sent), str(sent))
     finally:
         orcamod.alive, orcamod.available, orcamod.send = real
+        con.close()
+
+
+def test_reconcile_does_not_clear_closed_at_on_a_failed_wake(home: Path) -> None:
+    """QUEUED with closed_at set is ambiguous, so reconcile leaves it alone.
+
+    A wake interrupted after relaunching but before its write, and a wake that
+    failed outright, leave the same two columns behind - and step 2's own
+    wake_agent produces the second one whenever a reboot's dead terminal cannot
+    be relaunched. Clearing on that shape gets the failure case backwards and
+    takes resume_session with it, which is the one thing a close must never
+    lose. Only a live witness, the process table, separates them.
+    """
+    _daemon_home(home, 20)
+    con = db.connect()
+    real = (orcamod.alive, orcamod.available)
+    try:
+        orcamod.available = lambda: True
+        orcamod.alive = lambda h: False  # the terminal a reboot leaves behind
+        db.set_terminal(con, "backend", "term_gone", "wt")
+        db.set_closed(con, "backend", "sess-1")
+        db.set_agent_state(con, "backend", dmn.PARKED, wake_at=int(time.time()) - 10,
+                           detail="parked and closed, daemon was down since")
+
+        logged: list[str] = []
+        dmn.reconcile(con, logged.append)
+        row = db.get_agent_state(con, "backend")
+        check("reconcile: step 2's own wake attempt is logged as failing",
+              any("could not wake at reconciliation" in m for m in logged), str(logged))
+        check("reconcile: closed_at survives a failed wake attempt",
+              row["closed_at"] is not None, str(dict(row)))
+        check("reconcile: resume_session survives it too - it is not repairable once gone",
+              row["resume_session"] == "sess-1", str(dict(row)))
+    finally:
+        orcamod.alive, orcamod.available = real
         con.close()
 
 
@@ -2363,6 +2700,52 @@ def test_a_park_that_was_also_closed_is_woken_without_being_judged(home: Path) -
         con.close()
 
 
+def test_reconcile_wakes_a_park_that_was_also_closed(home: Path) -> None:
+    """The case above is proven through tick(), but a daemon that was down
+    across the whole window - which is the case launchd exists for, not the
+    exception - meets this agent at startup, in reconcile(), not in a later
+    tick. Before this fix, reconcile's own due_agents step set state to
+    QUEUED and cleared wake_at, which is exactly what disarms the wake_at
+    branch in supervise() that would otherwise have woken it - so a closed,
+    parked agent whose window rolled over while the daemon was dead came back
+    QUEUED and stayed that way, forever, with no session and no path left
+    that will ever relaunch it."""
+    _daemon_home(home, 20)
+    con = db.connect()
+    sent: list[str] = []
+    real = (orcamod.alive, orcamod.wait_idle, orcamod.idle_now, orcamod.send,
+            orcamod.available, orcamod.clear_context)
+    try:
+        orcamod.available = lambda: True
+        orcamod.alive = lambda h: True
+        orcamod.wait_idle = lambda h, timeout_ms=0: True
+        orcamod.idle_now = lambda h: True
+        orcamod.clear_context = lambda h, wait=True, timeout_ms=0: (True, "context cleared")
+        orcamod.send = lambda h, text, enter=True: (sent.append(text), (True, ""))[1]
+        db.set_terminal(con, "backend", "term_x", "wt")
+        (home / "agents" / "backend").mkdir(parents=True, exist_ok=True)
+        (home / "agents" / "backend" / "status.json").write_text(json.dumps({
+            "account": "alpha", "collected_at": int(time.time()),
+            "session_id": "sess-9", "pct_5h": 20}))
+        dmn.close_agent(con, "backend", lambda _m: None,
+                        status.read_for_agent("backend", "alpha"))
+        db.set_agent_state(con, "backend", dmn.PARKED, wake_at=int(time.time()) - 10,
+                           detail="parked and closed, daemon was down since")
+
+        sent.clear()
+        dmn.reconcile(con, lambda _m: None)
+        row = db.get_agent_state(con, "backend")
+        check("reconcile: a closed, due park is relaunched at startup, not left QUEUED",
+              any("--resume sess-9" in t for t in sent), str(sent))
+        check("reconcile: closed_at is cleared, not stuck behind a nulled wake_at",
+              row["closed_at"] is None, str(dict(row)))
+        check("reconcile: triggers apply to it again", dmn.triggers_apply(row))
+    finally:
+        (orcamod.alive, orcamod.wait_idle, orcamod.idle_now, orcamod.send,
+         orcamod.available, orcamod.clear_context) = real
+        con.close()
+
+
 def test_a_wake_does_not_call_a_fresh_start_a_park(home: Path) -> None:
     """Closing writes no handoff, because closing is not a handoff. Telling an
     agent that could not be resumed "your context was cleared, below is your own
@@ -2872,10 +3255,19 @@ def main() -> int:
         test_db_dedup_only_swallows_dedup(Path(td) / 'strict')
         test_agent_rewrite_uses_parser(Path(td) / 'rw')
         test_daemon_pidfile(Path(td) / 'd6')
+        test_service_plist(Path(td) / 'svc1')
+        test_service_launchctl_gated(Path(td) / 'svc2')
+        test_service_status_when_not_installed(Path(td) / 'svc3')
+        test_service_supervisor_of(Path(td) / 'svc4')
+        test_service_crash_loop(Path(td) / 'svc5')
+        test_daemon_refusal_logs_through_the_same_path(Path(td) / 'svc5b')
+        test_service_log_rotation(Path(td) / 'svc6')
+        test_doctor_service_check(Path(td) / 'svc7')
         test_drift(Path(td) / 'drift')
         test_spawn_base_selection(Path(td) / 'spawn')
         test_idle_session_is_closed_and_resumed(Path(td) / 'idle')
         test_wake_without_a_closed_session_uses_the_handoff(Path(td) / 'wakeh')
+        test_reconcile_does_not_clear_closed_at_on_a_failed_wake(Path(td) / 'crashwake')
         test_work_arriving_wakes_a_closed_agent(Path(td) / 'wakework')
         test_a_running_agent_is_told_when_work_arrives(Path(td) / 'deliver')
         test_carry_bounds_and_losses(Path(td) / 'carry')
@@ -2894,6 +3286,7 @@ def main() -> int:
         test_a_woken_agent_is_told_on_the_following_tick(Path(td) / 'woketick')
         test_a_woken_agent_is_not_judged_on_the_snapshot_it_left(Path(td) / 'wakejudge')
         test_a_park_that_was_also_closed_is_woken_without_being_judged(Path(td) / 'pclosed')
+        test_reconcile_wakes_a_park_that_was_also_closed(Path(td) / 'pclosed2')
         test_a_wake_does_not_call_a_fresh_start_a_park(Path(td) / 'freshstart')
         test_who_is_asking_is_not_guessed(Path(td) / 'whoasks')
         test_a_rejected_fold_still_records_what_it_spent(Path(td) / 'spend')

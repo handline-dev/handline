@@ -30,7 +30,7 @@ import time
 import uuid
 from dataclasses import dataclass
 
-from . import agents, db, fold as foldmod, launch, orca, paths, status, triggers
+from . import agents, db, fold as foldmod, launch, orca, paths, service, status, triggers
 
 # Section 8.2 states.
 IDLE, QUEUED, RUNNING, DONE = "IDLE", "QUEUED", "RUNNING", "DONE"
@@ -438,6 +438,16 @@ def reconcile(con, log) -> list[str]:
             db.set_agent_state(con, agent, QUEUED, wake_at=None,
                                detail=f"woke from {row['state']} at reconciliation")
             actions.append(f"{agent}: {row['state']} -> QUEUED (wake_at was {row['wake_at']})")
+            # A closed agent has no session left to notice its own wake_at -
+            # the wake_at branch in supervise() is what would normally call
+            # this, and it needs wake_at still set to run, which the line
+            # above just cleared. Without waking it here, a park that was
+            # also closed comes back from every restart QUEUED forever, with
+            # nothing left that will ever relaunch it.
+            if row["closed_at"]:
+                ok, why = wake_agent(con, agent, log)
+                actions.append(f"{agent}: woken at reconciliation" if ok
+                               else f"{agent}: could not wake at reconciliation - {why}")
 
     # 3. Agents we know about but have no state row for.
     known = set(paths.list_agents())
@@ -731,7 +741,12 @@ def run(once: bool = False, use_model: bool = True, verbose: bool = True,
 
     other = running_elsewhere()
     if other and other != os.getpid():
-        print(f"a daemon is already running (pid {other})")
+        # Through the same logger as every other startup line, and sharing its
+        # "daemon starting" wording, so a launchd job that respawns into this
+        # refusal every ThrottleInterval is still visible to crash_loop_detected
+        # - a silent `print` here is what a launchd-driven crash loop looks like
+        # from the outside: healthy on every check, dead the whole time.
+        log(f"daemon starting - already running (pid {other}), exiting")
         return 1
     write_pidfile()
 
@@ -757,6 +772,14 @@ def run(once: bool = False, use_model: bool = True, verbose: bool = True,
         while not stopping["now"]:
             t = tick(con, log, use_model=use_model, samples=samples)
             ticks += 1
+            # A supervisor that runs for weeks must not fill the disk. Cheap
+            # when under threshold: two stat() calls and nothing else. Caught
+            # separately so a rotation failure (e.g. a full disk) degrades
+            # logging rather than taking the whole daemon down with it.
+            try:
+                service.rotate_logs()
+            except OSError as e:
+                log(f"log rotation failed: {e}")
             if once or (max_ticks and ticks >= max_ticks):
                 break
             # The hottest account sets the pace, not the quietest: min() here
