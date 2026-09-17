@@ -294,8 +294,8 @@ def build(width: int, sel: dict | None = None) -> tuple[list[str], list[Panel]]:
         parked = sum(1 for m in waiting if m["waiting"] and not m["gate"])
         title = "FOR YOU"
         if waiting:
-            title += (f" — {gates} need you to decide, {parked} sender(s) parked "
-                      f"for a reply, {len(waiting) - gates - parked} to read")
+            title += (f" — {gates} to decide, {parked} asked for a reply, "
+                      f"{len(waiting) - gates - parked} to read")
         ms = Panel(title, width)
         ms.selected = sel.get(MESSAGES)
         for m in waiting:

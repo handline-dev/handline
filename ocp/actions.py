@@ -124,11 +124,12 @@ def messages(con) -> list[dict]:
     out = []
     for r in rows:
         m = dict(r)
-        # Two different facts, both recorded by the routing at ask time. A gate
-        # is a decision the design says only a human makes. A parked sender is
-        # an agent that stopped until this is answered - it may be the same
-        # message, and it may not: an answer to something the machine asked for
-        # parks its sender too.
+        # Two facts, both recorded by the routing when the request was made. A
+        # gate is a decision the design says only a human makes. `waiting` says
+        # the sender asked for a reply and parked on it - which is what it did
+        # at the time; whether it is still parked now is the agent's own state,
+        # and the screen says what the row records rather than reading one as
+        # the other.
         m["gate"] = m["kind"] == "escalate"
         m["waiting"] = m["response"] == "async"
         m["blocking"] = m["gate"] or m["waiting"]
