@@ -19,7 +19,7 @@ import subprocess
 import time
 from pathlib import Path
 
-from . import agents, db, launch
+from . import agents, db, launch, orca
 
 # How long to wait for the agent to be ready, and then for its own hook to
 # confirm it got the first task. One number: they describe the same patience,
@@ -151,10 +151,10 @@ def spawn(agent: str, repo: Path, base: str = "main", prompt: str | None = None,
         finally:
             con.close()
         # An Orca without this wait would no-op silently and we would type into
-        # a booting TUI - the exact bug this exists to stop, restored.
-        waited, _ = _run(["orca", "terminal", "wait", "--terminal", handle,
-                          "--for", "tui-idle", "--timeout-ms", str(SUBMIT_WAIT_S * 1000)])
-        if not waited:
+        # a booting TUI - the exact bug this exists to stop, restored. Asked
+        # through orca.wait_idle rather than run here: a zero exit only says the
+        # wait command ran, and `result.wait.satisfied` is the answer.
+        if not orca.wait_idle(handle, SUBMIT_WAIT_S * 1000):
             lines.append("  WARNING: could not wait for the agent to be ready; "
                          "the first task may have been typed into a booting TUI")
         _run(["orca", "terminal", "send", "--terminal", handle,

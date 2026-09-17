@@ -217,6 +217,7 @@ def fold(agent: str, use_model: bool = True, model: str = "haiku",
         top = events[-1]["id"]
         candidate = ""
         used_model = False
+        acct = None
         if use_model:
             acct = fold_account or _cheapest_account()
             if acct:
@@ -236,7 +237,7 @@ def fold(agent: str, use_model: bool = True, model: str = "haiku",
             # check that stops a fold from dropping completed work.
             had_content = any(previous.items(k) for k in digest.SECTION_KEYS)
             valid, problems = digest.validate(candidate, previous if had_content else None,
-                                          header_is_stamped=True)
+                                              header_is_stamped=True)
         else:
             valid, problems = False, [reason]
 
@@ -246,7 +247,14 @@ def fold(agent: str, use_model: bool = True, model: str = "haiku",
             degraded = _degraded(agent, previous, events, day, facts)
             _publish(agent, jpath, degraded, commit_msg=f"fold {agent} {day} (degraded)")
             _write_handoff(agent, digest.parse(degraded), facts, repo=repo)
-            db.add_event(con, agent, "fold_failed", {"problems": problems, "cursor": cursor})
+            # A rejected fold spent exactly what an accepted one spends, and
+            # these events are the only record that the account was charged -
+            # so leaving the account off here made the spend reconstructable
+            # for the folds that worked and blank for the ones that went wrong.
+            db.add_event(con, agent, "fold_failed",
+                         {"problems": problems, "cursor": cursor,
+                          "model": model if used_model else None,
+                          "account": acct})
             return False, (f"{agent}: fold rejected, kept the previous digest and left the "
                            f"cursor at {cursor}. Reason: {'; '.join(problems)[:300]}")
 

@@ -249,18 +249,32 @@ def should_close(con, agent: str, state: str, row, now: int) -> bool:
     return (now - last) >= IDLE_CLOSE_S
 
 
-def close_agent(con, agent: str, log) -> tuple[bool, str]:
+def triggers_apply(row) -> bool:
+    """Would the daemon act on this agent's triggers at all?
+
+    A closed agent has no session to hand off, and closing is precisely what
+    makes it look like one that needs handing off: its status line stops, so the
+    snapshot goes stale and usage_unknown fires. Every screen asks this too -
+    drawing a warning the daemon will never act on is the dashboard arguing with
+    the daemon.
+    """
+    return not (row and row["closed_at"])
+
+
+def close_agent(con, agent: str, log, account: str | None = None) -> tuple[bool, str]:
     """Give the machine back an idle agent's memory, keeping its terminal.
 
     This is not a handoff: nothing is folded and no context is reclaimed,
     because there is nothing wrong with this agent's context - it is simply
     not being used. The session id is recorded so waking can resume that same
-    session rather than starting a stranger in its place.
+    session rather than starting a stranger in its place; when the agent's own
+    snapshot cannot supply one, none is recorded and waking starts a fresh
+    session, which is the safe direction.
     """
     handle = db.get_terminal(con, agent)
     if not handle or not orca.available():
         return False, "no terminal to close"
-    st = status.read_for_agent(agent, agents.account_of(agent))
+    st = status.read_for_agent(agent, account or agents.account_of(agent))
     ok, why = orca.close_session(handle)
     if not ok:
         return False, why
@@ -505,6 +519,124 @@ def perform_handoff(con, agent: str, trigger: triggers.Trigger, log,
 
 
 # ---------------------------------------------------------------- tick
+def supervise(con, agent: str, log, now: int, samples: dict,
+              use_model: bool, actions: list[str]) -> None:
+    """One agent's turn in a tick.
+
+    Its own function so that the whole of it - three calls out to Orca among
+    them - sits inside the single try in `tick` that treats a failure as this
+    agent's failure.
+    """
+    row = db.get_agent_state(con, agent)
+    state = row["state"] if row else IDLE
+
+    if state == STALLED:
+        return  # 8.6: only a human clears this
+    if state not in EVALUATED:
+        return
+
+    # An agent mid-handoff is excluded from trigger evaluation (8.9).
+    if db.in_flight_for(con, agent):
+        return
+
+    acct = agents.account_of(agent)
+    st = status.read_for_agent(agent, acct)
+
+    # Wake anything whose deadline has come due, whatever its state.
+    if row and row["wake_at"] and row["wake_at"] <= now and \
+            state in (PARKED, THROTTLED, DEGRADED):
+        # The streak is NOT cleared here. Waking is the normal end of every
+        # park, so resetting on wake pinned throttle_count at 1 and made
+        # the escalation in 8.6 unreachable. It is cleared by a handoff
+        # that actually succeeds.
+        db.set_agent_state(con, agent, QUEUED, wake_at=None, detail="wake_at reached")
+        actions.append(f"{agent}: {state} -> QUEUED (window rolled over)")
+        log(f"  {agent}: {state} -> QUEUED (window rolled over)")
+        wake_agent(con, agent, log)
+        state = QUEUED
+
+    # A closed session cannot read its own inbox, so the arrival of work is
+    # what has to bring it back. Without this an `ocp ask` queues into a
+    # terminal with nobody in it and waits forever, which is worse than the
+    # memory it was saving: reviewer sat closed with two requests pending.
+    woke_now = False
+    if row and row["closed_at"]:
+        waiting = db.queued_for(con, agent)
+        if waiting:
+            ok, why = wake_agent(con, agent, log)
+            actions.append(f"{agent}: woken for {len(waiting)} waiting request(s)"
+                           if ok else f"{agent}: could not wake - {why}")
+            if ok:
+                row = db.get_agent_state(con, agent)
+                woke_now = True
+
+    # Work that has arrived is delivered before anything else is decided:
+    # an agent that is about to be told it has work is not idle. An agent woken
+    # in this tick is told on the next one: it is still reading the prompt that
+    # brought it back, and typing at it now would leave the text in its input
+    # box unsent.
+    if state not in (RUNNING, HANDOFF) and not woke_now \
+            and not (row and row["closed_at"]):
+        deliver_queued(con, agent, log)
+
+    # Memory is the scarce resource on one laptop running a team, and an
+    # idle session spends it while earning nothing: it holds its context,
+    # costs no tokens, and answers no one. Closing it is not a handoff -
+    # nothing is folded, nothing is cleared - and waking it resumes the
+    # same session, so the only thing that changes is who has the memory.
+    if should_close(con, agent, state, row, now):
+        ok, _ = close_agent(con, agent, log, account=acct)
+        if ok:
+            actions.append(f"{agent}: session closed while idle")
+            row = db.get_agent_state(con, agent)
+
+    # Keep a short burn-rate history per account for the projection (8.1).
+    # Only a figure this payload actually reported may enter the burn
+    # history, stamped with when it was observed. A carried figure pairs an
+    # unchanging percentage with a collected_at that moves every tick: the
+    # buffer fills with flat samples, the measured rate falls to zero and
+    # usage_projected stops firing for an account that was climbing.
+    hist = samples.setdefault(acct, [])
+    if st.pct_5h_source == "live" and st.pct_5h is not None and st.rl_at:
+        if not hist or hist[-1][0] != st.rl_at:
+            hist.append((st.rl_at, st.pct_5h))
+            del hist[:-10]
+    burn = triggers.burn_rate_per_s(hist)
+
+    if state in (PARKED, THROTTLED, DEGRADED):
+        return  # waiting on wake_at, already handled above
+
+    # What sits at the other end of a closed agent is a shell prompt, and a
+    # handoff document is full of backticks - handing one off would pay for a
+    # fold and then type command substitutions at bash. `should_close` is
+    # careful about four states; this needs the same care about one.
+    if not triggers_apply(row):
+        return
+
+    # trusted_* is None only when we genuinely do not know: no snapshot, or
+    # one too old to believe. A frozen status.json keeps reporting its last
+    # value forever, and believing it is the same failure as reading a null
+    # as 0 - the trigger would simply never fire again after the collector
+    # died. An account whose window is merely quiet reads as 0, not as
+    # unknown, so an idle agent is left alone instead of handed off.
+    t = triggers.evaluate(st.trusted_pct_5h, st.trusted_ctx_pct, burn=burn)
+    if t.fired:
+        ok = perform_handoff(con, agent, t, log, use_model=use_model)
+        actions.append(f"{agent}: handoff ({t.kind}){'' if ok else ' -> degraded'}")
+
+        fresh = db.get_agent_state(con, agent)
+        if fresh and fresh["throttle_count"] >= MAX_THROTTLE_STREAK:
+            # 8.6: escalate only after repeated automatic recovery failed.
+            db.set_agent_state(con, agent, STALLED,
+                               detail=f"{fresh['throttle_count']} consecutive degraded handoffs")
+            actions.append(f"{agent}: STALLED after {fresh['throttle_count']} degraded handoffs")
+            log(f"  {agent}: STALLED - needs a human")
+        elif fresh and fresh["failed_attempts"] >= MAX_FAILED_ATTEMPTS:
+            db.set_agent_state(con, agent, STALLED,
+                               detail=f"{fresh['failed_attempts']} failed attempts")
+            actions.append(f"{agent}: STALLED after {fresh['failed_attempts']} failed attempts")
+
+
 _last_rollover_day = {"day": ""}
 
 
@@ -530,25 +662,14 @@ def tick(con, log, use_model: bool = True, samples: dict | None = None) -> Tick:
     _last_rollover_day["day"] = day
 
     for agent in paths.list_agents():
-        row = db.get_agent_state(con, agent)
-        state = row["state"] if row else IDLE
-
-        if state == STALLED:
-            continue  # 8.6: only a human clears this
-        if state not in EVALUATED:
-            continue
-
-        # An agent mid-handoff is excluded from trigger evaluation (8.9).
-        if db.in_flight_for(con, agent):
-            continue
-
         try:
-            acct = agents.account_of(agent)
-            st = status.read_for_agent(agent, acct)
+            supervise(con, agent, log, now, samples, use_model, actions)
         except Exception as e:  # noqa: BLE001
             # A real failure, not a resource shortage: bad config, unreadable
-            # status. This is what failed_attempts counts (8.5), and it is
-            # capped, unlike continuations.
+            # status, an Orca call that raised. This is what failed_attempts
+            # counts (8.5), and it is capped, unlike continuations. Catching it
+            # per agent is the point - supervising one agent is not allowed to
+            # end supervision of every agent after it in the list.
             db.bump_counter(con, agent, "failed_attempts")
             fresh = db.get_agent_state(con, agent)
             actions.append(f"{agent}: error: {e}")
@@ -557,87 +678,6 @@ def tick(con, log, use_model: bool = True, samples: dict | None = None) -> Tick:
                 db.set_agent_state(con, agent, STALLED,
                                    detail=f"{fresh['failed_attempts']} failed attempts: {e}")
                 log(f"  {agent}: STALLED after {fresh['failed_attempts']} failed attempts")
-            continue
-
-        # Wake anything whose deadline has come due, whatever its state.
-        if row and row["wake_at"] and row["wake_at"] <= now and \
-                state in (PARKED, THROTTLED, DEGRADED):
-            # The streak is NOT cleared here. Waking is the normal end of every
-            # park, so resetting on wake pinned throttle_count at 1 and made
-            # the escalation in 8.6 unreachable. It is cleared by a handoff
-            # that actually succeeds.
-            db.set_agent_state(con, agent, QUEUED, wake_at=None, detail="wake_at reached")
-            actions.append(f"{agent}: {state} -> QUEUED (window rolled over)")
-            log(f"  {agent}: {state} -> QUEUED (window rolled over)")
-            wake_agent(con, agent, log)
-            state = QUEUED
-
-        # A closed session cannot read its own inbox, so the arrival of work is
-        # what has to bring it back. Without this an `ocp ask` queues into a
-        # terminal with nobody in it and waits forever, which is worse than the
-        # memory it was saving: reviewer sat closed with two requests pending.
-        if row and row["closed_at"]:
-            waiting = db.queued_for(con, agent)
-            if waiting:
-                ok, why = wake_agent(con, agent, log)
-                actions.append(f"{agent}: woken for {len(waiting)} waiting request(s)"
-                               if ok else f"{agent}: could not wake - {why}")
-                if ok:
-                    row = db.get_agent_state(con, agent)
-
-        # Work that has arrived is delivered before anything else is decided:
-        # an agent that is about to be told it has work is not idle.
-        if state not in (RUNNING, HANDOFF) and not (row and row["closed_at"]):
-            deliver_queued(con, agent, log)
-
-        # Memory is the scarce resource on one laptop running a team, and an
-        # idle session spends it while earning nothing: it holds its context,
-        # costs no tokens, and answers no one. Closing it is not a handoff -
-        # nothing is folded, nothing is cleared - and waking it resumes the
-        # same session, so the only thing that changes is who has the memory.
-        if should_close(con, agent, state, row, now):
-            ok, _ = close_agent(con, agent, log)
-            if ok:
-                actions.append(f"{agent}: session closed while idle")
-
-        # Keep a short burn-rate history per account for the projection (8.1).
-        # Only a figure this payload actually reported may enter the burn
-        # history, stamped with when it was observed. A carried figure pairs an
-        # unchanging percentage with a collected_at that moves every tick: the
-        # buffer fills with flat samples, the measured rate falls to zero and
-        # usage_projected stops firing for an account that was climbing.
-        hist = samples.setdefault(acct, [])
-        if st.pct_5h_source == "live" and st.pct_5h is not None and st.rl_at:
-            if not hist or hist[-1][0] != st.rl_at:
-                hist.append((st.rl_at, st.pct_5h))
-                del hist[:-10]
-        burn = triggers.burn_rate_per_s(hist)
-
-        if state in (PARKED, THROTTLED, DEGRADED):
-            continue  # waiting on wake_at, already handled above
-
-        # trusted_* is None only when we genuinely do not know: no snapshot, or
-        # one too old to believe. A frozen status.json keeps reporting its last
-        # value forever, and believing it is the same failure as reading a null
-        # as 0 - the trigger would simply never fire again after the collector
-        # died. An account whose window is merely quiet reads as 0, not as
-        # unknown, so an idle agent is left alone instead of handed off.
-        t = triggers.evaluate(st.trusted_pct_5h, st.trusted_ctx_pct, burn=burn)
-        if t.fired:
-            ok = perform_handoff(con, agent, t, log, use_model=use_model)
-            actions.append(f"{agent}: handoff ({t.kind}){'' if ok else ' -> degraded'}")
-
-            fresh = db.get_agent_state(con, agent)
-            if fresh and fresh["throttle_count"] >= MAX_THROTTLE_STREAK:
-                # 8.6: escalate only after repeated automatic recovery failed.
-                db.set_agent_state(con, agent, STALLED,
-                                   detail=f"{fresh['throttle_count']} consecutive degraded handoffs")
-                actions.append(f"{agent}: STALLED after {fresh['throttle_count']} degraded handoffs")
-                log(f"  {agent}: STALLED - needs a human")
-            elif fresh and fresh["failed_attempts"] >= MAX_FAILED_ATTEMPTS:
-                db.set_agent_state(con, agent, STALLED,
-                                   detail=f"{fresh['failed_attempts']} failed attempts")
-                actions.append(f"{agent}: STALLED after {fresh['failed_attempts']} failed attempts")
 
     return Tick(now, actions)
 

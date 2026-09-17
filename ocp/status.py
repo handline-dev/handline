@@ -116,9 +116,11 @@ class AccountStatus:
     rl7_at: int | None = None
     rl7_carried: bool = False
     rl7_lost: bool = False
+    # Which session this reading came from, and where that session's own record
+    # lives. Both belong to the session, so read_for_agent carries the agent's
+    # own or nothing - never the account file's, which is whichever agent on
+    # this account rendered last.
     session_id: str | None = None
-    # Where this session's own record lives. It belongs to the session, so
-    # read_for_agent carries the agent's, never the account file's.
     transcript_path: str | None = None
     model_id: str | None = None
     collected_at: int | None = None
@@ -313,9 +315,17 @@ def read_for_agent(agent: str, account: str) -> AccountStatus:
         return acct_status
     own = read(account, agent_file)
     if own.error or own.stale:
-        # Its own snapshot is unusable, so context is unknown rather than
-        # borrowed from whatever else last wrote the account file.
+        # Its own snapshot is unusable, so these are unknown rather than
+        # borrowed from whatever else last wrote the account file. This is not
+        # an edge: nothing refreshes an agent's status file while its session is
+        # closed, so by wake time its own snapshot is older than STALE_AFTER_S
+        # by construction - and the account file then belongs to whichever other
+        # agent is live on the account. Carrying its session id through here
+        # told a woken agent to grep a stranger's transcript, in a stranger's
+        # repository, in a system whose whole premise is per-agent isolation.
         acct_status.ctx_pct = None
+        acct_status.session_id = None
+        acct_status.transcript_path = None
         return acct_status
     acct_status.ctx_pct = own.ctx_pct
     acct_status.session_id = own.session_id

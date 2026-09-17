@@ -350,20 +350,28 @@ def cmd_unstall(args) -> int:
 def cmd_triggers(args) -> int:
     """Show what the daemon would decide right now, without acting."""
     print(f"{'AGENT':<14}{'ACCT':<10}{'5h':>5}{'ctx':>5}  FIRES  REASON")
-    for a in paths.list_agents():
-        try:
-            acct = agents.account_of(a)
-        except Exception as e:  # noqa: BLE001
-            print(f"{a:<14} config error: {e}")
-            continue
-        st = status.read_for_agent(a, acct)
-        t = triggers.evaluate(st.trusted_pct_5h, st.trusted_ctx_pct)
-        cell = lambda v: "  -" if v is None else f"{v:>3}"  # noqa: E731
-        # The figure the trigger used, not the raw one: a column saying "-"
-        # beside a reason saying "0%" is the dashboard arguing with the daemon.
-        five = f"{cell(st.trusted_pct_5h)}{status.mark(st.pct_5h_source)}"
-        print(f"{a:<14}{acct:<10}{five:>5}{cell(st.ctx_pct):>5}  "
-              f"{'YES' if t.fired else 'no ':<6} {t.reason}")
+    con = db.connect()
+    try:
+        for a in paths.list_agents():
+            try:
+                acct = agents.account_of(a)
+            except Exception as e:  # noqa: BLE001
+                print(f"{a:<14} config error: {e}")
+                continue
+            st = status.read_for_agent(a, acct)
+            t = triggers.evaluate(st.trusted_pct_5h, st.trusted_ctx_pct)
+            cell = lambda v: "  -" if v is None else f"{v:>3}"  # noqa: E731
+            # The figure the trigger used, not the raw one: a column saying "-"
+            # beside a reason saying "0%" is the dashboard arguing with the daemon.
+            five = f"{cell(st.trusted_pct_5h)}{status.mark(st.pct_5h_source)}"
+            if daemonmod.triggers_apply(db.get_agent_state(con, a)):
+                fires, reason = "YES" if t.fired else "no ", t.reason
+            else:
+                fires, reason = "no ", "session closed; nothing to hand off"
+            print(f"{a:<14}{acct:<10}{five:>5}{cell(st.ctx_pct):>5}  "
+                  f"{fires:<6} {reason}")
+    finally:
+        con.close()
     print("  " + status.SOURCE_LEGEND)
     return 0
 
@@ -527,7 +535,11 @@ def cmd_ask(args) -> int:
 
 
 def cmd_inbox(args) -> int:
-    agent = args.agent or askmod.current_agent()
+    agent = args.agent or askmod.asking_agent()
+    if not agent:
+        print("cannot tell whose inbox this is: OCP_AGENT is unset and this is not "
+              "an interactive shell. Name the agent.")
+        return 1
     rows = askmod.inbox(agent, unread_only=not args.all)
     if not rows:
         print(f"{agent}: inbox empty")
@@ -619,7 +631,9 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("target")
     p.add_argument("body")
     p.add_argument("--files", default=None, help="comma-separated paths")
-    p.add_argument("--of", default=None, help="requester (defaults to $OCP_AGENT)")
+    p.add_argument("--of", default=None,
+                   help="requester (defaults to $OCP_AGENT, or to the orchestrator "
+                        "when a human types this at a terminal)")
     p.add_argument("--parent", type=int, default=None, help="parent request id, for chain depth")
     p.add_argument("--mergeable", action="store_true",
                    help="fold into an already-queued ask to the same target")

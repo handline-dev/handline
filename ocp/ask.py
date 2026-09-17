@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import json
 import os
+import sys
 import time
 from pathlib import Path
 
@@ -39,14 +40,27 @@ REVIEW_PINGPONG_LIMIT = 3
 
 
 # Who a shell with no OCP_AGENT belongs to. Every agent's terminal has it set,
-# because `ocp launch` sets it before exec'ing claude - so an unset one is a
-# human at their own prompt, and that is who the orchestrator is.
+# because `ocp launch` sets it before exec'ing claude - so an interactive shell
+# without it is a human at their own prompt, and that is who the orchestrator is.
 HUMAN = "orchestrator"
 
 
 def current_agent() -> str | None:
-    """Who is asking. Set by `ocp launch` when it execs claude."""
-    return os.environ.get("OCP_AGENT") or HUMAN
+    """Who is asking, or None when nothing says. Set by `ocp launch`."""
+    return os.environ.get("OCP_AGENT") or None
+
+
+def asking_agent() -> str | None:
+    """current_agent(), reading a human at their own prompt as the orchestrator.
+
+    Only the commands a human types may make that assumption. "I cannot tell
+    who you are" and "you are the orchestrator" are not the same answer - the
+    orchestrator is the escalation target and the most privileged node in the
+    routing table, so handing it to any process that merely lost the variable
+    is a fail-open. A human has a terminal; a script that dropped its
+    environment does not, and it gets the refusal it used to get.
+    """
+    return current_agent() or (HUMAN if sys.stdin.isatty() else None)
 
 
 def _terminal(con, agent: str) -> bool:
@@ -166,10 +180,12 @@ def _merge_into_queued(con, requester: str, target: str, body: str,
 def ask(target: str, body: str, files: str | None = None, requester: str | None = None,
         parent_id: int | None = None, mergeable: bool = False) -> tuple[bool, str, int | None]:
     """Route and, if allowed, enqueue. Returns (allowed, message, request id)."""
-    requester = requester or current_agent()
+    requester = requester or asking_agent()
     if not requester:
-        return False, ("cannot tell who is asking: OCP_AGENT is unset. "
-                       "Agents are started with `ocp launch <agent>`, which sets it."), None
+        return False, ("cannot tell who is asking: OCP_AGENT is unset and this is "
+                       "not an interactive shell. Agents are started with "
+                       "`ocp launch <agent>`, which sets it; otherwise say who "
+                       "is asking with --of."), None
 
     t = team.Team.load()
     con = db.connect()

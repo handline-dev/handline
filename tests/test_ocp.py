@@ -1928,6 +1928,65 @@ def test_fold_is_not_rejected_over_a_header_it_overwrites(home: Path) -> None:
     check("digest: but not for the caller that stamps it", ok, str(problems))
 
 
+def test_a_rejected_fold_still_records_what_it_spent(home: Path) -> None:
+    """A fold is the one spender no status line observes, so these events are
+    the only record that the account was charged. A fold that ran the model and
+    was then rejected spent exactly what an accepted one spends, so leaving the
+    account off the failure made the spend reconstructable for the folds that
+    worked and blank for the ones that went wrong."""
+    home.mkdir(parents=True, exist_ok=True)
+    os.environ["OCP_HOME"] = str(home)
+    agents.register("spender", "alpha")
+    con = db.connect()
+    real = foldmod.run_model
+    try:
+        db.add_event(con, "spender", "UserPromptSubmit", {"prompt": "do the thing"})
+        foldmod.run_model = lambda prompt, acct, model: (True, "not a digest at all")
+        ok, msg = foldmod.fold("spender", use_model=True, fold_account="alpha")
+        check("fold: an unusable answer is rejected", not ok, msg)
+        rows = [r for r in db.latest_events(con, agent="spender", limit=20)
+                if r["kind"] == "fold_failed"]
+        check("fold: and the rejection is recorded", len(rows) == 1, str(len(rows)))
+        payload = json.loads(rows[-1]["payload"])
+        check("fold: naming the account that was charged for it",
+              payload.get("account") == "alpha", str(payload))
+        check("fold: and the model that charged it",
+              payload.get("model") == "haiku", str(payload))
+    finally:
+        foldmod.run_model = real
+        con.close()
+
+
+def test_one_agents_bad_tick_is_not_everyones(home: Path) -> None:
+    """Supervising an agent shells out to Orca three times. An exception in any
+    of it used to end the tick, so every agent after it in the list went
+    unsupervised with nothing saying so."""
+    _daemon_home(home, 95)
+    agents.register("zzlater", "alpha")
+    con = db.connect()
+    real = dmn.supervise
+    try:
+        def explode(con_, agent, *a, **k):
+            if agent == "backend":
+                raise RuntimeError("orca fell over")
+            return real(con_, agent, *a, **k)
+
+        dmn.supervise = explode
+        t = dmn.tick(con, lambda _m: None, use_model=False)
+        check("tick: the failure is reported against the agent that had it",
+              any("backend: error" in a for a in t.actions), str(t.actions))
+        check("tick: and it counts as a failed attempt",
+              db.get_agent_state(con, "backend")["failed_attempts"] == 1,
+              str(dict(db.get_agent_state(con, "backend"))))
+        check("tick: the agents after it are still supervised",
+              db.get_agent_state(con, "zzlater") is not None
+              and db.get_agent_state(con, "zzlater")["state"] == dmn.PARKED,
+              str(dict(db.get_agent_state(con, "zzlater") or {})))
+    finally:
+        dmn.supervise = real
+        con.close()
+
+
 def test_display_agrees_with_the_daemon(home: Path) -> None:
     """Every screen draws the figure the daemon acts on, with its provenance.
 
@@ -1975,6 +2034,248 @@ def test_spawn_confirms_the_task_landed(home: Path) -> None:
               spawnmod.prompt_landed("scout", since, timeout_s=0) is True)
     finally:
         con.close()
+
+
+def test_spawn_survives_its_own_main_path(home: Path) -> None:
+    """`ocp spawn <agent> --prompt "..."` is the command's main path, and it
+    raised there - after the worktree and the terminal were already made, so it
+    left a real worktree and a live terminal with no task in it. Nothing drove
+    spawn() past terminal-create, so the suite walked around the crash."""
+    os.environ["OCP_HOME"] = str(home)
+    home.mkdir(parents=True, exist_ok=True)
+    agents.register("spawny", "alpha")
+
+    calls: list[list[str]] = []
+
+    def fake_run(args, cwd=None):
+        calls.append(args)
+        if args[:3] == ["orca", "worktree", "create"]:
+            return 0, json.dumps({"result": {"worktree": {"path": "/tmp/wt"}}}), ""
+        if args[:3] == ["orca", "terminal", "create"]:
+            return 0, json.dumps({"result": {"terminal": {"handle": "term_s"}}}), ""
+        return 0, "", ""
+
+    real = (spawnmod._run, spawnmod.prompt_landed, orcamod.wait_idle, spawnmod.shutil.which)
+    try:
+        spawnmod.shutil.which = lambda _n: "/usr/bin/orca"
+        spawnmod._run = fake_run
+        spawnmod.prompt_landed = lambda agent, since, timeout_s=0: True
+        orcamod.wait_idle = lambda h, timeout_ms=0: True
+
+        ok, msg = spawnmod.spawn("spawny", ROOT, base="main", prompt="do the thing")
+        check("spawn: the command's main path runs to the end", ok, msg)
+        check("spawn: and the task is actually sent",
+              any(a[:3] == ["orca", "terminal", "send"] for a in calls), str(calls))
+        check("spawn: a ready agent draws no warning", "WARNING" not in msg, msg)
+
+        # The wait is the guard against typing into a booting TUI, so its
+        # answer must read the right way round: it warned on success and was
+        # silent on failure, which is worse than not warning at all.
+        orcamod.wait_idle = lambda h, timeout_ms=0: False
+        calls.clear()
+        ok, msg = spawnmod.spawn("spawny", ROOT, base="main", prompt="do the thing")
+        check("spawn: a wait that did not succeed warns", "WARNING" in msg, msg)
+    finally:
+        spawnmod._run, spawnmod.prompt_landed, orcamod.wait_idle, spawnmod.shutil.which = real
+
+
+def test_an_agent_is_never_handed_another_agents_session(home: Path) -> None:
+    """Two agents share an account, and the account file belongs to whichever
+    session wrote it last. Carrying its session id through the fallbacks told a
+    woken agent to grep a stranger's transcript, in a stranger's repository -
+    which happened to auditor in production, pointed at marina's."""
+    home.mkdir(parents=True, exist_ok=True)
+    os.environ["OCP_HOME"] = str(home)
+    agents.register("selfless", "beta")
+    write_status(home, "beta", pct_5h=20, ctx_pct=25, session_id="MARINA-SESSION",
+                 transcript_path="/tmp/marina.jsonl")
+
+    st = status.read_for_agent("selfless", "beta")
+    check("identity: an agent that has never run has no session",
+          st.session_id is None, str(st.session_id))
+    check("identity: nor a transcript to be sent to",
+          st.transcript_path is None, str(st.transcript_path))
+    check("identity: nor a context to be judged on", st.ctx_pct is None, str(st.ctx_pct))
+
+    # The ordinary case, not an edge: nothing refreshes an agent's own file
+    # while its session is closed, so by wake time it is stale by construction.
+    f = paths.agent_status_file("selfless")
+    f.parent.mkdir(parents=True, exist_ok=True)
+    f.write_text(json.dumps({
+        "account": "beta", "collected_at": int(time.time()) - status.STALE_AFTER_S - 60,
+        "session_id": "MY-OWN-SESSION", "ctx_pct": 8,
+        "transcript_path": "/tmp/mine.jsonl"}))
+    st = status.read_for_agent("selfless", "beta")
+    check("identity: a stale own snapshot is not topped up from the account file",
+          st.session_id is None and st.transcript_path is None,
+          f"{st.session_id} {st.transcript_path}")
+
+    f.write_text(json.dumps({
+        "account": "beta", "collected_at": int(time.time()),
+        "session_id": "MY-OWN-SESSION", "ctx_pct": 8,
+        "transcript_path": "/tmp/mine.jsonl"}))
+    st = status.read_for_agent("selfless", "beta")
+    check("identity: a fresh one is its own", st.session_id == "MY-OWN-SESSION",
+          str(st.session_id))
+
+    # And the prompt says nothing about a transcript it cannot name.
+    con = db.connect()
+    try:
+        f.unlink()
+        told = dmn.wake_prompt("selfless", resumed=True)
+        check("wake: no transcript is named when none can be named confidently",
+              "/tmp/marina.jsonl" not in told and "Grep it" not in told, told[:200])
+        check("wake: the agent is still told it lost nothing",
+              "Nothing was lost" in told, told[:120])
+    finally:
+        con.close()
+
+
+def test_a_closed_agent_is_not_handed_off(home: Path) -> None:
+    """Closing stops that session's status line, so 15 minutes later the
+    snapshot is stale and usage_unknown fires - on an agent that is idle,
+    healthy, and whose terminal is now a shell prompt. That would pay for a
+    fold and then type a handoff full of backticks at bash: the exact failure
+    this branch exists to remove, reached through its own new feature."""
+    _daemon_home(home, 20)
+    con = db.connect()
+    sent: list[str] = []
+    real = (orcamod.alive, orcamod.wait_idle, orcamod.idle_now, orcamod.send,
+            orcamod.available, orcamod.clear_context)
+    try:
+        orcamod.available = lambda: True
+        orcamod.alive = lambda h: True
+        orcamod.wait_idle = lambda h, timeout_ms=0: True
+        orcamod.idle_now = lambda h: True
+        orcamod.clear_context = lambda h, wait=True, timeout_ms=0: (True, "context cleared")
+        orcamod.send = lambda h, text, enter=True: (sent.append(text), (True, ""))[1]
+        db.set_terminal(con, "backend", "term_x", "wt")
+        db.set_agent_state(con, "backend", dmn.IDLE)
+        dmn.close_agent(con, "backend", lambda _m: None)
+        check("closed: the agent is marked closed",
+              db.get_agent_state(con, "backend")["closed_at"] is not None)
+
+        # Its own file stopped being written, and so did the account's.
+        write_status(home, "alpha", pct_5h=20, pct_7d=10,
+                     collected_at=int(time.time()) - status.STALE_AFTER_S - 60)
+        st = status.read_for_agent("backend", "alpha")
+        check("closed: its usage does read as unknown",
+              st.trusted_pct_5h is None, str(st.trusted_pct_5h))
+        check("closed: which on a live agent would fire",
+              triggers.evaluate(st.trusted_pct_5h, None).fired)
+
+        sent.clear()
+        dmn.tick(con, lambda _m: None, use_model=False)
+        row = db.get_agent_state(con, "backend")
+        check("closed: but a closed agent is not handed off",
+              row["state"] != dmn.PARKED, str(dict(row)))
+        check("closed: nothing is typed at its shell", not sent, str(sent))
+        check("closed: and no fold was paid for",
+              not db.in_flight_handoffs(con) and row["continuations"] == 0, str(dict(row)))
+        check("closed: it stays closed", row["closed_at"] is not None)
+
+        # And the screens say what the daemon does. A warning nobody will act
+        # on is the dashboard arguing with the daemon.
+        check("closed: the daemon's own rule says it is not a candidate",
+              not dmn.triggers_apply(row))
+        frame = tui.frame(120, 40)
+        check("closed: top does not warn about it", "usage_unknown" not in frame,
+              [ln for ln in frame.splitlines() if "backend" in ln])
+        check("closed: and says why instead", "closed" in frame,
+              [ln for ln in frame.splitlines() if "backend" in ln])
+        check("closed: the frame still fits its terminal",
+              len(frame.split(chr(10))) == 40)
+    finally:
+        (orcamod.alive, orcamod.wait_idle, orcamod.idle_now, orcamod.send,
+         orcamod.available, orcamod.clear_context) = real
+        con.close()
+
+
+def test_a_woken_agent_is_told_on_the_following_tick(home: Path) -> None:
+    """Waking sends the agent a prompt it is now reading. Announcing the inbox
+    in the same tick types at an agent mid-turn, which leaves the text in its
+    input box unsent - the failure delivery exists to avoid."""
+    _daemon_home(home, 20)
+    con = db.connect()
+    sent: list[str] = []
+    real = (orcamod.alive, orcamod.wait_idle, orcamod.idle_now, orcamod.send,
+            orcamod.available)
+    try:
+        orcamod.available = lambda: True
+        orcamod.alive = lambda h: True
+        orcamod.wait_idle = lambda h, timeout_ms=0: True
+        orcamod.idle_now = lambda h: True      # even so, it must not be told yet
+        orcamod.send = lambda h, text, enter=True: (sent.append(text), (True, ""))[1]
+        db.set_terminal(con, "backend", "term_x", "wt")
+        db.set_agent_state(con, "backend", dmn.IDLE)
+        (home / "agents" / "backend").mkdir(parents=True, exist_ok=True)
+        (home / "agents" / "backend" / "status.json").write_text(json.dumps({
+            "account": "alpha", "collected_at": int(time.time()),
+            "session_id": "sess-4", "pct_5h": 20}))
+        dmn.close_agent(con, "backend", lambda _m: None)
+
+        db.add_request(con, "reviewer", "backend", "look at this", None,
+                       "peer", "async", None, 0, None)
+        sent.clear()
+        dmn.tick(con, lambda _m: None, use_model=False)
+        check("wake: the tick that wakes it brings the session back",
+              any("--resume sess-4" in t for t in sent), str(sent))
+        check("wake: and does not announce the inbox in the same breath",
+              not any("ocp inbox" in t for t in sent), str(sent))
+
+        sent.clear()
+        dmn.tick(con, lambda _m: None, use_model=False)
+        check("wake: the following tick tells it what is waiting",
+              any("ocp inbox" in t for t in sent), str(sent))
+    finally:
+        (orcamod.alive, orcamod.wait_idle, orcamod.idle_now, orcamod.send,
+         orcamod.available) = real
+        con.close()
+
+
+def test_who_is_asking_is_not_guessed(home: Path) -> None:
+    """A human at their own prompt is the orchestrator; a process that merely
+    lost OCP_AGENT is not. Conflating them hands the escalation target and the
+    most privileged node in the routing table to whatever dropped the variable."""
+    home.mkdir(parents=True, exist_ok=True)
+    os.environ["OCP_HOME"] = str(home)
+    (home / "team.yaml").write_text(DESIGN_TEAM)
+    agents.register("backend", "alpha")
+    class FakeStdin:
+        def __init__(self, tty: bool) -> None:
+            self.tty = tty
+
+        def isatty(self) -> bool:
+            return self.tty
+
+    real_env = os.environ.pop("OCP_AGENT", None)
+    real_stdin = sys.stdin
+    try:
+        os.environ["OCP_AGENT"] = "backend"
+        check("identity: an agent is whoever launch said it is",
+              askmod.current_agent() == "backend" and askmod.asking_agent() == "backend")
+        del os.environ["OCP_AGENT"]
+
+        sys.stdin = FakeStdin(True)
+        check("identity: an unset variable is still unset",
+              askmod.current_agent() is None, str(askmod.current_agent()))
+        check("identity: but a human at a terminal is the orchestrator",
+              askmod.asking_agent() == askmod.HUMAN, str(askmod.asking_agent()))
+
+        sys.stdin = FakeStdin(False)
+        check("identity: a process that lost it is nobody",
+              askmod.asking_agent() is None, str(askmod.asking_agent()))
+        ok, msg, rid = askmod.ask("backend", "do this")
+        check("identity: and is refused rather than promoted", not ok and rid is None, msg)
+        check("identity: and told how to say who it is", "--of" in msg, msg)
+        ok, _msg, rid = askmod.ask("backend", "do this", requester="reviewer")
+        check("identity: saying so explicitly still works", ok and rid is not None, _msg)
+    finally:
+        sys.stdin = real_stdin
+        if real_env is not None:
+            os.environ["OCP_AGENT"] = real_env
+        else:
+            os.environ.pop("OCP_AGENT", None)
 
 
 def test_events_view_starts_at_the_newest(home: Path) -> None:
@@ -2434,6 +2735,13 @@ def main() -> int:
         test_display_agrees_with_the_daemon(Path(td) / 'disp')
         test_spawn_confirms_the_task_landed(Path(td) / 'spawnland')
         test_events_view_starts_at_the_newest(Path(td) / 'evview')
+        test_spawn_survives_its_own_main_path(Path(td) / 'spawnmain')
+        test_an_agent_is_never_handed_another_agents_session(Path(td) / 'ident')
+        test_a_closed_agent_is_not_handed_off(Path(td) / 'closedtrig')
+        test_a_woken_agent_is_told_on_the_following_tick(Path(td) / 'woketick')
+        test_who_is_asking_is_not_guessed(Path(td) / 'whoasks')
+        test_a_rejected_fold_still_records_what_it_spent(Path(td) / 'spend')
+        test_one_agents_bad_tick_is_not_everyones(Path(td) / 'badtick')
         test_orca_idle_parsing()
         test_clear_refuses_mid_turn()
         test_handoff_reclaims_context(Path(td) / 'reclaim')

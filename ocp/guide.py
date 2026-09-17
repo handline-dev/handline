@@ -45,8 +45,9 @@ Design section 4 has the five cases and why only one of them is fail-closed.""",
   ocp inbox                       what is waiting for you
   ocp resolve <id> "<verdict>"    close one
 
-A shell with no OCP_AGENT belongs to a human, so `ocp ask` typed at your own
-prompt comes from orchestrator.
+An interactive shell with no OCP_AGENT belongs to a human, so `ocp ask` typed at
+your own prompt comes from orchestrator. A process that merely lost the variable
+has no terminal, and is refused rather than handed the orchestrator's name.
 
 That is the whole of it. The daemon delivers: an idle agent is told on the next
 tick, and a closed one is resumed first and then told. Nobody has to nudge a

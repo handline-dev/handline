@@ -202,7 +202,10 @@ def build(width: int) -> tuple[list[str], list[list[str]]]:
             if row and row["closed_at"]:
                 s += "·closed"
             t = triggers.evaluate(st.trusted_pct_5h, st.trusted_ctx_pct)
-            fire = f"{YEL}⚠ {t.kind}{R}" if t.fired else f"{DIM}—{R}"
+            if not daemon.triggers_apply(row):
+                fire = f"{DIM}— closed{R}"
+            else:
+                fire = f"{YEL}⚠ {t.kind}{R}" if t.fired else f"{DIM}—{R}"
             ctxs = f"{pct(st.ctx_pct)}%"
             if st.ctx_pct is not None and st.ctx_pct >= triggers.CONTEXT_PCT:
                 ctxs = YEL + ctxs + R
