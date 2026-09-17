@@ -289,15 +289,29 @@ def build(width: int, sel: dict | None = None) -> tuple[list[str], list[Panel]]:
         # this system will ever clear: an agent's escalation sits here until it
         # is answered, and it used to be visible only by running `ocp inbox`
         # with the right name.
-        ms = Panel("FOR YOU", width)
-        ms.selected = sel.get(MESSAGES)
         waiting = actions.messages(con)
+        gates = sum(1 for m in waiting if m["gate"])
+        parked = sum(1 for m in waiting if m["waiting"] and not m["gate"])
+        title = "FOR YOU"
+        if waiting:
+            title += (f" — {gates} need you to decide, {parked} sender(s) parked "
+                      f"for a reply, {len(waiting) - gates - parked} to read")
+        ms = Panel(title, width)
+        ms.selected = sel.get(MESSAGES)
         for m in waiting:
             when = time.strftime("%H:%M", time.localtime(m["ts"]))
             first = (m["body"] or "").splitlines()[0] if m["body"] else ""
-            kind = m["kind"] or "ask"
-            ms.add(f"{DIM}{when}{R}  {CYA}#{m['id']:<5}{R}{BOLD}{m['requester']:<12}{R}"
-                   f"{pad(kind, 11)}{first}", key=m["id"])
+            # An agent parked until this is answered is the only thing on the
+            # screen that no one else will ever clear; it is not drawn like a
+            # report that happens to be addressed here.
+            if m["gate"]:
+                mark, name = f"{YEL}⚠{R}", f"{BOLD}{m['requester']:<12}{R}"
+            elif m["waiting"]:
+                mark, name = f"{CYA}◷{R}", f"{BOLD}{m['requester']:<12}{R}"
+            else:
+                mark, name = f"{DIM}·{R}", f"{DIM}{m['requester']:<12}{R}"
+            ms.add(f"{DIM}{when}{R} {mark} {CYA}#{m['id']:<5}{R}{name}"
+                   f"{pad(m['kind'] or 'ask', 11)}{first}", key=m["id"])
         if not waiting:
             ms.add(f"{DIM}  nothing waiting on you{R}")
 
@@ -372,22 +386,52 @@ def move(keys: list, current, delta: int):
     return keys[max(0, min(len(keys) - 1, keys.index(current) + delta))]
 
 
+# Keys read ahead of the one being handled. One read can return several - a
+# held-down arrow, or two keys typed inside a frame - and dropping the rest
+# loses keypresses the human made.
+_pending: list[str] = []
+
+
+def split_keys(data: str) -> list[str]:
+    """One read of the terminal, split into the keys it contains.
+
+    An arrow is three bytes, `esc [ A`, or `esc O A` where the terminal has
+    switched to application cursor keys; a bare escape is one byte and means
+    the human backed out.
+    """
+    out, i = [], 0
+    while i < len(data):
+        if data[i] == "\033" and i + 2 < len(data) and data[i + 1] in "[O":
+            out.append(data[i:i + 3])
+            i += 3
+        else:
+            out.append(data[i])
+            i += 1
+    return out
+
+
 def _key(timeout: float) -> str | None:
     if not sys.stdin.isatty():
         time.sleep(timeout)
         return None
-    if not select.select([sys.stdin], [], [], timeout)[0]:
+    if _pending:
+        return _pending.pop(0)
+    fd = sys.stdin.fileno()
+    if not select.select([fd], [], [], timeout)[0]:
         return None
-    ch = sys.stdin.read(1)
-    if ch != "\033":
-        return ch
-    # An arrow arrives as three bytes and a bare esc as one, so the rest is
-    # read only if it is already there - waiting on it would swallow esc.
-    if select.select([sys.stdin], [], [], 0.05)[0]:
-        ch += sys.stdin.read(1)
-        if ch.endswith("[") and select.select([sys.stdin], [], [], 0.05)[0]:
-            ch += sys.stdin.read(1)
-    return ch
+    # Read the descriptor, not the buffered stream. `sys.stdin.read(1)` pulls
+    # the whole escape sequence into Python's own buffer, and then select()
+    # reports the fd has nothing left - so every arrow key arrived here as a
+    # bare escape with its `[B` still sitting in the buffer.
+    try:
+        data = os.read(fd, 64).decode(errors="ignore")
+    except OSError:
+        return None
+    if not data:
+        return None
+    keys = split_keys(data)
+    _pending.extend(keys[1:])
+    return keys[0]
 
 
 def _line(prompt: str, width: int, height: int) -> str | None:
@@ -486,10 +530,10 @@ def run(interval: float = 2.0, once: bool = False) -> int:
                 continue
             if k in ("r", "R"):
                 continue
-            if k in ("j", "\033[B"):
+            if k in ("j", "\033[B", "\033OB"):
                 sel[panel] = move(_keys_of(panel), sel.get(panel), 1)
                 continue
-            if k in ("k", "\033[A"):
+            if k in ("k", "\033[A", "\033OA"):
                 sel[panel] = move(_keys_of(panel), sel.get(panel), -1)
                 continue
             flash, detail = _act(panel, sel, k, width, height, fd, saved)

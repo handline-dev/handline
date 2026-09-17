@@ -6,6 +6,8 @@ from __future__ import annotations
 
 import json
 import os
+import pty
+import select
 import subprocess
 import sys
 import tempfile
@@ -3369,6 +3371,51 @@ def test_top_shows_what_is_waiting_on_the_human(home: Path) -> None:
         con.close()
 
 
+def test_the_screen_reads_keys_from_the_terminal_not_from_a_buffer() -> None:
+    """An arrow is `esc [ B`, and `sys.stdin.read(1)` pulls all three bytes
+    into Python's own buffer - after which select() reports the descriptor has
+    nothing left, so the rest of the sequence is never collected and every
+    arrow key arrives as a bare escape. The cursor did not move. Only a real
+    terminal shows this, so this test opens one."""
+    check("keys: an arrow is one key, not three",
+          tui.split_keys("\033[B") == ["\033[B"])
+    check("keys: application cursor mode is the same key",
+          tui.split_keys("\033OB") == ["\033OB"])
+    check("keys: a bare escape stays one key", tui.split_keys("\033") == ["\033"])
+    check("keys: a burst is not one key and is not thrown away",
+          tui.split_keys("jj\033[Aq") == ["j", "j", "\033[A", "q"])
+
+    code = (f"import sys, termios, tty; sys.path.insert(0, {str(ROOT)!r});"
+            "from ocp import tui;"
+            "fd = sys.stdin.fileno(); saved = termios.tcgetattr(fd); tty.setcbreak(fd);"
+            "out = [tui._key(5.0) for _ in range(3)];"
+            "termios.tcsetattr(fd, termios.TCSADRAIN, saved);"
+            "sys.stdout.write(repr(out)); sys.stdout.flush()")
+    pid, fd = pty.fork()
+    if pid == 0:                                  # the child is the terminal
+        os.execvpe("python3", ["python3", "-c", code], dict(os.environ))
+    got = ""
+    try:
+        time.sleep(0.6)
+        for seq in (b"j", b"\x1b[B", b"\x1bOA"):
+            os.write(fd, seq)
+            time.sleep(0.3)
+        deadline = time.time() + 5
+        while time.time() < deadline and "]" not in got:
+            r, _, _ = select.select([fd], [], [], 0.2)
+            if not r:
+                continue
+            try:
+                got += os.read(fd, 4096).decode(errors="replace")
+            except OSError:
+                break
+    finally:
+        os.close(fd)
+        os.waitpid(pid, 0)
+    check("keys: a real terminal's arrows arrive whole",
+          "'\\x1b[B'" in got and "'\\x1bOA'" in got, got.strip()[-120:])
+
+
 def test_top_acts_through_the_same_calls_the_daemon_makes(home: Path) -> None:
     """The screen may act, but it may not decide: every key is a call into
     `actions`, which calls what the daemon calls. What it does decide is which
@@ -4345,6 +4392,7 @@ def main() -> int:
         run(lambda: test_a_wake_is_believed_only_when_a_session_appears(Path(td) / 'wakereceipt'))
         run(lambda: test_a_park_that_cannot_be_woken_keeps_its_deadline(Path(td) / 'parkdue'))
         run(lambda: test_top_shows_what_is_waiting_on_the_human(Path(td) / 'foryou'))
+        run(lambda: test_the_screen_reads_keys_from_the_terminal_not_from_a_buffer())
         run(lambda: test_top_acts_through_the_same_calls_the_daemon_makes(Path(td) / 'topact'))
         run(lambda: test_top_cursor_stays_inside_its_panel(Path(td) / 'topcur'))
         run(lambda: test_login_points_at_the_account_and_touches_no_credential(Path(td) / 'login'))

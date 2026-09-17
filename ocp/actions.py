@@ -101,13 +101,39 @@ def dismiss(con, rid: int) -> str:
 
 
 def messages(con) -> list[dict]:
-    """Everything waiting for the human, oldest first."""
+    """Everything addressed to the human and not yet closed.
+
+    Two things arrive in this one mailbox and they are not the same errand. An
+    escalation is a decision only a human can make, and the agent that sent it
+    parks until the answer comes - nothing else in this system will ever clear
+    it. A verdict or a report is an answer to something already asked, and
+    nobody is waiting on it. Both are addressed here, so the difference is
+    carried on the row rather than left for the reader to guess: `blocking` is
+    read from what the routing recorded at ask time, not inferred from the
+    text.
+
+    Decisions first, then senders that are parked, then the rest - and oldest
+    first inside each, because the order things arrived in is not the order
+    they matter in.
+    """
     rows = con.execute(
-        "SELECT id, ts, requester, kind, body FROM requests "
+        "SELECT id, ts, requester, kind, response, body FROM requests "
         "WHERE target = ? AND state = 'queued' ORDER BY id",
         (HUMAN,),
     ).fetchall()
-    return [dict(r) for r in rows]
+    out = []
+    for r in rows:
+        m = dict(r)
+        # Two different facts, both recorded by the routing at ask time. A gate
+        # is a decision the design says only a human makes. A parked sender is
+        # an agent that stopped until this is answered - it may be the same
+        # message, and it may not: an answer to something the machine asked for
+        # parks its sender too.
+        m["gate"] = m["kind"] == "escalate"
+        m["waiting"] = m["response"] == "async"
+        m["blocking"] = m["gate"] or m["waiting"]
+        out.append(m)
+    return sorted(out, key=lambda m: (not m["gate"], not m["waiting"], m["id"]))
 
 
 def login_argv(acct: str, force: bool = False) -> tuple[str, list[str], dict]:
