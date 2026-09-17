@@ -1949,6 +1949,39 @@ def test_wake_without_a_closed_session_uses_the_handoff(home: Path) -> None:
         con.close()
 
 
+def test_reconcile_repairs_a_crash_mid_wake(home: Path) -> None:
+    """A launchd-restarted daemon can die between supervise() committing QUEUED
+    - the step it takes right before calling wake_agent - and wake_agent's own
+    db.clear_closed(), which only lands after orca.relaunch already returned.
+    That leaves closed_at stuck set while state reads QUEUED, and nothing else
+    ever produces that combination: the ordinary path always clears closed_at
+    in the same call that sets it. Reconcile runs unconditionally on every
+    restart (8.4) specifically to catch what died mid-step; this is exactly
+    that class of gap, and today reconcile does not know about it. Left alone,
+    triggers_apply(row) reads closed_at forever and the agent's usage triggers
+    never fire again - a silent, permanent hole in the fail-closed design."""
+    _daemon_home(home, 20)
+    con = db.connect()
+    try:
+        db.set_terminal(con, "backend", "term_x", "wt")
+        db.set_closed(con, "backend", "sess-1")
+        db.set_agent_state(con, "backend", dmn.QUEUED, wake_at=None,
+                           detail="wake_at reached")
+        row = db.get_agent_state(con, "backend")
+        check("setup: state is QUEUED with closed_at still set (the crash window)",
+              row["state"] == dmn.QUEUED and row["closed_at"] is not None)
+        check("setup: triggers are blind in this state, as designed for a truly closed agent",
+              not dmn.triggers_apply(row))
+
+        dmn.reconcile(con, lambda _m: None)
+        row = db.get_agent_state(con, "backend")
+        check("reconcile: a stuck QUEUED+closed_at agent is repaired, not left silent",
+              row["closed_at"] is None, str(dict(row)))
+        check("reconcile: triggers apply again once repaired", dmn.triggers_apply(row))
+    finally:
+        con.close()
+
+
 def test_carry_bounds_and_losses(home: Path) -> None:
     """The three ways a carried figure goes wrong, all found in review.
 
@@ -2665,6 +2698,52 @@ def test_a_park_that_was_also_closed_is_woken_without_being_judged(home: Path) -
         con.close()
 
 
+def test_reconcile_wakes_a_park_that_was_also_closed(home: Path) -> None:
+    """The case above is proven through tick(), but a daemon that was down
+    across the whole window - which is the case launchd exists for, not the
+    exception - meets this agent at startup, in reconcile(), not in a later
+    tick. Before this fix, reconcile's own due_agents step set state to
+    QUEUED and cleared wake_at, which is exactly what disarms the wake_at
+    branch in supervise() that would otherwise have woken it - so a closed,
+    parked agent whose window rolled over while the daemon was dead came back
+    QUEUED and stayed that way, forever, with no session and no path left
+    that will ever relaunch it."""
+    _daemon_home(home, 20)
+    con = db.connect()
+    sent: list[str] = []
+    real = (orcamod.alive, orcamod.wait_idle, orcamod.idle_now, orcamod.send,
+            orcamod.available, orcamod.clear_context)
+    try:
+        orcamod.available = lambda: True
+        orcamod.alive = lambda h: True
+        orcamod.wait_idle = lambda h, timeout_ms=0: True
+        orcamod.idle_now = lambda h: True
+        orcamod.clear_context = lambda h, wait=True, timeout_ms=0: (True, "context cleared")
+        orcamod.send = lambda h, text, enter=True: (sent.append(text), (True, ""))[1]
+        db.set_terminal(con, "backend", "term_x", "wt")
+        (home / "agents" / "backend").mkdir(parents=True, exist_ok=True)
+        (home / "agents" / "backend" / "status.json").write_text(json.dumps({
+            "account": "alpha", "collected_at": int(time.time()),
+            "session_id": "sess-9", "pct_5h": 20}))
+        dmn.close_agent(con, "backend", lambda _m: None,
+                        status.read_for_agent("backend", "alpha"))
+        db.set_agent_state(con, "backend", dmn.PARKED, wake_at=int(time.time()) - 10,
+                           detail="parked and closed, daemon was down since")
+
+        sent.clear()
+        dmn.reconcile(con, lambda _m: None)
+        row = db.get_agent_state(con, "backend")
+        check("reconcile: a closed, due park is relaunched at startup, not left QUEUED",
+              any("--resume sess-9" in t for t in sent), str(sent))
+        check("reconcile: closed_at is cleared, not stuck behind a nulled wake_at",
+              row["closed_at"] is None, str(dict(row)))
+        check("reconcile: triggers apply to it again", dmn.triggers_apply(row))
+    finally:
+        (orcamod.alive, orcamod.wait_idle, orcamod.idle_now, orcamod.send,
+         orcamod.available, orcamod.clear_context) = real
+        con.close()
+
+
 def test_a_wake_does_not_call_a_fresh_start_a_park(home: Path) -> None:
     """Closing writes no handoff, because closing is not a handoff. Telling an
     agent that could not be resumed "your context was cleared, below is your own
@@ -3186,6 +3265,7 @@ def main() -> int:
         test_spawn_base_selection(Path(td) / 'spawn')
         test_idle_session_is_closed_and_resumed(Path(td) / 'idle')
         test_wake_without_a_closed_session_uses_the_handoff(Path(td) / 'wakeh')
+        test_reconcile_repairs_a_crash_mid_wake(Path(td) / 'crashwake')
         test_work_arriving_wakes_a_closed_agent(Path(td) / 'wakework')
         test_a_running_agent_is_told_when_work_arrives(Path(td) / 'deliver')
         test_carry_bounds_and_losses(Path(td) / 'carry')
@@ -3204,6 +3284,7 @@ def main() -> int:
         test_a_woken_agent_is_told_on_the_following_tick(Path(td) / 'woketick')
         test_a_woken_agent_is_not_judged_on_the_snapshot_it_left(Path(td) / 'wakejudge')
         test_a_park_that_was_also_closed_is_woken_without_being_judged(Path(td) / 'pclosed')
+        test_reconcile_wakes_a_park_that_was_also_closed(Path(td) / 'pclosed2')
         test_a_wake_does_not_call_a_fresh_start_a_park(Path(td) / 'freshstart')
         test_who_is_asking_is_not_guessed(Path(td) / 'whoasks')
         test_a_rejected_fold_still_records_what_it_spent(Path(td) / 'spend')

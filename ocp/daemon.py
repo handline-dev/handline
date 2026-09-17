@@ -438,8 +438,35 @@ def reconcile(con, log) -> list[str]:
             db.set_agent_state(con, agent, QUEUED, wake_at=None,
                                detail=f"woke from {row['state']} at reconciliation")
             actions.append(f"{agent}: {row['state']} -> QUEUED (wake_at was {row['wake_at']})")
+            # A closed agent has no session left to notice its own wake_at -
+            # the wake_at branch in supervise() is what would normally call
+            # this, and it needs wake_at still set to run, which the line
+            # above just cleared. Without waking it here, a park that was
+            # also closed comes back from every restart QUEUED forever, with
+            # nothing left that will ever relaunch it.
+            if row["closed_at"]:
+                ok, why = wake_agent(con, agent, log)
+                actions.append(f"{agent}: woken at reconciliation" if ok
+                               else f"{agent}: could not wake at reconciliation - {why}")
 
-    # 3. Agents we know about but have no state row for.
+    # 4. QUEUED with closed_at still set is not a state anything produces on
+    #    purpose - the only path that sets QUEUED on a closed agent (the
+    #    wake_at branch in supervise(), and step 2 above) always wakes it and
+    #    clears closed_at in the same breath. Seeing both together only means
+    #    a restart landed between that wake actually relaunching the session
+    #    (orca.relaunch already ran) and the write that would have recorded
+    #    it - so the fix is to clear the stale marker, not to wake it again.
+    #    Left alone, triggers_apply(row) reads closed_at forever and this
+    #    agent's usage triggers never fire again: a silent, permanent hole in
+    #    the fail-closed design, and exactly the kind of gap a launchd
+    #    restart makes routine instead of rare.
+    for row in db.all_agent_states(con):
+        if row["state"] == QUEUED and row["closed_at"]:
+            db.clear_closed(con, row["agent"])
+            actions.append(f"{row['agent']}: closed_at cleared - stuck from a restart "
+                           f"mid-wake, session was already relaunched")
+
+    # 5. Agents we know about but have no state row for.
     known = set(paths.list_agents())
     have = {r["agent"] for r in db.all_agent_states(con)}
     for agent in sorted(known - have):
