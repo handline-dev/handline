@@ -364,7 +364,8 @@ def cmd_service_logs(args) -> int:
 
 
 def cmd_unstall(args) -> int:
-    """STALLED is a task defect and only a human clears it (section 8.6)."""
+    """A human clearing a stall - every kind but a wake stall the sweep has
+    refuted by observing a session (section 8.6)."""
     con = db.connect()
     try:
         row = db.get_agent_state(con, args.agent)
@@ -377,6 +378,10 @@ def cmd_unstall(args) -> int:
         db.set_agent_state(con, args.agent, daemonmod.QUEUED, detail="cleared by a human")
         db.reset_counter(con, args.agent, "failed_attempts")
         db.reset_counter(con, args.agent, "throttle_count")
+        # Every count that can stall an agent, or the sweep later reads a
+        # capped wake streak as a stall of its own making and lifts a stall a
+        # human never sanctioned.
+        db.reset_counter(con, args.agent, "wake_failures")
         print(f"{args.agent}: STALLED -> QUEUED")
     finally:
         con.close()

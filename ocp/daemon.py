@@ -216,6 +216,30 @@ def session_present(agent: str) -> bool:
     return bool(sessions is not None and sessions.get(agent))
 
 
+# How long a relaunched session has to show up in the process table. `ocp
+# launch` execs claude, so it appears at once when it appears at all; this is
+# slack for a slow start, not a wait for the TUI to be usable.
+WAKE_SESSION_TIMEOUT_S = 15
+
+
+def wait_for_session(agent: str, timeout_s: int) -> bool:
+    """Did the launch we typed actually start a session?
+
+    `relaunch` reports on having sent the command, which is not the same thing:
+    `ocp launch` refuses over the 5h limit and exits when the account is not
+    logged in, leaving the shell exactly as it was. The reading is taken here
+    rather than from the tick's cache, which predates the command.
+    """
+    deadline = time.time() + timeout_s
+    while True:
+        sessions = obs.live_sessions()
+        if sessions is not None and sessions.get(agent):
+            return True
+        if time.time() >= deadline:
+            return False
+        time.sleep(1)
+
+
 def _reclaim_context(con, agent: str, log) -> tuple[bool, str]:
     """Clear the agent's session so the handoff actually costs it its context."""
     handle = db.get_terminal(con, agent)
@@ -415,19 +439,61 @@ def wake_agent(con, agent: str, log) -> tuple[bool, str]:
     closed = bool(row and row["closed_at"])
     resumed = False
     if closed:
+        # `ocp launch` refuses at the 5h wall, and the daemon can read that
+        # before it types anything. Trying anyway would spend the wake timeout
+        # to be told what we already knew, and count a streak against an agent
+        # whose only problem rolls over by itself.
+        acct_st = status.read(agents.account_of(agent))
+        pct = acct_st.trusted_pct_5h
+        if pct is not None and pct >= status.PCT_5H_BLOCK:
+            why = (f"account {agents.account_of(agent)} is at {pct}% of the 5h limit; "
+                   f"not launching until the window rolls over")
+            log(f"  {agent}: {why}")
+            return False, why
         # The shell is still there; put the agent back into it. Resuming the
         # same session is what makes closing cheap, so it is tried first and
         # a fresh start is the fallback, not the plan.
         session = row["resume_session"]
-        cmd = launch.command_for(agent)
-        if session:
-            cmd += f" -- --resume {session}"
-        ok, why = orca.relaunch(handle, cmd)
+        base = launch.command_for(agent)
+        # Resuming the session is what makes closing cheap, so it is tried
+        # first - but a resume can be the very thing that fails: an id whose
+        # transcript was pruned, or a worktree moved out from under it, gives
+        # a launch that refuses every time it is retried. A fresh start in the
+        # same terminal loses the context and keeps the agent, which is the
+        # better of the two ends this can have.
+        attempts = [base + f" -- --resume {session}", base] if session else [base]
+        started = lambda: wait_for_session(agent, WAKE_SESSION_TIMEOUT_S)  # noqa: E731
+        resumed = False
+        for cmd in attempts:
+            ok, why = orca.relaunch(handle, cmd, started=started)
+            if ok:
+                resumed = "--resume" in cmd
+                break
         if not ok:
+            # The closed mark and resume_session are the whole way back. A wake
+            # that started nothing leaves both alone: the next attempt - work
+            # arriving, or the next restart - has nothing else to use.
+            db.add_event(con, agent, "wake_failed", {"resume_session": session,
+                                                     "why": why})
+            db.bump_counter(con, agent, "wake_failures")
+            log(f"  {agent}: {why}; still closed")
+            fresh = db.get_agent_state(con, agent)
+            if fresh and fresh["wake_failures"] >= MAX_FAILED_ATTEMPTS:
+                # Work arriving retries the wake every tick, so a launch that
+                # will never work is a loop that never ends and never says so.
+                # Three launches that started nothing is not the wall - that
+                # was turned away above, before it could count - and not a
+                # resume that can be dropped, which the fallback above already
+                # did. It waits for a human, or for the sweep to see a session
+                # after all.
+                db.set_agent_state(con, agent, STALLED,
+                                   detail=f"{fresh['wake_failures']} wakes started "
+                                          f"no session: {why}")
+                log(f"  {agent}: STALLED after {fresh['wake_failures']} failed wakes")
             return False, why
-        resumed = bool(session)
+        db.reset_counter(con, agent, "wake_failures")
         db.clear_closed(con, agent)
-        db.add_event(con, agent, "wake", {"resumed_session": session})
+        db.add_event(con, agent, "wake", {"resumed_session": session if resumed else None})
     elif not foldmod.handoff_path(agent).exists():
         return False, "no handoff to resume from"
     elif not session_present(agent):
@@ -593,6 +659,17 @@ def sweep(con, log, actions: list[str]) -> None:
             db.clear_closed(con, agent)
             actions.append(f"{agent}: a session is running; the closed mark was wrong")
             log(f"  {agent}: running again (pid {o.session_pid}); cleared the closed mark")
+            if row["state"] == STALLED and row["wake_failures"] >= MAX_FAILED_ATTEMPTS:
+                # This stall is ours: we stopped because our launches started
+                # nothing, and a session is running now. 8.6 keeps a human in
+                # the loop for a stall the agent cannot refute - this one the
+                # world just refuted, on the same evidence that cleared the
+                # closed mark, and leaving it would hide a live agent from
+                # every delivery.
+                db.reset_counter(con, agent, "wake_failures")
+                db.set_agent_state(con, agent, IDLE,
+                                   detail="a session is running; the wake stall is lifted")
+                actions.append(f"{agent}: STALLED -> IDLE (it is running after all)")
         elif not alive and not closed and row["terminal"]:
             # It died, or a human ended it. Recording it as closed is what makes
             # work arriving wake it instead of being typed at a bash prompt.
@@ -813,13 +890,30 @@ def supervise(con, agent: str, log, now: int, samples: dict,
         # park, so resetting on wake pinned throttle_count at 1 and made
         # the escalation in 8.6 unreachable. It is cleared by a handoff
         # that actually succeeds.
-        db.set_agent_state(con, agent, QUEUED, wake_at=None, detail="wake_at reached")
-        actions.append(f"{agent}: {state} -> QUEUED (window rolled over)")
-        log(f"  {agent}: {state} -> QUEUED (window rolled over)")
         # A parked agent can also be a closed one, and then this wake restores
         # the session - which is the case the gate below exists for.
         restored = bool(row and row["closed_at"])
-        wake_agent(con, agent, log)
+        woke, why = wake_agent(con, agent, log)
+        if restored and not woke:
+            # Same rule reconcile's step 2 writes: for an agent whose session
+            # was closed, the wake is the whole point of the deadline, and the
+            # deadline is the only thing that makes it due again. Clearing it
+            # on a wake that did not work is how a park slept through every
+            # later tick until something else happened to want the agent.
+            log(f"  {agent}: stays {state}, still due")
+            return
+        # The prompt has been typed by now, so the agent may already have
+        # answered it: its own UserPromptSubmit writes RUNNING, and RUNNING is
+        # the label that keeps the daemon out of a working agent's way. Only
+        # write QUEUED if nothing has claimed it since.
+        fresh = db.get_agent_state(con, agent)
+        if fresh and fresh["state"] != state:
+            state = fresh["state"]
+            woke_now = woke_now or restored
+            return
+        db.set_agent_state(con, agent, QUEUED, wake_at=None, detail="wake_at reached")
+        actions.append(f"{agent}: {state} -> QUEUED (window rolled over)")
+        log(f"  {agent}: {state} -> QUEUED (window rolled over)")
         row = db.get_agent_state(con, agent)
         state = QUEUED
         woke_now = woke_now or restored

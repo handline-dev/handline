@@ -13,7 +13,8 @@ import subprocess
 import time
 from pathlib import Path
 
-from . import accounts, agents, daemon, db, hooks, paths, service, status
+from . import (accounts, agents, daemon, db, hooks, observe as obs, orca, paths,
+               service, status)
 
 OK, WARN, FAIL = "ok", "warn", "fail"
 
@@ -218,6 +219,57 @@ def _check_stuck_running(r: Report) -> None:
         con.close()
 
 
+# A status line written this long after we recorded the close is not the one
+# that session left behind on its way out.
+WRITTEN_AFTER_CLOSE_S = 60
+
+
+def _check_session_matches_the_record(r: Report) -> None:
+    """An agent that is writing a status line the process table cannot account for.
+
+    Every path that types into a terminal asks `observe.live_sessions()` first,
+    and that answer rests on one string: a session is a process whose command
+    line contains `claude`. If that ever stops matching - a packaging change, a
+    wrapper, a rename - the answer is not an error, it is "no sessions
+    anywhere". The sweep then records every agent closed, work stops being
+    delivered, and every screen agrees with itself.
+
+    A closed mark is therefore not the disagreement; closing is how a session
+    ends here. The disagreement is a status line still being written after we
+    recorded the close, because nothing but a live session writes one. A
+    terminal Orca no longer lists is left to the sweep, which drops the handle
+    and says so.
+    """
+    sessions = obs.live_sessions()
+    if sessions is None:
+        return                      # could not look; not the same as none
+    handles = orca.live_terminals()
+    known = set(paths.list_agents())
+    con = db.connect()
+    try:
+        for row in db.all_agent_states(con):
+            agent, handle = row["agent"], row["terminal"]
+            # A row for an agent nobody has registered has no snapshot to read,
+            # and a terminal that is gone is the sweep's to report.
+            if agent not in known or not handle or sessions.get(agent):
+                continue
+            if handles is None or handle not in handles:
+                continue
+            own = status.read(agents.account_of(agent), paths.agent_status_file(agent))
+            if own.error or own.stale or own.collected_at is None:
+                continue
+            closed = row["closed_at"]
+            if closed and own.collected_at <= closed + WRITTEN_AFTER_CLOSE_S:
+                continue
+            r.add(WARN, f"agent {agent}: its status line is being written with no session running",
+                  "nothing but a live session writes that snapshot, and the "
+                  "process-table search finds no claude for this agent - check "
+                  "observe.is_session; while it does not match, nothing is "
+                  "delivered to anyone")
+    finally:
+        con.close()
+
+
 # statusLine's rate_limits arrived in this version; below it there is no usage
 # to read and the whole data source is missing.
 MIN_CLAUDE_VERSION = (2, 1, 0)
@@ -365,6 +417,7 @@ def run() -> Report:
     _check_rate_limits_present(r)
     _check_agents(r)
     _check_stuck_running(r)
+    _check_session_matches_the_record(r)
     _check_pidfile(r)
     _check_service(r)
     _check_autocontinue(r)
