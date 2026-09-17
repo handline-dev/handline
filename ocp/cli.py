@@ -525,9 +525,6 @@ def cmd_ask(args) -> int:
 
 def cmd_inbox(args) -> int:
     agent = args.agent or askmod.current_agent()
-    if not agent:
-        print("no agent given and OCP_AGENT is unset")
-        return 1
     rows = askmod.inbox(agent, unread_only=not args.all)
     if not rows:
         print(f"{agent}: inbox empty")

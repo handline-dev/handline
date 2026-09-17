@@ -42,6 +42,19 @@ orca terminal create --worktree path:/path/to/wt --command "ocp launch backend"
 the launch command across hibernation and restore, so a resumed agent comes
 back on the same account.
 
+## Give an agent work
+
+```bash
+ocp ask keeper "rebase onto main and re-run the suite"
+ocp inbox                       # what agents have sent back
+ocp resolve 12 "approved"       # close one
+```
+
+That is all of it. The daemon delivers: an idle agent is told, a closed one is
+resumed first and then told, and a busy one is left alone until it is free.
+Nobody has to go and nudge a terminal. A shell with no `OCP_AGENT` is a human's,
+so `ocp ask` from your own prompt comes from `orchestrator`.
+
 ## Run the supervisor
 
 ```bash

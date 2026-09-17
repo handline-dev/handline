@@ -38,9 +38,15 @@ ESCALATION_TARGET = "orchestrator"
 REVIEW_PINGPONG_LIMIT = 3
 
 
+# Who a shell with no OCP_AGENT belongs to. Every agent's terminal has it set,
+# because `ocp launch` sets it before exec'ing claude - so an unset one is a
+# human at their own prompt, and that is who the orchestrator is.
+HUMAN = "orchestrator"
+
+
 def current_agent() -> str | None:
     """Who is asking. Set by `ocp launch` when it execs claude."""
-    return os.environ.get("OCP_AGENT")
+    return os.environ.get("OCP_AGENT") or HUMAN
 
 
 def _terminal(con, agent: str) -> bool:
