@@ -15,9 +15,9 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
-from ocp import (accounts, agents, ask as askmod, daemon as dmn, dashboard, db, digest,
-                 doctor, drift, events as evmod, fold as foldmod, launch, orca as orcamod,
-                 paths, spawn as spawnmod, status, team, triggers, tui, yamlcompat)  # noqa: E402
+from ocp import (accounts, agents, ask as askmod, daemon as dmn, db, digest, doctor, drift,
+                 events as evmod, fold as foldmod, launch, orca as orcamod, paths,
+                 spawn as spawnmod, status, team, triggers, tui, yamlcompat)  # noqa: E402
 
 PASS, FAIL = [], []
 
@@ -2204,14 +2204,12 @@ def test_a_closed_agent_is_not_handed_off(home: Path) -> None:
         check("closed: the frame still fits its terminal",
               len(frame.split(chr(10))) == 40)
 
-        # Both renderers, and the columns stay under their header. A state that
-        # grew a "·closed" suffix outran a :<11 cell and pushed its whole row.
-        plain = [tui._ANSI.sub("", ln) for ln in dashboard.render().split(chr(10))]
-        head = next(ln for ln in plain if ln.strip().startswith("name "))
-        rows = [ln for ln in plain if ln.startswith("  backend ")]
-        check("closed: --plain says it too",
-              rows and "closed" in rows[0] and "usage_unknown" not in rows[0], str(rows))
-        check("closed: and its ctx column stands under the header",
+        # The columns stay under their header: a state that grew a "·closed"
+        # suffix outran its cell and pushed the whole row sideways.
+        lines = [tui._ANSI.sub("", ln) for ln in frame.split(chr(10))]
+        head = next(ln for ln in lines if "agent " in ln and "ctx" in ln)
+        rows = [ln for ln in lines if "backend " in ln and "%" in ln]
+        check("closed: its ctx column stands under the header",
               rows and rows[0].index("?%") - head.index("ctx") in (0, 1, 2),
               f"{head!r} {rows[0]!r}" if rows else "no row")
     finally:

@@ -14,7 +14,7 @@ import sys
 import time
 from pathlib import Path
 
-from . import (accounts, agents, ask as askmod, daemon as daemonmod, dashboard, db,
+from . import (accounts, agents, ask as askmod, daemon as daemonmod, db,
                tui,
                digest, doctor,
                drift, events, fold as foldmod, guide, hooks, launch, paths, status,
@@ -283,8 +283,6 @@ def cmd_spawn(args) -> int:
 
 
 def cmd_top(args) -> int:
-    if args.plain:
-        return dashboard.top(interval=args.interval, once=args.once)
     return tui.run(interval=args.interval, once=args.once)
 
 
@@ -721,7 +719,6 @@ def build_parser() -> argparse.ArgumentParser:
     p = sub.add_parser("top", help="live full-screen dashboard")
     p.add_argument("--interval", type=float, default=2.0)
     p.add_argument("--once", action="store_true", help="print one frame and exit")
-    p.add_argument("--plain", action="store_true", help="scrolling output, no full screen")
     p.set_defaults(fn=cmd_top)
 
     bs = sub.add_parser("base", help="the per-session fixed context").add_subparsers(
@@ -748,7 +745,6 @@ def build_parser() -> argparse.ArgumentParser:
     p = sub.add_parser("watch", help="alias for top")
     p.add_argument("--interval", type=float, default=2.0)
     p.add_argument("--once", action="store_true")
-    p.add_argument("--plain", action="store_true")
     p.set_defaults(fn=cmd_top)
 
     p = sub.add_parser("guide", help="load detail on demand")
