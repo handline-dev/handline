@@ -462,6 +462,12 @@ def reconcile(con, log) -> list[str]:
     return actions
 
 
+# Which suspect the next tick probes. Round-robin rather than always the first,
+# or one agent that is merely busy would hold the slot and the genuinely stuck
+# one behind it would never be looked at.
+_probe_turn = {"n": 0}
+
+
 def sweep(con, log, actions: list[str]) -> None:
     """Ask the world what is true, and correct the record where it is not.
 
@@ -481,6 +487,7 @@ def sweep(con, log, actions: list[str]) -> None:
     agent_names = paths.list_agents()
     terminals = {a: db.get_terminal(con, a) for a in agent_names}
     seen = obs.observe(agent_names, terminals)
+    suspects: list[tuple[str, object]] = []
 
     for agent in agent_names:
         row = db.get_agent_state(con, agent)
@@ -518,16 +525,54 @@ def sweep(con, log, actions: list[str]) -> None:
         elif not alive and not closed and row["terminal"]:
             # It died, or a human ended it. Recording it as closed is what makes
             # work arriving wake it instead of being typed at a bash prompt.
-            st = status.read_for_agent(agent, agents.account_of(agent))
-            db.set_closed(con, agent, st.session_id)
+            #
+            # Read the agent's own snapshot directly rather than through
+            # read_for_agent, which nulls the session id once that snapshot is
+            # stale. That rule is there to stop an agent being handed another
+            # agent's session off the shared account file, and it is right - but
+            # a session that has just died leaves a snapshot that is stale by
+            # construction, and its own id is the one thing here that is not in
+            # doubt. Losing it loses the only pointer to that agent's context,
+            # and memory comes back where context does not.
+            own = status.read(agents.account_of(agent),
+                              paths.agent_status_file(agent))
+            session = None if own.error else own.session_id
+            db.set_closed(con, agent, session)
             if row["state"] == RUNNING:
                 db.set_agent_state(con, agent, IDLE, detail="session ended without us")
-            db.add_event(con, agent, "session_gone", {"session": st.session_id})
+            db.add_event(con, agent, "session_gone", {"session": session})
             actions.append(f"{agent}: its session is gone; recorded as closed")
             log(f"  {agent}: session gone; recorded as closed "
-                f"(resume {st.session_id or 'unknown'})")
+                f"(resume {session or 'unknown'})")
         elif alive and row["state"] == RUNNING:
-            _unstick_running(con, agent, row, log, actions)
+            suspects.append((agent, row))
+
+    # The second witness is the only thing here that costs: a "not idle" answer
+    # always takes the probe's full timeout, and an agent working a long turn is
+    # a suspect on every tick for as long as the turn lasts. One per tick bounds
+    # the tick at one probe however many are stuck at once - three were, on
+    # 09-17 - and a stuck agent still comes back within seconds, because ticks
+    # are two seconds apart and nothing else is competing for the slot.
+    if suspects:
+        agent, row = suspects[_probe_turn["n"] % len(suspects)]
+        _probe_turn["n"] += 1
+        _unstick_running(con, agent, row, log, actions)
+
+
+def silent_minutes(con, agent: str, row) -> int | None:
+    """How long this agent has read RUNNING with nothing heard, if too long.
+
+    The first of the two witnesses, and the only one that costs nothing. `ocp
+    doctor` asks it too, and must get the same answer to the same question -
+    the threshold and the arithmetic used to live in both files.
+    """
+    if not row or row["state"] != RUNNING:
+        return None
+    last = db.last_activity(con, agent)
+    if last is None:
+        return None
+    silent = int(time.time()) - last
+    return silent // 60 if silent >= STUCK_RUNNING_S else None
 
 
 def _unstick_running(con, agent: str, row, log, actions: list[str]) -> None:
@@ -547,13 +592,12 @@ def _unstick_running(con, agent: str, row, log, actions: list[str]) -> None:
     terminal is not mid-turn. Either alone is not enough: a long turn is silent
     in our events, and the probe is the one we have twice declined to trust.
     """
-    last = db.last_activity(con, agent)
-    if last is None or (int(time.time()) - last) < STUCK_RUNNING_S:
+    mins = silent_minutes(con, agent, row)
+    if mins is None:
         return
     handle = row["terminal"]
     if not handle or not orca.available() or not orca.idle_now(handle):
         return
-    mins = int((time.time() - last) / 60)
     db.set_agent_state(con, agent, IDLE,
                        detail=f"RUNNING with nothing heard for {mins}m, and idle")
     db.add_event(con, agent, "unstuck", {"was": RUNNING, "silent_minutes": mins})

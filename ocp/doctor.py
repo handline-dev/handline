@@ -194,23 +194,26 @@ def _check_stuck_running(r: Report) -> None:
     """RUNNING is the state that takes an agent out of service.
 
     Work is not delivered to it and its session is never closed, so an agent
-    that entered RUNNING and never left is silently ignored by the daemon - it
-    hears about no request and gives no memory back. `Stop` returns it to IDLE
-    now, but a hook that stops firing would put it back in that hole quietly,
-    and quietly is the part worth fixing.
+    that entered RUNNING and never left is ignored by the daemon while every
+    screen reports it working.
+
+    The sweep repairs this on its own, so this is not a report of something
+    nobody is doing anything about - it is the half the sweep declines to do.
+    Unsticking rests on a probe, so the sweep wants a second witness before it
+    acts, and stays its hand when Orca cannot be reached or says the terminal is
+    mid-turn. An agent that stays here across several runs of `doctor` is one
+    the sweep has looked at and left, which is either a genuinely long turn or
+    something a human needs to see.
     """
     con = db.connect()
     try:
         for row in db.all_agent_states(con):
-            if row["state"] != "RUNNING":
+            mins = daemon.silent_minutes(con, row["agent"], row)
+            if mins is None:
                 continue
-            last = db.last_activity(con, row["agent"])
-            if last is None or (int(time.time()) - last) < daemon.STUCK_RUNNING_S:
-                continue
-            mins = int((time.time() - last) / 60)
             r.add(WARN, f"agent {row['agent']}: RUNNING with nothing heard for {mins}m",
                   "no work is delivered to a RUNNING agent and its session is never "
-                  "closed; check that its Stop hook is firing")
+                  "closed; the sweep unsticks it once Orca agrees it is idle")
     finally:
         con.close()
 

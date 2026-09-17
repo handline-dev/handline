@@ -2485,11 +2485,22 @@ def test_the_sweep_corrects_what_it_can_see(home: Path) -> None:
         # 2. Its session died without us. Recording it is what makes work
         #    arriving wake it rather than be typed at a bash prompt.
         db.set_terminal(con, "backend", "term_x", "wt")
+        (home / "agents" / "backend").mkdir(parents=True, exist_ok=True)
+        (home / "agents" / "backend" / "status.json").write_text(json.dumps({
+            "account": "alpha",
+            "collected_at": int(time.time()) - status.STALE_AFTER_S - 60,
+            "session_id": "sess-dead", "pct_5h": 20}))
         orcamod.live_terminals = lambda: {"term_x"}
         obsmod.live_sessions = lambda: {}
         dmn.sweep(con, lambda _m: None, [])
         check("sweep: a session with no process is recorded as closed",
               db.get_agent_state(con, "backend")["closed_at"] is not None)
+        # A session that has just died leaves a snapshot that is stale by
+        # construction, and its own id is the one thing here not in doubt.
+        # Losing it loses the only pointer back to that agent's context.
+        check("sweep: and keeps the id that could resume it",
+              db.get_agent_state(con, "backend")["resume_session"] == "sess-dead",
+              str(db.get_agent_state(con, "backend")["resume_session"]))
         check("sweep: so the daemon stops treating it as a candidate",
               not dmn.triggers_apply(db.get_agent_state(con, "backend")))
 
@@ -2531,6 +2542,34 @@ def test_the_sweep_corrects_what_it_can_see(home: Path) -> None:
                   db.get_agent_state(con, "backend")["state"] == dmn.RUNNING,
                   str(dict(db.get_agent_state(con, "backend"))))
             db.set_agent_state(con, "backend", dmn.IDLE, detail="done")
+
+            # The probe is the only thing here that costs, and a "no" always
+            # takes its full timeout - so an agent working a long turn is a
+            # suspect on every tick for as long as the turn lasts. One per tick
+            # bounds the tick however many are stuck at once.
+            agents.register("stucktwo", "alpha")
+            probed: list[str] = []
+            orcamod.idle_now = lambda h: (probed.append(h), True)[1]
+            old_ts = int(time.time()) - dmn.STUCK_RUNNING_S - 60
+            for name, handle in (("backend", "term_x"), ("stucktwo", "term_y")):
+                db.set_terminal(con, name, handle, "wt")
+                db.set_agent_state(con, name, dmn.RUNNING, detail="working")
+                db.add_event(con, name, "Stop", {})
+            con.execute("UPDATE events SET ts = ?", (old_ts,))
+            orcamod.live_terminals = lambda: {"term_x", "term_y"}
+            obsmod.live_sessions = lambda: {"backend": 1, "stucktwo": 2}
+
+            dmn.sweep(con, lambda _m: None, [])
+            check("sweep: only one suspect is probed per tick",
+                  len(probed) == 1, str(probed))
+            dmn.sweep(con, lambda _m: None, [])
+            check("sweep: and the next tick takes the other one",
+                  set(probed) == {"term_x", "term_y"}, str(probed))
+            check("sweep: so both are unstuck within a few seconds",
+                  all(db.get_agent_state(con, n)["state"] == dmn.IDLE
+                      for n in ("backend", "stucktwo")),
+                  str([db.get_agent_state(con, n)["state"]
+                       for n in ("backend", "stucktwo")]))
         finally:
             orcamod.idle_now = real_idle
 
@@ -3127,90 +3166,103 @@ def test_handoff_rate_limited(home: Path) -> None:
         con.close()
 
 
+def run(one) -> None:
+    """Every test starts from the real world.
+
+    Each test used to put back what it stood in for through a tuple of its
+    own, and a tuple that forgot a name leaked that stand-in into every
+    test after it - which is the bug class this suite exists to catch.
+    Restoring here means no test can inherit another's world, whatever its
+    own finally block remembers.
+    """
+    restore_world()
+    one()
+
+
 def main() -> int:
     with tempfile.TemporaryDirectory() as td:
         home = Path(td) / "orcapipe"
         home.mkdir()
-        test_failclosed(home)
-        test_collector(home)
-        test_yaml()
-        test_agents(home)
-        test_launch(home)
-        test_team_routing()
-        test_yaml_differential()
-        test_yaml_rejects_ambiguity()
-        test_yaml_booleans()
-        test_team_validation()
-        test_db_dedup(home)
-        test_ask_flow(Path(td) / 'askhome')
-        test_ask_rate_limit(Path(td) / 'ratehome')
-        test_cycle_and_escalation(Path(td) / 'cyc')
-        test_review_pingpong(Path(td) / 'pingpong')
-        test_rate_limit_throttles(Path(td) / 'throt')
-        test_digest()
-        test_event_allowlist()
-        test_fold(Path(td) / 'foldhome')
-        test_rollover(Path(td) / 'rollhome')
-        test_triggers()
-        test_daemon_evaluates_parked(Path(td) / 'd0')
-        test_daemon_park(Path(td) / 'd1')
-        test_daemon_resume(Path(td) / 'd2')
-        test_daemon_kill_recovery(Path(td) / 'd3')
-        test_daemon_handoff_timeout(Path(td) / 'd4')
-        test_daemon_stall_escalation(Path(td) / 'd5')
-        test_daemon_success_clears_streak(Path(td) / 'd5b')
-        test_daemon_degraded_recovers(Path(td) / 'd5c')
-        test_daemon_tick_expires_handoff(Path(td) / 'd5d')
-        test_daemon_ignores_stale_status(Path(td) / 'd5e')
-        test_daemon_poll_uses_hottest(Path(td) / 'd5f')
-        test_status_edge_cases(Path(td) / 'se')
-        test_team_deny_validation()
-        test_ask_respects_terminal_state(Path(td) / 'term')
-        test_launch_refuses_stale(Path(td) / 'stale')
-        test_collector_account_named_like_user(Path(td) / 'named')
-        test_shared_account_context_isolation(Path(td) / 'shared')
-        test_db_dedup_only_swallows_dedup(Path(td) / 'strict')
-        test_agent_rewrite_uses_parser(Path(td) / 'rw')
-        test_daemon_pidfile(Path(td) / 'd6')
-        test_drift(Path(td) / 'drift')
-        test_spawn_base_selection(Path(td) / 'spawn')
-        test_idle_session_is_closed_and_resumed(Path(td) / 'idle')
-        test_wake_without_a_closed_session_uses_the_handoff(Path(td) / 'wakeh')
-        test_work_arriving_wakes_a_closed_agent(Path(td) / 'wakework')
-        test_a_running_agent_is_told_when_work_arrives(Path(td) / 'deliver')
-        test_carry_bounds_and_losses(Path(td) / 'carry')
-        test_unobserved_spend_stays_off_unreadable_accounts(Path(td) / 'spend')
-        test_launch_judges_on_the_figure_it_may_act_on(Path(td) / 'lj')
-        test_burn_rate_ignores_carried_samples(Path(td) / 'burn')
-        test_a_session_figure_is_not_shown_as_an_accounts(Path(td) / 'sessfig')
-        test_doctor_says_one_thing_per_account(Path(td) / 'doc2')
-        test_fold_is_not_rejected_over_a_header_it_overwrites(Path(td) / 'fhdr')
-        test_display_agrees_with_the_daemon(Path(td) / 'disp')
-        test_spawn_confirms_the_task_landed(Path(td) / 'spawnland')
-        test_events_view_starts_at_the_newest(Path(td) / 'evview')
-        test_spawn_survives_its_own_main_path(Path(td) / 'spawnmain')
-        test_an_agent_is_never_handed_another_agents_session(Path(td) / 'ident')
-        test_a_closed_agent_is_not_handed_off(Path(td) / 'closedtrig')
-        test_a_woken_agent_is_told_on_the_following_tick(Path(td) / 'woketick')
-        test_a_woken_agent_is_not_judged_on_the_snapshot_it_left(Path(td) / 'wakejudge')
-        test_a_park_that_was_also_closed_is_woken_without_being_judged(Path(td) / 'pclosed')
-        test_a_wake_does_not_call_a_fresh_start_a_park(Path(td) / 'freshstart')
-        test_installing_hooks_twice_does_not_double_them(Path(td) / 'hookdup')
-        test_the_sweep_corrects_what_it_can_see(Path(td) / 'sweep')
-        test_an_agent_with_nowhere_to_run_is_not_handed_off(Path(td) / 'noterm')
-        test_a_fold_is_a_process_not_a_session(Path(td) / 'foldproc')
-        test_who_is_asking_is_not_guessed(Path(td) / 'whoasks')
-        test_a_rejected_fold_still_records_what_it_spent(Path(td) / 'spend')
-        test_one_agents_bad_tick_is_not_everyones(Path(td) / 'badtick')
-        test_orca_idle_parsing()
-        test_clear_refuses_mid_turn()
-        test_handoff_reclaims_context(Path(td) / 'reclaim')
-        test_wake_injects_handoff(Path(td) / 'wake')
-        test_hooks_report_activity(Path(td) / 'hooky')
-        test_tui_frame_geometry(Path(td) / 'tui')
-        test_clear_does_not_look_like_waking(Path(td) / 'loopy')
-        test_handoff_rate_limited(Path(td) / 'hrate')
-        test_handoff_drift_header(Path(td) / 'hdhome')
+        run(lambda: test_failclosed(home))
+        run(lambda: test_collector(home))
+        run(lambda: test_yaml())
+        run(lambda: test_agents(home))
+        run(lambda: test_launch(home))
+        run(lambda: test_team_routing())
+        run(lambda: test_yaml_differential())
+        run(lambda: test_yaml_rejects_ambiguity())
+        run(lambda: test_yaml_booleans())
+        run(lambda: test_team_validation())
+        run(lambda: test_db_dedup(home))
+        run(lambda: test_ask_flow(Path(td) / 'askhome'))
+        run(lambda: test_ask_rate_limit(Path(td) / 'ratehome'))
+        run(lambda: test_cycle_and_escalation(Path(td) / 'cyc'))
+        run(lambda: test_review_pingpong(Path(td) / 'pingpong'))
+        run(lambda: test_rate_limit_throttles(Path(td) / 'throt'))
+        run(lambda: test_digest())
+        run(lambda: test_event_allowlist())
+        run(lambda: test_fold(Path(td) / 'foldhome'))
+        run(lambda: test_rollover(Path(td) / 'rollhome'))
+        run(lambda: test_triggers())
+        run(lambda: test_daemon_evaluates_parked(Path(td) / 'd0'))
+        run(lambda: test_daemon_park(Path(td) / 'd1'))
+        run(lambda: test_daemon_resume(Path(td) / 'd2'))
+        run(lambda: test_daemon_kill_recovery(Path(td) / 'd3'))
+        run(lambda: test_daemon_handoff_timeout(Path(td) / 'd4'))
+        run(lambda: test_daemon_stall_escalation(Path(td) / 'd5'))
+        run(lambda: test_daemon_success_clears_streak(Path(td) / 'd5b'))
+        run(lambda: test_daemon_degraded_recovers(Path(td) / 'd5c'))
+        run(lambda: test_daemon_tick_expires_handoff(Path(td) / 'd5d'))
+        run(lambda: test_daemon_ignores_stale_status(Path(td) / 'd5e'))
+        run(lambda: test_daemon_poll_uses_hottest(Path(td) / 'd5f'))
+        run(lambda: test_status_edge_cases(Path(td) / 'se'))
+        run(lambda: test_team_deny_validation())
+        run(lambda: test_ask_respects_terminal_state(Path(td) / 'term'))
+        run(lambda: test_launch_refuses_stale(Path(td) / 'stale'))
+        run(lambda: test_collector_account_named_like_user(Path(td) / 'named'))
+        run(lambda: test_shared_account_context_isolation(Path(td) / 'shared'))
+        run(lambda: test_db_dedup_only_swallows_dedup(Path(td) / 'strict'))
+        run(lambda: test_agent_rewrite_uses_parser(Path(td) / 'rw'))
+        run(lambda: test_daemon_pidfile(Path(td) / 'd6'))
+        run(lambda: test_drift(Path(td) / 'drift'))
+        run(lambda: test_spawn_base_selection(Path(td) / 'spawn'))
+        run(lambda: test_idle_session_is_closed_and_resumed(Path(td) / 'idle'))
+        run(lambda: test_wake_without_a_closed_session_uses_the_handoff(Path(td) / 'wakeh'))
+        run(lambda: test_work_arriving_wakes_a_closed_agent(Path(td) / 'wakework'))
+        run(lambda: test_a_running_agent_is_told_when_work_arrives(Path(td) / 'deliver'))
+        run(lambda: test_carry_bounds_and_losses(Path(td) / 'carry'))
+        run(lambda: test_unobserved_spend_stays_off_unreadable_accounts(Path(td) / 'spend'))
+        run(lambda: test_launch_judges_on_the_figure_it_may_act_on(Path(td) / 'lj'))
+        run(lambda: test_burn_rate_ignores_carried_samples(Path(td) / 'burn'))
+        run(lambda: test_a_session_figure_is_not_shown_as_an_accounts(Path(td) / 'sessfig'))
+        run(lambda: test_doctor_says_one_thing_per_account(Path(td) / 'doc2'))
+        run(lambda: test_fold_is_not_rejected_over_a_header_it_overwrites(Path(td) / 'fhdr'))
+        run(lambda: test_display_agrees_with_the_daemon(Path(td) / 'disp'))
+        run(lambda: test_spawn_confirms_the_task_landed(Path(td) / 'spawnland'))
+        run(lambda: test_events_view_starts_at_the_newest(Path(td) / 'evview'))
+        run(lambda: test_spawn_survives_its_own_main_path(Path(td) / 'spawnmain'))
+        run(lambda: test_an_agent_is_never_handed_another_agents_session(Path(td) / 'ident'))
+        run(lambda: test_a_closed_agent_is_not_handed_off(Path(td) / 'closedtrig'))
+        run(lambda: test_a_woken_agent_is_told_on_the_following_tick(Path(td) / 'woketick'))
+        run(lambda: test_a_woken_agent_is_not_judged_on_the_snapshot_it_left(Path(td) / 'wakejudge'))
+        run(lambda: test_a_park_that_was_also_closed_is_woken_without_being_judged(Path(td) / 'pclosed'))
+        run(lambda: test_a_wake_does_not_call_a_fresh_start_a_park(Path(td) / 'freshstart'))
+        run(lambda: test_installing_hooks_twice_does_not_double_them(Path(td) / 'hookdup'))
+        run(lambda: test_the_sweep_corrects_what_it_can_see(Path(td) / 'sweep'))
+        run(lambda: test_an_agent_with_nowhere_to_run_is_not_handed_off(Path(td) / 'noterm'))
+        run(lambda: test_a_fold_is_a_process_not_a_session(Path(td) / 'foldproc'))
+        run(lambda: test_who_is_asking_is_not_guessed(Path(td) / 'whoasks'))
+        run(lambda: test_a_rejected_fold_still_records_what_it_spent(Path(td) / 'spend'))
+        run(lambda: test_one_agents_bad_tick_is_not_everyones(Path(td) / 'badtick'))
+        run(lambda: test_orca_idle_parsing())
+        run(lambda: test_clear_refuses_mid_turn())
+        run(lambda: test_handoff_reclaims_context(Path(td) / 'reclaim'))
+        run(lambda: test_wake_injects_handoff(Path(td) / 'wake'))
+        run(lambda: test_hooks_report_activity(Path(td) / 'hooky'))
+        run(lambda: test_tui_frame_geometry(Path(td) / 'tui'))
+        run(lambda: test_clear_does_not_look_like_waking(Path(td) / 'loopy'))
+        run(lambda: test_handoff_rate_limited(Path(td) / 'hrate'))
+        run(lambda: test_handoff_drift_header(Path(td) / 'hdhome'))
     print(f"\n{len(PASS)} passed, {len(FAIL)} failed")
     for f in FAIL:
         print(f"  FAILED: {f}")

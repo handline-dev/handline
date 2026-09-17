@@ -43,6 +43,18 @@ def _read_json(p: Path) -> dict:
         return {}
 
 
+def write_settings(target: Path, data: dict) -> None:
+    """Replace the settings file in one step.
+
+    Both writers of this file - Orca's mirror and our own hook install - go
+    through here, so a half-written settings.json is not a state either of them
+    can produce.
+    """
+    tmp = target.with_suffix(".json.tmp")
+    tmp.write_text(json.dumps(data, indent=2, ensure_ascii=False) + "\n")
+    tmp.replace(target)
+
+
 def _is_orca_entry(entry: dict) -> bool:
     cmd = entry.get("command")
     return isinstance(cmd, str) and any(m in cmd for m in ORCA_MARKERS)
@@ -128,9 +140,7 @@ def sync(quiet: bool = False) -> bool:
         for event, groups in src.items():
             hooks[event] = list(groups) + list(hooks.get(event, []))
 
-    tmp = target.with_suffix(".json.tmp")
-    tmp.write_text(json.dumps(settings, indent=2, ensure_ascii=False) + "\n")
-    tmp.replace(target)
+    write_settings(target, settings)
     if not quiet:
         groups = sum(len(g) for g in src.values())
         print(f"synced Orca hooks: {len(src)} events, {groups} groups -> {target}")

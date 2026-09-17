@@ -497,13 +497,14 @@ def cmd_hook_install(args) -> int:
             if not isinstance(g, dict):
                 keep.append(g)
                 continue
-            mine = [h for h in g.get("hooks", [])
+            entries = g.get("hooks", [])
+            mine = [h for h in entries
                     if isinstance(h, dict) and _is_our_hook(h.get("command"), event)]
             if not mine:
                 keep.append(g)
                 continue
-            if seen or len(g.get("hooks", [])) > len(mine):
-                g["hooks"] = [h for h in g.get("hooks", []) if h not in mine]
+            if seen or len(entries) > len(mine):
+                g["hooks"] = [h for h in entries if h not in mine]
                 pruned += len(mine)
                 if g["hooks"]:
                     keep.append(g)
@@ -515,9 +516,7 @@ def cmd_hook_install(args) -> int:
             groups.append({"hooks": [{"type": "command",
                                       "command": f"{exe} hook {event}", "timeout": 10}]})
             added.append(event)
-    tmp = target.with_suffix(".json.tmp")
-    tmp.write_text(json.dumps(data, indent=2, ensure_ascii=False) + "\n")
-    tmp.replace(target)
+    hooks.write_settings(target, data)
     msg = []
     if added:
         msg.append(f"installed ocp event hooks for {len(added)} events")
