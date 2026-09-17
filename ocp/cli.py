@@ -17,8 +17,8 @@ from pathlib import Path
 from . import (accounts, agents, ask as askmod, daemon as daemonmod, dashboard, db,
                tui,
                digest, doctor,
-               drift, events, fold as foldmod, guide, hooks, launch, paths, status,
-               spawn as spawnmod, team, triggers)
+               drift, events, fold as foldmod, guide, hooks, launch, paths, service,
+               status, spawn as spawnmod, team, triggers)
 
 
 # ---------------------------------------------------------------- init
@@ -31,7 +31,7 @@ def cmd_init(args) -> int:
 
     gitignore = h / ".gitignore"
     if not gitignore.exists():
-        gitignore.write_text("accounts/\ndb.sqlite\ndaemon.pid\n*.tmp\n")
+        gitignore.write_text("accounts/\ndb.sqlite\ndaemon.pid\nlogs/\n*.tmp\n")
     cfg = paths.config_file()
     if not cfg.exists():
         cfg.write_text("version: 1\n")
@@ -300,7 +300,8 @@ def cmd_daemon(args) -> int:
 
 def cmd_daemon_status(args) -> int:
     pid = daemonmod.running_elsewhere()
-    print(f"daemon: {'running, pid ' + str(pid) if pid else 'not running'}")
+    supervisor = service.supervisor_of(pid)
+    print(f"daemon: {'running, pid ' + str(pid) if pid else 'not running'} - {supervisor}")
     con = db.connect()
     try:
         rows = db.all_agent_states(con)
@@ -325,6 +326,38 @@ def cmd_daemon_status(args) -> int:
                       f"deadline={time.strftime('%H:%M:%S', time.localtime(h['deadline']))}")
     finally:
         con.close()
+    return 0
+
+
+# ---------------------------------------------------------------- service
+def cmd_service_install(args) -> int:
+    ok, msg = service.install()
+    print(msg)
+    return 0 if ok else 1
+
+
+def cmd_service_uninstall(args) -> int:
+    ok, msg = service.uninstall()
+    print(msg)
+    return 0 if ok else 1
+
+
+def cmd_service_status(args) -> int:
+    st = service.status()
+    print(f"label:       {service.LABEL}")
+    print(f"plist:       {service.plist_path()}")
+    print(f"installed:   {st['installed']}")
+    print(f"loaded:      {st['loaded']}")
+    print(f"pid:         {st['pid'] or '-'}")
+    print(f"last exit:   {st['last_exit_code'] or '-'}")
+    if service.crash_loop_detected():
+        print("warning:     crash-looping - see `ocp service logs`")
+    return 0
+
+
+def cmd_service_logs(args) -> int:
+    path = service.err_log() if args.err else service.out_log()
+    print(service.tail(path, lines=args.lines))
     return 0
 
 
@@ -696,6 +729,19 @@ def build_parser() -> argparse.ArgumentParser:
 
     p = sub.add_parser("ps", help="daemon and agent state")
     p.set_defaults(fn=cmd_daemon_status)
+
+    sv = sub.add_parser("service", help="run the daemon as a launchd LaunchAgent").add_subparsers(
+        dest="sub", required=True)
+    p = sv.add_parser("install", help="write the plist and load it into launchd")
+    p.set_defaults(fn=cmd_service_install)
+    p = sv.add_parser("uninstall", help="unload the job and remove the plist")
+    p.set_defaults(fn=cmd_service_uninstall)
+    p = sv.add_parser("status", help="installed / loaded / pid / crash-looping")
+    p.set_defaults(fn=cmd_service_status)
+    p = sv.add_parser("logs", help="tail the daemon's launchd-captured output")
+    p.add_argument("-n", "--lines", type=int, default=60)
+    p.add_argument("--err", action="store_true", help="show stderr instead of stdout")
+    p.set_defaults(fn=cmd_service_logs)
 
     p = sub.add_parser("triggers", help="what the daemon would decide right now")
     p.set_defaults(fn=cmd_triggers)

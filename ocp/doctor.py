@@ -12,7 +12,7 @@ import shutil
 import subprocess
 from pathlib import Path
 
-from . import accounts, agents, hooks, paths, status
+from . import accounts, agents, hooks, paths, service, status
 
 OK, WARN, FAIL = "ok", "warn", "fail"
 
@@ -272,6 +272,26 @@ def _check_pidfile(r: Report) -> None:
               "it named a dead process or a previous boot")
 
 
+def _check_service(r: Report) -> None:
+    """The daemon surviving overnight is the point of `ocp service` - a
+    plist on disk that launchd never loaded, or a job stuck respawning, is
+    the same as no supervisor at all."""
+    st = service.status()
+    if not st["installed"]:
+        r.add(WARN, "no launchd service installed",
+              "daemon only runs while a human keeps it open - `ocp service install`")
+        return
+    if not st["loaded"]:
+        r.add(FAIL, "service plist exists but is not loaded",
+              f"{service.plist_path()} - `ocp service install` to reload it")
+        return
+    if service.crash_loop_detected():
+        r.add(FAIL, "daemon is crash-looping under launchd",
+              "see `ocp service logs`")
+    else:
+        r.add(OK, f"service loaded (pid {st['pid'] or '-'})")
+
+
 def _check_autocontinue(r: Report) -> None:
     """Claude Code's own autoContinueAtUsageLimit overlaps our resume logic
     (section 4). One of them has to own it; doctor keeps the choice explicit."""
@@ -308,5 +328,6 @@ def run() -> Report:
     _check_rate_limits_present(r)
     _check_agents(r)
     _check_pidfile(r)
+    _check_service(r)
     _check_autocontinue(r)
     return r

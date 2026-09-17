@@ -17,7 +17,8 @@ sys.path.insert(0, str(ROOT))
 
 from ocp import (accounts, agents, ask as askmod, daemon as dmn, dashboard, db, digest,
                  doctor, drift, events as evmod, fold as foldmod, launch, orca as orcamod,
-                 paths, spawn as spawnmod, status, team, triggers, tui, yamlcompat)  # noqa: E402
+                 paths, service, spawn as spawnmod, status, team, triggers, tui,
+                 yamlcompat)  # noqa: E402
 
 PASS, FAIL = [], []
 
@@ -990,6 +991,228 @@ def test_daemon_pidfile(home: Path) -> None:
     # A dead PID from this boot is also reclaimed.
     paths.daemon_pid().write_text(json.dumps({"pid": 999999, "boot": dmn.boot_time()}))
     check("daemon: a dead pid is reclaimed", dmn.running_elsewhere() is None)
+
+
+# ---------------------------------------------------------------- service
+def test_service_plist(home: Path) -> None:
+    home.mkdir(parents=True, exist_ok=True)
+    plist = service.build_plist(home=home)
+    check("service: label is set", plist["Label"] == service.LABEL)
+    check("service: RunAtLoad", plist["RunAtLoad"] is True)
+    check("service: KeepAlive is a bare true, not SuccessfulExit-gated",
+          plist["KeepAlive"] is True)
+    check("service: ThrottleInterval bounds the restart rate",
+          isinstance(plist["ThrottleInterval"], int) and plist["ThrottleInterval"] > 0)
+    check("service: stdout log is under OCP_HOME/logs",
+          plist["StandardOutPath"] == str(home / "logs" / "daemon.out.log"))
+    check("service: stderr log is under OCP_HOME/logs",
+          plist["StandardErrorPath"] == str(home / "logs" / "daemon.err.log"))
+    env = plist["EnvironmentVariables"]
+    check("service: env carries PATH", bool(env.get("PATH")))
+    check("service: env carries HOME", bool(env.get("HOME")))
+    check("service: env carries OCP_HOME, pointed at this home",
+          env.get("OCP_HOME") == str(home))
+    check("service: program is an absolute path (launchd inherits no PATH)",
+          Path(plist["ProgramArguments"][1]).is_absolute())
+
+    path = service.write_plist(path=home / "test.plist", home=home)
+    check("service: write_plist creates the file", path.exists())
+    back = service.read_plist(path=path)
+    check("service: plist round-trips through plistlib", back == plist, str(back))
+
+
+def test_service_launchctl_gated(home: Path) -> None:
+    """No test may shell out to real launchctl - every call goes through
+    run_launchctl, so replacing that one name fakes the whole daemon."""
+    home.mkdir(parents=True, exist_ok=True)
+    plist_file = home / "LaunchAgents" / f"{service.LABEL}.plist"
+    calls: list[list[str]] = []
+
+    class FakeResult:
+        def __init__(self, returncode=0, stdout="", stderr=""):
+            self.returncode, self.stdout, self.stderr = returncode, stdout, stderr
+
+    def fake_ok(args):
+        calls.append(args)
+        return FakeResult(0, "", "")
+
+    orig_plist_path = service.plist_path
+    orig_runner = service.run_launchctl
+    try:
+        service.plist_path = lambda: plist_file
+        service.run_launchctl = fake_ok
+        ok, msg = service.install(home=home)
+        check("service: install() reports success when launchctl does", ok, msg)
+        check("service: install() writes the plist", plist_file.exists())
+        check("service: install() bootouts before bootstrapping (idempotent)",
+              calls[0][0] == "bootout")
+        check("service: install() bootstraps the built plist",
+              calls[1] == ["bootstrap", service.domain_target(), str(plist_file)])
+        check("service: install() enables the job", calls[2][0] == "enable")
+
+        calls.clear()
+
+        def fake_status(args):
+            calls.append(args)
+            return FakeResult(0, "\tpid = 4242\n\tlast exit code = 0\n", "")
+
+        service.run_launchctl = fake_status
+        st = service.status()
+        check("service: status() reports installed", st["installed"])
+        check("service: status() reports loaded from a fake `print`", st["loaded"])
+        check("service: status() parses the pid", st["pid"] == 4242)
+        check("service: status() parses the last exit code", st["last_exit_code"] == "0")
+
+        calls.clear()
+        service.run_launchctl = fake_ok
+        ok, msg = service.uninstall()
+        check("service: uninstall() reports success", ok, msg)
+        check("service: uninstall() removes the plist", not plist_file.exists())
+        check("service: uninstall() boots the job out", calls[0][0] == "bootout")
+    finally:
+        service.plist_path = orig_plist_path
+        service.run_launchctl = orig_runner
+
+
+def test_service_status_when_not_installed(home: Path) -> None:
+    home.mkdir(parents=True, exist_ok=True)
+    orig = service.plist_path
+    called = {"n": 0}
+
+    def must_not_run(args):
+        called["n"] += 1
+        raise AssertionError("run_launchctl called for an uninstalled service")
+
+    orig_runner = service.run_launchctl
+    try:
+        service.plist_path = lambda: home / "nope.plist"
+        service.run_launchctl = must_not_run
+        st = service.status()
+        check("service: status() skips launchctl when no plist exists",
+              not st["installed"] and not st["loaded"] and called["n"] == 0)
+    finally:
+        service.plist_path = orig
+        service.run_launchctl = orig_runner
+
+
+def test_service_supervisor_of(home: Path) -> None:
+    home.mkdir(parents=True, exist_ok=True)
+    orig = service.status
+    try:
+        service.status = lambda: {"installed": True, "loaded": True, "pid": 111,
+                                  "last_exit_code": "0"}
+        check("service: pid matches launchd -> supervised",
+              service.supervisor_of(111) == f"launchd ({service.LABEL})")
+        check("service: pid does not match launchd -> hand-started",
+              "hand-started" in service.supervisor_of(222))
+
+        service.status = lambda: {"installed": False, "loaded": False, "pid": None,
+                                  "last_exit_code": None}
+        check("service: no pid, no service -> not running",
+              service.supervisor_of(None) == "not running")
+
+        service.status = lambda: {"installed": True, "loaded": False, "pid": None,
+                                  "last_exit_code": None}
+        check("service: no pid, installed but unloaded -> says so",
+              "not loaded" in service.supervisor_of(None))
+    finally:
+        service.status = orig
+
+
+def test_service_crash_loop(home: Path) -> None:
+    home.mkdir(parents=True, exist_ok=True)
+    log = service.out_log(home)
+    log.parent.mkdir(parents=True, exist_ok=True)
+
+    now = time.localtime()
+
+    def stamp(seconds_ago: int) -> str:
+        t = time.localtime(time.mktime(now) - seconds_ago)
+        return time.strftime("%H:%M:%S", t)
+
+    # Four restarts inside a minute: a real crash loop.
+    lines = [f"[{stamp(s)}] daemon starting - reconciling" for s in (0, 15, 30, 45)]
+    log.write_text("\n".join(lines) + "\n")
+    check("service: four restarts in a minute is a crash loop",
+          service.crash_loop_detected(home, window_s=300, threshold=4))
+
+    # One startup line, long-running since: not a loop.
+    log.write_text(f"[{stamp(0)}] daemon starting - reconciling\n")
+    check("service: a single startup is not a crash loop",
+          not service.crash_loop_detected(home, window_s=300, threshold=4))
+
+    # Restarts, but spread across hours: not a loop.
+    lines = [f"[{stamp(s)}] daemon starting - reconciling" for s in (0, 3600, 7200, 10800)]
+    log.write_text("\n".join(lines) + "\n")
+    check("service: restarts spread across hours is not a crash loop",
+          not service.crash_loop_detected(home, window_s=300, threshold=4))
+
+
+def test_service_log_rotation(tmp: Path) -> None:
+    tmp.mkdir(parents=True, exist_ok=True)
+    log = tmp / "daemon.out.log"
+    log.write_text("keep this line\n" * 100)
+    size_before = log.stat().st_size
+
+    check("service: rotate_log is a no-op below the size threshold",
+          not service.rotate_log(log, max_bytes=size_before + 1, backups=2))
+
+    rotated = service.rotate_log(log, max_bytes=size_before, backups=2)
+    check("service: rotate_log rotates once over threshold", rotated)
+    backup = log.with_name(f"{log.name}.1.gz")
+    check("service: rotate_log gzips the old content", backup.exists())
+    check("service: rotate_log truncates the live file in place", log.stat().st_size == 0)
+
+    import gzip as gzmod
+    with gzmod.open(backup, "rt") as f:
+        saved = f.read()
+    check("service: the rotated backup keeps the lines that explain the last incident",
+          "keep this line" in saved)
+
+    # A second rotation must not clobber the first backup - it shifts it down.
+    log.write_text("second incident\n" * 100)
+    service.rotate_log(log, max_bytes=size_before, backups=2)
+    backup2 = log.with_name(f"{log.name}.2.gz")
+    check("service: an older backup is kept, not overwritten", backup2.exists())
+    with gzmod.open(backup2, "rt") as f:
+        check("service: the shifted backup is the first incident, not the second",
+              "keep this line" in f.read())
+
+
+def test_doctor_service_check(home: Path) -> None:
+    home.mkdir(parents=True, exist_ok=True)
+    os.environ["OCP_HOME"] = str(home)
+    orig = service.status
+    orig_loop = service.crash_loop_detected
+    try:
+        service.status = lambda: {"installed": False, "loaded": False, "pid": None,
+                                  "last_exit_code": None}
+        r = doctor.Report()
+        doctor._check_service(r)
+        check("doctor: not-installed service warns, does not fail",
+              r.rows[-1][0] == doctor.WARN)
+
+        service.status = lambda: {"installed": True, "loaded": False, "pid": None,
+                                  "last_exit_code": None}
+        r = doctor.Report()
+        doctor._check_service(r)
+        check("doctor: installed-but-unloaded service fails",
+              r.rows[-1][0] == doctor.FAIL)
+
+        service.status = lambda: {"installed": True, "loaded": True, "pid": 5,
+                                  "last_exit_code": "0"}
+        service.crash_loop_detected = lambda: True
+        r = doctor.Report()
+        doctor._check_service(r)
+        check("doctor: a crash-looping service fails", r.rows[-1][0] == doctor.FAIL)
+
+        service.crash_loop_detected = lambda: False
+        r = doctor.Report()
+        doctor._check_service(r)
+        check("doctor: a healthy, loaded service is ok", r.rows[-1][0] == doctor.OK)
+    finally:
+        service.status = orig
+        service.crash_loop_detected = orig_loop
 
 
 # ---------------------------------------------------------------- drift
@@ -2872,6 +3095,13 @@ def main() -> int:
         test_db_dedup_only_swallows_dedup(Path(td) / 'strict')
         test_agent_rewrite_uses_parser(Path(td) / 'rw')
         test_daemon_pidfile(Path(td) / 'd6')
+        test_service_plist(Path(td) / 'svc1')
+        test_service_launchctl_gated(Path(td) / 'svc2')
+        test_service_status_when_not_installed(Path(td) / 'svc3')
+        test_service_supervisor_of(Path(td) / 'svc4')
+        test_service_crash_loop(Path(td) / 'svc5')
+        test_service_log_rotation(Path(td) / 'svc6')
+        test_doctor_service_check(Path(td) / 'svc7')
         test_drift(Path(td) / 'drift')
         test_spawn_base_selection(Path(td) / 'spawn')
         test_idle_session_is_closed_and_resumed(Path(td) / 'idle')

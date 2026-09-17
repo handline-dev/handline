@@ -30,7 +30,7 @@ import time
 import uuid
 from dataclasses import dataclass
 
-from . import agents, db, fold as foldmod, launch, orca, paths, status, triggers
+from . import agents, db, fold as foldmod, launch, orca, paths, service, status, triggers
 
 # Section 8.2 states.
 IDLE, QUEUED, RUNNING, DONE = "IDLE", "QUEUED", "RUNNING", "DONE"
@@ -757,6 +757,9 @@ def run(once: bool = False, use_model: bool = True, verbose: bool = True,
         while not stopping["now"]:
             t = tick(con, log, use_model=use_model, samples=samples)
             ticks += 1
+            # A supervisor that runs for weeks must not fill the disk. Cheap
+            # when under threshold: two stat() calls and nothing else.
+            service.rotate_logs()
             if once or (max_ticks and ticks >= max_ticks):
                 break
             # The hottest account sets the pace, not the quietest: min() here
