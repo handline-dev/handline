@@ -24,12 +24,15 @@ from __future__ import annotations
 import os
 import re
 import select
+import shlex
 import shutil
 import subprocess
 import sys
+import tempfile
 import termios
 import time
 import tty
+from pathlib import Path
 
 from . import actions, agents, daemon, db, paths, status, triggers
 
@@ -61,7 +64,8 @@ AGENT_KEYS = [
     ("f", "fold"), ("m", "message"), ("s", "start"), ("u", "unstall"),
 ]
 ACCOUNT_KEYS = [("↵", "open"), ("l", "login")]
-MESSAGE_KEYS = [("↵", "read"), ("a", "answer"), ("x", "dismiss")]
+MESSAGE_KEYS = [("↵", "read"), ("a", "answer"), ("e", "answer in $EDITOR"),
+                ("x", "dismiss")]
 CONFIRM = {"close", "park", "unstall", "fold"}
 
 
@@ -361,10 +365,20 @@ def build(width: int, sel: dict | None = None) -> tuple[list[str], list[Panel]]:
         con.close()
 
 
+def opened(title: str, lines: list[str], panel: int = AGENTS, key: object = None) -> dict:
+    """One thing held open on the screen, and where it came from.
+
+    It carries its own row rather than just its text: what is open is the thing
+    a key then acts on, and a reader answering a message must be answering the
+    one they are reading.
+    """
+    return {"title": title, "lines": lines, "panel": panel, "key": key, "top": 0}
+
+
 def frame(width: int, height: int, sel: dict | None = None, panel: int = AGENTS,
-          flash: str = "", detail: list[str] | None = None) -> str:
+          flash: str = "", detail: dict | None = None) -> str:
     if detail is not None:
-        return _detail_frame(width, height, detail)
+        return _detail_frame(width, height, detail, flash)
     header, panels = build(width, sel)
     acc, ms, ag, fl, rc = panels[0], panels[2], panels[1], panels[3], panels[4]
     foot = [fit(flash, width) if flash else "", keybar(panel, width)]
@@ -388,12 +402,53 @@ def frame(width: int, height: int, sel: dict | None = None, panel: int = AGENTS,
     return "\n".join(line + CLEAR_EOL for line in lines)
 
 
-def _detail_frame(width: int, height: int, detail: list[str]) -> str:
-    lines = [fit(ln, width) for ln in detail][:height - 2]
-    while len(lines) < height - 2:
-        lines.append("")
-    lines.append("")
-    lines.append(f"{DIM}esc back · q quit{R}")
+def wrap(lines: list[str], width: int) -> list[str]:
+    """Break long lines to the terminal's width, at spaces where there are any.
+
+    A message body arrives as whatever the sender typed, and an agent's report
+    is often one paragraph with no newline in it at all. Fitting that to the
+    width shows its first sentence and drops the rest - which is not reading
+    the message.
+    """
+    out: list[str] = []
+    for line in lines:
+        line = line.rstrip()
+        if not line:
+            out.append("")
+            continue
+        while vlen(line) > width:
+            cut = line.rfind(" ", 0, width + 1)
+            if cut <= 0:
+                cut = width
+            out.append(line[:cut].rstrip())
+            line = line[cut:].lstrip()
+        out.append(line)
+    return out
+
+
+def _detail_frame(width: int, height: int, detail: dict, flash: str = "") -> str:
+    """One thing, opened, with what is off the bottom said rather than cut.
+
+    The panels shorten a list and count what they held back; a message is not a
+    list, so this wraps and scrolls instead - and a message read half way is
+    exactly the one someone is about to answer, which is why it can be answered
+    from here.
+    """
+    body = wrap(detail["lines"], width)
+    room = max(1, height - 4)
+    top = max(0, min(detail.get("top", 0), max(0, len(body) - room)))
+    detail["top"] = top
+    shown = body[top:top + room]
+    while len(shown) < room:
+        shown.append("")
+    where = (f"{DIM}  line {top + 1}-{min(len(body), top + room)} of {len(body)}{R}"
+             if len(body) > room else "")
+    keys = "esc back · ↑↓ scroll · space page"
+    if detail.get("panel") == MESSAGES:
+        keys += " · a answer · e answer in $EDITOR · x dismiss"
+    lines = ([fit(f"{BOLD}{detail['title']}{R}{where}", width), ""]
+             + [fit(ln, width) for ln in shown]
+             + [fit(flash, width) if flash else "", fit(f"{DIM}{keys} · q quit{R}", width)])
     return "\n".join(line + CLEAR_EOL for line in lines[:height])
 
 
@@ -539,10 +594,7 @@ def run(interval: float = 2.0, once: bool = False) -> int:
             if k in ("q", "Q", "\x03"):
                 return 0
             if detail is not None:
-                # One screen at a time: while something is open, the only
-                # questions are "close it" and "quit".
-                if k in ("\033", "\x1b"):
-                    detail = None
+                detail, flash = _in_detail(detail, k, width, height, fd, saved)
                 continue
             flash = ""
             if k == "\t":
@@ -569,6 +621,81 @@ def run(interval: float = 2.0, once: bool = False) -> int:
         sys.stdout.flush()
         if saved:
             termios.tcsetattr(fd, termios.TCSADRAIN, saved)
+
+
+def _in_detail(detail: dict, k: str, width: int, height: int,
+               fd=None, saved=None) -> tuple[dict | None, str]:
+    """One keypress while something is open. Returns (what is open now, line).
+
+    Closing is not the only thing a reader wants to do with a message: the one
+    they have just read is the one they are about to answer, and making them
+    back out to the panel to do it is how an answer gets put off.
+    """
+    room = max(1, height - 4)
+    if k in ("\033", "\x1b"):
+        return None, ""
+    if k in ("j", "\033[B", "\033OB"):
+        detail["top"] += 1
+        return detail, ""
+    if k in ("k", "\033[A", "\033OA"):
+        detail["top"] = max(0, detail["top"] - 1)
+        return detail, ""
+    if k in (" ", "\033[6~"):
+        detail["top"] += room
+        return detail, ""
+    if k in ("b", "\033[5~"):
+        detail["top"] = max(0, detail["top"] - room)
+        return detail, ""
+    if k == "g":
+        detail["top"] = 0
+        return detail, ""
+    if k == "G":
+        detail["top"] = max(0, len(wrap(detail["lines"], width)) - room)
+        return detail, ""
+    if detail.get("panel") != MESSAGES or k not in ("a", "e", "x"):
+        return detail, ""
+
+    rid = int(detail["key"])
+    con = db.connect()
+    try:
+        if k == "x":
+            return None, actions.dismiss(con, rid)
+        text = (_editor(f"# answering #{rid}. Lines starting with # are dropped.\n",
+                        fd, saved)
+                if k == "e" else _line(f"answer #{rid}:", width, height))
+        if text is None:
+            return detail, "nothing sent"
+        _say(f"answering #{rid}", width, height)
+        return None, actions.answer(con, rid, text)
+    finally:
+        con.close()
+
+
+def _editor(seed: str, fd=None, saved=None) -> str | None:
+    """Write a long answer where long answers are written.
+
+    A one-line prompt is enough to say yes; it is not enough to say why, and an
+    answer to an escalation is usually the why. None when nothing was written,
+    so backing out of the editor sends nothing.
+    """
+    editor = os.environ.get("EDITOR") or os.environ.get("VISUAL")
+    if not editor:
+        return None
+    fd_, path = tempfile.mkstemp(prefix="ocp-answer-", suffix=".md")
+    os.close(fd_)
+    Path(path).write_text(seed)
+    try:
+        # `saved` is the terminal as the human's shell had it. Handing an
+        # editor the cbreak mode this screen runs in gives it a terminal in a
+        # state it did not ask for and does not put back.
+        out = _suspend([*shlex.split(editor), path], dict(os.environ), fd, saved)
+        if "could not run" in out:
+            return None
+        body = "\n".join(ln for ln in Path(path).read_text().splitlines()
+                         if not ln.startswith("#")).strip()
+        return body or None
+    finally:
+        Path(path).unlink(missing_ok=True)
 
 
 def _say(what: str, width: int, height: int) -> None:
@@ -618,7 +745,8 @@ def _act(panel: int, sel: dict, key: str, width: int, height: int,
     if panel == ACCOUNTS and key in ("\r", "\n"):
         con = db.connect()
         try:
-            return "", actions.account_detail(con, str(target))
+            return "", opened(f"account {target}", actions.account_detail(con, str(target)),
+                              ACCOUNTS, target)
         finally:
             con.close()
     if panel == ACCOUNTS and key == "l":
@@ -632,7 +760,8 @@ def _act(panel: int, sel: dict, key: str, width: int, height: int,
         if panel == AGENTS:
             name = str(target)
             if key in ("\r", "\n"):
-                return "", actions.agent_detail(con, name)
+                return "", opened(f"agent {name}", actions.agent_detail(con, name),
+                                  AGENTS, name)
             label = dict(AGENT_KEYS).get(key)
             if not label:
                 return "", None
@@ -659,14 +788,18 @@ def _act(panel: int, sel: dict, key: str, width: int, height: int,
             if not row:
                 return f"#{rid} is gone", None
             if key in ("\r", "\n"):
-                head = [f"{BOLD}#{rid} from {row['requester']}{R}  "
-                        f"{row['kind'] or 'ask'}  "
-                        f"{time.strftime('%Y-%m-%d %H:%M', time.localtime(row['ts']))}", ""]
-                return "", head + (row["body"] or "").splitlines()
-            if key == "a":
-                text = _line(f"answer #{rid}:", width, height)
-                return (actions.answer(con, rid, text) if text is not None
-                        else "nothing sent"), None
+                when = time.strftime("%Y-%m-%d %H:%M", time.localtime(row["ts"]))
+                title = (f"#{rid} from {row['requester']} · {row['kind'] or 'ask'} · {when}")
+                return "", opened(title, (row["body"] or "").splitlines() or ["(empty)"],
+                                  MESSAGES, rid)
+            if key in ("a", "e"):
+                text = (_editor(f"# answering #{rid}. Lines starting with # are dropped.\n",
+                                fd, saved)
+                        if key == "e" else _line(f"answer #{rid}:", width, height))
+                if text is None:
+                    return "nothing sent", None
+                _say(f"answering #{rid}", width, height)
+                return actions.answer(con, rid, text), None
             if key == "x":
                 return actions.dismiss(con, rid), None
         return "", None

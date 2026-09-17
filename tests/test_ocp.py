@@ -3557,6 +3557,69 @@ def test_top_acts_through_the_same_calls_the_daemon_makes(home: Path) -> None:
         con.close()
 
 
+def test_a_message_is_read_whole_and_answered_where_it_is_read(home: Path) -> None:
+    """An agent's report arrives as one paragraph with no newline in it, and
+    fitting that to the width shows its first sentence and drops the rest -
+    which is not reading the message. And the message someone has just read is
+    the one they are about to answer: backing out to the panel to do it is how
+    an answer gets put off, and it is where answering the wrong row starts."""
+    _daemon_home(home, 20)
+    con = db.connect()
+    try:
+        long_body = ("A verdict with no newlines at all, " * 20).strip()
+        db.add_request(con, "auditor", actions.HUMAN, long_body,
+                       None, "peer", "async", "verdict", 0, None)
+        db.add_request(con, "marina", actions.HUMAN, "and a second one",
+                       None, "peer", "async", None, 0, None)
+        first, second = [m["id"] for m in actions.messages(con)]
+
+        wrapped = tui.wrap([long_body], 60)
+        check("read: a paragraph is broken to the width, not cut off",
+              len(wrapped) > 1 and max(len(ln) for ln in wrapped) <= 60,
+              str(max(len(ln) for ln in wrapped)))
+        check("read: and every word survives the break",
+              " ".join(wrapped).split() == long_body.split())
+
+        # Enter opens it, carrying which message it is.
+        sel = {tui.MESSAGES: first}
+        said, detail = tui._act(tui.MESSAGES, sel, "\r", 100, 20, None, None)
+        check("read: opening a message opens that message",
+              detail and detail["key"] == first and detail["panel"] == tui.MESSAGES,
+              str(detail)[:120])
+
+        for height in (8, 16, 20, 40):
+            text = tui._detail_frame(100, height, detail)
+            lines = [tui._ANSI.sub("", ln) for ln in text.split(chr(10))]
+            check(f"read: the view is exactly {height} lines, keys included",
+                  len(lines) == height and "esc back" in lines[-1], repr(lines[-1])[:80])
+            fits = len(tui.wrap(detail["lines"], 100)) <= max(1, height - 4)
+            check(f"read: at {height} lines it counts what is off the bottom, "
+                  f"and only then", ("line 1-" in lines[0]) is not fits, lines[0])
+
+        body_lines = len(tui.wrap(detail["lines"], 100))
+        detail, _ = tui._in_detail(detail, "G", 100, 20)
+        check("read: G goes to the end and stops there",
+              detail["top"] == max(0, body_lines - 16), str(detail["top"]))
+        detail, _ = tui._in_detail(detail, "j", 100, 20)
+        tui._detail_frame(100, 20, detail)
+        check("read: and nothing scrolls past it",
+              detail["top"] == max(0, body_lines - 16), str(detail["top"]))
+        detail, _ = tui._in_detail(detail, "g", 100, 20)
+        check("read: g comes back to the top", detail["top"] == 0)
+
+        # The cursor in the panel is somewhere else entirely; the key acts on
+        # what is open, which is what the reader is looking at.
+        sel[tui.MESSAGES] = second
+        detail, said = tui._in_detail(detail, "x", 100, 20)
+        check("read: dismissing closes the message being read, not the selected row",
+              db.get_request(con, first)["state"] == "done"
+              and db.get_request(con, second)["state"] == "queued", said)
+        check("read: and the view closes once there is nothing left to read",
+              detail is None)
+    finally:
+        con.close()
+
+
 def test_a_key_never_acts_on_a_row_nobody_pointed_at(home: Path) -> None:
     """The row under the cursor can be gone by the time a key is pressed - a
     message answered elsewhere, an agent that went away - and then nothing is
@@ -4494,6 +4557,7 @@ def main() -> int:
         run(lambda: test_top_shows_what_is_waiting_on_the_human(Path(td) / 'foryou'))
         run(lambda: test_the_screen_reads_keys_from_the_terminal_not_from_a_buffer())
         run(lambda: test_top_acts_through_the_same_calls_the_daemon_makes(Path(td) / 'topact'))
+        run(lambda: test_a_message_is_read_whole_and_answered_where_it_is_read(Path(td) / 'topread'))
         run(lambda: test_a_key_never_acts_on_a_row_nobody_pointed_at(Path(td) / 'topsel'))
         run(lambda: test_the_frame_never_draws_wider_than_the_terminal(Path(td) / 'topwide'))
         run(lambda: test_top_cursor_stays_inside_its_panel(Path(td) / 'topcur'))
