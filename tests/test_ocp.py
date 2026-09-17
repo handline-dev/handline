@@ -1447,42 +1447,53 @@ def test_idle_session_is_closed_and_resumed(home: Path) -> None:
         orcamod.send = lambda h, text, enter=True: (sent.append((h, text)), (True, ""))[1]
         db.set_terminal(con, "backend", "term_x", "wt")
         now = int(time.time())
+        agent_dir = home / "agents" / "backend"
+        agent_dir.mkdir(parents=True, exist_ok=True)
+        (agent_dir / "status.json").write_text(json.dumps({
+            "account": "alpha", "collected_at": now, "session_id": "sess-1",
+            "pct_5h": 20, "ctx_pct": 8, "transcript_path": "/tmp/sess-1.jsonl"}))
+        st = status.read_for_agent("backend", "alpha")
 
         # Nothing has been seen from it yet - that is not the same as idle.
         row = db.get_agent_state(con, "backend")
         check("close: an agent we have never seen is left alone",
-              not dmn.should_close(con, "backend", dmn.IDLE, row, now))
+              not dmn.should_close(con, "backend", dmn.IDLE, row, now, st))
 
         db.add_event(con, "backend", "Stop", {}, )
         con.execute("UPDATE events SET ts = ? WHERE agent = 'backend'", (now - 60,))
         row = db.get_agent_state(con, "backend")
         check("close: a recently active agent is left alone",
-              not dmn.should_close(con, "backend", dmn.IDLE, row, now))
+              not dmn.should_close(con, "backend", dmn.IDLE, row, now, st))
 
         con.execute("UPDATE events SET ts = ? WHERE agent = 'backend'",
                     (now - dmn.IDLE_CLOSE_S - 60,))
         row = db.get_agent_state(con, "backend")
         check("close: an agent idle past the threshold is closed",
-              dmn.should_close(con, "backend", dmn.IDLE, row, now))
+              dmn.should_close(con, "backend", dmn.IDLE, row, now, st))
         check("close: unless it is working", not dmn.should_close(
-            con, "backend", dmn.RUNNING, row, now))
+            con, "backend", dmn.RUNNING, row, now, st))
         check("close: or a human has to look at it", not dmn.should_close(
-            con, "backend", dmn.STALLED, row, now))
+            con, "backend", dmn.STALLED, row, now, st))
         check("close: or it is being handed off", not dmn.should_close(
-            con, "backend", dmn.HANDOFF, row, now))
+            con, "backend", dmn.HANDOFF, row, now, st))
+
+        # Memory is recoverable the moment anything wants it; the context we
+        # would lose by starting a stranger instead is not recoverable at all.
+        blind = status.read_for_agent("backend", "alpha")
+        blind.session_id = None
+        check("close: or we cannot name the session we would resume",
+              not dmn.should_close(con, "backend", dmn.IDLE, row, now, blind))
 
         # Work waiting for it is the one case where closing only adds delay.
         db.add_request(con, "reviewer", "backend", "please look at this", None,
                        "peer", "async", None, 0, None)
         row = db.get_agent_state(con, "backend")
         check("close: an agent with work waiting is left alone",
-              not dmn.should_close(con, "backend", dmn.IDLE, row, now))
+              not dmn.should_close(con, "backend", dmn.IDLE, row, now, st))
         con.execute("UPDATE requests SET state = 'done'")
 
         # Closing records which session to bring back.
         write_status(home, "alpha", pct_5h=20, ctx_pct=8)
-        agent_dir = home / "agents" / "backend"
-        agent_dir.mkdir(parents=True, exist_ok=True)
         (agent_dir / "status.json").write_text(json.dumps({
             "account": "alpha", "collected_at": int(time.time()), "session_id": "sess-1",
             "pct_5h": 20, "ctx_pct": 8,
@@ -2233,6 +2244,80 @@ def test_a_woken_agent_is_told_on_the_following_tick(home: Path) -> None:
         con.close()
 
 
+def test_a_woken_agent_is_not_judged_on_the_snapshot_it_left(home: Path) -> None:
+    """The reading was taken before the wake, and a closed agent's snapshot is
+    stale by construction - nothing refreshes a status line while its session is
+    gone. Evaluating it after the wake hands off the session just restored, and
+    leaves the work that caused the wake still unread."""
+    _daemon_home(home, 20)
+    con = db.connect()
+    sent: list[str] = []
+    real = (orcamod.alive, orcamod.wait_idle, orcamod.idle_now, orcamod.send,
+            orcamod.available, orcamod.clear_context)
+    try:
+        orcamod.available = lambda: True
+        orcamod.alive = lambda h: True
+        orcamod.wait_idle = lambda h, timeout_ms=0: True
+        orcamod.idle_now = lambda h: True     # the probe must not be what saves us
+        orcamod.clear_context = lambda h, wait=True, timeout_ms=0: (True, "context cleared")
+        orcamod.send = lambda h, text, enter=True: (sent.append(text), (True, ""))[1]
+        db.set_terminal(con, "backend", "term_x", "wt")
+        db.set_agent_state(con, "backend", dmn.IDLE)
+        (home / "agents" / "backend").mkdir(parents=True, exist_ok=True)
+        (home / "agents" / "backend" / "status.json").write_text(json.dumps({
+            "account": "alpha", "collected_at": int(time.time()),
+            "session_id": "sess-7", "pct_5h": 20}))
+        dmn.close_agent(con, "backend", lambda _m: None)
+
+        # The account was this agent's only session, so its snapshot ages out too.
+        write_status(home, "alpha", pct_5h=20, pct_7d=10,
+                     collected_at=int(time.time()) - status.STALE_AFTER_S - 60)
+        st = status.read_for_agent("backend", "alpha")
+        check("wake: the reading it left behind does fire",
+              triggers.evaluate(st.trusted_pct_5h, st.trusted_ctx_pct).fired)
+
+        db.add_request(con, "reviewer", "backend", "look at this", None,
+                       "peer", "async", None, 0, None)
+        sent.clear()
+        dmn.tick(con, lambda _m: None, use_model=False)
+        row = db.get_agent_state(con, "backend")
+        check("wake: it comes back", any("--resume sess-7" in t for t in sent), str(sent))
+        check("wake: and is not handed off on the reading it left behind",
+              row["state"] != dmn.PARKED, str(dict(row)))
+        check("wake: nothing was folded for it",
+              row["continuations"] == 0 and not db.in_flight_handoffs(con), str(dict(row)))
+        check("wake: and it was not cleared", not any("/clear" in t for t in sent), str(sent))
+        check("wake: the work that caused the wake is still queued",
+              len(db.queued_for(con, "backend")) == 1)
+    finally:
+        (orcamod.alive, orcamod.wait_idle, orcamod.idle_now, orcamod.send,
+         orcamod.available, orcamod.clear_context) = real
+        con.close()
+
+
+def test_a_wake_does_not_call_a_fresh_start_a_park(home: Path) -> None:
+    """Closing writes no handoff, because closing is not a handoff. Telling an
+    agent that could not be resumed "your context was cleared, below is your own
+    handoff record" hands it whatever an earlier park left behind, read as
+    current - the failure this branch exists to remove."""
+    _daemon_home(home, 20)
+    hp = foldmod.handoff_path("backend")
+    hp.parent.mkdir(parents=True, exist_ok=True)
+    hp.write_text("# handoff · backend\n- was mid-way through the routing fix")
+
+    told = dmn.wake_prompt("backend", resumed=False, was_closed=True)
+    check("wake: a fresh start after a close is not called a park",
+          "You were parked" not in told, told[:140])
+    check("wake: and is not handed a leftover handoff",
+          "routing fix" not in told, told[:200])
+    check("wake: it is told there is nothing folded to read",
+          "no handoff" in told, told[:200])
+
+    told = dmn.wake_prompt("backend", resumed=False, was_closed=False)
+    check("wake: a real park still gets its record",
+          "You were parked" in told and "routing fix" in told, told[:200])
+
+
 def test_who_is_asking_is_not_guessed(home: Path) -> None:
     """A human at their own prompt is the orchestrator; a process that merely
     lost OCP_AGENT is not. Conflating them hands the escalation target and the
@@ -2739,6 +2824,8 @@ def main() -> int:
         test_an_agent_is_never_handed_another_agents_session(Path(td) / 'ident')
         test_a_closed_agent_is_not_handed_off(Path(td) / 'closedtrig')
         test_a_woken_agent_is_told_on_the_following_tick(Path(td) / 'woketick')
+        test_a_woken_agent_is_not_judged_on_the_snapshot_it_left(Path(td) / 'wakejudge')
+        test_a_wake_does_not_call_a_fresh_start_a_park(Path(td) / 'freshstart')
         test_who_is_asking_is_not_guessed(Path(td) / 'whoasks')
         test_a_rejected_fold_still_records_what_it_spent(Path(td) / 'spend')
         test_one_agents_bad_tick_is_not_everyones(Path(td) / 'badtick')

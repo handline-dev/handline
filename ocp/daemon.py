@@ -228,14 +228,20 @@ def deliver_queued(con, agent: str, log) -> bool:
     return ok
 
 
-def should_close(con, agent: str, state: str, row, now: int) -> bool:
+def should_close(con, agent: str, state: str, row, now: int, st) -> bool:
     """Is this agent holding memory for nothing?
 
-    Closing is about the machine, not the account, so the only question is
-    whether anyone is using this session. Four things say no: it is working or
-    being handed off, a human has to look at it, someone is waiting on it, or
-    it has been busy recently. Anything else is a session whose only job right
-    now is to occupy 250-500MB.
+    Closing is about the machine, not the account, so the question is whether
+    anyone is using this session and whether we can bring it back. Five things
+    say no: it is working or being handed off, a human has to look at it,
+    someone is waiting on it, it has been busy recently, or we cannot name the
+    session we would resume. Anything else is a session whose only job right now
+    is to occupy 250-500MB.
+
+    The last one is the asymmetric trade: memory is recoverable the moment
+    anything wants it, and a working context is not recoverable at all. Closing
+    without a session id would buy back the small reversible thing by spending
+    the large irreversible one.
     """
     if state in (RUNNING, HANDOFF, STALLED):
         return False
@@ -243,6 +249,8 @@ def should_close(con, agent: str, state: str, row, now: int) -> bool:
         return False
     if db.queued_for(con, agent):
         return False          # work is waiting; closing would only delay it
+    if not st.session_id:
+        return False          # nothing to resume; losing the context costs more
     last = db.last_activity(con, agent)
     if last is None:
         return False          # nothing has ever been seen from it - leave it alone
@@ -292,18 +300,30 @@ def close_agent(con, agent: str, log, account: str | None = None) -> tuple[bool,
     return True, f"{agent}: session closed, terminal kept"
 
 
-def wake_prompt(agent: str, resumed: bool) -> str:
+def wake_prompt(agent: str, resumed: bool, was_closed: bool = False) -> str:
     """What an agent is told when it comes back.
 
     A resumed session already holds everything it knew, so it is told where it
-    is rather than what it did. A fresh one gets its handoff. Both get the path
-    to their own record: a digest is a summary, and the detail it dropped is
-    still on disk.
+    is rather than what it did. One that was parked gets its handoff. One whose
+    close left no session to resume gets neither, and is told so rather than
+    handed an older park's record as if it were current. All three get the path
+    to their own record when it can be named: a digest is a summary, and the
+    detail it dropped is still on disk.
     """
     parts: list[str] = []
     if resumed:
         parts.append("Your session was closed while you were idle and has been resumed. "
                      "Nothing was lost; carry on.")
+    elif was_closed:
+        # Closing writes no handoff, because closing is not a handoff. Taking
+        # the parked branch here would tell an agent that was never parked that
+        # its context was cleared, and hand it whatever handoff an earlier park
+        # left behind - a stale record read as current, which is the failure
+        # this whole branch exists to remove.
+        parts.append("Your session was closed while you were idle and could not be "
+                     "resumed, so this is a fresh one. There is no handoff: nothing "
+                     "was folded when it closed. Read your journal and your inbox "
+                     "before carrying on.")
     else:
         parts.append("You were parked and have been resumed. Your context was cleared; "
                      "below is your own handoff record. Carry on from here.")
@@ -351,7 +371,7 @@ def wake_agent(con, agent: str, log) -> tuple[bool, str]:
     elif not foldmod.handoff_path(agent).exists():
         return False, "no handoff to resume from"
 
-    ok, why = orca.resume_with(handle, wake_prompt(agent, resumed))
+    ok, why = orca.resume_with(handle, wake_prompt(agent, resumed, was_closed=closed))
     log(f"  {agent}: {why}{' (session resumed)' if resumed else ''}")
     return ok, why
 
@@ -584,7 +604,7 @@ def supervise(con, agent: str, log, now: int, samples: dict,
     # costs no tokens, and answers no one. Closing it is not a handoff -
     # nothing is folded, nothing is cleared - and waking it resumes the
     # same session, so the only thing that changes is who has the memory.
-    if should_close(con, agent, state, row, now):
+    if should_close(con, agent, state, row, now, st):
         ok, _ = close_agent(con, agent, log, account=acct)
         if ok:
             actions.append(f"{agent}: session closed while idle")
@@ -609,8 +629,14 @@ def supervise(con, agent: str, log, now: int, samples: dict,
     # What sits at the other end of a closed agent is a shell prompt, and a
     # handoff document is full of backticks - handing one off would pay for a
     # fold and then type command substitutions at bash. `should_close` is
-    # careful about four states; this needs the same care about one.
-    if not triggers_apply(row):
+    # careful about five things; this needs the same care about one.
+    #
+    # An agent woken in this tick is judged on the next one, for the same reason
+    # it is told about its inbox on the next one: `st` was read before the wake,
+    # and a closed agent's snapshot is stale by construction, so evaluating it
+    # here would hand off the session we just restored - and leave the work that
+    # caused the wake still unread.
+    if woke_now or not triggers_apply(row):
         return
 
     # trusted_* is None only when we genuinely do not know: no snapshot, or

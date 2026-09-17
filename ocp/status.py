@@ -343,7 +343,8 @@ def live_cost(account: str) -> float | None:
     about the account.
 
     It is not the account's spend: a session that has ended takes its cost out
-    of the sum, and work done outside ocp was never in it.
+    of the sum, a live one whose status line is lagging drops out of it until
+    the snapshot catches up, and work done outside ocp was never in it.
     """
     total, seen = 0.0, False
     for agent in paths.list_agents():
