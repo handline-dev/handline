@@ -16,10 +16,27 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
 from ocp import (accounts, agents, ask as askmod, daemon as dmn, db, digest, doctor, drift,
-                 events as evmod, fold as foldmod, launch, orca as orcamod, paths,
-                 spawn as spawnmod, status, team, triggers, tui, yamlcompat)  # noqa: E402
+                 events as evmod, fold as foldmod, launch, observe as obsmod,
+                 orca as orcamod, paths, spawn as spawnmod, status, team, triggers, tui,
+                 yamlcompat)  # noqa: E402
 
 PASS, FAIL = [], []
+
+# Every test that needs an Orca stands in for one, and a restore tuple that
+# forgot a name used to leak that stand-in into every test after it. Captured
+# once, put back by _daemon_home, so no test inherits another's world.
+REAL_ORCA = {n: getattr(orcamod, n) for n in (
+    "available", "alive", "live_terminals", "wait_idle", "idle_now", "send",
+    "clear_context", "close_session", "relaunch", "resume_with")}
+REAL_OBSERVE = {n: getattr(obsmod, n) for n in ("live_sessions", "live_terminals")
+                if hasattr(obsmod, n)}
+
+
+def restore_world() -> None:
+    for n, f in REAL_ORCA.items():
+        setattr(orcamod, n, f)
+    for n, f in REAL_OBSERVE.items():
+        setattr(obsmod, n, f)
 
 
 def check(name: str, cond: bool, detail: str = "") -> None:
@@ -742,12 +759,27 @@ def test_triggers() -> None:
 
 # ---------------------------------------------------------------- daemon
 def _daemon_home(home: Path, pct: int | None) -> None:
+    restore_world()
     home.mkdir(parents=True, exist_ok=True)
     os.environ["OCP_HOME"] = str(home)
     (home / "team.yaml").write_text(DESIGN_TEAM)
     agents.register("backend", "alpha")
     write_status(home, "alpha", pct_5h=pct, pct_7d=10, ctx_pct=5,
                  reset_5h=int(time.time()) + 1800)
+    # An agent the daemon acts on has somewhere to run: nothing is folded,
+    # cleared or parked for one with no terminal. The fixture says so once, so
+    # the tests below are about triggers rather than about that.
+    con = db.connect()
+    try:
+        db.set_terminal(con, "backend", "term_x", "wt")
+    finally:
+        con.close()
+    # And this world has no Orca and no process table unless a test provides
+    # them. Otherwise the sweep asks the real machine, which has never heard of
+    # term_x and is running no session called backend, and correctly tears the
+    # fixture down.
+    orcamod.available = lambda: False
+    obsmod.live_sessions = lambda: None
 
 
 def test_daemon_park(home: Path) -> None:
@@ -1442,6 +1474,7 @@ def test_idle_session_is_closed_and_resumed(home: Path) -> None:
     real = (orcamod.alive, orcamod.wait_idle, orcamod.send, orcamod.available)
     try:
         orcamod.available = lambda: True
+        orcamod.live_terminals = lambda: {"term_x"}
         orcamod.alive = lambda h: True
         orcamod.wait_idle = lambda h, timeout_ms=0: True
         orcamod.send = lambda h, text, enter=True: (sent.append((h, text)), (True, ""))[1]
@@ -1537,6 +1570,7 @@ def test_a_running_agent_is_told_when_work_arrives(home: Path) -> None:
     real = (orcamod.alive, orcamod.idle_now, orcamod.send, orcamod.available)
     try:
         orcamod.available = lambda: True
+        orcamod.live_terminals = lambda: {"term_x"}
         orcamod.alive = lambda h: True
         orcamod.idle_now = lambda h: True
         orcamod.send = lambda h, text, enter=True: (sent.append(text), (True, ""))[1]
@@ -1589,6 +1623,7 @@ def test_work_arriving_wakes_a_closed_agent(home: Path) -> None:
     real = (orcamod.alive, orcamod.wait_idle, orcamod.send, orcamod.available)
     try:
         orcamod.available = lambda: True
+        orcamod.live_terminals = lambda: {"term_x"}
         orcamod.alive = lambda h: True
         orcamod.wait_idle = lambda h, timeout_ms=0: True
         orcamod.send = lambda h, text, enter=True: (sent.append(text), (True, ""))[1]
@@ -1628,6 +1663,7 @@ def test_wake_without_a_closed_session_uses_the_handoff(home: Path) -> None:
     real = (orcamod.alive, orcamod.available, orcamod.send)
     try:
         orcamod.available = lambda: True
+        orcamod.live_terminals = lambda: {"term_x"}
         orcamod.alive = lambda h: True
         sent: list[str] = []
         orcamod.send = lambda h, text, enter=True: (sent.append(text), (True, ""))[1]
@@ -1977,6 +2013,7 @@ def test_one_agents_bad_tick_is_not_everyones(home: Path) -> None:
     _daemon_home(home, 95)
     agents.register("zzlater", "alpha")
     con = db.connect()
+    db.set_terminal(con, "zzlater", "term_z", "wt")
     real = dmn.supervise
     try:
         def explode(con_, agent, *a, **k):
@@ -2157,6 +2194,7 @@ def test_a_closed_agent_is_not_handed_off(home: Path) -> None:
             orcamod.available, orcamod.clear_context)
     try:
         orcamod.available = lambda: True
+        orcamod.live_terminals = lambda: {"term_x"}
         orcamod.alive = lambda h: True
         orcamod.wait_idle = lambda h, timeout_ms=0: True
         orcamod.idle_now = lambda h: True
@@ -2229,6 +2267,7 @@ def test_a_woken_agent_is_told_on_the_following_tick(home: Path) -> None:
             orcamod.available)
     try:
         orcamod.available = lambda: True
+        orcamod.live_terminals = lambda: {"term_x"}
         orcamod.alive = lambda h: True
         orcamod.wait_idle = lambda h, timeout_ms=0: True
         orcamod.idle_now = lambda h: True      # even so, it must not be told yet
@@ -2273,6 +2312,7 @@ def test_a_woken_agent_is_not_judged_on_the_snapshot_it_left(home: Path) -> None
             orcamod.available, orcamod.clear_context)
     try:
         orcamod.available = lambda: True
+        orcamod.live_terminals = lambda: {"term_x"}
         orcamod.alive = lambda h: True
         orcamod.wait_idle = lambda h, timeout_ms=0: True
         orcamod.idle_now = lambda h: True     # the probe must not be what saves us
@@ -2325,6 +2365,7 @@ def test_a_park_that_was_also_closed_is_woken_without_being_judged(home: Path) -
             orcamod.available, orcamod.clear_context)
     try:
         orcamod.available = lambda: True
+        orcamod.live_terminals = lambda: {"term_x"}
         orcamod.alive = lambda h: True
         orcamod.wait_idle = lambda h, timeout_ms=0: True
         orcamod.idle_now = lambda h: True
@@ -2382,6 +2423,163 @@ def test_a_wake_does_not_call_a_fresh_start_a_park(home: Path) -> None:
     told = dmn.wake_prompt("backend", resumed=False, was_closed=False)
     check("wake: a real park still gets its record",
           "You were parked" in told and "routing fix" in told, told[:200])
+
+
+def test_installing_hooks_twice_does_not_double_them(home: Path) -> None:
+    """`ocp` is on PATH as a symlink into the repo, so one installation spells
+    itself two ways. Matching the exact string added a second entry the first
+    time the spelling changed, and then every hook fired twice."""
+    home.mkdir(parents=True, exist_ok=True)
+    os.environ["OCP_HOME"] = str(home)
+    target = home / "shared" / ".claude" / "settings.json"
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text(json.dumps({"hooks": {
+        "Stop": [{"hooks": [{"type": "command",
+                             "command": "/somewhere/else/bin/ocp hook Stop"}]}],
+        "PreToolUse": [{"hooks": [{"type": "command", "command": "orca-hook pre"}]}],
+    }}))
+
+    env = dict(os.environ, OCP_HOME=str(home), OCP_BIN="/usr/local/bin/ocp")
+    for _ in range(2):
+        subprocess.run([sys.executable, str(ROOT / "bin" / "ocp"), "install-hooks"],
+                       capture_output=True, text=True, env=env)
+
+    data = json.loads(target.read_text())
+    ours = [h["command"] for ev, groups in data["hooks"].items() for g in groups
+            for h in g.get("hooks", []) if " hook " in h.get("command", "")]
+    stops = [c for c in ours if c.endswith("hook Stop")]
+    check("hooks: one entry per event however it was spelled before",
+          len(stops) == 1, str(stops))
+    check("hooks: every captured event is installed",
+          {c.rsplit(" ", 1)[1] for c in ours} == set(evmod.CAPTURED),
+          str(sorted({c.rsplit(" ", 1)[1] for c in ours})))
+    check("hooks: Orca's own entries are left alone",
+          any(h.get("command") == "orca-hook pre"
+              for g in data["hooks"]["PreToolUse"] for h in g.get("hooks", [])),
+          str(data["hooks"].get("PreToolUse")))
+    check("hooks: the prompt and idle witnesses are among them",
+          {"PermissionRequest", "TeammateIdle"} <= evmod.CAPTURED)
+
+
+def test_the_sweep_corrects_what_it_can_see(home: Path) -> None:
+    """Every other decision reads a row we wrote ourselves, which is how a state
+    that went wrong stayed wrong. This is the half that asks the world instead,
+    and it corrects rather than reports - a supervisor that only files
+    complaints leaves the human in the loop it exists to take them out of."""
+    _daemon_home(home, 20)
+    con = db.connect()
+    real = (orcamod.available, orcamod.live_terminals, obsmod.live_sessions)
+    try:
+        db.set_terminal(con, "backend", "term_x", "wt")
+        orcamod.available = lambda: True
+
+        # 1. Its terminal is gone. Nothing may be delivered to it and nothing
+        #    can be closed in it, and both already key on having a handle.
+        orcamod.live_terminals = lambda: set()
+        obsmod.live_sessions = lambda: {}
+        dmn.sweep(con, lambda _m: None, [])
+        check("sweep: a terminal Orca does not list is dropped",
+              db.get_agent_state(con, "backend")["terminal"] is None,
+              str(db.get_agent_state(con, "backend")["terminal"]))
+
+        # 2. Its session died without us. Recording it is what makes work
+        #    arriving wake it rather than be typed at a bash prompt.
+        db.set_terminal(con, "backend", "term_x", "wt")
+        orcamod.live_terminals = lambda: {"term_x"}
+        obsmod.live_sessions = lambda: {}
+        dmn.sweep(con, lambda _m: None, [])
+        check("sweep: a session with no process is recorded as closed",
+              db.get_agent_state(con, "backend")["closed_at"] is not None)
+        check("sweep: so the daemon stops treating it as a candidate",
+              not dmn.triggers_apply(db.get_agent_state(con, "backend")))
+
+        # 3. And it came back without us - a human relaunched it. Believing our
+        #    own note here would close a live session a second time.
+        obsmod.live_sessions = lambda: {"backend": 4242}
+        dmn.sweep(con, lambda _m: None, [])
+        check("sweep: a running session clears a stale closed mark",
+              db.get_agent_state(con, "backend")["closed_at"] is None,
+              str(dict(db.get_agent_state(con, "backend"))))
+
+        # None is not an empty set. Reading "I could not ask" as "there are
+        # none" would tear the team down the first time Orca answered slowly.
+        orcamod.live_terminals = lambda: None
+        obsmod.live_sessions = lambda: {}
+        dmn.sweep(con, lambda _m: None, [])
+        check("sweep: an unanswered Orca changes nothing",
+              db.get_agent_state(con, "backend")["terminal"] == "term_x"
+              and db.get_agent_state(con, "backend")["closed_at"] is None)
+
+        orcamod.live_terminals = lambda: {"term_x"}
+        obsmod.live_sessions = lambda: None
+        dmn.sweep(con, lambda _m: None, [])
+        check("sweep: an unreadable process table changes nothing",
+              db.get_agent_state(con, "backend")["closed_at"] is None)
+    finally:
+        orcamod.available, orcamod.live_terminals, obsmod.live_sessions = real
+        con.close()
+
+    # The distinction has to survive into the implementation, not only the fake.
+    restore_world()
+    real_run = orcamod._run
+    try:
+        orcamod._run = lambda *a, **k: (False, "connection refused")
+        check("sweep: Orca failing to answer reads as unknown, not as empty",
+              orcamod.live_terminals() is None, str(orcamod.live_terminals()))
+        orcamod._run = lambda *a, **k: (True, "not json at all")
+        check("sweep: and so does an answer we cannot parse",
+              orcamod.live_terminals() is None)
+        orcamod._run = lambda *a, **k: (True, json.dumps(
+            {"result": {"terminals": [{"handle": "term_a"}, {"nohandle": 1}]}}))
+        check("sweep: a real answer is the set of handles",
+              orcamod.live_terminals() == {"term_a"}, str(orcamod.live_terminals()))
+    finally:
+        orcamod._run = real_run
+
+
+def test_an_agent_with_nowhere_to_run_is_not_handed_off(home: Path) -> None:
+    """usage_unknown fires across a whole account at once, so it sweeps up the
+    agents that are registered but were never started. There is nothing to fold,
+    nothing to clear and nothing being spent - backend and manager were parked
+    that way on 09-17 and manager's fold was charged for it."""
+    _daemon_home(home, 95)
+    con = db.connect()
+    try:
+        db.set_terminal(con, "backend", None, None)
+        row = db.get_agent_state(con, "backend")
+        check("no terminal: the trigger itself still fires",
+              triggers.evaluate(95, 5).fired)
+        check("no terminal: but the agent is not a candidate",
+              not dmn.triggers_apply(row), str(dict(row)))
+
+        dmn.tick(con, lambda _m: None, use_model=False)
+        row = db.get_agent_state(con, "backend")
+        check("no terminal: so it is not parked", row["state"] != dmn.PARKED, str(dict(row)))
+        check("no terminal: and no fold was paid for",
+              not db.in_flight_handoffs(con) and row["continuations"] == 0, str(dict(row)))
+
+        # And with somewhere to run, the same trigger does its job.
+        db.set_terminal(con, "backend", "term_x", "wt")
+        dmn.tick(con, lambda _m: None, use_model=False)
+        check("no terminal: an agent that has one is still parked",
+              db.get_agent_state(con, "backend")["state"] == dmn.PARKED,
+              str(dict(db.get_agent_state(con, "backend"))))
+    finally:
+        con.close()
+
+
+def test_a_fold_is_a_process_not_a_session(home: Path) -> None:
+    """`ocp fold` is a headless `claude -p` that inherits whatever OCP_AGENT its
+    caller had. Counting it as the agent's session would tell the sweep an agent
+    is alive for as long as a fold runs, and closed the moment it ends."""
+    check("observe: an agent's session counts",
+          obsmod.is_session("/usr/bin/claude --model sonnet --effort high"))
+    check("observe: a fold does not",
+          not obsmod.is_session("/usr/bin/claude --model haiku -p write me a digest"))
+    check("observe: nor a fold with the prompt last",
+          not obsmod.is_session("/usr/bin/claude --model haiku -p"))
+    check("observe: and nor does anything that is not claude",
+          not obsmod.is_session("/usr/bin/ssh somewhere"))
 
 
 def test_who_is_asking_is_not_guessed(home: Path) -> None:
@@ -2482,6 +2680,7 @@ def test_clear_refuses_mid_turn() -> None:
     real_alive, real_wait, real_send = orcamod.alive, orcamod.wait_idle, orcamod.send
     sent = []
     try:
+        orcamod.available = lambda: True
         orcamod.alive = lambda h: True
         orcamod.send = lambda h, t, enter=True: (sent.append(t), (True, ""))[1]
 
@@ -2495,6 +2694,7 @@ def test_clear_refuses_mid_turn() -> None:
         check("orca: clears an idle agent", ok, why)
         check("orca: by sending /clear", sent == ["/clear"], str(sent))
 
+        orcamod.available = lambda: True
         orcamod.alive = lambda h: False
         ok, why = orcamod.clear_context("h")
         check("orca: will not clear a dead terminal", not ok, why)
@@ -2513,12 +2713,14 @@ def test_handoff_reclaims_context(home: Path) -> None:
     cleared = []
     real_clear, real_alive, real_idle = orcamod.clear_context, orcamod.alive, orcamod.idle_now
     try:
+        orcamod.available = lambda: True
         orcamod.alive = lambda h: True
         orcamod.idle_now = lambda h: True
         orcamod.clear_context = lambda h, wait=True, timeout_ms=0: (
             cleared.append(h), (True, "context cleared"))[1]
 
-        # No terminal recorded yet: it must say so rather than pretend.
+        # With no terminal recorded it must say so rather than pretend.
+        db.set_terminal(con, "backend", None, None)
         ok, why = dmn._reclaim_context(con, "backend", lambda _m: None)
         check("handoff: says so when no terminal is recorded",
               not ok and "no terminal" in why, why)
@@ -2554,6 +2756,7 @@ def test_wake_injects_handoff(home: Path) -> None:
     sent = []
     real_resume, real_alive = orcamod.resume_with, orcamod.alive
     try:
+        orcamod.available = lambda: True
         orcamod.alive = lambda h: True
         orcamod.resume_with = lambda h, text: (sent.append(text), (True, "handoff injected"))[1]
 
@@ -2869,6 +3072,7 @@ def test_handoff_rate_limited(home: Path) -> None:
     con = db.connect()
     real_alive, real_idle, real_clear = orcamod.alive, orcamod.idle_now, orcamod.clear_context
     try:
+        orcamod.available = lambda: True
         orcamod.alive = lambda h: True
         orcamod.idle_now = lambda h: True
         orcamod.clear_context = lambda h, wait=True, timeout_ms=0: (True, "context cleared")
@@ -2958,6 +3162,10 @@ def main() -> int:
         test_a_woken_agent_is_not_judged_on_the_snapshot_it_left(Path(td) / 'wakejudge')
         test_a_park_that_was_also_closed_is_woken_without_being_judged(Path(td) / 'pclosed')
         test_a_wake_does_not_call_a_fresh_start_a_park(Path(td) / 'freshstart')
+        test_installing_hooks_twice_does_not_double_them(Path(td) / 'hookdup')
+        test_the_sweep_corrects_what_it_can_see(Path(td) / 'sweep')
+        test_an_agent_with_nowhere_to_run_is_not_handed_off(Path(td) / 'noterm')
+        test_a_fold_is_a_process_not_a_session(Path(td) / 'foldproc')
         test_who_is_asking_is_not_guessed(Path(td) / 'whoasks')
         test_a_rejected_fold_still_records_what_it_spent(Path(td) / 'spend')
         test_one_agents_bad_tick_is_not_everyones(Path(td) / 'badtick')

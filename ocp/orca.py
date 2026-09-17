@@ -71,15 +71,25 @@ def send(handle: str, text: str, enter: bool = True) -> tuple[bool, str]:
     return _run(args)
 
 
-def alive(handle: str) -> bool:
+def live_terminals() -> set[str] | None:
+    """Every handle Orca currently has, or None when it could not say.
+
+    None is not an empty set. Reading "I could not ask" as "there are none"
+    would tear down a healthy team the first time Orca was slow to answer.
+    """
     ok, out = _run(["terminal", "list", "--json"])
     if not ok:
-        return False
+        return None
     try:
         terms = json.loads(out)["result"]["terminals"]
     except (json.JSONDecodeError, KeyError, TypeError):
-        return False
-    return any(t.get("handle") == handle for t in terms)
+        return None
+    return {t["handle"] for t in terms if isinstance(t, dict) and t.get("handle")}
+
+
+def alive(handle: str) -> bool:
+    handles = live_terminals()
+    return handles is not None and handle in handles
 
 
 def idle_now(handle: str) -> bool:

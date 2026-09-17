@@ -462,6 +462,21 @@ def cmd_hook(args) -> int:
     return events.record_from_stdin([args.event])
 
 
+def _is_our_hook(command: object, event: str) -> bool:
+    """Is this entry ours, whatever path it was written with?
+
+    `ocp` is on PATH as a symlink into the repo, so the same installation spells
+    itself two ways. Matching the exact string meant a second entry was added
+    the first time the spelling changed, and then every hook fired twice - two
+    events recorded per turn, and two of everything downstream.
+    """
+    if not isinstance(command, str):
+        return False
+    parts = command.split()
+    return (len(parts) >= 3 and parts[-2:] == ["hook", event]
+            and os.path.basename(parts[0]) == "ocp")
+
+
 def cmd_hook_install(args) -> int:
     """Add our event hooks to shared settings, next to Orca's mirrored ones."""
     target = hooks.target_settings()
@@ -469,20 +484,46 @@ def cmd_hook_install(args) -> int:
     data = json.loads(target.read_text()) if target.exists() else {}
     exe = os.environ.get("OCP_BIN") or shutil.which("ocp") or str(paths.repo_root() / "bin" / "ocp")
     block = data.setdefault("hooks", {})
-    added = []
-    for event in sorted(events.CAPTURED):
-        groups = block.setdefault(event, [])
-        cmd = f"{exe} hook {event}"
-        if any(cmd == h.get("command")
-               for g in groups if isinstance(g, dict)
-               for h in g.get("hooks", []) if isinstance(h, dict)):
-            continue
-        groups.append({"hooks": [{"type": "command", "command": cmd, "timeout": 10}]})
-        added.append(event)
+    added, pruned = [], 0
+    for event in sorted(events.CAPTURED | set(block)):
+        groups = block.get(event)
+        if groups is None:
+            if event not in events.CAPTURED:
+                continue
+            groups = block.setdefault(event, [])
+        # Ours, in whatever spelling, collapses to exactly one entry.
+        keep, seen = [], False
+        for g in groups:
+            if not isinstance(g, dict):
+                keep.append(g)
+                continue
+            mine = [h for h in g.get("hooks", [])
+                    if isinstance(h, dict) and _is_our_hook(h.get("command"), event)]
+            if not mine:
+                keep.append(g)
+                continue
+            if seen or len(g.get("hooks", [])) > len(mine):
+                g["hooks"] = [h for h in g.get("hooks", []) if h not in mine]
+                pruned += len(mine)
+                if g["hooks"]:
+                    keep.append(g)
+                continue
+            seen = True
+            keep.append(g)
+        groups[:] = keep
+        if not seen and event in events.CAPTURED:
+            groups.append({"hooks": [{"type": "command",
+                                      "command": f"{exe} hook {event}", "timeout": 10}]})
+            added.append(event)
     tmp = target.with_suffix(".json.tmp")
     tmp.write_text(json.dumps(data, indent=2, ensure_ascii=False) + "\n")
     tmp.replace(target)
-    print(f"installed ocp event hooks for {len(added)} events" if added else "already installed")
+    msg = []
+    if added:
+        msg.append(f"installed ocp event hooks for {len(added)} events")
+    if pruned:
+        msg.append(f"removed {pruned} duplicate entries")
+    print("; ".join(msg) if msg else "already installed")
     return 0
 
 
