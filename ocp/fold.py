@@ -217,6 +217,7 @@ def fold(agent: str, use_model: bool = True, model: str = "haiku",
         top = events[-1]["id"]
         candidate = ""
         used_model = False
+        acct = None
         if use_model:
             acct = fold_account or _cheapest_account()
             if acct:
@@ -235,7 +236,8 @@ def fold(agent: str, use_model: bool = True, model: str = "haiku",
             # header parsing meant a hand-edited or odd header skipped the one
             # check that stops a fold from dropping completed work.
             had_content = any(previous.items(k) for k in digest.SECTION_KEYS)
-            valid, problems = digest.validate(candidate, previous if had_content else None)
+            valid, problems = digest.validate(candidate, previous if had_content else None,
+                                              header_is_stamped=True)
         else:
             valid, problems = False, [reason]
 
@@ -245,15 +247,29 @@ def fold(agent: str, use_model: bool = True, model: str = "haiku",
             degraded = _degraded(agent, previous, events, day, facts)
             _publish(agent, jpath, degraded, commit_msg=f"fold {agent} {day} (degraded)")
             _write_handoff(agent, digest.parse(degraded), facts, repo=repo)
-            db.add_event(con, agent, "fold_failed", {"problems": problems, "cursor": cursor})
+            # A rejected fold spent exactly what an accepted one spends, and
+            # these events are the only record that the account was charged -
+            # so leaving the account off here made the spend reconstructable
+            # for the folds that worked and blank for the ones that went wrong.
+            db.add_event(con, agent, "fold_failed",
+                         {"problems": problems, "cursor": cursor,
+                          "model": model if used_model else None,
+                          "account": acct})
             return False, (f"{agent}: fold rejected, kept the previous digest and left the "
                            f"cursor at {cursor}. Reason: {'; '.join(problems)[:300]}")
 
         # Valid. Publish first, then advance the cursor. A crash in between
         # leaves a published digest with an un-advanced cursor, which simply
         # re-folds the same delta next time - the safe direction.
+        # The header is our bookkeeping, not the model's narration, so it is
+        # stamped rather than accepted. Asked for the right values, a fold came
+        # back saying it was updated at 20:12 - the time of the last event it
+        # had just read, fourteen hours earlier.
         merged = digest.parse(candidate)
         merged.facts = facts
+        merged.date = day
+        merged.agent = agent
+        merged.updated = time.strftime("%H:%M")
         merged.folded_through = top
         text = digest.render(merged)
         _publish(agent, jpath, text, commit_msg=f"fold {agent} {day}")
@@ -262,8 +278,11 @@ def fold(agent: str, use_model: bool = True, model: str = "haiku",
         con.execute("BEGIN IMMEDIATE")
         try:
             db.set_cursor(con, cursor_name, top)
+            # A fold is the one spender no status line observes, so this event
+            # is the only record that the account was charged at all.
             db.add_event(con, agent, "fold", {"through": top, "events": len(events),
-                                              "model": model if used_model else None})
+                                              "model": model if used_model else None,
+                                              "account": acct})
             con.execute("COMMIT")
         except Exception:
             con.execute("ROLLBACK")
@@ -277,18 +296,29 @@ def _cheapest_account() -> str | None:
     picked, _ = status.pick_account()
     if picked:
         return picked
-    # Fall back to any logged-in account that is not hard-blocked. A fold is
-    # small and recording the day beats skipping it, but running one on an
-    # account already at the hard stop would push it past the limit, which is
-    # the thing the whole system exists to avoid.
+    # Fall back to any logged-in account we can still read. A fold is small and
+    # recording the day beats skipping it, but two accounts are off limits: one
+    # already at the hard stop, and one whose usage we cannot read at all.
+    #
+    # The second matters more than it looks. A fold runs `claude -p`, which is
+    # headless and has no status line, so it is the one spender no collector
+    # ever sees. Letting it fall back to the accounts we cannot read would send
+    # the unobservable spend precisely where the usage is already unobserved.
+    # Reading the raw figure did exactly that: None passed the test.
+    # Roomiest first: on this path nothing was assignable, so the difference
+    # between accounts is all we have, and putting the one unobservable spend
+    # on the tightest readable account while a roomier one sits beside it is
+    # the avoidable version of this call's risk.
+    usable = []
     for a in paths.list_accounts():
         if not accounts.logged_in(a):
             continue
-        st = status.read(a)
-        if st.pct_5h is not None and st.pct_5h >= status.PCT_5H_BLOCK:
+        pct = status.read(a).trusted_pct_5h
+        if pct is None or pct >= status.PCT_5H_BLOCK:
             continue
-        return a
-    return None
+        usable.append((pct, a))
+    usable.sort()
+    return usable[0][1] if usable else None
 
 
 def _degraded(agent: str, previous: digest.Digest, events, day: str, facts: str) -> str:

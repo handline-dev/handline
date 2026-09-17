@@ -29,9 +29,49 @@ command across hibernation and restore.""",
   ocp status                       which account may take new work
   ocp account list --json          machine-readable
 
-A null pct_5h is not a full tank, it is a refusal. Reading a missing value as 0
-makes the 90% trigger false forever: the feature is dead while the dashboard
-stays green.""",
+A pct_5h we cannot trust - no snapshot, unreadable, or too old - is not a full
+tank, it is a refusal. Reading it as 0 makes the 90% trigger false forever: the
+feature is dead while the dashboard stays green.
+
+A window nobody has spent in is different. Claude Code sends no five_hour block
+for a session that has made no request since the window rolled over, so a live
+collector reporting nothing is the account telling us it is quiet: 0%, marked
+`*`. `~` is a figure carried from an earlier payload, `!` one carried past the
+age we will assign on - still a floor for triggers, no new work.
+
+Design section 4 has the five cases and why only one of them is fail-closed.""",
+    "work": """giving an agent work
+  ocp ask <agent> "<task>"        queue it
+  ocp inbox                       what is waiting for you
+  ocp resolve <id> "<verdict>"    close one
+
+An interactive shell with no OCP_AGENT belongs to a human, so `ocp ask` typed at
+your own prompt comes from orchestrator. A process that merely lost the variable
+has no terminal, and is refused rather than handed the orchestrator's name.
+
+That is the whole of it. The daemon delivers: an idle agent is told on the next
+tick, and a closed one is resumed first and then told. Nobody has to nudge a
+terminal, and an agent is told once per request rather than reminded.
+
+An agent that is mid-turn is left alone until it is free - typing at a busy TUI
+leaves the text sitting in its input box, unsent.""",
+
+    "memory": """closing an idle session
+  ocp close <agent>                end the session, keep the terminal
+  ocp resume <agent>               put it back, resuming the same session
+
+A session that is not being used holds 250-500MB and spends no tokens at all.
+Closing it ends the agent process; the terminal, its worktree and its account
+stay, because Orca runs our launch command inside a shell and claude is that
+shell's child. Waking types the launch command back into the same shell with
+`--resume <session>`, so the account comes back with it and the conversation is
+the one it had.
+
+This is not a handoff. Nothing is folded and no context is reclaimed, because
+there is nothing wrong with an idle agent's context. The daemon does it by
+itself after 30 minutes of silence, unless the agent is working, mid-handoff,
+STALLED, or has a request waiting.""",
+
     "hooks": """Orca hooks
   ocp hooks status                 show drift
   ocp hooks sync                   apply once

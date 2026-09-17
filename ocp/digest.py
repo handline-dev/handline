@@ -95,7 +95,8 @@ def render(d: Digest) -> str:
     return "\n".join(out).rstrip() + "\n"
 
 
-def validate(text: str, previous: Digest | None) -> tuple[bool, list[str]]:
+def validate(text: str, previous: Digest | None,
+             header_is_stamped: bool = False) -> tuple[bool, list[str]]:
     """Check a candidate digest before it is allowed to replace a good one.
 
     Atomic writes only stop a half-written file. They do not stop a fully
@@ -109,7 +110,11 @@ def validate(text: str, previous: Digest | None) -> tuple[bool, list[str]]:
         problems.append(f"missing sections: {', '.join(missing)}")
 
     cand = parse(text)
-    if not cand.agent:
+    if not cand.agent and not header_is_stamped:
+        # The caller that stamps the header does not care what the model wrote
+        # there. Rejecting on it throws away good section work, takes the
+        # degraded path and leaves the cursor unadvanced, all over a line that
+        # was about to be replaced.
         problems.append("header line '# <date> · <agent>' is missing or malformed")
 
     if previous is not None:

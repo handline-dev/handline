@@ -76,21 +76,26 @@ def cmd_account_list(args) -> int:
             allowed, why = st.assignable()
             out.append({
                 "account": a, "logged_in": accounts.logged_in(a),
-                "pct_5h": st.pct_5h, "pct_7d": st.pct_7d, "ctx_pct": st.ctx_pct,
+                "pct_5h": st.pct_5h, "pct_5h_effective": st.trusted_pct_5h,
+                "pct_5h_source": st.pct_5h_source,
+                "pct_7d": st.pct_7d, "ctx_pct": st.ctx_pct,
                 "age_s": st.age_s, "assignable": allowed, "reason": why,
             })
         print(json.dumps(out, indent=2))
         return 0
 
-    print(f"{'ACCOUNT':<14}{'LOGIN':<8}{'5h':>4}{'7d':>5}{'ctx':>6}{'AGE':>8}  ASSIGN")
+    print(f"{'ACCOUNT':<14}{'LOGIN':<8}{'5h':>5}{'7d':>5}{'ctx':>6}{'AGE':>8}  ASSIGN")
     for a in names:
         st = status.read(a)
         allowed, why = st.assignable()
         cell = lambda v: "  -" if v is None else f"{v:>3}"  # noqa: E731
         age = "-" if st.age_s is None else f"{int(st.age_s)}s"
+        # A figure we inferred is marked, never dressed up as one we read.
+        five = f"{cell(st.trusted_pct_5h)}{status.mark(st.pct_5h_source)}"
         print(f"{a:<14}{'yes' if accounts.logged_in(a) else 'no':<8}"
-              f"{cell(st.pct_5h):>4}{cell(st.pct_7d):>5}{cell(st.ctx_pct):>6}{age:>8}  "
+              f"{five:>5}{cell(st.pct_7d):>5}{cell(st.ctx_pct):>6}{age:>8}  "
               f"{'yes' if allowed else 'NO':<4} {why}")
+    print("  " + status.SOURCE_LEGEND)
     return 0
 
 
@@ -129,7 +134,8 @@ def cmd_agent_show(args) -> int:
         "failed_attempts": (row["failed_attempts"] if row else 0),
         "continuations": (row["continuations"] if row else 0),
         "throttle_count": (row["throttle_count"] if row else 0),
-        "pct_5h": st.pct_5h, "ctx_pct": st.ctx_pct,
+        "pct_5h": st.pct_5h, "pct_5h_effective": st.trusted_pct_5h,
+        "pct_5h_source": st.pct_5h_source, "ctx_pct": st.ctx_pct,
         "inbox_queued": queued,
         "budget": {fn: {"bytes": size, "limit": lim, "over": over}
                    for fn, size, lim, over in agents.budget_report(args.name)},
@@ -153,6 +159,18 @@ def cmd_handoff_write(args) -> int:
     ok, msg = foldmod.fold(args.agent, use_model=not args.no_model)
     print(msg)
     print(f"handoff: {foldmod.handoff_path(args.agent)}")
+    return 0 if ok else 1
+
+
+def cmd_close(args) -> int:
+    """Close an agent's session by hand, keeping its terminal."""
+    con = db.connect()
+    try:
+        st = status.read_for_agent(args.agent, agents.account_of(args.agent))
+        ok, msg = daemonmod.close_agent(con, args.agent, print, st)
+        print(msg)
+    finally:
+        con.close()
     return 0 if ok else 1
 
 
@@ -295,7 +313,8 @@ def cmd_daemon_status(args) -> int:
                 wake = "-" if not r["wake_at"] else time.strftime("%H:%M", time.localtime(r["wake_at"]))
                 if r["wake_at"] and r["wake_at"] <= now:
                     wake += "!"
-                print(f"{r['agent']:<14}{r['state']:<11}{wake:<8}"
+                shown = r["state"] + ("·closed" if r["closed_at"] else "")
+                print(f"{r['agent']:<14}{shown:<11}{wake:<8}"
                       f"{r['failed_attempts']:>5}{r['continuations']:>6}{r['throttle_count']:>5}  "
                       f"{(r['detail'] or '')[:46]}")
         flight = db.in_flight_handoffs(con)
@@ -331,18 +350,30 @@ def cmd_unstall(args) -> int:
 
 def cmd_triggers(args) -> int:
     """Show what the daemon would decide right now, without acting."""
-    print(f"{'AGENT':<14}{'ACCT':<10}{'5h':>4}{'ctx':>5}  FIRES  REASON")
-    for a in paths.list_agents():
-        try:
-            acct = agents.account_of(a)
-        except Exception as e:  # noqa: BLE001
-            print(f"{a:<14} config error: {e}")
-            continue
-        st = status.read_for_agent(a, acct)
-        t = triggers.evaluate(st.trusted_pct_5h, st.trusted_ctx_pct)
-        cell = lambda v: "  -" if v is None else f"{v:>3}"  # noqa: E731
-        print(f"{a:<14}{acct:<10}{cell(st.pct_5h):>4}{cell(st.ctx_pct):>5}  "
-              f"{'YES' if t.fired else 'no ':<6} {t.reason}")
+    print(f"{'AGENT':<14}{'ACCT':<10}{'5h':>5}{'ctx':>5}  FIRES  REASON")
+    con = db.connect()
+    try:
+        for a in paths.list_agents():
+            try:
+                acct = agents.account_of(a)
+            except Exception as e:  # noqa: BLE001
+                print(f"{a:<14} config error: {e}")
+                continue
+            st = status.read_for_agent(a, acct)
+            t = triggers.evaluate(st.trusted_pct_5h, st.trusted_ctx_pct)
+            cell = lambda v: "  -" if v is None else f"{v:>3}"  # noqa: E731
+            # The figure the trigger used, not the raw one: a column saying "-"
+            # beside a reason saying "0%" is the dashboard arguing with the daemon.
+            five = f"{cell(st.trusted_pct_5h)}{status.mark(st.pct_5h_source)}"
+            if daemonmod.triggers_apply(db.get_agent_state(con, a)):
+                fires, reason = "YES" if t.fired else "no ", t.reason
+            else:
+                fires, reason = "no ", "session closed; nothing to hand off"
+            print(f"{a:<14}{acct:<10}{five:>5}{cell(st.ctx_pct):>5}  "
+                  f"{fires:<6} {reason}")
+    finally:
+        con.close()
+    print("  " + status.SOURCE_LEGEND)
     return 0
 
 
@@ -391,14 +422,25 @@ def cmd_handoff(args) -> int:
 def cmd_events(args) -> int:
     con = db.connect()
     try:
-        rows = db.events_after(con, args.after, agent=args.agent, limit=args.limit)
+        # Without --after this is "what just happened", so it starts at the
+        # newest end. Reporting the page size as the total, from the oldest
+        # end, told an operator there were 50 events when there were 187.
+        if args.after:
+            rows = db.events_after(con, args.after, agent=args.agent, limit=args.limit)
+        else:
+            rows = db.latest_events(con, agent=args.agent, limit=args.limit)
         if not rows:
             print("no events")
             return 0
         for r in rows:
             when = time.strftime("%m-%d %H:%M", time.localtime(r["ts"]))
             print(f"{r['id']:<6} {when} {r['agent']:<12} {r['kind']:<16} {(r['payload'] or '')[:70]}")
-        print(f"\n{len(rows)} events; cursor for fold:<agent> advances only after a valid fold")
+        # With --after the whole table is not the population being paged, and
+        # saying it is misleads in the same direction as the bug this replaced.
+        total = db.count_events(con, agent=args.agent, after=args.after)
+        scope = f" after {args.after}" if args.after else ""
+        print(f"\nshowing {len(rows)} of {total} events{scope}; "
+              f"cursor for fold:<agent> advances only after a valid fold")
     finally:
         con.close()
     return 0
@@ -494,9 +536,10 @@ def cmd_ask(args) -> int:
 
 
 def cmd_inbox(args) -> int:
-    agent = args.agent or askmod.current_agent()
+    agent = args.agent or askmod.asking_agent()
     if not agent:
-        print("no agent given and OCP_AGENT is unset")
+        print("cannot tell whose inbox this is: OCP_AGENT is unset and this is not "
+              "an interactive shell. Name the agent.")
         return 1
     rows = askmod.inbox(agent, unread_only=not args.all)
     if not rows:
@@ -589,7 +632,9 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("target")
     p.add_argument("body")
     p.add_argument("--files", default=None, help="comma-separated paths")
-    p.add_argument("--of", default=None, help="requester (defaults to $OCP_AGENT)")
+    p.add_argument("--of", default=None,
+                   help="requester (defaults to $OCP_AGENT, or to the orchestrator "
+                        "when a human types this at a terminal)")
     p.add_argument("--parent", type=int, default=None, help="parent request id, for chain depth")
     p.add_argument("--mergeable", action="store_true",
                    help="fold into an already-queued ask to the same target")
@@ -691,6 +736,10 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("agent")
     p.add_argument("--no-model", action="store_true")
     p.set_defaults(fn=cmd_handoff_write)
+
+    p = sub.add_parser("close", help="end an idle agent's session, keeping its terminal")
+    p.add_argument("agent")
+    p.set_defaults(fn=cmd_close)
 
     p = sub.add_parser("resume", help="hand a parked agent back its handoff")
     p.add_argument("agent")

@@ -1,13 +1,44 @@
 """Account status and assignability (design 01-infra.md section 4).
 
-The governing rule is fail-closed. From section 4:
-
-  "If pct_5h is null that is not a full tank, it is a refusal to assign,
-   plus a red light."
+The governing rule is fail-closed. Section 4 puts it as: a pct_5h we cannot
+trust is not a full tank, it is a refusal to assign, plus a red light.
 
 Reading a missing value as 0 makes every account look perfectly fresh, which
 makes the 90% trigger false forever: the feature is dead while the dashboard
 stays green. So anything we do not know is treated as a reason to refuse.
+
+Not knowing is not the same as nothing having happened, though, and conflating
+the two cost us five needless handoffs. Claude Code reports a rate-limit window
+from what the session itself has learned, so a session that has made no request
+since the window rolled over sends no five_hour block at all. That absence says
+the account is quiet, not that the collector is dead - and the two have
+opposite right answers. This module names five cases instead of two:
+
+    live         this payload reported the window
+    carried      an earlier reading, still inside its window and recent enough
+    carried_old  the same, but observed longer ago than we will assign on
+    quiet        a live collector, and nobody has spent in this window -> 0%
+    unknown      no snapshot, unreadable, too old, or a reading we lost
+
+`quiet` and `unknown` are the pair that matters: treating quiet as unknown
+parks idle agents, which costs a fold each and buys nothing, while treating
+unknown as quiet hands out work on an account that may be at the wall.
+
+A carried figure is a floor, not a measurement: usage inside a window only
+rises, so the true number is at least that. The same is true, unmarked, of a
+live figure that lost to the high-water mark - the number is real and current,
+but it was reported by an earlier payload than this one. Only its age is
+understated, which is why it carries no mark of its own. It is old the moment the session
+that reported it goes idle, and collected_at cannot say so - an idle session
+keeps refreshing collected_at while reporting nothing new. rl_at is when the
+figure was actually observed, and it, not collected_at, bounds the carry.
+Past that bound we still use the floor for triggers, because an idle session
+cannot be racing toward the wall, but we refuse to assign new work on it.
+
+The quiet inference has one known exception, and it is ours: `ocp fold` runs
+`claude -p`, which is headless and has no statusLine, so a fold spends quota
+that no collector will ever see. It is one small call, but it means quiet
+reads "no session reported spending", not "nothing was spent".
 """
 from __future__ import annotations
 
@@ -28,6 +59,24 @@ STALE_AFTER_S = 900
 # treated as unreadable rather than fresh.
 CLOCK_SKEW_GRACE_S = 60
 
+# How long a carried figure may stand in for a measurement. Same bound as a
+# stale snapshot, for the same reason: past it we do not know what has happened.
+CARRY_MAX_AGE_S = STALE_AFTER_S
+
+# How a figure's provenance is drawn, in one place: four screens used to spell
+# this out separately, and one of them was left behind.
+SOURCE_MARK = {"live": " ", "carried": "~", "carried_old": "!", "quiet": "*", "unknown": " "}
+SOURCE_LEGEND = ("* inferred: nothing spent in this window · ~ carried: an earlier "
+                 "reading · ! carried past its bound, no new work")
+# For a header that has to survive an 80-column terminal, where the long form
+# truncates mid-word and loses ~ and ! entirely.
+SOURCE_LEGEND_SHORT = "* inferred · ~ carried · ! too old"
+
+
+def mark(src: str) -> str:
+    return SOURCE_MARK.get(src, " ")
+
+
 # Above these, stop handing out new work.
 PCT_5H_BLOCK = 90
 PCT_7D_BLOCK = 95
@@ -47,7 +96,32 @@ class AccountStatus:
     reset_5h: int | None = None
     reset_7d: int | None = None
     cost_usd: float | None = None
+    # When pct_5h was actually observed, and whether it came from an earlier
+    # payload than this one. collected_at only says the collector is alive.
+    rl_at: int | None = None
+    rl_carried: bool = False
+    # False when the field is missing entirely, or present but unreadable (NaN,
+    # a string, a bool). An explicit null is readable: it is how the collector
+    # writes "this payload reported no such window".
+    pct_5h_readable: bool = True
+    # True when the collector had a figure it could not carry because it could
+    # not tell whether that figure's window had ended. That is ignorance, and
+    # it must not read as a quiet window.
+    rl_lost: bool = False
+    # The same three for the weekly window. It has no age bound - a week-wide
+    # window barely moves in the minutes a 5h figure goes stale in - but a 7d
+    # figure we lost still has to refuse, because the 95% gate is written as
+    # "block if we have a figure and it is high", so a missing one is not a
+    # refusal, it is the absence of one.
+    rl7_at: int | None = None
+    rl7_carried: bool = False
+    rl7_lost: bool = False
+    # Which session this reading came from, and where that session's own record
+    # lives. Both belong to the session, so read_for_agent carries the agent's
+    # own or nothing - never the account file's, which is whichever agent on
+    # this account rendered last.
     session_id: str | None = None
+    transcript_path: str | None = None
     model_id: str | None = None
     collected_at: int | None = None
 
@@ -72,14 +146,47 @@ class AccountStatus:
         return age is None or age > STALE_AFTER_S
 
     @property
+    def rl_age_s(self) -> float | None:
+        """How long ago the 5h figure was observed, not when it was copied."""
+        if self.rl_at is None:
+            return None
+        age = time.time() - self.rl_at
+        if age < -CLOCK_SKEW_GRACE_S:
+            return None
+        return max(0.0, age)
+
+    @property
+    def pct_5h_source(self) -> str:
+        """Which of the five cases this reading is: see the module docstring."""
+        if not self.exists or self.error or self.stale or not self.pct_5h_readable:
+            return "unknown"
+        if self.rl_lost:
+            return "unknown"
+        if self.pct_5h is None:
+            return "quiet"
+        if not self.rl_carried:
+            return "live"
+        age = self.rl_age_s
+        return "carried" if age is not None and age <= CARRY_MAX_AGE_S else "carried_old"
+
+    @property
     def trusted_pct_5h(self) -> int | None:
-        """pct_5h only when the snapshot is current.
+        """What we may act on, or None when we genuinely do not know.
 
         A frozen status.json (collector died, jq removed, session exited) keeps
         reporting its last value forever. Reading that as the truth is the same
         failure as reading a null as 0, so a stale snapshot reads as unknown.
+
+        A quiet window reads as 0 instead, because a live collector reporting no
+        five_hour block is a positive observation: no session on this account
+        has spent inside the current window. The hole in that - usage from
+        outside ocp, on a config dir we do not collect from - is the same hole
+        every other reading has.
         """
-        return None if self.stale else self.pct_5h
+        src = self.pct_5h_source
+        if src == "unknown":
+            return None
+        return 0 if src == "quiet" else self.pct_5h
 
     @property
     def trusted_ctx_pct(self) -> int | None:
@@ -91,23 +198,37 @@ class AccountStatus:
             return False, "no status.json - no session has run yet (fail-closed)"
         if self.error:
             return False, f"status.json unreadable: {self.error} (fail-closed)"
-        if self.pct_5h is None:
-            return False, "pct_5h is null - usage unknown (fail-closed)"
         if self.stale:
             age = self.age_s
             shown = "unknown" if age is None else f"{int(age)}s"
             return False, f"snapshot is stale ({shown} > {STALE_AFTER_S}s) (fail-closed)"
-        if self.pct_5h >= PCT_5H_BLOCK:
-            return False, f"5h usage {self.pct_5h}% >= {PCT_5H_BLOCK}%"
+        pct = self.trusted_pct_5h
+        if pct is None:
+            return False, "pct_5h is null - usage unknown (fail-closed)"
+        if pct >= PCT_5H_BLOCK:
+            return False, f"5h usage {pct}% >= {PCT_5H_BLOCK}%"
         if self.pct_7d is not None and self.pct_7d >= PCT_7D_BLOCK:
             return False, f"7d usage {self.pct_7d}% >= {PCT_7D_BLOCK}%"
-        return True, f"5h {self.pct_5h}%"
+        if self.rl7_lost:
+            return False, "7d usage was lost - the weekly gate cannot be checked (fail-closed)"
+        src = self.pct_5h_source
+        if src == "carried_old":
+            age = self.rl_age_s
+            shown = "unknown" if age is None else f"{int(age / 60)}m"
+            return False, (f"5h {pct}% was observed {shown} ago and only ever rises "
+                           f"(carried past {CARRY_MAX_AGE_S}s)")
+        if src == "quiet":
+            return True, "5h window quiet - nothing spent in it (inferred 0%)"
+        if src == "carried":
+            return True, f"5h {pct}% (carried, still inside the window)"
+        return True, f"5h {pct}%"
 
     def headroom(self) -> int | None:
         """Remaining 5h headroom in percent, or None when unknown."""
-        if self.pct_5h is None:
+        pct = self.trusted_pct_5h
+        if pct is None:
             return None
-        return max(0, PCT_5H_BLOCK - self.pct_5h)
+        return max(0, PCT_5H_BLOCK - pct)
 
 
 def _as_pct(v):
@@ -151,12 +272,23 @@ def read(acct: str, path: Path | None = None) -> AccountStatus:
         return st
     st.raw = raw
     st.pct_5h = _as_pct(raw.get("pct_5h"))
+    # An explicit null means "no window in this payload", which is a reading.
+    # A missing key or an unreadable value means the snapshot cannot be
+    # believed at all, and that is the fail-closed case.
+    st.pct_5h_readable = "pct_5h" in raw and (raw["pct_5h"] is None or st.pct_5h is not None)
     st.pct_7d = _as_pct(raw.get("pct_7d"))
     st.ctx_pct = _as_pct(raw.get("ctx_pct"))
     st.reset_5h = _as_int(raw.get("reset_5h"))
     st.reset_7d = _as_int(raw.get("reset_7d"))
     st.collected_at = _as_int(raw.get("collected_at"))
+    st.rl_at = _as_int(raw.get("rl_at"))
+    st.rl_carried = raw.get("rl_carried") is True
+    st.rl_lost = raw.get("rl_lost") is True
+    st.rl7_at = _as_int(raw.get("rl7_at"))
+    st.rl7_carried = raw.get("rl7_carried") is True
+    st.rl7_lost = raw.get("rl7_lost") is True
     st.session_id = raw.get("session_id")
+    st.transcript_path = raw.get("transcript_path")
     st.model_id = raw.get("model_id")
     cost = raw.get("cost_usd")
     st.cost_usd = float(cost) if isinstance(cost, (int, float)) and not isinstance(cost, bool) else None
@@ -173,16 +305,59 @@ def read_for_agent(agent: str, account: str) -> AccountStatus:
     acct_status = read(account)
     agent_file = paths.agent_status_file(agent)
     if not agent_file.exists():
+        # No snapshot of its own means no session of its own, so its context is
+        # unknown - not whatever the last session on this account happened to
+        # have. An agent that has never run was being shown another agent's
+        # context, and judged on it.
+        acct_status.ctx_pct = None
+        acct_status.session_id = None
+        acct_status.transcript_path = None
         return acct_status
     own = read(account, agent_file)
     if own.error or own.stale:
-        # Its own snapshot is unusable, so context is unknown rather than
-        # borrowed from whatever else last wrote the account file.
+        # Its own snapshot is unusable, so these are unknown rather than
+        # borrowed from whatever else last wrote the account file. This is not
+        # an edge: nothing refreshes an agent's status file while its session is
+        # closed, so by wake time its own snapshot is older than STALE_AFTER_S
+        # by construction - and the account file then belongs to whichever other
+        # agent is live on the account. Carrying its session id through here
+        # told a woken agent to grep a stranger's transcript, in a stranger's
+        # repository, in a system whose whole premise is per-agent isolation.
         acct_status.ctx_pct = None
+        acct_status.session_id = None
+        acct_status.transcript_path = None
         return acct_status
     acct_status.ctx_pct = own.ctx_pct
     acct_status.session_id = own.session_id
+    acct_status.transcript_path = own.transcript_path
     return acct_status
+
+
+def live_cost(account: str) -> float | None:
+    """What the sessions we can currently see have spent on this account.
+
+    `cost.total_cost_usd` belongs to one session, and the account file is
+    written by whichever session rendered last - so reading it from there makes
+    the account's cost flip between sessions every second, which is what it was
+    doing. Summing the live per-agent snapshots is a number that is at least
+    about the account.
+
+    It is not the account's spend: a session that has ended takes its cost out
+    of the sum, a live one whose status line is lagging drops out of it until
+    the snapshot catches up, and work done outside ocp was never in it.
+    """
+    total, seen = 0.0, False
+    for agent in paths.list_agents():
+        f = paths.agent_status_file(agent)
+        if not f.exists():
+            continue
+        st = read(account, f)
+        if st.error or st.stale or st.raw.get("account") != account:
+            continue
+        if st.cost_usd is not None:
+            total += st.cost_usd
+            seen = True
+    return total if seen else None
 
 
 def read_all() -> list[AccountStatus]:
@@ -197,13 +372,17 @@ def pick_account(candidates: list[str] | None = None) -> tuple[str | None, list[
     """
     names = candidates if candidates is not None else paths.list_accounts()
     reasons, usable = [], []
+    # Headroom decides, but between two accounts with the same headroom take the
+    # one whose figure we actually saw. An inferred 0% is sound and still a
+    # weaker claim than a reported 0%.
+    confidence = {"live": 3, "carried": 2, "quiet": 1}
     for n in names:
         st = read(n)
         allowed, why = st.assignable()
         reasons.append((n, why))
         if allowed:
-            usable.append((st.headroom() or 0, n))
+            usable.append((st.headroom() or 0, confidence.get(st.pct_5h_source, 0), n))
     if not usable:
         return None, reasons
     usable.sort(reverse=True)
-    return usable[0][1], reasons
+    return usable[0][2], reasons

@@ -30,7 +30,7 @@ import time
 import uuid
 from dataclasses import dataclass
 
-from . import agents, db, fold as foldmod, orca, paths, status, triggers
+from . import agents, db, fold as foldmod, launch, orca, paths, status, triggers
 
 # Section 8.2 states.
 IDLE, QUEUED, RUNNING, DONE = "IDLE", "QUEUED", "RUNNING", "DONE"
@@ -49,6 +49,14 @@ DEGRADED_RETRY_S = 600
 
 MAX_FAILED_ATTEMPTS = 3      # 8.5: real failures only
 MAX_THROTTLE_STREAK = 5      # 8.6: then escalate to a human gate
+
+# An agent that has done nothing for this long is holding memory and nothing
+# else: a resident session costs 250-500MB and no tokens at all. Closing it
+# gives the machine that back, and resuming costs nothing extra - measured, a
+# resumed session read its whole 68k prefix from cache exactly as a resident
+# one did, because the cache lives on the server and expires on time, not on
+# whether our process stayed alive.
+IDLE_CLOSE_S = 1800
 HANDOFF_DEADLINE_S = 90      # 8.3
 
 # 8.6: a repeatedly-degrading agent backs off rather than retrying at the same
@@ -183,6 +191,158 @@ def _reclaim_context(con, agent: str, log) -> tuple[bool, str]:
     return ok, why
 
 
+def deliver_queued(con, agent: str, log) -> bool:
+    """Tell an agent that work is waiting for it.
+
+    `ocp ask` writes a row and puts a file in the target's inbox; neither
+    reaches the target's screen. A session sitting at its prompt has no reason
+    to look, so without this every request needs a human to nudge the terminal
+    - which is exactly how this system was being run by hand.
+
+    Told once per request: the cursor is the newest id we have announced, so a
+    reminder only goes out when something new arrives.
+    """
+    waiting = db.queued_for(con, agent)
+    if not waiting:
+        return False
+    newest = max(int(r["id"]) for r in waiting)
+    if db.get_cursor(con, f"notify:{agent}") >= newest:
+        return False
+    handle = db.get_terminal(con, agent)
+    if not handle or not orca.available() or not orca.alive(handle):
+        return False
+    # Typing at an agent mid-turn leaves the text sitting in its input box
+    # unsent, which is how three agents once came up having been told nothing.
+    if not orca.idle_now(handle):
+        return False
+    senders = ", ".join(sorted({r["requester"] for r in waiting}))
+    ok, _ = orca.send(
+        handle,
+        f"{len(waiting)} request(s) waiting for you, from {senders}. "
+        f"Run `ocp inbox` to read them, do the work, and close each one with "
+        f"`ocp resolve <id> \"<verdict>\"`.")
+    if ok:
+        db.set_cursor(con, f"notify:{agent}", newest)
+        db.add_event(con, agent, "notified", {"through": newest, "count": len(waiting)})
+        log(f"  {agent}: told about {len(waiting)} waiting request(s)")
+    return ok
+
+
+def should_close(con, agent: str, state: str, row, now: int, st) -> bool:
+    """Is this agent holding memory for nothing?
+
+    Closing is about the machine, not the account, so the question is whether
+    anyone is using this session and whether we can bring it back. Five things
+    say no: it is working or being handed off, a human has to look at it,
+    someone is waiting on it, it has been busy recently, or we cannot name the
+    session we would resume. Anything else is a session whose only job right now
+    is to occupy 250-500MB.
+
+    The last one is the asymmetric trade: memory is recoverable the moment
+    anything wants it, and a working context is not recoverable at all. Closing
+    without a session id would buy back the small reversible thing by spending
+    the large irreversible one.
+    """
+    if state in (RUNNING, HANDOFF, STALLED):
+        return False
+    if not row or row["closed_at"] or not row["terminal"]:
+        return False
+    if db.queued_for(con, agent):
+        return False          # work is waiting; closing would only delay it
+    if not st.session_id:
+        return False          # nothing to resume; losing the context costs more
+    last = db.last_activity(con, agent)
+    if last is None:
+        return False          # nothing has ever been seen from it - leave it alone
+    return (now - last) >= IDLE_CLOSE_S
+
+
+def triggers_apply(row) -> bool:
+    """Would the daemon act on this agent's triggers at all?
+
+    A closed agent has no session to hand off, and closing is precisely what
+    makes it look like one that needs handing off: its status line stops, so the
+    snapshot goes stale and usage_unknown fires. Every screen asks this too -
+    drawing a warning the daemon will never act on is the dashboard arguing with
+    the daemon.
+    """
+    return not (row and row["closed_at"])
+
+
+def close_agent(con, agent: str, log, st) -> tuple[bool, str]:
+    """Give the machine back an idle agent's memory, keeping its terminal.
+
+    This is not a handoff: nothing is folded and no context is reclaimed,
+    because there is nothing wrong with this agent's context - it is simply
+    not being used. The session id is recorded so waking can resume that same
+    session rather than starting a stranger in its place - and it is the caller's
+    reading, the same one `should_close` approved. Reading it again here would
+    let the predicate check one value and the act store another, in the one
+    place where the difference means closing with no way back.
+    """
+    handle = db.get_terminal(con, agent)
+    if not handle or not orca.available():
+        return False, "no terminal to close"
+    if not st.session_id:
+        return False, "no session to resume; not closing"
+    ok, why = orca.close_session(handle)
+    if not ok:
+        return False, why
+    db.set_closed(con, agent, st.session_id)
+    # RUNNING describes a session that exists. Leaving the label on a closed one
+    # makes every screen say the opposite of what happened, and the daemon skips
+    # RUNNING agents when it decides what to close next.
+    row = db.get_agent_state(con, agent)
+    if row and row["state"] == RUNNING:
+        db.set_agent_state(con, agent, IDLE, wake_at=row["wake_at"],
+                           detail="session closed while idle")
+    db.add_event(con, agent, "close", {"session": st.session_id,
+                                       "ctx_pct": st.ctx_pct})
+    log(f"  {agent}: session closed (resume {st.session_id or 'unknown'})")
+    return True, f"{agent}: session closed, terminal kept"
+
+
+def wake_prompt(agent: str, resumed: bool, was_closed: bool = False) -> str:
+    """What an agent is told when it comes back.
+
+    A resumed session already holds everything it knew, so it is told where it
+    is rather than what it did. One that was parked gets its handoff. One whose
+    close left no session to resume gets neither, and is told so rather than
+    handed an older park's record as if it were current. All three get the path
+    to their own record when it can be named: a digest is a summary, and the
+    detail it dropped is still on disk.
+    """
+    parts: list[str] = []
+    if resumed:
+        parts.append("Your session was closed while you were idle and has been resumed. "
+                     "Nothing was lost; carry on.")
+    elif was_closed:
+        # Closing writes no handoff, because closing is not a handoff. Taking
+        # the parked branch here would tell an agent that was never parked that
+        # its context was cleared, and hand it whatever handoff an earlier park
+        # left behind - a stale record read as current, which is the failure
+        # this whole branch exists to remove.
+        parts.append("Your session was closed while you were idle and could not be "
+                     "resumed, so this is a fresh one. There is no handoff: nothing "
+                     "was folded when it closed. Read your journal and your inbox "
+                     "before carrying on.")
+    else:
+        parts.append("You were parked and have been resumed. Your context was cleared; "
+                     "below is your own handoff record. Carry on from here.")
+        p = foldmod.handoff_path(agent)
+        if p.exists():
+            parts.append(p.read_text())
+    st = status.read_for_agent(agent, agents.account_of(agent))
+    if st.transcript_path:
+        parts.append(
+            f"Your previous session is {st.session_id}, recorded at "
+            f"{st.transcript_path}\n"
+            f"Grep it for what you need - do not read it whole, it is a JSONL "
+            f"transcript with every tool result in it, and reading it back would "
+            f"undo the point of parking you.")
+    return "\n\n".join(parts)
+
+
 def wake_agent(con, agent: str, log) -> tuple[bool, str]:
     """Hand a cleared agent back its own handoff so it can carry on.
 
@@ -192,13 +352,29 @@ def wake_agent(con, agent: str, log) -> tuple[bool, str]:
     handle = db.get_terminal(con, agent)
     if not handle or not orca.available():
         return False, "no terminal to wake"
-    p = foldmod.handoff_path(agent)
-    if not p.exists():
+
+    row = db.get_agent_state(con, agent)
+    closed = bool(row and row["closed_at"])
+    resumed = False
+    if closed:
+        # The shell is still there; put the agent back into it. Resuming the
+        # same session is what makes closing cheap, so it is tried first and
+        # a fresh start is the fallback, not the plan.
+        session = row["resume_session"]
+        cmd = launch.command_for(agent)
+        if session:
+            cmd += f" -- --resume {session}"
+        ok, why = orca.relaunch(handle, cmd)
+        if not ok:
+            return False, why
+        resumed = bool(session)
+        db.clear_closed(con, agent)
+        db.add_event(con, agent, "wake", {"resumed_session": session})
+    elif not foldmod.handoff_path(agent).exists():
         return False, "no handoff to resume from"
-    text = ("You were parked and have been resumed. Your context was cleared; this is "
-            "your own handoff record. Carry on from here.\n\n" + p.read_text())
-    ok, why = orca.resume_with(handle, text)
-    log(f"  {agent}: {why}")
+
+    ok, why = orca.resume_with(handle, wake_prompt(agent, resumed, was_closed=closed))
+    log(f"  {agent}: {why}{' (session resumed)' if resumed else ''}")
     return ok, why
 
 
@@ -365,6 +541,142 @@ def perform_handoff(con, agent: str, trigger: triggers.Trigger, log,
 
 
 # ---------------------------------------------------------------- tick
+def supervise(con, agent: str, log, now: int, samples: dict,
+              use_model: bool, actions: list[str]) -> None:
+    """One agent's turn in a tick.
+
+    Its own function so that the whole of it - three calls out to Orca among
+    them - sits inside the single try in `tick` that treats a failure as this
+    agent's failure.
+    """
+    row = db.get_agent_state(con, agent)
+    state = row["state"] if row else IDLE
+
+    if state == STALLED:
+        return  # 8.6: only a human clears this
+    if state not in EVALUATED:
+        return
+
+    # An agent mid-handoff is excluded from trigger evaluation (8.9).
+    if db.in_flight_for(con, agent):
+        return
+
+    acct = agents.account_of(agent)
+    st = status.read_for_agent(agent, acct)
+
+    # An agent whose *closed* session was restored in this tick is judged on the
+    # next one: `st` was read above, before the wake, and a closed agent's
+    # snapshot is stale by construction. A parked agent that was never closed
+    # kept its session and its status line, so its reading is current and there
+    # is nothing to defer - deferring it anyway would only slow the degraded
+    # retry loop down by a tick per attempt.
+    woke_now = False
+
+    # Wake anything whose deadline has come due, whatever its state.
+    if row and row["wake_at"] and row["wake_at"] <= now and \
+            state in (PARKED, THROTTLED, DEGRADED):
+        # The streak is NOT cleared here. Waking is the normal end of every
+        # park, so resetting on wake pinned throttle_count at 1 and made
+        # the escalation in 8.6 unreachable. It is cleared by a handoff
+        # that actually succeeds.
+        db.set_agent_state(con, agent, QUEUED, wake_at=None, detail="wake_at reached")
+        actions.append(f"{agent}: {state} -> QUEUED (window rolled over)")
+        log(f"  {agent}: {state} -> QUEUED (window rolled over)")
+        # A parked agent can also be a closed one, and then this wake restores
+        # the session - which is the case the gate below exists for.
+        restored = bool(row and row["closed_at"])
+        wake_agent(con, agent, log)
+        row = db.get_agent_state(con, agent)
+        state = QUEUED
+        woke_now = woke_now or restored
+
+    # A closed session cannot read its own inbox, so the arrival of work is
+    # what has to bring it back. Without this an `ocp ask` queues into a
+    # terminal with nobody in it and waits forever, which is worse than the
+    # memory it was saving: reviewer sat closed with two requests pending.
+    if row and row["closed_at"]:
+        waiting = db.queued_for(con, agent)
+        if waiting:
+            ok, why = wake_agent(con, agent, log)
+            actions.append(f"{agent}: woken for {len(waiting)} waiting request(s)"
+                           if ok else f"{agent}: could not wake - {why}")
+            if ok:
+                row = db.get_agent_state(con, agent)
+                woke_now = True
+
+    # Work that has arrived is delivered before anything else is decided:
+    # an agent that is about to be told it has work is not idle. An agent woken
+    # in this tick is told on the next one: it is still reading the prompt that
+    # brought it back, and typing at it now would leave the text in its input
+    # box unsent.
+    if state not in (RUNNING, HANDOFF) and not woke_now \
+            and not (row and row["closed_at"]):
+        deliver_queued(con, agent, log)
+
+    # Memory is the scarce resource on one laptop running a team, and an
+    # idle session spends it while earning nothing: it holds its context,
+    # costs no tokens, and answers no one. Closing it is not a handoff -
+    # nothing is folded, nothing is cleared - and waking it resumes the
+    # same session, so the only thing that changes is who has the memory.
+    if should_close(con, agent, state, row, now, st):
+        ok, _ = close_agent(con, agent, log, st)
+        if ok:
+            actions.append(f"{agent}: session closed while idle")
+            row = db.get_agent_state(con, agent)
+
+    # Keep a short burn-rate history per account for the projection (8.1).
+    # Only a figure this payload actually reported may enter the burn
+    # history, stamped with when it was observed. A carried figure pairs an
+    # unchanging percentage with a collected_at that moves every tick: the
+    # buffer fills with flat samples, the measured rate falls to zero and
+    # usage_projected stops firing for an account that was climbing.
+    hist = samples.setdefault(acct, [])
+    if st.pct_5h_source == "live" and st.pct_5h is not None and st.rl_at:
+        if not hist or hist[-1][0] != st.rl_at:
+            hist.append((st.rl_at, st.pct_5h))
+            del hist[:-10]
+    burn = triggers.burn_rate_per_s(hist)
+
+    if state in (PARKED, THROTTLED, DEGRADED):
+        return  # waiting on wake_at, already handled above
+
+    # What sits at the other end of a closed agent is a shell prompt, and a
+    # handoff document is full of backticks - handing one off would pay for a
+    # fold and then type command substitutions at bash. `should_close` is
+    # careful about five things; this needs the same care about one.
+    #
+    # An agent woken in this tick is judged on the next one, for the same reason
+    # it is told about its inbox on the next one: `st` was read before the wake,
+    # and a closed agent's snapshot is stale by construction, so evaluating it
+    # here would hand off the session we just restored - and leave the work that
+    # caused the wake still unread.
+    if woke_now or not triggers_apply(row):
+        return
+
+    # trusted_* is None only when we genuinely do not know: no snapshot, or
+    # one too old to believe. A frozen status.json keeps reporting its last
+    # value forever, and believing it is the same failure as reading a null
+    # as 0 - the trigger would simply never fire again after the collector
+    # died. An account whose window is merely quiet reads as 0, not as
+    # unknown, so an idle agent is left alone instead of handed off.
+    t = triggers.evaluate(st.trusted_pct_5h, st.trusted_ctx_pct, burn=burn)
+    if t.fired:
+        ok = perform_handoff(con, agent, t, log, use_model=use_model)
+        actions.append(f"{agent}: handoff ({t.kind}){'' if ok else ' -> degraded'}")
+
+        fresh = db.get_agent_state(con, agent)
+        if fresh and fresh["throttle_count"] >= MAX_THROTTLE_STREAK:
+            # 8.6: escalate only after repeated automatic recovery failed.
+            db.set_agent_state(con, agent, STALLED,
+                               detail=f"{fresh['throttle_count']} consecutive degraded handoffs")
+            actions.append(f"{agent}: STALLED after {fresh['throttle_count']} degraded handoffs")
+            log(f"  {agent}: STALLED - needs a human")
+        elif fresh and fresh["failed_attempts"] >= MAX_FAILED_ATTEMPTS:
+            db.set_agent_state(con, agent, STALLED,
+                               detail=f"{fresh['failed_attempts']} failed attempts")
+            actions.append(f"{agent}: STALLED after {fresh['failed_attempts']} failed attempts")
+
+
 _last_rollover_day = {"day": ""}
 
 
@@ -390,25 +702,14 @@ def tick(con, log, use_model: bool = True, samples: dict | None = None) -> Tick:
     _last_rollover_day["day"] = day
 
     for agent in paths.list_agents():
-        row = db.get_agent_state(con, agent)
-        state = row["state"] if row else IDLE
-
-        if state == STALLED:
-            continue  # 8.6: only a human clears this
-        if state not in EVALUATED:
-            continue
-
-        # An agent mid-handoff is excluded from trigger evaluation (8.9).
-        if db.in_flight_for(con, agent):
-            continue
-
         try:
-            acct = agents.account_of(agent)
-            st = status.read_for_agent(agent, acct)
+            supervise(con, agent, log, now, samples, use_model, actions)
         except Exception as e:  # noqa: BLE001
             # A real failure, not a resource shortage: bad config, unreadable
-            # status. This is what failed_attempts counts (8.5), and it is
-            # capped, unlike continuations.
+            # status, an Orca call that raised. This is what failed_attempts
+            # counts (8.5), and it is capped, unlike continuations. Catching it
+            # per agent is the point - supervising one agent is not allowed to
+            # end supervision of every agent after it in the list.
             db.bump_counter(con, agent, "failed_attempts")
             fresh = db.get_agent_state(con, agent)
             actions.append(f"{agent}: error: {e}")
@@ -417,52 +718,6 @@ def tick(con, log, use_model: bool = True, samples: dict | None = None) -> Tick:
                 db.set_agent_state(con, agent, STALLED,
                                    detail=f"{fresh['failed_attempts']} failed attempts: {e}")
                 log(f"  {agent}: STALLED after {fresh['failed_attempts']} failed attempts")
-            continue
-
-        # Wake anything whose deadline has come due, whatever its state.
-        if row and row["wake_at"] and row["wake_at"] <= now and \
-                state in (PARKED, THROTTLED, DEGRADED):
-            # The streak is NOT cleared here. Waking is the normal end of every
-            # park, so resetting on wake pinned throttle_count at 1 and made
-            # the escalation in 8.6 unreachable. It is cleared by a handoff
-            # that actually succeeds.
-            db.set_agent_state(con, agent, QUEUED, wake_at=None, detail="wake_at reached")
-            actions.append(f"{agent}: {state} -> QUEUED (window rolled over)")
-            log(f"  {agent}: {state} -> QUEUED (window rolled over)")
-            wake_agent(con, agent, log)
-            state = QUEUED
-
-        # Keep a short burn-rate history per account for the projection (8.1).
-        hist = samples.setdefault(acct, [])
-        if st.pct_5h is not None and st.collected_at:
-            if not hist or hist[-1][0] != st.collected_at:
-                hist.append((st.collected_at, st.pct_5h))
-                del hist[:-10]
-        burn = triggers.burn_rate_per_s(hist)
-
-        if state in (PARKED, THROTTLED, DEGRADED):
-            continue  # waiting on wake_at, already handled above
-
-        # trusted_* is None when the snapshot is stale. A frozen status.json
-        # keeps reporting its last value forever, and believing it is the same
-        # failure as reading a null as 0 - the trigger would simply never fire
-        # again after the collector died.
-        t = triggers.evaluate(st.trusted_pct_5h, st.trusted_ctx_pct, burn=burn)
-        if t.fired:
-            ok = perform_handoff(con, agent, t, log, use_model=use_model)
-            actions.append(f"{agent}: handoff ({t.kind}){'' if ok else ' -> degraded'}")
-
-            fresh = db.get_agent_state(con, agent)
-            if fresh and fresh["throttle_count"] >= MAX_THROTTLE_STREAK:
-                # 8.6: escalate only after repeated automatic recovery failed.
-                db.set_agent_state(con, agent, STALLED,
-                                   detail=f"{fresh['throttle_count']} consecutive degraded handoffs")
-                actions.append(f"{agent}: STALLED after {fresh['throttle_count']} degraded handoffs")
-                log(f"  {agent}: STALLED - needs a human")
-            elif fresh and fresh["failed_attempts"] >= MAX_FAILED_ATTEMPTS:
-                db.set_agent_state(con, agent, STALLED,
-                                   detail=f"{fresh['failed_attempts']} failed attempts")
-                actions.append(f"{agent}: STALLED after {fresh['failed_attempts']} failed attempts")
 
     return Tick(now, actions)
 

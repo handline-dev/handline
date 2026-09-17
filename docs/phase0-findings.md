@@ -66,8 +66,9 @@ output_style  rate_limits  scratchpad_dir  session_id  thinking  transcript_path
 
 - **§8.1 컨텍스트 트리거에 transcript 집계가 필요 없다.** 따라서 그 경로의 `message.id` dedup 도 불필요하다.
   (dedup 은 transcript 로 **번레이트**를 계산할 때는 여전히 필수다 — 가정 E 는 유효)
-- `context_window.used_percentage` 는 **턴 발생 전 `null`** 이다. 0 이 아니다.
-  `pct_5h` 와 똑같이 **null = 미상 = fail-closed** 로 다뤄야 한다.
+- `context_window.used_percentage` 는 **턴 발생 전 `null`** 이다. 0 이 아니다. 미상이므로
+  fail-closed 로 다룬다. (`pct_5h` 의 null 은 §M 이후 **미상과 조용함으로 갈린다** — 컨텍스트에는
+  그 구분이 없다. 턴 전이라 값이 없는 것과 세션이 죽은 것이 구별되지 않기 때문이다.)
 
 `seven_day_opus` 는 이 표본에 **없었다**. 수집기는 `// null` 로 받는다.
 
@@ -161,6 +162,59 @@ autoContinueAtUsageLimit
 ```
 
 `disableAllHooks` · `allowManagedHooksOnly` 도 실재하는 설정 키다 → `ocp doctor` 가 셋 다 점검해야 한다.
+
+---
+
+## M · `rate_limits` 는 **그 세션이 마지막 응답에서 배운 만큼만** 온다 (2026-09-17 신규)
+
+같은 계정, 같은 시각에 두 세션의 statusLine stdin 원본을 받아 비교했다.
+
+방금 띄운 세션 (alpha, 10:50):
+
+```json
+"rate_limits": {"five_hour": {"used_percentage": 0, "resets_at": 1789614000},
+                "seven_day": {"used_percentage": 41, "resets_at": 1789783200}}
+```
+
+어제 20시에 시작해 그 뒤로 요청이 없는 세션 (같은 alpha, 같은 10:50) — `five_hour` **키 자체가 없다**:
+
+```json
+{"pct_5h": null, "reset_5h": null, "pct_7d": 41, ...}
+```
+
+5h 창은 07:00 에 굴러갔다(`resets_at` 12:00 − 5h). 사용량이 0 이라 생략하는 게 아니다 — 방금 띄운
+세션도 0% 였지만 값이 왔다.
+
+**외부 근거.** [claude-code#75408] 이 메커니즘을 명시한다 — *"The value appears to reflect the
+rate-limit state attached to that specific session's last actual API response, not a live re-check
+… each terminal is showing a stale snapshot from a different moment."* 즉 세션마다 **관측 시각이
+다르다.** 다만 "창이 굴러간 뒤 키를 통째로 떨어뜨린다"는 부분까지 적은 문서·이슈는 못 찾았다
+(가장 가까운 #45133 은 `rate_limits` 객체 전체가 없는 별개 버그다). **그 절반은 우리 실측이 근거고,
+문서로 확인된 것은 아니다.**
+
+**이것이 만든 버그.** 수집기가 그 null 을 계정 파일에 그대로 써서, 같은 계정에서 **일하는 세션이
+방금 보고한 값을 노는 세션이 지웠다.** 그러면 모든 판독기가 "usage unknown" 을 보고, fail-closed
+규칙이 멀쩡한 에이전트 5개를 handoff 시킨다(에이전트당 fold 1회). `ocp triggers` 가 전원 `YES ·
+usage_unknown` 이었던 게 이 상태다. 같은 원인이 대시보드 값이 **왔다갔다하는** 증상으로도 나온다 —
+더 낡은 세션이 마지막에 그리면 계정 값이 뒤로 간다.
+
+**고친 규칙** (설계서 §4 에 정본)
+
+- 어떤 창을 보고하지 않는 페이로드는 그 창의 이전 값을 **지우지 않는다** (`resets_at` 이 남은 동안)
+- 창이 끝났는지 볼 `resets_at` 이 **아예 없으면** 그 값을 버리되 `rl_lost` 로 표시한다 — 잃은 값은
+  조용함이 아니라 미상이고, **그 상태는 창을 다시 보고받을 때까지 유지된다**(한 틱만 버티면
+  다음 리프레시에 0% 로 읽힌다). 7d 도 같다
+- **한 창 안에서 계정 수치는 내려가지 않는다** (세션마다 관측 시각이 다르므로)
+- 이월값의 나이는 `rl_at` 이 재고, `collected_at` 이 아니다. 900초를 넘으면 트리거에는 하한으로
+  계속 쓰되 **새 배정은 거부**한다
+- 그러고도 값이 없으면 그건 **조용함**이라 0% 로 읽고 배정한다
+
+**알려진 예외 두 가지.** (1) `ocp fold` 는 `claude -p` 헤드리스라 statusLine 이 없다 — fold 가 쓴
+쿼터는 어떤 수집기도 못 본다. 그래서 `quiet` 은 "아무도 안 썼다"가 아니라 **"보고된 사용이 없다"**
+이다. (2) ocp 가 수집하지 않는 설정 디렉토리에서 같은 구독을 쓰면(데스크톱 앱, 다른 기계, 사람의
+`~/.claude` = `default` 계정) 역시 안 보인다. 5h 창은 **구독 단위지 설정 디렉토리 단위가 아니다.**
+
+[claude-code#75408]: https://github.com/anthropics/claude-code/issues/75408
 
 ---
 

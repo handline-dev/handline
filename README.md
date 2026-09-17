@@ -42,6 +42,21 @@ orca terminal create --worktree path:/path/to/wt --command "ocp launch backend"
 the launch command across hibernation and restore, so a resumed agent comes
 back on the same account.
 
+## Give an agent work
+
+```bash
+ocp ask keeper "rebase onto main and re-run the suite"
+ocp inbox                       # what agents have sent back
+ocp resolve 12 "approved"       # close one
+```
+
+That is all of it. The daemon delivers: an idle agent is told, a closed one is
+resumed first and then told, and a busy one is left alone until it is free.
+Nobody has to go and nudge a terminal. An interactive shell with no `OCP_AGENT`
+is a human's, so `ocp ask` from your own prompt comes from `orchestrator`; a
+script that lost the variable is refused rather than promoted, and says who it
+is with `--of`.
+
 ## Run the supervisor
 
 ```bash
@@ -54,9 +69,10 @@ ocp triggers          # what the daemon would decide right now, without acting
 
 | | |
 |---|---|
+| `ocp close <agent>` | end an idle session, keep its terminal (`ocp resume` brings it back) |
 | `ocp doctor` | verify the preconditions of every phase |
 | `ocp status` / `ocp account list` | usage, and which account may take work |
-| `ocp ask <target> "<req>"` | the only command agents use |
+| `ocp ask <target> "<req>"` | queue work for an agent; the daemon delivers it |
 | `ocp inbox` / `ocp resolve <id> "<verdict>"` | request queue |
 | `ocp fold [agent]` | fold events into the digest (the one model call) |
 | `ocp rollover` | midnight carry-forward, no model |
@@ -67,12 +83,36 @@ ocp triggers          # what the daemon would decide right now, without acting
 
 ## How it decides things
 
-**Fail-closed.** A null `pct_5h` is not a full tank, it is a refusal to assign.
-Reading a missing value as 0 makes the 90% trigger false forever: the feature is
-dead while the dashboard stays green.
+**Fail-closed.** A `pct_5h` we cannot trust - no snapshot, unreadable, or too old
+- is not a full tank, it is a refusal to assign. Reading it as 0 makes the 90%
+trigger false forever: the feature is dead while the dashboard stays green.
+
+**But quiet is not unknown.** Claude Code sends no `five_hour` block for a
+session that has made no request since the window rolled over, so a live
+collector reporting nothing means nothing has been *reported* spent in this
+window. That reads as 0% and assigns, marked `*`. Refusing here parked five idle
+agents and paid for a fold each. The exception is ours: `ocp fold` runs headless,
+which has no status line, so its own small spend is never observed.
+
+**A figure has a provenance, and it is drawn.** `~` is carried - an earlier
+reading whose window is still open, since a payload that does not mention a
+window must not erase what we knew. `!` is carried past the age we will assign
+on: still used as a floor for triggers, because usage inside a window only
+rises, but no new work goes to it. Inside one window the account figure never
+goes down, because every session reports from the moment of its own last API
+response and the staler one must not win.
+
+**Context and memory are different problems.** A handoff reclaims *context*: it
+folds the day, clears the session and costs one model call. Closing reclaims
+*memory*: an idle session holds 250-500MB and no one is using it, so the session
+ends and the terminal, worktree and account stay. Waking resumes that same
+session, which costs nothing extra - measured, a resumed session read its whole
+68k prefix from cache exactly as a resident one did, because the cache lives on
+the server and expires on time, not on whether our process stayed alive.
 
 **No model in the loop.** Triggers, account choice and resume decisions are all
-deterministic. The only model call is one fold per handoff.
+deterministic. The only model call is one fold per handoff - and closing an idle
+agent is not a handoff, so it costs none at all.
 
 **Conditions, not edges.** Triggers are re-evaluated from persisted state every
 tick, so a threshold crossed while the daemon was dead is still acted on.

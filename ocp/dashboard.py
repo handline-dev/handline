@@ -4,11 +4,13 @@ No logic lives here. Everything shown is read from the same state the daemon
 decides on, so the dashboard cannot disagree with the daemon: if a number looks
 wrong here, the daemon is acting on that same wrong number.
 
-Two things are deliberate. Unknown is drawn as "?" and never as 0, because the
-whole point of fail-closed is that a missing reading is not a full tank. And an
-account's own usage and an agent's context come from different files (rate
-limits are account-wide, context is per session), so they are labelled as what
-they are rather than blended.
+Two things are deliberate. Every figure is drawn with where it came from - a
+mark for inferred, carried, or carried past its bound - so an inference is
+never dressed up as a measurement, and what we genuinely do not know is drawn
+as "?" and never as 0. The one unmarked case is a figure held at the window's
+high-water mark: real and current, reported by an earlier payload than this one. And an account's own usage and an agent's context come
+from different files (rate limits are account-wide, context is per session), so
+they are labelled as what they are rather than blended.
 """
 from __future__ import annotations
 
@@ -17,6 +19,10 @@ import shutil
 import time
 
 from . import agents, daemon, db, paths, status, triggers
+# The same visible-width padding the full-screen panel uses: a cell whose
+# contents carry colour must be padded on what is on the screen, not on the
+# characters nobody can see.
+from .tui import fit, pad
 
 RESET = "\033[0m"
 DIM = "\033[2m"
@@ -81,20 +87,24 @@ def render() -> str:
             st = status.read(acct)
             allowed, why = st.assignable()
             mark = f"{GREEN}✔{RESET}" if allowed else f"{RED}✘{RESET}"
+            five = st.trusted_pct_5h
+            src = status.mark(st.pct_5h_source)
             out.append(
-                f"  {acct:<8} 5h {_bar(st.pct_5h)} {_pct(st.pct_5h)} {_countdown(st.reset_5h)}"
+                f"  {acct:<8} 5h {_bar(five)} {_pct(five)}{src}{_countdown(st.reset_5h)}"
                 f"   7d {_bar(st.pct_7d)} {_pct(st.pct_7d)}"
                 f"   {mark} {DIM}{why[:38]}{RESET}"
             )
             if st.exists:
-                cost = "?" if st.cost_usd is None else f"${st.cost_usd:.2f}"
-                out.append(f"  {DIM}{'':<8} snapshot {_age(st.age_s)} old · session cost {cost}{RESET}")
+                live = status.live_cost(acct)
+                cost = "?" if live is None else f"${live:.2f}"
+                out.append(f"  {DIM}{'':<8} snapshot {_age(st.age_s)} old · "
+                           f"live sessions {cost}{RESET}")
         out.append("")
 
         # ---- agents ---------------------------------------------------
         out.append(BOLD + "AGENTS" + RESET)
-        out.append(DIM + f"  {'name':<11}{'acct':<7}{'model':<8}{'eff':<7}{'state':<11}"
-                         f"{'ctx':<6}{'wake':<7}{'trigger'}" + RESET)
+        out.append(DIM + f"  {'name':<11}{'acct':<7}{'model':<8}{'eff':<7}{'state':<14}"
+                         f"{'ctx':<7}{'wake':<7}{'trigger'}" + RESET)
         for name in paths.list_agents():
             try:
                 acct = agents.account_of(name)
@@ -106,16 +116,24 @@ def render() -> str:
             row = db.get_agent_state(con, name)
             state = row["state"] if row else "IDLE"
             color = STATE_COLOR.get(state, "")
+            if row and row["closed_at"]:
+                state += "·closed"
             t = triggers.evaluate(st.trusted_pct_5h, st.trusted_ctx_pct)
-            fire = f"{YELLOW}⚠ {t.kind}{RESET}" if t.fired else f"{DIM}—{RESET}"
+            if not daemon.triggers_apply(row):
+                fire = f"{DIM}— closed{RESET}"
+            else:
+                fire = f"{YELLOW}⚠ {t.kind}{RESET}" if t.fired else f"{DIM}—{RESET}"
             ctx = _pct(st.ctx_pct)
             if st.ctx_pct is not None and st.ctx_pct >= triggers.CONTEXT_PCT:
                 ctx = YELLOW + ctx + RESET
             out.append(
-                f"  {name:<11}{acct:<7}{str(cfg.get('model')):<8}"
-                f"{str(cfg.get('effort') or agents.DEFAULT_EFFORT):<7}"
-                f"{color}{state:<11}{RESET}{ctx:<6} "
-                f"{_countdown(row['wake_at'] if row else None):<7}{fire}"
+                "  "
+                + pad(name, 11) + pad(acct, 7) + pad(str(cfg.get("model")), 8)
+                + pad(str(cfg.get("effort") or agents.DEFAULT_EFFORT), 7)
+                + pad(f"{color}{fit(state, 13)}{RESET}", 14)
+                + pad(ctx, 7)
+                + pad(_countdown(row["wake_at"] if row else None), 7)
+                + fire
             )
             if row and row["detail"]:
                 out.append(f"  {DIM}{'':<11}{row['detail'][:width - 16]}{RESET}")
