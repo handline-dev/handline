@@ -222,14 +222,13 @@ def session_present(agent: str) -> bool:
 WAKE_SESSION_TIMEOUT_S = 15
 
 
-def wait_for_session(agent: str, timeout_s: int = WAKE_SESSION_TIMEOUT_S) -> bool:
+def wait_for_session(agent: str, timeout_s: int) -> bool:
     """Did the launch we typed actually start a session?
 
     `relaunch` reports on having sent the command, which is not the same thing:
     `ocp launch` refuses over the 5h limit and exits when the account is not
-    logged in, leaving the shell exactly as it was. This is the one reading
-    that separates the two, and it is not taken from the tick's cache - that
-    was read before the command was typed.
+    logged in, leaving the shell exactly as it was. The reading is taken here
+    rather than from the tick's cache, which predates the command.
     """
     deadline = time.time() + timeout_s
     while True:
@@ -444,24 +443,41 @@ def wake_agent(con, agent: str, log) -> tuple[bool, str]:
         # same session is what makes closing cheap, so it is tried first and
         # a fresh start is the fallback, not the plan.
         session = row["resume_session"]
-        cmd = launch.command_for(agent)
-        if session:
-            cmd += f" -- --resume {session}"
-        ok, why = orca.relaunch(handle, cmd)
+        base = launch.command_for(agent)
+        # Resuming the session is what makes closing cheap, so it is tried
+        # first - but a resume can be the very thing that fails: an id whose
+        # transcript was pruned, or a worktree moved out from under it, gives
+        # a launch that refuses every time it is retried. A fresh start in the
+        # same terminal loses the context and keeps the agent, which is the
+        # better of the two ends this can have.
+        attempts = [base + f" -- --resume {session}", base] if session else [base]
+        started = lambda: wait_for_session(agent, WAKE_SESSION_TIMEOUT_S)  # noqa: E731
+        resumed = False
+        for cmd in attempts:
+            ok, why = orca.relaunch(handle, cmd, started=started)
+            if ok:
+                resumed = "--resume" in cmd
+                break
         if not ok:
+            # The closed mark and resume_session are the whole way back. A wake
+            # that started nothing leaves both alone: the next attempt - work
+            # arriving, or the next restart - has nothing else to use.
+            db.add_event(con, agent, "wake_failed", {"resume_session": session,
+                                                     "why": why})
+            db.bump_counter(con, agent, "failed_attempts")
+            log(f"  {agent}: {why}; still closed")
+            fresh = db.get_agent_state(con, agent)
+            if fresh and fresh["failed_attempts"] >= MAX_FAILED_ATTEMPTS:
+                # Work arriving retries the wake every tick, so a launch that
+                # will never work is a loop that never ends and never says so.
+                db.set_agent_state(con, agent, STALLED,
+                                   detail=f"{fresh['failed_attempts']} wakes started "
+                                          f"no session: {why}")
+                log(f"  {agent}: STALLED after {fresh['failed_attempts']} failed wakes")
             return False, why
-        if not wait_for_session(agent, WAKE_SESSION_TIMEOUT_S):
-            # The command was typed into the shell and nothing came up. Keep
-            # the closed mark and resume_session: they are the whole way back,
-            # clearing them here is what made a failed wake unrecoverable, and
-            # the next attempt - work arriving, or the next restart - can still
-            # use them.
-            db.add_event(con, agent, "wake_failed", {"resume_session": session})
-            log(f"  {agent}: launch typed but no session started; still closed")
-            return False, "launch typed but no session started; still closed"
-        resumed = bool(session)
+        db.reset_counter(con, agent, "failed_attempts")
         db.clear_closed(con, agent)
-        db.add_event(con, agent, "wake", {"resumed_session": session})
+        db.add_event(con, agent, "wake", {"resumed_session": session if resumed else None})
     elif not foldmod.handoff_path(agent).exists():
         return False, "no handoff to resume from"
     elif not session_present(agent):

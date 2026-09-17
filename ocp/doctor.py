@@ -13,7 +13,8 @@ import subprocess
 import time
 from pathlib import Path
 
-from . import accounts, agents, daemon, db, hooks, observe as obs, paths, service, status
+from . import (accounts, agents, daemon, db, hooks, observe as obs, orca, paths,
+               service, status)
 
 OK, WARN, FAIL = "ok", "warn", "fail"
 
@@ -218,45 +219,53 @@ def _check_stuck_running(r: Report) -> None:
         con.close()
 
 
+# A status line written this long after we recorded the close is not the one
+# that session left behind on its way out.
+WRITTEN_AFTER_CLOSE_S = 60
+
+
 def _check_session_matches_the_record(r: Report) -> None:
-    """An agent our record calls open that the process table has never heard of.
+    """An agent that is writing a status line the process table cannot account for.
 
-    Every path that types into a terminal now asks `observe.live_sessions()`
-    first, and that answer rests on one string: a session is a process whose
-    command line contains `claude`. If that ever stops matching - a packaging
-    change, a wrapper, a rename - the answer is not an error, it is "no
-    sessions anywhere", and the whole system goes quiet: nothing is delivered,
-    nothing is closed, and every screen still looks fine.
+    Every path that types into a terminal asks `observe.live_sessions()` first,
+    and that answer rests on one string: a session is a process whose command
+    line contains `claude`. If that ever stops matching - a packaging change, a
+    wrapper, a rename - the answer is not an error, it is "no sessions
+    anywhere". The sweep then records every agent closed, work stops being
+    delivered, and every screen agrees with itself.
 
-    So this asks the same question doctor exists for - do the record and the
-    world agree - and only where the daemon has not already settled it: a
-    terminal we recorded, no closed mark, and a snapshot fresh enough that
-    something was writing it a moment ago. The sweep records a session that
-    ended as closed within a tick, so a warning that survives the next tick is
-    one the sweep could not see either.
+    A closed mark is therefore not the disagreement; closing is how a session
+    ends here. The disagreement is a status line still being written after we
+    recorded the close, because nothing but a live session writes one. A
+    terminal Orca no longer lists is left to the sweep, which drops the handle
+    and says so.
     """
     sessions = obs.live_sessions()
     if sessions is None:
         return                      # could not look; not the same as none
+    handles = orca.live_terminals()
     known = set(paths.list_agents())
     con = db.connect()
     try:
         for row in db.all_agent_states(con):
-            agent = row["agent"]
-            # A row for an agent nobody has registered has no snapshot to read
-            # and nothing to disagree with.
-            if agent not in known or not row["terminal"] or row["closed_at"]:
+            agent, handle = row["agent"], row["terminal"]
+            # A row for an agent nobody has registered has no snapshot to read,
+            # and a terminal that is gone is the sweep's to report.
+            if agent not in known or not handle or sessions.get(agent):
                 continue
-            if sessions.get(agent):
+            if handles is None or handle not in handles:
                 continue
             own = status.read(agents.account_of(agent), paths.agent_status_file(agent))
-            if own.error or own.stale:
+            if own.error or own.stale or own.collected_at is None:
                 continue
-            r.add(WARN, f"agent {agent}: its status line is fresh but no session is running",
-                  "something wrote that snapshot moments ago and the process table "
-                  "has no claude for this agent; if this holds across ticks, "
-                  "observe.is_session has stopped recognising sessions and nothing "
-                  "is being delivered to anyone")
+            closed = row["closed_at"]
+            if closed and own.collected_at <= closed + WRITTEN_AFTER_CLOSE_S:
+                continue
+            r.add(WARN, f"agent {agent}: its status line is being written with no session running",
+                  "something has written that snapshot since we recorded this agent, "
+                  "and the process-table search does not match it - check "
+                  "observe.is_session; while it does not match, nothing is delivered "
+                  "to anyone")
     finally:
         con.close()
 

@@ -147,17 +147,26 @@ def close_session(handle: str, wait: bool = True,
     return ok, "session closed" if ok else f"could not send /exit: {out[:200]}"
 
 
-def relaunch(handle: str, command: str, timeout_ms: int = IDLE_TIMEOUT_MS) -> tuple[bool, str]:
+def relaunch(handle: str, command: str, timeout_ms: int = IDLE_TIMEOUT_MS,
+             started=None) -> tuple[bool, str]:
     """Start an agent again in the shell its session left behind.
 
     The command is ours, so the account comes back with it - which is why this
     does not depend on anything preserving the launch environment for us.
+
+    `started` is asked, before the wait, whether the command actually started
+    something: sending only says we typed it, and `ocp launch` refuses over the
+    5h limit and exits when the account is not logged in. It comes first
+    because the wait below costs its whole timeout when there is no TUI, and a
+    launch that started nothing is exactly that case.
     """
     if not alive(handle):
         return False, f"terminal {handle} is not alive"
     ok, out = send(handle, command)
     if not ok:
         return False, f"could not send the launch command: {out[:200]}"
+    if started is not None and not started():
+        return False, "the launch command was typed but no session started"
     # Typing into a TUI that is still booting loses the opening characters, so
     # nothing may be sent to the agent until it has finished starting.
     wait_idle(handle, timeout_ms)

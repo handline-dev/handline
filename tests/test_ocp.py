@@ -3113,12 +3113,9 @@ def test_an_agent_with_nowhere_to_run_is_not_handed_off(home: Path) -> None:
 
 
 def test_a_wake_is_believed_only_when_a_session_appears(home: Path) -> None:
-    """`orca.relaunch` reports on having typed the launch command, not on what
-    the command did - and `ocp launch` refuses over the 5h limit and exits when
-    the account is not logged in, leaving the shell exactly as it was. Believing
-    the receipt there cleared the closed mark and `resume_session` with it, so a
-    wake that failed took the only way back with it and then typed the wake
-    prompt at a bash prompt.
+    """A launch that started nothing is not a wake: the closed mark and
+    `resume_session` are the only way back to the agent's context, and nothing
+    may be typed at a shell that refused the launch.
     """
     _daemon_home(home, 20)
     con = db.connect()
@@ -3130,7 +3127,8 @@ def test_a_wake_is_believed_only_when_a_session_appears(home: Path) -> None:
         orcamod.available = lambda: True
         orcamod.live_terminals = lambda: {"term_x"}
         orcamod.alive = lambda h: True
-        orcamod.wait_idle = lambda h, timeout_ms=0: True
+        waits: list[int] = []
+        orcamod.wait_idle = lambda h, timeout_ms=0: (waits.append(timeout_ms), True)[1]
         orcamod.resume_with = lambda h, text: (sent.append(text), (True, "handoff injected"))[1]
         table = sessions_are()          # the launch types, and nothing comes up
         orcamod.send = lambda h, text, enter=True: (sent.append(text), (True, ""))[1]
@@ -3143,21 +3141,62 @@ def test_a_wake_is_believed_only_when_a_session_appears(home: Path) -> None:
         check("wake: so the closed mark stays", row["closed_at"] is not None, str(dict(row)))
         check("wake: and the session to resume is still there to try again",
               row["resume_session"] == "sess-8", str(dict(row)))
-        check("wake: nothing is typed after the launch command",
-              len(sent) == 1 and " launch " in sent[0], str(sent))
+        check("wake: and it does not wait out a TUI that never started",
+              not waits, str(waits))
+        check("wake: it tries the resume, then a fresh start, and stops there",
+              [" launch " in t for t in sent] == [True, True]
+              and "--resume" in sent[0] and "--resume" not in sent[1], str(sent))
+
+        # A resume id that cannot be launched - a pruned transcript, a worktree
+        # moved out from under it - would otherwise be retried at every tick
+        # forever, since it is now kept rather than cleared. A fresh start in
+        # the same terminal loses the context and keeps the agent.
+        sent.clear()
+        orcamod.send = lambda h, text, enter=True: (
+            sent.append(text),
+            table.update({"backend": 4242}) if " launch " in text
+            and "--resume" not in text else None,
+            (True, ""))[2]
+        ok, why = dmn.wake_agent(con, "backend", lambda _m: None)
+        row = db.get_agent_state(con, "backend")
+        check("wake: a resume that starts nothing falls back to a fresh start", ok, why)
+        check("wake: and the agent is told there is no handoff behind it",
+              any("could not be resumed" in t for t in sent), str(sent[-1:])[:120])
+        check("wake: the closed mark is cleared once something is running",
+              row["closed_at"] is None, str(dict(row)))
 
         # Same answer when the process table cannot be read at all: an
         # unreadable table is not evidence that the launch worked, and what is
         # at stake here is the resume pointer.
         sent.clear()
+        db.set_closed(con, "backend", "sess-8")
+        table.clear()
         obsmod.live_sessions = lambda: None
         ok, why = dmn.wake_agent(con, "backend", lambda _m: None)
         row = db.get_agent_state(con, "backend")
         check("wake: an unreadable process table is not a session either",
               not ok and row["resume_session"] == "sess-8", f"{why} {dict(row)}")
 
+        # Work arriving retries the wake every tick, so a launch that will
+        # never work is a loop with no end and no report. 8.6 already has the
+        # answer for that shape: stop, and leave it for a human.
+        db.set_closed(con, "backend", "sess-8")
+        db.reset_counter(con, "backend", "failed_attempts")
+        table.clear()
+        obsmod.live_sessions = lambda: dict(table)
+        orcamod.send = lambda h, text, enter=True: (sent.append(text), (True, ""))[1]
+        for _ in range(dmn.MAX_FAILED_ATTEMPTS):
+            dmn.wake_agent(con, "backend", lambda _m: None)
+        row = db.get_agent_state(con, "backend")
+        check("wake: a launch that never works ends in STALLED, not in a loop",
+              row["state"] == dmn.STALLED, str(dict(row)))
+        check("wake: and it still holds the session it would have resumed",
+              row["resume_session"] == "sess-8" and row["closed_at"] is not None,
+              str(dict(row)))
+
         # The same call, once the launch works.
         sent.clear()
+        db.set_agent_state(con, "backend", dmn.IDLE, detail="cleared by hand")
         obsmod.live_sessions = lambda: dict(table)
         orcamod.send = relaunching_send(sent, table)
         ok, why = dmn.wake_agent(con, "backend", lambda _m: None)
@@ -3174,62 +3213,75 @@ def test_a_wake_is_believed_only_when_a_session_appears(home: Path) -> None:
 
 
 def test_doctor_says_when_the_record_and_the_process_table_disagree(home: Path) -> None:
-    """Every gate now rests on one string: a session is a process whose command
-    line contains `claude`. If that stops matching, the answer is not an error
-    but "no sessions anywhere", and the system goes quiet while every screen
-    looks fine. Doctor is where that becomes loud."""
+    """The check that has to fire when `observe.is_session` stops matching - and
+    stay quiet in the states that are not that. It fires on a status line still
+    being written after we recorded the agent closed, because nothing but a
+    live session writes one."""
     _daemon_home(home, 20)
     con = db.connect()
-    real = obsmod.live_sessions
-    try:
-        agent_dir = home / "agents" / "backend"
-        agent_dir.mkdir(parents=True, exist_ok=True)
-        (agent_dir / "status.json").write_text(json.dumps({
-            "account": "alpha", "collected_at": int(time.time()), "session_id": "sess-3",
-            "pct_5h": 20, "ctx_pct": 8}))
-        db.set_terminal(con, "backend", "term_x", "wt")
+    real = (obsmod.live_sessions, orcamod.live_terminals)
+    agent_dir = home / "agents" / "backend"
+    agent_dir.mkdir(parents=True, exist_ok=True)
 
-        sessions_are()
+    def status_line(age_s: int = 0) -> None:
+        (agent_dir / "status.json").write_text(json.dumps({
+            "account": "alpha", "collected_at": int(time.time()) - age_s,
+            "session_id": "sess-3", "pct_5h": 20, "ctx_pct": 8}))
+
+    def rows() -> list:
         r = doctor.Report()
         doctor._check_session_matches_the_record(r)
-        check("doctor: a fresh status line with no session behind it warns",
-              r.rows and r.rows[-1][0] == doctor.WARN, str(r.rows))
+        return r.rows
+
+    try:
+        orcamod.live_terminals = lambda: {"term_x"}
+        db.set_terminal(con, "backend", "term_x", "wt")
+        sessions_are()
+        status_line()
+
+        # The daemon is down, so nothing has closed anything yet: a fresh
+        # status line and no process is the disagreement itself.
+        check("doctor: a status line with no session behind it warns",
+              rows() and rows()[-1][0] == doctor.WARN, str(rows()))
 
         sessions_are("backend")
-        r = doctor.Report()
-        doctor._check_session_matches_the_record(r)
-        check("doctor: and says nothing when the session is there", not r.rows, str(r.rows))
+        check("doctor: and says nothing when the session is there", not rows(), str(rows()))
 
-        # The cases the daemon has already settled, which doctor must not
-        # re-open: a session we closed on purpose, and a snapshot old enough
-        # that nothing claims to have been writing it.
+        # The state this exists for: is_session stopped matching, so the sweep
+        # recorded every agent closed - and the sessions carried on writing.
         sessions_are()
         db.set_closed(con, "backend", "sess-3")
-        r = doctor.Report()
-        doctor._check_session_matches_the_record(r)
-        check("doctor: a closed agent is not a disagreement", not r.rows, str(r.rows))
+        con.execute("UPDATE agent_state SET closed_at = ? WHERE agent = 'backend'",
+                    (int(time.time()) - 300,))
+        con.commit()
+        status_line()
+        check("doctor: a closed agent still writing its status line warns",
+              rows() and rows()[-1][0] == doctor.WARN, str(rows()))
 
-        db.clear_closed(con, "backend")
-        (agent_dir / "status.json").write_text(json.dumps({
-            "account": "alpha", "collected_at": int(time.time()) - status.STALE_AFTER_S - 60,
-            "session_id": "sess-3", "pct_5h": 20}))
-        r = doctor.Report()
-        doctor._check_session_matches_the_record(r)
-        check("doctor: nor is a stale one - nothing was writing it",
-              not r.rows, str(r.rows))
+        # An ordinary close: the status line stopped when the session did.
+        status_line(age_s=300)
+        check("doctor: but an ordinary close is not a disagreement", not rows(), str(rows()))
 
+        # A reboot leaves our handle pointing at a terminal Orca no longer has.
+        # The sweep drops the handle and says so; two reports of one fact is
+        # the screen arguing with the daemon.
+        status_line()
+        orcamod.live_terminals = lambda: set()
+        check("doctor: a terminal that is gone is the sweep's to report",
+              not rows(), str(rows()))
+
+        orcamod.live_terminals = lambda: {"term_x"}
+        status_line(age_s=status.STALE_AFTER_S + 60)
+        check("doctor: nor is a stale snapshot - nothing was writing it",
+              not rows(), str(rows()))
+
+        status_line()
         obsmod.live_sessions = lambda: None
-        (agent_dir / "status.json").write_text(json.dumps({
-            "account": "alpha", "collected_at": int(time.time()), "session_id": "sess-3",
-            "pct_5h": 20}))
-        r = doctor.Report()
-        doctor._check_session_matches_the_record(r)
         check("doctor: and it stays quiet when it could not look at all",
-              not r.rows, str(r.rows))
+              not rows(), str(rows()))
     finally:
-        obsmod.live_sessions = real
+        obsmod.live_sessions, orcamod.live_terminals = real
         con.close()
-
 
 def test_nothing_is_typed_into_a_shell_with_no_session(home: Path) -> None:
     """Orca runs claude as a login shell's child, so a session that ends leaves
