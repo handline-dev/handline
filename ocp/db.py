@@ -187,6 +187,30 @@ def events_after(con, row_id: int, agent: str | None = None, limit: int = 10000,
     return con.execute(q, params).fetchall()
 
 
+def latest_events(con, agent: str | None = None, limit: int = 50):
+    """The most recent events, returned oldest first so they read downward.
+
+    events_after() is the fold's cursor primitive and starts at the beginning
+    on purpose. An operator asking what just happened wants the other end.
+    """
+    q = "SELECT * FROM events"
+    params: list = []
+    if agent:
+        q += " WHERE agent = ?"
+        params.append(agent)
+    q += " ORDER BY id DESC LIMIT ?"
+    params.append(limit)
+    return list(reversed(con.execute(q, params).fetchall()))
+
+
+def count_events(con, agent: str | None = None) -> int:
+    if agent:
+        row = con.execute("SELECT COUNT(*) AS c FROM events WHERE agent = ?", (agent,)).fetchone()
+    else:
+        row = con.execute("SELECT COUNT(*) AS c FROM events").fetchone()
+    return int(row["c"])
+
+
 def max_event_id(con) -> int:
     row = con.execute("SELECT COALESCE(MAX(id), 0) AS m FROM events").fetchone()
     return int(row["m"])

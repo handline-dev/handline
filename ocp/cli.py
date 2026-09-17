@@ -398,14 +398,22 @@ def cmd_handoff(args) -> int:
 def cmd_events(args) -> int:
     con = db.connect()
     try:
-        rows = db.events_after(con, args.after, agent=args.agent, limit=args.limit)
+        # Without --after this is "what just happened", so it starts at the
+        # newest end. Reporting the page size as the total, from the oldest
+        # end, told an operator there were 50 events when there were 187.
+        if args.after:
+            rows = db.events_after(con, args.after, agent=args.agent, limit=args.limit)
+        else:
+            rows = db.latest_events(con, agent=args.agent, limit=args.limit)
         if not rows:
             print("no events")
             return 0
         for r in rows:
             when = time.strftime("%m-%d %H:%M", time.localtime(r["ts"]))
             print(f"{r['id']:<6} {when} {r['agent']:<12} {r['kind']:<16} {(r['payload'] or '')[:70]}")
-        print(f"\n{len(rows)} events; cursor for fold:<agent> advances only after a valid fold")
+        total = db.count_events(con, agent=args.agent)
+        print(f"\nshowing {len(rows)} of {total} events; "
+              f"cursor for fold:<agent> advances only after a valid fold")
     finally:
         con.close()
     return 0

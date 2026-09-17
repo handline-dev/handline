@@ -1425,6 +1425,56 @@ def test_spawn_base_selection(tmp: Path) -> None:
     check("spawn: tells the human to merge first", "Merge" in why or "merge" in why, why)
 
 
+def test_spawn_confirms_the_task_landed(home: Path) -> None:
+    """Orca reports input as accepted even when the TUI never submitted it.
+
+    Three agents once came up with the prompt sitting unsent in the input box
+    while the spawn output claimed success, so the only acceptable proof is the
+    agent's own UserPromptSubmit.
+    """
+    os.environ["OCP_HOME"] = str(home)
+    con = db.connect()
+    try:
+        since = db.max_event_id(con)
+        check("spawn: no prompt event yet means not landed",
+              spawnmod.prompt_landed("scout", since, timeout_s=0) is False)
+        db.add_event(con, "scout", "SessionStart", {})
+        check("spawn: a session starting is not a task arriving",
+              spawnmod.prompt_landed("scout", since, timeout_s=0) is False)
+        db.add_event(con, "other", "UserPromptSubmit", {})
+        check("spawn: another agent's prompt does not count",
+              spawnmod.prompt_landed("scout", since, timeout_s=0) is False)
+        db.add_event(con, "scout", "UserPromptSubmit", {})
+        check("spawn: the agent's own prompt event confirms it",
+              spawnmod.prompt_landed("scout", since, timeout_s=0) is True)
+    finally:
+        con.close()
+
+
+def test_events_view_starts_at_the_newest(home: Path) -> None:
+    """`ocp events` answers "what just happened", and must not report the page
+    size as the total - it said 50 events when there were 187."""
+    os.environ["OCP_HOME"] = str(home)
+    con = db.connect()
+    try:
+        for i in range(12):
+            db.add_event(con, "scout" if i % 2 else "keeper", f"k{i}", {})
+        rows = db.latest_events(con, limit=5)
+        check("events: the newest are returned", [r["kind"] for r in rows]
+              == ["k7", "k8", "k9", "k10", "k11"], str([r["kind"] for r in rows]))
+        check("events: oldest first, so they read downward",
+              rows[0]["id"] < rows[-1]["id"])
+        check("events: the total is the total, not the page",
+              db.count_events(con) == 12, str(db.count_events(con)))
+        check("events: filtered by agent", db.count_events(con, agent="scout") == 6,
+              str(db.count_events(con, agent="scout")))
+        rows = db.latest_events(con, agent="keeper", limit=3)
+        check("events: the filter applies to the page too",
+              all(r["agent"] == "keeper" for r in rows))
+    finally:
+        con.close()
+
+
 def test_orca_idle_parsing() -> None:
     """`ok` says the wait command ran; `satisfied` says the agent is idle.
 
@@ -1844,6 +1894,8 @@ def main() -> int:
         test_daemon_pidfile(Path(td) / 'd6')
         test_drift(Path(td) / 'drift')
         test_spawn_base_selection(Path(td) / 'spawn')
+        test_spawn_confirms_the_task_landed(Path(td) / 'spawnland')
+        test_events_view_starts_at_the_newest(Path(td) / 'evview')
         test_orca_idle_parsing()
         test_clear_refuses_mid_turn()
         test_handoff_reclaims_context(Path(td) / 'reclaim')
