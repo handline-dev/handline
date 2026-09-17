@@ -1810,10 +1810,14 @@ def test_idle_session_is_closed_and_resumed(home: Path) -> None:
         orcamod.live_terminals = lambda: {"term_x"}
         orcamod.alive = lambda h: True
         orcamod.wait_idle = lambda h, timeout_ms=0: True
-        orcamod.send = lambda h, text, enter=True: (sent.append((h, text)), (True, ""))[1]
         # A session is running in that terminal - nothing is typed into one
-        # where the process table says there is only a shell.
-        sessions_are("backend")
+        # where the process table says there is only a shell - and it is gone
+        # once /exit has been sent, the mirror of what a relaunch does.
+        table = sessions_are("backend")
+        orcamod.send = lambda h, text, enter=True: (
+            sent.append((h, text)),
+            table.pop("backend", None) if text == "/exit" else None,
+            (True, ""))[2]
         db.set_terminal(con, "backend", "term_x", "wt")
         now = int(time.time())
         agent_dir = home / "agents" / "backend"

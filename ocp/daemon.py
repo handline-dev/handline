@@ -705,16 +705,18 @@ def perform_handoff(con, agent: str, trigger: triggers.Trigger, log,
         return True
 
     handle = db.get_terminal(con, agent)
-    if handle and orca.available() and not orca.idle_now(handle):
-        log(f"  {agent}: {trigger.kind} fired but the agent is mid-turn - deferring")
-        return True
-    if handle and orca.available() and not session_present(agent):
-        # A handoff for a session that is not there costs a fold to write and
-        # then types its own text at a shell prompt. The context it wants to
-        # reclaim went with the session; the sweep records the agent closed,
-        # and a closed agent's triggers do not fire at all.
-        log(f"  {agent}: {trigger.kind} fired but no session is running - not handing off")
-        return True
+    if handle and orca.available():
+        if not orca.idle_now(handle):
+            log(f"  {agent}: {trigger.kind} fired but the agent is mid-turn - deferring")
+            return True
+        if not session_present(agent):
+            # A handoff for a session that is not there costs a fold to write
+            # and then types its own text at a shell prompt. The context it
+            # wants to reclaim went with the session; the sweep records the
+            # agent closed, and a closed agent's triggers do not fire at all.
+            log(f"  {agent}: {trigger.kind} fired but no session is running - "
+                f"not handing off")
+            return True
 
     hid = uuid.uuid4().hex[:12]
     st = status.read(agents.account_of(agent)) if agent in paths.list_agents() else None
