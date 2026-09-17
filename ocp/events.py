@@ -94,26 +94,39 @@ def record_from_stdin(argv: list[str] | None = None) -> int:
 # agent handed off in a loop - 42 folds in seven minutes before it was caught.
 ACTIVE_EVENTS = {"UserPromptSubmit"}
 
+# And which one says it stopped. Stop fires when the agent has finished
+# responding and is back at its prompt; SubagentStop is deliberately absent,
+# because a subagent finishing says nothing about what the agent itself is doing.
+QUIET_EVENTS = {"Stop"}
+
 # The daemon owns these; an agent must not move itself out of them.
 PROTECTED_STATES = {"STALLED", "HANDOFF"}
 
 
 def _mark_activity(con, agent: str, event: str) -> None:
-    """Let the daemon know the agent is actually working.
+    """Let the daemon know whether the agent is working.
 
     Without this, agent_state only ever changes when the daemon itself changes
     it, so an agent that was parked and then given work directly still reads as
     PARKED - and the daemon would "wake" it mid-task by injecting a handoff it
     never needed. The hooks already fire on every turn; they just have to say so.
+
+    Both ends matter, and only one of them was recorded. RUNNING is the state
+    that stops work being delivered and stops the session being closed, so an
+    agent that entered it and never left was silently taken out of service: it
+    was never told about a single request again and never gave its memory back.
+    Three agents sat that way for over two hours.
     """
-    if event not in ACTIVE_EVENTS:
-        return
     row = db.get_agent_state(con, agent)
     if row and row["state"] in PROTECTED_STATES:
         return
-    if row and row["state"] == "RUNNING" and not row["wake_at"]:
-        return  # already correct; do not rewrite on every prompt
-    db.set_agent_state(con, agent, "RUNNING", wake_at=None, detail=f"active ({event})")
+    if event in ACTIVE_EVENTS:
+        if row and row["state"] == "RUNNING" and not row["wake_at"]:
+            return  # already correct; do not rewrite on every prompt
+        db.set_agent_state(con, agent, "RUNNING", wake_at=None, detail=f"active ({event})")
+    elif event in QUIET_EVENTS and row and row["state"] == "RUNNING":
+        db.set_agent_state(con, agent, "IDLE", wake_at=None,
+                           detail="finished its turn")
 
 
 def record_commit(agent: str, repo: str, sha: str, subject: str, diffstat: str) -> None:

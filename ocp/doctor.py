@@ -10,9 +10,10 @@ import os
 import re
 import shutil
 import subprocess
+import time
 from pathlib import Path
 
-from . import accounts, agents, hooks, paths, status
+from . import accounts, agents, db, hooks, paths, status
 
 OK, WARN, FAIL = "ok", "warn", "fail"
 
@@ -189,6 +190,37 @@ def _check_agents(r: Report) -> None:
                       f"{size}B > {budget}B, and this is per-session overhead")
 
 
+# How long an agent may read as RUNNING with nothing heard from it before that
+# is a stuck label rather than a long turn. Same number as the idle-close
+# threshold: past it, the daemon would have reclaimed the session anyway.
+STUCK_RUNNING_S = 1800
+
+
+def _check_stuck_running(r: Report) -> None:
+    """RUNNING is the state that takes an agent out of service.
+
+    Work is not delivered to it and its session is never closed, so an agent
+    that entered RUNNING and never left is silently ignored by the daemon - it
+    hears about no request and gives no memory back. `Stop` returns it to IDLE
+    now, but a hook that stops firing would put it back in that hole quietly,
+    and quietly is the part worth fixing.
+    """
+    con = db.connect()
+    try:
+        for row in db.all_agent_states(con):
+            if row["state"] != "RUNNING":
+                continue
+            last = db.last_activity(con, row["agent"])
+            if last is None or (int(time.time()) - last) < STUCK_RUNNING_S:
+                continue
+            mins = int((time.time() - last) / 60)
+            r.add(WARN, f"agent {row['agent']}: RUNNING with nothing heard for {mins}m",
+                  "no work is delivered to a RUNNING agent and its session is never "
+                  "closed; check that its Stop hook is firing")
+    finally:
+        con.close()
+
+
 # statusLine's rate_limits arrived in this version; below it there is no usage
 # to read and the whole data source is missing.
 MIN_CLAUDE_VERSION = (2, 1, 0)
@@ -307,6 +339,7 @@ def run() -> Report:
     _check_accounts(r)
     _check_rate_limits_present(r)
     _check_agents(r)
+    _check_stuck_running(r)
     _check_pidfile(r)
     _check_autocontinue(r)
     return r

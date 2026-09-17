@@ -2636,6 +2636,54 @@ def test_hooks_report_activity(home: Path) -> None:
     finally:
         con.close()
 
+    # The other end of the turn. RUNNING is what stops work being delivered and
+    # stops a session being closed, so an agent that entered it and never left
+    # was taken out of service without anything saying so: three agents sat
+    # RUNNING for over two hours, told about no request and holding their memory.
+    def hook(name: str, **extra) -> None:
+        subprocess.run([sys.executable, str(ROOT / "bin" / "ocp"), "hook", name],
+                       input=json.dumps({"hook_event_name": name, "session_id": "s", **extra}),
+                       capture_output=True, text=True, env=env)
+
+    con = db.connect()
+    try:
+        db.set_agent_state(con, "hooky", dmn.RUNNING, detail="working")
+    finally:
+        con.close()
+    hook("SubagentStop")
+    con = db.connect()
+    try:
+        check("hooks: a subagent finishing does not mean the agent is free",
+              db.get_agent_state(con, "hooky")["state"] == dmn.RUNNING,
+              str(db.get_agent_state(con, "hooky")["state"]))
+    finally:
+        con.close()
+
+    hook("Stop")
+    con = db.connect()
+    try:
+        row = db.get_agent_state(con, "hooky")
+        check("hooks: the end of a turn returns it to IDLE",
+              row["state"] == dmn.IDLE, str(dict(row)))
+        check("hooks: and it can be told about work again",
+              row["state"] not in (dmn.RUNNING, dmn.HANDOFF))
+
+        # Being stuck in RUNNING is silent by nature, so doctor says it out loud.
+        db.set_agent_state(con, "hooky", dmn.RUNNING, detail="working")
+        con.execute("UPDATE events SET ts = ? WHERE agent = 'hooky'",
+                    (int(time.time()) - doctor.STUCK_RUNNING_S - 60,))
+        con.commit()
+    finally:
+        con.close()
+    rows = [d for lvl, name, d in doctor.run().rows if "RUNNING with nothing heard" in name]
+    check("doctor: a stuck RUNNING agent is reported", len(rows) == 1, str(rows))
+
+    con = db.connect()
+    try:
+        db.set_agent_state(con, "hooky", dmn.IDLE, detail="done")
+    finally:
+        con.close()
+
 
 def test_cycle_and_escalation(home: Path) -> None:
     """A runaway must be stopped AND escalated - a request that silently
