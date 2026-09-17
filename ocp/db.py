@@ -314,11 +314,20 @@ def set_agent_state(con, agent: str, state: str, wake_at: int | None = None,
 
 
 def set_terminal(con, agent: str, terminal: str | None, worktree: str | None) -> None:
+    """Record where an agent lives. This says nothing about what it is doing.
+
+    It ran at `ocp launch`, before execve, and inserted the row as RUNNING - so
+    an agent was born working, and `_mark_activity` then declined to rewrite a
+    state that was already RUNNING. RUNNING is what stops work being delivered
+    and stops a session being closed, so the row that only meant to record a
+    terminal handle was taking the agent out of service before it had done
+    anything. A new agent is IDLE: it has a terminal and no work.
+    """
     con.execute(
         "INSERT INTO agent_state(agent, state, updated, terminal, worktree) VALUES(?,?,?,?,?) "
         "ON CONFLICT(agent) DO UPDATE SET terminal=excluded.terminal, "
         "worktree=excluded.worktree, updated=excluded.updated",
-        (agent, "RUNNING", int(time.time()), terminal, worktree),
+        (agent, "IDLE", int(time.time()), terminal, worktree),
     )
 
 

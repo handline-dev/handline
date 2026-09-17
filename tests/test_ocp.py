@@ -2665,6 +2665,23 @@ def test_hooks_report_activity(home: Path) -> None:
         row = db.get_agent_state(con, "hooky")
         check("hooks: the end of a turn returns it to IDLE",
               row["state"] == dmn.IDLE, str(dict(row)))
+
+        # The other way in. `ocp launch` records the terminal handle before
+        # execve, and that row used to be born RUNNING - so a new agent was out
+        # of service before it had done anything, and _mark_activity then
+        # declined to rewrite a state that was already RUNNING.
+        db.set_terminal(con, "newborn", "term_n", "wt")
+        born = db.get_agent_state(con, "newborn")
+        check("launch: recording a terminal does not claim the agent is working",
+              born["state"] == dmn.IDLE, str(dict(born)))
+        check("launch: and it can be closed and told about work like any idle one",
+              born["state"] not in (dmn.RUNNING, dmn.HANDOFF))
+
+        db.set_agent_state(con, "newborn", dmn.RUNNING, detail="working")
+        db.set_terminal(con, "newborn", "term_n2", "wt")
+        check("launch: and a later handle does not reset a state it knows nothing about",
+              db.get_agent_state(con, "newborn")["state"] == dmn.RUNNING,
+              str(dict(db.get_agent_state(con, "newborn"))))
         check("hooks: and it can be told about work again",
               row["state"] not in (dmn.RUNNING, dmn.HANDOFF))
 
