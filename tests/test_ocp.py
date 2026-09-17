@@ -3181,7 +3181,7 @@ def test_a_wake_is_believed_only_when_a_session_appears(home: Path) -> None:
         # never work is a loop with no end and no report. 8.6 already has the
         # answer for that shape: stop, and leave it for a human.
         db.set_closed(con, "backend", "sess-8")
-        db.reset_counter(con, "backend", "failed_attempts")
+        db.reset_counter(con, "backend", "wake_failures")
         table.clear()
         obsmod.live_sessions = lambda: dict(table)
         orcamod.send = lambda h, text, enter=True: (sent.append(text), (True, ""))[1]
@@ -3193,6 +3193,48 @@ def test_a_wake_is_believed_only_when_a_session_appears(home: Path) -> None:
         check("wake: and it still holds the session it would have resumed",
               row["resume_session"] == "sess-8" and row["closed_at"] is not None,
               str(dict(row)))
+        # Its own count: the tick's exception handler and the handoff both stall
+        # on failed_attempts, and a wake streak is not theirs to read.
+        check("wake: failed wakes are counted apart from failed ticks",
+              row["failed_attempts"] == 0 and row["wake_failures"] >= dmn.MAX_FAILED_ATTEMPTS,
+              str(dict(row)))
+
+        # A human starts it again in its terminal. The sweep sees the session
+        # the stall said could not exist, and a stall the world has refuted is
+        # ours to lift - leaving it would hide a live agent from every delivery.
+        table["backend"] = 4242
+        orcamod.live_terminals = lambda: {"term_x"}
+        dmn.sweep(con, lambda _m: None, [])
+        row = db.get_agent_state(con, "backend")
+        check("wake: a stall the world refutes is lifted by the sweep",
+              row["state"] == dmn.IDLE and row["closed_at"] is None, str(dict(row)))
+        table.clear()
+
+        # The 5h wall is the one failure that heals itself, and `ocp launch`
+        # refuses on a reading the daemon has already got. Spending the wake
+        # timeout to be told that, and counting it against the agent, is how a
+        # window that rolls over in minutes took an agent out for hours.
+        db.set_closed(con, "backend", "sess-8")
+        db.set_agent_state(con, "backend", dmn.IDLE, detail="closed and at the wall")
+        db.reset_counter(con, "backend", "wake_failures")
+        write_status(home, "alpha", pct_5h=95, pct_7d=10, ctx_pct=5,
+                     reset_5h=int(time.time()) + 600)
+        sent.clear()
+        ok, why = dmn.wake_agent(con, "backend", lambda _m: None)
+        row = db.get_agent_state(con, "backend")
+        check("wake: an account at the wall is not launched into", not ok and not sent,
+              f"{why} {sent}")
+        check("wake: and waiting for the window is not a failed attempt",
+              row["wake_failures"] == 0 and row["state"] != dmn.STALLED, str(dict(row)))
+
+        # And once it rolls over, the same call goes through.
+        write_status(home, "alpha", pct_5h=20, pct_7d=10, ctx_pct=5,
+                     reset_5h=int(time.time()) + 1800)
+        orcamod.send = relaunching_send(sent, table)
+        ok, _ = dmn.wake_agent(con, "backend", lambda _m: None)
+        check("wake: and it goes through once the window rolls over", ok, str(sent))
+        db.set_closed(con, "backend", "sess-8")
+        db.set_agent_state(con, "backend", dmn.IDLE, detail="closed again for the next case")
 
         # The same call, once the launch works.
         sent.clear()

@@ -69,6 +69,10 @@ CREATE TABLE IF NOT EXISTS agent_state (
   failed_attempts INTEGER NOT NULL DEFAULT 0,
   continuations   INTEGER NOT NULL DEFAULT 0,
   throttle_count  INTEGER NOT NULL DEFAULT 0,
+  -- Launches that started nothing. Its own column because the two readers of
+  -- failed_attempts - the tick's exception handler and the handoff - would
+  -- otherwise stall an agent on a streak neither of them saw.
+  wake_failures   INTEGER NOT NULL DEFAULT 0,
   -- The Orca terminal this agent runs in, so the daemon can clear its context
   -- and hand it back its own handoff without destroying the agent.
   terminal        TEXT,
@@ -141,7 +145,7 @@ def _pre_schema_migrate(con) -> None:
 
 def _add_missing_columns(con) -> None:
     state_cols = _cols(con, "agent_state")
-    for col in ("failed_attempts", "continuations", "throttle_count"):
+    for col in ("failed_attempts", "continuations", "throttle_count", "wake_failures"):
         if col not in state_cols:
             con.execute(f"ALTER TABLE agent_state ADD COLUMN {col} INTEGER NOT NULL DEFAULT 0")
     for col in ("terminal", "worktree"):
@@ -362,7 +366,8 @@ def get_terminal(con, agent: str) -> str | None:
 
 
 def bump_counter(con, agent: str, column: str, by: int = 1) -> None:
-    if column not in ("failed_attempts", "continuations", "throttle_count"):
+    if column not in ("failed_attempts", "continuations", "throttle_count",
+                      "wake_failures"):
         raise ValueError(f"not a counter column: {column}")
     con.execute(
         f"INSERT INTO agent_state(agent, state, updated, {column}) VALUES(?,?,?,?) "
@@ -372,7 +377,8 @@ def bump_counter(con, agent: str, column: str, by: int = 1) -> None:
 
 
 def reset_counter(con, agent: str, column: str) -> None:
-    if column not in ("failed_attempts", "continuations", "throttle_count"):
+    if column not in ("failed_attempts", "continuations", "throttle_count",
+                      "wake_failures"):
         raise ValueError(f"not a counter column: {column}")
     con.execute(f"UPDATE agent_state SET {column} = 0 WHERE agent = ?", (agent,))
 

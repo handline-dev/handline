@@ -262,10 +262,10 @@ def _check_session_matches_the_record(r: Report) -> None:
             if closed and own.collected_at <= closed + WRITTEN_AFTER_CLOSE_S:
                 continue
             r.add(WARN, f"agent {agent}: its status line is being written with no session running",
-                  "something has written that snapshot since we recorded this agent, "
-                  "and the process-table search does not match it - check "
-                  "observe.is_session; while it does not match, nothing is delivered "
-                  "to anyone")
+                  "nothing but a live session writes that snapshot, and the "
+                  "process-table search finds no claude for this agent - check "
+                  "observe.is_session; while it does not match, nothing is "
+                  "delivered to anyone")
     finally:
         con.close()
 
