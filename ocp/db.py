@@ -210,12 +210,16 @@ def latest_events(con, agent: str | None = None, limit: int = 50):
     return list(reversed(con.execute(q, params).fetchall()))
 
 
-def count_events(con, agent: str | None = None) -> int:
+def count_events(con, agent: str | None = None, after: int = 0) -> int:
+    clauses, params = [], []
     if agent:
-        row = con.execute("SELECT COUNT(*) AS c FROM events WHERE agent = ?", (agent,)).fetchone()
-    else:
-        row = con.execute("SELECT COUNT(*) AS c FROM events").fetchone()
-    return int(row["c"])
+        clauses.append("agent = ?")
+        params.append(agent)
+    if after:
+        clauses.append("id > ?")
+        params.append(int(after))
+    where = f" WHERE {' AND '.join(clauses)}" if clauses else ""
+    return int(con.execute(f"SELECT COUNT(*) AS c FROM events{where}", params).fetchone()["c"])
 
 
 def max_event_id(con) -> int:

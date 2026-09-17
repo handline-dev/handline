@@ -15,7 +15,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
-from ocp import (accounts, agents, ask as askmod, daemon as dmn, db, digest, drift,
+from ocp import (accounts, agents, ask as askmod, daemon as dmn, db, digest, doctor, drift,
                  events as evmod, fold as foldmod, launch, orca as orcamod, paths,
                  spawn as spawnmod, status, team, triggers, tui, yamlcompat)  # noqa: E402
 
@@ -1835,6 +1835,63 @@ def test_burn_rate_ignores_carried_samples(home: Path) -> None:
           not triggers.evaluate(83, None, burn=0.0, poll_s=30).fired)
 
 
+def test_doctor_says_one_thing_per_account(home: Path) -> None:
+    """doctor's whole job is to say why assignment is refused, so it must not
+    warn that a reading was lost and then report "rate_limits present" about the
+    same account. The 7d check wedged into the 5h chain stole that chain's else."""
+    home.mkdir(parents=True, exist_ok=True)
+    os.environ["OCP_HOME"] = str(home)
+    now = int(time.time())
+    write_status(home, "a_quiet", pct_5h=None, pct_7d=10)
+    write_status(home, "b_ok", pct_5h=42, reset_5h=now + 1800, pct_7d=10)
+    write_status(home, "c_lost", pct_5h=None, rl_lost=True, pct_7d=10)
+    write_status(home, "d_old", pct_5h=88, reset_5h=now + 9000, pct_7d=10,
+                 rl_carried=True, rl_at=now - 4 * 3600)
+    write_status(home, "e_7dlost", pct_5h=5, reset_5h=now + 1800, rl7_lost=True)
+
+    r = doctor.Report()
+    doctor._check_rate_limits_present(r)
+    rows = [(lvl, msg) for lvl, msg, _detail in r.rows if "account " in msg]
+    per_account: dict[str, list] = {}
+    for lvl, msg in rows:
+        # Split off the account name: "7d" appears inside one of them.
+        per_account.setdefault(msg.split()[1].rstrip(":"), []).append(
+            (lvl, msg.split(": ", 1)[1]))
+
+    check("doctor: one 5h statement per account",
+          all(len([m for _l, m in v if "7d" not in m]) == 1 for v in per_account.values()),
+          str({k: [m for _l, m in v] for k, v in per_account.items()}))
+    check("doctor: a lost reading is not also reported as present",
+          not any("present" in m for _l, m in per_account["c_lost"]),
+          str(per_account["c_lost"]))
+    check("doctor: and neither is one too old to assign on",
+          not any("present" in m for _l, m in per_account["d_old"]),
+          str(per_account["d_old"]))
+    check("doctor: never prints a None percentage",
+          not any("None" in d for _l, _m, d in r.rows if d), str(r.rows))
+    check("doctor: an account whose 5h is fine still gets its OK row",
+          any(lvl == doctor.OK for lvl, _m in per_account["e_7dlost"]),
+          str(per_account["e_7dlost"]))
+    check("doctor: and its lost 7d is reported as well",
+          any("7d" in m for _l, m in per_account["e_7dlost"]), str(per_account["e_7dlost"]))
+
+
+def test_fold_is_not_rejected_over_a_header_it_overwrites(home: Path) -> None:
+    """The header is stamped after validation, so validating it throws away good
+    section work over a line that was about to be replaced - and rejection is
+    expensive: the degraded path, no cursor advance, a fold_failed event."""
+    good = digest.render(digest.Digest(
+        date="2026-01-01", agent="x", updated="10:00", folded_through=5,
+        sections={"done": ["a"], "in_progress": [], "decided": [],
+                  "blocked": [], "next": [], "base_candidates": []}))
+    headerless = good.split("\n", 1)[1]
+    ok, problems = digest.validate(headerless, None)
+    check("digest: a malformed header is still a problem by default",
+          not ok and any("header" in p for p in problems), str(problems))
+    ok, problems = digest.validate(headerless, None, header_is_stamped=True)
+    check("digest: but not for the caller that stamps it", ok, str(problems))
+
+
 def test_display_agrees_with_the_daemon(home: Path) -> None:
     """Every screen draws the figure the daemon acts on, with its provenance.
 
@@ -2335,6 +2392,8 @@ def main() -> int:
         test_unobserved_spend_stays_off_unreadable_accounts(Path(td) / 'spend')
         test_launch_judges_on_the_figure_it_may_act_on(Path(td) / 'lj')
         test_burn_rate_ignores_carried_samples(Path(td) / 'burn')
+        test_doctor_says_one_thing_per_account(Path(td) / 'doc2')
+        test_fold_is_not_rejected_over_a_header_it_overwrites(Path(td) / 'fhdr')
         test_display_agrees_with_the_daemon(Path(td) / 'disp')
         test_spawn_confirms_the_task_landed(Path(td) / 'spawnland')
         test_events_view_starts_at_the_newest(Path(td) / 'evview')

@@ -235,7 +235,8 @@ def fold(agent: str, use_model: bool = True, model: str = "haiku",
             # header parsing meant a hand-edited or odd header skipped the one
             # check that stops a fold from dropping completed work.
             had_content = any(previous.items(k) for k in digest.SECTION_KEYS)
-            valid, problems = digest.validate(candidate, previous if had_content else None)
+            valid, problems = digest.validate(candidate, previous if had_content else None,
+                                          header_is_stamped=True)
         else:
             valid, problems = False, [reason]
 
@@ -269,8 +270,11 @@ def fold(agent: str, use_model: bool = True, model: str = "haiku",
         con.execute("BEGIN IMMEDIATE")
         try:
             db.set_cursor(con, cursor_name, top)
+            # A fold is the one spender no status line observes, so this event
+            # is the only record that the account was charged at all.
             db.add_event(con, agent, "fold", {"through": top, "events": len(events),
-                                              "model": model if used_model else None})
+                                              "model": model if used_model else None,
+                                              "account": acct})
             con.execute("COMMIT")
         except Exception:
             con.execute("ROLLBACK")
@@ -293,14 +297,20 @@ def _cheapest_account() -> str | None:
     # ever sees. Letting it fall back to the accounts we cannot read would send
     # the unobservable spend precisely where the usage is already unobserved.
     # Reading the raw figure did exactly that: None passed the test.
+    # Roomiest first: on this path nothing was assignable, so the difference
+    # between accounts is all we have, and putting the one unobservable spend
+    # on the tightest readable account while a roomier one sits beside it is
+    # the avoidable version of this call's risk.
+    usable = []
     for a in paths.list_accounts():
         if not accounts.logged_in(a):
             continue
         pct = status.read(a).trusted_pct_5h
         if pct is None or pct >= status.PCT_5H_BLOCK:
             continue
-        return a
-    return None
+        usable.append((pct, a))
+    usable.sort()
+    return usable[0][1] if usable else None
 
 
 def _degraded(agent: str, previous: digest.Digest, events, day: str, facts: str) -> str:

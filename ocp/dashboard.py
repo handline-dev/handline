@@ -7,7 +7,8 @@ wrong here, the daemon is acting on that same wrong number.
 Two things are deliberate. Every figure is drawn with where it came from - a
 mark for inferred, carried, or carried past its bound - so an inference is
 never dressed up as a measurement, and what we genuinely do not know is drawn
-as "?" and never as 0. And an account's own usage and an agent's context come
+as "?" and never as 0. The one unmarked case is a figure held at the window's
+high-water mark: real and current, reported by an earlier payload than this one. And an account's own usage and an agent's context come
 from different files (rate limits are account-wide, context is per session), so
 they are labelled as what they are rather than blended.
 """

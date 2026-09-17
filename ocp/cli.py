@@ -426,8 +426,11 @@ def cmd_events(args) -> int:
         for r in rows:
             when = time.strftime("%m-%d %H:%M", time.localtime(r["ts"]))
             print(f"{r['id']:<6} {when} {r['agent']:<12} {r['kind']:<16} {(r['payload'] or '')[:70]}")
-        total = db.count_events(con, agent=args.agent)
-        print(f"\nshowing {len(rows)} of {total} events; "
+        # With --after the whole table is not the population being paged, and
+        # saying it is misleads in the same direction as the bug this replaced.
+        total = db.count_events(con, agent=args.agent, after=args.after)
+        scope = f" after {args.after}" if args.after else ""
+        print(f"\nshowing {len(rows)} of {total} events{scope}; "
               f"cursor for fold:<agent> advances only after a valid fold")
     finally:
         con.close()

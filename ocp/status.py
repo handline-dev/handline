@@ -25,7 +25,10 @@ parks idle agents, which costs a fold each and buys nothing, while treating
 unknown as quiet hands out work on an account that may be at the wall.
 
 A carried figure is a floor, not a measurement: usage inside a window only
-rises, so the true number is at least that. It is old the moment the session
+rises, so the true number is at least that. The same is true, unmarked, of a
+live figure that lost to the high-water mark - the number is real and current,
+but it was reported by an earlier payload than this one. Only its age is
+understated, which is why it carries no mark of its own. It is old the moment the session
 that reported it goes idle, and collected_at cannot say so - an idle session
 keeps refreshing collected_at while reporting nothing new. rl_at is when the
 figure was actually observed, and it, not collected_at, bounds the carry.

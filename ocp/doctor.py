@@ -245,11 +245,14 @@ def _check_rate_limits_present(r: Report) -> None:
                   "no session has spent in the current window; reads as 0%")
         elif src == "carried":
             r.add(OK, f"account {acct}: rate_limits carried", f"5h {st.pct_5h}% (window still open)")
+        else:
+            r.add(OK, f"account {acct}: rate_limits present", f"5h {st.pct_5h}%")
+        # The weekly window is a separate statement: wedged into the chain above
+        # it stole that chain's else, so every refused account was warned about
+        # and then told "rate_limits present" in the same breath.
         if st.rl7_lost:
             r.add(WARN, f"account {acct}: the 7d reading was lost",
                   "the weekly gate cannot be checked, so assignment stays refused")
-        else:
-            r.add(OK, f"account {acct}: rate_limits present", f"5h {st.pct_5h}%")
     if not seen and paths.list_accounts():
         r.add(WARN, "no snapshot has rate_limits yet", "no session has run")
 

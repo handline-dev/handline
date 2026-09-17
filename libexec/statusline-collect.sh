@@ -95,8 +95,10 @@ if [ -n "$SNAP" ]; then
     | reduce ("5h", "7d", "opus_7d") as $w (
         $new + {observed: [], carried: [], lost: []};
         ("pct_" + $w) as $pk | ("reset_" + $w) as $rk |
+        # Only the two windows that gate anything carry a loss flag; opus has
+        # no reader, so it has no flag rather than a key nothing writes.
         (if $w == "5h" then "rl_lost" elif $w == "7d" then "rl7_lost"
-                                      else "rlo_lost" end) as $lk |
+                                      else null end) as $lk |
         (if $prev == null then null else $prev[$pk] end) as $pv |
         (if $prev == null then null else $prev[$rk] end) as $pr |
         # A window still ahead of us, with a little room for clock skew. The
@@ -117,7 +119,8 @@ if [ -n "$SNAP" ]; then
           # Nothing to carry. A loss stays a loss until a payload reports the
           # window again: one tick of ignorance that decays into "quiet" is a
           # 95% account reading as 0% one refresh later.
-          if $prev != null and $prev[$lk] == true then .lost += [$w] else . end
+          if $lk != null and $prev != null and $prev[$lk] == true
+            then .lost += [$w] else . end
         elif $open | not then
           # We cannot place this figure in a window: either it never carried a
           # resets_at, or that window has ended and nothing has reported since.

@@ -21,7 +21,9 @@ from pathlib import Path
 
 from . import agents, db, launch
 
-# How long to wait for the agent's own hook to confirm it got the first task.
+# How long to wait for the agent to be ready, and then for its own hook to
+# confirm it got the first task. One number: they describe the same patience,
+# and drifting them apart would be silent.
 SUBMIT_WAIT_S = 60
 
 
@@ -65,6 +67,10 @@ def prompt_landed(agent: str, since_id: int, timeout_s: float = SUBMIT_WAIT_S) -
     Orca reports that input was accepted, which is not the same as submitted -
     for the Claude TUI it cannot observe the difference at all. UserPromptSubmit
     is the agent itself saying it received a task, so that is what we believe.
+
+    It matches any prompt for that agent, so a human typing into the terminal
+    first would also satisfy it. That is the right trade: the question being
+    asked is whether this agent is taking instructions at all.
     """
     deadline = time.time() + timeout_s
     while True:
@@ -121,10 +127,17 @@ def spawn(agent: str, repo: Path, base: str = "main", prompt: str | None = None,
     try:
         handle = json.loads(out)["result"]["terminal"]["handle"]
     except (json.JSONDecodeError, KeyError, TypeError):
-        handle = "?"
+        handle = None
 
     lines = [f"{agent}: worktree {wt}", f"  branched from {base_ref} ({why})",
-             f"  terminal {handle}"]
+             f"  terminal {handle or 'unknown'}"]
+
+    if prompt and not handle:
+        # Sending to a handle we could not read means typing into nothing and
+        # then blaming the agent's input box for a failure that happened here.
+        lines.append("  WARNING: could not read the terminal handle, so the first task "
+                     "was not sent. The agent is up; send it by hand.")
+        return False, "\n".join(lines)
 
     if prompt:
         # Typing into a TUI that is still booting loses the opening characters
@@ -137,8 +150,13 @@ def spawn(agent: str, repo: Path, base: str = "main", prompt: str | None = None,
             since = db.max_event_id(con)
         finally:
             con.close()
-        _run(["orca", "terminal", "wait", "--terminal", handle,
-              "--for", "tui-idle", "--timeout-ms", "60000"])
+        # An Orca without this wait would no-op silently and we would type into
+        # a booting TUI - the exact bug this exists to stop, restored.
+        waited, _ = _run(["orca", "terminal", "wait", "--terminal", handle,
+                          "--for", "tui-idle", "--timeout-ms", str(SUBMIT_WAIT_S * 1000)])
+        if not waited:
+            lines.append("  WARNING: could not wait for the agent to be ready; "
+                         "the first task may have been typed into a booting TUI")
         _run(["orca", "terminal", "send", "--terminal", handle,
               "--text", prompt, "--enter", "--wait-submit", "30"])
         if prompt_landed(agent, since):
