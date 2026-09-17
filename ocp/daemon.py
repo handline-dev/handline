@@ -216,6 +216,31 @@ def session_present(agent: str) -> bool:
     return bool(sessions is not None and sessions.get(agent))
 
 
+# How long a relaunched session has to show up in the process table. `ocp
+# launch` execs claude, so it appears at once when it appears at all; this is
+# slack for a slow start, not a wait for the TUI to be usable.
+WAKE_SESSION_TIMEOUT_S = 15
+
+
+def wait_for_session(agent: str, timeout_s: int = WAKE_SESSION_TIMEOUT_S) -> bool:
+    """Did the launch we typed actually start a session?
+
+    `relaunch` reports on having sent the command, which is not the same thing:
+    `ocp launch` refuses over the 5h limit and exits when the account is not
+    logged in, leaving the shell exactly as it was. This is the one reading
+    that separates the two, and it is not taken from the tick's cache - that
+    was read before the command was typed.
+    """
+    deadline = time.time() + timeout_s
+    while True:
+        sessions = obs.live_sessions()
+        if sessions is not None and sessions.get(agent):
+            return True
+        if time.time() >= deadline:
+            return False
+        time.sleep(1)
+
+
 def _reclaim_context(con, agent: str, log) -> tuple[bool, str]:
     """Clear the agent's session so the handoff actually costs it its context."""
     handle = db.get_terminal(con, agent)
@@ -425,6 +450,15 @@ def wake_agent(con, agent: str, log) -> tuple[bool, str]:
         ok, why = orca.relaunch(handle, cmd)
         if not ok:
             return False, why
+        if not wait_for_session(agent, WAKE_SESSION_TIMEOUT_S):
+            # The command was typed into the shell and nothing came up. Keep
+            # the closed mark and resume_session: they are the whole way back,
+            # clearing them here is what made a failed wake unrecoverable, and
+            # the next attempt - work arriving, or the next restart - can still
+            # use them.
+            db.add_event(con, agent, "wake_failed", {"resume_session": session})
+            log(f"  {agent}: launch typed but no session started; still closed")
+            return False, "launch typed but no session started; still closed"
         resumed = bool(session)
         db.clear_closed(con, agent)
         db.add_event(con, agent, "wake", {"resumed_session": session})
