@@ -184,6 +184,38 @@ def resume_handoff(con, row, log, use_model: bool = True) -> None:
     log(f"  {agent}: resumed handoff from '{step}' -> PARKED")
 
 
+# ---------------------------------------------------------------- sending
+# What the sweep saw this tick, so the paths that type into a terminal can ask
+# without paying for their own process listing.
+_seen: dict[str, obs.Observed] = {}
+_seen_at = {"t": 0.0}
+
+# How old that reading may be before a send looks again. A tick is 2s, so
+# anything older came from another tick or from no tick at all - `ocp ask`
+# delivers through here too - and one listing is cheap next to what a stray
+# send does.
+SEEN_FRESH_S = 10
+
+
+def session_present(agent: str) -> bool:
+    """Is there a session to type into, or only the shell it left behind?
+
+    Orca runs claude as a login shell's child, so when the session ends the
+    terminal stays and our handle keeps working - `send` succeeds and the text
+    lands at a bash prompt. Handoffs and notices are not inert there: backticks
+    run, `>` redirects, and the agent is not the one reading any of it.
+
+    Fail-closed. Only a process we positively saw is a yes; "the process table
+    could not be read" is a no, because the whole point is to stop sending on a
+    maybe.
+    """
+    o = _seen.get(agent)
+    if o is not None and time.time() - _seen_at["t"] <= SEEN_FRESH_S:
+        return bool(o.session_seen and o.session_pid is not None)
+    sessions = obs.live_sessions()
+    return bool(sessions is not None and sessions.get(agent))
+
+
 def _reclaim_context(con, agent: str, log) -> tuple[bool, str]:
     """Clear the agent's session so the handoff actually costs it its context."""
     handle = db.get_terminal(con, agent)
@@ -192,6 +224,8 @@ def _reclaim_context(con, agent: str, log) -> tuple[bool, str]:
                        "`ocp launch` inside an Orca terminal so its context can be reclaimed")
     if not orca.available():
         return False, "orca is not on PATH"
+    if not session_present(agent):
+        return False, "no session process; not typing /clear at a shell prompt"
     ok, why = orca.clear_context(handle, timeout_ms=orca.IDLE_PROBE_MS)
     log(f"  {agent}: {why}")
     return ok, why
@@ -216,6 +250,12 @@ def deliver_queued(con, agent: str, log) -> bool:
         return False
     handle = db.get_terminal(con, agent)
     if not handle or not orca.available() or not orca.alive(handle):
+        return False
+    if not session_present(agent):
+        # Nothing here is read by an agent that is not running; at a shell
+        # prompt this line is four commands in backticks and a redirection.
+        # Leaving it queued loses nothing: the sweep records the agent closed
+        # within a tick, and work arriving at a closed agent wakes it.
         return False
     # Typing at an agent mid-turn leaves the text sitting in its input box
     # unsent, which is how three agents once came up having been told nothing.
@@ -296,6 +336,13 @@ def close_agent(con, agent: str, log, st) -> tuple[bool, str]:
         return False, "no terminal to close"
     if not st.session_id:
         return False, "no session to resume; not closing"
+    if not session_present(agent):
+        # `/exit` typed at the shell exits the shell, and Orca's terminal goes
+        # with it - so the one path that turns a recoverable state into an
+        # unrecoverable one is closing something that already closed itself.
+        # There is nothing to reclaim either; the memory came back when the
+        # session did whatever it did.
+        return False, "no session process; nothing to close"
     ok, why = orca.close_session(handle)
     if not ok:
         return False, why
@@ -383,6 +430,13 @@ def wake_agent(con, agent: str, log) -> tuple[bool, str]:
         db.add_event(con, agent, "wake", {"resumed_session": session})
     elif not foldmod.handoff_path(agent).exists():
         return False, "no handoff to resume from"
+    elif not session_present(agent):
+        # Not the closed branch: nothing was relaunched, so the row's claim
+        # that a session is there is the only evidence - and it is the claim
+        # that goes wrong. A handoff typed at a shell prompt is executed line
+        # by line. The sweep records this agent closed on its next tick, and
+        # the branch above then relaunches it before anything is typed.
+        return False, "no session process; not typing the handoff at a shell prompt"
 
     ok, why = orca.resume_with(handle, wake_prompt(agent, resumed, was_closed=closed))
     log(f"  {agent}: {why}{' (session resumed)' if resumed else ''}")
@@ -497,6 +551,9 @@ def sweep(con, log, actions: list[str]) -> None:
     agent_names = paths.list_agents()
     terminals = {a: db.get_terminal(con, a) for a in agent_names}
     seen = obs.observe(agent_names, terminals)
+    _seen.clear()
+    _seen.update(seen)
+    _seen_at["t"] = time.time()
     suspects: list[tuple[str, object]] = []
 
     for agent in agent_names:
@@ -646,6 +703,13 @@ def perform_handoff(con, agent: str, trigger: triggers.Trigger, log,
     handle = db.get_terminal(con, agent)
     if handle and orca.available() and not orca.idle_now(handle):
         log(f"  {agent}: {trigger.kind} fired but the agent is mid-turn - deferring")
+        return True
+    if handle and orca.available() and not session_present(agent):
+        # A handoff for a session that is not there costs a fold to write and
+        # then types its own text at a shell prompt. The context it wants to
+        # reclaim went with the session; the sweep records the agent closed,
+        # and a closed agent's triggers do not fire at all.
+        log(f"  {agent}: {trigger.kind} fired but no session is running - not handing off")
         return True
 
     hid = uuid.uuid4().hex[:12]
