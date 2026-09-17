@@ -42,10 +42,11 @@ def restore_world() -> None:
         setattr(orcamod, n, f)
     for n, f in REAL_OBSERVE.items():
         setattr(obsmod, n, f)
-    # The tick's reading of the process table outlives the tick by design, so
-    # one test's world would otherwise answer the next test's send gate.
+    # Readings that outlive the tick or the frame by design, so one test's
+    # world does not answer the next test's question.
     dmn._seen.clear()
     dmn._seen_at["t"] = 0.0
+    actions._WORLD["at"] = 0.0
 
 
 def relaunching_send(sent: list, table: dict[str, int]) -> object:
@@ -3582,6 +3583,80 @@ def test_top_acts_through_the_same_calls_the_daemon_makes(home: Path) -> None:
         con.close()
 
 
+def test_the_panel_and_the_daemon_agree_about_what_is_in_the_way(home: Path) -> None:
+    """The panel's reason has to be the daemon's reason, or it is a second
+    opinion about what is wrong - and a reader cannot tell which one is right.
+    Every world where delivery stops is asked of both: `deliver_queued`, which
+    decides, and the panel, which explains.
+
+    Two rows differ on purpose. deliver_queued is not the only gate - supervise
+    never calls it for a RUNNING or STALLED agent - so the panel names the
+    state that stopped it rather than the probe that was never reached. And a
+    mid-turn agent whose hooks never fired reads IDLE to both: the idle probe
+    could tell them apart, and it is the one reading this panel will not take,
+    because a "no" from it costs its whole timeout, every frame, per agent.
+    """
+    _daemon_home(home, 20)
+    con = db.connect()
+    real = (orcamod.available, orcamod.alive, orcamod.live_terminals,
+            orcamod.idle_now, orcamod.send, obsmod.live_sessions)
+    try:
+        orcamod.available = lambda: True
+        orcamod.send = lambda h, t, enter=True: (True, "")
+        db.set_terminal(con, "backend", "term_x", "wt")
+        rid = db.add_request(con, "marina", "backend", "please", None,
+                             "peer", "async", None, 0, None)
+        con.execute("UPDATE requests SET ts = ?",
+                    (int(time.time()) - actions.STUCK_AFTER_S - 60,))
+
+        def world(terms, sess, state, told, idle=True, closed=False):
+            orcamod.live_terminals = lambda: terms
+            orcamod.alive = lambda h: h in terms
+            orcamod.idle_now = lambda h: idle
+            obsmod.live_sessions = lambda: dict(sess)
+            dmn._seen.clear()
+            dmn._seen_at["t"] = 0.0
+            actions._WORLD["at"] = 0.0
+            db.set_agent_state(con, "backend", state)
+            db.set_closed(con, "backend", "s1") if closed else db.clear_closed(con, "backend")
+            db.set_cursor(con, "notify:backend", rid if told else 0)
+            said = [why for what, _, why in actions.stuck(con) if "→ backend" in what]
+            return dmn.deliver_queued(con, "backend", lambda _m: None), (said[0] if said else "")
+
+        live = {"term_x"}, {"backend": 4242}
+        delivered, said = world(*live, dmn.IDLE, told=False)
+        check("agree: what the daemon can deliver is not drawn as stuck",
+              delivered and not said, f"{delivered} {said}")
+
+        delivered, said = world(*live, dmn.IDLE, told=True)
+        check("agree: told and unanswered is the agent's turn, and says so",
+              not delivered and "told and has not answered" in said, said)
+
+        delivered, said = world({"term_x"}, {}, dmn.IDLE, told=False)
+        check("agree: no session names the session, not the state",
+              not delivered and "no session is running" in said, said)
+
+        delivered, said = world(set(), {"backend": 4242}, dmn.IDLE, told=False)
+        check("agree: a terminal Orca lost names the terminal",
+              not delivered and "terminal is gone" in said, said)
+
+        delivered, said = world({"term_x"}, {}, dmn.IDLE, told=False, closed=True)
+        check("agree: a closed agent says the wake is coming",
+              not delivered and "the next tick wakes it" in said, said)
+
+        _, said = world(*live, dmn.RUNNING, told=False)
+        check("agree: a working agent is named as working, not as idle",
+              "mid-turn" in said, said)
+
+        _, said = world(*live, dmn.STALLED, told=False)
+        check("agree: a stall names itself and the key that clears it",
+              "STALLED" in said and "u clears it" in said, said)
+    finally:
+        (orcamod.available, orcamod.alive, orcamod.live_terminals,
+         orcamod.idle_now, orcamod.send, obsmod.live_sessions) = real
+        con.close()
+
+
 def test_the_screen_says_what_is_stuck_and_what_was_decided(home: Path) -> None:
     """Two panels were drawing the wrong thing. "In flight" was almost never
     anything - a handoff takes seconds - while what it did draw was requests
@@ -3627,12 +3702,14 @@ def test_the_screen_says_what_is_stuck_and_what_was_decided(home: Path) -> None:
             orcamod.available = lambda: True
             orcamod.live_terminals = lambda: {"term_x"}
             sessions_are()                       # the terminal is there, nobody is in it
+            actions._WORLD["at"] = 0.0           # look again, not at the last look
             why = dict((w, r) for w, _, r in actions.stuck(con))
             check("stuck: a terminal with no session says so, not 'it is IDLE'",
                   any("no session is running" in r for r in why.values()), str(why))
 
             sessions_are("backend")
             orcamod.live_terminals = lambda: set()
+            actions._WORLD["at"] = 0.0
             why = [r for _, _, r in actions.stuck(con)]
             check("stuck: a terminal Orca no longer has says that",
                   any("terminal is gone" in r for r in why), str(why))
@@ -3640,6 +3717,7 @@ def test_the_screen_says_what_is_stuck_and_what_was_decided(home: Path) -> None:
             # Told and not answered is a queue working, until it has outlasted
             # the longest turn the daemon itself calls healthy.
             orcamod.live_terminals = lambda: {"term_x"}
+            actions._WORLD["at"] = 0.0
             rid = max(r["id"] for r in db.queued_for(con, "backend"))
             db.set_cursor(con, "notify:backend", rid)
             con.execute("UPDATE requests SET ts = ? WHERE target = 'backend'",
@@ -4778,6 +4856,7 @@ def main() -> int:
         run(lambda: test_top_shows_what_is_waiting_on_the_human(Path(td) / 'foryou'))
         run(lambda: test_the_screen_reads_keys_from_the_terminal_not_from_a_buffer())
         run(lambda: test_top_acts_through_the_same_calls_the_daemon_makes(Path(td) / 'topact'))
+        run(lambda: test_the_panel_and_the_daemon_agree_about_what_is_in_the_way(Path(td) / 'topagree'))
         run(lambda: test_the_screen_says_what_is_stuck_and_what_was_decided(Path(td) / 'topstuck'))
         run(lambda: test_a_message_is_read_whole_and_answered_where_it_is_read(Path(td) / 'topread'))
         run(lambda: test_a_key_never_acts_on_a_row_nobody_pointed_at(Path(td) / 'topsel'))

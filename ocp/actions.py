@@ -196,6 +196,27 @@ def _delivery_block(con, agent: str, sessions: dict | None,
     return "", True
 
 
+# What the world looked like, and when we last looked. A frame is drawn every
+# two seconds; asking Orca and scanning the process table that often costs a
+# fifth of a second each time, for readings that do not change that fast - and
+# the daemon is already asking the same two questions on its own tick.
+_WORLD: dict = {"at": 0.0, "sessions": None, "handles": None}
+WORLD_FRESH_S = 10
+
+
+def _world(ttl: int = WORLD_FRESH_S) -> tuple[dict | None, set | None]:
+    """Orca's terminals and the running sessions, at most `ttl` seconds old.
+
+    Only taken when something on the screen turns on them: a screen with
+    nothing queued asks nothing and costs nothing.
+    """
+    if time.time() - _WORLD["at"] > ttl:
+        _WORLD["sessions"] = obs.live_sessions()
+        _WORLD["handles"] = orca.live_terminals() if orca.available() else None
+        _WORLD["at"] = time.time()
+    return _WORLD["sessions"], _WORLD["handles"]
+
+
 def stuck(con) -> list[tuple[str, int, str]]:
     """What is not moving, and what is in the way. (what, age_s, why)
 
@@ -217,13 +238,13 @@ def stuck(con) -> list[tuple[str, int, str]]:
         out.append((f"handoff {h['agent']} at '{h['step']}'", 0,
                     f"deadline in {left}s" if left > 0 else "past its deadline"))
 
-    # One look for the whole panel, not one per row.
-    sessions = obs.live_sessions()
-    handles = orca.live_terminals() if orca.available() else None
-    for r in con.execute(
+    queued = con.execute(
         "SELECT id, requester, target, ts FROM requests WHERE state = 'queued' "
         "AND target != ? ORDER BY ts", (HUMAN,),
-    ).fetchall():
+    ).fetchall()
+    sessions, handles = _world() if queued else (None, None)
+    for r in (
+        queued):
         age, what = now - int(r["ts"]), f"#{r['id']} {r['requester']} → {r['target']}"
         why, self_clearing = _delivery_block(con, r["target"], sessions, handles)
         if not why:
