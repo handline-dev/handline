@@ -1950,21 +1950,15 @@ def test_wake_without_a_closed_session_uses_the_handoff(home: Path) -> None:
 
 
 def test_reconcile_does_not_clear_closed_at_on_a_failed_wake(home: Path) -> None:
-    """QUEUED with closed_at still set does not mean 'this was just woken and
-    the write was lost' - it is exactly what step 2 itself leaves behind the
-    instant its own wake_agent call fails, which happens whenever the dead
-    terminal a reboot leaves behind cannot be relaunched. That shape is
-    ambiguous by construction: a successful wake interrupted before its write
-    landed, and a wake that plainly failed, produce the same two columns. An
-    earlier version of this function resolved the ambiguity by guessing
-    "already woken" and clearing closed_at (and resume_session with it) for
-    every row matching that shape - which is exactly wrong for the failure
-    case, and destroys the one thing (resume_session) that pass 6 decided
-    must never be destroyed. Auditor and the orchestrator caught this before
-    it merged; there is no fix from persisted state alone, because the two
-    cases are not distinguishable from persisted state alone - only a live
-    witness (the process table, in observe.py) can tell them apart. So
-    reconcile leaves the marker exactly where step 2's own failure left it."""
+    """QUEUED with closed_at set is ambiguous, so reconcile leaves it alone.
+
+    A wake interrupted after relaunching but before its write, and a wake that
+    failed outright, leave the same two columns behind - and step 2's own
+    wake_agent produces the second one whenever a reboot's dead terminal cannot
+    be relaunched. Clearing on that shape gets the failure case backwards and
+    takes resume_session with it, which is the one thing a close must never
+    lose. Only a live witness, the process table, separates them.
+    """
     _daemon_home(home, 20)
     con = db.connect()
     real = (orcamod.alive, orcamod.available)
