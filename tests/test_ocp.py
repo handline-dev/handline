@@ -6,6 +6,8 @@ from __future__ import annotations
 
 import json
 import os
+import pty
+import select
 import subprocess
 import sys
 import tempfile
@@ -15,7 +17,8 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
-from ocp import (accounts, agents, ask as askmod, cli as climod, daemon as dmn, db, digest,
+from ocp import (accounts, actions, agents, ask as askmod, cli as climod, daemon as dmn, db,
+                 digest,
                  doctor, drift, events as evmod, fold as foldmod, launch, observe as obsmod,
                  orca as orcamod, paths, service, spawn as spawnmod, status, team, triggers,
                  tui, yamlcompat)  # noqa: E402
@@ -3331,6 +3334,361 @@ def test_a_park_that_cannot_be_woken_keeps_its_deadline(home: Path) -> None:
         con.close()
 
 
+def test_top_shows_what_is_waiting_on_the_human(home: Path) -> None:
+    """An escalation addressed to the human is the one queue nothing in this
+    system ever clears on its own, and it used to be visible only by running
+    `ocp inbox` with the right name. It gets its own panel, and it is not also
+    drawn as traffic between agents."""
+    _daemon_home(home, 20)
+    con = db.connect()
+    try:
+        agents.register("marina", "alpha")
+        db.add_request(con, "marina", actions.HUMAN, "which sea variant ships?",
+                       None, "peer", "async", None, 0, None)
+        db.add_request(con, "marina", "backend", "look at this diff",
+                       None, "peer", "async", None, 0, None)
+
+        waiting = actions.messages(con)
+        check("top: a request addressed to the human is a message for them",
+              [m["requester"] for m in waiting] == ["marina"], str(waiting))
+        check("top: and agent-to-agent traffic is not",
+              all("diff" not in (m["body"] or "") for m in waiting), str(waiting))
+
+        text = tui.frame(120, 60)
+        plain = [tui._ANSI.sub("", ln) for ln in text.split(chr(10))]
+        check("top: the panel is drawn with the question in it",
+              any("which sea variant ships?" in ln for ln in plain),
+              str([ln for ln in plain if "marina" in ln])[:200])
+        check("top: the other request is still shown as traffic",
+              any("marina → backend" in ln for ln in plain), "")
+        check("top: and the frame still fits its terminal",
+              len(plain) == 60 and not [ln for ln in plain if len(ln) > 120])
+        check("top: the keys for the focused panel are on the last line",
+              "wake" in plain[-1] and "message" in plain[-1], plain[-1])
+        check("top: and the line is never cut through an action's name",
+              plain[-1].rstrip().endswith(("quit", "unstall")), plain[-1])
+    finally:
+        con.close()
+
+
+def test_the_screen_reads_keys_from_the_terminal_not_from_a_buffer() -> None:
+    """An arrow is `esc [ B`, and `sys.stdin.read(1)` pulls all three bytes
+    into Python's own buffer - after which select() reports the descriptor has
+    nothing left, so the rest of the sequence is never collected and every
+    arrow key arrives as a bare escape. The cursor did not move. Only a real
+    terminal shows this, so this test opens one."""
+    check("keys: an arrow is one key, not three",
+          tui.split_keys("\033[B") == ["\033[B"])
+    check("keys: application cursor mode is the same key",
+          tui.split_keys("\033OB") == ["\033OB"])
+    check("keys: a bare escape stays one key", tui.split_keys("\033") == ["\033"])
+    check("keys: a burst is not one key and is not thrown away",
+          tui.split_keys("jj\033[Aq") == ["j", "j", "\033[A", "q"])
+
+    code = (f"import sys, termios, tty; sys.path.insert(0, {str(ROOT)!r});"
+            "from ocp import tui;"
+            "fd = sys.stdin.fileno(); saved = termios.tcgetattr(fd); tty.setcbreak(fd);"
+            "out = [tui._key(5.0) for _ in range(3)];"
+            "termios.tcsetattr(fd, termios.TCSADRAIN, saved);"
+            "sys.stdout.write(repr(out)); sys.stdout.flush()")
+    pid, fd = pty.fork()
+    if pid == 0:                                  # the child is the terminal
+        os.execvpe("python3", ["python3", "-c", code], dict(os.environ))
+    got = ""
+    try:
+        time.sleep(0.6)
+        for seq in (b"j", b"\x1b[B", b"\x1bOA"):
+            os.write(fd, seq)
+            time.sleep(0.3)
+        deadline = time.time() + 5
+        while time.time() < deadline and "]" not in got:
+            r, _, _ = select.select([fd], [], [], 0.2)
+            if not r:
+                continue
+            try:
+                got += os.read(fd, 4096).decode(errors="replace")
+            except OSError:
+                break
+    finally:
+        os.close(fd)
+        os.waitpid(pid, 0)
+    check("keys: a real terminal's arrows arrive whole",
+          "'\\x1b[B'" in got and "'\\x1bOA'" in got, got.strip()[-120:])
+
+
+def test_top_acts_through_the_same_calls_the_daemon_makes(home: Path) -> None:
+    """The screen may act, but it may not decide: every key is a call into
+    `actions`, which calls what the daemon calls. What it does decide is which
+    keys to offer, and that answer is read from the same row the action reads -
+    offering `close` on an agent that is already closed is the screen and the
+    daemon disagreeing in the one place a human is looking."""
+    _daemon_home(home, 20)
+    con = db.connect()
+    sent: list[str] = []
+    real = (orcamod.available, orcamod.alive, orcamod.wait_idle, orcamod.send)
+    try:
+        orcamod.available = lambda: True
+        orcamod.live_terminals = lambda: {"term_x"}
+        orcamod.alive = lambda h: True
+        orcamod.wait_idle = lambda h, timeout_ms=0: True
+        table = sessions_are("backend")
+        orcamod.send = relaunching_send(sent, table)
+        db.set_terminal(con, "backend", "term_x", "wt")
+        db.set_agent_state(con, "backend", dmn.IDLE)
+        (home / "agents" / "backend").mkdir(parents=True, exist_ok=True)
+        (home / "agents" / "backend" / "status.json").write_text(json.dumps({
+            "account": "alpha", "collected_at": int(time.time()),
+            "session_id": "sess-6", "pct_5h": 20}))
+
+        check("top: a running agent may be closed, not woken",
+              actions.can(con, "backend", "close")
+              and not actions.can(con, "backend", "wake"))
+
+        said = actions.close(con, "backend")
+        row = db.get_agent_state(con, "backend")
+        check("top: closing from the screen is the daemon's own close",
+              row["closed_at"] is not None and row["resume_session"] == "sess-6", said)
+        check("top: and now it may be woken, not closed",
+              actions.can(con, "backend", "wake")
+              and not actions.can(con, "backend", "close"))
+
+        said = actions.wake(con, "backend")
+        row = db.get_agent_state(con, "backend")
+        check("top: waking from the screen resumes that same session",
+              row["closed_at"] is None and any("--resume sess-6" in t for t in sent), said)
+
+        # A stall is the one state the daemon will not leave on its own, so the
+        # screen is where it is cleared - including the wake streak, or the
+        # sweep would later read it as a stall of its own making.
+        db.set_agent_state(con, "backend", dmn.STALLED, detail="by hand")
+        for _ in range(dmn.MAX_FAILED_ATTEMPTS):
+            db.bump_counter(con, "backend", "wake_failures")
+        said = actions.unstall(con, "backend")
+        row = db.get_agent_state(con, "backend")
+        check("top: unstall clears the state and every count behind it",
+              row["state"] == dmn.QUEUED and row["wake_failures"] == 0
+              and row["failed_attempts"] == 0, said)
+
+        # Sending work from the screen is an ordinary ask, from the human -
+        # including the routing rules. A team that does not declare the human's
+        # edge refuses here exactly as `ocp ask` would, and says so.
+        said = actions.message(con, "backend", "have a look at the sea shader")
+        check("top: the screen does not smuggle a message past routing",
+              "denied" in said and not db.queued_for(con, "backend"), said)
+
+        escalate = '  - { from: "*",         to: "orchestrator", kind: escalate,  creates_gate: true }'
+        (home / "team.yaml").write_text(DESIGN_TEAM.replace(
+            escalate,
+            escalate + chr(10)
+            + '  - { from: "orchestrator", to: "*", relation: supervisor, '
+              'response: fire_and_forget }'))
+        said = actions.message(con, "backend", "have a look at the sea shader")
+        waiting = db.queued_for(con, "backend")
+        check("top: and where it is declared, it arrives as a request from the human",
+              waiting and waiting[-1]["requester"] == actions.HUMAN, said)
+        check("top: an empty one is not sent at all",
+              "nothing sent" in actions.message(con, "backend", "   "))
+
+        # An agent with no terminal is the one the daemon cannot help at all:
+        # work queued for it waits forever because there is nothing to type
+        # into. Starting one is the screen's job, and it is offered only where
+        # there is no terminal already.
+        # STALLED is the one state the daemon deliberately leaves alone, so the
+        # screen must not offer the keys that would clear it by accident: a
+        # handoff pays for a fold and ends PARKED, and the stall a human was
+        # meant to read is gone with none of the counters unstall resets.
+        db.set_agent_state(con, "backend", dmn.STALLED, detail="stalled")
+        check("top: a stalled agent is offered unstall and nothing that hides it",
+              actions.can(con, "backend", "unstall")
+              and not actions.can(con, "backend", "park")
+              and not actions.can(con, "backend", "close")
+              and not actions.can(con, "backend", "fold"))
+        # A fold never types into the terminal, so a lost terminal does not
+        # stand in its way - that agent is a likelier one to want folded.
+        db.set_agent_state(con, "backend", dmn.IDLE, detail="cleared")
+        db.set_terminal(con, "backend", None, None)
+        check("top: folding is offered to an agent whose terminal is gone",
+              actions.can(con, "backend", "fold")
+              and not actions.can(con, "backend", "park"))
+        db.set_terminal(con, "backend", "term_x", "wt")
+        db.set_agent_state(con, "backend", dmn.IDLE, detail="cleared")
+
+        # Work waiting is the one case where closing only adds delay - the next
+        # tick wakes it straight back up. should_close refuses for that reason.
+        db.add_request(con, "reviewer", "backend", "look at this", None,
+                       "peer", "async", None, 0, None)
+        check("top: closing is not offered while work is waiting",
+              not actions.can(con, "backend", "close"))
+        con.execute("UPDATE requests SET state = 'done' WHERE target = 'backend'")
+
+        # perform_handoff returns True for three things that are not a handoff.
+        # Reporting the state afterwards read "RUNNING" as though it were a
+        # result; the line it logged is the answer.
+        db.set_agent_state(con, "backend", dmn.RUNNING, detail="mid-turn")
+        orcamod.idle_now = lambda h: False
+        said = actions.park(con, "backend")
+        check("top: parking a busy agent says it was deferred, not its state",
+              "defer" in said and "RUNNING" not in said, said)
+        orcamod.idle_now = lambda h: True
+        db.set_agent_state(con, "backend", dmn.IDLE, detail="cleared")
+
+        check("top: an agent with a terminal is not offered a second one",
+              not actions.can(con, "backend", "start"))
+        db.set_terminal(con, "backend", None, None)
+        check("top: one with none is", actions.can(con, "backend", "start"))
+        said = actions.start(con, "backend", repo=str(home))
+        check("top: and starting it says why when it cannot",
+              "orca" in said or "worktree" in said or "base" in said, said)
+        db.set_terminal(con, "backend", "term_x", "wt")
+
+        # Answering closes the request and tells the agent, which is what
+        # `ocp resolve` does - the screen must not invent a second way.
+        db.add_request(con, "marina", actions.HUMAN, "which variant ships?",
+                       None, "peer", "async", None, 0, None)
+        rid = actions.messages(con)[-1]["id"]
+        said = actions.answer(con, rid, "variant 11")
+        row = db.get_request(con, rid)
+        check("top: answering resolves the request with the verdict",
+              row["state"] == "done" and "variant 11" in (row["verdict"] or ""), said)
+        check("top: and it is no longer waiting on the human",
+              rid not in [m["id"] for m in actions.messages(con)])
+    finally:
+        (orcamod.available, orcamod.alive, orcamod.wait_idle, orcamod.send) = real
+        con.close()
+
+
+def test_a_key_never_acts_on_a_row_nobody_pointed_at(home: Path) -> None:
+    """The row under the cursor can be gone by the time a key is pressed - a
+    message answered elsewhere, an agent that went away - and then nothing is
+    drawn as selected. Falling back to the first row acts on something the
+    human never chose: it dismissed an unread message that way."""
+    _daemon_home(home, 20)
+    con = db.connect()
+    try:
+        db.add_request(con, "marina", actions.HUMAN, "first, unread",
+                       None, "peer", "async", None, 0, None)
+        first = actions.messages(con)[0]["id"]
+        sel = {tui.MESSAGES: first + 99}          # a cursor on something gone
+        said, detail = tui._act(tui.MESSAGES, sel, "x", 120, 40, None, None)
+        check("top: the key is refused and the cursor is put somewhere real",
+              "press again" in said and sel[tui.MESSAGES] == first, said)
+        check("top: and the message it would have hit is untouched",
+              db.get_request(con, first)["state"] == "queued")
+
+        said, _ = tui._act(tui.MESSAGES, sel, "x", 120, 40, None, None)
+        check("top: pressing it again acts on what is now selected",
+              db.get_request(con, first)["state"] == "done", said)
+    finally:
+        con.close()
+
+
+def test_the_frame_never_draws_wider_than_the_terminal(home: Path) -> None:
+    """A panel title counts what is waiting, so it grows with the queue. A head
+    wider than the terminal wraps, a wrapped line is one row more than the
+    frame promised, and the alternate screen scrolls - which this screen's
+    whole contract says it does not."""
+    _daemon_home(home, 20)
+    con = db.connect()
+    try:
+        for i in range(12):
+            db.add_request(con, "marina", actions.HUMAN, f"decision {i}",
+                           None, "peer", "fire_and_forget", "escalate", 0, None)
+        for width in (40, 44, 55, 59, 60, 80, 120):
+            text = tui.frame(width, 40)
+            lines = [tui._ANSI.sub("", ln) for ln in text.split(chr(10))]
+            wide = [ln for ln in lines if len(ln.rstrip()) > width]
+            check(f"top: nothing is wider than a {width}-column terminal",
+                  not wide and len(lines) == 40, str(wide[:1])[:120])
+        for width in (40, 55, 60, 80, 120):
+            bar = tui._ANSI.sub("", tui.keybar(tui.AGENTS, width))
+            check(f"top: the keys at {width} columns end on a whole word",
+                  len(bar) <= width and not bar.rstrip().endswith(("…", "…more")),
+                  repr(bar))
+        # The navigation is the same on every panel and is what a reader
+        # already knows, so it goes before any action does.
+        wide = tui._ANSI.sub("", tui.keybar(tui.AGENTS, 120))
+        tight = tui._ANSI.sub("", tui.keybar(tui.AGENTS, 100))
+        tighter = tui._ANSI.sub("", tui.keybar(tui.AGENTS, 60))
+        check("top: a tight line keeps every action and drops the navigation",
+              "tab panel" in wide and "tab panel" not in tight
+              and "unstall" in tight, repr(tight))
+        check("top: and a tighter one sheds actions, counting what it held back",
+              "more" in tighter and "unstall" not in tighter, repr(tighter))
+    finally:
+        con.close()
+
+
+def test_top_cursor_stays_inside_its_panel(home: Path) -> None:
+    """The lists change under the cursor - an agent is registered, a message is
+    answered - so moving is defined on what is there now, not on a remembered
+    index."""
+    keys = ["alpha", "beta", "gamma"]
+    check("top: down moves to the next", tui.move(keys, "alpha", 1) == "beta")
+    check("top: and stops at the end", tui.move(keys, "gamma", 1) == "gamma")
+    check("top: up stops at the start", tui.move(keys, "alpha", -1) == "alpha")
+    check("top: a cursor on something that is gone lands on the first row",
+          tui.move(keys, "deleted", 1) == "alpha")
+    check("top: and an empty panel has nothing to select",
+          tui.move([], None, 1) is None)
+
+
+def test_login_points_at_the_account_and_touches_no_credential(home: Path) -> None:
+    """Logging in is the one thing ocp may not do for a human: a refresh token
+    rotates on single use, so a second copy of one credential invalidates the
+    first. All this decides is which config directory claude is pointed at."""
+    home.mkdir(parents=True, exist_ok=True)
+    os.environ["OCP_HOME"] = str(home)
+    accounts.register("alpha")
+
+    action, msg = accounts.login_plan("beta")
+    check("login: an account nobody registered says how to register it",
+          action == "unknown" and "ocp account register beta" in msg, msg)
+
+    action, msg = accounts.login_plan("alpha")
+    check("login: one with no credentials gets the command that makes them",
+          action == "login" and "claude /login" in msg, msg)
+    check("login: pointed at that account's own config directory",
+          str(paths.account_claude("alpha")) in msg, msg)
+
+    (paths.account_claude("alpha") / ".credentials.json").write_text("{}")
+    action, msg = accounts.login_plan("alpha")
+    check("login: an account already logged in is left alone", action == "already", msg)
+    action, _ = accounts.login_plan("alpha", force=True)
+    check("login: unless the human insists", action == "login")
+
+    # Which directory claude writes its credential into is the whole of what
+    # this decides; ocp never reads or copies what lands there.
+    env = accounts.env_for("alpha")
+    check("login: the session is pointed at that account's config directory",
+          env["CLAUDE_CONFIG_DIR"] == str(paths.account_claude("alpha"))
+          and env["OCP_ACCOUNT"] == "alpha", env["CLAUDE_CONFIG_DIR"])
+
+
+def test_a_fold_with_no_account_says_which_and_why(home: Path) -> None:
+    """"No logged-in account" sent the reader to the one thing that was not
+    wrong. An account is passed over here for being at the wall, or for a usage
+    figure nothing can read, far more often than for credentials."""
+    home.mkdir(parents=True, exist_ok=True)
+    os.environ["OCP_HOME"] = str(home)
+    for name in ("full", "unreadable", "out"):
+        accounts.register(name)
+    (paths.account_claude("full") / ".credentials.json").write_text("{}")
+    (paths.account_claude("unreadable") / ".credentials.json").write_text("{}")
+    write_status(home, "full", pct_5h=95, pct_7d=10, ctx_pct=5)
+    # Stale, not quiet: a fresh snapshot with no figure is read as 0%, which is
+    # a reading. What cannot be read at all is one nothing has refreshed.
+    write_status(home, "unreadable", pct_5h=None, pct_7d=10, ctx_pct=5,
+                 collected_at=int(time.time()) - status.STALE_AFTER_S - 60)
+
+    said = foldmod._account_reasons()
+    check("fold: the account at the wall is named with its figure",
+          "full at 95%" in said, said)
+    check("fold: the one nothing can read is named as that, not as logged out",
+          "unreadable usage unreadable" in said, said)
+    check("fold: and the one actually logged out is named as that",
+          "out not logged in" in said, said)
+
+
 def test_doctor_says_when_the_record_and_the_process_table_disagree(home: Path) -> None:
     """The check that has to fire when `observe.is_session` stops matching - and
     stay quiet in the states that are not that. It fires on a status line still
@@ -4133,6 +4491,14 @@ def main() -> int:
         run(lambda: test_nothing_is_typed_into_a_shell_with_no_session(Path(td) / 'shellgate'))
         run(lambda: test_a_wake_is_believed_only_when_a_session_appears(Path(td) / 'wakereceipt'))
         run(lambda: test_a_park_that_cannot_be_woken_keeps_its_deadline(Path(td) / 'parkdue'))
+        run(lambda: test_top_shows_what_is_waiting_on_the_human(Path(td) / 'foryou'))
+        run(lambda: test_the_screen_reads_keys_from_the_terminal_not_from_a_buffer())
+        run(lambda: test_top_acts_through_the_same_calls_the_daemon_makes(Path(td) / 'topact'))
+        run(lambda: test_a_key_never_acts_on_a_row_nobody_pointed_at(Path(td) / 'topsel'))
+        run(lambda: test_the_frame_never_draws_wider_than_the_terminal(Path(td) / 'topwide'))
+        run(lambda: test_top_cursor_stays_inside_its_panel(Path(td) / 'topcur'))
+        run(lambda: test_login_points_at_the_account_and_touches_no_credential(Path(td) / 'login'))
+        run(lambda: test_a_fold_with_no_account_says_which_and_why(Path(td) / 'foldacct'))
         run(lambda: test_doctor_says_when_the_record_and_the_process_table_disagree(Path(td) / 'docsess'))
         run(lambda: test_a_fold_is_a_process_not_a_session(Path(td) / 'foldproc'))
         run(lambda: test_who_is_asking_is_not_guessed(Path(td) / 'whoasks'))

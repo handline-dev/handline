@@ -134,6 +134,24 @@ def login_command(acct: str) -> str:
     return f'CLAUDE_CONFIG_DIR="{paths.account_claude(acct)}" claude /login'
 
 
+def login_plan(acct: str, force: bool = False) -> tuple[str, str]:
+    """What `ocp login <acct>` should do, and the line to print about it.
+
+    Separated from the doing because the doing is an exec: the human has to
+    type the code into claude's own screen, and nothing about that can be
+    tested or automated. Credentials stay where claude puts them (KICKOFF
+    rule 1) - ocp only points the session at the right config directory.
+    """
+    if acct not in paths.list_accounts():
+        return "unknown", (f"no account '{acct}'. Register it first:\n\n"
+                           f"  ocp account register {acct}\n")
+    if logged_in(acct) and not force:
+        return "already", (f"account '{acct}' is already logged in.\n"
+                           f"Use --force to log in again (a second copy of one "
+                           f"credential invalidates the first).")
+    return "login", login_command(acct)
+
+
 def env_for(acct: str, agent: str | None = None) -> dict[str, str]:
     """Environment for launching claude as this account."""
     env = dict(os.environ)

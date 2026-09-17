@@ -1,7 +1,10 @@
 """ocp - command dispatch.
 
-All logic lives here in the CLI. SKILL.md stays a stub and detail is pulled on
-demand through `ocp guide <topic>` (KICKOFF rule 3).
+Logic lives here, not in a library nobody reads: SKILL.md stays a stub and
+detail is pulled on demand through `ocp guide <topic>` (KICKOFF rule 3). The
+exception is what a human can also do from `ocp top` - `ocp/actions.py` holds
+those, so the screen and the command line cannot come to differ about what
+unstalling or closing an agent means.
 """
 from __future__ import annotations
 
@@ -14,11 +17,50 @@ import sys
 import time
 from pathlib import Path
 
-from . import (accounts, agents, ask as askmod, daemon as daemonmod, db,
+from . import (accounts, actions, agents, ask as askmod, daemon as daemonmod, db,
                tui,
                digest, doctor,
                drift, events, fold as foldmod, guide, hooks, launch, paths, service,
                status, spawn as spawnmod, team, triggers)
+
+
+# ---------------------------------------------------------------- login
+def cmd_login(args) -> int:
+    """Log an account in, or say who is logged in.
+
+    `claude /login` is interactive - a browser and a code typed back - so this
+    hands the terminal to claude with CLAUDE_CONFIG_DIR pointed at the account
+    and gets out of the way. Where it cannot do that (no terminal, or claude
+    not on PATH) it prints the command to run instead of pretending.
+    """
+    names = paths.list_accounts()
+    if not args.account:
+        if not names:
+            print("no accounts registered. `ocp account register <name>` first.")
+            return 1
+        for a in names:
+            state = "logged in" if accounts.logged_in(a) else "NOT logged in"
+            print(f"{a:<12}{state:<14}{paths.account_claude(a)}")
+        print(f"\nLog one in with: ocp login <account>")
+        return 0
+
+    action, message = accounts.login_plan(args.account, force=args.force)
+    if action == "unknown":
+        print(message, file=sys.stderr)
+        return 1
+    if action == "already":
+        print(message)
+        return 0
+
+    claude = shutil.which("claude")
+    if not claude or not sys.stdin.isatty():
+        print(f"run this where you can type into it:\n\n  {message}\n")
+        return 1
+    print(f"handing the terminal to claude for '{args.account}' - "
+          f"finish the login there, then come back.")
+    env = accounts.env_for(args.account)
+    os.execve(claude, [claude, "/login"], env)
+    return 0     # unreachable: execve replaces this process
 
 
 # ---------------------------------------------------------------- init
@@ -375,14 +417,7 @@ def cmd_unstall(args) -> int:
         if row["state"] != daemonmod.STALLED:
             print(f"{args.agent} is {row['state']}, not STALLED")
             return 1
-        db.set_agent_state(con, args.agent, daemonmod.QUEUED, detail="cleared by a human")
-        db.reset_counter(con, args.agent, "failed_attempts")
-        db.reset_counter(con, args.agent, "throttle_count")
-        # Every count that can stall an agent, or the sweep later reads a
-        # capped wake streak as a stall of its own making and lifts a stall a
-        # human never sanctioned.
-        db.reset_counter(con, args.agent, "wake_failures")
-        print(f"{args.agent}: STALLED -> QUEUED")
+        print(actions.unstall(con, args.agent))
     finally:
         con.close()
     return 0
@@ -646,6 +681,12 @@ def build_parser() -> argparse.ArgumentParser:
     sub = ap.add_subparsers(dest="cmd", required=True)
 
     sub.add_parser("init", help="create ~/.orcapipe and install shared settings").set_defaults(fn=cmd_init)
+
+    p = sub.add_parser("login", help="log an account in (interactive), or list who is")
+    p.add_argument("account", nargs="?")
+    p.add_argument("--force", action="store_true",
+                   help="log in again even if credentials are already there")
+    p.set_defaults(fn=cmd_login)
 
     acc = sub.add_parser("account", help="accounts").add_subparsers(dest="sub", required=True)
     p = acc.add_parser("register", help="create the account dir and link it to shared")
