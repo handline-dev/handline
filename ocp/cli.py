@@ -84,20 +84,18 @@ def cmd_account_list(args) -> int:
         print(json.dumps(out, indent=2))
         return 0
 
-    print(f"{'ACCOUNT':<14}{'LOGIN':<8}{'5h':>4}{'7d':>5}{'ctx':>6}{'AGE':>8}  ASSIGN")
+    print(f"{'ACCOUNT':<14}{'LOGIN':<8}{'5h':>5}{'7d':>5}{'ctx':>6}{'AGE':>8}  ASSIGN")
     for a in names:
         st = status.read(a)
         allowed, why = st.assignable()
         cell = lambda v: "  -" if v is None else f"{v:>3}"  # noqa: E731
         age = "-" if st.age_s is None else f"{int(st.age_s)}s"
         # A figure we inferred is marked, never dressed up as one we read.
-        mark = {"quiet": "*", "carried": "~"}.get(st.pct_5h_source, "")
-        five = f"{cell(st.trusted_pct_5h)}{mark}"
+        five = f"{cell(st.trusted_pct_5h)}{status.mark(st.pct_5h_source)}"
         print(f"{a:<14}{'yes' if accounts.logged_in(a) else 'no':<8}"
               f"{five:>5}{cell(st.pct_7d):>5}{cell(st.ctx_pct):>6}{age:>8}  "
               f"{'yes' if allowed else 'NO':<4} {why}")
-    print("  * inferred: nothing spent in this window   ~ carried: "
-          "an earlier reading, window still open")
+    print("  " + status.SOURCE_LEGEND)
     return 0
 
 
@@ -136,7 +134,8 @@ def cmd_agent_show(args) -> int:
         "failed_attempts": (row["failed_attempts"] if row else 0),
         "continuations": (row["continuations"] if row else 0),
         "throttle_count": (row["throttle_count"] if row else 0),
-        "pct_5h": st.pct_5h, "pct_5h_source": st.pct_5h_source, "ctx_pct": st.ctx_pct,
+        "pct_5h": st.pct_5h, "pct_5h_effective": st.trusted_pct_5h,
+        "pct_5h_source": st.pct_5h_source, "ctx_pct": st.ctx_pct,
         "inbox_queued": queued,
         "budget": {fn: {"bytes": size, "limit": lim, "over": over}
                    for fn, size, lim, over in agents.budget_report(args.name)},
@@ -338,7 +337,7 @@ def cmd_unstall(args) -> int:
 
 def cmd_triggers(args) -> int:
     """Show what the daemon would decide right now, without acting."""
-    print(f"{'AGENT':<14}{'ACCT':<10}{'5h':>4}{'ctx':>5}  FIRES  REASON")
+    print(f"{'AGENT':<14}{'ACCT':<10}{'5h':>5}{'ctx':>5}  FIRES  REASON")
     for a in paths.list_agents():
         try:
             acct = agents.account_of(a)
@@ -348,8 +347,12 @@ def cmd_triggers(args) -> int:
         st = status.read_for_agent(a, acct)
         t = triggers.evaluate(st.trusted_pct_5h, st.trusted_ctx_pct)
         cell = lambda v: "  -" if v is None else f"{v:>3}"  # noqa: E731
-        print(f"{a:<14}{acct:<10}{cell(st.pct_5h):>4}{cell(st.ctx_pct):>5}  "
+        # The figure the trigger used, not the raw one: a column saying "-"
+        # beside a reason saying "0%" is the dashboard arguing with the daemon.
+        five = f"{cell(st.trusted_pct_5h)}{status.mark(st.pct_5h_source)}"
+        print(f"{a:<14}{acct:<10}{five:>5}{cell(st.ctx_pct):>5}  "
               f"{'YES' if t.fired else 'no ':<6} {t.reason}")
+    print("  " + status.SOURCE_LEGEND)
     return 0
 
 

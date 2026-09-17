@@ -73,10 +73,18 @@ trigger false forever: the feature is dead while the dashboard stays green.
 
 **But quiet is not unknown.** Claude Code sends no `five_hour` block for a
 session that has made no request since the window rolled over, so a live
-collector reporting nothing means nobody has spent in this window. That reads as
-0% and assigns (`*` in `ocp status` and `ocp top`); a figure kept from an earlier
-payload while its window is still open reads as itself (`~`). Refusing here
-parked five idle agents and paid for a fold each.
+collector reporting nothing means nothing has been *reported* spent in this
+window. That reads as 0% and assigns, marked `*`. Refusing here parked five idle
+agents and paid for a fold each. The exception is ours: `ocp fold` runs headless,
+which has no status line, so its own small spend is never observed.
+
+**A figure has a provenance, and it is drawn.** `~` is carried - an earlier
+reading whose window is still open, since a payload that does not mention a
+window must not erase what we knew. `!` is carried past the age we will assign
+on: still used as a floor for triggers, because usage inside a window only
+rises, but no new work goes to it. Inside one window the account figure never
+goes down, because every session reports from the moment of its own last API
+response and the staler one must not win.
 
 **No model in the loop.** Triggers, account choice and resume decisions are all
 deterministic. The only model call is one fold per handoff.

@@ -35,9 +35,11 @@ feature is dead while the dashboard stays green.
 
 A window nobody has spent in is different. Claude Code sends no five_hour block
 for a session that has made no request since the window rolled over, so a live
-collector reporting nothing is the account telling us it is quiet. That reads as
-0% and assigns, marked `*` in `ocp status` and `ocp top`. A figure kept from an
-earlier payload while its window is still open is marked `~`.""",
+collector reporting nothing is the account telling us it is quiet: 0%, marked
+`*`. `~` is a figure carried from an earlier payload, `!` one carried past the
+age we will assign on - still a floor for triggers, no new work.
+
+Design section 4 has the five cases and why only one of them is fail-closed.""",
     "hooks": """Orca hooks
   ocp hooks status                 show drift
   ocp hooks sync                   apply once

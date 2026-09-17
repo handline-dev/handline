@@ -207,9 +207,11 @@ Run       (Orca) ── 목표 단위
 
 | 필요한 값 | 출처 |
 |---|---|
-| `pct_5h` | `rate_limits.five_hour.used_percentage` — **서버 권위값** |
+| `pct_5h` | `rate_limits.five_hour.used_percentage` — **서버값이되 그 세션의 마지막 API 응답 시점의 것**이다. 라이브 재조회가 아니다 ([claude-code#75408]) |
 | 5h 리셋 시각 | `rate_limits.five_hour.resets_at` |
 | 주간 여유 | `rate_limits.seven_day.*` |
+| `rl_at` · `rl_carried` · `rl_lost` | 그 5h 수치를 **언제 관측했는지**, 이번 페이로드가 아니라 이월된 것인지, 창 경계를 몰라 **잃었는지**. `collected_at` 은 수집기가 살아있다는 말일 뿐이라 수치의 나이를 못 준다 |
+| `rl7_at` · `rl7_carried` | 7d 수치에 대한 같은 것. 7d 는 창이 일주일이라 나이 제한을 두지 않는다 |
 | 컨텍스트 사용률 | 세션 토큰 / 모델 한도 → **트리거 (§8)** |
 | 세션 조인키 | `session_id`, `transcript_path` |
 | 비용 | `cost.total_cost_usd` |
@@ -221,14 +223,24 @@ statusLine은 `resets_at` 도달 시 자동 재실행되므로 리셋 타이머�
 - 세션이 살아있을 때만 갱신 → `refreshInterval`로 보완
 - managed settings의 `disableAllHooks` 계열이 걸리면 **경고 없이 비활성화**
 - usage 엔드포인트 자체에 rate limit이 있다. 공격적 폴링 시 stale 값으로 fail-open
-- `pct_5h`가 null인 데에는 두 가지가 있고, 답이 정반대다 (2026-09-17 실측)
-  - **수집기가 죽었거나 스냅샷이 낡음** → 만점이 아니라 **배정 거부(fail-closed)** + 빨간불
-  - **세션이 이번 창에서 요청을 한 번도 안 함** → Claude Code가 `five_hour` 블록 자체를
-    안 보낸다. 살아있는 수집기가 보내는 이 침묵은 "이 창에서 아무도 안 썼다"는 관측이므로
-    **0%로 읽고 배정한다.** 여기서 거부하면 노는 에이전트 5개를 handoff시키고 fold 비용만 태운다
-  - 그래서 **어떤 창을 보고하지 않는 페이로드는 그 창의 이전 값을 지우지 않는다.** `resets_at`이
-    아직 안 지났으면 그 값을 유지하고(`rl_carried`), 지났으면 버린다. 이걸 안 하면 같은 계정의
-    **노는 세션이 일하는 세션의 값을 덮어쓴다**
+- `pct_5h`가 null이라고 다 같은 null이 아니다. 판정은 **다섯 가지**다 (2026-09-17 실측)
+  - `live` — 이번 페이로드가 그 창을 보고했다
+  - `carried` — 이전 관측값이고, 창이 아직 안 끝났으며, 관측한 지 `CARRY_MAX_AGE_S`(900s) 이내다
+  - `carried_old` — 같은 이월값인데 그보다 오래됐다. **트리거에는 쓰되**(창 안에서 사용량은 오르기만
+    하므로 하한이다) **새 배정은 거부한다**
+  - `quiet` — 살아있는 수집기가 그 창에 대해 아무 말도 안 한다. 이 창에서 아무도 안 썼다는
+    **관측**이므로 0%로 읽고 배정한다. 여기서 거부하면 노는 에이전트를 handoff 시키고 fold 비용만 태운다
+  - `unknown` — 스냅샷이 없거나·판독 불가(NaN·문자열·불리언)거나·낡았거나·**이월하지 못하고 잃었다**.
+    이것만 fail-closed 다
+- 그래서 수집기가 지키는 규칙 셋
+  - 어떤 창을 보고하지 않는 페이로드는 **그 창의 이전 값을 지우지 않는다** (`resets_at`이 남아 있는 동안)
+  - **창이 끝났는지 판단할 `resets_at` 자체가 없으면** 그 값을 버리되 `rl_lost` 로 표시한다. 잃은 값은
+    조용함이 아니라 **미상**이다 — 이 구분이 없으면 95% 를 알고 있던 계정이 다음 틱에 0% 로 읽힌다
+  - **한 창 안에서 계정 수치는 내려가지 않는다.** 세션마다 관측 시각이 달라서, 이게 없으면
+    더 낡은 세션이 마지막에 그릴 때마다 계정 값이 뒤로 간다 ([claude-code#75408] 의 그 증상이다)
+- **조용함 추론의 알려진 예외**: `ocp fold` 는 `claude -p` 로 도는데 헤드리스라 statusLine 이 없다.
+  그래서 fold 가 쓴 쿼터는 **어떤 수집기도 보지 못한다.** 한 번에 작은 호출이지만, `quiet` 은
+  "아무도 안 썼다"가 아니라 **"보고된 사용이 없다"**로 읽어야 한다
 - Claude Code v2.1.234+의 **`autoContinueAtUsageLimit`**이 우리 재개 A와 겹친다. 끄고 우리가 관리하거나 켜고 위임하거나 **택일**을 강제한다
 
 ### transcript 집계 시 dedup 필수
@@ -590,6 +602,8 @@ ocp doctor
 | **J4-full** | 래퍼로 띄운 에이전트를 Orca 가 **에이전트로 인식**하는가 | **✔ 참 · 실측 확인 (2026-09-16).** `orca terminal create --command "ocp launch backend"` 로 띄우자 Orca 가 `agentIdentity: "claude"` 로 기록하고 탭 제목을 `✳ Claude Code` 로 바꿨다. 상태줄에 `alpha · 5h 0% · 7d 40%` — 우리 수집기가 그 안에서 동작 |
 | **L** | credential 저장 위치 (신규) | **macOS 는 Keychain, 설정 디렉토리별로 분리.** `Claude Code-credentials-<sha256(config_dir)[:8]>` (기본 디렉토리만 접미사 없음). `.credentials.json` 파일은 생기지 않는다 |
 | **K** | Orca 네이티브 멀티계정으로 대체 가능한가 | **✘ 거짓.** 구현은 됐으나 **런타임당 활성 계정 1개**(전역 스왑). `--account` 플래그 없음. `CLAUDE_CONFIG_DIR` 방식 유지 |
+
+[claude-code#75408]: https://github.com/anthropics/claude-code/issues/75408
 
 *(C = 캐시 만료 계산: 부록 A-2 로 트리거 자체가 삭제되어 검증 불필요)*
 

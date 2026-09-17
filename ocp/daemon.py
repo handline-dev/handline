@@ -433,11 +433,15 @@ def tick(con, log, use_model: bool = True, samples: dict | None = None) -> Tick:
             state = QUEUED
 
         # Keep a short burn-rate history per account for the projection (8.1).
+        # Only a figure this payload actually reported may enter the burn
+        # history, stamped with when it was observed. A carried figure pairs an
+        # unchanging percentage with a collected_at that moves every tick: the
+        # buffer fills with flat samples, the measured rate falls to zero and
+        # usage_projected stops firing for an account that was climbing.
         hist = samples.setdefault(acct, [])
-        pct = st.trusted_pct_5h
-        if pct is not None and st.collected_at:
-            if not hist or hist[-1][0] != st.collected_at:
-                hist.append((st.collected_at, pct))
+        if st.pct_5h_source == "live" and st.pct_5h is not None and st.rl_at:
+            if not hist or hist[-1][0] != st.rl_at:
+                hist.append((st.rl_at, st.pct_5h))
                 del hist[:-10]
         burn = triggers.burn_rate_per_s(hist)
 

@@ -1432,6 +1432,111 @@ def test_spawn_base_selection(tmp: Path) -> None:
     check("spawn: tells the human to merge first", "Merge" in why or "merge" in why, why)
 
 
+def test_carry_bounds_and_losses(home: Path) -> None:
+    """The three ways a carried figure goes wrong, all found in review.
+
+    A figure we cannot place in a window is ignorance and must not read as an
+    idle window; a figure we can place goes old while collected_at keeps
+    refreshing; and inside one window the account figure may never go down,
+    because each session reports from the moment of its own last API response.
+    """
+    os.environ["OCP_HOME"] = str(home)
+    acct_cfg = home / "accounts" / "carry" / ".claude"
+    acct_cfg.mkdir(parents=True, exist_ok=True)
+    env = dict(os.environ, CLAUDE_CONFIG_DIR=str(acct_cfg), OCP_HOME=str(home))
+    collect = lambda payload: subprocess.run(  # noqa: E731
+        [str(ROOT / "libexec" / "statusline-collect.sh")],
+        input=json.dumps(payload), capture_output=True, text=True, env=env)
+    read = lambda: status.read(  # noqa: E731
+        "carry", home / "accounts" / "carry" / "status.json")
+    idle = {"session_id": "idle"}          # a session with nothing to report
+    now = int(time.time())
+
+    # 1. A figure with no resets_at cannot be placed in a window.
+    collect({"session_id": "a", "rate_limits": {"five_hour": {"used_percentage": 95}}})
+    check("carry: a figure without a window is still read", read().pct_5h == 95)
+    collect(idle)
+    st = read()
+    check("carry: losing it is recorded", st.rl_lost is True)
+    check("carry: and reads as unknown, not as a quiet window",
+          st.pct_5h_source == "unknown", st.pct_5h_source)
+    check("carry: so it refuses assignment", not st.assignable()[0], st.assignable()[1])
+
+    # 2. Inside one window the account figure never goes down.
+    win = {"five_hour": {"used_percentage": 40, "resets_at": now + 1800}}
+    collect({"session_id": "live", "rate_limits": win})
+    collect({"session_id": "staler", "rate_limits":
+             {"five_hour": {"used_percentage": 30, "resets_at": now + 1800}}})
+    st = read()
+    check("carry: a staler session does not lower the account", st.pct_5h == 40,
+          repr(st.pct_5h))
+    check("carry: and the account says the figure is not this payload's",
+          st.rl_carried is True)
+    collect({"session_id": "newer", "rate_limits":
+             {"five_hour": {"used_percentage": 55, "resets_at": now + 1800}}})
+    check("carry: a higher figure is taken", read().pct_5h == 55, repr(read().pct_5h))
+
+    # 3. A carried figure goes old even while collected_at stays fresh.
+    p = home / "accounts" / "carry" / "status.json"
+    raw = json.loads(p.read_text())
+    raw.update(rl_carried=True, rl_at=now - 4 * 3600, collected_at=now)
+    p.write_text(json.dumps(raw))
+    st = read()
+    check("carry: a fresh collected_at does not make an old figure fresh",
+          st.pct_5h_source == "carried_old", st.pct_5h_source)
+    check("carry: it refuses new work", not st.assignable()[0], st.assignable()[1])
+    check("carry: the refusal says how old it is", "ago" in st.assignable()[1])
+    check("carry: but the trigger still gets the floor, not a null",
+          st.trusted_pct_5h == 55, str(st.trusted_pct_5h))
+    t = triggers.evaluate(st.trusted_pct_5h, st.trusted_ctx_pct)
+    check("carry: so an idle agent is not handed off for usage_unknown",
+          t.kind != "usage_unknown", t.reason)
+
+
+def test_burn_rate_ignores_carried_samples(home: Path) -> None:
+    """A carried figure pairs an unchanging percentage with a collected_at that
+    moves every tick. Sampling that flattens the measured rate to zero and
+    usage_projected stops firing for an account that was climbing."""
+    os.environ["OCP_HOME"] = str(home)
+    rising = [(1000, 70), (1150, 74), (1300, 78)]
+    live_burn = triggers.burn_rate_per_s(rising)
+    check("burn: a rising account has a measurable rate", live_burn > 0, str(live_burn))
+
+    # What the old sampling produced: ten ticks of the same carried figure,
+    # each with a fresh timestamp, evicting the real samples.
+    flattened = [(1450 + i * 30, 78) for i in range(10)]
+    check("burn: flat carried samples measure as no burn at all",
+          triggers.burn_rate_per_s(flattened) == 0.0)
+    fired = triggers.evaluate(83, None, burn=live_burn, poll_s=30)
+    check("burn: the real rate is what makes the projection fire",
+          fired.fired and fired.kind == "usage_projected", fired.reason)
+    check("burn: and a flattened one never would",
+          not triggers.evaluate(83, None, burn=0.0, poll_s=30).fired)
+
+
+def test_display_agrees_with_the_daemon(home: Path) -> None:
+    """Every screen draws the figure the daemon acts on, with its provenance.
+
+    `ocp triggers` once printed "-" in the 5h column beside a reason reading
+    "pct_5h 0%", which is the dashboard arguing with the daemon.
+    """
+    home.mkdir(parents=True, exist_ok=True)
+    os.environ["OCP_HOME"] = str(home)
+    agents.register("quietone", "alpha")
+    write_status(home, "alpha", pct_5h=None, pct_7d=10, ctx_pct=5)
+    st = status.read("alpha")
+    check("display: the account is quiet", st.pct_5h_source == "quiet")
+    check("display: a quiet window is marked", status.mark("quiet") == "*")
+    check("display: a live one is not", status.mark("live") == " ")
+    check("display: one carried past its bound is marked apart",
+          status.mark("carried_old") == "!" and status.mark("carried") == "~")
+
+    text = tui.frame(120, 40)
+    check("display: top draws the figure, not a question mark",
+          "0%*" in text, "no marked 0% in the frame")
+    check("display: and prints the legend", "inferred" in text)
+
+
 def test_spawn_confirms_the_task_landed(home: Path) -> None:
     """Orca reports input as accepted even when the TUI never submitted it.
 
@@ -1901,6 +2006,9 @@ def main() -> int:
         test_daemon_pidfile(Path(td) / 'd6')
         test_drift(Path(td) / 'drift')
         test_spawn_base_selection(Path(td) / 'spawn')
+        test_carry_bounds_and_losses(Path(td) / 'carry')
+        test_burn_rate_ignores_carried_samples(Path(td) / 'burn')
+        test_display_agrees_with_the_daemon(Path(td) / 'disp')
         test_spawn_confirms_the_task_landed(Path(td) / 'spawnland')
         test_events_view_starts_at_the_newest(Path(td) / 'evview')
         test_orca_idle_parsing()

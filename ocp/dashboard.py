@@ -4,11 +4,12 @@ No logic lives here. Everything shown is read from the same state the daemon
 decides on, so the dashboard cannot disagree with the daemon: if a number looks
 wrong here, the daemon is acting on that same wrong number.
 
-Two things are deliberate. Unknown is drawn as "?" and never as 0, because the
-whole point of fail-closed is that a missing reading is not a full tank. And an
-account's own usage and an agent's context come from different files (rate
-limits are account-wide, context is per session), so they are labelled as what
-they are rather than blended.
+Two things are deliberate. Every figure is drawn with where it came from - a
+mark for inferred, carried, or carried past its bound - so an inference is
+never dressed up as a measurement, and what we genuinely do not know is drawn
+as "?" and never as 0. And an account's own usage and an agent's context come
+from different files (rate limits are account-wide, context is per session), so
+they are labelled as what they are rather than blended.
 """
 from __future__ import annotations
 
@@ -82,7 +83,7 @@ def render() -> str:
             allowed, why = st.assignable()
             mark = f"{GREEN}✔{RESET}" if allowed else f"{RED}✘{RESET}"
             five = st.trusted_pct_5h
-            src = {"quiet": "*", "carried": "~"}.get(st.pct_5h_source, " ")
+            src = status.mark(st.pct_5h_source)
             out.append(
                 f"  {acct:<8} 5h {_bar(five)} {_pct(five)}{src}{_countdown(st.reset_5h)}"
                 f"   7d {_bar(st.pct_7d)} {_pct(st.pct_7d)}"

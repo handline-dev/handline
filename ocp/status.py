@@ -1,9 +1,7 @@
 """Account status and assignability (design 01-infra.md section 4).
 
-The governing rule is fail-closed. From section 4:
-
-  "If pct_5h is null that is not a full tank, it is a refusal to assign,
-   plus a red light."
+The governing rule is fail-closed. Section 4 puts it as: a pct_5h we cannot
+trust is not a full tank, it is a refusal to assign, plus a red light.
 
 Reading a missing value as 0 makes every account look perfectly fresh, which
 makes the 90% trigger false forever: the feature is dead while the dashboard
@@ -14,15 +12,30 @@ the two cost us five needless handoffs. Claude Code reports a rate-limit window
 from what the session itself has learned, so a session that has made no request
 since the window rolled over sends no five_hour block at all. That absence says
 the account is quiet, not that the collector is dead - and the two have
-opposite right answers. This module names four cases instead of two:
+opposite right answers. This module names five cases instead of two:
 
-    live      this payload reported the window
-    carried   an earlier reading, still inside the window it describes
-    quiet     a live collector, and nobody has spent in this window -> 0%
-    unknown   no snapshot, unreadable, or too old to trust -> refuse
+    live         this payload reported the window
+    carried      an earlier reading, still inside its window and recent enough
+    carried_old  the same, but observed longer ago than we will assign on
+    quiet        a live collector, and nobody has spent in this window -> 0%
+    unknown      no snapshot, unreadable, too old, or a reading we lost
 
-Only `unknown` is fail-closed. Treating `quiet` as unknown parks idle agents,
-which costs a fold each and buys nothing.
+`quiet` and `unknown` are the pair that matters: treating quiet as unknown
+parks idle agents, which costs a fold each and buys nothing, while treating
+unknown as quiet hands out work on an account that may be at the wall.
+
+A carried figure is a floor, not a measurement: usage inside a window only
+rises, so the true number is at least that. It is old the moment the session
+that reported it goes idle, and collected_at cannot say so - an idle session
+keeps refreshing collected_at while reporting nothing new. rl_at is when the
+figure was actually observed, and it, not collected_at, bounds the carry.
+Past that bound we still use the floor for triggers, because an idle session
+cannot be racing toward the wall, but we refuse to assign new work on it.
+
+The quiet inference has one known exception, and it is ours: `ocp fold` runs
+`claude -p`, which is headless and has no statusLine, so a fold spends quota
+that no collector will ever see. It is one small call, but it means quiet
+reads "no session reported spending", not "nothing was spent".
 """
 from __future__ import annotations
 
@@ -42,6 +55,21 @@ STALE_AFTER_S = 900
 # Small tolerance for ordinary clock jitter before a future timestamp is
 # treated as unreadable rather than fresh.
 CLOCK_SKEW_GRACE_S = 60
+
+# How long a carried figure may stand in for a measurement. Same bound as a
+# stale snapshot, for the same reason: past it we do not know what has happened.
+CARRY_MAX_AGE_S = STALE_AFTER_S
+
+# How a figure's provenance is drawn, in one place: four screens used to spell
+# this out separately, and one of them was left behind.
+SOURCE_MARK = {"live": " ", "carried": "~", "carried_old": "!", "quiet": "*", "unknown": " "}
+SOURCE_LEGEND = ("* inferred: nothing spent in this window · ~ carried: an earlier "
+                 "reading · ! carried past its bound, no new work")
+
+
+def mark(src: str) -> str:
+    return SOURCE_MARK.get(src, " ")
+
 
 # Above these, stop handing out new work.
 PCT_5H_BLOCK = 90
@@ -70,6 +98,10 @@ class AccountStatus:
     # a string, a bool). An explicit null is readable: it is how the collector
     # writes "this payload reported no such window".
     pct_5h_readable: bool = True
+    # True when the collector had a figure it could not carry because it could
+    # not tell whether that figure's window had ended. That is ignorance, and
+    # it must not read as a quiet window.
+    rl_lost: bool = False
     session_id: str | None = None
     model_id: str | None = None
     collected_at: int | None = None
@@ -95,17 +127,28 @@ class AccountStatus:
         return age is None or age > STALE_AFTER_S
 
     @property
+    def rl_age_s(self) -> float | None:
+        """How long ago the 5h figure was observed, not when it was copied."""
+        if self.rl_at is None:
+            return None
+        age = time.time() - self.rl_at
+        if age < -CLOCK_SKEW_GRACE_S:
+            return None
+        return max(0.0, age)
+
+    @property
     def pct_5h_source(self) -> str:
-        """Which of the four cases this reading is: see the module docstring."""
+        """Which of the five cases this reading is: see the module docstring."""
         if not self.exists or self.error or self.stale or not self.pct_5h_readable:
+            return "unknown"
+        if self.rl_lost:
             return "unknown"
         if self.pct_5h is None:
             return "quiet"
-        return "carried" if self.rl_carried else "live"
-
-    @property
-    def pct_5h_inferred(self) -> bool:
-        return self.pct_5h_source == "quiet"
+        if not self.rl_carried:
+            return "live"
+        age = self.rl_age_s
+        return "carried" if age is not None and age <= CARRY_MAX_AGE_S else "carried_old"
 
     @property
     def trusted_pct_5h(self) -> int | None:
@@ -147,9 +190,15 @@ class AccountStatus:
             return False, f"5h usage {pct}% >= {PCT_5H_BLOCK}%"
         if self.pct_7d is not None and self.pct_7d >= PCT_7D_BLOCK:
             return False, f"7d usage {self.pct_7d}% >= {PCT_7D_BLOCK}%"
-        if self.pct_5h_source == "quiet":
+        src = self.pct_5h_source
+        if src == "carried_old":
+            age = self.rl_age_s
+            shown = "unknown" if age is None else f"{int(age / 60)}m"
+            return False, (f"5h {pct}% was observed {shown} ago and only ever rises "
+                           f"(carried past {CARRY_MAX_AGE_S}s)")
+        if src == "quiet":
             return True, "5h window quiet - nothing spent in it (inferred 0%)"
-        if self.pct_5h_source == "carried":
+        if src == "carried":
             return True, f"5h {pct}% (carried, still inside the window)"
         return True, f"5h {pct}%"
 
@@ -213,6 +262,7 @@ def read(acct: str, path: Path | None = None) -> AccountStatus:
     st.collected_at = _as_int(raw.get("collected_at"))
     st.rl_at = _as_int(raw.get("rl_at"))
     st.rl_carried = raw.get("rl_carried") is True
+    st.rl_lost = raw.get("rl_lost") is True
     st.session_id = raw.get("session_id")
     st.model_id = raw.get("model_id")
     cost = raw.get("cost_usd")
@@ -257,7 +307,7 @@ def pick_account(candidates: list[str] | None = None) -> tuple[str | None, list[
     # Headroom decides, but between two accounts with the same headroom take the
     # one whose figure we actually saw. An inferred 0% is sound and still a
     # weaker claim than a reported 0%.
-    confidence = {"live": 2, "carried": 1, "quiet": 0}
+    confidence = {"live": 3, "carried": 2, "quiet": 1, "carried_old": 0}
     for n in names:
         st = read(n)
         allowed, why = st.assignable()

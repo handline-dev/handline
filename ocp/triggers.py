@@ -86,9 +86,12 @@ def evaluate(pct_5h: int | None, ctx_pct: int | None, reserve_pct: int = DEFAULT
              fold_eta_s: int = FOLD_ETA_S) -> Trigger:
     """Should this agent hand off now?"""
     # Unknown usage is fail-closed (section 4): hand off rather than run blind.
+    # Callers pass the figure they may act on, so None here means no snapshot,
+    # an unreadable one, one too old to believe, or a reading the collector
+    # could not carry - never a window that is merely quiet.
     if pct_5h is None:
         return Trigger(True, "usage_unknown",
-                       "pct_5h is null - usage unknown, handing off (fail-closed)")
+                       "no usable pct_5h - usage unknown, handing off (fail-closed)")
 
     limit = HARD_STOP_PCT - reserve_pct
 

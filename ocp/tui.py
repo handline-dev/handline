@@ -4,11 +4,12 @@ A read-only join view with no logic of its own: everything drawn is read from
 the same state the daemon decides on, so the two cannot disagree. If a number
 looks wrong here, the daemon is acting on that same wrong number.
 
-Two drawing rules are deliberate. Unknown is drawn as "?" and never as 0,
-because the point of fail-closed is that a missing reading is not a full tank.
-And an account's usage and an agent's context come from different files - rate
-limits belong to the account, context to the session - so they are shown as
-what they are rather than blended into one number.
+Two drawing rules are deliberate. Every figure carries a mark for where it came
+from - inferred, carried, or carried past its bound - so an inference is never
+drawn as a measurement, and what we genuinely do not know is drawn as "?" and
+never as 0. And an account's usage and an agent's context come from different
+files - rate limits belong to the account, context to the session - so they are
+shown as what they are rather than blended into one number.
 
 It runs on the alternate screen, so quitting leaves the scrollback as it was.
 """
@@ -142,7 +143,7 @@ def build(width: int) -> tuple[list[str], list[list[str]]]:
         header = [
             fit(f"{BOLD}ocp{R} {DIM}·{R} daemon {state} {DIM}·{R} "
                 f"{time.strftime('%H:%M:%S')}  {DIM}q quit · r refresh · "
-                f"5h * inferred ~ carried{R}", width),
+                f"5h {status.SOURCE_LEGEND}{R}", width),
             "",
         ]
 
@@ -159,7 +160,7 @@ def build(width: int) -> tuple[list[str], list[list[str]]]:
             # it came from. Drawing a quiet window as "?" while the daemon acts
             # on 0% is the dashboard and the daemon disagreeing.
             five = st.trusted_pct_5h
-            src = {"quiet": "*", "carried": "~"}.get(st.pct_5h_source, " ")
+            src = status.mark(st.pct_5h_source)
             acc.add(
                 f"{BOLD}{name:<10}{R}{bar(five)} {pct(five)}%{src} "
                 f"{countdown(st.reset_5h):<7}{bar(st.pct_7d, 6)} {pct(st.pct_7d)}%  "
