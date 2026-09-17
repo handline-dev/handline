@@ -57,7 +57,7 @@ ocp triggers          # what the daemon would decide right now, without acting
 | `ocp close <agent>` | end an idle session, keep its terminal (`ocp resume` brings it back) |
 | `ocp doctor` | verify the preconditions of every phase |
 | `ocp status` / `ocp account list` | usage, and which account may take work |
-| `ocp ask <target> "<req>"` | the only command agents use |
+| `ocp ask <target> "<req>"` | queue work for an agent; the daemon delivers it |
 | `ocp inbox` / `ocp resolve <id> "<verdict>"` | request queue |
 | `ocp fold [agent]` | fold events into the digest (the one model call) |
 | `ocp rollover` | midnight carry-forward, no model |

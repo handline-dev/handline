@@ -40,6 +40,17 @@ collector reporting nothing is the account telling us it is quiet: 0%, marked
 age we will assign on - still a floor for triggers, no new work.
 
 Design section 4 has the five cases and why only one of them is fail-closed.""",
+    "work": """giving an agent work
+  OCP_AGENT=orchestrator ocp ask <agent> "<task>"    queue it
+  ocp inbox <agent>                                  see what is waiting
+
+That is the whole of it. The daemon delivers: an idle agent is told on the next
+tick, and a closed one is resumed first and then told. Nobody has to nudge a
+terminal, and an agent is told once per request rather than reminded.
+
+An agent that is mid-turn is left alone until it is free - typing at a busy TUI
+leaves the text sitting in its input box, unsent.""",
+
     "memory": """closing an idle session
   ocp close <agent>                end the session, keep the terminal
   ocp resume <agent>               put it back, resuming the same session

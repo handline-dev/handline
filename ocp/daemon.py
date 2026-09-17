@@ -191,6 +191,43 @@ def _reclaim_context(con, agent: str, log) -> tuple[bool, str]:
     return ok, why
 
 
+def deliver_queued(con, agent: str, log) -> bool:
+    """Tell an agent that work is waiting for it.
+
+    `ocp ask` writes a row and puts a file in the target's inbox; neither
+    reaches the target's screen. A session sitting at its prompt has no reason
+    to look, so without this every request needs a human to nudge the terminal
+    - which is exactly how this system was being run by hand.
+
+    Told once per request: the cursor is the newest id we have announced, so a
+    reminder only goes out when something new arrives.
+    """
+    waiting = db.queued_for(con, agent)
+    if not waiting:
+        return False
+    newest = max(int(r["id"]) for r in waiting)
+    if db.get_cursor(con, f"notify:{agent}") >= newest:
+        return False
+    handle = db.get_terminal(con, agent)
+    if not handle or not orca.available() or not orca.alive(handle):
+        return False
+    # Typing at an agent mid-turn leaves the text sitting in its input box
+    # unsent, which is how three agents once came up having been told nothing.
+    if not orca.idle_now(handle):
+        return False
+    senders = ", ".join(sorted({r["requester"] for r in waiting}))
+    ok, _ = orca.send(
+        handle,
+        f"{len(waiting)} request(s) waiting for you, from {senders}. "
+        f"Run `ocp inbox` to read them, do the work, and close each one with "
+        f"`ocp resolve <id> \"<verdict>\"`.")
+    if ok:
+        db.set_cursor(con, f"notify:{agent}", newest)
+        db.add_event(con, agent, "notified", {"through": newest, "count": len(waiting)})
+        log(f"  {agent}: told about {len(waiting)} waiting request(s)")
+    return ok
+
+
 def should_close(con, agent: str, state: str, row, now: int) -> bool:
     """Is this agent holding memory for nothing?
 
@@ -547,6 +584,11 @@ def tick(con, log, use_model: bool = True, samples: dict | None = None) -> Tick:
                                if ok else f"{agent}: could not wake - {why}")
                 if ok:
                     row = db.get_agent_state(con, agent)
+
+        # Work that has arrived is delivered before anything else is decided:
+        # an agent that is about to be told it has work is not idle.
+        if state not in (RUNNING, HANDOFF) and not (row and row["closed_at"]):
+            deliver_queued(con, agent, log)
 
         # Memory is the scarce resource on one laptop running a team, and an
         # idle session spends it while earning nothing: it holds its context,

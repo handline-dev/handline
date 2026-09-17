@@ -338,7 +338,7 @@ def last_activity(con, agent: str) -> int | None:
     the record - the daemon's bookkeeping about an agent is not activity."""
     row = con.execute(
         "SELECT MAX(ts) AS t FROM events WHERE agent = ? AND kind NOT IN "
-        "('fold', 'fold_failed', 'handoff', 'park', 'close', 'wake')", (agent,)
+        "('fold', 'fold_failed', 'handoff', 'park', 'close', 'wake', 'notified')", (agent,)
     ).fetchone()
     return int(row["t"]) if row and row["t"] is not None else None
 

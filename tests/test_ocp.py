@@ -1515,6 +1515,58 @@ def test_idle_session_is_closed_and_resumed(home: Path) -> None:
         con.close()
 
 
+def test_a_running_agent_is_told_when_work_arrives(home: Path) -> None:
+    """`ocp ask` writes a row and an inbox file; neither reaches the agent's
+    screen. Without delivery, every request needs a human to nudge a terminal -
+    which is how this system was actually being run."""
+    _daemon_home(home, 20)
+    con = db.connect()
+    sent: list[str] = []
+    real = (orcamod.alive, orcamod.idle_now, orcamod.send, orcamod.available)
+    try:
+        orcamod.available = lambda: True
+        orcamod.alive = lambda h: True
+        orcamod.idle_now = lambda h: True
+        orcamod.send = lambda h, text, enter=True: (sent.append(text), (True, ""))[1]
+        db.set_terminal(con, "backend", "term_x", "wt")
+        db.set_agent_state(con, "backend", dmn.IDLE)
+
+        check("deliver: nothing is sent when nothing is waiting",
+              not dmn.deliver_queued(con, "backend", lambda _m: None))
+
+        db.add_request(con, "reviewer", "backend", "look at this", None,
+                       "peer", "async", None, 0, None)
+        check("deliver: a waiting request reaches the agent",
+              dmn.deliver_queued(con, "backend", lambda _m: None))
+        check("deliver: and it is told how to read it", "ocp inbox" in sent[-1], sent[-1])
+        check("deliver: and who it is from", "reviewer" in sent[-1], sent[-1])
+
+        sent.clear()
+        check("deliver: the same request is not announced twice",
+              not dmn.deliver_queued(con, "backend", lambda _m: None) and not sent)
+
+        db.add_request(con, "reviewer", "backend", "and this", None,
+                       "peer", "async", None, 0, None)
+        check("deliver: but a new one is", dmn.deliver_queued(con, "backend", lambda _m: None))
+
+        # Typing at an agent mid-turn leaves the text in its input box, unsent.
+        orcamod.idle_now = lambda h: False
+        db.add_request(con, "reviewer", "backend", "later", None,
+                       "peer", "async", None, 0, None)
+        sent.clear()
+        check("deliver: a busy agent is left alone until it is free",
+              not dmn.deliver_queued(con, "backend", lambda _m: None) and not sent)
+
+        # Being told is not the agent doing something, so it must not count as
+        # activity - or an agent we keep reminding never looks idle enough to
+        # close, and it never was awake in the first place.
+        check("deliver: being told is not activity",
+              db.last_activity(con, "backend") is None, str(db.last_activity(con, "backend")))
+    finally:
+        orcamod.alive, orcamod.idle_now, orcamod.send, orcamod.available = real
+        con.close()
+
+
 def test_work_arriving_wakes_a_closed_agent(home: Path) -> None:
     """A closed session cannot read its own inbox. Without this, `ocp ask`
     queues into a terminal with nobody in it - reviewer sat closed with two
@@ -2278,6 +2330,7 @@ def main() -> int:
         test_idle_session_is_closed_and_resumed(Path(td) / 'idle')
         test_wake_without_a_closed_session_uses_the_handoff(Path(td) / 'wakeh')
         test_work_arriving_wakes_a_closed_agent(Path(td) / 'wakework')
+        test_a_running_agent_is_told_when_work_arrives(Path(td) / 'deliver')
         test_carry_bounds_and_losses(Path(td) / 'carry')
         test_unobserved_spend_stays_off_unreadable_accounts(Path(td) / 'spend')
         test_launch_judges_on_the_figure_it_may_act_on(Path(td) / 'lj')
