@@ -228,6 +228,13 @@ def close_agent(con, agent: str, log) -> tuple[bool, str]:
     if not ok:
         return False, why
     db.set_closed(con, agent, st.session_id)
+    # RUNNING describes a session that exists. Leaving the label on a closed one
+    # makes every screen say the opposite of what happened, and the daemon skips
+    # RUNNING agents when it decides what to close next.
+    row = db.get_agent_state(con, agent)
+    if row and row["state"] == RUNNING:
+        db.set_agent_state(con, agent, IDLE, wake_at=row["wake_at"],
+                           detail="session closed while idle")
     db.add_event(con, agent, "close", {"session": st.session_id,
                                        "ctx_pct": st.ctx_pct})
     log(f"  {agent}: session closed (resume {st.session_id or 'unknown'})")
@@ -527,6 +534,19 @@ def tick(con, log, use_model: bool = True, samples: dict | None = None) -> Tick:
             log(f"  {agent}: {state} -> QUEUED (window rolled over)")
             wake_agent(con, agent, log)
             state = QUEUED
+
+        # A closed session cannot read its own inbox, so the arrival of work is
+        # what has to bring it back. Without this an `ocp ask` queues into a
+        # terminal with nobody in it and waits forever, which is worse than the
+        # memory it was saving: reviewer sat closed with two requests pending.
+        if row and row["closed_at"]:
+            waiting = db.queued_for(con, agent)
+            if waiting:
+                ok, why = wake_agent(con, agent, log)
+                actions.append(f"{agent}: woken for {len(waiting)} waiting request(s)"
+                               if ok else f"{agent}: could not wake - {why}")
+                if ok:
+                    row = db.get_agent_state(con, agent)
 
         # Memory is the scarce resource on one laptop running a team, and an
         # idle session spends it while earning nothing: it holds its context,

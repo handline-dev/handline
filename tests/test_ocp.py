@@ -1515,6 +1515,45 @@ def test_idle_session_is_closed_and_resumed(home: Path) -> None:
         con.close()
 
 
+def test_work_arriving_wakes_a_closed_agent(home: Path) -> None:
+    """A closed session cannot read its own inbox. Without this, `ocp ask`
+    queues into a terminal with nobody in it - reviewer sat closed with two
+    requests pending and nothing would ever have brought it back."""
+    _daemon_home(home, 20)
+    con = db.connect()
+    sent: list[str] = []
+    real = (orcamod.alive, orcamod.wait_idle, orcamod.send, orcamod.available)
+    try:
+        orcamod.available = lambda: True
+        orcamod.alive = lambda h: True
+        orcamod.wait_idle = lambda h, timeout_ms=0: True
+        orcamod.send = lambda h, text, enter=True: (sent.append(text), (True, ""))[1]
+        db.set_terminal(con, "backend", "term_x", "wt")
+        # A closed session that was left labelled RUNNING says the opposite of
+        # what happened on every screen, and the daemon skips RUNNING agents.
+        db.set_agent_state(con, "backend", dmn.RUNNING, detail="was working")
+        (home / "agents" / "backend").mkdir(parents=True, exist_ok=True)
+        (home / "agents" / "backend" / "status.json").write_text(json.dumps({
+            "account": "alpha", "collected_at": int(time.time()),
+            "session_id": "sess-9", "pct_5h": 20}))
+        dmn.close_agent(con, "backend", lambda _m: None)
+        row = db.get_agent_state(con, "backend")
+        check("close: a closed session is not left labelled RUNNING",
+              row["state"] != dmn.RUNNING, row["state"])
+
+        db.add_request(con, "reviewer", "backend", "please look at this", None,
+                       "peer", "async", None, 0, None)
+        sent.clear()
+        dmn.tick(con, lambda _m: None, use_model=False)
+        check("wake: work arriving brings a closed agent back",
+              any("--resume sess-9" in t for t in sent), str(sent[:2]))
+        check("wake: and it is no longer marked closed",
+              db.get_agent_state(con, "backend")["closed_at"] is None)
+    finally:
+        orcamod.alive, orcamod.wait_idle, orcamod.send, orcamod.available = real
+        con.close()
+
+
 def test_wake_without_a_closed_session_uses_the_handoff(home: Path) -> None:
     """Closing is for memory; a handoff is for context. An agent that was
     cleared rather than closed has no session worth resuming - what it needs is
@@ -2238,6 +2277,7 @@ def main() -> int:
         test_spawn_base_selection(Path(td) / 'spawn')
         test_idle_session_is_closed_and_resumed(Path(td) / 'idle')
         test_wake_without_a_closed_session_uses_the_handoff(Path(td) / 'wakeh')
+        test_work_arriving_wakes_a_closed_agent(Path(td) / 'wakework')
         test_carry_bounds_and_losses(Path(td) / 'carry')
         test_unobserved_spend_stays_off_unreadable_accounts(Path(td) / 'spend')
         test_launch_judges_on_the_figure_it_may_act_on(Path(td) / 'lj')
