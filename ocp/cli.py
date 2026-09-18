@@ -410,12 +410,13 @@ def cmd_daemon_status(args) -> int:
                 if r["wake_at"] and r["wake_at"] <= now:
                     wake += "!"
                 # A running session whose own launch predates what `build()`
-                # produces now - see doctor's `_check_launch_drift` - is not
-                # closed, so it needs its own mark or it reads as ordinary.
+                # produces now - or that has no recorded fingerprint at all -
+                # see doctor's `_check_launch_drift` - is not closed, so it
+                # needs its own mark or it reads as ordinary.
                 drifted = bool(
-                    not r["closed_at"] and r["launch_fingerprint"] and sessions
-                    and sessions.get(r["agent"])
-                    and launch.fingerprint(r["agent"]) != r["launch_fingerprint"])
+                    not r["closed_at"] and sessions and sessions.get(r["agent"])
+                    and (not r["launch_fingerprint"]
+                        or launch.fingerprint(r["agent"]) != r["launch_fingerprint"]))
                 shown = r["state"] + ("·closed" if r["closed_at"] else "") \
                     + ("·drift" if drifted else "")
                 detail = r["detail"] or ""

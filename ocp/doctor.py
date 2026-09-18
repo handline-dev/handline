@@ -226,7 +226,9 @@ def _check_launch_drift(r: Report) -> None:
     session in place - see `daemon._wake_agent` - and relaunches it instead.
     This is only visibility for the window before that happens: a human
     reading `doctor` should not have to wonder why an agent is still missing a
-    flag or a system-prompt section that a recent change added.
+    flag or a system-prompt section that a recent change added. A row with no
+    recorded fingerprint at all reads the same way - nothing has confirmed it
+    against the current recipe either.
     """
     sessions = obs.live_sessions()
     if sessions is None:
@@ -235,9 +237,9 @@ def _check_launch_drift(r: Report) -> None:
     try:
         for row in db.all_agent_states(con):
             agent = row["agent"]
-            if row["closed_at"] or not row["launch_fingerprint"] or not sessions.get(agent):
+            if row["closed_at"] or not sessions.get(agent):
                 continue
-            if launch.fingerprint(agent) != row["launch_fingerprint"]:
+            if not row["launch_fingerprint"] or launch.fingerprint(agent) != row["launch_fingerprint"]:
                 r.add(WARN, f"agent {agent}: running session predates the current launch "
                       "recipe",
                       "will be relaunched, with its own session to resume, the next time "

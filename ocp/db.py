@@ -320,11 +320,11 @@ def _add_missing_columns(con) -> None:
         # a move, both facts, before an "assumed" writer existed at all.
         con.execute("ALTER TABLE agent_state ADD COLUMN account_source TEXT")
     if "launch_fingerprint" not in state_cols:
-        # No backfill: an existing row has no recorded fingerprint to compare
-        # against, so it is left alone rather than assumed to have drifted -
-        # a session already running with nothing on record is exactly the
-        # case there is no evidence about either way. The next real launch
-        # records one, and drift is judged from there.
+        # No backfill, and none is needed: a session already running with
+        # nothing on record predates fingerprint tracking itself, which
+        # `daemon._wake_agent` reads the same way it reads a real mismatch -
+        # as drift, relaunched at its own next wake rather than carried
+        # forward on a recipe nothing has checked since it started.
         con.execute("ALTER TABLE agent_state ADD COLUMN launch_fingerprint TEXT")
 
 

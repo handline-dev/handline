@@ -7680,6 +7680,20 @@ def test_doctor_and_ps_report_a_drifted_launch(home: Path) -> None:
         doctor._check_launch_drift(r)
         check("doctor: and says nothing once the recorded fingerprint matches",
               not r.rows, str(r.rows))
+
+        # A row from before `launch_fingerprint` existed has nothing recorded
+        # at all - not evidence the recipe still matches, so it reads the
+        # same as a real mismatch rather than being left alone.
+        db.set_launch_fingerprint(con, "backend", None)
+        r = doctor.Report()
+        doctor._check_launch_drift(r)
+        check("doctor: a session with no recorded fingerprint reads as drift too",
+              r.rows and r.rows[-1][0] == doctor.WARN
+              and "backend" in r.rows[-1][1], str(r.rows))
+        printed = _capture(lambda: climod.cmd_daemon_status(None))
+        check("ps: and the screen marks it the same way",
+              any(l.startswith("backend") and "·drift" in l for l in printed.splitlines()),
+              printed)
     finally:
         obsmod.live_sessions = real
         con.close()
@@ -8059,6 +8073,59 @@ def test_a_drifted_launch_relaunches_instead_of_waking_in_place(home: Path) -> N
         row = db.get_agent_state(con, "backend")
         check("wake: the row is no longer marked closed once it is running again",
               row["closed_at"] is None, str(dict(row)))
+    finally:
+        (orcamod.available, orcamod.alive, orcamod.close_session, orcamod.relaunch,
+         orcamod.resume_with, dmn.wait_for_session) = real
+        con.close()
+
+
+def test_a_parked_row_with_no_fingerprint_also_relaunches(home: Path) -> None:
+    """A row from before `launch_fingerprint` existed has nothing recorded to
+    compare - not evidence the recipe still matches, since nothing has ever
+    checked it. Left alone, this is the one case an old-format row could sit
+    forever without picking up a flag or a prompt section `build()` has
+    added since it last launched, silently, because there was never a
+    mismatch to catch. It has to relaunch the same way real drift does.
+    """
+    _daemon_home(home, 20)
+    con = db.connect()
+    real = (orcamod.available, orcamod.alive, orcamod.close_session, orcamod.relaunch,
+            orcamod.resume_with, dmn.wait_for_session)
+    sent: list[str] = []
+    closed: list[str] = []
+    launched: list[str] = []
+    table = sessions_are("backend")
+    try:
+        orcamod.available = lambda: True
+        orcamod.alive = lambda h: True
+        db.set_terminal(con, "backend", "term_x", "wt")
+        write_status(home, "alpha", pct_5h=20, pct_7d=10, ctx_pct=5,
+                     reset_5h=int(time.time()) + 1800)
+        f = paths.agent_status_file("backend")
+        f.parent.mkdir(parents=True, exist_ok=True)
+        f.write_text(json.dumps({"account": "alpha", "collected_at": int(time.time()),
+                                 "session_id": "sess-old", "ctx_pct": 5}))
+        foldmod.handoff_path("backend").write_text("# handoff · backend\n## next\n- carry on\n")
+        db.set_agent_state(con, "backend", dmn.PARKED, wake_at=int(time.time()) - 10,
+                           detail="usage; wakes soon")
+        # No db.set_launch_fingerprint call at all - the row this migrates
+        # from an older schema looks like.
+        check("wake: the row starts with nothing recorded",
+              db.get_agent_state(con, "backend")["launch_fingerprint"] is None)
+
+        orcamod.resume_with = lambda h, text: (sent.append(text), (True, "typed"))[1]
+        orcamod.close_session = lambda h, **kw: (closed.append(h), table.pop("backend", None),
+                                                 (True, "session ended"))[2]
+        orcamod.relaunch = lambda h, cmd, started=None: (
+            launched.append(cmd), table.update({"backend": 4242}), (True, "relaunched"))[2]
+        dmn.wait_for_session = lambda agent, timeout=0: True
+
+        ok, why = dmn.wake_agent(con, "backend", lambda _m: None)
+        check("wake: an unrecorded fingerprint ends the session, not typed into",
+              closed == ["term_x"], str(closed))
+        check("wake: and relaunches with its own session id to come back to",
+              launched and "--resume sess-old" in launched[0], str(launched))
+        check("wake: the relaunch itself is reported as a success", ok, why)
     finally:
         (orcamod.available, orcamod.alive, orcamod.close_session, orcamod.relaunch,
          orcamod.resume_with, dmn.wait_for_session) = real
@@ -8919,6 +8986,7 @@ def main() -> int:
         run(lambda: test_handoff_reclaims_context(Path(td) / 'reclaim'))
         run(lambda: test_wake_injects_handoff(Path(td) / 'wake'))
         run(lambda: test_a_drifted_launch_relaunches_instead_of_waking_in_place(Path(td) / 'driftwake'))
+        run(lambda: test_a_parked_row_with_no_fingerprint_also_relaunches(Path(td) / 'nofp'))
         run(lambda: test_hooks_report_activity(Path(td) / 'hooky'))
         run(lambda: test_tui_frame_geometry(Path(td) / 'tui'))
         run(lambda: test_clear_does_not_look_like_waking(Path(td) / 'loopy'))
