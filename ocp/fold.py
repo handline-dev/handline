@@ -26,7 +26,7 @@ import time
 from datetime import datetime
 from pathlib import Path
 
-from . import accounts, agents, db, digest, paths, status
+from . import accounts, agents, db, digest, events as evmod, paths, status
 
 FOLD_TIMEOUT_S = 180
 
@@ -107,11 +107,15 @@ def deterministic_facts(agent: str, events, repo: Path | None = None) -> str:
         for e in events:
             kinds[e["kind"]] = kinds.get(e["kind"], 0) + 1
         lines.append("- event kinds: " + ", ".join(f"{k}x{v}" for k, v in sorted(kinds.items())))
-        lines.append("- last events:")
-        for e in events[-8:]:
-            when = time.strftime("%H:%M", time.localtime(e["ts"]))
-            payload = e["payload"] or ""
-            lines.append(f"    {when} {e['kind']} {payload[:90]}")
+        # The last few events that are not turn boundaries. Those are counted
+        # above and say nothing one at a time: a hundred identical SubagentStop
+        # lines filled a handoff and told the agent nothing about its work.
+        told = [e for e in events if e["kind"] not in evmod.TURN_BOUNDARIES][-6:]
+        if told:
+            lines.append("- last events:")
+            for e in told:
+                when = time.strftime("%H:%M", time.localtime(e["ts"]))
+                lines.append(f"    {when} {e['kind']} {(e['payload'] or '')[:90]}")
     else:
         lines.append("- events folded: 0 (nothing new since the last fold)")
     lines.append(f"- generated: {time.strftime('%Y-%m-%d %H:%M:%S')}")
@@ -381,6 +385,13 @@ def _write_handoff(agent: str, d: digest.Digest, facts: str,
 
     p = handoff_path(agent)
     parts = [f"# handoff · {agent}", f"generated: {time.strftime('%Y-%m-%d %H:%M:%S')}", ""]
+    if d.late:
+        # Without this the sections below read as a finding. A handoff written
+        # when the fold could not run says "진행중: (none)" about an agent that
+        # was mid-build, and the agent resumes believing it.
+        parts += ["> The fold did not run, so the sections below are the last "
+                  "digest, not a record of what you were just doing:",
+                  "> " + "; ".join(d.late), ""]
     if d.items("done"):
         # Section 8.8: which header goes above the completed items depends on
         # whether the base moved under the files this agent touched.

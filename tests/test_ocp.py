@@ -1490,6 +1490,26 @@ def test_handoff_drift_header(home: Path) -> None:
     check("handoff: unknown drift uses the cautious header",
           drift.OVERLAP_HEADER in text, text[:300])
 
+    # A handoff written when the fold could not run is the last digest, not a
+    # record of the work just done. Unmarked, "진행중: (none)" reads as a
+    # finding, and manager resumed on one while it was mid-build.
+    d.late = ["fold could not run; 112 event(s) still pending"]
+    foldmod._write_handoff("backend", d, "facts here", repo=None)
+    text = foldmod.handoff_path("backend").read_text()
+    check("handoff: one the fold did not write says so, above the sections",
+          "did not run" in text and "112 event(s)" in text
+          and text.index("did not run") < text.index(digest.HEADINGS["in_progress"]),
+          text[:400])
+
+    # And the machine record does not repeat one event kind sixteen times.
+    now = int(time.time())
+    events = [{"id": i, "ts": now, "kind": "SubagentStop", "payload": "{}"} for i in range(20)]
+    events.append({"id": 99, "ts": now, "kind": "commit", "payload": '{"sha": "abc"}'})
+    facts = foldmod.deterministic_facts("backend", events, repo=None)
+    check("handoff: the record counts turn boundaries and quotes what happened",
+          "SubagentStopx20" in facts and facts.count("SubagentStop {") == 0
+          and "commit" in facts, facts)
+
 
 # ---------------------------------------------------------------- yaml differential
 DIFFERENTIAL_CASES = [
