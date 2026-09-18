@@ -98,6 +98,7 @@ the pidfile in `~/.orcapipe/daemon.pid` is still the single source of truth for
 | `ocp drift <repo>` | has the base moved under this agent? |
 | `ocp hooks sync --watch` | keep Orca's agent hooks mirrored |
 | `ocp service install/uninstall/status/logs` | run the daemon as a launchd LaunchAgent |
+| `ocp bridge` | the screen the team is run from (`top` and `watch` still work) |
 | `ocp guide [topic]` | detail, loaded on demand |
 
 ## How it decides things
@@ -154,7 +155,7 @@ refusal explains itself so they do not try to route around it.
 
 **An answer goes back the way the question came.** `ocp resolve` writes the
 verdict on the request; the daemon reads it out to the agent that asked, and a
-human reads it in `ocp inbox` and on `ocp top`. Both directions, or the team
+human reads it in `ocp inbox` and on `ocp bridge`. Both directions, or the team
 learns to talk around it: with only one drawn, agents took to sending a second,
 unrelated request repeating what they had already answered.
 

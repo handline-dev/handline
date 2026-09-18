@@ -103,7 +103,7 @@ def record_from_stdin(argv: list[str] | None = None) -> int:
 # context reclaim look like the agent waking up. That cleared the park it had
 # just set, the usage trigger fired again on the unchanged number, and the
 # agent handed off in a loop - 42 folds in seven minutes before it was caught.
-# The hook events that only mark the edges of a turn. `ocp top` counts these
+# The hook events that only mark the edges of a turn. `ocp bridge` counts these
 # rather than drawing them: the agent's own state column says which side of a
 # turn it is on, and they crowd out the rows that say what was decided. What is
 # NOT in here is deliberate - PermissionRequest and TeammateIdle are the two

@@ -2,7 +2,7 @@
 
 Logic lives here, not in a library nobody reads: SKILL.md stays a stub and
 detail is pulled on demand through `ocp guide <topic>` (KICKOFF rule 3). The
-exception is what a human can also do from `ocp top` - `ocp/actions.py` holds
+exception is what a human can also do from `ocp bridge` - `ocp/actions.py` holds
 those, so the screen and the command line cannot come to differ about what
 unstalling or closing an agent means.
 """
@@ -324,7 +324,7 @@ def cmd_spawn(args) -> int:
     return 0 if ok else 1
 
 
-def cmd_top(args) -> int:
+def cmd_bridge(args) -> int:
     return tui.run(interval=args.interval, once=args.once)
 
 
@@ -512,7 +512,7 @@ def cmd_events(args) -> int:
         if not args.all:
             # The hook events that only mark the edges of a turn are what an
             # agent's state column says already, and there are six of them for
-            # every decision. `ocp top` used to filter them on screen; this is
+            # every decision. `ocp bridge` used to filter them on screen; this is
             # where someone asking what the daemon did actually looks.
             rows = [r for r in rows if r["kind"] not in events.TURN_BOUNDARIES]
         if not rows:
@@ -668,6 +668,13 @@ def cmd_inbox(args) -> int:
               "an interactive shell. Name the agent.")
         return 1
     if agent == actions.HUMAN:
+        # The human's mailbox is a place you read *and answer* things, and that
+        # is the screen: two places to do it is two places to keep in step, and
+        # the one you are not looking at is the one holding the escalation. A
+        # pipe still gets text - a script asking for the list is not a human
+        # asking for somewhere to sit.
+        if sys.stdout.isatty() and not args.all:
+            return tui.run()
         return _human_inbox(args.all)
     rows = askmod.inbox(agent, unread_only=not args.all)
     if not rows:
@@ -685,7 +692,7 @@ def _human_inbox(show_all: bool = False) -> int:
 
     An agent is told what came back to it by the daemon typing into its
     terminal. Nobody types into a human, so an answer to something the human
-    asked has to be somewhere they look - and this command and `ocp top` have
+    asked has to be somewhere they look - and this command and `ocp bridge` have
     to hold the same rows, or clearing one leaves the other still asking.
 
     `--all` adds what has already been dealt with, the way it does everywhere
@@ -1023,10 +1030,11 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--dry-run", action="store_true")
     p.set_defaults(fn=cmd_spawn)
 
-    p = sub.add_parser("top", help="live full-screen dashboard")
+    p = sub.add_parser("bridge", aliases=["top", "watch"],
+                       help="the screen the team is run from")
     p.add_argument("--interval", type=float, default=2.0)
     p.add_argument("--once", action="store_true", help="print one frame and exit")
-    p.set_defaults(fn=cmd_top)
+    p.set_defaults(fn=cmd_bridge)
 
     bs = sub.add_parser("base", help="the per-session fixed context").add_subparsers(
         dest="sub", required=True)
@@ -1048,11 +1056,6 @@ def build_parser() -> argparse.ArgumentParser:
     p = sub.add_parser("resume", help="hand a parked agent back its handoff")
     p.add_argument("agent")
     p.set_defaults(fn=cmd_resume)
-
-    p = sub.add_parser("watch", help="alias for top")
-    p.add_argument("--interval", type=float, default=2.0)
-    p.add_argument("--once", action="store_true")
-    p.set_defaults(fn=cmd_top)
 
     p = sub.add_parser("guide", help="load detail on demand")
     p.add_argument("topic", nargs="?")

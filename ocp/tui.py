@@ -1,4 +1,4 @@
-"""ocp top - the screen the team is run from (design section 11).
+"""ocp bridge - the screen the team is run from (design section 11).
 
 A join view over the same state the daemon decides on, so the two cannot
 disagree: if a number looks wrong here, the daemon is acting on that same wrong

@@ -4421,6 +4421,13 @@ def test_the_panel_and_the_daemon_agree_about_what_is_in_the_way(home: Path) -> 
         check("agree: a working agent is named as working, not as idle",
               "mid-turn" in said, said)
 
+        # Told, and now working on it: the age is of the request, not of the
+        # wait, so a two-day-old ask handed over a minute ago is a queue doing
+        # its job. It drew as stuck the moment it was finally delivered.
+        _, said = world(*live, dmn.RUNNING, told=True)
+        check("agree: one it has been told about and is working on is not stuck",
+              not said, said)
+
         _, said = world(*live, dmn.STALLED, told=False)
         check("agree: a stall names itself and the key that clears it",
               "STALLED" in said and "u clears it" in said, said)
