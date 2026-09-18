@@ -127,6 +127,29 @@ def test_failclosed(home: Path) -> None:
           q.pct_5h_source)
     allowed, why = q.assignable()
     check("a quiet window assigns", allowed, why)
+
+    # The weekly figure comes off the same file and was drawn as a measurement
+    # while the 5h one beside it went to "?". Inside one window weekly usage
+    # only rises, so an old reading is a floor - marked as carried, not drawn
+    # as measured - and once the window has rolled it is not even a floor.
+    write_status(home, "wk", pct_5h=10, pct_7d=60, reset_7d=int(time.time()) + 3600,
+                 rl7_at=int(time.time()))
+    w = status.read("wk")
+    check("a fresh weekly figure is live", w.pct_7d_source == "live"
+          and w.trusted_pct_7d == 60, w.pct_7d_source)
+    write_status(home, "wk", pct_5h=10, pct_7d=60, reset_7d=int(time.time()) + 3600,
+                 rl7_at=int(time.time()), collected_at=int(time.time()) - 100000)
+    w = status.read("wk")
+    check("a stale one is a floor, and says so",
+          w.trusted_pct_7d == 60 and status.mark(w.pct_7d_source) in ("~", "!"),
+          f"{w.trusted_pct_7d} {w.pct_7d_source}")
+    write_status(home, "wk", pct_5h=10, pct_7d=60, reset_7d=int(time.time()) - 60,
+                 rl7_at=int(time.time()))
+    w = status.read("wk")
+    check("and a window that has rolled over leaves no figure at all",
+          w.trusted_pct_7d is None, str(w.trusted_pct_7d))
+    check("so a finished week cannot block an account forever",
+          w.assignable()[0] or "7d" not in w.assignable()[1], str(w.assignable()))
     check("and says the 0% was inferred", "inferred" in why, why)
     check("quiet headroom is the full window", q.headroom() == 90, str(q.headroom()))
     check("the raw reading stays null", q.pct_5h is None, repr(q.pct_5h))

@@ -250,8 +250,12 @@ def build(width: int, sel: dict | None = None) -> tuple[list[str], list[Panel]]:
                 f"{time.strftime('%H:%M:%S')}")
         # The legend explains three marks. It was drawn whether or not any of
         # them was on the screen, which is most of the time.
-        marks = {status.mark(status.read(a).pct_5h_source) for a in paths.list_accounts()}
-        with_legend = f"{bar_}{DIM} · 5h {status.SOURCE_LEGEND_SHORT}{R}"
+        marks = set()
+        for a in paths.list_accounts():
+            st_ = status.read(a)
+            marks |= {status.mark(st_.pct_5h_source), status.mark(st_.pct_7d_source)}
+        # Not "5h": both usage columns carry these marks now.
+        with_legend = f"{bar_}{DIM} · {status.SOURCE_LEGEND_SHORT}{R}"
         show_legend = any(m.strip() for m in marks) and vlen(with_legend) <= width
         header = [fit(with_legend if show_legend else bar_, width), ""]
 
@@ -259,7 +263,7 @@ def build(width: int, sel: dict | None = None) -> tuple[list[str], list[Panel]]:
         acc = Panel("ACCOUNTS", width)
         acc.selected = sel.get(ACCOUNTS)
         acc.add(f"{DIM}{'account':<10}{'5h usage':<18}{'reset':<8}"
-                f"{'7d':<13}assign{R}")
+                f"{'7d':<14}assign{R}")
         for name in paths.list_accounts():
             st = status.read(name)
             allowed, why = st.assignable()
@@ -276,7 +280,11 @@ def build(width: int, sel: dict | None = None) -> tuple[list[str], list[Panel]]:
                 pad(f"{BOLD}{name}{R}", 10)
                 + pad(f"{bar(five)} {pct(five)}%{src}", 18)
                 + pad(countdown(st.reset_5h), 8)
-                + pad(f"{bar(st.pct_7d, 6)} {pct(st.pct_7d)}%", 13)
+                # The weekly figure carries its provenance like the 5h one.
+                # Drawn bare, a number from a stale snapshot - or from a week
+                # that has since rolled over - reads as this week's measurement.
+                + pad(f"{bar(st.trusted_pct_7d, 6)} {pct(st.trusted_pct_7d)}%"
+                      f"{status.mark(st.pct_7d_source)}", 14)
                 # No snapshot age and no cost column. The age only ever became
                 # news by making an account unassignable, and the reason beside
                 # it says so in words; the cost was a sum over the sessions we

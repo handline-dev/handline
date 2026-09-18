@@ -77,6 +77,18 @@ def mark(src: str) -> str:
     return SOURCE_MARK.get(src, " ")
 
 
+def _ago(secs: float) -> str:
+    """A duration in the largest unit that still says something."""
+    secs = int(secs)
+    if secs < 120:
+        return f"{secs}s"
+    if secs < 5400:
+        return f"{secs // 60}m"
+    if secs < 172800:
+        return f"{secs // 3600}h"
+    return f"{secs // 86400}d"
+
+
 # Above these, stop handing out new work.
 PCT_5H_BLOCK = 90
 PCT_7D_BLOCK = 95
@@ -189,6 +201,36 @@ class AccountStatus:
         return 0 if src == "quiet" else self.pct_5h
 
     @property
+    def pct_7d_source(self) -> str:
+        """Where the weekly figure comes from, on the same terms as the 5h one.
+
+        The two are not trusted the same way and should not be, but they were
+        not drawn the same way either: the 5h figure went to "?" the moment its
+        snapshot went stale while the weekly figure from that same file was
+        drawn as a measurement, unmarked.
+
+        Inside one window weekly usage only rises, so an old reading is a floor
+        and a floor is worth having - marked as carried, not as measured. Once
+        `reset_7d` has passed it is not even that: it describes a window that no
+        longer exists, and reading it as the truth is how an account reads 60%
+        for a week after the week ended.
+        """
+        if not self.exists or self.error or self.rl7_lost or self.pct_7d is None:
+            return "unknown"
+        now = int(time.time())
+        if self.reset_7d and self.reset_7d <= now:
+            return "unknown"
+        if not self.stale and not self.rl7_carried:
+            return "live"
+        age = None if self.rl7_at is None else now - self.rl7_at
+        return "carried" if age is not None and age <= CARRY_MAX_AGE_S else "carried_old"
+
+    @property
+    def trusted_pct_7d(self) -> int | None:
+        """The weekly figure we may act on: a floor, or None when there is none."""
+        return None if self.pct_7d_source == "unknown" else self.pct_7d
+
+    @property
     def trusted_ctx_pct(self) -> int | None:
         return None if self.stale else self.ctx_pct
 
@@ -199,16 +241,20 @@ class AccountStatus:
         if self.error:
             return False, f"status.json unreadable: {self.error} (fail-closed)"
         if self.stale:
-            age = self.age_s
-            shown = "unknown" if age is None else f"{int(age)}s"
-            return False, f"snapshot is stale ({shown} > {STALE_AFTER_S}s) (fail-closed)"
+            # In the units a reader thinks in. "59213s > 900s" is two numbers
+            # nobody subtracts; the line is on a dashboard, and what it has to
+            # say is how long ago anything ran on this account.
+            shown = "unknown" if self.age_s is None else _ago(self.age_s)
+            return False, (f"nothing has run on it for {shown} - the snapshot is "
+                           f"stale (fail-closed)")
         pct = self.trusted_pct_5h
         if pct is None:
             return False, "pct_5h is null - usage unknown (fail-closed)"
         if pct >= PCT_5H_BLOCK:
             return False, f"5h usage {pct}% >= {PCT_5H_BLOCK}%"
-        if self.pct_7d is not None and self.pct_7d >= PCT_7D_BLOCK:
-            return False, f"7d usage {self.pct_7d}% >= {PCT_7D_BLOCK}%"
+        week = self.trusted_pct_7d
+        if week is not None and week >= PCT_7D_BLOCK:
+            return False, f"7d usage {week}% >= {PCT_7D_BLOCK}%"
         if self.rl7_lost:
             return False, "7d usage was lost - the weekly gate cannot be checked (fail-closed)"
         src = self.pct_5h_source
