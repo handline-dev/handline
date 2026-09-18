@@ -51,10 +51,22 @@ account its session lives on.""",
     "work": """giving an agent work
   ocp team                        who you may ask, and what they are doing
   ocp ask <agent> "<task>"        queue it
-  ocp inbox                       what is waiting for you, and what came back
+  ocp ask <agent> "..." --first   put it at the head of the queue
+  ocp ask <agent> "..." --replaces <id>   correct a task you sent, before it is delivered
+  ocp withdraw <id>               take back your own request, before it is delivered
+  ocp inbox                       the one thing currently waiting for you, and a count
+  ocp inbox --all                 the whole queue and its history
   ocp read <id>                   one of them whole
   ocp resolve <id> "<verdict>"    answer one
   ocp dismiss <id>                take one off your list without replying
+
+An agent is given one request at a time - the head of its queue - not the
+whole pile at once, so nobody has to hold eleven requests in their head to
+know what to do next. The next one is delivered only once you resolve or
+dismiss the current one. Before a request has been delivered, its own
+requester may still replace (`--replaces`) or withdraw it; once delivered, a
+correction is a reply in its thread (`ocp ask <agent> "..." --parent <id>`),
+not a new item behind it.
 
 On `ocp bridge`: ↑↓ walks the whole screen and crosses into the next panel at
 the end of one, ←→ jumps panel to panel, and the panel your keys act on is the

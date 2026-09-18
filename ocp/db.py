@@ -50,7 +50,14 @@ CREATE TABLE IF NOT EXISTS requests (
   -- When the answer landed. `ts` is when the request was made, and the two can
   -- be two days apart: a screen that sorts answers by `ts` puts yesterday's
   -- reply above this morning's, which reads as an old message nobody answered.
-  resolved_at INTEGER
+  resolved_at INTEGER,
+  -- FIFO position within one target's queue - defaults to id, but `--first`
+  -- and a replacement's inherited place both move it without moving id.
+  queue_order INTEGER,
+  -- Set once, the first time this request is actually shown to its target
+  -- (request #189). NULL is what makes a request still withdrawable/
+  -- replaceable by its own requester.
+  delivered_at INTEGER
 );
 CREATE INDEX IF NOT EXISTS requests_target ON requests(target, state);
 CREATE INDEX IF NOT EXISTS requests_requester ON requests(requester, ts);
@@ -174,6 +181,21 @@ def _pre_schema_migrate(con) -> None:
         # Existing rows keep their own id as their chain, which is what a
         # parentless request would have had anyway.
         con.execute("UPDATE requests SET chain_id = CAST(id AS TEXT) WHERE chain_id IS NULL")
+    if request_cols and "queue_order" not in request_cols:
+        con.execute("ALTER TABLE requests ADD COLUMN queue_order INTEGER")
+        # id order is exactly what every existing queue already reads as FIFO,
+        # so an old row's place in line does not move the first time this runs.
+        con.execute("UPDATE requests SET queue_order = id WHERE queue_order IS NULL")
+    if request_cols and "delivered_at" not in request_cols:
+        con.execute("ALTER TABLE requests ADD COLUMN delivered_at INTEGER")
+        # Whether an existing queued row has already been shown to its target is
+        # not recorded anywhere before this column exists, and guessing "no"
+        # would let it be withdrawn or replaced out from under a target that has
+        # already read it. Guessing "yes" is the safe direction: it costs
+        # nothing but the (rare) ability to withdraw a request that predates
+        # this migration.
+        con.execute("UPDATE requests SET delivered_at = ts WHERE delivered_at IS NULL "
+                    "AND state = 'queued'")
 
 
 def _unhide_the_humans_answers(con) -> None:
@@ -402,7 +424,17 @@ def set_cursor(con, name: str, row_id: int) -> None:
 def add_request(con, requester: str, target: str, body: str, files: str | None,
                 relation: str | None, response: str | None, kind: str | None,
                 chain_depth: int, parent_id: int | None, state: str = "queued",
-                verdict: str | None = None, chain_id: str | None = None) -> int:
+                verdict: str | None = None, chain_id: str | None = None,
+                first: bool = False, queue_order: int | None = None) -> int:
+    """Insert a request. `queue_order`, not `id`, decides FIFO position.
+
+    They agree by default - a fresh id is a fresh place at the back of the
+    line - which is why nothing that does not care about ordering has to pass
+    either. `first` puts it ahead of everything currently queued for `target`
+    (request #189: "TOP PRIORITY" becomes a flag, not prose); `queue_order`
+    lets a replacement (`--replaces`) inherit exactly the place in line the
+    request it replaces held, rather than going to the back of it.
+    """
     cur = con.execute(
         "INSERT INTO requests(ts, requester, target, body, files, relation, response, "
         "kind, chain_depth, parent_id, state, verdict, chain_id) "
@@ -414,21 +446,79 @@ def add_request(con, requester: str, target: str, body: str, files: str | None,
     if chain_id is None:
         # A request with no parent starts its own chain, named after itself.
         con.execute("UPDATE requests SET chain_id = ? WHERE id = ?", (str(rid), rid))
+    order = rid if queue_order is None else queue_order
+    if first and state == "queued":
+        # Only among what has not been delivered yet: the head may already be
+        # in front of the target, mid-turn on it, and jumping ahead of that one
+        # would tell them about a second request before they were ever told
+        # the first one was resolved. "First" means first in line behind
+        # whatever is already in front of them, not first absolutely.
+        row = con.execute(
+            "SELECT MIN(queue_order) AS m FROM requests WHERE target = ? AND state = 'queued' "
+            "AND delivered_at IS NULL", (target,)).fetchone()
+        if row and row["m"] is not None:
+            order = min(order, int(row["m"]) - 1)
+    con.execute("UPDATE requests SET queue_order = ? WHERE id = ?", (order, rid))
     return rid
+
+
+# States a request can leave 'queued' for without ever having reached its
+# target: denied by routing, withdrawn by its own requester, or superseded by
+# a replacement. None of the three is evidence of a real exchange, so a cycle
+# or ping-pong check counting them would refuse a conversation that, from the
+# target's side, never happened.
+NEVER_REACHED_TARGET = ("denied", "withdrawn", "replaced")
 
 
 def chain_members(con, chain_id: str) -> list:
     return con.execute(
-        "SELECT * FROM requests WHERE chain_id = ? AND state != 'denied' ORDER BY id",
-        (chain_id,),
+        f"SELECT * FROM requests WHERE chain_id = ? AND state NOT IN "
+        f"({','.join('?' * len(NEVER_REACHED_TARGET))}) ORDER BY id",
+        (chain_id, *NEVER_REACHED_TARGET),
     ).fetchall()
 
 
 def queued_for(con, target: str):
+    """Every request still queued for `target`, in delivery order.
+
+    Delivery order is `queue_order`, not `id` - see `add_request` - so this is
+    also where `--first` and a replacement's inherited place actually take
+    effect: whoever reads this in order sees the queue the way the target is
+    meant to work through it, not the order things happened to be asked in.
+    """
     return con.execute(
-        "SELECT * FROM requests WHERE target = ? AND state = 'queued' ORDER BY id",
+        "SELECT * FROM requests WHERE target = ? AND state = 'queued' "
+        "ORDER BY COALESCE(queue_order, id), id",
         (target,),
     ).fetchall()
+
+
+def head_of_queue(con, target: str):
+    """The one request `target` is meant to be working on right now, or None.
+
+    Request #189: an agent is given one request at a time, not its whole
+    queue at once - this is where "one at a time" is decided, once, for every
+    reader (delivery, `ocp inbox`, `resolve`'s own hand-off to the next one)
+    to agree on.
+    """
+    rows = queued_for(con, target)
+    return rows[0] if rows else None
+
+
+def queue_depth(con, target: str) -> int:
+    return len(queued_for(con, target))
+
+
+def mark_delivered(con, rid: int) -> None:
+    """Record that this request has actually been shown to its target.
+
+    Set once and never moved back: a request only ever becomes un-delivered by
+    ceasing to exist as itself (withdrawn, or replaced by another id).
+    Idempotent, because both a terminal notification and a target's own `ocp
+    inbox` may each try to be the one that marks it.
+    """
+    con.execute("UPDATE requests SET delivered_at = COALESCE(delivered_at, ?) WHERE id = ?",
+               (int(time.time()), rid))
 
 
 def get_request(con, rid: int):

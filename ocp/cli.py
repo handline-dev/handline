@@ -826,8 +826,15 @@ def cmd_team_check(args) -> int:
 def cmd_ask(args) -> int:
     ok, msg, _ = askmod.ask(args.target, args.body, files=args.files,
                             requester=args.of, parent_id=args.parent,
-                            mergeable=args.mergeable)
+                            mergeable=args.mergeable, first=args.first,
+                            replaces=args.replaces)
     # ask() already phrases its own refusals; do not prefix them again.
+    print(msg)
+    return 0 if ok else 1
+
+
+def cmd_withdraw(args) -> int:
+    ok, msg = askmod.withdraw(args.id, requester=args.of)
     print(msg)
     return 0 if ok else 1
 
@@ -847,14 +854,43 @@ def cmd_inbox(args) -> int:
         if sys.stdout.isatty() and not args.all:
             return tui.run()
         return _human_inbox(args.all)
-    rows = askmod.inbox(agent, unread_only=not args.all)
-    if not rows:
-        print(f"{agent}: inbox empty")
+    if args.all:
+        rows = askmod.inbox(agent, unread_only=False)
+        if not rows:
+            print(f"{agent}: inbox empty")
+            return 0
+        print(f"{len(rows)} total. `ocp read <id>` shows one whole.")
+        for r in rows:
+            print(f"#{r['id']:<5} from {r['requester']:<12} {r['state']:<9} "
+                  f"depth={r['chain_depth']} {r['body'][:60]}")
         return 0
-    print(f"{len(rows)} waiting. `ocp read <id>` shows one whole.")
-    for r in rows:
-        print(f"#{r['id']:<5} from {r['requester']:<12} {r['state']:<9} "
-              f"depth={r['chain_depth']} {r['body'][:60]}")
+
+    # Request #189: one at a time, whole - not the whole queue cut to a line
+    # each. `head_of_queue` is the same function delivery reads, so this and
+    # what the daemon typed into the terminal never disagree about what "the
+    # current one" is.
+    con = db.connect()
+    try:
+        head = db.head_of_queue(con, agent)
+        if not head:
+            print(f"{agent}: inbox empty")
+            return 0
+        more = db.queue_depth(con, agent) - 1
+        # Only the target's own look at its own queue counts as being told -
+        # another agent reading `ocp read` or `ocp inbox <name>` out of
+        # curiosity must not spend the one chance the actual target's
+        # requester had to withdraw or replace it.
+        if agent == askmod.asking_agent():
+            db.mark_delivered(con, int(head["id"]))
+    finally:
+        con.close()
+    print(f"#{head['id']} from {head['requester']}  depth={head['chain_depth']}")
+    print()
+    print(head["body"] or "(empty)")
+    if more:
+        print(f"\n{more} more waiting - the next comes when you resolve or dismiss this one.")
+    print("\n`ocp resolve <id> \"<verdict>\"` answers it. `ocp inbox --all` shows the whole "
+          "queue and its history.")
     return 0
 
 
@@ -1136,11 +1172,21 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--parent", type=int, default=None, help="parent request id, for chain depth")
     p.add_argument("--mergeable", action="store_true",
                    help="fold into an already-queued ask to the same target")
+    p.add_argument("--first", action="store_true",
+                   help="put this at the head of the target's queue")
+    p.add_argument("--replaces", type=int, default=None, metavar="ID",
+                   help="correct your own request ID before it has been delivered; "
+                        "ID is retired and this takes its place in line")
     p.set_defaults(fn=cmd_ask)
 
-    p = sub.add_parser("inbox", help="show queued requests for an agent")
+    p = sub.add_parser("withdraw", help="take back your own request before it is delivered")
+    p.add_argument("id", type=int)
+    p.add_argument("--of", default=None, help="requester (defaults to $OCP_AGENT)")
+    p.set_defaults(fn=cmd_withdraw)
+
+    p = sub.add_parser("inbox", help="the one request currently waiting for an agent")
     p.add_argument("agent", nargs="?")
-    p.add_argument("--all", action="store_true")
+    p.add_argument("--all", action="store_true", help="the whole queue and its history")
     p.set_defaults(fn=cmd_inbox)
 
     p = sub.add_parser("read", help="print one request whole, with its answer")

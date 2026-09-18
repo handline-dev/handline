@@ -572,6 +572,93 @@ def test_ask_flow(home: Path) -> None:
     check("ask: chain depth stops runaway loops", depth_blocked)
 
 
+def test_one_request_at_a_time(home: Path) -> None:
+    """Request #189: an agent is given one request at a time - the head of
+    its queue - and the next only once it resolves or dismisses this one.
+    Before delivery its own requester may still replace or withdraw it;
+    once delivered, neither applies."""
+    home.mkdir(parents=True, exist_ok=True)
+    os.environ["OCP_HOME"] = str(home)
+    (home / "team.yaml").write_text(DESIGN_TEAM)
+    for name in ("backend", "reviewer"):
+        agents.register(name, "alpha")
+    con = db.connect()
+    try:
+        ok, msg, first = askmod.ask("reviewer", "task one", requester="backend")
+        check("one-at-a-time: the first ask queues", ok, msg)
+        check("one-at-a-time: the head is the first request",
+              db.head_of_queue(con, "reviewer")["id"] == first,
+              db.head_of_queue(con, "reviewer")["id"])
+        # Delivery itself - the daemon actually typing this into a terminal -
+        # is exercised in daemon tests; here the head is marked delivered
+        # directly, the way `deliver_queued` or a self-view of `ocp inbox`
+        # would, to set up what withdraw/replace are gated on.
+        db.mark_delivered(con, first)
+
+        ok, msg, second = askmod.ask("reviewer", "task two", requester="backend")
+        check("one-at-a-time: a second ask still queues", ok, msg)
+        check("one-at-a-time: the head is still the first - the second waits behind it",
+              db.head_of_queue(con, "reviewer")["id"] == first,
+              db.head_of_queue(con, "reviewer")["id"])
+        check("one-at-a-time: the second was never marked delivered",
+              db.get_request(con, second)["delivered_at"] is None)
+        check("one-at-a-time: two are queued for reviewer",
+              db.queue_depth(con, "reviewer") == 2, db.queue_depth(con, "reviewer"))
+
+        # --first jumps a third request ahead of the (undelivered) second one,
+        # but never ahead of the first, which is already delivered.
+        ok, msg, third = askmod.ask("reviewer", "task three - urgent", requester="backend",
+                                    first=True)
+        check("one-at-a-time: --first is accepted", ok, msg)
+        order = [r["id"] for r in db.queued_for(con, "reviewer")]
+        check("one-at-a-time: --first jumps ahead of what was not yet delivered",
+              order == [first, third, second], str(order))
+
+        # A requester may replace its own undelivered request; a foreign
+        # requester, or a delivered one, may not.
+        ok, msg = askmod.ask("reviewer", "not yours", requester="reviewer",
+                             replaces=second)[:2]
+        check("one-at-a-time: only the original requester may replace a request",
+              not ok and "not yours" in msg, msg)
+
+        ok, msg, replacement = askmod.ask("reviewer", "task two, corrected",
+                                          requester="backend", replaces=second)
+        check("one-at-a-time: replacing an undelivered request is allowed", ok, msg)
+        check("one-at-a-time: the old one is retired", db.get_request(con, second)["state"],
+              db.get_request(con, second)["state"])
+        check("one-at-a-time: as 'replaced'",
+              db.get_request(con, second)["state"] == "replaced")
+        order = [r["id"] for r in db.queued_for(con, "reviewer")]
+        check("one-at-a-time: the replacement keeps the same place in line",
+              order == [first, third, replacement], str(order))
+
+        ok, msg = askmod.ask("reviewer", "too late", requester="backend", replaces=first)[:2]
+        check("one-at-a-time: a delivered request cannot be replaced",
+              not ok and "already delivered" in msg, msg)
+
+        ok, msg = askmod.withdraw(third, requester="backend")
+        check("one-at-a-time: withdrawing an undelivered request is allowed", ok, msg)
+        check("one-at-a-time: it is gone from the queue", db.get_request(con, third)["state"],
+              db.get_request(con, third)["state"])
+        check("one-at-a-time: as 'withdrawn'", db.get_request(con, third)["state"] == "withdrawn")
+
+        ok, msg = askmod.withdraw(first, requester="backend")
+        check("one-at-a-time: a delivered request cannot be withdrawn",
+              not ok and "already delivered" in msg, msg)
+
+        # Resolving the head hands delivery to the next one - the replacement,
+        # not the request it replaced.
+        ok, msg = askmod.resolve(first, "done")
+        check("one-at-a-time: resolving the head succeeds", ok, msg)
+        new_head = db.head_of_queue(con, "reviewer")
+        check("one-at-a-time: the replacement becomes the head",
+              new_head["id"] == replacement, new_head["id"])
+        check("one-at-a-time: withdrawn/replaced rows never become the head",
+              new_head["body"] == "task two, corrected", new_head["body"])
+    finally:
+        con.close()
+
+
 def test_ask_rate_limit(home: Path) -> None:
     home.mkdir(parents=True, exist_ok=True)
     os.environ["OCP_HOME"] = str(home)
@@ -2175,9 +2262,13 @@ def test_a_running_agent_is_told_when_work_arrives(home: Path) -> None:
         check("deliver: the same request is not announced twice",
               not dmn.deliver_queued(con, "backend", lambda _m: None) and not sent)
 
+        # Request #189: one at a time. A second request behind the first is
+        # queued, but the head has not changed - backend is not re-told, and
+        # it is not shown the second one's contents at all.
         db.add_request(con, "reviewer", "backend", "and this", None,
                        "peer", "async", None, 0, None)
-        check("deliver: but a new one is", dmn.deliver_queued(con, "backend", lambda _m: None))
+        check("deliver: a request behind the head does not get its own delivery",
+              not dmn.deliver_queued(con, "backend", lambda _m: None) and not sent, str(sent))
 
         # Typing at an agent mid-turn leaves the text in its input box, unsent.
         orcamod.idle_now = lambda h: False
@@ -2192,6 +2283,16 @@ def test_a_running_agent_is_told_when_work_arrives(home: Path) -> None:
         # close, and it never was awake in the first place.
         check("deliver: being told is not activity",
               db.last_activity(con, "backend") is None, str(db.last_activity(con, "backend")))
+
+        # Resolving the head reveals the next one - a different id - and
+        # resolve() delivers it right away, the same as asking delivers to an
+        # idle target right away rather than waiting for the next tick.
+        orcamod.idle_now = lambda h: True
+        head = db.head_of_queue(con, "backend")
+        sent.clear()
+        askmod.resolve(head["id"], "done")
+        check("deliver: resolving the head delivers the one behind it, right away",
+              sent and "and this" in sent[-1] and "look at this" not in sent[-1], str(sent))
     finally:
         orcamod.alive, orcamod.idle_now, orcamod.send, orcamod.available = real
         con.close()
@@ -4291,6 +4392,61 @@ def test_a_request_can_be_read_whole(home: Path) -> None:
               "no request" in _capture(lambda: climod.main(["read", "99999"])))
     finally:
         pass
+
+
+def test_inbox_and_withdraw_cli(home: Path) -> None:
+    """`ocp inbox` shows the head and a count, not the whole queue (request
+    #189); `ocp withdraw` takes back an undelivered request of your own."""
+    _daemon_home(home, 20)
+    agents.register("reviewer", "alpha")
+    con = db.connect()
+    try:
+        rid1 = db.add_request(con, "backend", "reviewer", "task one", None,
+                              "peer", "async", None, 0, None)
+        rid2 = db.add_request(con, "backend", "reviewer", "task two", None,
+                              "peer", "async", None, 0, None)
+    finally:
+        con.close()
+
+    real_agent = os.environ.get("OCP_AGENT")
+    try:
+        os.environ["OCP_AGENT"] = "reviewer"
+        out = _capture(lambda: climod.main(["inbox"]))
+        check("inbox: shows the head's body", "task one" in out, out)
+        check("inbox: not the one behind it", "task two" not in out, out)
+        check("inbox: says how many more are waiting", "1 more waiting" in out, out)
+
+        con = db.connect()
+        try:
+            check("inbox: viewing your own head marks it delivered",
+                  db.get_request(con, rid1)["delivered_at"] is not None)
+        finally:
+            con.close()
+
+        out = _capture(lambda: climod.main(["inbox", "--all"]))
+        check("inbox --all: shows the whole queue",
+              "task one" in out and "task two" in out, out)
+
+        os.environ["OCP_AGENT"] = "backend"
+        out = _capture(lambda: climod.main(["withdraw", str(rid2)]))
+        check("withdraw: an undelivered request of your own can be taken back",
+              "withdrawn" in out, out)
+        con = db.connect()
+        try:
+            check("withdraw: it leaves the queue",
+                  db.get_request(con, rid2)["state"] == "withdrawn",
+                  db.get_request(con, rid2)["state"])
+        finally:
+            con.close()
+
+        out = _capture(lambda: climod.main(["withdraw", str(rid1)]))
+        check("withdraw: a delivered request refuses",
+              "already delivered" in out, out)
+    finally:
+        if real_agent is None:
+            os.environ.pop("OCP_AGENT", None)
+        else:
+            os.environ["OCP_AGENT"] = real_agent
 
 
 def test_only_one_thing_types_at_an_agent_at_a_time(home: Path) -> None:
@@ -6589,6 +6745,7 @@ def main() -> int:
         run(lambda: test_team_validation())
         run(lambda: test_db_dedup(home))
         run(lambda: test_ask_flow(Path(td) / 'askhome'))
+        run(lambda: test_one_request_at_a_time(Path(td) / 'onetask'))
         run(lambda: test_ask_rate_limit(Path(td) / 'ratehome'))
         run(lambda: test_cycle_and_escalation(Path(td) / 'cyc'))
         run(lambda: test_review_pingpong(Path(td) / 'pingpong'))
@@ -6663,6 +6820,7 @@ def main() -> int:
         run(lambda: test_an_answer_reaches_the_agent_that_asked(Path(td) / 'answered'))
         run(lambda: test_an_answer_wakes_the_agent_that_was_waiting_for_it(Path(td) / 'waiting'))
         run(lambda: test_a_request_can_be_read_whole(Path(td) / 'readone'))
+        run(lambda: test_inbox_and_withdraw_cli(Path(td) / 'inboxcli'))
         run(lambda: test_only_one_thing_types_at_an_agent_at_a_time(Path(td) / 'locking'))
         run(lambda: test_growing_the_team_needs_a_person(Path(td) / 'hr'))
         run(lambda: test_the_founder_does_not_approve_their_own_request(Path(td) / 'hrself'))

@@ -184,8 +184,18 @@ def _merge_into_queued(con, requester: str, target: str, body: str,
 
 
 def ask(target: str, body: str, files: str | None = None, requester: str | None = None,
-        parent_id: int | None = None, mergeable: bool = False) -> tuple[bool, str, int | None]:
-    """Route and, if allowed, enqueue. Returns (allowed, message, request id)."""
+        parent_id: int | None = None, mergeable: bool = False, first: bool = False,
+        replaces: int | None = None) -> tuple[bool, str, int | None]:
+    """Route and, if allowed, enqueue. Returns (allowed, message, request id).
+
+    `first` (request #189) puts this at the head of target's queue rather
+    than the back of it - a flag instead of writing "TOP PRIORITY" into the
+    body and hoping the reader notices. `replaces` corrects a request of your
+    own that has not been delivered yet: the old one is retired and this one
+    takes its exact place in line, rather than starting a second item behind
+    it. Once a request has been delivered, neither applies to it - reply in
+    its thread instead.
+    """
     requester = requester or asking_agent()
     # Nobody may send as the human. That name carries two
     # privileges - the routing table lets it reach every agent, and a chain
@@ -206,6 +216,23 @@ def ask(target: str, body: str, files: str | None = None, requester: str | None 
     t = team.Team.load()
     con = db.connect()
     try:
+        old = None
+        if replaces is not None:
+            old = db.get_request(con, replaces)
+            if old is None:
+                return False, f"request {replaces} does not exist", None
+            if old["requester"] != requester:
+                return False, (f"#{replaces} is {old['requester']} -> {old['target']}, "
+                               f"not yours to replace"), None
+            if old["state"] != "queued":
+                return False, (f"#{replaces} is already {old['state']} - "
+                               f"nothing to replace"), None
+            if old["delivered_at"]:
+                return False, (f"#{replaces} was already delivered to {old['target']} - "
+                               f"it is too late to replace; send a reply in its thread "
+                               f"instead (`ocp ask {old['target']} \"...\" --parent "
+                               f"{replaces}`)"), None
+
         depth, chain_id = 0, None
         if parent_id:
             parent = db.get_request(con, parent_id)
@@ -219,6 +246,11 @@ def ask(target: str, body: str, files: str | None = None, requester: str | None 
             # towards it.
             if requester == HUMAN:
                 depth = 0
+        elif old is not None:
+            # A correction to an undelivered request continues the same
+            # conversation, not a fresh one - but only when nothing else
+            # already said which conversation this is.
+            chain_id = old["chain_id"]
 
         # A loop is stopped and escalated, never silently dropped: a request
         # that vanishes leaves the team stuck with nobody knowing why.
@@ -280,11 +312,20 @@ def ask(target: str, body: str, files: str | None = None, requester: str | None 
 
         rid = db.add_request(con, requester, target, body, files, decision.relation,
                              decision.response, decision.kind, depth, parent_id,
-                             chain_id=chain_id)
+                             chain_id=chain_id, first=first,
+                             queue_order=(old["queue_order"]
+                                         if old is not None and old["target"] == target
+                                         else None))
         deliver(rid, requester, target, body, files, decision)
+        if old is not None:
+            db.set_request_state(con, replaces, "replaced", verdict=f"replaced by #{rid}")
+            p = _inbox(old["target"]) / f"{replaces:06d}.json"
+            if p.exists():
+                p.unlink()
         db.add_event(con, requester, "ask", {
             "request_id": rid, "target": target, "relation": decision.relation,
             "response": decision.response, "chain_depth": depth,
+            "replaces": replaces, "first": first,
         })
 
         # async: the requester parks rather than hold an account while it
@@ -304,6 +345,8 @@ def ask(target: str, body: str, files: str | None = None, requester: str | None 
 
         note = f"queued as #{rid} for {target} (intake={decision.intake}, " \
                f"response={decision.response}, {note})"
+        if old is not None:
+            note = f"replaces #{replaces}; {note}"
         if decision.creates_gate:
             note += " [escalation: needs a human gate]"
         else:
@@ -384,11 +427,54 @@ def _delivery_reason(con, target: str) -> tuple[str, bool]:
 
 
 def inbox(agent: str, unread_only: bool = True) -> list[dict]:
+    """The one request currently waiting for `agent` (request #189).
+
+    `unread_only=False` is the whole history instead: every request ever
+    addressed to it, in every state, not only the one at the head of the
+    queue right now.
+    """
     con = db.connect()
     try:
-        rows = db.queued_for(con, agent) if unread_only else con.execute(
+        if unread_only:
+            head = db.head_of_queue(con, agent)
+            return [dict(head)] if head else []
+        rows = con.execute(
             "SELECT * FROM requests WHERE target = ? ORDER BY id", (agent,)).fetchall()
         return [dict(r) for r in rows]
+    finally:
+        con.close()
+
+
+def withdraw(rid: int, requester: str | None = None) -> tuple[bool, str]:
+    """Take back your own request before it has been delivered (request #189).
+
+    Once a request has been shown to its target, taking it back from under
+    them is not a correction, it is a request they may already be reading or
+    have started on - so from there a reply in its thread is the only way to
+    change it. Before that point it never reached anywhere a target would
+    notice its absence.
+    """
+    requester = requester or asking_agent()
+    con = db.connect()
+    try:
+        row = db.get_request(con, rid)
+        if row is None:
+            return False, f"request {rid} does not exist"
+        if row["requester"] != requester:
+            return False, (f"#{rid} is {row['requester']} -> {row['target']}, "
+                           f"not yours to withdraw")
+        if row["state"] != "queued":
+            return False, f"#{rid} is already {row['state']} - nothing to withdraw"
+        if row["delivered_at"]:
+            return False, (f"#{rid} was already delivered to {row['target']} - it is too "
+                           f"late to withdraw; send a reply in its thread instead "
+                           f"(`ocp ask {row['target']} \"...\" --parent {rid}`)")
+        db.set_request_state(con, rid, "withdrawn")
+        p = _inbox(row["target"]) / f"{rid:06d}.json"
+        if p.exists():
+            p.unlink()
+        db.add_event(con, requester, "withdraw", {"request_id": rid, "target": row["target"]})
+        return True, f"request #{rid} to {row['target']} withdrawn"
     finally:
         con.close()
 
@@ -418,6 +504,13 @@ def resolve(rid: int, verdict: str, state: str = "done") -> tuple[bool, str]:
         p = _inbox(row["target"]) / f"{rid:06d}.json"
         if p.exists():
             p.unlink()
-        return True, f"request #{rid} -> {state}\n" + push_answer(con, row["requester"])
+        said = push_answer(con, row["requester"])
+        # Request #189: the next request in `target`'s own queue, if any, is
+        # only ever delivered once this one is out of the way - so resolving
+        # is also the moment to tell them about it, the same as asking
+        # delivers to the target right away rather than waiting for a tick.
+        if db.head_of_queue(con, row["target"]):
+            said += "\n" + push(con, row["target"])
+        return True, f"request #{rid} -> {state}\n" + said
     finally:
         con.close()
