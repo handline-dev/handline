@@ -91,7 +91,7 @@ def cmd_init(args) -> int:
         print(f"initialized git repo in {h}")
 
     print(f"initialized {h}")
-    print("next: ocp account register <name>, then a human runs claude /login once")
+    print("next: ocp account add <name> - it registers the account and logs it in")
     return 0
 
 
@@ -100,9 +100,95 @@ def cmd_account_register(args) -> int:
     d = accounts.register(args.name, force=args.force)
     print(f"registered account '{args.name}': {d}")
     if not accounts.logged_in(args.name):
-        print("\nnot logged in yet. A human has to run this once:")
-        print(f"  {accounts.login_command(args.name)}")
-        print("\n(ocp does not read or copy credentials - refresh tokens rotate on use)")
+        print(f"\nnot logged in yet. From a terminal you can type into:\n\n"
+              f"  ocp login {args.name}\n")
+    return 0
+
+
+def cmd_account_add(args) -> int:
+    """Register an account and log it in, in one command.
+
+    The login is claude's own screen - a browser and a code typed back - so it
+    runs here and hands the terminal back, and this checks afterwards rather
+    than trusting the exit code: closing claude without finishing exits 0 too.
+    Log in with an Anthropic account no other account here uses: two copies
+    of one credential invalidate each other, and share one usage limit.
+    """
+    if args.name in paths.list_accounts():
+        print(f"account '{args.name}' already exists"
+              + ("" if accounts.logged_in(args.name) else f" - `ocp login {args.name}`"))
+        return 1
+    try:
+        accounts.register(args.name)
+    except ValueError as e:
+        print(e, file=sys.stderr)
+        return 1
+    print(f"registered account '{args.name}'")
+    if args.no_login:
+        print(f"log it in with: ocp login {args.name}")
+        return 0
+
+    claude = shutil.which("claude")
+    if not claude or not sys.stdin.isatty():
+        print(f"\nlogging in needs a terminal you can type into. From one, run:\n\n"
+              f"  ocp login {args.name}\n")
+        return 1
+    print("use an Anthropic account no other account here uses. "
+          "Finish the login in claude, then exit it (/exit) to come back.\n")
+    subprocess.run([claude, "/login"], env=accounts.env_for(args.name))
+    if not accounts.logged_in(args.name):
+        print(f"\n'{args.name}' is registered but not logged in. Try again with: "
+              f"ocp login {args.name}")
+        return 1
+    twins = accounts.same_login_as(args.name)
+    if twins:
+        print(f"\nWARNING: '{args.name}' is logged in as the same Anthropic account as "
+              f"{', '.join(twins)}. That is one usage limit under two names, and the "
+              f"two copies of the credential invalidate each other. "
+              f"`ocp account remove {args.name}` and add it with another login.")
+        return 1
+    print(f"\n'{args.name}' is logged in. It takes work once a session has run on it "
+          f"and reported its usage - until then it is fail-closed.")
+    return 0
+
+
+def cmd_account_remove(args) -> int:
+    """Log an account out and take it off the roster.
+
+    Refused while any agent is on it. The directory is moved aside, not
+    deleted - it holds the only transcripts of what was spent there.
+    """
+    con = db.connect()
+    try:
+        ok, why = accounts.remove_plan(args.name, con)
+    finally:
+        con.close()
+    if not ok:
+        print(why, file=sys.stderr)
+        return 1
+    if not args.yes:
+        if not sys.stdin.isatty():
+            print(f"refusing without a terminal to confirm in - pass --yes", file=sys.stderr)
+            return 1
+        typed = input(f"remove account '{args.name}'? type its name to confirm: ").strip()
+        if typed != args.name:
+            print("not removed")
+            return 1
+
+    argv, env = accounts.logout_argv(args.name)
+    if argv:
+        claude = shutil.which(argv[0])
+        r = subprocess.run([claude or argv[0], *argv[1:]], env=env) if claude else None
+        if r is None or r.returncode != 0 or accounts.logged_in(args.name):
+            # Moving the directory would orphan the credential: its Keychain
+            # name is derived from the directory's path, and nothing would
+            # ever log that one out again.
+            print(f"logout failed - '{args.name}' is still logged in, so it stays. "
+                  f"Run `claude auth logout` with CLAUDE_CONFIG_DIR="
+                  f"{paths.account_claude(args.name)} and try again.", file=sys.stderr)
+            return 1
+    dest = accounts.retire(args.name)
+    print(f"removed account '{args.name}' (logged out; directory kept at {dest})")
     return 0
 
 
@@ -1061,6 +1147,15 @@ def build_parser() -> argparse.ArgumentParser:
     p.set_defaults(fn=cmd_login)
 
     acc = sub.add_parser("account", help="accounts").add_subparsers(dest="sub", required=True)
+    p = acc.add_parser("add", help="register an account and log it in")
+    p.add_argument("name")
+    p.add_argument("--no-login", action="store_true",
+                   help="register only; log in later with `ocp login <name>`")
+    p.set_defaults(fn=cmd_account_add)
+    p = acc.add_parser("remove", help="log an account out and take it off the roster")
+    p.add_argument("name")
+    p.add_argument("--yes", action="store_true", help="do not ask to confirm")
+    p.set_defaults(fn=cmd_account_remove)
     p = acc.add_parser("register", help="create the account dir and link it to shared")
     p.add_argument("name")
     p.add_argument("--force", action="store_true", help="replace existing files with links")

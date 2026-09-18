@@ -7050,6 +7050,104 @@ def test_a_refused_ask_is_never_announced_as_an_answer(home: Path) -> None:
         con.close()
 
 
+def test_an_account_is_added_and_removed_from_ocp(home: Path) -> None:
+    """Adding and removing an account are ocp commands, and removing one
+    cannot strand an agent, orphan a credential, or lose what was spent."""
+    home.mkdir(parents=True, exist_ok=True)
+    os.environ["OCP_HOME"] = str(home)
+    (home / "team.yaml").write_text("agents:\n  backend: { intake: dedicated }\n")
+    for a in ("alpha", "beta", "gamma"):
+        accounts.register(a)
+    agents.register("backend", "alpha")
+
+    def run_cli(*argv):
+        buf, err = io.StringIO(), io.StringIO()
+        with contextlib.redirect_stdout(buf), contextlib.redirect_stderr(err):
+            rc = climod.main(list(argv))
+        return rc, buf.getvalue() + err.getvalue()
+
+    rc, out = run_cli("account", "add", "delta", "--no-login")
+    check("account add: registers the account", rc == 0 and "delta" in paths.list_accounts(), out)
+    rc, out = run_cli("account", "add", "delta", "--no-login")
+    check("account add: refuses a name that exists", rc == 1, out)
+
+    # An agent that prefers it, and one whose session actually went there.
+    rc, out = run_cli("account", "remove", "alpha", "--yes")
+    check("account remove: refused while an agent prefers it",
+          rc == 1 and "backend" in out and "alpha" in paths.list_accounts(), out)
+    con = db.connect()
+    try:
+        db.set_agent_state(con, "backend", "RUNNING")
+        con.execute("UPDATE agent_state SET account = 'beta' WHERE agent = 'backend'")
+        con.commit()
+    finally:
+        con.close()
+    rc, out = run_cli("account", "remove", "beta", "--yes")
+    check("account remove: refused while an agent's session is on it",
+          rc == 1 and "backend" in out and "beta" in paths.list_accounts(), out)
+
+    # A logout that does not take leaves the account where it is: moving the
+    # directory would change the name its credential is filed under.
+    orig_argv, orig_in = accounts.logout_argv, accounts.logged_in
+    try:
+        accounts.logout_argv = lambda a: (["false"], dict(os.environ))
+        accounts.logged_in = lambda a: True
+        rc, out = run_cli("account", "remove", "gamma", "--yes")
+    finally:
+        accounts.logout_argv, accounts.logged_in = orig_argv, orig_in
+    check("account remove: a failed logout keeps the account",
+          rc == 1 and "gamma" in paths.list_accounts(), out)
+
+    rc, out = run_cli("account", "remove", "gamma", "--yes")
+    retired = list((home / "accounts" / ".retired").glob("gamma-*"))
+    check("account remove: takes it off the roster", rc == 0 and
+          "gamma" not in paths.list_accounts(), out)
+    check("account remove: and keeps the directory rather than deleting it",
+          len(retired) == 1 and (retired[0] / ".claude").is_dir(), str(retired))
+
+    rc, out = run_cli("account", "remove", "gamma", "--yes")
+    check("account remove: an unknown account is said to be unknown", rc == 1, out)
+
+
+def test_a_second_name_for_one_login_is_caught(home: Path) -> None:
+    """Two accounts on one Anthropic login are one usage limit under two
+    names, and their two copies of the credential invalidate each other."""
+    home.mkdir(parents=True, exist_ok=True)
+    os.environ["OCP_HOME"] = str(home)
+    for a in ("alpha", "beta", "gamma"):
+        accounts.register(a)
+    who = {"alpha": "a@x", "beta": "b@x", "gamma": "a@x"}
+    orig_id, orig_in = accounts.identity, accounts.logged_in
+    try:
+        accounts.identity = lambda a: who[a]
+        accounts.logged_in = lambda a: True
+        check("same login: a duplicate is named", accounts.same_login_as("gamma") == ["alpha"],
+              str(accounts.same_login_as("gamma")))
+        check("same login: a distinct one is not", accounts.same_login_as("beta") == [],
+              str(accounts.same_login_as("beta")))
+        accounts.identity = lambda a: None
+        check("same login: one claude cannot place is not called a duplicate",
+              accounts.same_login_as("gamma") == [])
+    finally:
+        accounts.identity, accounts.logged_in = orig_id, orig_in
+
+
+def test_the_accounts_panel_adds_and_removes(home: Path) -> None:
+    """The screen offers both, and removing refuses the same way the command
+    does - it reads the same plan."""
+    home.mkdir(parents=True, exist_ok=True)
+    os.environ["OCP_HOME"] = str(home)
+    (home / "team.yaml").write_text("agents:\n  backend: { intake: dedicated }\n")
+    accounts.register("alpha")
+    agents.register("backend", "alpha")
+    keys = dict(tui.ACCOUNT_KEYS)
+    check("panel: offers add and remove", keys.get("a") == "add" and keys.get("x") == "remove",
+          str(tui.ACCOUNT_KEYS))
+    line, _ = tui._act(tui.ACCOUNTS, {tui.ACCOUNTS: "alpha"}, "x", 80, 24, None, None)
+    check("panel: removing an account in use is refused, and says by whom",
+          "backend" in line and "alpha" in paths.list_accounts(), line)
+
+
 def test_tui_frame_geometry(home: Path) -> None:
     """A frame must fill the screen exactly: every line the requested width,
     and exactly as many lines as the terminal has. Anything else scrolls the
@@ -7349,6 +7447,9 @@ def main() -> int:
         run(lambda: test_clear_does_not_look_like_waking(Path(td) / 'loopy'))
         run(lambda: test_handoff_rate_limited(Path(td) / 'hrate'))
         run(lambda: test_handoff_drift_header(Path(td) / 'hdhome'))
+        run(lambda: test_an_account_is_added_and_removed_from_ocp(Path(td) / 'acctaddrm'))
+        run(lambda: test_a_second_name_for_one_login_is_caught(Path(td) / 'acctsame'))
+        run(lambda: test_the_accounts_panel_adds_and_removes(Path(td) / 'acctpanel'))
         run(lambda: test_a_second_daemon_is_refused_with_no_pidfile_at_all(Path(td) / 'onedmn'))
         run(lambda: test_an_exiting_daemon_leaves_the_live_ones_name(Path(td) / 'pidname'))
         run(lambda: test_one_daemon_is_counted_in_the_process_table(Path(td) / 'dmnps'))

@@ -74,7 +74,7 @@ AGENT_KEYS = [
     ("↵", "open"), ("t", "terminal"), ("m", "message"), ("e", "editor"),
     ("w", "wake"), ("c", "close"), ("p", "park"), ("f", "fold"), ("u", "unstall"),
 ]
-ACCOUNT_KEYS = [("↵", "open"), ("l", "login")]
+ACCOUNT_KEYS = [("↵", "open"), ("l", "login"), ("a", "add"), ("x", "remove")]
 MESSAGE_KEYS = [("↵", "read"), ("a", "answer"), ("e", "answer in $EDITOR"),
                 ("x", "dismiss")]
 # A stuck row is about an agent, so it answers to the agent keys.
@@ -1249,11 +1249,60 @@ def _keys_of(panel: int) -> list:
         con.close()
 
 
+def _add_account(width: int, height: int, fd, saved) -> str:
+    """Name it, register it, and hand the terminal to claude to log it in -
+    the same steps as `ocp account add`, checked the same way afterwards."""
+    name = _line("new account name:", width, height)
+    if not name:
+        return "not added"
+    if name in paths.list_accounts():
+        return f"account '{name}' already exists"
+    try:
+        accounts.register(name)
+    except ValueError as e:
+        return str(e)
+    line, argv, env = actions.login_argv(name)
+    if argv:
+        _suspend(argv, env, fd, saved)
+    if not accounts.logged_in(name):
+        return f"'{name}' is registered but not logged in - l logs it in"
+    twins = accounts.same_login_as(name)
+    if twins:
+        return (f"'{name}' is the same Anthropic login as {', '.join(twins)} - one "
+                f"limit under two names. x removes it.")
+    return f"'{name}' added and logged in"
+
+
+def _remove_account(name: str, width: int, height: int, fd, saved) -> str:
+    """Refused while an agent is on it; otherwise confirmed by typing its name,
+    logged out by claude, and moved aside rather than deleted."""
+    con = db.connect()
+    try:
+        ok, why = accounts.remove_plan(name, con)
+    finally:
+        con.close()
+    if not ok:
+        return why
+    if _line(f"remove '{name}'? type its name to confirm:", width, height) != name:
+        return "not removed"
+    argv, env = accounts.logout_argv(name)
+    if argv:
+        _suspend(argv, env, fd, saved)
+        if accounts.logged_in(name):
+            return f"logout failed - '{name}' is still logged in, so it stays"
+    accounts.retire(name)
+    return f"removed '{name}' - logged out, directory kept under accounts/.retired"
+
+
 def _act(panel: int, sel: dict, key: str, width: int, height: int,
          fd, saved) -> tuple[str, list[str] | None]:
     """One keypress on the selected row. Returns (line to show, detail or None)."""
     keys = _keys_of(panel)
     target = sel.get(panel)
+    # Adding needs no row under the cursor: the first account is added to an
+    # empty panel.
+    if panel == ACCOUNTS and key == "a":
+        return _add_account(width, height, fd, saved), None
     if not keys:
         return "nothing to act on", None
     if target not in keys:
@@ -1277,6 +1326,8 @@ def _act(panel: int, sel: dict, key: str, width: int, height: int,
         if not argv:
             return line, None
         return _suspend(argv, env, fd, saved)[1], None
+    if panel == ACCOUNTS and key == "x":
+        return _remove_account(str(target), width, height, fd, saved), None
 
     con = db.connect()
     try:

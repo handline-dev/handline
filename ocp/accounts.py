@@ -17,6 +17,7 @@ import os
 import shutil
 import subprocess
 import sys
+import time
 from pathlib import Path
 
 from . import paths
@@ -150,6 +151,97 @@ def login_plan(acct: str, force: bool = False) -> tuple[str, str]:
                            f"Use --force to log in again (a second copy of one "
                            f"credential invalidates the first).")
     return "login", login_command(acct)
+
+
+def identity(acct: str) -> str | None:
+    """The Anthropic login behind this account, as claude reports it.
+
+    Asked of `claude auth status`, which answers from its own records - ocp
+    reads no credential and no .claude.json to learn it (KICKOFF rule 1). None
+    when claude cannot say.
+    """
+    claude = shutil.which("claude")
+    if not claude:
+        return None
+    try:
+        r = subprocess.run([claude, "auth", "status"], env=env_for(acct),
+                           capture_output=True, text=True, timeout=30)
+        return json.loads(r.stdout).get("email") or None
+    except (OSError, subprocess.SubprocessError, ValueError):
+        return None
+
+
+def same_login_as(acct: str) -> list[str]:
+    """Other accounts logged in as the same Anthropic account as this one.
+
+    Two of them are one usage limit under two names - adding the second buys
+    no headroom - and two copies of one credential invalidate each other.
+    """
+    mine = identity(acct)
+    if not mine:
+        return []
+    return [a for a in paths.list_accounts()
+            if a != acct and logged_in(a) and identity(a) == mine]
+
+
+def users_of(acct: str, con=None) -> list[str]:
+    """Agents that would lose their account if this one went away.
+
+    Both halves of "on this account": agent.yaml naming it as the preference,
+    and a session that actually went there. They differ when the preferred
+    account had no room, and removing either one strands an agent.
+    """
+    from . import agents
+    out = []
+    for name in paths.list_agents():
+        try:
+            if agents.account_of(name) == acct or agents.current_account(name, con) == acct:
+                out.append(name)
+        except Exception:  # noqa: BLE001 - an unreadable agent.yaml is not ours to judge here
+            continue
+    return out
+
+
+def remove_plan(acct: str, con=None) -> tuple[bool, str]:
+    """Whether this account may be removed, and the line to say about it.
+
+    Refused while any agent is on it. Moving them is a roster decision with
+    somewhere to go - which account, and whether that one has room - and a
+    removal that made it silently would leave an agent whose next start fails.
+    """
+    if acct not in paths.list_accounts():
+        return False, f"no account '{acct}'"
+    users = users_of(acct, con)
+    if users:
+        return False, (f"account '{acct}' is in use by {', '.join(users)} - move "
+                       f"{'it' if len(users) == 1 else 'them'} to another account first")
+    return True, ""
+
+
+def logout_argv(acct: str) -> tuple[list[str], dict]:
+    """claude's own logout, run against this account's config directory.
+
+    claude removes its own credential; ocp never touches it (KICKOFF rule 1).
+    Empty when there is nothing logged in to remove.
+    """
+    if not logged_in(acct):
+        return [], {}
+    return ["claude", "auth", "logout"], env_for(acct)
+
+
+def retire(acct: str) -> Path:
+    """Take the account off the roster by moving its directory aside.
+
+    Aside, not deleted: its transcripts are the only record of what was spent
+    on it, and a removal typed by mistake comes back with one `mv`. A dot
+    directory is invisible to `list_accounts`, so nothing reads it as live.
+    """
+    src = paths.accounts_dir() / acct
+    dest_dir = paths.accounts_dir() / ".retired"
+    dest_dir.mkdir(parents=True, exist_ok=True)
+    dest = dest_dir / f"{acct}-{time.strftime('%Y%m%d-%H%M%S')}"
+    src.rename(dest)
+    return dest
 
 
 def env_for(acct: str, agent: str | None = None) -> dict[str, str]:
