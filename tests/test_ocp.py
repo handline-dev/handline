@@ -4469,6 +4469,39 @@ def test_an_agent_can_put_another_one_to_work(home: Path) -> None:
         said = dmn._start_for_work(con, "marina", lambda _m: None)
         check("dispatch: a start that keeps failing is not retried forever",
               "attempts have failed" in said, said)
+
+        # An answer is work too. An agent that asked something, was closed
+        # while it waited and then lost its terminal cannot come back on its
+        # own: a wake restores a terminal, and there is none to restore.
+        # reviewer sat that way for a day holding two answers it had asked for.
+        spawnmod.spawn = fake_spawn
+        started.clear()
+        agents.register("reviewer", "alpha", repo=str(home / "checkout"))
+        db.set_terminal(con, "reviewer", None, None)
+        db.reset_counter(con, "reviewer", "wake_failures")
+        rid = db.add_request(con, "reviewer", "marina", "look at this branch", None,
+                             "peer", "async", None, 0, None)
+        askmod.resolve(rid, "looks right")
+        db.set_closed(con, "reviewer", "sess_old")
+        check("dispatch: it is an answer that is waiting, not a request",
+              not db.queued_for(con, "reviewer")
+              and [r["id"] for r in db.unannounced_answers(con, "reviewer")] == [rid])
+        logged: list[str] = []
+        dmn.supervise(con, "reviewer", lambda m: logged.append(m),
+                      int(time.time()), {}, False, [])
+        check("dispatch: an agent with an answer and no terminal is given one",
+              ("reviewer", str((home / "checkout").resolve())) in started,
+              f"{started} {logged}")
+
+        # And when it cannot be woken, the tick says so rather than repeating
+        # in silence every nine seconds, which is how this went unseen.
+        db.set_terminal(con, "reviewer", None, None)
+        spawnmod.spawn = lambda agent, repo, base="main": (False, "orca refused")
+        logged.clear()
+        dmn.supervise(con, "reviewer", lambda m: logged.append(m),
+                      int(time.time()), {}, False, [])
+        check("dispatch: and a wake that cannot happen is said out loud",
+              any("could not" in m and "reviewer" in m for m in logged), str(logged))
     finally:
         (orcamod.available, spawnmod.spawn, dmn.wait_for_session) = real
         con.close()

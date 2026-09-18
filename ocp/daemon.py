@@ -541,7 +541,8 @@ def _start_for_work(con, agent: str, log) -> str:
     """
     repo = agents.repo_of(agent)
     if not repo:
-        return (f"{agent}: {len(db.queued_for(con, agent))} request(s) waiting and it has "
+        n = len(db.queued_for(con, agent)) + len(db.unannounced_answers(con, agent))
+        return (f"{agent}: {n} request(s) waiting and it has "
                 f"no terminal - set `repo:` in its agent.yaml, or start it by hand (t)")
     row = db.get_agent_state(con, agent)
     if row and int(row["wake_failures"]) >= MAX_FAILED_ATTEMPTS:
@@ -1190,7 +1191,12 @@ def supervise(con, agent: str, log, now: int, samples: dict,
     # make itself, that dies with its session and appears on no screen. The one
     # fact the daemon needs to do it instead is which repository, and that is
     # `repo:` in agent.yaml.
-    if not (row and row["terminal"]) and db.queued_for(con, agent):
+    # An answer counts as work here. An agent that asked something, was closed
+    # while it waited and then lost its terminal has no way back on its own:
+    # waking restores a terminal, and there is none to restore. reviewer sat
+    # like that for a day with two answers it had asked for.
+    if not (row and row["terminal"]) and (db.queued_for(con, agent)
+                                          or db.unannounced_answers(con, agent)):
         actions.append(_start_for_work(con, agent, log))
         row = db.get_agent_state(con, agent)
 
@@ -1211,6 +1217,11 @@ def supervise(con, agent: str, log, now: int, samples: dict,
                     else f"{len(answers)} answer(s) it asked for")
             actions.append(f"{agent}: woken for {what}"
                            if ok else f"{agent}: could not wake - {why}")
+            if not ok:
+                # Said out loud, because this is the tick doing nothing about
+                # something that is waiting. Unlogged, it repeated every nine
+                # seconds for a day and the log had nothing in it.
+                log(f"  {agent}: {what} and could not be woken - {why}")
             if ok:
                 row = db.get_agent_state(con, agent)
                 woke_now = True
