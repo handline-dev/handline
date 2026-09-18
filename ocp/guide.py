@@ -55,7 +55,11 @@ account its session lives on.""",
   ocp resolve <id> "<verdict>"    answer one
   ocp dismiss <id>                take one off your list without replying
 
-On `ocp bridge`: ←→ moves between panels and ↑↓ inside one; `m` sends an order
+On `ocp bridge`: ↑↓ walks the whole screen and crosses into the next panel at
+the end of one, ←→ jumps panel to panel, and the panel your keys act on is the
+one drawn in colour. Open a message with ↵ and answer it with `a` (or `e` for
+$EDITOR) - from the list or from inside it, whichever you are looking at. On an
+agent's page ←→ moves between its sections. `m` sends an order
 to the agent under the cursor and `e` writes a longer one in $EDITOR; `t` takes
 you to that agent's own terminal, starting one if it has none.
 
