@@ -63,7 +63,11 @@ def choose_account(agent: str, resuming: bool = False, limit: int | None = None)
     # usage and says nothing about credentials, so without this an agent moves
     # onto an account that cannot start anything and the launch dies there.
     candidates = [a for a in paths.list_accounts() if accounts.logged_in(a)]
-    picked, _reasons = status.pick_account(candidates)
+    # bootstrap=True (request #154/#165 item c): a freshly logged-in account
+    # nothing has run on yet is a real place to go, not a reason to sit out an
+    # account that is at the wall - the session this launch starts is the one
+    # thing that can ever write its first reading.
+    picked, _reasons = status.pick_account(candidates, bootstrap=True)
     # Nothing assignable is not a reason to pick something at random: `build`
     # refuses below on a current reading at the wall, and that refusal names
     # the account and the figure.

@@ -237,6 +237,23 @@ def test_failclosed(home: Path) -> None:
     picked, _ = status.pick_account(["fresh", "roomy"])
     check("pick_account maximizes headroom", picked == "roomy", str(picked))
 
+    # request #154/#165 (c): an account nothing has ever run on cannot be
+    # picked by default - only bootstrap=True makes it a last resort.
+    picked, _ = status.pick_account(["ghost", "hot"])
+    check("pick_account: a never-run account is not picked by default",
+          picked is None, str(picked))
+    picked, reasons = status.pick_account(["ghost", "hot"], bootstrap=True)
+    check("pick_account: bootstrap=True picks it once nothing else qualifies",
+          picked == "ghost", str(picked))
+    check("pick_account: and says why", "bootstrap" in dict(reasons)["ghost"],
+          dict(reasons)["ghost"])
+    picked, _ = status.pick_account(["ghost", "fresh"], bootstrap=True)
+    check("pick_account: bootstrap never wins over an account that already qualifies",
+          picked == "fresh", str(picked))
+    picked, _ = status.pick_account(["stale"], bootstrap=True)
+    check("pick_account: bootstrap does not rescue a refusal that is not 'no reading at all'",
+          picked is None, str(picked))
+
 
 # ---------------------------------------------------------------- collector
 def test_collector(home: Path) -> None:
@@ -3831,6 +3848,47 @@ edges:
         con.close()
 
 
+def test_hr_move_changes_an_agents_account(home: Path) -> None:
+    """Request #154/#156: there was no command to change an agent's account -
+    a human edited agent.yaml by hand, and the loop #154 traced started with a
+    resume id recorded on the account being left, which `--resume` on the new
+    one cannot use (#154 item 4)."""
+    _daemon_home(home, 20)
+    accounts.register("beta")
+    con = db.connect()
+    try:
+        db.set_account(con, "backend", "alpha")
+        db.set_closed(con, "backend", "sess-1")
+
+        ok, said = hr.enact("move", "backend", why="alpha is at the wall", account="beta")
+        check("hr move: the founder's own move lands without a proposal", ok, said)
+        check("hr move: agent.yaml now prefers the new account",
+              agents.account_of("backend") == "beta", agents.account_of("backend"))
+        row = db.get_agent_state(con, "backend")
+        check("hr move: the state row's account moves with it",
+              row["account"] == "beta", str(dict(row)))
+        check("hr move: a resume id from the old account is dropped - it means "
+              "nothing on the new one",
+              row["resume_session"] is None, str(dict(row)))
+
+        check("hr move: an unregistered account is refused",
+              not hr.enact("move", "backend", why="w", account="nope")[0])
+        check("hr move: an agent that already prefers its target is refused",
+              not hr.enact("move", "backend", why="w", account="beta")[0])
+        check("hr move: an unknown agent is refused",
+              not hr.enact("move", "nobody", why="w", account="beta")[0])
+
+        # An agent may propose its own move; only the founder's own action
+        # applies it without a gate to approve.
+        ok, said = hr.propose("move", "backend", requester="backend",
+                              why="beta is quieter", account="alpha")
+        check("hr move: an agent may propose moving itself", ok, said)
+        check("hr move: but proposing changes nothing until it is applied",
+              agents.account_of("backend") == "beta", agents.account_of("backend"))
+    finally:
+        con.close()
+
+
 def test_the_screen_reads_keys_from_the_terminal_not_from_a_buffer() -> None:
     """An arrow is `esc [ B`, and `sys.stdin.read(1)` pulls all three bytes
     into Python's own buffer - after which select() reports the descriptor has
@@ -6666,6 +6724,7 @@ def main() -> int:
         run(lambda: test_only_one_thing_types_at_an_agent_at_a_time(Path(td) / 'locking'))
         run(lambda: test_growing_the_team_needs_a_person(Path(td) / 'hr'))
         run(lambda: test_the_founder_does_not_approve_their_own_request(Path(td) / 'hrself'))
+        run(lambda: test_hr_move_changes_an_agents_account(Path(td) / 'hrmove'))
         run(lambda: test_the_screen_says_which_account_to_spend_next(Path(td) / 'nextacct'))
         run(lambda: test_a_long_name_does_not_run_into_the_column_beside_it(Path(td) / 'cols'))
         run(lambda: test_the_whole_loop_runs_on_our_own_commands(Path(td) / 'loop'))

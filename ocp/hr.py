@@ -38,7 +38,7 @@ from .yamlcompat import ConfigError, dump, load
 APPROVE = ("approve", "approved", "yes", "ok", "go", "승인")
 REJECT = ("reject", "rejected", "no", "deny", "denied", "반려")
 
-KINDS = ("add", "retire", "rename")
+KINDS = ("add", "retire", "rename", "move")
 
 
 def dir_() -> Path:
@@ -90,7 +90,7 @@ def _draft(kind: str, name: str, requester: str, why: str, account: str | None,
     registered = paths.list_agents()
     if kind == "add" and name in registered:
         return {}, f"{name} is already an agent"
-    if kind in ("retire", "rename") and name not in registered:
+    if kind in ("retire", "rename", "move") and name not in registered:
         return {}, f"{name} is not an agent"
     if kind == "rename":
         if not to or "/" in to or to.startswith("."):
@@ -99,12 +99,14 @@ def _draft(kind: str, name: str, requester: str, why: str, account: str | None,
             return {}, f"{to} is already an agent"
     if effort and effort not in agents.VALID_EFFORT:
         return {}, f"effort must be one of {', '.join(agents.VALID_EFFORT)}"
-    if kind == "add":
+    if kind in ("add", "move"):
         if not account:
-            return {}, "an added agent needs an account (--account)"
+            return {}, f"a {kind} needs an account (--account)"
         if account not in paths.list_accounts():
             return {}, (f"account '{account}' is not registered. A human logs an "
                         f"account in once; ocp never touches credentials.")
+        if kind == "move" and account == agents.account_of(name):
+            return {}, f"{name} already prefers account '{account}'"
 
     prop = {
         "id": uuid.uuid4().hex[:8],
@@ -163,7 +165,7 @@ def enact(kind: str, name: str, why: str, account: str | None = None,
     own = con is None
     con = con or db.connect()
     try:
-        doer = {"add": _add, "retire": _retire, "rename": _rename}[kind]
+        doer = {"add": _add, "retire": _retire, "rename": _rename, "move": _move}[kind]
         try:
             ok, said = doer(prop, con)
         except Exception as e:  # noqa: BLE001 - recorded, then raised on
@@ -202,6 +204,13 @@ def _escalation(prop: dict) -> str:
                   f"ever sent or received move with the name.",
                   "It has to be closed first - an identity cannot change under a "
                   "running session."]
+    elif prop["kind"] == "move":
+        lines += [f"{prop['agent']} would prefer account {prop.get('account')} instead "
+                  f"of its current one. Nothing about it in team.yaml changes.",
+                  "A session already running keeps the account it started with until "
+                  "it ends; this is where its *next* one lands, and a resume id "
+                  "recorded on the account it is leaving is dropped, because it means "
+                  "nothing on the new one."]
     else:
         lines += [f"{prop['agent']} would be taken out of team.yaml and its folder "
                   f"moved to agents/archive/. Its journal and handoffs are kept.",
@@ -250,7 +259,7 @@ def apply(pid: str, con=None) -> tuple[bool, str]:
             return False, (f"#{row['id']} was answered {(verdict or '').strip()[:60]!r}, "
                            f"which is not a decision. Ask the founder to answer "
                            f"`approve` or `reject`.")
-        doer = {"add": _add, "retire": _retire, "rename": _rename}[prop["kind"]]
+        doer = {"add": _add, "retire": _retire, "rename": _rename, "move": _move}[prop["kind"]]
         ok, said = doer(prop, con)
         if not ok:
             return False, said
@@ -282,6 +291,31 @@ def _add(prop: dict, con) -> tuple[bool, str]:
     return True, (f"{name} is an agent: account {prop['account']}"
                   + (f", team {prop['team']}" if prop.get("team") else "")
                   + f". {said}")
+
+
+def _move(prop: dict, con) -> tuple[bool, str]:
+    """Change which account an agent's *next* session prefers.
+
+    Request #154/#156: this used to be a hand edit of agent.yaml, and once,
+    the resume id left pointing at the account being moved off looped a wake
+    against a session that could never exist there (#154). Dropping it here is
+    the fix: a session id lives under one account's config directory, and
+    `--resume` on any other one finds nothing.
+
+    Nothing here touches a session that is already running - `agent.yaml` and
+    `agent_state.account` are read at the moment a launch execs, and after
+    that CLAUDE_CONFIG_DIR is fixed for the life of the process. Ending that
+    session and starting a fresh one, wherever there is room, is a separate
+    question this does not answer.
+    """
+    name, new_account = prop["agent"], prop["account"]
+    agents.register(name, new_account)
+    con.execute(
+        "UPDATE agent_state SET account = ?, resume_session = NULL WHERE agent = ?",
+        (new_account, name))
+    return True, (f"{name} now prefers account '{new_account}'. Its next session lands "
+                  f"there; a session already running keeps the one it started on "
+                  f"until it ends.")
 
 
 def _retire(prop: dict, con) -> tuple[bool, str]:
