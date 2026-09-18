@@ -4845,16 +4845,27 @@ def test_the_cursor_walks_the_whole_screen(home: Path) -> None:
         panel = tui._enter(tui.AGENTS, sel)
         check("top: arriving in a panel puts the cursor on its first row",
               sel[tui.AGENTS] is not None, str(sel))
+        # Through the keys, not through the function behind them: a `step` that
+        # was right and a loop that still called the old `move` is how ↓
+        # stopped at the bottom of a panel and left the cursor nowhere.
         seen = []
         for _ in range(6):
             seen.append((panel, sel.get(panel)))
-            panel = tui.step(panel, sel, 1)
+            panel = tui.navigate(panel, sel, "\033[B")
         check("top: down off the end of the team list lands in the mailbox",
               any(p == tui.MESSAGES for p, _k in seen) or panel == tui.MESSAGES,
               str([(tui.PANEL_NAME[p], k) for p, k in seen]))
-        back = tui.step(panel, sel, -1)
+        check("top: and the cursor is never left on nothing",
+              all(k is not None for _p, k in seen) and sel.get(panel) is not None,
+              str([(tui.PANEL_NAME[p], k) for p, k in seen]))
+        back = tui.navigate(panel, sel, "\033[A")
         check("top: and up comes back out of it", back in (tui.MESSAGES, tui.AGENTS),
               tui.PANEL_NAME[back])
+        check("top: → and tab are the same jump",
+              tui.navigate(tui.AGENTS, sel, "\033[C")
+              == tui.navigate(tui.AGENTS, sel, "\t") == tui.MESSAGES)
+        check("top: and a key that is not a move says so",
+              tui.navigate(tui.AGENTS, sel, "a") is None)
 
         # Which panel the keys act on was only in the footer's first word, so a
         # reader pressed `a` at a panel they were not in and read a refusal.
