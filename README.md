@@ -78,10 +78,11 @@ ocp service logs       # tail the daemon's launchd-captured stdout
 ocp service uninstall  # unload the job and remove the plist
 ```
 
-`ocp ps` and `ocp doctor` both know about the launchd job, so a hand-started
-`ocp daemon` and a launchd-supervised one are never mistaken for each other -
-the pidfile in `~/.orcapipe/daemon.pid` is still the single source of truth for
-"is a daemon running", `ocp service` only decides who restarts it.
+One daemon runs, whoever started it: it holds an flock for its whole life, and
+a second one exits rather than supervise beside it. `~/.orcapipe/daemon.pid`
+names the holder for `ocp ps`, which is not the same thing as deciding - a
+daemon nothing recorded is still a daemon, so `ocp ps` and `ocp doctor` count
+them in the process table and say so when there are two.
 
 ## Commands
 

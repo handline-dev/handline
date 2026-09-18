@@ -1301,12 +1301,12 @@ def test_service_crash_loop(home: Path) -> None:
           not service.crash_loop_detected(home, window_s=300, threshold=4))
 
     # The most likely real crash loop: a hand-started daemon holds the
-    # pidfile, launchd's copy exits at once every restart without ever
+    # daemon lock, launchd's copy exits at once every restart without ever
     # reaching reconcile. It must still be visible to the detector.
     lines = [f"[{stamp(s)}] daemon starting - already running (pid 1), exiting"
              for s in (0, 15, 30, 45)]
     log.write_text("\n".join(lines) + "\n")
-    check("service: repeated pidfile refusals are a crash loop too",
+    check("service: repeated startup refusals are a crash loop too",
           service.crash_loop_detected(home, window_s=300, threshold=4))
 
 
@@ -1370,54 +1370,130 @@ def test_an_exiting_daemon_leaves_the_live_ones_name(home: Path) -> None:
     dmn.clear_pidfile()
     check("pidfile: and does clear its own", not paths.daemon_pid().exists())
 
+    # Reclaiming a stale one has the same rule, and needs it more: every
+    # screen calls running_elsewhere(), so a daemon that starts between the
+    # read and the unlink has its own name deleted by a passer-by.
+    dead = os.getpid() + 1
+    paths.daemon_pid().write_text(json.dumps({"pid": dead, "boot": dmn.boot_time()}))
+    dmn.write_pidfile()          # the new daemon, inside the window
+    dmn._reclaim(dead)
+    check("pidfile: a reclaim does not delete the name written since it read",
+          paths.daemon_pid().exists() and dmn.read_pidfile()["pid"] == os.getpid(),
+          str(dmn.read_pidfile()))
+
 
 def test_one_daemon_is_counted_in_the_process_table(home: Path) -> None:
     """A supervisor nobody recorded exists only there. The words `ocp daemon`
-    on a command line do not make one: a grep for them carries both."""
+    on a command line do not make one: a grep for them carries both, and so
+    does an agent session whose system prompt quotes the command."""
     home.mkdir(parents=True, exist_ok=True)
     os.environ["OCP_HOME"] = str(home)
-    table = "\n".join([
-        "  4707 /usr/bin/python /Users/x/workspaces/orcapipe/bin/ocp daemon",
-        "  4801 grep -n ocp daemon",
-        "  4805 tail -f /Users/x/workspaces/orcapipe/ocp/daemon.py",
-        "  4802 vim /Users/x/workspaces/orcapipe/ocp/daemon.py",
-        "  4803 /usr/bin/python /Users/x/.local/bin/ocp ps",
-        f"  {os.getpid()} /usr/bin/python /Users/x/bin/ocp daemon",
-    ])
-
-    class Out:
-        def __init__(self, stdout):
-            self.returncode, self.stdout = 0, stdout
-
-    def fake_ps(argv, *a, **k):
-        # The second call reads one process's environment, which is how a
-        # daemon supervising another OCP_HOME is told apart from ours.
-        if "eww" in argv:
-            return Out(f"OCP_HOME={home} python bin/ocp daemon")
-        return Out(table)
-
-    orig = dmn.subprocess.run
+    table = [
+        (4707, "/usr/bin/python /Users/x/workspaces/orcapipe/bin/ocp daemon"),
+        (4801, "grep -n ocp daemon"),
+        (4802, "vim /Users/x/workspaces/orcapipe/ocp/daemon.py"),
+        (4803, "/usr/bin/python /Users/x/.local/bin/ocp ps"),
+        (4804, "claude --append-system-prompt Report with /Users/x/bin/ocp daemon"),
+        (os.getpid(), "/usr/bin/python /Users/x/bin/ocp daemon"),
+    ]
+    orig_table, orig_env = obsmod.process_table, obsmod.env_of
     try:
-        dmn.subprocess.run = fake_ps
-        found = dmn.processes()
+        obsmod.process_table = lambda: table
+        obsmod.env_of = lambda pid, name: str(home)
+        check("ps: the running daemon is found, and only it",
+              dmn.processes() == [4707], str(dmn.processes()))
+
+        obsmod.env_of = lambda pid, name: f"{home}-elsewhere"
+        check("ps: another installation's daemon is not this one's duplicate",
+              dmn.processes() == [], str(dmn.processes()))
+
+        # The same directory under its other name - /var and /private/var are
+        # one place on macOS, and the test homes live there. Compared as
+        # spellings, our own duplicate reads as somebody else's and nothing is
+        # reported at all.
+        other = os.path.realpath(home)
+        check("ps: (the fixture has two names for one directory)",
+              other != str(home), f"{other} == {home}")
+        obsmod.env_of = lambda pid, name: other
+        check("ps: the home is compared as a directory, not as a spelling",
+              dmn.processes() == [4707], str(dmn.processes()))
+
+        # A process we cannot place is the one worth naming.
+        obsmod.env_of = lambda pid, name: None
+        check("ps: an unplaceable daemon is reported, not dropped",
+              dmn.processes() == [4707], str(dmn.processes()))
+
+        obsmod.process_table = lambda: None
+        check("ps: and a process table we could not read is not an empty one",
+              dmn.processes() == [], str(dmn.processes()))
     finally:
-        dmn.subprocess.run = orig
-    check("ps: the running daemon is found", 4707 in found, str(found))
-    check("ps: a mention of it on another command line is not one",
-          found == [4707], str(found))
+        obsmod.process_table, obsmod.env_of = orig_table, orig_env
 
-    def other_home(argv, *a, **k):
-        if "eww" in argv:
-            return Out(f"OCP_HOME={home}-elsewhere python bin/ocp daemon")
-        return Out(table)
 
+def test_two_processes_cannot_both_supervise_one_home(home: Path) -> None:
+    """The failure this exists to prevent is two processes, not two calls: an
+    in-process check would pass on a lock that never leaves the process."""
+    home.mkdir(parents=True, exist_ok=True)
+    os.environ["OCP_HOME"] = str(home)
+    env = {**os.environ, "OCP_HOME": str(home)}
+    holder = subprocess.Popen(
+        [sys.executable, "-c",
+         f"import sys, time; sys.path.insert(0, {str(ROOT)!r})\n"
+         "from ocp import lock\n"
+         "held = lock.singleton('daemon')\n"
+         "print(held.__enter__(), flush=True)\n"
+         "time.sleep(120)\n"],
+        env=env, stdout=subprocess.PIPE, text=True)
     try:
-        dmn.subprocess.run = other_home
-        found = dmn.processes()
+        check("lock: another process took the daemon lock",
+              holder.stdout.readline().strip() == "True")
+        out = subprocess.run([sys.executable, str(ROOT / "bin" / "ocp"), "daemon",
+                              "--once", "--no-model"],
+                             env=env, capture_output=True, text=True, timeout=120)
+        check("daemon: the program itself refuses, not only a call to run()",
+              out.returncode == 1, out.stdout + out.stderr)
+        check("daemon: and the refusal reaches the log it is detected in",
+              "already running" in out.stdout, out.stdout)
     finally:
-        dmn.subprocess.run = orig
-    check("ps: another installation's daemon is not this one's duplicate",
-          found == [], str(found))
+        holder.kill()
+        holder.wait(timeout=30)
+
+    # The kernel takes the lock back from a process that dies holding it, so
+    # there is no stale hold to reclaim the way a pidfile has to be.
+    with lock.singleton(dmn.DAEMON_LOCK) as free:
+        check("daemon: a killed holder leaves the lock free", free)
+
+
+def test_the_screen_says_when_two_daemons_are_running(home: Path) -> None:
+    """The warning is the whole of what can be done about a duplicate that
+    predates the lock: nothing else on any screen can see one."""
+    home.mkdir(parents=True, exist_ok=True)
+    os.environ["OCP_HOME"] = str(home)
+    orig = dmn.processes
+    try:
+        dmn.processes = lambda: [111, 222]
+        r = doctor.Report()
+        doctor._check_one_daemon(r)
+        check("doctor: two daemons are a warning, by pid",
+              any(lv == doctor.WARN and "111, 222" in name for lv, name, _ in r.rows),
+              str(r.rows))
+
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            climod.cmd_daemon_status(None)
+        check("ps: the screen says it too", "WARNING" in buf.getvalue(), buf.getvalue())
+
+        # One daemon that no pidfile names is what a wrongly cleared pidfile
+        # leaves behind: running, and reported as not running.
+        dmn.processes = lambda: [111]
+        paths.daemon_pid().unlink(missing_ok=True)
+        r = doctor.Report()
+        doctor._check_one_daemon(r)
+        check("doctor: a daemon in no pidfile is said out loud",
+              any(lv == doctor.WARN and "no pidfile" in name for lv, name, _ in r.rows),
+              str(r.rows))
+    finally:
+        dmn.processes = orig
 
 
 def test_service_log_rotation(tmp: Path) -> None:
@@ -6344,6 +6420,27 @@ def test_a_refused_ask_is_not_a_new_message(home: Path) -> None:
     check("refused: with the same answer as the first", "THROTTLED" in first, first)
 
 
+def test_a_refusal_is_not_read_back_as_an_answer(home: Path) -> None:
+    """`ocp read` labels a verdict with who answered. On a denied row the
+    verdict is this system's refusal, and the row reached no one."""
+    _two_agents_one_slot(home)
+    for i in range(3):
+        askmod.ask("b", f"n{i}", requester="a")
+    con = db.connect()
+    try:
+        rid = con.execute("SELECT id FROM requests WHERE state = 'denied'").fetchone()["id"]
+    finally:
+        con.close()
+
+    buf = io.StringIO()
+    with contextlib.redirect_stdout(buf):
+        climod.cmd_read(type("A", (), {"id": rid})())
+    out = buf.getvalue()
+    check("read: a refused request does not name an answerer",
+          "answered by b" not in out, out)
+    check("read: it says it was refused", "refused" in out, out)
+
+
 def test_a_refused_ask_is_never_announced_as_an_answer(home: Path) -> None:
     """A refused ask reached nobody, so nothing can come back from it. Told
     otherwise, an agent reads 34 of its own refusals as replies from the agent
@@ -6603,6 +6700,9 @@ def main() -> int:
         run(lambda: test_one_daemon_is_counted_in_the_process_table(Path(td) / 'dmnps'))
         run(lambda: test_a_refused_ask_is_not_a_new_message(Path(td) / 'refused'))
         run(lambda: test_a_refused_ask_is_never_announced_as_an_answer(Path(td) / 'noannounce'))
+        run(lambda: test_a_refusal_is_not_read_back_as_an_answer(Path(td) / 'readref'))
+        run(lambda: test_two_processes_cannot_both_supervise_one_home(Path(td) / 'twoproc'))
+        run(lambda: test_the_screen_says_when_two_daemons_are_running(Path(td) / 'dmnwarn'))
     print(f"\n{len(PASS)} passed, {len(FAIL)} failed")
     for f in FAIL:
         print(f"  FAILED: {f}")

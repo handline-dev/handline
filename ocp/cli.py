@@ -383,7 +383,7 @@ def cmd_service_install(args) -> int:
     pid = daemonmod.running_elsewhere()
     if pid:
         print(f"note: pid {pid} is already running by hand - the launchd job will "
-              f"refuse to start (single-instance pidfile) until it exits")
+              f"refuse to start (it cannot have the daemon lock) until it exits")
     ok, msg = service.install()
     print(msg)
     return 0 if ok else 1
@@ -971,7 +971,10 @@ def cmd_read(args) -> int:
         print(row["body"] or "(empty)")
         if row["verdict"]:
             print()
-            print(f"--- answered by {row['target']} ---")
+            # A denied row never reached its target, so nothing came back from
+            # it: the verdict there is this system refusing to send it.
+            print(f"--- refused ---" if row["state"] == "denied"
+                  else f"--- answered by {row['target']} ---")
             print(row["verdict"])
         return 0
     finally:

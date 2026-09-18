@@ -128,15 +128,10 @@ def read_pidfile() -> dict | None:
 def clear_pidfile() -> None:
     """Remove the pidfile, but only while it still names this process.
 
-    An exiting daemon used to unlink it unconditionally. A second one that
-    started by hand and then stopped therefore erased the live daemon's name,
-    after which `ocp ps` reported no daemon at all and the startup check - the
-    only thing standing between this system and two supervisors - read an empty
-    file and let the next one in.
+    An exit that clears the file unconditionally clears whoever holds it, and
+    a live daemon nothing records is one `ocp ps` reports as not running.
     """
-    info = read_pidfile()
-    if info and info.get("pid") == os.getpid():
-        paths.daemon_pid().unlink(missing_ok=True)
+    _reclaim(os.getpid())
 
 
 def running_elsewhere() -> int | None:
@@ -152,34 +147,43 @@ def running_elsewhere() -> int | None:
     # guessing "stale" would let a second daemon start alongside a live one.
     current_boot = boot_time()
     if boot and current_boot and boot != current_boot:
-        paths.daemon_pid().unlink(missing_ok=True)
+        _reclaim(pid)
         return None
     try:
         os.kill(int(pid), 0)
     except (OSError, ValueError):
-        paths.daemon_pid().unlink(missing_ok=True)
+        _reclaim(pid)
         return None
     return int(pid)
+
+
+def _reclaim(stale_pid) -> None:
+    """Drop a pidfile that names `stale_pid`, and only while it still does.
+
+    Every reader calls `running_elsewhere`, and a daemon that starts between
+    the read and the unlink writes its own name into the window. Deleting it
+    unrecorded is the state this system spent a night in: a live supervisor
+    that `ocp ps` reported as not running.
+    """
+    info = read_pidfile()
+    if info and info.get("pid") == stale_pid:
+        paths.daemon_pid().unlink(missing_ok=True)
 
 
 def _supervises_this_home(pid: int) -> bool:
     """Is that daemon ours, or another installation's?
 
     The lock is per OCP_HOME, so two homes on one machine each run their own
-    daemon and neither is a duplicate. Read the same way `observe` reads
-    OCP_AGENT: from the environment the process was started with.
+    daemon and neither is a duplicate. Compared as directories, not as
+    spellings: /tmp and /private/tmp are one place on macOS, and an unresolved
+    comparison answers "somebody else's" about our own duplicate.
     """
-    try:
-        env = subprocess.run(["ps", "eww", "-o", "command=", "-p", str(pid)],
-                             capture_output=True, text=True, timeout=10).stdout
-    except (OSError, subprocess.SubprocessError):
-        # Unreadable is not "somebody else's": a supervisor we cannot place is
-        # the one worth naming, and silence here is what let two of them run.
+    home = obs.env_of(pid, "OCP_HOME")
+    if home is None:
+        # Unreadable and unset are the same answer: a supervisor we cannot
+        # place is the one worth naming, and silence is what let two run.
         return True
-    for token in env.split():
-        if token.startswith("OCP_HOME="):
-            return Path(token.split("=", 1)[1]).expanduser() == paths.home()
-    return paths.home() == Path.home() / ".orcapipe"
+    return os.path.realpath(Path(home).expanduser()) == os.path.realpath(paths.home())
 
 
 def processes() -> list[int]:
@@ -192,30 +196,15 @@ def processes() -> list[int]:
     only place both of them appear.
     """
     mine = os.getpid()
-    try:
-        out = subprocess.run(["ps", "-Ao", "pid=,command="], capture_output=True,
-                             text=True, timeout=20)
-    except (OSError, subprocess.SubprocessError):
-        return []
-    if out.returncode != 0:
-        return []
     found = []
-    for line in out.stdout.splitlines():
-        parts = line.split(None, 1)
-        if len(parts) != 2:
-            continue
-        argv = parts[1].split()
-        # The program's own path with `daemon` straight after it. A bare
-        # `ocp` is not enough: `grep -n ocp daemon` is those two words in that
-        # order, and a shell quoting this module or an editor open on this
-        # file carry them too. Started by name, the process table still shows
-        # the resolved script path, because that is what was exec'd.
-        if not any(nxt == "daemon" and a.endswith("/ocp")
-                   for a, nxt in zip(argv, argv[1:])):
-            continue
-        try:
-            pid = int(parts[0])
-        except ValueError:
+    for pid, cmd in obs.process_table() or []:
+        argv = cmd.split()
+        # The program being run: our own path, `daemon` next, and both at the
+        # front of the command line. Anywhere else in it is somebody talking
+        # about us - a `grep -n ocp daemon`, an editor on this file, a session
+        # whose system prompt quotes the command.
+        if not any(argv[i].endswith("/ocp") and argv[i + 1] == "daemon"
+                   for i in range(min(2, len(argv) - 1))):
             continue
         if pid != mine and _supervises_this_home(pid):
             found.append(pid)

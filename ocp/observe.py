@@ -49,6 +49,50 @@ def is_session(command: str) -> bool:
     return " -p " not in command and not command.endswith(" -p")
 
 
+def process_table() -> list[tuple[int, str]] | None:
+    """(pid, command) for everything running, or None if we could not look.
+
+    None is not an empty machine: a caller that treats the two alike concludes
+    every session is gone the one time `ps` fails.
+    """
+    try:
+        out = subprocess.run(["ps", "-Ao", "pid=,command="],
+                             capture_output=True, text=True, timeout=20)
+    except (OSError, subprocess.SubprocessError):
+        return None
+    if out.returncode != 0:
+        return None
+    rows = []
+    for line in out.stdout.splitlines():
+        parts = line.split(None, 1)
+        if len(parts) != 2:
+            continue
+        try:
+            rows.append((int(parts[0]), parts[1]))
+        except ValueError:
+            continue
+    return rows
+
+
+def env_of(pid: int, name: str) -> str | None:
+    """One environment variable of a running process, as it was started with.
+
+    The variables `ocp launch` sets are how a process says which agent and
+    which installation it belongs to; nothing it writes down can be trusted to
+    the same degree. None means unreadable or unset, and those two are the same
+    answer here: neither says the process is somebody else's.
+    """
+    try:
+        env = subprocess.run(["ps", "eww", "-o", "command=", "-p", str(pid)],
+                             capture_output=True, text=True, timeout=10).stdout
+    except (OSError, subprocess.SubprocessError):
+        return None
+    for token in env.split():
+        if token.startswith(f"{name}="):
+            return token.split("=", 1)[1]
+    return None
+
+
 def live_sessions() -> dict[str, int] | None:
     """agent -> pid for every claude session that is actually running.
 
@@ -57,31 +101,17 @@ def live_sessions() -> dict[str, int] | None:
     headless `claude -p` that inherits whatever OCP_AGENT its caller had, and it
     is not the agent's session.
     """
-    try:
-        ps = subprocess.run(["ps", "-Ao", "pid=,command="],
-                            capture_output=True, text=True, timeout=20)
-    except (OSError, subprocess.SubprocessError):
-        return None
-    if ps.returncode != 0:
+    table = process_table()
+    if table is None:
         return None
 
     found: dict[str, int] = {}
-    for line in ps.stdout.splitlines():
-        parts = line.split(None, 1)
-        if len(parts) != 2 or not is_session(parts[1]):
+    for pid, cmd in table:
+        if not is_session(cmd):
             continue
-        pid, cmd = parts
-        try:
-            env = subprocess.run(["ps", "eww", "-o", "command=", "-p", pid],
-                                 capture_output=True, text=True, timeout=10).stdout
-        except (OSError, subprocess.SubprocessError):
-            continue
-        for token in env.split():
-            if token.startswith("OCP_AGENT="):
-                name = token.split("=", 1)[1]
-                if name:
-                    found.setdefault(name, int(pid))
-                break
+        name = env_of(pid, "OCP_AGENT")
+        if name:
+            found.setdefault(name, pid)
     return found
 
 

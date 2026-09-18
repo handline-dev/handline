@@ -457,13 +457,17 @@ def oldest_counted_ask(con, requester: str, since_ts: int) -> int | None:
     return int(row["ts"]) if row else None
 
 
-def standing_denial(con, requester: str, target: str, body: str,
+def standing_denial(con, requester: str, target: str, body: str, files: str | None,
                     since_ts: int) -> int | None:
-    """The id of an identical ask already refused inside the window, if any."""
+    """The id of an identical ask already refused inside the window, if any.
+
+    Identical includes the attachment: the same words with another file is a
+    different message, and reusing the first row would drop the file silently.
+    """
     row = con.execute(
         "SELECT id FROM requests WHERE requester = ? AND target = ? AND body = ? "
-        "AND state = 'denied' AND ts >= ? ORDER BY id DESC LIMIT 1",
-        (requester, target, body, since_ts),
+        "AND files IS ? AND state = 'denied' AND ts >= ? ORDER BY id DESC LIMIT 1",
+        (requester, target, body, files, since_ts),
     ).fetchone()
     return int(row["id"]) if row else None
 

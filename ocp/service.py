@@ -3,9 +3,9 @@
 A daemon that only runs while a human keeps a terminal open is not a
 supervisor, it is a foreground script (README: "not dying overnight without a
 human"). This installs it as a LaunchAgent so launchd starts it at login and
-restarts it after a crash, and gives `ocp ps` / `ocp doctor` a way to tell a
-launchd-run daemon apart from a hand-started one so the two never fight over
-the pidfile (daemon.running_elsewhere()).
+restarts it after a crash, and gives `ocp ps` / `ocp doctor` a way to say which
+of the two is supervising (daemon.running_elsewhere() names it; the daemon lock
+is what stops both of them running at once).
 
 launchctl calls go through `run_launchctl` alone, so tests can replace it and
 never touch the real launchd. Building and reading the plist needs no
@@ -214,7 +214,7 @@ def crash_loop_detected(home: Path | None = None, window_s: int = 300, threshold
     to read (scout, request #14), so this counts our own startup line in the
     log instead - a real crash loop leaves several `daemon starting` lines
     (whether it got to reconcile or exited straight away because another
-    daemon already held the pidfile - both are launchd restarting us) within
+    daemon already held the lock - both are launchd restarting us) within
     one `window_s` window.
     """
     p = out_log(home)

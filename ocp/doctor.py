@@ -371,7 +371,7 @@ def _check_one_daemon(r: Report) -> None:
               "end all but one - the others supervise unrecorded")
     elif live and not named:
         r.add(WARN, f"the daemon (pid {live[0]}) is in no pidfile",
-              "nothing stops a second one starting beside it")
+              "it supervises unrecorded - every screen reads it as not running")
     elif live:
         r.add(OK, "one daemon")
 
