@@ -485,9 +485,6 @@ def all_agent_states(con):
 
 
 # Handoff steps, in order (section 8.9).
-HANDOFF_STEPS = ("requested", "folded", "extracted", "released")
-
-
 def start_handoff(con, hid: str, agent: str, session_id: str | None, trigger_kind: str,
                   cursor_from: int, deadline: int) -> None:
     con.execute(

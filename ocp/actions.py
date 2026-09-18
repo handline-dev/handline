@@ -210,7 +210,16 @@ def dismiss(con, rid: int) -> str:
     if _is_answer_to_human(row):
         db.mark_announced(con, [rid])
         return f"#{rid} marked read"
-    ok, msg = askmod.resolve(rid, "read", state="done")
+    ok, msg = askmod.resolve(rid, "read - no reply", state="done")
+    if row["response"] != "async":
+        # Nobody is waiting on this one, so nobody is told. Typing "read" at an
+        # agent as though it were an answer costs it a turn to discover that it
+        # is not one - manager was mid-sentence when a dismissal arrived as
+        # "#60 from orchestrator: read".
+        db.mark_announced(con, [rid])
+        return f"{msg} (dismissed; {row['requester']} is not waiting on it)"
+    # An `async` sender parked on a reply and nothing else will ever unpark it,
+    # so it is told - and what it is told says it was read, not answered.
     return msg
 
 
@@ -427,7 +436,7 @@ def _delivery_block(con, agent: str, sessions: dict | None,
         return f"{agent} is not registered - nothing will ever take this", False
     row = db.get_agent_state(con, agent)
     if not row:
-        return f"{agent} has never been started (s starts it)", False
+        return f"{agent} has never been started (t starts it)", False
     if row["state"] == daemon.STALLED:
         # First, because `supervise` returns on STALLED before delivery is
         # considered at all. Reporting a missing terminal ahead of it sent the
@@ -435,7 +444,7 @@ def _delivery_block(con, agent: str, sessions: dict | None,
         return f"{agent} is STALLED - the daemon will not touch it (u clears it)", False
     handle = row["terminal"]
     if not handle:
-        return f"{agent} has no terminal - nothing can be typed to it (s starts one)", False
+        return f"{agent} has no terminal - nothing can be typed to it (t starts one)", False
     if handles is not None and handle not in handles:
         return f"{agent}'s terminal is gone - Orca no longer has it", False
     try:
@@ -688,13 +697,13 @@ def can(con, agent: str, key: str) -> tuple[bool, str]:
     disagreeing about what is possible - and it says which row said no. A
     refusal that does not explain itself sends the reader to press the key
     again, or to the wrong fix: "does not apply right now" on an agent with no
-    terminal is the one screen that could have said `s starts one`.
+    terminal is the one screen that could have said `t starts one`.
     """
     row = db.get_agent_state(con, agent)
     if not row:
         if key in ("message", "start", "terminal"):
             return True, ""
-        return False, f"{agent} has never been started (s starts it, t goes there)"
+        return False, f"{agent} has never been started (t starts it and takes you there)"
     closed = bool(row["closed_at"])
     state = row["state"]
     # The states nothing may be done to from here. RUNNING and HANDOFF are
@@ -714,7 +723,7 @@ def can(con, agent: str, key: str) -> tuple[bool, str]:
         if closed:
             return False, f"{agent} is already closed (w brings it back)"
         if not row["terminal"]:
-            return False, f"{agent} has no terminal - there is no session to close (s starts one)"
+            return False, f"{agent} has no terminal - there is no session to close (t starts one)"
         if busy:
             return False, busy_why
         waiting = db.queued_for(con, agent)
@@ -730,7 +739,7 @@ def can(con, agent: str, key: str) -> tuple[bool, str]:
         if closed:
             return False, f"{agent} is closed - its context is already gone (w brings it back)"
         if not row["terminal"]:
-            return False, f"{agent} has no terminal - there is no session to park (s starts one)"
+            return False, f"{agent} has no terminal - there is no session to park (t starts one)"
         if busy:
             return False, busy_why
         return True, ""

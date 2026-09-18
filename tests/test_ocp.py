@@ -3769,8 +3769,17 @@ def test_an_answer_reaches_the_agent_that_asked(home: Path) -> None:
               dmn.deliver_answers(con, "backend", lambda _m: None), str(sent))
         check("answered: with who answered and what they said",
               "reviewer" in sent[-1] and "ship it" in sent[-1], sent[-1][:120])
-        check("answered: and how to read the whole of it",
-              "ocp read" in sent[-1], sent[-1][:160])
+        # Only when there is more than it was shown. A two-word verdict with an
+        # instruction to go and read it whole is ceremony typed at an agent
+        # that was in the middle of something.
+        check("answered: a short answer is said and nothing else",
+              "ocp read" not in sent[-1], sent[-1][:160])
+        askmod.resolve(db.add_request(con, "backend", "reviewer", "and this?", None,
+                                      "peer", "async", None, 0, None),
+                       "a verdict long enough to be cut: " + "x" * 200)
+        dmn.deliver_answers(con, "backend", lambda _m: None)
+        check("answered: one that was cut says where the rest is",
+              "ocp read" in sent[-1], sent[-1][-80:])
 
         sent.clear()
         check("answered: and it is not told twice",
@@ -4223,6 +4232,24 @@ def test_an_answer_to_the_human_is_in_the_human_mailbox(home: Path) -> None:
         check("mailbox: asking does not park the human",
               db.get_agent_state(con, actions.HUMAN) is None,
               str(dict(db.get_agent_state(con, actions.HUMAN) or {})))
+
+        # Dismissing is not answering. A sender that parked on a reply has to
+        # be unparked, but one that fired and forgot is not told: typing "read"
+        # at an agent as though it were an answer costs it a turn to find out
+        # it is not one.
+        ff = db.add_request(con, "reviewer", actions.HUMAN, "FYI, shipped it", None,
+                            "peer", "fire_and_forget", None, 0, None)
+        actions.dismiss(con, ff)
+        check("mailbox: a dismissal nobody waited on is not read out to anyone",
+              db.get_request(con, ff)["announced_at"] is not None
+              and ff not in [r["id"] for r in db.unannounced_answers(con, "reviewer")],
+              str(dict(db.get_request(con, ff))))
+        parked = db.add_request(con, "reviewer", actions.HUMAN, "which one ships?", None,
+                                "peer", "async", None, 0, None)
+        actions.dismiss(con, parked)
+        check("mailbox: but one that parked on a reply is still told",
+              parked in [r["id"] for r in db.unannounced_answers(con, "reviewer")],
+              str(dict(db.get_request(con, parked))))
 
         # A refusal is an answer too - the one that means do something else.
         ok, _said, rid2 = askmod.ask("reviewer", "rebase it", requester=actions.HUMAN)
@@ -4875,6 +4902,10 @@ def test_the_cursor_walks_the_whole_screen(home: Path) -> None:
         check("top: the panel the keys act on is the one drawn as focused",
               len(lit) == 1 and "FOR YOU" in tui._ANSI.sub("", lit[0]),
               str([tui._ANSI.sub("", t).strip()[:24] for t in lit]))
+        check("top: and it is the only panel showing a cursor",
+              sum(ln.count("▸") for ln in framed.split(chr(10))) == 1,
+              str([tui._ANSI.sub("", ln)[:40] for ln in framed.split(chr(10))
+                   if "▸" in ln]))
         check("top: and the keys it offers are the ones on the footer",
               "a answer" in tui._ANSI.sub("", framed.split(chr(10))[-1]),
               tui._ANSI.sub("", framed.split(chr(10))[-1]))

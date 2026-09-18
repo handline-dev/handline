@@ -158,13 +158,3 @@ def record_commit(agent: str, repo: str, sha: str, subject: str, diffstat: str) 
         }, dedup_key=f"commit:{repo}:{sha}")
     finally:
         con.close()
-
-
-POST_COMMIT_HOOK = """#!/bin/sh
-# Installed by `ocp hook install-git`. Records the commit as an ocp event.
-# Never fails the commit: every path exits 0.
-[ -n "$OCP_AGENT" ] || exit 0
-command -v ocp >/dev/null 2>&1 || exit 0
-ocp hook commit >/dev/null 2>&1 || true
-exit 0
-"""

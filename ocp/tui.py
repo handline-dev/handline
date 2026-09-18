@@ -164,8 +164,12 @@ class Panel:
     something never moves the columns.
     """
 
-    def __init__(self, title: str, width: int, focused: bool = False):
+    def __init__(self, title: str, width: int, focused: bool = False,
+                 plain_title: bool = False):
         self.title, self.width, self.focused = title, width, focused
+        # A title that carries its own colours - a row of tabs, where one is
+        # lit and the rest are not - is drawn as it was built.
+        self.plain_title = plain_title
         self.rows: list[str] = []
         self.keys: list[object] = []
         self.headings: set[int] = set()
@@ -207,7 +211,7 @@ class Panel:
         # screen said which it was: the reader pressed `a` at a panel they were
         # not in and read "does not apply". The title carries it.
         edge = f"{CYA}┌─{R}" if self.focused else f"{DIM}┌─{R}"
-        name = f"{CYA}{BOLD}" if self.focused else BOLD
+        name = "" if self.plain_title else (f"{CYA}{BOLD}" if self.focused else BOLD)
         head = f"{edge} {name}{fit(title, max(0, self.width - 6))}{R} "
         # Pad with the rule to exactly `width` visible columns. Mixing vlen()
         # with len() of an escape sequence is how this ended up one character
@@ -215,7 +219,11 @@ class Panel:
         head += DIM + "─" * max(0, self.width - vlen(head) - 1) + "┐" + R
         out = [head]
         for row, key in body:
-            gutter = f"{CYA}▸{R} " if key is not None and key == self.selected else "  "
+            # Only the focused panel draws a cursor. Every panel remembers
+            # where its own was, so four of them drew one at once and the
+            # reader had four arrows and no idea which their keys meant.
+            here = self.focused and key is not None and key == self.selected
+            gutter = f"{CYA}▸{R} " if here else "  "
             out.append(f"{DIM}│{R}" + pad(fit(gutter + row, inner), inner) + f"{DIM}│{R}")
         if held_back and limit is not None and limit >= 2:
             more = f"{DIM}  … {held_back} more{R}"
@@ -514,9 +522,11 @@ def lines_of(detail: dict, width: int) -> list[str]:
         return lines
     at = max(0, min(detail.get("tab", 0), len(tabs) - 1))
     detail["tab"] = at
-    lines.append(_tabstrip([h for h, _ in tabs], at, width))
+    # The tabs are the box's own top edge. Drawn as a strip above a box that
+    # then repeated the open tab's name, the page said "EARLIER WITH MANAGER"
+    # twice in two lines.
     heading, rows = tabs[at]
-    box = Panel(heading, width, focused=True)
+    box = Panel(_tabstrip([h for h, _ in tabs], at), width, plain_title=True)
     # Wrapped into the box, not fitted to it: what is quoted here is a message
     # someone wrote, and a box that ends every line in "…" is not a section
     # anyone can read. A panel on the main screen cuts a row because the row
@@ -526,13 +536,11 @@ def lines_of(detail: dict, width: int) -> list[str]:
     return lines + box.draw()
 
 
-def _tabstrip(names: list[str], at: int, width: int) -> str:
-    """The sections of an open page, with the one being read marked."""
-    parts = []
-    for i, n in enumerate(names):
-        parts.append(f"{CYA}{BOLD}{n}{R}" if i == at else f"{DIM}{n}{R}")
-    line = f"  {DIM}·{R} ".join(parts)
-    return fit(f"  {line}", width)
+def _tabstrip(names: list[str], at: int) -> str:
+    """The sections of an open page, with the one being read lit."""
+    parts = [f"{CYA}{BOLD}{n}{R}" if i == at else f"{DIM}{n}{R}"
+             for i, n in enumerate(names)]
+    return f" {DIM}·{R} ".join(parts)
 
 
 def opened(title: str, lines: list[str], panel: int = AGENTS, key: object = None) -> dict:
@@ -931,14 +939,13 @@ def _in_detail(detail: dict, k: str, width: int, height: int,
                 body = _compose_message(name, label, width, height, fd, saved)
                 return detail, (actions.message(con, name, body) if body is not None
                                 else _nothing_sent("e" if label == "editor" else "m"))
-            if label in ("start", "terminal") and _needs_a_terminal(con, name):
-                repo = _line(f"repo for {name} [{os.getcwd()}]:", width, height)
+            if label == "terminal" and _needs_a_terminal(con, name):
+                repo = _line(f"{name} has nowhere to run - repo to start it in "
+                             f"[{os.getcwd()}]:", width, height)
                 if repo is None:
                     return detail, "not started"
                 _say(f"starting {name}", width, height)
-                where = repo.strip() or os.getcwd()
-                return detail, (actions.start(con, name, where) if label == "start"
-                                else actions.terminal(con, name, where))
+                return detail, actions.terminal(con, name, repo.strip() or os.getcwd())
             if label in CONFIRM and not _confirm(f"{label} {name}", width, height):
                 return detail, "left alone"
             _say(f"{label} {name}", width, height)
@@ -1175,19 +1182,16 @@ def _act(panel: int, sel: dict, key: str, width: int, height: int,
             allowed, why = actions.can(con, name, label)
             if not allowed:
                 return why, None
-            if label in ("start", "terminal") and _needs_a_terminal(con, name):
+            if label == "terminal" and _needs_a_terminal(con, name):
                 # Going to an agent that has nowhere to run means making it
                 # somewhere first, and the only thing that cannot be worked out
                 # from here is which repo.
-                asked = (f"repo for {name}" if label == "start"
-                         else f"{name} has nowhere to run - repo to start it in")
-                repo = _line(f"{asked} [{os.getcwd()}]:", width, height)
+                repo = _line(f"{name} has nowhere to run - repo to start it in "
+                             f"[{os.getcwd()}]:", width, height)
                 if repo is None:
                     return "not started", None
                 _say(f"starting {name}", width, height)
-                where = repo.strip() or os.getcwd()
-                return (actions.start(con, name, where) if label == "start"
-                        else actions.terminal(con, name, where)), None
+                return actions.terminal(con, name, repo.strip() or os.getcwd()), None
             if label in ("message", "editor"):
                 body = _compose_message(name, label, width, height, fd, saved)
                 return (actions.message(con, name, body) if body is not None
