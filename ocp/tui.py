@@ -164,8 +164,8 @@ class Panel:
     something never moves the columns.
     """
 
-    def __init__(self, title: str, width: int):
-        self.title, self.width = title, width
+    def __init__(self, title: str, width: int, focused: bool = False):
+        self.title, self.width, self.focused = title, width, focused
         self.rows: list[str] = []
         self.keys: list[object] = []
         self.headings: set[int] = set()
@@ -203,7 +203,12 @@ class Panel:
         # any other row. A head wider than the terminal wraps, and a wrapped
         # line is one row more than the frame promised, which is the one thing
         # that scrolls the alternate screen.
-        head = f"{DIM}┌─{R} {BOLD}{fit(title, max(0, self.width - 6))}{R} "
+        # The focused panel is the one the keys act on, and nothing on the
+        # screen said which it was: the reader pressed `a` at a panel they were
+        # not in and read "does not apply". The title carries it.
+        edge = f"{CYA}┌─{R}" if self.focused else f"{DIM}┌─{R}"
+        name = f"{CYA}{BOLD}" if self.focused else BOLD
+        head = f"{edge} {name}{fit(title, max(0, self.width - 6))}{R} "
         # Pad with the rule to exactly `width` visible columns. Mixing vlen()
         # with len() of an escape sequence is how this ended up one character
         # too long and truncating its own title.
@@ -276,7 +281,8 @@ def keybar(panel: int, width: int, hidden: int = 0) -> str:
     return fit(head, width)
 
 
-def build(width: int, sel: dict | None = None) -> tuple[list[str], list[Panel]]:
+def build(width: int, sel: dict | None = None,
+          panel: int | None = None) -> tuple[list[str], list[Panel]]:
     """Return (header lines, panels) for one frame.
 
     `sel` is {panel: key}: which row carries the cursor in each panel, so the
@@ -308,7 +314,7 @@ def build(width: int, sel: dict | None = None) -> tuple[list[str], list[Panel]]:
         header = [fit(with_legend if show_legend else bar_, width), ""]
 
         # ---- accounts ------------------------------------------------
-        acc = Panel("ACCOUNTS", width)
+        acc = Panel("ACCOUNTS", width, focused=panel == ACCOUNTS)
         acc.selected = sel.get(ACCOUNTS)
         acc.add(f"{DIM}{'account':<10}{'5h usage':<18}{'reset':<8}"
                 f"{'7d':<14}assign{R}", heading=True)
@@ -345,7 +351,7 @@ def build(width: int, sel: dict | None = None) -> tuple[list[str], list[Panel]]:
             acc.add(f"{DIM}  no accounts registered{R}")
 
         # ---- agents --------------------------------------------------
-        ag = Panel("AGENTS", width)
+        ag = Panel("AGENTS", width, focused=panel == AGENTS)
         ag.selected = sel.get(AGENTS)
         # No heading for the last column: it is empty unless something is about
         # to happen, and then it says what, in words.
@@ -420,7 +426,7 @@ def build(width: int, sel: dict | None = None) -> tuple[list[str], list[Panel]]:
                   (len(waiting) - gates - parked - back, "to read")]
         said = ", ".join(f"{n} {what}" for n, what in counts if n)
         title = f"FOR YOU — {said}" if said else "FOR YOU"
-        ms = Panel(title, width)
+        ms = Panel(title, width, focused=panel == MESSAGES)
         ms.selected = sel.get(MESSAGES)
         today = time.strftime("%Y%m%d")
         for m in waiting:
@@ -459,7 +465,8 @@ def build(width: int, sel: dict | None = None) -> tuple[list[str], list[Panel]]:
         # day and a half because their target had no terminal to be told with.
         # Traffic drawn as traffic said the system was busy while it was stuck.
         blocked = actions.stuck(con)
-        fl = Panel("STUCK" if blocked else "STUCK — nothing is waiting on anything", width)
+        fl = Panel("STUCK" if blocked else "STUCK — nothing is waiting on anything", width,
+                   focused=panel == STUCK)
         fl.selected = sel.get(STUCK)
         for b in blocked:
             fl.add(pad(f"{YEL}{b['what']}{R}", 34)
@@ -495,20 +502,37 @@ def lines_of(detail: dict, width: int) -> list[str]:
     sections = detail.get("sections")
     if sections is None:
         return wrap(detail["lines"], width)
-    lines: list[str] = []
-    for heading, rows in sections:
-        if heading:
-            box = Panel(heading, width)
-            # Wrapped into the box, not fitted to it: what is quoted here is a
-            # message someone wrote, and a box that ends every line in "…" is
-            # not a section anyone can read. A panel on the main screen cuts a
-            # row because the row underneath needs the line; a page scrolls.
-            for r in wrap(rows, max(1, width - 5)):
-                box.add(r)
-            lines += box.draw()
-        else:
-            lines += wrap(list(rows), width) + [""]
-    return lines
+    # What is always on the page, and what is one of its tabs. A page opened on
+    # an agent asks four different questions - what is it, what is waiting for
+    # it, what does it know, what has it done - and stacking all four meant
+    # scrolling past three to read the fourth. The untitled part is what the
+    # page is *about*, so it stays; the rest is ←→.
+    intro = [r for h, rows in sections if not h for r in rows]
+    tabs = [(h, rows) for h, rows in sections if h]
+    lines: list[str] = wrap(intro, width) + [""] if intro else []
+    if not tabs:
+        return lines
+    at = max(0, min(detail.get("tab", 0), len(tabs) - 1))
+    detail["tab"] = at
+    lines.append(_tabstrip([h for h, _ in tabs], at, width))
+    heading, rows = tabs[at]
+    box = Panel(heading, width, focused=True)
+    # Wrapped into the box, not fitted to it: what is quoted here is a message
+    # someone wrote, and a box that ends every line in "…" is not a section
+    # anyone can read. A panel on the main screen cuts a row because the row
+    # underneath needs the line; a page scrolls.
+    for r in wrap(rows, max(1, width - 5)):
+        box.add(r)
+    return lines + box.draw()
+
+
+def _tabstrip(names: list[str], at: int, width: int) -> str:
+    """The sections of an open page, with the one being read marked."""
+    parts = []
+    for i, n in enumerate(names):
+        parts.append(f"{CYA}{BOLD}{n}{R}" if i == at else f"{DIM}{n}{R}")
+    line = f"  {DIM}·{R} ".join(parts)
+    return fit(f"  {line}", width)
 
 
 def opened(title: str, lines: list[str], panel: int = AGENTS, key: object = None) -> dict:
@@ -525,7 +549,7 @@ def frame(width: int, height: int, sel: dict | None = None, panel: int = AGENTS,
           flash: str = "", detail: dict | None = None) -> str:
     if detail is not None:
         return _detail_frame(width, height, detail, flash)
-    header, panels = build(width, sel)
+    header, panels = build(width, sel, panel)
     room = height - len(header) - 2                    # the two footer rows
     limits, hidden = _layout([len(p.rows) for p in panels], room)
     body: list[str] = []
@@ -640,7 +664,9 @@ def _detail_frame(width: int, height: int, detail: dict, flash: str = "") -> str
         shown.append("")
     where = (f"{DIM}  line {top + 1}-{min(len(body), top + room)} of {len(body)}{R}"
              if len(body) > room else "")
-    keys = "esc back · ↑↓ scroll · space page"
+    keys = "esc back · ←→ section · ↑↓ scroll"
+    if detail.get("sections") is None or not [h for h, _ in detail["sections"] if h]:
+        keys = "esc back · ↑↓ scroll · space page"
     if detail.get("panel") == MESSAGES:
         keys += " · a answer · e answer in $EDITOR · x dismiss"
     elif detail.get("panel") in (AGENTS, STUCK):
@@ -653,12 +679,36 @@ def _detail_frame(width: int, height: int, detail: dict, flash: str = "") -> str
 
 
 def move(keys: list, current, delta: int):
-    """The next key in a panel's list, staying inside it."""
+    """The next key in a panel's list, or None when that is off its end."""
     if not keys:
         return None
     if current not in keys:
         return keys[0]
-    return keys[max(0, min(len(keys) - 1, keys.index(current) + delta))]
+    i = keys.index(current) + delta
+    return keys[i] if 0 <= i < len(keys) else None
+
+
+def step(panel: int, sel: dict, delta: int) -> int:
+    """One row down or up, crossing into the next panel at the end of one.
+
+    The panels are four lists stacked on one screen, and a reader arrowing down
+    the screen means the screen: stopping at the bottom of the team list reads
+    as "this is as far as you go", which is how a mailbox two panels below it
+    goes unread. ←→ jumps whole panels; ↑↓ walks everything in order.
+
+    A panel with nothing selectable in it is stepped over, not stopped in.
+    """
+    nxt = move(_keys_of(panel), sel.get(panel), delta)
+    if nxt is not None:
+        sel[panel] = nxt
+        return panel
+    for _ in range(len(PANELS) - 1):
+        panel = (panel + delta) % len(PANELS)
+        keys = _keys_of(panel)
+        if keys:
+            sel[panel] = keys[0] if delta > 0 else keys[-1]
+            return panel
+    return panel
 
 
 # Keys read ahead of the one being handled. One read can return several - a
@@ -786,6 +836,7 @@ def run(interval: float = 2.0, once: bool = False) -> int:
     fd = sys.stdin.fileno()
     saved = termios.tcgetattr(fd) if sys.stdin.isatty() else None
     panel, sel, flash, detail = AGENTS, {}, "", None
+    _enter(panel, sel)
     try:
         if saved:
             tty.setcbreak(fd)
@@ -808,13 +859,13 @@ def run(interval: float = 2.0, once: bool = False) -> int:
                 continue
             flash = ""
             if k in ("\t", "\033[C", "\033OC"):
-                panel = (panel + 1) % len(PANELS)
+                panel = _enter((panel + 1) % len(PANELS), sel)
                 continue
             if k in ("\033[Z", "\033[D", "\033OD"):
                 # shift-tab and the left arrow, so the panels can be walked
                 # both ways: tab alone means starting the lap again to get back
                 # one.
-                panel = (panel - 1) % len(PANELS)
+                panel = _enter((panel - 1) % len(PANELS), sel)
                 continue
             if k in ("r", "R"):
                 continue
@@ -850,6 +901,14 @@ def _in_detail(detail: dict, k: str, width: int, height: int,
     room = max(1, height - 4)
     if k in ("\033", "\x1b"):
         return None, ""
+    if k in ("\033[C", "\033OC", "\t"):
+        detail["tab"] = detail.get("tab", 0) + 1
+        detail["top"] = 0
+        return detail, ""
+    if k in ("\033[D", "\033OD", "\033[Z"):
+        detail["tab"] = max(0, detail.get("tab", 0) - 1)
+        detail["top"] = 0
+        return detail, ""
     if k in ("j", "\033[B", "\033OB"):
         detail["top"] += 1
         return detail, ""
@@ -1007,6 +1066,21 @@ def _say(what: str, width: int, height: int) -> None:
         return                      # no screen to put it on
     sys.stdout.write(f"\033[{height};1H" + CLEAR_EOL + fit(f"{DIM}{what}…{R}", width))
     sys.stdout.flush()
+
+
+def _enter(panel: int, sel: dict) -> int:
+    """Move into a panel, with the cursor on something.
+
+    A panel nobody had arrowed through yet had no selected row, so the first
+    key pressed in it answered "selection moved - press again" - which reads as
+    "you cannot do that here" rather than "press it once more". Arriving is
+    what puts the cursor on the first row.
+    """
+    if sel.get(panel) is None:
+        keys = _keys_of(panel)
+        if keys:
+            sel[panel] = keys[0]
+    return panel
 
 
 def _needs_a_terminal(con, agent: str) -> bool:

@@ -4819,18 +4819,69 @@ def test_the_frame_never_draws_wider_than_the_terminal(home: Path) -> None:
         con.close()
 
 
-def test_top_cursor_stays_inside_its_panel(home: Path) -> None:
+def test_the_cursor_walks_the_whole_screen(home: Path) -> None:
     """The lists change under the cursor - an agent is registered, a message is
     answered - so moving is defined on what is there now, not on a remembered
-    index."""
+    index. And the panels are four lists stacked on one screen: arrowing down
+    the screen means the screen, so the end of one panel is the top of the
+    next. Stopping at the bottom of the team list is how a mailbox below it
+    goes unread."""
     keys = ["alpha", "beta", "gamma"]
     check("top: down moves to the next", tui.move(keys, "alpha", 1) == "beta")
-    check("top: and stops at the end", tui.move(keys, "gamma", 1) == "gamma")
-    check("top: up stops at the start", tui.move(keys, "alpha", -1) == "alpha")
+    check("top: the end of a list is off it, for the caller to handle",
+          tui.move(keys, "gamma", 1) is None and tui.move(keys, "alpha", -1) is None)
     check("top: a cursor on something that is gone lands on the first row",
           tui.move(keys, "deleted", 1) == "alpha")
     check("top: and an empty panel has nothing to select",
           tui.move([], None, 1) is None)
+
+    _daemon_home(home, 20)
+    con = db.connect()
+    try:
+        agents.register("marina", "alpha")
+        db.add_request(con, "marina", actions.HUMAN, "which variant ships?",
+                       None, "peer", "async", None, 0, None)
+        sel: dict = {}
+        panel = tui._enter(tui.AGENTS, sel)
+        check("top: arriving in a panel puts the cursor on its first row",
+              sel[tui.AGENTS] is not None, str(sel))
+        seen = []
+        for _ in range(6):
+            seen.append((panel, sel.get(panel)))
+            panel = tui.step(panel, sel, 1)
+        check("top: down off the end of the team list lands in the mailbox",
+              any(p == tui.MESSAGES for p, _k in seen) or panel == tui.MESSAGES,
+              str([(tui.PANEL_NAME[p], k) for p, k in seen]))
+        back = tui.step(panel, sel, -1)
+        check("top: and up comes back out of it", back in (tui.MESSAGES, tui.AGENTS),
+              tui.PANEL_NAME[back])
+
+        # Which panel the keys act on was only in the footer's first word, so a
+        # reader pressed `a` at a panel they were not in and read a refusal.
+        framed = tui.frame(110, 40, sel, tui.MESSAGES)
+        titles = [ln for ln in framed.split(chr(10)) if "┌─" in ln]
+        lit = [t for t in titles if tui.CYA in t]
+        check("top: the panel the keys act on is the one drawn as focused",
+              len(lit) == 1 and "FOR YOU" in tui._ANSI.sub("", lit[0]),
+              str([tui._ANSI.sub("", t).strip()[:24] for t in lit]))
+        check("top: and the keys it offers are the ones on the footer",
+              "a answer" in tui._ANSI.sub("", framed.split(chr(10))[-1]),
+              tui._ANSI.sub("", framed.split(chr(10))[-1]))
+
+        # An open page asks several questions and used to stack every answer,
+        # so reading the fourth meant scrolling past three.
+        page = tui.page("agent backend", actions.agent_detail(con, "backend"),
+                        tui.AGENTS, "backend")
+        first = tui._ANSI.sub("", tui._detail_frame(110, 20, page))
+        page, _said = tui._in_detail(page, "\033[C", 110, 20)
+        second = tui._ANSI.sub("", tui._detail_frame(110, 20, page))
+        check("top: an open page has its sections as tabs",
+              "WAITING FOR IT" in first and "WHAT IT KNOWS" in first, first[:200])
+        check("top: and ←→ reads a different one, from its top",
+              first != second and page["tab"] == 1 and page["top"] == 0,
+              str(page["tab"]))
+    finally:
+        con.close()
 
 
 def test_login_points_at_the_account_and_touches_no_credential(home: Path) -> None:
@@ -5707,7 +5758,7 @@ def main() -> int:
         run(lambda: test_a_message_is_read_whole_and_answered_where_it_is_read(Path(td) / 'topread'))
         run(lambda: test_a_key_never_acts_on_a_row_nobody_pointed_at(Path(td) / 'topsel'))
         run(lambda: test_the_frame_never_draws_wider_than_the_terminal(Path(td) / 'topwide'))
-        run(lambda: test_top_cursor_stays_inside_its_panel(Path(td) / 'topcur'))
+        run(lambda: test_the_cursor_walks_the_whole_screen(Path(td) / 'topcur'))
         run(lambda: test_login_points_at_the_account_and_touches_no_credential(Path(td) / 'login'))
         run(lambda: test_a_fold_with_no_account_says_which_and_why(Path(td) / 'foldacct'))
         run(lambda: test_doctor_says_when_the_record_and_the_process_table_disagree(Path(td) / 'docsess'))
