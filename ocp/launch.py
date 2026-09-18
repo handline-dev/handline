@@ -20,10 +20,17 @@ import os
 import shutil
 import sys
 
-from . import accounts, agents, paths, status
+from . import accounts, agents, paths, status, triggers
 
 
-def choose_account(agent: str, resuming: bool = False) -> str:
+# A session started this close to the wall folds almost at once: the usage
+# trigger fires a reserve short of the hard stop, so an account inside that
+# reserve has no room to work in, only room to hand off. The wall itself is
+# still where a launch is refused - `build` does that, and says which account.
+START_LIMIT = triggers.HARD_STOP_PCT - triggers.DEFAULT_RESERVE_PCT
+
+
+def choose_account(agent: str, resuming: bool = False, limit: int | None = None) -> str:
     """Which account this launch runs on.
 
     agent.yaml names a preference, not a destination. The moment a session is
@@ -36,11 +43,6 @@ def choose_account(agent: str, resuming: bool = False) -> str:
     directory, so `--resume` on any other account finds nothing; a resumed
     session goes back to the account it was recorded on, or the run is not a
     resume at all.
-
-    Total throughput is accounts x window, and moving a session does not change
-    it. What it changes is whether an agent waits for its own window while
-    another account sits idle beside it (design section 0.5, which put the
-    whole slot model behind exactly that trade).
     """
     if resuming:
         return agents.current_account(agent)
@@ -53,7 +55,7 @@ def choose_account(agent: str, resuming: bool = False) -> str:
     # snapshot, and leave the preferred mapping meaning nothing.
     st = status.read(preferred)
     pct = st.trusted_pct_5h
-    full = (pct is not None and pct >= status.PCT_5H_BLOCK) or \
+    full = (pct is not None and pct >= (limit if limit is not None else START_LIMIT)) or \
            (st.pct_7d is not None and st.pct_7d >= status.PCT_7D_BLOCK)
     if not full:
         return preferred
@@ -68,9 +70,20 @@ def choose_account(agent: str, resuming: bool = False) -> str:
     return picked or preferred
 
 
+def _is_resume(extra: list[str] | None) -> bool:
+    """Does this launch carry a session to resume?
+
+    Three spellings, because reading `--resume=<id>` as "not a resume" picks an
+    account by headroom and then hands claude a session id that exists under
+    the other one - a silently fresh session where a resume was asked for.
+    """
+    return any(x == "--resume" or x.startswith("--resume=") or x == "-r"
+               for x in (extra or []))
+
+
 def build(agent: str, extra: list[str] | None = None, force: bool = False) -> tuple[list[str], dict]:
     """Return (argv, env) ready to hand to execve."""
-    acct = choose_account(agent, resuming=any("--resume" == x for x in (extra or [])))
+    acct = choose_account(agent, resuming=_is_resume(extra))
 
     if not accounts.logged_in(acct):
         raise SystemExit(

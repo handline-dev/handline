@@ -418,18 +418,37 @@ def close_agent(con, agent: str, log, st) -> tuple[bool, str]:
 
 
 def _close_agent(con, agent: str, log, st) -> tuple[bool, str]:
-    handle = db.get_terminal(con, agent)
-    if not handle or not orca.available():
-        return False, "no terminal to close"
-    if not st.session_id:
-        return False, "no session to resume; not closing"
     row = db.get_agent_state(con, agent)
     if row and row["state"] in (RUNNING, HANDOFF):
         # `should_close` refuses these, and every path that closes on a
         # schedule goes through it - but a human's key does not, and a turn can
         # start between the moment they press it and the moment they confirm.
         # Closing then throws away work nothing has recorded.
+        #
+        # A handoff is the exception and calls `_end_session` itself: it is the
+        # one path that has already recorded the work, with the fold, and then
+        # needs the session gone to start the next one somewhere else.
         return False, f"{agent} is {row['state']}; not closing a session mid-work"
+    if not st.session_id:
+        # Closing is only cheap because waking resumes the same session. With
+        # no id to come back to, closing is just throwing the context away.
+        return False, "no session to resume; not closing"
+    return _end_session(con, agent, log, st, resume=st.session_id)
+
+
+def _end_session(con, agent: str, log, st, resume: str | None) -> tuple[bool, str]:
+    """Type `/exit` at this agent, and record what may bring it back.
+
+    `resume` is the session id to come back to, or None when nothing may: a
+    session id exists only under its own account's config directory, so a close
+    that precedes a move to another account must record none. Whether there is
+    an id at all is the caller's question - a move does not want one - while
+    whether there is a session to end is this one's, and it is asked of the
+    process table rather than of a snapshot.
+    """
+    handle = db.get_terminal(con, agent)
+    if not handle or not orca.available():
+        return False, "no terminal to close"
     if not session_present(agent):
         # `/exit` typed at the shell exits the shell, and Orca's terminal goes
         # with it - so the one path that turns a recoverable state into an
@@ -440,7 +459,7 @@ def _close_agent(con, agent: str, log, st) -> tuple[bool, str]:
     ok, why = orca.close_session(handle)
     if not ok:
         return False, why
-    db.set_closed(con, agent, st.session_id)
+    db.set_closed(con, agent, resume)
     # RUNNING describes a session that exists. Leaving the label on a closed one
     # makes every screen say the opposite of what happened, and the daemon skips
     # RUNNING agents when it decides what to close next.
@@ -454,7 +473,8 @@ def _close_agent(con, agent: str, log, st) -> tuple[bool, str]:
     return True, f"{agent}: session closed, terminal kept"
 
 
-def wake_prompt(agent: str, resumed: bool, was_closed: bool = False) -> str:
+def wake_prompt(agent: str, resumed: bool, was_closed: bool = False,
+                moved_to: str | None = None, con=None) -> str:
     """What an agent is told when it comes back.
 
     A resumed session already holds everything it knew, so it is told where it
@@ -465,7 +485,16 @@ def wake_prompt(agent: str, resumed: bool, was_closed: bool = False) -> str:
     detail it dropped is still on disk.
     """
     parts: list[str] = []
-    if resumed:
+    if moved_to:
+        # A move is not a close. Its session ended a moment ago with a fold, so
+        # the handoff is current and `launch.context_for` has already put it in
+        # this session's system prompt - telling it "nothing was folded" would
+        # send it to read a journal for what it is holding.
+        parts.append(f"Your account was at its 5h limit, so this session was started on "
+                     f"{moved_to} instead of waiting for that window to roll over. Your "
+                     f"work was folded first and your handoff is in your system prompt "
+                     f"above. Carry on from there.")
+    elif resumed:
         parts.append("Your session was closed while you were idle and has been resumed. "
                      "Nothing was lost; carry on.")
     elif was_closed:
@@ -484,7 +513,7 @@ def wake_prompt(agent: str, resumed: bool, was_closed: bool = False) -> str:
         p = foldmod.handoff_path(agent)
         if p.exists():
             parts.append(p.read_text())
-    st = status.read_for_agent(agent, agents.current_account(agent))
+    st = status.read_for_agent(agent, agents.current_account(agent, con))
     if st.transcript_path:
         parts.append(
             f"Your previous session is {st.session_id}, recorded at "
@@ -509,8 +538,13 @@ def wake_agent(con, agent: str, log) -> tuple[bool, str]:
         return _wake_agent(con, agent, log)
 
 
-def _wake_agent(con, agent: str, log) -> tuple[bool, str]:
-    """The body of a wake, without the lock. Callers already holding it use this."""
+def _wake_agent(con, agent: str, log, moved_to: str | None = None) -> tuple[bool, str]:
+    """The body of a wake, without the lock. Callers already holding it use this.
+
+    `moved_to` names the account this wake is starting the agent on when it is
+    not the one the last session was on, so the agent is told that rather than
+    told it was closed with nothing folded.
+    """
     handle = db.get_terminal(con, agent)
     if not handle or not orca.available():
         return False, "no terminal to wake"
@@ -523,10 +557,12 @@ def _wake_agent(con, agent: str, log) -> tuple[bool, str]:
         # before it types anything. Trying anyway would spend the wake timeout
         # to be told what we already knew, and count a streak against an agent
         # whose only problem rolls over by itself.
-        # Which account this launch would land on, not which one the last
-        # session was on: a fresh start may go somewhere with room, and
-        # refusing on the account it is leaving would keep it from ever
-        # getting there.
+        # The account this launch will land on. With a session to resume that
+        # is the account it lives under, so an agent whose own account is at
+        # the wall waits for its window rather than losing its conversation -
+        # closing writes no handoff, so a fresh start elsewhere would come back
+        # with nothing. Only a wake with nothing to resume is free to go where
+        # there is room, which is the move's wake.
         session = row["resume_session"]
         acct = launch.choose_account(agent, resuming=bool(session))
         acct_st = status.read(acct)
@@ -589,7 +625,8 @@ def _wake_agent(con, agent: str, log) -> tuple[bool, str]:
         # the branch above then relaunches it before anything is typed.
         return False, "no session process; not typing the handoff at a shell prompt"
 
-    ok, why = orca.resume_with(handle, wake_prompt(agent, resumed, was_closed=closed))
+    ok, why = orca.resume_with(handle, wake_prompt(agent, resumed, was_closed=closed,
+                                                   moved_to=moved_to, con=con))
     log(f"  {agent}: {why}{' (session resumed)' if resumed else ''}")
     return ok, why
 
@@ -906,51 +943,71 @@ MOVABLE_TRIGGERS = ("usage", "usage_projected")
 def _move_to_room(con, agent: str, trigger: triggers.Trigger, log) -> bool:
     """Put this agent's next session on an account that has room. True if it moved.
 
-    Total throughput is accounts x window and this does not change it. What it
-    changes is whether an agent waits out its own window while another account
-    sits idle beside it - which is the whole trade design section 0.5 put
-    behind the slot model, and the part of it that needs no lease: nothing is
-    taken from a live session, because this one is already over.
+    What this changes is whether an agent waits out its own window while
+    another account idles beside it. It needs no lease, because it does not
+    take anything from a session anyone is using: it runs after the fold, at
+    the point where this session was ending either way.
 
-    The new session cannot be the old one. A session id lives under one
-    account's config directory, so it is closed without a resume id and the
-    launch starts a fresh one - which `launch.context_for` hands the handoff,
-    and `wake_agent` hands the old transcript's path to grep.
+    The new session cannot be the old one - a session id lives under one
+    account's config directory - so the close records no resume id, and what
+    carries over is what carries over across a park: the handoff in the system
+    prompt, and the old transcript's path to grep.
     """
     if trigger.kind not in MOVABLE_TRIGGERS:
         return False
     here = agents.current_account(agent, con)
-    there = launch.choose_account(agent)
+    # Judged on the line the trigger fired at, not on the hard stop. The fold
+    # happens a reserve short of the wall so there is room to pay for it, and
+    # an account the daemon has just decided is too full to work on is too full
+    # to move to as well.
+    there = launch.choose_account(agent, limit=triggers.HARD_STOP_PCT - triggers.DEFAULT_RESERVE_PCT)
     if there == here:
+        log(f"  {agent}: staying on {here} - nowhere with more room")
         return False
     allowed, why = status.read(there).assignable()
     if not allowed:
+        log(f"  {agent}: staying on {here} - {there} takes no work either ({why})")
         return False
     handle = db.get_terminal(con, agent)
     if not handle or not orca.available() or not orca.alive(handle):
         return False
-    ok, why = orca.close_session(handle)
+
+    # Closed through the same checks every other close goes through. `/exit`
+    # typed at a shell exits the shell and Orca's terminal goes with it, and by
+    # here the fold has taken long enough that the session it started with may
+    # be gone. No resume id: that session belongs to the account being left.
+    st = status.read_for_agent(agent, here)
+    ok, why = _end_session(con, agent, log, st, resume=None)
     if not ok:
-        log(f"  {agent}: staying on {here} - could not end its session: {why[:120]}")
+        log(f"  {agent}: staying on {here} - {why}")
         return False
-    # No resume id: that session belongs to the account being left.
-    db.set_closed(con, agent, None)
-    # The unlocked one. This runs inside the handoff's own hold on the
+
+    # The unlocked wake. This runs inside the handoff's own hold on the
     # terminal, and `lock.terminal` is flock on a fresh descriptor, so a second
     # acquire in this process does not nest - it fails, and a failed wake here
     # would read as "nowhere to go" and park the agent on the account it was
     # just moved off.
-    woke, why = _wake_agent(con, agent, log)
-    if not woke:
-        # The session is gone and the launch did not take. Saying so and
-        # falling through parks it with a deadline, which is what brings a
-        # closed agent back at all - returning True here would leave it closed
+    woke, why = _wake_agent(con, agent, log, moved_to=there)
+    landed = db.get_agent_state(con, agent)
+    if not woke and landed and landed["closed_at"]:
+        # Nothing started. The session is gone and the row still says closed,
+        # so falling through parks it with a deadline - which is what brings a
+        # closed agent back at all. Returning True here would leave it closed
         # with nothing due.
         log(f"  {agent}: closed on {here} but could not start on {there}: {why[:120]}")
         return False
+
+    # A session is live on the new account. Whether the line after it - handing
+    # it its own handoff - also landed is not the same question, and treating a
+    # failed handback as a failed move would clear the context of the session
+    # that just started and park it until the *old* account rolls over.
+    db.set_account(con, agent, there)
+    db.set_agent_state(con, agent, QUEUED, wake_at=None,
+                       detail=f"moved {here} -> {there} ({trigger.kind})")
     db.add_event(con, agent, "moved_account", {"from": here, "to": there,
                                                "trigger": trigger.kind})
-    log(f"  {agent}: moved {here} -> {there} ({trigger.kind})")
+    log(f"  {agent}: moved {here} -> {there} ({trigger.kind})"
+        + ("" if woke else f" - but it was not handed its handoff: {why[:80]}"))
     return True
 
 
@@ -985,12 +1042,9 @@ def _perform_handoff(con, agent: str, trigger: triggers.Trigger, log,
 
     db.advance_handoff(con, hid, "extracted")
 
-    # Where it goes next. An agent whose own account is at the wall does not
-    # have to sit out that window if another account has room. It is only worth
-    # doing here, after the fold: the session is about to lose its context
-    # either way, so what moving costs on top is the server-side cache - and
-    # waiting for the reset loses that too, because the cache expires on time,
-    # not on whether we kept the process alive.
+    # Where it goes next. An agent whose own account is out of room does not
+    # have to sit out that window if another account has some. Here, after the
+    # fold, because this session is ending either way.
     if _move_to_room(con, agent, trigger, log):
         db.advance_handoff(con, hid, "released", state="done" if ok else "degraded")
         db.bump_counter(con, agent, "continuations")

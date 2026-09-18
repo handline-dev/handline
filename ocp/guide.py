@@ -41,10 +41,10 @@ age we will assign on - still a floor for triggers, no new work.
 
 Design section 4 has the five cases and why only one of them is fail-closed.
 
-An agent's account is a preference. A session starts on it when it has room and
-on whichever account does when a current reading says it is at the wall; the
-state row records where it went, and `ocp top` shows that rather than the
-preference. Nothing moves a live session - a move is one session ending and
+An agent's account is a preference. A session starts on it when it has room to
+work - which ends a reserve short of the hard stop, where the fold fires - and
+on whichever account does when a current reading says it has not; the state row
+records where it went, and `ocp top` shows that rather than the preference. Nothing moves a live session - a move is one session ending and
 another starting, so it happens after a fold, and a resume always goes back to
 the account its session lives on.""",
     "work": """giving an agent work

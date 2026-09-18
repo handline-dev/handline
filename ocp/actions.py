@@ -768,7 +768,7 @@ def account_detail(con, acct: str) -> list[tuple[str, list[str]]]:
     head.append("spend    " + ("nothing running to read it from" if live is None else
                                f"${live:.2f} across the sessions running now - not the "
                                f"account's total, which nothing here can see"))
-    mine = [a for a in paths.list_agents() if _account_of(a) == acct]
+    mine = [a for a in paths.list_agents() if _account_of(a, con) == acct]
     rows = []
     for a in mine:
         row = db.get_agent_state(con, a)
@@ -778,9 +778,15 @@ def account_detail(con, acct: str) -> list[tuple[str, list[str]]]:
     return [("", head), (f"AGENTS ON IT ({len(mine)})", rows or ["none"])]
 
 
-def _account_of(agent: str) -> str | None:
+def _account_of(agent: str, con=None) -> str | None:
+    """Where this agent's session is, for the list of who is on an account.
+
+    The live account, like every other runtime reading: an agent that moved is
+    on the account it moved to, and listing it under the one it left puts it a
+    keystroke away from its own page saying otherwise.
+    """
     try:
-        return agents.account_of(agent)
+        return agents.current_account(agent, con)
     except Exception:  # noqa: BLE001 - an unreadable agent belongs to no account here
         return None
 

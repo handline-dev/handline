@@ -123,9 +123,11 @@ response and the staler one must not win.
 
 **An account is a preference, not a destination.** `agent.yaml` says which
 account an agent would rather be on, and a session goes there whenever it has
-room. When it does not - a *current* reading at the wall, never a missing or
-stale one - the next session starts on whichever account does, and the row
-records where it went. Total throughput is still accounts x window; what this
+room. Room means room to work: the usage trigger folds a reserve short of the
+hard stop, so an account inside that reserve has room to hand off and nothing
+more. When a *current* reading says that - never a missing or stale one - the
+next session starts on whichever account does have room, and the row records
+where it went. Total throughput is still accounts x window; what this
 buys is an agent not sitting out its own five hours while another account idles
 beside it. A live session is never moved: moving means ending one and starting
 another, so it only ever happens where the session was ending anyway - after a

@@ -3953,8 +3953,23 @@ def test_an_agent_at_the_wall_moves_to_an_account_with_room(home: Path) -> None:
         dmn.perform_handoff(con, "keeper", t, lambda _m: None, use_model=False)
 
         row = db.get_agent_state(con, "keeper")
-        check("move: the session is not parked on the account it left",
-              row["state"] != dmn.PARKED, f"{row['state']} {row['detail']}")
+        # A state nothing else in the daemon will act on is where a moved agent
+        # went to die: HANDOFF is protected from its own hooks, skipped by the
+        # sweep, refused by close, and delivered nothing. Every other exit from
+        # a handoff writes a state, so this one has to as well.
+        check("move: it comes out of the handoff into a state that is dispatched",
+              row["state"] == dmn.QUEUED and not row["wake_at"] and not row["closed_at"],
+              f"{row['state']} wake={row['wake_at']} closed={row['closed_at']}")
+        db.add_request(con, "marina", "keeper", "after the move", None,
+                       "peer", "async", None, 0, None)
+        told: list[str] = []
+        real_send = orcamod.send
+        try:
+            orcamod.send = lambda h, t, enter=True: (told.append(t), (True, ""))[1]
+            dmn.deliver_queued(con, "keeper", lambda _m: None)
+        finally:
+            orcamod.send = real_send
+        check("move: and work reaches it on the account it moved to", told, str(told))
         check("move: a fresh session is started, not a resume of the old one",
               launched and "--resume" not in launched[-1], str(launched))
         # What that relaunch will exec with, and what it writes down. The
@@ -3976,15 +3991,47 @@ def test_an_agent_at_the_wall_moves_to_an_account_with_room(home: Path) -> None:
               moved and '"from": "alpha"' in moved[-1]["payload"]
               and '"to": "beta"' in moved[-1]["payload"], str(moved))
 
+        # The band the reserve exists for. The fold fires a reserve short of
+        # the wall, so judging "full" at the wall itself meant the ordinary
+        # handoff - the one this feature is for - declined to move and parked
+        # with the other account idle.
+        db.set_account(con, "keeper", "alpha")
+        write_status(home, "alpha", pct_5h=87, pct_7d=20, ctx_pct=5,
+                     reset_5h=int(time.time()) + 1800)
+        t87 = triggers.evaluate(87, 10)
+        check("move: 87% is the ordinary handoff, a reserve short of the wall",
+              t87.fired and t87.kind == "usage", f"{t87.kind} {t87.reason}")
+        check("move: and an account inside the reserve gives way too",
+              launch.choose_account("keeper") == "beta", launch.choose_account("keeper"))
+
+        # A session that ended during the fold must not be typed at: `/exit` at
+        # a login shell exits the shell, and Orca's terminal goes with it.
+        db.set_account(con, "keeper", "alpha")
+        db.set_agent_state(con, "keeper", dmn.IDLE)
+        db.clear_closed(con, "keeper")
+        typed: list[str] = []
+        real_close = orcamod.close_session
+        try:
+            orcamod.close_session = lambda h, **kw: (typed.append("/exit"), (True, "ended"))[1]
+            sessions_are()                      # it went away while we folded
+            check("move: a session that is already gone is not moved",
+                  not dmn._move_to_room(con, "keeper", t87, lambda _m: None))
+            check("move: and nothing is typed at the shell it left behind", not typed,
+                  str(typed))
+        finally:
+            orcamod.close_session = real_close
+            sessions_are("keeper")
+
         # Nowhere to go is the old behaviour, unchanged: fold, park, wait for
         # the window. Both accounts at the wall is that world.
         db.set_account(con, "keeper", "alpha")
+        write_status(home, "alpha", pct_5h=95, pct_7d=20, ctx_pct=5,
+                     reset_5h=int(time.time()) + 1800)
         write_status(home, "beta", pct_5h=93, pct_7d=20, ctx_pct=5,
                      reset_5h=int(time.time()) + 1800)
         db.set_agent_state(con, "keeper", dmn.IDLE)
         db.clear_closed(con, "keeper")
-        dmn._last_handoff.clear() if hasattr(dmn, "_last_handoff") else None
-        con.execute("DELETE FROM handoff")
+        con.execute("DELETE FROM handoff")     # MIN_HANDOFF_INTERVAL_S, not a real one
         dmn.perform_handoff(con, "keeper", triggers.evaluate(95, 10), lambda _m: None,
                             use_model=False)
         row = db.get_agent_state(con, "keeper")
@@ -4000,6 +4047,17 @@ def test_an_agent_at_the_wall_moves_to_an_account_with_room(home: Path) -> None:
               unknown.fired and unknown.kind == "usage_unknown", unknown.kind)
         check("move: and nothing moves on it",
               not dmn._move_to_room(con, "keeper", unknown, lambda _m: None))
+
+        # What it is told when it lands. A move is not a close: its work was
+        # folded a moment ago and `launch.context_for` put that handoff in the
+        # new session's system prompt, so telling it "nothing was folded" would
+        # send it hunting for what it is already holding.
+        moved_text = dmn.wake_prompt("keeper", resumed=False, was_closed=True,
+                                     moved_to="beta", con=con)
+        check("move: the agent is told it was moved, and where",
+              "beta" in moved_text and "5h limit" in moved_text, moved_text[:160])
+        check("move: and not that nothing was folded",
+              "There is no handoff" not in moved_text, moved_text[:160])
     finally:
         (orcamod.available, orcamod.alive, orcamod.close_session, orcamod.relaunch,
          orcamod.clear_context, orcamod.resume_with, orcamod.idle_now,
