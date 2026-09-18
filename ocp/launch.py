@@ -22,7 +22,7 @@ import sys
 import time
 from dataclasses import dataclass
 
-from . import accounts, agents, paths, status, triggers
+from . import accounts, agents, db, paths, status, triggers
 
 
 # A session started this close to the wall folds almost at once: the usage
@@ -32,7 +32,8 @@ from . import accounts, agents, paths, status, triggers
 START_LIMIT = triggers.HARD_STOP_PCT - triggers.DEFAULT_RESERVE_PCT
 
 
-def choose_account(agent: str, resuming: bool = False, limit: int | None = None) -> str:
+def choose_account(agent: str, resuming: bool = False, limit: int | None = None,
+                   con=None) -> str:
     """Which account this launch runs on.
 
     agent.yaml names a preference, not a destination. The moment a session is
@@ -45,9 +46,13 @@ def choose_account(agent: str, resuming: bool = False, limit: int | None = None)
     directory, so `--resume` on any other account finds nothing; a resumed
     session goes back to the account it was recorded on, or the run is not a
     resume at all.
+
+    `con`, when the caller already has one open, saves `current_account` its
+    own connect-and-migrate: a caller repainting a screen has this on every
+    row already and would otherwise open a database per row to ask.
     """
     if resuming:
-        return agents.current_account(agent)
+        return agents.current_account(agent, con)
     preferred = agents.account_of(agent)
     # Only a reading that says "full" moves an agent. A missing or stale
     # snapshot is not a full tank and it is not an empty one either - it is the
@@ -81,7 +86,7 @@ class WakeWait:
     reset_5h: int | None
 
 
-def wake_wait(agent: str, row) -> WakeWait | None:
+def wake_wait(agent: str, row, con) -> WakeWait | None:
     """Is a closed agent's wake walled behind its own account's 5h window?
 
     This is the check daemon.py makes before it types anything into a closed
@@ -90,13 +95,19 @@ def wake_wait(agent: str, row) -> WakeWait | None:
     inlined at the call site, so the screens that show an agent can ask the
     same question instead of restating the rule and drifting from it.
 
+    It answers only "is the account full", not "is anyone trying to wake this
+    agent" - the daemon's own call site (a move's wake included) needs the
+    former unconditionally, before it spends a wake attempt finding out the
+    hard way. A screen that means to show only the waits with something behind
+    them gates on `daemon.would_wake` first; this makes no such promise on its
+    own.
+
     A computed condition, not a stored one: called again a moment later, on an
-    agent with no work waiting or on an account whose window has since rolled
-    over, it returns None.
+    account whose window has since rolled over, it returns None.
     """
     if not row or not row["closed_at"]:
         return None
-    acct = choose_account(agent, resuming=bool(row["resume_session"]))
+    acct = choose_account(agent, resuming=bool(row["resume_session"]), con=con)
     st = status.read(acct)
     pct = st.trusted_pct_5h
     if pct is None or pct < status.PCT_5H_BLOCK:
@@ -104,13 +115,16 @@ def wake_wait(agent: str, row) -> WakeWait | None:
     return WakeWait(acct, pct, st.reset_5h)
 
 
-def wake_wait_reason(agent: str, row) -> str | None:
-    """The sentence ps, triggers and bridge print for a walled wake.
+def wake_wait_reason(agent: str, row, con) -> str | None:
+    """The sentence ps, triggers and the daemon's own log line print for a
+    walled wake.
 
-    One wording, called from all three screens and from the daemon's own log
-    line, so a screen can never say something the daemon does not act on.
+    One wording, called from all three, so a screen can never say something
+    the daemon does not act on. The bridge draws the same `wake_wait` but
+    fits it to a fixed column instead of this sentence - it has no room for
+    the whole thing, not a different opinion of it.
     """
-    w = wake_wait(agent, row)
+    w = wake_wait(agent, row, con)
     if w is None:
         return None
     when = "unknown" if not w.reset_5h else time.strftime("%H:%M", time.localtime(w.reset_5h))

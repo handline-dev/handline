@@ -3846,12 +3846,16 @@ def test_a_walled_wake_says_so_everywhere(home: Path) -> None:
     try:
         orcamod.available = lambda: True
         db.set_closed(con, "backend", "sess-wall")
+        # A screen only shows the wall next to a wait that is real: queued
+        # work is what would actually make the daemon try this wake.
+        db.add_request(con, "reviewer", "backend", "look at this", None,
+                       "peer", "async", None, 0, None)
         reset_at = int(time.time()) + 1800
         write_status(home, "alpha", pct_5h=95, pct_7d=10, ctx_pct=5, reset_5h=reset_at)
         when = time.strftime("%H:%M", time.localtime(reset_at))
 
         row = db.get_agent_state(con, "backend")
-        reason = launch.wake_wait_reason("backend", row)
+        reason = launch.wake_wait_reason("backend", row, con)
         check("walled: names the account and when it rolls over",
               reason is not None and "alpha" in reason and when in reason, reason)
 
@@ -3861,12 +3865,28 @@ def test_a_walled_wake_says_so_everywhere(home: Path) -> None:
 
         ps_out = _capture(lambda: climod.main(["ps"]))
         trig_out = _capture(lambda: climod.main(["triggers"]))
-        frame = tui._ANSI.sub("", tui.frame(200, 40))
+        # `ocp team` is asked from somewhere - `reviewer` is a peer of every
+        # agent in DESIGN_TEAM, so backend is on its list.
+        os.environ["OCP_AGENT"] = "reviewer"
+        team_out = _capture(lambda: climod.main(["team"]))
+        del os.environ["OCP_AGENT"]
+        wide = tui._ANSI.sub("", tui.frame(200, 40))
+        narrow = tui._ANSI.sub("", tui.frame(80, 40))
         check("walled: `ocp ps` says it", reason in ps_out, ps_out)
         check("walled: `ocp triggers` says it", reason in trig_out, trig_out)
-        check("walled: the bridge agrees word for word, not a paraphrase",
-              reason in frame,
-              str([ln for ln in frame.splitlines() if "backend" in ln]))
+        check("walled: `ocp team` says it too - the fourth surface",
+              "alpha" in team_out and when in team_out, team_out)
+        # The bridge has no room for the full sentence at a real terminal
+        # width - `ocp ps` and `ocp triggers` print it whole because a line of
+        # text can run as long as it needs to; a fixed column cannot. It
+        # draws the same predicate, fitted to the column: the account and the
+        # clock, not a paraphrase of the sentence.
+        check("walled: the bridge names the account and the clock at full width",
+              "alpha" in wide and when in wide,
+              str([ln for ln in wide.splitlines() if "backend" in ln]))
+        check("walled: and still does at a realistic terminal width",
+              "alpha" in narrow and when in narrow,
+              str([ln for ln in narrow.splitlines() if "backend" in ln]))
 
         # It is computed, not stored: once the account has room the sentence
         # disappears from every screen on its own, with nothing to clear.
@@ -3874,16 +3894,147 @@ def test_a_walled_wake_says_so_everywhere(home: Path) -> None:
                      reset_5h=int(time.time()) + 1800)
         row = db.get_agent_state(con, "backend")
         check("walled: and clears the moment the account has room",
-              launch.wake_wait_reason("backend", row) is None)
+              launch.wake_wait_reason("backend", row, con) is None)
         ps_out = _capture(lambda: climod.main(["ps"]))
         trig_out = _capture(lambda: climod.main(["triggers"]))
-        frame = tui._ANSI.sub("", tui.frame(200, 40))
+        os.environ["OCP_AGENT"] = "reviewer"
+        team_out = _capture(lambda: climod.main(["team"]))
+        del os.environ["OCP_AGENT"]
+        wide = tui._ANSI.sub("", tui.frame(200, 40))
         check("walled: and every screen falls silent with it",
               "rolls over" not in ps_out and "rolls over" not in trig_out
-              and "rolls over" not in frame,
+              and when not in team_out and when not in wide,
               "still walled somewhere after the window rolled over")
     finally:
         (orcamod.available,) = real
+        con.close()
+
+
+def test_a_walled_wake_is_not_shown_with_nothing_waiting(home: Path) -> None:
+    """A closed agent on a walled account, with no queued work, no answer it
+    asked for and no wake_at set, is idle by choice - nothing is trying to
+    wake it, so nothing should read "waiting" beside it. Before this, every
+    closed agent on a walled account read as walled, which on a live team
+    with six closed agents and nothing due was six rows of noise for zero
+    real waits.
+    """
+    _daemon_home(home, 20)
+    con = db.connect()
+    try:
+        db.set_closed(con, "backend", "sess-idle")
+        write_status(home, "alpha", pct_5h=95, pct_7d=10, ctx_pct=5,
+                     reset_5h=int(time.time()) + 1800)
+        row = db.get_agent_state(con, "backend")
+        check("walled: nothing waiting means would_wake says no",
+              not dmn.would_wake(con, row), dict(row))
+
+        ps_out = _capture(lambda: climod.main(["ps"]))
+        trig_out = _capture(lambda: climod.main(["triggers"]))
+        os.environ["OCP_AGENT"] = "reviewer"
+        team_out = _capture(lambda: climod.main(["team"]))
+        del os.environ["OCP_AGENT"]
+        frame = tui._ANSI.sub("", tui.frame(200, 40))
+        check("walled: `ocp ps` stays quiet with nothing waiting",
+              "rolls over" not in ps_out, ps_out)
+        check("walled: `ocp triggers` stays quiet too",
+              "rolls over" not in trig_out, trig_out)
+        check("walled: `ocp team` stays quiet too", "rolls over" not in team_out, team_out)
+        check("walled: and the bridge",
+              "rolls over" not in frame and "⏳" not in frame,
+              str([ln for ln in frame.splitlines() if "backend" in ln]))
+
+        # `wake_wait` itself still answers - it is the daemon's own call site
+        # (a move's wake included) that needs the raw answer unconditionally,
+        # before it spends a wake attempt finding the wall out the hard way.
+        check("walled: but wake_wait itself is unconditional - the daemon "
+              "still needs the raw answer to decide a wake before trying it",
+              launch.wake_wait("backend", row, con) is not None)
+    finally:
+        con.close()
+
+
+def test_a_stalled_closed_agent_keeps_its_marker_when_walled(home: Path) -> None:
+    """A STALLED agent needs a human - unstalling it is the one thing that
+    clears that mark. If the wall's yellow cell were drawn ahead of it, a
+    STALLED agent whose account crossed 90% would silently read as merely
+    walled, and the one condition on that row that needs a person would clear
+    itself the moment the window rolled over, with nobody told there was
+    ever anything wrong.
+    """
+    _daemon_home(home, 20)
+    con = db.connect()
+    try:
+        db.set_closed(con, "backend", "sess-stalled")
+        db.set_agent_state(con, "backend", dmn.STALLED, detail="ran out of attempts")
+        db.add_request(con, "reviewer", "backend", "look at this", None,
+                       "peer", "async", None, 0, None)
+        write_status(home, "alpha", pct_5h=95, pct_7d=10, ctx_pct=5,
+                     reset_5h=int(time.time()) + 1800)
+        row = db.get_agent_state(con, "backend")
+        check("stalled+walled: both conditions actually hold here",
+              dmn.would_wake(con, row) and launch.wake_wait("backend", row, con),
+              dict(row))
+        frame = tui._ANSI.sub("", tui.frame(200, 40))
+        line = next((ln for ln in frame.splitlines() if "backend" in ln), "")
+        check("stalled+walled: the last cell is the human marker, not the wall",
+              "ran out of attempts" in line and "⏳" not in line, line)
+    finally:
+        con.close()
+
+
+def test_a_walled_wake_with_no_reset_reads_unknown(home: Path) -> None:
+    """A snapshot with no `reset_5h` still reports a wall - the account read
+    95% either way - it just cannot say when that clears."""
+    _daemon_home(home, 20)
+    con = db.connect()
+    try:
+        db.set_closed(con, "backend", "sess-wall")
+        db.add_request(con, "reviewer", "backend", "look at this", None,
+                       "peer", "async", None, 0, None)
+        write_status(home, "alpha", pct_5h=95, pct_7d=10, ctx_pct=5)
+        row = db.get_agent_state(con, "backend")
+        reason = launch.wake_wait_reason("backend", row, con)
+        check("walled: no reset_5h in the snapshot reads as unknown, not a crash",
+              reason == "waiting for alpha's 5h window (95%, rolls over unknown)", reason)
+    finally:
+        con.close()
+
+
+def test_a_moved_walled_wake_names_the_new_account(home: Path) -> None:
+    """The one branch where `choose_account` can name an account other than
+    the agent's own: no `resume_session` means this is the move's wake, not a
+    resume, so it is free to land wherever there is room, not tied to the
+    account its last session lived under. Before this, only the resuming
+    branch (where the account it checks is always the agent's own) was ever
+    exercised.
+    """
+    _daemon_home(home, 20)
+    con = db.connect()
+    real_login = accounts.logged_in
+    try:
+        db.set_account(con, "backend", "alpha")
+        db.set_closed(con, "backend", "sess-moved")   # no resume id: the move's wake
+        db.add_request(con, "reviewer", "backend", "look at this", None,
+                       "peer", "async", None, 0, None)
+        write_status(home, "alpha", pct_5h=95, pct_7d=10, ctx_pct=5,
+                     reset_5h=int(time.time()) + 1800)
+        write_status(home, "beta", pct_5h=20, pct_7d=10, ctx_pct=5,
+                     reset_5h=int(time.time()) + 1800)
+        accounts.logged_in = lambda a: True  # noqa: E731 - keychain is not the subject
+        row = db.get_agent_state(con, "backend")
+        check("moved: this row has no resume id - the move's wake",
+              row["resume_session"] is None, dict(row))
+        check("moved: current_account is still the old one - nothing has "
+              "started under the new one yet",
+              agents.current_account("backend", con) == "alpha", row)
+        check("moved: but the wait is checked against the account it would "
+              "actually land on, which has room",
+              launch.choose_account("backend", resuming=False, con=con) == "beta")
+        check("moved: so it is not walled, even though the agent's own "
+              "account is",
+              launch.wake_wait("backend", row, con) is None)
+    finally:
+        accounts.logged_in = real_login
         con.close()
 
 

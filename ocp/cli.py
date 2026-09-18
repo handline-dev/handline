@@ -364,10 +364,16 @@ def cmd_daemon_status(args) -> int:
                 if r["wake_at"] and r["wake_at"] <= now:
                     wake += "!"
                 shown = r["state"] + ("·closed" if r["closed_at"] else "")
-                detail = (r["detail"] or "")[:46]
-                walled = launch.wake_wait_reason(r["agent"], r)
-                if walled:
-                    detail = f"{detail} · {walled}" if detail else walled
+                detail = r["detail"] or ""
+                if daemonmod.would_wake(con, r):
+                    walled = launch.wake_wait_reason(r["agent"], r, con)
+                    if walled:
+                        detail = f"{detail} · {walled}" if detail else walled
+                # 70, not 46: a walled reason ("waiting for alpha's 5h
+                # window (95%, rolls over 14:32)") runs to about 55 on its
+                # own, and truncating detail before joining it on just moved
+                # where the line grew too long instead of fixing that it did.
+                detail = detail[:70]
                 print(f"{r['agent']:<{w}}{shown:<11}{wake:<8}"
                       f"{r['failed_attempts']:>5}{r['continuations']:>6}{r['throttle_count']:>5}  "
                       f"{detail}")
@@ -470,7 +476,8 @@ def cmd_triggers(args) -> int:
                 fires, reason = "YES" if t.fired else "no ", t.reason
             else:
                 fires = "no "
-                reason = launch.wake_wait_reason(a, row) or "session closed; nothing to hand off"
+                walled = daemonmod.would_wake(con, row) and launch.wake_wait_reason(a, row, con)
+                reason = walled or "session closed; nothing to hand off"
             print(f"{a:<{w}}{acct:<10}{five:>5}{cell(st.ctx_pct):>5}  "
                   f"{fires:<6} {reason}")
     finally:
@@ -787,6 +794,10 @@ def _doing(con, agent: str) -> str:
     waiting = len(db.queued_for(con, agent))
     if waiting:
         state += f" · {waiting} waiting"
+    if daemonmod.would_wake(con, row):
+        walled = launch.wake_wait_reason(agent, row, con)
+        if walled:
+            state += f" · {walled}"
     if not row["terminal"]:
         state += " · no terminal yet"
     return state

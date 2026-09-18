@@ -499,11 +499,24 @@ def build(width: int, sel: dict | None = None,
             t = triggers.evaluate(st.trusted_pct_5h, st.trusted_ctx_pct)
             fire = (f"{YEL}⚠ {t.kind}{R}"
                     if t.fired and daemon.triggers_apply(row) else "")
-            # Same words `ocp ps` and `ocp triggers` print for this: one
-            # predicate, so this screen cannot disagree with the daemon that
-            # actually acts on it.
-            walled = launch.wake_wait_reason(name, row)
-            walled_cell = f"{YEL}{walled}{R}" if walled else ""
+            # Same predicate `ocp ps` and `ocp triggers` ask for this - so this
+            # screen cannot disagree with the daemon that actually acts on it -
+            # but drawn to fit the column instead of their full sentence: there
+            # is room here for the account and the clock, not "waiting for
+            # ...'s 5h window (...)" in full.
+            w = daemon.would_wake(con, row) and launch.wake_wait(name, row, con)
+            if w:
+                when = "?" if not w.reset_5h else time.strftime("%H:%M", time.localtime(w.reset_5h))
+                # The account column two cells back already names it, in the
+                # ordinary case (a resume waits on its own account). Naming it
+                # again there would spend the column's few characters on what
+                # the row already says - it is only worth repeating when it
+                # is not that account, which is the move's wake landing
+                # somewhere its own `acct` cell has not caught up to yet.
+                who = "" if w.account == acct else f"{w.account} "
+                walled_cell = f"{YEL}⏳ {who}{when}{R}"
+            else:
+                walled_cell = ""
             ctxs = f"{pct(st.ctx_pct)}%"
             if st.ctx_pct is not None and st.ctx_pct >= triggers.CONTEXT_PCT:
                 ctxs = YEL + ctxs + R
@@ -522,7 +535,11 @@ def build(width: int, sel: dict | None = None,
                 + pad(ctxs, 7)
                 + pad(countdown(row["wake_at"] if row else None), 7)
                 + pad(str(inbox) if inbox else "·", 4)
-                + (fire or walled_cell or _needs_you(row)),
+                # A STALLED or DEGRADED agent needs a human whatever else is
+                # true of it; a wall clears itself the moment the window
+                # rolls over, so it is the last thing shown, not the thing
+                # that hides the one mark nobody but a human clears.
+                + (fire or _needs_you(row) or walled_cell),
                 key=name,
             )
         if not paths.list_agents():

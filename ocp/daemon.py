@@ -485,6 +485,25 @@ def triggers_apply(row) -> bool:
     return bool(row and row["terminal"] and not row["closed_at"])
 
 
+def would_wake(con, row) -> bool:
+    """Is anything actually trying to wake this closed agent?
+
+    Queued work, an answer it asked for, or a deadline already set - the same
+    three reasons `supervise` calls `wake_agent` on a closed row at all
+    (section 8.4's step 2, and the two checks right before `deliver_queued` in
+    the main pass). `launch.wake_wait` answers a narrower question - is the
+    account full - and answers it for every closed agent on a walled account,
+    including ones idle by choice with nothing asked of them. A screen gates
+    on this first, so "waiting" only shows next to a wait that is actually
+    happening.
+    """
+    if not row or not row["closed_at"]:
+        return False
+    agent = row["agent"]
+    return bool(row["wake_at"] or db.queued_for(con, agent) or
+                db.unannounced_answers(con, agent))
+
+
 def close_agent(con, agent: str, log, st) -> tuple[bool, str]:
     """Give the machine back an idle agent's memory, keeping its terminal.
 
@@ -686,7 +705,7 @@ def _wake_agent(con, agent: str, log, moved_to: str | None = None) -> tuple[bool
         # with nothing. Only a wake with nothing to resume is free to go where
         # there is room, which is the move's wake.
         session = row["resume_session"]
-        why = launch.wake_wait_reason(agent, row)
+        why = launch.wake_wait_reason(agent, row, con)
         if why:
             log(f"  {agent}: {why}")
             return False, why
