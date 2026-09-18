@@ -3391,6 +3391,13 @@ def test_top_shows_what_is_waiting_on_the_human(home: Path) -> None:
 
         text = tui.frame(120, 60)
         plain = [tui._ANSI.sub("", ln) for ln in text.split(chr(10))]
+        # A count of zero is not news, and three of them crowd out the one
+        # number that is.
+        plain_title = [tui._ANSI.sub("", ln) for ln in tui.frame(120, 60).split(chr(10))
+                       if "FOR YOU" in ln][0]
+        check("top: the panel counts only what there is to count",
+              "0 " not in plain_title, plain_title.strip()[:70])
+
         check("top: the panel is drawn with the question in it",
               any("which sea variant ships?" in ln for ln in plain),
               str([ln for ln in plain if "marina" in ln])[:200])
@@ -3966,6 +3973,19 @@ def test_the_screen_says_what_is_stuck_and_what_was_decided(home: Path) -> None:
             db.set_terminal(con, "backend", "term_x", "wt")
         finally:
             orcamod.available, orcamod.live_terminals, obsmod.live_sessions = real
+
+        # A row of this screen is read by a human, and a session id is not
+        # something a human reads. The payload used to be printed as the JSON
+        # it is stored as, so half of every row was a uuid.
+        said = tui._detail_of('{"resumed_session": "ccaa1bb9-6a12-4737-b60a-565e66108869"}')
+        check("events: a wake says it resumed, not which uuid",
+              said == "resumed", said)
+        check("events: an id that means something to a reader is kept",
+              tui._detail_of('{"request_id": 12, "state": "done"}') == "#12 · done",
+              tui._detail_of('{"request_id": 12, "state": "done"}'))
+        check("events: and a payload that is not json is shown as it is",
+              tui._detail_of("plain words") == "plain words")
+        check("events: nothing at all draws nothing", tui._detail_of(None) == "")
 
         # Decisions, and the breathing that was crowding them out.
         for i in range(8):

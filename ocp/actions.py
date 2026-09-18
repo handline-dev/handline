@@ -462,6 +462,3 @@ def _account_of(agent: str) -> str | None:
     except Exception:  # noqa: BLE001 - an unreadable agent belongs to no account here
         return None
 
-
-def registered_agents() -> list[str]:
-    return paths.list_agents()

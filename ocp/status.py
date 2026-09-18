@@ -360,10 +360,6 @@ def live_cost(account: str) -> float | None:
     return total if seen else None
 
 
-def read_all() -> list[AccountStatus]:
-    return [read(a) for a in paths.list_accounts()]
-
-
 def pick_account(candidates: list[str] | None = None) -> tuple[str | None, list[tuple[str, str]]]:
     """Pick the assignable account with the most headroom.
 

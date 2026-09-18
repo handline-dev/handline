@@ -264,17 +264,6 @@ def add_request(con, requester: str, target: str, body: str, files: str | None,
     return rid
 
 
-def chain_of(con, rid: int) -> list:
-    """Every request in the same chain, oldest first."""
-    row = get_request(con, rid)
-    if row is None:
-        return []
-    return con.execute(
-        "SELECT * FROM requests WHERE chain_id = ? AND state != 'denied' ORDER BY id",
-        (row["chain_id"],),
-    ).fetchall()
-
-
 def chain_members(con, chain_id: str) -> list:
     return con.execute(
         "SELECT * FROM requests WHERE chain_id = ? AND state != 'denied' ORDER BY id",

@@ -21,6 +21,7 @@ is why logging in works from here at all.
 """
 from __future__ import annotations
 
+import json
 import os
 import re
 import select
@@ -157,9 +158,6 @@ class Panel:
         self.keys.append(key)
         self.extra.append(extra)
 
-    def selectable(self) -> list[object]:
-        return [k for k in self.keys if k is not None]
-
     def draw(self, limit: int | None = None, extras: bool = True) -> list[str]:
         inner = self.width - 2
         # The title is data now - it counts what is waiting - so it is fitted
@@ -186,6 +184,42 @@ class Panel:
             out[-1] = f"{DIM}│{R}" + pad(fit(more, inner), inner) + f"{DIM}│{R}"
         out.append(DIM + "└" + "─" * inner + "┘" + R)
         return out
+
+
+# What a payload is worth saying out loud. The rest of it is ids and bookkeeping
+# that answer no question a reader of this screen has.
+_SAY = {"request_id": "#", "count": "×", "through": "through #", "state": "",
+        "target": "→ ", "requester": "from ", "why": "", "handle": "",
+        "ctx_pct": "ctx ", "events": "events ", "model": "", "account": "on "}
+
+
+def _detail_of(payload: str | None) -> str:
+    """One readable phrase out of an event's payload.
+
+    It used to be printed as the raw JSON it is stored as, so half of every row
+    was a session uuid: "wake {"resumed_session": "ccaa1bb9-6a12-4737-..."}".
+    Nobody reads a uuid; what they want to know is that it resumed.
+    """
+    if not payload:
+        return ""
+    try:
+        data = json.loads(payload)
+    except (json.JSONDecodeError, TypeError):
+        return str(payload)
+    if not isinstance(data, dict):
+        return str(data)
+    out = []
+    for k, v in data.items():
+        if v in (None, "", [], {}):
+            continue
+        if k.endswith("session") or k == "session":
+            out.append("resumed" if k.startswith("resumed") else "session")
+            continue
+        if k in _SAY:
+            out.append(f"{_SAY[k]}{v}")
+        else:
+            out.append(f"{k} {v}")
+    return " · ".join(out)
 
 
 def keybar(panel: int, width: int, hidden: int = 0) -> str:
@@ -235,11 +269,12 @@ def build(width: int, sel: dict | None = None,
         # explained by `ocp status`.
         bar_ = (f"{BOLD}ocp{R} {DIM}·{R} daemon {state} {DIM}·{R} "
                 f"{time.strftime('%H:%M:%S')}")
+        # The legend explains three marks. It was drawn whether or not any of
+        # them was on the screen, which is most of the time.
+        marks = {status.mark(status.read(a).pct_5h_source) for a in paths.list_accounts()}
         with_legend = f"{bar_}{DIM} · 5h {status.SOURCE_LEGEND_SHORT}{R}"
-        header = [
-            fit(with_legend if vlen(with_legend) <= width else bar_, width),
-            "",
-        ]
+        show_legend = any(m.strip() for m in marks) and vlen(with_legend) <= width
+        header = [fit(with_legend if show_legend else bar_, width), ""]
 
         # ---- accounts ------------------------------------------------
         acc = Panel("ACCOUNTS", width)
@@ -276,8 +311,10 @@ def build(width: int, sel: dict | None = None,
         # ---- agents --------------------------------------------------
         ag = Panel("AGENTS", width)
         ag.selected = sel.get(AGENTS)
+        # No heading for the last column: it is empty unless something is about
+        # to happen, and then it says what, in words.
         ag.add(f"{DIM}{'agent':<11}{'acct':<8}{'model':<8}{'eff':<7}{'state':<15}"
-               f"{'ctx':>4}   {'wake':<7}{'in':<4}trigger{R}")
+               f"{'ctx':>4}   {'wake':<7}{'in':<4}{R}")
         for name in paths.list_agents():
             try:
                 acct = agents.account_of(name)
@@ -292,11 +329,14 @@ def build(width: int, sel: dict | None = None,
             # as PARKED hides the one difference that matters on this machine.
             if row and row["closed_at"]:
                 s += "·closed"
+            # Only when something is actually about to happen. Measured on a
+            # live team: nothing firing, six rows reading "— closed" - which
+            # the state column says already, with the same word - and two
+            # reading "—". A column that is empty or duplicated is a column
+            # that trains a reader not to look at it.
             t = triggers.evaluate(st.trusted_pct_5h, st.trusted_ctx_pct)
-            if not daemon.triggers_apply(row):
-                fire = f"{DIM}— closed{R}"
-            else:
-                fire = f"{YEL}⚠ {t.kind}{R}" if t.fired else f"{DIM}—{R}"
+            fire = (f"{YEL}⚠ {t.kind}{R}"
+                    if t.fired and daemon.triggers_apply(row) else "")
             ctxs = f"{pct(st.ctx_pct)}%"
             if st.ctx_pct is not None and st.ctx_pct >= triggers.CONTEXT_PCT:
                 ctxs = YEL + ctxs + R
@@ -327,10 +367,10 @@ def build(width: int, sel: dict | None = None,
         waiting = actions.messages(con)
         gates = sum(1 for m in waiting if m["gate"])
         parked = sum(1 for m in waiting if m["waiting"] and not m["gate"])
-        title = "FOR YOU"
-        if waiting:
-            title += (f" — {gates} to decide, {parked} asked for a reply, "
-                      f"{len(waiting) - gates - parked} to read")
+        counts = [(gates, "to decide"), (parked, "asked for a reply"),
+                  (len(waiting) - gates - parked, "to read")]
+        said = ", ".join(f"{n} {what}" for n, what in counts if n)
+        title = f"FOR YOU — {said}" if said else "FOR YOU"
         ms = Panel(title, width)
         ms.selected = sel.get(MESSAGES)
         for m in waiting:
@@ -374,7 +414,7 @@ def build(width: int, sel: dict | None = None,
         for e in rows:
             when = time.strftime("%H:%M:%S", time.localtime(e["ts"]))
             rc.add(f"{DIM}{when}{R}  {e['agent']:<11}{e['kind']:<18}"
-                   f"{DIM}{(e['payload'] or '')[:width - 46]}{R}")
+                   f"{DIM}{fit(_detail_of(e['payload']), max(0, width - 46))}{R}")
         if not rows:
             rc.add(f"{DIM}  nothing decided yet{R}")
         return header, [acc, ag, ms, fl, rc]
