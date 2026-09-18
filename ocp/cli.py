@@ -147,7 +147,8 @@ def cmd_agent_register(args) -> int:
         print(f"warning: account '{args.account}' is not registered yet. "
               f"Run `ocp account register {args.account}` first.")
     d = agents.register(args.name, args.account, role=args.role, model=args.model,
-                        effort=args.effort, weight=args.weight, role_file=args.role_file)
+                        effort=args.effort, weight=args.weight, role_file=args.role_file,
+                        repo=args.repo)
     print(f"registered agent '{args.name}' -> account '{args.account}': {d}")
     print("launch it from Orca with:")
     print(f'  orca terminal create --worktree <selector> --command "{launch.command_for(args.name)}"')
@@ -615,6 +616,82 @@ def cmd_hook_install(args) -> int:
 
 
 # ---------------------------------------------------------------- team / ask
+def cmd_team(args) -> int:
+    """Who you may ask, who may ask you, and what they are doing right now.
+
+    An agent that cannot see its own team has one way to get work done by
+    somebody else: spawn a subagent, which dies with its session, holds no
+    account, has no inbox and appears on no screen. The roster is in team.yaml
+    and the states are in the database; neither was ever put in front of the
+    agent whose team it is.
+    """
+    me = args.agent or askmod.asking_agent()
+    if not me:
+        print(_who_refusal("ask"))
+        return 1
+    try:
+        t = team.Team.load()
+    except Exception as e:  # noqa: BLE001
+        print(f"team.yaml is invalid: {e}")
+        return 1
+    con = db.connect()
+    try:
+        mine, theirs = [], []
+        for other in paths.list_agents():
+            if other == me:
+                continue
+            out = t.route(me, other)
+            back = t.route(other, me)
+            if out.allowed:
+                mine.append((other, _in_your_words(out.relation), _doing(con, other)))
+            if back.allowed:
+                theirs.append((other, _in_your_words(back.relation, sending=False)))
+        print(f"you are {me}")
+        if mine:
+            print("\nyou may ask:")
+            for name, rel, doing in mine:
+                print(f"  {name:<12}{rel:<12}{doing}")
+        else:
+            print("\nthere is nobody you may ask.")
+        if theirs:
+            print("\nmay ask you: "
+                  + ", ".join(f"{n} ({rel})" for n, rel in theirs))
+        print("\n`ocp ask <name> \"<task>\"` sends one. It is the only way to give an "
+              "agent work:\na subagent you spawn yourself dies with this session and "
+              "nobody can see it.")
+        return 0
+    finally:
+        con.close()
+
+
+def _in_your_words(relation: str | None, sending: bool = True) -> str:
+    """The edge's relation from the reader's side.
+
+    team.yaml names the relation of the *sender*: `manager -> dev.*` is a
+    supervisor edge, so read straight back it told the manager that its own
+    developers were its supervisors.
+    """
+    if relation == "supervisor":
+        return "your report" if sending else "your manager"
+    if relation == "subordinate":
+        return "your manager" if sending else "your report"
+    return "peer"
+
+
+def _doing(con, agent: str) -> str:
+    """One line on what an agent is doing, for the team list."""
+    row = db.get_agent_state(con, agent)
+    if not row:
+        return "never started"
+    state = row["state"] + (" · closed" if row["closed_at"] else "")
+    waiting = len(db.queued_for(con, agent))
+    if waiting:
+        state += f" · {waiting} waiting"
+    if not row["terminal"]:
+        state += " · no terminal yet"
+    return state
+
+
 def cmd_team_init(args) -> int:
     p = paths.team_file()
     if p.exists() and not args.force:
@@ -876,6 +953,8 @@ def build_parser() -> argparse.ArgumentParser:
                    help=f"effort level (default {agents.DEFAULT_EFFORT}); a real cost lever")
     p.add_argument("--weight", default=None, choices=["light", "heavy"])
     p.add_argument("--role-file", default=None, help="file to install as ROLE.md")
+    p.add_argument("--repo", default=None,
+                   help="where it works; lets the daemon start it when work arrives")
     p.set_defaults(fn=cmd_agent_register)
     ag.add_parser("list", help="list agents").set_defaults(fn=cmd_agent_list)
     p = ag.add_parser("show", help="everything known about one agent")
@@ -909,7 +988,10 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--table", action="store_true", help="the dashboard view")
     p.set_defaults(fn=cmd_status)
 
-    tm = sub.add_parser("team", help="routing policy").add_subparsers(dest="sub", required=True)
+    p = sub.add_parser("team", help="who you may ask, and what they are doing")
+    p.add_argument("--agent", default=None, help="whose team to show (default: yours)")
+    p.set_defaults(fn=cmd_team)
+    tm = p.add_subparsers(dest="sub")
     p = tm.add_parser("init", help="write a starter team.yaml")
     p.add_argument("--force", action="store_true")
     p.set_defaults(fn=cmd_team_init)

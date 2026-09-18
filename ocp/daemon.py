@@ -29,9 +29,10 @@ import subprocess
 import time
 import uuid
 from dataclasses import dataclass
+from pathlib import Path
 
 from . import (agents, db, fold as foldmod, launch, lock, observe as obs, orca,
-               paths, service, status, triggers)
+               paths, service, spawn as spawnmod, status, triggers)
 
 # Section 8.2 states.
 IDLE, QUEUED, RUNNING, DONE = "IDLE", "QUEUED", "RUNNING", "DONE"
@@ -528,6 +529,39 @@ def wake_prompt(agent: str, resumed: bool, was_closed: bool = False,
             f"transcript with every tool result in it, and reading it back would "
             f"undo the point of parking you.")
     return "\n\n".join(parts)
+
+
+def _start_for_work(con, agent: str, log) -> str:
+    """Give an agent somewhere to run, because work is waiting for it.
+
+    Counted against the same streak a failed wake is: a repo that will never
+    check out, or an Orca that will not make a worktree, would otherwise be
+    retried every tick forever. After MAX_FAILED_ATTEMPTS it stalls and says
+    so, which is a human's problem by definition.
+    """
+    repo = agents.repo_of(agent)
+    if not repo:
+        return (f"{agent}: {len(db.queued_for(con, agent))} request(s) waiting and it has "
+                f"no terminal - set `repo:` in its agent.yaml, or start it by hand (t)")
+    row = db.get_agent_state(con, agent)
+    if row and int(row["wake_failures"]) >= MAX_FAILED_ATTEMPTS:
+        return f"{agent}: not started again - {row['wake_failures']} attempts have failed"
+    # Its own worktree if it still has one - a terminal can be closed by a
+    # human or lost when Orca restarts without anything happening to the branch
+    # or to what is uncommitted in it, and a second worktree would strand the
+    # first.
+    wt = spawnmod.worktree_path(row["worktree"] if row else None)
+    ok, said = (spawnmod.start_in(agent, wt) if wt
+                else spawnmod.spawn(agent, Path(repo).expanduser().resolve()))
+    fresh = db.get_agent_state(con, agent)
+    if fresh and fresh["terminal"]:
+        db.reset_counter(con, agent, "wake_failures")
+        db.add_event(con, agent, "started_for_work", {"repo": repo})
+        log(f"  {agent}: started in {repo} - work was waiting for it")
+        return f"{agent}: started for work waiting - {said.splitlines()[0]}"
+    db.bump_counter(con, agent, "wake_failures")
+    log(f"  {agent}: could not start for waiting work: {said.splitlines()[0]}")
+    return f"{agent}: could not be started - {said.splitlines()[0]}"
 
 
 def wake_agent(con, agent: str, log) -> tuple[bool, str]:
@@ -1149,6 +1183,16 @@ def supervise(con, agent: str, log, now: int, samples: dict,
         row = db.get_agent_state(con, agent)
         state = QUEUED
         woke_now = woke_now or restored
+
+    # An agent with nowhere to run cannot be given work by anyone but a human,
+    # which makes every order from another agent a request to press a key. That
+    # is what sends an agent looking for a subagent instead: a thing it can
+    # make itself, that dies with its session and appears on no screen. The one
+    # fact the daemon needs to do it instead is which repository, and that is
+    # `repo:` in agent.yaml.
+    if row and not row["terminal"] and db.queued_for(con, agent):
+        actions.append(_start_for_work(con, agent, log))
+        row = db.get_agent_state(con, agent)
 
     # A closed session cannot read its own inbox, so the arrival of work is
     # what has to bring it back. Without this an `ocp ask` queues into a

@@ -3974,6 +3974,59 @@ def test_only_one_thing_types_at_an_agent_at_a_time(home: Path) -> None:
         con.close()
 
 
+def test_an_agent_can_put_another_one_to_work(home: Path) -> None:
+    """An agent with nowhere to run can be given work by nobody but a human.
+
+    That is what sends an agent looking for a subagent instead - a thing it can
+    make itself, which dies with its session, holds no account, has no inbox
+    and appears on no screen. The daemon can make a worktree and a terminal;
+    the only fact it was missing is which repository, and that is `repo:`."""
+    _daemon_home(home, 20)
+    con = db.connect()
+    started: list = []
+    real = (orcamod.available, spawnmod.spawn, dmn.wait_for_session)
+    try:
+        orcamod.available = lambda: True
+        dmn.wait_for_session = lambda agent, timeout=0: True
+
+        def fake_spawn(agent, repo, base="main"):
+            started.append((agent, str(repo)))
+            db.set_terminal(db.connect(), agent, "term_new", str(repo))
+            return True, f"{agent}: worktree {repo}"
+
+        spawnmod.spawn = fake_spawn
+        agents.register("marina", "beta")
+        db.set_terminal(con, "marina", None, None)
+        db.add_request(con, "manager", "marina", "implement the smooth sea", None,
+                       "supervisor", "fire_and_forget", None, 0, None)
+
+        # Without a repo nothing is invented: it says what is missing and to whom.
+        said = dmn._start_for_work(con, "marina", lambda _m: None)
+        check("dispatch: with no repo it says what is missing, and does not guess",
+              not started and "repo:" in said, said)
+
+        agents.register("marina", "beta", repo=str(home / "checkout"))
+        said = dmn._start_for_work(con, "marina", lambda _m: None)
+        check("dispatch: with one, the daemon gives it somewhere to run",
+              started == [("marina", str((home / "checkout").resolve()))],
+              f"{started} {said}")
+        check("dispatch: and the terminal is recorded, so work can be delivered",
+              db.get_agent_state(con, "marina")["terminal"] == "term_new")
+
+        # A start that never takes is a streak, not a loop: three failures and
+        # it is a human's problem, said out loud.
+        db.set_terminal(con, "marina", None, None)
+        spawnmod.spawn = lambda agent, repo, base="main": (False, "orca refused")
+        for _ in range(dmn.MAX_FAILED_ATTEMPTS):
+            dmn._start_for_work(con, "marina", lambda _m: None)
+        said = dmn._start_for_work(con, "marina", lambda _m: None)
+        check("dispatch: a start that keeps failing is not retried forever",
+              "attempts have failed" in said, said)
+    finally:
+        (orcamod.available, spawnmod.spawn, dmn.wait_for_session) = real
+        con.close()
+
+
 def test_an_agent_at_the_wall_moves_to_an_account_with_room(home: Path) -> None:
     """agent.yaml names a preference, not a destination.
 
@@ -5792,6 +5845,7 @@ def main() -> int:
         run(lambda: test_an_answer_wakes_the_agent_that_was_waiting_for_it(Path(td) / 'waiting'))
         run(lambda: test_a_request_can_be_read_whole(Path(td) / 'readone'))
         run(lambda: test_only_one_thing_types_at_an_agent_at_a_time(Path(td) / 'locking'))
+        run(lambda: test_an_agent_can_put_another_one_to_work(Path(td) / 'dispatch'))
         run(lambda: test_an_agent_at_the_wall_moves_to_an_account_with_room(Path(td) / 'moveacct'))
         run(lambda: test_an_answer_to_the_human_is_in_the_human_mailbox(Path(td) / 'mailbox'))
         run(lambda: test_the_team_is_drawn_the_way_it_is_routed(Path(td) / 'tree'))

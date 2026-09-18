@@ -49,6 +49,7 @@ Nothing moves a live session - a move is one session ending and another
 starting, so it happens after a fold, and a resume always goes back to the
 account its session lives on.""",
     "work": """giving an agent work
+  ocp team                        who you may ask, and what they are doing
   ocp ask <agent> "<task>"        queue it
   ocp inbox                       what is waiting for you, and what came back
   ocp read <id>                   one of them whole
@@ -73,6 +74,13 @@ terminal, and an agent is told once per request rather than reminded.
 
 An agent that is mid-turn is left alone until it is free - typing at a busy TUI
 leaves the text sitting in its input box, unsent.
+
+An agent with no terminal is started rather than waited on, when its agent.yaml
+says `repo:` - the daemon can make a worktree and a terminal but cannot choose
+the repository. Without it, an order from one agent to another is a request for
+a human to press a key, which is what sends an agent looking for a subagent
+instead: a thing it can make itself, that dies with its session and appears on
+no screen.
 
 An answer goes back the same way, without being asked for again. `ocp resolve`
 writes the verdict on the request, the daemon reads it out to the agent that
