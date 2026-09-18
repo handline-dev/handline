@@ -43,7 +43,14 @@ CREATE TABLE IF NOT EXISTS requests (
   -- (A->B->A) can be seen inside one chain rather than guessed at from depth.
   chain_id    TEXT,
   state       TEXT    NOT NULL DEFAULT 'queued',
-  verdict     TEXT
+  verdict     TEXT,
+  -- When the requester was told this came back. Per row, because answering is
+  -- not monotonic in id: a high-water mark loses the answer that arrives late.
+  announced_at INTEGER,
+  -- When the answer landed. `ts` is when the request was made, and the two can
+  -- be two days apart: a screen that sorts answers by `ts` puts yesterday's
+  -- reply above this morning's, which reads as an old message nobody answered.
+  resolved_at INTEGER
 );
 CREATE INDEX IF NOT EXISTS requests_target ON requests(target, state);
 CREATE INDEX IF NOT EXISTS requests_requester ON requests(requester, ts);
@@ -113,6 +120,7 @@ def connect(path: Path | None = None) -> sqlite3.Connection:
     _pre_schema_migrate(con)
     con.executescript(SCHEMA)
     _add_missing_columns(con)
+    _unhide_the_humans_answers(con)
     return con
 
 
@@ -136,11 +144,70 @@ def _pre_schema_migrate(con) -> None:
         con.execute("DROP TABLE IF EXISTS handoff")
 
     request_cols = _cols(con, "requests")
+    if request_cols and "announced_at" not in request_cols:
+        con.execute("ALTER TABLE requests ADD COLUMN announced_at INTEGER")
+        # Everything already resolved was resolved before anything announced
+        # answers at all; announcing it now would type a wall of old verdicts
+        # at every agent the first time this runs.
+        con.execute("UPDATE requests SET announced_at = ? "
+                    "WHERE state IN ('done', 'rejected', 'denied')", (int(time.time()),))
+    if request_cols and "resolved_at" not in request_cols:
+        con.execute("ALTER TABLE requests ADD COLUMN resolved_at INTEGER")
+        # No backfill: when an old row was answered is not recorded anywhere,
+        # and inventing a time would be a figure with nothing behind it. A row
+        # with none falls back to `ts`, which is what it had before.
     if request_cols and "chain_id" not in request_cols:
         con.execute("ALTER TABLE requests ADD COLUMN chain_id TEXT")
         # Existing rows keep their own id as their chain, which is what a
         # parentless request would have had anyway.
         con.execute("UPDATE requests SET chain_id = CAST(id AS TEXT) WHERE chain_id IS NULL")
+
+
+def _unhide_the_humans_answers(con) -> None:
+    """Undo the announced_at backfill for the one reader it was never about.
+
+    That backfill exists so a first run does not type a wall of old verdicts
+    at an agent's terminal. The human has no terminal to be typed at - their
+    answers are a list they read and dismiss - so on their rows it only marked
+    every answer they had ever been sent as already told, before there was
+    anywhere to tell them.
+
+    Ledgered in `cursors` rather than keyed to a column that already exists:
+    the column arrived two commits before the mailbox that reads it, so there
+    is no schema change left to hang this on. It runs once.
+
+    The name is imported here and not held in this module: `ask.HUMAN` is the
+    one copy, and a second would go stale the day it changed.
+    """
+    if get_cursor(con, "migrated:human_answers"):
+        return
+    from . import ask
+    con.execute("UPDATE requests SET announced_at = NULL WHERE requester = ? "
+                "AND state IN ('done', 'rejected')", (ask.HUMAN,))
+    set_cursor(con, "migrated:human_answers", 1)
+
+
+def unannounced_answers(con, agent: str) -> list:
+    """What this agent asked, that came back, that it has not been told about.
+
+    Marked per row rather than tracked with a cursor: a cursor works for
+    arrival, which happens in id order by construction, and not for answering,
+    which does not. Two answers out of order and the older one is behind the
+    high-water mark forever - which is the failure this whole path exists to
+    prevent, one layer down.
+    """
+    return con.execute(
+        "SELECT id, ts, resolved_at, target, kind, state, verdict, body, parent_id, "
+        "chain_id FROM requests WHERE requester = ? "
+        "AND state IN ('done', 'rejected') AND announced_at IS NULL ORDER BY id",
+        (agent,),
+    ).fetchall()
+
+
+def mark_announced(con, ids: list[int]) -> None:
+    now = int(time.time())
+    con.executemany("UPDATE requests SET announced_at = ? WHERE id = ?",
+                    [(now, int(i)) for i in ids])
 
 
 def _add_missing_columns(con) -> None:
@@ -264,17 +331,6 @@ def add_request(con, requester: str, target: str, body: str, files: str | None,
     return rid
 
 
-def chain_of(con, rid: int) -> list:
-    """Every request in the same chain, oldest first."""
-    row = get_request(con, rid)
-    if row is None:
-        return []
-    return con.execute(
-        "SELECT * FROM requests WHERE chain_id = ? AND state != 'denied' ORDER BY id",
-        (row["chain_id"],),
-    ).fetchall()
-
-
 def chain_members(con, chain_id: str) -> list:
     return con.execute(
         "SELECT * FROM requests WHERE chain_id = ? AND state != 'denied' ORDER BY id",
@@ -294,8 +350,12 @@ def get_request(con, rid: int):
 
 
 def set_request_state(con, rid: int, state: str, verdict: str | None = None) -> None:
-    con.execute("UPDATE requests SET state = ?, verdict = COALESCE(?, verdict) WHERE id = ?",
-                (state, verdict, rid))
+    # `resolved_at` is stamped on the way out of 'queued' and never rewritten:
+    # re-resolving an answered request does not make the answer newer.
+    con.execute(
+        "UPDATE requests SET state = ?, verdict = COALESCE(?, verdict), "
+        "resolved_at = COALESCE(resolved_at, ?) WHERE id = ?",
+        (state, verdict, int(time.time()) if state != "queued" else None, rid))
 
 
 def asks_since(con, requester: str, since_ts: int) -> int:

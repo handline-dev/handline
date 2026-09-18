@@ -86,6 +86,17 @@ def send(handle: str, text: str, enter: bool = True) -> tuple[bool, str]:
     return _run(args)
 
 
+def focus(handle: str) -> tuple[bool, str]:
+    """Bring this terminal's tab to the front in the Orca window.
+
+    The one thing the screen does that is not about state: the reader stops
+    deciding and starts working, in the agent's own session, with everything it
+    can see. Nothing is typed and nothing is read - which is why it is safe on
+    an agent that is mid-turn, where every other key here is not.
+    """
+    return _run(["terminal", "switch", "--terminal", handle], timeout=20)
+
+
 def live_terminals() -> set[str] | None:
     """Every handle Orca currently has, or None when it could not say.
 

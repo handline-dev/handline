@@ -46,8 +46,10 @@ back on the same account.
 
 ```bash
 ocp ask keeper "rebase onto main and re-run the suite"
-ocp inbox                       # what agents have sent back
-ocp resolve 12 "approved"       # close one
+ocp inbox                       # what is waiting on you, and what came back
+ocp read 12                     # one of them whole, with its answer
+ocp resolve 12 "approved"       # answer one
+ocp dismiss 12                  # take one off the list without replying
 ```
 
 That is all of it. The daemon delivers: an idle agent is told, a closed one is
@@ -89,7 +91,7 @@ the pidfile in `~/.orcapipe/daemon.pid` is still the single source of truth for
 | `ocp doctor` | verify the preconditions of every phase |
 | `ocp status` / `ocp account list` | usage, and which account may take work |
 | `ocp ask <target> "<req>"` | queue work for an agent; the daemon delivers it |
-| `ocp inbox` / `ocp resolve <id> "<verdict>"` | request queue |
+| `ocp inbox` / `ocp resolve <id> "<verdict>"` / `ocp dismiss <id>` | request queue |
 | `ocp fold [agent]` | fold events into the digest (the one model call) |
 | `ocp rollover` | midnight carry-forward, no model |
 | `ocp digest` / `ocp handoff <agent>` | the record |
@@ -136,6 +138,12 @@ tick, so a threshold crossed while the daemon was dead is still acted on.
 
 **Unlisted edges are denied.** Agents cannot spray requests around, and a
 refusal explains itself so they do not try to route around it.
+
+**An answer goes back the way the question came.** `ocp resolve` writes the
+verdict on the request; the daemon reads it out to the agent that asked, and a
+human reads it in `ocp inbox` and on `ocp top`. Both directions, or the team
+learns to talk around it: with only one drawn, agents took to sending a second,
+unrelated request repeating what they had already answered.
 
 ## Layout
 

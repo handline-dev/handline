@@ -1,10 +1,16 @@
 """What a human can do to an agent, in one place.
 
-`ocp top` is the screen the team is run from, so the actions have to live
+`ocp top` is the screen the team is run from, so what it does has to live
 somewhere that is not the drawing code: a screen that decided anything for
 itself would be a second opinion, and this file exists so there is only ever
-one. Every function here calls the same thing the daemon or the CLI calls, and
-returns the one line to show for what happened.
+one.
+
+Two halves. The acting half - wake, close, unstall, park, fold, start, message,
+answer, dismiss - is a line of glue each over the call the daemon or the CLI
+makes, and returns the one line to show for what happened. The reading half -
+messages, stuck, and the details behind a row - asks the database
+the questions a screen asks, and asks the daemon's own predicates for anything
+it would otherwise have to judge for itself.
 
 Two of them cannot be done from here at all. Logging in needs a human to type a
 code into claude's own screen, and starting an agent needs a terminal to start
@@ -14,10 +20,12 @@ over.
 from __future__ import annotations
 
 import os
+import time
 from pathlib import Path
 
-from . import (accounts, agents, ask as askmod, daemon, db, fold as foldmod, paths,
-               spawn as spawnmod, status, triggers)
+from . import (accounts, agents, ask as askmod, daemon, db, events as evmod,
+               fold as foldmod, observe as obs, orca, paths, spawn as spawnmod,
+               status, team, triggers)
 
 # The name a human's own requests are sent under, and the inbox `ocp top`
 # shows. Taken from `ask`, which is where escalations are addressed: a second
@@ -85,8 +93,47 @@ def start(con, agent: str, repo: str | None = None, base: str = "main") -> str:
     row = db.get_agent_state(con, agent)
     if row and row["terminal"]:
         return f"{agent}: already has a terminal ({row['terminal']}) - wake it instead"
+    wt = worktree_path(row["worktree"] if row else None)
+    if wt:
+        # It has somewhere to run already; it lost the window it ran in.
+        ok, msg = spawnmod.start_in(agent, wt)
+        return msg
     ok, msg = spawnmod.spawn(agent, Path(repo or os.getcwd()).resolve(), base=base)
     return msg
+
+
+def worktree_path(recorded: str | None) -> str | None:
+    """The directory an agent works in, out of what the row holds.
+
+    `ocp launch` records what Orca handed it, which is a selector - the repo's
+    id, then `::`, then the path - while `spawn` records a plain path. Testing
+    the selector as a path finds nothing, so an agent that still had its
+    worktree was given a second one beside it.
+    """
+    if not recorded:
+        return None
+    path = recorded.split("::", 1)[-1]
+    return path if Path(path).is_dir() else None
+
+
+def terminal(con, agent: str) -> str:
+    """Put the reader in this agent's terminal.
+
+    The screen is for the decisions that are one keypress wide. The rest - read
+    the diff with it, argue about an approach, watch it work - is a
+    conversation, and the place to have one is the agent's own session. Typing
+    a paragraph into `m` to avoid going there is how a decision gets made
+    badly.
+    """
+    row = db.get_agent_state(con, agent)
+    handle = row["terminal"] if row else None
+    if not handle:
+        return f"{agent} has no terminal to go to (s starts one)"
+    if not orca.available():
+        return "orca is not on PATH - nothing to switch to"
+    ok, why = orca.focus(handle)
+    return f"in {agent}'s terminal - come back to this tab when you are done" if ok \
+        else f"could not switch to {agent}: {why}"
 
 
 def message(con, agent: str, body: str) -> str:
@@ -98,51 +145,494 @@ def message(con, agent: str, body: str) -> str:
 
 
 def answer(con, rid: int, verdict: str) -> str:
-    """Close a request addressed to the human with what the human decided."""
+    """Reply to one row of the human's mailbox, whichever way it is pointing.
+
+    Two rows land in that mailbox and the same key has to work on both. A
+    request *to* the human is closed with a verdict, which is what the agent
+    parked on. An answer to something the human asked is already closed, so
+    replying to it is a new request back to the agent that answered - in that
+    answer's thread, which is the one place in this system where a parent id is
+    known for certain rather than guessed at.
+    """
     if not verdict.strip():
         return "nothing sent: no answer typed"
+    row = db.get_request(con, rid)
+    if row is None:
+        return f"#{rid} is gone"
+    if _is_answer_to_human(row):
+        ok, msg, _ = askmod.ask(row["target"], verdict, requester=HUMAN, parent_id=rid)
+        if ok:
+            # Replied to is read: leaving it in the mailbox would ask the human
+            # to dismiss what they have just answered.
+            db.mark_announced(con, [rid])
+        return msg
     ok, msg = askmod.resolve(rid, verdict)
     return msg
 
 
 def dismiss(con, rid: int) -> str:
-    """Close a request that needed no answer."""
+    """Take one row off the mailbox without replying to it.
+
+    An answer to the human's own ask is already resolved - the agent wrote the
+    verdict when it finished. Resolving it again would stamp "read" over what
+    it said, so it is marked told instead, which is the same thing the daemon
+    does when it reads an answer out to an agent.
+    """
+    row = db.get_request(con, rid)
+    if row is None:
+        return f"#{rid} is gone"
+    if _is_answer_to_human(row):
+        db.mark_announced(con, [rid])
+        return f"#{rid} marked read"
     ok, msg = askmod.resolve(rid, "read", state="done")
     return msg
 
 
+def _is_answer_to_human(row) -> bool:
+    """Is this row an answer that came back to the human, rather than a request?
+
+    The human asked it and it is no longer queued, so what it holds now is the
+    agent's verdict. The distinction decides what the reply key does and what
+    dismissing writes, so it is read off the row rather than inferred from
+    which panel the cursor was in.
+    """
+    return row["requester"] == HUMAN and row["state"] != "queued"
+
+
 def messages(con) -> list[dict]:
-    """Everything addressed to the human and not yet closed.
+    """The human's whole mailbox: what is waiting on them, and what came back.
 
-    Two things arrive in this one mailbox and they are not the same errand. An
-    escalation is a decision the routing says only a human makes, and nothing
-    else in this system will ever clear it. A request sent `async` asked for a
-    reply and its sender parked on one. A report asked for neither. Which of
-    those a row is comes from what the routing recorded when it was made, not
-    from reading the text.
+    Three things arrive here and they are not the same errand. An escalation is
+    a decision the routing says only a human makes, and nothing else in this
+    system will ever clear it. A request sent `async` asked for a reply and its
+    sender parked on one. A report asked for neither. Which of those a row is
+    comes from what the routing recorded when it was made, not from reading the
+    text.
 
-    Decisions first, then the ones that asked for a reply, then the rest - and
+    The fourth is not a request at all: it is an answer to something the human
+    asked. `ocp resolve` writes the verdict on the row and the daemon reads it
+    out to the agent that asked; the human has no terminal to be read out to, so
+    their answers have to be read here or nowhere. Half a mailbox teaches the
+    team to talk around it - with this one drawing only one direction, two
+    agents had learnt to send a second, unrelated request repeating what they
+    had already answered.
+
+    Decisions first, then the ones that asked for a reply, then the rest -
     oldest first inside each, because the order things arrived in is not the
     order they matter in.
     """
-    rows = con.execute(
-        "SELECT id, ts, requester, kind, response, body FROM requests "
-        "WHERE target = ? AND state = 'queued' ORDER BY id",
-        (HUMAN,),
-    ).fetchall()
     out = []
-    for r in rows:
-        m = dict(r)
-        # Two facts, both recorded by the routing when the request was made. A
-        # gate is a decision the design says only a human makes. `waiting` says
-        # the sender asked for a reply and parked on it - which is what it did
-        # at the time; whether it is still parked now is the agent's own state,
-        # and the screen says what the row records rather than reading one as
-        # the other.
-        m["gate"] = m["kind"] == "escalate"
-        m["waiting"] = m["response"] == "async"
-        out.append(m)
-    return sorted(out, key=lambda m: (not m["gate"], not m["waiting"], m["id"]))
+    for r in con.execute(
+        "SELECT id, ts, requester, target, kind, response, body, parent_id "
+        "FROM requests WHERE target = ? AND state = 'queued' ORDER BY id",
+        (HUMAN,),
+    ).fetchall():
+        # Both rows are built by hand and to one shape: a reader of this list
+        # must not have to know which query a row came out of, and "from" is
+        # the sender of a request one way and the answerer the other.
+        #
+        # `gate` and `waiting` are facts the routing recorded when the request
+        # was made. A gate is a decision the design says only a human makes.
+        # `waiting` says the sender asked for a reply and parked on it - which
+        # is what it did at the time; whether it is still parked now is the
+        # agent's own state, and the screen says what the row records rather
+        # than reading one as the other.
+        out.append({
+            "id": r["id"], "ts": r["ts"], "from": r["requester"],
+            "kind": r["kind"], "body": r["body"], "parent_id": r["parent_id"],
+            "gate": r["kind"] == "escalate",
+            "waiting": r["response"] == "async",
+            "answer": False,
+        })
+
+    for r in db.unannounced_answers(con, HUMAN):
+        out.append({
+            "id": r["id"],
+            # When the answer landed, not when the question was asked. Those
+            # are two days apart on this machine's oldest rows.
+            "ts": r["resolved_at"] or r["ts"],
+            "from": r["target"],
+            # What the row's own state says came back. A refusal is an answer -
+            # it is the one that means do something else - and drawing it as an
+            # answer would lose the only word that distinguishes them.
+            "kind": "answer" if r["state"] == "done" else "refused",
+            "body": r["verdict"] or "(answered with nothing written)",
+            "gate": False,
+            "waiting": False,
+            "answer": True,
+            "parent_id": r["parent_id"],
+        })
+    # Oldest first inside each bucket, by when the row landed rather than by
+    # its id: an answer carries the time it came back, and a reply to an old
+    # question has a low id and is this morning's news.
+    return sorted(out, key=lambda m: (not m["gate"], not m["waiting"], m["ts"], m["id"]))
+
+
+def message_detail(con, rid: int) -> tuple[str, list[tuple[str, list[str]]]] | None:
+    """One message opened, with what it is a reply to underneath it.
+
+    A verdict is unreadable alone: "**MERGE.**" is a complete answer and says
+    nothing without the branch it is about. What a message answers is known
+    exactly for a row the human asked - it is that row's own body - and for
+    anything else the exchange with that agent, in order, is the nearest true
+    thing: who said what to whom, not a guess at which sentence replies to
+    which.
+    """
+    row = db.get_request(con, rid)
+    if row is None:
+        return None
+    answer = _is_answer_to_human(row)
+    other = row["target"] if answer else row["requester"]
+    when = time.strftime("%Y-%m-%d %H:%M",
+                         time.localtime((row["resolved_at"] if answer else None) or row["ts"]))
+    kind = ("answer" if row["state"] == "done" else "refusal") if answer \
+        else (row["kind"] or "ask")
+    title = f"#{rid} from {other} · {kind} · {when}"
+    text = (row["verdict"] if answer else row["body"]) or ""
+    sections: list[tuple[str, list[str]]] = [("", text.splitlines() or ["(empty)"])]
+
+    quoted = {rid}
+    if answer:
+        asked = time.strftime("%m-%d %H:%M", time.localtime(row["ts"]))
+        sections.append((f"WHAT YOU ASKED · {asked}",
+                         _clip((row["body"] or "").splitlines(), rid)))
+    elif row["parent_id"]:
+        parent = db.get_request(con, row["parent_id"])
+        if parent is not None:
+            quoted.add(int(parent["id"]))
+            sections.append((f"IN REPLY TO #{parent['id']}",
+                             _clip((parent["body"] or "").splitlines(), parent["id"])))
+
+    # What is already quoted above is not also listed below: the same message
+    # twice on one page reads as two messages.
+    earlier = _exchange(con, other, quoted)
+    if earlier:
+        sections.append((f"EARLIER WITH {other.upper()}", earlier))
+    return title, sections
+
+
+# How much of a quoted message is shown before it is standing in the way of the
+# one being read. `ocp read` shows any of them whole.
+QUOTE_LINES = 20
+
+
+def _clip(lines: list[str], rid: int) -> list[str]:
+    if len(lines) <= QUOTE_LINES:
+        return lines or ["(empty)"]
+    return lines[:QUOTE_LINES] + [f"… {len(lines) - QUOTE_LINES} more lines - `ocp read {rid}`"]
+
+
+# How far back the exchange with one agent is drawn. Enough to place a verdict;
+# not so much that the message being read scrolls off its own page.
+EXCHANGE_ROWS = 6
+
+
+# How much of a line of the exchange is drawn. These are index lines - one per
+# thing said - and an agent's report is often one paragraph with no newline in
+# it, so its "first line" is the whole report and would wrap across the page it
+# is meant to be an index of.
+EXCHANGE_WIDTH = 60
+
+
+def _exchange(con, other: str, skip: set[int]) -> list[str]:
+    """What the human and this agent have said to each other, oldest last.
+
+    Both directions out of one query: the pair is the thread. A row that was
+    answered is two things said, so its verdict is drawn as its own line - the
+    reply is what makes the exchange read as a conversation rather than a list
+    of things the human sent.
+    """
+    rows = con.execute(
+        "SELECT id, ts, resolved_at, requester, target, state, body, verdict "
+        "FROM requests WHERE ((requester = ? AND target = ?) OR (requester = ? AND target = ?)) "
+        "AND state != 'denied' ORDER BY id DESC LIMIT ?",
+        (HUMAN, other, other, HUMAN, EXCHANGE_ROWS + len(skip)),
+    ).fetchall()
+    out: list[str] = []
+    for r in reversed(rows):
+        if int(r["id"]) in skip:
+            continue
+        mine = r["requester"] == HUMAN
+        arrow = f"you → {other}" if mine else f"{other} → you"
+        out.append(f"#{r['id']:<5} {arrow:<24} {_at(r['ts'])}  {_gist(r['body'])}")
+        if r["verdict"]:
+            who = other if mine else "you"
+            out.append(f"{'':<6} ↩ {who:<22} {_at(r['resolved_at'] or r['ts'])}  "
+                       f"{_gist(r['verdict'])}")
+    return out
+
+
+def _gist(text: str | None) -> str:
+    line = first_line(text)
+    return line if len(line) <= EXCHANGE_WIDTH else line[:EXCHANGE_WIDTH - 1] + "…"
+
+
+def _at(ts) -> str:
+    return time.strftime("%m-%d %H:%M", time.localtime(ts or 0))
+
+
+def first_line(text: str | None) -> str:
+    for line in (text or "").splitlines():
+        if line.strip():
+            return line.strip()
+    return "(empty)"
+
+
+# A reason that resolves itself has to be old before it counts as stuck: a
+# closed agent is woken on the next tick, and a long turn is what this system
+# is for - the daemon calls an agent healthy up to STUCK_RUNNING_S with nothing
+# heard. A reason that does not resolve itself counts at once.
+STUCK_AFTER_S = daemon.STUCK_RUNNING_S
+
+
+def _delivery_block(con, agent: str, sessions: dict | None,
+                    handles: set | None, alive: bool = True) -> tuple[str, bool]:
+    """Why work is not reaching this agent. (reason, does it resolve itself)
+
+    The checks are the daemon's gates - `supervise`'s, then `deliver_queued`'s -
+    in the order the daemon applies them, so the panel gives the daemon's reason
+    rather than a state the reader has to interpret. The two
+    readings it needs - Orca's terminals and the process table - are taken once
+    for the whole panel and handed in: asking per row would cost a process
+    listing each, and the idle probe is not asked at all, because a "no" from
+    it costs its whole timeout and RUNNING already says it on the agent's row.
+    """
+    if agent not in paths.list_agents():
+        return f"{agent} is not registered - nothing will ever take this", False
+    row = db.get_agent_state(con, agent)
+    if not row:
+        return f"{agent} has never been started (s starts it)", False
+    if row["state"] == daemon.STALLED:
+        # First, because `supervise` returns on STALLED before delivery is
+        # considered at all. Reporting a missing terminal ahead of it sent the
+        # reader to start one, which would not have moved the request.
+        return f"{agent} is STALLED - the daemon will not touch it (u clears it)", False
+    handle = row["terminal"]
+    if not handle:
+        return f"{agent} has no terminal - nothing can be typed to it (s starts one)", False
+    if handles is not None and handle not in handles:
+        return f"{agent}'s terminal is gone - Orca no longer has it", False
+    try:
+        acct = agents.account_of(agent)
+        pct = status.read(acct).trusted_pct_5h
+    except Exception:  # noqa: BLE001
+        acct, pct = "?", None
+    if row["closed_at"]:
+        if pct is not None and pct >= status.PCT_5H_BLOCK:
+            return (f"{agent} is closed and {acct} is at {pct}% - it cannot be "
+                    f"launched into", False)
+        if not alive:
+            return f"{agent} is closed and no daemon is running to wake it", False
+        return f"{agent} is closed; the next tick wakes it", True
+    if sessions is not None and not sessions.get(agent):
+        return f"no session is running in {agent}'s terminal", False
+    if row["state"] == daemon.RUNNING:
+        return f"{agent} is mid-turn - nothing is typed at a working agent", True
+    if row["state"] == daemon.HANDOFF:
+        return f"{agent} is mid-handoff", True
+    return "", True
+
+
+# What the world looked like, and when we last looked. A frame is drawn every
+# two seconds; asking Orca and scanning the process table that often costs a
+# fifth of a second each time, for readings that do not change that fast - and
+# the daemon is already asking the same two questions on its own tick.
+_WORLD: dict = {"at": 0.0, "sessions": None, "handles": None}
+WORLD_FRESH_S = 10
+
+
+def _world(ttl: int = WORLD_FRESH_S) -> tuple[dict | None, set | None]:
+    """Orca's terminals and the running sessions, at most `ttl` seconds old.
+
+    Only taken when something on the screen turns on them: a screen with
+    nothing queued asks nothing and costs nothing.
+    """
+    if time.time() - _WORLD["at"] > ttl:
+        _WORLD["sessions"] = obs.live_sessions()
+        _WORLD["handles"] = orca.live_terminals() if orca.available() else None
+        _WORLD["at"] = time.time()
+    return _WORLD["sessions"], _WORLD["handles"]
+
+
+def stuck(con) -> list[dict]:
+    """What is not moving, and what is in the way. (what, age_s, why)
+
+    This is the panel that used to draw "in flight". Almost nothing ever is: a
+    handoff takes seconds, and everything else it showed was a request that had
+    been sitting for a day and a half because its target had no terminal to be
+    told with. Drawing those as traffic said the system was busy when it was
+    stuck.
+
+    Membership is "the daemon cannot deliver this", not "this is old". Age is a
+    column, except for the reasons that clear themselves - being told and not
+    having answered yet is the ordinary state of a queue, and it only becomes a
+    finding when it has outlasted the longest turn the daemon calls healthy.
+
+    Nothing clears itself while the daemon is down, so with no daemon the
+    grace those reasons are given is not given: a request that is one minute
+    old and waiting on a tick that will never come is stuck now, not in half
+    an hour.
+    """
+    now = int(time.time())
+    alive = bool(daemon.running_elsewhere())
+    out: list[dict] = []
+
+    def add(what: str, age: int, why: str, agent: str | None = None) -> None:
+        # Every row that is about an agent carries which one, so the keys that
+        # fix it can be pressed where the problem is read rather than after
+        # finding the same name again in the list above.
+        out.append({"what": what, "age": age, "why": why, "agent": agent})
+
+    # First, because it is the reason for most of what follows. With no daemon
+    # nothing is delivered, nothing is woken and nothing is parked: every other
+    # row here is then a symptom, and "the next tick wakes it" is a sentence
+    # about a tick that is not coming.
+    if not alive:
+        add("the daemon is not running", 0,
+            "nothing here moves on its own - `ocp daemon`, or `ocp service install`")
+
+    for h in db.in_flight_handoffs(con):
+        left = (h["deadline"] or now) - now
+        add(f"handoff {h['agent']} at '{h['step']}'", 0,
+            f"deadline in {left}s" if left > 0 else "past its deadline", h["agent"])
+
+    queued = con.execute(
+        "SELECT id, requester, target, ts FROM requests WHERE state = 'queued' "
+        "AND target != ? ORDER BY ts", (HUMAN,),
+    ).fetchall()
+    sessions, handles = _world() if queued else (None, None)
+    for r in queued:
+        age, what = now - int(r["ts"]), f"#{r['id']} {r['requester']} → {r['target']}"
+        why, self_clearing = _delivery_block(con, r["target"], sessions, handles, alive)
+        if not why:
+            # The daemon can deliver it. Either it is about to, or it has
+            # already been told and has not answered - which is a queue working
+            # until it has gone on too long.
+            if age < STUCK_AFTER_S and alive:
+                continue
+            told = db.get_cursor(con, f"notify:{r['target']}") >= int(r["id"])
+            if told:
+                add(what, age, f"{r['target']} was told and has not answered", r["target"])
+            else:
+                # Nothing structural is in the way and it still has not been
+                # told, which the checks above cannot explain: the idle probe
+                # never said yes - a permission prompt, a wedged TUI, a RUNNING
+                # its hooks never cleared - or the send itself failed. Silence
+                # here was the panel saying nothing is wrong for two days.
+                add(what, age, f"{r['target']} has not been told yet - if this stays, "
+                               f"its idle probe or the send is failing", r["target"])
+            continue
+        if self_clearing and alive and age < STUCK_AFTER_S:
+            continue
+        add(what, age, why, r["target"])
+
+    for row in db.all_agent_states(con):
+        if row["state"] in (daemon.STALLED, daemon.DEGRADED):
+            add(f"{row['agent']} is {row['state']}", now - int(row["updated"]),
+                row["detail"] or "", row["agent"])
+    for acct in paths.list_accounts():
+        allowed, why = status.read(acct).assignable()
+        if not allowed:
+            add(f"account {acct} takes no work", 0, why)
+    return out
+
+
+# team.yaml as the screen reads it, re-parsed only when the file changes. A
+# frame is drawn every two seconds and the routing table is a human-edited file
+# that changes a few times a week. Keyed on the file, not just its clock: one
+# process can read two homes, and two homes' files are the same age.
+_TEAM: dict = {"key": None, "team": None}
+
+
+def routing() -> "team.Team | None":
+    """The routing table, or None when it cannot be read.
+
+    None rather than an exception: the screen draws a team that has no
+    hierarchy the same way it drew every team before there was one, and a typo
+    in team.yaml must not take the dashboard down with it - `ocp doctor` is
+    where a broken routing table is a finding.
+    """
+    p = paths.team_file()
+    try:
+        st = p.stat()
+        key = (str(p), st.st_mtime_ns, st.st_size)
+    except OSError:
+        return None
+    if _TEAM["key"] != key:
+        try:
+            _TEAM["team"] = team.Team.load()
+        except Exception:  # noqa: BLE001
+            _TEAM["team"] = None
+        _TEAM["key"] = key
+    return _TEAM["team"]
+
+
+def supervisor_of(t, agent: str) -> str | None:
+    """Which agent this one answers to, out of the routing table.
+
+    A supervisor edge is the relation the team model already writes down -
+    `manager -> dev.*` is what makes the devs the manager's - so the tree is
+    read from the policy the daemon routes on rather than from a second list
+    that would drift from it.
+
+    Only an edge whose `from` names one agent counts. A wildcard source is a
+    permission, not a chain of command: `* -> reviewer` says anyone may ask the
+    reviewer, and the human's own `orchestrator -> *` would otherwise make the
+    whole team its children and draw a tree that says nothing.
+    """
+    if t is None:
+        return None
+    best: tuple[int, str] | None = None
+    for e in t.edges:
+        if e.get("relation") != "supervisor":
+            continue
+        src, dst = str(e.get("from", "")), str(e.get("to", ""))
+        if "*" in src or src == agent or src == HUMAN:
+            continue
+        if not t.matches(dst, agent):
+            continue
+        # The most specific edge wins, the way a route does: a name beats a
+        # team, and a team beats everyone.
+        rank = 0 if dst == agent else (1 if dst.endswith(".*") else 2)
+        if best is None or rank < best[0]:
+            best = (rank, src)
+    return best[1] if best else None
+
+
+def agent_tree() -> list[tuple[str, int]]:
+    """Every registered agent as (name, depth), supervisors above their reports.
+
+    An agent whose supervisor is not registered, or that is in a cycle, is
+    drawn at the root: a name missing from this list reads as an agent that is
+    not there, so nothing may drop out of it.
+    """
+    names = paths.list_agents()
+    t = routing()
+    boss = {}
+    for n in names:
+        s = supervisor_of(t, n)
+        boss[n] = s if s in names and s != n else None
+    # A cycle would recurse forever. Anything that cannot be walked up to a
+    # root in as many steps as there are agents is one, and it is drawn flat.
+    for n in list(boss):
+        seen, cur = {n}, boss[n]
+        while cur is not None:
+            if cur in seen:
+                boss[n] = None
+                break
+            seen.add(cur)
+            cur = boss.get(cur)
+
+    out: list[tuple[str, int]] = []
+
+    def walk(parent: str | None, depth: int) -> None:
+        for n in names:
+            if boss[n] == parent:
+                out.append((n, depth))
+                walk(n, depth + 1)
+
+    walk(None, 0)
+    return out
 
 
 def login_argv(acct: str, force: bool = False) -> tuple[str, list[str], dict]:
@@ -167,7 +657,7 @@ def can(con, agent: str, key: str) -> bool:
     """
     row = db.get_agent_state(con, agent)
     if not row:
-        return key in ("message", "start")
+        return key in ("message", "start")   # nothing else exists to act on yet
     closed = bool(row["closed_at"])
     state = row["state"]
     # The states nothing may be done to from here. RUNNING and HANDOFF are
@@ -193,70 +683,93 @@ def can(con, agent: str, key: str) -> bool:
         return not busy
     if key == "start":
         return not row["terminal"]
+    if key == "terminal":
+        # Offered whatever the agent is doing, including mid-turn: going to
+        # watch it work is the one thing here that is always reasonable.
+        return bool(row["terminal"])
     return True
 
 
-def agent_detail(con, agent: str) -> list[str]:
-    """Everything the screen shows about one agent when it is opened."""
-    out: list[str] = []
+def agent_detail(con, agent: str) -> list[tuple[str, list[str]]]:
+    """What is behind an agent's row, in sections a screen can draw.
+
+    Sections rather than lines: a page of run-together text is the thing a
+    reader skips, and the four questions asked here - what is it, what is
+    waiting for it, what does it know, what has it done - are four different
+    questions.
+    """
     row = db.get_agent_state(con, agent)
     try:
         cfg = agents.read(agent)
         acct = agents.account_of(agent)
     except Exception as e:  # noqa: BLE001
-        return [f"config error: {e}"]
+        return [("", [f"config error: {e}"])]
     st = status.read_for_agent(agent, acct)
-    out.append(f"account {acct}   model {cfg.get('model')}   "
-               f"effort {cfg.get('effort') or agents.DEFAULT_EFFORT}")
+    head = [f"account {acct}   model {cfg.get('model')}   "
+            f"effort {cfg.get('effort') or agents.DEFAULT_EFFORT}   "
+            f"ctx {'?' if st.ctx_pct is None else str(st.ctx_pct) + '%'}"]
     if row:
-        out.append(f"state {row['state']}   ctx {st.ctx_pct}%   "
-                   f"terminal {row['terminal'] or '-'}")
-        out.append(f"detail {row['detail'] or '-'}")
+        closed = "  ·closed" if row["closed_at"] else ""
+        head.append(f"state {row['state']}{closed}"
+                    + (f"   wakes {time.strftime('%H:%M', time.localtime(row['wake_at']))}"
+                       if row["wake_at"] else ""))
+        if row["detail"]:
+            head.append(row["detail"])
+        head.append(f"terminal {row['terminal'] or 'none'}")
+        if row["worktree"]:
+            head.append(f"worktree {worktree_path(row['worktree']) or row['worktree']}")
         if row["closed_at"]:
-            out.append(f"closed, resume {row['resume_session'] or 'unknown'}")
-    out.append("")
+            head.append(f"resumes session {row['resume_session'] or 'unknown'}")
+    sections = [("", head)]
+
     waiting = db.queued_for(con, agent)
-    out.append(f"inbox: {len(waiting)} waiting")
-    for r in waiting[:5]:
-        first = (r["body"] or "").splitlines()[0] if r["body"] else ""
-        out.append(f"  #{r['id']} from {r['requester']}: {first}")
-    out.append("")
+    sections.append((f"WAITING FOR IT ({len(waiting)})", [
+        f"#{r['id']} from {r['requester']}: "
+        f"{((r['body'] or '').splitlines() or [''])[0]}" for r in waiting
+    ] or ["nothing queued for it"]))
+
+    mine = db.unannounced_answers(con, agent)
+    if mine:
+        sections.append((f"ANSWERS IT HAS NOT BEEN TOLD ({len(mine)})", [
+            f"#{r['id']} from {r['target']}: "
+            f"{((r['verdict'] or '').splitlines() or [r['state']])[0]}" for r in mine]))
+
     hp = foldmod.handoff_path(agent)
-    if hp.exists():
-        out.append("handoff:")
-        out += ["  " + ln for ln in hp.read_text().splitlines()[:12]]
-    else:
-        out.append("handoff: none written")
-    out.append("")
-    out.append("recent:")
-    for e in con.execute(
-        "SELECT ts, kind, payload FROM events WHERE agent = ? ORDER BY id DESC LIMIT 10",
-        (agent,),
-    ).fetchall():
-        out.append(f"  {e['kind']:<20}{(e['payload'] or '')[:60]}")
-    return out
+    sections.append(("WHAT IT KNOWS",
+                     hp.read_text().splitlines() if hp.exists()
+                     else ["no handoff written - it has not been parked"]))
+
+    recent = [f"{time.strftime('%H:%M:%S', time.localtime(e['ts']))}  "
+              f"{e['kind']:<18}{(e['payload'] or '')[:60]}"
+              for e in con.execute(
+                  "SELECT ts, kind, payload FROM events WHERE agent = ? "
+                  "ORDER BY id DESC LIMIT 12", (agent,)).fetchall()]
+    sections.append(("WHAT IT HAS DONE", recent or ["nothing recorded yet"]))
+    return sections
 
 
-def account_detail(con, acct: str) -> list[str]:
-    """Everything the screen shows about one account when it is opened."""
+def account_detail(con, acct: str) -> list[tuple[str, list[str]]]:
+    """What is behind an account's row, in the same shape as an agent's."""
     st = status.read(acct)
     allowed, why = st.assignable()
-    out = [f"account {acct}",
-           f"login    {'logged in' if accounts.logged_in(acct) else 'NOT logged in'}",
-           f"config   {paths.account_claude(acct)}",
-           f"5h       {st.trusted_pct_5h}% ({st.pct_5h_source})   7d {st.pct_7d}%",
-           f"snapshot {'-' if st.age_s is None else str(int(st.age_s)) + 's old'}"
-           f"   session {st.session_id or '-'}",
-           f"assign   {'yes' if allowed else 'no'} - {why}",
-           ""]
+    head = [f"login    {'logged in' if accounts.logged_in(acct) else 'NOT logged in'}",
+            f"config   {paths.account_claude(acct)}",
+            f"5h       {st.trusted_pct_5h}% ({st.pct_5h_source})   7d {st.pct_7d}%",
+            f"snapshot {'-' if st.age_s is None else str(int(st.age_s)) + 's old'}"
+            f"   session {st.session_id or '-'}",
+            f"assign   {'yes' if allowed else 'no'} - {why}"]
+    live = status.live_cost(acct)
+    head.append("spend    " + ("nothing running to read it from" if live is None else
+                               f"${live:.2f} across the sessions running now - not the "
+                               f"account's total, which nothing here can see"))
     mine = [a for a in paths.list_agents() if _account_of(a) == acct]
-    out.append(f"agents on it: {', '.join(mine) or 'none'}")
+    rows = []
     for a in mine:
         row = db.get_agent_state(con, a)
-        if row:
-            closed = " ·closed" if row["closed_at"] else ""
-            out.append(f"  {a:<12}{row['state']}{closed}   {row['detail'] or ''}")
-    return out
+        closed = " ·closed" if row and row["closed_at"] else ""
+        rows.append(f"{a:<12}{(row['state'] if row else 'never started')}{closed}"
+                    f"   {(row['detail'] if row else '') or ''}")
+    return [("", head), (f"AGENTS ON IT ({len(mine)})", rows or ["none"])]
 
 
 def _account_of(agent: str) -> str | None:
@@ -265,6 +778,3 @@ def _account_of(agent: str) -> str | None:
     except Exception:  # noqa: BLE001 - an unreadable agent belongs to no account here
         return None
 
-
-def registered_agents() -> list[str]:
-    return paths.list_agents()

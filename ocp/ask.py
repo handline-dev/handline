@@ -124,8 +124,14 @@ def _cycle_in_chain(con, chain_id: str | None, requester: str, target: str) -> s
 
     Depth alone does not catch this: two agents can bounce a request back and
     forth well inside the depth limit and never finish.
+
+    A chain with the human at one end is exempt. What this stops is a loop no
+    one is watching, and the human is who a loop is escalated *to* - refusing
+    "you replied to my reply" would make a threaded conversation illegal from
+    its second turn, and the escalation it raised would be addressed to the
+    same human who is typing.
     """
-    if not chain_id:
+    if not chain_id or HUMAN in (requester, target):
         return None
     rows = db.chain_members(con, chain_id)
     for r in rows:
@@ -181,6 +187,16 @@ def ask(target: str, body: str, files: str | None = None, requester: str | None 
         parent_id: int | None = None, mergeable: bool = False) -> tuple[bool, str, int | None]:
     """Route and, if allowed, enqueue. Returns (allowed, message, request id)."""
     requester = requester or asking_agent()
+    # Nobody may send as the human. The orchestrator's name carries two
+    # privileges - the routing table lets it reach every agent, and a chain
+    # through it is exempt from the loop guards, because the guards exist to
+    # reach a human and one is typing. An agent that could claim the name would
+    # hold both: one spoofed hop turns a refused A->B->A into a legal loop.
+    # `ocp launch` sets OCP_AGENT, so a caller that has one is not the human.
+    speaker = current_agent()
+    if requester == HUMAN and speaker not in (None, HUMAN):
+        return False, (f"{speaker} may not ask as {HUMAN}: that name is the human's, "
+                       f"and it is exempt from the loop guards."), None
     if not requester:
         return False, ("cannot tell who is asking: OCP_AGENT is unset and this is "
                        "not an interactive shell. Agents are started with "
@@ -197,6 +213,12 @@ def ask(target: str, body: str, files: str | None = None, requester: str | None 
                 return False, f"parent request {parent_id} does not exist", None
             depth = int(parent["chain_depth"]) + 1
             chain_id = parent["chain_id"]
+            # The human's turn starts the count again, and keeps the thread.
+            # The limit is there so a runaway ends up in front of a human; a
+            # reply typed by that human is the limit having worked, not a hop
+            # towards it.
+            if requester == HUMAN:
+                depth = 0
 
         # A loop is stopped and escalated, never silently dropped: a request
         # that vanishes leaves the team stuck with nobody knowing why.
@@ -252,7 +274,14 @@ def ask(target: str, body: str, files: str | None = None, requester: str | None 
         # async: the requester parks rather than hold an account while it
         # waits. The fallback wake_at is there so a reply that never arrives
         # cannot strand it (the permanent stop section 8.4 warns about).
-        if decision.response == "async" and not _terminal(con, requester):
+        #
+        # The human is not one of them. They hold no account, there is no
+        # session to park and nothing will ever wake them, so a state row in
+        # their name is bookkeeping about nobody - and it is drawn: `ocp ps`
+        # listed `orchestrator` among the agents, parked, for as long as it sat
+        # there.
+        if decision.response == "async" and requester != HUMAN \
+                and not _terminal(con, requester):
             db.set_agent_state(con, requester, "PARKED",
                                wake_at=int(time.time()) + AWAIT_FALLBACK_S,
                                detail=f"awaiting reply to request {rid} from {target}")
@@ -290,7 +319,8 @@ def resolve(rid: int, verdict: str, state: str = "done") -> tuple[bool, str]:
         # dispatched"; the daemon picks it up from there (section 8.2).
         # Only queue the requester when nothing else it asked for is still
         # outstanding, and never out of a terminal state.
-        if row["response"] == "async" and not _terminal(con, row["requester"]):
+        if row["response"] == "async" and row["requester"] != HUMAN \
+                and not _terminal(con, row["requester"]):
             outstanding = con.execute(
                 "SELECT COUNT(*) c FROM requests WHERE requester = ? AND state = 'queued' "
                 "AND response = 'async'", (row["requester"],)).fetchone()["c"]

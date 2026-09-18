@@ -504,8 +504,14 @@ def cmd_events(args) -> int:
             rows = db.events_after(con, args.after, agent=args.agent, limit=args.limit)
         else:
             rows = db.latest_events(con, agent=args.agent, limit=args.limit)
+        if not args.all:
+            # The hook events that only mark the edges of a turn are what an
+            # agent's state column says already, and there are six of them for
+            # every decision. `ocp top` used to filter them on screen; this is
+            # where someone asking what the daemon did actually looks.
+            rows = [r for r in rows if r["kind"] not in events.TURN_BOUNDARIES]
         if not rows:
-            print("no events")
+            print("no events" if args.all else "no decisions (--all includes turn edges)")
             return 0
         for r in rows:
             when = time.strftime("%m-%d %H:%M", time.localtime(r["ts"]))
@@ -656,17 +662,167 @@ def cmd_inbox(args) -> int:
         print("cannot tell whose inbox this is: OCP_AGENT is unset and this is not "
               "an interactive shell. Name the agent.")
         return 1
+    if agent == actions.HUMAN:
+        return _human_inbox(args.all)
     rows = askmod.inbox(agent, unread_only=not args.all)
     if not rows:
         print(f"{agent}: inbox empty")
         return 0
+    print(f"{len(rows)} waiting. `ocp read <id>` shows one whole.")
     for r in rows:
         print(f"#{r['id']:<5} from {r['requester']:<12} {r['state']:<9} "
               f"depth={r['chain_depth']} {r['body'][:60]}")
     return 0
 
 
+def _human_inbox(show_all: bool = False) -> int:
+    """The human's mailbox, which holds one more thing than an agent's.
+
+    An agent is told what came back to it by the daemon typing into its
+    terminal. Nobody types into a human, so an answer to something the human
+    asked has to be somewhere they look - and this command and `ocp top` have
+    to hold the same rows, or clearing one leaves the other still asking.
+
+    `--all` adds what has already been dealt with, the way it does everywhere
+    else. It used to fall through to the agent view, which has no answers in
+    it, so asking for more showed less.
+    """
+    con = db.connect()
+    try:
+        rows = actions.messages(con)
+        if not rows and not show_all:
+            print("nothing waiting on you")
+            return 0
+        print(f"{len(rows)} waiting. `ocp read <id>` shows one whole.")
+        for m in rows:
+            mark = "!" if m["gate"] else ("<" if m["answer"] else ".")
+            print(f"{mark} #{m['id']:<5} {m['from']:<12} {(m['kind'] or 'ask'):<9} "
+                  f"{actions.first_line(m['body'])[:60]}")
+        print("`ocp resolve <id> \"<text>\"` answers one - on a `<` row that goes back "
+              "as a reply in its thread; `ocp dismiss <id>` takes it off the list.")
+        if show_all:
+            # Not the ones printed above: an answer that is still on the list is
+            # not "already dealt with", and printing it twice would say it was.
+            waiting = {m["id"] for m in rows}
+            done = con.execute(
+                "SELECT id, ts, requester, target, state, body, verdict FROM requests "
+                "WHERE (target = ? OR requester = ?) AND state != 'queued' "
+                "ORDER BY id DESC LIMIT 20", (actions.HUMAN, actions.HUMAN)).fetchall()
+            done = [r for r in done if r["id"] not in waiting]
+            print(f"\n{len(done)} most recent, already dealt with:")
+            for r in done:
+                other = r["target"] if r["requester"] == actions.HUMAN else r["requester"]
+                arrow = "→" if r["requester"] == actions.HUMAN else "←"
+                print(f"  #{r['id']:<5} {arrow} {other:<12} {r['state']:<9} "
+                      f"{actions.first_line(r['verdict'] or r['body'])[:60]}")
+        return 0
+    finally:
+        con.close()
+
+
+def _who_refusal(verb: str) -> str:
+    """Whose row it is cannot be checked against a caller we cannot name.
+
+    The same fail-closed rule `ocp ask` uses: a human has a terminal, a script
+    that dropped OCP_AGENT does not, and promoting one to the other is how an
+    agent ends up clearing the founder's mailbox.
+    """
+    return (f"cannot tell who is {verb}ing this: OCP_AGENT is unset and this is not "
+            f"an interactive shell. Agents are started with `ocp launch <agent>`, "
+            f"which sets it.")
+
+
+def cmd_dismiss(args) -> int:
+    """Take one of your own rows off your list.
+
+    The two kinds there need two different writes - a request addressed to you
+    is closed with "read", an answer you asked for is only marked told - and
+    which one this is is read off the row, so clearing your list never means
+    knowing which. Somebody else's row is neither: dismissing it would resolve
+    a request they are still waiting on, with a verdict they never wrote.
+    """
+    con = db.connect()
+    try:
+        row = db.get_request(con, args.id)
+        if row is None:
+            print(f"no request #{args.id}")
+            return 1
+        me = askmod.asking_agent()
+        if me is None:
+            print(_who_refusal("dismiss"))
+            return 1
+        mine = row["target"] == me or (row["requester"] == me and row["state"] != "queued")
+        if not mine:
+            print(f"#{args.id} is {row['requester']} → {row['target']}, not yours to "
+                  f"dismiss. `ocp read {args.id}` shows it.")
+            return 1
+        print(actions.dismiss(con, args.id))
+        return 0
+    finally:
+        con.close()
+
+
+def cmd_read(args) -> int:
+    """Print one request whole - what was asked, and what came back.
+
+    `ocp inbox` shows a line each, cut to fit, and the only way to see the rest
+    was to know where the raw JSON lives. An agent that cannot read the whole
+    of what it was asked answers the half it could see.
+
+    Any agent can read any request, which was already true of the database and
+    of `ocp inbox`, `ocp digest` and `ocp handoff` - this makes it convenient
+    rather than new. Nothing typed into a request is private to two agents.
+    """
+    con = db.connect()
+    try:
+        row = db.get_request(con, args.id)
+        if row is None:
+            print(f"no request #{args.id}")
+            return 1
+        when = time.strftime("%Y-%m-%d %H:%M", time.localtime(row["ts"]))
+        print(f"#{row['id']}  {row['requester']} → {row['target']}  "
+              f"{row['kind'] or 'ask'}  {row['state']}  {when}")
+        print(f"relation {row['relation']}   response {row['response']}   "
+              f"depth {row['chain_depth']}")
+        print()
+        print(row["body"] or "(empty)")
+        if row["verdict"]:
+            print()
+            print(f"--- answered by {row['target']} ---")
+            print(row["verdict"])
+        return 0
+    finally:
+        con.close()
+
+
 def cmd_resolve(args) -> int:
+    """Answer a request - whichever end of it you are on.
+
+    Resolving writes the verdict on the row, so aimed at a request you made
+    and someone has already answered it overwrites their answer with your own
+    words and sends nothing: the record then says the agent said what you said.
+    The screen's answer key has always branched on that; this is the same
+    branch, because the two must not disagree about what "answer" means.
+    """
+    con = db.connect()
+    try:
+        row = db.get_request(con, args.id)
+        if row is None:
+            print(f"no request #{args.id}")
+            return 1
+        me = askmod.asking_agent()
+        if me is None:
+            print(_who_refusal("answer"))
+            return 1
+        if row["requester"] == me and row["state"] != "queued":
+            print(actions.answer(con, args.id, args.verdict))
+            return 0
+        if row["target"] != me:
+            print(f"#{args.id} is {row['requester']} → {row['target']}, not yours to "
+                  f"answer. `ocp read {args.id}` shows it.")
+            return 1
+    finally:
+        con.close()
     ok, msg = askmod.resolve(args.id, args.verdict, state=args.state)
     print(msg)
     return 0 if ok else 1
@@ -766,11 +922,19 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--all", action="store_true")
     p.set_defaults(fn=cmd_inbox)
 
+    p = sub.add_parser("read", help="print one request whole, with its answer")
+    p.add_argument("id", type=int)
+    p.set_defaults(fn=cmd_read)
+
     p = sub.add_parser("resolve", help="close a request with a verdict")
     p.add_argument("id", type=int)
     p.add_argument("verdict")
     p.add_argument("--state", default="done", choices=["done", "rejected"])
     p.set_defaults(fn=cmd_resolve)
+
+    p = sub.add_parser("dismiss", help="take one row off your mailbox without replying")
+    p.add_argument("id", type=int)
+    p.set_defaults(fn=cmd_dismiss)
 
     p = sub.add_parser("fold", help="fold events into the digest (the one model call)")
     p.add_argument("agent", nargs="?")
@@ -797,6 +961,8 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--agent", default=None)
     p.add_argument("--after", type=int, default=0)
     p.add_argument("--limit", type=int, default=50)
+    p.add_argument("--all", action="store_true",
+                   help="include the hook events that only mark turn edges")
     p.set_defaults(fn=cmd_events)
 
     p = sub.add_parser("hook", help="internal: record a hook event from stdin")

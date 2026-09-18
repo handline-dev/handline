@@ -42,8 +42,10 @@ age we will assign on - still a floor for triggers, no new work.
 Design section 4 has the five cases and why only one of them is fail-closed.""",
     "work": """giving an agent work
   ocp ask <agent> "<task>"        queue it
-  ocp inbox                       what is waiting for you
-  ocp resolve <id> "<verdict>"    close one
+  ocp inbox                       what is waiting for you, and what came back
+  ocp read <id>                   one of them whole
+  ocp resolve <id> "<verdict>"    answer one
+  ocp dismiss <id>                take one off your list without replying
 
 An interactive shell with no OCP_AGENT belongs to a human, so `ocp ask` typed at
 your own prompt comes from orchestrator. A process that merely lost the variable
@@ -54,7 +56,14 @@ tick, and a closed one is resumed first and then told. Nobody has to nudge a
 terminal, and an agent is told once per request rather than reminded.
 
 An agent that is mid-turn is left alone until it is free - typing at a busy TUI
-leaves the text sitting in its input box, unsent.""",
+leaves the text sitting in its input box, unsent.
+
+An answer goes back the same way, without being asked for again. `ocp resolve`
+writes the verdict on the request, the daemon reads it out to the agent that
+asked, and a human sees it in `ocp inbox` and on `ocp top` - so replying to
+whoever asked is resolving their request, never a second request that repeats
+it. A reply to *that* answer is `ocp ask ... --parent <id>`, which keeps the
+exchange as one thread; the screen's answer key does it for you.""",
 
     "memory": """closing an idle session
   ocp close <agent>                end the session, keep the terminal

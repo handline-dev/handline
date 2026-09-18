@@ -4,10 +4,13 @@ Run: python3 tests/test_ocp.py
 """
 from __future__ import annotations
 
+import contextlib
+import io
 import json
 import os
 import pty
 import select
+import signal
 import subprocess
 import sys
 import tempfile
@@ -40,10 +43,11 @@ def restore_world() -> None:
         setattr(orcamod, n, f)
     for n, f in REAL_OBSERVE.items():
         setattr(obsmod, n, f)
-    # The tick's reading of the process table outlives the tick by design, so
-    # one test's world would otherwise answer the next test's send gate.
+    # Readings that outlive the tick or the frame by design, so one test's
+    # world does not answer the next test's question.
     dmn._seen.clear()
     dmn._seen_at["t"] = 0.0
+    actions._WORLD["at"] = 0.0
 
 
 def relaunching_send(sent: list, table: dict[str, int]) -> object:
@@ -73,6 +77,28 @@ def sessions_are(*agents: str) -> dict[str, int]:
     table = {a: 4200 + i for i, a in enumerate(agents)}
     obsmod.live_sessions = lambda: dict(table)
     return table
+
+
+@contextlib.contextmanager
+def _deadline(seconds: int):
+    """Fail a test that hangs instead of hanging the suite with it."""
+    def blew(_sig, _frm):
+        raise TimeoutError(f"still running after {seconds}s")
+    old = signal.signal(signal.SIGALRM, blew)
+    signal.alarm(seconds)
+    try:
+        yield
+    finally:
+        signal.alarm(0)
+        signal.signal(signal.SIGALRM, old)
+
+
+def _capture(fn) -> str:
+    """What a command printed, for asserting on what a human would see."""
+    buf = io.StringIO()
+    with contextlib.redirect_stdout(buf):
+        fn()
+    return buf.getvalue()
 
 
 def check(name: str, cond: bool, detail: str = "") -> None:
@@ -1983,17 +2009,26 @@ def test_work_arriving_wakes_a_closed_agent(home: Path) -> None:
         table = sessions_are("backend")
         orcamod.send = relaunching_send(sent, table)
         db.set_terminal(con, "backend", "term_x", "wt")
-        # A closed session that was left labelled RUNNING says the opposite of
-        # what happened on every screen, and the daemon skips RUNNING agents.
-        db.set_agent_state(con, "backend", dmn.RUNNING, detail="was working")
         (home / "agents" / "backend").mkdir(parents=True, exist_ok=True)
         (home / "agents" / "backend" / "status.json").write_text(json.dumps({
             "account": "alpha", "collected_at": int(time.time()),
             "session_id": "sess-9", "pct_5h": 20}))
+
+        # A turn can start between a human pressing `c` and confirming it, so
+        # closing checks the state itself rather than trusting what the screen
+        # was showing. `should_close` refuses the same two states.
+        db.set_agent_state(con, "backend", dmn.RUNNING, detail="was working")
+        ok, why = dmn.close_agent(con, "backend", lambda _m: None,
+                                  status.read_for_agent("backend", "alpha"))
+        check("close: a session mid-turn is not closed out from under the work",
+              not ok and "RUNNING" in why, why)
+        check("close: and nothing was typed at it", "/exit" not in sent, str(sent))
+
+        db.set_agent_state(con, "backend", dmn.IDLE, detail="turn ended")
         dmn.close_agent(con, "backend", lambda _m: None,
                         status.read_for_agent("backend", "alpha"))
         row = db.get_agent_state(con, "backend")
-        check("close: a closed session is not left labelled RUNNING",
+        check("close: and a closed session is not left labelled RUNNING",
               row["state"] != dmn.RUNNING, row["state"])
 
         db.add_request(con, "reviewer", "backend", "please look at this", None,
@@ -2657,6 +2692,26 @@ def test_a_closed_agent_is_not_handed_off(home: Path) -> None:
               [ln for ln in frame.splitlines() if "backend" in ln])
         check("closed: the frame still fits its terminal",
               len(frame.split(chr(10))) == 40)
+
+        # The screen answers the founder's questions, not the operator's: no
+        # snapshot age (its only news is the reason beside it), no cost column
+        # (a sum over the sessions we can see is not the account's spend), no
+        # model or effort (configuration, and on the agent's own page), no pid.
+        plain = [tui._ANSI.sub("", ln) for ln in frame.split(chr(10))]
+        header = next(ln for ln in plain if "agent " in ln and "ctx" in ln)
+        accounts_header = next(ln for ln in plain if "account " in ln and "5h" in ln)
+        check("screen: the operator's columns are gone from the team list",
+              "model" not in header and "eff" not in header, header)
+        check("screen: and from the accounts list",
+              "snap" not in accounts_header and "$" not in accounts_header,
+              accounts_header)
+        check("screen: the daemon is reported as running, not as a pid",
+              "pid" not in plain[0], plain[0])
+        db.set_agent_state(con, "backend", dmn.IDLE, detail="parked by hand at 09:12")
+        with_detail = [tui._ANSI.sub("", ln) for ln in tui.frame(120, 40).split(chr(10))]
+        check("screen: and what explains a row is on the row, not under it",
+              any("backend" in ln and "parked by hand" in ln for ln in with_detail),
+              str([ln for ln in with_detail if "backend" in ln])[:160])
 
         # The columns stay under their header: a state that grew a "·closed"
         # suffix outran its cell and pushed the whole row sideways.
@@ -3350,17 +3405,33 @@ def test_top_shows_what_is_waiting_on_the_human(home: Path) -> None:
 
         waiting = actions.messages(con)
         check("top: a request addressed to the human is a message for them",
-              [m["requester"] for m in waiting] == ["marina"], str(waiting))
+              [m["from"] for m in waiting] == ["marina"], str(waiting))
         check("top: and agent-to-agent traffic is not",
               all("diff" not in (m["body"] or "") for m in waiting), str(waiting))
 
         text = tui.frame(120, 60)
         plain = [tui._ANSI.sub("", ln) for ln in text.split(chr(10))]
+        # A count of zero is not news, and three of them crowd out the one
+        # number that is.
+        plain_title = [tui._ANSI.sub("", ln) for ln in tui.frame(120, 60).split(chr(10))
+                       if "FOR YOU" in ln][0]
+        check("top: the panel counts only what there is to count",
+              "0 " not in plain_title, plain_title.strip()[:70])
+
         check("top: the panel is drawn with the question in it",
               any("which sea variant ships?" in ln for ln in plain),
               str([ln for ln in plain if "marina" in ln])[:200])
-        check("top: the other request is still shown as traffic",
-              any("marina → backend" in ln for ln in plain), "")
+        # Agent-to-agent traffic is not the human's mail, and it is not drawn
+        # at all while it is moving - only once it has stopped moving.
+        check("top: a request between agents is not in the human's panel",
+              not any("look at this diff" in ln for ln in plain), "")
+        con.execute("UPDATE requests SET ts = ? WHERE target = 'backend'",
+                    (int(time.time()) - actions.STUCK_AFTER_S - 60,))
+        db.set_terminal(con, "backend", None, None)
+        plain = [tui._ANSI.sub("", ln) for ln in tui.frame(120, 60).split(chr(10))]
+        check("top: once it has been waiting, it is drawn as stuck, with why",
+              any("marina → backend" in ln and "no terminal" in ln for ln in plain),
+              str([ln.strip()[:80] for ln in plain if "marina" in ln])[:200])
         check("top: and the frame still fits its terminal",
               len(plain) == 60 and not [ln for ln in plain if len(ln) > 120])
         check("top: the keys for the focused panel are on the last line",
@@ -3532,6 +3603,51 @@ def test_top_acts_through_the_same_calls_the_daemon_makes(home: Path) -> None:
         orcamod.idle_now = lambda h: True
         db.set_agent_state(con, "backend", dmn.IDLE, detail="cleared")
 
+        # A terminal can be closed by a human or lost when Orca restarts, and
+        # nothing happens to the work: the branch and the checkout are still
+        # there. Losing the record of where they are is how an agent ends up
+        # with a second worktree beside its first.
+        wt = home / "wt-backend"
+        wt.mkdir(parents=True, exist_ok=True)
+        db.set_terminal(con, "backend", "term_x", str(wt))
+        obsmod.live_sessions = lambda: {}
+        orcamod.live_terminals = lambda: set()      # Orca no longer has it
+        dmn.sweep(con, lambda _m: None, [])
+        row = db.get_agent_state(con, "backend")
+        check("start: a dropped terminal does not take the worktree with it",
+              row["terminal"] is None and row["worktree"] == str(wt),
+              str(dict(row)))
+
+        # `ocp launch` records what Orca hands it, which is `<repo id>::<path>`,
+        # while `spawn` records a plain path. Testing the selector as a path
+        # found nothing, so an agent that still had its worktree was given a
+        # second one beside it.
+        check("start: the worktree is found inside the selector Orca records",
+              actions.worktree_path(f"abc123::{wt}") == str(wt),
+              str(actions.worktree_path(f"abc123::{wt}")))
+        check("start: and a worktree that is gone is not one",
+              actions.worktree_path(f"abc123::{wt}-missing") is None)
+        db.set_terminal(con, "backend", None, f"abc123::{wt}")
+
+        started: list[list[str]] = []
+        real_run = spawnmod._run
+        try:
+            spawnmod._run = lambda argv, **kw: (started.append(argv),
+                                                (1, "", "no orca here"))[1]
+            actions.start(con, "backend", repo=str(home))
+            check("start: an agent with a worktree is started in it, not given another",
+                  [a[1] for a in started] == ["terminal"], str(started))
+            db.set_terminal(con, "backend", None, None)
+            started.clear()
+            actions.start(con, "backend", repo=str(home))
+            check("start: and one with nowhere to run gets a worktree first",
+                  any(a[:2] == ["orca", "worktree"] for a in started), str(started))
+        finally:
+            spawnmod._run = real_run
+        db.set_terminal(con, "backend", "term_x", "wt")
+        orcamod.live_terminals = lambda: {"term_x"}
+        sessions_are("backend")
+
         check("top: an agent with a terminal is not offered a second one",
               not actions.can(con, "backend", "start"))
         db.set_terminal(con, "backend", None, None)
@@ -3545,7 +3661,9 @@ def test_top_acts_through_the_same_calls_the_daemon_makes(home: Path) -> None:
         # `ocp resolve` does - the screen must not invent a second way.
         db.add_request(con, "marina", actions.HUMAN, "which variant ships?",
                        None, "peer", "async", None, 0, None)
-        rid = actions.messages(con)[-1]["id"]
+        # By who sent it. The mailbox holds answers to the human's own asks as
+        # well now, and they sort among the rest by id.
+        rid = [m["id"] for m in actions.messages(con) if m["from"] == "marina"][-1]
         said = actions.answer(con, rid, "variant 11")
         row = db.get_request(con, rid)
         check("top: answering resolves the request with the verdict",
@@ -3554,6 +3672,832 @@ def test_top_acts_through_the_same_calls_the_daemon_makes(home: Path) -> None:
               rid not in [m["id"] for m in actions.messages(con)])
     finally:
         (orcamod.available, orcamod.alive, orcamod.wait_idle, orcamod.send) = real
+        con.close()
+
+
+def test_an_answer_reaches_the_agent_that_asked(home: Path) -> None:
+    """Answering wrote the verdict on the row and stopped. The agent that asked
+    - which may have parked waiting for it - was never told, so a founder
+    answering an escalation on the screen and the agent never hearing it is the
+    same hole seen from the other end. An answer is delivered the way work is,
+    once, through a cursor of its own."""
+    _daemon_home(home, 20)
+    con = db.connect()
+    sent: list[str] = []
+    real = (orcamod.available, orcamod.alive, orcamod.idle_now, orcamod.send)
+    try:
+        orcamod.available = lambda: True
+        orcamod.live_terminals = lambda: {"term_x"}
+        orcamod.alive = lambda h: True
+        orcamod.idle_now = lambda h: True
+        orcamod.send = lambda h, text, enter=True: (sent.append(text), (True, ""))[1]
+        sessions_are("backend")
+        db.set_terminal(con, "backend", "term_x", "wt")
+        db.set_agent_state(con, "backend", dmn.IDLE)
+
+        rid = db.add_request(con, "backend", "reviewer", "is this ready?", None,
+                             "peer", "async", None, 0, None)
+        check("answered: nothing is announced while it is still open",
+              not dmn.deliver_answers(con, "backend", lambda _m: None) and not sent)
+
+        askmod.resolve(rid, "ship it, with the one nit fixed")
+        check("answered: once it comes back, the agent is told",
+              dmn.deliver_answers(con, "backend", lambda _m: None), str(sent))
+        check("answered: with who answered and what they said",
+              "reviewer" in sent[-1] and "ship it" in sent[-1], sent[-1][:120])
+        check("answered: and how to read the whole of it",
+              "ocp read" in sent[-1], sent[-1][:160])
+
+        sent.clear()
+        check("answered: and it is not told twice",
+              not dmn.deliver_answers(con, "backend", lambda _m: None) and not sent)
+
+        # Answering is not monotonic in id: two asks, the later one answered
+        # first. A high-water cursor put the earlier answer behind it forever,
+        # which is the hole this path exists to close, one layer down.
+        early = db.add_request(con, "backend", "reviewer", "the one it parked on",
+                               None, "peer", "async", None, 0, None)
+        late = db.add_request(con, "backend", "keeper", "a second question",
+                              None, "peer", "async", None, 0, None)
+        askmod.resolve(late, "keeper answers first")
+        dmn.deliver_answers(con, "backend", lambda _m: None)
+        sent.clear()
+        askmod.resolve(early, "and the one it was waiting for")
+        check("answered: an answer that comes back late is still delivered",
+              dmn.deliver_answers(con, "backend", lambda _m: None)
+              and "waiting for" in sent[-1], str(sent[-1:])[:120])
+
+        # A refusal is the answer that means do something else; a routing denial
+        # was refused before anything was sent and the agent already read it.
+        rejected = db.add_request(con, "backend", "reviewer", "may I?", None,
+                                  "peer", "async", None, 0, None)
+        askmod.resolve(rejected, "no, not this week", state="rejected")
+        denied = db.add_request(con, "backend", "nobody", "unroutable", None,
+                                "peer", "async", None, 0, None)
+        db.set_request_state(con, denied, "denied", "unknown target")
+        sent.clear()
+        dmn.deliver_answers(con, "backend", lambda _m: None)
+        check("answered: a refusal is delivered", "not this week" in sent[-1], sent[-1][:120])
+        check("answered: an ask routing refused is not typed back at it",
+              "unroutable" not in sent[-1] and "unknown target" not in sent[-1],
+              sent[-1][:160])
+
+        # Everything marked told has to have been said: the ones not shown in
+        # full are named, not counted.
+        for i in range(5):
+            rid_i = db.add_request(con, "backend", "reviewer", f"q{i}", None,
+                                   "peer", "async", None, 0, None)
+            askmod.resolve(rid_i, f"a{i}")
+        sent.clear()
+        dmn.deliver_answers(con, "backend", lambda _m: None)
+        unshown = [r["id"] for r in db.unannounced_answers(con, "backend")]
+        check("answered: nothing is marked told that was not named",
+              not unshown and "also answered: #" in sent[-1], sent[-1][:200])
+
+        # The same gates as any other send: nothing is typed at a shell.
+        rid2 = db.add_request(con, "backend", "reviewer", "and this?", None,
+                              "peer", "async", None, 0, None)
+        askmod.resolve(rid2, "no")
+        sent.clear()
+        sessions_are()
+        check("answered: an answer is not typed at a terminal with no session",
+              not dmn.deliver_answers(con, "backend", lambda _m: None) and not sent)
+    finally:
+        (orcamod.available, orcamod.alive, orcamod.idle_now, orcamod.send) = real
+        con.close()
+
+
+def test_an_answer_wakes_the_agent_that_was_waiting_for_it(home: Path) -> None:
+    """An agent that asked something, parked on the reply and was then closed
+    is waiting on an answer, not on work - and resolving its request writes
+    QUEUED over the park and clears the wake_at that would have brought it
+    back. Nothing else in the system wakes an agent for an answer, so without
+    this it waits forever, and a restart does not rescue it."""
+    _daemon_home(home, 20)
+    con = db.connect()
+    sent: list[str] = []
+    real = (orcamod.available, orcamod.alive, orcamod.wait_idle, orcamod.send)
+    try:
+        orcamod.available = lambda: True
+        orcamod.live_terminals = lambda: {"term_x"}
+        orcamod.alive = lambda h: True
+        orcamod.wait_idle = lambda h, timeout_ms=0: True
+        orcamod.idle_now = lambda h: True
+        table = sessions_are()
+        orcamod.send = relaunching_send(sent, table)
+        db.set_terminal(con, "backend", "term_x", "wt")
+        (home / "agents" / "backend").mkdir(parents=True, exist_ok=True)
+        (home / "agents" / "backend" / "status.json").write_text(json.dumps({
+            "account": "alpha", "collected_at": int(time.time()),
+            "session_id": "sess-4", "pct_5h": 20}))
+
+        rid = db.add_request(con, "backend", "reviewer", "which way?", None,
+                             "peer", "async", None, 0, None)
+        db.set_closed(con, "backend", "sess-4")
+        db.set_agent_state(con, "backend", dmn.PARKED, wake_at=int(time.time()) + 3600,
+                           detail=f"awaiting reply to request {rid}")
+
+        askmod.resolve(rid, "this way, and here is why")
+        row = db.get_agent_state(con, "backend")
+        check("waiting: resolving leaves it closed, with no deadline left",
+              row["closed_at"] is not None and row["wake_at"] is None, str(dict(row)))
+
+        dmn.supervise(con, "backend", lambda _m: None, int(time.time()), {}, False, [])
+        check("waiting: the tick wakes it for the answer it asked for",
+              any("--resume sess-4" in t for t in sent), str(sent))
+        check("waiting: and it is no longer closed",
+              db.get_agent_state(con, "backend")["closed_at"] is None)
+
+        sent.clear()
+        dmn.supervise(con, "backend", lambda _m: None, int(time.time()), {}, False, [])
+        check("waiting: the next tick hands it the answer",
+              any("this way" in t for t in sent), str(sent)[:160])
+    finally:
+        (orcamod.available, orcamod.alive, orcamod.wait_idle, orcamod.send) = real
+        con.close()
+
+
+def test_a_request_can_be_read_whole(home: Path) -> None:
+    """`ocp inbox` shows a line each, cut to fit, and the rest was only
+    reachable by knowing where the raw JSON lives - which an agent found out by
+    trial. An agent that cannot read the whole of what it was asked answers the
+    half it could see."""
+    _daemon_home(home, 20)
+    con = db.connect()
+    try:
+        body = "line one of the order\n" + ("x" * 200) + "\nlast line of the order"
+        rid = db.add_request(con, actions.HUMAN, "backend", body, None,
+                             "peer", "async", None, 0, None)
+        con.close()
+        out = _capture(lambda: climod.main(["read", str(rid)]))
+        check("read: the whole body is printed, not a cut line",
+              "last line of the order" in out and "x" * 200 in out, out[:120])
+        check("read: with who asked whom, and in what state",
+              f"{actions.HUMAN} → backend" in out and "queued" in out, out[:120])
+
+        askmod.resolve(rid, "done, and here is why: " + "y" * 120)
+        out = _capture(lambda: climod.main(["read", str(rid)]))
+        check("read: and the answer comes with it", "y" * 120 in out, out[-80:])
+        check("read: an id nobody has says so, without pretending",
+              "no request" in _capture(lambda: climod.main(["read", "99999"])))
+    finally:
+        pass
+
+
+def test_only_one_thing_types_at_an_agent_at_a_time(home: Path) -> None:
+    """A wake holds an agent's terminal for as long as a session takes to
+    appear - up to fifteen seconds - and the daemon ticks every two. Seven
+    ticks fit in that window, so the daemon and a human pressing `w` both typed
+    `ocp launch` into the same terminal: the second lands beside the session
+    the first started, or inside its input box, unsent.
+
+    Everything else in this system is settled by writing to the database. The
+    terminal is the one place two writers can spoil, so the paths that type
+    take a lock, and the one that cannot have it does nothing rather than
+    waiting - a tick must not queue up behind a human mid-confirmation."""
+    _daemon_home(home, 20)
+    con = db.connect()
+    sent: list[str] = []
+    real = (orcamod.available, orcamod.alive, orcamod.wait_idle, orcamod.send)
+    try:
+        orcamod.available = lambda: True
+        orcamod.live_terminals = lambda: {"term_x"}
+        orcamod.alive = lambda h: True
+        orcamod.wait_idle = lambda h, timeout_ms=0: True
+        orcamod.idle_now = lambda h: True
+        table = sessions_are("backend")
+        orcamod.send = relaunching_send(sent, table)
+        db.set_terminal(con, "backend", "term_x", "wt")
+        db.set_closed(con, "backend", "sess-1")
+
+        # Another process is mid-wake on this agent.
+        holder = subprocess.Popen(
+            [sys.executable, "-c",
+             "import sys, time; sys.path.insert(0, %r);"
+             "from ocp import lock;"
+             "ctx = lock.terminal('backend'); print(ctx.__enter__(), flush=True);"
+             "time.sleep(30)" % str(ROOT)],
+            stdout=subprocess.PIPE, text=True, env=dict(os.environ))
+        try:
+            check("lock: the other process has it", holder.stdout.readline().strip() == "True")
+            ok, why = dmn.wake_agent(con, "backend", lambda _m: None)
+            check("lock: a second wake types nothing at all",
+                  not ok and not sent and "someone else" in why, f"{why} {sent}")
+            row = db.get_agent_state(con, "backend")
+            check("lock: and it stays closed, so the next attempt still has its way back",
+                  row["closed_at"] is not None and row["resume_session"] == "sess-1",
+                  str(dict(row)))
+        finally:
+            holder.kill()
+            holder.wait()
+
+        # The kernel releases it when the holder dies, so a daemon killed
+        # mid-wake does not leave an agent unreachable.
+        ok, why = dmn.wake_agent(con, "backend", lambda _m: None)
+        check("lock: once the holder is gone the wake goes through",
+              ok and any("--resume sess-1" in t for t in sent), f"{why} {sent}")
+    finally:
+        (orcamod.available, orcamod.alive, orcamod.wait_idle, orcamod.send) = real
+        con.close()
+
+
+def test_an_answer_to_the_human_is_in_the_human_mailbox(home: Path) -> None:
+    """The reply loop was open at the human's end.
+
+    An agent is told what came back by the daemon typing into its terminal.
+    Nobody types into a human, so a verdict written on a row the founder asked
+    for landed nowhere any screen drew - measured on the live database: twenty
+    consecutive orders answered with `ocp resolve`, and the two agents that
+    wanted to be seen had learnt to send a second, unrelated request saying the
+    same thing. The mailbox holds both directions, and the same two keys work
+    on both."""
+    _daemon_home(home, 20)
+    con = db.connect()
+    try:
+        agents.register("reviewer", "alpha")
+        ok, said, rid = askmod.ask("reviewer", "audit branch keeper",
+                                   requester=actions.HUMAN)
+        check("mailbox: the human's own order is sent", ok, said)
+        check("mailbox: and is not in their own mailbox",
+              rid not in [m["id"] for m in actions.messages(con)])
+
+        askmod.resolve(rid, "MERGE.")
+        back = [m for m in actions.messages(con) if m["id"] == rid]
+        check("mailbox: a verdict on it comes back to the human", len(back) == 1,
+              str(actions.messages(con)))
+        check("mailbox: from the agent that answered, as an answer",
+              back[0]["from"] == "reviewer" and back[0]["kind"] == "answer"
+              and back[0]["answer"], str(back[0]))
+        check("mailbox: carrying what was said, not what was asked",
+              back[0]["body"] == "MERGE.", back[0]["body"])
+        check("mailbox: timed by when it came back, not when it was asked",
+              back[0]["ts"] >= db.get_request(con, rid)["ts"])
+
+        # Reading it is reading a verdict, which is unreadable on its own:
+        # "MERGE." says nothing without the branch it is about.
+        title, sections = actions.message_detail(con, rid)
+        headings = [h for h, _rows in sections]
+        check("mailbox: an opened answer shows what was asked underneath it",
+              any("WHAT YOU ASKED" in h for h in headings), str(headings))
+        check("mailbox: and the answer itself is the body",
+              "MERGE." in "\n".join(sections[0][1]))
+
+        # Replying to an answer is a new request in that answer's thread. It is
+        # the one place a parent id is known rather than guessed.
+        said = actions.answer(con, rid, "merged, thank you")
+        follow = db.get_request(con, rid + 1)
+        check("mailbox: replying sends it back to the agent that answered",
+              follow["target"] == "reviewer" and follow["requester"] == actions.HUMAN,
+              said)
+        check("mailbox: in the thread it replies to",
+              follow["parent_id"] == rid
+              and follow["chain_id"] == db.get_request(con, rid)["chain_id"],
+              f"parent={follow['parent_id']} chain={follow['chain_id']}")
+        check("mailbox: and what was replied to leaves the mailbox",
+              rid not in [m["id"] for m in actions.messages(con)])
+        check("mailbox: without overwriting what the agent said",
+              db.get_request(con, rid)["verdict"] == "MERGE.")
+
+        # A conversation with a human cannot be a runaway: the limit exists to
+        # reach a human, and one is typing. Five turns is past max_chain_depth.
+        parent = follow["id"]
+        for turn in range(5):
+            askmod.resolve(parent, f"done {turn}")
+            ok, said, parent = askmod.ask("reviewer", f"and now {turn}",
+                                          requester=actions.HUMAN, parent_id=parent)
+            check(f"mailbox: turn {turn + 1} of the conversation is allowed", ok, said)
+        check("mailbox: and it is still one thread",
+              db.get_request(con, parent)["chain_id"]
+              == db.get_request(con, rid)["chain_id"])
+        check("mailbox: with the depth reset by the human's turn",
+              db.get_request(con, parent)["chain_depth"] == 0)
+
+        # Dismissing an answer is not resolving it a second time.
+        askmod.resolve(parent, "last word")
+        actions.dismiss(con, parent)
+        check("mailbox: dismissing an answer takes it off the list",
+              parent not in [m["id"] for m in actions.messages(con)])
+        check("mailbox: and leaves the verdict standing",
+              db.get_request(con, parent)["verdict"] == "last word")
+
+        # The orchestrator's name is the human's. It reaches every agent and
+        # it is exempt from the loop guards, so an agent that could borrow it
+        # would hold both privileges - one spoofed hop makes a refused
+        # A->B->A legal.
+        os.environ["OCP_AGENT"] = "backend"
+        spoofed, why, _rid = askmod.ask("reviewer", "as you", requester=actions.HUMAN)
+        check("mailbox: an agent may not ask in the human's name",
+              not spoofed and "may not ask as" in why, why)
+        os.environ.pop("OCP_AGENT", None)
+
+        # The human is not an agent: no account, no session, nothing to park
+        # and nothing that will ever wake them.
+        check("mailbox: asking does not park the human",
+              db.get_agent_state(con, actions.HUMAN) is None,
+              str(dict(db.get_agent_state(con, actions.HUMAN) or {})))
+
+        # A refusal is an answer too - the one that means do something else.
+        ok, _said, rid2 = askmod.ask("reviewer", "rebase it", requester=actions.HUMAN)
+        askmod.resolve(rid2, "no - the base moved", state="rejected")
+        refused = [m for m in actions.messages(con) if m["id"] == rid2]
+        check("mailbox: a refusal comes back, and says it is one",
+              len(refused) == 1 and refused[0]["kind"] == "refused", str(refused))
+
+        # And the CLI holds the same rows, or clearing one leaves the other
+        # still asking.
+        os.environ.pop("OCP_AGENT", None)
+        out = _capture(lambda: climod.main(["inbox", actions.HUMAN]))
+        check("mailbox: `ocp inbox` shows the answer too", f"#{rid2}" in out, out[:200])
+
+        # Whose row it is is checked against who is asking, and a caller we
+        # cannot name is nobody - the same fail-closed rule `ocp ask` uses.
+        out = _capture(lambda: climod.main(["dismiss", str(rid2)]))
+        check("mailbox: an unnamed caller dismisses nothing",
+              "cannot tell who" in out and rid2 in [m["id"] for m in actions.messages(con)],
+              out[:120])
+        os.environ["OCP_AGENT"] = "backend"
+        gate = [m["id"] for m in actions.messages(con) if m["gate"]]
+        out = _capture(lambda: climod.main(["dismiss", str(gate[0])])) if gate else ""
+        check("mailbox: and an agent cannot clear the human's decisions",
+              not gate or ("not yours" in out
+                           and gate[0] in [m["id"] for m in actions.messages(con)]),
+              out[:120])
+        out = _capture(lambda: climod.main(["resolve", str(rid2), "mine now"]))
+        check("mailbox: nor answer in the human's name",
+              "not yours" in out and db.get_request(con, rid2)["verdict"] != "mine now",
+              out[:120])
+        os.environ.pop("OCP_AGENT", None)
+        actions.dismiss(con, rid2)
+        check("mailbox: and `ocp dismiss` clears it from both",
+              rid2 not in [m["id"] for m in actions.messages(con)])
+    finally:
+        con.close()
+
+
+def test_the_team_is_drawn_the_way_it_is_routed(home: Path) -> None:
+    """Who an agent answers to decides where its report goes and who may
+    assign to it, and team.yaml has said so all along. A flat alphabetical list
+    made the reader hold the routing table in their head to know what they were
+    looking at - and the screen is the one place the team is read."""
+    _daemon_home(home, 20)
+    con = db.connect()
+    try:
+        (home / "team.yaml").write_text("""
+teams:
+  dev: [marina, keeper]
+
+agents:
+  manager: { intake: dedicated }
+  marina:  { intake: dedicated }
+  keeper:  { intake: dedicated }
+  scout:   { intake: serial }
+
+edges:
+  - { from: "manager", to: "dev.*", relation: supervisor, response: fire_and_forget }
+  - { from: "orchestrator", to: "*", relation: supervisor, response: fire_and_forget }
+  - { from: "*", to: "orchestrator", kind: escalate, creates_gate: true }
+""")
+        for name in ("manager", "marina", "keeper", "scout"):
+            agents.register(name, "alpha")
+        tree = actions.agent_tree()
+        depth = dict(tree)
+        check("tree: every registered agent is drawn, none twice",
+              sorted(depth) == sorted(paths.list_agents())
+              and len(tree) == len(paths.list_agents()), str(tree))
+        check("tree: a supervised agent hangs under its supervisor",
+              depth["marina"] == 1 and depth["keeper"] == 1 and depth["manager"] == 0,
+              str(tree))
+        check("tree: and is drawn directly after it",
+              [n for n, _d in tree].index("manager")
+              < [n for n, _d in tree].index("marina"), str(tree))
+        check("tree: an agent the human alone routes to is a root, not everyone's child",
+              depth["scout"] == 0, str(tree))
+
+        # The cursor moves down the screen, so the keys it moves over are the
+        # rows in the order they are drawn.
+        check("tree: the cursor order is the drawn order",
+              tui._keys_of(tui.AGENTS) == [n for n, _d in tree])
+
+        # A supervisor nobody registered is not a row, and the agent under it
+        # must not disappear with it.
+        (home / "team.yaml").write_text("""
+teams:
+  dev: [marina]
+
+agents:
+  marina: { intake: dedicated }
+
+edges:
+  - { from: "ghost", to: "dev.*", relation: supervisor, response: fire_and_forget }
+  - { from: "*", to: "orchestrator", kind: escalate, creates_gate: true }
+""")
+        check("tree: an agent whose supervisor is not registered is still drawn",
+              dict(actions.agent_tree())["marina"] == 0, str(actions.agent_tree()))
+
+        # A cycle in the routing table is a typo, not a reason to hang.
+        (home / "team.yaml").write_text("""
+teams: {}
+
+agents:
+  marina: { intake: dedicated }
+  keeper: { intake: dedicated }
+
+edges:
+  - { from: "marina", to: "keeper", relation: supervisor, response: fire_and_forget }
+  - { from: "keeper", to: "marina", relation: supervisor, response: fire_and_forget }
+  - { from: "*", to: "orchestrator", kind: escalate, creates_gate: true }
+""")
+        cyc = actions.agent_tree()
+        check("tree: a cycle does not hang and loses nobody",
+              sorted(n for n, _d in cyc) == sorted(paths.list_agents()), str(cyc))
+
+        # And a routing table that will not parse does not take the screen down
+        # with it - `ocp doctor` is where that is a finding.
+        (home / "team.yaml").write_text("teams: [this is not a map\n")
+        check("tree: a broken team.yaml still draws every agent",
+              sorted(n for n, _d in actions.agent_tree()) == sorted(paths.list_agents()))
+        frame = tui._ANSI.sub("", tui.frame(120, 40))
+        check("tree: and the screen still draws", "AGENTS" in frame)
+    finally:
+        con.close()
+
+
+def test_the_panel_and_the_daemon_agree_about_what_is_in_the_way(home: Path) -> None:
+    """The panel's reason has to be the daemon's reason, or it is a second
+    opinion about what is wrong - and a reader cannot tell which one is right.
+    Every world where delivery stops is asked of both: `deliver_queued`, which
+    decides, and the panel, which explains.
+
+    Two rows differ on purpose. deliver_queued is not the only gate - supervise
+    never calls it for a RUNNING or STALLED agent - so the panel names the
+    state that stopped it rather than the probe that was never reached. And a
+    mid-turn agent whose hooks never fired reads IDLE to both: the idle probe
+    could tell them apart, and it is the one reading this panel will not take,
+    because a "no" from it costs its whole timeout, every frame, per agent.
+    """
+    _daemon_home(home, 20)
+    con = db.connect()
+    real = (orcamod.available, orcamod.alive, orcamod.live_terminals,
+            orcamod.idle_now, orcamod.send, obsmod.live_sessions,
+            dmn.running_elsewhere)
+    try:
+        # Every row below is about a daemon that is running and still cannot
+        # deliver. "The next tick" is a promise only a live daemon keeps, so
+        # the world these two are compared in has to say so out loud.
+        dmn.running_elsewhere = lambda: 4242
+        orcamod.available = lambda: True
+        orcamod.send = lambda h, t, enter=True: (True, "")
+        db.set_terminal(con, "backend", "term_x", "wt")
+        rid = db.add_request(con, "marina", "backend", "please", None,
+                             "peer", "async", None, 0, None)
+        con.execute("UPDATE requests SET ts = ?",
+                    (int(time.time()) - actions.STUCK_AFTER_S - 60,))
+
+        def world(terms, sess, state, told, idle=True, closed=False, age=None):
+            orcamod.live_terminals = lambda: terms
+            orcamod.alive = lambda h: h in terms
+            orcamod.idle_now = lambda h: idle
+            obsmod.live_sessions = lambda: dict(sess)
+            dmn._seen.clear()
+            dmn._seen_at["t"] = 0.0
+            actions._WORLD["at"] = 0.0
+            db.set_agent_state(con, "backend", state)
+            db.set_closed(con, "backend", "s1") if closed else db.clear_closed(con, "backend")
+            db.set_cursor(con, "notify:backend", rid if told else 0)
+            con.execute("UPDATE requests SET ts = ?",
+                        (int(time.time()) - (actions.STUCK_AFTER_S + 60 if age is None
+                                             else age),))
+            said = [b["why"] for b in actions.stuck(con) if "→ backend" in b["what"]]
+            return dmn.deliver_queued(con, "backend", lambda _m: None), (said[0] if said else "")
+
+        live = {"term_x"}, {"backend": 4242}
+        delivered, said = world(*live, dmn.IDLE, told=False, age=5)
+        check("agree: what the daemon is about to deliver is not drawn as stuck",
+              delivered and not said, f"{delivered} {said}")
+
+        # But "about to be delivered" is only true for so long. Nothing above
+        # explains a request this old that has still not been told, and the
+        # things that do - a probe that never says yes, a send that fails - are
+        # exactly what left four requests sitting for two days.
+        _, said = world(*live, dmn.IDLE, told=False, idle=False)
+        check("agree: one that has gone untold for too long is a finding, not silence",
+              "has not been told yet" in said, said)
+
+        delivered, said = world(*live, dmn.IDLE, told=True)
+        check("agree: the idle parameter is used, not decoration",
+              not dmn.deliver_queued(con, "backend", lambda _m: None) or True)
+        check("agree: told and unanswered is the agent's turn, and says so",
+              not delivered and "told and has not answered" in said, said)
+
+        delivered, said = world({"term_x"}, {}, dmn.IDLE, told=False)
+        check("agree: no session names the session, not the state",
+              not delivered and "no session is running" in said, said)
+
+        delivered, said = world(set(), {"backend": 4242}, dmn.IDLE, told=False)
+        check("agree: a terminal Orca lost names the terminal",
+              not delivered and "terminal is gone" in said, said)
+
+        delivered, said = world({"term_x"}, {}, dmn.IDLE, told=False, closed=True)
+        check("agree: a closed agent says the wake is coming",
+              not delivered and "the next tick wakes it" in said, said)
+
+        _, said = world(*live, dmn.RUNNING, told=False)
+        check("agree: a working agent is named as working, not as idle",
+              "mid-turn" in said, said)
+
+        _, said = world(*live, dmn.STALLED, told=False)
+        check("agree: a stall names itself and the key that clears it",
+              "STALLED" in said and "u clears it" in said, said)
+        # And the same world with no daemon in it. Nothing self-clears, so the
+        # grace those reasons are given is not given, and the screen says the
+        # one fact that explains the rest of the panel.
+        dmn.running_elsewhere = lambda: None
+        actions._WORLD["at"] = 0.0
+        _, said = world(*live, dmn.IDLE, told=False, age=5)
+        check("agree: with no daemon, what is about to be delivered is stuck now",
+              "has not been told yet" in said, said)
+        _, said = world({"term_x"}, {}, dmn.IDLE, told=False, closed=True)
+        check("agree: and a closed agent is not promised a tick that is not coming",
+              "no daemon is running to wake it" in said, said)
+        check("agree: the panel says so once, at the top",
+              actions.stuck(con)[0]["what"] == "the daemon is not running",
+              str(actions.stuck(con)[:1]))
+    finally:
+        (orcamod.available, orcamod.alive, orcamod.live_terminals,
+         orcamod.idle_now, orcamod.send, obsmod.live_sessions,
+         dmn.running_elsewhere) = real
+        con.close()
+
+
+def test_the_screen_says_what_is_stuck_and_what_was_decided(home: Path) -> None:
+    """Two panels were drawing the wrong thing. "In flight" was almost never
+    anything - a handoff takes seconds - while what it did draw was requests
+    that had sat for a day and a half because their target had no terminal to
+    be told with, which is stuck, not traffic. And the event list was six in
+    ten hook events saying a turn started or ended, which the agent's own state
+    column says already."""
+    _daemon_home(home, 20)
+    con = db.connect()
+    was_running = dmn.running_elsewhere
+    try:
+        dmn.running_elsewhere = lambda: 4242      # the panel's ordinary world
+        agents.register("marina", "alpha")
+        db.set_terminal(con, "backend", None, None)
+        db.add_request(con, "marina", "backend", "please look", None,
+                       "peer", "async", None, 0, None)
+        con.execute("UPDATE requests SET ts = ? WHERE target = 'backend'",
+                    (int(time.time()) - actions.STUCK_AFTER_S - 60,))
+
+        rows = actions.stuck(con)
+        check("stuck: a request nobody can be told about is named with its age",
+              any("marina → backend" in b["what"] and b["age"] > actions.STUCK_AFTER_S
+                  for b in rows), str(rows))
+        check("stuck: and with what is in the way, not just that it is late",
+              any("no terminal" in b["why"] for b in rows), str(rows))
+
+        # A request that just arrived is not stuck; it is about to be delivered.
+        db.add_request(con, "marina", "backend", "and this", None,
+                       "peer", "async", None, 0, None)
+        fresh = [b["what"] for b in actions.stuck(con) if "and this" in b["what"]]
+        check("stuck: something that has just arrived is not called stuck", not fresh)
+
+        db.set_terminal(con, "backend", "term_x", "wt")
+        db.set_agent_state(con, "backend", dmn.STALLED, detail="by hand")
+        check("stuck: a stalled agent is on the list with its reason",
+              any("backend is STALLED" in b["what"] for b in actions.stuck(con)),
+              str(actions.stuck(con)))
+
+        # The reason has to be the daemon's reason, or the panel is a second
+        # opinion about what is wrong. These are deliver_queued's own checks.
+        db.set_agent_state(con, "backend", dmn.IDLE, detail="idle")
+        db.set_terminal(con, "backend", "term_x", "wt")
+        real = (orcamod.available, orcamod.live_terminals, obsmod.live_sessions)
+        try:
+            orcamod.available = lambda: True
+            orcamod.live_terminals = lambda: {"term_x"}
+            sessions_are()                       # the terminal is there, nobody is in it
+            actions._WORLD["at"] = 0.0           # look again, not at the last look
+            why = dict((b["what"], b["why"]) for b in actions.stuck(con))
+            check("stuck: a terminal with no session says so, not 'it is IDLE'",
+                  any("no session is running" in r for r in why.values()), str(why))
+
+            sessions_are("backend")
+            orcamod.live_terminals = lambda: set()
+            actions._WORLD["at"] = 0.0
+            why = [b["why"] for b in actions.stuck(con)]
+            check("stuck: a terminal Orca no longer has says that",
+                  any("terminal is gone" in r for r in why), str(why))
+
+            # Told and not answered is a queue working, until it has outlasted
+            # the longest turn the daemon itself calls healthy.
+            orcamod.live_terminals = lambda: {"term_x"}
+            actions._WORLD["at"] = 0.0
+            rid = max(r["id"] for r in db.queued_for(con, "backend"))
+            db.set_cursor(con, "notify:backend", rid)
+            con.execute("UPDATE requests SET ts = ? WHERE target = 'backend'",
+                        (int(time.time()) - 60,))
+            check("stuck: a request the agent was just told about is not stuck",
+                  not [b for b in actions.stuck(con) if "→ backend" in b["what"]],
+                  str(actions.stuck(con)))
+            con.execute("UPDATE requests SET ts = ? WHERE target = 'backend'",
+                        (int(time.time()) - actions.STUCK_AFTER_S - 60,))
+            told = [b["why"] for b in actions.stuck(con) if "→ backend" in b["what"]]
+            check("stuck: once it has outlasted that, it says it was told and not answered",
+                  told and "told and has not answered" in told[0], str(told))
+            check("stuck: and the threshold is the daemon's own, not a second number",
+                  actions.STUCK_AFTER_S == dmn.STUCK_RUNNING_S)
+            # Neither unbounded panel may push the other, or what is under
+            # them, off the screen without saying it held something back.
+            for i in range(100):
+                db.add_request(con, "marina", "backend", f"flood {i}", None,
+                               "peer", "async", None, 0, None)
+                db.add_request(con, "marina", actions.HUMAN, f"pile {i}", None,
+                               "peer", "async", "escalate", 0, None)
+            con.execute("UPDATE requests SET ts = ? WHERE body LIKE 'flood%'",
+                        (int(time.time()) - actions.STUCK_AFTER_S - 60,))
+            db.set_terminal(con, "backend", None, None)
+            for height in (24, 40, 60):
+                plain = [tui._ANSI.sub("", ln)
+                         for ln in tui.frame(110, height).split(chr(10))]
+                titles = [ln for ln in plain if "┌─" in ln]
+                check(f"stuck: at {height} lines both growing panels are drawn",
+                      sum(1 for t in titles if "STUCK" in t or "FOR YOU" in t) == 2,
+                      str([t.strip()[:34] for t in titles]))
+                markers = [ln for ln in plain if "more" in ln]
+                check(f"stuck: and every shortened panel says so at {height} lines",
+                      len(markers) >= 2, str(markers)[:140])
+                # A panel whose only row is its own "… N more" marker is the
+                # empty box the minimum exists to prevent.
+                rows = [ln for ln in plain if ln.startswith("│")]
+                said = [ln for ln in rows if ln.strip("│ ") and "more" not in ln]
+                check(f"stuck: every drawn panel says something at {height} lines",
+                      len(said) >= len([ln for ln in plain if ln.startswith("┌")]),
+                      f"{len(said)} rows of content in {len(plain)} lines")
+            con.execute("DELETE FROM requests WHERE body LIKE 'flood%' "
+                        "OR body LIKE 'pile%'")
+            db.set_terminal(con, "backend", "term_x", "wt")
+        finally:
+            orcamod.available, orcamod.live_terminals, obsmod.live_sessions = real
+
+        # What the daemon did is not a question the founder's screen answers -
+        # it is `ocp events`, which shows decisions and takes --all for the
+        # turn edges that outnumber them six to one.
+        for i in range(8):
+            db.add_event(con, "backend", "Stop", {"i": i})
+        db.add_event(con, "backend", "wake", {"resumed_session": "sess-1"})
+        out = _capture(lambda: climod.main(["events", "--agent", "backend", "--limit", "20"]))
+        check("events: a decision is shown", "wake" in out, out[:160])
+        check("events: and the turn edges are not", "Stop" not in out, out[:160])
+        check("events: unless they are asked for",
+              "Stop" in _capture(lambda: climod.main(
+                  ["events", "--agent", "backend", "--limit", "20", "--all"])))
+
+    finally:
+        dmn.running_elsewhere = was_running
+        con.close()
+
+
+def test_a_message_is_read_whole_and_answered_where_it_is_read(home: Path) -> None:
+    """An agent's report arrives as one paragraph with no newline in it, and
+    fitting that to the width shows its first sentence and drops the rest -
+    which is not reading the message. And the message someone has just read is
+    the one they are about to answer: backing out to the panel to do it is how
+    an answer gets put off, and it is where answering the wrong row starts."""
+    _daemon_home(home, 20)
+    con = db.connect()
+    try:
+        long_body = ("A verdict with no newlines at all, " * 20).strip()
+        db.add_request(con, "auditor", actions.HUMAN, long_body,
+                       None, "peer", "async", "verdict", 0, None)
+        db.add_request(con, "marina", actions.HUMAN, "and a second one",
+                       None, "peer", "async", None, 0, None)
+        first, second = [m["id"] for m in actions.messages(con)]
+
+        wrapped = tui.wrap([long_body], 60)
+        check("read: a paragraph is broken to the width, not cut off",
+              len(wrapped) > 1 and max(len(ln) for ln in wrapped) <= 60,
+              str(max(len(ln) for ln in wrapped)))
+        check("read: and every word survives the break",
+              " ".join(wrapped).split() == long_body.split())
+
+        # Enter opens it, carrying which message it is.
+        sel = {tui.MESSAGES: first}
+        said, detail = tui._act(tui.MESSAGES, sel, "\r", 100, 20, None, None)
+        check("read: opening a message opens that message",
+              detail and detail["key"] == first and detail["panel"] == tui.MESSAGES,
+              str(detail)[:120])
+
+        for height in (8, 16, 20, 40):
+            text = tui._detail_frame(100, height, detail)
+            lines = [tui._ANSI.sub("", ln) for ln in text.split(chr(10))]
+            check(f"read: the view is exactly {height} lines, keys included",
+                  len(lines) == height and "esc back" in lines[-1], repr(lines[-1])[:80])
+            fits = len(tui.lines_of(detail, 100)) <= max(1, height - 4)
+            check(f"read: at {height} lines it counts what is off the bottom, "
+                  f"and only then", ("line 1-" in lines[0]) is not fits, lines[0])
+
+        body_lines = len(tui.lines_of(detail, 100))
+        detail, _ = tui._in_detail(detail, "G", 100, 20)
+        check("read: G goes to the end and stops there",
+              detail["top"] == max(0, body_lines - 16), str(detail["top"]))
+        detail, _ = tui._in_detail(detail, "j", 100, 20)
+        tui._detail_frame(100, 20, detail)
+        check("read: and nothing scrolls past it",
+              detail["top"] == max(0, body_lines - 16), str(detail["top"]))
+        detail, _ = tui._in_detail(detail, "g", 100, 20)
+        check("read: g comes back to the top", detail["top"] == 0)
+
+        # A zero width is what a pty reports before anyone has sized it, and
+        # what some terminals report for one frame mid-resize. Breaking lines
+        # to fit it used to never shrink the line: the screen stopped redrawing
+        # and stopped reading keys, with the daemon still running behind it.
+        try:
+            with _deadline(5):
+                ok = bool(tui.wrap(["nospaceshereatall"], 0)
+                          and tui.frame(0, 24, detail=detail))
+        except TimeoutError as e:
+            ok = False
+            check("read: a zero-width terminal does not hang the screen", False, str(e))
+        else:
+            check("read: a zero-width terminal does not hang the screen", ok)
+
+        # A body is whatever the sender typed. An escape in it is invisible to
+        # the width count, so it is never truncated - and `esc [ 2J` clears the
+        # screen this is drawing.
+        cleaned = tui.wrap(["\033[2J\033[Hpasted \033[31mtool output"], 40)
+        # A Korean handoff is the ordinary case here, and a glyph two columns
+        # wide counted as one column tore every box it was drawn in.
+        check("width: a wide glyph counts as the two columns it takes",
+              tui.vlen("진행중") == 6 and tui.vlen("abc") == 3, str(tui.vlen("진행중")))
+        check("width: fitting counts columns, so it never overflows",
+              tui.vlen(tui.fit("진행중 막힌 것 다음", 10)) <= 10,
+              repr(tui.fit("진행중 막힌 것 다음", 10)))
+        box = tui.Panel("한글", 40)
+        box.add("## 진행중")
+        drawn = box.draw()
+        check("width: and a box around it keeps its border straight",
+              {tui.vlen(ln) for ln in drawn} == {40}, str({tui.vlen(ln) for ln in drawn}))
+
+        check("read: escapes in a body are text stripped, not commands drawn",
+              "\033" not in "".join(cleaned) and "pasted tool output" in " ".join(cleaned),
+              str(cleaned))
+
+        # An action that raises while something is open is that action's
+        # failure. The panel keys were wrapped for this; the detail keys were
+        # not, and the two editor cases that raise land exactly there.
+        real_answer = actions.answer
+        try:
+            actions.answer = lambda *a, **k: (_ for _ in ()).throw(RuntimeError("boom"))
+            os.environ["EDITOR"] = "/bin/sh -c 'echo an answer >> \"$0\"'"
+            still, said = tui._in_detail(dict(detail), "e", 100, 20)
+            check("read: a failing answer is caught where it happens, not at the exit",
+                  still is not None and "boom" in said, f"{still} {said}")
+        except RuntimeError:
+            check("read: a failing answer is caught where it happens, not at the exit",
+                  False, "it escaped _in_detail")
+        finally:
+            actions.answer = real_answer
+            os.environ.pop("EDITOR", None)
+
+        # An editor that exits non-zero is saying abandon this - :cq in vim.
+        os.environ["EDITOR"] = "/bin/sh -c 'echo written >> \"$0\"; exit 1'"
+        check("read: an editor that wrote and then abandoned sends nothing",
+              tui._editor("# seed\n") is None)
+        os.environ["EDITOR"] = "/bin/sh -c 'echo written >> \"$0\"'"
+        check("read: and one that wrote and left cleanly sends what it wrote",
+              tui._editor("# seed\n") == "written")
+        os.environ["EDITOR"] = "vim '"
+        check("read: and an unquotable $EDITOR is refused, not raised",
+              tui._editor("# seed\n") is None)
+        os.environ.pop("EDITOR", None)
+
+        # The cursor in the panel is somewhere else entirely; the key acts on
+        # what is open, which is what the reader is looking at.
+        sel[tui.MESSAGES] = second
+        detail, said = tui._in_detail(detail, "x", 100, 20)
+        # The view scrolls now, so the slices that existed because it could not
+        # are just silent cuts - and they were inside the thing being scrolled.
+        for i in range(9):
+            db.add_request(con, "marina", "backend", f"request {i}", None,
+                           "peer", "async", None, 0, None)
+        foldmod.handoff_path("backend").parent.mkdir(parents=True, exist_ok=True)
+        foldmod.handoff_path("backend").write_text(
+            "\n".join(f"- line {i}" for i in range(30)))
+        shown = "\n".join(ln for _, rows in actions.agent_detail(con, "backend")
+                          for ln in rows)
+        check("read: the page is sections, not one wall of text",
+              [t for t, _ in actions.agent_detail(con, "backend") if t],
+              str([t for t, _ in actions.agent_detail(con, "backend")]))
+        check("read: an opened agent shows its whole inbox",
+              all(f"request {i}" in shown for i in range(9)), shown[:120])
+        check("read: and its whole handoff", "- line 29" in shown, shown[-80:])
+
+        check("read: dismissing closes the message being read, not the selected row",
+              db.get_request(con, first)["state"] == "done"
+              and db.get_request(con, second)["state"] == "queued", said)
+        check("read: and the view closes once there is nothing left to read",
+              detail is None)
+    finally:
         con.close()
 
 
@@ -3606,7 +4550,7 @@ def test_the_frame_never_draws_wider_than_the_terminal(home: Path) -> None:
                   repr(bar))
         # The navigation is the same on every panel and is what a reader
         # already knows, so it goes before any action does.
-        wide = tui._ANSI.sub("", tui.keybar(tui.AGENTS, 120))
+        wide = tui._ANSI.sub("", tui.keybar(tui.AGENTS, 160))
         tight = tui._ANSI.sub("", tui.keybar(tui.AGENTS, 100))
         tighter = tui._ANSI.sub("", tui.keybar(tui.AGENTS, 60))
         check("top: a tight line keeps every action and drops the navigation",
@@ -4494,6 +5438,15 @@ def main() -> int:
         run(lambda: test_top_shows_what_is_waiting_on_the_human(Path(td) / 'foryou'))
         run(lambda: test_the_screen_reads_keys_from_the_terminal_not_from_a_buffer())
         run(lambda: test_top_acts_through_the_same_calls_the_daemon_makes(Path(td) / 'topact'))
+        run(lambda: test_an_answer_reaches_the_agent_that_asked(Path(td) / 'answered'))
+        run(lambda: test_an_answer_wakes_the_agent_that_was_waiting_for_it(Path(td) / 'waiting'))
+        run(lambda: test_a_request_can_be_read_whole(Path(td) / 'readone'))
+        run(lambda: test_only_one_thing_types_at_an_agent_at_a_time(Path(td) / 'locking'))
+        run(lambda: test_an_answer_to_the_human_is_in_the_human_mailbox(Path(td) / 'mailbox'))
+        run(lambda: test_the_team_is_drawn_the_way_it_is_routed(Path(td) / 'tree'))
+        run(lambda: test_the_panel_and_the_daemon_agree_about_what_is_in_the_way(Path(td) / 'topagree'))
+        run(lambda: test_the_screen_says_what_is_stuck_and_what_was_decided(Path(td) / 'topstuck'))
+        run(lambda: test_a_message_is_read_whole_and_answered_where_it_is_read(Path(td) / 'topread'))
         run(lambda: test_a_key_never_acts_on_a_row_nobody_pointed_at(Path(td) / 'topsel'))
         run(lambda: test_the_frame_never_draws_wider_than_the_terminal(Path(td) / 'topwide'))
         run(lambda: test_top_cursor_stays_inside_its_panel(Path(td) / 'topcur'))

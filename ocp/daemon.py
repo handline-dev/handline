@@ -30,8 +30,8 @@ import time
 import uuid
 from dataclasses import dataclass
 
-from . import (agents, db, fold as foldmod, launch, observe as obs, orca, paths,
-               service, status, triggers)
+from . import (agents, db, fold as foldmod, launch, lock, observe as obs, orca,
+               paths, service, status, triggers)
 
 # Section 8.2 states.
 IDLE, QUEUED, RUNNING, DONE = "IDLE", "QUEUED", "RUNNING", "DONE"
@@ -241,7 +241,11 @@ def wait_for_session(agent: str, timeout_s: int) -> bool:
 
 
 def _reclaim_context(con, agent: str, log) -> tuple[bool, str]:
-    """Clear the agent's session so the handoff actually costs it its context."""
+    """Clear the agent's session so the handoff actually costs it its context.
+
+    Called only from inside `perform_handoff`, which already holds this agent's
+    terminal - taking it again here would fail rather than nest.
+    """
     handle = db.get_terminal(con, agent)
     if not handle:
         return False, ("no terminal recorded; start the agent with `ocp spawn` or "
@@ -286,6 +290,13 @@ def deliver_queued(con, agent: str, log) -> bool:
     if not orca.idle_now(handle):
         return False
     senders = ", ".join(sorted({r["requester"] for r in waiting}))
+    with lock.terminal(agent) as mine:
+        if not mine:
+            return False          # something else is mid-send; next tick
+        return _tell(con, agent, waiting, newest, senders, handle, log)
+
+
+def _tell(con, agent: str, waiting, newest: int, senders: str, handle: str, log) -> bool:
     ok, _ = orca.send(
         handle,
         f"{len(waiting)} request(s) waiting for you, from {senders}. "
@@ -295,6 +306,51 @@ def deliver_queued(con, agent: str, log) -> bool:
         db.set_cursor(con, f"notify:{agent}", newest)
         db.add_event(con, agent, "notified", {"through": newest, "count": len(waiting)})
         log(f"  {agent}: told about {len(waiting)} waiting request(s)")
+    return ok
+
+
+def deliver_answers(con, agent: str, log) -> bool:
+    """Tell an agent what came back from something it asked.
+
+    Answering wrote the verdict on the row and stopped there, so the agent that
+    asked - and that may have parked waiting - was never told. The founder
+    answering an escalation on the screen, and the answer never reaching the
+    agent it was for, is the same hole from the other end.
+
+    Told once, and marked on the row rather than counted off with a cursor: two
+    answers can come back in either order, and a high-water mark then loses the
+    older one for good. A refusal counts as an answer - it is the one that means
+    do something else - while a `denied` ask was refused by routing before
+    anything was sent, and the agent read that reason on its own terminal.
+    """
+    answered = db.unannounced_answers(con, agent)
+    if not answered:
+        return False
+    handle = db.get_terminal(con, agent)
+    if not handle or not orca.available() or not orca.alive(handle):
+        return False
+    if not session_present(agent):
+        return False
+    if not orca.idle_now(handle):
+        return False
+    shown, rest = answered[-3:], answered[:-3]
+    lines = [f"#{r['id']} from {r['target']}: "
+             f"{((r['verdict'] or '').splitlines() or [r['state']])[0][:160]}"
+             for r in shown]
+    if rest:
+        # Named, not counted: every id that is marked told has to have been
+        # said, or this is the same silence with a number on it.
+        lines.append("also answered: " + ", ".join(f"#{r['id']}" for r in rest))
+    with lock.terminal(agent) as mine:
+        if not mine:
+            return False
+        ok, _ = orca.send(
+            handle, "Answers to what you asked:\n" + "\n".join(lines)
+            + "\nRead one whole with `ocp read <id>`. Carry on from here.")
+    if ok:
+        db.mark_announced(con, [r["id"] for r in answered])
+        db.add_event(con, agent, "answered", {"count": len(answered)})
+        log(f"  {agent}: told about {len(answered)} answer(s)")
     return ok
 
 
@@ -355,11 +411,25 @@ def close_agent(con, agent: str, log, st) -> tuple[bool, str]:
     let the predicate check one value and the act store another, in the one
     place where the difference means closing with no way back.
     """
+    with lock.terminal(agent) as mine:
+        if not mine:
+            return False, "someone else is typing at this agent; not closing"
+        return _close_agent(con, agent, log, st)
+
+
+def _close_agent(con, agent: str, log, st) -> tuple[bool, str]:
     handle = db.get_terminal(con, agent)
     if not handle or not orca.available():
         return False, "no terminal to close"
     if not st.session_id:
         return False, "no session to resume; not closing"
+    row = db.get_agent_state(con, agent)
+    if row and row["state"] in (RUNNING, HANDOFF):
+        # `should_close` refuses these, and every path that closes on a
+        # schedule goes through it - but a human's key does not, and a turn can
+        # start between the moment they press it and the moment they confirm.
+        # Closing then throws away work nothing has recorded.
+        return False, f"{agent} is {row['state']}; not closing a session mid-work"
     if not session_present(agent):
         # `/exit` typed at the shell exits the shell, and Orca's terminal goes
         # with it - so the one path that turns a recoverable state into an
@@ -431,6 +501,15 @@ def wake_agent(con, agent: str, log) -> tuple[bool, str]:
     This is the other half of the cycle: the agent kept its terminal and its
     account across the park, and the handoff is what it knows when it wakes.
     """
+    with lock.terminal(agent) as mine:
+        if not mine:
+            # A human's key and a tick can both land here, and this one holds
+            # the terminal for as long as a session takes to appear.
+            return False, "someone else is typing at this agent; not waking twice"
+        return _wake_agent(con, agent, log)
+
+
+def _wake_agent(con, agent: str, log) -> tuple[bool, str]:
     handle = db.get_terminal(con, agent)
     if not handle or not orca.available():
         return False, "no terminal to wake"
@@ -636,7 +715,10 @@ def sweep(con, log, actions: list[str]) -> None:
         # closed in it, and both of those already key on having a terminal - so
         # dropping the handle is the whole correction.
         if o.terminal_alive is False and row["terminal"]:
-            db.set_terminal(con, agent, None, None)
+            # The terminal is gone; the worktree is not. Dropping both loses
+            # the only record of where this agent's work lives, and starting
+            # it again would then make a second worktree beside the first.
+            db.set_terminal(con, agent, None, row["worktree"])
             db.add_event(con, agent, "terminal_gone", {"handle": row["terminal"]})
             actions.append(f"{agent}: terminal is gone; handle dropped")
             log(f"  {agent}: terminal is gone; handle dropped")
@@ -795,6 +877,21 @@ def perform_handoff(con, agent: str, trigger: triggers.Trigger, log,
                 f"not handing off")
             return True
 
+    with lock.terminal(agent) as mine:
+        if not mine:
+            # Before the fold, not after it. The clear comes at the end of this
+            # pipeline, and losing the terminal there meant the fold was paid
+            # for, the handoff was recorded done, and the context it exists to
+            # reclaim was still sitting in the agent. The trigger is a
+            # condition, so it fires again next tick.
+            log(f"  {agent}: {trigger.kind} fired but something else is typing at it "
+                f"- not handing off")
+            return True
+        return _perform_handoff(con, agent, trigger, log, use_model)
+
+
+def _perform_handoff(con, agent: str, trigger: triggers.Trigger, log,
+                     use_model: bool = True) -> bool:
     hid = uuid.uuid4().hex[:12]
     st = status.read(agents.account_of(agent)) if agent in paths.list_agents() else None
     cursor_from = db.get_cursor(con, f"fold:{agent}")
@@ -924,9 +1021,16 @@ def supervise(con, agent: str, log, now: int, samples: dict,
     # memory it was saving: reviewer sat closed with two requests pending.
     if row and row["closed_at"]:
         waiting = db.queued_for(con, agent)
-        if waiting:
+        # An agent that asked something, parked on the answer and was then
+        # closed is waiting on a reply, not on work - and resolving its request
+        # writes QUEUED over the park and clears the wake_at that would have
+        # brought it back. Without this, nothing in the system ever wakes it.
+        answers = db.unannounced_answers(con, agent)
+        if waiting or answers:
             ok, why = wake_agent(con, agent, log)
-            actions.append(f"{agent}: woken for {len(waiting)} waiting request(s)"
+            what = (f"{len(waiting)} waiting request(s)" if waiting
+                    else f"{len(answers)} answer(s) it asked for")
+            actions.append(f"{agent}: woken for {what}"
                            if ok else f"{agent}: could not wake - {why}")
             if ok:
                 row = db.get_agent_state(con, agent)
@@ -939,6 +1043,10 @@ def supervise(con, agent: str, log, now: int, samples: dict,
     # box unsent.
     if state not in (RUNNING, HANDOFF) and not woke_now \
             and not (row and row["closed_at"]):
+        # An answer first: an agent that asked something and parked is waiting
+        # on that, and telling it about new work while its own question is
+        # still unanswered is the wrong order.
+        deliver_answers(con, agent, log)
         deliver_queued(con, agent, log)
 
     # Memory is the scarce resource on one laptop running a team, and an
