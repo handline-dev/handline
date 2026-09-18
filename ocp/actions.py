@@ -116,24 +116,33 @@ def worktree_path(recorded: str | None) -> str | None:
     return path if Path(path).is_dir() else None
 
 
-def terminal(con, agent: str) -> str:
-    """Put the reader in this agent's terminal.
+def terminal(con, agent: str, repo: str | None = None) -> str:
+    """Put the reader in this agent's terminal, starting one if there is none.
 
     The screen is for the decisions that are one keypress wide. The rest - read
     the diff with it, argue about an approach, watch it work - is a
     conversation, and the place to have one is the agent's own session. Typing
     a paragraph into `m` to avoid going there is how a decision gets made
     badly.
+
+    "It has no terminal" is not an answer to "take me to it": an agent with
+    nowhere to run is exactly the one a human is going there to fix, and being
+    told to press a different key is a step this can take itself.
     """
     row = db.get_agent_state(con, agent)
     handle = row["terminal"] if row else None
+    said = ""
     if not handle:
-        return f"{agent} has no terminal to go to (s starts one)"
+        said = start(con, agent, repo) + " · "
+        row = db.get_agent_state(con, agent)
+        handle = row["terminal"] if row else None
+        if not handle:
+            return said.rstrip(" ·")       # `start` said why
     if not orca.available():
-        return "orca is not on PATH - nothing to switch to"
+        return said + "orca is not on PATH - nothing to switch to"
     ok, why = orca.focus(handle)
-    return f"in {agent}'s terminal - come back to this tab when you are done" if ok \
-        else f"could not switch to {agent}: {why}"
+    return said + (f"in {agent}'s terminal - come back to this tab when you are done"
+                   if ok else f"could not switch to {agent}: {why}")
 
 
 def message(con, agent: str, body: str) -> str:
@@ -648,16 +657,20 @@ def login_argv(acct: str, force: bool = False) -> tuple[str, list[str], dict]:
             ["claude", "/login"], accounts.env_for(acct))
 
 
-def can(con, agent: str, key: str) -> bool:
-    """Whether an action is worth offering for this agent right now.
+def can(con, agent: str, key: str) -> tuple[bool, str]:
+    """Whether an action is worth offering for this agent, and why not.
 
-    The screen greys out what would only answer with a refusal - but it asks
-    the same rows the action does, so the two cannot drift into disagreeing
-    about what is possible.
+    It asks the same rows the action does, so the two cannot drift into
+    disagreeing about what is possible - and it says which row said no. A
+    refusal that does not explain itself sends the reader to press the key
+    again, or to the wrong fix: "does not apply right now" on an agent with no
+    terminal is the one screen that could have said `s starts one`.
     """
     row = db.get_agent_state(con, agent)
     if not row:
-        return key in ("message", "start")   # nothing else exists to act on yet
+        if key in ("message", "start", "terminal"):
+            return True, ""
+        return False, f"{agent} has never been started (s starts it, t goes there)"
     closed = bool(row["closed_at"])
     state = row["state"]
     # The states nothing may be done to from here. RUNNING and HANDOFF are
@@ -665,29 +678,54 @@ def can(con, agent: str, key: str) -> bool:
     # not touch - handing a stalled agent off would clear the stall a human was
     # meant to read, and pay for a fold doing it.
     busy = state in (daemon.RUNNING, daemon.HANDOFF, daemon.STALLED)
+    busy_why = f"{agent} is {state}" + (" - only a human clears that (u)"
+                                        if state == daemon.STALLED else "")
     if key == "wake":
-        return closed or state in (daemon.PARKED, daemon.THROTTLED, daemon.DEGRADED)
+        if closed or state in (daemon.PARKED, daemon.THROTTLED, daemon.DEGRADED):
+            return True, ""
+        return False, f"{agent} is {state}, not parked or closed - there is nothing to wake"
     if key == "close":
         # Work waiting is the one case where closing only adds delay: the very
         # next tick wakes it again. `should_close` refuses for the same reason.
-        return (not closed and bool(row["terminal"]) and not busy
-                and not db.queued_for(con, agent))
+        if closed:
+            return False, f"{agent} is already closed (w brings it back)"
+        if not row["terminal"]:
+            return False, f"{agent} has no terminal - there is no session to close (s starts one)"
+        if busy:
+            return False, busy_why
+        waiting = db.queued_for(con, agent)
+        if waiting:
+            return False, (f"{agent} has {len(waiting)} request(s) waiting - closing it now "
+                           f"only delays them, the next tick wakes it again")
+        return True, ""
     if key == "unstall":
-        return state == daemon.STALLED
+        if state == daemon.STALLED:
+            return True, ""
+        return False, f"{agent} is not STALLED - it is {state}"
     if key == "park":
-        return not closed and bool(row["terminal"]) and not busy
+        if closed:
+            return False, f"{agent} is closed - its context is already gone (w brings it back)"
+        if not row["terminal"]:
+            return False, f"{agent} has no terminal - there is no session to park (s starts one)"
+        if busy:
+            return False, busy_why
+        return True, ""
     if key == "fold":
         # A fold reads events and runs `claude -p`; it never types into the
         # terminal. An agent whose terminal is gone is one of the likelier ones
         # to want folded.
-        return not busy
+        return (False, busy_why) if busy else (True, "")
     if key == "start":
-        return not row["terminal"]
+        if row["terminal"]:
+            return False, (f"{agent} already has a terminal ({row['terminal']}) - "
+                           f"t goes to it, w wakes it")
+        return True, ""
     if key == "terminal":
-        # Offered whatever the agent is doing, including mid-turn: going to
-        # watch it work is the one thing here that is always reasonable.
-        return bool(row["terminal"])
-    return True
+        # Always. Going to watch an agent work is reasonable whatever it is
+        # doing, including mid-turn, and an agent with no terminal gets one on
+        # the way - the action does that, so there is nothing to refuse.
+        return True, ""
+    return True, ""
 
 
 def agent_detail(con, agent: str) -> list[tuple[str, list[str]]]:
