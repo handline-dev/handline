@@ -208,7 +208,7 @@ def cmd_close(args) -> int:
     """Close an agent's session by hand, keeping its terminal."""
     con = db.connect()
     try:
-        st = status.read_for_agent(args.agent, agents.account_of(args.agent))
+        st = status.read_for_agent(args.agent, agents.current_account(args.agent, con))
         ok, msg = daemonmod.close_agent(con, args.agent, print, st)
         print(msg)
     finally:
@@ -430,7 +430,12 @@ def cmd_triggers(args) -> int:
     try:
         for a in paths.list_agents():
             try:
-                acct = agents.account_of(a)
+                # The account the daemon is watching, which is where the
+                # session went - not the preference in agent.yaml. A moved
+                # agent read on its preference prints the old account's figure
+                # and FIRES YES while the daemon, reading the new one, does
+                # nothing: the dashboard arguing with the daemon.
+                acct = agents.current_account(a, con)
             except Exception as e:  # noqa: BLE001
                 print(f"{a:<14} config error: {e}")
                 continue

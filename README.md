@@ -121,6 +121,19 @@ rises, but no new work goes to it. Inside one window the account figure never
 goes down, because every session reports from the moment of its own last API
 response and the staler one must not win.
 
+**An account is a preference, not a destination.** `agent.yaml` says which
+account an agent would rather be on, and a session goes there whenever it has
+room. Room means room to work: the usage trigger folds a reserve short of the
+hard stop, so an account inside that reserve has room to hand off and nothing
+more. When a *current* reading says that - never a missing or stale one - the
+next session starts on whichever account does have room, and the row records
+where it went. Total throughput is still accounts x window; what this
+buys is an agent not sitting out its own five hours while another account idles
+beside it. A live session is never moved: moving means ending one and starting
+another, so it only ever happens where the session was ending anyway - after a
+fold, at the wall - and a resume goes back to the account its session lives on,
+because a session id exists only under that account's config directory.
+
 **Context and memory are different problems.** A handoff reclaims *context*: it
 folds the day, clears the session and costs one model call. Closing reclaims
 *memory*: an idle session holds 250-500MB and no one is using it, so the session

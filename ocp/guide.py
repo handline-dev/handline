@@ -39,7 +39,14 @@ collector reporting nothing is the account telling us it is quiet: 0%, marked
 `*`. `~` is a figure carried from an earlier payload, `!` one carried past the
 age we will assign on - still a floor for triggers, no new work.
 
-Design section 4 has the five cases and why only one of them is fail-closed.""",
+Design section 4 has the five cases and why only one of them is fail-closed.
+
+An agent's account is a preference. A session starts on it when it has room to
+work - which ends a reserve short of the hard stop, where the fold fires - and
+on whichever account does when a current reading says it has not; the state row
+records where it went, and `ocp top` shows that rather than the preference. Nothing moves a live session - a move is one session ending and
+another starting, so it happens after a fold, and a resume always goes back to
+the account its session lives on.""",
     "work": """giving an agent work
   ocp ask <agent> "<task>"        queue it
   ocp inbox                       what is waiting for you, and what came back

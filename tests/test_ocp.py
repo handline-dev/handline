@@ -3901,6 +3901,170 @@ def test_only_one_thing_types_at_an_agent_at_a_time(home: Path) -> None:
         con.close()
 
 
+def test_an_agent_at_the_wall_moves_to_an_account_with_room(home: Path) -> None:
+    """agent.yaml names a preference, not a destination.
+
+    Total throughput is accounts x window, and moving a session does not change
+    it. What it changes is whether an agent sits out its own five hours while
+    another account idles beside it - the trade design section 0.5 put behind
+    the slot model, and the only part of it that needs no lease, because the
+    session being moved is already over: it has been folded and its context is
+    gone either way."""
+    _daemon_home(home, 20)
+    con = db.connect()
+    agents.register("keeper", "alpha")
+    write_status(home, "beta", pct_5h=10, pct_7d=5, ctx_pct=5,
+                 reset_5h=int(time.time()) + 1800)
+    for acct in ("alpha", "beta"):
+        (home / "accounts" / acct / ".claude").mkdir(parents=True, exist_ok=True)
+        (home / "accounts" / acct / ".claude" / ".credentials.json").write_text("{}")
+    foldmod.handoff_path("keeper").write_text("# handoff · keeper\n## 다음\n- carry on\n")
+    real = (orcamod.available, orcamod.alive, orcamod.close_session, orcamod.relaunch,
+            orcamod.clear_context, orcamod.resume_with, orcamod.idle_now,
+            dmn.wait_for_session)
+    launched: list[str] = []
+    try:
+        orcamod.available = lambda: True
+        orcamod.alive = lambda h: True
+        orcamod.idle_now = lambda h: True
+        orcamod.clear_context = lambda h, **kw: (True, "cleared")
+        orcamod.close_session = lambda h, **kw: (True, "session ended")
+        orcamod.resume_with = lambda h, text: (True, "handed back")
+        orcamod.relaunch = lambda h, cmd, **kw: (launched.append(cmd), (True, "relaunched"))[1]
+        dmn.wait_for_session = lambda agent, timeout=0: True
+        sessions_are("keeper")
+        db.set_terminal(con, "keeper", "term_x", "wt")
+
+        # Where a launch would go, before anything has moved.
+        check("move: a preference with room is kept",
+              launch.choose_account("keeper") == "alpha",
+              launch.choose_account("keeper"))
+
+        write_status(home, "alpha", pct_5h=95, pct_7d=20, ctx_pct=5,
+                     reset_5h=int(time.time()) + 1800)
+        check("move: a preference at the wall gives way to room",
+              launch.choose_account("keeper") == "beta", launch.choose_account("keeper"))
+        check("move: but a resume goes back where its session lives",
+              launch.choose_account("keeper", resuming=True) == "alpha",
+              launch.choose_account("keeper", resuming=True))
+
+        t = triggers.evaluate(95, 10)
+        check("move: 95% is a usage trigger", t.fired and t.kind == "usage", t.kind)
+        dmn.perform_handoff(con, "keeper", t, lambda _m: None, use_model=False)
+
+        row = db.get_agent_state(con, "keeper")
+        # A state nothing else in the daemon will act on is where a moved agent
+        # went to die: HANDOFF is protected from its own hooks, skipped by the
+        # sweep, refused by close, and delivered nothing. Every other exit from
+        # a handoff writes a state, so this one has to as well.
+        check("move: it comes out of the handoff into a state that is dispatched",
+              row["state"] == dmn.QUEUED and not row["wake_at"] and not row["closed_at"],
+              f"{row['state']} wake={row['wake_at']} closed={row['closed_at']}")
+        db.add_request(con, "marina", "keeper", "after the move", None,
+                       "peer", "async", None, 0, None)
+        told: list[str] = []
+        real_send = orcamod.send
+        try:
+            orcamod.send = lambda h, t, enter=True: (told.append(t), (True, ""))[1]
+            dmn.deliver_queued(con, "keeper", lambda _m: None)
+        finally:
+            orcamod.send = real_send
+        check("move: and work reaches it on the account it moved to", told, str(told))
+        check("move: a fresh session is started, not a resume of the old one",
+              launched and "--resume" not in launched[-1], str(launched))
+        # What that relaunch will exec with, and what it writes down. The
+        # launch is the single writer of the account - it is the process that
+        # sets CLAUDE_CONFIG_DIR - so the record cannot disagree with the
+        # environment the session is actually running in.
+        _argv, env = launch.build("keeper")
+        check("move: the launch it typed goes to the new account",
+              env["OCP_ACCOUNT"] == "beta"
+              and env["CLAUDE_CONFIG_DIR"].endswith("accounts/beta/.claude"),
+              f"{env['OCP_ACCOUNT']} {env['CLAUDE_CONFIG_DIR']}")
+        launch._record_terminal("keeper", env["OCP_ACCOUNT"])
+        check("move: and starting there is what records it",
+              agents.current_account("keeper", con) == "beta",
+              agents.current_account("keeper", con))
+        moved = [e for e in db.events_after(con, 0, agent="keeper")
+                 if e["kind"] == "moved_account"]
+        check("move: the move is on the record, with both ends",
+              moved and '"from": "alpha"' in moved[-1]["payload"]
+              and '"to": "beta"' in moved[-1]["payload"], str(moved))
+
+        # The band the reserve exists for. The fold fires a reserve short of
+        # the wall, so judging "full" at the wall itself meant the ordinary
+        # handoff - the one this feature is for - declined to move and parked
+        # with the other account idle.
+        db.set_account(con, "keeper", "alpha")
+        write_status(home, "alpha", pct_5h=87, pct_7d=20, ctx_pct=5,
+                     reset_5h=int(time.time()) + 1800)
+        t87 = triggers.evaluate(87, 10)
+        check("move: 87% is the ordinary handoff, a reserve short of the wall",
+              t87.fired and t87.kind == "usage", f"{t87.kind} {t87.reason}")
+        check("move: and an account inside the reserve gives way too",
+              launch.choose_account("keeper") == "beta", launch.choose_account("keeper"))
+
+        # A session that ended during the fold must not be typed at: `/exit` at
+        # a login shell exits the shell, and Orca's terminal goes with it.
+        db.set_account(con, "keeper", "alpha")
+        db.set_agent_state(con, "keeper", dmn.IDLE)
+        db.clear_closed(con, "keeper")
+        typed: list[str] = []
+        real_close = orcamod.close_session
+        try:
+            orcamod.close_session = lambda h, **kw: (typed.append("/exit"), (True, "ended"))[1]
+            sessions_are()                      # it went away while we folded
+            check("move: a session that is already gone is not moved",
+                  not dmn._move_to_room(con, "keeper", t87, lambda _m: None))
+            check("move: and nothing is typed at the shell it left behind", not typed,
+                  str(typed))
+        finally:
+            orcamod.close_session = real_close
+            sessions_are("keeper")
+
+        # Nowhere to go is the old behaviour, unchanged: fold, park, wait for
+        # the window. Both accounts at the wall is that world.
+        db.set_account(con, "keeper", "alpha")
+        write_status(home, "alpha", pct_5h=95, pct_7d=20, ctx_pct=5,
+                     reset_5h=int(time.time()) + 1800)
+        write_status(home, "beta", pct_5h=93, pct_7d=20, ctx_pct=5,
+                     reset_5h=int(time.time()) + 1800)
+        db.set_agent_state(con, "keeper", dmn.IDLE)
+        db.clear_closed(con, "keeper")
+        con.execute("DELETE FROM handoff")     # MIN_HANDOFF_INTERVAL_S, not a real one
+        dmn.perform_handoff(con, "keeper", triggers.evaluate(95, 10), lambda _m: None,
+                            use_model=False)
+        row = db.get_agent_state(con, "keeper")
+        check("move: with no room anywhere it parks and waits, as before",
+              row["state"] == dmn.PARKED and row["wake_at"], f"{row['state']} {row['wake_at']}")
+
+        # An account we cannot read is not an account that is full. Moving on
+        # `usage_unknown` would send agents off whichever account went dark.
+        write_status(home, "beta", pct_5h=10, pct_7d=5, ctx_pct=5,
+                     reset_5h=int(time.time()) + 1800)
+        unknown = triggers.evaluate(None, 10)
+        check("move: an unreadable account is a usage_unknown trigger",
+              unknown.fired and unknown.kind == "usage_unknown", unknown.kind)
+        check("move: and nothing moves on it",
+              not dmn._move_to_room(con, "keeper", unknown, lambda _m: None))
+
+        # What it is told when it lands. A move is not a close: its work was
+        # folded a moment ago and `launch.context_for` put that handoff in the
+        # new session's system prompt, so telling it "nothing was folded" would
+        # send it hunting for what it is already holding.
+        moved_text = dmn.wake_prompt("keeper", resumed=False, was_closed=True,
+                                     moved_to="beta", con=con)
+        check("move: the agent is told it was moved, and where",
+              "beta" in moved_text and "5h limit" in moved_text, moved_text[:160])
+        check("move: and not that nothing was folded",
+              "There is no handoff" not in moved_text, moved_text[:160])
+    finally:
+        (orcamod.available, orcamod.alive, orcamod.close_session, orcamod.relaunch,
+         orcamod.clear_context, orcamod.resume_with, orcamod.idle_now,
+         dmn.wait_for_session) = real
+        con.close()
+
+
 def test_an_answer_to_the_human_is_in_the_human_mailbox(home: Path) -> None:
     """The reply loop was open at the human's end.
 
@@ -5442,6 +5606,7 @@ def main() -> int:
         run(lambda: test_an_answer_wakes_the_agent_that_was_waiting_for_it(Path(td) / 'waiting'))
         run(lambda: test_a_request_can_be_read_whole(Path(td) / 'readone'))
         run(lambda: test_only_one_thing_types_at_an_agent_at_a_time(Path(td) / 'locking'))
+        run(lambda: test_an_agent_at_the_wall_moves_to_an_account_with_room(Path(td) / 'moveacct'))
         run(lambda: test_an_answer_to_the_human_is_in_the_human_mailbox(Path(td) / 'mailbox'))
         run(lambda: test_the_team_is_drawn_the_way_it_is_routed(Path(td) / 'tree'))
         run(lambda: test_the_panel_and_the_daemon_agree_about_what_is_in_the_way(Path(td) / 'topagree'))

@@ -306,7 +306,7 @@ def build(width: int, sel: dict | None = None) -> tuple[list[str], list[Panel]]:
             # looking at.
             twig = f"{DIM}{'  ' * (depth - 1)}└ {R}" if depth else ""
             try:
-                acct = agents.account_of(name)
+                acct = agents.current_account(name, con)
                 cfg = agents.read(name)
             except Exception as e:  # noqa: BLE001
                 ag.add(pad(fit(twig + name, 13), 13) + f"{RED}config error: {e}{R}",

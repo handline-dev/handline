@@ -41,7 +41,7 @@ def wake(con, agent: str) -> str:
 
 def close(con, agent: str) -> str:
     """Give the machine back an idle agent's memory, keeping its terminal."""
-    st = status.read_for_agent(agent, agents.account_of(agent))
+    st = status.read_for_agent(agent, agents.current_account(agent, con))
     ok, why = daemon.close_agent(con, agent, lambda _m: None, st)
     return why if ok else f"{agent}: not closed - {why}"
 
@@ -413,7 +413,7 @@ def _delivery_block(con, agent: str, sessions: dict | None,
     if handles is not None and handle not in handles:
         return f"{agent}'s terminal is gone - Orca no longer has it", False
     try:
-        acct = agents.account_of(agent)
+        acct = agents.current_account(agent, con)
         pct = status.read(acct).trusted_pct_5h
     except Exception:  # noqa: BLE001
         acct, pct = "?", None
@@ -701,11 +701,17 @@ def agent_detail(con, agent: str) -> list[tuple[str, list[str]]]:
     row = db.get_agent_state(con, agent)
     try:
         cfg = agents.read(agent)
-        acct = agents.account_of(agent)
+        acct = agents.current_account(agent, con)
     except Exception as e:  # noqa: BLE001
         return [("", [f"config error: {e}"])]
     st = status.read_for_agent(agent, acct)
-    head = [f"account {acct}   model {cfg.get('model')}   "
+    # Where it is, and - when they differ - where it would rather be. agent.yaml
+    # is a preference: a session started while that account was at the wall is
+    # on another one, and a reader who only saw the preference would be watching
+    # an account the agent is not spending on.
+    prefers = agents.account_of(agent)
+    where = acct if acct == prefers else f"{acct} (prefers {prefers})"
+    head = [f"account {where}   model {cfg.get('model')}   "
             f"effort {cfg.get('effort') or agents.DEFAULT_EFFORT}   "
             f"ctx {'?' if st.ctx_pct is None else str(st.ctx_pct) + '%'}"]
     if row:
@@ -762,7 +768,7 @@ def account_detail(con, acct: str) -> list[tuple[str, list[str]]]:
     head.append("spend    " + ("nothing running to read it from" if live is None else
                                f"${live:.2f} across the sessions running now - not the "
                                f"account's total, which nothing here can see"))
-    mine = [a for a in paths.list_agents() if _account_of(a) == acct]
+    mine = [a for a in paths.list_agents() if _account_of(a, con) == acct]
     rows = []
     for a in mine:
         row = db.get_agent_state(con, a)
@@ -772,9 +778,15 @@ def account_detail(con, acct: str) -> list[tuple[str, list[str]]]:
     return [("", head), (f"AGENTS ON IT ({len(mine)})", rows or ["none"])]
 
 
-def _account_of(agent: str) -> str | None:
+def _account_of(agent: str, con=None) -> str | None:
+    """Where this agent's session is, for the list of who is on an account.
+
+    The live account, like every other runtime reading: an agent that moved is
+    on the account it moved to, and listing it under the one it left puts it a
+    keystroke away from its own page saying otherwise.
+    """
     try:
-        return agents.account_of(agent)
+        return agents.current_account(agent, con)
     except Exception:  # noqa: BLE001 - an unreadable agent belongs to no account here
         return None
 
