@@ -30,8 +30,8 @@ import time
 import uuid
 from dataclasses import dataclass
 
-from . import (agents, db, fold as foldmod, launch, observe as obs, orca, paths,
-               service, status, triggers)
+from . import (agents, db, fold as foldmod, launch, lock, observe as obs, orca,
+               paths, service, status, triggers)
 
 # Section 8.2 states.
 IDLE, QUEUED, RUNNING, DONE = "IDLE", "QUEUED", "RUNNING", "DONE"
@@ -250,9 +250,12 @@ def _reclaim_context(con, agent: str, log) -> tuple[bool, str]:
         return False, "orca is not on PATH"
     if not session_present(agent):
         return False, "no session process; not typing /clear at a shell prompt"
-    ok, why = orca.clear_context(handle, timeout_ms=orca.IDLE_PROBE_MS)
-    log(f"  {agent}: {why}")
-    return ok, why
+    with lock.terminal(agent) as mine:
+        if not mine:
+            return False, "someone else is typing at this agent; not clearing"
+        ok, why = orca.clear_context(handle, timeout_ms=orca.IDLE_PROBE_MS)
+        log(f"  {agent}: {why}")
+        return ok, why
 
 
 def deliver_queued(con, agent: str, log) -> bool:
@@ -286,6 +289,13 @@ def deliver_queued(con, agent: str, log) -> bool:
     if not orca.idle_now(handle):
         return False
     senders = ", ".join(sorted({r["requester"] for r in waiting}))
+    with lock.terminal(agent) as mine:
+        if not mine:
+            return False          # something else is mid-send; next tick
+        return _tell(con, agent, waiting, newest, senders, handle, log)
+
+
+def _tell(con, agent: str, waiting, newest: int, senders: str, handle: str, log) -> bool:
     ok, _ = orca.send(
         handle,
         f"{len(waiting)} request(s) waiting for you, from {senders}. "
@@ -355,11 +365,25 @@ def close_agent(con, agent: str, log, st) -> tuple[bool, str]:
     let the predicate check one value and the act store another, in the one
     place where the difference means closing with no way back.
     """
+    with lock.terminal(agent) as mine:
+        if not mine:
+            return False, "someone else is typing at this agent; not closing"
+        return _close_agent(con, agent, log, st)
+
+
+def _close_agent(con, agent: str, log, st) -> tuple[bool, str]:
     handle = db.get_terminal(con, agent)
     if not handle or not orca.available():
         return False, "no terminal to close"
     if not st.session_id:
         return False, "no session to resume; not closing"
+    row = db.get_agent_state(con, agent)
+    if row and row["state"] in (RUNNING, HANDOFF):
+        # `should_close` refuses these, and every path that closes on a
+        # schedule goes through it - but a human's key does not, and a turn can
+        # start between the moment they press it and the moment they confirm.
+        # Closing then throws away work nothing has recorded.
+        return False, f"{agent} is {row['state']}; not closing a session mid-work"
     if not session_present(agent):
         # `/exit` typed at the shell exits the shell, and Orca's terminal goes
         # with it - so the one path that turns a recoverable state into an
@@ -431,6 +455,15 @@ def wake_agent(con, agent: str, log) -> tuple[bool, str]:
     This is the other half of the cycle: the agent kept its terminal and its
     account across the park, and the handoff is what it knows when it wakes.
     """
+    with lock.terminal(agent) as mine:
+        if not mine:
+            # A human's key and a tick can both land here, and this one holds
+            # the terminal for as long as a session takes to appear.
+            return False, "someone else is typing at this agent; not waking twice"
+        return _wake_agent(con, agent, log)
+
+
+def _wake_agent(con, agent: str, log) -> tuple[bool, str]:
     handle = db.get_terminal(con, agent)
     if not handle or not orca.available():
         return False, "no terminal to wake"
@@ -636,7 +669,10 @@ def sweep(con, log, actions: list[str]) -> None:
         # closed in it, and both of those already key on having a terminal - so
         # dropping the handle is the whole correction.
         if o.terminal_alive is False and row["terminal"]:
-            db.set_terminal(con, agent, None, None)
+            # The terminal is gone; the worktree is not. Dropping both loses
+            # the only record of where this agent's work lives, and starting
+            # it again would then make a second worktree beside the first.
+            db.set_terminal(con, agent, None, row["worktree"])
             db.add_event(con, agent, "terminal_gone", {"handle": row["terminal"]})
             actions.append(f"{agent}: terminal is gone; handle dropped")
             log(f"  {agent}: terminal is gone; handle dropped")

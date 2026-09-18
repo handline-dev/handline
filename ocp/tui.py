@@ -188,7 +188,7 @@ class Panel:
         return out
 
 
-def keybar(panel: int, width: int) -> str:
+def keybar(panel: int, width: int, hidden: int = 0) -> str:
     """The keys this panel answers to, in as much room as there is.
 
     Half an action's name is worse than no name: `u u…` tells a reader nothing
@@ -197,7 +197,11 @@ def keybar(panel: int, width: int) -> str:
     says how many it dropped.
     """
     keys = {ACCOUNTS: ACCOUNT_KEYS, AGENTS: AGENT_KEYS, MESSAGES: MESSAGE_KEYS}[panel]
-    head = f"{DIM}{PANEL_NAME[panel]}:{R} "
+    # A panel that is not drawn and a panel with nothing in it look the same to
+    # a reader, so that notice is part of the head and is never what gets
+    # dropped to make room.
+    note = f"{YEL}{hidden} panel(s) need a taller window{R} {DIM}·{R} " if hidden else ""
+    head = f"{DIM}{PANEL_NAME[panel]}:{R} " + note
     nav = f" {DIM}· tab panel · ↑↓ move · v events · q quit{R}"
     sep = f" {DIM}·{R} "
     parts = [f"{BOLD}{k}{R} {DIM}{label}{R}" for k, label in keys]
@@ -331,7 +335,10 @@ def build(width: int, sel: dict | None = None,
         ms.selected = sel.get(MESSAGES)
         for m in waiting:
             when = time.strftime("%H:%M", time.localtime(m["ts"]))
-            first = (m["body"] or "").splitlines()[0] if m["body"] else ""
+            # Same rule as the reading view: what a message says is its text.
+            # An escape here is invisible to the width count, so it is never
+            # truncated, and `esc [ 2J` clears the screen drawing it.
+            first = _ANSI.sub("", (m["body"] or "").splitlines()[0] if m["body"] else "")
             # An agent parked until this is answered is the only thing on the
             # screen that no one else will ever clear; it is not drawn like a
             # report that happens to be addressed here.
@@ -390,34 +397,55 @@ def frame(width: int, height: int, sel: dict | None = None, panel: int = AGENTS,
     if detail is not None:
         return _detail_frame(width, height, detail, flash)
     header, panels = build(width, sel, verbose)
-    acc, ms, ag, fl, rc = panels[0], panels[2], panels[1], panels[3], panels[4]
-    foot = [fit(flash, width) if flash else "", keybar(panel, width)]
-    # ACCOUNTS and AGENTS are the whole team and are always drawn whole. FOR
-    # YOU is the one that grows without bound - nothing clears it but a human -
-    # so it is the one that gives up rows, and it says how many it is holding
-    # back. Otherwise it pushed IN FLIGHT off a short screen silently.
-    # The team list keeps its rows and gives up the lines that explain them
-    # before anything else gives up a row at all.
-    fixed = list(header) + acc.draw() + ag.draw()
-    if height - len(fixed) - len(foot) < 10:
-        fixed = list(header) + acc.draw() + ag.draw(extras=False)
-    room = height - len(fixed) - len(foot)
-    # Both of these grow without bound - one holds everything a human has not
-    # answered, the other everything that has stopped moving - so both shorten
-    # themselves and say by how much, and neither is allowed to push the other
-    # or the decisions below them off the screen.
-    ms_lines = ms.draw(limit=_share(len(ms.rows), len(fl.rows), room))
-    fl_lines = fl.draw(limit=_share(len(fl.rows), len(ms.rows), room))
-    middle = ms_lines + fl_lines
-    room = height - len(fixed) - len(middle) - len(foot)
-    recent = rc.draw(limit=max(1, room - 2)) if room > 3 else []
-    lines = fixed + middle + recent
+    room = height - len(header) - 2                    # the two footer rows
+    limits, hidden = _layout([len(p.rows) for p in panels], room)
+    # When anything had to be shortened, the team list gives up the lines that
+    # explain its rows before any panel gives up a row of its own.
+    extras = all(lim is None for lim in limits) and not hidden
+    body: list[str] = []
+    for p, lim in zip(panels, limits):
+        if lim == 0:
+            continue
+        body += p.draw(limit=lim, extras=extras or p is not panels[1])
+    foot = [fit(flash, width) if flash else "", keybar(panel, width, hidden)]
+    lines = header + body
     lines = lines[:max(0, height - len(foot))]
     while len(lines) < height - len(foot):
         lines.append("")
-    lines += foot
-    lines = lines[:height]
+    lines = (lines + foot)[:height]
     return "\n".join(line + CLEAR_EOL for line in lines)
+
+
+# A panel that cannot have a border, one row and its other border says nothing
+# at all - and an empty box reads as "nothing here" while the thing it would
+# have shown is exactly what the reader is looking for.
+PANEL_MIN = 3
+
+
+def _layout(want: list[int], room: int) -> tuple[list[int | None], int]:
+    """How many rows each panel may draw, and how many panels do not fit.
+
+    Panels are in the order they matter. Everything fits, or every panel that
+    is drawn at all gets one row and then they grow together a row at a time -
+    so a long list cannot starve a short one, and the screen never draws a box
+    it has nothing to put in.
+    """
+    if sum(w + 2 for w in want) <= room:
+        return [None] * len(want), 0
+    keep = len(want)
+    while keep and keep * PANEL_MIN > room:
+        keep -= 1
+    limits = [1 if i < keep else 0 for i in range(len(want))]
+    left = room - keep * PANEL_MIN
+    while left > 0 and any(limits[i] < want[i] for i in range(keep)):
+        for i in range(keep):
+            if left <= 0:
+                break
+            if limits[i] < want[i]:
+                limits[i] += 1
+                left -= 1
+    return [None if limits[i] >= want[i] and limits[i] else limits[i]
+            for i in range(len(want))], len(want) - keep
 
 
 def wrap(lines: list[str], width: int) -> list[str]:
@@ -447,20 +475,6 @@ def wrap(lines: list[str], width: int) -> list[str]:
             line = line[cut:].lstrip()
         out.append(line)
     return out
-
-
-def _share(mine: int, theirs: int, room: int, floor: int = 3) -> int | None:
-    """How many rows this panel may draw when two of them want the same space.
-
-    None when everything fits. Otherwise each gets what it asks for up to an
-    even split, so a long list does not squeeze a short one to nothing, and
-    what is left over goes to whoever still wants it.
-    """
-    budget = room - floor - 4                      # the two panels' own borders
-    if mine + theirs <= budget:
-        return None
-    half = max(1, budget // 2)
-    return max(1, budget - theirs) if theirs < half else half
 
 
 def _detail_frame(width: int, height: int, detail: dict, flash: str = "") -> str:
@@ -723,15 +737,25 @@ def _answer_key(con, detail: dict, rid: int, k: str, width: int, height: int,
                 fd, saved) -> tuple[dict | None, str]:
     if k == "x":
         return None, actions.dismiss(con, rid)
-    text = (_editor(f"# answering #{rid}. Lines starting with # are dropped.\n",
-                    fd, saved)
-            if k == "e" else _line(f"answer #{rid}:", width, height))
+    text = _compose(rid, k, width, height, fd, saved)
     if text is None:
-        return detail, ("nothing sent - $EDITOR is not set" if k == "e"
-                        and not os.environ.get("EDITOR")
-                        and not os.environ.get("VISUAL") else "nothing sent")
+        return detail, _nothing_sent(k)
     _say(f"answering #{rid}", width, height)
     return None, actions.answer(con, rid, text)
+
+
+def _compose(rid: int, key: str, width: int, height: int, fd, saved) -> str | None:
+    """An answer, typed on the line or written in $EDITOR. None means none."""
+    if key == "e":
+        return _editor(f"# answering #{rid}. Lines starting with # are dropped.\n",
+                       fd, saved)
+    return _line(f"answer #{rid}:", width, height)
+
+
+def _nothing_sent(key: str) -> str:
+    if key == "e" and not (os.environ.get("EDITOR") or os.environ.get("VISUAL")):
+        return "nothing sent - $EDITOR is not set"
+    return "nothing sent"
 
 
 def _editor(seed: str, fd=None, saved=None) -> str | None:
@@ -851,8 +875,15 @@ def _act(panel: int, sel: dict, key: str, width: int, height: int,
                 body = _line(f"message to {name}:", width, height)
                 return (actions.message(con, name, body) if body is not None
                         else "nothing sent"), None
-            if label in CONFIRM and not _confirm(f"{label} {name}", width, height):
-                return "left alone", None
+            if label in CONFIRM:
+                if not _confirm(f"{label} {name}", width, height):
+                    return "left alone", None
+                # A confirmation waits on a human for as long as the human
+                # takes, and the daemon ticks every two seconds: work can
+                # arrive and a turn can start inside that wait. What was true
+                # when the key was pressed is not what this acts on.
+                if not actions.can(con, name, label):
+                    return f"{name}: {label} no longer applies - it changed while you looked", None
             _say(f"{label} {name}", width, height)
             return getattr(actions, label)(con, name), None
 
@@ -867,11 +898,9 @@ def _act(panel: int, sel: dict, key: str, width: int, height: int,
                 return "", opened(title, (row["body"] or "").splitlines() or ["(empty)"],
                                   MESSAGES, rid)
             if key in ("a", "e"):
-                text = (_editor(f"# answering #{rid}. Lines starting with # are dropped.\n",
-                                fd, saved)
-                        if key == "e" else _line(f"answer #{rid}:", width, height))
+                text = _compose(rid, key, width, height, fd, saved)
                 if text is None:
-                    return "nothing sent", None
+                    return _nothing_sent(key), None
                 _say(f"answering #{rid}", width, height)
                 return actions.answer(con, rid, text), None
             if key == "x":

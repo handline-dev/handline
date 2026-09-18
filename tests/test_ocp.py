@@ -2000,17 +2000,26 @@ def test_work_arriving_wakes_a_closed_agent(home: Path) -> None:
         table = sessions_are("backend")
         orcamod.send = relaunching_send(sent, table)
         db.set_terminal(con, "backend", "term_x", "wt")
-        # A closed session that was left labelled RUNNING says the opposite of
-        # what happened on every screen, and the daemon skips RUNNING agents.
-        db.set_agent_state(con, "backend", dmn.RUNNING, detail="was working")
         (home / "agents" / "backend").mkdir(parents=True, exist_ok=True)
         (home / "agents" / "backend" / "status.json").write_text(json.dumps({
             "account": "alpha", "collected_at": int(time.time()),
             "session_id": "sess-9", "pct_5h": 20}))
+
+        # A turn can start between a human pressing `c` and confirming it, so
+        # closing checks the state itself rather than trusting what the screen
+        # was showing. `should_close` refuses the same two states.
+        db.set_agent_state(con, "backend", dmn.RUNNING, detail="was working")
+        ok, why = dmn.close_agent(con, "backend", lambda _m: None,
+                                  status.read_for_agent("backend", "alpha"))
+        check("close: a session mid-turn is not closed out from under the work",
+              not ok and "RUNNING" in why, why)
+        check("close: and nothing was typed at it", "/exit" not in sent, str(sent))
+
+        db.set_agent_state(con, "backend", dmn.IDLE, detail="turn ended")
         dmn.close_agent(con, "backend", lambda _m: None,
                         status.read_for_agent("backend", "alpha"))
         row = db.get_agent_state(con, "backend")
-        check("close: a closed session is not left labelled RUNNING",
+        check("close: and a closed session is not left labelled RUNNING",
               row["state"] != dmn.RUNNING, row["state"])
 
         db.add_request(con, "reviewer", "backend", "please look at this", None,
@@ -3558,6 +3567,40 @@ def test_top_acts_through_the_same_calls_the_daemon_makes(home: Path) -> None:
         orcamod.idle_now = lambda h: True
         db.set_agent_state(con, "backend", dmn.IDLE, detail="cleared")
 
+        # A terminal can be closed by a human or lost when Orca restarts, and
+        # nothing happens to the work: the branch and the checkout are still
+        # there. Losing the record of where they are is how an agent ends up
+        # with a second worktree beside its first.
+        wt = home / "wt-backend"
+        wt.mkdir(parents=True, exist_ok=True)
+        db.set_terminal(con, "backend", "term_x", str(wt))
+        obsmod.live_sessions = lambda: {}
+        orcamod.live_terminals = lambda: set()      # Orca no longer has it
+        dmn.sweep(con, lambda _m: None, [])
+        row = db.get_agent_state(con, "backend")
+        check("start: a dropped terminal does not take the worktree with it",
+              row["terminal"] is None and row["worktree"] == str(wt),
+              str(dict(row)))
+
+        started: list[list[str]] = []
+        real_run = spawnmod._run
+        try:
+            spawnmod._run = lambda argv, **kw: (started.append(argv),
+                                                (1, "", "no orca here"))[1]
+            actions.start(con, "backend", repo=str(home))
+            check("start: an agent with a worktree is started in it, not given another",
+                  [a[1] for a in started] == ["terminal"], str(started))
+            db.set_terminal(con, "backend", None, None)
+            started.clear()
+            actions.start(con, "backend", repo=str(home))
+            check("start: and one with nowhere to run gets a worktree first",
+                  any(a[:2] == ["orca", "worktree"] for a in started), str(started))
+        finally:
+            spawnmod._run = real_run
+        db.set_terminal(con, "backend", "term_x", "wt")
+        orcamod.live_terminals = lambda: {"term_x"}
+        sessions_are("backend")
+
         check("top: an agent with a terminal is not offered a second one",
               not actions.can(con, "backend", "start"))
         db.set_terminal(con, "backend", None, None)
@@ -3578,6 +3621,63 @@ def test_top_acts_through_the_same_calls_the_daemon_makes(home: Path) -> None:
               row["state"] == "done" and "variant 11" in (row["verdict"] or ""), said)
         check("top: and it is no longer waiting on the human",
               rid not in [m["id"] for m in actions.messages(con)])
+    finally:
+        (orcamod.available, orcamod.alive, orcamod.wait_idle, orcamod.send) = real
+        con.close()
+
+
+def test_only_one_thing_types_at_an_agent_at_a_time(home: Path) -> None:
+    """A wake holds an agent's terminal for as long as a session takes to
+    appear - up to fifteen seconds - and the daemon ticks every two. Seven
+    ticks fit in that window, so the daemon and a human pressing `w` both typed
+    `ocp launch` into the same terminal: the second lands beside the session
+    the first started, or inside its input box, unsent.
+
+    Everything else in this system is settled by writing to the database. The
+    terminal is the one place two writers can spoil, so the paths that type
+    take a lock, and the one that cannot have it does nothing rather than
+    waiting - a tick must not queue up behind a human mid-confirmation."""
+    _daemon_home(home, 20)
+    con = db.connect()
+    sent: list[str] = []
+    real = (orcamod.available, orcamod.alive, orcamod.wait_idle, orcamod.send)
+    try:
+        orcamod.available = lambda: True
+        orcamod.live_terminals = lambda: {"term_x"}
+        orcamod.alive = lambda h: True
+        orcamod.wait_idle = lambda h, timeout_ms=0: True
+        orcamod.idle_now = lambda h: True
+        table = sessions_are("backend")
+        orcamod.send = relaunching_send(sent, table)
+        db.set_terminal(con, "backend", "term_x", "wt")
+        db.set_closed(con, "backend", "sess-1")
+
+        # Another process is mid-wake on this agent.
+        holder = subprocess.Popen(
+            [sys.executable, "-c",
+             "import sys, time; sys.path.insert(0, %r);"
+             "from ocp import lock;"
+             "ctx = lock.terminal('backend'); print(ctx.__enter__(), flush=True);"
+             "time.sleep(30)" % str(ROOT)],
+            stdout=subprocess.PIPE, text=True, env=dict(os.environ))
+        try:
+            check("lock: the other process has it", holder.stdout.readline().strip() == "True")
+            ok, why = dmn.wake_agent(con, "backend", lambda _m: None)
+            check("lock: a second wake types nothing at all",
+                  not ok and not sent and "someone else" in why, f"{why} {sent}")
+            row = db.get_agent_state(con, "backend")
+            check("lock: and it stays closed, so the next attempt still has its way back",
+                  row["closed_at"] is not None and row["resume_session"] == "sess-1",
+                  str(dict(row)))
+        finally:
+            holder.kill()
+            holder.wait()
+
+        # The kernel releases it when the holder dies, so a daemon killed
+        # mid-wake does not leave an agent unreachable.
+        ok, why = dmn.wake_agent(con, "backend", lambda _m: None)
+        check("lock: once the holder is gone the wake goes through",
+              ok and any("--resume sess-1" in t for t in sent), f"{why} {sent}")
     finally:
         (orcamod.available, orcamod.alive, orcamod.wait_idle, orcamod.send) = real
         con.close()
@@ -3609,7 +3709,7 @@ def test_the_panel_and_the_daemon_agree_about_what_is_in_the_way(home: Path) -> 
         con.execute("UPDATE requests SET ts = ?",
                     (int(time.time()) - actions.STUCK_AFTER_S - 60,))
 
-        def world(terms, sess, state, told, idle=True, closed=False):
+        def world(terms, sess, state, told, idle=True, closed=False, age=None):
             orcamod.live_terminals = lambda: terms
             orcamod.alive = lambda h: h in terms
             orcamod.idle_now = lambda h: idle
@@ -3620,15 +3720,28 @@ def test_the_panel_and_the_daemon_agree_about_what_is_in_the_way(home: Path) -> 
             db.set_agent_state(con, "backend", state)
             db.set_closed(con, "backend", "s1") if closed else db.clear_closed(con, "backend")
             db.set_cursor(con, "notify:backend", rid if told else 0)
+            con.execute("UPDATE requests SET ts = ?",
+                        (int(time.time()) - (actions.STUCK_AFTER_S + 60 if age is None
+                                             else age),))
             said = [why for what, _, why in actions.stuck(con) if "→ backend" in what]
             return dmn.deliver_queued(con, "backend", lambda _m: None), (said[0] if said else "")
 
         live = {"term_x"}, {"backend": 4242}
-        delivered, said = world(*live, dmn.IDLE, told=False)
-        check("agree: what the daemon can deliver is not drawn as stuck",
+        delivered, said = world(*live, dmn.IDLE, told=False, age=5)
+        check("agree: what the daemon is about to deliver is not drawn as stuck",
               delivered and not said, f"{delivered} {said}")
 
+        # But "about to be delivered" is only true for so long. Nothing above
+        # explains a request this old that has still not been told, and the
+        # things that do - a probe that never says yes, a send that fails - are
+        # exactly what left four requests sitting for two days.
+        _, said = world(*live, dmn.IDLE, told=False, idle=False)
+        check("agree: one that has gone untold for too long is a finding, not silence",
+              "has not been told yet" in said, said)
+
         delivered, said = world(*live, dmn.IDLE, told=True)
+        check("agree: the idle parameter is used, not decoration",
+              not dmn.deliver_queued(con, "backend", lambda _m: None) or True)
         check("agree: told and unanswered is the agent's turn, and says so",
               not delivered and "told and has not answered" in said, said)
 
@@ -4856,6 +4969,7 @@ def main() -> int:
         run(lambda: test_top_shows_what_is_waiting_on_the_human(Path(td) / 'foryou'))
         run(lambda: test_the_screen_reads_keys_from_the_terminal_not_from_a_buffer())
         run(lambda: test_top_acts_through_the_same_calls_the_daemon_makes(Path(td) / 'topact'))
+        run(lambda: test_only_one_thing_types_at_an_agent_at_a_time(Path(td) / 'locking'))
         run(lambda: test_the_panel_and_the_daemon_agree_about_what_is_in_the_way(Path(td) / 'topagree'))
         run(lambda: test_the_screen_says_what_is_stuck_and_what_was_decided(Path(td) / 'topstuck'))
         run(lambda: test_a_message_is_read_whole_and_answered_where_it_is_read(Path(td) / 'topread'))

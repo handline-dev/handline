@@ -1,10 +1,16 @@
 """What a human can do to an agent, in one place.
 
-`ocp top` is the screen the team is run from, so the actions have to live
+`ocp top` is the screen the team is run from, so what it does has to live
 somewhere that is not the drawing code: a screen that decided anything for
 itself would be a second opinion, and this file exists so there is only ever
-one. Every function here calls the same thing the daemon or the CLI calls, and
-returns the one line to show for what happened.
+one.
+
+Two halves. The acting half - wake, close, unstall, park, fold, start, message,
+answer, dismiss - is a line of glue each over the call the daemon or the CLI
+makes, and returns the one line to show for what happened. The reading half -
+messages, stuck, decisions, and the details behind a row - asks the database
+the questions a screen asks, and asks the daemon's own predicates for anything
+it would otherwise have to judge for itself.
 
 Two of them cannot be done from here at all. Logging in needs a human to type a
 code into claude's own screen, and starting an agent needs a terminal to start
@@ -87,6 +93,10 @@ def start(con, agent: str, repo: str | None = None, base: str = "main") -> str:
     row = db.get_agent_state(con, agent)
     if row and row["terminal"]:
         return f"{agent}: already has a terminal ({row['terminal']}) - wake it instead"
+    if row and row["worktree"] and Path(row["worktree"]).exists():
+        # It has somewhere to run already; it lost the window it ran in.
+        ok, msg = spawnmod.start_in(agent, row["worktree"])
+        return msg
     ok, msg = spawnmod.spawn(agent, Path(repo or os.getcwd()).resolve(), base=base)
     return msg
 
@@ -158,8 +168,9 @@ def _delivery_block(con, agent: str, sessions: dict | None,
                     handles: set | None) -> tuple[str, bool]:
     """Why work is not reaching this agent. (reason, does it resolve itself)
 
-    The checks are `deliver_queued`'s own, in its order, so the panel gives the
-    daemon's reason rather than a state the reader has to interpret. The two
+    The checks are the daemon's gates - `supervise`'s, then `deliver_queued`'s -
+    in the order the daemon applies them, so the panel gives the daemon's reason
+    rather than a state the reader has to interpret. The two
     readings it needs - Orca's terminals and the process table - are taken once
     for the whole panel and handed in: asking per row would cost a process
     listing each, and the idle probe is not asked at all, because a "no" from
@@ -170,11 +181,14 @@ def _delivery_block(con, agent: str, sessions: dict | None,
     row = db.get_agent_state(con, agent)
     if not row:
         return f"{agent} has never been started (s starts it)", False
+    if row["state"] == daemon.STALLED:
+        # First, because `supervise` returns on STALLED before delivery is
+        # considered at all. Reporting a missing terminal ahead of it sent the
+        # reader to start one, which would not have moved the request.
+        return f"{agent} is STALLED - the daemon will not touch it (u clears it)", False
     handle = row["terminal"]
     if not handle:
         return f"{agent} has no terminal - nothing can be typed to it (s starts one)", False
-    if row["state"] == daemon.STALLED:
-        return f"{agent} is STALLED - the daemon will not touch it (u clears it)", False
     if handles is not None and handle not in handles:
         return f"{agent}'s terminal is gone - Orca no longer has it", False
     try:
@@ -243,18 +257,27 @@ def stuck(con) -> list[tuple[str, int, str]]:
         "AND target != ? ORDER BY ts", (HUMAN,),
     ).fetchall()
     sessions, handles = _world() if queued else (None, None)
-    for r in (
-        queued):
+    for r in queued:
         age, what = now - int(r["ts"]), f"#{r['id']} {r['requester']} → {r['target']}"
         why, self_clearing = _delivery_block(con, r["target"], sessions, handles)
         if not why:
             # The daemon can deliver it. Either it is about to, or it has
             # already been told and has not answered - which is a queue working
             # until it has gone on too long.
-            told = db.get_cursor(con, f"notify:{r['target']}") >= int(r["id"])
-            if not told or age < STUCK_AFTER_S:
+            if age < STUCK_AFTER_S:
                 continue
-            out.append((what, age, f"{r['target']} was told and has not answered"))
+            told = db.get_cursor(con, f"notify:{r['target']}") >= int(r["id"])
+            if told:
+                out.append((what, age, f"{r['target']} was told and has not answered"))
+            else:
+                # Nothing structural is in the way and it still has not been
+                # told, which the checks above cannot explain: the idle probe
+                # never said yes - a permission prompt, a wedged TUI, a RUNNING
+                # its hooks never cleared - or the send itself failed. Silence
+                # here was the panel saying nothing is wrong for two days.
+                out.append((what, age, f"{r['target']} has not been told yet - if "
+                                       f"this stays, its idle probe or the send "
+                                       f"is failing"))
             continue
         if self_clearing and age < STUCK_AFTER_S:
             continue
@@ -274,10 +297,11 @@ def stuck(con) -> list[tuple[str, int, str]]:
 def decisions(con, limit: int = 40, everything: bool = False) -> tuple[list[dict], int]:
     """Recent events, and how many were only an agent breathing.
 
-    Six kinds of hook event say "a turn started" or "a turn ended", and the
-    agent's own state column already says which of those it is. They crowded
-    out the rows that say what was decided - woken, closed, folded, told - so
-    they are counted rather than drawn.
+    The hook events that only mark the edges of a turn are counted rather than
+    drawn: the agent's own state column says which side of a turn it is on, and
+    they crowded out the rows that say what was decided - woken, closed,
+    folded, told. A permission prompt and a teammate going quiet are not turn
+    edges and are drawn: they are the two events that mean a human is wanted.
 
     The count is the ones that happened among the decisions on screen, which is
     the question a reader has: how much noise is between these. Both halves are
@@ -285,8 +309,8 @@ def decisions(con, limit: int = 40, everything: bool = False) -> tuple[list[dict
     hundreds of rows back, and fetching a fixed multiple and filtering after
     came back empty exactly then.
     """
-    marks = ",".join("?" * len(evmod.CAPTURED))
-    kinds = tuple(sorted(evmod.CAPTURED))
+    marks = ",".join("?" * len(evmod.TURN_BOUNDARIES))
+    kinds = tuple(sorted(evmod.TURN_BOUNDARIES))
     if everything:
         rows = con.execute("SELECT id, ts, agent, kind, payload FROM events "
                            "ORDER BY id DESC LIMIT ?", (limit,)).fetchall()

@@ -86,6 +86,38 @@ def prompt_landed(agent: str, since_id: int, timeout_s: float = SUBMIT_WAIT_S) -
         time.sleep(2)
 
 
+def start_in(agent: str, worktree: str) -> tuple[bool, str]:
+    """Start an agent in a worktree it already has.
+
+    A terminal can be closed by a human, or lost when Orca restarts, without
+    anything happening to the work: the branch, the checkout and whatever is
+    uncommitted in it are all still there. Making a second worktree for that
+    agent would be the wrong repair - it would strand the first.
+    """
+    if not shutil.which("orca"):
+        return False, "orca is not on PATH"
+    if not Path(worktree).exists():
+        return False, f"{agent}: its worktree {worktree} is gone"
+    cmd = launch.command_for(agent)
+    code, out, err = _run([
+        "orca", "terminal", "create", "--worktree", f"path:{worktree}",
+        "--title", agent, "--command", cmd, "--json",
+    ])
+    if code != 0:
+        return False, f"{agent}: could not start in {worktree}: {err or out}"
+    try:
+        handle = json.loads(out)["result"]["terminal"]["handle"]
+    except (json.JSONDecodeError, KeyError, TypeError):
+        handle = None
+    if handle:
+        con = db.connect()
+        try:
+            db.set_terminal(con, agent, handle, worktree)
+        finally:
+            con.close()
+    return True, f"{agent}: started in {worktree} (terminal {handle or 'unknown'})"
+
+
 def spawn(agent: str, repo: Path, base: str = "main", prompt: str | None = None,
           dry_run: bool = False) -> tuple[bool, str]:
     """Create the worktree named after the agent and start the agent in it."""
