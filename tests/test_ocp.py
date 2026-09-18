@@ -3856,6 +3856,7 @@ def test_hr_move_changes_an_agents_account(home: Path) -> None:
     _daemon_home(home, 20)
     accounts.register("beta")
     con = db.connect()
+    real_live = obsmod.live_sessions
     try:
         db.set_account(con, "backend", "alpha")
         db.set_closed(con, "backend", "sess-1")
@@ -3895,6 +3896,7 @@ def test_hr_move_changes_an_agents_account(home: Path) -> None:
         check("hr move: but proposing changes nothing until it is applied",
               agents.account_of("backend") == "beta", agents.account_of("backend"))
     finally:
+        obsmod.live_sessions = real_live
         con.close()
 
 
@@ -6853,6 +6855,7 @@ def main() -> int:
         run(lambda: test_the_founder_does_not_approve_their_own_request(Path(td) / 'hrself'))
         run(lambda: test_hr_move_changes_an_agents_account(Path(td) / 'hrmove'))
         run(lambda: test_hr_move_does_not_touch_a_live_sessions_own_record(Path(td) / 'hrmovelive'))
+        run(lambda: test_hr_move_leaves_account_alone_when_liveness_cannot_be_read(Path(td) / 'hrmoveunknown'))
         run(lambda: test_the_screen_says_which_account_to_spend_next(Path(td) / 'nextacct'))
         run(lambda: test_a_long_name_does_not_run_into_the_column_beside_it(Path(td) / 'cols'))
         run(lambda: test_the_whole_loop_runs_on_our_own_commands(Path(td) / 'loop'))
