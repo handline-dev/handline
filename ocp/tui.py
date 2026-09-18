@@ -418,14 +418,21 @@ def build(width: int, sel: dict | None = None,
         acc = Panel("ACCOUNTS", width, focused=panel == ACCOUNTS)
         acc.selected = sel.get(ACCOUNTS)
         acc.add(f"{DIM}{'':<2}{'account':<10}{'5h usage':<18}{'reset':<8}"
-                f"{'7d':<14}assign{R}", heading=True)
+                f"{'7d':<12}{'7d resets':<8}why{R}", heading=True)
         # The account with the most headroom: where work goes when an agent's
         # own account is full. Only accounts that can start a session count.
-        first, _why = status.pick_account(
+        # Captured whole, not just the pick: request #167/#170 asks this panel
+        # to say why each one sits where it does, not only which one won.
+        first, ranked = status.pick_account(
             [a for a in paths.list_accounts() if _logged_in(a)])
+        why_of = dict(ranked)
         for name in paths.list_accounts():
             st = status.read(name)
-            allowed, why = st.assignable()
+            allowed, plain_why = st.assignable()
+            # An account outside the ranking (not logged in) has no ranked
+            # reason to fall back to - `assignable` already refused it and
+            # says why.
+            why = why_of.get(name, plain_why)
             mark = f"{GRN}✔{R}" if allowed else f"{RED}✘{R}"
             nxt = f"{GRN}{BOLD}>{R} " if name == first else "  "
             # Show the figure decisions are made on, with a mark saying where
@@ -445,12 +452,10 @@ def build(width: int, sel: dict | None = None,
                 # Drawn bare, a number from a stale snapshot - or from a week
                 # that has since rolled over - reads as this week's measurement.
                 + pad(f"{bar(st.trusted_pct_7d, 6)} {pct(st.trusted_pct_7d)}%"
-                      f"{status.mark(st.pct_7d_source)}", 14)
-                # No snapshot age and no cost column. The age only ever became
-                # news by making an account unassignable, and the reason beside
-                # it says so in words; the cost was a sum over the sessions we
-                # could see at that moment, which is not what "$" reads as -
-                # its own docstring lists three ways it is not the spend.
+                      f"{status.mark(st.pct_7d_source)}", 12)
+                # The deadline the ordering spends against (#166): when this
+                # window's headroom is lost if nobody uses it.
+                + pad(countdown(st.reset_7d), 8)
                 + f"{mark} {DIM}{why}{R}",
                 key=name,
             )

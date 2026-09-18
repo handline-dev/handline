@@ -238,6 +238,58 @@ def test_failclosed(home: Path) -> None:
     check("pick_account maximizes headroom", picked == "roomy", str(picked))
 
 
+def test_pick_account_orders_by_weekly_deadline(home: Path) -> None:
+    """Request #166/#167, amended by #169/#170: spend first the weekly
+    headroom that expires soonest unused - not simply the account with the
+    most 5h room right now."""
+    os.environ["OCP_HOME"] = str(home)
+    now = int(time.time())
+
+    # "later" has more 5h headroom than "soon" - the old rule would pick it -
+    # but "soon" loses its weekly window first, and both are well inside the
+    # preferred margin.
+    write_status(home, "soon", pct_5h=50, pct_7d=10, reset_7d=now + 3600)
+    write_status(home, "later", pct_5h=5, pct_7d=10, reset_7d=now + 90000)
+    picked, reasons = status.pick_account(["soon", "later"])
+    check("pick_account: the earlier weekly deadline wins over more headroom",
+          picked == "soon", str(picked))
+    said = dict(reasons)
+    check("pick_account: the winner's reason says it was picked",
+          "picked" in said["soon"], said["soon"])
+    check("pick_account: the reason names the tier", "preferred" in said["soon"],
+          said["soon"])
+
+    # "close_to_wall" resets sooner than "safe", but it is past the margin
+    # request #167 named (PCT_7D_BLOCK - PCT_7D_PREFER_MARGIN = 90): one fresh
+    # session could cross the hard block partway through a task. It is used
+    # only once nothing preferred qualifies.
+    write_status(home, "close_to_wall", pct_5h=5, pct_7d=92, reset_7d=now + 3600)
+    write_status(home, "safe", pct_5h=5, pct_7d=50, reset_7d=now + 90000)
+    picked, reasons = status.pick_account(["close_to_wall", "safe"])
+    check("pick_account: a preferred account beats a sooner deadline over the margin",
+          picked == "safe", str(picked))
+    said = dict(reasons)
+    check("pick_account: the deprioritized one says so",
+          "over" in said["close_to_wall"] and "picked" not in said["close_to_wall"],
+          said["close_to_wall"])
+
+    # Nothing preferred qualifies at all - the fallback tier still orders by
+    # deadline among itself, rather than refusing everything.
+    write_status(home, "wall_a", pct_5h=5, pct_7d=91, reset_7d=now + 1000)
+    write_status(home, "wall_b", pct_5h=5, pct_7d=93, reset_7d=now + 50)
+    picked, _ = status.pick_account(["wall_a", "wall_b"])
+    check("pick_account: with nothing preferred, the fallback tier orders by deadline too",
+          picked == "wall_b", str(picked))
+
+    # An account whose 7d window has never been observed is not excluded from
+    # the preferred tier by a figure it does not have, and an unknown deadline
+    # sorts behind a known one rather than jumping the queue.
+    write_status(home, "never_seen_7d", pct_5h=5, pct_7d=None)
+    picked, _ = status.pick_account(["never_seen_7d", "soon"])
+    check("pick_account: a known, sooner deadline beats an unknown one",
+          picked == "soon", str(picked))
+
+
 # ---------------------------------------------------------------- collector
 def test_collector(home: Path) -> None:
     """Feed the real statusLine payload shape through the real collector."""
@@ -2483,6 +2535,45 @@ def test_unobserved_spend_stays_off_unreadable_accounts(home: Path) -> None:
     finally:
         accounts.logged_in = real_login
         tui._LOGIN.clear()
+
+
+def test_subscription_type_is_recorded_and_cached(home: Path) -> None:
+    """Request #167/#170: subscriptionType comes from `claude auth status`,
+    claude's own report of what it is signed in as - never a credential file
+    (KICKOFF rule 1) - and is cached so the panel does not shell out to
+    `claude` on every refresh."""
+    home.mkdir(parents=True, exist_ok=True)
+    os.environ["OCP_HOME"] = str(home)
+    accounts.register("gamma")
+    real_login, real_run = accounts.logged_in, subprocess.run
+    calls: list = []
+
+    class _Result:
+        stdout = json.dumps({"subscriptionType": "pro"})
+
+    try:
+        accounts.logged_in = lambda a: True  # noqa: E731 - keychain is not the subject
+        subprocess.run = lambda cmd, **kw: (calls.append(cmd), _Result())[1]
+        got = accounts.subscription_type("gamma")
+        check("subscription_type: reads the plan from claude's own report",
+              got == "pro", got)
+        check("subscription_type: exactly one call was made", len(calls) == 1, str(calls))
+
+        got2 = accounts.subscription_type("gamma")
+        check("subscription_type: cached, not asked again", len(calls) == 1, str(calls))
+        check("subscription_type: cached answer matches", got2 == "pro", got2)
+
+        accounts.subscription_type("gamma", refresh=True)
+        check("subscription_type: refresh=True asks again", len(calls) == 2, str(calls))
+
+        real_login2 = accounts.logged_in
+        accounts.logged_in = lambda a: False  # noqa: E731
+        got3 = accounts.subscription_type("gamma", refresh=True)
+        accounts.logged_in = real_login2
+        check("subscription_type: cache survives even when asked again with no login",
+              got3 == "pro", got3)
+    finally:
+        accounts.logged_in, subprocess.run = real_login, real_run
 
 
 def test_launch_judges_on_the_figure_it_may_act_on(home: Path) -> None:
@@ -6578,6 +6669,7 @@ def main() -> int:
         home = Path(td) / "orcapipe"
         home.mkdir()
         run(lambda: test_failclosed(home))
+        run(lambda: test_pick_account_orders_by_weekly_deadline(Path(td) / 'deadline'))
         run(lambda: test_collector(home))
         run(lambda: test_yaml())
         run(lambda: test_agents(home))
@@ -6635,6 +6727,7 @@ def main() -> int:
         run(lambda: test_a_running_agent_is_told_when_work_arrives(Path(td) / 'deliver'))
         run(lambda: test_carry_bounds_and_losses(Path(td) / 'carry'))
         run(lambda: test_unobserved_spend_stays_off_unreadable_accounts(Path(td) / 'spend'))
+        run(lambda: test_subscription_type_is_recorded_and_cached(Path(td) / 'subtype'))
         run(lambda: test_launch_judges_on_the_figure_it_may_act_on(Path(td) / 'lj'))
         run(lambda: test_burn_rate_ignores_carried_samples(Path(td) / 'burn'))
         run(lambda: test_a_session_figure_is_not_shown_as_an_accounts(Path(td) / 'sessfig'))

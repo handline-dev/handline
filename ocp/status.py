@@ -93,6 +93,17 @@ def _ago(secs: float) -> str:
 PCT_5H_BLOCK = 90
 PCT_7D_BLOCK = 95
 
+# The founder's ordering principle (request #166/#167/#170): among accounts
+# that may take work at all, spend first the weekly headroom that expires
+# soonest unused - reset_7d, earliest first. But not all the way to the hard
+# block: under this margin, one fresh session (a fold plus a first turn) can
+# cross PCT_7D_BLOCK partway through a task, and the agent has to move again
+# before the task is done. A move that does not last one task is churn, so an
+# account this close to its own wall is used only when nothing further from
+# it still qualifies.
+PCT_7D_PREFER_MARGIN = 5
+PCT_7D_PREFER_BLOCK = PCT_7D_BLOCK - PCT_7D_PREFER_MARGIN
+
 
 @dataclass
 class AccountStatus:
@@ -406,25 +417,81 @@ def live_cost(account: str) -> float | None:
     return total if seen else None
 
 
+# Between two accounts whose deadline and headroom tie, prefer the one whose
+# figure we actually saw. An inferred 0% is sound and still a weaker claim
+# than a reported 0%.
+_CONFIDENCE = {"live": 3, "carried": 2, "quiet": 1}
+
+
+def deadline_7d(st: "AccountStatus") -> float:
+    """When this account's weekly headroom is lost if it goes unspent.
+
+    Infinity, not now, for an account whose reset_7d we do not know: it is not
+    more urgent than one we can see approaching its own reset, and it still
+    has to sort somewhere among accounts tied on urgency.
+    """
+    return float(st.reset_7d) if st.reset_7d else float("inf")
+
+
+def _prefer_now(st: "AccountStatus") -> bool:
+    """Is this account inside the margin the deadline ordering trusts?
+
+    None reads as "prefer": an account whose weekly figure we cannot see at
+    all has not been ruled out of anything, and refusing to prefer it would
+    make a status we have never read behave like one we know is close to its
+    wall.
+    """
+    week = st.trusted_pct_7d
+    return week is None or week <= PCT_7D_PREFER_BLOCK
+
+
+def _pick_reason(st: "AccountStatus", picked: bool) -> str:
+    """Why this account sits where it does in the ordering."""
+    week = st.trusted_pct_7d
+    week_s = "unknown" if week is None else f"{week}%"
+    when = "unknown" if not st.reset_7d else _ago(max(0.0, st.reset_7d - time.time()))
+    tier = (f"7d <= {PCT_7D_PREFER_BLOCK}% - preferred" if _prefer_now(st) else
+            f"7d over {PCT_7D_PREFER_BLOCK}% - spent only once nothing preferred qualifies")
+    base = f"5h {st.trusted_pct_5h}%, 7d {week_s} (resets in {when}), {tier}"
+    return base + " <- picked: earliest deadline in its tier" if picked else base
+
+
 def pick_account(candidates: list[str] | None = None) -> tuple[str | None, list[tuple[str, str]]]:
-    """Pick the assignable account with the most headroom.
+    """Pick the assignable account whose weekly headroom expires soonest.
 
     Returns (choice, [(account, reason)]). When nothing is assignable the
     choice is None and the caller must refuse - that is the fail-closed path.
+
+    Ordering (request #166, amended by #169 and #170): among accounts that
+    pass the hard gates, prefer the one within PCT_7D_PREFER_BLOCK of its 7d
+    window whose reset_7d comes soonest - spend the headroom that expires
+    unused first. Only once nothing preferred qualifies does an account past
+    that margin get picked at all. Within one tier, or when reset_7d is tied
+    or unknown for everyone in it, 5h headroom breaks the tie exactly as it
+    always did.
     """
     names = candidates if candidates is not None else paths.list_accounts()
-    reasons, usable = [], []
-    # Headroom decides, but between two accounts with the same headroom take the
-    # one whose figure we actually saw. An inferred 0% is sound and still a
-    # weaker claim than a reported 0%.
-    confidence = {"live": 3, "carried": 2, "quiet": 1}
+    reasons: list[tuple[str, str]] = []
+    usable: list[tuple[str, AccountStatus]] = []
     for n in names:
         st = read(n)
         allowed, why = st.assignable()
-        reasons.append((n, why))
         if allowed:
-            usable.append((st.headroom() or 0, confidence.get(st.pct_5h_source, 0), n))
+            usable.append((n, st))
+        else:
+            reasons.append((n, why))
     if not usable:
         return None, reasons
-    usable.sort(reverse=True)
-    return usable[0][2], reasons
+
+    def sort_key(item: tuple[str, AccountStatus]):
+        _, st = item
+        return (0 if _prefer_now(st) else 1, deadline_7d(st), -(st.headroom() or 0),
+                -_CONFIDENCE.get(st.pct_5h_source, 0))
+
+    usable.sort(key=sort_key)
+    picked = usable[0][0]
+    for n, st in usable:
+        reasons.append((n, _pick_reason(st, picked=(n == picked))))
+    order = {n: i for i, n in enumerate(names)}
+    reasons.sort(key=lambda t: order[t[0]])
+    return picked, reasons
