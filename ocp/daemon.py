@@ -1215,6 +1215,12 @@ def _perform_handoff(con, agent: str, trigger: triggers.Trigger, log,
     db.advance_handoff(con, hid, "released", state="done" if ok else "degraded")
     db.set_agent_state(con, agent, PARKED, wake_at=wake,
                        detail=f"{trigger.kind}; wakes at {time.strftime('%H:%M', time.localtime(wake))}")
+    # `close` and `wake` both leave a record of when and why; a park never did,
+    # so `ocp events --agent` had nothing to show for it even though the
+    # kind was already reserved for it (db.last_activity excludes 'park' by
+    # name, same as the others).
+    db.add_event(con, agent, "park", {"kind": trigger.kind, "wake_at": wake,
+                                      "account": agents.current_account(agent, con)})
     db.bump_counter(con, agent, "continuations")  # 8.5: handoff is not a failure
     log(f"  {agent}: PARKED until {time.strftime('%Y-%m-%d %H:%M', time.localtime(wake))}")
     return ok
@@ -1379,6 +1385,28 @@ def supervise(con, agent: str, log, now: int, samples: dict,
             hist.append((st.rl_at, st.pct_5h))
             del hist[:-10]
     burn = triggers.burn_rate_per_s(hist)
+
+    # Parking is a level trigger (8.4's usage/context reading), and un-parking
+    # was only an edge: an open session slept to `wake_at` even after the
+    # reading that put it there had already cleared, or work it could now
+    # afford arrived early. A closed agent has no session left to notice
+    # either of those on its own, which is why the deadline above still has
+    # to wake it; an open one can simply be told.
+    if not woke_now and row and row["terminal"] and not row["closed_at"] \
+            and state in (PARKED, THROTTLED, DEGRADED) \
+            and orca.available() and orca.alive(row["terminal"]):
+        cleared = not triggers.evaluate(st.trusted_pct_5h, st.trusted_ctx_pct, burn=burn).fired
+        assignable, _ = st.assignable()
+        has_work = assignable and bool(db.queued_for(con, agent) or
+                                       db.unannounced_answers(con, agent))
+        if cleared or has_work:
+            why = "usage recovered" if cleared else "work arrived and the account can pay"
+            db.set_agent_state(con, agent, QUEUED, wake_at=None, detail=why)
+            actions.append(f"{agent}: {state} -> QUEUED ({why})")
+            log(f"  {agent}: {state} -> QUEUED ({why})")
+            row = db.get_agent_state(con, agent)
+            state = QUEUED
+            woke_now = True
 
     if state in (PARKED, THROTTLED, DEGRADED):
         return  # waiting on wake_at, already handled above

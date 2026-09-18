@@ -4131,6 +4131,66 @@ def test_a_park_that_cannot_be_woken_keeps_its_deadline(home: Path) -> None:
         con.close()
 
 
+def test_a_parked_agent_is_woken_when_usage_recovers(home: Path) -> None:
+    """Parking is a level trigger - a reading over the line - and un-parking
+    was only an edge: an open session slept to `wake_at` even after the
+    reading that put it there had already cleared. Unlike a closed park, this
+    one still has a session to simply tell.
+    """
+    _daemon_home(home, 20)
+    con = db.connect()
+    real = (orcamod.available, orcamod.alive)
+    try:
+        orcamod.available = lambda: True
+        orcamod.alive = lambda h: True
+        db.set_terminal(con, "backend", "term_x", "wt")
+        db.set_agent_state(con, "backend", dmn.PARKED,
+                           wake_at=int(time.time()) + 3600, detail="usage; wakes at 23:00")
+        write_status(home, "alpha", pct_5h=5, pct_7d=10, ctx_pct=5,
+                     reset_5h=int(time.time()) + 1800)
+
+        dmn.supervise(con, "backend", lambda _m: None, int(time.time()), {}, False, [])
+        row = db.get_agent_state(con, "backend")
+        check("park: an open session wakes the moment the reading clears, "
+              "not at the deadline it was given",
+              row["state"] == dmn.QUEUED and row["wake_at"] is None, str(dict(row)))
+    finally:
+        orcamod.available, orcamod.alive = real
+        con.close()
+
+
+def test_a_parked_agent_is_woken_for_work_the_account_can_pay_for(home: Path) -> None:
+    """Even with the usage reading still over the trigger's own line, queued
+    work an assignable account can pay for is the other level condition - the
+    same one a closed agent already wakes for (8.4's step 2) - so an open
+    session gets it too, instead of sleeping on a deadline nobody set for
+    this arrival.
+    """
+    _daemon_home(home, 20)
+    con = db.connect()
+    real = (orcamod.available, orcamod.alive)
+    try:
+        orcamod.available = lambda: True
+        orcamod.alive = lambda h: True
+        db.set_terminal(con, "backend", "term_x", "wt")
+        db.set_agent_state(con, "backend", dmn.PARKED,
+                           wake_at=int(time.time()) + 3600, detail="usage; wakes at 23:00")
+        db.add_request(con, "reviewer", "backend", "look at this", None,
+                       "peer", "async", None, 0, None)
+        # Still over the trigger's own line (85%) but under the account's
+        # hard block (90%) - assignable, just not clear.
+        write_status(home, "alpha", pct_5h=87, pct_7d=10, ctx_pct=5,
+                     reset_5h=int(time.time()) + 1800)
+
+        dmn.supervise(con, "backend", lambda _m: None, int(time.time()), {}, False, [])
+        row = db.get_agent_state(con, "backend")
+        check("park: queued work an assignable account can pay for wakes it too",
+              row["state"] == dmn.QUEUED and row["wake_at"] is None, str(dict(row)))
+    finally:
+        orcamod.available, orcamod.alive = real
+        con.close()
+
+
 def test_top_shows_what_is_waiting_on_the_human(home: Path) -> None:
     """An escalation addressed to the human is the one queue nothing in this
     system ever clears on its own, and it used to be visible only by running
@@ -5524,6 +5584,9 @@ def test_an_agent_at_the_wall_moves_to_an_account_with_room(home: Path) -> None:
         row = db.get_agent_state(con, "keeper")
         check("move: with no room anywhere it parks and waits, as before",
               row["state"] == dmn.PARKED and row["wake_at"], f"{row['state']} {row['wake_at']}")
+        parked = db.events_after(con, 0, agent="keeper", exclude_kinds=())
+        check("move: the park itself is a recorded event, like close and wake",
+              any(e["kind"] == "park" for e in parked), [e["kind"] for e in parked])
 
         # An account we cannot read is not an account that is full. Moving on
         # `usage_unknown` would send agents off whichever account went dark.
@@ -7547,6 +7610,8 @@ def main() -> int:
         run(lambda: test_a_moved_walled_wake_names_the_new_account(Path(td) / 'walledmoved'))
         run(lambda: test_a_walled_wake_names_the_account_only_with_room(Path(td) / 'walledroom'))
         run(lambda: test_a_park_that_cannot_be_woken_keeps_its_deadline(Path(td) / 'parkdue'))
+        run(lambda: test_a_parked_agent_is_woken_when_usage_recovers(Path(td) / 'parklevel1'))
+        run(lambda: test_a_parked_agent_is_woken_for_work_the_account_can_pay_for(Path(td) / 'parklevel2'))
         run(lambda: test_top_shows_what_is_waiting_on_the_human(Path(td) / 'foryou'))
         run(lambda: test_the_screen_reads_keys_from_the_terminal_not_from_a_buffer())
         run(lambda: test_top_acts_through_the_same_calls_the_daemon_makes(Path(td) / 'topact'))
