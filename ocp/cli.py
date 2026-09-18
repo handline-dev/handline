@@ -21,7 +21,7 @@ from . import (accounts, actions, agents, ask as askmod, daemon as daemonmod, db
                tui,
                digest, doctor,
                drift, events, fold as foldmod, guide, hooks, launch, paths, service,
-               orca, status, spawn as spawnmod, team, triggers)
+               hr, orca, status, spawn as spawnmod, team, triggers)
 
 
 # ---------------------------------------------------------------- login
@@ -616,6 +616,38 @@ def cmd_hook_install(args) -> int:
 
 
 # ---------------------------------------------------------------- team / ask
+def cmd_hr(args) -> int:
+    """Propose a change to the roster, see the proposals, or apply an approved one.
+
+    Any agent may propose; only the founder approves; the change is made from
+    the file the proposal was written to. Hiring is the one thing an agent must
+    not be able to do on its own - an agent that can hire can spend an account
+    into the ground with nobody having decided to.
+    """
+    me = askmod.asking_agent()
+    if args.hr_cmd == "list":
+        rows = hr.listing()
+        if not rows:
+            print("no proposals")
+            return 0
+        for p_ in rows:
+            print(f"{p_['id']}  {p_['kind']:<7}{p_['agent']:<12}{p_.get('state', '?'):<10}"
+                  f"#{p_.get('request', '-')}  by {p_.get('requested_by', '?')}")
+        return 0
+    if args.hr_cmd == "apply":
+        ok, said = hr.apply(args.id)
+        print(said)
+        return 0 if ok else 1
+    if not me:
+        print(_who_refusal("propos"))
+        return 1
+    ok, said = hr.propose(args.hr_cmd, args.name, requester=me, why=args.why,
+                          account=args.account, team_name=args.team, repo=args.repo,
+                          model=args.model)
+    print(said)
+    return 0 if ok else 1
+
+
 def cmd_org(args) -> int:
     """Put every live agent in the team's Run, under whoever it reports to.
 
@@ -1027,6 +1059,26 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--table", action="store_true", help="the dashboard view")
     p.set_defaults(fn=cmd_status)
 
+    p = sub.add_parser("hr", help="propose a roster change; the founder approves it")
+    hrsub = p.add_subparsers(dest="hr_cmd", required=True)
+    for kind in ("add", "retire"):
+        q = hrsub.add_parser(kind, help=f"propose to {kind} an agent")
+        q.add_argument("name")
+        q.add_argument("--why", required=True, help="what the founder is deciding")
+        if kind == "add":
+            q.add_argument("--account", required=True)
+            q.add_argument("--team", default=None, help="team in team.yaml to join")
+            q.add_argument("--repo", default=None, help="where it works")
+            q.add_argument("--model", default=None)
+        else:
+            q.set_defaults(account=None, team=None, repo=None, model=None)
+    q = hrsub.add_parser("list", help="proposals and what became of them")
+    q.set_defaults(name=None, why=None, account=None, team=None, repo=None, model=None)
+    q = hrsub.add_parser("apply", help="carry out an approved proposal")
+    q.add_argument("id")
+    q.set_defaults(name=None, why=None, account=None, team=None, repo=None, model=None)
+    p.set_defaults(fn=cmd_hr)
+
     p = sub.add_parser("org", help="register live agents as workers in the team's Run")
     p.set_defaults(fn=cmd_org)
 
@@ -1046,7 +1098,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("body")
     p.add_argument("--files", default=None, help="comma-separated paths")
     p.add_argument("--of", default=None,
-                   help="requester (defaults to $OCP_AGENT, or to the orchestrator "
+                   help="requester (defaults to $OCP_AGENT, or to the human "
                         "when a human types this at a terminal)")
     p.add_argument("--parent", type=int, default=None, help="parent request id, for chain depth")
     p.add_argument("--mergeable", action="store_true",

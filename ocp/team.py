@@ -141,7 +141,7 @@ class Team:
 
         Besides declared agents and team members, a literal (non-wildcard)
         'to' in an edge counts. That is how escalation targets like
-        'orchestrator' exist: they are routable without being agents that we
+        'human' exist: they are routable without being agents that we
         launch and account for.
         """
         if agent in self.agents or self.team_of(agent) is not None:
@@ -223,6 +223,11 @@ edges:
   - { from: "*", to: "reviewer", relation: peer, response: async }
   - { from: "reviewer", to: "*", kind: verdict, response: async }
   - { from: "*", to: "archivist", relation: peer, response: fire_and_forget }
+  # The founder. Not an agent - no account, no session, no terminal - but a
+  # routable name, so an agent has somewhere to send a decision only a person
+  # can make, and the person has a way back down.
+  - { from: "*", to: "human", kind: escalate, creates_gate: true }
+  - { from: "human", to: "*", relation: supervisor, response: fire_and_forget }
 
 deny: []
 

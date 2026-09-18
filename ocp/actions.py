@@ -206,7 +206,7 @@ def dismiss(con, rid: int) -> str:
         # Nobody is waiting on this one, so nobody is told. Typing "read" at an
         # agent as though it were an answer costs it a turn to discover that it
         # is not one - manager was mid-sentence when a dismissal arrived as
-        # "#60 from orchestrator: read".
+        # "#60 from human: read".
         db.mark_announced(con, [rid])
         return f"{msg} (dismissed; {row['requester']} is not waiting on it)"
     # An `async` sender parked on a reply and nothing else will ever unpark it,
@@ -610,7 +610,7 @@ def supervisor_of(t, agent: str) -> str | None:
 
     Only an edge whose `from` names one agent counts. A wildcard source is a
     permission, not a chain of command: `* -> reviewer` says anyone may ask the
-    reviewer, and the human's own `orchestrator -> *` would otherwise make the
+    reviewer, and the human's own `human -> *` would otherwise make the
     whole team its children and draw a tree that says nothing.
     """
     if t is None:

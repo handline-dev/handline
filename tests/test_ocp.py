@@ -20,7 +20,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
-from ocp import (accounts, actions, agents, ask as askmod, cli as climod, daemon as dmn, db,
+from ocp import (accounts, actions, agents, ask as askmod, cli as climod, daemon as dmn, db, hr,
                  digest,
                  doctor, drift, events as evmod, fold as foldmod, launch, observe as obsmod,
                  orca as orcamod, paths, service, spawn as spawnmod, status, team, triggers,
@@ -436,7 +436,7 @@ edges:
   - { from: "product",   to: "growth.*",     relation: peer,  response: async }
   - { from: "analytics", to: "product",      relation: peer,  response: async }
   - { from: "*",         to: "archivist",    relation: peer,  response: fire_and_forget }
-  - { from: "*",         to: "orchestrator", kind: escalate,  creates_gate: true }
+  - { from: "*",         to: "human", kind: escalate,  creates_gate: true }
 
 deny:
   - { from: "eng.*",    to: "growth.*",  reason: "go through product" }
@@ -467,7 +467,7 @@ def test_team_routing() -> None:
     check("route: self-ask denied", not t.route("backend", "backend").allowed)
     check("route: unknown target denied", not t.route("backend", "nobody").allowed)
 
-    d = t.route("backend", "orchestrator")
+    d = t.route("backend", "human")
     check("route: escalation target is routable", d.allowed and d.creates_gate, d.reason)
     check("route: escalation kind preserved", d.kind == "escalate")
 
@@ -3582,11 +3582,11 @@ def test_top_acts_through_the_same_calls_the_daemon_makes(home: Path) -> None:
         check("top: the screen does not smuggle a message past routing",
               "denied" in said and not db.queued_for(con, "backend"), said)
 
-        escalate = '  - { from: "*",         to: "orchestrator", kind: escalate,  creates_gate: true }'
+        escalate = '  - { from: "*",         to: "human", kind: escalate,  creates_gate: true }'
         (home / "team.yaml").write_text(DESIGN_TEAM.replace(
             escalate,
             escalate + chr(10)
-            + '  - { from: "orchestrator", to: "*", relation: supervisor, '
+            + '  - { from: "human", to: "*", relation: supervisor, '
               'response: fire_and_forget }'))
         said = actions.message(con, "backend", "have a look at the sea shader")
         waiting = db.queued_for(con, "backend")
@@ -3996,6 +3996,102 @@ def test_only_one_thing_types_at_an_agent_at_a_time(home: Path) -> None:
         con.close()
 
 
+def test_growing_the_team_needs_a_person(home: Path) -> None:
+    """A team that cannot grow has one way to take on more work: each agent
+    quietly making helpers that die with the session that made them. So growing
+    is a first-class operation - and the one with the least business being
+    automatic, because an agent that can hire can spend an account into the
+    ground with nobody having decided to.
+
+    Any agent proposes, only the founder approves, and the change is made from
+    the file the proposal wrote. The approval is read, never interpreted: a
+    model taking "maybe next week" for a yes is the failure this prevents."""
+    _daemon_home(home, 20)
+    con = db.connect()
+    try:
+        accounts.register("beta")
+        agents.register("manager", "alpha")
+        (home / "team.yaml").write_text("""
+teams:
+  dev: [marina]
+agents:
+  manager: { intake: dedicated }
+  marina:  { intake: dedicated }
+  hr:      { intake: serial }
+edges:
+  - { from: "manager", to: "dev.*", relation: supervisor, response: fire_and_forget }
+  - { from: "*", to: "hr", relation: peer, response: async }
+  - { from: "*", to: "human", kind: escalate, creates_gate: true }
+  - { from: "human", to: "*", relation: supervisor, response: fire_and_forget }
+""")
+        agents.register("marina", "beta")
+        agents.register("hr", "beta")
+
+        # Nothing happens on the proposal itself.
+        ok, said = hr.propose("add", "dohyun", requester="hr", why="two branches are "
+                              "waiting on one developer", account="beta", team_name="dev",
+                              repo=str(home / "harbor"))
+        pid = said.split()[1]
+        check("hr: proposing raises it to the founder and changes nothing",
+              ok and "dohyun" not in paths.list_agents(), said)
+        rid = [m["id"] for m in actions.messages(con) if "dohyun" in (m["body"] or "")]
+        check("hr: and it is in front of the founder, with the words to answer with",
+              rid and "approve" in db.get_request(con, rid[0])["body"], said)
+
+        # Unanswered, and answered with something that is not a decision.
+        ok, said = hr.apply(pid)
+        check("hr: it cannot be applied before it is answered",
+              not ok and "has not answered" in said, said)
+        askmod.resolve(rid[0], "hmm, maybe next week")
+        ok, said = hr.apply(pid)
+        check("hr: nor on an answer that is not a decision",
+              not ok and "not a decision" in said and "dohyun" not in paths.list_agents(),
+              said)
+
+        # Approved, and the two writes a human would have made.
+        con.execute("UPDATE requests SET verdict = ? WHERE id = ?", ("approve", rid[0]))
+        ok, said = hr.apply(pid)
+        table = yamlcompat.load((home / "team.yaml").read_text())
+        check("hr: an approved proposal registers the agent", ok and "dohyun" in paths.list_agents(), said)
+        check("hr: and puts it in the team, which is what the routing is keyed on",
+              "dohyun" in (table["teams"]["dev"] or []) and "dohyun" in table["agents"],
+              str(table["teams"]))
+        check("hr: the manager may now ask it, because the wildcard covers it",
+              team.Team(table).route("manager", "dohyun").allowed)
+        check("hr: applying twice is refused", not hr.apply(pid)[0])
+
+        # Retiring archives rather than deletes: the journal is the record of
+        # work that was actually done.
+        ok, said = hr.propose("retire", "dohyun", requester="hr", why="branch landed")
+        pid2 = said.split()[1]
+        rid2 = [m["id"] for m in actions.messages(con) if "retire dohyun" in (m["body"] or "")]
+        askmod.resolve(rid2[0], "approve")
+        ok, said = hr.apply(pid2)
+        table = yamlcompat.load((home / "team.yaml").read_text())
+        archived = list((home / "agents" / "archive").glob("*dohyun*"))
+        check("hr: retiring takes it out of the table", ok and "dohyun" not in table["agents"], said)
+        check("hr: and keeps its folder", archived and (archived[0] / "journal").exists(),
+              str(archived))
+
+        # A rejection is recorded and never applied.
+        ok, said = hr.propose("add", "seoyun", requester="hr", why="third lane",
+                              account="beta", team_name="dev")
+        pid3 = said.split()[1]
+        rid3 = [m["id"] for m in actions.messages(con) if "seoyun" in (m["body"] or "")]
+        askmod.resolve(rid3[0], "reject - one lane at a time")
+        ok, said = hr.apply(pid3)
+        check("hr: a rejected proposal stays rejected",
+              not ok and "rejected" in said and "seoyun" not in paths.list_agents(), said)
+        check("hr: and the file says so",
+              hr.load_proposal(pid3)["state"] == "rejected", str(hr.load_proposal(pid3)))
+
+        # An edit that would break the routing table is not written at all.
+        check("hr: a proposal for an account nobody logged in is refused up front",
+              not hr.propose("add", "x", requester="hr", why="w", account="nope")[0])
+    finally:
+        con.close()
+
+
 def test_the_whole_loop_runs_on_our_own_commands(home: Path) -> None:
     """Order a child, read what it sends back, report to the parent - all of it
     through `ocp`, with no step that needs a human or a subagent.
@@ -4030,7 +4126,7 @@ agents:
 edges:
   - { from: "manager", to: "dev.*", relation: supervisor, response: fire_and_forget }
   - { from: "dev.*", to: "manager", relation: subordinate, response: fire_and_forget }
-  - { from: "*", to: "orchestrator", kind: escalate, creates_gate: true }
+  - { from: "*", to: "human", kind: escalate, creates_gate: true }
 """)
         agents.register("manager", "alpha")
         agents.register("marina", "beta", repo=str(home / "harbor"))
@@ -4367,7 +4463,7 @@ def test_an_answer_to_the_human_is_in_the_human_mailbox(home: Path) -> None:
         check("mailbox: and leaves the verdict standing",
               db.get_request(con, parent)["verdict"] == "last word")
 
-        # The orchestrator's name is the human's. It reaches every agent and
+        # The human's name is the human's. It reaches every agent and
         # it is exempt from the loop guards, so an agent that could borrow it
         # would hold both privileges - one spoofed hop makes a refused
         # A->B->A legal.
@@ -4459,8 +4555,8 @@ agents:
 
 edges:
   - { from: "manager", to: "dev.*", relation: supervisor, response: fire_and_forget }
-  - { from: "orchestrator", to: "*", relation: supervisor, response: fire_and_forget }
-  - { from: "*", to: "orchestrator", kind: escalate, creates_gate: true }
+  - { from: "human", to: "*", relation: supervisor, response: fire_and_forget }
+  - { from: "*", to: "human", kind: escalate, creates_gate: true }
 """)
         for name in ("manager", "marina", "keeper", "scout"):
             agents.register(name, "alpha")
@@ -4494,7 +4590,7 @@ agents:
 
 edges:
   - { from: "ghost", to: "dev.*", relation: supervisor, response: fire_and_forget }
-  - { from: "*", to: "orchestrator", kind: escalate, creates_gate: true }
+  - { from: "*", to: "human", kind: escalate, creates_gate: true }
 """)
         check("tree: an agent whose supervisor is not registered is still drawn",
               dict(actions.agent_tree())["marina"] == 0, str(actions.agent_tree()))
@@ -4510,7 +4606,7 @@ agents:
 edges:
   - { from: "marina", to: "keeper", relation: supervisor, response: fire_and_forget }
   - { from: "keeper", to: "marina", relation: supervisor, response: fire_and_forget }
-  - { from: "*", to: "orchestrator", kind: escalate, creates_gate: true }
+  - { from: "*", to: "human", kind: escalate, creates_gate: true }
 """)
         cyc = actions.agent_tree()
         check("tree: a cycle does not hang and loses nobody",
@@ -5321,7 +5417,7 @@ def test_a_fold_is_a_process_not_a_session(home: Path) -> None:
 
 
 def test_who_is_asking_is_not_guessed(home: Path) -> None:
-    """A human at their own prompt is the orchestrator; a process that merely
+    """A human at their own prompt is the human; a process that merely
     lost OCP_AGENT is not. Conflating them hands the escalation target and the
     most privileged node in the routing table to whatever dropped the variable."""
     home.mkdir(parents=True, exist_ok=True)
@@ -5346,7 +5442,7 @@ def test_who_is_asking_is_not_guessed(home: Path) -> None:
         sys.stdin = FakeStdin(True)
         check("identity: an unset variable is still unset",
               askmod.current_agent() is None, str(askmod.current_agent()))
-        check("identity: but a human at a terminal is the orchestrator",
+        check("identity: but a human at a terminal is the human",
               askmod.asking_agent() == askmod.HUMAN, str(askmod.asking_agent()))
 
         sys.stdin = FakeStdin(False)
@@ -5664,12 +5760,12 @@ def test_cycle_and_escalation(home: Path) -> None:
     ok, msg, _ = askmod.ask("backend", "here are my notes", requester="reviewer",
                             parent_id=first)
     check("chain: A->B->A is stopped", not ok and "cycle" in msg, msg)
-    check("chain: and escalated, not dropped", "Escalated to orchestrator" in msg, msg)
+    check("chain: and escalated, not dropped", "Escalated to human" in msg, msg)
 
     con = db.connect()
     try:
         esc = con.execute(
-            "SELECT * FROM requests WHERE target='orchestrator' AND kind='escalate'"
+            "SELECT * FROM requests WHERE target='human' AND kind='escalate'"
         ).fetchall()
         check("chain: the escalation is a real queued request", len(esc) == 1, str(len(esc)))
         check("chain: it carries the original body",
@@ -5942,6 +6038,7 @@ def main() -> int:
         run(lambda: test_an_answer_wakes_the_agent_that_was_waiting_for_it(Path(td) / 'waiting'))
         run(lambda: test_a_request_can_be_read_whole(Path(td) / 'readone'))
         run(lambda: test_only_one_thing_types_at_an_agent_at_a_time(Path(td) / 'locking'))
+        run(lambda: test_growing_the_team_needs_a_person(Path(td) / 'hr'))
         run(lambda: test_the_whole_loop_runs_on_our_own_commands(Path(td) / 'loop'))
         run(lambda: test_an_agent_can_put_another_one_to_work(Path(td) / 'dispatch'))
         run(lambda: test_an_agent_at_the_wall_moves_to_an_account_with_room(Path(td) / 'moveacct'))

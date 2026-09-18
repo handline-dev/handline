@@ -65,8 +65,8 @@ to the agent under the cursor and `e` writes a longer one in $EDITOR; `t` takes
 you to that agent's own terminal, starting one if it has none.
 
 An interactive shell with no OCP_AGENT belongs to a human, so `ocp ask` typed at
-your own prompt comes from orchestrator. A process that merely lost the variable
-has no terminal, and is refused rather than handed the orchestrator's name.
+your own prompt comes from human. A process that merely lost the variable
+has no terminal, and is refused rather than handed the human's name.
 
 That is the whole of it. The daemon delivers: an idle agent is told on the next
 tick, and a closed one is resumed first and then told. Nobody has to nudge a
