@@ -4013,7 +4013,7 @@ def test_a_moved_walled_wake_names_the_new_account(home: Path) -> None:
     real_login = accounts.logged_in
     try:
         db.set_account(con, "backend", "alpha")
-        db.set_closed(con, "backend", "sess-moved")   # no resume id: the move's wake
+        db.set_closed(con, "backend", None)   # no resume id: the move's wake
         db.add_request(con, "reviewer", "backend", "look at this", None,
                        "peer", "async", None, 0, None)
         write_status(home, "alpha", pct_5h=95, pct_7d=10, ctx_pct=5,
@@ -4035,6 +4035,35 @@ def test_a_moved_walled_wake_names_the_new_account(home: Path) -> None:
               launch.wake_wait("backend", row, con) is None)
     finally:
         accounts.logged_in = real_login
+        con.close()
+
+
+def test_a_walled_wake_names_the_account_only_with_room(home: Path) -> None:
+    """The bridge's column is narrow enough that naming a different account
+    can cost the clock its columns. The clock is the one thing this cell
+    exists to show - the acct column already says where the agent itself
+    sits - so at a realistic terminal width the cell drops the account and
+    keeps the clock; at a wide enough one there is room for both.
+    """
+    _daemon_home(home, 20)
+    con = db.connect()
+    real_would_wake, real_wake_wait = dmn.would_wake, launch.wake_wait
+    try:
+        db.set_closed(con, "backend", "sess-x")
+        reset_at = int(time.time()) + 1800
+        when = time.strftime("%H:%M", time.localtime(reset_at))
+        dmn.would_wake = lambda con, row: True
+        launch.wake_wait = lambda name, row, con: launch.WakeWait("beta", 95, reset_at)
+        narrow = tui._ANSI.sub("", tui.frame(80, 40))
+        wide = tui._ANSI.sub("", tui.frame(100, 40))
+        nline = next(ln for ln in narrow.splitlines() if "backend" in ln)
+        wline = next(ln for ln in wide.splitlines() if "backend" in ln)
+        check("walled: a narrow bridge keeps the clock and drops the account",
+              when in nline and "beta" not in nline, nline)
+        check("walled: a wider bridge has room for both",
+              when in wline and "beta" in wline, wline)
+    finally:
+        dmn.would_wake, launch.wake_wait = real_would_wake, real_wake_wait
         con.close()
 
 
@@ -7512,6 +7541,11 @@ def main() -> int:
         run(lambda: test_nothing_is_typed_into_a_shell_with_no_session(Path(td) / 'shellgate'))
         run(lambda: test_a_wake_is_believed_only_when_a_session_appears(Path(td) / 'wakereceipt'))
         run(lambda: test_a_walled_wake_says_so_everywhere(Path(td) / 'walled'))
+        run(lambda: test_a_walled_wake_is_not_shown_with_nothing_waiting(Path(td) / 'walledquiet'))
+        run(lambda: test_a_stalled_closed_agent_keeps_its_marker_when_walled(Path(td) / 'walledstalled'))
+        run(lambda: test_a_walled_wake_with_no_reset_reads_unknown(Path(td) / 'walledunknown'))
+        run(lambda: test_a_moved_walled_wake_names_the_new_account(Path(td) / 'walledmoved'))
+        run(lambda: test_a_walled_wake_names_the_account_only_with_room(Path(td) / 'walledroom'))
         run(lambda: test_a_park_that_cannot_be_woken_keeps_its_deadline(Path(td) / 'parkdue'))
         run(lambda: test_top_shows_what_is_waiting_on_the_human(Path(td) / 'foryou'))
         run(lambda: test_the_screen_reads_keys_from_the_terminal_not_from_a_buffer())

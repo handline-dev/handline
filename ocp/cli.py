@@ -365,15 +365,17 @@ def cmd_daemon_status(args) -> int:
                     wake += "!"
                 shown = r["state"] + ("·closed" if r["closed_at"] else "")
                 detail = r["detail"] or ""
-                if daemonmod.would_wake(con, r):
-                    walled = launch.wake_wait_reason(r["agent"], r, con)
-                    if walled:
-                        detail = f"{detail} · {walled}" if detail else walled
-                # 70, not 46: a walled reason ("waiting for alpha's 5h
-                # window (95%, rolls over 14:32)") runs to about 55 on its
-                # own, and truncating detail before joining it on just moved
-                # where the line grew too long instead of fixing that it did.
-                detail = detail[:70]
+                walled = (daemonmod.would_wake(con, r) and
+                          launch.wake_wait_reason(r["agent"], r, con))
+                if walled:
+                    # The reason is budgeted first and the agent's own detail
+                    # yields room to it, not the other way around: a detail
+                    # sitting ahead of an undelivered answer is the ordinary
+                    # case this column exists to surface.
+                    room = max(0, 70 - len(walled) - 3)
+                    detail = f"{detail[:room]} · {walled}" if detail else walled
+                else:
+                    detail = detail[:70]
                 print(f"{r['agent']:<{w}}{shown:<11}{wake:<8}"
                       f"{r['failed_attempts']:>5}{r['continuations']:>6}{r['throttle_count']:>5}  "
                       f"{detail}")

@@ -499,31 +499,13 @@ def build(width: int, sel: dict | None = None,
             t = triggers.evaluate(st.trusted_pct_5h, st.trusted_ctx_pct)
             fire = (f"{YEL}⚠ {t.kind}{R}"
                     if t.fired and daemon.triggers_apply(row) else "")
-            # Same predicate `ocp ps` and `ocp triggers` ask for this - so this
-            # screen cannot disagree with the daemon that actually acts on it -
-            # but drawn to fit the column instead of their full sentence: there
-            # is room here for the account and the clock, not "waiting for
-            # ...'s 5h window (...)" in full.
-            w = daemon.would_wake(con, row) and launch.wake_wait(name, row, con)
-            if w:
-                when = "?" if not w.reset_5h else time.strftime("%H:%M", time.localtime(w.reset_5h))
-                # The account column two cells back already names it, in the
-                # ordinary case (a resume waits on its own account). Naming it
-                # again there would spend the column's few characters on what
-                # the row already says - it is only worth repeating when it
-                # is not that account, which is the move's wake landing
-                # somewhere its own `acct` cell has not caught up to yet.
-                who = "" if w.account == acct else f"{w.account} "
-                walled_cell = f"{YEL}⏳ {who}{when}{R}"
-            else:
-                walled_cell = ""
             ctxs = f"{pct(st.ctx_pct)}%"
             if st.ctx_pct is not None and st.ctx_pct >= triggers.CONTEXT_PCT:
                 ctxs = YEL + ctxs + R
             inbox = len(db.queued_for(con, name))
             # Padded on visible width, like the accounts panel: a state that
             # grew a "·closed" suffix used to push every column after it right.
-            ag.add(
+            prefix = (
                 # Fitted before it is padded: a long name, or a deep enough
                 # twig, is wider than the column, and `pad` alone then pushes
                 # every column after it right - the same drift the "·closed"
@@ -535,6 +517,26 @@ def build(width: int, sel: dict | None = None,
                 + pad(ctxs, 7)
                 + pad(countdown(row["wake_at"] if row else None), 7)
                 + pad(str(inbox) if inbox else "·", 4)
+            )
+            # Same predicate `ocp ps` and `ocp triggers` ask for this - so this
+            # screen cannot disagree with the daemon that actually acts on it -
+            # but drawn to fit the column instead of their full sentence: there
+            # is room here for the account and the clock, not "waiting for
+            # ...'s 5h window (...)" in full.
+            w = daemon.would_wake(con, row) and launch.wake_wait(name, row, con)
+            if w:
+                when = "?" if not w.reset_5h else time.strftime("%H:%M", time.localtime(w.reset_5h))
+                # The acct column already names it; only worth repeating when
+                # the wake would land elsewhere, and only when there is room
+                # left for it beside the clock, which is never sacrificed.
+                room = width - 4 - vlen(prefix)  # borders + gutter
+                who = (f"{w.account} " if w.account != acct
+                       and room >= vlen(f"⏳ {w.account} {when}") else "")
+                walled_cell = f"{YEL}⏳ {who}{when}{R}"
+            else:
+                walled_cell = ""
+            ag.add(
+                prefix
                 # A STALLED or DEGRADED agent needs a human whatever else is
                 # true of it; a wall clears itself the moment the window
                 # rolls over, so it is the last thing shown, not the thing

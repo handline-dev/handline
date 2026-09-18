@@ -488,19 +488,21 @@ def triggers_apply(row) -> bool:
 def would_wake(con, row) -> bool:
     """Is anything actually trying to wake this closed agent?
 
-    Queued work, an answer it asked for, or a deadline already set - the same
-    three reasons `supervise` calls `wake_agent` on a closed row at all
-    (section 8.4's step 2, and the two checks right before `deliver_queued` in
-    the main pass). `launch.wake_wait` answers a narrower question - is the
-    account full - and answers it for every closed agent on a walled account,
-    including ones idle by choice with nothing asked of them. A screen gates
-    on this first, so "waiting" only shows next to a wait that is actually
-    happening.
+    Queued work, an answer it asked for, or a deadline already due while
+    parked, throttled or degraded - the same three reasons `supervise` calls
+    `wake_agent` on a closed row at all (section 8.4's step 2, and the two
+    checks right before `deliver_queued` in the main pass). `launch.wake_wait`
+    answers a narrower question - is the account full - and answers it for
+    every closed agent on a walled account, including ones idle by choice
+    with nothing asked of them. A screen gates on this first, so "waiting"
+    only shows next to a wait that is actually happening.
     """
     if not row or not row["closed_at"]:
         return False
     agent = row["agent"]
-    return bool(row["wake_at"] or db.queued_for(con, agent) or
+    due = bool(row["wake_at"]) and row["wake_at"] <= int(time.time()) \
+        and row["state"] in (PARKED, THROTTLED, DEGRADED)
+    return bool(due or db.queued_for(con, agent) or
                 db.unannounced_answers(con, agent))
 
 
