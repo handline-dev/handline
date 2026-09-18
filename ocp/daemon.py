@@ -250,6 +250,10 @@ def resume_handoff(con, row, log, use_model: bool = True) -> None:
     db.set_agent_state(con, agent, PARKED, wake_at=wake,
                        detail=f"resumed handoff; wakes at "
                               f"{time.strftime('%H:%M', time.localtime(wake))}")
+    # Same gap as a fresh park's - see _perform_handoff - through a different
+    # path: a restart recovering an in-flight handoff parks the agent too.
+    db.add_event(con, agent, "park", {"kind": row["trigger_kind"], "wake_at": wake,
+                                      "account": agents.current_account(agent, con)})
     log(f"  {agent}: resumed handoff from '{step}' -> PARKED")
 
 
@@ -485,44 +489,25 @@ def triggers_apply(row) -> bool:
     return bool(row and row["terminal"] and not row["closed_at"])
 
 
-def would_wake(con, row, st=None, burn: float = 0.0) -> bool:
-    """Should this parked agent be up right now?
+def would_wake(con, row) -> bool:
+    """Is anything actually trying to wake this closed agent?
 
     Queued work, an answer it asked for, or a deadline already due while
-    parked, throttled or degraded - the same reasons `supervise` calls
+    parked, throttled or degraded - the same three reasons `supervise` calls
     `wake_agent` on a closed row at all (section 8.4's step 2, and the two
-    checks right before `deliver_queued` in the main pass).
-
-    A closed row has no session of its own to notice anything beyond that:
-    it is judged on those three alone, whatever state it is in - `close_agent`
-    can park an agent idle in any of them. An open one is different only in
-    the states that mean anything is being asked of it at all (a live IDLE or
-    QUEUED session is not "parked", so this is not asked about it): given a
-    live reading - `st`, which only `supervise`'s own tick has on hand - it
-    also answers yes the moment the reading that parked it clears, since an
-    open session can simply be told rather than resumed.
-
-    Either way this answers "is anything trying", not "can the account pay
-    for it": `launch.wake_wait` narrows that further for a closed row's
-    resume, which can fail cleanly and say why through `wake_wait_reason`.
-    An open row's own tick gates the account itself the same way, just
-    before acting on this instead of after.
+    checks right before `deliver_queued` in the main pass). `launch.wake_wait`
+    answers a narrower question - is the account full - and answers it for
+    every closed agent on a walled account, including ones idle by choice
+    with nothing asked of them. A screen gates on this first, so "waiting"
+    only shows next to a wait that is actually happening.
     """
-    if not row:
+    if not row or not row["closed_at"]:
         return False
     agent = row["agent"]
-    has_work = bool(db.queued_for(con, agent) or db.unannounced_answers(con, agent))
-    if row["closed_at"]:
-        due = bool(row["wake_at"]) and row["wake_at"] <= int(time.time()) \
-            and row["state"] in (PARKED, THROTTLED, DEGRADED)
-        return bool(due or has_work)
-    if row["state"] not in (PARKED, THROTTLED, DEGRADED):
-        return False
-    due = bool(row["wake_at"]) and row["wake_at"] <= int(time.time())
-    if due or has_work:
-        return True
-    return st is not None and not triggers.evaluate(
-        st.trusted_pct_5h, st.trusted_ctx_pct, burn=burn).fired
+    due = bool(row["wake_at"]) and row["wake_at"] <= int(time.time()) \
+        and row["state"] in (PARKED, THROTTLED, DEGRADED)
+    return bool(due or db.queued_for(con, agent) or
+                db.unannounced_answers(con, agent))
 
 
 def close_agent(con, agent: str, log, st) -> tuple[bool, str]:
@@ -1405,25 +1390,24 @@ def supervise(con, agent: str, log, now: int, samples: dict,
             del hist[:-10]
     burn = triggers.burn_rate_per_s(hist)
 
-    # Parking is a level trigger (8.4's usage/context reading), and un-parking
-    # was only an edge: an open session slept to `wake_at` even after
-    # `would_wake` - given this tick's own reading - would already say yes.
-    # A closed agent has no session left to notice that on its own, which is
-    # why the deadline above still has to wake it; an open one can simply be
-    # told, once its account can actually pay for what it would be told -
-    # the same gate `wake_wait` puts on a closed row's resume, asked before
-    # acting instead of after.
+    # Un-parks a usage park - PARKED only, and only when the handoff that put
+    # it there named a usage trigger, read off that handoff since nothing on
+    # the row itself says why - the moment that same reading, evaluated the
+    # way the park itself was, no longer fires. Never on an assumed account:
+    # a null `account` column means `current_account` is reporting a
+    # preference, not a fact.
     if not woke_now and row and row["terminal"] and not row["closed_at"] \
-            and state in (PARKED, THROTTLED, DEGRADED) \
-            and orca.available() and orca.alive(row["terminal"]) \
-            and would_wake(con, row, st=st, burn=burn):
-        cleared = not triggers.evaluate(st.trusted_pct_5h, st.trusted_ctx_pct, burn=burn).fired
-        assignable, _ = st.assignable()
-        if cleared or assignable:
-            why = "usage recovered" if cleared else "work arrived and the account can pay"
-            db.set_agent_state(con, agent, QUEUED, wake_at=None, detail=why)
-            actions.append(f"{agent}: {state} -> QUEUED ({why})")
-            log(f"  {agent}: {state} -> QUEUED ({why})")
+            and state == PARKED and row["account"] is not None \
+            and orca.available() and orca.alive(row["terminal"]):
+        last = con.execute(
+            "SELECT trigger_kind FROM handoff WHERE agent = ? ORDER BY updated DESC LIMIT 1",
+            (agent,),
+        ).fetchone()
+        if last and last["trigger_kind"] in MOVABLE_TRIGGERS and \
+                not triggers.evaluate(st.trusted_pct_5h, st.trusted_ctx_pct, burn=burn).fired:
+            db.set_agent_state(con, agent, QUEUED, wake_at=None, detail="usage recovered")
+            actions.append(f"{agent}: {state} -> QUEUED (usage recovered)")
+            log(f"  {agent}: {state} -> QUEUED (usage recovered)")
             row = db.get_agent_state(con, agent)
             state = QUEUED
             woke_now = True

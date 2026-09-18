@@ -3850,6 +3850,11 @@ def test_a_walled_wake_says_so_everywhere(home: Path) -> None:
         # work is what would actually make the daemon try this wake.
         db.add_request(con, "reviewer", "backend", "look at this", None,
                        "peer", "async", None, 0, None)
+        # A detail of its own is the ordinary case for this row - an answer
+        # sitting undelivered is the example this feature exists for - so the
+        # budget fix has to hold with one competing for the line, not only
+        # on the empty-detail row every other check here leaves behind.
+        db.set_agent_state(con, "backend", dmn.IDLE, detail="request 13 resolved: done")
         reset_at = int(time.time()) + 1800
         write_status(home, "alpha", pct_5h=95, pct_7d=10, ctx_pct=5, reset_5h=reset_at)
         when = time.strftime("%H:%M", time.localtime(reset_at))
@@ -3926,6 +3931,15 @@ def test_a_walled_wake_is_not_shown_with_nothing_waiting(home: Path) -> None:
                      reset_5h=int(time.time()) + 1800)
         row = db.get_agent_state(con, "backend")
         check("walled: nothing waiting means would_wake says no",
+              not dmn.would_wake(con, row), dict(row))
+
+        # A deadline that has not arrived yet is not "due" - a bare
+        # `row["wake_at"]` truthy check would have said yes to any parked
+        # agent with any deadline at all, due or not.
+        db.set_agent_state(con, "backend", dmn.PARKED,
+                           wake_at=int(time.time()) + 3600, detail="usage; wakes later")
+        row = db.get_agent_state(con, "backend")
+        check("walled: a deadline that has not come due yet is not waiting either",
               not dmn.would_wake(con, row), dict(row))
 
         ps_out = _capture(lambda: climod.main(["ps"]))
@@ -4131,11 +4145,19 @@ def test_a_park_that_cannot_be_woken_keeps_its_deadline(home: Path) -> None:
         con.close()
 
 
-def test_a_parked_agent_is_woken_when_usage_recovers(home: Path) -> None:
-    """Parking is a level trigger - a reading over the line - and un-parking
-    was only an edge: an open session slept to `wake_at` even after the
-    reading that put it there had already cleared. Unlike a closed park, this
-    one still has a session to simply tell.
+def _park_via_handoff(con, agent: str, kind: str, hoff_state: str = "done") -> None:
+    """Fabricate a completed handoff the way `_perform_handoff` leaves one,
+    with `trigger_kind` on the record - the only place a park's cause is
+    named, since nothing on `agent_state` itself says why."""
+    hid = f"hoff-{kind}"
+    db.start_handoff(con, hid, agent, None, kind, 0, int(time.time()) + 90)
+    db.advance_handoff(con, hid, "released", state=hoff_state)
+
+
+def test_a_usage_park_is_woken_when_the_reading_clears(home: Path) -> None:
+    """Parking is a level trigger - a usage reading over the line - and
+    un-parking was only an edge: an open session slept to `wake_at` even
+    after that same reading, evaluated the same way, would no longer fire.
     """
     _daemon_home(home, 20)
     con = db.connect()
@@ -4144,15 +4166,12 @@ def test_a_parked_agent_is_woken_when_usage_recovers(home: Path) -> None:
         orcamod.available = lambda: True
         orcamod.alive = lambda h: True
         db.set_terminal(con, "backend", "term_x", "wt")
+        db.set_account(con, "backend", "alpha")
+        _park_via_handoff(con, "backend", "usage")
         db.set_agent_state(con, "backend", dmn.PARKED,
                            wake_at=int(time.time()) + 3600, detail="usage; wakes at 23:00")
         write_status(home, "alpha", pct_5h=5, pct_7d=10, ctx_pct=5,
                      reset_5h=int(time.time()) + 1800)
-
-        before = db.get_agent_state(con, "backend")
-        st = status.read_for_agent("backend", "alpha")
-        check("park: would_wake already says so, given this tick's own reading",
-              dmn.would_wake(con, before, st=st), None)
 
         dmn.supervise(con, "backend", lambda _m: None, int(time.time()), {}, False, [])
         row = db.get_agent_state(con, "backend")
@@ -4164,12 +4183,14 @@ def test_a_parked_agent_is_woken_when_usage_recovers(home: Path) -> None:
         con.close()
 
 
-def test_a_parked_agent_is_woken_for_work_the_account_can_pay_for(home: Path) -> None:
-    """Even with the usage reading still over the trigger's own line, queued
-    work an assignable account can pay for is the other level condition - the
-    same one a closed agent already wakes for (8.4's step 2) - so an open
-    session gets it too, instead of sleeping on a deadline nobody set for
-    this arrival.
+def test_a_usage_park_does_not_oscillate_in_the_reserve_band(home: Path) -> None:
+    """`assignable()`'s 90% used to be the un-park question - a looser line
+    than the trigger's own 85% - so a reading in the band between them
+    flapped every tick: QUEUED, parked again by the very next trigger
+    evaluation, paying for a fold each round. Symmetric on the same
+    `evaluate()`, the same reading can never call for both in the same tick,
+    at any number of ticks - the band was the reserve keeping a handoff
+    affordable, not spare capacity to wake into.
     """
     _daemon_home(home, 20)
     con = db.connect()
@@ -4178,37 +4199,32 @@ def test_a_parked_agent_is_woken_for_work_the_account_can_pay_for(home: Path) ->
         orcamod.available = lambda: True
         orcamod.alive = lambda h: True
         db.set_terminal(con, "backend", "term_x", "wt")
+        db.set_account(con, "backend", "alpha")
+        _park_via_handoff(con, "backend", "usage")
         db.set_agent_state(con, "backend", dmn.PARKED,
                            wake_at=int(time.time()) + 3600, detail="usage; wakes at 23:00")
         db.add_request(con, "reviewer", "backend", "look at this", None,
                        "peer", "async", None, 0, None)
-        # Still over the trigger's own line (85%) but under the account's
-        # hard block (90%) - assignable, just not clear.
+        # Over the trigger's own line (85%) but under the account's hard
+        # block (90%) - assignable, the old question, but not cleared.
         write_status(home, "alpha", pct_5h=87, pct_7d=10, ctx_pct=5,
                      reset_5h=int(time.time()) + 1800)
 
-        before = db.get_agent_state(con, "backend")
-        st = status.read_for_agent("backend", "alpha")
-        check("park: would_wake already says so - the queued work, not the "
-              "still-firing reading",
-              dmn.would_wake(con, before, st=st), None)
-
-        dmn.supervise(con, "backend", lambda _m: None, int(time.time()), {}, False, [])
-        row = db.get_agent_state(con, "backend")
-        check("park: queued work an assignable account can pay for wakes it too",
-              row["state"] == dmn.QUEUED and row["wake_at"] is None, str(dict(row)))
+        for _ in range(5):
+            dmn.supervise(con, "backend", lambda _m: None, int(time.time()), {}, False, [])
+            row = db.get_agent_state(con, "backend")
+            check("park: still parked - the reading is still over the line",
+                  row["state"] == dmn.PARKED, str(dict(row)))
     finally:
         orcamod.available, orcamod.alive = real
         con.close()
 
 
-def test_an_open_park_with_nothing_waiting_stays_parked(home: Path) -> None:
-    """Neither condition holding - the account still over the trigger's own
-    line, nothing queued - is the ordinary case for most of a park's life,
-    and `would_wake` has to keep saying no through all of it. Screens ask
-    the exact same function for a closed row; an open one failing this the
-    same way is what makes it one predicate rather than two that happen to
-    agree today.
+def test_a_degraded_park_does_not_auto_clear(home: Path) -> None:
+    """DEGRADED is not a usage park. `DEGRADED_RETRY_S` is the only thing
+    that re-hands a failed handoff's own retry, and clearing it early on a
+    usage reading alone - which is not what parked this agent - would drop
+    that deadline instead.
     """
     _daemon_home(home, 20)
     con = db.connect()
@@ -4217,22 +4233,108 @@ def test_an_open_park_with_nothing_waiting_stays_parked(home: Path) -> None:
         orcamod.available = lambda: True
         orcamod.alive = lambda h: True
         db.set_terminal(con, "backend", "term_x", "wt")
-        db.set_agent_state(con, "backend", dmn.PARKED,
-                           wake_at=int(time.time()) + 3600, detail="usage; wakes at 23:00")
-        write_status(home, "alpha", pct_5h=95, pct_7d=10, ctx_pct=5,
+        db.set_account(con, "backend", "alpha")
+        _park_via_handoff(con, "backend", "usage", hoff_state="degraded")
+        db.set_agent_state(con, "backend", dmn.DEGRADED,
+                           wake_at=int(time.time()) + 3600, detail="handoff timed out")
+        write_status(home, "alpha", pct_5h=5, pct_7d=10, ctx_pct=5,
                      reset_5h=int(time.time()) + 1800)
-
-        row = db.get_agent_state(con, "backend")
-        st = status.read_for_agent("backend", "alpha")
-        check("park: would_wake says no - nothing is trying to wake it",
-              not dmn.would_wake(con, row, st=st), None)
 
         dmn.supervise(con, "backend", lambda _m: None, int(time.time()), {}, False, [])
         row = db.get_agent_state(con, "backend")
-        check("park: and it is still parked, on its own deadline",
+        check("park: DEGRADED is not scoped in - it keeps its own deadline",
+              row["state"] == dmn.DEGRADED and row["wake_at"] is not None, str(dict(row)))
+    finally:
+        orcamod.available, orcamod.alive = real
+        con.close()
+
+
+def test_a_context_park_does_not_auto_clear_on_a_usage_reading(home: Path) -> None:
+    """A context park is not a usage park either, even though PARKED alone
+    does not say so - only the handoff that caused it does. A clear usage
+    reading is not the condition that parked this agent, so it stays parked
+    on its own deadline, the same as any other cause this scope excludes.
+    """
+    _daemon_home(home, 20)
+    con = db.connect()
+    real = (orcamod.available, orcamod.alive)
+    try:
+        orcamod.available = lambda: True
+        orcamod.alive = lambda h: True
+        db.set_terminal(con, "backend", "term_x", "wt")
+        db.set_account(con, "backend", "alpha")
+        _park_via_handoff(con, "backend", "context")
+        db.set_agent_state(con, "backend", dmn.PARKED,
+                           wake_at=int(time.time()) + 3600, detail="context; wakes at 23:00")
+        write_status(home, "alpha", pct_5h=5, pct_7d=10, ctx_pct=5,
+                     reset_5h=int(time.time()) + 1800)
+
+        dmn.supervise(con, "backend", lambda _m: None, int(time.time()), {}, False, [])
+        row = db.get_agent_state(con, "backend")
+        check("park: a context park is not a usage park - it keeps its own deadline",
               row["state"] == dmn.PARKED and row["wake_at"] is not None, str(dict(row)))
     finally:
         orcamod.available, orcamod.alive = real
+        con.close()
+
+
+def test_an_assumed_account_does_not_auto_clear_a_park(home: Path) -> None:
+    """Case A: the db account column is null - `current_account` fell back
+    to agent.yaml's preference rather than reporting a fact - and the
+    reading that preference points at looks clear. That is the exact
+    divergence that parked keeper for 'usage' against the wrong account's
+    reading on 2026-09-18 while its real account sat at 3%; un-parking on
+    that same assumption would wake it into whatever its real, unknown
+    account is actually doing. It stays parked - no better, no worse than
+    before this fix - until something records which account it is on.
+    """
+    _daemon_home(home, 20)
+    con = db.connect()
+    real = (orcamod.available, orcamod.alive)
+    try:
+        orcamod.available = lambda: True
+        orcamod.alive = lambda h: True
+        db.set_terminal(con, "backend", "term_x", "wt")
+        # No db.set_account: the column stays null, exactly as it does from
+        # `started_for_work` until the launched process records itself.
+        _park_via_handoff(con, "backend", "usage")
+        db.set_agent_state(con, "backend", dmn.PARKED,
+                           wake_at=int(time.time()) + 3600, detail="usage; wakes at 23:00")
+        write_status(home, "alpha", pct_5h=5, pct_7d=10, ctx_pct=5,
+                     reset_5h=int(time.time()) + 1800)
+
+        row = db.get_agent_state(con, "backend")
+        check("park: the account column really is null here",
+              row["account"] is None, dict(row))
+
+        dmn.supervise(con, "backend", lambda _m: None, int(time.time()), {}, False, [])
+        row = db.get_agent_state(con, "backend")
+        check("park: an assumed account never un-parks",
+              row["state"] == dmn.PARKED and row["wake_at"] is not None, str(dict(row)))
+    finally:
+        orcamod.available, orcamod.alive = real
+        con.close()
+
+
+def test_a_resumed_handoff_also_records_its_park(home: Path) -> None:
+    """The event fixed for a fresh park applies just as much to one
+    recovered after a restart - `resume_handoff` writes the same PARKED
+    state through a different path, and it left the same gap.
+    """
+    _daemon_home(home, 20)
+    con = db.connect()
+    try:
+        db.start_handoff(con, "hoff-restart", "backend", None, "usage", 0,
+                         int(time.time()) + 90)
+        row = db.in_flight_for(con, "backend")
+        write_status(home, "alpha", pct_5h=20, pct_7d=10, ctx_pct=5,
+                     reset_5h=int(time.time()) + 1800)
+
+        dmn.resume_handoff(con, row, lambda _m: None, use_model=False)
+        events = db.events_after(con, 0, agent="backend", exclude_kinds=())
+        check("resume: a recovered handoff's park is recorded too",
+              any(e["kind"] == "park" for e in events), [e["kind"] for e in events])
+    finally:
         con.close()
 
 
@@ -7655,9 +7757,12 @@ def main() -> int:
         run(lambda: test_a_moved_walled_wake_names_the_new_account(Path(td) / 'walledmoved'))
         run(lambda: test_a_walled_wake_names_the_account_only_with_room(Path(td) / 'walledroom'))
         run(lambda: test_a_park_that_cannot_be_woken_keeps_its_deadline(Path(td) / 'parkdue'))
-        run(lambda: test_a_parked_agent_is_woken_when_usage_recovers(Path(td) / 'parklevel1'))
-        run(lambda: test_a_parked_agent_is_woken_for_work_the_account_can_pay_for(Path(td) / 'parklevel2'))
-        run(lambda: test_an_open_park_with_nothing_waiting_stays_parked(Path(td) / 'parklevel3'))
+        run(lambda: test_a_usage_park_is_woken_when_the_reading_clears(Path(td) / 'parklevel1'))
+        run(lambda: test_a_usage_park_does_not_oscillate_in_the_reserve_band(Path(td) / 'parklevel2'))
+        run(lambda: test_a_degraded_park_does_not_auto_clear(Path(td) / 'parklevel3'))
+        run(lambda: test_a_context_park_does_not_auto_clear_on_a_usage_reading(Path(td) / 'parklevel4'))
+        run(lambda: test_an_assumed_account_does_not_auto_clear_a_park(Path(td) / 'parklevel5'))
+        run(lambda: test_a_resumed_handoff_also_records_its_park(Path(td) / 'parklevel6'))
         run(lambda: test_top_shows_what_is_waiting_on_the_human(Path(td) / 'foryou'))
         run(lambda: test_the_screen_reads_keys_from_the_terminal_not_from_a_buffer())
         run(lambda: test_top_acts_through_the_same_calls_the_daemon_makes(Path(td) / 'topact'))
