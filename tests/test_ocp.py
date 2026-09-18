@@ -7122,6 +7122,12 @@ def run(one) -> None:
 
 
 def main() -> int:
+    # An agent session that runs this suite already has both set for itself,
+    # and every test here that wants one sets it explicitly - so an ambient
+    # value is never a fixture's own, only this process's, and left in place
+    # it is read as a false speaker or a false account by code under test.
+    os.environ.pop("OCP_AGENT", None)
+    os.environ.pop("OCP_ACCOUNT", None)
     with tempfile.TemporaryDirectory() as td:
         home = Path(td) / "orcapipe"
         home.mkdir()
