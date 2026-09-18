@@ -4223,12 +4223,20 @@ def test_a_usage_park_does_not_oscillate_in_the_reserve_band(home: Path) -> None
         # block (90%) - assignable, the old question, but not cleared.
         write_status(home, "alpha", pct_5h=87, pct_7d=10, ctx_pct=5,
                      reset_5h=int(time.time()) + 1800)
+        before = db.get_agent_state(con, "backend")
+        continuations_before = int(before["continuations"])
 
         for _ in range(5):
             dmn.supervise(con, "backend", lambda _m: None, int(time.time()), {}, False, [])
             row = db.get_agent_state(con, "backend")
             check("park: still parked - the reading is still over the line",
                   row["state"] == dmn.PARKED, str(dict(row)))
+        # The damage an oscillation actually does is folds, not the label
+        # a screen shows for a tick - a state that flapped back to PARKED
+        # every time would still look fine here if this only checked state.
+        check("park: no fold was ever paid for across the flap",
+              int(row["continuations"]) == continuations_before,
+              dict(before=continuations_before, after=row["continuations"]))
     finally:
         orcamod.available, orcamod.alive = real
         con.close()

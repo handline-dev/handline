@@ -748,3 +748,16 @@ def in_flight_for(con, agent: str):
         "SELECT * FROM handoff WHERE agent = ? AND state = 'in_flight' ORDER BY updated LIMIT 1",
         (agent,),
     ).fetchone()
+
+
+def last_handoff(con, agent: str):
+    """This agent's most recently updated handoff, in flight or not, or None.
+
+    One query, so the "was it too soon" check and the "what did the last
+    park say" read agree on which row is last instead of each writing its
+    own ORDER BY.
+    """
+    return con.execute(
+        "SELECT * FROM handoff WHERE agent = ? ORDER BY updated DESC LIMIT 1",
+        (agent,),
+    ).fetchone()

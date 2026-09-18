@@ -1064,9 +1064,8 @@ def perform_handoff(con, agent: str, trigger: triggers.Trigger, log,
     # with a short probe so one busy agent does not stall the whole tick, and
     # simply come back next tick - the trigger is a condition, so it still
     # holds then.
-    last = con.execute(
-        "SELECT MAX(updated) AS t FROM handoff WHERE agent = ?", (agent,)
-    ).fetchone()["t"]
+    last_h = db.last_handoff(con, agent)
+    last = last_h["updated"] if last_h else None
     if last and int(time.time()) - int(last) < MIN_HANDOFF_INTERVAL_S:
         log(f"  {agent}: {trigger.kind} fired again {int(time.time()) - int(last)}s after the "
             f"last handoff - too soon, skipping (a fold is not free)")
@@ -1440,10 +1439,7 @@ def supervise(con, agent: str, log, now: int, samples: dict,
     if not woke_now and row and row["terminal"] and not row["closed_at"] \
             and state == PARKED and reading.source != "assumed" \
             and orca.available() and orca.alive(row["terminal"]):
-        last = con.execute(
-            "SELECT trigger_kind FROM handoff WHERE agent = ? ORDER BY updated DESC LIMIT 1",
-            (agent,),
-        ).fetchone()
+        last = db.last_handoff(con, agent)
         if last and last["trigger_kind"] in MOVABLE_TRIGGERS and \
                 not triggers.evaluate(st.trusted_pct_5h, st.trusted_ctx_pct, burn=burn).fired:
             db.set_agent_state(con, agent, QUEUED, wake_at=None, detail="usage recovered")
