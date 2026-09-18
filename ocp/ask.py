@@ -266,7 +266,14 @@ def ask(target: str, body: str, files: str | None = None, requester: str | None 
         # async: the requester parks rather than hold an account while it
         # waits. The fallback wake_at is there so a reply that never arrives
         # cannot strand it (the permanent stop section 8.4 warns about).
-        if decision.response == "async" and not _terminal(con, requester):
+        #
+        # The human is not one of them. They hold no account, there is no
+        # session to park and nothing will ever wake them, so a state row in
+        # their name is bookkeeping about nobody - and it is drawn: `ocp ps`
+        # listed `orchestrator` among the agents, parked, for as long as it sat
+        # there.
+        if decision.response == "async" and requester != HUMAN \
+                and not _terminal(con, requester):
             db.set_agent_state(con, requester, "PARKED",
                                wake_at=int(time.time()) + AWAIT_FALLBACK_S,
                                detail=f"awaiting reply to request {rid} from {target}")
@@ -304,7 +311,8 @@ def resolve(rid: int, verdict: str, state: str = "done") -> tuple[bool, str]:
         # dispatched"; the daemon picks it up from there (section 8.2).
         # Only queue the requester when nothing else it asked for is still
         # outstanding, and never out of a terminal state.
-        if row["response"] == "async" and not _terminal(con, row["requester"]):
+        if row["response"] == "async" and row["requester"] != HUMAN \
+                and not _terminal(con, row["requester"]):
             outstanding = con.execute(
                 "SELECT COUNT(*) c FROM requests WHERE requester = ? AND state = 'queued' "
                 "AND response = 'async'", (row["requester"],)).fetchone()["c"]

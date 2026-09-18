@@ -3980,6 +3980,12 @@ def test_an_answer_to_the_human_is_in_the_human_mailbox(home: Path) -> None:
         check("mailbox: and leaves the verdict standing",
               db.get_request(con, parent)["verdict"] == "last word")
 
+        # The human is not an agent: no account, no session, nothing to park
+        # and nothing that will ever wake them.
+        check("mailbox: asking does not park the human",
+              db.get_agent_state(con, actions.HUMAN) is None,
+              str(dict(db.get_agent_state(con, actions.HUMAN) or {})))
+
         # A refusal is an answer too - the one that means do something else.
         ok, _said, rid2 = askmod.ask("reviewer", "rebase it", requester=actions.HUMAN)
         askmod.resolve(rid2, "no - the base moved", state="rejected")
