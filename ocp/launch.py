@@ -132,6 +132,11 @@ def build(agent: str, extra: list[str] | None = None, force: bool = False) -> tu
     model = cfg.get("model")
     if model:
         argv += ["--model", str(model)]
+    # Work for another agent goes through `ocp ask`. A subagent does it where
+    # nothing can see it: no row on the bridge, gone with the session, spent on
+    # this account. The list is variadic, so an option must follow it - a
+    # prompt there would be read as one more tool name.
+    argv += ["--disallowedTools", "Agent"]
     # Always pass effort explicitly. Left unset it comes from whatever the
     # environment carries, which is how an agent ends up silently running at a
     # far more expensive level than intended.
@@ -164,6 +169,9 @@ def context_for(agent: str) -> str:
              "worktree. Copying a file out to /tmp to read it stops you on a "
              "permission prompt only a human can answer, and you will sit there "
              "until one does."]
+    team_line = _your_team(agent)
+    if team_line:
+        parts.append(team_line)
     for fn, label in (("ROLE.md", "role"), ("base.md", "standing context")):
         p = d / fn
         if p.exists():
@@ -179,6 +187,32 @@ def context_for(agent: str) -> str:
                 "You were interrupted and resumed. This is your own record.\n" + text
             )
     return "\n\n".join(parts)
+
+
+def _your_team(agent: str) -> str:
+    """Who this agent answers to and who answers to it, read from team.yaml.
+
+    Generated rather than written into each ROLE.md: a role that named its
+    colleagues by hand kept naming them after they were retired and renamed.
+    """
+    from . import actions  # actions -> daemon -> launch
+
+    t = actions.routing()
+    if t is None:
+        return ""
+    boss = actions.supervisor_of(t, agent) or actions.HUMAN
+    reports = [n for n in paths.list_agents()
+               if n != agent and actions.supervisor_of(t, n) == agent]
+    lines = ["# Your team",
+             f"You report to `{boss}`: `ocp ask {boss} \"...\"` when you finish, "
+             f"or are blocked."]
+    if reports:
+        lines.append("Your reports: " + ", ".join(f"`{n}`" for n in reports) + ". "
+                     "You do not implement - give one work with `ocp ask <name> "
+                     "\"<task>\"`, and read what it sends back.")
+    lines.append("`ocp team` shows who you may ask and what each is doing now. "
+                 "A decision only the founder can make: `ocp ask human`.")
+    return "\n".join(lines)
 
 
 def exec_agent(agent: str, extra: list[str] | None = None, force: bool = False) -> None:

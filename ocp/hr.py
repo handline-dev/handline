@@ -76,33 +76,35 @@ def listing() -> list[dict]:
     return out
 
 
-def propose(kind: str, name: str, requester: str, why: str, account: str | None = None,
-            team_name: str | None = None, repo: str | None = None,
-            model: str | None = None, to: str | None = None) -> tuple[bool, str]:
-    """Write the proposal down and raise it to the founder. Nothing changes yet."""
+def _draft(kind: str, name: str, requester: str, why: str, account: str | None,
+           team_name: str | None, repo: str | None, model: str | None,
+           to: str | None, effort: str | None = None) -> tuple[dict, str]:
+    """Check what was asked for and write it down. Returns (proposal, refusal)."""
     if kind not in KINDS:
-        return False, f"kind must be one of {', '.join(KINDS)}"
+        return {}, f"kind must be one of {', '.join(KINDS)}"
     if not name or "/" in name or name.startswith("."):
-        return False, f"bad agent name: {name!r}"
+        return {}, f"bad agent name: {name!r}"
     if not (why or "").strip():
-        return False, "say why: the founder is being asked to decide, not to rubber-stamp"
+        return {}, "say why: the founder is being asked to decide, not to rubber-stamp"
 
     registered = paths.list_agents()
     if kind == "add" and name in registered:
-        return False, f"{name} is already an agent"
+        return {}, f"{name} is already an agent"
     if kind in ("retire", "rename") and name not in registered:
-        return False, f"{name} is not an agent"
+        return {}, f"{name} is not an agent"
     if kind == "rename":
         if not to or "/" in to or to.startswith("."):
-            return False, "a rename needs a new name (--to)"
+            return {}, "a rename needs a new name (--to)"
         if to in registered:
-            return False, f"{to} is already an agent"
+            return {}, f"{to} is already an agent"
+    if effort and effort not in agents.VALID_EFFORT:
+        return {}, f"effort must be one of {', '.join(agents.VALID_EFFORT)}"
     if kind == "add":
         if not account:
-            return False, "an added agent needs an account (--account)"
+            return {}, "an added agent needs an account (--account)"
         if account not in paths.list_accounts():
-            return False, (f"account '{account}' is not registered. A human logs an "
-                           f"account in once; ocp never touches credentials.")
+            return {}, (f"account '{account}' is not registered. A human logs an "
+                        f"account in once; ocp never touches credentials.")
 
     prop = {
         "id": uuid.uuid4().hex[:8],
@@ -114,10 +116,21 @@ def propose(kind: str, name: str, requester: str, why: str, account: str | None 
         "state": "proposed",
     }
     for key, value in (("account", account), ("team", team_name), ("repo", repo),
-                       ("model", model), ("to", to)):
+                       ("model", model), ("effort", effort), ("to", to)):
         if value:
             prop[key] = value
+    return prop, ""
 
+
+def propose(kind: str, name: str, requester: str, why: str, account: str | None = None,
+            team_name: str | None = None, repo: str | None = None,
+            model: str | None = None, to: str | None = None,
+            effort: str | None = None) -> tuple[bool, str]:
+    """Write the proposal down and raise it to the founder. Nothing changes yet."""
+    prop, err = _draft(kind, name, requester, why, account, team_name, repo, model,
+                       to, effort)
+    if err:
+        return False, err
     ok, said, rid = askmod.ask(askmod.HUMAN, _escalation(prop), requester=requester)
     if not ok:
         return False, f"could not raise it: {said}"
@@ -125,6 +138,52 @@ def propose(kind: str, name: str, requester: str, why: str, account: str | None 
     save(prop)
     return True, (f"proposal {prop['id']} raised as #{rid}. Nothing changes until the "
                   f"founder answers it; then `ocp hr apply {prop['id']}`.")
+
+
+def enact(kind: str, name: str, why: str, account: str | None = None,
+          team_name: str | None = None, repo: str | None = None,
+          model: str | None = None, to: str | None = None,
+          effort: str | None = None, con=None) -> tuple[bool, str]:
+    """The founder changing the roster directly. No proposal to approve.
+
+    The gate exists to stop an *agent* hiring on its own, and the founder is the
+    thing on the other side of it: asking them to approve a request they just
+    typed is ceremony, and it is also the only way to make the first agent -
+    a proposal needs an agent to raise it, and an empty roster has none.
+
+    The file is written before anything changes, as a proposal's is, so a
+    change that fails halfway still leaves a record of what was attempted.
+    """
+    prop, err = _draft(kind, name, "human", why, account, team_name, repo, model,
+                       to, effort)
+    if err:
+        return False, err
+    prop["state"] = "enacting"
+    save(prop)
+    own = con is None
+    con = con or db.connect()
+    try:
+        doer = {"add": _add, "retire": _retire, "rename": _rename}[kind]
+        try:
+            ok, said = doer(prop, con) if kind == "rename" else doer(prop)
+        except Exception as e:  # noqa: BLE001 - recorded, then raised on
+            prop["state"] = "failed"
+            prop["error"] = f"{type(e).__name__}: {e}"
+            save(prop)
+            raise
+        if not ok:
+            prop["state"] = "failed"
+            prop["error"] = said
+            save(prop)
+            return False, said
+        prop["state"] = "applied"
+        prop["applied"] = int(time.time())
+        prop["verdict"] = "enacted by the founder"
+        save(prop)
+        return True, said
+    finally:
+        if own:
+            con.close()
 
 
 def _escalation(prop: dict) -> str:
@@ -211,13 +270,15 @@ def _when(ts) -> str:
 
 def _add(prop: dict) -> tuple[bool, str]:
     name = prop["agent"]
-    agents.register(name, prop["account"], model=prop.get("model"),
-                    repo=prop.get("repo"),
-                    role=f"Added on {_when(prop.get('created'))} at "
-                         f"{prop['requested_by']}'s request: {prop['why']}")
+    # The table first: it is the write that can be refused, and a refusal after
+    # the folder exists leaves an agent nothing routes to.
     ok, said = _in_team_yaml(name, prop.get("team"), add=True)
     if not ok:
         return False, said
+    agents.register(name, prop["account"], model=prop.get("model"),
+                    effort=prop.get("effort"), repo=prop.get("repo"),
+                    role=f"Added on {_when(prop.get('created'))} at "
+                         f"{prop['requested_by']}'s request: {prop['why']}")
     return True, (f"{name} is an agent: account {prop['account']}"
                   + (f", team {prop['team']}" if prop.get("team") else "")
                   + f". {said}")
@@ -263,9 +324,32 @@ def _rename(prop: dict, con) -> tuple[bool, str]:
     if dest.exists():
         return False, f"{dest} already exists"
 
-    ok, said = _in_team_yaml(old, None, add=False)
+    try:
+        before = team.Team.load()
+    except Exception as e:  # noqa: BLE001
+        return False, f"team.yaml cannot be read ({e}); nothing renamed"
+
+    def same_edges(after) -> None:
+        """Every edge that reached the old name must reach the new one.
+
+        The text edit knows the shapes it was written for, and team.yaml is
+        hand-written: a block-style edge, or a glob like `manager*`, is renamed
+        by neither. Rather than trust the edit, compare what the table actually
+        routes - and refuse an edit that quietly dropped an edge.
+        """
+        was = _edges_touching(before, old)
+        now = _edges_touching(after, new)
+        missing = was - now
+        if missing:
+            raise ConfigError(
+                f"{len(missing)} edge(s) still name {old} in a shape this cannot "
+                f"rewrite ({', '.join(sorted(missing)[:3])}) - rename it in "
+                f"team.yaml by hand first")
+
+    ok, said2 = _edit_team_yaml(lambda t: _rename_text(t, old, new, prop.get("team")),
+                                present=new, absent=old, verify=same_edges)
     if not ok:
-        return False, said
+        return False, said2
     if src.exists():
         src.rename(dest)
     cfg = agents.agent_file(new)
@@ -274,9 +358,6 @@ def _rename(prop: dict, con) -> tuple[bool, str]:
         if isinstance(data, dict):
             data["name"] = new
             cfg.write_text(dump(data))
-    ok, said2 = _in_team_yaml(new, prop.get("team"), add=True)
-    if not ok:
-        return False, said2
 
     con.execute("UPDATE agent_state SET agent = ? WHERE agent = ?", (new, old))
     con.execute("UPDATE requests SET requester = ? WHERE requester = ?", (new, old))
@@ -289,13 +370,34 @@ def _rename(prop: dict, con) -> tuple[bool, str]:
                   f"{said2}")
 
 
+def _edges_touching(t, name: str) -> set[str]:
+    """Each edge this agent is an end of, as "<i>:<end>" - by position, so an
+    edge is the same edge before and after the name in it changed."""
+    out = set()
+    for i, e in enumerate(t.edges):
+        if t.matches(str(e.get("from", "")), name):
+            out.add(f"{i}:from")
+        if t.matches(str(e.get("to", "")), name):
+            out.add(f"{i}:to")
+    return out
+
+
 def _in_team_yaml(name: str, team_name: str | None, add: bool) -> tuple[bool, str]:
-    """Put the name in the routing table, or take it out - as text.
+    """Put the name in the routing table, or take it out.
 
     The edges are not touched. `manager -> dev.*` is a wildcard over a team, so
     joining a team is what grants the routing: the design's own claim that
     adding a developer is two lines, made true by writing those two lines
     rather than a new edge nobody reviewed.
+    """
+    if add:
+        return _edit_team_yaml(lambda t: _add_text(t, name, team_name), present=name)
+    return _edit_team_yaml(lambda t: _remove_text(t, name), absent=name)
+
+
+def _edit_team_yaml(edit, present: str | None = None, absent: str | None = None,
+                    verify=None) -> tuple[bool, str]:
+    """Apply a text edit to team.yaml, and write it only if it is still valid.
 
     Edited as text because team.yaml is a hand-written policy file whose
     comments are the reasons each edge exists, and a round-trip through the
@@ -308,7 +410,7 @@ def _in_team_yaml(name: str, team_name: str | None, add: bool) -> tuple[bool, st
         return False, f"{p} does not exist - run `ocp team init` first"
     text = p.read_text()
     try:
-        edited = _add_text(text, name, team_name) if add else _remove_text(text, name)
+        edited = edit(text)
     except ConfigError as e:
         return False, str(e)
 
@@ -317,10 +419,13 @@ def _in_team_yaml(name: str, team_name: str | None, add: bool) -> tuple[bool, st
         if not isinstance(data, dict):
             raise ConfigError("top level is not a map")
         team.Team(data)                  # the table has to still be valid
-        got = name in (data.get("agents") or {})
-        if got is not add:
-            raise ConfigError(f"the edit did not take: {name} "
-                              f"{'missing from' if add else 'still in'} agents")
+        listed = data.get("agents") or {}
+        if present and present not in listed:
+            raise ConfigError(f"the edit did not take: {present} missing from agents")
+        if absent and absent in listed:
+            raise ConfigError(f"the edit did not take: {absent} still in agents")
+        if verify:
+            verify(team.Team(data))
     except Exception as e:  # noqa: BLE001
         return False, f"that edit would break team.yaml ({e}); nothing written"
 
@@ -348,21 +453,58 @@ def _add_text(text: str, name: str, team_name: str | None) -> str:
     if any(re.match(rf"\s*{re.escape(name)}\s*:", ln) for ln in lines[head + 1:end]):
         raise ConfigError(f"{name} is already in team.yaml")
     lines.insert(end, f"  {name}: {{ intake: dedicated }}")
+    text = "\n".join(lines) + "\n"
+    return _join_team(text, name, team_name) if team_name else text
 
-    if team_name:
-        head, end = _block(lines, "teams:")
-        pattern = re.compile(rf"^(\s*{re.escape(team_name)}\s*:\s*\[)([^\]]*)(\].*)$")
-        for i in range(head + 1, end):
-            m = pattern.match(lines[i])
-            if m:
-                members = [x.strip() for x in m.group(2).split(",") if x.strip()]
-                if name not in members:
-                    members.append(name)
-                lines[i] = f"{m.group(1)}{', '.join(members)}{m.group(3)}"
-                break
-        else:
-            lines.insert(end, f"  {team_name}: [{name}]")
+
+def _join_team(text: str, name: str, team_name: str) -> str:
+    lines = text.splitlines()
+    head, end = _block(lines, "teams:")
+    pattern = re.compile(rf"^(\s*{re.escape(team_name)}\s*:\s*\[)([^\]]*)(\].*)$")
+    for i in range(head + 1, end):
+        m = pattern.match(lines[i])
+        if m:
+            members = [x.strip() for x in m.group(2).split(",") if x.strip()]
+            if name not in members:
+                members.append(name)
+            lines[i] = f"{m.group(1)}{', '.join(members)}{m.group(3)}"
+            break
+    else:
+        lines.insert(end, f"  {team_name}: [{name}]")
     return "\n".join(lines) + "\n"
+
+
+def _rename_text(text: str, old: str, new: str, team_name: str | None) -> str:
+    """The name changed everywhere it is written, and nothing else.
+
+    Everywhere means the edges too. A rename that moved only the team entry
+    left `from: "manager"` naming nobody, and the renamed manager with no
+    edge to the reports it supervises. Its intake stays what it was.
+    """
+    word = re.escape(old)
+    lines = text.splitlines()
+    head, end = _block(lines, "agents:")
+    if not any(re.match(rf"\s*{word}\s*:", ln) for ln in lines[head + 1:end]):
+        raise ConfigError(f"{old} is not in team.yaml's agents block")
+    for i, line in enumerate(lines):
+        if line.lstrip().startswith("#"):
+            continue
+        if head < i < end:
+            line = re.sub(rf"^(\s*){word}(\s*:)", rf"\g<1>{new}\2", line)
+        m = re.match(r"^(\s*\w[\w.-]*\s*:\s*\[)([^\]]*)(\].*)$", line)
+        if m:
+            members = [x.strip() for x in m.group(2).split(",") if x.strip()]
+            members = [new if x == old else x for x in members]
+            if team_name:
+                members = [x for x in members if x != new]
+            line = f"{m.group(1)}{', '.join(members)}{m.group(3)}"
+        line = re.sub(rf"""(?<![\w-])((?:from|to)\s*:\s*)(["']?){word}\2(?=\s*[,}}])""",
+                      rf"\g<1>\g<2>{new}\g<2>", line)
+        lines[i] = line
+    text = "\n".join(lines) + "\n"
+    if team_name:
+        text = _join_team(text, new, team_name)
+    return text
 
 
 def _remove_text(text: str, name: str) -> str:

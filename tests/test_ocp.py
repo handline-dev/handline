@@ -2299,6 +2299,7 @@ def test_unobserved_spend_stays_off_unreadable_accounts(home: Path) -> None:
               not st.assignable()[0] and st.pct_5h_source == "carried_old")
     finally:
         accounts.logged_in = real_login
+        tui._LOGIN.clear()
 
 
 def test_launch_judges_on_the_figure_it_may_act_on(home: Path) -> None:
@@ -3477,6 +3478,149 @@ def test_top_shows_what_is_waiting_on_the_human(home: Path) -> None:
         con.close()
 
 
+def test_the_screen_says_which_account_to_spend_next(home: Path) -> None:
+    """The ✔ column says who *may* take work, which on a good day is everyone.
+    It never said where the headroom was, so the reader compared two bars by
+    eye - at a decision the daemon already makes."""
+    _daemon_home(home, 40)
+    write_status(home, "beta", pct_5h=8, pct_7d=13, ctx_pct=5,
+                 reset_5h=int(time.time()) + 1800)
+    accounts.register("beta")
+    real_login = accounts.logged_in
+    try:
+        def marked() -> list[str]:
+            plain = [tui._ANSI.sub("", ln) for ln in tui.frame(120, 60).split(chr(10))]
+            rows = [ln for ln in plain if "alpha" in ln or "beta" in ln]
+            return [ln for ln in rows if ln.lstrip("│ ").startswith(">")]
+
+        calls: list[str] = []
+
+        def login(a: str) -> bool:
+            calls.append(a)
+            return True
+
+        accounts.logged_in = login
+        tui._LOGIN.clear()
+        got = marked()
+        seen = len(calls)
+        marked()
+        check("accounts: the login check is not run again on every redraw",
+              len(calls) == seen and seen <= len(paths.list_accounts()), str(calls))
+        accounts.logged_in = lambda a: True  # noqa: E731 - keychain is not the subject
+        check("accounts: the account with the most headroom is marked",
+              len(got) == 1 and "beta" in got[0], str(got))
+
+        # An account nobody is logged into cannot start a session, however
+        # much room it has.
+        accounts.logged_in = lambda a: a != "beta"  # noqa: E731
+        tui._LOGIN.clear()
+        got = marked()
+        check("accounts: never one that nobody is logged into",
+              len(got) == 1 and "alpha" in got[0], str(got))
+
+        # Fail-closed: nothing assignable means no mark, not a guess.
+        accounts.logged_in = lambda a: True  # noqa: E731
+        tui._LOGIN.clear()
+        for a in ("alpha", "beta"):
+            write_status(home, a, pct_5h=99, pct_7d=99, ctx_pct=5,
+                         reset_5h=int(time.time()) + 1800)
+        check("accounts: with nothing assignable, nothing is marked", not marked())
+    finally:
+        accounts.logged_in = real_login
+
+
+def test_the_founder_does_not_approve_their_own_request(home: Path) -> None:
+    """HR gates *agents*, and the founder is the thing on the other side of the
+    gate. Asked to propose, they got "an agent cannot ask itself" - the one
+    person allowed to change the roster could not use the tool that changes it,
+    and the first agent could never be made, since a proposal needs an agent to
+    raise it. Who is routed where is the whole risk: a shell that merely lost
+    OCP_AGENT must not be taken for the founder and hire at will."""
+    _daemon_home(home, 20)
+    con = db.connect()
+
+    class FakeStdin:
+        def __init__(self, tty: bool) -> None:
+            self.tty = tty
+
+        def isatty(self) -> bool:
+            return self.tty
+
+    real_env, real_stdin = os.environ.pop("OCP_AGENT", None), sys.stdin
+    try:
+        accounts.register("beta")
+        (home / "team.yaml").write_text("""
+teams:
+  dev: [marina]
+agents:
+  marina:  { intake: dedicated }
+edges:
+  - { from: "*", to: "human", kind: escalate, creates_gate: true }
+  - { from: "human", to: "*", relation: supervisor, response: fire_and_forget }
+""")
+        agents.register("marina", "beta")
+        hire = ["hr", "add", "dohyun", "--account", "beta", "--team", "dev",
+                "--model", "opus", "--effort", "high",
+                "--why", "a second pair of hands on the sea work"]
+
+        # A process with no identity and no terminal: an agent's tool shell,
+        # a hook, a cron job. It is nobody, and nobody hires.
+        sys.stdin = FakeStdin(False)
+        rc = climod.main(hire)
+        check("hr: a shell that lost its identity is refused, not taken for the founder",
+              rc != 0 and "dohyun" not in paths.list_agents()
+              and not hr.listing(), str(rc))
+
+        # An agent proposes; nothing changes until the founder answers.
+        os.environ["OCP_AGENT"] = "marina"
+        before = len(actions.messages(con))
+        rc = climod.main(hire)
+        check("hr: an agent's request is a proposal, and changes nothing",
+              rc == 0 and "dohyun" not in paths.list_agents()
+              and len(actions.messages(con)) == before + 1, str(rc))
+        del os.environ["OCP_AGENT"]
+        for p_ in hr.listing():
+            hr.path_of(p_["id"]).unlink()
+
+        # The founder, at their own prompt.
+        sys.stdin = FakeStdin(True)
+        before = len(actions.messages(con))
+        rc = climod.main(hire)
+        check("hr: the founder's own change lands without a proposal to approve",
+              rc == 0 and "dohyun" in paths.list_agents(), str(rc))
+        check("hr: and raises nothing to themselves",
+              len(actions.messages(con)) == before)
+        cfg = yamlcompat.load(agents.agent_file("dohyun").read_text())
+        check("hr: with the model and the effort it was hired at",
+              cfg.get("model") == "opus" and cfg.get("effort") == "high", str(cfg))
+        applied = [p_ for p_ in hr.listing() if p_["agent"] == "dohyun"]
+        check("hr: and the record is still a file",
+              len(applied) == 1 and applied[0]["state"] == "applied"
+              and applied[0]["requested_by"] == "human", str(applied))
+
+        # A change that fails halfway is recorded as having failed, and leaves
+        # no agent the routing table does not know.
+        (home / "team.yaml").write_text("teams:\n  dev: [marina]\n")
+        ok, said = hr.enact("add", "halfborn", why="w", account="beta", team_name="dev")
+        rec = [p_ for p_ in hr.listing() if p_["agent"] == "halfborn"]
+        check("hr: a refused edit registers nobody",
+              not ok and "halfborn" not in paths.list_agents(), said)
+        check("hr: and says so in the record",
+              len(rec) == 1 and rec[0]["state"] == "failed", str(rec))
+
+        check("hr: and the founder is refused the same nonsense an agent is",
+              not hr.enact("add", "x", why="w", account="nope")[0]
+              and not hr.enact("retire", "nobody", why="w")[0]
+              and not hr.enact("add", "y", why="", account="beta")[0]
+              and not hr.enact("add", "z", why="w", account="beta", effort="ultra")[0])
+    finally:
+        sys.stdin = real_stdin
+        os.environ.pop("OCP_AGENT", None)
+        if real_env is not None:
+            os.environ["OCP_AGENT"] = real_env
+        con.close()
+
+
 def test_the_screen_reads_keys_from_the_terminal_not_from_a_buffer() -> None:
     """An arrow is `esc [ B`, and `sys.stdin.read(1)` pulls all three bytes
     into Python's own buffer - after which select() reports the descriptor has
@@ -4092,6 +4236,11 @@ edges:
         check("hr: with the session closed, the rename lands",
               ok and "harbor-manager" in paths.list_agents()
               and "manager" not in table["agents"], said)
+        check("hr: and the edges name it too - the renamed manager still "
+              "supervises its team",
+              team.Team(table).route("harbor-manager", "marina").allowed
+              and "\"manager\"" not in (home / "team.yaml").read_text(),
+              (home / "team.yaml").read_text())
         check("hr: and its folder came with it",
               (home / "agents" / "harbor-manager").is_dir()
               and not (home / "agents" / "manager").exists())
@@ -4100,6 +4249,32 @@ edges:
                           ("harbor-manager",)).fetchone()["c"] == 1
               and con.execute("SELECT COUNT(*) c FROM requests WHERE target = ?",
                               ("manager",)).fetchone()["c"] == 0)
+
+        # An edge the text edit cannot rewrite is refused, not guessed at: the
+        # table is what routing runs on, and a rename that dropped an edge
+        # would leave the renamed supervisor supervising nobody.
+        (home / "team.yaml").write_text("""
+teams:
+  dev: [marina]
+agents:
+  harbor-manager: { intake: dedicated }
+  marina:         { intake: dedicated }
+edges:
+  - from: harbor-manager
+    to: marina
+    relation: supervisor
+    response: fire_and_forget
+  - { from: "*", to: "human", kind: escalate, creates_gate: true }
+  - { from: "human", to: "*", relation: supervisor, response: fire_and_forget }
+""")
+        ok, said = hr.enact("rename", "harbor-manager", to="boss",
+                            why="an edge this cannot rewrite")
+        table = yamlcompat.load((home / "team.yaml").read_text())
+        check("hr: a rename that would drop an edge is refused, and writes nothing",
+              not ok and "by hand" in said and "harbor-manager" in table["agents"],
+              said)
+        check("hr: and the agent is left where it was",
+              "harbor-manager" in paths.list_agents() and "boss" not in paths.list_agents())
 
         # A rejection is recorded and never applied.
         ok, said = hr.propose("add", "seoyun", requester="hr", why="third lane",
@@ -4323,7 +4498,11 @@ def test_an_agent_at_the_wall_moves_to_an_account_with_room(home: Path) -> None:
         # launch is the single writer of the account - it is the process that
         # sets CLAUDE_CONFIG_DIR - so the record cannot disagree with the
         # environment the session is actually running in.
-        _argv, env = launch.build("keeper")
+        argv, env = launch.build("keeper")
+        check("launch: an agent cannot make subagents - work to another agent "
+              "goes through `ocp ask`, where the bridge can see it",
+              "--disallowedTools" in argv
+              and argv[argv.index("--disallowedTools") + 1] == "Agent", str(argv))
         check("move: the launch it typed goes to the new account",
               env["OCP_ACCOUNT"] == "beta"
               and env["CLAUDE_CONFIG_DIR"].endswith("accounts/beta/.claude"),
@@ -4602,10 +4781,67 @@ edges:
         check("tree: an agent the human alone routes to is a root, not everyone's child",
               depth["scout"] == 0, str(tree))
 
-        # The cursor moves down the screen, so the keys it moves over are the
-        # rows in the order they are drawn.
-        check("tree: the cursor order is the drawn order",
-              tui._keys_of(tui.AGENTS) == [n for n, _d in tree])
+        # And the agents know it themselves, from the same table: a role file
+        # that named its colleagues by hand kept naming them after they left.
+        mgr, dev = launch.context_for("manager"), launch.context_for("marina")
+        check("team: a supervisor is told who its reports are, and that it hands them work",
+              "`marina`" in mgr and "`keeper`" in mgr and "ocp ask <name>" in mgr, mgr)
+        check("team: a report is told who it reports to",
+              "You report to `manager`" in dev and "Your reports" not in dev, dev)
+        check("team: an agent nobody supervises reports to the founder",
+              "You report to `human`" in launch.context_for("scout"))
+
+        # A team is closed until it is opened: the screen is for what needs
+        # you, and every report drawn in full is a list to scroll past. The
+        # cursor walks what is drawn, so it never lands on a hidden row.
+        tui.EXPANDED.clear()
+        order = [n for n, _d in tree]
+        check("tree: a supervisor's team starts closed",
+              tui._keys_of(tui.AGENTS) == [n for n in order if n not in ("marina", "keeper")],
+              str(tui._keys_of(tui.AGENTS)))
+        plain = [tui._ANSI.sub("", ln) for ln in tui.frame(120, 60).split(chr(10))]
+        check("tree: and says how many are in it",
+              any("manager +2" in ln for ln in plain),
+              str([ln for ln in plain if "manager" in ln])[:160])
+
+        # Folding must not hide the one row this screen is for.
+        con2 = db.connect()
+        try:
+            db.set_agent_state(con2, "keeper", dmn.STALLED, detail="wedged")
+        finally:
+            con2.close()
+        drawn = [n for n, _d, _u in tui.visible_tree()]
+        check("tree: a report that needs a person is drawn even under a closed team",
+              "keeper" in drawn and "marina" not in drawn, str(drawn))
+        check("tree: and the count is of what is actually hidden",
+              dict((n, u) for n, _d, u in tui.visible_tree())["manager"] == 1,
+              str(tui.visible_tree()))
+        con2 = db.connect()
+        try:
+            db.set_agent_state(con2, "keeper", dmn.IDLE, detail="fine")
+        finally:
+            con2.close()
+
+        sel = {tui.AGENTS: "manager"}
+        right, left = "\033[C", "\033[D"
+        check("tree: → opens it, and the cursor stays where it was",
+              tui.navigate(tui.AGENTS, sel, right) == tui.AGENTS
+              and sel[tui.AGENTS] == "manager"
+              and tui._keys_of(tui.AGENTS) == order, str(tui._keys_of(tui.AGENTS)))
+        check("tree: → on an open team leaves the panel, as it does everywhere else",
+              tui.navigate(tui.AGENTS, sel, right) != tui.AGENTS)
+        sel = {tui.AGENTS: "keeper"}
+        check("tree: ← on a report closes its team and goes up to its supervisor",
+              tui.navigate(tui.AGENTS, sel, left) == tui.AGENTS
+              and sel[tui.AGENTS] == "manager" and "keeper" not in tui._keys_of(tui.AGENTS),
+              str(sel))
+        tui.EXPANDED.add("manager")
+        check("tree: tab still jumps, open or not",
+              tui.navigate(tui.AGENTS, {tui.AGENTS: "manager"}, "\t") != tui.AGENTS)
+        check("tree: ← on an open supervisor closes it",
+              tui.navigate(tui.AGENTS, {tui.AGENTS: "manager"}, left) == tui.AGENTS
+              and "manager" not in tui.EXPANDED)
+        tui.EXPANDED.clear()
 
         # A supervisor nobody registered is not a row, and the agent under it
         # must not disappear with it.
@@ -6067,6 +6303,8 @@ def main() -> int:
         run(lambda: test_a_request_can_be_read_whole(Path(td) / 'readone'))
         run(lambda: test_only_one_thing_types_at_an_agent_at_a_time(Path(td) / 'locking'))
         run(lambda: test_growing_the_team_needs_a_person(Path(td) / 'hr'))
+        run(lambda: test_the_founder_does_not_approve_their_own_request(Path(td) / 'hrself'))
+        run(lambda: test_the_screen_says_which_account_to_spend_next(Path(td) / 'nextacct'))
         run(lambda: test_the_whole_loop_runs_on_our_own_commands(Path(td) / 'loop'))
         run(lambda: test_an_agent_can_put_another_one_to_work(Path(td) / 'dispatch'))
         run(lambda: test_an_agent_at_the_wall_moves_to_an_account_with_room(Path(td) / 'moveacct'))

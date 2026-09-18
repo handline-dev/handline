@@ -36,7 +36,7 @@ import tty
 import unicodedata
 from pathlib import Path
 
-from . import actions, agents, daemon, db, paths, status, triggers
+from . import accounts, actions, agents, daemon, db, paths, status, triggers
 
 ALT_ON, ALT_OFF = "\033[?1049h", "\033[?1049l"
 CUR_OFF, CUR_ON = "\033[?25l", "\033[?25h"
@@ -60,6 +60,7 @@ STATE_COLOR = {
 # agent keys - pressing them where the problem is read beats finding the same
 # name again in the list above.
 ACCOUNTS, AGENTS, MESSAGES, STUCK = 0, 1, 2, 3
+NAME_W = 22   # fits `└ orcapipe-manager +2`
 PANELS = (ACCOUNTS, AGENTS, MESSAGES, STUCK)
 PANEL_NAME = {ACCOUNTS: "accounts", AGENTS: "agents", MESSAGES: "messages",
               STUCK: "stuck"}
@@ -154,6 +155,98 @@ def age(secs: float | None) -> str:
     if secs < 5400:
         return f"{int(secs / 60)}m"
     return f"{int(secs / 3600)}h"
+
+
+# Supervisors whose reports are drawn. Closed by default: the screen is for
+# what needs you, and a team of twelve drawn in full is a list to scroll past.
+EXPANDED: set[str] = set()
+
+
+def _wants_a_human() -> set[str]:
+    """Agents in a state only a person clears. They are never hidden."""
+    con = db.connect()
+    try:
+        return {r["agent"] for r in db.all_agent_states(con)
+                if r["state"] in NEEDS_A_HUMAN}
+    except Exception:  # noqa: BLE001 - a folded row is not worth a blank screen
+        return set()
+    finally:
+        con.close()
+
+
+def visible_tree() -> list[tuple[str, int, int]]:
+    """The team as drawn: (name, depth, how many under it are not drawn).
+
+    The cursor walks the same list, so it never lands on a row nobody can see.
+    A report that needs a person is drawn whether its supervisor is open or
+    not - hiding the one row this screen exists for is the one thing folding
+    must not do.
+    """
+    tree = actions.agent_tree()
+    keep = _wants_a_human()
+    rows: list[list] = []
+    closed: list[tuple[int, int]] = []     # (depth, row) of each closed supervisor
+    for i, (name, depth) in enumerate(tree):
+        while closed and depth <= closed[-1][0]:
+            closed.pop()
+        if closed and name not in keep:
+            rows[closed[-1][1]][2] += 1
+            continue
+        under = 0
+        for _n, d in tree[i + 1:]:
+            if d <= depth:
+                break
+            under += 1
+        rows.append([name, depth, 0])
+        if under and name not in EXPANDED:
+            closed.append((depth, len(rows) - 1))
+    return [(n, d, u) for n, d, u in rows]
+
+
+def _fold(sel: dict, k: str) -> bool:
+    """→ opens the selected supervisor, ← closes it - or, on a report, closes
+    the one it reports to and puts the cursor there. False when there was
+    nothing to fold, so the key keeps its other meaning."""
+    # Read off the whole tree, not the drawn one: whether an agent has reports
+    # is a fact about the team, and the drawn list is what folding changes.
+    tree = actions.agent_tree()
+    at = next((i for i, r in enumerate(tree) if r[0] == sel.get(AGENTS)), None)
+    if at is None:
+        return False
+    name, depth = tree[at]
+    has_reports = at + 1 < len(tree) and tree[at + 1][1] > depth
+    if k in NEXT_PANEL and has_reports and name not in EXPANDED:
+        EXPANDED.add(name)
+        return True
+    if k in PREV_PANEL:
+        if has_reports and name in EXPANDED:
+            EXPANDED.discard(name)
+            return True
+        if depth:
+            parent = next(n for n, d in reversed(tree[:at]) if d < depth)
+            EXPANDED.discard(parent)
+            sel[AGENTS] = parent
+            return True
+    return False
+
+
+# Whether an account has credentials, asked at most this often. The check runs
+# `security`, which is a subprocess with a ten-second timeout, and the screen
+# redraws every two seconds and on every keypress - a slow keychain froze the
+# dashboard. Logging in is a thing a person does by hand, so a minute-old
+# answer is current.
+LOGIN_TTL_S = 60
+_LOGIN: dict[str, tuple[float, bool]] = {}
+
+
+def _logged_in(acct: str) -> bool:
+    now = time.time()
+    seen = _LOGIN.get(acct)
+    if seen and now - seen[0] < LOGIN_TTL_S:
+        return seen[1]
+    ok = accounts.logged_in(acct)
+    _LOGIN[acct] = (now, ok)
+    return ok
 
 
 class Panel:
@@ -324,12 +417,17 @@ def build(width: int, sel: dict | None = None,
         # ---- accounts ------------------------------------------------
         acc = Panel("ACCOUNTS", width, focused=panel == ACCOUNTS)
         acc.selected = sel.get(ACCOUNTS)
-        acc.add(f"{DIM}{'account':<10}{'5h usage':<18}{'reset':<8}"
+        acc.add(f"{DIM}{'':<2}{'account':<10}{'5h usage':<18}{'reset':<8}"
                 f"{'7d':<14}assign{R}", heading=True)
+        # The account with the most headroom: where work goes when an agent's
+        # own account is full. Only accounts that can start a session count.
+        first, _why = status.pick_account(
+            [a for a in paths.list_accounts() if _logged_in(a)])
         for name in paths.list_accounts():
             st = status.read(name)
             allowed, why = st.assignable()
             mark = f"{GRN}✔{R}" if allowed else f"{RED}✘{R}"
+            nxt = f"{GRN}{BOLD}>{R} " if name == first else "  "
             # Show the figure decisions are made on, with a mark saying where
             # it came from. Drawing a quiet window as "?" while the daemon acts
             # on 0% is the dashboard and the daemon disagreeing.
@@ -339,7 +437,8 @@ def build(width: int, sel: dict | None = None,
             # sequences, so a plain :<n counts them and the columns drift out
             # from under their own headings.
             acc.add(
-                pad(f"{BOLD}{name}{R}", 10)
+                nxt
+                + pad(f"{BOLD}{name}{R}", 10)
                 + pad(f"{bar(five)} {pct(five)}%{src}", 18)
                 + pad(countdown(st.reset_5h), 8)
                 # The weekly figure carries its provenance like the 5h one.
@@ -366,21 +465,24 @@ def build(width: int, sel: dict | None = None,
         # No model and no effort: they are configuration, they do not change
         # while anyone is watching, and they are on the agent's own page. This
         # screen is about what is happening now.
-        ag.add(f"{DIM}{'agent':<13}{'acct':<8}{'state':<16}"
+        ag.add(f"{DIM}{'agent':<{NAME_W}}{'acct':<8}{'state':<16}"
                f"{'ctx':>4}   {'wake':<7}{'in':<4}{R}", heading=True)
-        for name, depth in actions.agent_tree():
+        for name, depth, under in visible_tree():
             # Indented under whoever routes work to it. Who an agent reports to
             # decides where its report goes and who may assign to it, and it was
             # written down in team.yaml all along - a flat list made the reader
             # hold the routing table in their head to know what they were
             # looking at.
             twig = f"{DIM}{'  ' * (depth - 1)}└ {R}" if depth else ""
+            # How many of its reports are not drawn. Fitted around, not into,
+            # the name: cut off, the only sign a team is hidden disappears.
+            folded = f"{DIM} +{under}{R}" if under else ""
             try:
                 acct = agents.current_account(name, con)
                 cfg = agents.read(name)
             except Exception as e:  # noqa: BLE001
-                ag.add(pad(fit(twig + name, 13), 13) + f"{RED}config error: {e}{R}",
-                       key=name)
+                ag.add(pad(fit(twig + name, NAME_W), NAME_W)
+                       + f"{RED}config error: {e}{R}", key=name)
                 continue
             st = status.read_for_agent(name, acct)
             row = db.get_agent_state(con, name)
@@ -408,7 +510,8 @@ def build(width: int, sel: dict | None = None,
                 # twig, is wider than the column, and `pad` alone then pushes
                 # every column after it right - the same drift the "·closed"
                 # suffix caused.
-                pad(fit(twig + f"{BOLD}{name}{R}", 13), 13)
+                pad(fit(twig + f"{BOLD}{name}{R}", NAME_W - vlen(folded)) + folded,
+                    NAME_W)
                 + pad(acct, 8)
                 + pad(f"{STATE_COLOR.get(s, '')}{fit(s, 15)}{R}", 16)
                 + pad(ctxs, 7)
@@ -1068,6 +1171,9 @@ def _say(what: str, width: int, height: int) -> None:
 # bottom of a panel and left the cursor nowhere.
 NEXT_PANEL = ("\t", "\033[C", "\033OC")
 PREV_PANEL = ("\033[Z", "\033[D", "\033OD")
+# ←→ without tab and shift-tab: on a supervisor the arrows fold its team,
+# and tab is left as the key that always jumps.
+ARROWS = ("\033[C", "\033OC", "\033[D", "\033OD")
 NEXT_ROW = ("j", "\033[B", "\033OB")
 PREV_ROW = ("k", "\033[A", "\033OA")
 
@@ -1076,9 +1182,12 @@ def navigate(panel: int, sel: dict, k: str) -> int | None:
     """Where this keypress leaves the cursor, or None if it was not a move.
 
     ←→ and tab jump a whole panel; ↑↓ walk the screen and cross into the next
-    panel at the end of one. `r` is a move of zero: it asks for a redraw, which
+    panel at the end of one. On a supervisor, ←→ close and open its team
+    first; tab always jumps. `r` is a move of zero: it asks for a redraw, which
     happens anyway, and it must not fall through to the actions.
     """
+    if panel == AGENTS and k in ARROWS and _fold(sel, k):
+        return panel
     if k in NEXT_PANEL:
         return _enter((panel + 1) % len(PANELS), sel)
     if k in PREV_PANEL:
@@ -1124,7 +1233,7 @@ def _keys_of(panel: int) -> list:
     if panel == AGENTS:
         # In the order they are drawn, not the order they are stored: the
         # cursor moves down the screen, and a tree is not alphabetical.
-        return [name for name, _depth in actions.agent_tree()]
+        return [name for name, _depth, _under in visible_tree()]
     con = db.connect()
     try:
         if panel == MESSAGES:
