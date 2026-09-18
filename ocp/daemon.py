@@ -369,9 +369,13 @@ def _tell(con, agent: str, head, depth: int, handle: str, log) -> bool:
             if more else "")
     # Before the send, not after: this is what closes withdraw/replace's race
     # against delivery (request #189). A send that then fails leaves the row
-    # marked anyway - harmless, since the cursor below is not advanced either,
-    # and the next tick retries the same head.
-    db.mark_delivered(con, int(head["id"]))
+    # marked anyway - its requester can no longer withdraw it, but the cursor
+    # below is not advanced, so the next tick retries the same head.
+    if not db.mark_delivered(con, int(head["id"])):
+        # Retired (withdrawn/replaced) in the gap between head_of_queue and
+        # here. Typing a dead request into the target's terminal would be
+        # worse than skipping it; the next tick picks up whatever is now head.
+        return False
     ok, _ = orca.send(
         handle,
         f"#{head['id']} from {head['requester']}, waiting for you:\n{shown}{tail}\n"

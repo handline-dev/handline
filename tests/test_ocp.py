@@ -2441,6 +2441,34 @@ def test_a_running_agent_is_told_when_work_arrives(home: Path) -> None:
         con.close()
 
 
+def test_a_withdraw_landing_before_the_send_stops_the_send(home: Path) -> None:
+    """Review of buddyron/one-task-at-a-time, fix #5: deliver_queued reads
+    head_of_queue, then waits on idle_now and lock.terminal before _tell marks
+    the row and sends it - a withdraw or replace fitting in that gap must not
+    still get typed into the target's terminal."""
+    _daemon_home(home, 20)
+    con = db.connect()
+    sent: list[str] = []
+    real = orcamod.send
+    try:
+        orcamod.send = lambda h, text, enter=True: (sent.append(text), (True, ""))[1]
+        rid = db.add_request(con, "reviewer", "backend", "look at this", None,
+                             "peer", "async", None, 0, None)
+        head = db.head_of_queue(con, "backend")
+        # The gap: something retires the row after deliver_queued already read
+        # it as the head, but before _tell gets to mark_delivered.
+        check("race: the withdraw lands",
+              db.retire_if_undelivered(con, rid, "withdrawn"))
+        check("race: _tell refuses instead of sending a dead request",
+              not dmn._tell(con, "backend", head, 1, "term_x", lambda _m: None) and not sent,
+              str(sent))
+        check("race: the row was not marked delivered underneath the withdraw",
+              db.get_request(con, rid)["delivered_at"] is None)
+    finally:
+        orcamod.send = real
+        con.close()
+
+
 def test_work_arriving_wakes_a_closed_agent(home: Path) -> None:
     """A closed session cannot read its own inbox. Without this, `ocp ask`
     queues into a terminal with nobody in it - reviewer sat closed with two

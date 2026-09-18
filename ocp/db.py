@@ -189,10 +189,10 @@ def _pre_schema_migrate(con) -> None:
     if request_cols and "delivered_at" not in request_cols:
         con.execute("ALTER TABLE requests ADD COLUMN delivered_at INTEGER")
         # Only each target's own head (queue_order was just backfilled to id,
-        # above, so the head is its smallest id) - the old delivery told a
-        # target about every queued row, but under the new one-at-a-time
-        # contract the rest were never individually delivered, and marking
-        # them so anyway leaves --first nothing to land in front of.
+        # above, so the head is its smallest id). The old delivery did show a
+        # target every queued row, not just this one, so a row past the head
+        # may already have been read; marking it delivered anyway would leave
+        # --first nothing left to land in front of, which matters more.
         con.execute("""
             UPDATE requests SET delivered_at = ts WHERE state = 'queued' AND id IN (
                 SELECT MIN(id) FROM requests WHERE state = 'queued' GROUP BY target
@@ -445,13 +445,8 @@ def add_request(con, requester: str, target: str, body: str, files: str | None,
         con.execute("UPDATE requests SET chain_id = ? WHERE id = ?", (str(rid), rid))
     order = rid if queue_order is None else queue_order
     if first and state == "queued":
-        # The midpoint between the last delivered row's order (floor - never
-        # jump ahead of one the target may already be reading) and the
-        # earliest undelivered one (ceiling - always jump ahead of those).
-        # Adjacent integer orders leave no integer between them, which
-        # "ceiling - 1" alone found the hard way: a second --first computed
-        # its ceiling from the first --first's row and walked straight past
-        # the floor. Bisecting has room every time, not just the first.
+        # Midpoint between the last delivered row and the first undelivered
+        # one; queue_order is REAL so there is always room to bisect into.
         row = con.execute(
             "SELECT MIN(CASE WHEN delivered_at IS NULL THEN queue_order END) AS ceiling, "
             "MAX(CASE WHEN delivered_at IS NOT NULL THEN queue_order END) AS floor_ "
@@ -517,10 +512,17 @@ def queue_depth(con, target: str) -> int:
     return len(queued_for(con, target))
 
 
-def mark_delivered(con, rid: int) -> None:
-    """Record that this request has been shown to its target. Idempotent."""
-    con.execute("UPDATE requests SET delivered_at = COALESCE(delivered_at, ?) WHERE id = ?",
-               (int(time.time()), rid))
+def mark_delivered(con, rid: int) -> bool:
+    """Record that this request has been shown to its target. Idempotent.
+
+    False if the row was withdrawn or replaced first - the caller must not
+    then act as if delivery happened.
+    """
+    cur = con.execute(
+        "UPDATE requests SET delivered_at = COALESCE(delivered_at, ?) "
+        "WHERE id = ? AND state = 'queued'",
+        (int(time.time()), rid))
+    return cur.rowcount > 0
 
 
 def retire_if_undelivered(con, rid: int, state: str, verdict: str | None = None) -> bool:
