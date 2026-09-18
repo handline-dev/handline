@@ -165,7 +165,7 @@ def enact(kind: str, name: str, why: str, account: str | None = None,
     try:
         doer = {"add": _add, "retire": _retire, "rename": _rename}[kind]
         try:
-            ok, said = doer(prop, con) if kind == "rename" else doer(prop)
+            ok, said = doer(prop, con)
         except Exception as e:  # noqa: BLE001 - recorded, then raised on
             prop["state"] = "failed"
             prop["error"] = f"{type(e).__name__}: {e}"
@@ -251,7 +251,7 @@ def apply(pid: str, con=None) -> tuple[bool, str]:
                            f"which is not a decision. Ask the founder to answer "
                            f"`approve` or `reject`.")
         doer = {"add": _add, "retire": _retire, "rename": _rename}[prop["kind"]]
-        ok, said = doer(prop, con) if prop["kind"] == "rename" else doer(prop)
+        ok, said = doer(prop, con)
         if not ok:
             return False, said
         prop["state"] = "applied"
@@ -268,7 +268,7 @@ def _when(ts) -> str:
     return time.strftime("%Y-%m-%d %H:%M", time.localtime(ts)) if ts else "an unknown date"
 
 
-def _add(prop: dict) -> tuple[bool, str]:
+def _add(prop: dict, con) -> tuple[bool, str]:
     name = prop["agent"]
     # The table first: it is the write that can be refused, and a refusal after
     # the folder exists leaves an agent nothing routes to.
@@ -284,11 +284,15 @@ def _add(prop: dict) -> tuple[bool, str]:
                   + f". {said}")
 
 
-def _retire(prop: dict) -> tuple[bool, str]:
+def _retire(prop: dict, con) -> tuple[bool, str]:
     name = prop["agent"]
     ok, said = _in_team_yaml(name, None, add=False)
     if not ok:
         return False, said
+    # The scheduling row goes with it. Its requests and events stay - they are
+    # the record of work that was done - but a retired agent that still has a
+    # state is one every listing keeps drawing and nothing ever moves.
+    con.execute("DELETE FROM agent_state WHERE agent = ?", (name,))
     src = paths.agent_dir(name)
     dest = paths.home() / "agents" / "archive" / f"{time.strftime('%Y-%m-%d')}-{name}"
     dest.parent.mkdir(parents=True, exist_ok=True)

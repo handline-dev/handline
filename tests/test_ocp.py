@@ -4216,6 +4216,10 @@ edges:
         check("hr: retiring takes it out of the table", ok and "dohyun" not in table["agents"], said)
         check("hr: and keeps its folder", archived and (archived[0] / "journal").exists(),
               str(archived))
+        check("hr: and takes its scheduling row with it - nothing lists an agent "
+              "that is not there",
+              db.get_agent_state(con, "dohyun") is None,
+              str(db.get_agent_state(con, "dohyun")))
 
         # A rename takes the whole identity with it - folder, table, and every
         # row that ever named it - and not while a session is running under it.
