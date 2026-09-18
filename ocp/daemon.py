@@ -329,22 +329,11 @@ def _reclaim_context(con, agent: str, log) -> tuple[bool, str]:
 
 
 def deliver_queued(con, agent: str, log) -> bool:
-    """Tell an agent about the head of its own queue - and only the head.
-
-    `ocp ask` writes a row and puts a file in the target's inbox; neither
-    reaches the target's screen. A session sitting at its prompt has no reason
-    to look, so without this every request needs a human to nudge the terminal
-    - which is exactly how this system was being run by hand.
-
-    Request #189: a subordinate is given ONE request at a time, not its whole
-    queue - eleven requests once meant keeper had to reconcile all eleven
-    itself, most of them amending or holding one another. `head_of_queue`
-    decides which one that is; this only ever announces that one.
-
-    Told once per head: the cursor holds the id last announced, so a reminder
-    only goes out when the head actually changes - resolving it, `--first`
-    jumping something ahead of it, or a replacement taking its place are all
-    "the head changed", whichever direction the id moves.
+    """Tell an agent about the head of its own queue (`db.head_of_queue`) -
+    and only the head, per request #189. `ocp ask` writes a row and puts a
+    file in the target's inbox; neither reaches the target's screen, which is
+    why this exists at all. Told once per head: the cursor holds the id last
+    announced, so a reminder only goes out once the head actually changes.
     """
     head = db.head_of_queue(con, agent)
     if not head:
@@ -374,12 +363,15 @@ def deliver_queued(con, agent: str, log) -> bool:
 def _tell(con, agent: str, head, depth: int, handle: str, log) -> bool:
     more = depth - 1
     body = head["body"] or "(empty)"
-    # Whole, per the founder's word - the cap is a practical one on a terminal
-    # message, not the abbreviate-to-a-line-each treatment multiple answers
-    # get elsewhere. `ocp read` has the rest for anything long enough to need it.
+    # Capped at 400; `ocp read` has the rest.
     shown = body if len(body) <= 400 else body[:400] + "…"
     tail = (f"\n{more} more waiting - the next comes when you resolve or dismiss this one."
             if more else "")
+    # Before the send, not after: this is what closes withdraw/replace's race
+    # against delivery (request #189). A send that then fails leaves the row
+    # marked anyway - harmless, since the cursor below is not advanced either,
+    # and the next tick retries the same head.
+    db.mark_delivered(con, int(head["id"]))
     ok, _ = orca.send(
         handle,
         f"#{head['id']} from {head['requester']}, waiting for you:\n{shown}{tail}\n"
@@ -387,7 +379,6 @@ def _tell(con, agent: str, head, depth: int, handle: str, log) -> bool:
         f"`ocp resolve {head['id']} \"<verdict>\"`, or `ocp inbox` any time.")
     if ok:
         db.set_cursor(con, f"notify:{agent}", int(head["id"]))
-        db.mark_delivered(con, int(head["id"]))
         db.add_event(con, agent, "notified", {"request_id": head["id"], "more_waiting": more})
         log(f"  {agent}: told about #{head['id']}" + (f" ({more} more waiting)" if more else ""))
     return ok

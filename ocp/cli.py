@@ -865,10 +865,6 @@ def cmd_inbox(args) -> int:
                   f"depth={r['chain_depth']} {r['body'][:60]}")
         return 0
 
-    # Request #189: one at a time, whole - not the whole queue cut to a line
-    # each. `head_of_queue` is the same function delivery reads, so this and
-    # what the daemon typed into the terminal never disagree about what "the
-    # current one" is.
     con = db.connect()
     try:
         head = db.head_of_queue(con, agent)
@@ -876,10 +872,8 @@ def cmd_inbox(args) -> int:
             print(f"{agent}: inbox empty")
             return 0
         more = db.queue_depth(con, agent) - 1
-        # Only the target's own look at its own queue counts as being told -
-        # another agent reading `ocp read` or `ocp inbox <name>` out of
-        # curiosity must not spend the one chance the actual target's
-        # requester had to withdraw or replace it.
+        # Only a look at your own queue counts as being told - a foreign
+        # `ocp inbox <name>` must not spend the requester's withdraw/replace.
         if agent == askmod.asking_agent():
             db.mark_delivered(con, int(head["id"]))
     finally:

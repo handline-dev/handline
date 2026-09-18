@@ -209,12 +209,9 @@ def _your_team(agent: str) -> str:
     if reports:
         lines.append("Your reports: " + ", ".join(f"`{n}`" for n in reports) + ". "
                      "You do not implement - give one work with `ocp ask <name> "
-                     "\"<task>\"`, and read what it sends back. ocp hands your "
-                     "reports one task at a time - send the next when you have "
-                     "decided it, not a batch. To change a task that has not been "
-                     "delivered, replace it (`ocp ask <name> \"...\" --replaces <id>`) "
-                     "or take it back (`ocp withdraw <id>`); do not send a "
-                     "correction behind it.")
+                     "\"<task>\"`, and read what it sends back. One task at a "
+                     "time; to correct one not yet delivered, `--replaces <id>` "
+                     "or `ocp withdraw <id>`, not a message behind it.")
     lines.append("`ocp team` shows who you may ask and what each is doing now. "
                  "A decision only the founder can make: `ocp ask human`.")
     return "\n".join(lines)

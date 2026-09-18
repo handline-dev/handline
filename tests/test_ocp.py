@@ -614,6 +614,18 @@ def test_one_request_at_a_time(home: Path) -> None:
         check("one-at-a-time: --first jumps ahead of what was not yet delivered",
               order == [first, third, second], str(order))
 
+        # A second --first must not compute its ceiling from the first
+        # --first's row and walk straight past the delivered floor - the
+        # exact repro of the bug the review found: two --first asks in a row.
+        ok, msg, fourth = askmod.ask("reviewer", "task four - even more urgent",
+                                     requester="backend", first=True)
+        check("one-at-a-time: a second --first is accepted", ok, msg)
+        order = [r["id"] for r in db.queued_for(con, "reviewer")]
+        check("one-at-a-time: a second --first still never crosses the delivered head",
+              order == [first, fourth, third, second], str(order))
+        ok, msg = askmod.withdraw(fourth, requester="backend")
+        check("one-at-a-time: cleaning up the extra probe", ok, msg)
+
         # A requester may replace its own undelivered request; a foreign
         # requester, or a delivered one, may not.
         ok, msg = askmod.ask("reviewer", "not yours", requester="reviewer",
@@ -655,6 +667,137 @@ def test_one_request_at_a_time(home: Path) -> None:
               new_head["id"] == replacement, new_head["id"])
         check("one-at-a-time: withdrawn/replaced rows never become the head",
               new_head["body"] == "task two, corrected", new_head["body"])
+    finally:
+        con.close()
+
+
+def test_migration_marks_only_each_targets_head_delivered(home: Path) -> None:
+    """Review of buddyron/one-task-at-a-time: the first version of this
+    migration marked every existing queued row delivered, which left --first
+    nothing to land in front of and sent it to the back of a live queue."""
+    import sqlite3
+    home.mkdir(parents=True, exist_ok=True)
+    p = home / "old.sqlite"
+    old = sqlite3.connect(p)
+    old.execute("""
+        CREATE TABLE requests (
+          id INTEGER PRIMARY KEY AUTOINCREMENT, ts INTEGER NOT NULL,
+          requester TEXT NOT NULL, target TEXT NOT NULL, body TEXT NOT NULL,
+          files TEXT, relation TEXT, response TEXT, kind TEXT,
+          chain_depth INTEGER NOT NULL DEFAULT 0, parent_id INTEGER,
+          chain_id TEXT, state TEXT NOT NULL DEFAULT 'queued', verdict TEXT,
+          announced_at INTEGER, resolved_at INTEGER
+        )
+    """)
+    now = int(time.time())
+    for i, body in enumerate(["first", "second", "third"]):
+        old.execute(
+            "INSERT INTO requests(ts, requester, target, body, state, chain_id) "
+            "VALUES(?,?,?,?,?,?)", (now, "backend", "keeper", body, "queued", str(i + 1)))
+    old.commit()
+    old.close()
+
+    con = db.connect(p)
+    try:
+        rows = con.execute(
+            "SELECT id, body, queue_order, delivered_at FROM requests ORDER BY id").fetchall()
+        check("migration: queue_order backfilled to id",
+              [r["queue_order"] for r in rows] == [r["id"] for r in rows], str([dict(r) for r in rows]))
+        check("migration: only the head is marked delivered",
+              rows[0]["delivered_at"] is not None and rows[1]["delivered_at"] is None
+              and rows[2]["delivered_at"] is None, str([dict(r) for r in rows]))
+
+        # --first now has room to land right after the migrated head, not at
+        # the back of the whole queue.
+        new_id = db.add_request(con, "someone", "keeper", "urgent", None,
+                                "peer", "async", None, 0, None, first=True)
+        order = [r["id"] for r in db.queued_for(con, "keeper")]
+        check("migration: --first lands right after the migrated head",
+              order == [rows[0]["id"], new_id, rows[1]["id"], rows[2]["id"]], str(order))
+    finally:
+        con.close()
+
+
+def test_replace_and_merge_respect_delivered_at(home: Path) -> None:
+    """Review of buddyron/one-task-at-a-time: --mergeable folded into an
+    already-delivered row (changing what the target was already reading, with
+    nobody told), and --replaces --mergeable together returned before the
+    replaced row was retired."""
+    home.mkdir(parents=True, exist_ok=True)
+    os.environ["OCP_HOME"] = str(home)
+    (home / "team.yaml").write_text(DESIGN_TEAM)
+    for name in ("backend", "reviewer"):
+        agents.register(name, "alpha")
+    con = db.connect()
+    try:
+        ok, msg, rid = askmod.ask("reviewer", "please look", requester="backend",
+                                  files="a.py")
+        db.mark_delivered(con, rid)
+        ok, msg, merged = askmod.ask("reviewer", "also this", requester="backend",
+                                     files="a.py", mergeable=True)
+        check("mergeable: does not fold into an already-delivered row",
+              merged != rid, str((rid, merged)))
+        check("mergeable: a separate request queues instead",
+              db.get_request(con, merged)["body"] == "also this",
+              db.get_request(con, merged)["body"])
+
+        # --replaces --mergeable: the replaced row must be retired, not left
+        # 'queued' because a merge path returned first.
+        ok, msg, third = askmod.ask("reviewer", "another one", requester="backend")
+        ok, msg, fourth = askmod.ask("reviewer", "another one, corrected",
+                                     requester="backend", replaces=third, mergeable=True)
+        check("replaces+mergeable: the ask succeeds", ok, msg)
+        check("replaces+mergeable: the replaced row is retired, not left queued",
+              db.get_request(con, third)["state"] == "replaced",
+              db.get_request(con, third)["state"])
+    finally:
+        con.close()
+
+
+def test_chain_members_excludes_a_row_about_to_be_replaced(home: Path) -> None:
+    """Review note: a replace's cycle/ping-pong check ran while the row it is
+    about to retire was still 'queued', counting a round that, from the
+    target's side, never happened."""
+    home.mkdir(parents=True, exist_ok=True)
+    os.environ["OCP_HOME"] = str(home)
+    con = db.connect()
+    try:
+        a = db.add_request(con, "x", "y", "one", None, "peer", "async", None, 0, None)
+        b = db.add_request(con, "y", "x", "two", None, "peer", "async", None, 0, None,
+                           chain_id=db.get_request(con, a)["chain_id"])
+        chain_id = db.get_request(con, a)["chain_id"]
+        check("chain_members: both rows count without exclusion",
+              len(db.chain_members(con, chain_id)) == 2)
+        check("chain_members: exclude_id drops just that one row",
+              [r["id"] for r in db.chain_members(con, chain_id, exclude_id=b)] == [a])
+    finally:
+        con.close()
+
+
+def test_retire_if_undelivered_is_the_gate_against_the_delivery_race(home: Path) -> None:
+    """Review of buddyron/one-task-at-a-time: a plain read-then-write let a
+    delivery land between checking delivered_at and retiring the row. The
+    atomic conditional update is the only thing withdraw/replace may trust."""
+    home.mkdir(parents=True, exist_ok=True)
+    os.environ["OCP_HOME"] = str(home)
+    con = db.connect()
+    try:
+        rid = db.add_request(con, "backend", "reviewer", "task", None,
+                             "peer", "async", None, 0, None)
+        check("retire_if_undelivered: succeeds on an undelivered row",
+              db.retire_if_undelivered(con, rid, "withdrawn"))
+        check("retire_if_undelivered: the row actually moved",
+              db.get_request(con, rid)["state"] == "withdrawn")
+
+        rid2 = db.add_request(con, "backend", "reviewer", "task two", None,
+                              "peer", "async", None, 0, None)
+        # A delivery "landing" between a caller's own check and its write is
+        # exactly db.mark_delivered running first.
+        db.mark_delivered(con, rid2)
+        check("retire_if_undelivered: refuses once delivered_at is set",
+              not db.retire_if_undelivered(con, rid2, "withdrawn"))
+        check("retire_if_undelivered: and does not touch the row",
+              db.get_request(con, rid2)["state"] == "queued")
     finally:
         con.close()
 
@@ -6746,6 +6889,11 @@ def main() -> int:
         run(lambda: test_db_dedup(home))
         run(lambda: test_ask_flow(Path(td) / 'askhome'))
         run(lambda: test_one_request_at_a_time(Path(td) / 'onetask'))
+        run(lambda: test_migration_marks_only_each_targets_head_delivered(Path(td) / 'oldmig'))
+        run(lambda: test_replace_and_merge_respect_delivered_at(Path(td) / 'mergedeliv'))
+        run(lambda: test_chain_members_excludes_a_row_about_to_be_replaced(Path(td) / 'chainexc'))
+        run(lambda: test_retire_if_undelivered_is_the_gate_against_the_delivery_race(
+            Path(td) / 'retirerace'))
         run(lambda: test_ask_rate_limit(Path(td) / 'ratehome'))
         run(lambda: test_cycle_and_escalation(Path(td) / 'cyc'))
         run(lambda: test_review_pingpong(Path(td) / 'pingpong'))
