@@ -1,6 +1,6 @@
 """What a human can do to an agent, in one place.
 
-`ocp top` is the screen the team is run from, so what it does has to live
+`ocp bridge` is the screen the team is run from, so what it does has to live
 somewhere that is not the drawing code: a screen that decided anything for
 itself would be a second opinion, and this file exists so there is only ever
 one.
@@ -27,7 +27,7 @@ from . import (accounts, agents, ask as askmod, daemon, db, events as evmod,
                fold as foldmod, observe as obs, orca, paths, spawn as spawnmod,
                status, team, triggers)
 
-# The name a human's own requests are sent under, and the inbox `ocp top`
+# The name a human's own requests are sent under, and the inbox `ocp bridge`
 # shows. Taken from `ask`, which is where escalations are addressed: a second
 # copy of the name would empty the panel the day it changed.
 HUMAN = askmod.HUMAN
@@ -82,6 +82,12 @@ def fold(con, agent: str) -> str:
     return msg if ok else f"{agent}: fold rejected - {msg}"
 
 
+# How long to wait for a launched agent to show up in the process table before
+# saying it did not. `ocp launch` execs claude, which takes a few seconds to be
+# visible; the daemon's own wake waits about this long for the same reason.
+STARTED_TIMEOUT_S = 20
+
+
 def start(con, agent: str, repo: str | None = None, base: str = "main") -> str:
     """Give an agent a worktree and start it there.
 
@@ -97,8 +103,19 @@ def start(con, agent: str, repo: str | None = None, base: str = "main") -> str:
     if wt:
         # It has somewhere to run already; it lost the window it ran in.
         ok, msg = spawnmod.start_in(agent, wt)
+    else:
+        ok, msg = spawnmod.spawn(agent, Path(repo or os.getcwd()).resolve(), base=base)
+    if not ok:
         return msg
-    ok, msg = spawnmod.spawn(agent, Path(repo or os.getcwd()).resolve(), base=base)
+    # A terminal is not a session. `ocp launch` execs claude, and claude can
+    # exit on its own - a bad flag, a config it will not accept, an account
+    # mid-login - leaving the shell prompt the command was typed at. That looks
+    # exactly like a terminal where nothing ran, and saying "started" over it
+    # sends the reader looking for an agent that is not there.
+    if not daemon.wait_for_session(agent, STARTED_TIMEOUT_S):
+        return (f"{msg}\n  but no session is running in it after {STARTED_TIMEOUT_S}s - "
+                f"the terminal is there and claude is not. Go and look (t): "
+                f"whatever it printed is on that shell.")
     return msg
 
 
@@ -531,8 +548,15 @@ def stuck(con) -> list[dict]:
                 add(what, age, f"{r['target']} has not been told yet - if this stays, "
                                f"its idle probe or the send is failing", r["target"])
             continue
-        if self_clearing and alive and age < STUCK_AFTER_S:
-            continue
+        if self_clearing and alive:
+            # Already told and now working on it is a queue doing its job,
+            # whatever the request's age: age counts from when it was asked,
+            # and an agent that has just been handed a two-day-old request is
+            # not stuck on it.
+            if db.get_cursor(con, f"notify:{r['target']}") >= int(r["id"]):
+                continue
+            if age < STUCK_AFTER_S:
+                continue
         add(what, age, why, r["target"])
 
     for row in db.all_agent_states(con):
