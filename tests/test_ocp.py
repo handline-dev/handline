@@ -4221,6 +4221,11 @@ edges:
         check("hr: with the session closed, the rename lands",
               ok and "harbor-manager" in paths.list_agents()
               and "manager" not in table["agents"], said)
+        check("hr: and the edges name it too - the renamed manager still "
+              "supervises its team",
+              team.Team(table).route("harbor-manager", "marina").allowed
+              and "\"manager\"" not in (home / "team.yaml").read_text(),
+              (home / "team.yaml").read_text())
         check("hr: and its folder came with it",
               (home / "agents" / "harbor-manager").is_dir()
               and not (home / "agents" / "manager").exists())

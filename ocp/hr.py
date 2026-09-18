@@ -318,9 +318,10 @@ def _rename(prop: dict, con) -> tuple[bool, str]:
     if dest.exists():
         return False, f"{dest} already exists"
 
-    ok, said = _in_team_yaml(old, None, add=False)
+    ok, said2 = _edit_team_yaml(lambda t: _rename_text(t, old, new, prop.get("team")),
+                                present=new, absent=old)
     if not ok:
-        return False, said
+        return False, said2
     if src.exists():
         src.rename(dest)
     cfg = agents.agent_file(new)
@@ -329,9 +330,6 @@ def _rename(prop: dict, con) -> tuple[bool, str]:
         if isinstance(data, dict):
             data["name"] = new
             cfg.write_text(dump(data))
-    ok, said2 = _in_team_yaml(new, prop.get("team"), add=True)
-    if not ok:
-        return False, said2
 
     con.execute("UPDATE agent_state SET agent = ? WHERE agent = ?", (new, old))
     con.execute("UPDATE requests SET requester = ? WHERE requester = ?", (new, old))
@@ -345,12 +343,21 @@ def _rename(prop: dict, con) -> tuple[bool, str]:
 
 
 def _in_team_yaml(name: str, team_name: str | None, add: bool) -> tuple[bool, str]:
-    """Put the name in the routing table, or take it out - as text.
+    """Put the name in the routing table, or take it out.
 
     The edges are not touched. `manager -> dev.*` is a wildcard over a team, so
     joining a team is what grants the routing: the design's own claim that
     adding a developer is two lines, made true by writing those two lines
     rather than a new edge nobody reviewed.
+    """
+    if add:
+        return _edit_team_yaml(lambda t: _add_text(t, name, team_name), present=name)
+    return _edit_team_yaml(lambda t: _remove_text(t, name), absent=name)
+
+
+def _edit_team_yaml(edit, present: str | None = None,
+                    absent: str | None = None) -> tuple[bool, str]:
+    """Apply a text edit to team.yaml, and write it only if it is still valid.
 
     Edited as text because team.yaml is a hand-written policy file whose
     comments are the reasons each edge exists, and a round-trip through the
@@ -363,7 +370,7 @@ def _in_team_yaml(name: str, team_name: str | None, add: bool) -> tuple[bool, st
         return False, f"{p} does not exist - run `ocp team init` first"
     text = p.read_text()
     try:
-        edited = _add_text(text, name, team_name) if add else _remove_text(text, name)
+        edited = edit(text)
     except ConfigError as e:
         return False, str(e)
 
@@ -372,10 +379,11 @@ def _in_team_yaml(name: str, team_name: str | None, add: bool) -> tuple[bool, st
         if not isinstance(data, dict):
             raise ConfigError("top level is not a map")
         team.Team(data)                  # the table has to still be valid
-        got = name in (data.get("agents") or {})
-        if got is not add:
-            raise ConfigError(f"the edit did not take: {name} "
-                              f"{'missing from' if add else 'still in'} agents")
+        listed = data.get("agents") or {}
+        if present and present not in listed:
+            raise ConfigError(f"the edit did not take: {present} missing from agents")
+        if absent and absent in listed:
+            raise ConfigError(f"the edit did not take: {absent} still in agents")
     except Exception as e:  # noqa: BLE001
         return False, f"that edit would break team.yaml ({e}); nothing written"
 
@@ -403,21 +411,58 @@ def _add_text(text: str, name: str, team_name: str | None) -> str:
     if any(re.match(rf"\s*{re.escape(name)}\s*:", ln) for ln in lines[head + 1:end]):
         raise ConfigError(f"{name} is already in team.yaml")
     lines.insert(end, f"  {name}: {{ intake: dedicated }}")
+    text = "\n".join(lines) + "\n"
+    return _join_team(text, name, team_name) if team_name else text
 
-    if team_name:
-        head, end = _block(lines, "teams:")
-        pattern = re.compile(rf"^(\s*{re.escape(team_name)}\s*:\s*\[)([^\]]*)(\].*)$")
-        for i in range(head + 1, end):
-            m = pattern.match(lines[i])
-            if m:
-                members = [x.strip() for x in m.group(2).split(",") if x.strip()]
-                if name not in members:
-                    members.append(name)
-                lines[i] = f"{m.group(1)}{', '.join(members)}{m.group(3)}"
-                break
-        else:
-            lines.insert(end, f"  {team_name}: [{name}]")
+
+def _join_team(text: str, name: str, team_name: str) -> str:
+    lines = text.splitlines()
+    head, end = _block(lines, "teams:")
+    pattern = re.compile(rf"^(\s*{re.escape(team_name)}\s*:\s*\[)([^\]]*)(\].*)$")
+    for i in range(head + 1, end):
+        m = pattern.match(lines[i])
+        if m:
+            members = [x.strip() for x in m.group(2).split(",") if x.strip()]
+            if name not in members:
+                members.append(name)
+            lines[i] = f"{m.group(1)}{', '.join(members)}{m.group(3)}"
+            break
+    else:
+        lines.insert(end, f"  {team_name}: [{name}]")
     return "\n".join(lines) + "\n"
+
+
+def _rename_text(text: str, old: str, new: str, team_name: str | None) -> str:
+    """The name changed everywhere it is written, and nothing else.
+
+    Everywhere means the edges too. A rename that moved only the team entry
+    left `from: "manager"` naming nobody, and the renamed manager with no
+    edge to the reports it supervises. Its intake stays what it was.
+    """
+    word = re.escape(old)
+    lines = text.splitlines()
+    head, end = _block(lines, "agents:")
+    if not any(re.match(rf"\s*{word}\s*:", ln) for ln in lines[head + 1:end]):
+        raise ConfigError(f"{old} is not in team.yaml's agents block")
+    for i, line in enumerate(lines):
+        if line.lstrip().startswith("#"):
+            continue
+        if head < i < end:
+            line = re.sub(rf"^(\s*){word}(\s*:)", rf"\g<1>{new}\2", line)
+        m = re.match(r"^(\s*\w[\w.-]*\s*:\s*\[)([^\]]*)(\].*)$", line)
+        if m:
+            members = [x.strip() for x in m.group(2).split(",") if x.strip()]
+            members = [new if x == old else x for x in members]
+            if team_name:
+                members = [x for x in members if x != new]
+            line = f"{m.group(1)}{', '.join(members)}{m.group(3)}"
+        line = re.sub(rf"""((?:from|to)\s*:\s*)(["']?){word}\2(?=\s*[,}}])""",
+                      rf"\g<1>\g<2>{new}\g<2>", line)
+        lines[i] = line
+    text = "\n".join(lines) + "\n"
+    if team_name:
+        text = _join_team(text, new, team_name)
+    return text
 
 
 def _remove_text(text: str, name: str) -> str:
