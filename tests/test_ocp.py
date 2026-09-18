@@ -3859,6 +3859,10 @@ def test_hr_move_changes_an_agents_account(home: Path) -> None:
     try:
         db.set_account(con, "backend", "alpha")
         db.set_closed(con, "backend", "sess-1")
+        # _daemon_home's default live_sessions is None (an unreadable table),
+        # which _move now treats as "can't tell, leave it alone" - this test
+        # wants the genuinely-not-running case, so it says so explicitly.
+        obsmod.live_sessions = lambda: {}
 
         ok, said = hr.enact("move", "backend", why="alpha is at the wall", account="beta")
         check("hr move: the founder's own move lands without a proposal", ok, said)
@@ -3928,6 +3932,36 @@ def test_hr_move_does_not_touch_a_live_sessions_own_record(home: Path) -> None:
         db.set_closed(con, "backend", "sess-live")
         check("hr move (live): closing after the fact still resumes on the "
               "account the session actually ran on",
+              agents.current_account("backend", con) == "alpha",
+              agents.current_account("backend", con))
+    finally:
+        obsmod.live_sessions = real_live
+        con.close()
+
+
+def test_hr_move_leaves_account_alone_when_liveness_cannot_be_read(home: Path) -> None:
+    """Review of buddyron/bootstrap-and-hr-move, should-fix #3: live_sessions()
+    returns None when the process table can't be read - treating that as 'not
+    running' clears agent_state.account under a session that may actually be
+    live, on exactly the machines where this read fails."""
+    _daemon_home(home, 20)
+    accounts.register("beta")
+    con = db.connect()
+    real_live = obsmod.live_sessions
+    try:
+        db.set_account(con, "backend", "alpha")
+        obsmod.live_sessions = lambda: None
+
+        ok, said = hr.enact("move", "backend", why="beta has room", account="beta")
+        check("hr move (unknown liveness): still succeeds", ok, said)
+        check("hr move (unknown liveness): agent.yaml takes the new preference",
+              agents.account_of("backend") == "beta", agents.account_of("backend"))
+        row = db.get_agent_state(con, "backend")
+        check("hr move (unknown liveness): the account record is left alone, not "
+              "cleared, since a live session cannot be ruled out",
+              row["account"] == "alpha", str(dict(row)))
+        check("hr move (unknown liveness): current_account keeps reporting the "
+              "account actually on record",
               agents.current_account("backend", con) == "alpha",
               agents.current_account("backend", con))
     finally:

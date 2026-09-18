@@ -308,7 +308,16 @@ def _move(prop: dict, con) -> tuple[bool, str]:
     name, new_account = prop["agent"], prop["account"]
     agents.register(name, new_account)
     live = obs.live_sessions()
-    if live and live.get(name):
+    if live is None:
+        # Can't tell (ps/env unreadable) - "not running" is the wrong guess to
+        # make here: it is exactly what would clear agent_state.account out
+        # from under a session that is actually live, on the very machines
+        # where this read fails. Assume live and leave the row alone.
+        return True, (f"{name} now prefers account '{new_account}' for its next session. "
+                      f"Whether one is running now could not be checked, so its account "
+                      f"record is left alone; if one is live it keeps spending what it "
+                      f"already has.")
+    if live.get(name):
         return True, (f"{name} now prefers account '{new_account}' for its next session. "
                       f"A session is running now and keeps the account it started on "
                       f"until it ends.")
