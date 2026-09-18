@@ -173,7 +173,7 @@ def resume_handoff(con, row, log, use_model: bool = True) -> None:
 
     st = None
     try:
-        st = status.read(agents.account_of(agent))
+        st = status.read(agents.current_account(agent, con))
     except Exception:  # noqa: BLE001 - a missing account must not wedge the resume
         pass
     wake = triggers.next_reset(st.reset_5h if st else None)
@@ -484,7 +484,7 @@ def wake_prompt(agent: str, resumed: bool, was_closed: bool = False) -> str:
         p = foldmod.handoff_path(agent)
         if p.exists():
             parts.append(p.read_text())
-    st = status.read_for_agent(agent, agents.account_of(agent))
+    st = status.read_for_agent(agent, agents.current_account(agent))
     if st.transcript_path:
         parts.append(
             f"Your previous session is {st.session_id}, recorded at "
@@ -510,6 +510,7 @@ def wake_agent(con, agent: str, log) -> tuple[bool, str]:
 
 
 def _wake_agent(con, agent: str, log) -> tuple[bool, str]:
+    """The body of a wake, without the lock. Callers already holding it use this."""
     handle = db.get_terminal(con, agent)
     if not handle or not orca.available():
         return False, "no terminal to wake"
@@ -522,17 +523,22 @@ def _wake_agent(con, agent: str, log) -> tuple[bool, str]:
         # before it types anything. Trying anyway would spend the wake timeout
         # to be told what we already knew, and count a streak against an agent
         # whose only problem rolls over by itself.
-        acct_st = status.read(agents.account_of(agent))
+        # Which account this launch would land on, not which one the last
+        # session was on: a fresh start may go somewhere with room, and
+        # refusing on the account it is leaving would keep it from ever
+        # getting there.
+        session = row["resume_session"]
+        acct = launch.choose_account(agent, resuming=bool(session))
+        acct_st = status.read(acct)
         pct = acct_st.trusted_pct_5h
         if pct is not None and pct >= status.PCT_5H_BLOCK:
-            why = (f"account {agents.account_of(agent)} is at {pct}% of the 5h limit; "
+            why = (f"account {acct} is at {pct}% of the 5h limit; "
                    f"not launching until the window rolls over")
             log(f"  {agent}: {why}")
             return False, why
         # The shell is still there; put the agent back into it. Resuming the
         # same session is what makes closing cheap, so it is tried first and
         # a fresh start is the fallback, not the plan.
-        session = row["resume_session"]
         base = launch.command_for(agent)
         # Resuming the session is what makes closing cheap, so it is tried
         # first - but a resume can be the very thing that fails: an id whose
@@ -764,7 +770,7 @@ def sweep(con, log, actions: list[str]) -> None:
             # construction, and its own id is the one thing here that is not in
             # doubt. Losing it loses the only pointer to that agent's context,
             # and memory comes back where context does not.
-            own = status.read(agents.account_of(agent),
+            own = status.read(agents.current_account(agent, con),
                               paths.agent_status_file(agent))
             session = None if own.error else own.session_id
             db.set_closed(con, agent, session)
@@ -890,10 +896,68 @@ def perform_handoff(con, agent: str, trigger: triggers.Trigger, log,
         return _perform_handoff(con, agent, trigger, log, use_model)
 
 
+# The triggers a move answers. `usage_unknown` is not one of them: it fires
+# because we cannot read the account, and "we do not know" is not "it is full".
+# Moving on it would send agents off an account nobody can see, which is the
+# fail-closed rule pointed the wrong way.
+MOVABLE_TRIGGERS = ("usage", "usage_projected")
+
+
+def _move_to_room(con, agent: str, trigger: triggers.Trigger, log) -> bool:
+    """Put this agent's next session on an account that has room. True if it moved.
+
+    Total throughput is accounts x window and this does not change it. What it
+    changes is whether an agent waits out its own window while another account
+    sits idle beside it - which is the whole trade design section 0.5 put
+    behind the slot model, and the part of it that needs no lease: nothing is
+    taken from a live session, because this one is already over.
+
+    The new session cannot be the old one. A session id lives under one
+    account's config directory, so it is closed without a resume id and the
+    launch starts a fresh one - which `launch.context_for` hands the handoff,
+    and `wake_agent` hands the old transcript's path to grep.
+    """
+    if trigger.kind not in MOVABLE_TRIGGERS:
+        return False
+    here = agents.current_account(agent, con)
+    there = launch.choose_account(agent)
+    if there == here:
+        return False
+    allowed, why = status.read(there).assignable()
+    if not allowed:
+        return False
+    handle = db.get_terminal(con, agent)
+    if not handle or not orca.available() or not orca.alive(handle):
+        return False
+    ok, why = orca.close_session(handle)
+    if not ok:
+        log(f"  {agent}: staying on {here} - could not end its session: {why[:120]}")
+        return False
+    # No resume id: that session belongs to the account being left.
+    db.set_closed(con, agent, None)
+    # The unlocked one. This runs inside the handoff's own hold on the
+    # terminal, and `lock.terminal` is flock on a fresh descriptor, so a second
+    # acquire in this process does not nest - it fails, and a failed wake here
+    # would read as "nowhere to go" and park the agent on the account it was
+    # just moved off.
+    woke, why = _wake_agent(con, agent, log)
+    if not woke:
+        # The session is gone and the launch did not take. Saying so and
+        # falling through parks it with a deadline, which is what brings a
+        # closed agent back at all - returning True here would leave it closed
+        # with nothing due.
+        log(f"  {agent}: closed on {here} but could not start on {there}: {why[:120]}")
+        return False
+    db.add_event(con, agent, "moved_account", {"from": here, "to": there,
+                                               "trigger": trigger.kind})
+    log(f"  {agent}: moved {here} -> {there} ({trigger.kind})")
+    return True
+
+
 def _perform_handoff(con, agent: str, trigger: triggers.Trigger, log,
                      use_model: bool = True) -> bool:
     hid = uuid.uuid4().hex[:12]
-    st = status.read(agents.account_of(agent)) if agent in paths.list_agents() else None
+    st = status.read(agents.current_account(agent, con)) if agent in paths.list_agents() else None
     cursor_from = db.get_cursor(con, f"fold:{agent}")
     deadline = int(time.time()) + HANDOFF_DEADLINE_S
     db.start_handoff(con, hid, agent, st.session_id if st else None, trigger.kind,
@@ -920,6 +984,17 @@ def _perform_handoff(con, agent: str, trigger: triggers.Trigger, log,
         log(f"  {agent}: fold failed -> DEGRADED ({msg[:120]})")
 
     db.advance_handoff(con, hid, "extracted")
+
+    # Where it goes next. An agent whose own account is at the wall does not
+    # have to sit out that window if another account has room. It is only worth
+    # doing here, after the fold: the session is about to lose its context
+    # either way, so what moving costs on top is the server-side cache - and
+    # waiting for the reset loses that too, because the cache expires on time,
+    # not on whether we kept the process alive.
+    if _move_to_room(con, agent, trigger, log):
+        db.advance_handoff(con, hid, "released", state="done" if ok else "degraded")
+        db.bump_counter(con, agent, "continuations")
+        return ok
 
     # Return the context. Folding and writing a handoff is only half of a
     # handoff; without this the context never drops, a context trigger fires
@@ -969,7 +1044,7 @@ def supervise(con, agent: str, log, now: int, samples: dict,
     if db.in_flight_for(con, agent):
         return
 
-    acct = agents.account_of(agent)
+    acct = agents.current_account(agent, con)
     st = status.read_for_agent(agent, acct)
 
     # An agent whose *closed* session was restored in this tick is judged on the

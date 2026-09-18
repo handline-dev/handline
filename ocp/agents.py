@@ -89,6 +89,27 @@ def register(name: str, account: str, role: str = "", model: str | None = None,
     return d
 
 
+def current_account(name: str, con=None) -> str:
+    """The account this agent's session is actually on.
+
+    `account_of` is the preference in agent.yaml; this is where the session
+    went. They differ whenever the preferred account had no room at the moment
+    the session was made, and everything that asks "whose usage is this
+    spending" has to mean this one - a screen reading the preference would
+    watch an account the agent is not on.
+    """
+    from . import db
+    if con is not None:
+        row = db.get_agent_state(con, name)
+        return (row["account"] if row else None) or account_of(name)
+    own = db.connect()
+    try:
+        row = db.get_agent_state(own, name)
+        return (row["account"] if row else None) or account_of(name)
+    finally:
+        own.close()
+
+
 def account_of(name: str) -> str:
     acct = read(name).get("account")
     if not acct:

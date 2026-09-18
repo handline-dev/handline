@@ -41,7 +41,7 @@ def wake(con, agent: str) -> str:
 
 def close(con, agent: str) -> str:
     """Give the machine back an idle agent's memory, keeping its terminal."""
-    st = status.read_for_agent(agent, agents.account_of(agent))
+    st = status.read_for_agent(agent, agents.current_account(agent, con))
     ok, why = daemon.close_agent(con, agent, lambda _m: None, st)
     return why if ok else f"{agent}: not closed - {why}"
 
@@ -413,7 +413,7 @@ def _delivery_block(con, agent: str, sessions: dict | None,
     if handles is not None and handle not in handles:
         return f"{agent}'s terminal is gone - Orca no longer has it", False
     try:
-        acct = agents.account_of(agent)
+        acct = agents.current_account(agent, con)
         pct = status.read(acct).trusted_pct_5h
     except Exception:  # noqa: BLE001
         acct, pct = "?", None
@@ -701,11 +701,17 @@ def agent_detail(con, agent: str) -> list[tuple[str, list[str]]]:
     row = db.get_agent_state(con, agent)
     try:
         cfg = agents.read(agent)
-        acct = agents.account_of(agent)
+        acct = agents.current_account(agent, con)
     except Exception as e:  # noqa: BLE001
         return [("", [f"config error: {e}"])]
     st = status.read_for_agent(agent, acct)
-    head = [f"account {acct}   model {cfg.get('model')}   "
+    # Where it is, and - when they differ - where it would rather be. agent.yaml
+    # is a preference: a session started while that account was at the wall is
+    # on another one, and a reader who only saw the preference would be watching
+    # an account the agent is not spending on.
+    prefers = agents.account_of(agent)
+    where = acct if acct == prefers else f"{acct} (prefers {prefers})"
+    head = [f"account {where}   model {cfg.get('model')}   "
             f"effort {cfg.get('effort') or agents.DEFAULT_EFFORT}   "
             f"ctx {'?' if st.ctx_pct is None else str(st.ctx_pct) + '%'}"]
     if row:

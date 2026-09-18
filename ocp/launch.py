@@ -23,9 +23,54 @@ import sys
 from . import accounts, agents, paths, status
 
 
+def choose_account(agent: str, resuming: bool = False) -> str:
+    """Which account this launch runs on.
+
+    agent.yaml names a preference, not a destination. The moment a session is
+    made is the only moment its account can be chosen at all - after execve the
+    config directory is fixed - so it is chosen here, and the preference is
+    used whenever it still has room. Between two accounts the difference is
+    headroom, which is what `pick_account` already measures for folds.
+
+    Resuming is not that moment. A session id belongs to one account's config
+    directory, so `--resume` on any other account finds nothing; a resumed
+    session goes back to the account it was recorded on, or the run is not a
+    resume at all.
+
+    Total throughput is accounts x window, and moving a session does not change
+    it. What it changes is whether an agent waits for its own window while
+    another account sits idle beside it (design section 0.5, which put the
+    whole slot model behind exactly that trade).
+    """
+    if resuming:
+        return agents.current_account(agent)
+    preferred = agents.account_of(agent)
+    # Only a reading that says "full" moves an agent. A missing or stale
+    # snapshot is not a full tank and it is not an empty one either - it is the
+    # account nobody has run on yet, and the session we are about to start is
+    # the only thing that writes one. Treating unknown as full would send every
+    # agent on a fresh install to whichever account happened to have a
+    # snapshot, and leave the preferred mapping meaning nothing.
+    st = status.read(preferred)
+    pct = st.trusted_pct_5h
+    full = (pct is not None and pct >= status.PCT_5H_BLOCK) or \
+           (st.pct_7d is not None and st.pct_7d >= status.PCT_7D_BLOCK)
+    if not full:
+        return preferred
+    # Among the accounts a human has actually logged in. `assignable` is about
+    # usage and says nothing about credentials, so without this an agent moves
+    # onto an account that cannot start anything and the launch dies there.
+    candidates = [a for a in paths.list_accounts() if accounts.logged_in(a)]
+    picked, _reasons = status.pick_account(candidates)
+    # Nothing assignable is not a reason to pick something at random: `build`
+    # refuses below on a current reading at the wall, and that refusal names
+    # the account and the figure.
+    return picked or preferred
+
+
 def build(agent: str, extra: list[str] | None = None, force: bool = False) -> tuple[list[str], dict]:
     """Return (argv, env) ready to hand to execve."""
-    acct = agents.account_of(agent)
+    acct = choose_account(agent, resuming=any("--resume" == x for x in (extra or [])))
 
     if not accounts.logged_in(acct):
         raise SystemExit(
@@ -125,27 +170,34 @@ def context_for(agent: str) -> str:
 
 def exec_agent(agent: str, extra: list[str] | None = None, force: bool = False) -> None:
     argv, env = build(agent, extra, force)
-    _record_terminal(agent)
+    _record_terminal(agent, env.get("OCP_ACCOUNT"))
     sys.stdout.flush()
     os.execve(argv[0], argv, env)
 
 
-def _record_terminal(agent: str) -> None:
-    """Remember the Orca terminal we are about to become the agent in.
+def _record_terminal(agent: str, acct: str | None = None) -> None:
+    """Remember where we are about to become the agent: the terminal, and the account.
 
     Orca puts the handle in the environment of every terminal it launches, and
     this is the only moment we can see it - after execve we are the agent. The
     daemon needs it to clear the agent's context and hand it back its handoff.
+
+    The account comes from the environment we are about to exec with, not from
+    agent.yaml: those are the same value only when the preferred account had
+    room, and the whole point of recording it is that the two can differ.
     """
     from . import db, orca
 
     handle = orca.terminal_handle()
-    if not handle:
+    if not handle and not acct:
         return
     try:
         con = db.connect()
         try:
-            db.set_terminal(con, agent, handle, os.environ.get("ORCA_WORKTREE_ID"))
+            if handle:
+                db.set_terminal(con, agent, handle, os.environ.get("ORCA_WORKTREE_ID"))
+            if acct:
+                db.set_account(con, agent, acct)
         finally:
             con.close()
     except Exception:  # noqa: BLE001 - never block a launch on bookkeeping

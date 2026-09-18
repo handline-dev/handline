@@ -83,7 +83,11 @@ CREATE TABLE IF NOT EXISTS agent_state (
   -- The Orca terminal this agent runs in, so the daemon can clear its context
   -- and hand it back its own handoff without destroying the agent.
   terminal        TEXT,
-  worktree        TEXT
+  worktree        TEXT,
+  -- Which account the session in that terminal is actually on. agent.yaml says
+  -- which one it prefers; this says where it went, and they differ whenever
+  -- the preferred one had no room when the session was made.
+  account         TEXT
 );
 
 -- Section 8.9: handoff progress is persisted per step, so a daemon restart
@@ -225,6 +229,10 @@ def _add_missing_columns(con) -> None:
         con.execute("ALTER TABLE agent_state ADD COLUMN closed_at INTEGER")
     if "resume_session" not in state_cols:
         con.execute("ALTER TABLE agent_state ADD COLUMN resume_session TEXT")
+    if "account" not in state_cols:
+        # No backfill: an existing row's session was launched on the account
+        # agent.yaml named, which is exactly what a null here falls back to.
+        con.execute("ALTER TABLE agent_state ADD COLUMN account TEXT")
 
 
 
@@ -392,6 +400,22 @@ def set_terminal(con, agent: str, terminal: str | None, worktree: str | None) ->
         "ON CONFLICT(agent) DO UPDATE SET terminal=excluded.terminal, "
         "worktree=excluded.worktree, updated=excluded.updated",
         (agent, "IDLE", int(time.time()), terminal, worktree),
+    )
+
+
+def set_account(con, agent: str, account: str | None) -> None:
+    """Record which account the session being started is on.
+
+    Written by `ocp launch`, which is the process that sets CLAUDE_CONFIG_DIR,
+    so the record and the environment cannot disagree. Everything that asks
+    where an agent's usage is coming from reads this; agent.yaml is the
+    preference this fell back to when it is null.
+    """
+    con.execute(
+        "INSERT INTO agent_state(agent, state, updated, account) VALUES(?,?,?,?) "
+        "ON CONFLICT(agent) DO UPDATE SET account=excluded.account, "
+        "updated=excluded.updated",
+        (agent, "IDLE", int(time.time()), account),
     )
 
 
