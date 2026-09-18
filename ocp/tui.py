@@ -66,9 +66,12 @@ PANEL_NAME = {ACCOUNTS: "accounts", AGENTS: "agents", MESSAGES: "messages",
 
 # Keys, per panel. Anything that cannot be undone asks first; the rest happen
 # on the keypress, because a confirmation nobody reads is just a second key.
+# No `s start`. `t` goes to the agent and makes it somewhere to run on the way,
+# so a second key for half of that is a second thing to know: an agent with no
+# terminal and an agent with one are the same keypress now.
 AGENT_KEYS = [
-    ("↵", "open"), ("t", "terminal"), ("w", "wake"), ("c", "close"), ("p", "park"),
-    ("f", "fold"), ("m", "message"), ("s", "start"), ("u", "unstall"),
+    ("↵", "open"), ("t", "terminal"), ("m", "message"), ("e", "editor"),
+    ("w", "wake"), ("c", "close"), ("p", "park"), ("f", "fold"), ("u", "unstall"),
 ]
 ACCOUNT_KEYS = [("↵", "open"), ("l", "login")]
 MESSAGE_KEYS = [("↵", "read"), ("a", "answer"), ("e", "answer in $EDITOR"),
@@ -198,6 +201,27 @@ class Panel:
         return out
 
 
+# The states a person has to do something about. Everything else the daemon
+# handles on its own, and saying so is saying nothing.
+NEEDS_A_HUMAN = ("STALLED", "DEGRADED")
+
+
+def _needs_you(row) -> str:
+    """The last column: what this agent needs from a human, or nothing.
+
+    It used to carry the daemon's own note - "unparked by hand: the
+    usage_unknown that parked it is resolved", "woke from PARKED at
+    reconciliation", "finished its turn". That is the daemon explaining itself
+    to whoever debugs the daemon: it is on every row, it is never actionable,
+    and a column that is always full of something you cannot act on is a column
+    a reader learns to skip. What the row is doing is in the state column; why
+    it got there is in `ocp events` and on the agent's own page.
+    """
+    if not row or row["state"] not in NEEDS_A_HUMAN:
+        return ""
+    return f"{RED}{row['state'].lower()}{R} {DIM}{(row['detail'] or '')[:60]}{R}"
+
+
 def keybar(panel: int, width: int, hidden: int = 0) -> str:
     """The keys this panel answers to, in as much room as there is.
 
@@ -213,16 +237,22 @@ def keybar(panel: int, width: int, hidden: int = 0) -> str:
     # dropped to make room.
     note = f"{YEL}{hidden} panel(s) need a taller window{R} {DIM}·{R} " if hidden else ""
     head = f"{DIM}{PANEL_NAME[panel]}:{R} " + note
-    nav = f" {DIM}· tab panel · ↑↓ move · q quit{R}"
+    # Two lengths. Which arrows move between panels and which move inside one
+    # is the one thing on this line a reader cannot guess by pressing keys, so
+    # it shrinks before it goes, and it goes before an action does only when
+    # even the short form will not fit.
+    nav = f" {DIM}· ←→ panel ↑↓ row · q quit{R}"
+    nav_short = f" {DIM}· ←→ ↑↓ q{R}"
     sep = f" {DIM}·{R} "
     parts = [f"{BOLD}{k}{R} {DIM}{label}{R}" for k, label in keys]
     full = head + sep.join(parts)
-    if vlen(full + nav) <= width:
-        return full + nav
-    if vlen(full) <= width:
-        return full          # the navigation goes first: it is the same everywhere
+    for tail in (nav, nav_short, ""):
+        if vlen(full + tail) <= width:
+            return full + tail
     for n in range(len(parts) - 1, 0, -1):
         line = head + sep.join(parts[:n]) + f" {DIM}+{len(parts) - n} more{R}"
+        if vlen(line + nav_short) <= width:
+            return line + nav_short
         if vlen(line) <= width:
             return line
     return fit(head, width)
@@ -352,7 +382,7 @@ def build(width: int, sel: dict | None = None) -> tuple[list[str], list[Panel]]:
                 + pad(ctxs, 7)
                 + pad(countdown(row["wake_at"] if row else None), 7)
                 + pad(str(inbox) if inbox else "·", 4)
-                + (fire or f"{DIM}{(row['detail'] if row else '') or ''}{R}"),
+                + (fire or _needs_you(row)),
                 key=name,
             )
         if not paths.list_agents():
@@ -752,8 +782,14 @@ def run(interval: float = 2.0, once: bool = False) -> int:
                     flash = f"{RED}{type(e).__name__}: {e}{R}"
                 continue
             flash = ""
-            if k == "\t":
+            if k in ("\t", "\033[C", "\033OC"):
                 panel = (panel + 1) % len(PANELS)
+                continue
+            if k in ("\033[Z", "\033[D", "\033OD"):
+                # shift-tab and the left arrow, so the panels can be walked
+                # both ways: tab alone means starting the lap again to get back
+                # one.
+                panel = (panel - 1) % len(PANELS)
                 continue
             if k in ("r", "R"):
                 continue
@@ -820,10 +856,10 @@ def _in_detail(detail: dict, k: str, width: int, height: int,
             allowed, why = actions.can(con, name, label)
             if not allowed:
                 return detail, why
-            if label == "message":
-                body = _line(f"message to {name}:", width, height)
+            if label in ("message", "editor"):
+                body = _compose_message(name, label, width, height, fd, saved)
                 return detail, (actions.message(con, name, body) if body is not None
-                                else "nothing sent")
+                                else _nothing_sent("e" if label == "editor" else "m"))
             if label in ("start", "terminal") and _needs_a_terminal(con, name):
                 repo = _line(f"repo for {name} [{os.getcwd()}]:", width, height)
                 if repo is None:
@@ -868,6 +904,20 @@ def _answer_key(con, detail: dict, rid: int, k: str, width: int, height: int,
         return detail, _nothing_sent(k)
     _say(f"answering #{rid}", width, height)
     return None, actions.answer(con, rid, text)
+
+
+def _compose_message(agent: str, label: str, width: int, height: int,
+                     fd, saved) -> str | None:
+    """An order, typed on the line or written in $EDITOR. None means none.
+
+    The line is enough to say "rebase onto main"; it is not enough to say what
+    to do and why not to do the other thing, and an order that needs a
+    paragraph was being written somewhere else and pasted - or cut down to fit.
+    """
+    if label == "editor":
+        return _editor(f"# a message to {agent}. Lines starting with # are dropped.\n",
+                       fd, saved)
+    return _line(f"message to {agent}:", width, height)
 
 
 def _compose(rid: int, key: str, width: int, height: int, fd, saved) -> str | None:
@@ -1022,10 +1072,10 @@ def _act(panel: int, sel: dict, key: str, width: int, height: int,
                 where = repo.strip() or os.getcwd()
                 return (actions.start(con, name, where) if label == "start"
                         else actions.terminal(con, name, where)), None
-            if label == "message":
-                body = _line(f"message to {name}:", width, height)
+            if label in ("message", "editor"):
+                body = _compose_message(name, label, width, height, fd, saved)
                 return (actions.message(con, name, body) if body is not None
-                        else "nothing sent"), None
+                        else _nothing_sent("e" if label == "editor" else "m")), None
             if label in CONFIRM:
                 if not _confirm(f"{label} {name}", width, height):
                     return "left alone", None
