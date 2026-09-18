@@ -3535,16 +3535,16 @@ def test_top_acts_through_the_same_calls_the_daemon_makes(home: Path) -> None:
             "session_id": "sess-6", "pct_5h": 20}))
 
         check("top: a running agent may be closed, not woken",
-              actions.can(con, "backend", "close")
-              and not actions.can(con, "backend", "wake"))
+              actions.can(con, "backend", "close")[0]
+              and not actions.can(con, "backend", "wake")[0])
 
         said = actions.close(con, "backend")
         row = db.get_agent_state(con, "backend")
         check("top: closing from the screen is the daemon's own close",
               row["closed_at"] is not None and row["resume_session"] == "sess-6", said)
         check("top: and now it may be woken, not closed",
-              actions.can(con, "backend", "wake")
-              and not actions.can(con, "backend", "close"))
+              actions.can(con, "backend", "wake")[0]
+              and not actions.can(con, "backend", "close")[0])
 
         said = actions.wake(con, "backend")
         row = db.get_agent_state(con, "backend")
@@ -3593,17 +3593,17 @@ def test_top_acts_through_the_same_calls_the_daemon_makes(home: Path) -> None:
         # meant to read is gone with none of the counters unstall resets.
         db.set_agent_state(con, "backend", dmn.STALLED, detail="stalled")
         check("top: a stalled agent is offered unstall and nothing that hides it",
-              actions.can(con, "backend", "unstall")
-              and not actions.can(con, "backend", "park")
-              and not actions.can(con, "backend", "close")
-              and not actions.can(con, "backend", "fold"))
+              actions.can(con, "backend", "unstall")[0]
+              and not actions.can(con, "backend", "park")[0]
+              and not actions.can(con, "backend", "close")[0]
+              and not actions.can(con, "backend", "fold")[0])
         # A fold never types into the terminal, so a lost terminal does not
         # stand in its way - that agent is a likelier one to want folded.
         db.set_agent_state(con, "backend", dmn.IDLE, detail="cleared")
         db.set_terminal(con, "backend", None, None)
         check("top: folding is offered to an agent whose terminal is gone",
-              actions.can(con, "backend", "fold")
-              and not actions.can(con, "backend", "park"))
+              actions.can(con, "backend", "fold")[0]
+              and not actions.can(con, "backend", "park")[0])
         db.set_terminal(con, "backend", "term_x", "wt")
         db.set_agent_state(con, "backend", dmn.IDLE, detail="cleared")
 
@@ -3612,7 +3612,7 @@ def test_top_acts_through_the_same_calls_the_daemon_makes(home: Path) -> None:
         db.add_request(con, "reviewer", "backend", "look at this", None,
                        "peer", "async", None, 0, None)
         check("top: closing is not offered while work is waiting",
-              not actions.can(con, "backend", "close"))
+              not actions.can(con, "backend", "close")[0])
         con.execute("UPDATE requests SET state = 'done' WHERE target = 'backend'")
 
         # perform_handoff returns True for three things that are not a handoff.
@@ -3672,9 +3672,38 @@ def test_top_acts_through_the_same_calls_the_daemon_makes(home: Path) -> None:
         sessions_are("backend")
 
         check("top: an agent with a terminal is not offered a second one",
-              not actions.can(con, "backend", "start"))
+              not actions.can(con, "backend", "start")[0])
+        # A refusal that does not say why sends the reader to press it again,
+        # or to the wrong fix. Every no carries the row that said it.
+        for key in ("start", "close", "park", "wake", "unstall"):
+            allowed, why = actions.can(con, "backend", key)
+            check(f"top: a refused {key} says why",
+                  allowed or ("backend" in why and len(why) > 20), f"{allowed} {why}")
+
+        # And "it has nowhere to run" is not an answer to "take me to it": the
+        # agent with no terminal is the one a human is going there to fix.
         db.set_terminal(con, "backend", None, None)
-        check("top: one with none is", actions.can(con, "backend", "start"))
+        check("top: going to an agent is never refused",
+              actions.can(con, "backend", "terminal")[0])
+        went: list[str] = []
+        real_focus, real_spawn = orcamod.focus, spawnmod.spawn
+        try:
+            orcamod.focus = lambda h: (went.append(h), (True, ""))[1]
+            spawnmod.spawn = lambda agent, repo, base="main": (
+                db.set_terminal(db.connect(), agent, "term_new", str(repo)),
+                (True, f"{agent}: started in a new worktree"))[1]
+            said = actions.terminal(con, "backend", repo=str(home))
+            check("top: one with no terminal gets one, and then is gone to",
+                  went == ["term_new"] and "started" in said and "backend's terminal" in said,
+                  f"{went} {said}")
+            went.clear()
+            said = actions.terminal(con, "backend")
+            check("top: and one that already has a terminal is just gone to",
+                  went == ["term_new"] and "started" not in said, f"{went} {said}")
+        finally:
+            orcamod.focus, spawnmod.spawn = real_focus, real_spawn
+        db.set_terminal(con, "backend", None, None)
+        check("top: one with none is", actions.can(con, "backend", "start")[0])
         said = actions.start(con, "backend", repo=str(home))
         check("top: and starting it says why when it cannot",
               "orca" in said or "worktree" in said or "base" in said, said)

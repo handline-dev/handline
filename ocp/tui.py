@@ -817,18 +817,21 @@ def _in_detail(detail: dict, k: str, width: int, height: int,
         name = str(detail["key"])
         con = db.connect()
         try:
-            if not actions.can(con, name, label):
-                return detail, f"{name}: {label} does not apply right now"
+            allowed, why = actions.can(con, name, label)
+            if not allowed:
+                return detail, why
             if label == "message":
                 body = _line(f"message to {name}:", width, height)
                 return detail, (actions.message(con, name, body) if body is not None
                                 else "nothing sent")
-            if label == "start":
+            if label in ("start", "terminal") and _needs_a_terminal(con, name):
                 repo = _line(f"repo for {name} [{os.getcwd()}]:", width, height)
                 if repo is None:
                     return detail, "not started"
                 _say(f"starting {name}", width, height)
-                return detail, actions.start(con, name, repo.strip() or os.getcwd())
+                where = repo.strip() or os.getcwd()
+                return detail, (actions.start(con, name, where) if label == "start"
+                                else actions.terminal(con, name, where))
             if label in CONFIRM and not _confirm(f"{label} {name}", width, height):
                 return detail, "left alone"
             _say(f"{label} {name}", width, height)
@@ -931,6 +934,12 @@ def _say(what: str, width: int, height: int) -> None:
     sys.stdout.flush()
 
 
+def _needs_a_terminal(con, agent: str) -> bool:
+    """Is there nowhere for this agent to run? Then one has to be made first."""
+    row = db.get_agent_state(con, agent)
+    return not (row and row["terminal"])
+
+
 def _keys_of(panel: int) -> list:
     """What the cursor can sit on in a panel, read fresh each time.
 
@@ -997,14 +1006,22 @@ def _act(panel: int, sel: dict, key: str, width: int, height: int,
             label = dict(AGENT_KEYS).get(key)
             if not label:
                 return "", None
-            if not actions.can(con, name, label):
-                return f"{name}: {label} does not apply right now", None
-            if label == "start":
-                repo = _line(f"repo for {name} [{os.getcwd()}]:", width, height)
+            allowed, why = actions.can(con, name, label)
+            if not allowed:
+                return why, None
+            if label in ("start", "terminal") and _needs_a_terminal(con, name):
+                # Going to an agent that has nowhere to run means making it
+                # somewhere first, and the only thing that cannot be worked out
+                # from here is which repo.
+                asked = (f"repo for {name}" if label == "start"
+                         else f"{name} has nowhere to run - repo to start it in")
+                repo = _line(f"{asked} [{os.getcwd()}]:", width, height)
                 if repo is None:
                     return "not started", None
                 _say(f"starting {name}", width, height)
-                return actions.start(con, name, repo.strip() or os.getcwd()), None
+                where = repo.strip() or os.getcwd()
+                return (actions.start(con, name, where) if label == "start"
+                        else actions.terminal(con, name, where)), None
             if label == "message":
                 body = _line(f"message to {name}:", width, height)
                 return (actions.message(con, name, body) if body is not None
@@ -1016,8 +1033,9 @@ def _act(panel: int, sel: dict, key: str, width: int, height: int,
                 # takes, and the daemon ticks every two seconds: work can
                 # arrive and a turn can start inside that wait. What was true
                 # when the key was pressed is not what this acts on.
-                if not actions.can(con, name, label):
-                    return f"{name}: {label} no longer applies - it changed while you looked", None
+                allowed, why = actions.can(con, name, label)
+                if not allowed:
+                    return f"{why} - it changed while you looked", None
             _say(f"{label} {name}", width, height)
             return getattr(actions, label)(con, name), None
 
