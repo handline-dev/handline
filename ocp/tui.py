@@ -33,6 +33,7 @@ import tempfile
 import termios
 import time
 import tty
+import unicodedata
 from pathlib import Path
 
 from . import actions, agents, daemon, db, paths, status, triggers
@@ -54,9 +55,14 @@ STATE_COLOR = {
     "DEGRADED": RED, "STALLED": RED,
 }
 
-# The three panels a cursor can sit in, in tab order.
-ACCOUNTS, AGENTS, MESSAGES = 0, 1, 2
-PANEL_NAME = {ACCOUNTS: "accounts", AGENTS: "agents", MESSAGES: "messages"}
+# The panels a cursor can sit in, in tab order. STUCK is one of them because a
+# row there names the agent that is stuck, and the keys that unstick it are the
+# agent keys - pressing them where the problem is read beats finding the same
+# name again in the list above.
+ACCOUNTS, AGENTS, MESSAGES, STUCK = 0, 1, 2, 3
+PANELS = (ACCOUNTS, AGENTS, MESSAGES, STUCK)
+PANEL_NAME = {ACCOUNTS: "accounts", AGENTS: "agents", MESSAGES: "messages",
+              STUCK: "stuck"}
 
 # Keys, per panel. Anything that cannot be undone asks first; the rest happen
 # on the keypress, because a confirmation nobody reads is just a second key.
@@ -67,12 +73,26 @@ AGENT_KEYS = [
 ACCOUNT_KEYS = [("↵", "open"), ("l", "login")]
 MESSAGE_KEYS = [("↵", "read"), ("a", "answer"), ("e", "answer in $EDITOR"),
                 ("x", "dismiss")]
+# A stuck row is about an agent, so it answers to the agent keys.
+STUCK_KEYS = AGENT_KEYS
 CONFIRM = {"close", "park", "unstall", "fold"}
+
+
+def cwidth(ch: str) -> int:
+    """How many columns one character takes.
+
+    A Korean or Japanese glyph is drawn two columns wide, and counting it as
+    one put every box border a column short per glyph: a handoff written in
+    Korean tore the panel it was drawn in. Combining marks take none.
+    """
+    if unicodedata.combining(ch):
+        return 0
+    return 2 if unicodedata.east_asian_width(ch) in ("W", "F") else 1
 
 
 def vlen(s: str) -> int:
     """Visible width, ignoring the escape sequences."""
-    return len(_ANSI.sub("", s))
+    return sum(cwidth(c) for c in _ANSI.sub("", s))
 
 
 def fit(s: str, width: int) -> str:
@@ -87,10 +107,11 @@ def fit(s: str, width: int) -> str:
             out.append(m.group())
             i = m.end()
             continue
-        if seen >= width - 1:
+        w = cwidth(s[i])
+        if seen + w > width - 1:
             break
         out.append(s[i])
-        seen += 1
+        seen += w
         i += 1
     return "".join(out) + "…" + R
 
@@ -230,7 +251,8 @@ def keybar(panel: int, width: int, hidden: int = 0) -> str:
     first, since it is the same on every panel, then keys from the end - and
     says how many it dropped.
     """
-    keys = {ACCOUNTS: ACCOUNT_KEYS, AGENTS: AGENT_KEYS, MESSAGES: MESSAGE_KEYS}[panel]
+    keys = {ACCOUNTS: ACCOUNT_KEYS, AGENTS: AGENT_KEYS, MESSAGES: MESSAGE_KEYS,
+            STUCK: STUCK_KEYS}[panel]
     # A panel that is not drawn and a panel with nothing in it look the same to
     # a reader, so that notice is part of the head and is never what gets
     # dropped to make room.
@@ -400,10 +422,11 @@ def build(width: int, sel: dict | None = None,
         # Traffic drawn as traffic said the system was busy while it was stuck.
         blocked = actions.stuck(con)
         fl = Panel("STUCK" if blocked else "STUCK — nothing is waiting on anything", width)
-        for what, age_s, why in blocked:
-            fl.add(pad(f"{YEL}{what}{R}", 34)
-                   + pad(f"{DIM}{age(age_s) if age_s else ''}{R}", 7)
-                   + f"{DIM}{why}{R}")
+        fl.selected = sel.get(STUCK)
+        for b in blocked:
+            fl.add(pad(f"{YEL}{b['what']}{R}", 34)
+                   + pad(f"{DIM}{age(b['age']) if b['age'] else ''}{R}", 7)
+                   + f"{DIM}{b['why']}{R}", key=b["agent"])
 
         # ---- what was decided ------------------------------------------
         rows, hooks = actions.decisions(con, 40, everything=verbose)
@@ -420,6 +443,26 @@ def build(width: int, sel: dict | None = None,
         return header, [acc, ag, ms, fl, rc]
     finally:
         con.close()
+
+
+def page(title: str, sections: list[tuple[str, list[str]]], width: int,
+         panel: int = AGENTS, key: object = None) -> dict:
+    """A detail page laid out as the screen's own panels, not as a wall of text.
+
+    The sections are drawn once, here, into the lines the reader scrolls: what
+    is open has to be a list of lines for paging, and it should still look like
+    the screen it was opened from.
+    """
+    lines: list[str] = []
+    for heading, rows in sections:
+        if heading:
+            box = Panel(heading, width)
+            for r in rows:
+                box.add(r)
+            lines += box.draw()
+        else:
+            lines += [fit(r, width) for r in rows] + [""]
+    return opened(title, lines, panel, key)
 
 
 def opened(title: str, lines: list[str], panel: int = AGENTS, key: object = None) -> dict:
@@ -456,10 +499,12 @@ def frame(width: int, height: int, sel: dict | None = None, panel: int = AGENTS,
     return "\n".join(line + CLEAR_EOL for line in lines)
 
 
-# A panel that cannot have a border, one row and its other border says nothing
-# at all - and an empty box reads as "nothing here" while the thing it would
-# have shown is exactly what the reader is looking for.
-PANEL_MIN = 3
+# A panel that cannot have a border, one real row, its "… N more" marker and
+# its other border says nothing at all - and an empty box reads as "nothing
+# here" while the thing it would have shown is what the reader is looking for.
+# Three was not enough: the one row a panel got was overwritten by its own
+# marker, so the screen drew four boxes with no content between them.
+PANEL_MIN = 4
 
 
 def _layout(want: list[int], room: int) -> tuple[list[int | None], int]:
@@ -475,7 +520,9 @@ def _layout(want: list[int], room: int) -> tuple[list[int | None], int]:
     keep = len(want)
     while keep and keep * PANEL_MIN > room:
         keep -= 1
-    limits = [1 if i < keep else 0 for i in range(len(want))]
+    # Two rows each to begin with: one to say something, one for the marker
+    # that says how much is not being said.
+    limits = [2 if i < keep else 0 for i in range(len(want))]
     left = room - keep * PANEL_MIN
     while left > 0 and any(limits[i] < want[i] for i in range(keep)):
         for i in range(keep):
@@ -508,9 +555,18 @@ def wrap(lines: list[str], width: int) -> list[str]:
             out.append("")
             continue
         while vlen(line) > width:
-            cut = line.rfind(" ", 0, width + 1)
-            if cut <= 0:
-                cut = width
+            # Cut on width, not on characters: with wide glyphs the two are not
+            # the same number, and cutting on the second wraps a line that is
+            # already too long back onto itself.
+            room, cut = 0, 0
+            for i, ch in enumerate(line):
+                if room + cwidth(ch) > width:
+                    break
+                room += cwidth(ch)
+                cut = i + 1
+            space = line.rfind(" ", 0, cut + 1)
+            if space > 0:
+                cut = space
             out.append(line[:cut].rstrip())
             line = line[cut:].lstrip()
         out.append(line)
@@ -537,6 +593,9 @@ def _detail_frame(width: int, height: int, detail: dict, flash: str = "") -> str
     keys = "esc back · ↑↓ scroll · space page"
     if detail.get("panel") == MESSAGES:
         keys += " · a answer · e answer in $EDITOR · x dismiss"
+    elif detail.get("panel") in (AGENTS, STUCK):
+        keys += " · " + " · ".join(f"{k} {label}" for k, label in AGENT_KEYS
+                                   if label != "open")
     lines = ([fit(f"{BOLD}{detail['title']}{R}{where}", width), ""]
              + [fit(ln, width) for ln in shown]
              + [fit(flash, width) if flash else "", fit(f"{DIM}{keys} · q quit{R}", width)])
@@ -700,7 +759,7 @@ def run(interval: float = 2.0, once: bool = False) -> int:
                 continue
             flash = ""
             if k == "\t":
-                panel = (panel + 1) % 3
+                panel = (panel + 1) % len(PANELS)
                 continue
             if k in ("r", "R"):
                 continue
@@ -757,6 +816,39 @@ def _in_detail(detail: dict, k: str, width: int, height: int,
     if k == "G":
         detail["top"] = max(0, len(wrap(detail["lines"], width)) - room)
         return detail, ""
+    if detail.get("panel") in (AGENTS, STUCK):
+        # An agent's page is opened to decide something about that agent, and
+        # making the reader back out to the list to press the key is how a
+        # decision gets put off.
+        label = dict(AGENT_KEYS).get(k)
+        if not label or label == "open":
+            return detail, ""
+        name = str(detail["key"])
+        con = db.connect()
+        try:
+            if not actions.can(con, name, label):
+                return detail, f"{name}: {label} does not apply right now"
+            if label == "message":
+                body = _line(f"message to {name}:", width, height)
+                return detail, (actions.message(con, name, body) if body is not None
+                                else "nothing sent")
+            if label == "start":
+                repo = _line(f"repo for {name} [{os.getcwd()}]:", width, height)
+                if repo is None:
+                    return detail, "not started"
+                _say(f"starting {name}", width, height)
+                return detail, actions.start(con, name, repo.strip() or os.getcwd())
+            if label in CONFIRM and not _confirm(f"{label} {name}", width, height):
+                return detail, "left alone"
+            _say(f"{label} {name}", width, height)
+            said = getattr(actions, label)(con, name)
+            # What it says about itself has just changed.
+            fresh = page(detail["title"], actions.agent_detail(con, name), width,
+                         detail["panel"], name)
+            fresh["top"] = detail["top"]
+            return fresh, said
+        finally:
+            con.close()
     if detail.get("panel") != MESSAGES or k not in ("a", "e", "x"):
         return detail, ""
 
@@ -860,7 +952,15 @@ def _keys_of(panel: int) -> list:
         return paths.list_agents()
     con = db.connect()
     try:
-        return [m["id"] for m in actions.messages(con)]
+        if panel == MESSAGES:
+            return [m["id"] for m in actions.messages(con)]
+        # The rows about an account have no agent to act on, and a name that
+        # appears twice is one place to put the cursor, not two.
+        seen: list = []
+        for b in actions.stuck(con):
+            if b["agent"] and b["agent"] not in seen:
+                seen.append(b["agent"])
+        return seen
     finally:
         con.close()
 
@@ -883,8 +983,9 @@ def _act(panel: int, sel: dict, key: str, width: int, height: int,
     if panel == ACCOUNTS and key in ("\r", "\n"):
         con = db.connect()
         try:
-            return "", opened(f"account {target}", actions.account_detail(con, str(target)),
-                              ACCOUNTS, target)
+            return "", page(f"account {target}",
+                            actions.account_detail(con, str(target)), width,
+                            ACCOUNTS, target)
         finally:
             con.close()
     if panel == ACCOUNTS and key == "l":
@@ -895,11 +996,11 @@ def _act(panel: int, sel: dict, key: str, width: int, height: int,
 
     con = db.connect()
     try:
-        if panel == AGENTS:
+        if panel in (AGENTS, STUCK):
             name = str(target)
             if key in ("\r", "\n"):
-                return "", opened(f"agent {name}", actions.agent_detail(con, name),
-                                  AGENTS, name)
+                return "", page(f"agent {name}", actions.agent_detail(con, name),
+                                width, panel, name)
             label = dict(AGENT_KEYS).get(key)
             if not label:
                 return "", None

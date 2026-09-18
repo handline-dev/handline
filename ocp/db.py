@@ -43,7 +43,10 @@ CREATE TABLE IF NOT EXISTS requests (
   -- (A->B->A) can be seen inside one chain rather than guessed at from depth.
   chain_id    TEXT,
   state       TEXT    NOT NULL DEFAULT 'queued',
-  verdict     TEXT
+  verdict     TEXT,
+  -- When the requester was told this came back. Per row, because answering is
+  -- not monotonic in id: a high-water mark loses the answer that arrives late.
+  announced_at INTEGER
 );
 CREATE INDEX IF NOT EXISTS requests_target ON requests(target, state);
 CREATE INDEX IF NOT EXISTS requests_requester ON requests(requester, ts);
@@ -136,11 +139,40 @@ def _pre_schema_migrate(con) -> None:
         con.execute("DROP TABLE IF EXISTS handoff")
 
     request_cols = _cols(con, "requests")
+    if request_cols and "announced_at" not in request_cols:
+        con.execute("ALTER TABLE requests ADD COLUMN announced_at INTEGER")
+        # Everything already resolved was resolved before anything announced
+        # answers at all; announcing it now would type a wall of old verdicts
+        # at every agent the first time this runs.
+        con.execute("UPDATE requests SET announced_at = ? "
+                    "WHERE state IN ('done', 'rejected', 'denied')", (int(time.time()),))
     if request_cols and "chain_id" not in request_cols:
         con.execute("ALTER TABLE requests ADD COLUMN chain_id TEXT")
         # Existing rows keep their own id as their chain, which is what a
         # parentless request would have had anyway.
         con.execute("UPDATE requests SET chain_id = CAST(id AS TEXT) WHERE chain_id IS NULL")
+
+
+def unannounced_answers(con, agent: str) -> list:
+    """What this agent asked, that came back, that it has not been told about.
+
+    Marked per row rather than tracked with a cursor: a cursor works for
+    arrival, which happens in id order by construction, and not for answering,
+    which does not. Two answers out of order and the older one is behind the
+    high-water mark forever - which is the failure this whole path exists to
+    prevent, one layer down.
+    """
+    return con.execute(
+        "SELECT id, target, state, verdict FROM requests WHERE requester = ? "
+        "AND state IN ('done', 'rejected') AND announced_at IS NULL ORDER BY id",
+        (agent,),
+    ).fetchall()
+
+
+def mark_announced(con, ids: list[int]) -> None:
+    now = int(time.time())
+    con.executemany("UPDATE requests SET announced_at = ? WHERE id = ?",
+                    [(now, int(i)) for i in ids])
 
 
 def _add_missing_columns(con) -> None:

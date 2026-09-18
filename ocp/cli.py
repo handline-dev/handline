@@ -673,6 +673,10 @@ def cmd_read(args) -> int:
     `ocp inbox` shows a line each, cut to fit, and the only way to see the rest
     was to know where the raw JSON lives. An agent that cannot read the whole
     of what it was asked answers the half it could see.
+
+    Any agent can read any request, which was already true of the database and
+    of `ocp inbox`, `ocp digest` and `ocp handoff` - this makes it convenient
+    rather than new. Nothing typed into a request is private to two agents.
     """
     con = db.connect()
     try:

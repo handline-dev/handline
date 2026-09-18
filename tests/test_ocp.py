@@ -3690,15 +3690,108 @@ def test_an_answer_reaches_the_agent_that_asked(home: Path) -> None:
         check("answered: and it is not told twice",
               not dmn.deliver_answers(con, "backend", lambda _m: None) and not sent)
 
+        # Answering is not monotonic in id: two asks, the later one answered
+        # first. A high-water cursor put the earlier answer behind it forever,
+        # which is the hole this path exists to close, one layer down.
+        early = db.add_request(con, "backend", "reviewer", "the one it parked on",
+                               None, "peer", "async", None, 0, None)
+        late = db.add_request(con, "backend", "keeper", "a second question",
+                              None, "peer", "async", None, 0, None)
+        askmod.resolve(late, "keeper answers first")
+        dmn.deliver_answers(con, "backend", lambda _m: None)
+        sent.clear()
+        askmod.resolve(early, "and the one it was waiting for")
+        check("answered: an answer that comes back late is still delivered",
+              dmn.deliver_answers(con, "backend", lambda _m: None)
+              and "waiting for" in sent[-1], str(sent[-1:])[:120])
+
+        # A refusal is the answer that means do something else; a routing denial
+        # was refused before anything was sent and the agent already read it.
+        rejected = db.add_request(con, "backend", "reviewer", "may I?", None,
+                                  "peer", "async", None, 0, None)
+        askmod.resolve(rejected, "no, not this week", state="rejected")
+        denied = db.add_request(con, "backend", "nobody", "unroutable", None,
+                                "peer", "async", None, 0, None)
+        db.set_request_state(con, denied, "denied", "unknown target")
+        sent.clear()
+        dmn.deliver_answers(con, "backend", lambda _m: None)
+        check("answered: a refusal is delivered", "not this week" in sent[-1], sent[-1][:120])
+        check("answered: an ask routing refused is not typed back at it",
+              "unroutable" not in sent[-1] and "unknown target" not in sent[-1],
+              sent[-1][:160])
+
+        # Everything marked told has to have been said: the ones not shown in
+        # full are named, not counted.
+        for i in range(5):
+            rid_i = db.add_request(con, "backend", "reviewer", f"q{i}", None,
+                                   "peer", "async", None, 0, None)
+            askmod.resolve(rid_i, f"a{i}")
+        sent.clear()
+        dmn.deliver_answers(con, "backend", lambda _m: None)
+        unshown = [r["id"] for r in db.unannounced_answers(con, "backend")]
+        check("answered: nothing is marked told that was not named",
+              not unshown and "also answered: #" in sent[-1], sent[-1][:200])
+
         # The same gates as any other send: nothing is typed at a shell.
         rid2 = db.add_request(con, "backend", "reviewer", "and this?", None,
                               "peer", "async", None, 0, None)
         askmod.resolve(rid2, "no")
+        sent.clear()
         sessions_are()
         check("answered: an answer is not typed at a terminal with no session",
               not dmn.deliver_answers(con, "backend", lambda _m: None) and not sent)
     finally:
         (orcamod.available, orcamod.alive, orcamod.idle_now, orcamod.send) = real
+        con.close()
+
+
+def test_an_answer_wakes_the_agent_that_was_waiting_for_it(home: Path) -> None:
+    """An agent that asked something, parked on the reply and was then closed
+    is waiting on an answer, not on work - and resolving its request writes
+    QUEUED over the park and clears the wake_at that would have brought it
+    back. Nothing else in the system wakes an agent for an answer, so without
+    this it waits forever, and a restart does not rescue it."""
+    _daemon_home(home, 20)
+    con = db.connect()
+    sent: list[str] = []
+    real = (orcamod.available, orcamod.alive, orcamod.wait_idle, orcamod.send)
+    try:
+        orcamod.available = lambda: True
+        orcamod.live_terminals = lambda: {"term_x"}
+        orcamod.alive = lambda h: True
+        orcamod.wait_idle = lambda h, timeout_ms=0: True
+        orcamod.idle_now = lambda h: True
+        table = sessions_are()
+        orcamod.send = relaunching_send(sent, table)
+        db.set_terminal(con, "backend", "term_x", "wt")
+        (home / "agents" / "backend").mkdir(parents=True, exist_ok=True)
+        (home / "agents" / "backend" / "status.json").write_text(json.dumps({
+            "account": "alpha", "collected_at": int(time.time()),
+            "session_id": "sess-4", "pct_5h": 20}))
+
+        rid = db.add_request(con, "backend", "reviewer", "which way?", None,
+                             "peer", "async", None, 0, None)
+        db.set_closed(con, "backend", "sess-4")
+        db.set_agent_state(con, "backend", dmn.PARKED, wake_at=int(time.time()) + 3600,
+                           detail=f"awaiting reply to request {rid}")
+
+        askmod.resolve(rid, "this way, and here is why")
+        row = db.get_agent_state(con, "backend")
+        check("waiting: resolving leaves it closed, with no deadline left",
+              row["closed_at"] is not None and row["wake_at"] is None, str(dict(row)))
+
+        dmn.supervise(con, "backend", lambda _m: None, int(time.time()), {}, False, [])
+        check("waiting: the tick wakes it for the answer it asked for",
+              any("--resume sess-4" in t for t in sent), str(sent))
+        check("waiting: and it is no longer closed",
+              db.get_agent_state(con, "backend")["closed_at"] is None)
+
+        sent.clear()
+        dmn.supervise(con, "backend", lambda _m: None, int(time.time()), {}, False, [])
+        check("waiting: the next tick hands it the answer",
+              any("this way" in t for t in sent), str(sent)[:160])
+    finally:
+        (orcamod.available, orcamod.alive, orcamod.wait_idle, orcamod.send) = real
         con.close()
 
 
@@ -3826,7 +3919,7 @@ def test_the_panel_and_the_daemon_agree_about_what_is_in_the_way(home: Path) -> 
             con.execute("UPDATE requests SET ts = ?",
                         (int(time.time()) - (actions.STUCK_AFTER_S + 60 if age is None
                                              else age),))
-            said = [why for what, _, why in actions.stuck(con) if "→ backend" in what]
+            said = [b["why"] for b in actions.stuck(con) if "→ backend" in b["what"]]
             return dmn.deliver_queued(con, "backend", lambda _m: None), (said[0] if said else "")
 
         live = {"term_x"}, {"backend": 4242}
@@ -3892,21 +3985,21 @@ def test_the_screen_says_what_is_stuck_and_what_was_decided(home: Path) -> None:
 
         rows = actions.stuck(con)
         check("stuck: a request nobody can be told about is named with its age",
-              any("marina → backend" in what and age > actions.STUCK_AFTER_S
-                  for what, age, _ in rows), str(rows))
+              any("marina → backend" in b["what"] and b["age"] > actions.STUCK_AFTER_S
+                  for b in rows), str(rows))
         check("stuck: and with what is in the way, not just that it is late",
-              any("no terminal" in why for _, _, why in rows), str(rows))
+              any("no terminal" in b["why"] for b in rows), str(rows))
 
         # A request that just arrived is not stuck; it is about to be delivered.
         db.add_request(con, "marina", "backend", "and this", None,
                        "peer", "async", None, 0, None)
-        fresh = [w for w, _, _ in actions.stuck(con) if "and this" in w]
+        fresh = [b["what"] for b in actions.stuck(con) if "and this" in b["what"]]
         check("stuck: something that has just arrived is not called stuck", not fresh)
 
         db.set_terminal(con, "backend", "term_x", "wt")
         db.set_agent_state(con, "backend", dmn.STALLED, detail="by hand")
         check("stuck: a stalled agent is on the list with its reason",
-              any("backend is STALLED" in w for w, _, _ in actions.stuck(con)),
+              any("backend is STALLED" in b["what"] for b in actions.stuck(con)),
               str(actions.stuck(con)))
 
         # The reason has to be the daemon's reason, or the panel is a second
@@ -3919,14 +4012,14 @@ def test_the_screen_says_what_is_stuck_and_what_was_decided(home: Path) -> None:
             orcamod.live_terminals = lambda: {"term_x"}
             sessions_are()                       # the terminal is there, nobody is in it
             actions._WORLD["at"] = 0.0           # look again, not at the last look
-            why = dict((w, r) for w, _, r in actions.stuck(con))
+            why = dict((b["what"], b["why"]) for b in actions.stuck(con))
             check("stuck: a terminal with no session says so, not 'it is IDLE'",
                   any("no session is running" in r for r in why.values()), str(why))
 
             sessions_are("backend")
             orcamod.live_terminals = lambda: set()
             actions._WORLD["at"] = 0.0
-            why = [r for _, _, r in actions.stuck(con)]
+            why = [b["why"] for b in actions.stuck(con)]
             check("stuck: a terminal Orca no longer has says that",
                   any("terminal is gone" in r for r in why), str(why))
 
@@ -3939,11 +4032,11 @@ def test_the_screen_says_what_is_stuck_and_what_was_decided(home: Path) -> None:
             con.execute("UPDATE requests SET ts = ? WHERE target = 'backend'",
                         (int(time.time()) - 60,))
             check("stuck: a request the agent was just told about is not stuck",
-                  not [w for w, _, _ in actions.stuck(con) if "→ backend" in w],
+                  not [b for b in actions.stuck(con) if "→ backend" in b["what"]],
                   str(actions.stuck(con)))
             con.execute("UPDATE requests SET ts = ? WHERE target = 'backend'",
                         (int(time.time()) - actions.STUCK_AFTER_S - 60,))
-            told = [r for w, _, r in actions.stuck(con) if "→ backend" in w]
+            told = [b["why"] for b in actions.stuck(con) if "→ backend" in b["what"]]
             check("stuck: once it has outlasted that, it says it was told and not answered",
                   told and "told and has not answered" in told[0], str(told))
             check("stuck: and the threshold is the daemon's own, not a second number",
@@ -3966,8 +4059,15 @@ def test_the_screen_says_what_is_stuck_and_what_was_decided(home: Path) -> None:
                       sum(1 for t in titles if "STUCK" in t or "FOR YOU" in t) == 2,
                       str([t.strip()[:34] for t in titles]))
                 markers = [ln for ln in plain if "more" in ln]
-                check(f"stuck: and each shortened panel says so at {height} lines",
-                      len(markers) == 2, str(markers)[:140])
+                check(f"stuck: and every shortened panel says so at {height} lines",
+                      len(markers) >= 2, str(markers)[:140])
+                # A panel whose only row is its own "… N more" marker is the
+                # empty box the minimum exists to prevent.
+                rows = [ln for ln in plain if ln.startswith("│")]
+                said = [ln for ln in rows if ln.strip("│ ") and "more" not in ln]
+                check(f"stuck: every drawn panel says something at {height} lines",
+                      len(said) >= len([ln for ln in plain if ln.startswith("┌")]),
+                      f"{len(said)} rows of content in {len(plain)} lines")
             con.execute("DELETE FROM requests WHERE body LIKE 'flood%' "
                         "OR body LIKE 'pile%'")
             db.set_terminal(con, "backend", "term_x", "wt")
@@ -4089,6 +4189,19 @@ def test_a_message_is_read_whole_and_answered_where_it_is_read(home: Path) -> No
         # the width count, so it is never truncated - and `esc [ 2J` clears the
         # screen this is drawing.
         cleaned = tui.wrap(["\033[2J\033[Hpasted \033[31mtool output"], 40)
+        # A Korean handoff is the ordinary case here, and a glyph two columns
+        # wide counted as one column tore every box it was drawn in.
+        check("width: a wide glyph counts as the two columns it takes",
+              tui.vlen("진행중") == 6 and tui.vlen("abc") == 3, str(tui.vlen("진행중")))
+        check("width: fitting counts columns, so it never overflows",
+              tui.vlen(tui.fit("진행중 막힌 것 다음", 10)) <= 10,
+              repr(tui.fit("진행중 막힌 것 다음", 10)))
+        box = tui.Panel("한글", 40)
+        box.add("## 진행중")
+        drawn = box.draw()
+        check("width: and a box around it keeps its border straight",
+              {tui.vlen(ln) for ln in drawn} == {40}, str({tui.vlen(ln) for ln in drawn}))
+
         check("read: escapes in a body are text stripped, not commands drawn",
               "\033" not in "".join(cleaned) and "pasted tool output" in " ".join(cleaned),
               str(cleaned))
@@ -4134,7 +4247,11 @@ def test_a_message_is_read_whole_and_answered_where_it_is_read(home: Path) -> No
         foldmod.handoff_path("backend").parent.mkdir(parents=True, exist_ok=True)
         foldmod.handoff_path("backend").write_text(
             "\n".join(f"- line {i}" for i in range(30)))
-        shown = "\n".join(actions.agent_detail(con, "backend"))
+        shown = "\n".join(ln for _, rows in actions.agent_detail(con, "backend")
+                          for ln in rows)
+        check("read: the page is sections, not one wall of text",
+              [t for t, _ in actions.agent_detail(con, "backend") if t],
+              str([t for t, _ in actions.agent_detail(con, "backend")]))
         check("read: an opened agent shows its whole inbox",
               all(f"request {i}" in shown for i in range(9)), shown[:120])
         check("read: and its whole handoff", "- line 29" in shown, shown[-80:])
@@ -5086,6 +5203,7 @@ def main() -> int:
         run(lambda: test_the_screen_reads_keys_from_the_terminal_not_from_a_buffer())
         run(lambda: test_top_acts_through_the_same_calls_the_daemon_makes(Path(td) / 'topact'))
         run(lambda: test_an_answer_reaches_the_agent_that_asked(Path(td) / 'answered'))
+        run(lambda: test_an_answer_wakes_the_agent_that_was_waiting_for_it(Path(td) / 'waiting'))
         run(lambda: test_a_request_can_be_read_whole(Path(td) / 'readone'))
         run(lambda: test_only_one_thing_types_at_an_agent_at_a_time(Path(td) / 'locking'))
         run(lambda: test_the_panel_and_the_daemon_agree_about_what_is_in_the_way(Path(td) / 'topagree'))

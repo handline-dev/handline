@@ -241,7 +241,11 @@ def wait_for_session(agent: str, timeout_s: int) -> bool:
 
 
 def _reclaim_context(con, agent: str, log) -> tuple[bool, str]:
-    """Clear the agent's session so the handoff actually costs it its context."""
+    """Clear the agent's session so the handoff actually costs it its context.
+
+    Called only from inside `perform_handoff`, which already holds this agent's
+    terminal - taking it again here would fail rather than nest.
+    """
     handle = db.get_terminal(con, agent)
     if not handle:
         return False, ("no terminal recorded; start the agent with `ocp spawn` or "
@@ -250,12 +254,9 @@ def _reclaim_context(con, agent: str, log) -> tuple[bool, str]:
         return False, "orca is not on PATH"
     if not session_present(agent):
         return False, "no session process; not typing /clear at a shell prompt"
-    with lock.terminal(agent) as mine:
-        if not mine:
-            return False, "someone else is typing at this agent; not clearing"
-        ok, why = orca.clear_context(handle, timeout_ms=orca.IDLE_PROBE_MS)
-        log(f"  {agent}: {why}")
-        return ok, why
+    ok, why = orca.clear_context(handle, timeout_ms=orca.IDLE_PROBE_MS)
+    log(f"  {agent}: {why}")
+    return ok, why
 
 
 def deliver_queued(con, agent: str, log) -> bool:
@@ -316,14 +317,13 @@ def deliver_answers(con, agent: str, log) -> bool:
     answering an escalation on the screen, and the answer never reaching the
     agent it was for, is the same hole from the other end.
 
-    Told once, through the same cursor idea delivery uses: an answer is
-    announced when it is newer than the last one this agent was told about.
+    Told once, and marked on the row rather than counted off with a cursor: two
+    answers can come back in either order, and a high-water mark then loses the
+    older one for good. A refusal counts as an answer - it is the one that means
+    do something else - while a `denied` ask was refused by routing before
+    anything was sent, and the agent read that reason on its own terminal.
     """
-    cursor = db.get_cursor(con, f"answered:{agent}")
-    answered = con.execute(
-        "SELECT id, target, state, verdict FROM requests WHERE requester = ? "
-        "AND state IN ('done', 'denied') AND id > ? ORDER BY id", (agent, cursor),
-    ).fetchall()
+    answered = db.unannounced_answers(con, agent)
     if not answered:
         return False
     handle = db.get_terminal(con, agent)
@@ -333,21 +333,23 @@ def deliver_answers(con, agent: str, log) -> bool:
         return False
     if not orca.idle_now(handle):
         return False
-    newest = max(int(r["id"]) for r in answered)
+    shown, rest = answered[-3:], answered[:-3]
     lines = [f"#{r['id']} from {r['target']}: "
              f"{((r['verdict'] or '').splitlines() or [r['state']])[0][:160]}"
-             for r in answered[-3:]]
-    more = f" ({len(answered) - 3} older also answered)" if len(answered) > 3 else ""
+             for r in shown]
+    if rest:
+        # Named, not counted: every id that is marked told has to have been
+        # said, or this is the same silence with a number on it.
+        lines.append("also answered: " + ", ".join(f"#{r['id']}" for r in rest))
     with lock.terminal(agent) as mine:
         if not mine:
             return False
         ok, _ = orca.send(
-            handle,
-            "Answers to what you asked" + more + ":\n" + "\n".join(lines)
+            handle, "Answers to what you asked:\n" + "\n".join(lines)
             + "\nRead one whole with `ocp read <id>`. Carry on from here.")
     if ok:
-        db.set_cursor(con, f"answered:{agent}", newest)
-        db.add_event(con, agent, "answered", {"through": newest, "count": len(answered)})
+        db.mark_announced(con, [r["id"] for r in answered])
+        db.add_event(con, agent, "answered", {"count": len(answered)})
         log(f"  {agent}: told about {len(answered)} answer(s)")
     return ok
 
@@ -875,6 +877,21 @@ def perform_handoff(con, agent: str, trigger: triggers.Trigger, log,
                 f"not handing off")
             return True
 
+    with lock.terminal(agent) as mine:
+        if not mine:
+            # Before the fold, not after it. The clear comes at the end of this
+            # pipeline, and losing the terminal there meant the fold was paid
+            # for, the handoff was recorded done, and the context it exists to
+            # reclaim was still sitting in the agent. The trigger is a
+            # condition, so it fires again next tick.
+            log(f"  {agent}: {trigger.kind} fired but something else is typing at it "
+                f"- not handing off")
+            return True
+        return _perform_handoff(con, agent, trigger, log, use_model)
+
+
+def _perform_handoff(con, agent: str, trigger: triggers.Trigger, log,
+                     use_model: bool = True) -> bool:
     hid = uuid.uuid4().hex[:12]
     st = status.read(agents.account_of(agent)) if agent in paths.list_agents() else None
     cursor_from = db.get_cursor(con, f"fold:{agent}")
@@ -1004,9 +1021,16 @@ def supervise(con, agent: str, log, now: int, samples: dict,
     # memory it was saving: reviewer sat closed with two requests pending.
     if row and row["closed_at"]:
         waiting = db.queued_for(con, agent)
-        if waiting:
+        # An agent that asked something, parked on the answer and was then
+        # closed is waiting on a reply, not on work - and resolving its request
+        # writes QUEUED over the park and clears the wake_at that would have
+        # brought it back. Without this, nothing in the system ever wakes it.
+        answers = db.unannounced_answers(con, agent)
+        if waiting or answers:
             ok, why = wake_agent(con, agent, log)
-            actions.append(f"{agent}: woken for {len(waiting)} waiting request(s)"
+            what = (f"{len(waiting)} waiting request(s)" if waiting
+                    else f"{len(answers)} answer(s) it asked for")
+            actions.append(f"{agent}: woken for {what}"
                            if ok else f"{agent}: could not wake - {why}")
             if ok:
                 row = db.get_agent_state(con, agent)

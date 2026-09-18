@@ -8,6 +8,11 @@ starting, and lands either beside the new session or inside its input box,
 unsent. That is the one thing in this system two writers can spoil: everything
 else is written to the database, where sqlite settles the order.
 
+It does not nest. flock is held per open file description and this opens a
+fresh one each time, so a second acquire inside the first fails rather than
+nesting - quietly doing nothing, which is harder to find than a deadlock. A
+path that runs under another's lock says so where it is defined.
+
 Never waits. A tick that cannot have the lock leaves that agent alone and comes
 back in two seconds; a keypress that cannot have it says so and the human
 presses it again. Waiting would put the daemon's whole tick behind a human who

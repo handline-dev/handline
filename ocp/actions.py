@@ -246,7 +246,7 @@ def _world(ttl: int = WORLD_FRESH_S) -> tuple[dict | None, set | None]:
     return _WORLD["sessions"], _WORLD["handles"]
 
 
-def stuck(con) -> list[tuple[str, int, str]]:
+def stuck(con) -> list[dict]:
     """What is not moving, and what is in the way. (what, age_s, why)
 
     This is the panel that used to draw "in flight". Almost nothing ever is: a
@@ -261,11 +261,18 @@ def stuck(con) -> list[tuple[str, int, str]]:
     finding when it has outlasted the longest turn the daemon calls healthy.
     """
     now = int(time.time())
-    out: list[tuple[str, int, str]] = []
+    out: list[dict] = []
+
+    def add(what: str, age: int, why: str, agent: str | None = None) -> None:
+        # Every row that is about an agent carries which one, so the keys that
+        # fix it can be pressed where the problem is read rather than after
+        # finding the same name again in the list above.
+        out.append({"what": what, "age": age, "why": why, "agent": agent})
+
     for h in db.in_flight_handoffs(con):
         left = (h["deadline"] or now) - now
-        out.append((f"handoff {h['agent']} at '{h['step']}'", 0,
-                    f"deadline in {left}s" if left > 0 else "past its deadline"))
+        add(f"handoff {h['agent']} at '{h['step']}'", 0,
+            f"deadline in {left}s" if left > 0 else "past its deadline", h["agent"])
 
     queued = con.execute(
         "SELECT id, requester, target, ts FROM requests WHERE state = 'queued' "
@@ -283,29 +290,28 @@ def stuck(con) -> list[tuple[str, int, str]]:
                 continue
             told = db.get_cursor(con, f"notify:{r['target']}") >= int(r["id"])
             if told:
-                out.append((what, age, f"{r['target']} was told and has not answered"))
+                add(what, age, f"{r['target']} was told and has not answered", r["target"])
             else:
                 # Nothing structural is in the way and it still has not been
                 # told, which the checks above cannot explain: the idle probe
                 # never said yes - a permission prompt, a wedged TUI, a RUNNING
                 # its hooks never cleared - or the send itself failed. Silence
                 # here was the panel saying nothing is wrong for two days.
-                out.append((what, age, f"{r['target']} has not been told yet - if "
-                                       f"this stays, its idle probe or the send "
-                                       f"is failing"))
+                add(what, age, f"{r['target']} has not been told yet - if this stays, "
+                               f"its idle probe or the send is failing", r["target"])
             continue
         if self_clearing and age < STUCK_AFTER_S:
             continue
-        out.append((what, age, why))
+        add(what, age, why, r["target"])
 
     for row in db.all_agent_states(con):
         if row["state"] in (daemon.STALLED, daemon.DEGRADED):
-            out.append((f"{row['agent']} is {row['state']}",
-                        now - int(row["updated"]), row["detail"] or ""))
+            add(f"{row['agent']} is {row['state']}", now - int(row["updated"]),
+                row["detail"] or "", row["agent"])
     for acct in paths.list_accounts():
         allowed, why = status.read(acct).assignable()
         if not allowed:
-            out.append((f"account {acct} takes no work", 0, why))
+            add(f"account {acct} takes no work", 0, why)
     return out
 
 
@@ -393,67 +399,82 @@ def can(con, agent: str, key: str) -> bool:
     return True
 
 
-def agent_detail(con, agent: str) -> list[str]:
-    """Everything the screen shows about one agent when it is opened."""
-    out: list[str] = []
+def agent_detail(con, agent: str) -> list[tuple[str, list[str]]]:
+    """What is behind an agent's row, in sections a screen can draw.
+
+    Sections rather than lines: a page of run-together text is the thing a
+    reader skips, and the four questions asked here - what is it, what is
+    waiting for it, what does it know, what has it done - are four different
+    questions.
+    """
     row = db.get_agent_state(con, agent)
     try:
         cfg = agents.read(agent)
         acct = agents.account_of(agent)
     except Exception as e:  # noqa: BLE001
-        return [f"config error: {e}"]
+        return [("", [f"config error: {e}"])]
     st = status.read_for_agent(agent, acct)
-    out.append(f"account {acct}   model {cfg.get('model')}   "
-               f"effort {cfg.get('effort') or agents.DEFAULT_EFFORT}")
+    head = [f"account {acct}   model {cfg.get('model')}   "
+            f"effort {cfg.get('effort') or agents.DEFAULT_EFFORT}   "
+            f"ctx {'?' if st.ctx_pct is None else str(st.ctx_pct) + '%'}"]
     if row:
-        out.append(f"state {row['state']}   ctx {st.ctx_pct}%   "
-                   f"terminal {row['terminal'] or '-'}")
-        out.append(f"detail {row['detail'] or '-'}")
+        closed = "  ·closed" if row["closed_at"] else ""
+        head.append(f"state {row['state']}{closed}"
+                    + (f"   wakes {time.strftime('%H:%M', time.localtime(row['wake_at']))}"
+                       if row["wake_at"] else ""))
+        if row["detail"]:
+            head.append(row["detail"])
+        head.append(f"terminal {row['terminal'] or 'none'}")
+        if row["worktree"]:
+            head.append(f"worktree {worktree_path(row['worktree']) or row['worktree']}")
         if row["closed_at"]:
-            out.append(f"closed, resume {row['resume_session'] or 'unknown'}")
-    out.append("")
+            head.append(f"resumes session {row['resume_session'] or 'unknown'}")
+    sections = [("", head)]
+
     waiting = db.queued_for(con, agent)
-    out.append(f"inbox: {len(waiting)} waiting")
-    for r in waiting:
-        first = (r["body"] or "").splitlines()[0] if r["body"] else ""
-        out.append(f"  #{r['id']} from {r['requester']}: {first}")
-    out.append("")
+    sections.append((f"WAITING FOR IT ({len(waiting)})", [
+        f"#{r['id']} from {r['requester']}: "
+        f"{((r['body'] or '').splitlines() or [''])[0]}" for r in waiting
+    ] or ["nothing queued for it"]))
+
+    mine = db.unannounced_answers(con, agent)
+    if mine:
+        sections.append((f"ANSWERS IT HAS NOT BEEN TOLD ({len(mine)})", [
+            f"#{r['id']} from {r['target']}: "
+            f"{((r['verdict'] or '').splitlines() or [r['state']])[0]}" for r in mine]))
+
     hp = foldmod.handoff_path(agent)
-    if hp.exists():
-        out.append("handoff:")
-        out += ["  " + ln for ln in hp.read_text().splitlines()]
-    else:
-        out.append("handoff: none written")
-    out.append("")
-    out.append("recent:")
-    for e in con.execute(
-        "SELECT ts, kind, payload FROM events WHERE agent = ? ORDER BY id DESC LIMIT 10",
-        (agent,),
-    ).fetchall():
-        out.append(f"  {e['kind']:<20}{(e['payload'] or '')[:60]}")
-    return out
+    sections.append(("WHAT IT KNOWS",
+                     hp.read_text().splitlines() if hp.exists()
+                     else ["no handoff written - it has not been parked"]))
+
+    recent = [f"{time.strftime('%H:%M:%S', time.localtime(e['ts']))}  "
+              f"{e['kind']:<18}{(e['payload'] or '')[:60]}"
+              for e in con.execute(
+                  "SELECT ts, kind, payload FROM events WHERE agent = ? "
+                  "ORDER BY id DESC LIMIT 12", (agent,)).fetchall()]
+    sections.append(("WHAT IT HAS DONE", recent or ["nothing recorded yet"]))
+    return sections
 
 
-def account_detail(con, acct: str) -> list[str]:
-    """Everything the screen shows about one account when it is opened."""
+def account_detail(con, acct: str) -> list[tuple[str, list[str]]]:
+    """What is behind an account's row, in the same shape as an agent's."""
     st = status.read(acct)
     allowed, why = st.assignable()
-    out = [f"account {acct}",
-           f"login    {'logged in' if accounts.logged_in(acct) else 'NOT logged in'}",
-           f"config   {paths.account_claude(acct)}",
-           f"5h       {st.trusted_pct_5h}% ({st.pct_5h_source})   7d {st.pct_7d}%",
-           f"snapshot {'-' if st.age_s is None else str(int(st.age_s)) + 's old'}"
-           f"   session {st.session_id or '-'}",
-           f"assign   {'yes' if allowed else 'no'} - {why}",
-           ""]
+    head = [f"login    {'logged in' if accounts.logged_in(acct) else 'NOT logged in'}",
+            f"config   {paths.account_claude(acct)}",
+            f"5h       {st.trusted_pct_5h}% ({st.pct_5h_source})   7d {st.pct_7d}%",
+            f"snapshot {'-' if st.age_s is None else str(int(st.age_s)) + 's old'}"
+            f"   session {st.session_id or '-'}",
+            f"assign   {'yes' if allowed else 'no'} - {why}"]
     mine = [a for a in paths.list_agents() if _account_of(a) == acct]
-    out.append(f"agents on it: {', '.join(mine) or 'none'}")
+    rows = []
     for a in mine:
         row = db.get_agent_state(con, a)
-        if row:
-            closed = " ·closed" if row["closed_at"] else ""
-            out.append(f"  {a:<12}{row['state']}{closed}   {row['detail'] or ''}")
-    return out
+        closed = " ·closed" if row and row["closed_at"] else ""
+        rows.append(f"{a:<12}{(row['state'] if row else 'never started')}{closed}"
+                    f"   {(row['detail'] if row else '') or ''}")
+    return [("", head), (f"AGENTS ON IT ({len(mine)})", rows or ["none"])]
 
 
 def _account_of(agent: str) -> str | None:
