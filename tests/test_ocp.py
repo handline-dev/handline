@@ -15,6 +15,7 @@ import subprocess
 import sys
 import tempfile
 import time
+import traceback
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -7157,9 +7158,17 @@ def run(one) -> None:
     test after it - which is the bug class this suite exists to catch.
     Restoring here means no test can inherit another's world, whatever its
     own finally block remembers.
+
+    One test raising must not end the run: an uncaught error would stop
+    `main` before it printed a final count, and a short run that looks like
+    a clean pass is worse than a loud one.
     """
     restore_world()
-    one()
+    try:
+        one()
+    except Exception as e:
+        where = traceback.extract_tb(e.__traceback__)[-1].name
+        check(f"{where}: uncaught {type(e).__name__}: {e}", False)
 
 
 def main() -> int:
