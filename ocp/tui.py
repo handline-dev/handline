@@ -36,7 +36,7 @@ import tty
 import unicodedata
 from pathlib import Path
 
-from . import actions, agents, daemon, db, paths, status, triggers
+from . import accounts, actions, agents, daemon, db, paths, status, triggers
 
 ALT_ON, ALT_OFF = "\033[?1049h", "\033[?1049l"
 CUR_OFF, CUR_ON = "\033[?25l", "\033[?25h"
@@ -326,11 +326,10 @@ def build(width: int, sel: dict | None = None,
         acc.selected = sel.get(ACCOUNTS)
         acc.add(f"{DIM}{'':<2}{'account':<10}{'5h usage':<18}{'reset':<8}"
                 f"{'7d':<14}assign{R}", heading=True)
-        # Which one the next agent would actually be started on. The ✔ column
-        # says who *may* take work, which on a good day is everybody; the
-        # reader still had to compare two bars by eye to see where the headroom
-        # was. This is the daemon's own answer, drawn where the eye lands.
-        first, _why = status.pick_account()
+        # The account with the most headroom: where work goes when an agent's
+        # own account is full. Only accounts that can start a session count.
+        first, _why = status.pick_account(
+            [a for a in paths.list_accounts() if accounts.logged_in(a)])
         for name in paths.list_accounts():
             st = status.read(name)
             allowed, why = st.assignable()

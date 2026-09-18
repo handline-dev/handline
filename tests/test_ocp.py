@@ -3479,39 +3479,59 @@ def test_top_shows_what_is_waiting_on_the_human(home: Path) -> None:
 
 def test_the_screen_says_which_account_to_spend_next(home: Path) -> None:
     """The ✔ column says who *may* take work, which on a good day is everyone.
-    It never said where the headroom actually was, so the reader compared two
-    bars by eye and guessed - at the one decision the daemon already makes."""
+    It never said where the headroom was, so the reader compared two bars by
+    eye - at a decision the daemon already makes."""
     _daemon_home(home, 40)
     write_status(home, "beta", pct_5h=8, pct_7d=13, ctx_pct=5,
                  reset_5h=int(time.time()) + 1800)
     accounts.register("beta")
-    plain = [tui._ANSI.sub("", ln) for ln in tui.frame(120, 60).split(chr(10))]
-    rows = [ln for ln in plain if "alpha" in ln or "beta" in ln]
-    picked = [ln for ln in rows if ln.lstrip("│ ").startswith(">")]
-    check("accounts: the account with the most headroom is marked",
-          len(picked) == 1 and "beta" in picked[0], str(rows)[:200])
-    check("accounts: and it is the one an agent would actually start on",
-          status.pick_account()[0] == "beta")
+    real_login = accounts.logged_in
+    try:
+        def marked() -> list[str]:
+            plain = [tui._ANSI.sub("", ln) for ln in tui.frame(120, 60).split(chr(10))]
+            rows = [ln for ln in plain if "alpha" in ln or "beta" in ln]
+            return [ln for ln in rows if ln.lstrip("│ ").startswith(">")]
 
-    # Fail-closed: nothing assignable means no mark, not a guess. A ">" beside
-    # an account that would refuse the next agent is worse than no ">" at all.
-    write_status(home, "beta", pct_5h=99, pct_7d=99, ctx_pct=5,
-                 reset_5h=int(time.time()) + 1800)
-    write_status(home, "alpha", pct_5h=99, pct_7d=99, ctx_pct=5,
-                 reset_5h=int(time.time()) + 1800)
-    plain = [tui._ANSI.sub("", ln) for ln in tui.frame(120, 60).split(chr(10))]
-    rows = [ln for ln in plain if "alpha" in ln or "beta" in ln]
-    check("accounts: with nothing assignable, nothing is marked",
-          not [ln for ln in rows if ln.lstrip("│ ").startswith(">")], str(rows)[:200])
+        accounts.logged_in = lambda a: True  # noqa: E731 - keychain is not the subject
+        got = marked()
+        check("accounts: the account with the most headroom is marked",
+              len(got) == 1 and "beta" in got[0], str(got))
+
+        # An account nobody is logged into cannot start a session, however
+        # much room it has.
+        accounts.logged_in = lambda a: a != "beta"  # noqa: E731
+        got = marked()
+        check("accounts: never one that nobody is logged into",
+              len(got) == 1 and "alpha" in got[0], str(got))
+
+        # Fail-closed: nothing assignable means no mark, not a guess.
+        accounts.logged_in = lambda a: True  # noqa: E731
+        for a in ("alpha", "beta"):
+            write_status(home, a, pct_5h=99, pct_7d=99, ctx_pct=5,
+                         reset_5h=int(time.time()) + 1800)
+        check("accounts: with nothing assignable, nothing is marked", not marked())
+    finally:
+        accounts.logged_in = real_login
 
 
 def test_the_founder_does_not_approve_their_own_request(home: Path) -> None:
     """HR gates *agents*, and the founder is the thing on the other side of the
-    gate. Asked to propose, they got "who are you?" - the one person allowed to
-    change the roster could not use the tool that changes it. Worse, the first
-    agent could never be made: a proposal needs an agent to raise it."""
+    gate. Asked to propose, they got "an agent cannot ask itself" - the one
+    person allowed to change the roster could not use the tool that changes it,
+    and the first agent could never be made, since a proposal needs an agent to
+    raise it. Who is routed where is the whole risk: a shell that merely lost
+    OCP_AGENT must not be taken for the founder and hire at will."""
     _daemon_home(home, 20)
     con = db.connect()
+
+    class FakeStdin:
+        def __init__(self, tty: bool) -> None:
+            self.tty = tty
+
+        def isatty(self) -> bool:
+            return self.tty
+
+    real_env, real_stdin = os.environ.pop("OCP_AGENT", None), sys.stdin
     try:
         accounts.register("beta")
         (home / "team.yaml").write_text("""
@@ -3524,28 +3544,65 @@ edges:
   - { from: "human", to: "*", relation: supervisor, response: fire_and_forget }
 """)
         agents.register("marina", "beta")
+        hire = ["hr", "add", "dohyun", "--account", "beta", "--team", "dev",
+                "--model", "opus", "--effort", "high",
+                "--why", "a second pair of hands on the sea work"]
+
+        # A process with no identity and no terminal: an agent's tool shell,
+        # a hook, a cron job. It is nobody, and nobody hires.
+        sys.stdin = FakeStdin(False)
+        rc = climod.main(hire)
+        check("hr: a shell that lost its identity is refused, not taken for the founder",
+              rc != 0 and "dohyun" not in paths.list_agents()
+              and not hr.listing(), str(rc))
+
+        # An agent proposes; nothing changes until the founder answers.
+        os.environ["OCP_AGENT"] = "marina"
         before = len(actions.messages(con))
-        ok, said = hr.enact("add", "dohyun", why="a second pair of hands on the sea work",
-                            account="beta", team_name="dev", model="opus", effort="high")
+        rc = climod.main(hire)
+        check("hr: an agent's request is a proposal, and changes nothing",
+              rc == 0 and "dohyun" not in paths.list_agents()
+              and len(actions.messages(con)) == before + 1, str(rc))
+        del os.environ["OCP_AGENT"]
+        for p_ in hr.listing():
+            hr.path_of(p_["id"]).unlink()
+
+        # The founder, at their own prompt.
+        sys.stdin = FakeStdin(True)
+        before = len(actions.messages(con))
+        rc = climod.main(hire)
         check("hr: the founder's own change lands without a proposal to approve",
-              ok and "dohyun" in paths.list_agents(), said)
+              rc == 0 and "dohyun" in paths.list_agents(), str(rc))
         check("hr: and raises nothing to themselves",
-              len(actions.messages(con)) == before, said)
+              len(actions.messages(con)) == before)
         cfg = yamlcompat.load(agents.agent_file("dohyun").read_text())
         check("hr: with the model and the effort it was hired at",
               cfg.get("model") == "opus" and cfg.get("effort") == "high", str(cfg))
         applied = [p_ for p_ in hr.listing() if p_["agent"] == "dohyun"]
-        check("hr: the record is still a file - a roster change nobody can audit "
-              "is the one kind there must not be",
+        check("hr: and the record is still a file",
               len(applied) == 1 and applied[0]["state"] == "applied"
               and applied[0]["requested_by"] == "human", str(applied))
 
-        # The checks are the same ones an agent's proposal gets.
+        # A change that fails halfway is recorded as having failed, and leaves
+        # no agent the routing table does not know.
+        (home / "team.yaml").write_text("teams:\n  dev: [marina]\n")
+        ok, said = hr.enact("add", "halfborn", why="w", account="beta", team_name="dev")
+        rec = [p_ for p_ in hr.listing() if p_["agent"] == "halfborn"]
+        check("hr: a refused edit registers nobody",
+              not ok and "halfborn" not in paths.list_agents(), said)
+        check("hr: and says so in the record",
+              len(rec) == 1 and rec[0]["state"] == "failed", str(rec))
+
         check("hr: and the founder is refused the same nonsense an agent is",
               not hr.enact("add", "x", why="w", account="nope")[0]
               and not hr.enact("retire", "nobody", why="w")[0]
-              and not hr.enact("add", "y", why="", account="beta")[0])
+              and not hr.enact("add", "y", why="", account="beta")[0]
+              and not hr.enact("add", "z", why="w", account="beta", effort="ultra")[0])
     finally:
+        sys.stdin = real_stdin
+        os.environ.pop("OCP_AGENT", None)
+        if real_env is not None:
+            os.environ["OCP_AGENT"] = real_env
         con.close()
 
 

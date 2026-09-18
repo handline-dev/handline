@@ -638,12 +638,14 @@ def cmd_hr(args) -> int:
         ok, said = hr.apply(args.id)
         print(said)
         return 0 if ok else 1
+    if not me:
+        print(_who_refusal("propos"))
+        return 1
     kw = dict(why=args.why, account=args.account, team_name=args.team,
               repo=args.repo, model=args.model, to=getattr(args, "to", None),
-              effort=getattr(args, "effort", None))
-    # No OCP_AGENT means the founder is typing this, and the founder is the
-    # approval. Proposing it to themselves would be a form to fill in twice.
-    if not me:
+              effort=args.effort)
+    # The founder is the approval, so their own change is made, not proposed.
+    if me == askmod.HUMAN:
         ok, said = hr.enact(args.hr_cmd, args.name, **kw)
     else:
         ok, said = hr.propose(args.hr_cmd, args.name, requester=me, **kw)

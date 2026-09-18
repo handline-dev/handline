@@ -97,6 +97,8 @@ def _draft(kind: str, name: str, requester: str, why: str, account: str | None,
             return {}, "a rename needs a new name (--to)"
         if to in registered:
             return {}, f"{to} is already an agent"
+    if effort and effort not in agents.VALID_EFFORT:
+        return {}, f"effort must be one of {', '.join(agents.VALID_EFFORT)}"
     if kind == "add":
         if not account:
             return {}, "an added agent needs an account (--account)"
@@ -149,19 +151,24 @@ def enact(kind: str, name: str, why: str, account: str | None = None,
     typed is ceremony, and it is also the only way to make the first agent -
     a proposal needs an agent to raise it, and an empty roster has none.
 
-    The file is still written. A roster change that left no record would be the
-    one kind of change nobody could audit.
+    The file is written before anything changes, as a proposal's is, so a
+    change that fails halfway still leaves a record of what was attempted.
     """
     prop, err = _draft(kind, name, "human", why, account, team_name, repo, model,
                        to, effort)
     if err:
         return False, err
+    prop["state"] = "enacting"
+    save(prop)
     own = con is None
     con = con or db.connect()
     try:
         doer = {"add": _add, "retire": _retire, "rename": _rename}[kind]
         ok, said = doer(prop, con) if kind == "rename" else doer(prop)
         if not ok:
+            prop["state"] = "failed"
+            prop["error"] = said
+            save(prop)
             return False, said
         prop["state"] = "applied"
         prop["applied"] = int(time.time())
@@ -257,13 +264,15 @@ def _when(ts) -> str:
 
 def _add(prop: dict) -> tuple[bool, str]:
     name = prop["agent"]
+    # The table first: it is the write that can be refused, and a refusal after
+    # the folder exists leaves an agent nothing routes to.
+    ok, said = _in_team_yaml(name, prop.get("team"), add=True)
+    if not ok:
+        return False, said
     agents.register(name, prop["account"], model=prop.get("model"),
                     effort=prop.get("effort"), repo=prop.get("repo"),
                     role=f"Added on {_when(prop.get('created'))} at "
                          f"{prop['requested_by']}'s request: {prop['why']}")
-    ok, said = _in_team_yaml(name, prop.get("team"), add=True)
-    if not ok:
-        return False, said
     return True, (f"{name} is an agent: account {prop['account']}"
                   + (f", team {prop['team']}" if prop.get("team") else "")
                   + f". {said}")
