@@ -858,22 +858,9 @@ def run(interval: float = 2.0, once: bool = False) -> int:
                     flash = f"{RED}{type(e).__name__}: {e}{R}"
                 continue
             flash = ""
-            if k in ("\t", "\033[C", "\033OC"):
-                panel = _enter((panel + 1) % len(PANELS), sel)
-                continue
-            if k in ("\033[Z", "\033[D", "\033OD"):
-                # shift-tab and the left arrow, so the panels can be walked
-                # both ways: tab alone means starting the lap again to get back
-                # one.
-                panel = _enter((panel - 1) % len(PANELS), sel)
-                continue
-            if k in ("r", "R"):
-                continue
-            if k in ("j", "\033[B", "\033OB"):
-                sel[panel] = move(_keys_of(panel), sel.get(panel), 1)
-                continue
-            if k in ("k", "\033[A", "\033OA"):
-                sel[panel] = move(_keys_of(panel), sel.get(panel), -1)
+            moved = navigate(panel, sel, k)
+            if moved is not None:
+                panel = moved
                 continue
             try:
                 flash, detail = _act(panel, sel, k, width, height, fd, saved)
@@ -1066,6 +1053,36 @@ def _say(what: str, width: int, height: int) -> None:
         return                      # no screen to put it on
     sys.stdout.write(f"\033[{height};1H" + CLEAR_EOL + fit(f"{DIM}{what}…{R}", width))
     sys.stdout.flush()
+
+
+# Keys that move the cursor rather than act on what it is on. One function
+# because the loop and the tests have to press the same keys: a `step` that was
+# right and a loop that still called the old `move` is how ↓ stopped at the
+# bottom of a panel and left the cursor nowhere.
+NEXT_PANEL = ("\t", "\033[C", "\033OC")
+PREV_PANEL = ("\033[Z", "\033[D", "\033OD")
+NEXT_ROW = ("j", "\033[B", "\033OB")
+PREV_ROW = ("k", "\033[A", "\033OA")
+
+
+def navigate(panel: int, sel: dict, k: str) -> int | None:
+    """Where this keypress leaves the cursor, or None if it was not a move.
+
+    ←→ and tab jump a whole panel; ↑↓ walk the screen and cross into the next
+    panel at the end of one. `r` is a move of zero: it asks for a redraw, which
+    happens anyway, and it must not fall through to the actions.
+    """
+    if k in NEXT_PANEL:
+        return _enter((panel + 1) % len(PANELS), sel)
+    if k in PREV_PANEL:
+        return _enter((panel - 1) % len(PANELS), sel)
+    if k in NEXT_ROW:
+        return step(panel, sel, 1)
+    if k in PREV_ROW:
+        return step(panel, sel, -1)
+    if k in ("r", "R"):
+        return panel
+    return None
 
 
 def _enter(panel: int, sel: dict) -> int:
