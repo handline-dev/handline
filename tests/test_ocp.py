@@ -3498,6 +3498,33 @@ def test_top_shows_what_is_waiting_on_the_human(home: Path) -> None:
         con.close()
 
 
+def test_a_long_name_does_not_run_into_the_column_beside_it(home: Path) -> None:
+    """Every table pads the agent name to a fixed width, and the roster is the
+    thing that grows: `orcapipe-manager` ran straight into the state beside
+    it on three of them."""
+    _daemon_home(home, 20)
+    agents.register("orcapipe-manager", "alpha")
+    (home / "team.yaml").write_text("""
+teams:
+  dev: [backend]
+agents:
+  orcapipe-manager: { intake: dedicated }
+  backend:          { intake: dedicated }
+edges:
+  - { from: "orcapipe-manager", to: "dev.*", relation: supervisor, response: fire_and_forget }
+  - { from: "*", to: "human", kind: escalate, creates_gate: true }
+  - { from: "human", to: "*", relation: supervisor, response: fire_and_forget }
+""")
+    for argv in (["ps"], ["triggers"], ["team", "--agent", "orcapipe-manager"]):
+        out = _capture(lambda: climod.main(argv))
+        # Only the table rows: a sentence may well end on the name.
+        bad = [ln for ln in out.splitlines()
+               if "orcapipe-manager" in ln and "orcapipe-manager " not in ln
+               and not ln.rstrip().endswith("orcapipe-manager")]
+        check(f"columns: `ocp {argv[0]}` leaves a space after the longest name",
+              not bad, str(bad))
+
+
 def test_the_screen_says_which_account_to_spend_next(home: Path) -> None:
     """The ✔ column says who *may* take work, which on a good day is everyone.
     It never said where the headroom was, so the reader compared two bars by
@@ -6329,6 +6356,7 @@ def main() -> int:
         run(lambda: test_growing_the_team_needs_a_person(Path(td) / 'hr'))
         run(lambda: test_the_founder_does_not_approve_their_own_request(Path(td) / 'hrself'))
         run(lambda: test_the_screen_says_which_account_to_spend_next(Path(td) / 'nextacct'))
+        run(lambda: test_a_long_name_does_not_run_into_the_column_beside_it(Path(td) / 'cols'))
         run(lambda: test_the_whole_loop_runs_on_our_own_commands(Path(td) / 'loop'))
         run(lambda: test_an_agent_can_put_another_one_to_work(Path(td) / 'dispatch'))
         run(lambda: test_an_agent_at_the_wall_moves_to_an_account_with_room(Path(td) / 'moveacct'))
