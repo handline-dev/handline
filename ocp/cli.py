@@ -349,9 +349,7 @@ def cmd_daemon_status(args) -> int:
         if not rows:
             print("no agent state recorded yet")
         else:
-            # Wide enough for the longest name there is: a column sized to a
-            # guess runs "orcapipe-manager" straight into the state beside it.
-            w = max(14, max(len(r["agent"]) for r in rows) + 2)
+            w = _name_col([r["agent"] for r in rows], 14)
             print(f"\n{'AGENT':<{w}}{'STATE':<11}{'WAKE':<8}{'fail':>5}{'cont':>6}{'thr':>5}  DETAIL")
             now = int(time.time())
             for r in rows:
@@ -427,9 +425,16 @@ def cmd_unstall(args) -> int:
     return 0
 
 
+def _name_col(names, least: int = 12) -> int:
+    """How wide a column of agent names has to be. Sized to the names there
+    are: a fixed width ran `orcapipe-manager` into the column beside it."""
+    return max(least, max((len(str(n)) for n in names), default=0) + 2)
+
+
 def cmd_triggers(args) -> int:
     """Show what the daemon would decide right now, without acting."""
-    print(f"{'AGENT':<14}{'ACCT':<10}{'5h':>5}{'ctx':>5}  FIRES  REASON")
+    w = _name_col(paths.list_agents(), 14)
+    print(f"{'AGENT':<{w}}{'ACCT':<10}{'5h':>5}{'ctx':>5}  FIRES  REASON")
     con = db.connect()
     try:
         for a in paths.list_agents():
@@ -441,7 +446,7 @@ def cmd_triggers(args) -> int:
                 # nothing: the dashboard arguing with the daemon.
                 acct = agents.current_account(a, con)
             except Exception as e:  # noqa: BLE001
-                print(f"{a:<14} config error: {e}")
+                print(f"{a:<{w}} config error: {e}")
                 continue
             st = status.read_for_agent(a, acct)
             t = triggers.evaluate(st.trusted_pct_5h, st.trusted_ctx_pct)
@@ -453,7 +458,7 @@ def cmd_triggers(args) -> int:
                 fires, reason = "YES" if t.fired else "no ", t.reason
             else:
                 fires, reason = "no ", "session closed; nothing to hand off"
-            print(f"{a:<14}{acct:<10}{five:>5}{cell(st.ctx_pct):>5}  "
+            print(f"{a:<{w}}{acct:<10}{five:>5}{cell(st.ctx_pct):>5}  "
                   f"{fires:<6} {reason}")
     finally:
         con.close()
@@ -634,7 +639,8 @@ def cmd_hr(args) -> int:
             print("no proposals")
             return 0
         for p_ in rows:
-            print(f"{p_['id']}  {p_['kind']:<7}{p_['agent']:<12}{p_.get('state', '?'):<10}"
+            print(f"{p_['id']}  {p_['kind']:<7}{p_['agent']:<{_name_col([r['agent'] for r in rows])}}"
+                  f"{p_.get('state', '?'):<10}"
                   f"#{p_.get('request', '-')}  by {p_.get('requested_by', '?')}")
         return 0
     if args.hr_cmd == "apply":
@@ -677,18 +683,19 @@ def cmd_org(args) -> int:
         # Supervisors before their reports: `--parent` needs the parent task to
         # exist, and a tree built child-first is a list.
         order = [name for name, _depth in actions.agent_tree()]
+        w = _name_col(order)
         for name in order:
             row = db.get_agent_state(con, name)
             handle = row["terminal"] if row else None
             if not handle:
-                print(f"  {name:<12} no terminal - nothing to register")
+                print(f"  {name:<{w}} no terminal - nothing to register")
                 continue
             if not orca.alive(handle):
-                print(f"  {name:<12} terminal {handle} is gone")
+                print(f"  {name:<{w}} terminal {handle} is gone")
                 continue
             got = spawnmod.register_worker(con, name, handle)
             fresh = db.get_agent_state(con, name)
-            print(f"  {name:<12} task {(fresh['task'] if fresh else None) or '-'}"
+            print(f"  {name:<{w}} task {(fresh['task'] if fresh else None) or '-'}"
                   + (f" dispatch {got}" if got else " (not dispatched)"))
         return 0
     finally:
@@ -725,11 +732,12 @@ def cmd_team(args) -> int:
                 mine.append((other, _in_your_words(out.relation), _doing(con, other)))
             if back.allowed:
                 theirs.append((other, _in_your_words(back.relation, sending=False)))
+        w = _name_col([n for n, _r, _d in mine] + [n for n, _r in theirs])
         print(f"you are {me}")
         if mine:
             print("\nyou may ask:")
             for name, rel, doing in mine:
-                print(f"  {name:<12}{rel:<12}{doing}")
+                print(f"  {name:<{w}}{rel:<12}{doing}")
         else:
             print("\nthere is nobody you may ask.")
         if theirs:
