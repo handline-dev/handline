@@ -86,6 +86,79 @@ def send(handle: str, text: str, enter: bool = True) -> tuple[bool, str]:
     return _run(args)
 
 
+def _result(out: str, *path: str):
+    """Dig one value out of an `--json` reply, or None."""
+    try:
+        node = json.loads(out).get("result", {})
+    except (json.JSONDecodeError, TypeError):
+        return None
+    for key in path:
+        if not isinstance(node, dict):
+            return None
+        node = node.get(key)
+    return node
+
+
+def run_create(objective: str) -> str | None:
+    """Start an orchestration Run - the card a team's work hangs under.
+
+    It also *binds* the calling terminal to that Run, which is why this is
+    called once and remembered: calling it again makes a second card with the
+    same name and moves the binding to it, and a team split across two cards
+    is a tree that draws half of itself.
+    """
+    ok, out = _run(["orchestration", "run-create", "--objective", objective, "--json"])
+    if not ok:
+        return None
+    return _result(out, "run", "id") or _result(out, "id")
+
+
+def run_current() -> str | None:
+    """The Run this terminal is already bound to, if any."""
+    ok, out = _run(["orchestration", "run-current", "--json"])
+    return _result(out, "run", "id") if ok else None
+
+
+def run_exists(run: str) -> bool:
+    """Is this Run still there? `--id`, not `--run`: the flag differs per verb,
+    and reading the wrong one as "gone" made a new Run for every agent."""
+    ok, out = _run(["orchestration", "run-show", "--id", run, "--json"])
+    return ok and bool(_result(out, "run", "id"))
+
+
+def run_use(run: str) -> bool:
+    """Bind this terminal to an existing Run, so tasks land in the team's card."""
+    ok, _out = _run(["orchestration", "run-use", "--id", run, "--json"])
+    return ok
+
+
+def task_create(spec: str, title: str, display_name: str, run: str,
+                parent: str | None = None) -> str | None:
+    """A task in the Run, optionally under another - this is the tree Orca draws."""
+    args = ["orchestration", "task-create", "--spec", spec, "--task-title", title,
+            "--display-name", display_name, "--run", run, "--json"]
+    if parent:
+        args += ["--parent", parent]
+    ok, out = _run(args)
+    if not ok:
+        return None
+    return _result(out, "task", "id") or _result(out, "id")
+
+
+def dispatch(task: str, handle: str, run: str) -> str | None:
+    """Bind a task to a terminal, which is what makes it a worker in the card.
+
+    No `--inject`: the terminal is already running `ocp launch`, and the spec
+    is metadata for the card rather than an instruction for the agent. Orca
+    injecting it too would deliver the same thing twice.
+    """
+    ok, out = _run(["orchestration", "dispatch", "--task", task, "--to", handle,
+                    "--run", run, "--json"])
+    if not ok:
+        return None
+    return _result(out, "dispatch", "id") or _result(out, "dispatchId") or task
+
+
 def focus(handle: str) -> tuple[bool, str]:
     """Bring this terminal's tab to the front in the Orca window.
 

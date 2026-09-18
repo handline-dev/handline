@@ -3764,9 +3764,13 @@ def test_an_answer_reaches_the_agent_that_asked(home: Path) -> None:
         check("answered: nothing is announced while it is still open",
               not dmn.deliver_answers(con, "backend", lambda _m: None) and not sent)
 
+        # Resolving is reporting: the answer goes to whoever asked as part of
+        # the same command, and the tick is the safety net rather than the only
+        # path. So by the time resolve returns there is nothing left to deliver.
         askmod.resolve(rid, "ship it, with the one nit fixed")
         check("answered: once it comes back, the agent is told",
-              dmn.deliver_answers(con, "backend", lambda _m: None), str(sent))
+              sent and not dmn.deliver_answers(con, "backend", lambda _m: None),
+              str(sent))
         check("answered: with who answered and what they said",
               "reviewer" in sent[-1] and "ship it" in sent[-1], sent[-1][:120])
         # Only when there is more than it was shown. A two-word verdict with an
@@ -3797,30 +3801,34 @@ def test_an_answer_reaches_the_agent_that_asked(home: Path) -> None:
         sent.clear()
         askmod.resolve(early, "and the one it was waiting for")
         check("answered: an answer that comes back late is still delivered",
-              dmn.deliver_answers(con, "backend", lambda _m: None)
-              and "waiting for" in sent[-1], str(sent[-1:])[:120])
+              sent and "waiting for" in sent[-1], str(sent[-1:])[:120])
 
         # A refusal is the answer that means do something else; a routing denial
         # was refused before anything was sent and the agent already read it.
         rejected = db.add_request(con, "backend", "reviewer", "may I?", None,
                                   "peer", "async", None, 0, None)
+        sent.clear()
         askmod.resolve(rejected, "no, not this week", state="rejected")
+        check("answered: a refusal is delivered", sent and "not this week" in sent[-1],
+              str(sent[-1:])[:120])
         denied = db.add_request(con, "backend", "nobody", "unroutable", None,
                                 "peer", "async", None, 0, None)
         db.set_request_state(con, denied, "denied", "unknown target")
-        sent.clear()
         dmn.deliver_answers(con, "backend", lambda _m: None)
-        check("answered: a refusal is delivered", "not this week" in sent[-1], sent[-1][:120])
         check("answered: an ask routing refused is not typed back at it",
               "unroutable" not in sent[-1] and "unknown target" not in sent[-1],
               sent[-1][:160])
 
         # Everything marked told has to have been said: the ones not shown in
-        # full are named, not counted.
+        # full are named, not counted. They pile up while the agent cannot be
+        # reached - resolving delivers its own answer when it can - so this is
+        # the tick catching up after a session was away.
+        sessions_are()
         for i in range(5):
             rid_i = db.add_request(con, "backend", "reviewer", f"q{i}", None,
                                    "peer", "async", None, 0, None)
             askmod.resolve(rid_i, f"a{i}")
+        sessions_are("backend")
         sent.clear()
         dmn.deliver_answers(con, "backend", lambda _m: None)
         unshown = [r["id"] for r in db.unannounced_answers(con, "backend")]
@@ -3870,7 +3878,12 @@ def test_an_answer_wakes_the_agent_that_was_waiting_for_it(home: Path) -> None:
         db.set_agent_state(con, "backend", dmn.PARKED, wake_at=int(time.time()) + 3600,
                            detail=f"awaiting reply to request {rid}")
 
+        # Resolving hands the answer over itself when it can reach the agent.
+        # Here it cannot - Orca has lost the terminal - which is the world this
+        # test is about: the park is written off and nothing has been told.
+        orcamod.alive = lambda h: False
         askmod.resolve(rid, "this way, and here is why")
+        orcamod.alive = lambda h: True
         row = db.get_agent_state(con, "backend")
         check("waiting: resolving leaves it closed, with no deadline left",
               row["closed_at"] is not None and row["wake_at"] is None, str(dict(row)))
@@ -3885,6 +3898,15 @@ def test_an_answer_wakes_the_agent_that_was_waiting_for_it(home: Path) -> None:
         dmn.supervise(con, "backend", lambda _m: None, int(time.time()), {}, False, [])
         check("waiting: the next tick hands it the answer",
               any("this way" in t for t in sent), str(sent)[:160])
+
+        # And when it can be reached, resolving is the delivery: the answer
+        # does not wait for a tick that may be two seconds or a restart away.
+        sent.clear()
+        second = db.add_request(con, "backend", "reviewer", "and after that?", None,
+                                "peer", "async", None, 0, None)
+        askmod.resolve(second, "then the other thing")
+        check("waiting: an agent that can be reached is told by the resolve itself",
+              any("then the other thing" in t for t in sent), str(sent)[:160])
     finally:
         (orcamod.available, orcamod.alive, orcamod.wait_idle, orcamod.send) = real
         con.close()
@@ -3971,6 +3993,81 @@ def test_only_one_thing_types_at_an_agent_at_a_time(home: Path) -> None:
               ok and any("--resume sess-1" in t for t in sent), f"{why} {sent}")
     finally:
         (orcamod.available, orcamod.alive, orcamod.wait_idle, orcamod.send) = real
+        con.close()
+
+
+def test_the_whole_loop_runs_on_our_own_commands(home: Path) -> None:
+    """Order a child, read what it sends back, report to the parent - all of it
+    through `ocp`, with no step that needs a human or a subagent.
+
+    Each leg was there and none of them finished: `ocp ask` queued and left the
+    rest to a tick, and a target with no terminal was a request for somebody to
+    press a key. An agent that cannot finish the job it was given goes looking
+    for one it can - which is a subagent, dead at the end of its session."""
+    _daemon_home(home, 20)
+    con = db.connect()
+    typed: list[tuple[str, str]] = []
+    real = (orcamod.available, orcamod.alive, orcamod.idle_now, orcamod.send,
+            spawnmod.spawn, dmn.wait_for_session)
+    try:
+        orcamod.available = lambda: True
+        orcamod.alive = lambda h: True
+        orcamod.idle_now = lambda h: True
+        orcamod.send = lambda h, text, enter=True: (typed.append((h, text)), (True, ""))[1]
+        dmn.wait_for_session = lambda agent, timeout=0: True
+
+        def fake_spawn(agent, repo, base="main"):
+            db.set_terminal(db.connect(), agent, f"term_{agent}", str(repo))
+            return True, f"{agent}: worktree {repo}"
+
+        spawnmod.spawn = fake_spawn
+        (home / "team.yaml").write_text("""
+teams:
+  dev: [marina]
+agents:
+  manager: { intake: dedicated }
+  marina:  { intake: dedicated }
+edges:
+  - { from: "manager", to: "dev.*", relation: supervisor, response: fire_and_forget }
+  - { from: "dev.*", to: "manager", relation: subordinate, response: fire_and_forget }
+  - { from: "*", to: "orchestrator", kind: escalate, creates_gate: true }
+""")
+        agents.register("manager", "alpha")
+        agents.register("marina", "beta", repo=str(home / "harbor"))
+        db.set_terminal(con, "manager", "term_manager", "wt")
+        sessions_are("manager", "marina")
+
+        # 1. The manager orders its report. marina has nowhere to run, and that
+        #    is the manager's problem to have solved, not a human's.
+        ok, said, rid = askmod.ask("marina", "implement the smooth sea",
+                                   requester="manager")
+        check("loop: the order is allowed and lands", ok and rid, said)
+        check("loop: the child was given somewhere to run on the way",
+              db.get_agent_state(con, "marina")["terminal"] == "term_marina", said)
+        check("loop: and it was told, by the command that sent it",
+              any(h == "term_marina" and "waiting for you" in t for h, t in typed),
+              str(typed)[:200])
+        check("loop: the sender is told it arrived, not that it was queued",
+              "delivered to marina" in said, said)
+
+        # 2. marina answers. Resolving is reporting: the manager hears it now.
+        typed.clear()
+        okr, saidr = askmod.resolve(rid, "shipped on buddyron/marina, 40 tests")
+        check("loop: the child's answer reaches its parent",
+              okr and any(h == "term_manager" and "shipped on" in t for h, t in typed),
+              f"{saidr} {typed}"[:200])
+
+        # 3. The manager reports up to the human, which is a screen, not a
+        #    terminal - so nothing is typed and it says where it went.
+        typed.clear()
+        oke, saide, eid = askmod.ask(actions.HUMAN, "sea is in, one nit left",
+                                     requester="manager")
+        check("loop: a report to the founder goes to the screen, not a terminal",
+              oke and not typed and eid in [m["id"] for m in actions.messages(con)],
+              f"{saide} {typed}"[:200])
+    finally:
+        (orcamod.available, orcamod.alive, orcamod.idle_now, orcamod.send,
+         spawnmod.spawn, dmn.wait_for_session) = real
         con.close()
 
 
@@ -5845,6 +5942,7 @@ def main() -> int:
         run(lambda: test_an_answer_wakes_the_agent_that_was_waiting_for_it(Path(td) / 'waiting'))
         run(lambda: test_a_request_can_be_read_whole(Path(td) / 'readone'))
         run(lambda: test_only_one_thing_types_at_an_agent_at_a_time(Path(td) / 'locking'))
+        run(lambda: test_the_whole_loop_runs_on_our_own_commands(Path(td) / 'loop'))
         run(lambda: test_an_agent_can_put_another_one_to_work(Path(td) / 'dispatch'))
         run(lambda: test_an_agent_at_the_wall_moves_to_an_account_with_room(Path(td) / 'moveacct'))
         run(lambda: test_an_answer_to_the_human_is_in_the_human_mailbox(Path(td) / 'mailbox'))

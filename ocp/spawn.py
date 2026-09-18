@@ -127,6 +127,7 @@ def start_in(agent: str, worktree: str) -> tuple[bool, str]:
         con = db.connect()
         try:
             db.set_terminal(con, agent, handle, worktree)
+            register_worker(con, agent, handle)
         finally:
             con.close()
     return True, f"{agent}: started in {worktree} (terminal {handle or 'unknown'})"
@@ -175,6 +176,14 @@ def spawn(agent: str, repo: Path, base: str = "main", prompt: str | None = None,
     except (json.JSONDecodeError, KeyError, TypeError):
         handle = None
 
+    if handle:
+        con = db.connect()
+        try:
+            db.set_terminal(con, agent, handle, wt)
+            register_worker(con, agent, handle)
+        finally:
+            con.close()
+
     lines = [f"{agent}: worktree {wt}", f"  branched from {base_ref} ({why})",
              f"  terminal {handle or 'unknown'}"]
 
@@ -217,3 +226,83 @@ def spawn(agent: str, repo: Path, base: str = "main", prompt: str | None = None,
             return False, "\n".join(lines)
 
     return True, "\n".join(lines)
+
+
+# The orchestration Run this team's work hangs under. One per installation:
+# the Run is the card, and every agent is a worker task inside it.
+RUN_KEY = "orca:run"
+
+
+def ensure_run(con) -> str | None:
+    """The Run to register workers in, making one the first time.
+
+    Orca draws a Run as a card with its workers under it, so this is what turns
+    a pile of terminals into a team anyone can see. It is remembered rather
+    than recreated: a second Run splits the same team across two cards, and
+    `--parent` then refuses because the two tasks are in different Runs.
+
+    A terminal that is already bound to a Run wins, because that binding is
+    what a task lands in whatever `--run` says.
+    """
+    run = db.get_meta(con, RUN_KEY)
+    bound = orca.run_current()
+    if bound:
+        if bound != run:
+            db.set_meta(con, RUN_KEY, bound)
+        return bound
+    if run and orca.run_exists(run):
+        orca.run_use(run)
+        return run
+    run = orca.run_create("orcapipe team")
+    if run:
+        db.set_meta(con, RUN_KEY, run)
+    return run
+
+
+def register_worker(con, agent: str, handle: str) -> str | None:
+    """Make this agent's terminal a worker in the Run, under its supervisor.
+
+    Without it an agent is one more tab: Orca has no idea it belongs to a team,
+    which is why an agent asked to get work done reached for a subagent - the
+    only child it knew how to make. The tree comes from `team.yaml`, so the
+    card and the routing cannot disagree about who reports to whom.
+    """
+    if not orca.available():
+        return None
+    run = ensure_run(con)
+    if not run:
+        return None
+    row = db.get_agent_state(con, agent)
+    if row and row["task"]:
+        # Already a worker; the dispatch binds the (possibly new) terminal.
+        return orca.dispatch(row["task"], handle, run)
+    parent_task = None
+    try:
+        boss = actions_supervisor(agent)
+    except Exception:  # noqa: BLE001
+        boss = None
+    if boss:
+        boss_row = db.get_agent_state(con, boss)
+        parent_task = boss_row["task"] if boss_row else None
+    spec = (f"{agent}: an orcapipe agent. Work reaches it through `ocp ask {agent}`; "
+            f"this task is the card it appears in.")
+    task = orca.task_create(spec, title=agent, display_name=agent, run=run,
+                            parent=parent_task)
+    if not task and parent_task:
+        # A parent in another Run - an older card, or one made before this
+        # remembered which Run was the team's - is a reason to draw the agent
+        # flat, not a reason not to draw it.
+        task = orca.task_create(spec, title=agent, display_name=agent, run=run)
+    if not task:
+        return None
+    db.set_task(con, agent, task)
+    return orca.dispatch(task, handle, run)
+
+
+def actions_supervisor(agent: str) -> str | None:
+    """Who this agent reports to, out of the routing table.
+
+    Imported late: `actions` reaches the daemon, and the daemon reaches here.
+    """
+    from . import actions
+    return actions.supervisor_of(actions.routing(), agent)

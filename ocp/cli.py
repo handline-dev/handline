@@ -21,7 +21,7 @@ from . import (accounts, actions, agents, ask as askmod, daemon as daemonmod, db
                tui,
                digest, doctor,
                drift, events, fold as foldmod, guide, hooks, launch, paths, service,
-               status, spawn as spawnmod, team, triggers)
+               orca, status, spawn as spawnmod, team, triggers)
 
 
 # ---------------------------------------------------------------- login
@@ -616,6 +616,45 @@ def cmd_hook_install(args) -> int:
 
 
 # ---------------------------------------------------------------- team / ask
+def cmd_org(args) -> int:
+    """Put every live agent in the team's Run, under whoever it reports to.
+
+    A terminal Orca knows nothing about is a tab; a worker in a Run is a child
+    card with a name, a parent and its own output. Agents started before this
+    existed are tabs, and this is what adopts them - supervisors first, so a
+    report's parent task exists by the time the report is registered.
+    """
+    con = db.connect()
+    try:
+        if not orca.available():
+            print("orca is not on PATH - nothing to register with")
+            return 1
+        run = spawnmod.ensure_run(con)
+        if not run:
+            print("could not create an orchestration Run (is the Orca runtime up?)")
+            return 1
+        print(f"run {run}")
+        # Supervisors before their reports: `--parent` needs the parent task to
+        # exist, and a tree built child-first is a list.
+        order = [name for name, _depth in actions.agent_tree()]
+        for name in order:
+            row = db.get_agent_state(con, name)
+            handle = row["terminal"] if row else None
+            if not handle:
+                print(f"  {name:<12} no terminal - nothing to register")
+                continue
+            if not orca.alive(handle):
+                print(f"  {name:<12} terminal {handle} is gone")
+                continue
+            got = spawnmod.register_worker(con, name, handle)
+            fresh = db.get_agent_state(con, name)
+            print(f"  {name:<12} task {(fresh['task'] if fresh else None) or '-'}"
+                  + (f" dispatch {got}" if got else " (not dispatched)"))
+        return 0
+    finally:
+        con.close()
+
+
 def cmd_team(args) -> int:
     """Who you may ask, who may ask you, and what they are doing right now.
 
@@ -987,6 +1026,9 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--json", action="store_true")
     p.add_argument("--table", action="store_true", help="the dashboard view")
     p.set_defaults(fn=cmd_status)
+
+    p = sub.add_parser("org", help="register live agents as workers in the team's Run")
+    p.set_defaults(fn=cmd_org)
 
     p = sub.add_parser("team", help="who you may ask, and what they are doing")
     p.add_argument("--agent", default=None, help="whose team to show (default: yours)")

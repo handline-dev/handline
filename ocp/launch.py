@@ -199,7 +199,9 @@ def _record_terminal(agent: str, acct: str | None = None) -> None:
     agent.yaml: those are the same value only when the preferred account had
     room, and the whole point of recording it is that the two can differ.
     """
-    from . import db, orca
+    # Late, because `spawn` imports this module: the launcher is the bottom of
+    # the stack and the starters sit on top of it.
+    from . import db, orca, spawn
 
     handle = orca.terminal_handle()
     if not handle and not acct:
@@ -209,6 +211,11 @@ def _record_terminal(agent: str, acct: str | None = None) -> None:
         try:
             if handle:
                 db.set_terminal(con, agent, handle, os.environ.get("ORCA_WORKTREE_ID"))
+                # However this terminal was made - by `ocp spawn`, or by a
+                # human running `ocp launch` in one they opened - the agent
+                # joins the team's Run here, so Orca draws it under whoever it
+                # reports to instead of as one more tab.
+                spawn.register_worker(con, agent, handle)
             if acct:
                 db.set_account(con, agent, acct)
         finally:
