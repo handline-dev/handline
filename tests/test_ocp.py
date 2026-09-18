@@ -8945,6 +8945,50 @@ def test_reconcile_wakes_a_park_that_was_also_closed(home: Path) -> None:
         con.close()
 
 
+def test_a_dead_sessions_id_is_kept_only_from_a_matching_snapshot(home: Path) -> None:
+    """A move by hand changes agent.yaml (so `current_account` answers at
+    once) without touching the status file a session on the OLD account
+    already wrote - that file is the new account's until a session actually
+    runs there. The sweep used to trust its session id anyway once the
+    process died, on the theory that "its own id is not in doubt" - which
+    reproduced in production as a --resume recorded for a session that lives
+    under a config directory this agent is no longer even pointed at, and
+    that launch failed every time it was retried.
+    """
+    _daemon_home(home, 20)
+    con = db.connect()
+    real = (orcamod.live_terminals, obsmod.live_sessions, orcamod.available)
+    f = home / "agents" / "backend" / "status.json"
+    f.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        orcamod.available = lambda: True
+        orcamod.live_terminals = lambda: {"term_x"}
+        obsmod.live_sessions = lambda: {}     # the process is gone
+
+        # Stale by account, not only by age: this is beta's snapshot, and
+        # `current_account` already says alpha.
+        f.write_text(json.dumps({"account": "beta", "collected_at": int(time.time()),
+                                 "session_id": "beta-sess"}))
+        dmn.sweep(con, lambda _m: None, [])
+        row = db.get_agent_state(con, "backend")
+        check("sweep: a session id from a snapshot on the wrong account is dropped",
+              row["closed_at"] is not None and row["resume_session"] is None,
+              str(dict(row)))
+
+        # Reopen it and let its own account's snapshot be the one on file.
+        db.clear_closed(con, "backend")
+        f.write_text(json.dumps({"account": "alpha", "collected_at": int(time.time()),
+                                 "session_id": "alpha-sess"}))
+        dmn.sweep(con, lambda _m: None, [])
+        row = db.get_agent_state(con, "backend")
+        check("sweep: and kept once the snapshot is the account it is on now",
+              row["closed_at"] is not None and row["resume_session"] == "alpha-sess",
+              str(dict(row)))
+    finally:
+        orcamod.live_terminals, obsmod.live_sessions, orcamod.available = real
+        con.close()
+
+
 def test_a_wake_does_not_call_a_fresh_start_a_park(home: Path) -> None:
     """Telling an agent that could not be resumed "your context was cleared,
     below is your own handoff record" says it was parked when it was not. A
@@ -19699,6 +19743,43 @@ def test_a_drifted_wake_that_cannot_relaunch_says_why(home: Path) -> None:
         con.close()
 
 
+def test_a_wake_reads_the_screen_before_typing_into_it(home: Path) -> None:
+    """The cursor on claude's folder-trust screen defaults to "No, exit" - a
+    handoff typed there, followed by Enter, chooses exit every time, and the
+    next wake finds the same screen again. Read before typing catches it
+    instead of discovering it from the loop.
+    """
+    _daemon_home(home, 50)
+    con = db.connect()
+    real = (orcamod.resume_with, orcamod.alive, orcamod.trust_prompt_showing)
+    sent: list[str] = []
+    try:
+        orcamod.available = lambda: True
+        orcamod.alive = lambda h: True
+        orcamod.resume_with = lambda h, text: (sent.append(text), (True, "typed"))[1]
+        sessions_are("backend")
+        db.set_terminal(con, "backend", "term_x", "wt")
+        foldmod.handoff_path("backend").write_text("# handoff · backend\n## next\n- carry on\n")
+
+        orcamod.trust_prompt_showing = lambda h: True
+        ok, why = dmn.wake_agent(con, "backend", lambda _m: None)
+        check("wake: nothing is typed into a trust prompt", not ok and not sent, str((ok, sent)))
+        row = db.get_agent_state(con, "backend")
+        check("wake: the agent is stalled instead of retried into the same screen",
+              row["state"] == dmn.STALLED, str(dict(row)))
+        printed = _capture(lambda: climod.main(["inbox", "human"]))
+        check("wake: and the founder's own queue is told, not just the screen",
+              "trust" in printed.lower() and "backend" in printed, printed)
+
+        orcamod.trust_prompt_showing = lambda h: False
+        db.set_agent_state(con, "backend", dmn.PARKED, detail="reset for the next case")
+        ok, why = dmn.wake_agent(con, "backend", lambda _m: None)
+        check("wake: an ordinary screen is typed into as before", ok and sent, why)
+    finally:
+        orcamod.resume_with, orcamod.alive, orcamod.trust_prompt_showing = real
+        con.close()
+
+
 def test_hooks_report_activity(home: Path) -> None:
     """A working agent must not still read as PARKED.
 
@@ -21787,6 +21868,7 @@ def main() -> int:
         run(lambda: test_a_cold_wake_with_no_handoff_still_tells_the_agent_its_transcript_and_request(Path(td) / 'coldnone2'))
         run(lambda: test_a_park_that_was_also_closed_is_woken_without_being_judged(Path(td) / 'pclosed'))
         run(lambda: test_reconcile_wakes_a_park_that_was_also_closed(Path(td) / 'pclosed2'))
+        run(lambda: test_a_dead_sessions_id_is_kept_only_from_a_matching_snapshot(Path(td) / 'deadacct'))
         run(lambda: test_a_wake_does_not_call_a_fresh_start_a_park(Path(td) / 'freshstart'))
         run(lambda: test_installing_hooks_twice_does_not_double_them(Path(td) / 'hookdup'))
         run(lambda: test_the_sweep_corrects_what_it_can_see(Path(td) / 'sweep'))
@@ -21971,6 +22053,7 @@ def main() -> int:
         run(lambda: test_a_parked_row_with_no_fingerprint_also_relaunches(Path(td) / 'nofp'))
         run(lambda: test_a_launch_records_its_fingerprint_and_says_when_it_cannot(Path(td) / 'recfp'))
         run(lambda: test_a_drifted_wake_that_cannot_relaunch_says_why(Path(td) / 'driftlog'))
+        run(lambda: test_a_wake_reads_the_screen_before_typing_into_it(Path(td) / 'trustscreen'))
         run(lambda: test_hooks_report_activity(Path(td) / 'hooky'))
         run(lambda: test_tui_frame_geometry(Path(td) / 'tui'))
         run(lambda: test_clear_does_not_look_like_waking(Path(td) / 'loopy'))

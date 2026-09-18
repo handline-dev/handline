@@ -110,6 +110,36 @@ def _result(out: str, *path: str):
     return node
 
 
+# claude's folder-trust screen ("Quick safety check: Is this a project you
+# created or one you trust?"), rendered, not accumulated output - the default
+# read stacks a repainted screen's fragments rather than showing what it
+# looks like now, which this specifically needs.
+TRUST_PROMPT_MARKER = "Is this a project you created or one you trust"
+
+
+def screen_text(handle: str) -> str | None:
+    """What this terminal is rendering right now, or None if it could not be
+    read - never mistaken for "nothing is showing"."""
+    ok, out = _run(["terminal", "read", "--terminal", handle, "--screen", "--json"])
+    if not ok:
+        return None
+    tail = _result(out, "terminal", "tail")
+    return "\n".join(tail) if isinstance(tail, list) else None
+
+
+def trust_prompt_showing(handle: str) -> bool:
+    """Is claude sitting at its folder-trust screen, waiting on a choice
+    typed text was never meant to make?
+
+    The cursor there defaults to "No, exit" - a handoff followed by Enter,
+    the daemon's ordinary way of waking an agent, chooses exit every time,
+    and the next wake retries into the same screen. Read before typing
+    anything rather than found out about after.
+    """
+    text = screen_text(handle)
+    return text is not None and TRUST_PROMPT_MARKER in text
+
+
 def run_create(objective: str) -> str | None:
     """Start an orchestration Run - the card a team's work hangs under.
 

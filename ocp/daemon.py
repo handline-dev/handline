@@ -34,9 +34,10 @@ import uuid
 from dataclasses import dataclass
 from pathlib import Path
 
-from . import (accounts, agents, blocked, burnrate, collect, db, events, fold as foldmod,
-               handoff as handoffmod, launch, load, lock, measure, observe as obs, orca, paths,
-               service, spawn as spawnmod, status, textsafe, tokenlog, triggers, usage_api)
+from . import (accounts, agents, ask as askmod, blocked, burnrate, collect, db, events,
+               fold as foldmod, handoff as handoffmod, launch, load, lock, measure,
+               observe as obs, orca, paths, service, spawn as spawnmod, status, textsafe,
+               tokenlog, triggers, usage_api)
 from .yamlcompat import ConfigError
 
 # Section 8.2 states.
@@ -1208,6 +1209,9 @@ def _wake_agent(con, agent: str, log, moved_to: str | None = None) -> tuple[bool
         # the branch above then relaunches it before anything is typed.
         return False, "no session process; not typing the handoff at a shell prompt"
 
+    if orca.trust_prompt_showing(handle):
+        return _escalate_trust_prompt(con, agent, handle, log)
+
     if not orca.typeable_now(handle):
         return False, "the session is busy or has a modal open; not typing the handoff"
     ok, why = orca.resume_with(handle, wake_prompt(agent, False, was_closed=False,
@@ -1216,6 +1220,26 @@ def _wake_agent(con, agent: str, log, moved_to: str | None = None) -> tuple[bool
         db.set_handoff(con, agent, None)
     log(f"  {agent}: {why}")
     return ok, why
+
+
+def _escalate_trust_prompt(con, agent: str, handle: str, log) -> tuple[bool, str]:
+    """claude is sitting at its folder-trust screen instead of running - typed
+    text is not a choice on that screen, it is a coin flip that always lands
+    on "No, exit" (the default), so nothing is typed. STALLED instead of a
+    retry: the trust screen does not resolve itself, so retrying finds the
+    same screen every time - exactly the ~20s loop this exists to stop -
+    and an escalation, not just the STALLED mark, so it reaches the founder's
+    own queue rather than only a screen nobody may be watching.
+    """
+    row = db.get_agent_state(con, agent)
+    acct = agents.current_account(agent, con)
+    path = spawnmod.worktree_path(row["worktree"]) if row else None
+    why = (f"{agent}'s terminal is showing claude's folder-trust prompt "
+           f"(account {acct}, path {path or 'unknown'}) - nothing was typed into it")
+    askmod.escalate(con, agent, f"[trust] {why}", why)
+    db.set_agent_state(con, agent, STALLED, wake_at=None, detail=why[:300])
+    log(f"  {agent}: {why}")
+    return False, why
 
 
 def expire_handoffs(con, log) -> list[str]:
