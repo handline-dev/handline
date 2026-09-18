@@ -3591,6 +3591,17 @@ def test_top_acts_through_the_same_calls_the_daemon_makes(home: Path) -> None:
               row["terminal"] is None and row["worktree"] == str(wt),
               str(dict(row)))
 
+        # `ocp launch` records what Orca hands it, which is `<repo id>::<path>`,
+        # while `spawn` records a plain path. Testing the selector as a path
+        # found nothing, so an agent that still had its worktree was given a
+        # second one beside it.
+        check("start: the worktree is found inside the selector Orca records",
+              actions.worktree_path(f"abc123::{wt}") == str(wt),
+              str(actions.worktree_path(f"abc123::{wt}")))
+        check("start: and a worktree that is gone is not one",
+              actions.worktree_path(f"abc123::{wt}-missing") is None)
+        db.set_terminal(con, "backend", None, f"abc123::{wt}")
+
         started: list[list[str]] = []
         real_run = spawnmod._run
         try:

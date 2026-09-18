@@ -93,12 +93,27 @@ def start(con, agent: str, repo: str | None = None, base: str = "main") -> str:
     row = db.get_agent_state(con, agent)
     if row and row["terminal"]:
         return f"{agent}: already has a terminal ({row['terminal']}) - wake it instead"
-    if row and row["worktree"] and Path(row["worktree"]).exists():
+    wt = worktree_path(row["worktree"] if row else None)
+    if wt:
         # It has somewhere to run already; it lost the window it ran in.
-        ok, msg = spawnmod.start_in(agent, row["worktree"])
+        ok, msg = spawnmod.start_in(agent, wt)
         return msg
     ok, msg = spawnmod.spawn(agent, Path(repo or os.getcwd()).resolve(), base=base)
     return msg
+
+
+def worktree_path(recorded: str | None) -> str | None:
+    """The directory an agent works in, out of what the row holds.
+
+    `ocp launch` records what Orca handed it, which is a selector - the repo's
+    id, then `::`, then the path - while `spawn` records a plain path. Testing
+    the selector as a path finds nothing, so an agent that still had its
+    worktree was given a second one beside it.
+    """
+    if not recorded:
+        return None
+    path = recorded.split("::", 1)[-1]
+    return path if Path(path).is_dir() else None
 
 
 def message(con, agent: str, body: str) -> str:
