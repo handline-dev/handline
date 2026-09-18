@@ -60,6 +60,7 @@ STATE_COLOR = {
 # agent keys - pressing them where the problem is read beats finding the same
 # name again in the list above.
 ACCOUNTS, AGENTS, MESSAGES, STUCK = 0, 1, 2, 3
+NAME_W = 20   # fits orcapipe-manager, and a twig
 PANELS = (ACCOUNTS, AGENTS, MESSAGES, STUCK)
 PANEL_NAME = {ACCOUNTS: "accounts", AGENTS: "agents", MESSAGES: "messages",
               STUCK: "stuck"}
@@ -154,6 +155,58 @@ def age(secs: float | None) -> str:
     if secs < 5400:
         return f"{int(secs / 60)}m"
     return f"{int(secs / 3600)}h"
+
+
+# Supervisors whose reports are drawn. Closed by default: the screen is for
+# what needs you, and a team of twelve drawn in full is a list to scroll past.
+EXPANDED: set[str] = set()
+
+
+def visible_tree() -> list[tuple[str, int, int]]:
+    """The team as drawn: (name, depth, how many are under it), closed
+    subtrees left out. The cursor walks the same list, so it never lands on a
+    row nobody can see."""
+    tree = actions.agent_tree()
+    out: list[tuple[str, int, int]] = []
+    hide_below: int | None = None
+    for i, (name, depth) in enumerate(tree):
+        if hide_below is not None:
+            if depth > hide_below:
+                continue
+            hide_below = None
+        under = 0
+        for _n, d in tree[i + 1:]:
+            if d <= depth:
+                break
+            under += 1
+        out.append((name, depth, under))
+        if under and name not in EXPANDED:
+            hide_below = depth
+    return out
+
+
+def _fold(sel: dict, k: str) -> bool:
+    """→ opens the selected supervisor, ← closes it - or, on a report, closes
+    the one it reports to and puts the cursor there. False when there was
+    nothing to fold, so the key keeps its other meaning."""
+    rows = visible_tree()
+    at = next((i for i, r in enumerate(rows) if r[0] == sel.get(AGENTS)), None)
+    if at is None:
+        return False
+    name, depth, under = rows[at]
+    if k in NEXT_PANEL and under and name not in EXPANDED:
+        EXPANDED.add(name)
+        return True
+    if k in PREV_PANEL:
+        if under and name in EXPANDED:
+            EXPANDED.discard(name)
+            return True
+        if depth:
+            parent = next(r[0] for r in reversed(rows[:at]) if r[1] < depth)
+            EXPANDED.discard(parent)
+            sel[AGENTS] = parent
+            return True
+    return False
 
 
 class Panel:
@@ -372,9 +425,9 @@ def build(width: int, sel: dict | None = None,
         # No model and no effort: they are configuration, they do not change
         # while anyone is watching, and they are on the agent's own page. This
         # screen is about what is happening now.
-        ag.add(f"{DIM}{'agent':<13}{'acct':<8}{'state':<16}"
+        ag.add(f"{DIM}{'agent':<{NAME_W}}{'acct':<8}{'state':<16}"
                f"{'ctx':>4}   {'wake':<7}{'in':<4}{R}", heading=True)
-        for name, depth in actions.agent_tree():
+        for name, depth, under in visible_tree():
             # Indented under whoever routes work to it. Who an agent reports to
             # decides where its report goes and who may assign to it, and it was
             # written down in team.yaml all along - a flat list made the reader
@@ -385,8 +438,8 @@ def build(width: int, sel: dict | None = None,
                 acct = agents.current_account(name, con)
                 cfg = agents.read(name)
             except Exception as e:  # noqa: BLE001
-                ag.add(pad(fit(twig + name, 13), 13) + f"{RED}config error: {e}{R}",
-                       key=name)
+                ag.add(pad(fit(twig + name, NAME_W), NAME_W)
+                       + f"{RED}config error: {e}{R}", key=name)
                 continue
             st = status.read_for_agent(name, acct)
             row = db.get_agent_state(con, name)
@@ -414,7 +467,9 @@ def build(width: int, sel: dict | None = None,
                 # twig, is wider than the column, and `pad` alone then pushes
                 # every column after it right - the same drift the "·closed"
                 # suffix caused.
-                pad(fit(twig + f"{BOLD}{name}{R}", 13), 13)
+                pad(fit(twig + f"{BOLD}{name}{R}"
+                        + (f"{DIM} +{under}{R}" if under and name not in EXPANDED else ""),
+                        NAME_W), NAME_W)
                 + pad(acct, 8)
                 + pad(f"{STATE_COLOR.get(s, '')}{fit(s, 15)}{R}", 16)
                 + pad(ctxs, 7)
@@ -1074,6 +1129,9 @@ def _say(what: str, width: int, height: int) -> None:
 # bottom of a panel and left the cursor nowhere.
 NEXT_PANEL = ("\t", "\033[C", "\033OC")
 PREV_PANEL = ("\033[Z", "\033[D", "\033OD")
+# ←→ without tab and shift-tab: on a supervisor the arrows fold its team,
+# and tab is left as the key that always jumps.
+ARROWS = ("\033[C", "\033OC", "\033[D", "\033OD")
 NEXT_ROW = ("j", "\033[B", "\033OB")
 PREV_ROW = ("k", "\033[A", "\033OA")
 
@@ -1082,9 +1140,12 @@ def navigate(panel: int, sel: dict, k: str) -> int | None:
     """Where this keypress leaves the cursor, or None if it was not a move.
 
     ←→ and tab jump a whole panel; ↑↓ walk the screen and cross into the next
-    panel at the end of one. `r` is a move of zero: it asks for a redraw, which
+    panel at the end of one. On a supervisor, ←→ close and open its team
+    first; tab always jumps. `r` is a move of zero: it asks for a redraw, which
     happens anyway, and it must not fall through to the actions.
     """
+    if panel == AGENTS and k in ARROWS and _fold(sel, k):
+        return panel
     if k in NEXT_PANEL:
         return _enter((panel + 1) % len(PANELS), sel)
     if k in PREV_PANEL:
@@ -1130,7 +1191,7 @@ def _keys_of(panel: int) -> list:
     if panel == AGENTS:
         # In the order they are drawn, not the order they are stored: the
         # cursor moves down the screen, and a tree is not alphabetical.
-        return [name for name, _depth in actions.agent_tree()]
+        return [name for name, _depth, _under in visible_tree()]
     con = db.connect()
     try:
         if panel == MESSAGES:

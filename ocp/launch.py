@@ -132,6 +132,11 @@ def build(agent: str, extra: list[str] | None = None, force: bool = False) -> tu
     model = cfg.get("model")
     if model:
         argv += ["--model", str(model)]
+    # Work for another agent goes through `ocp ask`. A subagent does it where
+    # nothing can see it: no row on the bridge, gone with the session, spent on
+    # this account. The list is variadic, so an option must follow it - a
+    # prompt there would be read as one more tool name.
+    argv += ["--disallowedTools", "Agent"]
     # Always pass effort explicitly. Left unset it comes from whatever the
     # environment carries, which is how an agent ends up silently running at a
     # far more expensive level than intended.

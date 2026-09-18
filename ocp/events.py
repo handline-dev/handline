@@ -112,11 +112,15 @@ def record_from_stdin(argv: list[str] | None = None) -> int:
 TURN_BOUNDARIES = {"SessionStart", "SessionEnd", "Stop", "StopFailure",
                    "SubagentStop", "PostCompact", "UserPromptSubmit"}
 
-ACTIVE_EVENTS = {"UserPromptSubmit"}
+# A prompt starts a turn, but not every turn starts with a prompt: one woken by
+# a background task finishing fires no UserPromptSubmit, and an agent working
+# that way read IDLE for half an hour while Orca said it was mid-turn. A
+# subagent finishing is proof the agent is in a turn, or is about to be.
+ACTIVE_EVENTS = {"UserPromptSubmit", "SubagentStop"}
 
 # And which one says it stopped. Stop fires when the agent has finished
-# responding and is back at its prompt; SubagentStop is deliberately absent,
-# because a subagent finishing says nothing about what the agent itself is doing.
+# responding and is back at its prompt; a subagent finishing is not the agent
+# finishing.
 QUIET_EVENTS = {"Stop"}
 
 # The daemon owns these; an agent must not move itself out of them.

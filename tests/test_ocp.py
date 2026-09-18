@@ -4452,7 +4452,11 @@ def test_an_agent_at_the_wall_moves_to_an_account_with_room(home: Path) -> None:
         # launch is the single writer of the account - it is the process that
         # sets CLAUDE_CONFIG_DIR - so the record cannot disagree with the
         # environment the session is actually running in.
-        _argv, env = launch.build("keeper")
+        argv, env = launch.build("keeper")
+        check("launch: an agent cannot make subagents - work to another agent "
+              "goes through `ocp ask`, where the bridge can see it",
+              "--disallowedTools" in argv
+              and argv[argv.index("--disallowedTools") + 1] == "Agent", str(argv))
         check("move: the launch it typed goes to the new account",
               env["OCP_ACCOUNT"] == "beta"
               and env["CLAUDE_CONFIG_DIR"].endswith("accounts/beta/.claude"),
@@ -4731,10 +4735,39 @@ edges:
         check("tree: an agent the human alone routes to is a root, not everyone's child",
               depth["scout"] == 0, str(tree))
 
-        # The cursor moves down the screen, so the keys it moves over are the
-        # rows in the order they are drawn.
-        check("tree: the cursor order is the drawn order",
-              tui._keys_of(tui.AGENTS) == [n for n, _d in tree])
+        # A team is closed until it is opened: the screen is for what needs
+        # you, and every report drawn in full is a list to scroll past. The
+        # cursor walks what is drawn, so it never lands on a hidden row.
+        tui.EXPANDED.clear()
+        order = [n for n, _d in tree]
+        check("tree: a supervisor's team starts closed",
+              tui._keys_of(tui.AGENTS) == [n for n in order if n not in ("marina", "keeper")],
+              str(tui._keys_of(tui.AGENTS)))
+        plain = [tui._ANSI.sub("", ln) for ln in tui.frame(120, 60).split(chr(10))]
+        check("tree: and says how many are in it",
+              any("manager +2" in ln for ln in plain),
+              str([ln for ln in plain if "manager" in ln])[:160])
+
+        sel = {tui.AGENTS: "manager"}
+        right, left = "\033[C", "\033[D"
+        check("tree: → opens it, and the cursor stays where it was",
+              tui.navigate(tui.AGENTS, sel, right) == tui.AGENTS
+              and sel[tui.AGENTS] == "manager"
+              and tui._keys_of(tui.AGENTS) == order, str(tui._keys_of(tui.AGENTS)))
+        check("tree: → on an open team leaves the panel, as it does everywhere else",
+              tui.navigate(tui.AGENTS, sel, right) != tui.AGENTS)
+        sel = {tui.AGENTS: "keeper"}
+        check("tree: ← on a report closes its team and goes up to its supervisor",
+              tui.navigate(tui.AGENTS, sel, left) == tui.AGENTS
+              and sel[tui.AGENTS] == "manager" and "keeper" not in tui._keys_of(tui.AGENTS),
+              str(sel))
+        tui.EXPANDED.add("manager")
+        check("tree: tab still jumps, open or not",
+              tui.navigate(tui.AGENTS, {tui.AGENTS: "manager"}, "\t") != tui.AGENTS)
+        check("tree: ← on an open supervisor closes it",
+              tui.navigate(tui.AGENTS, {tui.AGENTS: "manager"}, left) == tui.AGENTS
+              and "manager" not in tui.EXPANDED)
+        tui.EXPANDED.clear()
 
         # A supervisor nobody registered is not a row, and the agent under it
         # must not disappear with it.
@@ -5865,6 +5898,23 @@ def test_hooks_report_activity(home: Path) -> None:
         row = db.get_agent_state(con, "hooky")
         check("hooks: the end of a turn returns it to IDLE",
               row["state"] == dmn.IDLE, str(dict(row)))
+    finally:
+        con.close()
+
+    # A turn woken by a background task finishing fires no prompt, only its
+    # subagents. manager worked that way for half an hour reading IDLE.
+    hook("SubagentStop")
+    con = db.connect()
+    try:
+        check("hooks: a subagent finishing under an idle agent means it is working",
+              db.get_agent_state(con, "hooky")["state"] == dmn.RUNNING,
+              str(db.get_agent_state(con, "hooky")["state"]))
+    finally:
+        con.close()
+    hook("Stop")
+    con = db.connect()
+    try:
+        row = db.get_agent_state(con, "hooky")
 
         # The other way in. `ocp launch` records the terminal handle before
         # execve, and that row used to be born RUNNING - so a new agent was out
