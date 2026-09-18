@@ -349,14 +349,17 @@ def cmd_daemon_status(args) -> int:
         if not rows:
             print("no agent state recorded yet")
         else:
-            print(f"\n{'AGENT':<14}{'STATE':<11}{'WAKE':<8}{'fail':>5}{'cont':>6}{'thr':>5}  DETAIL")
+            # Wide enough for the longest name there is: a column sized to a
+            # guess runs "orcapipe-manager" straight into the state beside it.
+            w = max(14, max(len(r["agent"]) for r in rows) + 2)
+            print(f"\n{'AGENT':<{w}}{'STATE':<11}{'WAKE':<8}{'fail':>5}{'cont':>6}{'thr':>5}  DETAIL")
             now = int(time.time())
             for r in rows:
                 wake = "-" if not r["wake_at"] else time.strftime("%H:%M", time.localtime(r["wake_at"]))
                 if r["wake_at"] and r["wake_at"] <= now:
                     wake += "!"
                 shown = r["state"] + ("·closed" if r["closed_at"] else "")
-                print(f"{r['agent']:<14}{shown:<11}{wake:<8}"
+                print(f"{r['agent']:<{w}}{shown:<11}{wake:<8}"
                       f"{r['failed_attempts']:>5}{r['continuations']:>6}{r['throttle_count']:>5}  "
                       f"{(r['detail'] or '')[:46]}")
         flight = db.in_flight_handoffs(con)
