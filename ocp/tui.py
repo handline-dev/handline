@@ -36,7 +36,7 @@ import tty
 import unicodedata
 from pathlib import Path
 
-from . import accounts, actions, agents, daemon, db, paths, status, triggers
+from . import accounts, actions, agents, daemon, db, launch, paths, status, triggers
 
 ALT_ON, ALT_OFF = "\033[?1049h", "\033[?1049l"
 CUR_OFF, CUR_ON = "\033[?25l", "\033[?25h"
@@ -499,6 +499,11 @@ def build(width: int, sel: dict | None = None,
             t = triggers.evaluate(st.trusted_pct_5h, st.trusted_ctx_pct)
             fire = (f"{YEL}⚠ {t.kind}{R}"
                     if t.fired and daemon.triggers_apply(row) else "")
+            # Same words `ocp ps` and `ocp triggers` print for this: one
+            # predicate, so this screen cannot disagree with the daemon that
+            # actually acts on it.
+            walled = launch.wake_wait_reason(name, row)
+            walled_cell = f"{YEL}{walled}{R}" if walled else ""
             ctxs = f"{pct(st.ctx_pct)}%"
             if st.ctx_pct is not None and st.ctx_pct >= triggers.CONTEXT_PCT:
                 ctxs = YEL + ctxs + R
@@ -517,7 +522,7 @@ def build(width: int, sel: dict | None = None,
                 + pad(ctxs, 7)
                 + pad(countdown(row["wake_at"] if row else None), 7)
                 + pad(str(inbox) if inbox else "·", 4)
-                + (fire or _needs_you(row)),
+                + (fire or walled_cell or _needs_you(row)),
                 key=name,
             )
         if not paths.list_agents():

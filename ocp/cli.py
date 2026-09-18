@@ -364,9 +364,13 @@ def cmd_daemon_status(args) -> int:
                 if r["wake_at"] and r["wake_at"] <= now:
                     wake += "!"
                 shown = r["state"] + ("·closed" if r["closed_at"] else "")
+                detail = (r["detail"] or "")[:46]
+                walled = launch.wake_wait_reason(r["agent"], r)
+                if walled:
+                    detail = f"{detail} · {walled}" if detail else walled
                 print(f"{r['agent']:<{w}}{shown:<11}{wake:<8}"
                       f"{r['failed_attempts']:>5}{r['continuations']:>6}{r['throttle_count']:>5}  "
-                      f"{(r['detail'] or '')[:46]}")
+                      f"{detail}")
         flight = db.in_flight_handoffs(con)
         if flight:
             print("\nin-flight handoffs (resume from these steps):")
@@ -461,10 +465,12 @@ def cmd_triggers(args) -> int:
             # The figure the trigger used, not the raw one: a column saying "-"
             # beside a reason saying "0%" is the dashboard arguing with the daemon.
             five = f"{cell(st.trusted_pct_5h)}{status.mark(st.pct_5h_source)}"
-            if daemonmod.triggers_apply(db.get_agent_state(con, a)):
+            row = db.get_agent_state(con, a)
+            if daemonmod.triggers_apply(row):
                 fires, reason = "YES" if t.fired else "no ", t.reason
             else:
-                fires, reason = "no ", "session closed; nothing to hand off"
+                fires = "no "
+                reason = launch.wake_wait_reason(a, row) or "session closed; nothing to hand off"
             print(f"{a:<{w}}{acct:<10}{five:>5}{cell(st.ctx_pct):>5}  "
                   f"{fires:<6} {reason}")
     finally:

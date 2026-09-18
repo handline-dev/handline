@@ -686,12 +686,8 @@ def _wake_agent(con, agent: str, log, moved_to: str | None = None) -> tuple[bool
         # with nothing. Only a wake with nothing to resume is free to go where
         # there is room, which is the move's wake.
         session = row["resume_session"]
-        acct = launch.choose_account(agent, resuming=bool(session))
-        acct_st = status.read(acct)
-        pct = acct_st.trusted_pct_5h
-        if pct is not None and pct >= status.PCT_5H_BLOCK:
-            why = (f"account {acct} is at {pct}% of the 5h limit; "
-                   f"not launching until the window rolls over")
+        why = launch.wake_wait_reason(agent, row)
+        if why:
             log(f"  {agent}: {why}")
             return False, why
         # The shell is still there; put the agent back into it. Resuming the

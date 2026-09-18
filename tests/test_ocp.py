@@ -3832,6 +3832,61 @@ def test_a_wake_is_believed_only_when_a_session_appears(home: Path) -> None:
         con.close()
 
 
+def test_a_walled_wake_says_so_everywhere(home: Path) -> None:
+    """A closed agent whose resume is blocked at its account's 5h wall used to
+    say nothing about it: `ocp ps` showed "·closed", `ocp triggers` said
+    "nothing to hand off", and the daemon's own refusal lived in a log line.
+    One predicate now answers all of them, so a screen cannot drift from what
+    the daemon actually acts on - and it has to fall silent again the moment
+    the account has room, since nothing here is stored state.
+    """
+    _daemon_home(home, 20)
+    con = db.connect()
+    real = (orcamod.available,)
+    try:
+        orcamod.available = lambda: True
+        db.set_closed(con, "backend", "sess-wall")
+        reset_at = int(time.time()) + 1800
+        write_status(home, "alpha", pct_5h=95, pct_7d=10, ctx_pct=5, reset_5h=reset_at)
+        when = time.strftime("%H:%M", time.localtime(reset_at))
+
+        row = db.get_agent_state(con, "backend")
+        reason = launch.wake_wait_reason("backend", row)
+        check("walled: names the account and when it rolls over",
+              reason is not None and "alpha" in reason and when in reason, reason)
+
+        ok, why = dmn.wake_agent(con, "backend", lambda _m: None)
+        check("walled: the daemon's own refusal is the same sentence, not a cousin of it",
+              not ok and why == reason, f"{why!r} != {reason!r}")
+
+        ps_out = _capture(lambda: climod.main(["ps"]))
+        trig_out = _capture(lambda: climod.main(["triggers"]))
+        frame = tui._ANSI.sub("", tui.frame(200, 40))
+        check("walled: `ocp ps` says it", reason in ps_out, ps_out)
+        check("walled: `ocp triggers` says it", reason in trig_out, trig_out)
+        check("walled: the bridge agrees word for word, not a paraphrase",
+              reason in frame,
+              str([ln for ln in frame.splitlines() if "backend" in ln]))
+
+        # It is computed, not stored: once the account has room the sentence
+        # disappears from every screen on its own, with nothing to clear.
+        write_status(home, "alpha", pct_5h=20, pct_7d=10, ctx_pct=5,
+                     reset_5h=int(time.time()) + 1800)
+        row = db.get_agent_state(con, "backend")
+        check("walled: and clears the moment the account has room",
+              launch.wake_wait_reason("backend", row) is None)
+        ps_out = _capture(lambda: climod.main(["ps"]))
+        trig_out = _capture(lambda: climod.main(["triggers"]))
+        frame = tui._ANSI.sub("", tui.frame(200, 40))
+        check("walled: and every screen falls silent with it",
+              "rolls over" not in ps_out and "rolls over" not in trig_out
+              and "rolls over" not in frame,
+              "still walled somewhere after the window rolled over")
+    finally:
+        (orcamod.available,) = real
+        con.close()
+
+
 def test_a_park_that_cannot_be_woken_keeps_its_deadline(home: Path) -> None:
     """The deadline is the only thing that makes a parked agent due again, and
     supervise cleared it before knowing whether the wake worked. A closed park
@@ -7305,6 +7360,7 @@ def main() -> int:
         run(lambda: test_an_agent_with_nowhere_to_run_is_not_handed_off(Path(td) / 'noterm'))
         run(lambda: test_nothing_is_typed_into_a_shell_with_no_session(Path(td) / 'shellgate'))
         run(lambda: test_a_wake_is_believed_only_when_a_session_appears(Path(td) / 'wakereceipt'))
+        run(lambda: test_a_walled_wake_says_so_everywhere(Path(td) / 'walled'))
         run(lambda: test_a_park_that_cannot_be_woken_keeps_its_deadline(Path(td) / 'parkdue'))
         run(lambda: test_top_shows_what_is_waiting_on_the_human(Path(td) / 'foryou'))
         run(lambda: test_the_screen_reads_keys_from_the_terminal_not_from_a_buffer())

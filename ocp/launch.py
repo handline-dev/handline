@@ -19,6 +19,8 @@ from __future__ import annotations
 import os
 import shutil
 import sys
+import time
+from dataclasses import dataclass
 
 from . import accounts, agents, paths, status, triggers
 
@@ -70,6 +72,49 @@ def choose_account(agent: str, resuming: bool = False, limit: int | None = None)
     # refuses below on a current reading at the wall, and that refusal names
     # the account and the figure.
     return picked or preferred
+
+
+@dataclass
+class WakeWait:
+    account: str
+    pct: int
+    reset_5h: int | None
+
+
+def wake_wait(agent: str, row) -> WakeWait | None:
+    """Is a closed agent's wake walled behind its own account's 5h window?
+
+    This is the check daemon.py makes before it types anything into a closed
+    agent's terminal (a resume is tied to the account its session lives under,
+    so there is no other account to try). It is factored out here, rather than
+    inlined at the call site, so the screens that show an agent can ask the
+    same question instead of restating the rule and drifting from it.
+
+    A computed condition, not a stored one: called again a moment later, on an
+    agent with no work waiting or on an account whose window has since rolled
+    over, it returns None.
+    """
+    if not row or not row["closed_at"]:
+        return None
+    acct = choose_account(agent, resuming=bool(row["resume_session"]))
+    st = status.read(acct)
+    pct = st.trusted_pct_5h
+    if pct is None or pct < status.PCT_5H_BLOCK:
+        return None
+    return WakeWait(acct, pct, st.reset_5h)
+
+
+def wake_wait_reason(agent: str, row) -> str | None:
+    """The sentence ps, triggers and bridge print for a walled wake.
+
+    One wording, called from all three screens and from the daemon's own log
+    line, so a screen can never say something the daemon does not act on.
+    """
+    w = wake_wait(agent, row)
+    if w is None:
+        return None
+    when = "unknown" if not w.reset_5h else time.strftime("%H:%M", time.localtime(w.reset_5h))
+    return f"waiting for {w.account}'s 5h window ({w.pct}%, rolls over {when})"
 
 
 def _is_resume(extra: list[str] | None) -> bool:
