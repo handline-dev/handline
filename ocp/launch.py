@@ -16,6 +16,7 @@ hibernation and restore, which makes this recover better than .envrc would.
 """
 from __future__ import annotations
 
+import hashlib
 import os
 import shutil
 import sys
@@ -30,6 +31,10 @@ from . import accounts, agents, db, paths, status, triggers
 # reserve has no room to work in, only room to hand off. The wall itself is
 # still where a launch is refused - `build` does that, and says which account.
 START_LIMIT = triggers.MOVE_LINE_5H
+
+# `build` and `fingerprint` must name the same tools, or a change to one
+# reads as a launch that never drifted to the other.
+DISALLOWED_TOOLS = "Agent,SendMessage"
 
 
 def find_room(agent: str, limit: int | None = None, limit_7d: int | None = None,
@@ -224,11 +229,12 @@ def build(agent: str, extra: list[str] | None = None, force: bool = False) -> tu
     model = cfg.get("model")
     if model:
         argv += ["--model", str(model)]
-    # Work for another agent goes through `ocp ask`. A subagent does it where
-    # nothing can see it: no row on the bridge, gone with the session, spent on
-    # this account. The list is variadic, so an option must follow it - a
-    # prompt there would be read as one more tool name.
-    argv += ["--disallowedTools", "Agent"]
+    # Work for another agent goes through `ocp ask`, where the bridge can see
+    # it. Agent spawns a subagent that dies with the session, unseen; SendMessage
+    # reaches another agent's own session directly, bypassing the bridge the
+    # same way - a manager used exactly that tonight to resume two subordinates
+    # by hand instead of asking them. Both are denied for the same reason.
+    argv += ["--disallowedTools", DISALLOWED_TOOLS]
     # Always pass effort explicitly. Left unset it comes from whatever the
     # environment carries, which is how an agent ends up silently running at a
     # far more expensive level than intended.
@@ -251,8 +257,13 @@ def build(agent: str, extra: list[str] | None = None, force: bool = False) -> tu
     return argv, accounts.env_for(acct, agent)
 
 
-def context_for(agent: str) -> str:
-    """ROLE.md + base.md + the latest handoff, as one system-prompt appendix."""
+def _static_preamble(agent: str) -> str:
+    """The part of `context_for` that a rebuild reproduces byte for byte:
+    everything except the handoff, which is supposed to differ every time
+    this agent is parked. `fingerprint` hashes this, not the whole preamble -
+    hashing the handoff too would call a session stale for a reason that has
+    nothing to do with what it was launched with.
+    """
     d = paths.agent_dir(agent)
     parts = [f"You are `{agent}`, one agent in an orcapipe team. "
              f"Your name is also in $OCP_AGENT.",
@@ -270,7 +281,13 @@ def context_for(agent: str) -> str:
             text = p.read_text().strip()
             if text:
                 parts.append(f"# Your {label} ({fn})\n{text}")
-    handoff = d / "handoff" / "latest.md"
+    return "\n\n".join(parts)
+
+
+def context_for(agent: str) -> str:
+    """ROLE.md + base.md + the latest handoff, as one system-prompt appendix."""
+    parts = [_static_preamble(agent)]
+    handoff = paths.agent_dir(agent) / "handoff" / "latest.md"
     if handoff.exists():
         text = handoff.read_text().strip()
         if text:
@@ -278,7 +295,7 @@ def context_for(agent: str) -> str:
                 "# Where you left off (handoff/latest.md)\n"
                 "You were interrupted and resumed. This is your own record.\n" + text
             )
-    return "\n\n".join(parts)
+    return "\n\n".join(p for p in parts if p)
 
 
 def _your_team(agent: str) -> str:
@@ -309,15 +326,38 @@ def _your_team(agent: str) -> str:
     return "\n".join(lines)
 
 
+def fingerprint(agent: str) -> str:
+    """What `build()` would launch this agent with right now, boiled down to
+    the pieces a running session cannot pick up on its own: the model, the
+    effort level, the disallowed-tools list, and the static preamble (team
+    line, ROLE.md, base.md). Never the account or the handoff - the account
+    is chosen fresh on every real launch regardless of what last time picked,
+    and the handoff is supposed to be different every time this agent is
+    parked, so hashing either would call a session stale for a reason that
+    has nothing to do with what it was launched with.
+
+    Recorded at launch time (`_record_terminal`) and compared against a fresh
+    call before typing a handoff into a session that is still open: the two
+    agree only when nothing `build` would produce has changed since that
+    session started.
+    """
+    cfg = agents.read(agent)
+    model = str(cfg.get("model") or "")
+    effort = str(cfg.get("effort") or agents.DEFAULT_EFFORT)
+    material = "\x1e".join([model, effort, DISALLOWED_TOOLS, _static_preamble(agent)])
+    return hashlib.sha256(material.encode()).hexdigest()[:16]
+
+
 def exec_agent(agent: str, extra: list[str] | None = None, force: bool = False) -> None:
     argv, env = build(agent, extra, force)
-    _record_terminal(agent, env.get("OCP_ACCOUNT"))
+    _record_terminal(agent, env.get("OCP_ACCOUNT"), fingerprint(agent))
     sys.stdout.flush()
     os.execve(argv[0], argv, env)
 
 
-def _record_terminal(agent: str, acct: str | None = None) -> None:
-    """Remember where we are about to become the agent: the terminal, and the account.
+def _record_terminal(agent: str, acct: str | None = None, fp: str | None = None) -> None:
+    """Remember where we are about to become the agent: the terminal, the
+    account, and what `build()` produced this launch with.
 
     Orca puts the handle in the environment of every terminal it launches, and
     this is the only moment we can see it - after execve we are the agent. The
@@ -326,6 +366,10 @@ def _record_terminal(agent: str, acct: str | None = None) -> None:
     The account comes from the environment we are about to exec with, not from
     agent.yaml: those are the same value only when the preferred account had
     room, and the whole point of recording it is that the two can differ.
+
+    `fp` is the fingerprint `exec_agent` computed just before this ran - the
+    daemon reads it back before waking this agent in place, so a launch that
+    changed since is relaunched instead of carried forward silently.
     """
     # Late, because `spawn` imports this module: the launcher is the bottom of
     # the stack and the starters sit on top of it.
@@ -344,6 +388,7 @@ def _record_terminal(agent: str, acct: str | None = None) -> None:
                 # joins the team's Run here, so Orca draws it under whoever it
                 # reports to instead of as one more tab.
                 spawn.register_worker(con, agent, handle)
+                db.set_launch_fingerprint(con, agent, fp)
             if acct:
                 db.set_account(con, agent, acct)
         finally:

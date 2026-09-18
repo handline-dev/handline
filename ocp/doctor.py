@@ -13,7 +13,7 @@ import subprocess
 import time
 from pathlib import Path
 
-from . import (accounts, agents, daemon, db, hooks, observe as obs, orca, paths,
+from . import (accounts, agents, daemon, db, hooks, launch, observe as obs, orca, paths,
                service, status)
 
 OK, WARN, FAIL = "ok", "warn", "fail"
@@ -215,6 +215,33 @@ def _check_stuck_running(r: Report) -> None:
             r.add(WARN, f"agent {row['agent']}: RUNNING with nothing heard for {mins}m",
                   "no work is delivered to a RUNNING agent and its session is never "
                   "closed; the sweep unsticks it once Orca agrees it is idle")
+    finally:
+        con.close()
+
+
+def _check_launch_drift(r: Report) -> None:
+    """A running session whose own launch no longer matches `build()`.
+
+    The daemon catches this itself before it next types a handoff into such a
+    session in place - see `daemon._wake_agent` - and relaunches it instead.
+    This is only visibility for the window before that happens: a human
+    reading `doctor` should not have to wonder why an agent is still missing a
+    flag or a system-prompt section that a recent change added.
+    """
+    sessions = obs.live_sessions()
+    if sessions is None:
+        return                      # could not look; not evidence of drift
+    con = db.connect()
+    try:
+        for row in db.all_agent_states(con):
+            agent = row["agent"]
+            if row["closed_at"] or not row["launch_fingerprint"] or not sessions.get(agent):
+                continue
+            if launch.fingerprint(agent) != row["launch_fingerprint"]:
+                r.add(WARN, f"agent {agent}: running session predates the current launch "
+                      "recipe",
+                      "will be relaunched, with its own session to resume, the next time "
+                      "it is woken instead of having its handoff typed in place")
     finally:
         con.close()
 
@@ -440,6 +467,7 @@ def run() -> Report:
     _check_rate_limits_present(r)
     _check_agents(r)
     _check_stuck_running(r)
+    _check_launch_drift(r)
     _check_session_matches_the_record(r)
     _check_pidfile(r)
     _check_one_daemon(r)

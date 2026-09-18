@@ -727,6 +727,25 @@ def _wake_agent(con, agent: str, log, moved_to: str | None = None,
     row = db.get_agent_state(con, agent)
     closed = bool(row and row["closed_at"])
     resumed = False
+    if not closed and row and row["launch_fingerprint"] and session_present(agent):
+        # Typing a handoff into a session that is still open carries forward
+        # whatever `ocp launch` built it with, forever - a flag or a system
+        # prompt section added since would never reach it. A recorded
+        # fingerprint that no longer matches what `build()` would produce
+        # now is the one signal that this session predates a real change,
+        # and it earns a relaunch instead: end it and fall into the same
+        # path a closed agent's wake already takes, with its own session id
+        # to resume so nothing about its context is lost.
+        drifted = launch.fingerprint(agent) != row["launch_fingerprint"]
+        if drifted:
+            acct = agents.current_account(agent, con)
+            st = status.read_for_agent(agent, acct)
+            if st.session_id and _end_session(con, agent, log, st,
+                                               resume=st.session_id)[0]:
+                log(f"  {agent}: launch recipe changed since this session "
+                    f"started - relaunching instead of waking it in place")
+                row = db.get_agent_state(con, agent)
+                closed = bool(row and row["closed_at"])
     if closed:
         # `ocp launch` refuses at the 5h wall, and the daemon can read that
         # before it types anything. Trying anyway would spend the wake timeout
