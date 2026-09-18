@@ -444,6 +444,30 @@ def set_request_state(con, rid: int, state: str, verdict: str | None = None) -> 
         (state, verdict, int(time.time()) if state != "queued" else None, rid))
 
 
+def oldest_counted_ask(con, requester: str, since_ts: int) -> int | None:
+    """When the ask that has to leave the window before a slot frees was sent.
+
+    The same rule as `asks_since`, so the two cannot disagree about which asks
+    are in the window.
+    """
+    row = con.execute(
+        "SELECT ts FROM requests WHERE requester = ? AND ts >= ? AND state != 'denied' "
+        "ORDER BY ts LIMIT 1", (requester, since_ts),
+    ).fetchone()
+    return int(row["ts"]) if row else None
+
+
+def standing_denial(con, requester: str, target: str, body: str,
+                    since_ts: int) -> int | None:
+    """The id of an identical ask already refused inside the window, if any."""
+    row = con.execute(
+        "SELECT id FROM requests WHERE requester = ? AND target = ? AND body = ? "
+        "AND state = 'denied' AND ts >= ? ORDER BY id DESC LIMIT 1",
+        (requester, target, body, since_ts),
+    ).fetchone()
+    return int(row["id"]) if row else None
+
+
 def asks_since(con, requester: str, since_ts: int) -> int:
     row = con.execute(
         "SELECT COUNT(*) AS c FROM requests WHERE requester = ? AND ts >= ? AND state != 'denied'",

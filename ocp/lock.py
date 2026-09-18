@@ -1,4 +1,8 @@
-"""One writer at a time per agent terminal.
+"""Exclusive holds: one writer per agent terminal, one daemon per installation.
+
+Both are flocks, and for the same reason - the kernel releases them when
+the holder dies, so neither can be left behind by a process that was
+killed.
 
 Two processes type into an agent's terminal: the daemon on its tick, and `ocp
 top` when a human presses a key. Waking blocks for up to WAKE_SESSION_TIMEOUT_S
@@ -46,6 +50,40 @@ def terminal(agent: str):
     except OSError:
         # Without a lock we cannot promise one writer, and the alternative to
         # promising it is two launches in one terminal.
+        yield False
+        return
+    try:
+        try:
+            fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except OSError:
+            yield False
+            return
+        yield True
+    finally:
+        os.close(fd)
+
+
+@contextlib.contextmanager
+def singleton(name: str):
+    """Yield True while this process is the only holder of `name`.
+
+    The daemon's guard against a second supervisor. A pidfile records who
+    wrote it last and nothing else: a daemon started from another shell, or
+    one orphaned when launchd reloaded the job under it, is not in the file
+    and so is invisible to a check that reads it. Two supervisors on one
+    database then notify, park and wake the same agent twice, and the older
+    one runs whatever code it was started with.
+
+    The kernel drops an flock when its holder dies, so unlike the pidfile
+    there is nothing stale to reclaim and no boot time to compare.
+    """
+    d = paths.home() / "locks"
+    d.mkdir(parents=True, exist_ok=True)
+    try:
+        fd = os.open(d / f"{name}.lock", os.O_CREAT | os.O_RDWR, 0o600)
+    except OSError:
+        # The same reasoning as `terminal`: we cannot promise there is one of
+        # us, and the alternative to promising it is two daemons.
         yield False
         return
     try:
