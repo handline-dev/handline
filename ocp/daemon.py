@@ -541,9 +541,12 @@ def _start_for_work(con, agent: str, log) -> str:
     """
     repo = agents.repo_of(agent)
     if not repo:
-        n = len(db.queued_for(con, agent)) + len(db.unannounced_answers(con, agent))
-        return (f"{agent}: {n} request(s) waiting and it has "
-                f"no terminal - set `repo:` in its agent.yaml, or start it by hand (t)")
+        asked = len(db.queued_for(con, agent))
+        answers = len(db.unannounced_answers(con, agent))
+        what = ", ".join(([f"{asked} request(s)"] if asked else [])
+                         + ([f"{answers} answer(s)"] if answers else [])) or "work"
+        return (f"{agent}: {what} waiting and it has no terminal - set `repo:` in "
+                f"its agent.yaml, or start it by hand (t)")
     row = db.get_agent_state(con, agent)
     if row and int(row["wake_failures"]) >= MAX_FAILED_ATTEMPTS:
         return f"{agent}: not started again - {row['wake_failures']} attempts have failed"
@@ -1119,6 +1122,11 @@ def _perform_handoff(con, agent: str, trigger: triggers.Trigger, log,
 
 
 # ---------------------------------------------------------------- tick
+# The last reason each agent could not be woken, so a reason that lasts for
+# hours is reported when it starts rather than on every tick.
+_SAID: dict[str, str] = {}
+
+
 def supervise(con, agent: str, log, now: int, samples: dict,
               use_model: bool, actions: list[str]) -> None:
     """One agent's turn in a tick.
@@ -1191,20 +1199,25 @@ def supervise(con, agent: str, log, now: int, samples: dict,
     # make itself, that dies with its session and appears on no screen. The one
     # fact the daemon needs to do it instead is which repository, and that is
     # `repo:` in agent.yaml.
-    # An answer counts as work here. An agent that asked something, was closed
-    # while it waited and then lost its terminal has no way back on its own:
-    # waking restores a terminal, and there is none to restore. reviewer sat
-    # like that for a day with two answers it had asked for.
+    # An answer counts as work here, not only a request: a wake puts a session
+    # back into a terminal the agent still has, so an agent that lost its
+    # terminal while waiting on an answer has no way back at all.
+    started_now = False
     if not (row and row["terminal"]) and (db.queued_for(con, agent)
                                           or db.unannounced_answers(con, agent)):
         actions.append(_start_for_work(con, agent, log))
         row = db.get_agent_state(con, agent)
+        started_now = bool(row and row["terminal"])
 
     # A closed session cannot read its own inbox, so the arrival of work is
     # what has to bring it back. Without this an `ocp ask` queues into a
     # terminal with nobody in it and waits forever, which is worse than the
     # memory it was saving: reviewer sat closed with two requests pending.
-    if row and row["closed_at"]:
+    # Not one started a moment ago: that terminal is a fresh session booting,
+    # the closed mark on it is stale until the sweep sees the session, and a
+    # wake typed into a TUI that is still coming up loses its opening
+    # characters and leaves the rest in the input box, unsent.
+    if row and row["closed_at"] and not started_now:
         waiting = db.queued_for(con, agent)
         # An agent that asked something, parked on the answer and was then
         # closed is waiting on a reply, not on work - and resolving its request
@@ -1217,11 +1230,16 @@ def supervise(con, agent: str, log, now: int, samples: dict,
                     else f"{len(answers)} answer(s) it asked for")
             actions.append(f"{agent}: woken for {what}"
                            if ok else f"{agent}: could not wake - {why}")
-            if not ok:
+            if not ok and _SAID.get(agent) != why:
                 # Said out loud, because this is the tick doing nothing about
-                # something that is waiting. Unlogged, it repeated every nine
-                # seconds for a day and the log had nothing in it.
+                # something that is waiting - and said once, because the tick
+                # comes round every few seconds and two of these reasons last
+                # for hours. `_wake_agent` logs some of them itself; this is
+                # the one place that reports the ones it returns silently.
+                _SAID[agent] = why
                 log(f"  {agent}: {what} and could not be woken - {why}")
+            if ok:
+                _SAID.pop(agent, None)
             if ok:
                 row = db.get_agent_state(con, agent)
                 woke_now = True

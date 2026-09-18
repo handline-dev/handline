@@ -4432,6 +4432,7 @@ def test_an_agent_can_put_another_one_to_work(home: Path) -> None:
     con = db.connect()
     started: list = []
     real = (orcamod.available, spawnmod.spawn, dmn.wait_for_session)
+    real_wake = dmn.wake_agent
     try:
         orcamod.available = lambda: True
         dmn.wait_for_session = lambda agent, timeout=0: True
@@ -4470,11 +4471,12 @@ def test_an_agent_can_put_another_one_to_work(home: Path) -> None:
         check("dispatch: a start that keeps failing is not retried forever",
               "attempts have failed" in said, said)
 
-        # An answer is work too. An agent that asked something, was closed
-        # while it waited and then lost its terminal cannot come back on its
-        # own: a wake restores a terminal, and there is none to restore.
-        # reviewer sat that way for a day holding two answers it had asked for.
+        # An answer is work too: a wake puts a session back into a terminal the
+        # agent still has, so one that lost its terminal while waiting on an
+        # answer has no way back at all. reviewer sat that way for a day.
         spawnmod.spawn = fake_spawn
+        woken: list = []
+        dmn.wake_agent = lambda con_, a, log_: (woken.append(a), (False, "no terminal to wake"))[1]
         started.clear()
         agents.register("reviewer", "alpha", repo=str(home / "checkout"))
         db.set_terminal(con, "reviewer", None, None)
@@ -4483,27 +4485,36 @@ def test_an_agent_can_put_another_one_to_work(home: Path) -> None:
                              "peer", "async", None, 0, None)
         askmod.resolve(rid, "looks right")
         db.set_closed(con, "reviewer", "sess_old")
-        check("dispatch: it is an answer that is waiting, not a request",
-              not db.queued_for(con, "reviewer")
-              and [r["id"] for r in db.unannounced_answers(con, "reviewer")] == [rid])
         logged: list[str] = []
         dmn.supervise(con, "reviewer", lambda m: logged.append(m),
                       int(time.time()), {}, False, [])
         check("dispatch: an agent with an answer and no terminal is given one",
               ("reviewer", str((home / "checkout").resolve())) in started,
               f"{started} {logged}")
+        # The terminal it was just given holds a session that is still booting.
+        # Typing a wake into it loses the opening characters and leaves the
+        # rest in the input box, unsent.
+        check("dispatch: and the tick does not then wake the terminal it just made",
+              not woken, str(woken))
 
-        # And when it cannot be woken, the tick says so rather than repeating
-        # in silence every nine seconds, which is how this went unseen.
+        # When there is nothing to wake and nothing can be started, the tick
+        # says so - once. It repeated in silence for a day, and two of the
+        # reasons it can give last for hours.
         db.set_terminal(con, "reviewer", None, None)
         spawnmod.spawn = lambda agent, repo, base="main": (False, "orca refused")
         logged.clear()
-        dmn.supervise(con, "reviewer", lambda m: logged.append(m),
-                      int(time.time()), {}, False, [])
-        check("dispatch: and a wake that cannot happen is said out loud",
-              any("could not" in m and "reviewer" in m for m in logged), str(logged))
+        for _ in range(3):
+            dmn.supervise(con, "reviewer", lambda m: logged.append(m),
+                          int(time.time()), {}, False, [])
+        said = [m for m in logged if "could not be woken" in m]
+        check("dispatch: a wake that cannot happen is said out loud",
+              len(said) == 1 and "answer(s) it asked for" in said[0], str(logged))
+        check("dispatch: and not once per tick for as long as it lasts",
+              len([m for m in logged if "could not be woken" in m]) == 1, str(logged))
     finally:
         (orcamod.available, spawnmod.spawn, dmn.wait_for_session) = real
+        dmn.wake_agent = real_wake
+        dmn._SAID.clear()
         con.close()
 
 
