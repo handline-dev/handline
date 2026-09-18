@@ -10,7 +10,9 @@ You are one agent in a team. Your name is in `$OCP_AGENT`.
 ```
 ocp ask <target> "<request>"   send a request; the system decides if it is allowed
 ocp inbox                      requests waiting for you
-ocp resolve <id> "<verdict>"   close one you finished
+ocp resolve <id> "<verdict>"   answer one - this is how the reply reaches whoever
+                               asked, the founder included. Never send a second
+                               request that repeats it
 ocp handoff $OCP_AGENT         what you were doing before you were resumed
 ```
 

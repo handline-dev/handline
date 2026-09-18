@@ -46,7 +46,11 @@ CREATE TABLE IF NOT EXISTS requests (
   verdict     TEXT,
   -- When the requester was told this came back. Per row, because answering is
   -- not monotonic in id: a high-water mark loses the answer that arrives late.
-  announced_at INTEGER
+  announced_at INTEGER,
+  -- When the answer landed. `ts` is when the request was made, and the two can
+  -- be two days apart: a screen that sorts answers by `ts` puts yesterday's
+  -- reply above this morning's, which reads as an old message nobody answered.
+  resolved_at INTEGER
 );
 CREATE INDEX IF NOT EXISTS requests_target ON requests(target, state);
 CREATE INDEX IF NOT EXISTS requests_requester ON requests(requester, ts);
@@ -146,6 +150,11 @@ def _pre_schema_migrate(con) -> None:
         # at every agent the first time this runs.
         con.execute("UPDATE requests SET announced_at = ? "
                     "WHERE state IN ('done', 'rejected', 'denied')", (int(time.time()),))
+    if request_cols and "resolved_at" not in request_cols:
+        con.execute("ALTER TABLE requests ADD COLUMN resolved_at INTEGER")
+        # No backfill: when an old row was answered is not recorded anywhere,
+        # and inventing a time would be a figure with nothing behind it. A row
+        # with none falls back to `ts`, which is what it had before.
     if request_cols and "chain_id" not in request_cols:
         con.execute("ALTER TABLE requests ADD COLUMN chain_id TEXT")
         # Existing rows keep their own id as their chain, which is what a
@@ -163,7 +172,8 @@ def unannounced_answers(con, agent: str) -> list:
     prevent, one layer down.
     """
     return con.execute(
-        "SELECT id, target, state, verdict FROM requests WHERE requester = ? "
+        "SELECT id, ts, resolved_at, target, kind, state, verdict, body, parent_id, "
+        "chain_id FROM requests WHERE requester = ? "
         "AND state IN ('done', 'rejected') AND announced_at IS NULL ORDER BY id",
         (agent,),
     ).fetchall()
@@ -315,8 +325,12 @@ def get_request(con, rid: int):
 
 
 def set_request_state(con, rid: int, state: str, verdict: str | None = None) -> None:
-    con.execute("UPDATE requests SET state = ?, verdict = COALESCE(?, verdict) WHERE id = ?",
-                (state, verdict, rid))
+    # `resolved_at` is stamped on the way out of 'queued' and never rewritten:
+    # re-resolving an answered request does not make the answer newer.
+    con.execute(
+        "UPDATE requests SET state = ?, verdict = COALESCE(?, verdict), "
+        "resolved_at = COALESCE(resolved_at, ?) WHERE id = ?",
+        (state, verdict, int(time.time()) if state != "queued" else None, rid))
 
 
 def asks_since(con, requester: str, since_ts: int) -> int:

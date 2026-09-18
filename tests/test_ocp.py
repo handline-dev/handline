@@ -3661,7 +3661,9 @@ def test_top_acts_through_the_same_calls_the_daemon_makes(home: Path) -> None:
         # `ocp resolve` does - the screen must not invent a second way.
         db.add_request(con, "marina", actions.HUMAN, "which variant ships?",
                        None, "peer", "async", None, 0, None)
-        rid = actions.messages(con)[-1]["id"]
+        # By who sent it. The mailbox holds answers to the human's own asks as
+        # well now, and they sort among the rest by id.
+        rid = [m["id"] for m in actions.messages(con) if m["from"] == "marina"][-1]
         said = actions.answer(con, rid, "variant 11")
         row = db.get_request(con, rid)
         check("top: answering resolves the request with the verdict",
@@ -3899,6 +3901,196 @@ def test_only_one_thing_types_at_an_agent_at_a_time(home: Path) -> None:
         con.close()
 
 
+def test_an_answer_to_the_human_is_in_the_human_mailbox(home: Path) -> None:
+    """The reply loop was open at the human's end.
+
+    An agent is told what came back by the daemon typing into its terminal.
+    Nobody types into a human, so a verdict written on a row the founder asked
+    for landed nowhere any screen drew - measured on the live database: twenty
+    consecutive orders answered with `ocp resolve`, and the two agents that
+    wanted to be seen had learnt to send a second, unrelated request saying the
+    same thing. The mailbox holds both directions, and the same two keys work
+    on both."""
+    _daemon_home(home, 20)
+    con = db.connect()
+    try:
+        agents.register("reviewer", "alpha")
+        ok, said, rid = askmod.ask("reviewer", "audit branch keeper",
+                                   requester=actions.HUMAN)
+        check("mailbox: the human's own order is sent", ok, said)
+        check("mailbox: and is not in their own mailbox",
+              rid not in [m["id"] for m in actions.messages(con)])
+
+        askmod.resolve(rid, "MERGE.")
+        back = [m for m in actions.messages(con) if m["id"] == rid]
+        check("mailbox: a verdict on it comes back to the human", len(back) == 1,
+              str(actions.messages(con)))
+        check("mailbox: from the agent that answered, as an answer",
+              back[0]["from"] == "reviewer" and back[0]["kind"] == "answer"
+              and back[0]["answer"], str(back[0]))
+        check("mailbox: carrying what was said, not what was asked",
+              back[0]["body"] == "MERGE.", back[0]["body"])
+        check("mailbox: timed by when it came back, not when it was asked",
+              back[0]["ts"] >= db.get_request(con, rid)["ts"])
+
+        # Reading it is reading a verdict, which is unreadable on its own:
+        # "MERGE." says nothing without the branch it is about.
+        title, sections = actions.message_detail(con, rid)
+        headings = [h for h, _rows in sections]
+        check("mailbox: an opened answer shows what was asked underneath it",
+              any("WHAT YOU ASKED" in h for h in headings), str(headings))
+        check("mailbox: and the answer itself is the body",
+              "MERGE." in "\n".join(sections[0][1]))
+
+        # Replying to an answer is a new request in that answer's thread. It is
+        # the one place a parent id is known rather than guessed.
+        said = actions.answer(con, rid, "merged, thank you")
+        follow = db.get_request(con, rid + 1)
+        check("mailbox: replying sends it back to the agent that answered",
+              follow["target"] == "reviewer" and follow["requester"] == actions.HUMAN,
+              said)
+        check("mailbox: in the thread it replies to",
+              follow["parent_id"] == rid
+              and follow["chain_id"] == db.get_request(con, rid)["chain_id"],
+              f"parent={follow['parent_id']} chain={follow['chain_id']}")
+        check("mailbox: and what was replied to leaves the mailbox",
+              rid not in [m["id"] for m in actions.messages(con)])
+        check("mailbox: without overwriting what the agent said",
+              db.get_request(con, rid)["verdict"] == "MERGE.")
+
+        # A conversation with a human cannot be a runaway: the limit exists to
+        # reach a human, and one is typing. Five turns is past max_chain_depth.
+        parent = follow["id"]
+        for turn in range(5):
+            askmod.resolve(parent, f"done {turn}")
+            ok, said, parent = askmod.ask("reviewer", f"and now {turn}",
+                                          requester=actions.HUMAN, parent_id=parent)
+            check(f"mailbox: turn {turn + 1} of the conversation is allowed", ok, said)
+        check("mailbox: and it is still one thread",
+              db.get_request(con, parent)["chain_id"]
+              == db.get_request(con, rid)["chain_id"])
+        check("mailbox: with the depth reset by the human's turn",
+              db.get_request(con, parent)["chain_depth"] == 0)
+
+        # Dismissing an answer is not resolving it a second time.
+        askmod.resolve(parent, "last word")
+        actions.dismiss(con, parent)
+        check("mailbox: dismissing an answer takes it off the list",
+              parent not in [m["id"] for m in actions.messages(con)])
+        check("mailbox: and leaves the verdict standing",
+              db.get_request(con, parent)["verdict"] == "last word")
+
+        # A refusal is an answer too - the one that means do something else.
+        ok, _said, rid2 = askmod.ask("reviewer", "rebase it", requester=actions.HUMAN)
+        askmod.resolve(rid2, "no - the base moved", state="rejected")
+        refused = [m for m in actions.messages(con) if m["id"] == rid2]
+        check("mailbox: a refusal comes back, and says it is one",
+              len(refused) == 1 and refused[0]["kind"] == "refused", str(refused))
+
+        # And the CLI holds the same rows, or clearing one leaves the other
+        # still asking.
+        os.environ.pop("OCP_AGENT", None)
+        out = _capture(lambda: climod.main(["inbox", actions.HUMAN]))
+        check("mailbox: `ocp inbox` shows the answer too", f"#{rid2}" in out, out[:200])
+        _capture(lambda: climod.main(["dismiss", str(rid2)]))
+        check("mailbox: and `ocp dismiss` clears it from both",
+              rid2 not in [m["id"] for m in actions.messages(con)])
+    finally:
+        con.close()
+
+
+def test_the_team_is_drawn_the_way_it_is_routed(home: Path) -> None:
+    """Who an agent answers to decides where its report goes and who may
+    assign to it, and team.yaml has said so all along. A flat alphabetical list
+    made the reader hold the routing table in their head to know what they were
+    looking at - and the screen is the one place the team is read."""
+    _daemon_home(home, 20)
+    con = db.connect()
+    try:
+        (home / "team.yaml").write_text("""
+teams:
+  dev: [marina, keeper]
+
+agents:
+  manager: { intake: dedicated }
+  marina:  { intake: dedicated }
+  keeper:  { intake: dedicated }
+  scout:   { intake: serial }
+
+edges:
+  - { from: "manager", to: "dev.*", relation: supervisor, response: fire_and_forget }
+  - { from: "orchestrator", to: "*", relation: supervisor, response: fire_and_forget }
+  - { from: "*", to: "orchestrator", kind: escalate, creates_gate: true }
+""")
+        for name in ("manager", "marina", "keeper", "scout"):
+            agents.register(name, "alpha")
+        actions._TEAM["mtime"] = None
+        tree = actions.agent_tree()
+        depth = dict(tree)
+        check("tree: every registered agent is drawn, none twice",
+              sorted(depth) == sorted(paths.list_agents())
+              and len(tree) == len(paths.list_agents()), str(tree))
+        check("tree: a supervised agent hangs under its supervisor",
+              depth["marina"] == 1 and depth["keeper"] == 1 and depth["manager"] == 0,
+              str(tree))
+        check("tree: and is drawn directly after it",
+              [n for n, _d in tree].index("manager")
+              < [n for n, _d in tree].index("marina"), str(tree))
+        check("tree: an agent the human alone routes to is a root, not everyone's child",
+              depth["scout"] == 0, str(tree))
+
+        # The cursor moves down the screen, so the keys it moves over are the
+        # rows in the order they are drawn.
+        check("tree: the cursor order is the drawn order",
+              tui._keys_of(tui.AGENTS) == [n for n, _d in tree])
+
+        # A supervisor nobody registered is not a row, and the agent under it
+        # must not disappear with it.
+        (home / "team.yaml").write_text("""
+teams:
+  dev: [marina]
+
+agents:
+  marina: { intake: dedicated }
+
+edges:
+  - { from: "ghost", to: "dev.*", relation: supervisor, response: fire_and_forget }
+  - { from: "*", to: "orchestrator", kind: escalate, creates_gate: true }
+""")
+        actions._TEAM["mtime"] = None
+        check("tree: an agent whose supervisor is not registered is still drawn",
+              dict(actions.agent_tree())["marina"] == 0, str(actions.agent_tree()))
+
+        # A cycle in the routing table is a typo, not a reason to hang.
+        (home / "team.yaml").write_text("""
+teams: {}
+
+agents:
+  marina: { intake: dedicated }
+  keeper: { intake: dedicated }
+
+edges:
+  - { from: "marina", to: "keeper", relation: supervisor, response: fire_and_forget }
+  - { from: "keeper", to: "marina", relation: supervisor, response: fire_and_forget }
+  - { from: "*", to: "orchestrator", kind: escalate, creates_gate: true }
+""")
+        actions._TEAM["mtime"] = None
+        cyc = actions.agent_tree()
+        check("tree: a cycle does not hang and loses nobody",
+              sorted(n for n, _d in cyc) == sorted(paths.list_agents()), str(cyc))
+
+        # And a routing table that will not parse does not take the screen down
+        # with it - `ocp doctor` is where that is a finding.
+        (home / "team.yaml").write_text("teams: [this is not a map\n")
+        actions._TEAM["mtime"] = None
+        check("tree: a broken team.yaml still draws every agent",
+              sorted(n for n, _d in actions.agent_tree()) == sorted(paths.list_agents()))
+        frame = tui._ANSI.sub("", tui.frame(120, 40))
+        check("tree: and the screen still draws", "AGENTS" in frame)
+    finally:
+        con.close()
+
+
 def test_the_panel_and_the_daemon_agree_about_what_is_in_the_way(home: Path) -> None:
     """The panel's reason has to be the daemon's reason, or it is a second
     opinion about what is wrong - and a reader cannot tell which one is right.
@@ -3915,8 +4107,13 @@ def test_the_panel_and_the_daemon_agree_about_what_is_in_the_way(home: Path) -> 
     _daemon_home(home, 20)
     con = db.connect()
     real = (orcamod.available, orcamod.alive, orcamod.live_terminals,
-            orcamod.idle_now, orcamod.send, obsmod.live_sessions)
+            orcamod.idle_now, orcamod.send, obsmod.live_sessions,
+            dmn.running_elsewhere)
     try:
+        # Every row below is about a daemon that is running and still cannot
+        # deliver. "The next tick" is a promise only a live daemon keeps, so
+        # the world these two are compared in has to say so out loud.
+        dmn.running_elsewhere = lambda: 4242
         orcamod.available = lambda: True
         orcamod.send = lambda h, t, enter=True: (True, "")
         db.set_terminal(con, "backend", "term_x", "wt")
@@ -3980,9 +4177,24 @@ def test_the_panel_and_the_daemon_agree_about_what_is_in_the_way(home: Path) -> 
         _, said = world(*live, dmn.STALLED, told=False)
         check("agree: a stall names itself and the key that clears it",
               "STALLED" in said and "u clears it" in said, said)
+        # And the same world with no daemon in it. Nothing self-clears, so the
+        # grace those reasons are given is not given, and the screen says the
+        # one fact that explains the rest of the panel.
+        dmn.running_elsewhere = lambda: None
+        actions._WORLD["at"] = 0.0
+        _, said = world(*live, dmn.IDLE, told=False, age=5)
+        check("agree: with no daemon, what is about to be delivered is stuck now",
+              "has not been told yet" in said, said)
+        _, said = world({"term_x"}, {}, dmn.IDLE, told=False, closed=True)
+        check("agree: and a closed agent is not promised a tick that is not coming",
+              "no daemon is running to wake it" in said, said)
+        check("agree: the panel says so once, at the top",
+              actions.stuck(con)[0]["what"] == "the daemon is not running",
+              str(actions.stuck(con)[:1]))
     finally:
         (orcamod.available, orcamod.alive, orcamod.live_terminals,
-         orcamod.idle_now, orcamod.send, obsmod.live_sessions) = real
+         orcamod.idle_now, orcamod.send, obsmod.live_sessions,
+         dmn.running_elsewhere) = real
         con.close()
 
 
@@ -3995,7 +4207,9 @@ def test_the_screen_says_what_is_stuck_and_what_was_decided(home: Path) -> None:
     column says already."""
     _daemon_home(home, 20)
     con = db.connect()
+    was_running = dmn.running_elsewhere
     try:
+        dmn.running_elsewhere = lambda: 4242      # the panel's ordinary world
         agents.register("marina", "alpha")
         db.set_terminal(con, "backend", None, None)
         db.add_request(con, "marina", "backend", "please look", None,
@@ -4108,6 +4322,7 @@ def test_the_screen_says_what_is_stuck_and_what_was_decided(home: Path) -> None:
                   ["events", "--agent", "backend", "--limit", "20", "--all"])))
 
     finally:
+        dmn.running_elsewhere = was_running
         con.close()
 
 
@@ -5196,6 +5411,8 @@ def main() -> int:
         run(lambda: test_an_answer_wakes_the_agent_that_was_waiting_for_it(Path(td) / 'waiting'))
         run(lambda: test_a_request_can_be_read_whole(Path(td) / 'readone'))
         run(lambda: test_only_one_thing_types_at_an_agent_at_a_time(Path(td) / 'locking'))
+        run(lambda: test_an_answer_to_the_human_is_in_the_human_mailbox(Path(td) / 'mailbox'))
+        run(lambda: test_the_team_is_drawn_the_way_it_is_routed(Path(td) / 'tree'))
         run(lambda: test_the_panel_and_the_daemon_agree_about_what_is_in_the_way(Path(td) / 'topagree'))
         run(lambda: test_the_screen_says_what_is_stuck_and_what_was_decided(Path(td) / 'topstuck'))
         run(lambda: test_a_message_is_read_whole_and_answered_where_it_is_read(Path(td) / 'topread'))

@@ -296,14 +296,20 @@ def build(width: int, sel: dict | None = None) -> tuple[list[str], list[Panel]]:
         # No model and no effort: they are configuration, they do not change
         # while anyone is watching, and they are on the agent's own page. This
         # screen is about what is happening now.
-        ag.add(f"{DIM}{'agent':<11}{'acct':<8}{'state':<16}"
+        ag.add(f"{DIM}{'agent':<13}{'acct':<8}{'state':<16}"
                f"{'ctx':>4}   {'wake':<7}{'in':<4}{R}")
-        for name in paths.list_agents():
+        for name, depth in actions.agent_tree():
+            # Indented under whoever routes work to it. Who an agent reports to
+            # decides where its report goes and who may assign to it, and it was
+            # written down in team.yaml all along - a flat list made the reader
+            # hold the routing table in their head to know what they were
+            # looking at.
+            twig = f"{DIM}{'  ' * (depth - 1)}└ {R}" if depth else ""
             try:
                 acct = agents.account_of(name)
                 cfg = agents.read(name)
             except Exception as e:  # noqa: BLE001
-                ag.add(f"{name:<11}{RED}config error: {e}{R}", key=name)
+                ag.add(pad(twig + name, 13) + f"{RED}config error: {e}{R}", key=name)
                 continue
             st = status.read_for_agent(name, acct)
             row = db.get_agent_state(con, name)
@@ -327,7 +333,7 @@ def build(width: int, sel: dict | None = None) -> tuple[list[str], list[Panel]]:
             # Padded on visible width, like the accounts panel: a state that
             # grew a "·closed" suffix used to push every column after it right.
             ag.add(
-                pad(f"{BOLD}{name}{R}", 11)
+                pad(twig + f"{BOLD}{name}{R}", 13)
                 + pad(acct, 8)
                 + pad(f"{STATE_COLOR.get(s, '')}{fit(s, 15)}{R}", 16)
                 + pad(ctxs, 7)
@@ -347,8 +353,10 @@ def build(width: int, sel: dict | None = None) -> tuple[list[str], list[Panel]]:
         waiting = actions.messages(con)
         gates = sum(1 for m in waiting if m["gate"])
         parked = sum(1 for m in waiting if m["waiting"] and not m["gate"])
+        back = sum(1 for m in waiting if m["answer"])
         counts = [(gates, "to decide"), (parked, "asked for a reply"),
-                  (len(waiting) - gates - parked, "to read")]
+                  (back, "came back"),
+                  (len(waiting) - gates - parked - back, "to read")]
         said = ", ".join(f"{n} {what}" for n, what in counts if n)
         title = f"FOR YOU — {said}" if said else "FOR YOU"
         ms = Panel(title, width)
@@ -363,11 +371,16 @@ def build(width: int, sel: dict | None = None) -> tuple[list[str], list[Panel]]:
             # screen that no one else will ever clear; it is not drawn like a
             # report that happens to be addressed here.
             if m["gate"]:
-                mark, name = f"{YEL}⚠{R}", f"{BOLD}{m['requester']:<12}{R}"
+                mark, name = f"{YEL}⚠{R}", f"{BOLD}{m['from']:<12}{R}"
             elif m["waiting"]:
-                mark, name = f"{CYA}◷{R}", f"{BOLD}{m['requester']:<12}{R}"
+                mark, name = f"{CYA}◷{R}", f"{BOLD}{m['from']:<12}{R}"
+            elif m["answer"]:
+                # An answer is the one row here that is not addressed to the
+                # human at all: they asked for it. Drawn as what it is, so a
+                # reply cannot be read as a new demand on their time.
+                mark, name = f"{GRN}↩{R}", f"{BOLD}{m['from']:<12}{R}"
             else:
-                mark, name = f"{DIM}·{R}", f"{DIM}{m['requester']:<12}{R}"
+                mark, name = f"{DIM}·{R}", f"{DIM}{m['from']:<12}{R}"
             ms.add(f"{DIM}{when}{R} {mark} {CYA}#{m['id']:<5}{R}{name}"
                    f"{pad(m['kind'] or 'ask', 11)}{first}", key=m["id"])
         if not waiting:
@@ -403,11 +416,17 @@ def page(title: str, sections: list[tuple[str, list[str]]], width: int,
     for heading, rows in sections:
         if heading:
             box = Panel(heading, width)
-            for r in rows:
+            # Wrapped into the box, not fitted to it: what is quoted here is a
+            # message someone wrote, and a box that ends every line in "…" is
+            # not a section anyone can read. A panel on the main screen cuts a
+            # row because the row underneath needs the line; a page scrolls.
+            for r in wrap(rows, max(1, width - 5)):
                 box.add(r)
             lines += box.draw()
         else:
-            lines += [fit(r, width) for r in rows] + [""]
+            # Left long: `_detail_frame` wraps what it is given to the width it
+            # has, and fitting first would truncate a body before it got there.
+            lines += list(rows) + [""]
     return opened(title, lines, panel, key)
 
 
@@ -888,7 +907,9 @@ def _keys_of(panel: int) -> list:
     if panel == ACCOUNTS:
         return paths.list_accounts()
     if panel == AGENTS:
-        return paths.list_agents()
+        # In the order they are drawn, not the order they are stored: the
+        # cursor moves down the screen, and a tree is not alphabetical.
+        return [name for name, _depth in actions.agent_tree()]
     con = db.connect()
     try:
         if panel == MESSAGES:
@@ -973,10 +994,11 @@ def _act(panel: int, sel: dict, key: str, width: int, height: int,
             if not row:
                 return f"#{rid} is gone", None
             if key in ("\r", "\n"):
-                when = time.strftime("%Y-%m-%d %H:%M", time.localtime(row["ts"]))
-                title = (f"#{rid} from {row['requester']} · {row['kind'] or 'ask'} · {when}")
-                return "", opened(title, (row["body"] or "").splitlines() or ["(empty)"],
-                                  MESSAGES, rid)
+                detail = actions.message_detail(con, rid)
+                if detail is None:
+                    return f"#{rid} is gone", None
+                title, sections = detail
+                return "", page(title, sections, width, MESSAGES, rid)
             if key in ("a", "e"):
                 text = _compose(rid, key, width, height, fd, saved)
                 if text is None:

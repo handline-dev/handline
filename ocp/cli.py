@@ -662,6 +662,8 @@ def cmd_inbox(args) -> int:
         print("cannot tell whose inbox this is: OCP_AGENT is unset and this is not "
               "an interactive shell. Name the agent.")
         return 1
+    if agent == actions.HUMAN and not args.all:
+        return _human_inbox()
     rows = askmod.inbox(agent, unread_only=not args.all)
     if not rows:
         print(f"{agent}: inbox empty")
@@ -671,6 +673,47 @@ def cmd_inbox(args) -> int:
         print(f"#{r['id']:<5} from {r['requester']:<12} {r['state']:<9} "
               f"depth={r['chain_depth']} {r['body'][:60]}")
     return 0
+
+
+def _human_inbox() -> int:
+    """The human's mailbox, which holds one more thing than an agent's.
+
+    An agent is told what came back to it by the daemon typing into its
+    terminal. Nobody types into a human, so an answer to something the human
+    asked has to be somewhere they look - and this command and `ocp top` have
+    to hold the same rows, or clearing one leaves the other still asking.
+    """
+    con = db.connect()
+    try:
+        rows = actions.messages(con)
+        if not rows:
+            print("nothing waiting on you")
+            return 0
+        print(f"{len(rows)} waiting. `ocp read <id>` shows one whole.")
+        for m in rows:
+            mark = "!" if m["gate"] else ("<" if m["answer"] else ".")
+            print(f"{mark} #{m['id']:<5} {m['from']:<12} {(m['kind'] or 'ask'):<9} "
+                  f"{actions.first_line(m['body'])[:60]}")
+        print("`ocp resolve <id> \"<verdict>\"` answers one; "
+              "`ocp dismiss <id>` takes it off the list.")
+        return 0
+    finally:
+        con.close()
+
+
+def cmd_dismiss(args) -> int:
+    """Take one row off the human's mailbox without replying to it.
+
+    The two rows there need two different writes - a request is resolved, an
+    answer is only marked told - and which one this is is read off the row, so
+    a human clearing their list never has to know which.
+    """
+    con = db.connect()
+    try:
+        print(actions.dismiss(con, args.id))
+        return 0
+    finally:
+        con.close()
 
 
 def cmd_read(args) -> int:
@@ -815,6 +858,10 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("verdict")
     p.add_argument("--state", default="done", choices=["done", "rejected"])
     p.set_defaults(fn=cmd_resolve)
+
+    p = sub.add_parser("dismiss", help="take one row off your mailbox without replying")
+    p.add_argument("id", type=int)
+    p.set_defaults(fn=cmd_dismiss)
 
     p = sub.add_parser("fold", help="fold events into the digest (the one model call)")
     p.add_argument("agent", nargs="?")
