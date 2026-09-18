@@ -231,9 +231,11 @@ def ask(target: str, body: str, files: str | None = None, requester: str | None 
 
         decision = t.route(requester, target, chain_depth=depth)
         if not decision.allowed:
-            db.add_request(con, requester, target, body, files, None, None, None,
-                           depth, parent_id, state="denied", verdict=decision.reason,
-                           chain_id=chain_id)
+            if db.standing_denial(con, requester, target, body, files,
+                                  int(time.time()) - team.ASK_WINDOW_S) is None:
+                db.add_request(con, requester, target, body, files, None, None, None,
+                               depth, parent_id, state="denied", verdict=decision.reason,
+                               chain_id=chain_id)
             # Hitting the depth limit is a runaway, not an ordinary refusal.
             if "chain depth" in decision.reason and target != ESCALATION_TARGET:
                 eid = _escalate(con, requester, target, body, files, chain_id,
@@ -244,16 +246,30 @@ def ask(target: str, body: str, files: str | None = None, requester: str | None 
 
         limited, note = t.rate_limited(con, requester)
         if limited:
-            db.add_request(con, requester, target, body, files, decision.relation,
-                           decision.response, decision.kind, depth, parent_id,
-                           state="denied", verdict=note, chain_id=chain_id)
+            now = int(time.time())
+            window = now - team.ASK_WINDOW_S
+            # The first refusal keeps the text, so nothing an agent wrote is
+            # lost by being refused. An identical one behind it is the same
+            # refusal, not a second event: a retry loop spent 35 request
+            # numbers in six seconds, and every row it wrote was a message
+            # that had never been sent to anyone.
+            rid = db.standing_denial(con, requester, target, body, files, window)
+            if rid is None:
+                rid = db.add_request(con, requester, target, body, files, decision.relation,
+                                     decision.response, decision.kind, depth, parent_id,
+                                     state="denied", verdict=note, chain_id=chain_id)
+            oldest = db.oldest_counted_ask(con, requester, window)
+            free_at = now + team.ASK_WINDOW_S if oldest is None else oldest + team.ASK_WINDOW_S
             # Section 8.6: too many asks is a resource problem, so it throttles
-            # and clears itself when the window rolls over, rather than needing
-            # a human the way a task defect does.
+            # and clears itself when a slot frees, rather than needing a human
+            # the way a task defect does.
             if not _terminal(con, requester):
                 db.set_agent_state(con, requester, "THROTTLED",
-                                   wake_at=int(time.time()) + 3600, detail=note)
-            return False, f"{note} - {requester} is THROTTLED until the window rolls over", None
+                                   wake_at=free_at, detail=note)
+            when = time.strftime("%H:%M", time.localtime(free_at))
+            return False, (f"{note} - {requester} is THROTTLED. The window rolls, so the "
+                           f"next slot frees at {when}; wait for it rather than retrying, "
+                           f"because a refusal sends nothing. Your text is kept as #{rid}."), None
 
         if mergeable:
             merged = _merge_into_queued(con, requester, target, body, files)

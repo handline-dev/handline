@@ -353,6 +353,29 @@ def _check_pidfile(r: Report) -> None:
               "it named a dead process or a previous boot")
 
 
+def _check_one_daemon(r: Report) -> None:
+    """Exactly one supervisor, counted in the process table.
+
+    Two on one database wake, park and notify every agent twice, and the older
+    one runs whatever code it was started with. Its own check, not part of the
+    pidfile's: the case that matters is a live daemon the pidfile does not
+    name, and there the file is missing entirely.
+    """
+    from . import daemon
+
+    live = daemon.processes()
+    named = daemon.running_elsewhere()
+    if len(live) > 1:
+        r.add(WARN, f"{len(live)} daemons are running: pid "
+                    f"{', '.join(str(x) for x in live)}",
+              "end all but one - the others supervise unrecorded")
+    elif live and not named:
+        r.add(WARN, f"the daemon (pid {live[0]}) is in no pidfile",
+              "it supervises unrecorded - every screen reads it as not running")
+    elif live:
+        r.add(OK, "one daemon")
+
+
 def _check_service(r: Report) -> None:
     """The daemon surviving overnight is the point of `ocp service` - a
     plist on disk that launchd never loaded, or a job stuck respawning, is
@@ -419,6 +442,7 @@ def run() -> Report:
     _check_stuck_running(r)
     _check_session_matches_the_record(r)
     _check_pidfile(r)
+    _check_one_daemon(r)
     _check_service(r)
     _check_autocontinue(r)
     return r

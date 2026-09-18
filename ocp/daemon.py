@@ -86,6 +86,11 @@ def backoff_for(streak: int) -> int:
 
 
 # ---------------------------------------------------------------- pidfile
+# The name of the hold that makes this a single-instance program. One per
+# OCP_HOME, so two installations on one machine still supervise their own.
+DAEMON_LOCK = "daemon"
+
+
 def boot_time() -> int:
     """Boot time, so a recycled PID cannot be mistaken for a live daemon."""
     try:
@@ -120,6 +125,15 @@ def read_pidfile() -> dict | None:
         return None
 
 
+def clear_pidfile() -> None:
+    """Remove the pidfile, but only while it still names this process.
+
+    An exit that clears the file unconditionally clears whoever holds it, and
+    a live daemon nothing records is one `ocp ps` reports as not running.
+    """
+    _reclaim(os.getpid())
+
+
 def running_elsewhere() -> int | None:
     """PID of a live daemon, or None. Stale pidfiles are reclaimed (8.4)."""
     info = read_pidfile()
@@ -133,14 +147,68 @@ def running_elsewhere() -> int | None:
     # guessing "stale" would let a second daemon start alongside a live one.
     current_boot = boot_time()
     if boot and current_boot and boot != current_boot:
-        paths.daemon_pid().unlink(missing_ok=True)
+        _reclaim(pid)
         return None
     try:
         os.kill(int(pid), 0)
     except (OSError, ValueError):
-        paths.daemon_pid().unlink(missing_ok=True)
+        _reclaim(pid)
         return None
     return int(pid)
+
+
+def _reclaim(stale_pid) -> None:
+    """Drop a pidfile that names `stale_pid`, and only while it still does.
+
+    Every reader calls `running_elsewhere`, and a daemon that starts between
+    the read and the unlink writes its own name into the window. Deleting it
+    unrecorded is the state this system spent a night in: a live supervisor
+    that `ocp ps` reported as not running.
+    """
+    info = read_pidfile()
+    if info and info.get("pid") == stale_pid:
+        paths.daemon_pid().unlink(missing_ok=True)
+
+
+def _supervises_this_home(pid: int) -> bool:
+    """Is that daemon ours, or another installation's?
+
+    The lock is per OCP_HOME, so two homes on one machine each run their own
+    daemon and neither is a duplicate. Compared as directories, not as
+    spellings: /tmp and /private/tmp are one place on macOS, and an unresolved
+    comparison answers "somebody else's" about our own duplicate.
+    """
+    home = obs.env_of(pid, "OCP_HOME")
+    if home is None:
+        # Unreadable and unset are the same answer: a supervisor we cannot
+        # place is the one worth naming, and silence is what let two run.
+        return True
+    return os.path.realpath(Path(home).expanduser()) == os.path.realpath(paths.home())
+
+
+def processes() -> list[int]:
+    """PIDs of every `ocp daemon` supervising this OCP_HOME, this one aside.
+
+    The lock refuses the next duplicate; it cannot end one that was already
+    running when it arrived, and that one is invisible to the pidfile, which
+    names whoever wrote it last - so a daemon that exited and took the file
+    with it leaves a live supervisor nothing records. The process table is the
+    only place both of them appear.
+    """
+    mine = os.getpid()
+    found = []
+    for pid, cmd in obs.process_table() or []:
+        argv = cmd.split()
+        # The program being run: our own path, `daemon` next, and both at the
+        # front of the command line. Anywhere else in it is somebody talking
+        # about us - a `grep -n ocp daemon`, an editor on this file, a session
+        # whose system prompt quotes the command.
+        if not any(argv[i].endswith("/ocp") and argv[i + 1] == "daemon"
+                   for i in range(min(2, len(argv) - 1))):
+            continue
+        if pid != mine and _supervises_this_home(pid):
+            found.append(pid)
+    return found
 
 
 # ---------------------------------------------------------------- reconcile
@@ -1377,58 +1445,66 @@ def run(once: bool = False, use_model: bool = True, verbose: bool = True,
         if verbose:
             print(f"[{time.strftime('%H:%M:%S')}] {msg}", flush=True)
 
-    other = running_elsewhere()
-    if other and other != os.getpid():
-        # Through the same logger as every other startup line, and sharing its
-        # "daemon starting" wording, so a launchd job that respawns into this
-        # refusal every ThrottleInterval is still visible to crash_loop_detected
-        # - a silent `print` here is what a launchd-driven crash loop looks like
-        # from the outside: healthy on every check, dead the whole time.
-        log(f"daemon starting - already running (pid {other}), exiting")
-        return 1
-    write_pidfile()
+    # The lock decides who supervises, not the pidfile: a daemon that never
+    # wrote the file - started by hand, or orphaned when launchd reloaded the
+    # job under it - is still a second supervisor, and the file cannot see one.
+    with lock.singleton(DAEMON_LOCK) as only:
+        if not only:
+            other = running_elsewhere()
+            named = f" (pid {other})" if other else ""
+            # Through the same logger as every other startup line, and sharing
+            # its "daemon starting" wording, so a launchd job that respawns
+            # into this refusal every ThrottleInterval is still visible to
+            # crash_loop_detected - a silent `print` here is what a
+            # launchd-driven crash loop looks like from the outside: healthy on
+            # every check, dead the whole time.
+            log(f"daemon starting - already running{named}, exiting")
+            return 1
+        write_pidfile()
 
-    stopping = {"now": False}
+        stopping = {"now": False}
 
-    def stop(signum, _frame):
-        stopping["now"] = True
-        log(f"signal {signum} - stopping after this tick")
+        def stop(signum, _frame):
+            stopping["now"] = True
+            log(f"signal {signum} - stopping after this tick")
 
-    for sig in (signal.SIGINT, signal.SIGTERM):
-        try:
-            signal.signal(sig, stop)
-        except ValueError:
-            pass  # not on the main thread
-
-    con = db.connect()
-    samples: dict = {}
-    try:
-        log("daemon starting - reconciling")
-        reconcile(con, log)
-
-        ticks = 0
-        while not stopping["now"]:
-            t = tick(con, log, use_model=use_model, samples=samples)
-            ticks += 1
-            # A supervisor that runs for weeks must not fill the disk. Cheap
-            # when under threshold: two stat() calls and nothing else. Caught
-            # separately so a rotation failure (e.g. a full disk) degrades
-            # logging rather than taking the whole daemon down with it.
+        for sig in (signal.SIGINT, signal.SIGTERM):
             try:
-                service.rotate_logs()
-            except OSError as e:
-                log(f"log rotation failed: {e}")
-            if once or (max_ticks and ticks >= max_ticks):
-                break
-            # The hottest account sets the pace, not the quietest: min() here
-            # let an account at 88% be polled every 30s because another sat at
-            # 10%. An account whose usage is unknown also polls fast.
-            pcts = [status.read(a).trusted_pct_5h for a in paths.list_accounts()]
-            hottest = None if (not pcts or any(p is None for p in pcts)) else max(pcts)
-            burn = max((triggers.burn_rate_per_s(h) for h in samples.values()), default=0.0)
-            time.sleep(triggers.poll_interval(hottest, burn))
-        log(f"stopped after {ticks} tick(s)")
-        return 0
-    finally:
-        con.close()
-        paths.daemon_pid().unlink(missing_ok=True)
+                signal.signal(sig, stop)
+            except ValueError:
+                pass  # not on the main thread
+
+        con = db.connect()
+        samples: dict = {}
+        try:
+            log("daemon starting - reconciling")
+            reconcile(con, log)
+
+            ticks = 0
+            while not stopping["now"]:
+                t = tick(con, log, use_model=use_model, samples=samples)
+                ticks += 1
+                # A supervisor that runs for weeks must not fill the disk.
+                # Cheap when under threshold: two stat() calls and nothing
+                # else. Caught separately so a rotation failure (e.g. a full
+                # disk) degrades logging rather than taking the whole daemon
+                # down with it.
+                try:
+                    service.rotate_logs()
+                except OSError as e:
+                    log(f"log rotation failed: {e}")
+                if once or (max_ticks and ticks >= max_ticks):
+                    break
+                # The hottest account sets the pace, not the quietest: min()
+                # here let an account at 88% be polled every 30s because
+                # another sat at 10%. An account whose usage is unknown also
+                # polls fast.
+                pcts = [status.read(a).trusted_pct_5h for a in paths.list_accounts()]
+                hottest = None if (not pcts or any(p is None for p in pcts)) else max(pcts)
+                burn = max((triggers.burn_rate_per_s(h) for h in samples.values()), default=0.0)
+                time.sleep(triggers.poll_interval(hottest, burn))
+            log(f"stopped after {ticks} tick(s)")
+            return 0
+        finally:
+            con.close()
+            clear_pidfile()

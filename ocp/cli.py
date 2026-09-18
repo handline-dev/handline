@@ -343,6 +343,13 @@ def cmd_daemon_status(args) -> int:
     pid = daemonmod.running_elsewhere()
     supervisor = service.supervisor_of(pid)
     print(f"daemon: {'running, pid ' + str(pid) if pid else 'not running'} - {supervisor}")
+    live = daemonmod.processes()
+    if len(live) > 1:
+        print(f"  WARNING: {len(live)} daemons are running (pid "
+              f"{', '.join(str(x) for x in live)}). Two supervisors notify, park and wake "
+              f"the same agent twice - end all but one.")
+    elif live and not pid:
+        print(f"  (running as pid {live[0]}, which no pidfile names)")
     con = db.connect()
     try:
         rows = db.all_agent_states(con)
@@ -376,7 +383,7 @@ def cmd_service_install(args) -> int:
     pid = daemonmod.running_elsewhere()
     if pid:
         print(f"note: pid {pid} is already running by hand - the launchd job will "
-              f"refuse to start (single-instance pidfile) until it exits")
+              f"refuse to start (it cannot have the daemon lock) until it exits")
     ok, msg = service.install()
     print(msg)
     return 0 if ok else 1
@@ -964,7 +971,10 @@ def cmd_read(args) -> int:
         print(row["body"] or "(empty)")
         if row["verdict"]:
             print()
-            print(f"--- answered by {row['target']} ---")
+            # A denied row never reached its target, so nothing came back from
+            # it: the verdict there is this system refusing to send it.
+            print(f"--- refused ---" if row["state"] == "denied"
+                  else f"--- answered by {row['target']} ---")
             print(row["verdict"])
         return 0
     finally:

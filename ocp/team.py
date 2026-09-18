@@ -27,6 +27,12 @@ VALID_INTAKE = {"serial", "ephemeral", "dedicated"}
 VALID_RESPONSE = {"async", "fire_and_forget"}
 
 
+# The ask limiter's window. Rolling, not a bucket that empties on the hour: a
+# slot frees exactly one of these after the ask that took it, and an agent told
+# to "wait for the window" waits an hour for what was minutes away.
+ASK_WINDOW_S = 3600
+
+
 @dataclass
 class Decision:
     allowed: bool
@@ -203,7 +209,7 @@ class Team:
     def rate_limited(self, con, requester: str) -> tuple[bool, str]:
         from . import db
 
-        used = db.asks_since(con, requester, int(time.time()) - 3600)
+        used = db.asks_since(con, requester, int(time.time()) - ASK_WINDOW_S)
         if used >= self.ask_rate_per_hour:
             return True, f"rate limit: {used} asks in the last hour >= {self.ask_rate_per_hour}"
         return False, f"{used}/{self.ask_rate_per_hour} asks this hour"
