@@ -4073,6 +4073,34 @@ edges:
         check("hr: and keeps its folder", archived and (archived[0] / "journal").exists(),
               str(archived))
 
+        # A rename takes the whole identity with it - folder, table, and every
+        # row that ever named it - and not while a session is running under it.
+        db.add_request(con, "marina", "manager", "a report from before", None,
+                       "subordinate", "fire_and_forget", None, 0, None)
+        sessions_are("manager")
+        ok, said = hr.propose("rename", "manager", requester="hr", to="harbor-manager",
+                              why="it only ever runs the harbor project", team_name=None)
+        pid_r = said.split()[1]
+        rid_r = [m["id"] for m in actions.messages(con) if "harbor-manager" in (m["body"] or "")]
+        askmod.resolve(rid_r[0], "approve")
+        ok, said = hr.apply(pid_r)
+        check("hr: an identity does not change under a running session",
+              not ok and "session running" in said, said)
+        sessions_are()
+        ok, said = hr.apply(pid_r)
+        table = yamlcompat.load((home / "team.yaml").read_text())
+        check("hr: with the session closed, the rename lands",
+              ok and "harbor-manager" in paths.list_agents()
+              and "manager" not in table["agents"], said)
+        check("hr: and its folder came with it",
+              (home / "agents" / "harbor-manager").is_dir()
+              and not (home / "agents" / "manager").exists())
+        check("hr: as did every row that named it",
+              con.execute("SELECT COUNT(*) c FROM requests WHERE target = ?",
+                          ("harbor-manager",)).fetchone()["c"] == 1
+              and con.execute("SELECT COUNT(*) c FROM requests WHERE target = ?",
+                              ("manager",)).fetchone()["c"] == 0)
+
         # A rejection is recorded and never applied.
         ok, said = hr.propose("add", "seoyun", requester="hr", why="third lane",
                               account="beta", team_name="dev")

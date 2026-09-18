@@ -38,7 +38,7 @@ from .yamlcompat import ConfigError, dump, load
 APPROVE = ("approve", "approved", "yes", "ok", "go", "승인")
 REJECT = ("reject", "rejected", "no", "deny", "denied", "반려")
 
-KINDS = ("add", "retire")
+KINDS = ("add", "retire", "rename")
 
 
 def dir_() -> Path:
@@ -78,7 +78,7 @@ def listing() -> list[dict]:
 
 def propose(kind: str, name: str, requester: str, why: str, account: str | None = None,
             team_name: str | None = None, repo: str | None = None,
-            model: str | None = None) -> tuple[bool, str]:
+            model: str | None = None, to: str | None = None) -> tuple[bool, str]:
     """Write the proposal down and raise it to the founder. Nothing changes yet."""
     if kind not in KINDS:
         return False, f"kind must be one of {', '.join(KINDS)}"
@@ -90,8 +90,13 @@ def propose(kind: str, name: str, requester: str, why: str, account: str | None 
     registered = paths.list_agents()
     if kind == "add" and name in registered:
         return False, f"{name} is already an agent"
-    if kind == "retire" and name not in registered:
+    if kind in ("retire", "rename") and name not in registered:
         return False, f"{name} is not an agent"
+    if kind == "rename":
+        if not to or "/" in to or to.startswith("."):
+            return False, "a rename needs a new name (--to)"
+        if to in registered:
+            return False, f"{to} is already an agent"
     if kind == "add":
         if not account:
             return False, "an added agent needs an account (--account)"
@@ -109,7 +114,7 @@ def propose(kind: str, name: str, requester: str, why: str, account: str | None 
         "state": "proposed",
     }
     for key, value in (("account", account), ("team", team_name), ("repo", repo),
-                       ("model", model)):
+                       ("model", model), ("to", to)):
         if value:
             prop[key] = value
 
@@ -132,6 +137,12 @@ def _escalation(prop: dict) -> str:
                   + (f", working in {prop['repo']}" if prop.get("repo") else "")
                   + (f", model {prop['model']}" if prop.get("model") else "") + ".",
                   "team.yaml gains its name; nothing else in the routing changes."]
+    elif prop["kind"] == "rename":
+        lines += [f"{prop['agent']} would become {prop.get('to')}: its folder, its "
+                  f"journal and handoffs, its place in team.yaml and every request it "
+                  f"ever sent or received move with the name.",
+                  "It has to be closed first - an identity cannot change under a "
+                  "running session."]
     else:
         lines += [f"{prop['agent']} would be taken out of team.yaml and its folder "
                   f"moved to agents/archive/. Its journal and handoffs are kept.",
@@ -180,7 +191,8 @@ def apply(pid: str, con=None) -> tuple[bool, str]:
             return False, (f"#{row['id']} was answered {(verdict or '').strip()[:60]!r}, "
                            f"which is not a decision. Ask the founder to answer "
                            f"`approve` or `reject`.")
-        ok, said = (_add(prop) if prop["kind"] == "add" else _retire(prop))
+        doer = {"add": _add, "retire": _retire, "rename": _rename}[prop["kind"]]
+        ok, said = doer(prop, con) if prop["kind"] == "rename" else doer(prop)
         if not ok:
             return False, said
         prop["state"] = "applied"
@@ -224,6 +236,57 @@ def _retire(prop: dict) -> tuple[bool, str]:
             dest = dest.with_name(dest.name + f"-{prop['id']}")
         src.rename(dest)
     return True, f"{name} is retired; its folder is at {dest}. {said}"
+
+
+def _rename(prop: dict, con) -> tuple[bool, str]:
+    """One identity becomes another, taking its whole history with it.
+
+    An agent is its folder and its rows: the journal, the handoffs, the digest,
+    every request it sent or was sent, and the state the daemon schedules on. A
+    rename that moved only the folder would leave work addressed to a name
+    nothing answers to, which is the same failure as renaming the founder and
+    forgetting the mailbox.
+
+    Not while it is running. `OCP_AGENT` is fixed at exec, so a live session
+    would keep writing hook events under the old name and reading an inbox that
+    no longer exists.
+    """
+    from . import observe as obs
+
+    old, new = prop["agent"], prop["to"]
+    live = obs.live_sessions()
+    if live and live.get(old):
+        return False, (f"{old} has a session running. Close it first "
+                       f"(`ocp close {old}`, or `c` on the bridge) - an identity "
+                       f"cannot change under a running session.")
+    src, dest = paths.agent_dir(old), paths.agent_dir(new)
+    if dest.exists():
+        return False, f"{dest} already exists"
+
+    ok, said = _in_team_yaml(old, None, add=False)
+    if not ok:
+        return False, said
+    if src.exists():
+        src.rename(dest)
+    cfg = agents.agent_file(new)
+    if cfg.exists():
+        data = load(cfg.read_text())
+        if isinstance(data, dict):
+            data["name"] = new
+            cfg.write_text(dump(data))
+    ok, said2 = _in_team_yaml(new, prop.get("team"), add=True)
+    if not ok:
+        return False, said2
+
+    con.execute("UPDATE agent_state SET agent = ? WHERE agent = ?", (new, old))
+    con.execute("UPDATE requests SET requester = ? WHERE requester = ?", (new, old))
+    con.execute("UPDATE requests SET target = ? WHERE target = ?", (new, old))
+    con.execute("UPDATE events SET agent = ? WHERE agent = ?", (new, old))
+    con.execute("UPDATE handoff SET agent = ? WHERE agent = ?", (new, old))
+    con.execute("UPDATE cursors SET name = REPLACE(name, ?, ?) WHERE name LIKE ?",
+                (old, new, f"%{old}%"))
+    return True, (f"{old} is now {new}: folder, team.yaml, and every row that named it. "
+                  f"{said2}")
 
 
 def _in_team_yaml(name: str, team_name: str | None, add: bool) -> tuple[bool, str]:

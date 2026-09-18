@@ -643,7 +643,7 @@ def cmd_hr(args) -> int:
         return 1
     ok, said = hr.propose(args.hr_cmd, args.name, requester=me, why=args.why,
                           account=args.account, team_name=args.team, repo=args.repo,
-                          model=args.model)
+                          model=args.model, to=getattr(args, "to", None))
     print(said)
     return 0 if ok else 1
 
@@ -1061,7 +1061,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     p = sub.add_parser("hr", help="propose a roster change; the founder approves it")
     hrsub = p.add_subparsers(dest="hr_cmd", required=True)
-    for kind in ("add", "retire"):
+    for kind in ("add", "retire", "rename"):
         q = hrsub.add_parser(kind, help=f"propose to {kind} an agent")
         q.add_argument("name")
         q.add_argument("--why", required=True, help="what the founder is deciding")
@@ -1070,6 +1070,10 @@ def build_parser() -> argparse.ArgumentParser:
             q.add_argument("--team", default=None, help="team in team.yaml to join")
             q.add_argument("--repo", default=None, help="where it works")
             q.add_argument("--model", default=None)
+        elif kind == "rename":
+            q.add_argument("--to", required=True, help="the new name")
+            q.add_argument("--team", default=None, help="team it should be in after")
+            q.set_defaults(account=None, repo=None, model=None)
         else:
             q.set_defaults(account=None, team=None, repo=None, model=None)
     q = hrsub.add_parser("list", help="proposals and what became of them")
