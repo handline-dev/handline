@@ -379,6 +379,28 @@ def read_for_agent(agent: str, account: str) -> AccountStatus:
     return acct_status
 
 
+def reported_account(agent: str) -> str | None:
+    """Which account this agent's own session last rendered its status line
+    under, or None when there is nothing fresh enough to say.
+
+    Every render writes its own `account` under its own env (`live_cost`
+    already trusts this same field, the same way, to decide whose cost a
+    snapshot counts towards) - so a fresh one is a session reporting where it
+    actually is, not a preference. Stale is refused on the same terms
+    `read_for_agent` already refuses one for context and session id: nothing
+    rewrites this file once a session closes, so an old snapshot belongs to
+    whichever account happened to be current when it stopped, not to now.
+    """
+    f = paths.agent_status_file(agent)
+    if not f.exists():
+        return None
+    st = read("", f)
+    if st.error or st.stale:
+        return None
+    acct = st.raw.get("account")
+    return acct if isinstance(acct, str) and acct else None
+
+
 def live_cost(account: str) -> float | None:
     """What the sessions we can currently see have spent on this account.
 

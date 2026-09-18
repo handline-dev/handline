@@ -84,6 +84,11 @@ class WakeWait:
     account: str
     pct: int
     reset_5h: int | None
+    # True when `account` is a guess (agent.yaml's preference, or a spawn's
+    # own unconfirmed one) rather than the account this resume is actually
+    # tied to - `account_reading` prefers a fresher reported one first, so
+    # this is the residual case where nothing has confirmed one at all.
+    assumed: bool = False
 
 
 def wake_wait(agent: str, row, con) -> WakeWait | None:
@@ -107,12 +112,19 @@ def wake_wait(agent: str, row, con) -> WakeWait | None:
     """
     if not row or not row["closed_at"]:
         return None
-    acct = choose_account(agent, resuming=bool(row["resume_session"]), con=con)
+    if row["resume_session"]:
+        reading = agents.account_reading(agent, con)
+        acct, assumed = reading.account, reading.source == "assumed"
+    else:
+        # The move's wake: nowhere its own session was tied to, so there is
+        # no reading to prefer over a fresh choice - `account_reading`
+        # answers a question this branch does not ask.
+        acct, assumed = choose_account(agent, resuming=False, con=con), False
     st = status.read(acct)
     pct = st.trusted_pct_5h
     if pct is None or pct < status.PCT_5H_BLOCK:
         return None
-    return WakeWait(acct, pct, st.reset_5h)
+    return WakeWait(acct, pct, st.reset_5h, assumed)
 
 
 def wake_wait_reason(agent: str, row, con) -> str | None:
@@ -128,7 +140,8 @@ def wake_wait_reason(agent: str, row, con) -> str | None:
     if w is None:
         return None
     when = "unknown" if not w.reset_5h else time.strftime("%H:%M", time.localtime(w.reset_5h))
-    return f"waiting for {w.account}'s 5h window ({w.pct}%, rolls over {when})"
+    who = f"assumed account {w.account}" if w.assumed else w.account
+    return f"waiting for {who}'s 5h window ({w.pct}%, rolls over {when})"
 
 
 def _is_resume(extra: list[str] | None) -> bool:

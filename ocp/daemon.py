@@ -49,6 +49,12 @@ EVALUATED = {RUNNING, HANDOFF, PARKED, QUEUED, THROTTLED, IDLE, DEGRADED}
 # How long a DEGRADED agent waits before the daemon retries it.
 DEGRADED_RETRY_S = 600
 
+# A park computed against an assumed account has no real ceiling to sleep to
+# - `reset_5h` belongs to an account this agent may not even be on - so it
+# gets a short re-look instead of a multi-hour wait, on the chance that the
+# next tick has a recorded or reported account to judge it by instead.
+ASSUMED_ACCOUNT_RECHECK_S = 300
+
 MAX_FAILED_ATTEMPTS = 3      # 8.5: real failures only
 MAX_THROTTLE_STREAK = 5      # 8.6: then escalate to a human gate
 
@@ -240,20 +246,28 @@ def resume_handoff(con, row, log, use_model: bool = True) -> None:
     if step in ("requested", "folded"):
         db.advance_handoff(con, hid, "extracted")
 
-    st = None
+    reading = None
     try:
-        st = status.read(agents.current_account(agent, con))
+        reading = agents.account_reading(agent, con)
     except Exception:  # noqa: BLE001 - a missing account must not wedge the resume
         pass
-    wake = triggers.next_reset(st.reset_5h if st else None)
+    # Same rule as a fresh park's ceiling (see _perform_handoff): never a 5h
+    # sleep against an account this agent may not be on.
+    if reading is None or reading.source == "assumed":
+        wake = int(time.time()) + ASSUMED_ACCOUNT_RECHECK_S
+    else:
+        wake = triggers.next_reset(status.read(reading.account).reset_5h)
     db.advance_handoff(con, hid, "released", state="done" if done_ok else "degraded")
     db.set_agent_state(con, agent, PARKED, wake_at=wake,
                        detail=f"resumed handoff; wakes at "
                               f"{time.strftime('%H:%M', time.localtime(wake))}")
     # Same gap as a fresh park's - see _perform_handoff - through a different
     # path: a restart recovering an in-flight handoff parks the agent too.
-    db.add_event(con, agent, "park", {"kind": row["trigger_kind"], "wake_at": wake,
-                                      "account": agents.current_account(agent, con)})
+    db.add_event(con, agent, "park", {
+        "kind": row["trigger_kind"], "wake_at": wake,
+        "account": reading.account if reading else None,
+        "account_source": reading.source if reading else None,
+    })
     log(f"  {agent}: resumed handoff from '{step}' -> PARKED")
 
 
@@ -663,6 +677,15 @@ def _start_for_work(con, agent: str, log) -> str:
     fresh = db.get_agent_state(con, agent)
     if fresh and fresh["terminal"]:
         db.reset_counter(con, agent, "wake_failures")
+        # A guess, not a fact: the child process this just started re-runs
+        # `choose_account` itself, with fresher information, and that is what
+        # actually decides where the session lands - `_record_terminal`
+        # overwrites this the moment it reports in. Without it the row sits
+        # null until then, which is exactly the window a null column reads as
+        # a bare config preference in; this at least names a real candidate,
+        # marked as one.
+        db.set_account(con, agent, launch.choose_account(agent, resuming=False, con=con),
+                       source="assumed")
         db.add_event(con, agent, "started_for_work", {"repo": repo})
         log(f"  {agent}: started in {repo} - work was waiting for it")
         return f"{agent}: started for work waiting - {said.splitlines()[0]}"
@@ -1206,9 +1229,16 @@ def _perform_handoff(con, agent: str, trigger: triggers.Trigger, log,
     db.advance_handoff(con, hid, "extracted", detail=why)
 
     # Park until the usage window rolls over - or longer, if this agent keeps
-    # degrading, so a broken one is not retried at full cadence forever.
-    reset = st.reset_5h if st else None
-    wake = triggers.next_reset(reset)
+    # degrading, so a broken one is not retried at full cadence forever. Never
+    # against an assumed account's rollover: that ceiling belongs to whatever
+    # account agent.yaml happens to prefer, not to the one this agent may
+    # actually be spending, so it earns only a short re-look instead of a 5h
+    # sleep against a number that may not even be this agent's own.
+    reading = agents.account_reading(agent, con)
+    if reading.source == "assumed":
+        wake = int(time.time()) + ASSUMED_ACCOUNT_RECHECK_S
+    else:
+        wake = triggers.next_reset(status.read(reading.account).reset_5h)
     fresh = db.get_agent_state(con, agent)
     streak = int(fresh["throttle_count"]) if fresh else 0
     if streak:
@@ -1222,9 +1252,13 @@ def _perform_handoff(con, agent: str, trigger: triggers.Trigger, log,
     # `close` and `wake` both leave a record of when and why; a park never did,
     # so `ocp events --agent` had nothing to show for it even though the
     # kind was already reserved for it (db.last_activity excludes 'park' by
-    # name, same as the others).
+    # name, same as the others). The account carries its own source, so a
+    # park against an assumed one is diagnosable from the event alone rather
+    # than needing the live row it was computed from, which has moved on by
+    # the time anyone reads this.
     db.add_event(con, agent, "park", {"kind": trigger.kind, "wake_at": wake,
-                                      "account": agents.current_account(agent, con)})
+                                      "account": reading.account,
+                                      "account_source": reading.source})
     db.bump_counter(con, agent, "continuations")  # 8.5: handoff is not a failure
     log(f"  {agent}: PARKED until {time.strftime('%Y-%m-%d %H:%M', time.localtime(wake))}")
     return ok
@@ -1256,7 +1290,13 @@ def supervise(con, agent: str, log, now: int, samples: dict,
     if db.in_flight_for(con, agent):
         return
 
-    acct = agents.current_account(agent, con)
+    # The live reading this tick judges the agent against, not the account a
+    # resume would use: `account_reading` prefers a fresh report from the
+    # agent's own running session over a column nothing has confirmed, so a
+    # spawn's assumed guess (or a bare config preference) never stands in for
+    # a running session's actual account when there is better evidence of it.
+    reading = agents.account_reading(agent, con)
+    acct = reading.account
     st = status.read_for_agent(agent, acct)
 
     # An agent whose *closed* session was restored in this tick is judged on the
@@ -1394,10 +1434,11 @@ def supervise(con, agent: str, log, now: int, samples: dict,
     # it there named a usage trigger, read off that handoff since nothing on
     # the row itself says why - the moment that same reading, evaluated the
     # way the park itself was, no longer fires. Never on an assumed account:
-    # a null `account` column means `current_account` is reporting a
-    # preference, not a fact.
+    # `reading` above is a guess exactly when there is neither a recorded nor
+    # a fresh reported account to act on, and a guess is not evidence enough
+    # to wake this agent into.
     if not woke_now and row and row["terminal"] and not row["closed_at"] \
-            and state == PARKED and row["account"] is not None \
+            and state == PARKED and reading.source != "assumed" \
             and orca.available() and orca.alive(row["terminal"]):
         last = con.execute(
             "SELECT trigger_kind FROM handoff WHERE agent = ? ORDER BY updated DESC LIMIT 1",

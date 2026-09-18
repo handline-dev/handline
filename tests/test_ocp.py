@@ -115,6 +115,16 @@ def write_status(home: Path, acct: str, **fields) -> None:
     (d / "status.json").write_text(json.dumps(payload))
 
 
+def write_agent_status(agent: str, reported_account: str, **fields) -> None:
+    """The agent's own snapshot, the one a running session writes under its
+    own env on every render - `agents.account_reading`'s 'reported' tier."""
+    f = paths.agent_status_file(agent)
+    f.parent.mkdir(parents=True, exist_ok=True)
+    payload = {"account": reported_account, "collected_at": int(time.time())}
+    payload.update(fields)
+    f.write_text(json.dumps(payload))
+
+
 # ---------------------------------------------------------------- fail-closed
 def test_failclosed(home: Path) -> None:
     os.environ["OCP_HOME"] = str(home)
@@ -3998,7 +4008,10 @@ def test_a_stalled_closed_agent_keeps_its_marker_when_walled(home: Path) -> None
 
 def test_a_walled_wake_with_no_reset_reads_unknown(home: Path) -> None:
     """A snapshot with no `reset_5h` still reports a wall - the account read
-    95% either way - it just cannot say when that clears."""
+    95% either way - it just cannot say when that clears. The account column
+    is never set here either, so this doubles as the assumed-account wording:
+    nothing recorded or reported means agent.yaml's preference, named as a
+    guess rather than as the fact the sentence used to imply."""
     _daemon_home(home, 20)
     con = db.connect()
     try:
@@ -4009,7 +4022,8 @@ def test_a_walled_wake_with_no_reset_reads_unknown(home: Path) -> None:
         row = db.get_agent_state(con, "backend")
         reason = launch.wake_wait_reason("backend", row, con)
         check("walled: no reset_5h in the snapshot reads as unknown, not a crash",
-              reason == "waiting for alpha's 5h window (95%, rolls over unknown)", reason)
+              reason == "waiting for assumed account alpha's 5h window "
+                        "(95%, rolls over unknown)", reason)
     finally:
         con.close()
 
@@ -4335,6 +4349,158 @@ def test_a_resumed_handoff_also_records_its_park(home: Path) -> None:
         check("resume: a recovered handoff's park is recorded too",
               any(e["kind"] == "park" for e in events), [e["kind"] for e in events])
     finally:
+        con.close()
+
+
+def test_account_reading_prefers_recorded_then_reported_then_assumed(home: Path) -> None:
+    """Three sources, and only the first two are facts. A recorded column
+    wins outright; failing that, a fresh report from the agent's own running
+    session beats a bare config preference - and beats even a recorded
+    column when that column itself only holds an earlier guess, never
+    confirmed. Only when neither exists at all does agent.yaml's preference
+    stand in, and it is never mistaken for either fact.
+    """
+    _daemon_home(home, 20)
+    con = db.connect()
+    try:
+        db.set_account(con, "backend", "alpha")
+        r = agents.account_reading("backend", con)
+        check("account: a recorded column wins outright",
+              r.account == "alpha" and r.source == "recorded", r)
+
+        db.set_account(con, "backend", None)
+        con.execute("UPDATE agent_state SET account = NULL, account_source = NULL "
+                    "WHERE agent = 'backend'")
+        write_agent_status("backend", "beta", pct_5h=10)
+        r = agents.account_reading("backend", con)
+        check("account: null column falls to a fresh report",
+              r.account == "beta" and r.source == "reported", r)
+
+        write_agent_status("backend", "beta", pct_5h=10,
+                           collected_at=int(time.time()) - status.STALE_AFTER_S - 60)
+        r = agents.account_reading("backend", con)
+        check("account: a stale report is not evidence - falls to the config "
+              "preference, marked as a guess",
+              r.account == "alpha" and r.source == "assumed", r)
+
+        db.set_account(con, "backend", "alpha", source="assumed")
+        write_agent_status("backend", "beta", pct_5h=10)
+        r = agents.account_reading("backend", con)
+        check("account: a fresh report outranks a column that only holds a "
+              "guess of its own",
+              r.account == "beta" and r.source == "reported", r)
+    finally:
+        con.close()
+
+
+def test_supervise_reads_the_reported_account_not_an_assumed_preference(home: Path) -> None:
+    """The incident itself: a null recorded column used to mean reading
+    whatever agent.yaml prefers as if it were this agent's own usage. Backend
+    prefers alpha, which is pinned at the wall; its real, running session -
+    visible only through its own fresh report - is on beta, nowhere near it.
+    Before this fix `supervise` read alpha's 100% and parked an agent that
+    was not spending it; now it reads the account the session actually
+    reports and leaves it alone.
+    """
+    _daemon_home(home, 20)
+    con = db.connect()
+    try:
+        write_status(home, "alpha", pct_5h=100, pct_7d=10, ctx_pct=5,
+                     reset_5h=int(time.time()) + 1800)
+        write_status(home, "beta", pct_5h=5, pct_7d=10, ctx_pct=5,
+                     reset_5h=int(time.time()) + 1800)
+        write_agent_status("backend", "beta", pct_5h=5, ctx_pct=5)
+        db.set_terminal(con, "backend", "term_x", "wt")
+        db.set_agent_state(con, "backend", dmn.IDLE)
+
+        dmn.supervise(con, "backend", lambda _m: None, int(time.time()), {}, False, [])
+        row = db.get_agent_state(con, "backend")
+        check("account: a park against the wrong, assumed account no longer happens",
+              row["state"] != dmn.PARKED, dict(row))
+    finally:
+        con.close()
+
+
+def test_a_park_against_an_assumed_account_gets_a_short_recheck(home: Path) -> None:
+    """A park's ceiling is `reset_5h` off whatever account it judged the
+    trigger against - and against an assumed one, that number belongs to
+    agent.yaml's preference, not to any account this agent is shown to be
+    on. It fails closed to a short re-look instead of sleeping the hours
+    that account's own window happens to have left.
+    """
+    _daemon_home(home, 20)
+    con = db.connect()
+    try:
+        # No recorded column, no fresh report: alpha, the config preference,
+        # is the only thing left, and it is hours from rolling over.
+        write_status(home, "alpha", pct_5h=95, pct_7d=10, ctx_pct=5,
+                     reset_5h=int(time.time()) + 4 * 3600)
+        t = triggers.evaluate(95, 10)
+        before = int(time.time())
+        dmn.perform_handoff(con, "backend", t, lambda _m: None, use_model=False)
+        row = db.get_agent_state(con, "backend")
+        check("account: an assumed park gets a short re-look, not alpha's own "
+              "4h-out rollover",
+              row["state"] == dmn.PARKED
+              and row["wake_at"] is not None
+              and row["wake_at"] < before + dmn.ASSUMED_ACCOUNT_RECHECK_S + 5,
+              dict(row))
+    finally:
+        con.close()
+
+
+def test_a_resumed_handoff_also_fails_closed_on_an_assumed_account(home: Path) -> None:
+    """The same ceiling rule, through `resume_handoff`'s own path: a restart
+    recovering an in-flight handoff must not sleep against agent.yaml's
+    preference either.
+    """
+    _daemon_home(home, 20)
+    con = db.connect()
+    try:
+        write_status(home, "alpha", pct_5h=20, pct_7d=10, ctx_pct=5,
+                     reset_5h=int(time.time()) + 4 * 3600)
+        db.start_handoff(con, "hoff-restart2", "backend", None, "usage", 0,
+                         int(time.time()) + 90)
+        row = db.in_flight_for(con, "backend")
+        before = int(time.time())
+        dmn.resume_handoff(con, row, lambda _m: None, use_model=False)
+        fresh = db.get_agent_state(con, "backend")
+        check("account: a resumed handoff's park also gets a short re-look, "
+              "not alpha's own 4h-out rollover",
+              fresh["state"] == dmn.PARKED
+              and fresh["wake_at"] is not None
+              and fresh["wake_at"] < before + dmn.ASSUMED_ACCOUNT_RECHECK_S + 5,
+              dict(fresh))
+    finally:
+        con.close()
+
+
+def test_a_spawned_agent_gets_an_assumed_account_until_launch_confirms_it(home: Path) -> None:
+    """The window between a spawn and that spawn's own launch reporting in
+    is exactly where a null column used to sit undiagnosable. It now carries
+    a guess instead, marked as one - `account_reading` still prefers a fresh
+    report over it the moment there is one, and prefers it over nothing
+    (the previous behaviour) until then.
+    """
+    _daemon_home(home, 20)
+    con = db.connect()
+    real_spawn = spawnmod.spawn
+    try:
+        def fake_spawn(agent, repo, base="main", prompt=None):
+            db.set_terminal(con, agent, "term_new", None)
+            return True, "spawned"
+        spawnmod.spawn = fake_spawn
+        agents.register("marina", "alpha", repo=str(home / "checkout"))
+        db.add_request(con, "reviewer", "marina", "look at this", None,
+                       "peer", "async", None, 0, None)
+
+        dmn._start_for_work(con, "marina", lambda _m: None)
+        row = db.get_agent_state(con, "marina")
+        check("account: a fresh spawn's guess is marked assumed, not left null",
+              row["account"] == "alpha" and row["account_source"] == "assumed",
+              dict(row))
+    finally:
+        spawnmod.spawn = real_spawn
         con.close()
 
 
@@ -7763,6 +7929,11 @@ def main() -> int:
         run(lambda: test_a_context_park_does_not_auto_clear_on_a_usage_reading(Path(td) / 'parklevel4'))
         run(lambda: test_an_assumed_account_does_not_auto_clear_a_park(Path(td) / 'parklevel5'))
         run(lambda: test_a_resumed_handoff_also_records_its_park(Path(td) / 'parklevel6'))
+        run(lambda: test_account_reading_prefers_recorded_then_reported_then_assumed(Path(td) / 'acctread'))
+        run(lambda: test_supervise_reads_the_reported_account_not_an_assumed_preference(Path(td) / 'acctsupervise'))
+        run(lambda: test_a_park_against_an_assumed_account_gets_a_short_recheck(Path(td) / 'acctrecheck'))
+        run(lambda: test_a_resumed_handoff_also_fails_closed_on_an_assumed_account(Path(td) / 'acctrecheck2'))
+        run(lambda: test_a_spawned_agent_gets_an_assumed_account_until_launch_confirms_it(Path(td) / 'acctspawn'))
         run(lambda: test_top_shows_what_is_waiting_on_the_human(Path(td) / 'foryou'))
         run(lambda: test_the_screen_reads_keys_from_the_terminal_not_from_a_buffer())
         run(lambda: test_top_acts_through_the_same_calls_the_daemon_makes(Path(td) / 'topact'))

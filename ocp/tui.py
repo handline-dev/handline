@@ -527,12 +527,17 @@ def build(width: int, sel: dict | None = None,
             if w:
                 when = "?" if not w.reset_5h else time.strftime("%H:%M", time.localtime(w.reset_5h))
                 # The acct column already names it; only worth repeating when
-                # the wake would land elsewhere, and only when there is room
-                # left for it beside the clock, which is never sacrificed.
+                # the wake would land elsewhere, or when it is only assumed -
+                # the acct column has no way to say that on its own - and only
+                # when there is room left for it beside the clock, which is
+                # never sacrificed.
+                mark = "?" if w.assumed else ""
                 room = width - 4 - vlen(prefix)  # borders + gutter
-                who = (f"{w.account} " if w.account != acct
-                       and room >= vlen(f"⏳ {w.account} {when}") else "")
-                walled_cell = f"{YEL}⏳ {who}{when}{R}"
+                who = (f"{w.account}{mark} " if (w.account != acct or w.assumed)
+                       and room >= vlen(f"⏳ {w.account}{mark} {when}") else "")
+                # No room to name the account, but still assumed: the mark
+                # moves to the one thing left to put it on.
+                walled_cell = f"{YEL}⏳ {who}{when}{mark if not who else ''}{R}"
             else:
                 walled_cell = ""
             ag.add(
