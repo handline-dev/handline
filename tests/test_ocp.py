@@ -2693,6 +2693,26 @@ def test_a_closed_agent_is_not_handed_off(home: Path) -> None:
         check("closed: the frame still fits its terminal",
               len(frame.split(chr(10))) == 40)
 
+        # The screen answers the founder's questions, not the operator's: no
+        # snapshot age (its only news is the reason beside it), no cost column
+        # (a sum over the sessions we can see is not the account's spend), no
+        # model or effort (configuration, and on the agent's own page), no pid.
+        plain = [tui._ANSI.sub("", ln) for ln in frame.split(chr(10))]
+        header = next(ln for ln in plain if "agent " in ln and "ctx" in ln)
+        accounts_header = next(ln for ln in plain if "account " in ln and "5h" in ln)
+        check("screen: the operator's columns are gone from the team list",
+              "model" not in header and "eff" not in header, header)
+        check("screen: and from the accounts list",
+              "snap" not in accounts_header and "$" not in accounts_header,
+              accounts_header)
+        check("screen: the daemon is reported as running, not as a pid",
+              "pid" not in plain[0], plain[0])
+        db.set_agent_state(con, "backend", dmn.IDLE, detail="parked by hand at 09:12")
+        with_detail = [tui._ANSI.sub("", ln) for ln in tui.frame(120, 40).split(chr(10))]
+        check("screen: and what explains a row is on the row, not under it",
+              any("backend" in ln and "parked by hand" in ln for ln in with_detail),
+              str([ln for ln in with_detail if "backend" in ln])[:160])
+
         # The columns stay under their header: a state that grew a "·closed"
         # suffix outran its cell and pushed the whole row sideways.
         lines = [tui._ANSI.sub("", ln) for ln in frame.split(chr(10))]
@@ -4074,49 +4094,19 @@ def test_the_screen_says_what_is_stuck_and_what_was_decided(home: Path) -> None:
         finally:
             orcamod.available, orcamod.live_terminals, obsmod.live_sessions = real
 
-        # A row of this screen is read by a human, and a session id is not
-        # something a human reads. The payload used to be printed as the JSON
-        # it is stored as, so half of every row was a uuid.
-        said = tui._detail_of('{"resumed_session": "ccaa1bb9-6a12-4737-b60a-565e66108869"}')
-        check("events: a wake says it resumed, not which uuid",
-              said == "resumed", said)
-        check("events: an id that means something to a reader is kept",
-              tui._detail_of('{"request_id": 12, "state": "done"}') == "#12 · done",
-              tui._detail_of('{"request_id": 12, "state": "done"}'))
-        check("events: and a payload that is not json is shown as it is",
-              tui._detail_of("plain words") == "plain words")
-        check("events: nothing at all draws nothing", tui._detail_of(None) == "")
-
-        # Decisions, and the breathing that was crowding them out.
+        # What the daemon did is not a question the founder's screen answers -
+        # it is `ocp events`, which shows decisions and takes --all for the
+        # turn edges that outnumber them six to one.
         for i in range(8):
             db.add_event(con, "backend", "Stop", {"i": i})
         db.add_event(con, "backend", "wake", {"resumed_session": "sess-1"})
-        # A decision hundreds of hook events back is exactly when the panel
-        # most needs to say something; fetching a fixed multiple came back
-        # empty and read as "nothing decided".
-        for i in range(240):
-            db.add_event(con, "backend", "Stop", {"i": i})
-        deep, hidden = actions.decisions(con, 20)
-        check("events: a decision is found however much breathing is on top of it",
-              any(r["kind"] == "wake" for r in deep), f"{len(deep)} rows")
-        # And the count is the breathing between what is on screen, not every
-        # hook event ever recorded - which is a number nobody can act on.
-        db.add_event(con, "backend", "close", {"session": "s"})
-        for i in range(5):
-            db.add_event(con, "backend", "Stop", {"after": i})
-        _, hidden = actions.decisions(con, 1)
-        check("events: the count is what is between the decisions on screen",
-              hidden == 5, str(hidden))
+        out = _capture(lambda: climod.main(["events", "--agent", "backend", "--limit", "20"]))
+        check("events: a decision is shown", "wake" in out, out[:160])
+        check("events: and the turn edges are not", "Stop" not in out, out[:160])
+        check("events: unless they are asked for",
+              "Stop" in _capture(lambda: climod.main(
+                  ["events", "--agent", "backend", "--limit", "20", "--all"])))
 
-        rows, hidden = actions.decisions(con, 20)
-        check("events: a wake is a decision and is shown",
-              any(r["kind"] == "wake" for r in rows), str(rows[:2]))
-        check("events: the hook chatter is counted, not drawn",
-              hidden >= 8 and not any(r["kind"] in evmod.CAPTURED for r in rows),
-              f"{hidden} hidden")
-        everything, hidden = actions.decisions(con, 40, everything=True)
-        check("events: and asking for all of them gets all of them",
-              any(r["kind"] == "Stop" for r in everything) and hidden == 0)
     finally:
         con.close()
 

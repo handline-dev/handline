@@ -165,21 +165,13 @@ class Panel:
         self.title, self.width = title, width
         self.rows: list[str] = []
         self.keys: list[object] = []
-        self.extra: list[bool] = []
         self.selected: object = None
 
-    def add(self, row: str = "", key: object = None, extra: bool = False) -> None:
-        """`extra` marks a row that says more about the one above it.
-
-        The team is the one list that is never shortened - an agent missing
-        from it reads as an agent that is not there - so when the screen is
-        short it is these that go, and the row they belong to stays.
-        """
+    def add(self, row: str = "", key: object = None) -> None:
         self.rows.append(row)
         self.keys.append(key)
-        self.extra.append(extra)
 
-    def draw(self, limit: int | None = None, extras: bool = True) -> list[str]:
+    def draw(self, limit: int | None = None) -> list[str]:
         inner = self.width - 2
         # The title is data now - it counts what is waiting - so it is fitted
         # like any other row. A head wider than the terminal wraps, and a
@@ -191,8 +183,7 @@ class Panel:
         # too long and truncating its own title.
         head += DIM + "─" * max(0, self.width - vlen(head) - 1) + "┐" + R
         out = [head]
-        body = [(r, k) for r, k, x in zip(self.rows, self.keys, self.extra)
-                if extras or not x]
+        body = list(zip(self.rows, self.keys))
         held_back = 0
         if limit is not None and len(body) > limit:
             held_back = len(body) - limit
@@ -205,42 +196,6 @@ class Panel:
             out[-1] = f"{DIM}│{R}" + pad(fit(more, inner), inner) + f"{DIM}│{R}"
         out.append(DIM + "└" + "─" * inner + "┘" + R)
         return out
-
-
-# What a payload is worth saying out loud. The rest of it is ids and bookkeeping
-# that answer no question a reader of this screen has.
-_SAY = {"request_id": "#", "count": "×", "through": "through #", "state": "",
-        "target": "→ ", "requester": "from ", "why": "", "handle": "",
-        "ctx_pct": "ctx ", "events": "events ", "model": "", "account": "on "}
-
-
-def _detail_of(payload: str | None) -> str:
-    """One readable phrase out of an event's payload.
-
-    It used to be printed as the raw JSON it is stored as, so half of every row
-    was a session uuid: "wake {"resumed_session": "ccaa1bb9-6a12-4737-..."}".
-    Nobody reads a uuid; what they want to know is that it resumed.
-    """
-    if not payload:
-        return ""
-    try:
-        data = json.loads(payload)
-    except (json.JSONDecodeError, TypeError):
-        return str(payload)
-    if not isinstance(data, dict):
-        return str(data)
-    out = []
-    for k, v in data.items():
-        if v in (None, "", [], {}):
-            continue
-        if k.endswith("session") or k == "session":
-            out.append("resumed" if k.startswith("resumed") else "session")
-            continue
-        if k in _SAY:
-            out.append(f"{_SAY[k]}{v}")
-        else:
-            out.append(f"{k} {v}")
-    return " · ".join(out)
 
 
 def keybar(panel: int, width: int, hidden: int = 0) -> str:
@@ -258,7 +213,7 @@ def keybar(panel: int, width: int, hidden: int = 0) -> str:
     # dropped to make room.
     note = f"{YEL}{hidden} panel(s) need a taller window{R} {DIM}·{R} " if hidden else ""
     head = f"{DIM}{PANEL_NAME[panel]}:{R} " + note
-    nav = f" {DIM}· tab panel · ↑↓ move · v events · q quit{R}"
+    nav = f" {DIM}· tab panel · ↑↓ move · q quit{R}"
     sep = f" {DIM}·{R} "
     parts = [f"{BOLD}{k}{R} {DIM}{label}{R}" for k, label in keys]
     full = head + sep.join(parts)
@@ -273,8 +228,7 @@ def keybar(panel: int, width: int, hidden: int = 0) -> str:
     return fit(head, width)
 
 
-def build(width: int, sel: dict | None = None,
-          verbose: bool = False) -> tuple[list[str], list[Panel]]:
+def build(width: int, sel: dict | None = None) -> tuple[list[str], list[Panel]]:
     """Return (header lines, panels) for one frame.
 
     `sel` is {panel: key}: which row carries the cursor in each panel, so the
@@ -283,8 +237,11 @@ def build(width: int, sel: dict | None = None,
     sel = sel or {}
     con = db.connect()
     try:
-        pid = daemon.running_elsewhere()
-        state = f"{GRN}running{R} pid {pid}" if pid else f"{RED}NOT RUNNING{R}"
+        # Whether the daemon is running decides whether anything on this screen
+        # will happen on its own. Which pid it is decides how to kill it, which
+        # is a question for whoever is debugging it - `ocp ps` has it.
+        state = (f"{GRN}running{R}" if daemon.running_elsewhere()
+                 else f"{RED}NOT RUNNING{R}")
         # The legend earns its place only if it fits whole. Truncated, it cuts
         # the last marks off entirely and glosses the first one mid-word, which
         # is worse than not drawing it - and every mark it explains is also
@@ -302,13 +259,11 @@ def build(width: int, sel: dict | None = None,
         acc = Panel("ACCOUNTS", width)
         acc.selected = sel.get(ACCOUNTS)
         acc.add(f"{DIM}{'account':<10}{'5h usage':<18}{'reset':<8}"
-                f"{'7d':<13}{'snap':<7}{'live $':<9}assign{R}")
+                f"{'7d':<13}assign{R}")
         for name in paths.list_accounts():
             st = status.read(name)
             allowed, why = st.assignable()
             mark = f"{GRN}✔{R}" if allowed else f"{RED}✘{R}"
-            live = status.live_cost(name)
-            cost = "?" if live is None else f"${live:.2f}"
             # Show the figure decisions are made on, with a mark saying where
             # it came from. Drawing a quiet window as "?" while the daemon acts
             # on 0% is the dashboard and the daemon disagreeing.
@@ -322,9 +277,12 @@ def build(width: int, sel: dict | None = None,
                 + pad(f"{bar(five)} {pct(five)}%{src}", 18)
                 + pad(countdown(st.reset_5h), 8)
                 + pad(f"{bar(st.pct_7d, 6)} {pct(st.pct_7d)}%", 13)
-                + pad(age(st.age_s), 7)
-                + pad(cost, 9)
-                + f"{mark} {DIM}{why[:32]}{R}",
+                # No snapshot age and no cost column. The age only ever became
+                # news by making an account unassignable, and the reason beside
+                # it says so in words; the cost was a sum over the sessions we
+                # could see at that moment, which is not what "$" reads as -
+                # its own docstring lists three ways it is not the spend.
+                + f"{mark} {DIM}{why}{R}",
                 key=name,
             )
         if not paths.list_accounts():
@@ -335,7 +293,10 @@ def build(width: int, sel: dict | None = None,
         ag.selected = sel.get(AGENTS)
         # No heading for the last column: it is empty unless something is about
         # to happen, and then it says what, in words.
-        ag.add(f"{DIM}{'agent':<11}{'acct':<8}{'model':<8}{'eff':<7}{'state':<15}"
+        # No model and no effort: they are configuration, they do not change
+        # while anyone is watching, and they are on the agent's own page. This
+        # screen is about what is happening now.
+        ag.add(f"{DIM}{'agent':<11}{'acct':<8}{'state':<16}"
                f"{'ctx':>4}   {'wake':<7}{'in':<4}{R}")
         for name in paths.list_agents():
             try:
@@ -367,17 +328,14 @@ def build(width: int, sel: dict | None = None,
             # grew a "·closed" suffix used to push every column after it right.
             ag.add(
                 pad(f"{BOLD}{name}{R}", 11)
-                + pad(acct, 8) + pad(str(cfg.get("model")), 8)
-                + pad(str(cfg.get("effort") or agents.DEFAULT_EFFORT), 7)
-                + pad(f"{STATE_COLOR.get(s, '')}{fit(s, 14)}{R}", 15)
+                + pad(acct, 8)
+                + pad(f"{STATE_COLOR.get(s, '')}{fit(s, 15)}{R}", 16)
                 + pad(ctxs, 7)
                 + pad(countdown(row["wake_at"] if row else None), 7)
                 + pad(str(inbox) if inbox else "·", 4)
-                + fire,
+                + (fire or f"{DIM}{(row['detail'] if row else '') or ''}{R}"),
                 key=name,
             )
-            if row and row["detail"]:
-                ag.add(f"{DIM}{'':<11}{row['detail']}{R}", extra=True)
         if not paths.list_agents():
             ag.add(f"{DIM}  no agents registered{R}")
 
@@ -428,19 +386,7 @@ def build(width: int, sel: dict | None = None,
                    + pad(f"{DIM}{age(b['age']) if b['age'] else ''}{R}", 7)
                    + f"{DIM}{b['why']}{R}", key=b["agent"])
 
-        # ---- what was decided ------------------------------------------
-        rows, hooks = actions.decisions(con, 40, everything=verbose)
-        title = "EVERY EVENT" if verbose else "DECISIONS"
-        if hooks:
-            title += f" — {hooks} hook events hidden (v shows them)"
-        rc = Panel(title, width)
-        for e in rows:
-            when = time.strftime("%H:%M:%S", time.localtime(e["ts"]))
-            rc.add(f"{DIM}{when}{R}  {e['agent']:<11}{e['kind']:<18}"
-                   f"{DIM}{fit(_detail_of(e['payload']), max(0, width - 46))}{R}")
-        if not rows:
-            rc.add(f"{DIM}  nothing decided yet{R}")
-        return header, [acc, ag, ms, fl, rc]
+        return header, [acc, ag, ms, fl]
     finally:
         con.close()
 
@@ -476,20 +422,17 @@ def opened(title: str, lines: list[str], panel: int = AGENTS, key: object = None
 
 
 def frame(width: int, height: int, sel: dict | None = None, panel: int = AGENTS,
-          flash: str = "", detail: dict | None = None, verbose: bool = False) -> str:
+          flash: str = "", detail: dict | None = None) -> str:
     if detail is not None:
         return _detail_frame(width, height, detail, flash)
-    header, panels = build(width, sel, verbose)
+    header, panels = build(width, sel)
     room = height - len(header) - 2                    # the two footer rows
     limits, hidden = _layout([len(p.rows) for p in panels], room)
-    # When anything had to be shortened, the team list gives up the lines that
-    # explain its rows before any panel gives up a row of its own.
-    extras = all(lim is None for lim in limits) and not hidden
     body: list[str] = []
     for p, lim in zip(panels, limits):
         if lim == 0:
             continue
-        body += p.draw(limit=lim, extras=extras or p is not panels[1])
+        body += p.draw(limit=lim)
     foot = [fit(flash, width) if flash else "", keybar(panel, width, hidden)]
     lines = header + body
     lines = lines[:max(0, height - len(foot))]
@@ -735,7 +678,7 @@ def run(interval: float = 2.0, once: bool = False) -> int:
 
     fd = sys.stdin.fileno()
     saved = termios.tcgetattr(fd) if sys.stdin.isatty() else None
-    panel, sel, flash, detail, verbose = AGENTS, {}, "", None, False
+    panel, sel, flash, detail = AGENTS, {}, "", None
     try:
         if saved:
             tty.setcbreak(fd)
@@ -743,8 +686,7 @@ def run(interval: float = 2.0, once: bool = False) -> int:
         while True:
             size = shutil.get_terminal_size((100, 40))
             width, height = size.columns, size.lines
-            sys.stdout.write(HOME + frame(width, height, sel, panel, flash, detail,
-                                          verbose))
+            sys.stdout.write(HOME + frame(width, height, sel, panel, flash, detail))
             sys.stdout.flush()
             k = _key(interval)
             if k is None:
@@ -762,9 +704,6 @@ def run(interval: float = 2.0, once: bool = False) -> int:
                 panel = (panel + 1) % len(PANELS)
                 continue
             if k in ("r", "R"):
-                continue
-            if k == "v":
-                verbose = not verbose
                 continue
             if k in ("j", "\033[B", "\033OB"):
                 sel[panel] = move(_keys_of(panel), sel.get(panel), 1)

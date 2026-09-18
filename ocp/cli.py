@@ -504,8 +504,14 @@ def cmd_events(args) -> int:
             rows = db.events_after(con, args.after, agent=args.agent, limit=args.limit)
         else:
             rows = db.latest_events(con, agent=args.agent, limit=args.limit)
+        if not args.all:
+            # The hook events that only mark the edges of a turn are what an
+            # agent's state column says already, and there are six of them for
+            # every decision. `ocp top` used to filter them on screen; this is
+            # where someone asking what the daemon did actually looks.
+            rows = [r for r in rows if r["kind"] not in events.TURN_BOUNDARIES]
         if not rows:
-            print("no events")
+            print("no events" if args.all else "no decisions (--all includes turn edges)")
             return 0
         for r in rows:
             when = time.strftime("%m-%d %H:%M", time.localtime(r["ts"]))
@@ -835,6 +841,8 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--agent", default=None)
     p.add_argument("--after", type=int, default=0)
     p.add_argument("--limit", type=int, default=50)
+    p.add_argument("--all", action="store_true",
+                   help="include the hook events that only mark turn edges")
     p.set_defaults(fn=cmd_events)
 
     p = sub.add_parser("hook", help="internal: record a hook event from stdin")

@@ -8,7 +8,7 @@ one.
 Two halves. The acting half - wake, close, unstall, park, fold, start, message,
 answer, dismiss - is a line of glue each over the call the daemon or the CLI
 makes, and returns the one line to show for what happened. The reading half -
-messages, stuck, decisions, and the details behind a row - asks the database
+messages, stuck, and the details behind a row - asks the database
 the questions a screen asks, and asks the daemon's own predicates for anything
 it would otherwise have to judge for itself.
 
@@ -315,39 +315,6 @@ def stuck(con) -> list[dict]:
     return out
 
 
-def decisions(con, limit: int = 40, everything: bool = False) -> tuple[list[dict], int]:
-    """Recent events, and how many were only an agent breathing.
-
-    The hook events that only mark the edges of a turn are counted rather than
-    drawn: the agent's own state column says which side of a turn it is on, and
-    they crowded out the rows that say what was decided - woken, closed,
-    folded, told. A permission prompt and a teammate going quiet are not turn
-    edges and are drawn: they are the two events that mean a human is wanted.
-
-    The count is the ones that happened among the decisions on screen, which is
-    the question a reader has: how much noise is between these. Both halves are
-    asked of the database, because a busy hour can put the last decision
-    hundreds of rows back, and fetching a fixed multiple and filtering after
-    came back empty exactly then.
-    """
-    marks = ",".join("?" * len(evmod.TURN_BOUNDARIES))
-    kinds = tuple(sorted(evmod.TURN_BOUNDARIES))
-    if everything:
-        rows = con.execute("SELECT id, ts, agent, kind, payload FROM events "
-                           "ORDER BY id DESC LIMIT ?", (limit,)).fetchall()
-        return [dict(r) for r in rows], 0
-    rows = con.execute(
-        f"SELECT id, ts, agent, kind, payload FROM events WHERE kind NOT IN ({marks}) "
-        f"ORDER BY id DESC LIMIT ?", (*kinds, limit),
-    ).fetchall()
-    oldest = min((r["id"] for r in rows), default=0)
-    hooks = con.execute(
-        f"SELECT COUNT(*) FROM events WHERE kind IN ({marks}) AND id > ?",
-        (*kinds, oldest),
-    ).fetchone()[0]
-    return [dict(r) for r in rows], hooks
-
-
 def login_argv(acct: str, force: bool = False) -> tuple[str, list[str], dict]:
     """(what happened, argv, env) for handing the terminal to claude.
 
@@ -467,6 +434,10 @@ def account_detail(con, acct: str) -> list[tuple[str, list[str]]]:
             f"snapshot {'-' if st.age_s is None else str(int(st.age_s)) + 's old'}"
             f"   session {st.session_id or '-'}",
             f"assign   {'yes' if allowed else 'no'} - {why}"]
+    live = status.live_cost(acct)
+    head.append("spend    " + ("nothing running to read it from" if live is None else
+                               f"${live:.2f} across the sessions running now - not the "
+                               f"account's total, which nothing here can see"))
     mine = [a for a in paths.list_agents() if _account_of(a) == acct]
     rows = []
     for a in mine:
