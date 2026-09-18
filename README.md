@@ -141,11 +141,9 @@ refusal explains itself so they do not try to route around it.
 
 **An answer goes back the way the question came.** `ocp resolve` writes the
 verdict on the request; the daemon reads it out to the agent that asked, and a
-human reads it in `ocp inbox` and on `ocp top`. Nobody types into a human, so
-for a while their end of that was open - twenty orders answered onto rows no
-screen drew, until the agents that wanted to be seen learnt to send a second,
-unrelated request saying the same thing. Half a mailbox teaches the team to talk
-around it.
+human reads it in `ocp inbox` and on `ocp top`. Both directions, or the team
+learns to talk around it: with only one drawn, agents took to sending a second,
+unrelated request repeating what they had already answered.
 
 ## Layout
 

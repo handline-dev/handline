@@ -120,6 +120,7 @@ def connect(path: Path | None = None) -> sqlite3.Connection:
     _pre_schema_migrate(con)
     con.executescript(SCHEMA)
     _add_missing_columns(con)
+    _unhide_the_humans_answers(con)
     return con
 
 
@@ -160,6 +161,30 @@ def _pre_schema_migrate(con) -> None:
         # Existing rows keep their own id as their chain, which is what a
         # parentless request would have had anyway.
         con.execute("UPDATE requests SET chain_id = CAST(id AS TEXT) WHERE chain_id IS NULL")
+
+
+def _unhide_the_humans_answers(con) -> None:
+    """Undo the announced_at backfill for the one reader it was never about.
+
+    That backfill exists so a first run does not type a wall of old verdicts
+    at an agent's terminal. The human has no terminal to be typed at - their
+    answers are a list they read and dismiss - so on their rows it only marked
+    every answer they had ever been sent as already told, before there was
+    anywhere to tell them.
+
+    Ledgered in `cursors` rather than keyed to a column that already exists:
+    the column arrived two commits before the mailbox that reads it, so there
+    is no schema change left to hang this on. It runs once.
+
+    The name is imported here and not held in this module: `ask.HUMAN` is the
+    one copy, and a second would go stale the day it changed.
+    """
+    if get_cursor(con, "migrated:human_answers"):
+        return
+    from . import ask
+    con.execute("UPDATE requests SET announced_at = NULL WHERE requester = ? "
+                "AND state IN ('done', 'rejected')", (ask.HUMAN,))
+    set_cursor(con, "migrated:human_answers", 1)
 
 
 def unannounced_answers(con, agent: str) -> list:

@@ -187,6 +187,16 @@ def ask(target: str, body: str, files: str | None = None, requester: str | None 
         parent_id: int | None = None, mergeable: bool = False) -> tuple[bool, str, int | None]:
     """Route and, if allowed, enqueue. Returns (allowed, message, request id)."""
     requester = requester or asking_agent()
+    # Nobody may send as the human. The orchestrator's name carries two
+    # privileges - the routing table lets it reach every agent, and a chain
+    # through it is exempt from the loop guards, because the guards exist to
+    # reach a human and one is typing. An agent that could claim the name would
+    # hold both: one spoofed hop turns a refused A->B->A into a legal loop.
+    # `ocp launch` sets OCP_AGENT, so a caller that has one is not the human.
+    speaker = current_agent()
+    if requester == HUMAN and speaker not in (None, HUMAN):
+        return False, (f"{speaker} may not ask as {HUMAN}: that name is the human's, "
+                       f"and it is exempt from the loop guards."), None
     if not requester:
         return False, ("cannot tell who is asking: OCP_AGENT is unset and this is "
                        "not an interactive shell. Agents are started with "
@@ -203,12 +213,10 @@ def ask(target: str, body: str, files: str | None = None, requester: str | None 
                 return False, f"parent request {parent_id} does not exist", None
             depth = int(parent["chain_depth"]) + 1
             chain_id = parent["chain_id"]
-            # The human's turn resets the depth and keeps the thread. Depth
-            # counts how far a request has travelled without a human seeing it,
-            # which is why exceeding it escalates *to* the human; a reply typed
-            # by that human is the thing the limit was trying to reach, so it
-            # cannot be what trips it. Without this a conversation dies on its
-            # fourth exchange, and dies by escalating to the person mid-sentence.
+            # The human's turn starts the count again, and keeps the thread.
+            # The limit is there so a runaway ends up in front of a human; a
+            # reply typed by that human is the limit having worked, not a hop
+            # towards it.
             if requester == HUMAN:
                 depth = 0
 

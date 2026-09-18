@@ -662,8 +662,8 @@ def cmd_inbox(args) -> int:
         print("cannot tell whose inbox this is: OCP_AGENT is unset and this is not "
               "an interactive shell. Name the agent.")
         return 1
-    if agent == actions.HUMAN and not args.all:
-        return _human_inbox()
+    if agent == actions.HUMAN:
+        return _human_inbox(args.all)
     rows = askmod.inbox(agent, unread_only=not args.all)
     if not rows:
         print(f"{agent}: inbox empty")
@@ -675,18 +675,22 @@ def cmd_inbox(args) -> int:
     return 0
 
 
-def _human_inbox() -> int:
+def _human_inbox(show_all: bool = False) -> int:
     """The human's mailbox, which holds one more thing than an agent's.
 
     An agent is told what came back to it by the daemon typing into its
     terminal. Nobody types into a human, so an answer to something the human
     asked has to be somewhere they look - and this command and `ocp top` have
     to hold the same rows, or clearing one leaves the other still asking.
+
+    `--all` adds what has already been dealt with, the way it does everywhere
+    else. It used to fall through to the agent view, which has no answers in
+    it, so asking for more showed less.
     """
     con = db.connect()
     try:
         rows = actions.messages(con)
-        if not rows:
+        if not rows and not show_all:
             print("nothing waiting on you")
             return 0
         print(f"{len(rows)} waiting. `ocp read <id>` shows one whole.")
@@ -694,22 +698,64 @@ def _human_inbox() -> int:
             mark = "!" if m["gate"] else ("<" if m["answer"] else ".")
             print(f"{mark} #{m['id']:<5} {m['from']:<12} {(m['kind'] or 'ask'):<9} "
                   f"{actions.first_line(m['body'])[:60]}")
-        print("`ocp resolve <id> \"<verdict>\"` answers one; "
-              "`ocp dismiss <id>` takes it off the list.")
+        print("`ocp resolve <id> \"<text>\"` answers one - on a `<` row that goes back "
+              "as a reply in its thread; `ocp dismiss <id>` takes it off the list.")
+        if show_all:
+            # Not the ones printed above: an answer that is still on the list is
+            # not "already dealt with", and printing it twice would say it was.
+            waiting = {m["id"] for m in rows}
+            done = con.execute(
+                "SELECT id, ts, requester, target, state, body, verdict FROM requests "
+                "WHERE (target = ? OR requester = ?) AND state != 'queued' "
+                "ORDER BY id DESC LIMIT 20", (actions.HUMAN, actions.HUMAN)).fetchall()
+            done = [r for r in done if r["id"] not in waiting]
+            print(f"\n{len(done)} most recent, already dealt with:")
+            for r in done:
+                other = r["target"] if r["requester"] == actions.HUMAN else r["requester"]
+                arrow = "→" if r["requester"] == actions.HUMAN else "←"
+                print(f"  #{r['id']:<5} {arrow} {other:<12} {r['state']:<9} "
+                      f"{actions.first_line(r['verdict'] or r['body'])[:60]}")
         return 0
     finally:
         con.close()
 
 
-def cmd_dismiss(args) -> int:
-    """Take one row off the human's mailbox without replying to it.
+def _who_refusal(verb: str) -> str:
+    """Whose row it is cannot be checked against a caller we cannot name.
 
-    The two rows there need two different writes - a request is resolved, an
-    answer is only marked told - and which one this is is read off the row, so
-    a human clearing their list never has to know which.
+    The same fail-closed rule `ocp ask` uses: a human has a terminal, a script
+    that dropped OCP_AGENT does not, and promoting one to the other is how an
+    agent ends up clearing the founder's mailbox.
+    """
+    return (f"cannot tell who is {verb}ing this: OCP_AGENT is unset and this is not "
+            f"an interactive shell. Agents are started with `ocp launch <agent>`, "
+            f"which sets it.")
+
+
+def cmd_dismiss(args) -> int:
+    """Take one of your own rows off your list.
+
+    The two kinds there need two different writes - a request addressed to you
+    is closed with "read", an answer you asked for is only marked told - and
+    which one this is is read off the row, so clearing your list never means
+    knowing which. Somebody else's row is neither: dismissing it would resolve
+    a request they are still waiting on, with a verdict they never wrote.
     """
     con = db.connect()
     try:
+        row = db.get_request(con, args.id)
+        if row is None:
+            print(f"no request #{args.id}")
+            return 1
+        me = askmod.asking_agent()
+        if me is None:
+            print(_who_refusal("dismiss"))
+            return 1
+        mine = row["target"] == me or (row["requester"] == me and row["state"] != "queued")
+        if not mine:
+            print(f"#{args.id} is {row['requester']} → {row['target']}, not yours to "
+                  f"dismiss. `ocp read {args.id}` shows it.")
+            return 1
         print(actions.dismiss(con, args.id))
         return 0
     finally:
@@ -750,6 +796,33 @@ def cmd_read(args) -> int:
 
 
 def cmd_resolve(args) -> int:
+    """Answer a request - whichever end of it you are on.
+
+    Resolving writes the verdict on the row, so aimed at a request you made
+    and someone has already answered it overwrites their answer with your own
+    words and sends nothing: the record then says the agent said what you said.
+    The screen's answer key has always branched on that; this is the same
+    branch, because the two must not disagree about what "answer" means.
+    """
+    con = db.connect()
+    try:
+        row = db.get_request(con, args.id)
+        if row is None:
+            print(f"no request #{args.id}")
+            return 1
+        me = askmod.asking_agent()
+        if me is None:
+            print(_who_refusal("answer"))
+            return 1
+        if row["requester"] == me and row["state"] != "queued":
+            print(actions.answer(con, args.id, args.verdict))
+            return 0
+        if row["target"] != me:
+            print(f"#{args.id} is {row['requester']} → {row['target']}, not yours to "
+                  f"answer. `ocp read {args.id}` shows it.")
+            return 1
+    finally:
+        con.close()
     ok, msg = askmod.resolve(args.id, args.verdict, state=args.state)
     print(msg)
     return 0 if ok else 1

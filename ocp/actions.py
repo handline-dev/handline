@@ -25,7 +25,7 @@ from pathlib import Path
 
 from . import (accounts, agents, ask as askmod, daemon, db, events as evmod,
                fold as foldmod, observe as obs, orca, paths, spawn as spawnmod,
-               status, triggers)
+               status, team, triggers)
 
 # The name a human's own requests are sent under, and the inbox `ocp top`
 # shows. Taken from `ask`, which is where escalations are addressed: a second
@@ -116,6 +116,26 @@ def worktree_path(recorded: str | None) -> str | None:
     return path if Path(path).is_dir() else None
 
 
+def terminal(con, agent: str) -> str:
+    """Put the reader in this agent's terminal.
+
+    The screen is for the decisions that are one keypress wide. The rest - read
+    the diff with it, argue about an approach, watch it work - is a
+    conversation, and the place to have one is the agent's own session. Typing
+    a paragraph into `m` to avoid going there is how a decision gets made
+    badly.
+    """
+    row = db.get_agent_state(con, agent)
+    handle = row["terminal"] if row else None
+    if not handle:
+        return f"{agent} has no terminal to go to (s starts one)"
+    if not orca.available():
+        return "orca is not on PATH - nothing to switch to"
+    ok, why = orca.focus(handle)
+    return f"in {agent}'s terminal - come back to this tab when you are done" if ok \
+        else f"could not switch to {agent}: {why}"
+
+
 def message(con, agent: str, body: str) -> str:
     """Send an agent work, as the human."""
     if not body.strip():
@@ -191,12 +211,11 @@ def messages(con) -> list[dict]:
 
     The fourth is not a request at all: it is an answer to something the human
     asked. `ocp resolve` writes the verdict on the row and the daemon reads it
-    out to the agent that asked - but the human has no terminal to be read out
-    to, so an answer to them used to land nowhere. Measured on this machine: of
-    the last twenty rows the founder sent, every reply was written as a verdict
-    no screen ever drew, and the two agents that wanted to be seen had learnt to
-    send a *second*, unrelated request to say the same thing. Half a mailbox
-    teaches the team to talk around it.
+    out to the agent that asked; the human has no terminal to be read out to, so
+    their answers have to be read here or nowhere. Half a mailbox teaches the
+    team to talk around it - with this one drawing only one direction, two
+    agents had learnt to send a second, unrelated request repeating what they
+    had already answered.
 
     Decisions first, then the ones that asked for a reply, then the rest -
     oldest first inside each, because the order things arrived in is not the
@@ -208,18 +227,23 @@ def messages(con) -> list[dict]:
         "FROM requests WHERE target = ? AND state = 'queued' ORDER BY id",
         (HUMAN,),
     ).fetchall():
-        m = dict(r)
-        # Two facts, both recorded by the routing when the request was made. A
-        # gate is a decision the design says only a human makes. `waiting` says
-        # the sender asked for a reply and parked on it - which is what it did
-        # at the time; whether it is still parked now is the agent's own state,
-        # and the screen says what the row records rather than reading one as
-        # the other.
-        m["from"] = r["requester"]
-        m["gate"] = m["kind"] == "escalate"
-        m["waiting"] = m["response"] == "async"
-        m["answer"] = False
-        out.append(m)
+        # Both rows are built by hand and to one shape: a reader of this list
+        # must not have to know which query a row came out of, and "from" is
+        # the sender of a request one way and the answerer the other.
+        #
+        # `gate` and `waiting` are facts the routing recorded when the request
+        # was made. A gate is a decision the design says only a human makes.
+        # `waiting` says the sender asked for a reply and parked on it - which
+        # is what it did at the time; whether it is still parked now is the
+        # agent's own state, and the screen says what the row records rather
+        # than reading one as the other.
+        out.append({
+            "id": r["id"], "ts": r["ts"], "from": r["requester"],
+            "kind": r["kind"], "body": r["body"], "parent_id": r["parent_id"],
+            "gate": r["kind"] == "escalate",
+            "waiting": r["response"] == "async",
+            "answer": False,
+        })
 
     for r in db.unannounced_answers(con, HUMAN):
         out.append({
@@ -238,19 +262,21 @@ def messages(con) -> list[dict]:
             "answer": True,
             "parent_id": r["parent_id"],
         })
-    return sorted(out, key=lambda m: (not m["gate"], not m["waiting"], m["id"]))
+    # Oldest first inside each bucket, by when the row landed rather than by
+    # its id: an answer carries the time it came back, and a reply to an old
+    # question has a low id and is this morning's news.
+    return sorted(out, key=lambda m: (not m["gate"], not m["waiting"], m["ts"], m["id"]))
 
 
 def message_detail(con, rid: int) -> tuple[str, list[tuple[str, list[str]]]] | None:
     """One message opened, with what it is a reply to underneath it.
 
-    A verdict is unreadable alone. "**MERGE.**" is a true and complete answer
-    and it says nothing at all without the branch it is about, and four of
-    those in a row is what this mailbox actually looks like. What a message
-    answers is known exactly for a row the human asked - it is that row's own
-    body - and for anything else the exchange with that agent, in order, is the
-    nearest true thing: it is who said what to whom, not a guess at which
-    sentence replies to which.
+    A verdict is unreadable alone: "**MERGE.**" is a complete answer and says
+    nothing without the branch it is about. What a message answers is known
+    exactly for a row the human asked - it is that row's own body - and for
+    anything else the exchange with that agent, in order, is the nearest true
+    thing: who said what to whom, not a guess at which sentence replies to
+    which.
     """
     row = db.get_request(con, rid)
     if row is None:
@@ -265,16 +291,21 @@ def message_detail(con, rid: int) -> tuple[str, list[tuple[str, list[str]]]] | N
     text = (row["verdict"] if answer else row["body"]) or ""
     sections: list[tuple[str, list[str]]] = [("", text.splitlines() or ["(empty)"])]
 
+    quoted = {rid}
     if answer:
         asked = time.strftime("%m-%d %H:%M", time.localtime(row["ts"]))
-        sections.append((f"WHAT YOU ASKED · {asked}", _clip((row["body"] or "").splitlines(), rid)))
+        sections.append((f"WHAT YOU ASKED · {asked}",
+                         _clip((row["body"] or "").splitlines(), rid)))
     elif row["parent_id"]:
         parent = db.get_request(con, row["parent_id"])
         if parent is not None:
+            quoted.add(int(parent["id"]))
             sections.append((f"IN REPLY TO #{parent['id']}",
                              _clip((parent["body"] or "").splitlines(), parent["id"])))
 
-    earlier = _exchange(con, other, rid)
+    # What is already quoted above is not also listed below: the same message
+    # twice on one page reads as two messages.
+    earlier = _exchange(con, other, quoted)
     if earlier:
         sections.append((f"EARLIER WITH {other.upper()}", earlier))
     return title, sections
@@ -296,7 +327,14 @@ def _clip(lines: list[str], rid: int) -> list[str]:
 EXCHANGE_ROWS = 6
 
 
-def _exchange(con, other: str, skip: int) -> list[str]:
+# How much of a line of the exchange is drawn. These are index lines - one per
+# thing said - and an agent's report is often one paragraph with no newline in
+# it, so its "first line" is the whole report and would wrap across the page it
+# is meant to be an index of.
+EXCHANGE_WIDTH = 60
+
+
+def _exchange(con, other: str, skip: set[int]) -> list[str]:
     """What the human and this agent have said to each other, oldest last.
 
     Both directions out of one query: the pair is the thread. A row that was
@@ -307,19 +345,26 @@ def _exchange(con, other: str, skip: int) -> list[str]:
     rows = con.execute(
         "SELECT id, ts, resolved_at, requester, target, state, body, verdict "
         "FROM requests WHERE ((requester = ? AND target = ?) OR (requester = ? AND target = ?)) "
-        "AND id != ? AND state != 'denied' ORDER BY id DESC LIMIT ?",
-        (HUMAN, other, other, HUMAN, skip, EXCHANGE_ROWS),
+        "AND state != 'denied' ORDER BY id DESC LIMIT ?",
+        (HUMAN, other, other, HUMAN, EXCHANGE_ROWS + len(skip)),
     ).fetchall()
     out: list[str] = []
     for r in reversed(rows):
+        if int(r["id"]) in skip:
+            continue
         mine = r["requester"] == HUMAN
         arrow = f"you → {other}" if mine else f"{other} → you"
-        out.append(f"#{r['id']:<5} {arrow:<24} {_at(r['ts'])}  {first_line(r['body'])}")
+        out.append(f"#{r['id']:<5} {arrow:<24} {_at(r['ts'])}  {_gist(r['body'])}")
         if r["verdict"]:
             who = other if mine else "you"
             out.append(f"{'':<6} ↩ {who:<22} {_at(r['resolved_at'] or r['ts'])}  "
-                       f"{first_line(r['verdict'])}")
+                       f"{_gist(r['verdict'])}")
     return out
+
+
+def _gist(text: str | None) -> str:
+    line = first_line(text)
+    return line if len(line) <= EXCHANGE_WIDTH else line[:EXCHANGE_WIDTH - 1] + "…"
 
 
 def _at(ts) -> str:
@@ -494,29 +539,31 @@ def stuck(con) -> list[dict]:
 
 # team.yaml as the screen reads it, re-parsed only when the file changes. A
 # frame is drawn every two seconds and the routing table is a human-edited file
-# that changes a few times a week.
-_TEAM: dict = {"mtime": None, "team": None}
+# that changes a few times a week. Keyed on the file, not just its clock: one
+# process can read two homes, and two homes' files are the same age.
+_TEAM: dict = {"key": None, "team": None}
 
 
-def routing() -> "object | None":
+def routing() -> "team.Team | None":
     """The routing table, or None when it cannot be read.
 
     None rather than an exception: the screen draws a team that has no
-    hierarchy the same way it drew every team before there was one, and a
-    typo in team.yaml must not take the dashboard down with it - `ocp doctor`
-    is where a broken routing table is a finding.
+    hierarchy the same way it drew every team before there was one, and a typo
+    in team.yaml must not take the dashboard down with it - `ocp doctor` is
+    where a broken routing table is a finding.
     """
-    from . import team as teammod
+    p = paths.team_file()
     try:
-        mtime = paths.team_file().stat().st_mtime
+        st = p.stat()
+        key = (str(p), st.st_mtime_ns, st.st_size)
     except OSError:
         return None
-    if _TEAM["mtime"] != mtime:
+    if _TEAM["key"] != key:
         try:
-            _TEAM["team"] = teammod.Team.load()
+            _TEAM["team"] = team.Team.load()
         except Exception:  # noqa: BLE001
             _TEAM["team"] = None
-        _TEAM["mtime"] = mtime
+        _TEAM["key"] = key
     return _TEAM["team"]
 
 
@@ -526,15 +573,17 @@ def supervisor_of(t, agent: str) -> str | None:
     A supervisor edge is the relation the team model already writes down -
     `manager -> dev.*` is what makes the devs the manager's - so the tree is
     read from the policy the daemon routes on rather than from a second list
-    that would drift from it. Only an edge naming one agent counts: `* -> x`
-    says everyone may ask x, which is not a chain of command, and the human's
-    own edge to everyone would otherwise make the whole team its children and
-    say nothing.
+    that would drift from it.
+
+    Only an edge whose `from` names one agent counts. A wildcard source is a
+    permission, not a chain of command: `* -> reviewer` says anyone may ask the
+    reviewer, and the human's own `orchestrator -> *` would otherwise make the
+    whole team its children and draw a tree that says nothing.
     """
     if t is None:
         return None
     best: tuple[int, str] | None = None
-    for e in getattr(t, "edges", []):
+    for e in t.edges:
         if e.get("relation") != "supervisor":
             continue
         src, dst = str(e.get("from", "")), str(e.get("to", ""))
@@ -552,11 +601,6 @@ def supervisor_of(t, agent: str) -> str | None:
 
 def agent_tree() -> list[tuple[str, int]]:
     """Every registered agent as (name, depth), supervisors above their reports.
-
-    Flat, the list answers "who exists". It does not answer the question a
-    person running a team actually asks - who is this one's, and who will see
-    its report - and that answer is already in team.yaml, unread by anything
-    the human looks at.
 
     An agent whose supervisor is not registered, or that is in a cycle, is
     drawn at the root: a name missing from this list reads as an agent that is
@@ -613,7 +657,7 @@ def can(con, agent: str, key: str) -> bool:
     """
     row = db.get_agent_state(con, agent)
     if not row:
-        return key in ("message", "start")
+        return key in ("message", "start")   # nothing else exists to act on yet
     closed = bool(row["closed_at"])
     state = row["state"]
     # The states nothing may be done to from here. RUNNING and HANDOFF are
@@ -639,6 +683,10 @@ def can(con, agent: str, key: str) -> bool:
         return not busy
     if key == "start":
         return not row["terminal"]
+    if key == "terminal":
+        # Offered whatever the agent is doing, including mid-turn: going to
+        # watch it work is the one thing here that is always reasonable.
+        return bool(row["terminal"])
     return True
 
 

@@ -67,7 +67,7 @@ PANEL_NAME = {ACCOUNTS: "accounts", AGENTS: "agents", MESSAGES: "messages",
 # Keys, per panel. Anything that cannot be undone asks first; the rest happen
 # on the keypress, because a confirmation nobody reads is just a second key.
 AGENT_KEYS = [
-    ("↵", "open"), ("w", "wake"), ("c", "close"), ("p", "park"),
+    ("↵", "open"), ("t", "terminal"), ("w", "wake"), ("c", "close"), ("p", "park"),
     ("f", "fold"), ("m", "message"), ("s", "start"), ("u", "unstall"),
 ]
 ACCOUNT_KEYS = [("↵", "open"), ("l", "login")]
@@ -309,7 +309,8 @@ def build(width: int, sel: dict | None = None) -> tuple[list[str], list[Panel]]:
                 acct = agents.account_of(name)
                 cfg = agents.read(name)
             except Exception as e:  # noqa: BLE001
-                ag.add(pad(twig + name, 13) + f"{RED}config error: {e}{R}", key=name)
+                ag.add(pad(fit(twig + name, 13), 13) + f"{RED}config error: {e}{R}",
+                       key=name)
                 continue
             st = status.read_for_agent(name, acct)
             row = db.get_agent_state(con, name)
@@ -333,7 +334,11 @@ def build(width: int, sel: dict | None = None) -> tuple[list[str], list[Panel]]:
             # Padded on visible width, like the accounts panel: a state that
             # grew a "·closed" suffix used to push every column after it right.
             ag.add(
-                pad(twig + f"{BOLD}{name}{R}", 13)
+                # Fitted before it is padded: a long name, or a deep enough
+                # twig, is wider than the column, and `pad` alone then pushes
+                # every column after it right - the same drift the "·closed"
+                # suffix caused.
+                pad(fit(twig + f"{BOLD}{name}{R}", 13), 13)
                 + pad(acct, 8)
                 + pad(f"{STATE_COLOR.get(s, '')}{fit(s, 15)}{R}", 16)
                 + pad(ctxs, 7)
@@ -361,12 +366,18 @@ def build(width: int, sel: dict | None = None) -> tuple[list[str], list[Panel]]:
         title = f"FOR YOU — {said}" if said else "FOR YOU"
         ms = Panel(title, width)
         ms.selected = sel.get(MESSAGES)
+        today = time.strftime("%Y%m%d")
         for m in waiting:
-            when = time.strftime("%H:%M", time.localtime(m["ts"]))
+            # The clock alone made a two-day-old row look like this hour's.
+            when = time.strftime(
+                "%H:%M" if time.strftime("%Y%m%d", time.localtime(m["ts"])) == today
+                else "%m-%d", time.localtime(m["ts"]))
             # Same rule as the reading view: what a message says is its text.
             # An escape here is invisible to the width count, so it is never
-            # truncated, and `esc [ 2J` clears the screen drawing it.
-            first = _ANSI.sub("", (m["body"] or "").splitlines()[0] if m["body"] else "")
+            # truncated, and `esc [ 2J` clears the screen drawing it. The first
+            # line is the first one with something on it, as it is everywhere
+            # else - a body that starts with a blank line drew an empty row.
+            first = _ANSI.sub("", actions.first_line(m["body"]))
             # An agent parked until this is answered is the only thing on the
             # screen that no one else will ever clear; it is not drawn like a
             # report that happens to be addressed here.
@@ -404,14 +415,30 @@ def build(width: int, sel: dict | None = None) -> tuple[list[str], list[Panel]]:
         con.close()
 
 
-def page(title: str, sections: list[tuple[str, list[str]]], width: int,
+def page(title: str, sections: list[tuple[str, list[str]]],
          panel: int = AGENTS, key: object = None) -> dict:
     """A detail page laid out as the screen's own panels, not as a wall of text.
 
-    The sections are drawn once, here, into the lines the reader scrolls: what
-    is open has to be a list of lines for paging, and it should still look like
-    the screen it was opened from.
+    It keeps its sections rather than the lines they make, because the width
+    they are laid out at is the width the terminal has *now*: a page drawn at
+    80 columns and then read at 60 is a page whose every box border is one line
+    too long, and re-wrapping a drawn border tears it in half.
     """
+    d = opened(title, [], panel, key)
+    d["sections"] = sections
+    return d
+
+
+def lines_of(detail: dict, width: int) -> list[str]:
+    """What is open, as the lines it takes at this width.
+
+    A page lays its sections out here; anything opened as plain text is wrapped
+    here. Either way the caller gets lines that already fit, and nothing that
+    has been laid out is laid out twice.
+    """
+    sections = detail.get("sections")
+    if sections is None:
+        return wrap(detail["lines"], width)
     lines: list[str] = []
     for heading, rows in sections:
         if heading:
@@ -424,10 +451,8 @@ def page(title: str, sections: list[tuple[str, list[str]]], width: int,
                 box.add(r)
             lines += box.draw()
         else:
-            # Left long: `_detail_frame` wraps what it is given to the width it
-            # has, and fitting first would truncate a body before it got there.
-            lines += list(rows) + [""]
-    return opened(title, lines, panel, key)
+            lines += wrap(list(rows), width) + [""]
+    return lines
 
 
 def opened(title: str, lines: list[str], panel: int = AGENTS, key: object = None) -> dict:
@@ -543,7 +568,7 @@ def _detail_frame(width: int, height: int, detail: dict, flash: str = "") -> str
     exactly the one someone is about to answer, which is why it can be answered
     from here.
     """
-    body = wrap(detail["lines"], width)
+    body = lines_of(detail, width)
     room = max(1, height - 4)
     top = max(0, min(detail.get("top", 0), max(0, len(body) - room)))
     detail["top"] = top
@@ -772,7 +797,7 @@ def _in_detail(detail: dict, k: str, width: int, height: int,
         detail["top"] = 0
         return detail, ""
     if k == "G":
-        detail["top"] = max(0, len(wrap(detail["lines"], width)) - room)
+        detail["top"] = max(0, len(lines_of(detail, width)) - room)
         return detail, ""
     if detail.get("panel") in (AGENTS, STUCK):
         # An agent's page is opened to decide something about that agent, and
@@ -801,7 +826,7 @@ def _in_detail(detail: dict, k: str, width: int, height: int,
             _say(f"{label} {name}", width, height)
             said = getattr(actions, label)(con, name)
             # What it says about itself has just changed.
-            fresh = page(detail["title"], actions.agent_detail(con, name), width,
+            fresh = page(detail["title"], actions.agent_detail(con, name),
                          detail["panel"], name)
             fresh["top"] = detail["top"]
             return fresh, said
@@ -944,7 +969,7 @@ def _act(panel: int, sel: dict, key: str, width: int, height: int,
         con = db.connect()
         try:
             return "", page(f"account {target}",
-                            actions.account_detail(con, str(target)), width,
+                            actions.account_detail(con, str(target)),
                             ACCOUNTS, target)
         finally:
             con.close()
@@ -960,7 +985,7 @@ def _act(panel: int, sel: dict, key: str, width: int, height: int,
             name = str(target)
             if key in ("\r", "\n"):
                 return "", page(f"agent {name}", actions.agent_detail(con, name),
-                                width, panel, name)
+                                panel, name)
             label = dict(AGENT_KEYS).get(key)
             if not label:
                 return "", None
@@ -998,7 +1023,7 @@ def _act(panel: int, sel: dict, key: str, width: int, height: int,
                 if detail is None:
                     return f"#{rid} is gone", None
                 title, sections = detail
-                return "", page(title, sections, width, MESSAGES, rid)
+                return "", page(title, sections, MESSAGES, rid)
             if key in ("a", "e"):
                 text = _compose(rid, key, width, height, fd, saved)
                 if text is None:

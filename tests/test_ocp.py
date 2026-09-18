@@ -3405,7 +3405,7 @@ def test_top_shows_what_is_waiting_on_the_human(home: Path) -> None:
 
         waiting = actions.messages(con)
         check("top: a request addressed to the human is a message for them",
-              [m["requester"] for m in waiting] == ["marina"], str(waiting))
+              [m["from"] for m in waiting] == ["marina"], str(waiting))
         check("top: and agent-to-agent traffic is not",
               all("diff" not in (m["body"] or "") for m in waiting), str(waiting))
 
@@ -3980,6 +3980,16 @@ def test_an_answer_to_the_human_is_in_the_human_mailbox(home: Path) -> None:
         check("mailbox: and leaves the verdict standing",
               db.get_request(con, parent)["verdict"] == "last word")
 
+        # The orchestrator's name is the human's. It reaches every agent and
+        # it is exempt from the loop guards, so an agent that could borrow it
+        # would hold both privileges - one spoofed hop makes a refused
+        # A->B->A legal.
+        os.environ["OCP_AGENT"] = "backend"
+        spoofed, why, _rid = askmod.ask("reviewer", "as you", requester=actions.HUMAN)
+        check("mailbox: an agent may not ask in the human's name",
+              not spoofed and "may not ask as" in why, why)
+        os.environ.pop("OCP_AGENT", None)
+
         # The human is not an agent: no account, no session, nothing to park
         # and nothing that will ever wake them.
         check("mailbox: asking does not park the human",
@@ -3998,7 +4008,26 @@ def test_an_answer_to_the_human_is_in_the_human_mailbox(home: Path) -> None:
         os.environ.pop("OCP_AGENT", None)
         out = _capture(lambda: climod.main(["inbox", actions.HUMAN]))
         check("mailbox: `ocp inbox` shows the answer too", f"#{rid2}" in out, out[:200])
-        _capture(lambda: climod.main(["dismiss", str(rid2)]))
+
+        # Whose row it is is checked against who is asking, and a caller we
+        # cannot name is nobody - the same fail-closed rule `ocp ask` uses.
+        out = _capture(lambda: climod.main(["dismiss", str(rid2)]))
+        check("mailbox: an unnamed caller dismisses nothing",
+              "cannot tell who" in out and rid2 in [m["id"] for m in actions.messages(con)],
+              out[:120])
+        os.environ["OCP_AGENT"] = "backend"
+        gate = [m["id"] for m in actions.messages(con) if m["gate"]]
+        out = _capture(lambda: climod.main(["dismiss", str(gate[0])])) if gate else ""
+        check("mailbox: and an agent cannot clear the human's decisions",
+              not gate or ("not yours" in out
+                           and gate[0] in [m["id"] for m in actions.messages(con)]),
+              out[:120])
+        out = _capture(lambda: climod.main(["resolve", str(rid2), "mine now"]))
+        check("mailbox: nor answer in the human's name",
+              "not yours" in out and db.get_request(con, rid2)["verdict"] != "mine now",
+              out[:120])
+        os.environ.pop("OCP_AGENT", None)
+        actions.dismiss(con, rid2)
         check("mailbox: and `ocp dismiss` clears it from both",
               rid2 not in [m["id"] for m in actions.messages(con)])
     finally:
@@ -4030,7 +4059,6 @@ edges:
 """)
         for name in ("manager", "marina", "keeper", "scout"):
             agents.register(name, "alpha")
-        actions._TEAM["mtime"] = None
         tree = actions.agent_tree()
         depth = dict(tree)
         check("tree: every registered agent is drawn, none twice",
@@ -4063,7 +4091,6 @@ edges:
   - { from: "ghost", to: "dev.*", relation: supervisor, response: fire_and_forget }
   - { from: "*", to: "orchestrator", kind: escalate, creates_gate: true }
 """)
-        actions._TEAM["mtime"] = None
         check("tree: an agent whose supervisor is not registered is still drawn",
               dict(actions.agent_tree())["marina"] == 0, str(actions.agent_tree()))
 
@@ -4080,7 +4107,6 @@ edges:
   - { from: "keeper", to: "marina", relation: supervisor, response: fire_and_forget }
   - { from: "*", to: "orchestrator", kind: escalate, creates_gate: true }
 """)
-        actions._TEAM["mtime"] = None
         cyc = actions.agent_tree()
         check("tree: a cycle does not hang and loses nobody",
               sorted(n for n, _d in cyc) == sorted(paths.list_agents()), str(cyc))
@@ -4088,7 +4114,6 @@ edges:
         # And a routing table that will not parse does not take the screen down
         # with it - `ocp doctor` is where that is a finding.
         (home / "team.yaml").write_text("teams: [this is not a map\n")
-        actions._TEAM["mtime"] = None
         check("tree: a broken team.yaml still draws every agent",
               sorted(n for n, _d in actions.agent_tree()) == sorted(paths.list_agents()))
         frame = tui._ANSI.sub("", tui.frame(120, 40))
@@ -4367,11 +4392,11 @@ def test_a_message_is_read_whole_and_answered_where_it_is_read(home: Path) -> No
             lines = [tui._ANSI.sub("", ln) for ln in text.split(chr(10))]
             check(f"read: the view is exactly {height} lines, keys included",
                   len(lines) == height and "esc back" in lines[-1], repr(lines[-1])[:80])
-            fits = len(tui.wrap(detail["lines"], 100)) <= max(1, height - 4)
+            fits = len(tui.lines_of(detail, 100)) <= max(1, height - 4)
             check(f"read: at {height} lines it counts what is off the bottom, "
                   f"and only then", ("line 1-" in lines[0]) is not fits, lines[0])
 
-        body_lines = len(tui.wrap(detail["lines"], 100))
+        body_lines = len(tui.lines_of(detail, 100))
         detail, _ = tui._in_detail(detail, "G", 100, 20)
         check("read: G goes to the end and stops there",
               detail["top"] == max(0, body_lines - 16), str(detail["top"]))
