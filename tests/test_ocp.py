@@ -5,6 +5,7 @@ Run: python3 tests/test_ocp.py
 from __future__ import annotations
 
 import contextlib
+import io
 import json
 import os
 import pty
@@ -90,6 +91,14 @@ def _deadline(seconds: int):
     finally:
         signal.alarm(0)
         signal.signal(signal.SIGALRM, old)
+
+
+def _capture(fn) -> str:
+    """What a command printed, for asserting on what a human would see."""
+    buf = io.StringIO()
+    with contextlib.redirect_stdout(buf):
+        fn()
+    return buf.getvalue()
 
 
 def check(name: str, cond: bool, detail: str = "") -> None:
@@ -3626,6 +3635,82 @@ def test_top_acts_through_the_same_calls_the_daemon_makes(home: Path) -> None:
         con.close()
 
 
+def test_an_answer_reaches_the_agent_that_asked(home: Path) -> None:
+    """Answering wrote the verdict on the row and stopped. The agent that asked
+    - which may have parked waiting for it - was never told, so a founder
+    answering an escalation on the screen and the agent never hearing it is the
+    same hole seen from the other end. An answer is delivered the way work is,
+    once, through a cursor of its own."""
+    _daemon_home(home, 20)
+    con = db.connect()
+    sent: list[str] = []
+    real = (orcamod.available, orcamod.alive, orcamod.idle_now, orcamod.send)
+    try:
+        orcamod.available = lambda: True
+        orcamod.live_terminals = lambda: {"term_x"}
+        orcamod.alive = lambda h: True
+        orcamod.idle_now = lambda h: True
+        orcamod.send = lambda h, text, enter=True: (sent.append(text), (True, ""))[1]
+        sessions_are("backend")
+        db.set_terminal(con, "backend", "term_x", "wt")
+        db.set_agent_state(con, "backend", dmn.IDLE)
+
+        rid = db.add_request(con, "backend", "reviewer", "is this ready?", None,
+                             "peer", "async", None, 0, None)
+        check("answered: nothing is announced while it is still open",
+              not dmn.deliver_answers(con, "backend", lambda _m: None) and not sent)
+
+        askmod.resolve(rid, "ship it, with the one nit fixed")
+        check("answered: once it comes back, the agent is told",
+              dmn.deliver_answers(con, "backend", lambda _m: None), str(sent))
+        check("answered: with who answered and what they said",
+              "reviewer" in sent[-1] and "ship it" in sent[-1], sent[-1][:120])
+        check("answered: and how to read the whole of it",
+              "ocp read" in sent[-1], sent[-1][:160])
+
+        sent.clear()
+        check("answered: and it is not told twice",
+              not dmn.deliver_answers(con, "backend", lambda _m: None) and not sent)
+
+        # The same gates as any other send: nothing is typed at a shell.
+        rid2 = db.add_request(con, "backend", "reviewer", "and this?", None,
+                              "peer", "async", None, 0, None)
+        askmod.resolve(rid2, "no")
+        sessions_are()
+        check("answered: an answer is not typed at a terminal with no session",
+              not dmn.deliver_answers(con, "backend", lambda _m: None) and not sent)
+    finally:
+        (orcamod.available, orcamod.alive, orcamod.idle_now, orcamod.send) = real
+        con.close()
+
+
+def test_a_request_can_be_read_whole(home: Path) -> None:
+    """`ocp inbox` shows a line each, cut to fit, and the rest was only
+    reachable by knowing where the raw JSON lives - which an agent found out by
+    trial. An agent that cannot read the whole of what it was asked answers the
+    half it could see."""
+    _daemon_home(home, 20)
+    con = db.connect()
+    try:
+        body = "line one of the order\n" + ("x" * 200) + "\nlast line of the order"
+        rid = db.add_request(con, actions.HUMAN, "backend", body, None,
+                             "peer", "async", None, 0, None)
+        con.close()
+        out = _capture(lambda: climod.main(["read", str(rid)]))
+        check("read: the whole body is printed, not a cut line",
+              "last line of the order" in out and "x" * 200 in out, out[:120])
+        check("read: with who asked whom, and in what state",
+              f"{actions.HUMAN} → backend" in out and "queued" in out, out[:120])
+
+        askmod.resolve(rid, "done, and here is why: " + "y" * 120)
+        out = _capture(lambda: climod.main(["read", str(rid)]))
+        check("read: and the answer comes with it", "y" * 120 in out, out[-80:])
+        check("read: an id nobody has says so, without pretending",
+              "no request" in _capture(lambda: climod.main(["read", "99999"])))
+    finally:
+        pass
+
+
 def test_only_one_thing_types_at_an_agent_at_a_time(home: Path) -> None:
     """A wake holds an agent's terminal for as long as a session takes to
     appear - up to fifteen seconds - and the daemon ticks every two. Seven
@@ -4969,6 +5054,8 @@ def main() -> int:
         run(lambda: test_top_shows_what_is_waiting_on_the_human(Path(td) / 'foryou'))
         run(lambda: test_the_screen_reads_keys_from_the_terminal_not_from_a_buffer())
         run(lambda: test_top_acts_through_the_same_calls_the_daemon_makes(Path(td) / 'topact'))
+        run(lambda: test_an_answer_reaches_the_agent_that_asked(Path(td) / 'answered'))
+        run(lambda: test_a_request_can_be_read_whole(Path(td) / 'readone'))
         run(lambda: test_only_one_thing_types_at_an_agent_at_a_time(Path(td) / 'locking'))
         run(lambda: test_the_panel_and_the_daemon_agree_about_what_is_in_the_way(Path(td) / 'topagree'))
         run(lambda: test_the_screen_says_what_is_stuck_and_what_was_decided(Path(td) / 'topstuck'))

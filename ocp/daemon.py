@@ -308,6 +308,50 @@ def _tell(con, agent: str, waiting, newest: int, senders: str, handle: str, log)
     return ok
 
 
+def deliver_answers(con, agent: str, log) -> bool:
+    """Tell an agent what came back from something it asked.
+
+    Answering wrote the verdict on the row and stopped there, so the agent that
+    asked - and that may have parked waiting - was never told. The founder
+    answering an escalation on the screen, and the answer never reaching the
+    agent it was for, is the same hole from the other end.
+
+    Told once, through the same cursor idea delivery uses: an answer is
+    announced when it is newer than the last one this agent was told about.
+    """
+    cursor = db.get_cursor(con, f"answered:{agent}")
+    answered = con.execute(
+        "SELECT id, target, state, verdict FROM requests WHERE requester = ? "
+        "AND state IN ('done', 'denied') AND id > ? ORDER BY id", (agent, cursor),
+    ).fetchall()
+    if not answered:
+        return False
+    handle = db.get_terminal(con, agent)
+    if not handle or not orca.available() or not orca.alive(handle):
+        return False
+    if not session_present(agent):
+        return False
+    if not orca.idle_now(handle):
+        return False
+    newest = max(int(r["id"]) for r in answered)
+    lines = [f"#{r['id']} from {r['target']}: "
+             f"{((r['verdict'] or '').splitlines() or [r['state']])[0][:160]}"
+             for r in answered[-3:]]
+    more = f" ({len(answered) - 3} older also answered)" if len(answered) > 3 else ""
+    with lock.terminal(agent) as mine:
+        if not mine:
+            return False
+        ok, _ = orca.send(
+            handle,
+            "Answers to what you asked" + more + ":\n" + "\n".join(lines)
+            + "\nRead one whole with `ocp read <id>`. Carry on from here.")
+    if ok:
+        db.set_cursor(con, f"answered:{agent}", newest)
+        db.add_event(con, agent, "answered", {"through": newest, "count": len(answered)})
+        log(f"  {agent}: told about {len(answered)} answer(s)")
+    return ok
+
+
 def should_close(con, agent: str, state: str, row, now: int, st) -> bool:
     """Is this agent holding memory for nothing?
 
@@ -975,6 +1019,10 @@ def supervise(con, agent: str, log, now: int, samples: dict,
     # box unsent.
     if state not in (RUNNING, HANDOFF) and not woke_now \
             and not (row and row["closed_at"]):
+        # An answer first: an agent that asked something and parked is waiting
+        # on that, and telling it about new work while its own question is
+        # still unanswered is the wrong order.
+        deliver_answers(con, agent, log)
         deliver_queued(con, agent, log)
 
     # Memory is the scarce resource on one laptop running a team, and an

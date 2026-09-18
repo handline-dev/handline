@@ -660,10 +660,40 @@ def cmd_inbox(args) -> int:
     if not rows:
         print(f"{agent}: inbox empty")
         return 0
+    print(f"{len(rows)} waiting. `ocp read <id>` shows one whole.")
     for r in rows:
         print(f"#{r['id']:<5} from {r['requester']:<12} {r['state']:<9} "
               f"depth={r['chain_depth']} {r['body'][:60]}")
     return 0
+
+
+def cmd_read(args) -> int:
+    """Print one request whole - what was asked, and what came back.
+
+    `ocp inbox` shows a line each, cut to fit, and the only way to see the rest
+    was to know where the raw JSON lives. An agent that cannot read the whole
+    of what it was asked answers the half it could see.
+    """
+    con = db.connect()
+    try:
+        row = db.get_request(con, args.id)
+        if row is None:
+            print(f"no request #{args.id}")
+            return 1
+        when = time.strftime("%Y-%m-%d %H:%M", time.localtime(row["ts"]))
+        print(f"#{row['id']}  {row['requester']} → {row['target']}  "
+              f"{row['kind'] or 'ask'}  {row['state']}  {when}")
+        print(f"relation {row['relation']}   response {row['response']}   "
+              f"depth {row['chain_depth']}")
+        print()
+        print(row["body"] or "(empty)")
+        if row["verdict"]:
+            print()
+            print(f"--- answered by {row['target']} ---")
+            print(row["verdict"])
+        return 0
+    finally:
+        con.close()
 
 
 def cmd_resolve(args) -> int:
@@ -765,6 +795,10 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("agent", nargs="?")
     p.add_argument("--all", action="store_true")
     p.set_defaults(fn=cmd_inbox)
+
+    p = sub.add_parser("read", help="print one request whole, with its answer")
+    p.add_argument("id", type=int)
+    p.set_defaults(fn=cmd_read)
 
     p = sub.add_parser("resolve", help="close a request with a verdict")
     p.add_argument("id", type=int)
