@@ -60,7 +60,7 @@ STATE_COLOR = {
 # agent keys - pressing them where the problem is read beats finding the same
 # name again in the list above.
 ACCOUNTS, AGENTS, MESSAGES, STUCK = 0, 1, 2, 3
-NAME_W = 20   # fits orcapipe-manager, and a twig
+NAME_W = 22   # fits `└ orcapipe-manager +2`
 PANELS = (ACCOUNTS, AGENTS, MESSAGES, STUCK)
 PANEL_NAME = {ACCOUNTS: "accounts", AGENTS: "agents", MESSAGES: "messages",
               STUCK: "stuck"}
@@ -162,51 +162,91 @@ def age(secs: float | None) -> str:
 EXPANDED: set[str] = set()
 
 
+def _wants_a_human() -> set[str]:
+    """Agents in a state only a person clears. They are never hidden."""
+    con = db.connect()
+    try:
+        return {r["agent"] for r in db.all_agent_states(con)
+                if r["state"] in NEEDS_A_HUMAN}
+    except Exception:  # noqa: BLE001 - a folded row is not worth a blank screen
+        return set()
+    finally:
+        con.close()
+
+
 def visible_tree() -> list[tuple[str, int, int]]:
-    """The team as drawn: (name, depth, how many are under it), closed
-    subtrees left out. The cursor walks the same list, so it never lands on a
-    row nobody can see."""
+    """The team as drawn: (name, depth, how many under it are not drawn).
+
+    The cursor walks the same list, so it never lands on a row nobody can see.
+    A report that needs a person is drawn whether its supervisor is open or
+    not - hiding the one row this screen exists for is the one thing folding
+    must not do.
+    """
     tree = actions.agent_tree()
-    out: list[tuple[str, int, int]] = []
-    hide_below: int | None = None
+    keep = _wants_a_human()
+    rows: list[list] = []
+    closed: list[tuple[int, int]] = []     # (depth, row) of each closed supervisor
     for i, (name, depth) in enumerate(tree):
-        if hide_below is not None:
-            if depth > hide_below:
-                continue
-            hide_below = None
+        while closed and depth <= closed[-1][0]:
+            closed.pop()
+        if closed and name not in keep:
+            rows[closed[-1][1]][2] += 1
+            continue
         under = 0
         for _n, d in tree[i + 1:]:
             if d <= depth:
                 break
             under += 1
-        out.append((name, depth, under))
+        rows.append([name, depth, 0])
         if under and name not in EXPANDED:
-            hide_below = depth
-    return out
+            closed.append((depth, len(rows) - 1))
+    return [(n, d, u) for n, d, u in rows]
 
 
 def _fold(sel: dict, k: str) -> bool:
     """→ opens the selected supervisor, ← closes it - or, on a report, closes
     the one it reports to and puts the cursor there. False when there was
     nothing to fold, so the key keeps its other meaning."""
-    rows = visible_tree()
-    at = next((i for i, r in enumerate(rows) if r[0] == sel.get(AGENTS)), None)
+    # Read off the whole tree, not the drawn one: whether an agent has reports
+    # is a fact about the team, and the drawn list is what folding changes.
+    tree = actions.agent_tree()
+    at = next((i for i, r in enumerate(tree) if r[0] == sel.get(AGENTS)), None)
     if at is None:
         return False
-    name, depth, under = rows[at]
-    if k in NEXT_PANEL and under and name not in EXPANDED:
+    name, depth = tree[at]
+    has_reports = at + 1 < len(tree) and tree[at + 1][1] > depth
+    if k in NEXT_PANEL and has_reports and name not in EXPANDED:
         EXPANDED.add(name)
         return True
     if k in PREV_PANEL:
-        if under and name in EXPANDED:
+        if has_reports and name in EXPANDED:
             EXPANDED.discard(name)
             return True
         if depth:
-            parent = next(r[0] for r in reversed(rows[:at]) if r[1] < depth)
+            parent = next(n for n, d in reversed(tree[:at]) if d < depth)
             EXPANDED.discard(parent)
             sel[AGENTS] = parent
             return True
     return False
+
+
+# Whether an account has credentials, asked at most this often. The check runs
+# `security`, which is a subprocess with a ten-second timeout, and the screen
+# redraws every two seconds and on every keypress - a slow keychain froze the
+# dashboard. Logging in is a thing a person does by hand, so a minute-old
+# answer is current.
+LOGIN_TTL_S = 60
+_LOGIN: dict[str, tuple[float, bool]] = {}
+
+
+def _logged_in(acct: str) -> bool:
+    now = time.time()
+    seen = _LOGIN.get(acct)
+    if seen and now - seen[0] < LOGIN_TTL_S:
+        return seen[1]
+    ok = accounts.logged_in(acct)
+    _LOGIN[acct] = (now, ok)
+    return ok
 
 
 class Panel:
@@ -382,7 +422,7 @@ def build(width: int, sel: dict | None = None,
         # The account with the most headroom: where work goes when an agent's
         # own account is full. Only accounts that can start a session count.
         first, _why = status.pick_account(
-            [a for a in paths.list_accounts() if accounts.logged_in(a)])
+            [a for a in paths.list_accounts() if _logged_in(a)])
         for name in paths.list_accounts():
             st = status.read(name)
             allowed, why = st.assignable()
@@ -434,6 +474,9 @@ def build(width: int, sel: dict | None = None,
             # hold the routing table in their head to know what they were
             # looking at.
             twig = f"{DIM}{'  ' * (depth - 1)}└ {R}" if depth else ""
+            # How many of its reports are not drawn. Fitted around, not into,
+            # the name: cut off, the only sign a team is hidden disappears.
+            folded = f"{DIM} +{under}{R}" if under else ""
             try:
                 acct = agents.current_account(name, con)
                 cfg = agents.read(name)
@@ -467,9 +510,8 @@ def build(width: int, sel: dict | None = None,
                 # twig, is wider than the column, and `pad` alone then pushes
                 # every column after it right - the same drift the "·closed"
                 # suffix caused.
-                pad(fit(twig + f"{BOLD}{name}{R}"
-                        + (f"{DIM} +{under}{R}" if under and name not in EXPANDED else ""),
-                        NAME_W), NAME_W)
+                pad(fit(twig + f"{BOLD}{name}{R}", NAME_W - vlen(folded)) + folded,
+                    NAME_W)
                 + pad(acct, 8)
                 + pad(f"{STATE_COLOR.get(s, '')}{fit(s, 15)}{R}", 16)
                 + pad(ctxs, 7)

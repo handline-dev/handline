@@ -164,7 +164,13 @@ def enact(kind: str, name: str, why: str, account: str | None = None,
     con = con or db.connect()
     try:
         doer = {"add": _add, "retire": _retire, "rename": _rename}[kind]
-        ok, said = doer(prop, con) if kind == "rename" else doer(prop)
+        try:
+            ok, said = doer(prop, con) if kind == "rename" else doer(prop)
+        except Exception as e:  # noqa: BLE001 - recorded, then raised on
+            prop["state"] = "failed"
+            prop["error"] = f"{type(e).__name__}: {e}"
+            save(prop)
+            raise
         if not ok:
             prop["state"] = "failed"
             prop["error"] = said
@@ -318,8 +324,30 @@ def _rename(prop: dict, con) -> tuple[bool, str]:
     if dest.exists():
         return False, f"{dest} already exists"
 
+    try:
+        before = team.Team.load()
+    except Exception as e:  # noqa: BLE001
+        return False, f"team.yaml cannot be read ({e}); nothing renamed"
+
+    def same_edges(after) -> None:
+        """Every edge that reached the old name must reach the new one.
+
+        The text edit knows the shapes it was written for, and team.yaml is
+        hand-written: a block-style edge, or a glob like `manager*`, is renamed
+        by neither. Rather than trust the edit, compare what the table actually
+        routes - and refuse an edit that quietly dropped an edge.
+        """
+        was = _edges_touching(before, old)
+        now = _edges_touching(after, new)
+        missing = was - now
+        if missing:
+            raise ConfigError(
+                f"{len(missing)} edge(s) still name {old} in a shape this cannot "
+                f"rewrite ({', '.join(sorted(missing)[:3])}) - rename it in "
+                f"team.yaml by hand first")
+
     ok, said2 = _edit_team_yaml(lambda t: _rename_text(t, old, new, prop.get("team")),
-                                present=new, absent=old)
+                                present=new, absent=old, verify=same_edges)
     if not ok:
         return False, said2
     if src.exists():
@@ -342,6 +370,18 @@ def _rename(prop: dict, con) -> tuple[bool, str]:
                   f"{said2}")
 
 
+def _edges_touching(t, name: str) -> set[str]:
+    """Each edge this agent is an end of, as "<i>:<end>" - by position, so an
+    edge is the same edge before and after the name in it changed."""
+    out = set()
+    for i, e in enumerate(t.edges):
+        if t.matches(str(e.get("from", "")), name):
+            out.add(f"{i}:from")
+        if t.matches(str(e.get("to", "")), name):
+            out.add(f"{i}:to")
+    return out
+
+
 def _in_team_yaml(name: str, team_name: str | None, add: bool) -> tuple[bool, str]:
     """Put the name in the routing table, or take it out.
 
@@ -355,8 +395,8 @@ def _in_team_yaml(name: str, team_name: str | None, add: bool) -> tuple[bool, st
     return _edit_team_yaml(lambda t: _remove_text(t, name), absent=name)
 
 
-def _edit_team_yaml(edit, present: str | None = None,
-                    absent: str | None = None) -> tuple[bool, str]:
+def _edit_team_yaml(edit, present: str | None = None, absent: str | None = None,
+                    verify=None) -> tuple[bool, str]:
     """Apply a text edit to team.yaml, and write it only if it is still valid.
 
     Edited as text because team.yaml is a hand-written policy file whose
@@ -384,6 +424,8 @@ def _edit_team_yaml(edit, present: str | None = None,
             raise ConfigError(f"the edit did not take: {present} missing from agents")
         if absent and absent in listed:
             raise ConfigError(f"the edit did not take: {absent} still in agents")
+        if verify:
+            verify(team.Team(data))
     except Exception as e:  # noqa: BLE001
         return False, f"that edit would break team.yaml ({e}); nothing written"
 
@@ -456,7 +498,7 @@ def _rename_text(text: str, old: str, new: str, team_name: str | None) -> str:
             if team_name:
                 members = [x for x in members if x != new]
             line = f"{m.group(1)}{', '.join(members)}{m.group(3)}"
-        line = re.sub(rf"""((?:from|to)\s*:\s*)(["']?){word}\2(?=\s*[,}}])""",
+        line = re.sub(rf"""(?<![\w-])((?:from|to)\s*:\s*)(["']?){word}\2(?=\s*[,}}])""",
                       rf"\g<1>\g<2>{new}\g<2>", line)
         lines[i] = line
     text = "\n".join(lines) + "\n"

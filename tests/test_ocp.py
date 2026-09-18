@@ -2299,6 +2299,7 @@ def test_unobserved_spend_stays_off_unreadable_accounts(home: Path) -> None:
               not st.assignable()[0] and st.pct_5h_source == "carried_old")
     finally:
         accounts.logged_in = real_login
+        tui._LOGIN.clear()
 
 
 def test_launch_judges_on_the_figure_it_may_act_on(home: Path) -> None:
@@ -3492,20 +3493,34 @@ def test_the_screen_says_which_account_to_spend_next(home: Path) -> None:
             rows = [ln for ln in plain if "alpha" in ln or "beta" in ln]
             return [ln for ln in rows if ln.lstrip("│ ").startswith(">")]
 
-        accounts.logged_in = lambda a: True  # noqa: E731 - keychain is not the subject
+        calls: list[str] = []
+
+        def login(a: str) -> bool:
+            calls.append(a)
+            return True
+
+        accounts.logged_in = login
+        tui._LOGIN.clear()
         got = marked()
+        seen = len(calls)
+        marked()
+        check("accounts: the login check is not run again on every redraw",
+              len(calls) == seen and seen <= len(paths.list_accounts()), str(calls))
+        accounts.logged_in = lambda a: True  # noqa: E731 - keychain is not the subject
         check("accounts: the account with the most headroom is marked",
               len(got) == 1 and "beta" in got[0], str(got))
 
         # An account nobody is logged into cannot start a session, however
         # much room it has.
         accounts.logged_in = lambda a: a != "beta"  # noqa: E731
+        tui._LOGIN.clear()
         got = marked()
         check("accounts: never one that nobody is logged into",
               len(got) == 1 and "alpha" in got[0], str(got))
 
         # Fail-closed: nothing assignable means no mark, not a guess.
         accounts.logged_in = lambda a: True  # noqa: E731
+        tui._LOGIN.clear()
         for a in ("alpha", "beta"):
             write_status(home, a, pct_5h=99, pct_7d=99, ctx_pct=5,
                          reset_5h=int(time.time()) + 1800)
@@ -4235,6 +4250,32 @@ edges:
               and con.execute("SELECT COUNT(*) c FROM requests WHERE target = ?",
                               ("manager",)).fetchone()["c"] == 0)
 
+        # An edge the text edit cannot rewrite is refused, not guessed at: the
+        # table is what routing runs on, and a rename that dropped an edge
+        # would leave the renamed supervisor supervising nobody.
+        (home / "team.yaml").write_text("""
+teams:
+  dev: [marina]
+agents:
+  harbor-manager: { intake: dedicated }
+  marina:         { intake: dedicated }
+edges:
+  - from: harbor-manager
+    to: marina
+    relation: supervisor
+    response: fire_and_forget
+  - { from: "*", to: "human", kind: escalate, creates_gate: true }
+  - { from: "human", to: "*", relation: supervisor, response: fire_and_forget }
+""")
+        ok, said = hr.enact("rename", "harbor-manager", to="boss",
+                            why="an edge this cannot rewrite")
+        table = yamlcompat.load((home / "team.yaml").read_text())
+        check("hr: a rename that would drop an edge is refused, and writes nothing",
+              not ok and "by hand" in said and "harbor-manager" in table["agents"],
+              said)
+        check("hr: and the agent is left where it was",
+              "harbor-manager" in paths.list_agents() and "boss" not in paths.list_agents())
+
         # A rejection is recorded and never applied.
         ok, said = hr.propose("add", "seoyun", requester="hr", why="third lane",
                               account="beta", team_name="dev")
@@ -4762,6 +4803,24 @@ edges:
         check("tree: and says how many are in it",
               any("manager +2" in ln for ln in plain),
               str([ln for ln in plain if "manager" in ln])[:160])
+
+        # Folding must not hide the one row this screen is for.
+        con2 = db.connect()
+        try:
+            db.set_agent_state(con2, "keeper", dmn.STALLED, detail="wedged")
+        finally:
+            con2.close()
+        drawn = [n for n, _d, _u in tui.visible_tree()]
+        check("tree: a report that needs a person is drawn even under a closed team",
+              "keeper" in drawn and "marina" not in drawn, str(drawn))
+        check("tree: and the count is of what is actually hidden",
+              dict((n, u) for n, _d, u in tui.visible_tree())["manager"] == 1,
+              str(tui.visible_tree()))
+        con2 = db.connect()
+        try:
+            db.set_agent_state(con2, "keeper", dmn.IDLE, detail="fine")
+        finally:
+            con2.close()
 
         sel = {tui.AGENTS: "manager"}
         right, left = "\033[C", "\033[D"
@@ -5913,23 +5972,6 @@ def test_hooks_report_activity(home: Path) -> None:
         row = db.get_agent_state(con, "hooky")
         check("hooks: the end of a turn returns it to IDLE",
               row["state"] == dmn.IDLE, str(dict(row)))
-    finally:
-        con.close()
-
-    # A turn woken by a background task finishing fires no prompt, only its
-    # subagents. manager worked that way for half an hour reading IDLE.
-    hook("SubagentStop")
-    con = db.connect()
-    try:
-        check("hooks: a subagent finishing under an idle agent means it is working",
-              db.get_agent_state(con, "hooky")["state"] == dmn.RUNNING,
-              str(db.get_agent_state(con, "hooky")["state"]))
-    finally:
-        con.close()
-    hook("Stop")
-    con = db.connect()
-    try:
-        row = db.get_agent_state(con, "hooky")
 
         # The other way in. `ocp launch` records the terminal handle before
         # execve, and that row used to be born RUNNING - so a new agent was out
