@@ -4740,6 +4740,16 @@ edges:
         check("tree: an agent the human alone routes to is a root, not everyone's child",
               depth["scout"] == 0, str(tree))
 
+        # And the agents know it themselves, from the same table: a role file
+        # that named its colleagues by hand kept naming them after they left.
+        mgr, dev = launch.context_for("manager"), launch.context_for("marina")
+        check("team: a supervisor is told who its reports are, and that it hands them work",
+              "`marina`" in mgr and "`keeper`" in mgr and "ocp ask <name>" in mgr, mgr)
+        check("team: a report is told who it reports to",
+              "You report to `manager`" in dev and "Your reports" not in dev, dev)
+        check("team: an agent nobody supervises reports to the founder",
+              "You report to `human`" in launch.context_for("scout"))
+
         # A team is closed until it is opened: the screen is for what needs
         # you, and every report drawn in full is a list to scroll past. The
         # cursor walks what is drawn, so it never lands on a hidden row.
