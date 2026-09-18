@@ -4149,6 +4149,11 @@ def test_a_parked_agent_is_woken_when_usage_recovers(home: Path) -> None:
         write_status(home, "alpha", pct_5h=5, pct_7d=10, ctx_pct=5,
                      reset_5h=int(time.time()) + 1800)
 
+        before = db.get_agent_state(con, "backend")
+        st = status.read_for_agent("backend", "alpha")
+        check("park: would_wake already says so, given this tick's own reading",
+              dmn.would_wake(con, before, st=st), None)
+
         dmn.supervise(con, "backend", lambda _m: None, int(time.time()), {}, False, [])
         row = db.get_agent_state(con, "backend")
         check("park: an open session wakes the moment the reading clears, "
@@ -4182,10 +4187,50 @@ def test_a_parked_agent_is_woken_for_work_the_account_can_pay_for(home: Path) ->
         write_status(home, "alpha", pct_5h=87, pct_7d=10, ctx_pct=5,
                      reset_5h=int(time.time()) + 1800)
 
+        before = db.get_agent_state(con, "backend")
+        st = status.read_for_agent("backend", "alpha")
+        check("park: would_wake already says so - the queued work, not the "
+              "still-firing reading",
+              dmn.would_wake(con, before, st=st), None)
+
         dmn.supervise(con, "backend", lambda _m: None, int(time.time()), {}, False, [])
         row = db.get_agent_state(con, "backend")
         check("park: queued work an assignable account can pay for wakes it too",
               row["state"] == dmn.QUEUED and row["wake_at"] is None, str(dict(row)))
+    finally:
+        orcamod.available, orcamod.alive = real
+        con.close()
+
+
+def test_an_open_park_with_nothing_waiting_stays_parked(home: Path) -> None:
+    """Neither condition holding - the account still over the trigger's own
+    line, nothing queued - is the ordinary case for most of a park's life,
+    and `would_wake` has to keep saying no through all of it. Screens ask
+    the exact same function for a closed row; an open one failing this the
+    same way is what makes it one predicate rather than two that happen to
+    agree today.
+    """
+    _daemon_home(home, 20)
+    con = db.connect()
+    real = (orcamod.available, orcamod.alive)
+    try:
+        orcamod.available = lambda: True
+        orcamod.alive = lambda h: True
+        db.set_terminal(con, "backend", "term_x", "wt")
+        db.set_agent_state(con, "backend", dmn.PARKED,
+                           wake_at=int(time.time()) + 3600, detail="usage; wakes at 23:00")
+        write_status(home, "alpha", pct_5h=95, pct_7d=10, ctx_pct=5,
+                     reset_5h=int(time.time()) + 1800)
+
+        row = db.get_agent_state(con, "backend")
+        st = status.read_for_agent("backend", "alpha")
+        check("park: would_wake says no - nothing is trying to wake it",
+              not dmn.would_wake(con, row, st=st), None)
+
+        dmn.supervise(con, "backend", lambda _m: None, int(time.time()), {}, False, [])
+        row = db.get_agent_state(con, "backend")
+        check("park: and it is still parked, on its own deadline",
+              row["state"] == dmn.PARKED and row["wake_at"] is not None, str(dict(row)))
     finally:
         orcamod.available, orcamod.alive = real
         con.close()
@@ -7612,6 +7657,7 @@ def main() -> int:
         run(lambda: test_a_park_that_cannot_be_woken_keeps_its_deadline(Path(td) / 'parkdue'))
         run(lambda: test_a_parked_agent_is_woken_when_usage_recovers(Path(td) / 'parklevel1'))
         run(lambda: test_a_parked_agent_is_woken_for_work_the_account_can_pay_for(Path(td) / 'parklevel2'))
+        run(lambda: test_an_open_park_with_nothing_waiting_stays_parked(Path(td) / 'parklevel3'))
         run(lambda: test_top_shows_what_is_waiting_on_the_human(Path(td) / 'foryou'))
         run(lambda: test_the_screen_reads_keys_from_the_terminal_not_from_a_buffer())
         run(lambda: test_top_acts_through_the_same_calls_the_daemon_makes(Path(td) / 'topact'))

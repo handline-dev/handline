@@ -485,25 +485,44 @@ def triggers_apply(row) -> bool:
     return bool(row and row["terminal"] and not row["closed_at"])
 
 
-def would_wake(con, row) -> bool:
-    """Is anything actually trying to wake this closed agent?
+def would_wake(con, row, st=None, burn: float = 0.0) -> bool:
+    """Should this parked agent be up right now?
 
     Queued work, an answer it asked for, or a deadline already due while
-    parked, throttled or degraded - the same three reasons `supervise` calls
+    parked, throttled or degraded - the same reasons `supervise` calls
     `wake_agent` on a closed row at all (section 8.4's step 2, and the two
-    checks right before `deliver_queued` in the main pass). `launch.wake_wait`
-    answers a narrower question - is the account full - and answers it for
-    every closed agent on a walled account, including ones idle by choice
-    with nothing asked of them. A screen gates on this first, so "waiting"
-    only shows next to a wait that is actually happening.
+    checks right before `deliver_queued` in the main pass).
+
+    A closed row has no session of its own to notice anything beyond that:
+    it is judged on those three alone, whatever state it is in - `close_agent`
+    can park an agent idle in any of them. An open one is different only in
+    the states that mean anything is being asked of it at all (a live IDLE or
+    QUEUED session is not "parked", so this is not asked about it): given a
+    live reading - `st`, which only `supervise`'s own tick has on hand - it
+    also answers yes the moment the reading that parked it clears, since an
+    open session can simply be told rather than resumed.
+
+    Either way this answers "is anything trying", not "can the account pay
+    for it": `launch.wake_wait` narrows that further for a closed row's
+    resume, which can fail cleanly and say why through `wake_wait_reason`.
+    An open row's own tick gates the account itself the same way, just
+    before acting on this instead of after.
     """
-    if not row or not row["closed_at"]:
+    if not row:
         return False
     agent = row["agent"]
-    due = bool(row["wake_at"]) and row["wake_at"] <= int(time.time()) \
-        and row["state"] in (PARKED, THROTTLED, DEGRADED)
-    return bool(due or db.queued_for(con, agent) or
-                db.unannounced_answers(con, agent))
+    has_work = bool(db.queued_for(con, agent) or db.unannounced_answers(con, agent))
+    if row["closed_at"]:
+        due = bool(row["wake_at"]) and row["wake_at"] <= int(time.time()) \
+            and row["state"] in (PARKED, THROTTLED, DEGRADED)
+        return bool(due or has_work)
+    if row["state"] not in (PARKED, THROTTLED, DEGRADED):
+        return False
+    due = bool(row["wake_at"]) and row["wake_at"] <= int(time.time())
+    if due or has_work:
+        return True
+    return st is not None and not triggers.evaluate(
+        st.trusted_pct_5h, st.trusted_ctx_pct, burn=burn).fired
 
 
 def close_agent(con, agent: str, log, st) -> tuple[bool, str]:
@@ -1387,19 +1406,20 @@ def supervise(con, agent: str, log, now: int, samples: dict,
     burn = triggers.burn_rate_per_s(hist)
 
     # Parking is a level trigger (8.4's usage/context reading), and un-parking
-    # was only an edge: an open session slept to `wake_at` even after the
-    # reading that put it there had already cleared, or work it could now
-    # afford arrived early. A closed agent has no session left to notice
-    # either of those on its own, which is why the deadline above still has
-    # to wake it; an open one can simply be told.
+    # was only an edge: an open session slept to `wake_at` even after
+    # `would_wake` - given this tick's own reading - would already say yes.
+    # A closed agent has no session left to notice that on its own, which is
+    # why the deadline above still has to wake it; an open one can simply be
+    # told, once its account can actually pay for what it would be told -
+    # the same gate `wake_wait` puts on a closed row's resume, asked before
+    # acting instead of after.
     if not woke_now and row and row["terminal"] and not row["closed_at"] \
             and state in (PARKED, THROTTLED, DEGRADED) \
-            and orca.available() and orca.alive(row["terminal"]):
+            and orca.available() and orca.alive(row["terminal"]) \
+            and would_wake(con, row, st=st, burn=burn):
         cleared = not triggers.evaluate(st.trusted_pct_5h, st.trusted_ctx_pct, burn=burn).fired
         assignable, _ = st.assignable()
-        has_work = assignable and bool(db.queued_for(con, agent) or
-                                       db.unannounced_answers(con, agent))
-        if cleared or has_work:
+        if cleared or assignable:
             why = "usage recovered" if cleared else "work arrived and the account can pay"
             db.set_agent_state(con, agent, QUEUED, wake_at=None, detail=why)
             actions.append(f"{agent}: {state} -> QUEUED ({why})")
