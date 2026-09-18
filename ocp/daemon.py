@@ -1190,7 +1190,7 @@ def supervise(con, agent: str, log, now: int, samples: dict,
     # make itself, that dies with its session and appears on no screen. The one
     # fact the daemon needs to do it instead is which repository, and that is
     # `repo:` in agent.yaml.
-    if row and not row["terminal"] and db.queued_for(con, agent):
+    if not (row and row["terminal"]) and db.queued_for(con, agent):
         actions.append(_start_for_work(con, agent, log))
         row = db.get_agent_state(con, agent)
 

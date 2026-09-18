@@ -57,6 +57,14 @@ CREATE INDEX IF NOT EXISTS requests_requester ON requests(requester, ts);
 CREATE INDEX IF NOT EXISTS requests_chain ON requests(chain_id, id);
 
 -- Advanced only after the fold output validates.
+-- Small named values that are not counters: the orchestration Run this team's
+-- work hangs under, and anything else that is one string per installation.
+CREATE TABLE IF NOT EXISTS meta (
+  name    TEXT PRIMARY KEY,
+  value   TEXT,
+  updated INTEGER NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS cursors (
   name    TEXT PRIMARY KEY,
   row_id  INTEGER NOT NULL,
@@ -229,6 +237,11 @@ def _add_missing_columns(con) -> None:
         con.execute("ALTER TABLE agent_state ADD COLUMN closed_at INTEGER")
     if "resume_session" not in state_cols:
         con.execute("ALTER TABLE agent_state ADD COLUMN resume_session TEXT")
+    if "task" not in state_cols:
+        # The orchestration task this agent's terminal is bound to, so Orca
+        # draws it as a worker under its supervisor rather than as one more
+        # anonymous tab.
+        con.execute("ALTER TABLE agent_state ADD COLUMN task TEXT")
     if "account" not in state_cols:
         # No backfill: an existing row's session was launched on the account
         # agent.yaml named, which is exactly what a null here falls back to.
@@ -307,6 +320,27 @@ def max_event_id(con) -> int:
 
 
 # ---------------------------------------------------------------- cursors
+def get_meta(con, name: str) -> str | None:
+    row = con.execute("SELECT value FROM meta WHERE name = ?", (name,)).fetchone()
+    return row["value"] if row else None
+
+
+def set_meta(con, name: str, value: str | None) -> None:
+    con.execute(
+        "INSERT INTO meta(name, value, updated) VALUES(?,?,?) "
+        "ON CONFLICT(name) DO UPDATE SET value=excluded.value, updated=excluded.updated",
+        (name, value, int(time.time())),
+    )
+
+
+def set_task(con, agent: str, task: str | None) -> None:
+    con.execute(
+        "INSERT INTO agent_state(agent, state, updated, task) VALUES(?,?,?,?) "
+        "ON CONFLICT(agent) DO UPDATE SET task=excluded.task, updated=excluded.updated",
+        (agent, "IDLE", int(time.time()), task),
+    )
+
+
 def get_cursor(con, name: str) -> int:
     row = con.execute("SELECT row_id FROM cursors WHERE name = ?", (name,)).fetchone()
     return int(row["row_id"]) if row else 0

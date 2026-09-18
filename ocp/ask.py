@@ -290,9 +290,81 @@ def ask(target: str, body: str, files: str | None = None, requester: str | None 
                f"response={decision.response}, {note})"
         if decision.creates_gate:
             note += " [escalation: needs a human gate]"
+        else:
+            note += "\n" + push(con, target)
         return True, note, rid
     finally:
         con.close()
+
+
+def push(con, target: str) -> str:
+    """Get the request to the agent now, rather than at the next daemon tick.
+
+    One command has to do the whole job. An agent that asks a subordinate for
+    something and is told "queued" has not dispatched anything - it has left a
+    note for a daemon, and if that agent has no terminal the note is for a
+    human. Being unable to finish the job is what sends an agent looking for a
+    subagent instead.
+
+    Everything here is the daemon's own function, so a request delivered by the
+    sender and one delivered by the tick are the same delivery. The daemon
+    stays the safety net: anything this could not finish is still queued.
+    """
+    from . import daemon
+
+    if target == HUMAN:
+        return "it is on the founder's screen (`ocp bridge`)"
+    if target not in paths.list_agents():
+        return f"{target} is not registered with ocp - nothing can be started for it"
+    said = []
+    row = db.get_agent_state(con, target)
+    if not (row and row["terminal"]):
+        # No row at all is the same case as a row with no terminal: an agent
+        # that has never been started has nowhere to be told anything.
+        said.append(daemon._start_for_work(con, target, lambda _m: None))
+        row = db.get_agent_state(con, target)
+    if row and row["closed_at"]:
+        ok, why = daemon.wake_agent(con, target, lambda _m: None)
+        said.append(f"{target}: {why}")
+    if daemon.deliver_queued(con, target, lambda _m: None):
+        said.append(f"delivered to {target}")
+    elif not said:
+        why, _clears = _delivery_reason(con, target)
+        said.append(why or f"{target} has it; it will read it when it is free")
+    return "  " + "; ".join(x.strip() for x in said if x)
+
+
+def push_answer(con, requester: str) -> str:
+    """Put the answer in front of whoever asked, now.
+
+    The other half of `push`. An agent that finishes a job and resolves the
+    request has reported to its parent - and until this, that report sat on a
+    row until a daemon tick happened to read it out. Down and up are the same
+    loop, so they are finished the same way.
+    """
+    from . import daemon
+
+    if requester == HUMAN:
+        return "  the founder reads it on `ocp bridge`"
+    if requester not in paths.list_agents():
+        return f"  {requester} is not registered with ocp - nothing to tell"
+    row = db.get_agent_state(con, requester)
+    said = []
+    if row and row["closed_at"]:
+        ok, why = daemon.wake_agent(con, requester, lambda _m: None)
+        said.append(f"{requester}: {why}")
+    if daemon.deliver_answers(con, requester, lambda _m: None):
+        said.append(f"{requester} has been told")
+    elif not said:
+        said.append(f"{requester} will be told when it is free")
+    return "  " + "; ".join(x.strip() for x in said if x)
+
+
+def _delivery_reason(con, target: str) -> tuple[str, bool]:
+    """Why delivery did not happen, in the daemon's own words."""
+    from . import actions
+
+    return actions._delivery_block(con, target, *actions._world())
 
 
 def inbox(agent: str, unread_only: bool = True) -> list[dict]:
@@ -330,6 +402,6 @@ def resolve(rid: int, verdict: str, state: str = "done") -> tuple[bool, str]:
         p = _inbox(row["target"]) / f"{rid:06d}.json"
         if p.exists():
             p.unlink()
-        return True, f"request #{rid} -> {state}"
+        return True, f"request #{rid} -> {state}\n" + push_answer(con, row["requester"])
     finally:
         con.close()
