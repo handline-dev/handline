@@ -55,6 +55,10 @@ account its session lives on.""",
   ocp resolve <id> "<verdict>"    answer one
   ocp dismiss <id>                take one off your list without replying
 
+On `ocp bridge`: ←→ moves between panels and ↑↓ inside one; `m` sends an order
+to the agent under the cursor and `e` writes a longer one in $EDITOR; `t` takes
+you to that agent's own terminal, starting one if it has none.
+
 An interactive shell with no OCP_AGENT belongs to a human, so `ocp ask` typed at
 your own prompt comes from orchestrator. A process that merely lost the variable
 has no terminal, and is refused rather than handed the orchestrator's name.

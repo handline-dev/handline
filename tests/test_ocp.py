@@ -2730,11 +2730,21 @@ def test_a_closed_agent_is_not_handed_off(home: Path) -> None:
               accounts_header)
         check("screen: the daemon is reported as running, not as a pid",
               "pid" not in plain[0], plain[0])
-        db.set_agent_state(con, "backend", dmn.IDLE, detail="parked by hand at 09:12")
-        with_detail = [tui._ANSI.sub("", ln) for ln in tui.frame(120, 40).split(chr(10))]
-        check("screen: and what explains a row is on the row, not under it",
-              any("backend" in ln and "parked by hand" in ln for ln in with_detail),
-              str([ln for ln in with_detail if "backend" in ln])[:160])
+        # The daemon's own note is not news. It is on every row, it is never
+        # something a human acts on - "woke from PARKED at reconciliation" -
+        # and a column that is always full of something unactionable is one a
+        # reader learns to skip. The states that do need a human still say so.
+        db.set_agent_state(con, "backend", dmn.IDLE, detail="woke at reconciliation")
+        quiet = [tui._ANSI.sub("", ln) for ln in tui.frame(120, 40).split(chr(10))]
+        check("screen: the daemon's bookkeeping is not on the team list",
+              not any("backend" in ln and "reconciliation" in ln for ln in quiet),
+              str([ln for ln in quiet if "backend" in ln])[:160])
+        db.set_agent_state(con, "backend", dmn.STALLED, detail="three failed wakes")
+        loud = [tui._ANSI.sub("", ln) for ln in tui.frame(120, 40).split(chr(10))]
+        check("screen: but what needs a human is, with its reason",
+              any("backend" in ln and "three failed wakes" in ln for ln in loud),
+              str([ln for ln in loud if "backend" in ln])[:160])
+        db.set_agent_state(con, "backend", dmn.IDLE, detail="")
 
         # The columns stay under their header: a state that grew a "·closed"
         # suffix outran its cell and pushed the whole row sideways.
@@ -3459,8 +3469,10 @@ def test_top_shows_what_is_waiting_on_the_human(home: Path) -> None:
               len(plain) == 60 and not [ln for ln in plain if len(ln) > 120])
         check("top: the keys for the focused panel are on the last line",
               "wake" in plain[-1] and "message" in plain[-1], plain[-1])
+        # Half a word is worse than none: the line sheds whole pieces, so it
+        # ends on one - an action, the navigation, or the short form of it.
         check("top: and the line is never cut through an action's name",
-              plain[-1].rstrip().endswith(("quit", "unstall")), plain[-1])
+              plain[-1].rstrip().endswith(("quit", "unstall", "q", "more")), plain[-1])
     finally:
         con.close()
 
@@ -4777,7 +4789,7 @@ def test_the_frame_never_draws_wider_than_the_terminal(home: Path) -> None:
         tight = tui._ANSI.sub("", tui.keybar(tui.AGENTS, 100))
         tighter = tui._ANSI.sub("", tui.keybar(tui.AGENTS, 60))
         check("top: a tight line keeps every action and drops the navigation",
-              "tab panel" in wide and "tab panel" not in tight
+              "panel" in wide and "panel" not in tight
               and "unstall" in tight, repr(tight))
         check("top: and a tighter one sheds actions, counting what it held back",
               "more" in tighter and "unstall" not in tighter, repr(tighter))
