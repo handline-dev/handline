@@ -334,19 +334,25 @@ def deliver_answers(con, agent: str, log) -> bool:
     if not orca.idle_now(handle):
         return False
     shown, rest = answered[-3:], answered[:-3]
-    lines = [f"#{r['id']} from {r['target']}: "
-             f"{((r['verdict'] or '').splitlines() or [r['state']])[0][:160]}"
-             for r in shown]
+    lines, cut = [], False
+    for r in shown:
+        said = ((r["verdict"] or "").splitlines() or [r["state"]])[0]
+        cut = cut or len(said) > 160 or "\n" in (r["verdict"] or "")
+        lines.append(f"#{r['id']} from {r['target']}: {said[:160]}")
     if rest:
         # Named, not counted: every id that is marked told has to have been
         # said, or this is the same silence with a number on it.
         lines.append("also answered: " + ", ".join(f"#{r['id']}" for r in rest))
+        cut = True
+    # Only when there is more to read. A one-line "ok go" followed by an
+    # instruction to go and read it whole is three lines of ceremony around two
+    # words, typed into an agent that was in the middle of something.
+    tail = "\nRead one whole with `ocp read <id>`." if cut else ""
     with lock.terminal(agent) as mine:
         if not mine:
             return False
         ok, _ = orca.send(
-            handle, "Answers to what you asked:\n" + "\n".join(lines)
-            + "\nRead one whole with `ocp read <id>`. Carry on from here.")
+            handle, "Answers to what you asked:\n" + "\n".join(lines) + tail)
     if ok:
         db.mark_announced(con, [r["id"] for r in answered])
         db.add_event(con, agent, "answered", {"count": len(answered)})
