@@ -3865,8 +3865,13 @@ def test_hr_move_changes_an_agents_account(home: Path) -> None:
         check("hr move: agent.yaml now prefers the new account",
               agents.account_of("backend") == "beta", agents.account_of("backend"))
         row = db.get_agent_state(con, "backend")
-        check("hr move: the state row's account moves with it",
-              row["account"] == "beta", str(dict(row)))
+        check("hr move: a closed agent's state row is cleared, not overwritten - "
+              "the preference just written answers 'where does it run' until a "
+              "session records its own",
+              row["account"] is None, str(dict(row)))
+        check("hr move: current_account falls back to the new preference",
+              agents.current_account("backend", con) == "beta",
+              agents.current_account("backend", con))
         check("hr move: a resume id from the old account is dropped - it means "
               "nothing on the new one",
               row["resume_session"] is None, str(dict(row)))
@@ -3886,6 +3891,47 @@ def test_hr_move_changes_an_agents_account(home: Path) -> None:
         check("hr move: but proposing changes nothing until it is applied",
               agents.account_of("backend") == "beta", agents.account_of("backend"))
     finally:
+        con.close()
+
+
+def test_hr_move_does_not_touch_a_live_sessions_own_record(home: Path) -> None:
+    """Review of buddyron/bootstrap-and-hr-move: moving an agent while its
+    session is running used to rewrite agent_state.account under it, which
+    recreated the exact #154 mismatch this command exists to fix - every
+    usage read believed the new account while the session kept spending the
+    old one, and a later close recorded a resume id that belonged to the old
+    account under what current_account now called the new one."""
+    _daemon_home(home, 20)
+    accounts.register("beta")
+    con = db.connect()
+    real_live = obsmod.live_sessions
+    try:
+        db.set_account(con, "backend", "alpha")
+        obsmod.live_sessions = lambda: {"backend": 4242}
+
+        ok, said = hr.enact("move", "backend", why="beta has room", account="beta")
+        check("hr move (live): still succeeds - it changes the preference, not "
+              "the running session", ok, said)
+        check("hr move (live): agent.yaml takes the new preference",
+              agents.account_of("backend") == "beta", agents.account_of("backend"))
+        row = db.get_agent_state(con, "backend")
+        check("hr move (live): the live session's own account record is untouched",
+              row["account"] == "alpha", str(dict(row)))
+        check("hr move (live): current_account still reports where the session "
+              "actually is, not the new preference",
+              agents.current_account("backend", con) == "alpha",
+              agents.current_account("backend", con))
+
+        # Once the session ends and is closed with a resume id, that id
+        # belongs to alpha - current_account must keep saying alpha until
+        # the close is recorded, or a wake would try --resume on beta.
+        db.set_closed(con, "backend", "sess-live")
+        check("hr move (live): closing after the fact still resumes on the "
+              "account the session actually ran on",
+              agents.current_account("backend", con) == "alpha",
+              agents.current_account("backend", con))
+    finally:
+        obsmod.live_sessions = real_live
         con.close()
 
 
@@ -4900,6 +4946,53 @@ def test_an_agent_at_the_wall_moves_to_an_account_with_room(home: Path) -> None:
               "beta" in moved_text and "5h limit" in moved_text, moved_text[:160])
         check("move: and not that nothing was folded",
               "There is no handoff" not in moved_text, moved_text[:160])
+    finally:
+        (orcamod.available, orcamod.alive, orcamod.close_session, orcamod.relaunch,
+         orcamod.clear_context, orcamod.resume_with, orcamod.idle_now,
+         dmn.wait_for_session) = real
+        con.close()
+
+
+def test_move_to_room_reaches_a_bootstrap_account(home: Path) -> None:
+    """Review of buddyron/bootstrap-and-hr-move: choose_account(bootstrap=True)
+    could pick a never-run account for the move, but _move_to_room's own
+    re-check called plain assignable(), which refuses "no status.json" - the
+    same reason bootstrap exists to lift. A bootstrapped pick was reachable
+    from an ordinary launch and never from the one place an agent at the wall
+    needs a second account most."""
+    _daemon_home(home, 20)
+    con = db.connect()
+    agents.register("keeper", "alpha")
+    write_status(home, "alpha", pct_5h=95, pct_7d=20, ctx_pct=5,
+                 reset_5h=int(time.time()) + 1800)
+    accounts.register("gamma")
+    (home / "accounts" / "gamma" / ".claude" / ".credentials.json").write_text("{}")
+    foldmod.handoff_path("keeper").write_text("# handoff · keeper\n## 다음\n- carry on\n")
+    real = (orcamod.available, orcamod.alive, orcamod.close_session, orcamod.relaunch,
+            orcamod.clear_context, orcamod.resume_with, orcamod.idle_now,
+            dmn.wait_for_session)
+    try:
+        orcamod.available = lambda: True
+        orcamod.alive = lambda h: True
+        orcamod.idle_now = lambda h: True
+        orcamod.clear_context = lambda h, **kw: (True, "cleared")
+        orcamod.close_session = lambda h, **kw: (True, "session ended")
+        orcamod.resume_with = lambda h, text: (True, "handed back")
+        orcamod.relaunch = lambda h, cmd, **kw: (True, "relaunched")
+        dmn.wait_for_session = lambda agent, timeout=0: True
+        sessions_are("keeper")
+        db.set_terminal(con, "keeper", "term_x", "wt")
+        db.set_account(con, "keeper", "alpha")
+
+        check("move (bootstrap): choose_account reaches the never-run account",
+              launch.choose_account("keeper", limit=triggers.HARD_STOP_PCT
+                                     - triggers.DEFAULT_RESERVE_PCT) == "gamma")
+        t = triggers.evaluate(95, 10)
+        check("move (bootstrap): the move actually completes",
+              dmn._move_to_room(con, "keeper", t, lambda _m: None))
+        check("move (bootstrap): and lands on the bootstrapped account",
+              agents.current_account("keeper", con) == "gamma",
+              agents.current_account("keeper", con))
     finally:
         (orcamod.available, orcamod.alive, orcamod.close_session, orcamod.relaunch,
          orcamod.clear_context, orcamod.resume_with, orcamod.idle_now,
@@ -6725,11 +6818,13 @@ def main() -> int:
         run(lambda: test_growing_the_team_needs_a_person(Path(td) / 'hr'))
         run(lambda: test_the_founder_does_not_approve_their_own_request(Path(td) / 'hrself'))
         run(lambda: test_hr_move_changes_an_agents_account(Path(td) / 'hrmove'))
+        run(lambda: test_hr_move_does_not_touch_a_live_sessions_own_record(Path(td) / 'hrmovelive'))
         run(lambda: test_the_screen_says_which_account_to_spend_next(Path(td) / 'nextacct'))
         run(lambda: test_a_long_name_does_not_run_into_the_column_beside_it(Path(td) / 'cols'))
         run(lambda: test_the_whole_loop_runs_on_our_own_commands(Path(td) / 'loop'))
         run(lambda: test_an_agent_can_put_another_one_to_work(Path(td) / 'dispatch'))
         run(lambda: test_an_agent_at_the_wall_moves_to_an_account_with_room(Path(td) / 'moveacct'))
+        run(lambda: test_move_to_room_reaches_a_bootstrap_account(Path(td) / 'movebootstrap'))
         run(lambda: test_an_answer_to_the_human_is_in_the_human_mailbox(Path(td) / 'mailbox'))
         run(lambda: test_the_team_is_drawn_the_way_it_is_routed(Path(td) / 'tree'))
         run(lambda: test_the_panel_and_the_daemon_agree_about_what_is_in_the_way(Path(td) / 'topagree'))

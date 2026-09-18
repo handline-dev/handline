@@ -296,26 +296,30 @@ def _add(prop: dict, con) -> tuple[bool, str]:
 def _move(prop: dict, con) -> tuple[bool, str]:
     """Change which account an agent's *next* session prefers.
 
-    Request #154/#156: this used to be a hand edit of agent.yaml, and once,
-    the resume id left pointing at the account being moved off looped a wake
-    against a session that could never exist there (#154). Dropping it here is
-    the fix: a session id lives under one account's config directory, and
-    `--resume` on any other one finds nothing.
-
-    Nothing here touches a session that is already running - `agent.yaml` and
-    `agent_state.account` are read at the moment a launch execs, and after
-    that CLAUDE_CONFIG_DIR is fixed for the life of the process. Ending that
-    session and starting a fresh one, wherever there is room, is a separate
-    question this does not answer.
+    A resume id belongs to one account's config directory (#154's loop was
+    exactly that, run on the wrong one). `agent_state.account` is a live
+    session's own record of where it actually is, written at exec - a
+    session already running is still spending the old account, and every
+    usage read (triggers, handoff, wake, `ocp ps`) has to keep seeing that
+    truth until the session ends, not the preference it is about to become.
     """
+    from . import observe as obs
+
     name, new_account = prop["agent"], prop["account"]
     agents.register(name, new_account)
+    live = obs.live_sessions()
+    if live and live.get(name):
+        return True, (f"{name} now prefers account '{new_account}' for its next session. "
+                      f"A session is running now and keeps the account it started on "
+                      f"until it ends.")
+    # Not live: nothing is currently "the account this session is on", so
+    # clearing it lets the preference just written answer that question until
+    # a session records its own. The resume id goes with it - it belongs to
+    # the account being left.
     con.execute(
-        "UPDATE agent_state SET account = ?, resume_session = NULL WHERE agent = ?",
-        (new_account, name))
-    return True, (f"{name} now prefers account '{new_account}'. Its next session lands "
-                  f"there; a session already running keeps the one it started on "
-                  f"until it ends.")
+        "UPDATE agent_state SET account = NULL, resume_session = NULL WHERE agent = ?",
+        (name,))
+    return True, f"{name} now prefers account '{new_account}'. Its next session lands there."
 
 
 def _retire(prop: dict, con) -> tuple[bool, str]:

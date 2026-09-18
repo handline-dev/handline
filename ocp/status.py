@@ -413,16 +413,12 @@ def pick_account(candidates: list[str] | None = None,
     Returns (choice, [(account, reason)]). When nothing is assignable the
     choice is None and the caller must refuse - that is the fail-closed path.
 
-    `bootstrap` is request #154/#165's item (c): a logged-in account nothing
-    has ever run on fails `assignable()` on "no status.json" and so is never
-    picked - but only a session on it can ever write that first reading, so
-    an install with one account never grows a second one on its own. With
-    `bootstrap=True`, such an account becomes pickable as a last resort, once
-    nothing that already has a reading qualifies. Every other refusal in
-    `assignable()` - stale, at the wall, unreadable - still refuses here
-    exactly as it does everywhere else; the fail-closed rule is narrowed by
-    exactly one case, not relaxed in general, which is why this is a
-    caller's explicit choice rather than the default.
+    `bootstrap=True`: a logged-in account with no status.json at all - never
+    run, so nothing else could ever give it one - is pickable as a last
+    resort, in list_accounts order, once nothing with an actual reading
+    qualifies. Every other refusal (stale, at the wall, unreadable) still
+    refuses; a stale account that has run once and gone quiet is not
+    "unread", and needs its own explicit preference to be picked again.
     """
     names = candidates if candidates is not None else paths.list_accounts()
     reasons, usable, blank = [], [], []
