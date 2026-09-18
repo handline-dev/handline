@@ -133,6 +133,7 @@ def connect(path: Path | None = None) -> sqlite3.Connection:
     con.executescript(SCHEMA)
     _add_missing_columns(con)
     _unhide_the_humans_answers(con)
+    _rename_orchestrator(con)
     return con
 
 
@@ -197,6 +198,49 @@ def _unhide_the_humans_answers(con) -> None:
     con.execute("UPDATE requests SET announced_at = NULL WHERE requester = ? "
                 "AND state IN ('done', 'rejected')", (ask.HUMAN,))
     set_cursor(con, "migrated:human_answers", 1)
+
+
+# What the founder used to be called. "orchestrator" read as a component of
+# this system rather than as the person using it, which is the one distinction
+# the routing table exists to make.
+OLD_HUMAN = "orchestrator"
+
+
+def _rename_orchestrator(con) -> None:
+    """Rename the founder in every place the old name was written down.
+
+    A rename that only changes the constant leaves the rows, the queue files
+    and the routing table addressed to somebody who no longer exists: the
+    mailbox empties, every escalation becomes undeliverable, and the reason is
+    a word in three files. Once, ledgered like the other migrations.
+
+    team.yaml is edited as text rather than parsed and re-dumped. It is a
+    hand-written policy file full of comments explaining why each edge exists,
+    and a round-trip through the loader would throw all of that away.
+    """
+    if get_cursor(con, "migrated:human_name"):
+        return
+    from . import ask, paths
+
+    new = ask.HUMAN
+    if new != OLD_HUMAN:
+        con.execute("UPDATE requests SET requester = ? WHERE requester = ?", (new, OLD_HUMAN))
+        con.execute("UPDATE requests SET target = ? WHERE target = ?", (new, OLD_HUMAN))
+        con.execute("UPDATE cursors SET name = REPLACE(name, ?, ?) WHERE name LIKE ?",
+                    (OLD_HUMAN, new, f"%{OLD_HUMAN}%"))
+        old_dir = paths.agent_dir(OLD_HUMAN)
+        if old_dir.is_dir():
+            dest = paths.agent_dir(new)
+            if dest.exists():
+                for f in (old_dir / "inbox").glob("*.json"):
+                    (dest / "inbox").mkdir(parents=True, exist_ok=True)
+                    f.replace(dest / "inbox" / f.name)
+            else:
+                old_dir.rename(dest)
+        t = paths.team_file()
+        if t.exists() and OLD_HUMAN in t.read_text():
+            t.write_text(t.read_text().replace(OLD_HUMAN, new))
+    set_cursor(con, "migrated:human_name", 1)
 
 
 def unannounced_answers(con, agent: str) -> list:

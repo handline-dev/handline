@@ -32,7 +32,7 @@ AWAIT_FALLBACK_S = 3600
 # Where a runaway goes. Exceeding a limit is not a reason to silently drop the
 # request on the floor - a human has to see that the team got stuck in a loop
 # (team model section 6).
-ESCALATION_TARGET = "orchestrator"
+ESCALATION_TARGET = "human"
 
 # A review that bounces on the same file this many times is not a review
 # problem any more. Two agents that cannot agree is usually a spec question.
@@ -41,8 +41,8 @@ REVIEW_PINGPONG_LIMIT = 3
 
 # Who a shell with no OCP_AGENT belongs to. Every agent's terminal has it set,
 # because `ocp launch` sets it before exec'ing claude - so an interactive shell
-# without it is a human at their own prompt, and that is who the orchestrator is.
-HUMAN = "orchestrator"
+# without it is a human at their own prompt, and that is who this is.
+HUMAN = "human"
 
 
 def current_agent() -> str | None:
@@ -51,11 +51,11 @@ def current_agent() -> str | None:
 
 
 def asking_agent() -> str | None:
-    """current_agent(), reading a human at their own prompt as the orchestrator.
+    """current_agent(), reading a human at their own prompt as the human.
 
     Only the commands a human types may make that assumption. "I cannot tell
-    who you are" and "you are the orchestrator" are not the same answer - the
-    orchestrator is the escalation target and the most privileged node in the
+    who you are" and "you are the human" are not the same answer - the human is
+    the escalation target and the most privileged node in the
     routing table, so handing it to any process that merely lost the variable
     is a fail-open. A human has a terminal; a script that dropped its
     environment does not, and it gets the refusal it used to get.
@@ -187,7 +187,7 @@ def ask(target: str, body: str, files: str | None = None, requester: str | None 
         parent_id: int | None = None, mergeable: bool = False) -> tuple[bool, str, int | None]:
     """Route and, if allowed, enqueue. Returns (allowed, message, request id)."""
     requester = requester or asking_agent()
-    # Nobody may send as the human. The orchestrator's name carries two
+    # Nobody may send as the human. That name carries two
     # privileges - the routing table lets it reach every agent, and a chain
     # through it is exempt from the loop guards, because the guards exist to
     # reach a human and one is typing. An agent that could claim the name would
@@ -278,7 +278,7 @@ def ask(target: str, body: str, files: str | None = None, requester: str | None 
         # The human is not one of them. They hold no account, there is no
         # session to park and nothing will ever wake them, so a state row in
         # their name is bookkeeping about nobody - and it is drawn: `ocp ps`
-        # listed `orchestrator` among the agents, parked, for as long as it sat
+        # listed the founder among the agents, parked, for as long as it sat
         # there.
         if decision.response == "async" and requester != HUMAN \
                 and not _terminal(con, requester):
