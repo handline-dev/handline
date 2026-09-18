@@ -38,7 +38,7 @@ def read(name: str) -> dict:
 
 def register(name: str, account: str, role: str = "", model: str | None = None,
              effort: str | None = None, weight: str | None = None,
-             role_file: str | None = None) -> Path:
+             role_file: str | None = None, repo: str | None = None) -> Path:
     if not name or "/" in name or name.startswith("."):
         raise ValueError(f"bad agent name: {name!r}")
     d = paths.agent_dir(name)
@@ -53,6 +53,7 @@ def register(name: str, account: str, role: str = "", model: str | None = None,
             f"name: {name}\naccount: {account}\nmodel: {model or DEFAULT_MODEL}\n"
             f"effort: {effort or DEFAULT_EFFORT}\nweight: {weight or 'light'}\n"
             "enabled: true\n"
+            + (f"repo: {repo}\n" if repo else "")
         )
     else:
         # Already registered: update what was actually asked for and leave the
@@ -69,6 +70,8 @@ def register(name: str, account: str, role: str = "", model: str | None = None,
             cfg["effort"] = effort
         if weight:
             cfg["weight"] = weight
+        if repo:
+            cfg["repo"] = repo
         cfg.setdefault("effort", DEFAULT_EFFORT)
         f.write_text(dump(cfg))
 
@@ -108,6 +111,21 @@ def current_account(name: str, con=None) -> str:
         return (row["account"] if row else None) or account_of(name)
     finally:
         own.close()
+
+
+def repo_of(name: str) -> str | None:
+    """Where this agent works, when it has been told.
+
+    The one fact the daemon is missing to start an agent that has none: it can
+    make a worktree and a terminal, but not choose the repository. Without it,
+    work sent to an agent with no terminal waits for a human to press a key,
+    which is the one thing an agent cannot do for another agent.
+    """
+    try:
+        repo = (read(name) or {}).get("repo")
+    except Exception:  # noqa: BLE001
+        return None
+    return str(repo) if repo else None
 
 
 def account_of(name: str) -> str:
