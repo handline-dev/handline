@@ -168,35 +168,53 @@ class Panel:
         self.title, self.width = title, width
         self.rows: list[str] = []
         self.keys: list[object] = []
+        self.headings: set[int] = set()
         self.selected: object = None
 
-    def add(self, row: str = "", key: object = None) -> None:
+    def add(self, row: str = "", key: object = None, heading: bool = False) -> None:
         self.rows.append(row)
         self.keys.append(key)
+        if heading:
+            self.headings.add(len(self.rows) - 1)
 
     def draw(self, limit: int | None = None) -> list[str]:
         inner = self.width - 2
-        # The title is data now - it counts what is waiting - so it is fitted
-        # like any other row. A head wider than the terminal wraps, and a
-        # wrapped line is one row more than the frame promised, which is the
-        # one thing that scrolls the alternate screen.
-        head = f"{DIM}┌─{R} {BOLD}{fit(self.title, max(0, self.width - 6))}{R} "
+        body = list(zip(self.rows, self.keys))
+        title = self.title
+        held_back = 0
+        if limit is not None and len(body) > limit:
+            # The column header is a label, and the rows under it are the
+            # point. Shortened, a panel spent its one line naming its columns
+            # and then said "… 8 more" - a box that told the reader nothing
+            # except that it was hiding something.
+            body = [b for i, b in enumerate(body) if i not in self.headings]
+            held_back = max(0, len(body) - limit)
+            body = body[:limit]
+        if held_back and limit is not None and limit >= 2:
+            # The marker takes the last line it was given.
+            body = body[:limit - 1]
+            held_back += 1
+        elif held_back:
+            # There is no line to spare for a marker, so the count goes in the
+            # title: one real row beats a box whose only content is its own
+            # "and there is more".
+            title = f"{title} · +{held_back}"
+        # The title is data - it counts what is waiting - so it is fitted like
+        # any other row. A head wider than the terminal wraps, and a wrapped
+        # line is one row more than the frame promised, which is the one thing
+        # that scrolls the alternate screen.
+        head = f"{DIM}┌─{R} {BOLD}{fit(title, max(0, self.width - 6))}{R} "
         # Pad with the rule to exactly `width` visible columns. Mixing vlen()
         # with len() of an escape sequence is how this ended up one character
         # too long and truncating its own title.
         head += DIM + "─" * max(0, self.width - vlen(head) - 1) + "┐" + R
         out = [head]
-        body = list(zip(self.rows, self.keys))
-        held_back = 0
-        if limit is not None and len(body) > limit:
-            held_back = len(body) - limit
-            body = body[:limit]
         for row, key in body:
             gutter = f"{CYA}▸{R} " if key is not None and key == self.selected else "  "
             out.append(f"{DIM}│{R}" + pad(fit(gutter + row, inner), inner) + f"{DIM}│{R}")
-        if held_back:
+        if held_back and limit is not None and limit >= 2:
             more = f"{DIM}  … {held_back} more{R}"
-            out[-1] = f"{DIM}│{R}" + pad(fit(more, inner), inner) + f"{DIM}│{R}"
+            out.append(f"{DIM}│{R}" + pad(fit(more, inner), inner) + f"{DIM}│{R}")
         out.append(DIM + "└" + "─" * inner + "┘" + R)
         return out
 
@@ -293,7 +311,7 @@ def build(width: int, sel: dict | None = None) -> tuple[list[str], list[Panel]]:
         acc = Panel("ACCOUNTS", width)
         acc.selected = sel.get(ACCOUNTS)
         acc.add(f"{DIM}{'account':<10}{'5h usage':<18}{'reset':<8}"
-                f"{'7d':<14}assign{R}")
+                f"{'7d':<14}assign{R}", heading=True)
         for name in paths.list_accounts():
             st = status.read(name)
             allowed, why = st.assignable()
@@ -335,7 +353,7 @@ def build(width: int, sel: dict | None = None) -> tuple[list[str], list[Panel]]:
         # while anyone is watching, and they are on the agent's own page. This
         # screen is about what is happening now.
         ag.add(f"{DIM}{'agent':<13}{'acct':<8}{'state':<16}"
-               f"{'ctx':>4}   {'wake':<7}{'in':<4}{R}")
+               f"{'ctx':>4}   {'wake':<7}{'in':<4}{R}", heading=True)
         for name, depth in actions.agent_tree():
             # Indented under whoever routes work to it. Who an agent reports to
             # decides where its report goes and who may assign to it, and it was
@@ -532,28 +550,35 @@ def frame(width: int, height: int, sel: dict | None = None, panel: int = AGENTS,
 PANEL_MIN = 4
 
 
+# Which panels a short window keeps, most important first. Drawn in their own
+# order, dropped in this one: what is waiting on a human is the last thing to
+# go, and the accounts are the first - they are two rows that rarely change,
+# and `ocp status` has them.
+DROP_LAST = (MESSAGES, STUCK, AGENTS, ACCOUNTS)
+
+
 def _layout(want: list[int], room: int) -> tuple[list[int | None], int]:
     """How many rows each panel may draw, and how many panels do not fit.
 
-    Panels are in the order they matter. Everything fits, or every panel that
-    is drawn at all gets one row and then they grow together a row at a time -
-    so a long list cannot starve a short one, and the screen never draws a box
-    it has nothing to put in.
+    Everything fits, or every panel that is drawn at all gets one row and then
+    they grow together a row at a time - so a long list cannot starve a short
+    one, and the screen never draws a box it has nothing to put in.
     """
     if sum(w + 2 for w in want) <= room:
         return [None] * len(want), 0
     keep = len(want)
     while keep and keep * PANEL_MIN > room:
         keep -= 1
+    kept = set(DROP_LAST[:keep])
     # Two rows each to begin with: one to say something, one for the marker
     # that says how much is not being said.
-    limits = [2 if i < keep else 0 for i in range(len(want))]
+    limits = [2 if i in kept else 0 for i in range(len(want))]
     left = room - keep * PANEL_MIN
-    while left > 0 and any(limits[i] < want[i] for i in range(keep)):
-        for i in range(keep):
+    while left > 0 and any(limits[i] < want[i] for i in kept):
+        for i in range(len(want)):
             if left <= 0:
                 break
-            if limits[i] < want[i]:
+            if i in kept and limits[i] < want[i]:
                 limits[i] += 1
                 left -= 1
     return [None if limits[i] >= want[i] and limits[i] else limits[i]

@@ -4551,6 +4551,28 @@ def test_the_screen_says_what_is_stuck_and_what_was_decided(home: Path) -> None:
             con.execute("UPDATE requests SET ts = ? WHERE body LIKE 'flood%'",
                         (int(time.time()) - actions.STUCK_AFTER_S - 60,))
             db.set_terminal(con, "backend", None, None)
+            # A short window is where the mailbox was lost. Every drawn panel
+            # has to show a row of its own - a box whose only line is "… 30
+            # more" says there is something and shows none of it, and a column
+            # header spending that line is the same box with a label on it -
+            # and what is waiting on a human is the last panel to be dropped,
+            # not the third.
+            for height in (10, 14, 18, 22):
+                plain = [tui._ANSI.sub("", ln)
+                         for ln in tui.frame(110, height).split(chr(10))]
+                titles = [ln for ln in plain if "┌─" in ln]
+                rows = [ln for ln in plain if ln.startswith("│")]
+                said = [ln for ln in rows
+                        if ln.strip("│ ") and "more" not in ln and "account " not in ln
+                        and "agent " not in ln]
+                check(f"short: at {height} lines the mailbox is still drawn",
+                      any("FOR YOU" in t for t in titles),
+                      str([t.strip()[:30] for t in titles]))
+                check(f"short: and it shows a message, not only its own count at {height}",
+                      any("#" in ln for ln in said), str(said)[:200])
+                check(f"short: every drawn panel says something at {height} lines",
+                      len(said) >= len(titles), f"{len(said)} rows in {len(titles)} panels")
+
             for height in (24, 40, 60):
                 plain = [tui._ANSI.sub("", ln)
                          for ln in tui.frame(110, height).split(chr(10))]
