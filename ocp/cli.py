@@ -638,12 +638,15 @@ def cmd_hr(args) -> int:
         ok, said = hr.apply(args.id)
         print(said)
         return 0 if ok else 1
+    kw = dict(why=args.why, account=args.account, team_name=args.team,
+              repo=args.repo, model=args.model, to=getattr(args, "to", None),
+              effort=getattr(args, "effort", None))
+    # No OCP_AGENT means the founder is typing this, and the founder is the
+    # approval. Proposing it to themselves would be a form to fill in twice.
     if not me:
-        print(_who_refusal("propos"))
-        return 1
-    ok, said = hr.propose(args.hr_cmd, args.name, requester=me, why=args.why,
-                          account=args.account, team_name=args.team, repo=args.repo,
-                          model=args.model, to=getattr(args, "to", None))
+        ok, said = hr.enact(args.hr_cmd, args.name, **kw)
+    else:
+        ok, said = hr.propose(args.hr_cmd, args.name, requester=me, **kw)
     print(said)
     return 0 if ok else 1
 
@@ -1070,17 +1073,20 @@ def build_parser() -> argparse.ArgumentParser:
             q.add_argument("--team", default=None, help="team in team.yaml to join")
             q.add_argument("--repo", default=None, help="where it works")
             q.add_argument("--model", default=None)
+            q.add_argument("--effort", default=None, choices=sorted(agents.VALID_EFFORT))
         elif kind == "rename":
             q.add_argument("--to", required=True, help="the new name")
             q.add_argument("--team", default=None, help="team it should be in after")
-            q.set_defaults(account=None, repo=None, model=None)
+            q.set_defaults(account=None, repo=None, model=None, effort=None)
         else:
-            q.set_defaults(account=None, team=None, repo=None, model=None)
+            q.set_defaults(account=None, team=None, repo=None, model=None, effort=None)
     q = hrsub.add_parser("list", help="proposals and what became of them")
-    q.set_defaults(name=None, why=None, account=None, team=None, repo=None, model=None)
+    q.set_defaults(name=None, why=None, account=None, team=None, repo=None,
+                   model=None, effort=None)
     q = hrsub.add_parser("apply", help="carry out an approved proposal")
     q.add_argument("id")
-    q.set_defaults(name=None, why=None, account=None, team=None, repo=None, model=None)
+    q.set_defaults(name=None, why=None, account=None, team=None, repo=None,
+                   model=None, effort=None)
     p.set_defaults(fn=cmd_hr)
 
     p = sub.add_parser("org", help="register live agents as workers in the team's Run")

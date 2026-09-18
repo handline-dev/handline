@@ -3477,6 +3477,78 @@ def test_top_shows_what_is_waiting_on_the_human(home: Path) -> None:
         con.close()
 
 
+def test_the_screen_says_which_account_to_spend_next(home: Path) -> None:
+    """The ✔ column says who *may* take work, which on a good day is everyone.
+    It never said where the headroom actually was, so the reader compared two
+    bars by eye and guessed - at the one decision the daemon already makes."""
+    _daemon_home(home, 40)
+    write_status(home, "beta", pct_5h=8, pct_7d=13, ctx_pct=5,
+                 reset_5h=int(time.time()) + 1800)
+    accounts.register("beta")
+    plain = [tui._ANSI.sub("", ln) for ln in tui.frame(120, 60).split(chr(10))]
+    rows = [ln for ln in plain if "alpha" in ln or "beta" in ln]
+    picked = [ln for ln in rows if ln.lstrip("│ ").startswith(">")]
+    check("accounts: the account with the most headroom is marked",
+          len(picked) == 1 and "beta" in picked[0], str(rows)[:200])
+    check("accounts: and it is the one an agent would actually start on",
+          status.pick_account()[0] == "beta")
+
+    # Fail-closed: nothing assignable means no mark, not a guess. A ">" beside
+    # an account that would refuse the next agent is worse than no ">" at all.
+    write_status(home, "beta", pct_5h=99, pct_7d=99, ctx_pct=5,
+                 reset_5h=int(time.time()) + 1800)
+    write_status(home, "alpha", pct_5h=99, pct_7d=99, ctx_pct=5,
+                 reset_5h=int(time.time()) + 1800)
+    plain = [tui._ANSI.sub("", ln) for ln in tui.frame(120, 60).split(chr(10))]
+    rows = [ln for ln in plain if "alpha" in ln or "beta" in ln]
+    check("accounts: with nothing assignable, nothing is marked",
+          not [ln for ln in rows if ln.lstrip("│ ").startswith(">")], str(rows)[:200])
+
+
+def test_the_founder_does_not_approve_their_own_request(home: Path) -> None:
+    """HR gates *agents*, and the founder is the thing on the other side of the
+    gate. Asked to propose, they got "who are you?" - the one person allowed to
+    change the roster could not use the tool that changes it. Worse, the first
+    agent could never be made: a proposal needs an agent to raise it."""
+    _daemon_home(home, 20)
+    con = db.connect()
+    try:
+        accounts.register("beta")
+        (home / "team.yaml").write_text("""
+teams:
+  dev: [marina]
+agents:
+  marina:  { intake: dedicated }
+edges:
+  - { from: "*", to: "human", kind: escalate, creates_gate: true }
+  - { from: "human", to: "*", relation: supervisor, response: fire_and_forget }
+""")
+        agents.register("marina", "beta")
+        before = len(actions.messages(con))
+        ok, said = hr.enact("add", "dohyun", why="a second pair of hands on the sea work",
+                            account="beta", team_name="dev", model="opus", effort="high")
+        check("hr: the founder's own change lands without a proposal to approve",
+              ok and "dohyun" in paths.list_agents(), said)
+        check("hr: and raises nothing to themselves",
+              len(actions.messages(con)) == before, said)
+        cfg = yamlcompat.load(agents.agent_file("dohyun").read_text())
+        check("hr: with the model and the effort it was hired at",
+              cfg.get("model") == "opus" and cfg.get("effort") == "high", str(cfg))
+        applied = [p_ for p_ in hr.listing() if p_["agent"] == "dohyun"]
+        check("hr: the record is still a file - a roster change nobody can audit "
+              "is the one kind there must not be",
+              len(applied) == 1 and applied[0]["state"] == "applied"
+              and applied[0]["requested_by"] == "human", str(applied))
+
+        # The checks are the same ones an agent's proposal gets.
+        check("hr: and the founder is refused the same nonsense an agent is",
+              not hr.enact("add", "x", why="w", account="nope")[0]
+              and not hr.enact("retire", "nobody", why="w")[0]
+              and not hr.enact("add", "y", why="", account="beta")[0])
+    finally:
+        con.close()
+
+
 def test_the_screen_reads_keys_from_the_terminal_not_from_a_buffer() -> None:
     """An arrow is `esc [ B`, and `sys.stdin.read(1)` pulls all three bytes
     into Python's own buffer - after which select() reports the descriptor has
@@ -6067,6 +6139,8 @@ def main() -> int:
         run(lambda: test_a_request_can_be_read_whole(Path(td) / 'readone'))
         run(lambda: test_only_one_thing_types_at_an_agent_at_a_time(Path(td) / 'locking'))
         run(lambda: test_growing_the_team_needs_a_person(Path(td) / 'hr'))
+        run(lambda: test_the_founder_does_not_approve_their_own_request(Path(td) / 'hrself'))
+        run(lambda: test_the_screen_says_which_account_to_spend_next(Path(td) / 'nextacct'))
         run(lambda: test_the_whole_loop_runs_on_our_own_commands(Path(td) / 'loop'))
         run(lambda: test_an_agent_can_put_another_one_to_work(Path(td) / 'dispatch'))
         run(lambda: test_an_agent_at_the_wall_moves_to_an_account_with_room(Path(td) / 'moveacct'))

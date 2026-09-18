@@ -76,33 +76,33 @@ def listing() -> list[dict]:
     return out
 
 
-def propose(kind: str, name: str, requester: str, why: str, account: str | None = None,
-            team_name: str | None = None, repo: str | None = None,
-            model: str | None = None, to: str | None = None) -> tuple[bool, str]:
-    """Write the proposal down and raise it to the founder. Nothing changes yet."""
+def _draft(kind: str, name: str, requester: str, why: str, account: str | None,
+           team_name: str | None, repo: str | None, model: str | None,
+           to: str | None, effort: str | None = None) -> tuple[dict, str]:
+    """Check what was asked for and write it down. Returns (proposal, refusal)."""
     if kind not in KINDS:
-        return False, f"kind must be one of {', '.join(KINDS)}"
+        return {}, f"kind must be one of {', '.join(KINDS)}"
     if not name or "/" in name or name.startswith("."):
-        return False, f"bad agent name: {name!r}"
+        return {}, f"bad agent name: {name!r}"
     if not (why or "").strip():
-        return False, "say why: the founder is being asked to decide, not to rubber-stamp"
+        return {}, "say why: the founder is being asked to decide, not to rubber-stamp"
 
     registered = paths.list_agents()
     if kind == "add" and name in registered:
-        return False, f"{name} is already an agent"
+        return {}, f"{name} is already an agent"
     if kind in ("retire", "rename") and name not in registered:
-        return False, f"{name} is not an agent"
+        return {}, f"{name} is not an agent"
     if kind == "rename":
         if not to or "/" in to or to.startswith("."):
-            return False, "a rename needs a new name (--to)"
+            return {}, "a rename needs a new name (--to)"
         if to in registered:
-            return False, f"{to} is already an agent"
+            return {}, f"{to} is already an agent"
     if kind == "add":
         if not account:
-            return False, "an added agent needs an account (--account)"
+            return {}, "an added agent needs an account (--account)"
         if account not in paths.list_accounts():
-            return False, (f"account '{account}' is not registered. A human logs an "
-                           f"account in once; ocp never touches credentials.")
+            return {}, (f"account '{account}' is not registered. A human logs an "
+                        f"account in once; ocp never touches credentials.")
 
     prop = {
         "id": uuid.uuid4().hex[:8],
@@ -114,10 +114,21 @@ def propose(kind: str, name: str, requester: str, why: str, account: str | None 
         "state": "proposed",
     }
     for key, value in (("account", account), ("team", team_name), ("repo", repo),
-                       ("model", model), ("to", to)):
+                       ("model", model), ("effort", effort), ("to", to)):
         if value:
             prop[key] = value
+    return prop, ""
 
+
+def propose(kind: str, name: str, requester: str, why: str, account: str | None = None,
+            team_name: str | None = None, repo: str | None = None,
+            model: str | None = None, to: str | None = None,
+            effort: str | None = None) -> tuple[bool, str]:
+    """Write the proposal down and raise it to the founder. Nothing changes yet."""
+    prop, err = _draft(kind, name, requester, why, account, team_name, repo, model,
+                       to, effort)
+    if err:
+        return False, err
     ok, said, rid = askmod.ask(askmod.HUMAN, _escalation(prop), requester=requester)
     if not ok:
         return False, f"could not raise it: {said}"
@@ -125,6 +136,41 @@ def propose(kind: str, name: str, requester: str, why: str, account: str | None 
     save(prop)
     return True, (f"proposal {prop['id']} raised as #{rid}. Nothing changes until the "
                   f"founder answers it; then `ocp hr apply {prop['id']}`.")
+
+
+def enact(kind: str, name: str, why: str, account: str | None = None,
+          team_name: str | None = None, repo: str | None = None,
+          model: str | None = None, to: str | None = None,
+          effort: str | None = None, con=None) -> tuple[bool, str]:
+    """The founder changing the roster directly. No proposal to approve.
+
+    The gate exists to stop an *agent* hiring on its own, and the founder is the
+    thing on the other side of it: asking them to approve a request they just
+    typed is ceremony, and it is also the only way to make the first agent -
+    a proposal needs an agent to raise it, and an empty roster has none.
+
+    The file is still written. A roster change that left no record would be the
+    one kind of change nobody could audit.
+    """
+    prop, err = _draft(kind, name, "human", why, account, team_name, repo, model,
+                       to, effort)
+    if err:
+        return False, err
+    own = con is None
+    con = con or db.connect()
+    try:
+        doer = {"add": _add, "retire": _retire, "rename": _rename}[kind]
+        ok, said = doer(prop, con) if kind == "rename" else doer(prop)
+        if not ok:
+            return False, said
+        prop["state"] = "applied"
+        prop["applied"] = int(time.time())
+        prop["verdict"] = "enacted by the founder"
+        save(prop)
+        return True, said
+    finally:
+        if own:
+            con.close()
 
 
 def _escalation(prop: dict) -> str:
@@ -212,7 +258,7 @@ def _when(ts) -> str:
 def _add(prop: dict) -> tuple[bool, str]:
     name = prop["agent"]
     agents.register(name, prop["account"], model=prop.get("model"),
-                    repo=prop.get("repo"),
+                    effort=prop.get("effort"), repo=prop.get("repo"),
                     role=f"Added on {_when(prop.get('created'))} at "
                          f"{prop['requested_by']}'s request: {prop['why']}")
     ok, said = _in_team_yaml(name, prop.get("team"), add=True)

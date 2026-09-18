@@ -324,12 +324,18 @@ def build(width: int, sel: dict | None = None,
         # ---- accounts ------------------------------------------------
         acc = Panel("ACCOUNTS", width, focused=panel == ACCOUNTS)
         acc.selected = sel.get(ACCOUNTS)
-        acc.add(f"{DIM}{'account':<10}{'5h usage':<18}{'reset':<8}"
+        acc.add(f"{DIM}{'':<2}{'account':<10}{'5h usage':<18}{'reset':<8}"
                 f"{'7d':<14}assign{R}", heading=True)
+        # Which one the next agent would actually be started on. The ✔ column
+        # says who *may* take work, which on a good day is everybody; the
+        # reader still had to compare two bars by eye to see where the headroom
+        # was. This is the daemon's own answer, drawn where the eye lands.
+        first, _why = status.pick_account()
         for name in paths.list_accounts():
             st = status.read(name)
             allowed, why = st.assignable()
             mark = f"{GRN}✔{R}" if allowed else f"{RED}✘{R}"
+            nxt = f"{GRN}{BOLD}>{R} " if name == first else "  "
             # Show the figure decisions are made on, with a mark saying where
             # it came from. Drawing a quiet window as "?" while the daemon acts
             # on 0% is the dashboard and the daemon disagreeing.
@@ -339,7 +345,8 @@ def build(width: int, sel: dict | None = None,
             # sequences, so a plain :<n counts them and the columns drift out
             # from under their own headings.
             acc.add(
-                pad(f"{BOLD}{name}{R}", 10)
+                nxt
+                + pad(f"{BOLD}{name}{R}", 10)
                 + pad(f"{bar(five)} {pct(five)}%{src}", 18)
                 + pad(countdown(st.reset_5h), 8)
                 # The weekly figure carries its provenance like the 5h one.
