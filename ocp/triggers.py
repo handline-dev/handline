@@ -22,13 +22,8 @@ CONTEXT_PCT = 60
 HARD_STOP_PCT = 90
 DEFAULT_RESERVE_PCT = 5
 
-# The weekly window is spent to its own true ceiling rather than held back
-# (request #254 - status.PCT_7D_BLOCK is the same 100, kept separate here the
-# same way HARD_STOP_PCT duplicates status.PCT_5H_BLOCK, so this module still
-# takes raw figures and never imports status). A move still has to pay for
-# its own fold, so this fires the same reserve short of the wall the 5h check
-# does - just a smaller one, since a week's headroom moves far slower per
-# fold than a 5h window's does.
+# The weekly window is spent to its own ceiling (status.PCT_7D_BLOCK is the same
+# 100; this module takes raw figures and never imports status).
 PCT_7D_HARD_STOP = 100
 DEFAULT_RESERVE_7D_PCT = 2
 
@@ -115,10 +110,8 @@ def evaluate(pct_5h: int | None, ctx_pct: int | None, reserve_pct: int = DEFAULT
         return Trigger(True, "usage", f"pct_5h {pct_5h}% >= {limit}% "
                                       f"(hard stop {HARD_STOP_PCT}% minus reserve {reserve_pct}%)")
 
-    # The weekly figure, on the same terms, just a reserve short of its own
-    # wall rather than a line held well back from it (request #254). Unknown
-    # (None) is not fail-closed here the way pct_5h is - a missing 7d reading
-    # is a missing reading, not a wall this agent has been observed to hit.
+    # The weekly figure, a reserve short of its own wall. Unknown (None) is not
+    # fail-closed here the way pct_5h is: a missing reading is not a wall.
     if pct_7d is not None:
         limit7 = PCT_7D_HARD_STOP - reserve_7d_pct
         if pct_7d >= PCT_7D_HARD_STOP:

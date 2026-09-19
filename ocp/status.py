@@ -89,20 +89,13 @@ def _ago(secs: float) -> str:
     return f"{secs // 86400}d"
 
 
-# Above these, stop handing out new work. Request #254: weekly headroom held
-# back at a lower line is headroom thrown away when the week resets, so 7d is
-# spent to its own true ceiling rather than a reserve below it - the same way
-# the 5h reserve exists (paying for the fold) is handled separately, by
-# triggers.evaluate firing a move before an agent ever reaches this wall.
+# Above these, stop handing out new work. Weekly headroom is spent to its own
+# ceiling; the fold's cost is paid by the trigger firing a reserve short.
 PCT_5H_BLOCK = 90
 PCT_7D_BLOCK = 100
 
-# A move only goes to an account with room to actually last (request #241): a
-# destination only a point or two under PCT_5H_BLOCK re-triggers within one
-# turn, so the agent bounces straight back and pays for two folds instead of
-# one. This is how much clear 5h headroom a move destination needs beyond
-# bare assignability - an ordinary launch has no such requirement, since
-# waiting is not an option there.
+# Clear 5h headroom a move destination needs below the block, so it does not
+# bounce straight back. A plain launch has no such requirement.
 MOVE_MIN_HEADROOM_PCT = 15
 
 

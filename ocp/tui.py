@@ -421,8 +421,8 @@ def build(width: int, sel: dict | None = None,
                 f"{'7d':<12}{'7d reset':<9}why{R}", heading=True)
         # The account with the most headroom: where work goes when an agent's
         # own account is full. Only accounts that can start a session count.
-        # Captured whole, not just the pick: request #167/#170 asks this panel
-        # to say why each one sits where it does, not only which one won.
+        # Captured whole, not just the pick: this panel says why each one sits
+        # where it does, not only which one won.
         first, ranked = status.pick_account(
             [a for a in paths.list_accounts() if _logged_in(a)])
         why_of = dict(ranked)
@@ -453,7 +453,7 @@ def build(width: int, sel: dict | None = None,
                 # that has since rolled over - reads as this week's measurement.
                 + pad(f"{bar(st.trusted_pct_7d, 6)} {pct(st.trusted_pct_7d)}%"
                       f"{status.mark(st.pct_7d_source)}", 12)
-                # The deadline the ordering spends against (#166): when this
+                # The deadline the ordering spends against: when this
                 # window's headroom is lost if nobody uses it.
                 + pad(countdown(st.reset_7d), 9)
                 + f"{mark} {DIM}{why}{R}",
