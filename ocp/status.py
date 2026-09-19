@@ -108,13 +108,15 @@ PCT_7D_BLOCK = triggers.WALL_PCT
 # A floor is a lower bound, not a measurement, and there is a known invisible
 # spender even on an idle account (`ocp fold`, headless, no collector ever
 # sees it). idle_floor judges the floor this far below the wall to cover
-# spend we cannot see - main's already-accepted figure, carried over as-is
-# rather than invented fresh: nobody here has measured what a fold actually
-# costs in percent, and KICKOFF §1.2 says to run the probe before coding on
-# an unverified assumption, not to skip measuring indefinitely. A measurement
-# of fold's cost is what would let this constant be set from something other
-# than main's number.
-IDLE_FLOOR_MARGIN_PCT = 15
+# spend we cannot see - main's actual admission line, carried over as-is
+# rather than invented fresh: main admitted below its old MOVE_LINE_5H (85)
+# minus its margin (15), i.e. below 70 - thirty points clear of the wall
+# this stack judges against (100), not fifteen. Nobody here has measured what
+# a fold actually costs in percent; KICKOFF §1.2 is authority for measuring
+# before coding on an assumption, not for skipping the measurement, and a
+# measurement of fold's actual cost is what would let this constant be set
+# from something other than main's inherited line.
+IDLE_FLOOR_MARGIN_PCT = 30
 
 
 @dataclass

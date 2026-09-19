@@ -7534,24 +7534,26 @@ def test_a_stale_snapshot_shows_its_last_figures_and_still_is_offered(home: Path
 
 
 def test_pick_account_judges_an_idle_account_on_its_floor_not_on_zero(home: Path) -> None:
-    """A stale-but-idle account is admitted on its last figure, and must be
-    ranked on that figure - not on an assumed-empty window, which would prefer
-    an account we cannot see over one we can see has real room."""
+    """A stale-but-idle account is admitted on its last figure, and its
+    stretch (whether it lasts long enough to be worth starting on) must be
+    computed from that floor - not from an assumed-empty window, which is
+    indistinguishable from real headroom once something is actually burning
+    on the account. The margin (30 points) alone cannot catch this: it only
+    guarantees enough headroom against zero burn, not against a real one."""
     _daemon_home(home, 20)
-    _with_accounts("alpha", "beta")
+    _with_accounts("beta")
     now = int(time.time())
-    write_status(home, "alpha", pct_5h=80, pct_7d=10, reset_5h=now + 1800,
-                 reset_7d=now + 86400)
-    write_status(home, "beta", pct_5h=80, pct_7d=10, reset_5h=now + 1800,
+    write_status(home, "beta", pct_5h=65, pct_7d=10, reset_5h=now + 1800,
                  reset_7d=now + 86400, collected_at=now - 3600)
-    check("pick: a fresh reading at 80% is refused (too little stretch left)",
-          status.pick_account(["alpha"], load={})[0] is None)
-    check("pick: the stale reading clears idle_floor's margin (below 85%)",
+    check("pick: the stale reading clears idle_floor's margin (below 70%)",
           status.read("beta").idle_floor()[0])
-    picked, reasons = status.pick_account(["alpha", "beta"], load={})
-    check("pick: the stale account is judged on its floor, not a fill of 0 - "
-          "it is refused for the same reason the fresh one is",
-          picked is None, str(reasons))
+    # Real floor 65%, headroom 35 - too little to last 30m at this burn.
+    # At a fill of 0 the same burn reads as headroom 100 and would last
+    # comfortably, which is exactly the bug: the account we cannot currently
+    # see would be preferred over one refused on real numbers just like it.
+    ld = {"beta": loadmod.Load("beta", 0, triggers.DEFAULT_ACTIVE_CAP, 0.03)}
+    check("pick: judged on its real floor, the stretch is too short to start",
+          status.pick_account(["beta"], load=ld)[0] is None)
 
 
 def test_idle_floor_refuses_an_account_with_an_agent_mid_turn_on_it(home: Path) -> None:
