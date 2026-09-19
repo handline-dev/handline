@@ -203,8 +203,12 @@ def test_failclosed(home: Path) -> None:
     check("5h at 90% refuses", not allowed)
 
     write_status(home, "weekly", pct_5h=5, pct_7d=95)
-    allowed, _ = status.read("weekly").assignable()
-    check("7d at 95% refuses", not allowed)
+    allowed, why = status.read("weekly").assignable()
+    check("7d at 95% no longer refuses - request #254 spends it to its own "
+          "wall instead of holding back", allowed, why)
+    write_status(home, "weekly_full", pct_5h=5, pct_7d=100)
+    allowed, _ = status.read("weekly_full").assignable()
+    check("7d at 100% refuses", not allowed)
 
     write_status(home, "stale", pct_5h=5, collected_at=int(time.time()) - 5000)
     allowed, why = status.read("stale").assignable()
@@ -254,6 +258,51 @@ def test_failclosed(home: Path) -> None:
     picked, _ = status.pick_account(["stale"], bootstrap=True)
     check("pick_account: bootstrap does not rescue a refusal that is not 'no reading at all'",
           picked is None, str(picked))
+
+
+def test_pick_account_orders_by_weekly_deadline(home: Path) -> None:
+    """Request #166/#167, amended by #169/#170/#254: spend first the weekly
+    headroom that expires soonest unused - not simply the account with the
+    most 5h room right now, and right up to its own wall rather than holding
+    back at a lower line (the margin/tier rule #254 dropped)."""
+    os.environ["OCP_HOME"] = str(home)
+    now = int(time.time())
+
+    # "later" has more 5h headroom than "soon" - the old rule would pick it -
+    # but "soon" loses its weekly window first.
+    write_status(home, "soon", pct_5h=50, pct_7d=10, reset_7d=now + 3600)
+    write_status(home, "later", pct_5h=5, pct_7d=10, reset_7d=now + 90000)
+    picked, reasons = status.pick_account(["soon", "later"])
+    check("pick_account: the earlier weekly deadline wins over more headroom",
+          picked == "soon", str(picked))
+    said = dict(reasons)
+    check("pick_account: the winner's reason says it was picked",
+          "picked" in said["soon"], said["soon"])
+
+    # "close_to_wall" resets sooner than "safe" and is near its own 7d wall -
+    # under the old margin rule it would have been deprioritized behind
+    # "safe"; #254 drops that, so the sooner deadline still wins.
+    write_status(home, "close_to_wall", pct_5h=5, pct_7d=92, reset_7d=now + 3600)
+    write_status(home, "safe", pct_5h=5, pct_7d=50, reset_7d=now + 90000)
+    picked, _ = status.pick_account(["close_to_wall", "safe"])
+    check("pick_account: the soonest deadline wins right up to its own wall, "
+          "not just within a margin of it",
+          picked == "close_to_wall", str(picked))
+
+    # Even both near their own walls, the sooner deadline still wins - there
+    # is no second tier to fall back into any more.
+    write_status(home, "wall_a", pct_5h=5, pct_7d=91, reset_7d=now + 1000)
+    write_status(home, "wall_b", pct_5h=5, pct_7d=93, reset_7d=now + 50)
+    picked, _ = status.pick_account(["wall_a", "wall_b"])
+    check("pick_account: orders by deadline even when both are near the wall",
+          picked == "wall_b", str(picked))
+
+    # An account whose 7d window has never been observed sorts behind a known,
+    # sooner deadline rather than jumping the queue.
+    write_status(home, "never_seen_7d", pct_5h=5, pct_7d=None)
+    picked, _ = status.pick_account(["never_seen_7d", "soon"])
+    check("pick_account: a known, sooner deadline beats an unknown one",
+          picked == "soon", str(picked))
 
 
 # ---------------------------------------------------------------- collector
@@ -1088,6 +1137,21 @@ def test_triggers() -> None:
           abs(T.burn_rate_per_s([(0, 60), (300, 75)]) * 60 - 3.0) < 0.01)
     check("burn: and a real climb near the line still fires",
           T.evaluate(83, 10, burn=0.05).kind == "usage_projected")
+
+    # Request #254: the weekly window gets a move trigger of its own, a
+    # reserve short of its own true ceiling - the founder's own example
+    # (5h 9%, 7d 98%) is exactly where this fires.
+    t = T.evaluate(9, 10, pct_7d=98)
+    check("trigger: a 7d reading a reserve short of its wall fires",
+          t.fired and t.kind == "usage_7d" and "pct_7d" in t.reason, t.reason)
+    check("trigger: 7d below its reserve line does not fire on its own",
+          not T.evaluate(9, 10, pct_7d=97).fired)
+    check("trigger: 7d at its hard stop fires",
+          T.evaluate(9, 10, pct_7d=100).kind == "usage_7d")
+    check("trigger: no 7d reading at all is not a 7d refusal",
+          not T.evaluate(9, 10, pct_7d=None).fired)
+    check("trigger: a 5h reason still wins when both are past their line",
+          "pct_5h" in T.evaluate(90, 10, pct_7d=99).reason)
 
 
 # ---------------------------------------------------------------- daemon
@@ -2712,7 +2776,7 @@ def test_carry_bounds_and_losses(home: Path) -> None:
     #    the absence of one, and a 7d mistake costs the rest of the week.
     collect({"session_id": "w", "rate_limits": {
         "five_hour": {"used_percentage": 5, "resets_at": now + 1800},
-        "seven_day": {"used_percentage": 96}}})
+        "seven_day": {"used_percentage": 100}}})
     check("carry: a blocking 7d refuses", not read().assignable()[0], read().assignable()[1])
     collect(idle)
     st = read()
@@ -2773,6 +2837,45 @@ def test_unobserved_spend_stays_off_unreadable_accounts(home: Path) -> None:
     finally:
         accounts.logged_in = real_login
         tui._LOGIN.clear()
+
+
+def test_subscription_type_is_recorded_and_cached(home: Path) -> None:
+    """Request #167/#170: subscriptionType comes from `claude auth status`,
+    claude's own report of what it is signed in as - never a credential file
+    (KICKOFF rule 1) - and is cached so the panel does not shell out to
+    `claude` on every refresh."""
+    home.mkdir(parents=True, exist_ok=True)
+    os.environ["OCP_HOME"] = str(home)
+    accounts.register("gamma")
+    real_login, real_run = accounts.logged_in, subprocess.run
+    calls: list = []
+
+    class _Result:
+        stdout = json.dumps({"subscriptionType": "pro"})
+
+    try:
+        accounts.logged_in = lambda a: True  # noqa: E731 - keychain is not the subject
+        subprocess.run = lambda cmd, **kw: (calls.append(cmd), _Result())[1]
+        got = accounts.subscription_type("gamma")
+        check("subscription_type: reads the plan from claude's own report",
+              got == "pro", got)
+        check("subscription_type: exactly one call was made", len(calls) == 1, str(calls))
+
+        got2 = accounts.subscription_type("gamma")
+        check("subscription_type: cached, not asked again", len(calls) == 1, str(calls))
+        check("subscription_type: cached answer matches", got2 == "pro", got2)
+
+        accounts.subscription_type("gamma", refresh=True)
+        check("subscription_type: refresh=True asks again", len(calls) == 2, str(calls))
+
+        real_login2 = accounts.logged_in
+        accounts.logged_in = lambda a: False  # noqa: E731
+        got3 = accounts.subscription_type("gamma", refresh=True)
+        accounts.logged_in = real_login2
+        check("subscription_type: cache survives even when asked again with no login",
+              got3 == "pro", got3)
+    finally:
+        accounts.logged_in, subprocess.run = real_login, real_run
 
 
 def test_launch_judges_on_the_figure_it_may_act_on(home: Path) -> None:
@@ -5107,7 +5210,7 @@ def test_an_agent_can_put_another_one_to_work(home: Path) -> None:
         # answer has no way back at all. reviewer sat that way for a day.
         spawnmod.spawn = fake_spawn
         woken: list = []
-        dmn.wake_agent = lambda con_, a, log_: (woken.append(a), (False, "no terminal to wake"))[1]
+        dmn.wake_agent = lambda con_, a, log_, **kw: (woken.append(a), (False, "no terminal to wake"))[1]
         started.clear()
         agents.register("reviewer", "alpha", repo=str(home / "checkout"))
         db.set_terminal(con, "reviewer", None, None)
@@ -5146,6 +5249,75 @@ def test_an_agent_can_put_another_one_to_work(home: Path) -> None:
         (orcamod.available, spawnmod.spawn, dmn.wait_for_session) = real
         dmn.wake_agent = real_wake
         dmn._SAID.clear()
+        con.close()
+
+
+def test_weekly_headroom_is_spent_to_its_own_wall(home: Path) -> None:
+    """Founder's decision #254, the example given verbatim: an account at
+    5h 9% / 7d 98% is unusable under the old PCT_7D_BLOCK=95 gate, throwing
+    away headroom the week resets anyway - it must still be picked, and an
+    agent working on it moves only once 7d actually reaches its own wall."""
+    _daemon_home(home, 20)
+    accounts.register("beta")
+    agents.register("keeper", "alpha")
+    for acct in ("alpha", "beta"):
+        (home / "accounts" / acct / ".claude").mkdir(parents=True, exist_ok=True)
+        (home / "accounts" / acct / ".claude" / ".credentials.json").write_text("{}")
+
+    # alpha's weekly headroom expires soon and is still spendable up to the
+    # line its move trigger fires at (98); at the line it is refused, since an
+    # agent started there would be moved off at once.
+    write_status(home, "alpha", pct_5h=9, pct_7d=97,
+                 reset_7d=int(time.time()) + 3600, reset_5h=int(time.time()) + 1800)
+    write_status(home, "beta", pct_5h=9, pct_7d=10,
+                 reset_7d=int(time.time()) + 90000, reset_5h=int(time.time()) + 1800)
+    picked, reasons = status.pick_account(["alpha", "beta"])
+    check("7d wall: the soon-to-reset account is picked at 7d 97%",
+          picked == "alpha", str((picked, reasons)))
+    write_status(home, "alpha", pct_5h=9, pct_7d=98,
+                 reset_7d=int(time.time()) + 3600, reset_5h=int(time.time()) + 1800)
+    check("7d wall: at its own trigger line (98%) it is not picked",
+          status.pick_account(["alpha", "beta"])[0] == "beta")
+    write_status(home, "alpha", pct_5h=85, pct_7d=10,
+                 reset_7d=int(time.time()) + 3600, reset_5h=int(time.time()) + 1800)
+    check("5h wall: nor at its 5h trigger line (85%)",
+          status.pick_account(["alpha", "beta"])[0] == "beta")
+    write_status(home, "alpha", pct_5h=84, pct_7d=10,
+                 reset_7d=int(time.time()) + 3600, reset_5h=int(time.time()) + 1800)
+    check("5h wall: 84% is still picked",
+          status.pick_account(["alpha", "beta"])[0] == "alpha")
+    write_status(home, "alpha", pct_5h=9, pct_7d=98,
+                 reset_7d=int(time.time()) + 3600, reset_5h=int(time.time()) + 1800)
+
+    con = db.connect()
+    try:
+        db.set_terminal(con, "keeper", "term_x", "wt")
+        sessions_are("keeper")
+        db.set_account(con, "keeper", "alpha")
+
+        t = triggers.evaluate(9, 10, pct_7d=98)
+        check("7d wall: 5h 9% / 7d 98% fires a move trigger on the 7d figure",
+              t.fired and t.kind == "usage_7d" and "pct_7d" in t.reason, t.reason)
+
+        real = (orcamod.available, orcamod.alive, orcamod.close_session,
+               orcamod.relaunch, orcamod.idle_now, dmn.wait_for_session)
+        try:
+            orcamod.available = lambda: True
+            orcamod.alive = lambda h: True
+            orcamod.idle_now = lambda h: True
+            orcamod.close_session = lambda h, **kw: (True, "session ended")
+            orcamod.relaunch = lambda h, cmd, **kw: (True, "relaunched")
+            dmn.wait_for_session = lambda agent, timeout=0: True
+            foldmod.handoff_path("keeper").write_text("# handoff · keeper\n## 다음\n- carry on\n")
+            check("7d wall: the agent moves off an account that hit its 7d wall",
+                  dmn._move_to_room(con, "keeper", t, lambda _m: None))
+            check("7d wall: it landed on the account with weekly room",
+                  agents.current_account("keeper", con) == "beta",
+                  agents.current_account("keeper", con))
+        finally:
+            (orcamod.available, orcamod.alive, orcamod.close_session,
+             orcamod.relaunch, orcamod.idle_now, dmn.wait_for_session) = real
+    finally:
         con.close()
 
 
@@ -5314,6 +5486,282 @@ def test_an_agent_at_the_wall_moves_to_an_account_with_room(home: Path) -> None:
         (orcamod.available, orcamod.alive, orcamod.close_session, orcamod.relaunch,
          orcamod.clear_context, orcamod.resume_with, orcamod.idle_now,
          dmn.wait_for_session) = real
+        con.close()
+
+
+def test_a_pinned_closed_agent_moves_instead_of_waiting_out_its_window(home: Path) -> None:
+    """Request #156/#165 item 1's unfinished piece, #223: a closed agent's
+    resume id lives under one account's config directory, so the ordinary
+    wake only ever looked at that one account - an agent could sit closed
+    and waiting for its own window while another account had clear room the
+    whole time. keeper's #173 (readiness) was meant to fold this case in,
+    but it was withdrawn (#253), so it is fixed directly in the wake."""
+    _daemon_home(home, 20)
+    accounts.register("beta")
+    agents.register("keeper", "alpha")
+    for acct in ("alpha", "beta"):
+        (home / "accounts" / acct / ".claude").mkdir(parents=True, exist_ok=True)
+        (home / "accounts" / acct / ".claude" / ".credentials.json").write_text("{}")
+    con = db.connect()
+    real = (orcamod.available, orcamod.relaunch, orcamod.resume_with, dmn.wait_for_session)
+    launched: list[str] = []
+    try:
+        db.set_terminal(con, "keeper", "term_x", "wt")
+        db.set_closed(con, "keeper", "sess-old")
+        write_status(home, "alpha", pct_5h=95, pct_7d=5,
+                     reset_5h=int(time.time()) + 1800)
+        write_status(home, "beta", pct_5h=10, pct_7d=5,
+                     reset_5h=int(time.time()) + 1800)
+        orcamod.available = lambda: True
+        orcamod.relaunch = lambda h, cmd, **kw: (launched.append(cmd), (True, "relaunched"))[1]
+        orcamod.resume_with = lambda h, text: (True, "handed back")
+        dmn.wait_for_session = lambda agent, timeout=0: True
+
+        ok, why = dmn._wake_agent(con, "keeper", lambda _m: None, use_model=False)
+        check("pinning: the wake succeeds instead of waiting out alpha's window",
+              ok, why)
+        check("pinning: the relaunch is a fresh start, not --resume on a full account",
+              launched and "--resume" not in launched[-1], str(launched))
+        row = db.get_agent_state(con, "keeper")
+        check("pinning: resume_session is dropped - it belonged to alpha",
+              row["resume_session"] is None, str(dict(row)))
+        moved = [e for e in db.events_after(con, 0, agent="keeper")
+                 if e["kind"] == "moved_account"]
+        check("pinning: the move is on the record",
+              moved and '"from": "alpha"' in moved[-1]["payload"]
+              and '"to": "beta"' in moved[-1]["payload"], str(moved))
+        check("pinning: a handoff was written from what was folded",
+              foldmod.handoff_path("keeper").exists())
+    finally:
+        orcamod.available, orcamod.relaunch, orcamod.resume_with, dmn.wait_for_session = real
+        con.close()
+
+
+def test_a_pinned_agent_stays_pinned_when_nothing_else_has_clear_room(home: Path) -> None:
+    """The rescue only fires when another account genuinely has clear room -
+    with nothing better, the agent still waits out its own window, exactly
+    as before this fix."""
+    _daemon_home(home, 20)
+    accounts.register("beta")
+    agents.register("keeper", "alpha")
+    con = db.connect()
+    real = orcamod.available
+    try:
+        db.set_terminal(con, "keeper", "term_x", "wt")
+        db.set_closed(con, "keeper", "sess-old")
+        write_status(home, "alpha", pct_5h=95, pct_7d=5,
+                     reset_5h=int(time.time()) + 1800)
+        write_status(home, "beta", pct_5h=93, pct_7d=5,
+                     reset_5h=int(time.time()) + 1800)
+        orcamod.available = lambda: True
+        ok, why = dmn._wake_agent(con, "keeper", lambda _m: None, use_model=False)
+        check("pinning: with nothing better, it still waits for its own window",
+              not ok and "alpha" in why and "5h limit" in why, why)
+        row = db.get_agent_state(con, "keeper")
+        check("pinning: resume_session is untouched when nothing rescues it",
+              row["resume_session"] == "sess-old", str(dict(row)))
+    finally:
+        orcamod.available = real
+        con.close()
+
+
+def test_a_stale_account_whose_window_rolled_over_can_take_work(home: Path) -> None:
+    """A snapshot only refreshes while a session runs on the account, so an
+    unused account stays stale for good unless a passed window counts."""
+    _daemon_home(home, 20)
+    accounts.register("beta")
+    now = int(time.time())
+    write_status(home, "alpha", pct_5h=10, pct_7d=98, reset_5h=now + 1800,
+                 reset_7d=now + 86400 * 3)
+    write_status(home, "beta", pct_5h=40, pct_7d=34, reset_5h=now - 9 * 3600 + 18000,
+                 reset_7d=now + 86400 * 2, collected_at=now - int(9.8 * 3600))
+    picked, reasons = status.pick_account(["alpha", "beta"])
+    check("stale: a rolled-over account with 7d room is picked ahead of alpha at 98",
+          picked == "beta", str(reasons))
+    check("stale: the reason says why",
+          any(n == "beta" and "window rolled over" in r and "34%" in r for n, r in reasons),
+          str(reasons))
+    check("stale: the panel and account list agree it takes work",
+          status.read("beta").takes_work()[0] and not status.read("beta").assignable()[0])
+    write_status(home, "beta", pct_5h=40, pct_7d=100, reset_5h=now - 3600,
+                 reset_7d=now + 86400 * 2, collected_at=now - int(9.8 * 3600))
+    check("stale: a 7d reading at the wall still refuses",
+          status.pick_account(["beta"])[0] is None)
+    write_status(home, "beta", pct_5h=40, pct_7d=34, reset_5h=now + 3600,
+                 reset_7d=now + 86400 * 2, collected_at=now - int(2 * 3600))
+    write_status(home, "alpha", pct_5h=87, pct_7d=10, reset_5h=now + 1800,
+                 reset_7d=now + 86400)
+    check("takes_work: 87% is refused, matching the pick, not just assignable",
+          status.read("alpha").assignable()[0] and not status.read("alpha").takes_work()[0])
+    check("stale: a window that has not passed still refuses",
+          status.pick_account(["beta"])[0] is None)
+
+
+def test_room_is_filtered_before_the_ranking_not_after(home: Path) -> None:
+    """A destination too full to last is dropped before the deadline order, so
+    a good account behind it is still found; a weekly trigger parks until the
+    week resets; a rescue whose fold fails keeps the resume id."""
+    _daemon_home(home, 20)
+    accounts.register("nearwall")
+    accounts.register("empty")
+    agents.register("keeper", "alpha")
+    now = int(time.time())
+    for acct in ("alpha", "nearwall", "empty"):
+        (home / "accounts" / acct / ".claude").mkdir(parents=True, exist_ok=True)
+        (home / "accounts" / acct / ".claude" / ".credentials.json").write_text("{}")
+    write_status(home, "alpha", pct_5h=86, pct_7d=10, reset_5h=now + 1800,
+                 reset_7d=now + 86400 * 3)
+    write_status(home, "nearwall", pct_5h=80, pct_7d=10, reset_5h=now + 1800,
+                 reset_7d=now + 23 * 3600)
+    write_status(home, "empty", pct_5h=0, pct_7d=10, reset_5h=now + 1800,
+                 reset_7d=now + 86400 * 4)
+    check("room: a move skips the near-wall account for the empty one behind it",
+          dmn._room_to_move("keeper") == "empty", str(dmn._room_to_move("keeper")))
+    write_status(home, "nearwall", pct_5h=88, pct_7d=10, reset_5h=now + 1800,
+                 reset_7d=now + 23 * 3600)
+    check("room: a launch does not land on an account past its own move line",
+          launch.choose_account("keeper") == "empty", launch.choose_account("keeper"))
+
+    check("room: a weekly trigger parks until the week resets",
+          triggers.wake_after("usage_7d", now + 1800, now + 86400 * 2, now) == now + 86400 * 2)
+    check("room: a 5h trigger parks until the 5h window resets",
+          triggers.wake_after("usage", now + 1800, now + 86400 * 2, now) == now + 1800)
+
+    write_status(home, "alpha", pct_5h=88, reset_5h=None, pct_7d=10,
+                 collected_at=now - 6 * 3600)
+    write_status(home, "nearwall", pct_5h=99, pct_7d=10, reset_5h=now + 1800)
+    check("room: a reading older than 5h with no reset is not still a floor",
+          launch.find_room("keeper") == "alpha", str(launch.find_room("keeper")))
+
+    write_status(home, "alpha", pct_5h=95, pct_7d=5, reset_5h=now + 1800)
+    con = db.connect()
+    real = (orcamod.available, foldmod.fold)
+    try:
+        db.set_terminal(con, "keeper", "term_x", "wt")
+        db.set_closed(con, "keeper", "sess-old")
+        orcamod.available = lambda: True
+        foldmod.fold = lambda agent, use_model=True: (False, "could not run")
+        ok, why = dmn._wake_agent(con, "keeper", lambda _m: None, use_model=False)
+        row = db.get_agent_state(con, "keeper")
+        check("rescue: a failed fold keeps the resume id and waits",
+              not ok and row["resume_session"] == "sess-old", f"{why} {dict(row)}")
+        calls = []
+        foldmod.fold = lambda agent, use_model=True: (calls.append(1), (False, "no"))[1]
+        dmn._wake_agent(con, "keeper", lambda _m: None, use_model=False)
+        dmn._wake_agent(con, "keeper", lambda _m: None, use_model=False)
+        check("rescue: a failing fold is not retried on the next tick", not calls, str(calls))
+    finally:
+        orcamod.available, foldmod.fold = real
+        con.close()
+
+
+def test_choose_account_does_not_bounce_back_to_a_stale_preferred_account(home: Path) -> None:
+    """Founder's priority #241: harbor-manager moved alpha -> gamma at 85%,
+    then gamma -> alpha 12 minutes later - back to the account it had just
+    left, whose 5h window (5 hours) plainly had not reset. `choose_account`'s
+    preferred-account check read a stale snapshot as "not full", because a
+    reading that stops refreshing the moment nobody is spending on it any
+    more is silence, not room - the raw figure is still a floor until the
+    window it describes has actually rolled over."""
+    _daemon_home(home, 20)
+    accounts.register("beta")
+    agents.register("keeper", "alpha")
+    for acct in ("alpha", "beta"):
+        (home / "accounts" / acct / ".claude").mkdir(parents=True, exist_ok=True)
+        (home / "accounts" / acct / ".claude" / ".credentials.json").write_text("{}")
+    write_status(home, "beta", pct_5h=10, pct_7d=5,
+                 reset_5h=int(time.time()) + 1800)
+
+    # alpha was last seen at 88% - over the move line - and nothing has run
+    # on it since, so its snapshot is now stale. Its window is still open.
+    write_status(home, "alpha", pct_5h=88, pct_7d=5,
+                 reset_5h=int(time.time()) + 1800,
+                 collected_at=int(time.time()) - 1000)
+    check("choose_account: a stale-but-still-full preferred account is not "
+          "read as room",
+          launch.choose_account("keeper") == "beta", launch.choose_account("keeper"))
+
+    # Its window has genuinely rolled over since the reading was taken - the
+    # figure is stale, but it no longer describes the window that is open
+    # now, so it is not a floor on anything.
+    write_status(home, "alpha", pct_5h=88, pct_7d=5,
+                 reset_5h=int(time.time()) - 60,
+                 collected_at=int(time.time()) - 1000)
+    check("choose_account: once its own window has actually reset, the "
+          "preferred account is trusted again",
+          launch.choose_account("keeper") == "alpha", launch.choose_account("keeper"))
+
+    # A stale account that was never full is not held back by this at all -
+    # only a figure that was itself over the line becomes a floor.
+    write_status(home, "alpha", pct_5h=20, pct_7d=5,
+                 reset_5h=int(time.time()) + 1800,
+                 collected_at=int(time.time()) - 1000)
+    check("choose_account: a stale reading that was never full is unaffected",
+          launch.choose_account("keeper") == "alpha", launch.choose_account("keeper"))
+
+
+def test_move_requires_clear_headroom_not_bare_assignability(home: Path) -> None:
+    """Founder's priority #241, decision (a): a move only goes to an account
+    with room to actually last. A destination only a point or two under the
+    wall is technically assignable but re-triggers within one turn, which is
+    the other half of the same bounce - two folds instead of one."""
+    _daemon_home(home, 20)
+    accounts.register("beta")
+    agents.register("keeper", "alpha")
+    for acct in ("alpha", "beta"):
+        (home / "accounts" / acct / ".claude").mkdir(parents=True, exist_ok=True)
+        (home / "accounts" / acct / ".claude" / ".credentials.json").write_text("{}")
+    con = db.connect()
+    try:
+        db.set_terminal(con, "keeper", "term_x", "wt")
+        sessions_are("keeper")
+        db.set_account(con, "keeper", "alpha")
+        write_status(home, "alpha", pct_5h=87, pct_7d=5,
+                     reset_5h=int(time.time()) + 1800)
+        # beta is assignable (77% < 90%) but only has 13% headroom - under
+        # MOVE_MIN_HEADROOM_PCT, so a move there would re-trigger almost at
+        # once.
+        write_status(home, "beta", pct_5h=77, pct_7d=5,
+                     reset_5h=int(time.time()) + 1800)
+        allowed, _ = status.read("beta").assignable()
+        check("move headroom: the destination is bare-assignable to begin with",
+              allowed)
+        t = triggers.evaluate(87, 10)
+        logged: list[str] = []
+        check("move headroom: a marginal destination is refused, agent stays put",
+              not dmn._move_to_room(con, "keeper", t, logged.append))
+        check("move headroom: the account on record has not changed",
+              agents.current_account("keeper", con) == "alpha",
+              agents.current_account("keeper", con))
+        check("move headroom: the refusal is logged",
+              any("staying on alpha" in m for m in logged), str(logged))
+
+        # Clear headroom - the same move now succeeds.
+        write_status(home, "beta", pct_5h=30, pct_7d=5,
+                     reset_5h=int(time.time()) + 1800)
+        real = (orcamod.available, orcamod.alive, orcamod.close_session,
+               orcamod.relaunch, orcamod.idle_now, dmn.wait_for_session)
+        try:
+            orcamod.available = lambda: True
+            orcamod.alive = lambda h: True
+            orcamod.idle_now = lambda h: True
+            orcamod.close_session = lambda h, **kw: (True, "session ended")
+            orcamod.relaunch = lambda h, cmd, **kw: (True, "relaunched")
+            dmn.wait_for_session = lambda agent, timeout=0: True
+            foldmod.handoff_path("keeper").write_text("# handoff · keeper\n## 다음\n- carry on\n")
+            logged.clear()
+            check("move headroom: clear headroom lets the move through",
+                  dmn._move_to_room(con, "keeper", t, logged.append))
+            check("move headroom: it actually landed on beta",
+                  agents.current_account("keeper", con) == "beta",
+                  agents.current_account("keeper", con))
+            check("move headroom: the successful move says why it picked beta "
+                  "(decision d)",
+                  any("moved alpha -> beta" in m and "5h" in m for m in logged), str(logged))
+        finally:
+            (orcamod.available, orcamod.alive, orcamod.close_session,
+             orcamod.relaunch, orcamod.idle_now, dmn.wait_for_session) = real
+    finally:
         con.close()
 
 
@@ -7221,6 +7669,7 @@ def main() -> int:
         home = Path(td) / "orcapipe"
         home.mkdir()
         run(lambda: test_failclosed(home))
+        run(lambda: test_pick_account_orders_by_weekly_deadline(Path(td) / 'deadline'))
         run(lambda: test_collector(home))
         run(lambda: test_yaml())
         run(lambda: test_agents(home))
@@ -7284,6 +7733,7 @@ def main() -> int:
         run(lambda: test_a_running_agent_is_told_when_work_arrives(Path(td) / 'deliver'))
         run(lambda: test_carry_bounds_and_losses(Path(td) / 'carry'))
         run(lambda: test_unobserved_spend_stays_off_unreadable_accounts(Path(td) / 'spend'))
+        run(lambda: test_subscription_type_is_recorded_and_cached(Path(td) / 'subtype'))
         run(lambda: test_launch_judges_on_the_figure_it_may_act_on(Path(td) / 'lj'))
         run(lambda: test_burn_rate_ignores_carried_samples(Path(td) / 'burn'))
         run(lambda: test_a_session_figure_is_not_shown_as_an_accounts(Path(td) / 'sessfig'))
@@ -7323,7 +7773,18 @@ def main() -> int:
         run(lambda: test_a_long_name_does_not_run_into_the_column_beside_it(Path(td) / 'cols'))
         run(lambda: test_the_whole_loop_runs_on_our_own_commands(Path(td) / 'loop'))
         run(lambda: test_an_agent_can_put_another_one_to_work(Path(td) / 'dispatch'))
+        run(lambda: test_weekly_headroom_is_spent_to_its_own_wall(Path(td) / 'sevendaywall'))
         run(lambda: test_an_agent_at_the_wall_moves_to_an_account_with_room(Path(td) / 'moveacct'))
+        run(lambda: test_a_pinned_closed_agent_moves_instead_of_waiting_out_its_window(
+            Path(td) / 'pinned'))
+        run(lambda: test_a_pinned_agent_stays_pinned_when_nothing_else_has_clear_room(
+            Path(td) / 'pinnedstuck'))
+        run(lambda: test_a_stale_account_whose_window_rolled_over_can_take_work(Path(td) / 'stalebeta'))
+        run(lambda: test_room_is_filtered_before_the_ranking_not_after(Path(td) / 'roomfirst'))
+        run(lambda: test_choose_account_does_not_bounce_back_to_a_stale_preferred_account(
+            Path(td) / 'nobounce'))
+        run(lambda: test_move_requires_clear_headroom_not_bare_assignability(
+            Path(td) / 'moveheadroom'))
         run(lambda: test_move_to_room_reaches_a_bootstrap_account(Path(td) / 'movebootstrap'))
         run(lambda: test_an_answer_to_the_human_is_in_the_human_mailbox(Path(td) / 'mailbox'))
         run(lambda: test_the_team_is_drawn_the_way_it_is_routed(Path(td) / 'tree'))

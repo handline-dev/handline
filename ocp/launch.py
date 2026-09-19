@@ -19,6 +19,7 @@ from __future__ import annotations
 import os
 import shutil
 import sys
+import time
 
 from . import accounts, agents, paths, status, triggers
 
@@ -27,49 +28,64 @@ from . import accounts, agents, paths, status, triggers
 # trigger fires a reserve short of the hard stop, so an account inside that
 # reserve has no room to work in, only room to hand off. The wall itself is
 # still where a launch is refused - `build` does that, and says which account.
-START_LIMIT = triggers.HARD_STOP_PCT - triggers.DEFAULT_RESERVE_PCT
+START_LIMIT = triggers.MOVE_LINE_5H
 
 
-def choose_account(agent: str, resuming: bool = False, limit: int | None = None) -> str:
+def find_room(agent: str, limit: int | None = None, limit_7d: int | None = None,
+              room: int = 0) -> str | None:
+    """An account that can take this agent's next session, or None.
+
+    The preferred account when it is under the line, else the best of the
+    others by `pick_account`. `room` is the clear 5h headroom a destination
+    needs below the block, so a move does not land a point under the wall and
+    bounce straight back.
+    """
+    preferred = agents.account_of(agent)
+    line = limit if limit is not None else START_LIMIT
+    line7 = limit_7d if limit_7d is not None else triggers.MOVE_LINE_7D
+    line = min(line, status.PCT_5H_BLOCK - room)
+    # Only a reading that says "full" excludes an account. A missing snapshot
+    # is the account nobody has run on yet, and the session we are about to
+    # start is the only thing that writes one.
+    st = status.read(preferred)
+    pct = st.trusted_pct_5h
+    full = (pct is not None and pct >= line) or \
+           (st.pct_7d is not None and st.pct_7d >= line7)
+    # A stale reading that was at the line is still a floor until its window
+    # rolls over (a quiet account is not a recovered one), but a reading older
+    # than 5h cannot describe the current window.
+    if not full and st.pct_5h is not None and st.pct_5h >= line:
+        now = int(time.time())
+        full = st.reset_5h > now if st.reset_5h else (
+            st.age_s is not None and st.age_s < 5 * 3600)
+    if not full:
+        return preferred
+    # Logged-in accounts only: `assignable` says nothing about credentials.
+    # bootstrap: a never-run account is a real place to go.
+    # `preferred` is out: it just crossed this line, and bare assignability
+    # would sort it straight back to the top on deadline alone.
+    candidates = [a for a in paths.list_accounts() if accounts.logged_in(a) and a != preferred]
+    return status.pick_account(candidates, limit_5h=line, limit_7d=line7,
+                               bootstrap=True)[0]
+
+
+def choose_account(agent: str, resuming: bool = False, limit: int | None = None,
+                   limit_7d: int | None = None) -> str:
     """Which account this launch runs on.
 
-    agent.yaml names a preference, not a destination. The moment a session is
-    made is the only moment its account can be chosen at all - after execve the
-    config directory is fixed - so it is chosen here, and the preference is
-    used whenever it still has room. Between two accounts the difference is
-    headroom, which is what `pick_account` already measures for folds.
+    agent.yaml names a preference, not a destination: the moment a session is
+    made is the only moment its account can be chosen, since after execve the
+    config directory is fixed.
 
     Resuming is not that moment. A session id belongs to one account's config
-    directory, so `--resume` on any other account finds nothing; a resumed
-    session goes back to the account it was recorded on, or the run is not a
-    resume at all.
+    directory, so a resumed session goes back to the account it was recorded
+    on, or the run is not a resume at all.
     """
     if resuming:
         return agents.current_account(agent)
-    preferred = agents.account_of(agent)
-    # Only a reading that says "full" moves an agent. A missing or stale
-    # snapshot is not a full tank and it is not an empty one either - it is the
-    # account nobody has run on yet, and the session we are about to start is
-    # the only thing that writes one. Treating unknown as full would send every
-    # agent on a fresh install to whichever account happened to have a
-    # snapshot, and leave the preferred mapping meaning nothing.
-    st = status.read(preferred)
-    pct = st.trusted_pct_5h
-    full = (pct is not None and pct >= (limit if limit is not None else START_LIMIT)) or \
-           (st.pct_7d is not None and st.pct_7d >= status.PCT_7D_BLOCK)
-    if not full:
-        return preferred
-    # Among the accounts a human has actually logged in. `assignable` is about
-    # usage and says nothing about credentials, so without this an agent moves
-    # onto an account that cannot start anything and the launch dies there.
-    candidates = [a for a in paths.list_accounts() if accounts.logged_in(a)]
-    # bootstrap=True: a never-run account is a real place to go, not a reason
-    # to sit out one at the wall (see pick_account).
-    picked, _reasons = status.pick_account(candidates, bootstrap=True)
-    # Nothing assignable is not a reason to pick something at random: `build`
-    # refuses below on a current reading at the wall, and that refusal names
-    # the account and the figure.
-    return picked or preferred
+    # Nothing with room is not a reason to pick at random: `build` refuses on
+    # a current reading at the wall, and names the account and the figure.
+    return find_room(agent, limit, limit_7d) or agents.account_of(agent)
 
 
 def _is_resume(extra: list[str] | None) -> bool:

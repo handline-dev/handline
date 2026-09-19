@@ -17,6 +17,7 @@ import os
 import shutil
 import subprocess
 import sys
+import time
 from pathlib import Path
 
 from . import paths
@@ -132,6 +133,53 @@ def logged_in(acct: str) -> bool:
 
 def login_command(acct: str) -> str:
     return f'CLAUDE_CONFIG_DIR="{paths.account_claude(acct)}" claude /login'
+
+
+def _subscription_file(acct: str) -> Path:
+    return paths.account_dir(acct) / "subscription.json"
+
+
+def subscription_type(acct: str, refresh: bool = False) -> str | None:
+    """This account's plan, as `claude auth status` reports it. Recorded, not
+    weighted in any pick.
+
+    `claude auth status --json` is claude's own record of what it is signed in
+    as; it touches no credential file, the same distinction `logged_in` above
+    already draws for `security find-generic-password`. The
+    answer is cached to disk once found, because it does not change between
+    ticks and the accounts panel re-reads this on every refresh - pass
+    refresh=True to ask again after a human changes a plan.
+    """
+    f = _subscription_file(acct)
+    cached = None
+    if f.exists():
+        try:
+            data = json.loads(f.read_text())
+            cached = data.get("subscriptionType") if isinstance(data, dict) else None
+        except (OSError, json.JSONDecodeError):
+            cached = None
+    if not refresh and cached:
+        return str(cached)
+    # A live reading could not be taken - not logged in, or the call itself
+    # failed - and that must not erase what was already recorded: this account
+    # is still that plan, whatever went wrong just now asking again.
+    if not logged_in(acct):
+        return str(cached) if cached else None
+    try:
+        out = subprocess.run(
+            ["claude", "auth", "status", "--json"],
+            env={**os.environ, "CLAUDE_CONFIG_DIR": str(paths.account_claude(acct))},
+            capture_output=True, text=True, timeout=10,
+        ).stdout
+        data = json.loads(out)
+    except (OSError, subprocess.SubprocessError, json.JSONDecodeError, ValueError):
+        return str(cached) if cached else None
+    sub = data.get("subscriptionType") if isinstance(data, dict) else None
+    if not isinstance(sub, str) or not sub:
+        return str(cached) if cached else None
+    f.parent.mkdir(parents=True, exist_ok=True)
+    f.write_text(json.dumps({"subscriptionType": sub, "recorded_at": int(time.time())}))
+    return sub
 
 
 def login_plan(acct: str, force: bool = False) -> tuple[str, str]:
