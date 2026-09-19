@@ -1183,6 +1183,8 @@ def _line(prompt: str, width: int, height: int) -> str | None:
 
 # An escape sequence: `esc [` and parameters up to a final byte, or `esc O x`.
 _CSI = re.compile(r"\033(?:\[[0-?]*[ -/]*[@-~]|O.)")
+# What an escape sequence looks like before its final byte has arrived.
+_CSI_CUT = re.compile(r"\033(?:\[[0-?]*[ -/]*|O)")
 PASTE_ON, PASTE_OFF = "\033[?2004h", "\033[?2004l"
 
 
@@ -1226,8 +1228,10 @@ class Composer:
                 if m:
                     data = data[m.end():]  # an arrow, Delete...: not text
                 elif data[1:2] in ("[", "O"):
-                    self._carry = data     # a sequence cut short by the read
-                    return None
+                    if _CSI_CUT.fullmatch(data):
+                        self._carry = data     # a sequence cut short by the read
+                        return None
+                    data = data[2:]        # not one after all (Alt-[): drop the prefix
                 else:
                     return "cancel"
             elif data[0] in ("\x7f", "\b"):

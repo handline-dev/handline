@@ -975,7 +975,7 @@ def chat_parent(con, agent: str) -> int | None:
     return int(row["m"]) if row and row["m"] else None
 
 
-def chat_target(con, agent: str) -> tuple[int | None, str]:
+def chat_target(con, agent: str) -> tuple[str, int | None]:
     """The row a message from the human in this tab goes to, and what it does there.
 
     ('answers', id): the oldest question the agent has open for the human. It is

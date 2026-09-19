@@ -10644,6 +10644,18 @@ def test_the_messenger_tab_carries_a_conversation_both_ways(home: Path) -> None:
         check("chat: one chain header, not two",
               sum(r.startswith("── chain") for r in tab()[1]) == 1, str(tab()[1]))
 
+        # Two open questions with a report older than both: the oldest question.
+        old_fyi = askmod.ask(actions.HUMAN, "status: started", requester="reviewer", fyi=True)[2]
+        q1 = askmod.ask(actions.HUMAN, "first question?", requester="reviewer")[2]
+        q2 = askmod.ask(actions.HUMAN, "second question?", requester="reviewer")[2]
+        check("chat: the oldest open question, never a report",
+              actions.chat_target(con, "reviewer") == ("answers", q1),
+              str(actions.chat_target(con, "reviewer")))
+        actions.chat_reply(con, "reviewer", "one")
+        check("chat: and then the next", actions.chat_target(con, "reviewer") == ("answers", q2))
+        actions.chat_reply(con, "reviewer", "two")
+        askmod.resolve(old_fyi, "read")
+
         # A question followed by a report: the reply is to the question.
         q = askmod.ask(actions.HUMAN, "which colour?", requester="reviewer")[2]
         f = askmod.ask(actions.HUMAN, "status: halfway", requester="reviewer", fyi=True)[2]
@@ -10686,6 +10698,9 @@ def test_the_composer_takes_a_paste_whole(home: Path) -> None:
     c.feed("[201~")
     check("composer: a marker split right after its escape is still a marker",
           c.text == "abc" and not c.pasting and c.feed("\r") == "send", repr(c.text))
+    c = tui.Composer()
+    check("composer: ESC [ then Enter is not a trap",
+          c.feed("hi\033[") is None and c.feed("\r") == "send" and c.text == "hi", repr(c.text))
     c = tui.Composer()
     c.feed("a\033[3~b\033[1;5Cc")
     check("composer: longer escape sequences are skipped whole", c.text == "abc", repr(c.text))
