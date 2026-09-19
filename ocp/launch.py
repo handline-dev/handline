@@ -17,6 +17,7 @@ hibernation and restore, which makes this recover better than .envrc would.
 from __future__ import annotations
 
 import hashlib
+import json
 import os
 import shutil
 import sys
@@ -159,6 +160,50 @@ def _is_resume(extra: list[str] | None) -> bool:
                for x in (extra or []))
 
 
+def _mcp_config_material() -> str:
+    """What `fingerprint` hashes for the shared mcp.json: whether a launch
+    would pass `--mcp-config` at all, and if so, the file's content - so
+    editing it in place (fixing an invalid file, or adding a server) reads as
+    drift even though the path never changes. Missing and invalid hash the
+    same: neither puts anything on the argv, so replacing one broken file
+    with another must not read as drift either.
+    """
+    argv, _ = mcp_config_arg()
+    if not argv:
+        return "absent"
+    try:
+        return hashlib.sha256(paths.mcp_config().read_bytes()).hexdigest()
+    except OSError:
+        return "absent"
+
+
+def mcp_config_arg() -> tuple[list[str], str | None]:
+    """`--mcp-config <file>` for `paths.mcp_config()`, if it exists and is a
+    valid {"mcpServers": {...}} object.
+
+    Not strict: passing this leaves an account's own servers loading too. A
+    missing file changes nothing - the founder has not filled it in, or an
+    agent needs none. An invalid one must not stop the launch (a typo in a
+    shared file would otherwise wall off every agent), so the caller only
+    warns; `ocp doctor` has the same check for when nobody is watching a
+    launch's stderr.
+    """
+    p = paths.mcp_config()
+    if not p.exists():
+        return [], None
+    try:
+        data = json.loads(p.read_text())
+    except (OSError, ValueError) as e:
+        return [], f"{p} is invalid ({e})"
+    # Well-formed JSON that is not claude's {"mcpServers": {...}} shape still
+    # makes `claude` exit before the session starts - the exact wall-off this
+    # skip exists to avoid. Server entries themselves need no checking: claude
+    # accepts and rejects those the same way with or without this guard.
+    if not (isinstance(data, dict) and isinstance(data.get("mcpServers"), dict)):
+        return [], f"{p} is invalid (not a {{\"mcpServers\": {{...}}}} object)"
+    return ["--mcp-config", str(p)], None
+
+
 def build(agent: str, extra: list[str] | None = None, force: bool = False) -> tuple[list[str], dict]:
     """Return (argv, env) ready to hand to execve."""
     acct = choose_account(agent, resuming=_is_resume(extra))
@@ -228,6 +273,12 @@ def build(agent: str, extra: list[str] | None = None, force: bool = False) -> tu
             f"{', '.join(agents.VALID_EFFORT)}"
         )
     argv += ["--effort", effort]
+
+    mcp_arg, mcp_err = mcp_config_arg()
+    if mcp_err:
+        print(f"warning: shared mcp config {mcp_err}, skipping --mcp-config",
+              file=sys.stderr)
+    argv += mcp_arg
 
     # The agent's standing context (team model section 1). base.md is injected
     # every session - that is what its 2KB budget is a budget for - and the
@@ -325,12 +376,12 @@ def _your_team(agent: str) -> str:
 def fingerprint(agent: str) -> str:
     """What `build()` would launch this agent with right now, boiled down to
     the pieces a running session cannot pick up on its own: the model, the
-    effort level, the disallowed-tools list, and the static preamble (team
-    line, ROLE.md, base.md). Never the account or the handoff - the account
-    is chosen fresh on every real launch regardless of what last time picked,
-    and the handoff is supposed to be different every time this agent is
-    parked, so hashing either would call a session stale for a reason that
-    has nothing to do with what it was launched with.
+    effort level, the disallowed-tools list, the shared mcp.json, and the
+    static preamble (team line, ROLE.md, base.md). Never the account or the
+    handoff - the account is chosen fresh on every real launch regardless of
+    what last time picked, and the handoff is supposed to be different every
+    time this agent is parked, so hashing either would call a session stale
+    for a reason that has nothing to do with what it was launched with.
 
     Recorded at launch time (`_record_terminal`) and compared by `drifted`
     before typing a handoff into a session that is still open: the two agree
@@ -341,7 +392,8 @@ def fingerprint(agent: str) -> str:
     cfg = agents.read(agent)
     model = str(cfg.get("model") or "")
     effort = str(cfg.get("effort") or agents.DEFAULT_EFFORT)
-    material = "\x1e".join([model, effort, DISALLOWED_TOOLS, _static_preamble(agent)])
+    material = "\x1e".join([model, effort, DISALLOWED_TOOLS, _mcp_config_material(),
+                            _static_preamble(agent)])
     return hashlib.sha256(material.encode()).hexdigest()[:16]
 
 

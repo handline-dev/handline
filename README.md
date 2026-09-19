@@ -175,6 +175,8 @@ unrelated request repeating what they had already answered.
   config.yaml team.yaml db.sqlite daemon.pid
   logs/daemon.out.log logs/daemon.err.log   # launchd's StandardOut/ErrorPath
   shared/.claude/            settings + collector, symlinked into each account
+  shared/mcp.json            MCP servers every launch passes via --mcp-config;
+                             founder-filled, optional, never generated from ~/.claude.json
   accounts/<acct>/.claude/   CLAUDE_CONFIG_DIR; credentials stay here, untouched
   accounts/<acct>/status.json
   agents/<name>/             agent.yaml ROLE.md base.md inbox/ journal/
