@@ -23,7 +23,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
-from ocp import (accounts, actions, agents, ask as askmod, cli as climod, daemon as dmn, db, hr,
+from ocp import (accounts, actions, agents, ask as askmod, burnrate, cli as climod, daemon as dmn, db, hr,
                  digest,
                  doctor, drift, events as evmod, fold as foldmod,
                  handoff as handoffmod, launch, load as loadmod, lock, measure,
@@ -7826,6 +7826,352 @@ def test_an_unknown_reset_does_not_make_the_runway_absurd(home: Path) -> None:
           status.describe_runway(r2))
 
 
+class _Reading:
+    """What `burnrate.observe` reads of an account: a live figure and when it was seen."""
+    def __init__(self, pct: int, at: int, reset: int = 9_999_999_999):
+        self.pct_5h, self.rl_at, self.reset_5h = pct, at, reset
+        self.pct_5h_source = "live"
+        self.is_live_reading = True
+
+
+def _samples_of(con) -> list[dict]:
+    return burnrate._load_samples(con)
+
+
+def _give_samples(con, rows: list[tuple[float, str | None, str | None]]) -> None:
+    """Samples as percent per minute, oldest first, filed under a model and effort."""
+    db.set_meta(con, burnrate._SAMPLES, json.dumps(
+        [{"t": i, "a": "alpha", "r": r / 60, "m": m, "e": e} for i, (r, m, e) in enumerate(rows)]))
+
+
+def test_what_one_agent_costs_is_measured_from_stretches_of_work(home: Path) -> None:
+    """A sample is the account's rise over a stretch in which the same agents
+    were mid-turn, divided by their number; a stretch is dropped when it is too
+    short or a window rolled, and kept when nothing rose."""
+    _daemon_home(home, 20)
+    con = db.connect()
+    agents.register("solo", "alpha", model="sonnet", effort="medium")
+    agents.register("duo-a", "alpha", model="opus", effort="high")
+    agents.register("duo-b", "alpha", model="opus", effort="high")
+    agents.register("duo-c", "alpha", model="opus", effort="low")
+    agents.register("mixed", "alpha", model="sonnet", effort="high")
+    t0 = 1_000_000
+
+    def stretch(who, readings, reset=9_999_999_999):
+        for dt, pct in readings:
+            burnrate.observe(con, "alpha", who, _Reading(pct, t0 + dt, reset))
+        burnrate.observe(con, "alpha", [], _Reading(readings[-1][1], t0 + readings[-1][0] + 30))
+
+    stretch(["solo"], [(0, 10), (300, 13), (700, 18)])
+    got = _samples_of(con)
+    check("burn: one agent's stretch is a sample of its own rise", len(got) == 1
+          and abs(got[0]["r"] - 8 / 700) < 1e-9 and got[0]["m"] == "sonnet"
+          and got[0]["e"] == "medium", str(got))
+    stretch(["solo"], [(1000, 20), (1300, 23)])
+    check("burn: a stretch too short to measure is not one", len(_samples_of(con)) == 1)
+    stretch(["solo"], [(2000, 30), (2700, 30)])
+    got = _samples_of(con)
+    check("burn: a stretch in which nothing rose is kept - dropping it would price agents high",
+          len(got) == 2 and got[1]["r"] == 0.0, str(got))
+    before = len(_samples_of(con))
+    stretch(["solo"], [(3000, 90), (3400, 5), (3900, 8), (4100, 9)])
+    got = _samples_of(con)[before:]
+    check("burn: a window that rolled over is not a rate; what comes after it starts afresh",
+          len(got) == 1 and abs(got[0]["r"] - 4 / 700) < 1e-9, str(got))
+    before = len(_samples_of(con))
+    for at, pct, reset in ((5000, 40, 100), (5400, 43, 100), (5800, 46, 200), (6000, 47, 200),
+                           (6300, 48, 200)):
+        burnrate.observe(con, "alpha", ["solo"], _Reading(pct, t0 + at, reset))
+    burnrate.observe(con, "alpha", [], _Reading(48, t0 + 6400))
+    check("burn: a new reset time is a new window as well: 40 -> 46 is not counted, "
+          "46 -> 48 is too short", len(_samples_of(con)) == before, str(_samples_of(con)[before:]))
+    stretch(["duo-a", "duo-b"], [(7000, 10), (7600, 22)])
+    got = _samples_of(con)[-1]
+    check("burn: two agents of one kind are their mean, filed under that kind",
+          abs(got["r"] - 6 / 600) < 1e-9 and (got["m"], got["e"]) == ("opus", "high"), str(got))
+    stretch(["duo-a", "duo-c"], [(8000, 10), (8600, 16)])
+    got = _samples_of(con)[-1]
+    check("burn: one model at two efforts is filed under the model only",
+          (got["m"], got["e"]) == ("opus", None), str(got))
+    stretch(["duo-a", "mixed"], [(9000, 10), (9600, 16)])
+    got = _samples_of(con)[-1]
+    check("burn: a rise that cannot be split between models is filed under neither",
+          (got["m"], got["e"]) == (None, None), str(got))
+    before = len(_samples_of(con))
+    burnrate.observe(con, "alpha", ["solo"], _Reading(10, t0 + 20000))
+    burnrate.observe(con, "alpha", ["solo"], _Reading(14, t0 + 20700))
+    burnrate.observe(con, "alpha", ["duo-a"], _Reading(30, t0 + 20730))
+    burnrate.observe(con, "alpha", [], _Reading(60, t0 + 21400))
+    got = _samples_of(con)[before:]
+    check("burn: a change of who is working closes the stretch before it, not across it",
+          len(got) == 1 and abs(got[0]["r"] - 4 / 700) < 1e-9, str(got))
+    # A stretch that runs on is cut where it is long enough and goes on from there.
+    before = len(_samples_of(con))
+    for i in range(0, 4000, 300):
+        burnrate.observe(con, "alpha", ["solo"], _Reading(10 + i // 100, t0 + 30000 + i))
+    check("burn: a run that never changes hands still yields samples",
+          len(_samples_of(con)) > before + 1, str(len(_samples_of(con))))
+    con.close()
+
+
+def test_an_agent_is_priced_by_the_nearest_kind_with_samples(home: Path) -> None:
+    """Its own kind at MIN_SAMPLES, then its model, then everyone, then the
+    starting value; a median of the last KEEP, held inside its bounds."""
+    _daemon_home(home, 20)
+    con = db.connect()
+    agents.register("op", "alpha", model="opus", effort="high")
+    agents.register("op-low", "alpha", model="opus", effort="low")
+    agents.register("so", "alpha", model="sonnet", effort="medium")
+    agents.register("newmodel", "alpha", model="haiku", effort="medium")
+    per_min = lambda a: round(burnrate.costs(con).per_s(a) * 60, 3)  # noqa: E731
+    start = round(triggers.TYPICAL_AGENT_BURN_PER_S * 60, 3)
+    check("cost: with no samples every agent is at the starting value",
+          per_min("op") == per_min("so") == per_min(None) == start, str(per_min("op")))
+    n = burnrate.MIN_SAMPLES
+    _give_samples(con, [(0.9, "opus", "high")] * (n - 1))
+    check("cost: one short of the floor is still the starting value", per_min("op") == start)
+    _give_samples(con, [(0.9, "opus", "high")] * n)
+    check("cost: at the floor an agent is priced by its own kind", per_min("op") == 0.9)
+    check("cost: another effort of the same model falls back to the model's - "
+          "that pool is the same samples", per_min("op-low") == 0.9)
+    check("cost: a model nobody has measured falls back to the all-agent median",
+          per_min("so") == per_min("newmodel") == per_min(None) == 0.9)
+    _give_samples(con, [(0.9, "opus", "high")] * n + [(0.3, "sonnet", "medium")] * n)
+    check("cost: each kind has its own number", (per_min("op"), per_min("so")) == (0.9, 0.3))
+    _give_samples(con, [(0.5, None, None)] * n)
+    check("cost: mixed-kind samples reach only the all-agent pool",
+          per_min("op") == per_min(None) == 0.5)
+    _give_samples(con, [(5.0, "opus", "high")] * n + [(0.0, "sonnet", "medium")] * n)
+    check("cost: the estimate is held inside its bounds",
+          (per_min("op"), per_min("so")) == (2.0, 0.1), f"{per_min('op')} {per_min('so')}")
+    _give_samples(con, [(2.0, "opus", "high")] * 40 + [(0.4, "opus", "high")] * burnrate.KEEP)
+    check("cost: only the last KEEP samples count", per_min("op") == 0.4)
+    _give_samples(con, [(0.4, "opus", "high")] * 8 + [(9.0, "opus", "high")] * 4)
+    check("cost: a median, so a few wild stretches do not move it", per_min("op") == 0.4)
+    db.set_meta(con, burnrate._SAMPLES, "not json")
+    check("cost: unreadable samples are the starting value", per_min("op") == start)
+    line = burnrate.costs(con).by_kind(["op", "so"])
+    check("cost: `account list` says what each kind is priced at and on what",
+          len(line) == 2 and "starting value" in line[0], str(line))
+    con.close()
+
+
+def test_the_price_of_an_agent_holds_still_across_ticks(home: Path) -> None:
+    """A move is judged every tick, so the estimate must not turn one agent away
+    and admit it again minutes later: at the fallback, at the floor, with no
+    samples, and as noisy stretches keep arriving around the line."""
+    import random
+    _daemon_home(home, 20)
+    _with_accounts("alpha", "beta")
+    con = db.connect()
+    agents.register("mover", "alpha", model="sonnet", effort="medium")
+    now = int(time.time())
+    # 40% headroom, filling at 0.5%/min: one more agent lasts 40 / (0.5 + a), and
+    # 30 minutes is the line, so a = 0.83%/min is exactly on it.
+    write_status(home, "beta", pct_5h=60, pct_7d=10, reset_5h=now + 3600, reset_7d=now + 86400)
+    status.write_burn("beta", 0.5 / 60, now)
+
+    def admitted() -> bool:
+        picked, _ = status.pick_account(["beta"], load=loadmod.read_all(con), agent="mover")
+        return picked == "beta"
+
+    def flips(trace: list[bool]) -> int:
+        return sum(1 for a, b in zip(trace, trace[1:]) if a != b)
+
+    check("ticks: with no samples the account is judged at the starting value, every tick",
+          {admitted() for _ in range(5)} == {True})
+    rng = random.Random(7)
+    trace, all_rates = [], []
+    for _ in range(80):
+        # Noisy stretches of an agent whose true cost, 0.65%/min, is under the
+        # 0.83 line: a point of resolution and how hard each stretch worked.
+        rate = max(0.0, 0.65 + rng.uniform(-0.4, 0.4))
+        all_rates.append(rate)
+        cur = json.loads(db.get_meta(con, burnrate._SAMPLES) or "[]")
+        cur.append({"t": len(cur), "a": "alpha", "r": rate / 60, "m": "sonnet", "e": "medium"})
+        db.set_meta(con, burnrate._SAMPLES, json.dumps(cur))
+        trace.append(admitted())
+    trace_live = []
+    for i in range(len(all_rates)):
+        recent = all_rates[max(0, i - 2):i + 1]
+        trace_live.append(40 / (0.5 + sum(recent) / len(recent)) >= 30)
+    check("ticks: through the floor and beyond, the same agent is never turned away",
+          flips(trace) == 0 and all(trace), str(trace))
+    check("ticks: a live average of the last three would have flipped it repeatedly",
+          flips(trace_live) >= 3, str(flips(trace_live)))
+    check("ticks: the same account is the same answer to the same agent, tick after tick",
+          len({admitted() for _ in range(20)}) == 1)
+    _give_samples(con, [(0.3, "sonnet", "medium")] * burnrate.MIN_SAMPLES)
+    check("ticks: at the floor the answer holds across ticks too",
+          len({admitted() for _ in range(20)}) == 1 and admitted())
+    con.close()
+
+
+def test_a_cheap_agent_is_admitted_where_a_dear_one_is_not(home: Path) -> None:
+    """The reason for measuring: the same account, the same fill, and each agent
+    priced by its own kind - sole and shared alike."""
+    _daemon_home(home, 20)
+    _with_accounts("alpha", "beta")
+    con = db.connect()
+    agents.register("dear", "alpha", model="opus", effort="high")
+    agents.register("cheap", "alpha", model="sonnet", effort="medium")
+    now = int(time.time())
+    write_status(home, "beta", pct_5h=60, pct_7d=10, reset_5h=now + 3600, reset_7d=now + 86400)
+    status.write_burn("beta", 0.5 / 60, now)
+    _give_samples(con, [(0.9, "opus", "high")] * 6 + [(0.3, "sonnet", "medium")] * 6)
+
+    def verdict(agent):
+        picked, reasons = status.pick_account(["beta"], load=loadmod.read_all(con), agent=agent)
+        return picked, dict(reasons)["beta"]
+
+    dear, cheap = verdict("dear"), verdict("cheap")
+    check("cost: the dear agent is refused (40 / (0.5 + 0.9) = 28m)",
+          dear[0] is None and "(0.90%/min)" in dear[1] and "~28m" in dear[1], str(dear))
+    check("cost: the cheap one is admitted on the same account (40 / (0.5 + 0.3) = 50m)",
+          cheap[0] == "beta" and "(0.30%/min)" in cheap[1], str(cheap))
+    check("cost: a screen that names no agent prices a typical one, and says so",
+          "(0.90%/min)" not in str(status.pick_account(["beta"], load=loadmod.read_all(con))[1]),
+          str(status.pick_account(["beta"], load=loadmod.read_all(con))[1]))
+    # Shared: the fill is already several agents' worth; the newcomer's price is
+    # still its own.
+    status.write_burn("beta", 1.0 / 60, now)
+    check("cost: on an account already filling at 1.0%/min the split holds: "
+          "40 / 1.9 = 21m refused, 40 / 1.3 = 30m admitted",
+          verdict("dear")[0] is None and verdict("cheap")[0] == "beta",
+          str((verdict("dear"), verdict("cheap"))))
+    con.close()
+
+
+def test_every_real_caller_prices_the_agent_it_is_placing(home: Path) -> None:
+    """`status.pick_account` being agent-aware is not enough on its own: each of
+    `_move_plan`, `_forced_plan` and `launch.find_room`'s two calls has to pass
+    `agent` through, or the newcomer is priced as a typical one and this test
+    catches it - dropping `agent=agent` from any of them turns the dear
+    agent's refusal into an admission."""
+    _daemon_home(home, 20)
+    accounts.register("beta")
+    for acct in ("alpha", "beta"):
+        (home / "accounts" / acct / ".claude").mkdir(parents=True, exist_ok=True)
+        (home / "accounts" / acct / ".claude" / ".credentials.json").write_text("{}")
+    agents.register("dear", "alpha", model="opus", effort="high")
+    agents.register("cheap", "alpha", model="sonnet", effort="medium")
+    agents.register("dear-pref", "beta", model="opus", effort="high")
+    agents.register("cheap-pref", "beta", model="sonnet", effort="medium")
+    now = int(time.time())
+    write_status(home, "alpha", pct_5h=100, pct_7d=10, reset_5h=now + 10 * 3600,
+                reset_7d=now + 86400)
+    write_status(home, "beta", pct_5h=60, pct_7d=10, reset_5h=now + 3600, reset_7d=now + 86400)
+    con = db.connect()
+    status.write_burn("beta", 0.5 / 60, now)
+    n = burnrate.MIN_SAMPLES
+    db.set_meta(con, burnrate._SAMPLES, json.dumps(
+        [{"t": i, "a": "x", "r": 0.9 / 60, "m": "opus", "e": "high"} for i in range(n)] +
+        [{"t": i, "a": "x", "r": 0.3 / 60, "m": "sonnet", "e": "medium"} for i in range(n)]))
+    db.set_account(con, "dear", "alpha")
+    db.set_account(con, "cheap", "alpha")
+    db.add_request(con, "marina", "dear", "carry on", None, "peer", "async", None, 0, None)
+    db.add_request(con, "marina", "cheap", "carry on", None, "peer", "async", None, 0, None)
+
+    dest, why = dmn._move_plan(con, "dear", "usage")
+    check("callers: _move_plan refuses the dear agent (40 / (0.5 + 0.9) = 28m)",
+          dest is None and "0.90%/min" in why, why)
+    dest, why = dmn._move_plan(con, "cheap", "usage")
+    check("callers: _move_plan admits the cheap one on the same account",
+          dest == "beta" and "0.30%/min" in why, why)
+
+    dest, why = dmn._forced_plan(con, "dear", "beta")
+    check("callers: _forced_plan refuses the dear agent's chosen destination too",
+          dest is None, why)
+    dest, why = dmn._forced_plan(con, "cheap", "beta")
+    check("callers: _forced_plan admits the cheap one", dest == "beta", why)
+
+    check("callers: find_room refuses the dear agent (walled preferred, refused fallback)",
+          launch.find_room("dear") is None, str(launch.find_room("dear")))
+    check("callers: find_room admits the cheap one via the fallback pick",
+          launch.find_room("cheap") == "beta", str(launch.find_room("cheap")))
+    check("callers: find_room refuses the dear agent on its own preferred account",
+          launch.find_room("dear-pref") is None, str(launch.find_room("dear-pref")))
+    check("callers: find_room admits the cheap one there directly, no fallback needed",
+          launch.find_room("cheap-pref") == "beta", str(launch.find_room("cheap-pref")))
+    con.close()
+
+
+def test_the_daemon_feeds_the_estimate_each_tick(home: Path) -> None:
+    """Ticks with one agent mid-turn on an account, its reading rising, end in a
+    sample under that agent's kind; and with none mid-turn, in none."""
+    _daemon_home(home, 20)
+    con = db.connect()
+    agents.register("worker", "alpha", model="opus", effort="high")
+    db.set_account(con, "worker", "alpha")
+    db.set_agent_state(con, "worker", dmn.RUNNING)
+    now = int(time.time())
+    base = now - 4000
+    logged: list[str] = []
+    for i, pct in enumerate((10, 12, 15, 17, 19)):
+        write_status(home, "alpha", pct_5h=pct, pct_7d=10, reset_5h=base + 18000,
+                     rl_at=base + i * 200, collected_at=now)
+        dmn.observe_burn(con, logged.append)
+    check("burn: a running agent's stretch is open, not yet a sample", not _samples_of(con))
+    db.set_agent_state(con, "worker", dmn.IDLE)
+    dmn.observe_burn(con, logged.append)
+    got = _samples_of(con)
+    check("burn: the tick that finds it idle files the sample under its kind",
+          len(got) == 1 and (got[0]["m"], got[0]["e"]) == ("opus", "high")
+          and abs(got[0]["r"] - 9 / 800) < 1e-9, str(got))
+    dmn.observe_burn(con, logged.append)
+    write_status(home, "alpha", pct_5h=20, pct_7d=10, reset_5h=base + 18000,
+                 rl_at=now, collected_at=now)
+    db.set_agent_state(con, "backend", dmn.RUNNING)
+    db.set_account(con, "backend", "alpha")
+    dmn.tick(con, logged.append)
+    check("burn: the daemon's own tick feeds it", db.get_meta(con, "burnseg:alpha") is not None,
+          str(logged))
+    db.set_agent_state(con, "backend", dmn.IDLE)
+    dmn.observe_burn(con, logged.append)
+    check("burn: and an idle account adds none", len(_samples_of(con)) == 1 and not logged,
+          str(logged))
+    con.close()
+
+
+def test_a_cold_start_is_not_priced_as_steady_work(home: Path) -> None:
+    """`measure.py` already prices the first turn since a SessionStart or
+    moved_account as a cold start; a burn sample must not price it again as
+    steady work, or an agent's cost is inflated by every launch."""
+    _daemon_home(home, 20)
+    con = db.connect()
+    agents.register("worker", "alpha", model="opus", effort="high")
+    db.set_account(con, "worker", "alpha")
+    now = int(time.time())
+    base = now - 4000
+    db.add_event(con, "worker", "SessionStart")
+    db.set_agent_state(con, "worker", dmn.RUNNING)
+    check("cold: fresh since SessionStart, no Stop yet - it is a first turn",
+          "worker" in loadmod.first_turn_agents(con))
+    for i, pct in enumerate((10, 12, 15, 17, 19)):
+        write_status(home, "alpha", pct_5h=pct, pct_7d=10, reset_5h=base + 18000,
+                     rl_at=base + i * 200, collected_at=now)
+        dmn.observe_burn(con, lambda _m: None)
+    db.set_agent_state(con, "worker", dmn.IDLE)
+    dmn.observe_burn(con, lambda _m: None)
+    check("cold: a stretch that held a first turn files no sample", not _samples_of(con))
+
+    db.add_event(con, "worker", "Stop")
+    check("cold: a completed turn is no longer a first one",
+          "worker" not in loadmod.first_turn_agents(con))
+    db.set_agent_state(con, "worker", dmn.RUNNING)
+    base2 = now
+    for i, pct in enumerate((20, 23, 27, 30, 34)):
+        write_status(home, "alpha", pct_5h=pct, pct_7d=10, reset_5h=base + 18000,
+                     rl_at=base2 + i * 200, collected_at=now)
+        dmn.observe_burn(con, lambda _m: None)
+    db.set_agent_state(con, "worker", dmn.IDLE)
+    dmn.observe_burn(con, lambda _m: None)
+    got = _samples_of(con)
+    check("cold: its second turn, after a Stop, files normally",
+          len(got) == 1 and (got[0]["m"], got[0]["e"]) == ("opus", "high"), str(got))
+    con.close()
+
+
 def test_the_panels_bounded_cells_fit_their_own_columns(home: Path) -> None:
     """Every bounded cell of the ACCOUNTS row is strictly narrower than its
     column. Measured on the cells build() itself draws, at the extremes of
@@ -8101,7 +8447,7 @@ def test_the_pick_weighs_how_fast_an_account_is_filling(home: Path) -> None:
     check("fill: and says why - the fill and what one more agent would last",
           "fill 3.0%/min" in why["alpha"] and "under the 30m" in why["alpha"], why["alpha"])
     check("fill: the pick shows its own reason too",
-          "one more agent lasts" in why["beta"] and "<- picked" in why["beta"], why["beta"])
+          "one more agent (0.75%/min) lasts" in why["beta"] and "<- picked" in why["beta"], why["beta"])
     status.write_burn("alpha", 0.0, now)
     check("fill: with the fill gone the earlier weekly deadline wins again",
           status.pick_account(["alpha", "beta"], load=loadmod.read_all())[0] == "alpha")
@@ -11730,6 +12076,13 @@ def main() -> int:
         run(lambda: test_replaying_0919_makes_fewer_moves_than_the_old_rules(Path(td) / 'ar6'))
         run(lambda: test_a_turn_that_ends_on_the_usage_limit_is_at_the_wall(Path(td) / 'limitstop'))
         run(lambda: test_an_unknown_reset_does_not_make_the_runway_absurd(Path(td) / 'runwayunknown'))
+        run(lambda: test_what_one_agent_costs_is_measured_from_stretches_of_work(Path(td) / 'burnobs'))
+        run(lambda: test_an_agent_is_priced_by_the_nearest_kind_with_samples(Path(td) / 'burnkind'))
+        run(lambda: test_the_price_of_an_agent_holds_still_across_ticks(Path(td) / 'burnticks'))
+        run(lambda: test_a_cheap_agent_is_admitted_where_a_dear_one_is_not(Path(td) / 'burncheap'))
+        run(lambda: test_every_real_caller_prices_the_agent_it_is_placing(Path(td) / 'burncallers'))
+        run(lambda: test_the_daemon_feeds_the_estimate_each_tick(Path(td) / 'burntick'))
+        run(lambda: test_a_cold_start_is_not_priced_as_steady_work(Path(td) / 'burncold'))
         run(lambda: test_the_panels_bounded_cells_fit_their_own_columns(Path(td) / 'panelwidths'))
         run(lambda: test_ask_and_resolve_do_not_type_at_an_agent_at_the_wall(Path(td) / 'askwall'))
         run(lambda: test_choose_account_does_not_bounce_back_to_a_stale_preferred_account(

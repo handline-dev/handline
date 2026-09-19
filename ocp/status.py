@@ -203,6 +203,13 @@ class AccountStatus:
         return max(0.0, age)
 
     @property
+    def is_live_reading(self) -> bool:
+        """A figure this payload actually reported, timestamped, not carried
+        forward from an earlier one - the only kind a rate can be measured
+        from."""
+        return self.pct_5h_source == "live" and self.pct_5h is not None and bool(self.rl_at)
+
+    @property
     def pct_5h_source(self) -> str:
         """Which of the five cases this reading is: see the module docstring."""
         if not self.exists or self.error or self.stale or not self.pct_5h_readable:
@@ -749,7 +756,7 @@ def account_verdict(name: str, st: "AccountStatus", ld, ranked: list[tuple[str, 
     return allowed and unfit(st, ld) is None, dict(ranked).get(name, why)
 
 
-def unfit(st: "AccountStatus", ld) -> str | None:
+def unfit(st: "AccountStatus", ld, agent: str | None = None) -> str | None:
     """Why a session should not be started here, when what is known says so.
 
     Only a reading that says so counts: a missing or stale one is the account
@@ -771,30 +778,40 @@ def unfit(st: "AccountStatus", ld) -> str | None:
     if week is not None and week >= PCT_7D_BLOCK:
         return f"7d usage {week}% at the wall"
     if pct is not None and not st.stale:
-        return _no_room(st, ld, pct)[0]
-    return _no_room(st, ld, None)[0]
+        return _no_room(st, ld, pct, agent)[0]
+    return _no_room(st, ld, None, agent)[0]
 
 
-def _no_room(st: "AccountStatus", ld, pct: int | None) -> tuple[str | None, float | None]:
+def agent_burn(ld, agent: str | None) -> float:
+    """What one more agent costs, in percent of the 5h window per second: the
+    measured cost of `agent`'s kind, of a typical agent when none is named, and
+    the starting value where nothing measured is to hand."""
+    return ld.costs.per_s(agent) if ld and ld.costs else triggers.TYPICAL_AGENT_BURN_PER_S
+
+
+def _no_room(st: "AccountStatus", ld, pct: int | None,
+             agent: str | None = None) -> tuple[str | None, float | None]:
     """(why it cannot take one more agent, how long it would last). The cap,
     then the stretch when the fill `pct` is known; the one test `unfit` and
-    `pick_account` share."""
+    `pick_account` share. `agent` prices the newcomer by its own kind."""
     if ld and ld.at_cap:
         return f"at its cap: {ld.active} of {ld.cap} agents mid-turn", None
     if pct is None:
         return None, None
-    lasts = triggers.stretch_s(PCT_5H_BLOCK - pct, ld.burn if ld and ld.burn else 0.0)
+    lasts = triggers.stretch_s(PCT_5H_BLOCK - pct, ld.burn if ld and ld.burn else 0.0,
+                               agent_burn(ld, agent))
     if lasts < triggers.MIN_STRETCH_S:
-        return (_stretch_reason(st, ld, lasts, pct) + f" - under the "
+        return (_stretch_reason(st, ld, lasts, pct, agent) + f" - under the "
                 f"{span(triggers.MIN_STRETCH_S)} a start is worth"), lasts
     return None, lasts
 
 
-def _per_min(rate: float) -> str:
-    return f"{rate * 60:.1f}%/min"
+def _per_min(rate: float, places: int = 1) -> str:
+    return f"{rate * 60:.{places}f}%/min"
 
 
-def _stretch_reason(st: "AccountStatus", ld, lasts: float, pct: int) -> str:
+def _stretch_reason(st: "AccountStatus", ld, lasts: float, pct: int,
+                    agent: str | None = None) -> str:
     """`pct` is the figure the stretch was computed on - the trusted one for a
     live reading, or the floor idle_floor admitted for a stale one. Printing
     `st.trusted_pct_5h` instead would read "None%" for exactly the accounts
@@ -802,10 +819,11 @@ def _stretch_reason(st: "AccountStatus", ld, lasts: float, pct: int) -> str:
     fill = ld.burn if ld and ld.burn else 0.0
     agents_ = f", {ld.active}/{ld.cap} agents" if ld else ""
     return (f"5h {pct}%, fill {_per_min(fill)}{agents_}, one more agent "
-            f"lasts ~{span(lasts)}")
+            f"({_per_min(agent_burn(ld, agent), 2)}) lasts ~{span(lasts)}")
 
 
-def _pick_reason(st: "AccountStatus", ld, lasts: float | None, picked: bool) -> str:
+def _pick_reason(st: "AccountStatus", ld, lasts: float | None, picked: bool,
+                 agent: str | None = None) -> str:
     """Why this account sits where it does in the ordering."""
     week = st.trusted_pct_7d
     week_s = "unknown" if week is None else f"{week}%"
@@ -815,14 +833,15 @@ def _pick_reason(st: "AccountStatus", ld, lasts: float | None, picked: bool) -> 
     when = "unknown" if not st.reset_7d else ago(max(0.0, st.reset_7d - time.time()))
     # Neither early return above fired, so this account is live, not stale -
     # trusted_pct_5h is never None here.
-    base = (_stretch_reason(st, ld, lasts, st.trusted_pct_5h) if lasts is not None
+    base = (_stretch_reason(st, ld, lasts, st.trusted_pct_5h, agent) if lasts is not None
             else f"5h {st.trusted_pct_5h}%") + f"; 7d {week_s} (resets in {when})"
     return base + " <- picked: earliest 7d deadline" if picked else base
 
 
 def pick_account(candidates: list[str] | None = None, bootstrap: bool = False,
                  exclude: dict[str, str] | None = None,
-                 load: dict | None = None) -> tuple[str | None, list[tuple[str, str]]]:
+                 load: dict | None = None,
+                 agent: str | None = None) -> tuple[str | None, list[tuple[str, str]]]:
     """Pick the account whose weekly headroom expires soonest, among those that
     can take one more agent.
 
@@ -831,7 +850,8 @@ def pick_account(candidates: list[str] | None = None, bootstrap: bool = False,
 
     An account can take one more agent when it is not at the wall, is under its
     cap of agents mid-turn (`load`), and lasts at least `MIN_STRETCH_S` before
-    its wall at its current fill plus one typical agent. How fast it is filling,
+    its wall at its current fill plus one more agent of the kind `agent` names (a
+    typical one when it names none). How fast it is filling,
     not a fixed line, is what says it has room: an account at 60% and idle has
     more than one at 30% with three agents on it. The deadline order then only
     compares accounts that qualify: reset_7d soonest first; 5h headroom breaks
@@ -883,7 +903,7 @@ def pick_account(candidates: list[str] | None = None, bootstrap: bool = False,
             pct = st.pct_5h
         else:
             pct = 0
-        no_room, lasts = _no_room(st, ld, None if st.rolled_over()[0] else pct)
+        no_room, lasts = _no_room(st, ld, None if st.rolled_over()[0] else pct, agent)
         if no_room:
             reasons.append((n, no_room))
             continue
@@ -899,7 +919,7 @@ def pick_account(candidates: list[str] | None = None, bootstrap: bool = False,
     usable.sort(key=sort_key)
     picked = usable[0][0]
     for n, st, ld, lasts in usable:
-        reasons.append((n, _pick_reason(st, ld, lasts, picked=(n == picked))))
+        reasons.append((n, _pick_reason(st, ld, lasts, picked=(n == picked), agent=agent)))
     order = {n: i for i, n in enumerate(names)}
     reasons.sort(key=lambda t: order[t[0]])
     return picked, reasons
