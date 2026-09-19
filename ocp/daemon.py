@@ -1346,7 +1346,52 @@ def _unstick_running(con, agent: str, row, log, actions: list[str]) -> None:
 
 
 # ---------------------------------------------------------------- handoff
-def perform_handoff(con, agent: str, trigger: triggers.Trigger, log) -> bool:
+def force_move(con, agent: str, dest: str, by: str, log) -> tuple[bool, str]:
+    """Move an agent's live session to `dest` now, through the handoff's own move.
+
+    Record the handoff, end the session with no resume id, start fresh on
+    `dest`, record the account: the path a usage wall takes with the
+    destination fixed. Nothing is ended unless `dest` takes one more agent. The
+    preference in agent.yaml follows first, since the launch chooses by it, and
+    is put back if the move does not happen. `by` is recorded on the event.
+    """
+    if agent not in paths.list_agents():
+        return False, f"no agent '{agent}'"
+    if dest not in paths.list_accounts() or not accounts.logged_in(dest):
+        return False, f"account '{dest}' does not exist or is not logged in"
+    here = agents.current_account(agent, con)
+    if here == dest:
+        return False, f"{agent} is already on {dest}"
+    row = db.get_agent_state(con, agent)
+    if not row or not row["terminal"] or row["closed_at"]:
+        return False, (f"{agent} has no live session to move - `ocp agent register` "
+                       f"the account for its next start")
+    if row["state"] in (HANDOFF, STALLED):
+        return False, f"{agent} is {row['state']}"
+    room, why = _forced_plan(con, dest)
+    if room is None:
+        return False, f"{why} - not moving {agent} there"
+    prefer = agents.account_of(agent)
+    trigger = triggers.Trigger(True, "forced", f"forced by {by}: {here} -> {dest}")
+    agents.register(agent, dest)
+    try:
+        perform_handoff(con, agent, trigger, log, dest=dest)
+    except BaseException:
+        agents.register(agent, prefer)
+        raise
+    landed = db.get_agent_state(con, agent)
+    # The raw record, not current_account: that falls back to the preference,
+    # which was just rewritten to dest and would report a move that never happened.
+    if not landed or landed["account"] != dest:
+        agents.register(agent, prefer)
+        return False, (f"{agent} did not move (mid-turn, or the new session did not "
+                       f"start on {dest}) - it stays on {here}")
+    db.add_event(con, agent, "forced_move", {"from": here, "to": dest, "by": by})
+    return True, f"{agent} moved {here} -> {dest} (forced by {by})"
+
+
+def perform_handoff(con, agent: str, trigger: triggers.Trigger, log,
+                    dest: str | None = None) -> bool:
     """Run the handoff pipeline, committing each step (8.9).
 
     Returns True when the agent ended parked cleanly, False when it degraded.
@@ -1366,7 +1411,10 @@ def perform_handoff(con, agent: str, trigger: triggers.Trigger, log) -> bool:
     # holds then.
     last_h = db.last_handoff(con, agent)
     last = last_h["updated"] if last_h else None
-    if last and int(time.time()) - int(last) < MIN_HANDOFF_INTERVAL_S:
+    # A person asked for a forced move, so the too-soon guard (for triggers that
+    # repeat on their own) does not apply.
+    if last and trigger.kind != "forced" \
+            and int(time.time()) - int(last) < MIN_HANDOFF_INTERVAL_S:
         log(f"  {agent}: {trigger.kind} fired again {int(time.time()) - int(last)}s after the "
             f"last handoff - too soon, skipping")
         return True
@@ -1400,12 +1448,13 @@ def perform_handoff(con, agent: str, trigger: triggers.Trigger, log) -> bool:
             log(f"  {agent}: {trigger.kind} fired but something else is typing at it "
                 f"- not handing off")
             return True
-        return _perform_handoff(con, agent, trigger, log)
+        return _perform_handoff(con, agent, trigger, log, dest)
 
 
-# The triggers a move answers: the two walls. Nothing below one is a reason to
-# move a working agent, and an account nobody can read is not a wall.
-MOVABLE_TRIGGERS = ("usage", "usage_7d")
+# The triggers a move answers: the two walls, and a person's own order. Nothing
+# below a wall is a reason to move a working agent, and an account nobody can
+# read is not a wall.
+MOVABLE_TRIGGERS = ("usage", "usage_7d", "forced")
 
 
 def _handoff_backing_off(con, agent: str) -> bool:
@@ -1464,8 +1513,23 @@ def _move_plan(con, agent: str, kind: str) -> tuple[str | None, str]:
     return dest, dict(ranked)[dest]
 
 
-def _move_to_room(con, agent: str, trigger: triggers.Trigger, log) -> bool:
+def _forced_plan(con, dest: str) -> tuple[str | None, str]:
+    """A person's chosen destination, held to the same room test as any other:
+    the pick over that one account, so a walled, capped or unreadable one is
+    refused with the pick's own reason. (destination, why)."""
+    picked, ranked = status.pick_account([dest], bootstrap=True, load=load.read_all(con))
+    if picked is None:
+        why = dict(ranked).get(dest) or "cannot take one more agent"
+        return None, f"{dest} {why}"
+    return picked, dict(ranked)[picked]
+
+
+def _move_to_room(con, agent: str, trigger: triggers.Trigger, log,
+                  dest: str | None = None) -> bool:
     """Put this agent's next session on an account that has room. True if it moved.
+
+    `dest` fixes the destination (a forced move); it still has to be one the
+    pick would send an agent to.
 
     What this changes is whether an agent waits out its own window while
     another account idles beside it. It needs no lease, because it does not
@@ -1480,7 +1544,8 @@ def _move_to_room(con, agent: str, trigger: triggers.Trigger, log) -> bool:
     if trigger.kind not in MOVABLE_TRIGGERS:
         return False
     here = agents.current_account(agent, con)
-    there, picked_why = _move_plan(con, agent, trigger.kind)
+    there, picked_why = (_forced_plan(con, dest) if dest
+                         else _move_plan(con, agent, trigger.kind))
     if there is None:
         log(f"  {agent}: staying on {here} - {picked_why}")
         return False
@@ -1541,7 +1606,8 @@ def _move_to_room(con, agent: str, trigger: triggers.Trigger, log) -> bool:
     return True
 
 
-def _perform_handoff(con, agent: str, trigger: triggers.Trigger, log) -> bool:
+def _perform_handoff(con, agent: str, trigger: triggers.Trigger, log,
+                     dest: str | None = None) -> bool:
     hid = uuid.uuid4().hex[:12]
     st = status.read(agents.current_account(agent, con)) if agent in paths.list_agents() else None
     deadline = int(time.time()) + HANDOFF_DEADLINE_S
@@ -1560,10 +1626,18 @@ def _perform_handoff(con, agent: str, trigger: triggers.Trigger, log) -> bool:
     # Where it goes next. An agent whose own account is out of room does not
     # have to sit out that window if another account has some. Here, after the
     # handoff is recorded, because this session is ending either way.
-    if _move_to_room(con, agent, trigger, log):
+    if _move_to_room(con, agent, trigger, log, dest):
         db.advance_handoff(con, hid, "released", state="done" if ok else "degraded")
         db.bump_counter(con, agent, "continuations")
         return ok
+    landed = db.get_agent_state(con, agent)
+    if trigger.kind == "forced" and landed and not landed["closed_at"]:
+        # Nothing was ended, so there is nothing to park: the session is live
+        # and a park would clear the context of an agent that never left.
+        db.advance_handoff(con, hid, "released", state="degraded",
+                           detail="forced move did not happen")
+        db.set_agent_state(con, agent, IDLE, detail="forced move did not happen")
+        return False
 
     # Return the context. Recording a handoff is only half of a handoff;
     # without this the context never drops, and a context trigger fires again

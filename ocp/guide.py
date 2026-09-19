@@ -12,6 +12,7 @@ TOPICS = {
   ocp account add <name>           register it and log it in (a human types the login)
   ocp account remove <name>        log it out and move it aside; refused while an agent is on it
   ocp account list                 usage and whether the account is assignable
+  ocp agent move <agent> <account> record its handoff, end its live session and start fresh there, making it the preferred account (a human's call; also v on the bridge)
 
 ocp never reads, writes or copies credentials. A refresh token rotates on
 single use, so two copies of one credential invalidate each other.""",
