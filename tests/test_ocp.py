@@ -3389,6 +3389,33 @@ def test_doctor_says_one_thing_per_account(home: Path) -> None:
           any("7d" in m for _l, m in per_account["e_7dlost"]), str(per_account["e_7dlost"]))
 
 
+def test_doctor_agrees_with_the_pick_about_an_account_with_an_agent_mid_turn(
+        home: Path) -> None:
+    """doctor is the Phase 1 criterion's own surface (KICKOFF §3), so it must
+    not print "assignable" about a stale account the pick refuses for having
+    an agent of ours mid-turn on it - the five call sites idle_floor's active
+    gate does not reach by default (doctor, actions, tui, the two cli list
+    commands) each need the same figure pick_account already gets."""
+    _daemon_home(home, 20)
+    _with_accounts("beta")
+    now = int(time.time())
+    write_status(home, "beta", pct_5h=40, pct_7d=10, reset_5h=now + 1800,
+                 reset_7d=now + 86400, collected_at=now - 3600)
+    con = db.connect()
+    try:
+        _running_on(con, "beta", "w1")
+    finally:
+        con.close()
+    check("pick: refuses the account while an agent is mid-turn on it",
+          status.pick_account(["beta"])[0] is None)
+    r = doctor.Report()
+    doctor._check_accounts(r)
+    row = next(msg for _lvl, msg, _detail in r.rows if msg.startswith("account beta:")
+              and ("assignable" in msg))
+    check("doctor: agrees - not assignable, not the pick's blind spot",
+          "not assignable" in row, row)
+
+
 def test_fold_is_not_rejected_over_a_header_it_overwrites(home: Path) -> None:
     """The header is stamped after validation, so validating it throws away good
     section work over a line that was about to be replaced - and rejection is
@@ -10215,6 +10242,8 @@ def main() -> int:
         run(lambda: test_burn_rate_ignores_carried_samples(Path(td) / 'burn'))
         run(lambda: test_a_session_figure_is_not_shown_as_an_accounts(Path(td) / 'sessfig'))
         run(lambda: test_doctor_says_one_thing_per_account(Path(td) / 'doc2'))
+        run(lambda: test_doctor_agrees_with_the_pick_about_an_account_with_an_agent_mid_turn(
+            Path(td) / 'docactive'))
         run(lambda: test_fold_is_not_rejected_over_a_header_it_overwrites(Path(td) / 'fhdr'))
         run(lambda: test_display_agrees_with_the_daemon(Path(td) / 'disp'))
         run(lambda: test_spawn_confirms_the_task_landed(Path(td) / 'spawnland'))

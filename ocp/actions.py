@@ -24,8 +24,8 @@ import time
 from pathlib import Path
 
 from . import (accounts, agents, ask as askmod, daemon, db, events as evmod,
-               fold as foldmod, observe as obs, orca, paths, spawn as spawnmod,
-               status, team, triggers)
+               fold as foldmod, load as loadmod, observe as obs, orca, paths,
+               spawn as spawnmod, status, team, triggers)
 
 # The name a human's own requests are sent under, and the inbox `ocp bridge`
 # shows. Taken from `ask`, which is where escalations are addressed: a second
@@ -567,8 +567,10 @@ def stuck(con) -> list[dict]:
         if row["state"] in (daemon.STALLED, daemon.DEGRADED):
             add(f"{row['agent']} is {row['state']}", now - int(row["updated"]),
                 row["detail"] or "", row["agent"])
+    loads = loadmod.read_all(con)
     for acct in paths.list_accounts():
-        allowed, why = status.read(acct).assignable()
+        ld = loads.get(acct)
+        allowed, why = status.read(acct).assignable(ld.active if ld else 0)
         if not allowed:
             add(f"account {acct} takes no work", 0, why)
     return out
@@ -823,7 +825,8 @@ def agent_detail(con, agent: str) -> list[tuple[str, list[str]]]:
 def account_detail(con, acct: str) -> list[tuple[str, list[str]]]:
     """What is behind an account's row, in the same shape as an agent's."""
     st = status.read(acct)
-    allowed, why = st.assignable()
+    ld = loadmod.read_all(con).get(acct)
+    allowed, why = st.assignable(ld.active if ld else 0)
     head = [f"login    {'logged in' if accounts.logged_in(acct) else 'NOT logged in'}",
             f"config   {paths.account_claude(acct)}",
             f"5h       {st.trusted_pct_5h}% ({st.pct_5h_source})   7d {st.pct_7d}%",

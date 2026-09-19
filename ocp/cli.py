@@ -219,7 +219,8 @@ def cmd_account_probe(args) -> int:
         return 1
     print(f"probing {args.account} (one small turn, up to {probemod.PROBE_TIMEOUT_S}s)...")
     st = probemod.run(args.account)
-    allowed, why = st.takes_work()
+    ld = load.read_all().get(args.account)
+    allowed, why = st.takes_work(ld.active if ld else 0)
     age = "-" if st.age_s is None else f"{int(st.age_s)}s"
     print(f"{args.account}: 5h {st.trusted_pct_5h}% ({st.pct_5h_source}), "
           f"7d {st.trusted_pct_7d}%, reading {age} old")
@@ -326,13 +327,15 @@ def cmd_agent_list(args) -> int:
     if not names:
         print("no agents registered.")
         return 0
+    loads = load.read_all()
     for n in names:
         try:
             acct = agents.account_of(n)
         except Exception as e:  # noqa: BLE001
             print(f"{n:<14} <error: {e}>")
             continue
-        allowed, _ = status.read(acct).takes_work()
+        ld = loads.get(acct)
+        allowed, _ = status.read(acct).takes_work(ld.active if ld else 0)
         cfg = agents.read(n)
         budget = " ".join(f"{fn}:{size}B{'!' if over else ''}"
                           for fn, size, _, over in agents.budget_report(n))

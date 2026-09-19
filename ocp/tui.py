@@ -476,10 +476,11 @@ def build(width: int, sel: dict | None = None,
         why_of = dict(ranked)
         for name in paths.list_accounts():
             st = status.read(name)
-            allowed, plain_why = st.takes_work()
+            ld = loads.get(name)
+            allowed, plain_why = st.takes_work(ld.active if ld else 0)
             # The tick beside the name says the pick could use it: not only
             # that it is under the wall but that it has a slot and would last.
-            allowed = allowed and status.unfit(st, loads.get(name)) is None
+            allowed = allowed and status.unfit(st, ld) is None
             # An account outside the ranking (not logged in) has no ranked
             # reason to fall back to - `assignable` already refused it and
             # says why.
