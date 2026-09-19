@@ -361,9 +361,9 @@ def session_present(agent: str) -> bool:
 
 
 # How long a session told `/exit` has to leave the process table. SessionEnd
-# fires at once and the process can outlive it by more than a sweep tick (31s
-# measured), and the sweep reads a closed row over a live process as "running
-# again" and clears the mark.
+# fires at once and the process can outlive it by up to a sweep tick (gone by the
+# next sweep, 31s later, in the one case measured), and the sweep reads a closed
+# row over a live process as "running again" and clears the mark.
 END_WAIT_S = 60
 END_POLL_S = 1
 
@@ -586,13 +586,14 @@ def should_close(con, agent: str, state: str, row, now: int, st) -> bool:
     """Is this agent holding memory for nothing?
 
     Closing is about the machine, not the account, so the question is whether
-    anyone is using this session and whether we can bring it back. Five things
+    anyone is using this session and whether we can bring it back. Six things
     say no: it is working or being handed off, a human has to look at it,
-    someone is waiting on it, it has been busy recently, or we cannot name the
-    session we would resume. Anything else is a session whose only job right now
+    someone is waiting on it, it has been busy recently, we cannot name the
+    session we would resume, or a close of it failed within the last idle
+    window. Anything else is a session whose only job right now
     is to occupy 250-500MB.
 
-    The last one is the asymmetric trade: memory is recoverable the moment
+    The session id is the asymmetric trade: memory is recoverable the moment
     anything wants it, and a working context is not recoverable at all. Closing
     without a session id would buy back the small reversible thing by spending
     the large irreversible one.
@@ -605,6 +606,9 @@ def should_close(con, agent: str, state: str, row, now: int, st) -> bool:
         return False          # work is waiting; closing would only delay it
     if not st.session_id:
         return False          # nothing to resume; losing the context costs more
+    failed = db.last_event_ts(con, agent, "close_failed")
+    if failed is not None and now - failed < IDLE_CLOSE_S:
+        return False          # /exit did not end it; asking every tick types it every tick
     last = db.last_activity(con, agent)
     if last is None:
         return False          # nothing has ever been seen from it - leave it alone
@@ -729,8 +733,10 @@ def _end_session(con, agent: str, log, st, resume: str | None) -> tuple[bool, st
     # records the close if it does end later.
     if not _wait_session_gone(agent):
         pid = (obs.live_sessions() or {}).get(agent)
-        return False, (f"/exit was typed but the session is still running"
-                       f"{f' (pid {pid})' if pid else ''} after {END_WAIT_S}s; not marked closed")
+        why = (f"/exit was typed but the session is still running"
+               f"{f' (pid {pid})' if pid else ''} after {END_WAIT_S}s; not marked closed")
+        db.add_event(con, agent, "close_failed", {"why": why, "pid": pid})
+        return False, why
     db.set_closed(con, agent, resume)
     # RUNNING describes a session that exists. Leaving the label on a closed one
     # makes every screen say the opposite of what happened, and the daemon skips

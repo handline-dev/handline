@@ -2673,6 +2673,63 @@ def test_a_close_is_recorded_only_once_the_process_has_ended(home: Path) -> None
         con.close()
 
 
+def test_a_close_that_will_not_take_is_not_tried_again_every_tick(home: Path) -> None:
+    """The idle schedule asks `should_close` every tick. A session that does
+    not die after /exit must not be typed at again, and must not hold the
+    daemon for the whole wait again, on each of them."""
+    _daemon_home(home, 20)
+    con = db.connect()
+    typed: list[str] = []
+    waits: list[str] = []
+    real = (orcamod.alive, orcamod.wait_idle, orcamod.send, orcamod.available,
+            orcamod.modal_open, dmn._wait_session_gone)
+    try:
+        orcamod.available = lambda: True
+        orcamod.live_terminals = lambda: {"term_x"}
+        orcamod.alive = lambda h: True
+        orcamod.wait_idle = lambda h, timeout_ms=0: True
+        orcamod.modal_open = lambda h: False
+        orcamod.send = lambda h, text, enter=True: (typed.append(text), (True, ""))[1]
+        sessions_are("backend")               # and it stays there whatever is typed
+        dmn._wait_session_gone = lambda agent: (waits.append(agent), False)[1]
+        db.set_terminal(con, "backend", "term_x", "wt")
+        now = int(time.time())
+        write_status(home, "alpha", pct_5h=20, pct_7d=10, ctx_pct=8,
+                     reset_5h=now + 1800)
+        agent_dir = home / "agents" / "backend"
+        agent_dir.mkdir(parents=True, exist_ok=True)
+        (agent_dir / "status.json").write_text(json.dumps({
+            "account": "alpha", "collected_at": now, "session_id": "sess-1",
+            "pct_5h": 20, "ctx_pct": 8}))
+        db.add_event(con, "backend", "Stop", {})
+        con.execute("UPDATE events SET ts = ? WHERE agent = 'backend'",
+                    (now - dmn.IDLE_CLOSE_S - 60,))
+        st = status.read_for_agent("backend", "alpha")
+        check("close: the idle session is due to be closed",
+              dmn.should_close(con, "backend", dmn.IDLE, db.get_agent_state(con, "backend"), now, st))
+
+        for _ in range(3):
+            dmn.supervise(con, "backend", lambda _m: None, int(time.time()), {}, [])
+        check("close: three ticks over a session that will not die type /exit once",
+              typed.count("/exit") == 1, str(typed))
+        check("close: and wait for it once", len(waits) == 1, str(waits))
+        check("close: the failure is on the record",
+              db.last_event_ts(con, "backend", "close_failed") is not None)
+        row = db.get_agent_state(con, "backend")
+        check("close: and the row is not marked closed", row["closed_at"] is None)
+        check("close: a failed close is not activity - it does not restart the idle clock",
+              db.last_activity(con, "backend") == now - dmn.IDLE_CLOSE_S - 60)
+
+        # One idle window later it is tried again.
+        later = now + dmn.IDLE_CLOSE_S + 1
+        check("close: after a full idle window it is due again",
+              dmn.should_close(con, "backend", dmn.IDLE, row, later, st))
+    finally:
+        (orcamod.alive, orcamod.wait_idle, orcamod.send, orcamod.available,
+         orcamod.modal_open, dmn._wait_session_gone) = real
+        con.close()
+
+
 def test_idle_session_is_closed_and_resumed(home: Path) -> None:
     """Memory is the scarce thing on one laptop running a team: an idle session
     holds 250-500MB and earns nothing with it. Closing keeps the terminal, and
@@ -10637,6 +10694,7 @@ def main() -> int:
         run(lambda: test_spawn_base_selection(Path(td) / 'spawn'))
         run(lambda: test_idle_session_is_closed_and_resumed(Path(td) / 'idle'))
         run(lambda: test_a_close_is_recorded_only_once_the_process_has_ended(Path(td) / 'exitwait'))
+        run(lambda: test_a_close_that_will_not_take_is_not_tried_again_every_tick(Path(td) / 'exitretry'))
         run(lambda: test_wake_without_a_closed_session_uses_the_handoff(Path(td) / 'wakeh'))
         run(lambda: test_reconcile_does_not_clear_closed_at_on_a_failed_wake(Path(td) / 'crashwake'))
         run(lambda: test_work_arriving_wakes_a_closed_agent(Path(td) / 'wakework'))
