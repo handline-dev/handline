@@ -77,8 +77,7 @@ NAME_W = 22   # fits `└ orcapipe-manager +2`
 # The state cell carries the time an agent is waiting until ("PARKED·closed
 # 12m05s"): park, a degraded retry and the await fallback all set one. Its width
 # is measured per frame from what the rows print (see `_state_width`), not set
-# for the longest thing it could ever print: that was 24 columns on a screen
-# where nearly every row says RUNNING or IDLE.
+# for the longest thing it could ever print.
 COUNTDOWN_W = 6   # `status.span(precise)`: 12m05s, 5h03m, 6d23h
 # What an agent *is* - its model, its effort, and one day which tool it is at
 # all - against what is happening to it now. The second wins a narrow screen:
@@ -699,7 +698,8 @@ def build(width: int, sel: dict | None = None,
         # the difference between two rows doing the same work at different
         # prices. It sits beside the account for that reason - the two together
         # are what a row costs.
-        cells = [_state_text(db.get_agent_state(con, n)) for n, _, _ in drawn_tree]
+        state_rows = {n: db.get_agent_state(con, n) for n, _, _ in drawn_tree}
+        cells = [_state_text(r) for r in state_rows.values()]
         state_w = _state_width(cells) if cells else 1 + len("state")
         kinds = _kind_fits(width, state_w)
         ag.add(f"{DIM}{'agent':<{NAME_W}}{'acct':<{ACCT_COL}}"
@@ -726,7 +726,7 @@ def build(width: int, sel: dict | None = None,
                        + f"{RED}config error: {e}{R}", key=name)
                 continue
             st = status.read_for_agent(name, acct)
-            row = db.get_agent_state(con, name)
+            row = state_rows[name]
             s, until = _state_text(row)
             # Only when something is actually about to happen. Measured on a
             # live team: nothing firing, six rows reading "— closed" - which

@@ -5101,6 +5101,8 @@ def test_the_state_column_is_as_wide_as_what_it_prints(home: Path) -> None:
         want = tui._state_width([("PARKED·closed", "12m05s")])
         check("state: measured from the longest state and the widest countdown",
               want == 1 + len("PARKED·closed") + 1 + tui.COUNTDOWN_W, str(want))
+        check("state: a shorter countdown does not narrow the column, so it does not breathe",
+              tui._state_width([("PARKED", "9s")]) == tui._state_width([("PARKED", "12m05s")]))
     finally:
         con.close()
 
@@ -5130,6 +5132,15 @@ def test_a_walled_wake_names_the_account_only_with_room(home: Path) -> None:
               when in line(first - 1) and "beta" not in line(first - 1), line(first - 1))
         check("walled: a wider bridge has room for both",
               when in line(first) and "beta" in line(first), line(first))
+        # Kind gives way to the account: wherever the kind column is drawn, the
+        # walled row still names it.
+        with_kind = [w for w in range(50, 200)
+                     if "kind" in tui._ANSI.sub("", tui.frame(w, 40))]
+        check("walled: kind is drawn somewhere in the sweep", bool(with_kind))
+        check("walled: kind is never drawn where the account is not named",
+              all("beta" in line(w) for w in with_kind), str(min(with_kind, default=0)))
+        check("walled: kind first appears a column's width beyond the account",
+              min(with_kind) >= first + tui.KIND_W, f"{min(with_kind)} vs {first}")
     finally:
         dmn.would_wake, launch.wake_wait = real_would_wake, real_wake_wait
         con.close()
