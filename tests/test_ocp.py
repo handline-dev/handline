@@ -1535,7 +1535,7 @@ def test_a_stale_wake_at_does_not_claim_work_that_does_not_exist(home: Path) -> 
         row = db.get_agent_state(con, "backend")
         check("stale wake: with nothing queued, the wake reads IDLE, not QUEUED",
               row["state"] == dmn.IDLE and row["wake_at"] is None
-              and row["detail"] == "wake_at reached with nothing queued", str(dict(row)))
+              and row["detail"] == "wake_at reached; no requests waiting", str(dict(row)))
         check("stale wake: the queue really is empty, not just unread by the wake",
               db.head_of_queue(con, "backend") is None
               and not db.unannounced_answers(con, "backend"))
@@ -4010,6 +4010,7 @@ def test_reconcile_does_not_clear_closed_at_on_a_failed_wake(home: Path) -> None
         orcamod.live_terminals = lambda: {"term_gone"}
         orcamod.wait_idle = lambda h, timeout_ms=0: True
         orcamod.send = relaunching_send(sent, table)
+        db.add_request(con, "marina", "backend", "carry on", None, "peer", "async", None, 0, None)
         dmn.reconcile(con, lambda _m: None)
         row = db.get_agent_state(con, "backend")
         check("reconcile: the retry resumes the session it kept",
@@ -5899,6 +5900,7 @@ def test_a_usage_park_is_woken_when_the_reading_clears(home: Path) -> None:
         write_status(home, "alpha", pct_5h=5, pct_7d=10, ctx_pct=5,
                      reset_5h=int(time.time()) + 1800)
 
+        db.add_request(con, "marina", "backend", "carry on", None, "peer", "async", None, 0, None)
         dmn.supervise(con, "backend", lambda _m: None, int(time.time()), {}, [])
         row = db.get_agent_state(con, "backend")
         check("park: an open session wakes the moment the reading clears, "
@@ -7853,6 +7855,7 @@ def test_an_agent_is_judged_on_the_account_its_process_is_on(home: Path) -> None
         # The same world with the process where the column says: gamma has room.
         db.set_account(con, "backend", "gamma")
         _process_on("gamma")
+        db.add_request(con, "marina", "backend", "carry on", None, "peer", "async", None, 0, None)
         dmn.supervise(con, "backend", lambda _m: None, now, {}, [])
         check("process: on gamma, gamma's room does unpark it",
               db.get_agent_state(con, "backend")["state"] == dmn.QUEUED,
