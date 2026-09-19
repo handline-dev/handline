@@ -10578,6 +10578,86 @@ def test_the_screen_says_what_is_stuck_and_what_was_decided(home: Path) -> None:
         con.close()
 
 
+def test_the_messenger_tab_carries_a_conversation_both_ways(home: Path) -> None:
+    """The founder writes in the tab, the agent answers, and the answer is in
+    the tab on the next redraw - with the message sent whole and under its
+    thread, and the unread count on the tab until it has been read."""
+    _daemon_home(home, 20)
+    agents.register("reviewer", "alpha")
+    con = db.connect()
+    try:
+        def tab() -> tuple[str, list[str]]:
+            return next((h, r) for h, r in actions.agent_detail(con, "reviewer")
+                        if h.startswith(actions.CHAT_TAB))
+
+        check("chat: empty says so", "nothing yet" in tab()[1][0], str(tab()))
+        body = "first line\n\nthird line, after a blank\n" + "long " * 60
+        said = actions.chat_reply(con, "reviewer", body)
+        check("chat: a first message is sent", actions.chat_parent(con, "reviewer") is not None, said)
+        first = actions.chat_parent(con, "reviewer")
+        row = db.get_request(con, first)
+        check("chat: the multi-line body is stored whole", row["body"] == body, repr(row["body"])[:60])
+        check("chat: and drawn whole",
+              any("third line, after a blank" in ln for ln in tab()[1])
+              and sum(ln.count("long") for ln in tab()[1]) == 60)
+
+        # The agent answers, from its side.
+        ok, _ = askmod.resolve(first, "done: rebased\nand pushed")
+        head, rows = tab()
+        check("chat: the answer is there on the next read", any("rebased" in r for r in rows)
+              and any("and pushed" in r for r in rows), str(rows))
+        check("chat: and counted on the tab", head == "CONVERSATION (1 new)", head)
+        actions.chat_seen(con, "reviewer")
+        check("chat: seen clears the count", tab()[0] == "CONVERSATION", tab()[0])
+
+        # The open page follows the database on its own redraw.
+        page = tui._agent_page(con, "reviewer", tui.AGENTS)
+        page["tab"] = [h for h, _ in page["sections"] if h].index("CONVERSATION")
+        tui.lines_of(page, 100)
+        actions.chat_reply(con, "reviewer", "one more")
+        askmod.resolve(actions.chat_parent(con, "reviewer"), "second answer, landing while it is open")
+        page = tui._refreshed(page)
+        check("chat: an open page shows an answer on its next redraw",
+              any("landing while it is open" in ln for ln in tui.lines_of(page, 100)))
+        check("chat: and reading it marks it read", actions.chat_unread(con, "reviewer") == 0)
+
+        # A reply goes under the thread it continues.
+        before = actions.chat_parent(con, "reviewer")
+        actions.chat_reply(con, "reviewer", "thanks - now the docs")
+        first = before
+        second = db.get_request(con, actions.chat_parent(con, "reviewer"))
+        check("chat: a reply keeps the chain", second["chain_id"] == row["chain_id"]
+              and second["parent_id"] == first, str(dict(second)))
+        check("chat: one chain header, not two",
+              sum(r.startswith("── chain") for r in tab()[1]) == 1, str(tab()[1]))
+
+        # An agent's question to the human is answered, not asked under.
+        rid, = [askmod.ask(actions.HUMAN, "which name?", requester="reviewer")[2]]
+        actions.chat_reply(con, "reviewer", "call it x")
+        check("chat: a question to the human is closed by the reply",
+              db.get_request(con, rid)["state"] == "done"
+              and db.get_request(con, rid)["verdict"] == "call it x")
+    finally:
+        con.close()
+
+
+def test_the_composer_takes_a_paste_whole(home: Path) -> None:
+    """Enter sends, so a pasted newline must not: the old one-line prompt sent
+    the first pasted line and dropped the rest (#193)."""
+    c = tui.Composer()
+    check("composer: typing", c.feed("hi") is None and c.text == "hi")
+    check("composer: a paste keeps its newlines and does not send",
+          c.feed("\033[200~a\nb\r\nc\033[201~") is None and c.text == "hia\nb\nc", repr(c.text))
+    check("composer: Enter after it sends", c.feed("\r") == "send")
+    c = tui.Composer()
+    c.feed("\033[20"); c.feed("0~x\ny\033[20"); c.feed("1~")
+    check("composer: a marker split across reads is still a marker",
+          c.text == "x\ny" and not c.pasting, repr(c.text))
+    check("composer: an arrow is neither text nor a way out",
+          tui.Composer().feed("\033[A") is None)
+    check("composer: a bare escape cancels", tui.Composer().feed("\033") == "cancel")
+
+
 def test_a_message_is_read_whole_and_answered_where_it_is_read(home: Path) -> None:
     """An agent's report arrives as one paragraph with no newline in it, and
     fitting that to the width shows its first sentence and drops the rest -
@@ -12556,6 +12636,8 @@ def main() -> int:
         run(lambda: test_the_panel_and_the_daemon_agree_about_what_is_in_the_way(Path(td) / 'topagree'))
         run(lambda: test_the_screen_says_what_is_stuck_and_what_was_decided(Path(td) / 'topstuck'))
         run(lambda: test_a_message_is_read_whole_and_answered_where_it_is_read(Path(td) / 'topread'))
+        run(lambda: test_the_messenger_tab_carries_a_conversation_both_ways(Path(td) / 'chat'))
+        run(lambda: test_the_composer_takes_a_paste_whole(Path(td) / 'composer'))
         run(lambda: test_a_key_never_acts_on_a_row_nobody_pointed_at(Path(td) / 'topsel'))
         run(lambda: test_the_frame_never_draws_wider_than_the_terminal(Path(td) / 'topwide'))
         run(lambda: test_the_cursor_walks_the_whole_screen(Path(td) / 'topcur'))

@@ -814,9 +814,17 @@ def _agent_page(con, name: str, panel: int = AGENTS, title: str | None = None,
     and the scroll the reader was at."""
     d = page(title or f"agent {name}", actions.agent_detail(con, name), panel, name,
              picks={"WAITING FOR IT": actions.waiting_ids(con, name)})
+    d["agent"] = name
     if old:
-        for k in ("tab", "at", "top"):
+        for k in ("tab", "at", "top", "end", "stem"):
             d[k] = old.get(k, 0)
+        # A tab that appears or goes (ANSWERS IT HAS NOT BEEN TOLD) moves the
+        # others; the reader stays on the section they were reading.
+        stems = [h.split(" (")[0] for h, _ in d["sections"] if h]
+        if old.get("stem") in stems:
+            d["tab"] = stems.index(old["stem"])
+        if old.get("stem") == actions.CHAT_TAB:
+            actions.chat_seen(con, name)
         # The row it was on may be the one that just left.
         d["at"] = max(0, min(d["at"], len(d["picks"]["WAITING FOR IT"]) - 1))
     return d
@@ -864,6 +872,7 @@ def lines_of(detail: dict, width: int) -> list[str]:
     # then repeated the open tab's name, the page said "EARLIER WITH MANAGER"
     # twice in two lines.
     heading, rows = tabs[at]
+    detail["stem"] = heading.split(" (")[0]
     box = Panel(_tabstrip([h for h, _ in tabs], at), width, plain_title=True)
     # Wrapped into the box, not fitted to it: what is quoted here is a message
     # someone wrote, and a box that ends every line in "…" is not a section
@@ -1014,8 +1023,12 @@ def _detail_frame(width: int, height: int, detail: dict, flash: str = "") -> str
     """
     body = lines_of(detail, width)
     room = max(1, height - 4)
-    top = max(0, min(detail.get("top", 0), max(0, len(body) - room)))
+    last = max(0, len(body) - room)
+    top = max(0, min(detail.get("top", 0), last))
+    if detail.get("stem") == actions.CHAT_TAB and detail.get("end"):
+        top = last                     # a conversation read at its end stays there
     detail["top"] = top
+    detail["end"] = top >= last
     shown = body[top:top + room]
     while len(shown) < room:
         shown.append("")
@@ -1025,6 +1038,8 @@ def _detail_frame(width: int, height: int, detail: dict, flash: str = "") -> str
             else "esc back · ←→ section · ↑↓ scroll")
     if detail.get("sections") is None or not [h for h, _ in detail["sections"] if h]:
         keys = "esc back · ↑↓ scroll · space page"
+    if detail.get("stem") == actions.CHAT_TAB:
+        keys = "esc back · ←→ section · ↑↓ scroll · ↵ write · e in $EDITOR"
     if detail.get("panel") == MESSAGES:
         keys += " · a answer · e answer in $EDITOR · x dismiss"
     elif detail.get("panel") in (AGENTS, STUCK):
@@ -1164,6 +1179,89 @@ def _line(prompt: str, width: int, height: int) -> str | None:
             buf += ch
 
 
+PASTE_ON, PASTE_OFF = "\033[?2004h", "\033[?2004l"
+
+
+class Composer:
+    """Text typed on the bottom line, as many lines as the sender pasted.
+
+    Enter sends, so a newline inside the message cannot be told from Enter -
+    except in a bracketed paste, where the terminal says where the pasted text
+    begins and ends. Text between those markers is kept whole, newlines
+    included; the line-at-a-time prompt this replaces sent the first pasted line
+    and dropped the rest.
+    """
+    START, END = "\033[200~", "\033[201~"
+
+    def __init__(self) -> None:
+        self.text, self.pasting, self._carry = "", False, ""
+
+    def feed(self, data: str) -> str | None:
+        """'send', 'cancel', or None while the message is still being typed."""
+        data, self._carry = self._carry + data, ""
+        while data:
+            if data.startswith(self.START):
+                self.pasting, data = True, data[len(self.START):]
+            elif data.startswith(self.END):
+                self.pasting, data = False, data[len(self.END):]
+            elif 1 < len(data) < 6 and (self.START.startswith(data) or self.END.startswith(data)):
+                self._carry = data         # a marker cut in two by the read
+                return None
+            elif self.pasting:
+                ch, data = data[0], data[1:]
+                if ch == "\r" and data[:1] == "\n":
+                    data = data[1:]
+                self.text += "\n" if ch in "\r\n" else ch
+            elif data[0] in "\r\n":
+                return "send"
+            elif data[0] == "\033":
+                if data[1:2] in ("[", "O") and len(data) >= 3:
+                    data = data[3:]        # an arrow: not text, not a way out
+                else:
+                    return "cancel"
+            elif data[0] in ("\x7f", "\b"):
+                self.text, data = self.text[:-1], data[1:]
+            elif data[0] == "\x03":
+                return "cancel"
+            else:
+                ch, data = data[0], data[1:]
+                if ch.isprintable():
+                    self.text += ch
+        return None
+
+    def shown(self, prompt: str, width: int) -> str:
+        n = self.text.count("\n")
+        last = self.text.rsplit("\n", 1)[-1]
+        more = f"{DIM}[{n + 1} lines]{R} " if n else ""
+        return fit(f"{BOLD}{prompt}{R} {more}{last}▏", width)
+
+
+def _lines(prompt: str, width: int, height: int) -> str | None:
+    """A message typed or pasted on the bottom line, whole. None when backed out."""
+    if not sys.stdin.isatty():
+        return None
+    fd = sys.stdin.fileno()
+    box = Composer()
+    sys.stdout.write(PASTE_ON)
+    try:
+        while True:
+            sys.stdout.write(f"\033[{height};1H" + CLEAR_EOL + box.shown(prompt, width))
+            sys.stdout.flush()
+            if not select.select([fd], [], [], 30.0)[0]:
+                continue
+            try:
+                data = os.read(fd, 4096).decode(errors="ignore")
+            except OSError:
+                return None
+            done = box.feed(data)
+            if done == "cancel":
+                return None
+            if done == "send":
+                return box.text.strip("\n") or None
+    finally:
+        sys.stdout.write(PASTE_OFF)
+
+
 def _confirm(what: str, width: int, height: int) -> bool:
     if not sys.stdin.isatty():
         return False
@@ -1230,6 +1328,7 @@ def run(interval: float = 2.0, once: bool = False) -> int:
         sys.stdout.write(ALT_ON + CUR_OFF)
         while True:
             settle(sel, known)
+            detail = _refreshed(detail)
             size = shutil.get_terminal_size((100, 40))
             width, height = size.columns, size.lines
             sys.stdout.write(HOME + frame(width, height, sel, panel, flash, detail))
@@ -1265,6 +1364,24 @@ def run(interval: float = 2.0, once: bool = False) -> int:
             termios.tcsetattr(fd, termios.TCSADRAIN, saved)
 
 
+def _refreshed(detail: dict | None) -> dict | None:
+    """An open agent page as the database has it now.
+
+    The screen redraws every interval, and a page laid out once would show a
+    conversation as it was when it was opened - an answer landing while it is
+    read would not appear until the reader backed out and came back.
+    """
+    if not detail or not detail.get("agent"):
+        return detail
+    con = db.connect()
+    try:
+        return _agent_page(con, detail["agent"], detail["panel"], detail["title"], detail)
+    except Exception:  # noqa: BLE001
+        return detail                  # a read that fails leaves the last page up
+    finally:
+        con.close()
+
+
 def _in_detail(detail: dict, k: str, width: int, height: int,
                fd=None, saved=None) -> tuple[dict | None, str]:
     """One keypress while something is open. Returns (what is open now, line).
@@ -1278,12 +1395,14 @@ def _in_detail(detail: dict, k: str, width: int, height: int,
         return None, ""
     if k in ("\033[C", "\033OC", "\t"):
         detail["tab"] = detail.get("tab", 0) + 1
-        detail["top"] = 0
+        detail["top"], detail["end"] = 0, True
         return detail, ""
     if k in ("\033[D", "\033OD", "\033[Z"):
         detail["tab"] = max(0, detail.get("tab", 0) - 1)
-        detail["top"] = 0
+        detail["top"], detail["end"] = 0, True
         return detail, ""
+    if detail.get("stem") == actions.CHAT_TAB and k in ("\r", "\n", "e", "m"):
+        return _write_in_thread(detail, k, width, height, fd, saved)
     picks = _open_picks(detail)
     if picks and k in ("j", "\033[B", "\033OB", "k", "\033[A", "\033OA"):
         down = k in ("j", "\033[B", "\033OB")
@@ -1364,6 +1483,29 @@ def _in_detail(detail: dict, k: str, width: int, height: int,
         # start, a request resolved from elsewhere between the read and the
         # reply. That is this key's failure, not the screen's.
         return detail, f"{RED}{type(e).__name__}: {e}{R}"
+    finally:
+        con.close()
+
+
+def _write_in_thread(detail: dict, k: str, width: int, height: int,
+                     fd, saved) -> tuple[dict, str]:
+    """The composer under a conversation: what is typed goes under its thread."""
+    name = str(detail["key"])
+    con = db.connect()
+    try:
+        allowed, why = actions.can(con, name, "message")
+        if not allowed:
+            return detail, why
+        if k == "e":
+            body = _editor(f"# a message to {name}. Lines starting with # are dropped.\n",
+                           fd, saved)
+        else:
+            body = _lines(f"to {name}:", width, height)
+        if body is None:
+            return detail, _nothing_sent(k)
+        said = actions.chat_reply(con, name, body)
+        detail["end"] = True
+        return _agent_page(con, name, detail["panel"], detail["title"], detail), said
     finally:
         con.close()
 

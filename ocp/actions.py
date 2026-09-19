@@ -887,6 +887,139 @@ def can(con, agent: str, key: str) -> tuple[bool, str]:
     return True, ""
 
 
+# ------------------------------------------------------------ the conversation
+# Chains shown in the tab, newest last. A chain is a thread; an agent that has
+# been at work for a week has more of them than a page can hold.
+CHAT_CHAINS = 8
+CHAT_TAB = "CONVERSATION"
+
+
+def _chat_rows(con, agent: str) -> list:
+    """Every row of every chain the human and `agent` have a row in."""
+    return con.execute(
+        "SELECT id, ts, resolved_at, requester, target, state, body, verdict, "
+        "chain_id, delivered_at, fyi FROM requests "
+        "WHERE state != 'denied' AND chain_id IN ("
+        "  SELECT chain_id FROM requests WHERE "
+        "  (requester = ? AND target = ?) OR (requester = ? AND target = ?)) "
+        "ORDER BY id", (HUMAN, agent, agent, HUMAN)).fetchall()
+
+
+def _said(text: str | None, at: str, who: str, tail: str = "") -> list[str]:
+    """One message, whole: its first line beside who said it, the rest under."""
+    lines = (text or "").splitlines() or ["(empty)"]
+    pad = " " * 7
+    out = [f"{at}  {who}  {lines[0]}"] + [f"{pad}{ln}" for ln in lines[1:]]
+    if tail:
+        out.append(f"{pad}({tail})")
+    return out
+
+
+def conversation(con, agent: str) -> list[str]:
+    """The human's conversation with `agent`, in time order, a thread at a time.
+
+    A thread is a chain_id. Every row of a chain is drawn, not only the rows
+    between the two of them, so what the agent asked a third agent on the way to
+    answering is visible where it happened. One row is two messages - the ask
+    and, once closed, its verdict - and each is placed at its own time.
+    """
+    chains: dict[str, list] = {}
+    for r in _chat_rows(con, agent):
+        chains.setdefault(str(r["chain_id"]), []).append(r)
+    threads = []
+    for cid, rows in chains.items():
+        msgs = []
+        for r in rows:
+            mine = r["requester"] == HUMAN
+            between = HUMAN in (r["requester"], r["target"])
+            who = ("you" if mine else r["requester"]) if between \
+                else f"{r['requester']} → {r['target']}"
+            tail = ""
+            if r["state"] == "queued":
+                tail = ("waiting for you" if r["target"] == HUMAN else
+                        f"delivered {time.strftime('%H:%M', time.localtime(r['delivered_at']))}"
+                        if r["delivered_at"] else "queued")
+            msgs.append((r["ts"], r["id"], 0, _said(r["body"], _hm(r["ts"]), who, tail)))
+            if r["verdict"]:
+                back = r["target"] if between and mine else "you" if between \
+                    else r["target"]
+                msgs.append((r["resolved_at"] or r["ts"], r["id"], 1,
+                             _said(r["verdict"], _hm(r["resolved_at"] or r["ts"]),
+                                   f"↩ {back}")))
+        msgs.sort(key=lambda m: m[:3])
+        threads.append((max(m[0] for m in msgs), cid, msgs))
+    threads.sort(key=lambda t: t[0])
+    out: list[str] = []
+    for _, cid, msgs in threads[-CHAT_CHAINS:]:
+        out.append(f"── chain {cid} " + "─" * 20)
+        out += [ln for m in msgs for ln in m[3]]
+    if not out:
+        out.append(f"nothing yet between you and {agent}")
+    parent = chat_parent(con, agent)
+    out += ["", f"↵ write to {agent}" + (f" · goes under #{parent}" if parent else
+                                        " · starts a new thread") + " · e in $EDITOR"]
+    return out
+
+
+def _hm(ts) -> str:
+    return time.strftime("%m-%d %H:%M", time.localtime(ts or 0))
+
+
+def chat_parent(con, agent: str) -> int | None:
+    """The row a new message from the human goes under: the latest one between them."""
+    row = con.execute(
+        "SELECT MAX(id) AS m FROM requests WHERE state != 'denied' AND "
+        "((requester = ? AND target = ?) OR (requester = ? AND target = ?))",
+        (HUMAN, agent, agent, HUMAN)).fetchone()
+    return int(row["m"]) if row and row["m"] else None
+
+
+def chat_reply(con, agent: str, body: str) -> str:
+    """Send the human's message under the conversation it continues.
+
+    Under the latest row between them, which decides what "reply" means: to a
+    request the agent is waiting on, the reply is its answer (an ask under it
+    would leave it queued in the mailbox and the agent parked); to an answer
+    already back, it is a new ask in that thread; to the human's own unanswered
+    ask, it is a follow-up in the same thread.
+    """
+    if not body.strip():
+        return "nothing sent: no message typed"
+    rid = chat_parent(con, agent)
+    if rid is None:
+        return message(con, agent, body)
+    row = db.get_request(con, rid)
+    if row["requester"] == agent and row["target"] == HUMAN and row["state"] == "queued":
+        return answer(con, rid, body)
+    if _is_answer_to_human(row):
+        return answer(con, rid, body)
+    ok, msg, _ = askmod.ask(agent, body, requester=HUMAN, parent_id=rid)
+    return msg
+
+
+def _seen_key(agent: str) -> str:
+    return f"seen:{agent}"
+
+
+def chat_unread(con, agent: str) -> int:
+    """What `agent` has said to the human since the tab was last open.
+
+    Counted from a time, not a row id: an answer lands on an old row, so ids
+    arrive out of order and an id cursor would step past the older one for good.
+    """
+    seen = db.get_cursor(con, _seen_key(agent))
+    row = con.execute(
+        "SELECT COUNT(*) AS n FROM requests WHERE state != 'denied' AND "
+        "((requester = ? AND target = ? AND ts > ?) OR "
+        " (requester = ? AND target = ? AND verdict IS NOT NULL AND resolved_at > ?))",
+        (agent, HUMAN, seen, HUMAN, agent, seen)).fetchone()
+    return int(row["n"])
+
+
+def chat_seen(con, agent: str) -> None:
+    db.set_cursor(con, _seen_key(agent), int(time.time()))
+
+
 def agent_detail(con, agent: str) -> list[tuple[str, list[str]]]:
     """What is behind an agent's row, in sections a screen can draw.
 
@@ -948,6 +1081,9 @@ def agent_detail(con, agent: str) -> list[tuple[str, list[str]]]:
                   "SELECT ts, kind, payload FROM events WHERE agent = ? "
                   "ORDER BY id DESC LIMIT 12", (agent,)).fetchall()]
     sections.append(("WHAT IT HAS DONE", recent or ["nothing recorded yet"]))
+    n = chat_unread(con, agent)
+    sections.append((CHAT_TAB + (f" ({n if n < 100 else '99+'} new)" if n else ""),
+                     conversation(con, agent)))
     return sections
 
 
