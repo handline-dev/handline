@@ -18,11 +18,18 @@ opposite right answers. This module names five cases instead of two:
     carried      an earlier reading, still inside its window and recent enough
     carried_old  the same, but observed longer ago than we will assign on
     quiet        a live collector, and nobody has spent in this window -> 0%
-    unknown      no snapshot, unreadable, too old, or a reading we lost
+    unknown      no snapshot, unreadable, a reading we lost, or too old to trust
 
 `quiet` and `unknown` are the pair that matters: treating quiet as unknown
 parks idle agents, which buys nothing, while treating
 unknown as quiet hands out work on an account that may be at the wall.
+
+A snapshot too old to trust as a live figure is not automatically unknown,
+though: while its window has not rolled over, nothing but this daemon spends
+on an account, and nothing of ours is running on one that has gone quiet - so
+the last reading is still an exact floor, not a guess (`idle_floor`). Once the
+window rolls over that stops holding, because what happened since is
+unaccounted for; only a probe answers for it then.
 
 A carried figure is a floor, not a measurement: usage inside a window only
 rises, so the true number is at least that. The same is true, unmarked, of a
@@ -262,15 +269,12 @@ class AccountStatus:
             return False, f"status.json unreadable: {self.error} (fail-closed)"
         if self.stale:
             idle_ok, idle_why = self.idle_floor()
-            if idle_ok:
-                return True, idle_why
+            if idle_why:
+                return idle_ok, idle_why
             # In the units a reader thinks in. "59213s > 900s" is two numbers
             # nobody subtracts; the line is on a dashboard, and what it has to
             # say is how long ago anything ran on this account.
             shown = "unknown" if self.age_s is None else _ago(self.age_s)
-            last = self.last_known()
-            if last:
-                return False, f"{last} - stale, not offered"
             return False, (f"nothing has run on it for {shown} - the snapshot is "
                            f"stale (fail-closed)")
         pct = self.trusted_pct_5h
@@ -356,9 +360,11 @@ class AccountStatus:
         now = time.time()
         if not self.reset_5h or self.reset_5h <= now:
             return False, ""  # rolled_over's case, not this one
+        last = self.last_known()
+        text = last or f"5h {self.pct_5h}%"
         if self.pct_5h >= PCT_5H_BLOCK:
-            return False, f"5h {self.pct_5h}% when last seen - at the wall"
-        return True, f"stale but idle, 5h {self.pct_5h}% when last seen"
+            return False, f"{text} when last seen - at the wall"
+        return True, f"{text} - stale but idle"
 
     def headroom(self) -> int | None:
         """Remaining 5h headroom in percent, or None when unknown."""

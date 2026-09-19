@@ -7439,10 +7439,12 @@ def test_the_cold_start_is_measured_and_sets_how_long_to_wait(home: Path) -> Non
         con.close()
 
 
-def test_a_stale_snapshot_shows_its_last_figures_and_still_is_not_offered(home: Path) -> None:
+def test_a_stale_snapshot_shows_its_last_figures_and_still_is_offered(home: Path) -> None:
     """The last known 5h and 7d figures are shown with their age wherever an
-    account is, and a reset that has passed is said. Display only: the pick
-    refuses the account as before."""
+    account is, and a reset that has passed is said. An idle account whose
+    window has not passed keeps its floor: nothing has spent on it since the
+    last reading, so it is still offered on that figure, not refused merely
+    for being old."""
     _daemon_home(home, 20)
     _with_accounts("alpha", "beta")
     now = int(time.time())
@@ -7452,12 +7454,12 @@ def test_a_stale_snapshot_shows_its_last_figures_and_still_is_not_offered(home: 
                  reset_7d=now + 86400, collected_at=now - 3600)
     st = status.read("beta")
     ok, why = st.takes_work()
-    check("stale: the reason has the last 5h and 7d with the snapshot's age",
-          not ok and "5h 41% (60m old), 7d 20%" in why and "not offered" in why, why)
+    check("stale: an idle account inside its window keeps its floor, and is offered",
+          ok and "5h 41% (60m old), 7d 20%" in why and "stale but idle" in why, why)
     picked, ranked = status.pick_account(["beta"], load={})
-    check("stale: the pick still refuses it, and says the figures",
-          picked is None and "5h 41%" in dict(ranked)["beta"], str(ranked))
-    check("stale: nothing that decides reads the number",
+    check("stale: the pick uses it, on the last figure seen",
+          picked == "beta" and "5h 41%" in dict(ranked)["beta"], str(ranked))
+    check("stale: nothing that decides reads the number directly",
           st.trusted_pct_5h is None)
     out = _capture(lambda: climod.main(["account", "list"]))
     check("stale: `ocp account list` shows it", "5h 41% (60m old)" in out, out)
@@ -7472,8 +7474,11 @@ def test_a_stale_snapshot_shows_its_last_figures_and_still_is_not_offered(home: 
                  collected_at=now - 3600)
     check("stale: with no figure on file the cell is still ?",
           "?%" in tui.account_cells("beta", status.read("beta"))["five"])
-    write_status(home, "beta", pct_5h=41, pct_7d=20, reset_5h=now + 1800,
+    write_status(home, "beta", pct_5h=100, pct_7d=20, reset_5h=now + 1800,
                  reset_7d=now + 86400, collected_at=now - 3600)
+    why = status.read("beta").takes_work()[1]
+    check("stale: at the wall when last seen still refuses",
+          not status.read("beta").takes_work()[0] and "at the wall" in why, why)
     write_status(home, "beta", pct_5h=41, pct_7d=20, reset_5h=now - 600,
                  reset_7d=now + 86400, collected_at=now - 3600)
     why = status.read("beta").takes_work()[1]
@@ -10196,7 +10201,7 @@ def main() -> int:
         run(lambda: test_at_the_wall_it_is_a_cost_comparison_not_a_line(Path(td) / 'ar2'))
         run(lambda: test_a_working_agent_is_not_handed_off_on_a_percentage(Path(td) / 'ar3'))
         run(lambda: test_the_cold_start_is_measured_and_sets_how_long_to_wait(Path(td) / 'ar4'))
-        run(lambda: test_a_stale_snapshot_shows_its_last_figures_and_still_is_not_offered(Path(td) / 'ar4c'))
+        run(lambda: test_a_stale_snapshot_shows_its_last_figures_and_still_is_offered(Path(td) / 'ar4c'))
 
 
         run(lambda: test_a_span_of_a_day_or_more_reads_in_days(Path(td) / 'ar4f'))
