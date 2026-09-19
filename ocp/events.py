@@ -34,7 +34,7 @@ CAPTURED = {
 ALLOWLIST = (
     "session_id", "hook_event_name", "source", "reason", "cwd",
     "prompt_length", "transcript_path", "model", "trigger",
-    "tool_name",
+    "tool_name", "error", "error_details",
 )
 
 
@@ -47,13 +47,49 @@ def _slim(raw: dict) -> dict:
         if k == "transcript_path":
             out[k] = str(v)
         elif isinstance(v, (str, int, float, bool)):
-            out[k] = v if not isinstance(v, str) else v[:400]
+            out[k] = v if not isinstance(v, str) else v[:200 if k == "error_details" else 400]
         elif isinstance(v, dict) and k == "model":
             out[k] = v.get("id")
     # A prompt's text is never stored; its length is enough signal.
     if "prompt" in raw and isinstance(raw["prompt"], str):
         out["prompt_length"] = len(raw["prompt"])
     return out
+
+
+# StopFailure's `error` is the error type claude reports; a usage limit is
+# this one. Classified on that field only - never on text, which on this team
+# is full of talk about usage limits.
+LIMIT_ERROR = "rate_limit"
+
+
+def limit_reason(raw: dict) -> tuple[str, str] | None:
+    """(text, where it was read from) when this StopFailure is a usage limit."""
+    if raw.get("error") != LIMIT_ERROR:
+        return None
+    details = raw.get("error_details")
+    text = details if isinstance(details, str) and details else LIMIT_ERROR
+    return text[:200], "payload.error"
+
+
+def at_limit(con, agent: str) -> dict | None:
+    """The limit this agent's last turn ended on, if nothing has run since.
+
+    Latest of StopFailure and UserPromptSubmit: a prompt after the failure means
+    the agent is working again (a move's wake types one). Carries the event's
+    `ts` as `at`.
+    """
+    row = con.execute(
+        "SELECT kind, payload, ts FROM events WHERE agent = ? AND kind IN "
+        "('StopFailure', 'UserPromptSubmit') ORDER BY id DESC LIMIT 1", (agent,)).fetchone()
+    if not row or row["kind"] != "StopFailure":
+        return None
+    try:
+        data = json.loads(row["payload"])
+    except (TypeError, ValueError):
+        return None
+    if not (isinstance(data, dict) and data.get("limit")):
+        return None
+    return dict(data, at=int(row["ts"]))
 
 
 def record_from_stdin(argv: list[str] | None = None) -> int:
@@ -86,8 +122,13 @@ def record_from_stdin(argv: list[str] | None = None) -> int:
     try:
         con = db.connect()
         try:
-            db.add_event(con, agent, event, _slim(raw), account=account)
-            _mark_activity(con, agent, event)
+            payload = _slim(raw)
+            if event == "StopFailure":
+                lim = limit_reason(raw)
+                if lim:
+                    payload["limit"], payload["limit_source"] = lim
+            db.add_event(con, agent, event, payload, account=account)
+            _mark_activity(con, agent, event, payload)
         finally:
             con.close()
     except Exception:  # noqa: BLE001 - a hook must never break the session
@@ -123,7 +164,7 @@ QUIET_EVENTS = {"Stop"}
 PROTECTED_STATES = {"STALLED", "HANDOFF"}
 
 
-def _mark_activity(con, agent: str, event: str) -> None:
+def _mark_activity(con, agent: str, event: str, payload: dict | None = None) -> None:
     """Let the daemon know whether the agent is working.
 
     Without this, agent_state only ever changes when the daemon itself changes
@@ -144,6 +185,11 @@ def _mark_activity(con, agent: str, event: str) -> None:
         if row and row["state"] == "RUNNING" and not row["wake_at"]:
             return  # already correct; do not rewrite on every prompt
         db.set_agent_state(con, agent, "RUNNING", wake_at=None, detail=f"active ({event})")
+    elif event == "StopFailure" and payload and payload.get("limit"):
+        # Out of usage is not working: the turn ended and nothing will run.
+        if row and row["state"] == "RUNNING":
+            db.set_agent_state(con, agent, "IDLE", wake_at=None,
+                               detail=f"at its usage limit: {payload['limit'][:80]}")
     elif event in QUIET_EVENTS and row and row["state"] == "RUNNING":
         db.set_agent_state(con, agent, "IDLE", wake_at=None,
                            detail="finished its turn")

@@ -31,7 +31,7 @@ import uuid
 from dataclasses import dataclass
 from pathlib import Path
 
-from . import (agents, db, fold as foldmod, launch, lock, observe as obs, orca,
+from . import (agents, db, events, fold as foldmod, launch, lock, observe as obs, orca,
                paths, service, spawn as spawnmod, status, triggers)
 
 # Section 8.2 states.
@@ -45,6 +45,9 @@ THROTTLED, STALLED = "THROTTLED", "STALLED"
 # RUNNING is set by the agent's own hooks, so a working agent is never treated
 # as parked and never woken mid-task.
 EVALUATED = {RUNNING, HANDOFF, PARKED, QUEUED, THROTTLED, IDLE, DEGRADED}
+
+# How long after a limit StopFailure the agent counts as settled, probe or not.
+LIMIT_SETTLE_S = 30
 
 # How long a DEGRADED agent waits before the daemon retries it.
 DEGRADED_RETRY_S = 600
@@ -1107,7 +1110,12 @@ def perform_handoff(con, agent: str, trigger: triggers.Trigger, log,
 
     handle = db.get_terminal(con, agent)
     if handle and orca.available():
-        if not orca.idle_now(handle):
+        # A turn that ended on the usage limit and has stayed quiet for a while
+        # is over, whatever the terminal's activity probe still says; sooner
+        # than that a person may be typing, so the probe still decides.
+        stopped = events.at_limit(con, agent)
+        settled = stopped and int(time.time()) - stopped["at"] >= LIMIT_SETTLE_S
+        if not settled and not orca.idle_now(handle):
             log(f"  {agent}: {trigger.kind} fired but the agent is mid-turn - deferring")
             return True
         if not session_present(agent):
@@ -1452,7 +1460,11 @@ def supervise(con, agent: str, log, now: int, samples: dict,
     # in this tick is told on the next one: it is still reading the prompt that
     # brought it back, and typing at it now would leave the text in its input
     # box unsent.
-    if state not in (RUNNING, HANDOFF) and not woke_now \
+    # An agent whose turn ended on the usage limit cannot run one: typing work
+    # into it would start a turn that fails at once, mark the request
+    # delivered, and clear the very mark that says it is at the wall.
+    at_wall = events.at_limit(con, agent)
+    if state not in (RUNNING, HANDOFF) and not woke_now and not at_wall \
             and not (row and row["closed_at"]):
         # An answer first: an agent that asked something and parked is waiting
         # on that, and telling it about new work while its own question is
@@ -1465,7 +1477,7 @@ def supervise(con, agent: str, log, now: int, samples: dict,
     # costs no tokens, and answers no one. Closing it is not a handoff -
     # nothing is folded, nothing is cleared - and waking it resumes the
     # same session, so the only thing that changes is who has the memory.
-    if should_close(con, agent, state, row, now, st):
+    if not at_wall and should_close(con, agent, state, row, now, st):
         ok, _ = close_agent(con, agent, log, st)
         if ok:
             actions.append(f"{agent}: session closed while idle")
@@ -1529,6 +1541,15 @@ def supervise(con, agent: str, log, now: int, samples: dict,
     # unknown, so an idle agent is left alone instead of handed off.
     t = triggers.evaluate(st.trusted_pct_5h, st.trusted_ctx_pct, burn=burn,
                           pct_7d=st.trusted_pct_7d)
+    # A turn that ended on the usage limit means the agent is at the wall
+    # whatever the reading says (it can lag, or be the other window): move it
+    # the same way a trigger would.
+    stopped = at_wall
+    if stopped and not (t.fired and t.kind in MOVABLE_TRIGGERS):
+        text = stopped["limit"]
+        t = triggers.Trigger(True, "usage_7d" if "week" in text.lower() else "usage",
+                             f"turn ended on its usage limit: {text} "
+                             f"(read from {stopped.get('limit_source', '?')})")
     if t.fired:
         ok = perform_handoff(con, agent, t, log, use_model=use_model)
         actions.append(f"{agent}: handoff ({t.kind}){'' if ok else ' -> degraded'}")

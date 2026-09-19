@@ -6342,6 +6342,99 @@ def test_room_is_filtered_before_the_ranking_not_after(home: Path) -> None:
         con.close()
 
 
+def test_a_turn_that_ends_on_the_usage_limit_is_at_the_wall(home: Path) -> None:
+    """StopFailure with the limit message on a live agent: shown as stopped, not
+    RUNNING, and handed off and moved though nothing reads full and the terminal
+    probe still says mid-turn."""
+    _daemon_home(home, 20)
+    accounts.register("beta")
+    now = int(time.time())
+    transcript = home / "t.jsonl"
+    transcript.write_text('{"text":"5h usage 87% >= 85%, at its usage limit, hit your session limit"}\n')
+    os.environ["OCP_AGENT"], os.environ["OCP_ACCOUNT"] = "backend", "alpha"
+    con = db.connect()
+    try:
+        db.set_terminal(con, "backend", "term_x", "wt")
+        db.set_account(con, "backend", "alpha")
+        db.set_agent_state(con, "backend", dmn.RUNNING, detail="active")
+        def stop_failure(**fields):
+            real_in = sys.stdin
+            sys.stdin = io.StringIO(json.dumps(dict(
+                {"hook_event_name": "StopFailure", "session_id": "s",
+                 "transcript_path": str(transcript)}, **fields)))
+            try:
+                evmod.record_from_stdin(["StopFailure"])
+            finally:
+                sys.stdin = real_in
+
+        # A StopFailure for another reason, whose transcript talks about limits.
+        stop_failure(error="server_error")
+        check("limit: another error type is not a limit, whatever the transcript says",
+              evmod.at_limit(con, "backend") is None
+              and db.get_agent_state(con, "backend")["state"] == dmn.RUNNING)
+        stop_failure(error="rate_limit", error_details="You've hit your session limit")
+        row = db.get_agent_state(con, "backend")
+        lim = evmod.at_limit(con, "backend")
+        check("limit: the structured error type marks it, and says where",
+              lim and "session limit" in lim["limit"] and lim["limit_source"] == "payload.error",
+              str(lim))
+        check("limit: the agent no longer reads RUNNING", row["state"] == dmn.IDLE, str(dict(row)))
+        db.add_event(con, "backend", "UserPromptSubmit", {})
+        check("limit: a prompt after the failure clears it", evmod.at_limit(con, "backend") is None)
+        stop_failure(error="rate_limit", error_details="You've hit your session limit")
+        # Just after the failure a person may be typing: the probe still decides.
+        real_idle = orcamod.idle_now
+        orcamod.idle_now = lambda h, **kw: False
+        real_av = orcamod.available
+        orcamod.available = lambda: True
+        try:
+            check("limit: fresh, the mid-turn probe still defers the handoff",
+                  dmn.perform_handoff(con, "backend", triggers.Trigger(True, "usage", "x"),
+                                      lambda _m: None, use_model=False) is True
+                  and db.in_flight_for(con, "backend") is None)
+        finally:
+            orcamod.idle_now, orcamod.available = real_idle, real_av
+        con.execute("UPDATE events SET ts = ts - 120 WHERE agent = 'backend' AND kind = 'StopFailure'")
+        con.commit()
+
+        write_status(home, "alpha", pct_5h=20, pct_7d=10, reset_5h=now + 1800)
+        write_status(home, "beta", pct_5h=5, pct_7d=10, reset_5h=now + 1800)
+        seen = []
+        typed = []
+        db.add_request(con, "reviewer", "backend", "work for later", None,
+                       "peer", "async", None, 0, None)
+        real_send = orcamod.send
+        orcamod.send = lambda h, t, enter=True: (typed.append(t), (True, ""))[1]
+        real = (orcamod.available, orcamod.alive, orcamod.idle_now, dmn._move_to_room,
+                dmn.session_present, orcamod.clear_context)
+        try:
+            orcamod.available = lambda: True
+            orcamod.alive = lambda h: True
+            orcamod.idle_now = lambda h, **kw: False   # the probe would say mid-turn
+            orcamod.clear_context = lambda h, **kw: (True, "cleared")
+            dmn.session_present = lambda a: True
+            dmn._move_to_room = lambda con_, a, t, log: (seen.append(t), True)[1]
+            # Idle, so delivery would go through if nothing held it back.
+            orcamod.idle_now = lambda h, **kw: True
+            dmn.supervise(con, "backend", lambda _m: None, now, {}, False, [])
+            check("limit: a queued request is not typed into an agent at its limit",
+                  not typed, str(typed))
+            seen.clear()
+            con.execute("UPDATE handoff SET updated = updated - 1000 WHERE agent = 'backend'")
+            db.set_agent_state(con, "backend", dmn.IDLE, detail="at its usage limit")
+            orcamod.idle_now = lambda h, **kw: False
+            dmn.supervise(con, "backend", lambda _m: None, now, {}, False, [])
+        finally:
+            (orcamod.available, orcamod.alive, orcamod.idle_now, dmn._move_to_room,
+             dmn.session_present, orcamod.clear_context) = real
+        orcamod.send = real_send
+        check("limit: once settled, handed off and moved though the probe says mid-turn",
+              seen and seen[0].kind == "usage" and "payload.error" in seen[0].reason, str(seen))
+    finally:
+        os.environ.pop("OCP_AGENT", None); os.environ.pop("OCP_ACCOUNT", None)
+        con.close()
+
+
 def test_choose_account_does_not_bounce_back_to_a_stale_preferred_account(home: Path) -> None:
     """Founder's priority #241: harbor-manager moved alpha -> gamma at 85%,
     then gamma -> alpha 12 minutes later - back to the account it had just
@@ -8693,6 +8786,7 @@ def main() -> int:
             Path(td) / 'pinnedstuck'))
         run(lambda: test_a_stale_account_whose_window_rolled_over_can_take_work(Path(td) / 'stalebeta'))
         run(lambda: test_room_is_filtered_before_the_ranking_not_after(Path(td) / 'roomfirst'))
+        run(lambda: test_a_turn_that_ends_on_the_usage_limit_is_at_the_wall(Path(td) / 'limitstop'))
         run(lambda: test_choose_account_does_not_bounce_back_to_a_stale_preferred_account(
             Path(td) / 'nobounce'))
         run(lambda: test_move_requires_clear_headroom_not_bare_assignability(
