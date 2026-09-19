@@ -571,9 +571,18 @@ def _close_agent(con, agent: str, log, st) -> tuple[bool, str]:
         # Closing is only cheap because waking resumes the same session. With
         # no id to come back to, closing is just throwing the context away.
         return False, "no session to resume; not closing"
-    handoffmod.record(con, agent)
+    # A record already waiting is the park's, and names the session from before
+    # its /clear: this close must neither replace it nor, if it fails, delete it.
+    # One it takes itself is kept only whole - a wake that moves elsewhere drops
+    # the resume id, the only complete copy of the context.
+    wrote = False
+    if not db.get_handoff(con, agent):
+        text, missing = handoffmod.capture(con, agent)
+        if not missing:
+            db.set_handoff(con, agent, text)
+            wrote = True
     ok, why = _end_session(con, agent, log, st, resume=st.session_id)
-    if not ok:
+    if not ok and wrote:
         db.set_handoff(con, agent, None)
     return ok, why
 
@@ -1125,8 +1134,8 @@ def perform_handoff(con, agent: str, trigger: triggers.Trigger, log) -> bool:
         if not session_present(agent):
             # A handoff for a session that is not there types its own text at
             # a shell prompt. The context it wants to reclaim went with the
-            # session; the sweep records the
-            # agent closed, and a closed agent's triggers do not fire at all.
+            # session; the sweep records the agent closed, and a closed
+            # agent's triggers do not fire at all.
             log(f"  {agent}: {trigger.kind} fired but no session is running - "
                 f"not handing off")
             return True
@@ -1136,8 +1145,8 @@ def perform_handoff(con, agent: str, trigger: triggers.Trigger, log) -> bool:
             # Before the record, not after it. The clear comes at the end of
             # this pipeline, and losing the terminal there meant the handoff
             # was recorded done and the context it exists to reclaim was still
-            # sitting in the agent. The trigger is a
-            # condition, so it fires again next tick.
+            # sitting in the agent. The trigger is a condition, so it fires
+            # again next tick.
             log(f"  {agent}: {trigger.kind} fired but something else is typing at it "
                 f"- not handing off")
             return True
@@ -1273,8 +1282,8 @@ def _perform_handoff(con, agent: str, trigger: triggers.Trigger, log) -> bool:
 
     # Return the context. Recording a handoff is only half of a handoff;
     # without this the context never drops, and a context trigger fires again
-    # next tick and the agent hands off forever. /clear keeps the terminal, worktree and account and empties only
-    # the conversation.
+    # next tick and the agent hands off forever. /clear keeps the terminal,
+    # worktree and account and empties only the conversation.
     cleared, why = _reclaim_context(con, agent, log)
     db.advance_handoff(con, hid, "extracted", detail=why)
 
@@ -1463,7 +1472,8 @@ def supervise(con, agent: str, log, now: int, samples: dict,
     # Memory is the scarce resource on one laptop running a team, and an
     # idle session spends it while earning nothing: it holds its context,
     # costs no tokens, and answers no one. Closing it is not a handoff -
-    # nothing is cleared - and waking it resumes the same session, so the only thing that changes is who has the memory.
+    # nothing is cleared - and waking it resumes the same session, so the
+    # only thing that changes is who has the memory.
     if not at_wall and should_close(con, agent, state, row, now, st):
         ok, _ = close_agent(con, agent, log, st)
         if ok:
@@ -1519,8 +1529,8 @@ def supervise(con, agent: str, log, now: int, samples: dict,
 
     # What sits at the other end of a closed agent is a shell prompt, and a
     # handoff document is full of backticks - handing one off would type
-    # command substitutions at bash. `should_close` is
-    # careful about five things; this needs the same care about one.
+    # command substitutions at bash. `should_close` is careful about five
+    # things; this needs the same care about one.
     #
     # An agent woken in this tick is judged on the next one, for the same reason
     # it is told about its inbox on the next one: `st` was read before the wake,
