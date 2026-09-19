@@ -187,18 +187,24 @@ def answer(con, rid: int, verdict: str) -> str:
     return msg
 
 
-def dismiss(con, rid: int) -> str:
+def dismiss(con, rid: int, me: str | None = None) -> str:
     """Take one row off the mailbox without replying to it.
 
-    An answer to the human's own ask is already resolved - the agent wrote the
-    verdict when it finished. Resolving it again would stamp "read" over what
-    it said, so it is marked told instead, which is the same thing the daemon
-    does when it reads an answer out to an agent.
+    A row that has already left 'queued' carries somebody's real verdict.
+    Read by whoever asked for it (`me`, when known), it is marked told - the
+    same thing the daemon does when it reads an answer out to an agent - and
+    that marking is idempotent, so dismissing the same row twice is as
+    harmless as once. Read instead by the one who *wrote* that verdict (the
+    target dismissing its own answered request), there is nothing left to
+    do: stamping it told would announce it on the real requester's behalf,
+    and the requester would never actually be told.
     """
     row = db.get_request(con, rid)
     if row is None:
         return f"#{rid} is gone"
-    if _is_answer_to_human(row):
+    if row["state"] != "queued":
+        if me is not None and me == row["target"]:
+            return f"#{rid} was already answered - nothing more for you to do"
         db.mark_announced(con, [rid])
         return f"#{rid} marked read"
     if row["response"] != "async":

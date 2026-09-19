@@ -10458,6 +10458,91 @@ def test_the_accounts_panel_adds_and_removes(home: Path) -> None:
           "backend" in line and "alpha" in paths.list_accounts(), line)
 
 
+def test_dismissing_an_agents_own_answered_request_keeps_its_verdict(home: Path) -> None:
+    """Auditor's should-fix on #283: `cmd_dismiss` lets a requester clear its
+    own row once it has left 'queued', but `actions.dismiss` only special-cased
+    that for the human - an agent's own answered request fell through to
+    `resolve`, which stamped "read - no reply" over the verdict the target
+    actually wrote. Dismissing must never rewrite an answer, whoever asked for
+    it, and doing it twice must not either."""
+    _two_agents_one_slot(home)
+    ok, said, rid = askmod.ask("b", "spec?", requester="a")
+    check("dismiss: the ask went through", ok, said)
+    askmod.resolve(rid, "yes, ship it")
+
+    con = db.connect()
+    try:
+        actions.dismiss(con, rid)
+        check("dismiss: an agent's own answered request keeps its verdict",
+              db.get_request(con, rid)["verdict"] == "yes, ship it",
+              db.get_request(con, rid)["verdict"])
+        check("dismiss: and is marked read",
+              db.get_request(con, rid)["announced_at"] is not None)
+
+        actions.dismiss(con, rid)
+        check("dismiss: dismissing it a second time still keeps the verdict",
+              db.get_request(con, rid)["verdict"] == "yes, ship it",
+              db.get_request(con, rid)["verdict"])
+    finally:
+        con.close()
+
+    # The same, through the CLI path `cmd_dismiss` actually takes.
+    ok, said, rid2 = askmod.ask("b", "spec 2?", requester="a")
+    check("dismiss: the second ask went through", ok, said)
+    askmod.resolve(rid2, "no, hold it")
+    os.environ["OCP_AGENT"] = "a"
+    try:
+        out = _capture(lambda: climod.main(["dismiss", str(rid2)]))
+    finally:
+        os.environ.pop("OCP_AGENT", None)
+    con = db.connect()
+    try:
+        check("dismiss: `ocp dismiss` on your own answered row keeps it too",
+              db.get_request(con, rid2)["verdict"] == "no, hold it", out)
+    finally:
+        con.close()
+
+
+def test_dismissing_your_own_answer_does_not_announce_it_for_the_requester(
+        home: Path) -> None:
+    """Auditor's should-fix on #313: a TARGET dismissing a row it already
+    answered must not stamp announced_at on the requester's behalf - that
+    would mark the row as told when the requester has never actually seen
+    it."""
+    _two_agents_one_slot(home)
+    ok, said, rid = askmod.ask("b", "spec?", requester="a")
+    check("dismiss: the ask went through", ok, said)
+    askmod.resolve(rid, "yes, ship it")
+
+    con = db.connect()
+    try:
+        check("dismiss: unannounced to start",
+              rid in [r["id"] for r in db.unannounced_answers(con, "a")])
+        out = actions.dismiss(con, rid, me="b")
+        check("dismiss: the target is told there is nothing more to do",
+              "nothing more" in out, out)
+        check("dismiss: the verdict is untouched",
+              db.get_request(con, rid)["verdict"] == "yes, ship it")
+        check("dismiss: ...and the requester is still owed the answer",
+              rid in [r["id"] for r in db.unannounced_answers(con, "a")],
+              str(dict(db.get_request(con, rid))))
+    finally:
+        con.close()
+
+    # Through the CLI: `b` dismissing its own outgoing answer is the same no-op.
+    os.environ["OCP_AGENT"] = "b"
+    try:
+        out = _capture(lambda: climod.main(["dismiss", str(rid)]))
+    finally:
+        os.environ.pop("OCP_AGENT", None)
+    con = db.connect()
+    try:
+        check("dismiss: `ocp dismiss` from the target is the same no-op",
+              rid in [r["id"] for r in db.unannounced_answers(con, "a")], out)
+    finally:
+        con.close()
+
+
 def test_tui_frame_geometry(home: Path) -> None:
     """A frame must fill the screen exactly: every line the requested width,
     and exactly as many lines as the terminal has. Anything else scrolls the
@@ -10852,6 +10937,10 @@ def main() -> int:
         run(lambda: test_a_refused_ask_is_not_a_new_message(Path(td) / 'refused'))
         run(lambda: test_a_refused_ask_is_never_announced_as_an_answer(Path(td) / 'noannounce'))
         run(lambda: test_a_refusal_is_not_read_back_as_an_answer(Path(td) / 'readref'))
+        run(lambda: test_dismissing_an_agents_own_answered_request_keeps_its_verdict(
+            Path(td) / 'dismissverdict'))
+        run(lambda: test_dismissing_your_own_answer_does_not_announce_it_for_the_requester(
+            Path(td) / 'dismissownanswer'))
         run(lambda: test_two_processes_cannot_both_supervise_one_home(Path(td) / 'twoproc'))
         run(lambda: test_the_screen_says_when_two_daemons_are_running(Path(td) / 'dmnwarn'))
         run(lambda: test_run_recovers_from_an_uncaught_error())
