@@ -7634,7 +7634,7 @@ def test_the_accounts_row_draws_a_last_seen_figure_only_inside_its_window(home: 
         cell = tui._ANSI.sub("", tui.account_cells("beta", st)["five"])
         check(f"account_cells: window {'open' if drawn else 'rolled over'} - "
               f"{'the last figure, marked ?' if drawn else 'no figure'}",
-              ("40%?" in cell) is drawn, cell)
+              ("40%" in cell) is drawn and ("40%?" in cell) is drawn, cell)
         check("account_cells: agrees with shown_pct_5h",
               (st.shown_pct_5h()[0] == 40) is drawn, str(st.shown_pct_5h()))
 
