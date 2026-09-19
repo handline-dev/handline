@@ -46,6 +46,9 @@ THROTTLED, STALLED = "THROTTLED", "STALLED"
 # as parked and never woken mid-task.
 EVALUATED = {RUNNING, HANDOFF, PARKED, QUEUED, THROTTLED, IDLE, DEGRADED}
 
+# How long after a limit StopFailure the agent counts as settled, probe or not.
+LIMIT_SETTLE_S = 30
+
 # How long a DEGRADED agent waits before the daemon retries it.
 DEGRADED_RETRY_S = 600
 
@@ -1062,9 +1065,12 @@ def perform_handoff(con, agent: str, trigger: triggers.Trigger, log,
 
     handle = db.get_terminal(con, agent)
     if handle and orca.available():
-        # A turn that ended on the usage limit is over, whatever the terminal's
-        # activity probe still says: nothing will run until it moves or waits.
-        if not events.at_limit(con, agent) and not orca.idle_now(handle):
+        # A turn that ended on the usage limit and has stayed quiet for a while
+        # is over, whatever the terminal's activity probe still says; sooner
+        # than that a person may be typing, so the probe still decides.
+        stopped = events.at_limit(con, agent)
+        settled = stopped and int(time.time()) - stopped["at"] >= LIMIT_SETTLE_S
+        if not settled and not orca.idle_now(handle):
             log(f"  {agent}: {trigger.kind} fired but the agent is mid-turn - deferring")
             return True
         if not session_present(agent):

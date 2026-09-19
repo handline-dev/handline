@@ -35,7 +35,7 @@ CAPTURED = {
 ALLOWLIST = (
     "session_id", "hook_event_name", "source", "reason", "cwd",
     "prompt_length", "transcript_path", "model", "trigger",
-    "tool_name",
+    "tool_name", "error", "error_details",
 )
 
 
@@ -57,46 +57,30 @@ def _slim(raw: dict) -> dict:
     return out
 
 
-# The words claude prints when an account's usage runs out ("You've hit your
-# session limit · resets 2:30pm"). StopFailure's own `error` field is not in
-# ALLOWLIST, so the reason is read where it can be: the payload's error
-# fields if it carries the text, else the tail of the transcript, which always
-# holds the message the turn ended on.
-_LIMIT_RE = re.compile(r"(hit your [\w -]{0,30}limit|usage limit|rate_limit|limit reached)", re.I)
-_TRANSCRIPT_TAIL = 16384
+# StopFailure's `error` is the error type claude reports; a usage limit is
+# this one. Classified on that field only - never on text, which on this team
+# is full of talk about usage limits.
+LIMIT_ERROR = "rate_limit"
 
 
 def limit_reason(raw: dict) -> tuple[str, str] | None:
     """(text, where it was read from) when this StopFailure is a usage limit."""
-    for key in ("error", "error_details", "last_assistant_message"):
-        v = raw.get(key)
-        if isinstance(v, str) and _LIMIT_RE.search(v):
-            return v[:200], f"payload.{key}"
-    path = raw.get("transcript_path")
-    if isinstance(path, str):
-        try:
-            with open(path, "rb") as f:
-                f.seek(0, os.SEEK_END)
-                f.seek(max(0, f.tell() - _TRANSCRIPT_TAIL))
-                tail = f.read().decode("utf-8", "replace")
-        except OSError:
-            return None
-        hits = list(_LIMIT_RE.finditer(tail))
-        if hits:
-            m = hits[-1]
-            near = tail[max(0, m.start() - 40): m.end() + 60]
-            return " ".join(near.replace('"', " ").replace("\\n", " ").split())[:200], "transcript"
-    return None
+    if raw.get("error") != LIMIT_ERROR:
+        return None
+    details = raw.get("error_details")
+    text = details if isinstance(details, str) and details else LIMIT_ERROR
+    return text[:200], "payload.error"
 
 
 def at_limit(con, agent: str) -> dict | None:
     """The limit this agent's last turn ended on, if nothing has run since.
 
     Latest of StopFailure and UserPromptSubmit: a prompt after the failure means
-    the agent is working again (a move's wake types one).
+    the agent is working again (a move's wake types one). Carries the event's
+    `ts` as `at`.
     """
     row = con.execute(
-        "SELECT kind, payload FROM events WHERE agent = ? AND kind IN "
+        "SELECT kind, payload, ts FROM events WHERE agent = ? AND kind IN "
         "('StopFailure', 'UserPromptSubmit') ORDER BY id DESC LIMIT 1", (agent,)).fetchone()
     if not row or row["kind"] != "StopFailure":
         return None
@@ -104,7 +88,9 @@ def at_limit(con, agent: str) -> dict | None:
         data = json.loads(row["payload"])
     except (TypeError, ValueError):
         return None
-    return data if isinstance(data, dict) and data.get("limit") else None
+    if not (isinstance(data, dict) and data.get("limit")):
+        return None
+    return dict(data, at=int(row["ts"]))
 
 
 def record_from_stdin(argv: list[str] | None = None) -> int:
