@@ -10733,15 +10733,97 @@ def test_the_messenger_tab_carries_a_conversation_both_ways(home: Path) -> None:
         con.close()
 
 
+def test_a_paste_into_any_prompt_arrives_whole_and_confirms_nothing(home: Path) -> None:
+    """The founder pasted one screen and it arrived as two messages (#684,
+    #686): the prompt sent at the first newline. Through a real pty, so the
+    reading is the screen's own."""
+    import io
+    import pty
+    import tty as ttymod
+    _daemon_home(home, 20)
+    agents.register("reviewer", "alpha")
+    con = db.connect()
+    master, slave = pty.openpty()
+    ttymod.setraw(slave)
+    real_in, real_out = sys.stdin, sys.stdout
+    sys.stdin, sys.stdout = os.fdopen(slave, "r", closefd=False), io.StringIO()
+    try:
+        rid = askmod.ask(actions.HUMAN, "which name?", requester="reviewer")[2]
+        paste = "\033[200~WAITING ON YOU (1)\n\n  #12 keeper: rebase?\r\nlast line\033[201~"
+        os.write(master, (paste + "\r").encode())
+        text = tui._compose(rid, "a", 100, 24, None, None)
+        want = "WAITING ON YOU (1)\n\n  #12 keeper: rebase?\nlast line"
+        check("paste: the answer prompt takes the whole paste", text == want, repr(text))
+        before = con.execute("SELECT COUNT(*) FROM requests").fetchone()[0]
+        actions.answer(con, rid, text)
+        row = db.get_request(con, rid)
+        check("paste: one stored body, byte for byte, no other message",
+              row["verdict"] == want
+              and con.execute("SELECT COUNT(*) FROM requests").fetchone()[0] == before)
+
+        os.write(master, b"\033[200~one\ntwo\033[201~\r")
+        check("paste: a one-line prompt flattens a paste and still needs Enter",
+              tui._line("account:", 100, 24) == "one two")
+        os.write(master, b"\033[200~yes\033[201~\r")
+        check("paste: a paste of 'yes' does not confirm", tui._confirm("remove x", 100, 24) is False)
+        os.write(master, b"\033[200~y\033[201~n")
+        check("paste: a pasted y with no Enter, then a typed n, is a no",
+              tui._confirm("remove x", 100, 24) is False)
+        os.write(master, b"\033[200~n\033[201~y")
+        check("paste: a key after a paste still confirms", tui._confirm("remove x", 100, 24) is True)
+
+        # A paste begun on the main screen and finished inside a prompt.
+        tui._paste_state.update({"in": False, "carry": ""})
+        os.write(master, b"a\033[200~first part\n")
+        check("paste: the key before it is read", tui._key(1.0) == "a")
+        os.write(master, b"rest\nmore\033[201~\r")
+        check("paste: the prompt it opens keeps the rest as paste, and Enter sends",
+              tui._line("answer:", 100, 24) == "rest more", "")
+        check("paste: and the screen is not left dropping keys",
+              tui._paste_state["in"] is False)
+        os.write(master, b"q")
+        check("paste: so the next key is read", tui._key(1.0) == "q")
+
+        # Not in a prompt: the main screen reads a paste as nothing at all, and
+        # what it leaves in _pending is never the paste's text.
+        tui._pending.clear()
+        os.write(master, b"\033[200~aWAITING ON YOU (1)\nsecond line\n\033[201~")
+        check("paste: on the main screen a paste is not a key", tui._key(1.0) is None
+              and not tui._pending, str(tui._pending))
+        tui._paste_state.update({"in": False, "carry": ""})
+        check("paste: a marker split after its escape is still one",
+              tui._unpasted("a\033[200~xx\033") + tui._unpasted("[201~b") == "ab")
+        os.write(master, b"\033[200~x\ny")
+        tui._key(1.0)
+        os.write(master, b"z\033[201~q")
+        check("paste: across reads too, and the key after it is read",
+              tui._key(1.0) == "q" and not tui._pending)
+    finally:
+        sys.stdin, sys.stdout = real_in, real_out
+        os.close(master)
+        os.close(slave)
+        con.close()
+
+
+def test_bracketed_paste_is_switched_on_with_the_screen() -> None:
+    """Without the terminal's marks nothing above can tell a paste from typing."""
+    import inspect
+    check("paste: it comes on with the alternate screen and goes off with it",
+          tui.PASTE_ON in tui.ALT_ON and tui.PASTE_OFF in tui.ALT_OFF)
+    check("paste: run() and the hand-over to another program use those",
+          all("ALT_ON" in inspect.getsource(f) and "ALT_OFF" in inspect.getsource(f)
+              for f in (tui.run, tui._suspend)))
+
+
 def test_the_composer_takes_a_paste_whole(home: Path) -> None:
     """Enter sends, so a pasted newline must not: the old one-line prompt sent
     the first pasted line and dropped the rest (#193)."""
-    c = tui.Composer()
+    c = tui.Composer(multi=True)
     check("composer: typing", c.feed("hi") is None and c.text == "hi")
     check("composer: a paste keeps its newlines and does not send",
           c.feed("\033[200~a\nb\r\nc\033[201~") is None and c.text == "hia\nb\nc", repr(c.text))
     check("composer: Enter after it sends", c.feed("\r") == "send")
-    c = tui.Composer()
+    c = tui.Composer(multi=True)
     c.feed("\033[20"); c.feed("0~x\ny\033[20"); c.feed("1~")
     check("composer: a marker split across reads is still a marker",
           c.text == "x\ny" and not c.pasting, repr(c.text))
@@ -12743,7 +12825,9 @@ def main() -> int:
         run(lambda: test_the_screen_says_what_is_stuck_and_what_was_decided(Path(td) / 'topstuck'))
         run(lambda: test_a_message_is_read_whole_and_answered_where_it_is_read(Path(td) / 'topread'))
         run(lambda: test_the_messenger_tab_carries_a_conversation_both_ways(Path(td) / 'chat'))
+        run(lambda: test_bracketed_paste_is_switched_on_with_the_screen())
         run(lambda: test_the_composer_takes_a_paste_whole(Path(td) / 'composer'))
+        run(lambda: test_a_paste_into_any_prompt_arrives_whole_and_confirms_nothing(Path(td) / 'pasteany'))
         run(lambda: test_a_key_never_acts_on_a_row_nobody_pointed_at(Path(td) / 'topsel'))
         run(lambda: test_the_frame_never_draws_wider_than_the_terminal(Path(td) / 'topwide'))
         run(lambda: test_the_cursor_walks_the_whole_screen(Path(td) / 'topcur'))
