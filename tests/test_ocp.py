@@ -5713,6 +5713,11 @@ def test_a_turn_that_ends_on_the_usage_limit_is_at_the_wall(home: Path) -> None:
         write_status(home, "alpha", pct_5h=20, pct_7d=10, reset_5h=now + 1800)
         write_status(home, "beta", pct_5h=5, pct_7d=10, reset_5h=now + 1800)
         seen = []
+        typed = []
+        db.add_request(con, "reviewer", "backend", "work for later", None,
+                       "peer", "async", None, 0, None)
+        real_send = orcamod.send
+        orcamod.send = lambda h, t, enter=True: (typed.append(t), (True, ""))[1]
         real = (orcamod.available, orcamod.alive, orcamod.idle_now, dmn._move_to_room,
                 dmn.session_present, orcamod.clear_context)
         try:
@@ -5726,6 +5731,9 @@ def test_a_turn_that_ends_on_the_usage_limit_is_at_the_wall(home: Path) -> None:
         finally:
             (orcamod.available, orcamod.alive, orcamod.idle_now, dmn._move_to_room,
              dmn.session_present, orcamod.clear_context) = real
+        orcamod.send = real_send
+        check("limit: a queued request is not typed into an agent at its limit",
+              not typed, str(typed))
         check("limit: once settled, handed off and moved though the probe says mid-turn",
               seen and seen[0].kind == "usage" and "payload.error" in seen[0].reason, str(seen))
     finally:

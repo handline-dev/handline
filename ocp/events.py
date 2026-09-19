@@ -10,7 +10,6 @@ from __future__ import annotations
 
 import json
 import os
-import re
 import sys
 
 from . import db
@@ -48,7 +47,7 @@ def _slim(raw: dict) -> dict:
         if k == "transcript_path":
             out[k] = str(v)
         elif isinstance(v, (str, int, float, bool)):
-            out[k] = v if not isinstance(v, str) else v[:400]
+            out[k] = v if not isinstance(v, str) else v[:200 if k == "error_details" else 400]
         elif isinstance(v, dict) and k == "model":
             out[k] = v.get("id")
     # A prompt's text is never stored; its length is enough signal.

@@ -1392,7 +1392,11 @@ def supervise(con, agent: str, log, now: int, samples: dict,
     # in this tick is told on the next one: it is still reading the prompt that
     # brought it back, and typing at it now would leave the text in its input
     # box unsent.
-    if state not in (RUNNING, HANDOFF) and not woke_now \
+    # An agent whose turn ended on the usage limit cannot run one: typing work
+    # into it would start a turn that fails at once, mark the request
+    # delivered, and clear the very mark that says it is at the wall.
+    at_wall = events.at_limit(con, agent)
+    if state not in (RUNNING, HANDOFF) and not woke_now and not at_wall \
             and not (row and row["closed_at"]):
         # An answer first: an agent that asked something and parked is waiting
         # on that, and telling it about new work while its own question is
@@ -1405,7 +1409,7 @@ def supervise(con, agent: str, log, now: int, samples: dict,
     # costs no tokens, and answers no one. Closing it is not a handoff -
     # nothing is folded, nothing is cleared - and waking it resumes the
     # same session, so the only thing that changes is who has the memory.
-    if should_close(con, agent, state, row, now, st):
+    if not at_wall and should_close(con, agent, state, row, now, st):
         ok, _ = close_agent(con, agent, log, st)
         if ok:
             actions.append(f"{agent}: session closed while idle")
@@ -1451,7 +1455,7 @@ def supervise(con, agent: str, log, now: int, samples: dict,
     # A turn that ended on the usage limit means the agent is at the wall
     # whatever the reading says (it can lag, or be the other window): move it
     # the same way a trigger would.
-    stopped = events.at_limit(con, agent)
+    stopped = at_wall
     if stopped and not (t.fired and t.kind in MOVABLE_TRIGGERS):
         text = stopped["limit"]
         t = triggers.Trigger(True, "usage_7d" if "week" in text.lower() else "usage",
