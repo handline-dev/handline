@@ -62,6 +62,9 @@ STATE_COLOR = {
 # name again in the list above.
 ACCOUNTS, AGENTS, MESSAGES, STUCK = 0, 1, 2, 3
 NAME_W = 22   # fits `└ orcapipe-manager +2`
+# The state cell carries the time an agent is waiting until ("PARKED·closed
+# 12m05"): park, a degraded retry and the await fallback all set one.
+STATE_W = 23
 # What an agent *is* - its model, its effort, and one day which tool it is at
 # all - against what is happening to it now. The second wins a narrow screen:
 # the kind of an agent is on its own page too and does not change while anyone
@@ -213,6 +216,50 @@ def age(secs: float | None) -> str:
     return status.ago(secs)
 
 
+def hidden_urgency(con, names: list[str]) -> tuple[str, int, str] | None:
+    """The most urgent thing among agents a fold hides: (glyph, how many share
+    it, colour), or None when there is nothing to say.
+
+    A folded row reads as its own state, and "IDLE" is true of a supervisor
+    whose reports are all working. Three classes, most urgent first: something
+    waiting on the human (an open ask addressed to them); stuck (a state only a
+    person clears, or the usage wall); running. Idle reports add nothing.
+    """
+    found: dict[int, list[str]] = {}
+    for name in names:
+        row = db.get_agent_state(con, name)
+        state = row["state"] if row else "IDLE"
+        if con.execute("SELECT 1 FROM requests WHERE requester = ? AND target = ? "
+                       "AND state = 'queued'", (name, actions.HUMAN)).fetchone():
+            found.setdefault(0, []).append(YEL)
+        elif state in NEEDS_A_HUMAN:
+            found.setdefault(1, []).append(STATE_COLOR[state])
+        elif daemon.wall_reason(con, name, row):
+            found.setdefault(1, []).append(YEL)
+        elif state == "RUNNING" and not (row and row["closed_at"]):
+            found.setdefault(2, []).append(STATE_COLOR["RUNNING"])
+    if not found:
+        return None
+    worst = min(found)
+    colours = found[worst]
+    return ("▶" if worst == 2 else "!", len(colours), RED if RED in colours else colours[0])
+
+
+def fold_marker(name_cell: str, under: int, urgency: tuple[str, int, str] | None) -> str:
+    """The name and what its fold says: ` +3`, and ` ▶2` after it while the
+    column has room. The count of what is hidden is never the thing that goes;
+    the aggregate goes before it does, and the name is cut last."""
+    if not under:
+        return name_cell
+    count = f"{DIM} +{under}{R}"
+    if urgency:
+        glyph, n, colour = urgency
+        full = f"{count} {colour}{glyph}{n}{R}"
+        if vlen(name_cell) + vlen(full) <= NAME_W:
+            return name_cell + full
+    return fit(name_cell, NAME_W - vlen(count)) + count
+
+
 # Supervisors whose reports are drawn. Closed by default: the screen is for
 # what needs you, and a team of twelve drawn in full is a list to scroll past.
 EXPANDED: set[str] = set()
@@ -230,13 +277,11 @@ def _wants_a_human() -> set[str]:
         con.close()
 
 
-def visible_tree() -> list[tuple[str, int, int]]:
-    """The team as drawn: (name, depth, how many under it are not drawn).
+def _walk_tree() -> list[tuple[str, int, list[str]]]:
+    """The team as drawn: (name, depth, the agents its fold hides, by name).
 
-    The cursor walks the same list, so it never lands on a row nobody can see.
-    A report that needs a person is drawn whether its supervisor is open or
-    not - hiding the one row this screen exists for is the one thing folding
-    must not do.
+    One walk decides what is hidden, so the count on a fold and what its marker
+    says about those agents cannot drift apart.
     """
     tree = actions.agent_tree()
     keep = _wants_a_human()
@@ -246,17 +291,28 @@ def visible_tree() -> list[tuple[str, int, int]]:
         while closed and depth <= closed[-1][0]:
             closed.pop()
         if closed and name not in keep:
-            rows[closed[-1][1]][2] += 1
+            rows[closed[-1][1]][2].append(name)
             continue
         under = 0
         for _n, d in tree[i + 1:]:
             if d <= depth:
                 break
             under += 1
-        rows.append([name, depth, 0])
+        rows.append([name, depth, []])
         if under and name not in EXPANDED:
             closed.append((depth, len(rows) - 1))
-    return [(n, d, u) for n, d, u in rows]
+    return [(n, d, h) for n, d, h in rows]
+
+
+def visible_tree() -> list[tuple[str, int, int]]:
+    """The team as drawn: (name, depth, how many under it are not drawn).
+
+    The cursor walks the same list, so it never lands on a row nobody can see.
+    A report that needs a person is drawn whether its supervisor is open or
+    not - hiding the one row this screen exists for is the one thing folding
+    must not do.
+    """
+    return [(n, d, len(h)) for n, d, h in _walk_tree()]
 
 
 def _fold(sel: dict, k: str) -> bool:
@@ -517,6 +573,7 @@ def build(width: int, sel: dict | None = None,
         ag.selected = sel.get(AGENTS)
         # No heading for the last column: it is empty unless something is about
         # to happen, and then it says what, in words.
+        drawn_tree = _walk_tree()
         # Model and effort are configuration and do not change while anyone is
         # watching, which was the case for leaving them off. What changed is
         # that they will not all be claude: with a second vendor coming, what
@@ -527,17 +584,19 @@ def build(width: int, sel: dict | None = None,
         kinds = width >= KIND_MIN_WIDTH
         ag.add(f"{DIM}{'agent':<{NAME_W}}{'acct':<8}"
                f"{'kind':<{KIND_W}}" * kinds
-               + f"{'state':<16}{'ctx':>4}   {'wake':<7}{'in':<4}{R}", heading=True)
-        for name, depth, under in visible_tree():
+               + f"{'state':<{STATE_W}}{'ctx':>4}   {'in':<4}{R}", heading=True)
+        for name, depth, hidden in drawn_tree:
+            under = len(hidden)
             # Indented under whoever routes work to it. Who an agent reports to
             # decides where its report goes and who may assign to it, and it was
             # written down in team.yaml all along - a flat list made the reader
             # hold the routing table in their head to know what they were
             # looking at.
             twig = f"{DIM}{'  ' * (depth - 1)}└ {R}" if depth else ""
-            # How many of its reports are not drawn. Fitted around, not into,
-            # the name: cut off, the only sign a team is hidden disappears.
-            folded = f"{DIM} +{under}{R}" if under else ""
+            # How many of its reports are not drawn, and the most urgent thing
+            # among them. Fitted around, not into, the name: cut off, the only
+            # sign a team is hidden disappears.
+            urgency = hidden_urgency(con, hidden) if under else None
             try:
                 acct = agents.current_account(name, con)
                 cfg = agents.read(name)
@@ -560,6 +619,14 @@ def build(width: int, sel: dict | None = None,
             t = triggers.evaluate(st.trusted_pct_5h, st.trusted_ctx_pct)
             fire = (f"{YEL}⚠ {t.kind}{R}"
                     if t.fired and daemon.triggers_apply(row) else "")
+            # The time it waits until, where it waits: park, a degraded retry
+            # and an await fallback all set one, and it is when the agent
+            # comes back.
+            until = countdown(row["wake_at"] if row else None).strip()
+            until = "" if until == "-" else until
+            state_cell = (f"{STATE_COLOR.get(s, '')}"
+                          f"{fit(s, STATE_W - 1 - (len(until) + 1 if until else 0))}{R}"
+                          + (f" {DIM}{until}{R}" if until else ""))
             ctxs = f"{pct(st.ctx_pct)}%"
             if st.ctx_pct is not None and st.ctx_pct >= triggers.CONTEXT_PCT:
                 ctxs = YEL + ctxs + R
@@ -571,14 +638,12 @@ def build(width: int, sel: dict | None = None,
                 # twig, is wider than the column, and `pad` alone then pushes
                 # every column after it right - the same drift the "·closed"
                 # suffix caused.
-                pad(fit(twig + f"{BOLD}{name}{R}", NAME_W - vlen(folded)) + folded,
-                    NAME_W)
+                pad(fold_marker(twig + f"{BOLD}{name}{R}", under, urgency), NAME_W)
                 + pad(acct, 8)
                 + (pad(f"{DIM}{fit(agents.kind(cfg), KIND_W - 1)}{R}", KIND_W)
                    if kinds else "")
-                + pad(f"{STATE_COLOR.get(s, '')}{fit(s, 15)}{R}", 16)
+                + pad(state_cell, STATE_W)
                 + pad(ctxs, 7)
-                + pad(countdown(row["wake_at"] if row else None), 7)
                 + pad(str(inbox) if inbox else "·", 4)
             )
             # Same predicate `ocp ps` and `ocp triggers` ask for this - so this

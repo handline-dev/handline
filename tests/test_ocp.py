@@ -9,6 +9,7 @@ import io
 import json
 import os
 import pty
+import re
 import select
 import shlex
 import signal
@@ -8794,6 +8795,168 @@ def test_an_answer_to_the_human_is_in_the_human_mailbox(home: Path) -> None:
         con.close()
 
 
+def test_the_wake_time_is_in_the_state_cell_not_a_column(home: Path) -> None:
+    """A parked agent's deadline is when it comes back, and park, a degraded
+    retry and the await fallback all still set one. The column that carried it
+    is gone; the time rides with the state it belongs to."""
+    _daemon_home(home, 20)
+    con = db.connect()
+    try:
+        for name in ("backend", "frontend"):
+            agents.register(name, "alpha")
+        db.set_agent_state(con, "backend", dmn.PARKED, wake_at=int(time.time()) + 12 * 60 + 30,
+                           detail="usage")
+        db.set_agent_state(con, "frontend", dmn.IDLE)
+        lines = [tui._ANSI.sub("", ln) for ln in tui.frame(120, 40).split(chr(10))]
+        parked = [ln for ln in lines if "backend" in ln]
+        idle = [ln for ln in lines if "frontend" in ln]
+        check("agents: a parked row shows when it wakes, in its state cell",
+              parked and re.search(r"PARKED\s+1[12]m\d\d", parked[0]), str(parked))
+        check("agents: a row with no deadline shows no time",
+              idle and re.search(r"IDLE\s+\d+%|IDLE\s+\?|IDLE\s*$", idle[0])
+              and not re.search(r"IDLE\s+\d+m", idle[0]), str(idle))
+        heading = [ln for ln in lines if "agent" in ln and "state" in ln]
+        check("agents: and there is no wake heading", heading and "wake" not in heading[0],
+              str(heading))
+        db.set_closed(con, "backend", "sess-1")
+        lines = [tui._ANSI.sub("", ln) for ln in tui.frame(120, 40).split(chr(10))]
+        closed = [ln for ln in lines if "backend" in ln]
+        check("agents: a closed parked row still fits its time beside the mark",
+              closed and re.search(r"PARKED·closed\s+1[12]m\d\d", closed[0]), str(closed))
+        db.set_agent_state(con, "backend", dmn.PARKED, wake_at=int(time.time()) - 5)
+        lines = [tui._ANSI.sub("", ln) for ln in tui.frame(120, 40).split(chr(10))]
+        due = [ln for ln in lines if "backend" in ln]
+        check("agents: a deadline that has passed says so", due and " due" in due[0], str(due))
+    finally:
+        con.close()
+
+
+def test_a_folded_row_says_what_its_reports_are_doing(home: Path) -> None:
+    """`orcapipe-manager +3 IDLE` read as an idle team while two of its
+    reports ran. The state cell stays the manager's own - IDLE is true of it -
+    and the fold marker carries the most urgent hidden state and how many share
+    it."""
+    _daemon_home(home, 20)
+    con = db.connect()
+    real_wall = dmn.wall_reason
+    try:
+        (home / "team.yaml").write_text("""
+teams:
+  dev: [marina, keeper]
+agents:
+  manager: { intake: dedicated }
+  marina:  { intake: dedicated }
+  keeper:  { intake: dedicated }
+edges:
+  - { from: "manager", to: "dev.*", relation: supervisor, response: fire_and_forget }
+  - { from: "human", to: "*", relation: supervisor, response: fire_and_forget }
+  - { from: "*", to: "human", kind: escalate, creates_gate: true }
+""")
+        for name in ("manager", "marina", "keeper"):
+            agents.register(name, "alpha")
+        tui.EXPANDED.clear()
+
+        def manager_line() -> str:
+            return next((tui._ANSI.sub("", ln) for ln in tui.frame(120, 60).split(chr(10))
+                         if "manager" in ln), "")
+
+        check("fold: idle reports add nothing to the marker",
+              "manager +2" in manager_line() and "▶" not in manager_line()
+              and "!" not in manager_line(), manager_line())
+        db.set_agent_state(con, "marina", dmn.RUNNING)
+        check("fold: a running report is counted after the +N",
+              "manager +2 ▶1" in manager_line(), manager_line())
+        db.set_agent_state(con, "keeper", dmn.RUNNING)
+        check("fold: and so are two", "manager +2 ▶2" in manager_line(), manager_line())
+        check("fold: the manager's own state cell is still its own",
+              re.search(r"manager \+2 ▶2\s+alpha\s.*IDLE", manager_line()), manager_line())
+        check("fold: the mark is drawn in the colour of the state it counts",
+              tui.STATE_COLOR["RUNNING"] in tui.frame(120, 60).split(chr(10))[
+                  [i for i, ln in enumerate(tui.frame(120, 60).split(chr(10)))
+                   if "manager +2" in tui._ANSI.sub("", ln)][0]])
+
+        # Most urgent first: needs-you, then stuck, then running.
+        db.set_agent_state(con, "keeper", dmn.STALLED, detail="wedged")
+        check("fold: a hidden stalled report beats running, and is red",
+              tui.hidden_urgency(con, ["marina", "keeper"]) == ("!", 1, tui.RED),
+              str(tui.hidden_urgency(con, ["marina", "keeper"])))
+        db.set_agent_state(con, "keeper", dmn.RUNNING)
+        dmn.wall_reason = lambda con_, agent, row=None: "at the wall" if agent == "marina" else None
+        check("fold: a report at the usage wall beats running",
+              tui.hidden_urgency(con, ["marina", "keeper"]) == ("!", 1, tui.YEL),
+              str(tui.hidden_urgency(con, ["marina", "keeper"])))
+        dmn.wall_reason = real_wall
+        db.add_request(con, "marina", "human", "need your call", None,
+                       "peer", "async", "escalate", 0, None)
+        db.set_agent_state(con, "keeper", dmn.STALLED, detail="wedged")
+        check("fold: one waiting on the human beats stuck, and only its own class is counted",
+              tui.hidden_urgency(con, ["marina", "keeper"]) == ("!", 1, tui.YEL),
+              str(tui.hidden_urgency(con, ["marina", "keeper"])))
+        check("fold: nothing hidden, nothing said", tui.hidden_urgency(con, []) is None)
+
+        # A hidden agent is counted under one row: the manager's fold does not
+        # claim what hangs under a report that is drawn and has a fold of its own.
+        (home / "team.yaml").write_text("""
+teams:
+  dev: [idle1, lead]
+  sub: [worker]
+agents:
+  manager: { intake: dedicated }
+  idle1:   { intake: dedicated }
+  lead:    { intake: dedicated }
+  worker:  { intake: dedicated }
+edges:
+  - { from: "manager", to: "dev.*", relation: supervisor, response: fire_and_forget }
+  - { from: "lead", to: "sub.*", relation: supervisor, response: fire_and_forget }
+  - { from: "human", to: "*", relation: supervisor, response: fire_and_forget }
+  - { from: "*", to: "human", kind: escalate, creates_gate: true }
+""")
+        for name in ("idle1", "lead", "worker"):
+            agents.register(name, "alpha")
+        for name, state in (("marina", dmn.IDLE), ("keeper", dmn.IDLE), ("idle1", dmn.IDLE),
+                            ("lead", dmn.STALLED), ("worker", dmn.RUNNING)):
+            db.set_agent_state(con, name, state, detail="x")
+        lines = {n: next((tui._ANSI.sub("", ln) for ln in tui.frame(120, 60).split(chr(10))
+                          if re.search(rf"(^|[ │└]){n}( |$)", tui._ANSI.sub("", ln))), "")
+                 for n in ("manager", "lead")}
+        check("fold: what hangs under a drawn report is counted under that report",
+              "lead +1 ▶1" in lines["lead"], lines["lead"])
+        check("fold: and not again under the manager, whose ▶ cannot exceed its +N",
+              "manager +1" in lines["manager"] and "▶" not in lines["manager"], lines["manager"])
+        check("fold: the walk names the agents a fold hides, and the count is theirs",
+              {n: h for n, _d, h in tui._walk_tree()}["manager"] == ["idle1"]
+              and dict((n, u) for n, _d, u in tui.visible_tree())["manager"] == 1,
+              str(tui._walk_tree()))
+        # Opening the report while the manager stays folded: what hangs under it is
+        # still hidden, so it is still counted, and still said.
+        tui.EXPANDED.add("lead")
+        lines = {n: next((tui._ANSI.sub("", ln) for ln in tui.frame(120, 60).split(chr(10))
+                          if re.search(rf"(^|[ │└]){n}( |$)", tui._ANSI.sub("", ln))), "")
+                 for n in ("manager", "lead")}
+        check("fold: an opened report's team is still counted under the fold that hides it",
+              "manager +2 ▶1" in lines["manager"], lines["manager"])
+        check("fold: and it has no fold of its own to say it twice",
+              "▶" not in lines["lead"] and "+" not in lines["lead"].split("STALLED")[0],
+              lines["lead"])
+        tui.EXPANDED.clear()
+
+        # Width: the aggregate goes before the count, and the count before the name.
+        plain = lambda s_: tui._ANSI.sub("", s_)  # noqa: E731
+        run = ("▶", 2, tui.GRN)
+        check("fold: a top-level name has room for both",
+              plain(tui.fold_marker("orcapipe-manager", 3, run)) == "orcapipe-manager +3 ▶2")
+        check("fold: an indented name has room for the count only",
+              plain(tui.fold_marker("└ orcapipe-manager", 2, run)) == "└ orcapipe-manager +2")
+        check("fold: a name too long for even that is cut, the count kept",
+              plain(tui.fold_marker("a-very-long-agent-name-indeed", 12, run)).endswith(" +12")
+              and tui.vlen(tui.fold_marker("a-very-long-agent-name-indeed", 12, run)) <= tui.NAME_W)
+        check("fold: no fold, no marker", tui.fold_marker("keeper", 0, run) == "keeper")
+    finally:
+        dmn.wall_reason = real_wall
+        con.close()
+        tui.EXPANDED.clear()
+
+
 def test_the_team_is_drawn_the_way_it_is_routed(home: Path) -> None:
     """Who an agent answers to decides where its report goes and who may
     assign to it, and team.yaml has said so all along. A flat alphabetical list
@@ -11161,6 +11324,8 @@ def main() -> int:
         run(lambda: test_a_wait_returns_when_the_answer_lands_not_when_it_gives_up(Path(td) / 'waitrow'))
         run(lambda: test_an_answer_to_the_human_is_in_the_human_mailbox(Path(td) / 'mailbox'))
         run(lambda: test_the_team_is_drawn_the_way_it_is_routed(Path(td) / 'tree'))
+        run(lambda: test_the_wake_time_is_in_the_state_cell_not_a_column(Path(td) / 'waketime'))
+        run(lambda: test_a_folded_row_says_what_its_reports_are_doing(Path(td) / 'foldmark'))
         run(lambda: test_the_panel_and_the_daemon_agree_about_what_is_in_the_way(Path(td) / 'topagree'))
         run(lambda: test_the_screen_says_what_is_stuck_and_what_was_decided(Path(td) / 'topstuck'))
         run(lambda: test_a_message_is_read_whole_and_answered_where_it_is_read(Path(td) / 'topread'))
