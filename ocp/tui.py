@@ -37,8 +37,8 @@ import time
 import tty
 from pathlib import Path
 
-from . import (accounts, actions, agents, daemon, db, launch, load as loadmod, paths, status,
-               triggers)
+from . import (accounts, actions, agents, daemon, db, launch, load as loadmod, orca, paths,
+               status, triggers)
 from . import waiting as promptwait
 from .textsafe import cwidth, drawable, oneline, wrap
 
@@ -2558,6 +2558,19 @@ def _add_account(width: int, height: int, fd, saved, under=None) -> str:
         return "not added"
     ok, msg = accounts.add_account(
         name, lambda argv, env: _suspend(argv, env, fd, saved)[0])
+    if not ok or not orca.available():
+        return msg
+    # 156 item 1c, from the screen too: the CLI and the TUI share the one
+    # trusting sequence, `actions.trust_worktrees`.
+    declared, skipped = actions.eligible_worktrees(name)
+    if not declared:
+        return msg
+    listed = ", ".join(f"{a} ({w})" for a, w in declared)
+    prompt = f"trust {listed}? y/N"
+    if skipped:
+        prompt += f" (skipping {len(skipped)} outside declared roots)"
+    if _line(prompt, width, height).strip().lower() in ("y", "yes"):
+        return msg + " · " + "; ".join(actions.trust_worktrees(name, declared))
     return msg
 
 

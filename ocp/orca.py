@@ -128,38 +128,52 @@ def screen_text(handle: str) -> str | None:
 
 
 def trust_prompt_showing(handle: str) -> bool:
-    """Is claude sitting at its folder-trust screen, waiting on a choice
-    typed text was never meant to make?
+    """Is claude sitting at its folder-trust screen, cursor on "No, exit"?
 
-    The cursor there defaults to "No, exit" - a handoff followed by Enter,
-    the daemon's ordinary way of waking an agent, chooses exit every time,
-    and the next wake retries into the same screen. Read before typing
-    anything rather than found out about after.
+    Read before typing anything: a handoff followed by Enter, the daemon's
+    ordinary wake, chooses "No, exit" on this screen every time.
     """
     text = screen_text(handle)
     return text is not None and TRUST_PROMPT_MARKER in text
 
 
-# Verified 2026-09-19 against a live prompt: a throwaway directory outside any
-# consented root, a session started under an account no agent runs on,
-# `orca terminal create` + `--screen` reads before and after each key. From
-# the prompt's default cursor ("No, exit"), one Down arrow moves it to "Yes,
-# I trust this folder"; a bare Enter after that confirms it. A bare Enter with
-# no Down confirms "No, exit" instead - which is what makes typing a handoff
-# into this screen the ~20s loop `trust_prompt_showing` exists to stop.
+# The line the prompt names its folder under. Wrapped at terminal width with
+# no separator, so its continuation lines are joined bare, not with a space.
+WORKSPACE_MARKER = "Accessing workspace:"
+
+
+def trust_prompt_folder(text: str) -> str | None:
+    """The folder the prompt itself names, out of its own screen text.
+
+    Never the path a caller has on record for the session: the two can
+    differ (a stale record, a reused terminal, a human's own `cd`), and
+    pressing "Yes" presses it for whatever is actually on screen.
+    """
+    lines = text.split("\n")
+    try:
+        start = next(i for i, ln in enumerate(lines) if WORKSPACE_MARKER in ln) + 1
+    except StopIteration:
+        return None
+    parts = []
+    for ln in lines[start:]:
+        stripped = ln.strip()
+        if not stripped or TRUST_PROMPT_MARKER in stripped:
+            break
+        parts.append(stripped)
+    return "".join(parts) or None
+
+
+# Verified against a live prompt: one Down off the default cursor ("No,
+# exit") lands on "Yes, I trust this folder"; a bare Enter then confirms it.
+# A bare Enter with no Down confirms "No, exit" instead.
 TRUST_PROMPT_DOWN_ARROW = "\x1b[B"
 
 
 def confirm_trust(handle: str) -> tuple[bool, str]:
-    """Press the exact keys that choose "Yes, I trust this folder".
+    """Press Down then Enter to choose "Yes, I trust this folder".
 
-    Only ever call this once `trust_prompt_showing` is true and the caller has
-    already decided this path may be trusted on the founder's own say-so
-    (standing consent, request 156 item 1b) - it does not check anything
-    itself, and pressing it anywhere else presses a security prompt blind.
-    Nothing is written to `.claude.json` here; the keys are the same two a
-    person would press, and whatever claude itself records is claude's own
-    business.
+    Callers decide *whether* to press it; this only presses it, blind to
+    which folder is on screen. Writes nothing to `.claude.json`.
     """
     ok, out = _run(["terminal", "send", "--terminal", handle,
                     "--text", TRUST_PROMPT_DOWN_ARROW])

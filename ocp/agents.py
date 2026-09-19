@@ -235,46 +235,6 @@ def placed(name: str, con=None) -> tuple[str, dict]:
     return current_account(name, con), read(name)
 
 
-# Where every worktree Orca makes for a new agent lands, regardless of which
-# repo it is for (request 156 item 1b). Declared alongside the repos, not
-# instead of them: an agent's own repo may sit elsewhere, and a worktree of
-# one still needs its own entry.
-WORKSPACES_ROOT = Path.home() / "orca" / "workspaces"
-
-
-def declared_roots() -> list[Path]:
-    """Where the founder has said ocp may answer a folder-trust prompt itself.
-
-    Not a separately maintained list: every repo registered on an agent
-    (`repo_of`), plus `WORKSPACES_ROOT`, so the roots can never drift from what
-    is already true about the team without a second edit somewhere. Outside
-    these, request 156 item 1a's escalation is the only path.
-    """
-    roots = {WORKSPACES_ROOT.resolve()}
-    for name in paths.list_agents():
-        repo = repo_of(name)
-        if repo:
-            roots.add(Path(repo).expanduser().resolve())
-    return sorted(roots)
-
-
-def is_declared_root(path: str | Path, roots: list[Path] | None = None) -> bool:
-    """Is `path` inside a root the founder has declared, or one of its worktrees?
-
-    `resolve()` on both sides: a worktree path recorded with a trailing
-    symlink component (macOS's /tmp under /private, for one) would otherwise
-    read as outside its own root.
-    """
-    try:
-        target = Path(path).expanduser().resolve()
-    except (OSError, RuntimeError, ValueError):
-        return False
-    for root in (roots if roots is not None else declared_roots()):
-        if target == root or root in target.parents:
-            return True
-    return False
-
-
 def account_of(name: str) -> str:
     acct = read(name).get("account")
     if not acct:

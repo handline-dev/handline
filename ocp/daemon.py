@@ -37,7 +37,7 @@ from pathlib import Path
 from . import (accounts, agents, ask as askmod, blocked, burnrate, collect, db, events,
                fold as foldmod, handoff as handoffmod, launch, load, lock, measure,
                observe as obs, orca, paths, service, spawn as spawnmod, status, textsafe,
-               tokenlog, triggers, usage_api)
+               tokenlog, triggers, trust, usage_api)
 from .yamlcompat import ConfigError
 
 # Section 8.2 states.
@@ -1224,46 +1224,50 @@ def _wake_agent(con, agent: str, log, moved_to: str | None = None) -> tuple[bool
     return ok, why
 
 
+def _same_path(a: str, b: str) -> bool:
+    try:
+        return Path(a).expanduser().resolve() == Path(b).expanduser().resolve()
+    except (OSError, RuntimeError, ValueError):
+        return False
+
+
 def _handle_trust_prompt(con, agent: str, handle: str, log) -> tuple[bool, str]:
-    """Standing consent (request 156 item 1b): inside a root the founder has
-    declared, the answer to "is this a project you trust" was already given
-    when that root was declared, so ocp presses it rather than stopping the
-    agent to ask again. Outside those roots, item 1a's escalation still
-    applies unchanged - this only narrows *when* that happens, never what it
-    does.
+    """Standing consent: press "Yes" only for the folder the dialog itself
+    names, and only when that folder is both a declared root and the one on
+    record for this agent. Anything else - unreadable, undeclared, or a
+    mismatch with the recorded worktree - escalates, as does a press whose
+    keys did not land.
     """
     row = db.get_agent_state(con, agent)
-    path = spawnmod.worktree_path(row["worktree"]) if row else None
-    if not path or not agents.is_declared_root(path):
-        return _escalate_trust_prompt(con, agent, handle, log)
+    recorded = spawnmod.worktree_path(row["worktree"]) if row else None
+    text = orca.screen_text(handle)
+    shown = orca.trust_prompt_folder(text) if text else None
+    if not shown or not recorded or not trust.is_declared(shown) \
+            or not _same_path(shown, recorded):
+        return _escalate_trust_prompt(con, agent, handle, log, shown, recorded)
     ok, why = orca.confirm_trust(handle)
-    if not ok:
-        # A confirm that did not land is not evidence the screen resolved
-        # itself - it is still sitting there, and typing a handoff into it
-        # next is the same loop 1a exists to stop.
-        return _escalate_trust_prompt(con, agent, handle, log)
-    db.add_event(con, agent, "trust_confirmed", {"path": path})
-    log(f"  {agent}: trusted {path} (standing consent)")
+    if not ok or orca.trust_prompt_showing(handle):
+        return _escalate_trust_prompt(con, agent, handle, log, shown, recorded)
+    db.add_event(con, agent, "trust_confirmed", {"path": shown})
+    log(f"  {agent}: trusted {shown} (standing consent)")
     # The screen just changed under us; typing the wake prompt before claude
     # has finished drawing its ordinary TUI loses the opening characters.
     orca.wait_idle(handle)
     return True, "trusted"
 
 
-def _escalate_trust_prompt(con, agent: str, handle: str, log) -> tuple[bool, str]:
-    """claude is sitting at its folder-trust screen instead of running - typed
-    text is not a choice on that screen, it is a coin flip that always lands
-    on "No, exit" (the default), so nothing is typed. STALLED instead of a
-    retry: the trust screen does not resolve itself, so retrying finds the
-    same screen every time - exactly the ~20s loop this exists to stop -
-    and an escalation, not just the STALLED mark, so it reaches the founder's
-    own queue rather than only a screen nobody may be watching.
+def _escalate_trust_prompt(con, agent: str, handle: str, log,
+                          shown: str | None = None, recorded: str | None = None
+                          ) -> tuple[bool, str]:
+    """claude is sitting at its folder-trust screen - nothing is typed, since
+    typed text is not a choice there, it is a coin flip landing on the
+    default "No, exit". STALLED and escalated rather than retried: the screen
+    does not resolve itself.
     """
-    row = db.get_agent_state(con, agent)
     acct = agents.current_account(agent, con)
-    path = spawnmod.worktree_path(row["worktree"]) if row else None
-    why = (f"{agent}'s terminal is showing claude's folder-trust prompt "
-           f"(account {acct}, path {path or 'unknown'}) - nothing was typed into it")
+    why = (f"{agent}'s terminal is showing claude's folder-trust prompt for "
+           f"{shown or 'an unreadable folder'} (account {acct}, recorded "
+           f"worktree {recorded or 'unknown'}) - nothing was typed into it")
     askmod.escalate(con, agent, f"[trust] {why}", why)
     db.set_agent_state(con, agent, STALLED, wake_at=None, detail=why[:300])
     log(f"  {agent}: {why}")
