@@ -289,6 +289,11 @@ class AccountStatus:
             # Its weekly figure is a floor unless the week itself has passed.
             ok, why = True, self.rolled_over()[1]
             week = None if self.reset_7d and self.reset_7d <= time.time() else self.pct_7d
+        else:
+            idle_ok, idle_why = self.idle_floor(limit_5h)
+            if idle_ok:
+                ok, why = idle_ok, idle_why
+                week = self.pct_7d
         if ok and week is not None and week >= limit_7d:
             return False, f"7d usage {week}% >= {limit_7d}%"
         return ok, why
@@ -316,6 +321,30 @@ class AccountStatus:
             return False, ""
         shown = "its week has rolled over" if week_over else f"7d {week}%"
         return True, f"stale, window rolled over, {shown}"
+
+    def idle_floor(self, limit_5h: int = triggers.MOVE_LINE_5H) -> tuple[bool, str]:
+        """A stale account still inside its 5h window, whose last reading left
+        room to spare, can take work. Returns (ok, reason).
+
+        A snapshot only refreshes while a session runs, so an account nobody is
+        using goes stale within the quarter-hour and stays that way until its
+        window rolls over - which is how an account sitting at 1% was refused
+        for hours while agents waited out a full one. What could have moved the
+        figure since is spending we do not collect, the same hole `rolled_over`
+        already accepts. The margin is what keeps that hole small: a reading
+        well clear of the line has room for the spending we cannot see, and the
+        session that starts here writes a fresh reading at once.
+        """
+        if (not self.exists or self.error or self.rl_lost or not self.stale
+                or self.pct_5h is None or not self.pct_5h_readable):
+            return False, ""
+        now = time.time()
+        if not self.reset_5h or self.reset_5h <= now:
+            return False, ""  # rolled_over's case, not this one
+        if self.pct_5h >= limit_5h - MOVE_MIN_HEADROOM_PCT:
+            return False, (f"5h {self.pct_5h}% when last seen - too close to "
+                           f"{limit_5h}% to start on a stale reading")
+        return True, f"stale but quiet, 5h {self.pct_5h}% when last seen"
 
     def headroom(self) -> int | None:
         """Remaining 5h headroom in percent, or None when unknown."""
@@ -504,9 +533,9 @@ def _pick_reason(st: "AccountStatus", picked: bool) -> str:
     """Why this account sits where it does in the ordering."""
     week = st.trusted_pct_7d
     week_s = "unknown" if week is None else f"{week}%"
-    rolled = st.rolled_over()
-    if rolled[0]:
-        return rolled[1] + (" <- picked: earliest deadline" if picked else "")
+    for stale_ok, stale_why in (st.rolled_over(), st.idle_floor()):
+        if stale_ok and not st.assignable()[0]:
+            return stale_why + (" <- picked: earliest deadline" if picked else "")
     when = "unknown" if not st.reset_7d else _ago(max(0.0, st.reset_7d - time.time()))
     base = f"5h {st.trusted_pct_5h}%, 7d {week_s} (resets in {when})"
     return base + " <- picked: earliest deadline" if picked else base
