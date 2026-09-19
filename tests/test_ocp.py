@@ -5057,13 +5057,54 @@ def test_the_bridge_says_what_an_agent_is_where_there_is_room(home: Path) -> Non
     check("kind: an effort we do not know is shown whole, not dressed as one of ours",
           agentsmod.kind({"model": "opus", "effort": "glacial"}) == "opus glacial")
 
-    wide = tui._ANSI.sub("", tui.frame(tui.KIND_MIN_WIDTH, 40))
-    narrow = tui._ANSI.sub("", tui.frame(tui.KIND_MIN_WIDTH - 1, 40))
+    # The width where it should just appear: the columns drawn with it, plus
+    # the wake cell with the longest account name.
+    state_w = tui._state_width([("IDLE", "")])
+    need = (tui.PANEL_BORDERS + tui.NAME_W + tui.ACCT_COL + tui.KIND_W + state_w
+            + tui.CTX_COL + tui.IN_COL
+            + tui.vlen(f"⏳ {'x' * max(len(a) for a in paths.list_accounts())}? 00:00"))
+    check("kind: fits exactly at the derived width", tui._kind_fits(need, state_w)
+          and not tui._kind_fits(need - 1, state_w), str(need))
+    wide = tui._ANSI.sub("", tui.frame(need + 20, 40))
+    narrow = tui._ANSI.sub("", tui.frame(need - 1 - 20, 40))
     row = next(ln for ln in wide.splitlines() if "backend" in ln)
     check("kind: a wide bridge draws it, under a heading that names it",
           "kind" in wide and agentsmod.kind(agents.read("backend")) in row, row)
     check("kind: a narrow one spends the columns on what is happening instead",
           "kind" not in narrow and agentsmod.kind(agents.read("backend")) not in narrow)
+
+
+def test_the_state_column_is_as_wide_as_what_it_prints(home: Path) -> None:
+    """It was 24 columns for "PARKED·closed 12m05s" on a screen where the rows
+    say IDLE. It is measured per frame, and the rows still line up."""
+    import re
+    _daemon_home(home, 20)
+    agents.register("frontend", "alpha")
+    con = db.connect()
+    try:
+        def ctx_cols(w: int) -> tuple[set[int], list[str]]:
+            rows = [ln for ln in tui._ANSI.sub("", tui.frame(w, 40)).splitlines()
+                    if "backend" in ln or "frontend" in ln]
+            return {re.search(r"(\d+|\?|-)%", ln).start() for ln in rows}, rows
+        cols, rows = ctx_cols(140)
+        idle_w = tui._state_width([("IDLE", ""), ("IDLE", "")])
+        check("state: rows that say IDLE get a narrow column", idle_w < 14, str(idle_w))
+        check("state: and their ctx cells line up", len(cols) == 1, str(rows))
+        db.set_closed(con, "backend", "sess-x")
+        db.set_agent_state(con, "backend", dmn.PARKED, wake_at=int(time.time()) + 725,
+                           detail="parked")
+        cols, rows = ctx_cols(140)
+        check("state: a parked, closed row with a countdown is shown whole",
+              any("PARKED·closed" in ln and "m" in ln for ln in rows), str(rows))
+        check("state: the column grew for it and every row still lines up",
+              len(cols) == 1 and min(cols) > 0, str(rows))
+        want = tui._state_width([("PARKED·closed", "12m05s")])
+        check("state: measured from the longest state and the widest countdown",
+              want == 1 + len("PARKED·closed") + 1 + tui.COUNTDOWN_W, str(want))
+        check("state: a shorter countdown does not narrow the column, so it does not breathe",
+              tui._state_width([("PARKED", "9s")]) == tui._state_width([("PARKED", "12m05s")]))
+    finally:
+        con.close()
 
 
 def test_a_walled_wake_names_the_account_only_with_room(home: Path) -> None:
@@ -5082,14 +5123,24 @@ def test_a_walled_wake_names_the_account_only_with_room(home: Path) -> None:
         when = time.strftime("%H:%M", time.localtime(reset_at))
         dmn.would_wake = lambda con, row: True
         launch.wake_wait = lambda name, row, con: launch.WakeWait("beta", 95, reset_at)
-        narrow = tui._ANSI.sub("", tui.frame(80, 40))
-        wide = tui._ANSI.sub("", tui.frame(100, 40))
-        nline = next(ln for ln in narrow.splitlines() if "backend" in ln)
-        wline = next(ln for ln in wide.splitlines() if "backend" in ln)
+        def line(w: int) -> str:
+            return next(ln for ln in tui._ANSI.sub("", tui.frame(w, 40)).splitlines()
+                        if "backend" in ln)
+        # The width where the account first has room beside the clock.
+        first = next(w for w in range(50, 200) if "beta" in line(w))
         check("walled: a narrow bridge keeps the clock and drops the account",
-              when in nline and "beta" not in nline, nline)
+              when in line(first - 1) and "beta" not in line(first - 1), line(first - 1))
         check("walled: a wider bridge has room for both",
-              when in wline and "beta" in wline, wline)
+              when in line(first) and "beta" in line(first), line(first))
+        # Kind gives way to the account: wherever the kind column is drawn, the
+        # walled row still names it.
+        with_kind = [w for w in range(50, 200)
+                     if "kind" in tui._ANSI.sub("", tui.frame(w, 40))]
+        check("walled: kind is drawn somewhere in the sweep", bool(with_kind))
+        check("walled: kind is never drawn where the account is not named",
+              all("beta" in line(w) for w in with_kind), str(min(with_kind, default=0)))
+        check("walled: kind first appears a column's width beyond the account",
+              min(with_kind) >= first + tui.KIND_W, f"{min(with_kind)} vs {first}")
     finally:
         dmn.would_wake, launch.wake_wait = real_would_wake, real_wake_wait
         con.close()
@@ -9313,9 +9364,8 @@ def test_a_span_ends_in_its_unit_and_fits_its_columns(home: Path) -> None:
         cell = tui.countdown(ts).strip()
         widest = max(widest, len(cell))
         check(f"span: the bridge countdown says {want}", cell == want, cell)
-    longest_state = max(len(f"{st}·closed") for st in tui.STATE_COLOR)
-    check("span: the widest wait leaves the agents panel's longest state whole",
-          tui.STATE_W - 1 - (widest + 1) >= longest_state, f"{widest} {longest_state}")
+    check("span: the countdown the state column reserves is the widest one",
+          widest <= tui.COUNTDOWN_W, f"{widest}")
     check("span: the widest fits the reset columns",
           widest < tui.ACCT_W["reset5"] and widest < tui.ACCT_W["reset7"], str(widest))
     # A runway is shown only while the wall comes before the 5h window resets,
@@ -12724,6 +12774,7 @@ def main() -> int:
         run(lambda: test_a_walled_wake_with_no_reset_reads_unknown(Path(td) / 'walledunknown'))
         run(lambda: test_a_moved_walled_wake_names_the_new_account(Path(td) / 'walledmoved'))
         run(lambda: test_the_bridge_says_what_an_agent_is_where_there_is_room(Path(td) / 'agentkind'))
+        run(lambda: test_the_state_column_is_as_wide_as_what_it_prints(Path(td) / 'statew'))
         run(lambda: test_a_walled_wake_names_the_account_only_with_room(Path(td) / 'walledroom'))
         run(lambda: test_a_park_that_cannot_be_woken_keeps_its_deadline(Path(td) / 'parkdue'))
         run(lambda: test_a_usage_park_is_woken_when_the_reading_clears(Path(td) / 'parklevel1'))
