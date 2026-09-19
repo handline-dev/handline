@@ -19,6 +19,31 @@ DEFAULT_MODEL = "sonnet"
 # doing architecture.
 VALID_EFFORT = ("low", "medium", "high", "xhigh", "max")
 DEFAULT_EFFORT = "medium"
+# Which tool an agent is. Everything here drives `claude` today, and the field
+# exists so a second one does not have to be guessed from the model name.
+DEFAULT_VENDOR = "claude"
+# The effort names, short enough for a column. Not abbreviations of whatever
+# arrives: an unknown value is shown whole, because a name nobody recognises is
+# the thing a reader needs to see, not something to dress up as one of ours.
+EFFORT_SHORT = {"low": "low", "medium": "mid", "high": "high",
+                "xhigh": "xhi", "max": "max"}
+
+
+def kind(cfg: dict) -> str:
+    """What an agent is, for a column: the model and its effort.
+
+    The vendor is drawn only when it is not the one everything here has been
+    until now - a column that says "claude" on every row of a single-vendor
+    team is a column that trains a reader not to look at it, and the day a
+    codex agent appears is the day the word starts carrying information.
+    """
+    vendor = str(cfg.get("vendor") or DEFAULT_VENDOR)
+    model = str(cfg.get("model") or DEFAULT_MODEL)
+    effort = str(cfg.get("effort") or DEFAULT_EFFORT)
+    out = f"{model} {EFFORT_SHORT.get(effort, effort)}"
+    return out if vendor == DEFAULT_VENDOR else f"{vendor} {out}"
+
+
 BASE_BUDGET_BYTES = 2048  # base.md <= 2KB (team model section 1)
 ROLE_BUDGET_BYTES = 1024  # ROLE.md <= 1KB
 
@@ -43,7 +68,7 @@ def register(name: str, account: str, role: str = "", model: str | None = None,
     if not name or "/" in name or name.startswith("."):
         raise ValueError(f"bad agent name: {name!r}")
     d = paths.agent_dir(name)
-    for sub in ("inbox", "journal", "handoff"):
+    for sub in ("inbox", "journal"):
         (d / sub).mkdir(parents=True, exist_ok=True)
 
     f = agent_file(name)
@@ -119,7 +144,8 @@ def current_account(name: str, con=None) -> str:
 @dataclass
 class AccountReading:
     account: str
-    # "recorded" - `ocp launch` confirmed it; "reported" - the agent's own
+    # "recorded" - a launch, a move or the process check wrote it (the tick
+    # reconciles it with the process); "reported" - the agent's own
     # fresh snapshot named it, better evidence than a merely assumed value;
     # "assumed" - a guess (agent.yaml's preference, or one written before a
     # launch had a chance to confirm it), never a destination, never a fact.

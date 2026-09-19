@@ -499,6 +499,97 @@ def withdraw(rid: int, requester: str | None = None) -> tuple[bool, str]:
         con.close()
 
 
+# What a cancelled request says, to the requester as its answer and to anyone
+# who reads the row: the founder took it out of the queue.
+CANCEL_VERDICT = "withdrawn by the founder"
+
+
+def cancel(rid: int) -> tuple[bool, str]:
+    """The founder takes a request out of an agent's queue.
+
+    `withdraw` is the requester's own and stops at delivery, which left no way
+    to clear a delivered head that its agent never resolved: everything behind
+    it waited. This is that way. A founder's own request that was never
+    delivered is simply withdrawn. Anything else is closed as rejected with
+    `CANCEL_VERDICT`, never deleted: its number and history stay, its requester
+    is told through the ordinary answer path, and the target - which may be
+    mid-work on it - is typed a notice with delivery's gates when it had been
+    delivered. Whatever is behind it delivers next.
+    """
+    from . import daemon
+
+    con = db.connect()
+    try:
+        row = db.get_request(con, rid)
+        if row is None:
+            return False, f"request {rid} does not exist"
+        if row["state"] != "queued":
+            return False, f"#{rid} is already {row['state']} - nothing to cancel"
+        if row["requester"] == HUMAN and not row["delivered_at"]:
+            return withdraw(rid, requester=HUMAN)
+        target = row["target"]
+        notify = row["requester"] != HUMAN
+        # Closed here, in the one write that can move it out of 'queued', so
+        # an agent resolving it at the same instant keeps its own answer and
+        # this loses instead of overwriting it - `_after_close` never runs
+        # unless this call was the one that closed the row.
+        if not db.close_if_queued(con, rid, "rejected", CANCEL_VERDICT, announced=not notify):
+            return False, f"#{rid} was closed while this ran - nothing to cancel"
+        said = []
+        if row["delivered_at"]:
+            typed, why = daemon.notify_cancelled(con, row, CANCEL_VERDICT)
+            said.append(f"{target} was told to stop" if typed else
+                        f"{target} could not be told now ({why}); resolving #{rid} "
+                        f"is refused to it, so it cannot undo this")
+        msg = _after_close(con, rid, row, "rejected", notify)
+        db.add_event(con, HUMAN, "cancel", {"request_id": rid, "target": target,
+                                            "requester": row["requester"],
+                                            "delivered": bool(row["delivered_at"])})
+        return True, (f"#{rid} to {target} cancelled"
+                      + (f" ({'; '.join(said)})" if said else "") + "\n" + msg)
+    finally:
+        con.close()
+
+
+def _after_close(con, rid: int, row, state: str, notify: bool) -> str:
+    """What follows moving a request out of 'queued', shared by `resolve` and
+    `cancel` so there is one write to the row and one place that wakes
+    everyone it affects: the event log, the requester (if told), and
+    whatever was behind it in the target's own queue."""
+    db.add_event(con, row["target"], "resolve",
+                 {"request_id": rid, "state": state, "requester": row["requester"]})
+
+    # The reply is the wake. QUEUED is the design's state for "ready to be
+    # dispatched"; the daemon picks it up from there (section 8.2).
+    # Only queue the requester when nothing else it asked for is still
+    # outstanding, and never out of a terminal state. And not out of a
+    # usage park: an answer is not evidence the window rolled over, and
+    # queueing it would open the session to the very typing the park is
+    # there to prevent.
+    from . import daemon
+
+    if row["response"] == "async" and row["requester"] != HUMAN \
+            and not _terminal(con, row["requester"]) \
+            and not daemon.wall_reason(con, row["requester"]):
+        outstanding = con.execute(
+            "SELECT COUNT(*) c FROM requests WHERE requester = ? AND state = 'queued' "
+            "AND response = 'async'", (row["requester"],)).fetchone()["c"]
+        if outstanding == 0:
+            db.set_agent_state(con, row["requester"], "QUEUED", wake_at=None,
+                               detail=f"request {rid} resolved: {state}")
+    p = _inbox(row["target"]) / f"{rid:06d}.json"
+    if p.exists():
+        p.unlink()
+    said = push_answer(con, row["requester"]) if notify else ""
+    # The next request in target's own queue, if any, becomes deliverable
+    # only now - tell them right away, the same as asking does. This runs
+    # whether or not the requester was told: a dismiss skips the
+    # requester's answer, never the target's own queue.
+    if db.head_of_queue(con, row["target"]):
+        said += ("\n" if said else "") + push(con, row["target"])
+    return f"request #{rid} -> {state}" + (f"\n{said}" if said else "")
+
+
 def resolve(rid: int, verdict: str, state: str = "done", notify: bool = True) -> tuple[bool, str]:
     """`notify=False` is `dismiss`'s case: settle the row without telling the requester."""
     con = db.connect()
@@ -506,35 +597,12 @@ def resolve(rid: int, verdict: str, state: str = "done", notify: bool = True) ->
         row = db.get_request(con, rid)
         if row is None:
             return False, f"request {rid} does not exist"
-        # Announcing is stamped in this same write when notify=False, so a
-        # sweep between here and the caller's own bookkeeping can never find
-        # the row 'done' with announced_at still NULL and treat it as news.
-        db.set_request_state(con, rid, state, verdict, announced=not notify)
-        db.add_event(con, row["target"], "resolve",
-                     {"request_id": rid, "state": state, "requester": row["requester"]})
-
-        # The reply is the wake. QUEUED is the design's state for "ready to be
-        # dispatched"; the daemon picks it up from there (section 8.2).
-        # Only queue the requester when nothing else it asked for is still
-        # outstanding, and never out of a terminal state.
-        if row["response"] == "async" and row["requester"] != HUMAN \
-                and not _terminal(con, row["requester"]):
-            outstanding = con.execute(
-                "SELECT COUNT(*) c FROM requests WHERE requester = ? AND state = 'queued' "
-                "AND response = 'async'", (row["requester"],)).fetchone()["c"]
-            if outstanding == 0:
-                db.set_agent_state(con, row["requester"], "QUEUED", wake_at=None,
-                                   detail=f"request {rid} resolved: {state}")
-        p = _inbox(row["target"]) / f"{rid:06d}.json"
-        if p.exists():
-            p.unlink()
-        said = push_answer(con, row["requester"]) if notify else ""
-        # The next request in target's own queue, if any, becomes deliverable
-        # only now - tell them right away, the same as asking does. This runs
-        # whether or not the requester was told: a dismiss skips the
-        # requester's answer, never the target's own queue.
-        if db.head_of_queue(con, row["target"]):
-            said += ("\n" if said else "") + push(con, row["target"])
-        return True, f"request #{rid} -> {state}" + (f"\n{said}" if said else "")
+        # Conditional on 'queued', the same as `cancel`'s close: two answers
+        # landing on the same row at once must not have the second overwrite
+        # the first, whichever path either comes through.
+        if not db.close_if_queued(con, rid, state, verdict, announced=not notify):
+            fresh = db.get_request(con, rid)
+            return False, f"#{rid} is already {fresh['state']} - nothing to resolve"
+        return True, _after_close(con, rid, row, state, notify)
     finally:
         con.close()

@@ -2,10 +2,9 @@
 
 This is what makes "hand off, park, resume" actually reclaim context (team
 model section 2, axis 3: the cost of an async handoff is that the requester
-returns its context). Folding the events and writing a handoff file is only
-half of it - without clearing the session the context never drops, so a
-context trigger fires again on the very next tick and the agent hands off
-forever, paying for a fold each time.
+returns its context). Recording the handoff is only half of it - without
+clearing the session the context never drops, so a context trigger fires again
+on the very next tick and the agent hands off forever.
 
 `/clear` starts a fresh session in the same process: measured on a live agent,
 total_input_tokens went 97801 -> 0 and the session id changed, while the
@@ -196,12 +195,43 @@ def idle_now(handle: str) -> bool:
     return wait_idle(handle, IDLE_PROBE_MS)
 
 
+# What Claude Code draws under a modal it opens itself ("Teach auto mode about
+# your environment?", trust prompts). Anything typed plus Enter answers it.
+MODAL_MARKERS = ("Enter to confirm", "Esc to cancel")
+MODAL_ROWS = 3
+
+
+def modal_open(handle: str) -> bool:
+    """Is a modal on the agent's screen, where typed text would answer it?
+
+    Fail-closed: a screen that cannot be read is a yes, because the cost of a
+    wrong no is an answer given to a question nobody asked.
+    """
+    ok, out = _run(["terminal", "read", "--terminal", handle, "--screen",
+                    "--limit", "40", "--json"], timeout=30)
+    term = _result(out, "terminal") if ok else None
+    tail = term.get("tail") if isinstance(term, dict) else None
+    # Any other source is the accumulated stream, whose history is the
+    # conversation, not the screen.
+    if not isinstance(tail, list) or term.get("source") != "screen":
+        return True
+    # A modal draws its footer on the bottom rows. Above them is the
+    # transcript, which may quote these words without anything being asked.
+    screen = "\n".join(str(x) for x in tail[-MODAL_ROWS:])
+    return any(m in screen for m in MODAL_MARKERS)
+
+
+def typeable_now(handle: str) -> bool:
+    """Idle, and nothing on screen that a typed line would answer."""
+    return idle_now(handle) and not modal_open(handle)
+
+
 def clear_context(handle: str, wait: bool = True,
                   timeout_ms: int = IDLE_TIMEOUT_MS) -> tuple[bool, str]:
     """Return the session's context without destroying the agent.
 
     Waits for the agent to finish what it is doing first: clearing mid-turn
-    would throw away work that the fold has not recorded yet.
+    would throw away work the handoff has not recorded yet.
     """
     if not alive(handle):
         return False, f"terminal {handle} is not alive"
@@ -221,14 +251,20 @@ def close_session(handle: str, wait: bool = True,
     the machine, terminal still running, prompt in the same worktree.
 
     Same guard as clearing - ending a session mid-turn throws away work that
-    nothing has recorded yet.
+    nothing has recorded yet - and nothing is typed at a modal, where `/exit`
+    and Enter answer the question instead of ending anything.
+
+    "Ok" means the command was typed. Whether the process ended is the
+    caller's to confirm from the process table.
     """
     if not alive(handle):
         return False, f"terminal {handle} is not alive"
     if wait and not wait_idle(handle, timeout_ms):
         return False, "agent is mid-turn; not closing"
+    if modal_open(handle):
+        return False, "a modal is open on its screen; not typing /exit at it"
     ok, out = send(handle, "/exit")
-    return ok, "session closed" if ok else f"could not send /exit: {out[:200]}"
+    return ok, "/exit typed" if ok else f"could not send /exit: {out[:200]}"
 
 
 def relaunch(handle: str, command: str, timeout_ms: int = IDLE_TIMEOUT_MS,

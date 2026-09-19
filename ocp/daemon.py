@@ -24,15 +24,18 @@ from __future__ import annotations
 
 import json
 import os
+import shlex
 import signal
 import subprocess
+import sys
 import time
 import uuid
 from dataclasses import dataclass
 from pathlib import Path
 
-from . import (agents, db, events, fold as foldmod, launch, lock, observe as obs, orca,
-               paths, service, spawn as spawnmod, status, triggers)
+from . import (accounts, agents, db, events, fold as foldmod, handoff as handoffmod, launch,
+               load, lock, measure, observe as obs, orca, paths, probe, service, spawn as spawnmod,
+               status, triggers)
 
 # Section 8.2 states.
 IDLE, QUEUED, RUNNING, DONE = "IDLE", "QUEUED", "RUNNING", "DONE"
@@ -80,8 +83,8 @@ HANDOFF_DEADLINE_S = 90      # 8.3
 BACKOFF_BASE_S = 60
 BACKOFF_MAX_S = 3600
 
-# A handoff costs a fold, so two in quick succession is never right - the usage
-# that triggered the first cannot have meaningfully changed. This is a circuit
+# A handoff clears the agent's context, so two in quick succession is never right -
+# the usage that triggered the first cannot have meaningfully changed. This is a circuit
 # breaker, not a policy: if some other path ever un-parks an agent the way
 # SessionStart once did, this stops it from burning tokens in a loop.
 MIN_HANDOFF_INTERVAL_S = 120
@@ -121,7 +124,12 @@ def boot_time() -> int:
 
 
 def write_pidfile() -> None:
-    paths.daemon_pid().write_text(json.dumps({"pid": os.getpid(), "boot": boot_time()}))
+    # Renamed into place, so a reader never sees the truncated file a plain
+    # write leaves for an instant - it would read as no daemon at all.
+    p = paths.daemon_pid()
+    tmp = p.with_name(p.name + ".tmp")
+    tmp.write_text(json.dumps({"pid": os.getpid(), "boot": boot_time()}))
+    os.replace(tmp, p)
 
 
 def read_pidfile() -> dict | None:
@@ -143,8 +151,34 @@ def clear_pidfile() -> None:
     _reclaim(os.getpid())
 
 
+# Quiet between repeats: something that keeps deleting the file should be
+# visible, not a line every tick.
+_PIDFILE_LOG_EVERY_S = 300
+_pidfile_logged = {"at": 0.0}
+
+
+def keep_pidfile(log) -> bool:
+    """Rewrite the pidfile if it is missing or names another process. True if it did."""
+    info = read_pidfile()
+    if info and info.get("pid") == os.getpid():
+        return False
+    write_pidfile()
+    now = time.time()
+    if now - _pidfile_logged["at"] >= _PIDFILE_LOG_EVERY_S:
+        _pidfile_logged["at"] = now
+        log("pidfile was missing or named another process - written back")
+    return True
+
+
 def running_elsewhere() -> int | None:
-    """PID of a live daemon, or None. Stale pidfiles are reclaimed (8.4)."""
+    """PID of a live daemon, or None on a stale pidfile - never touching it.
+
+    A reader that also deletes is still a race: write_pidfile is a plain
+    write_text, so a daemon that writes between this read and a reader's
+    unlink is erased unrecorded, the state this system spent a night in. The
+    daemon only ever writes this file under `lock.singleton`, overwriting
+    whatever is there, so nothing but the holder itself needs to clear it.
+    """
     info = read_pidfile()
     if not info:
         return None
@@ -156,23 +190,21 @@ def running_elsewhere() -> int | None:
     # guessing "stale" would let a second daemon start alongside a live one.
     current_boot = boot_time()
     if boot and current_boot and boot != current_boot:
-        _reclaim(pid)
         return None
     try:
         os.kill(int(pid), 0)
     except (OSError, ValueError):
-        _reclaim(pid)
         return None
     return int(pid)
 
 
 def _reclaim(stale_pid) -> None:
-    """Drop a pidfile that names `stale_pid`, and only while it still does.
+    """Drop the pidfile, but only while it still names `stale_pid`.
 
-    Every reader calls `running_elsewhere`, and a daemon that starts between
-    the read and the unlink writes its own name into the window. Deleting it
-    unrecorded is the state this system spent a night in: a live supervisor
-    that `ocp ps` reported as not running.
+    The one caller is `clear_pidfile`, on the way out - the guard is for a
+    daemon that starts between this exit and the unlink, so it does not
+    erase the new holder's own name (see `running_elsewhere`, which no
+    longer reclaims anything itself).
     """
     info = read_pidfile()
     if info and info.get("pid") == stale_pid:
@@ -187,12 +219,21 @@ def _supervises_this_home(pid: int) -> bool:
     spellings: /tmp and /private/tmp are one place on macOS, and an unresolved
     comparison answers "somebody else's" about our own duplicate.
     """
-    home = obs.env_of(pid, "OCP_HOME")
-    if home is None:
-        # Unreadable and unset are the same answer: a supervisor we cannot
-        # place is the one worth naming, and silence is what let two run.
+    env = obs.process_env(pid)
+    if env is None:
+        # Unreadable is the one worth naming: a supervisor we cannot place is
+        # exactly the one silence let run twice.
         return True
-    return os.path.realpath(Path(home).expanduser()) == os.path.realpath(paths.home())
+    # Read, but not set: `ocp launch` (and launchd) set OCP_HOME, but a daemon
+    # started by hand usually does not, and that process still runs against
+    # the default home - not against ours just because we could not name one.
+    home = None
+    for token in env.split():
+        if token.startswith("OCP_HOME="):
+            home = token.split("=", 1)[1]
+            break
+    home_path = Path(home).expanduser() if home else paths.default_home()
+    return os.path.realpath(home_path) == os.path.realpath(paths.home())
 
 
 def processes() -> list[int]:
@@ -211,7 +252,9 @@ def processes() -> list[int]:
         # The program being run: our own path, `daemon` next, and both at the
         # front of the command line. Anywhere else in it is somebody talking
         # about us - a `grep -n ocp daemon`, an editor on this file, a session
-        # whose system prompt quotes the command.
+        # whose system prompt quotes the command. `service.build_plist` sets
+        # ProgramArguments to exactly [ocp_executable(), "daemon"], so
+        # launchd's own line never needs more than this.
         if not any(argv[i].endswith("/ocp") and argv[i + 1] == "daemon"
                    for i in range(min(2, len(argv) - 1))):
             continue
@@ -227,26 +270,36 @@ class Tick:
     actions: list[str]
 
 
-def resume_handoff(con, row, log, use_model: bool = True) -> None:
+def _record_handoff(con, agent: str, hid: str, log) -> bool:
+    """Take the handoff record and commit the step. False when it is degraded,
+    which is only ever because a fact it holds could not be read."""
+    missing = handoffmod.record(con, agent)
+    if not missing:
+        db.advance_handoff(con, hid, "recorded")
+        # A handoff that worked ends the streak. This is the only thing that
+        # clears it, so a run of failures accumulates until 8.6 escalates.
+        db.reset_counter(con, agent, "throttle_count")
+        return True
+    why = "could not read " + ", ".join(missing)
+    db.advance_handoff(con, hid, "recorded", state="degraded", detail=why[:300])
+    db.bump_counter(con, agent, "throttle_count")
+    log(f"  {agent}: handoff degraded ({why})")
+    return False
+
+
+def resume_handoff(con, row, log) -> None:
     """Finish a handoff from the step it reached (8.9).
 
-    Steps are ordered requested -> folded -> extracted -> released, and each is
-    committed, so a restart picks up where the kill landed instead of redoing
-    the fold or leaving the agent wedged in HANDOFF.
+    Steps are ordered requested -> recorded -> extracted -> released, and each is
+    committed, so a restart picks up where the kill landed instead of leaving
+    the agent wedged in HANDOFF. A row written before the record was
+    deterministic may say `folded` for the second step.
     """
     agent, step, hid = row["agent"], row["step"], row["id"]
     done_ok = True
     if step == "requested":
-        ok, msg = foldmod.fold(agent, use_model=use_model)
-        done_ok = ok
-        if ok:
-            db.advance_handoff(con, hid, "folded",
-                               cursor_to=db.get_cursor(con, f"fold:{agent}"))
-            db.reset_counter(con, agent, "throttle_count")
-        else:
-            db.advance_handoff(con, hid, "folded", state="degraded", detail=msg[:300])
-            db.bump_counter(con, agent, "throttle_count")
-    if step in ("requested", "folded"):
+        done_ok = _record_handoff(con, agent, hid, log)
+    if step in ("requested", "recorded", "folded"):
         db.advance_handoff(con, hid, "extracted")
 
     reading = None
@@ -307,6 +360,32 @@ def session_present(agent: str) -> bool:
     return bool(sessions is not None and sessions.get(agent))
 
 
+# How long a session told `/exit` has to leave the process table. SessionEnd
+# fires at once and the process can outlive it by up to a sweep tick (gone by the
+# next sweep, 31s later, in the one case measured), and the sweep reads a closed
+# row over a live process as "running again" and clears the mark.
+END_WAIT_S = 60
+END_POLL_S = 1
+
+
+def _wait_session_gone(agent: str) -> bool:
+    """Is this agent's session out of a fresh reading of the process table?
+
+    Always a fresh reading - the sweep's snapshot is what read the old process
+    as alive. An unreadable table is a no, the same fail-closed rule as
+    `session_present`: not knowing that it ended is not evidence that it did.
+    """
+    deadline = time.time() + END_WAIT_S
+    while True:
+        sessions = obs.live_sessions()
+        if sessions is not None and not sessions.get(agent):
+            _seen.pop(agent, None)
+            return True
+        if time.time() >= deadline:
+            return False
+        time.sleep(END_POLL_S)
+
+
 # How long a relaunched session has to show up in the process table. `ocp
 # launch` execs claude, so it appears at once when it appears at all; this is
 # slack for a slow start, not a wait for the TUI to be usable.
@@ -350,6 +429,42 @@ def _reclaim_context(con, agent: str, log) -> tuple[bool, str]:
     return ok, why
 
 
+def wall_reason(con, agent: str, row=None) -> str | None:
+    """Why typing at this agent's open session would only spend quota, or None.
+
+    A turn that ended on the usage limit, or a park that a usage trigger put
+    it in, means the account cannot run one: what is typed starts a turn that
+    fails at once, marks the request delivered, clears the very mark that
+    says the agent is at the wall - and the next ask starts it over, each
+    round counting as a degraded handoff. Checked where the keystrokes are
+    sent, so no caller - `supervise`, `ocp ask`, `ocp resolve` - can skip it.
+    """
+    if events.at_limit(con, agent):
+        return f"{agent} is at its usage limit"
+    row = row if row is not None else db.get_agent_state(con, agent)
+    if row and row["state"] == PARKED and not row["closed_at"]:
+        last = db.last_handoff(con, agent)
+        if last and last["trigger_kind"] in MOVABLE_TRIGGERS:
+            return f"{agent} is parked until its usage window rolls over"
+    return None
+
+
+def _live_session(con, agent: str) -> str | None:
+    st = status.read_for_agent(agent, agents.current_account(agent, con))
+    return st.session_id
+
+
+def _session_changed(con, agent: str) -> bool:
+    """Is the session on screen a different one from the one the head was typed into?
+
+    A delivery belongs to the session that read it. A resume keeps its id, so
+    it is not told twice; a fresh start has a new one and has read nothing. An
+    id that cannot be read is not a difference - nothing is retyped on a guess.
+    """
+    live = _live_session(con, agent)
+    return bool(live) and live != db.get_notified_session(con, agent)
+
+
 def deliver_queued(con, agent: str, log) -> bool:
     """Tell an agent about the head of its own queue (`db.head_of_queue`) -
     and only the head, per request #189. `ocp ask` writes a row and puts a
@@ -360,8 +475,11 @@ def deliver_queued(con, agent: str, log) -> bool:
     head = db.head_of_queue(con, agent)
     if not head:
         return False
-    if db.get_cursor(con, f"notify:{agent}") == int(head["id"]):
+    if db.get_cursor(con, f"notify:{agent}") == int(head["id"]) \
+            and not _session_changed(con, agent):
         return False
+    if wall_reason(con, agent):
+        return False              # stays queued; told when it wakes or moves
     handle = db.get_terminal(con, agent)
     if not handle or not orca.available() or not orca.alive(handle):
         return False
@@ -373,13 +491,119 @@ def deliver_queued(con, agent: str, log) -> bool:
         return False
     # Typing at an agent mid-turn leaves the text sitting in its input box
     # unsent, which is how three agents once came up having been told nothing.
-    if not orca.idle_now(handle):
+    if not orca.typeable_now(handle):
         return False
     depth = db.queue_depth(con, agent)
     with lock.terminal(agent) as mine:
         if not mine:
             return False          # something else is mid-send; next tick
         return _tell(con, agent, head, depth, handle, log)
+
+
+# An agent is asked to resolve the request at the head of its queue once it has
+# been idle this long with nothing of its own outstanding. Ten minutes: a turn
+# that ended and left the request open is not thinking, and a real wait on
+# something that is not an ask (a long job) can still say so when it is asked;
+# shorter would nag an agent between two turns of a task.
+NUDGE_AFTER_S = 600
+# Once reminded, an agent still idle on the request this long after it last did
+# anything is what the human is shown. The nudge is typed as a prompt, so the
+# agent's answer to it counts as activity and this runs from there. Thirty
+# minutes is the longest silence the daemon calls healthy (STUCK_RUNNING_S), so
+# the screen and the RUNNING label agree on what stuck is.
+FORGOTTEN_STUCK_S = STUCK_RUNNING_S
+# A nudge that could not be typed (mid-turn, a modal) is not asked again for
+# this long, because the idle probe that says no costs its whole timeout.
+NUDGE_RETRY_S = 60
+
+
+def forgotten_resolve(con, agent: str, row, now: int) -> dict | None:
+    """The head of this agent's queue, if it looks like a resolve nobody wrote.
+
+    IDLE with a live terminal, the head delivered and told and still open, and
+    nothing the agent asked that is still unanswered - which is what separates
+    a request forgotten from one being waited on, since an agent waiting on an
+    answer is also IDLE with its head open. Idle time counts from the later of
+    its last activity and the delivery.
+    """
+    if not row or row["state"] != IDLE or row["closed_at"] or not row["terminal"]:
+        return None
+    head = db.head_of_queue(con, agent)
+    if not head or not head["delivered_at"] \
+            or db.get_cursor(con, f"notify:{agent}") != int(head["id"]):
+        return None
+    if db.open_asks_of(con, agent) or db.unannounced_answers(con, agent):
+        return None
+    idle = now - max(int(head["delivered_at"]), db.last_activity(con, agent) or 0)
+    return {"head": head, "idle_s": idle, "behind": db.queue_depth(con, agent) - 1}
+
+
+def nudge_forgotten_resolve(con, agent: str, row, now: int, log) -> bool:
+    """Type one reminder at an agent that has left its head request open.
+
+    Never resolves for it: the verdict is the agent's to write. Once per
+    request, gated like a delivery (not at the wall, nothing typed at a modal or
+    a working agent), and nothing here touches an attempt counter, so it cannot
+    stall an agent.
+    """
+    found = forgotten_resolve(con, agent, row, now)
+    if not found or found["idle_s"] < NUDGE_AFTER_S:
+        return False
+    head = found["head"]
+    if db.get_cursor(con, f"nudge:{agent}") == int(head["id"]) \
+            or now - db.get_cursor(con, f"nudge_try:{agent}") < NUDGE_RETRY_S:
+        return False
+    db.set_cursor(con, f"nudge_try:{agent}", now)
+    handle = db.get_terminal(con, agent)
+    if wall_reason(con, agent) or not handle or not orca.available() \
+            or not orca.alive(handle) or not session_present(agent) \
+            or not orca.typeable_now(handle):
+        return False
+    behind = found["behind"]
+    with lock.terminal(agent) as mine:
+        if not mine:
+            return False
+        ok, _ = orca.send(
+            handle,
+            f"#{head['id']} was delivered to you and is still open, and you have been "
+            f"idle {status.ago(found['idle_s'])}"
+            + (f" with {behind} more waiting behind it" if behind else "")
+            + f". If the work is done, `ocp resolve {head['id']} \"<verdict>\"`; if it is "
+            f"not, say what you are waiting on.")
+    if ok:
+        db.set_cursor(con, f"nudge:{agent}", int(head["id"]))
+        db.add_event(con, agent, "nudged", {"request_id": head["id"],
+                                            "idle_s": found["idle_s"], "behind": behind})
+        log(f"  {agent}: idle {status.ago(found['idle_s'])} with #{head['id']} open and "
+            f"nothing outstanding - nudged to resolve it")
+    return ok
+
+
+def notify_cancelled(con, row, verdict: str) -> tuple[bool, str]:
+    """Type at an agent that a request it was handed has been closed under it.
+
+    It may be mid-work on it, so it is told the way a delivery is - the same
+    gates - and (typed, why not) says whether that happened. Not telling it is
+    safe: the row is closed, so its own `ocp resolve` of it is refused.
+    """
+    agent = row["target"]
+    handle = db.get_terminal(con, agent)
+    if wall_reason(con, agent):
+        return False, f"{agent} is at its usage limit"
+    if not handle or not orca.available() or not orca.alive(handle):
+        return False, f"{agent} has no terminal"
+    if not session_present(agent):
+        return False, f"{agent} has no running session"
+    if not orca.typeable_now(handle):
+        return False, f"{agent} is mid-work or at a prompt"
+    with lock.terminal(agent) as mine:
+        if not mine:
+            return False, f"something else is typing at {agent}"
+        ok, _ = orca.send(
+            handle,
+            f"#{row['id']} from {row['requester']} was cancelled: {verdict}. Stop work "
+            f"on it; it is closed and needs no resolve. `ocp read {row['id']}` shows it.")
+    return ok, "" if ok else "the send failed"
 
 
 def _tell(con, agent: str, head, depth: int, handle: str, log) -> bool:
@@ -405,6 +629,7 @@ def _tell(con, agent: str, head, depth: int, handle: str, log) -> bool:
         f"`ocp resolve {head['id']} \"<verdict>\"`, or `ocp inbox` any time.")
     if ok:
         db.set_cursor(con, f"notify:{agent}", int(head["id"]))
+        db.set_notified_session(con, agent, _live_session(con, agent))
         db.add_event(con, agent, "notified", {"request_id": head["id"], "more_waiting": more})
         log(f"  {agent}: told about #{head['id']}" + (f" ({more} more waiting)" if more else ""))
     return ok
@@ -427,12 +652,14 @@ def deliver_answers(con, agent: str, log) -> bool:
     answered = db.unannounced_answers(con, agent)
     if not answered:
         return False
+    if wall_reason(con, agent):
+        return False              # stays unannounced; told when it wakes or moves
     handle = db.get_terminal(con, agent)
     if not handle or not orca.available() or not orca.alive(handle):
         return False
     if not session_present(agent):
         return False
-    if not orca.idle_now(handle):
+    if not orca.typeable_now(handle):
         return False
     shown, rest = answered[-3:], answered[:-3]
     lines, cut = [], False
@@ -465,13 +692,14 @@ def should_close(con, agent: str, state: str, row, now: int, st) -> bool:
     """Is this agent holding memory for nothing?
 
     Closing is about the machine, not the account, so the question is whether
-    anyone is using this session and whether we can bring it back. Five things
+    anyone is using this session and whether we can bring it back. Six things
     say no: it is working or being handed off, a human has to look at it,
-    someone is waiting on it, it has been busy recently, or we cannot name the
-    session we would resume. Anything else is a session whose only job right now
+    someone is waiting on it, it has been busy recently, we cannot name the
+    session we would resume, or a close of it failed within the last idle
+    window. Anything else is a session whose only job right now
     is to occupy 250-500MB.
 
-    The last one is the asymmetric trade: memory is recoverable the moment
+    The session id is the asymmetric trade: memory is recoverable the moment
     anything wants it, and a working context is not recoverable at all. Closing
     without a session id would buy back the small reversible thing by spending
     the large irreversible one.
@@ -484,6 +712,9 @@ def should_close(con, agent: str, state: str, row, now: int, st) -> bool:
         return False          # work is waiting; closing would only delay it
     if not st.session_id:
         return False          # nothing to resume; losing the context costs more
+    failed = db.last_event_ts(con, agent, "close_failed")
+    if failed is not None and now - failed < IDLE_CLOSE_S:
+        return False          # /exit did not end it; asking every tick types it every tick
     last = db.last_activity(con, agent)
     if last is None:
         return False          # nothing has ever been seen from it - leave it alone
@@ -495,11 +726,10 @@ def triggers_apply(row) -> bool:
 
     A closed agent has no session to hand off, and closing is precisely what
     makes it look like one that needs handing off: its status line stops, so the
-    snapshot goes stale and usage_unknown fires. An agent with no terminal has
-    nowhere to run at all - nothing to fold, nothing to clear, nothing being
-    spent - and usage_unknown fires across a whole account at once, so it sweeps
-    up the registered-but-never-started agents with everyone else. backend and
-    manager were parked that way on 09-17 and manager's fold was charged for it.
+    snapshot goes stale. An agent with no terminal has nowhere to run at all -
+    nothing to clear, nothing being spent - and a reading that is at the wall
+    is the account's, so it sweeps up the registered-but-never-started agents
+    with everyone else.
 
     Every screen asks this too - drawing a warning the daemon will never act on
     is the dashboard arguing with the daemon.
@@ -531,10 +761,11 @@ def would_wake(con, row) -> bool:
 def close_agent(con, agent: str, log, st) -> tuple[bool, str]:
     """Give the machine back an idle agent's memory, keeping its terminal.
 
-    This is not a handoff: nothing is folded and no context is reclaimed,
-    because there is nothing wrong with this agent's context - it is simply
-    not being used. The session id is recorded so waking can resume that same
-    session rather than starting a stranger in its place - and it is the caller's
+    This is not a handoff: no context is reclaimed, because there is nothing
+    wrong with this agent's context - it is simply not being used. The session
+    id is recorded so waking can resume that same session rather than starting
+    a stranger in its place, and so is a handoff record: a wake that has to
+    start elsewhere instead has nothing live to read it from. The id is the caller's
     reading, the same one `should_close` approved. Reading it again here would
     let the predicate check one value and the act store another, in the one
     place where the difference means closing with no way back.
@@ -554,14 +785,27 @@ def _close_agent(con, agent: str, log, st) -> tuple[bool, str]:
         # Closing then throws away work nothing has recorded.
         #
         # A handoff is the exception and calls `_end_session` itself: it is the
-        # one path that has already recorded the work, with the fold, and then
-        # needs the session gone to start the next one somewhere else.
+        # one path that has already recorded the work, in its handoff record,
+        # and then needs the session gone to start the next one somewhere else.
         return False, f"{agent} is {row['state']}; not closing a session mid-work"
     if not st.session_id:
         # Closing is only cheap because waking resumes the same session. With
         # no id to come back to, closing is just throwing the context away.
         return False, "no session to resume; not closing"
-    return _end_session(con, agent, log, st, resume=st.session_id)
+    # A record already waiting is the park's, and names the session from before
+    # its /clear: this close must neither replace it nor, if it fails, delete it.
+    # One it takes itself is kept only whole - a wake that moves elsewhere drops
+    # the resume id, the only complete copy of the context.
+    wrote = False
+    if not db.get_handoff(con, agent):
+        text, missing = handoffmod.capture(con, agent)
+        if not missing:
+            db.set_handoff(con, agent, text)
+            wrote = True
+    ok, why = _end_session(con, agent, log, st, resume=st.session_id)
+    if not ok and wrote:
+        db.set_handoff(con, agent, None)
+    return ok, why
 
 
 def _end_session(con, agent: str, log, st, resume: str | None) -> tuple[bool, str]:
@@ -587,6 +831,18 @@ def _end_session(con, agent: str, log, st, resume: str | None) -> tuple[bool, st
     ok, why = orca.close_session(handle)
     if not ok:
         return False, why
+    # Typed is not ended: the `/exit` can be eaten or slow, and a closed row
+    # over a live process is cleared by the sweep, while a relaunch typed at
+    # that terminal reaches the old session as a prompt. A session that does
+    # not end is reported, neither retried (a second `/exit` goes to whatever
+    # ate the first) nor killed (that skips its own shutdown); the sweep
+    # records the close if it does end later.
+    if not _wait_session_gone(agent):
+        pid = (obs.live_sessions() or {}).get(agent)
+        why = (f"/exit was typed but the session is still running"
+               f"{f' (pid {pid})' if pid else ''} after {END_WAIT_S}s; not marked closed")
+        db.add_event(con, agent, "close_failed", {"why": why, "pid": pid})
+        return False, why
     db.set_closed(con, agent, resume)
     # RUNNING describes a session that exists. Leaving the label on a closed one
     # makes every screen say the opposite of what happened, and the daemon skips
@@ -606,49 +862,48 @@ def wake_prompt(agent: str, resumed: bool, was_closed: bool = False,
     """What an agent is told when it comes back.
 
     A resumed session already holds everything it knew, so it is told where it
-    is rather than what it did. One that was parked gets its handoff. One whose
-    close left no session to resume gets neither, and is told so rather than
-    handed an older park's record as if it were current. All three get the path
-    to their own record when it can be named: a digest is a summary, and the
-    detail it dropped is still on disk.
-    """
+    is rather than what it did. One that was parked is given its handoff here;
+    one started fresh gets it in its system prompt, and is told which. The
+    record is the request in hand, the session's transcript path and the
+    worktree's state - the detail is in the transcript, and a session that has
+    no record is told so.    """
     parts: list[str] = []
+    record = None
     if moved_to:
-        # A move is not a close. Its session ended a moment ago with a fold, so
-        # the handoff is current and `launch.context_for` has already put it in
-        # this session's system prompt - telling it "nothing was folded" would
-        # send it to read a journal for what it is holding.
+        # A move is not a close. Its handoff was taken as its session ended, and
+        # `launch.context_for` has already put it in this session's system
+        # prompt.
         parts.append(f"Your account was at its 5h limit, so this session was started on "
                      f"{moved_to} instead of waiting for that window to roll over. Your "
-                     f"work was folded first and your handoff is in your system prompt "
-                     f"above. Carry on from there.")
+                     f"handoff is in your system prompt above. Carry on from there.")
     elif resumed:
         parts.append("Your session was closed while you were idle and has been resumed. "
                      "Nothing was lost; carry on.")
     elif was_closed:
-        # Closing writes no handoff, because closing is not a handoff. Taking
-        # the parked branch here would tell an agent that was never parked that
-        # its context was cleared, and hand it whatever handoff an earlier park
-        # left behind - a stale record read as current, which is the failure
-        # this whole branch exists to remove.
+        # Taking the parked branch here would tell an agent that was never
+        # parked that its context was cleared. What the close recorded is in
+        # the system prompt of the session it started, if it recorded one.
         parts.append("Your session was closed while you were idle and could not be "
-                     "resumed, so this is a fresh one. There is no handoff: nothing "
-                     "was folded when it closed. Read your journal and your inbox "
-                     "before carrying on.")
+                     "resumed, so this is a fresh one. "
+                     + ("Your handoff is in your system prompt above."
+                        if con and db.get_handoff(con, agent) else
+                        "There is no handoff. Read your journal and your inbox "
+                        "before carrying on."))
     else:
         parts.append("You were parked and have been resumed. Your context was cleared; "
                      "below is your own handoff record. Carry on from here.")
-        p = foldmod.handoff_path(agent)
-        if p.exists():
-            parts.append(p.read_text())
-    st = status.read_for_agent(agent, agents.current_account(agent, con))
-    if st.transcript_path:
-        parts.append(
-            f"Your previous session is {st.session_id}, recorded at "
-            f"{st.transcript_path}\n"
-            f"Grep it for what you need - do not read it whole, it is a JSONL "
-            f"transcript with every tool result in it, and reading it back would "
-            f"undo the point of parking you.")
+        record = db.get_handoff(con, agent) if con else None
+        if record:
+            parts.append(record)
+    if not record:
+        st = status.read_for_agent(agent, agents.current_account(agent, con))
+        if st.transcript_path:
+            parts.append(
+                f"Your previous session is {st.session_id}, recorded at "
+                f"{st.transcript_path}\n"
+                f"Grep it for what you need - do not read it whole, it is a JSONL "
+                f"transcript with every tool result in it, and reading it back would "
+                f"undo the point of parking you.")
     return "\n\n".join(parts)
 
 
@@ -698,7 +953,15 @@ def _start_for_work(con, agent: str, log) -> str:
     return f"{agent}: could not be started - {said.splitlines()[0]}"
 
 
-def wake_agent(con, agent: str, log, use_model: bool = True) -> tuple[bool, str]:
+def _write_wake_prompt(agent: str, text: str) -> Path:
+    d = paths.home() / "wake"
+    d.mkdir(parents=True, exist_ok=True)
+    p = d / f"{agent}.txt"
+    p.write_text(text)
+    return p
+
+
+def wake_agent(con, agent: str, log) -> tuple[bool, str]:
     """Hand a cleared agent back its own handoff so it can carry on.
 
     This is the other half of the cycle: the agent kept its terminal and its
@@ -709,16 +972,15 @@ def wake_agent(con, agent: str, log, use_model: bool = True) -> tuple[bool, str]
             # A human's key and a tick can both land here, and this one holds
             # the terminal for as long as a session takes to appear.
             return False, "someone else is typing at this agent; not waking twice"
-        return _wake_agent(con, agent, log, use_model=use_model)
+        return _wake_agent(con, agent, log)
 
 
-def _wake_agent(con, agent: str, log, moved_to: str | None = None,
-                use_model: bool = True) -> tuple[bool, str]:
+def _wake_agent(con, agent: str, log, moved_to: str | None = None) -> tuple[bool, str]:
     """The body of a wake, without the lock. Callers already holding it use this.
 
     `moved_to` names the account this wake is starting the agent on when it is
     not the one the last session was on, so the agent is told that rather than
-    told it was closed with nothing folded.
+    told it was closed.
     """
     handle = db.get_terminal(con, agent)
     if not handle or not orca.available():
@@ -726,7 +988,23 @@ def _wake_agent(con, agent: str, log, moved_to: str | None = None,
 
     row = db.get_agent_state(con, agent)
     closed = bool(row and row["closed_at"])
-    resumed = False
+    if not closed and row and session_present(agent):
+        # A drifted session is ended and takes the closed agent's wake path
+        # below, with its own session id to resume; see `launch.fingerprint`.
+        if launch.drifted(agent, row):
+            acct = agents.current_account(agent, con)
+            st = status.read_for_agent(agent, acct)
+            if not st.session_id:
+                log(f"  {agent}: launch recipe changed but there is no session id "
+                    f"to resume - waking it in place")
+            elif not _end_session(con, agent, log, st, resume=st.session_id)[0]:
+                log(f"  {agent}: launch recipe changed but its session would not "
+                    f"end - waking it in place")
+            else:
+                log(f"  {agent}: launch recipe changed since this session "
+                    f"started - relaunching instead of waking it in place")
+                row = db.get_agent_state(con, agent)
+                closed = bool(row and row["closed_at"])
     if closed:
         # `ocp launch` refuses at the 5h wall, and the daemon can read that
         # before it types anything. Trying anyway would spend the wake timeout
@@ -735,42 +1013,44 @@ def _wake_agent(con, agent: str, log, moved_to: str | None = None,
         # The account this launch will land on. With a session to resume that
         # is the account it lives under, so an agent whose own account is at
         # the wall waits for its window rather than losing its conversation -
-        # closing writes no handoff, so a fresh start elsewhere would come back
-        # with nothing. Only a wake with nothing to resume is free to go where
-        # there is room, which is the move's wake.
+        # a fresh start elsewhere comes back with only the handoff. Only a wake
+        # with nothing to resume is free to go where there is room, which is
+        # the move's wake.
         session = row["resume_session"]
         wait = launch.wake_wait(agent, row, con)
         if wait:
             # The resume account is at the wall. If another account has room,
-            # fold and start fresh there: a resume id cannot follow an account
-            # change, and the events a fold reads are durable without a live
-            # session. A failed fold keeps the id, since the session is the
-            # only complete copy of the context.
+            # start fresh there: a resume id cannot follow an account change.
+            # The handoff is the record the close took while the session was
+            # live; a snapshot read now is stale by construction. One that is
+            # missing a fact keeps the id, since the session is the only
+            # complete copy of the context.
             rescued = False
             acct, pct = wait.account, wait.pct
-            elsewhere = _room_to_move(agent) if session and not wait.assumed \
-                and not _fold_backing_off(con, agent) else None
-            if elsewhere and elsewhere != acct and _takes_work(elsewhere):
+            elsewhere = _move_plan(con, agent, "usage")[0] if session and not wait.assumed \
+                and not _handoff_backing_off(con, agent) else None
+            if elsewhere:
                 hid = uuid.uuid4().hex[:12]
                 db.start_handoff(con, hid, agent, session, "pinned",
-                                 db.get_cursor(con, f"fold:{agent}"),
                                  int(time.time()) + HANDOFF_DEADLINE_S)
-                ok, msg = foldmod.fold(agent, use_model=use_model)
-                if ok:
-                    db.advance_handoff(con, hid, "released", state="done",
-                                       cursor_to=db.get_cursor(con, f"fold:{agent}"))
+                missing = [] if db.get_handoff(con, agent) else \
+                    handoffmod.record(con, agent)
+                if not missing:
+                    db.advance_handoff(con, hid, "released", state="done")
                     db.reset_counter(con, agent, "throttle_count")
                     db.set_closed(con, agent, None)
                     db.add_event(con, agent, "moved_account",
                                  {"from": acct, "to": elsewhere, "trigger": "pinned"})
-                    log(f"  {agent}: pinned to {acct} at {pct}% - folded and "
-                        f"starting fresh on {elsewhere}")
+                    log(f"  {agent}: pinned to {acct} at {pct}% - starting fresh "
+                        f"on {elsewhere}")
                     session, acct, moved_to, rescued = None, elsewhere, elsewhere, True
+                    measure.begin(con, agent, elsewhere)
                 else:
+                    why = "could not read " + ", ".join(missing)
                     db.advance_handoff(con, hid, "released", state="degraded",
-                                       detail=msg[:300])
+                                       detail=why[:300])
                     db.bump_counter(con, agent, "throttle_count")
-                    log(f"  {agent}: fold failed ({msg[:120]}); keeping the resume id")
+                    log(f"  {agent}: handoff degraded ({why}); keeping the resume id")
             if not rescued:
                 why = launch.describe_wake_wait(wait)
                 log(f"  {agent}: {why}")
@@ -785,14 +1065,23 @@ def _wake_agent(con, agent: str, log, moved_to: str | None = None,
         # a launch that refuses every time it is retried. A fresh start in the
         # same terminal loses the context and keeps the agent, which is the
         # better of the two ends this can have.
-        attempts = [base + f" -- --resume {session}", base] if session else [base]
+        # The wake prompt travels as the session's own first prompt, in a file
+        # the launch reads and deletes: typed at the terminal instead, it lands
+        # in a bare shell whenever the session dies first, and the shell runs
+        # it line by line.
         started = lambda: wait_for_session(agent, WAKE_SESSION_TIMEOUT_S)  # noqa: E731
         resumed = False
-        for cmd in attempts:
+        for resume in ([True, False] if session else [False]):
+            pf = _write_wake_prompt(
+                agent, wake_prompt(agent, resume, was_closed=closed,
+                                   moved_to=moved_to, con=con))
+            cmd = f"{base} --prompt-file {shlex.quote(str(pf))}" + (
+                f" -- --resume {session}" if resume else "")
             ok, why = orca.relaunch(handle, cmd, started=started)
             if ok:
-                resumed = "--resume" in cmd
+                resumed = resume
                 break
+            pf.unlink(missing_ok=True)
         if not ok:
             # The closed mark and resume_session are the whole way back. A wake
             # that started nothing leaves both alone: the next attempt - work
@@ -818,7 +1107,10 @@ def _wake_agent(con, agent: str, log, moved_to: str | None = None,
         db.reset_counter(con, agent, "wake_failures")
         db.clear_closed(con, agent)
         db.add_event(con, agent, "wake", {"resumed_session": session if resumed else None})
-    elif not foldmod.handoff_path(agent).exists():
+        db.set_handoff(con, agent, None)
+        log(f"  {agent}: relaunched with its wake prompt{' (session resumed)' if resumed else ''}")
+        return True, "relaunched with the wake prompt"
+    elif not db.get_handoff(con, agent):
         return False, "no handoff to resume from"
     elif not session_present(agent):
         # Not the closed branch: nothing was relaunched, so the row's claim
@@ -828,9 +1120,13 @@ def _wake_agent(con, agent: str, log, moved_to: str | None = None,
         # the branch above then relaunches it before anything is typed.
         return False, "no session process; not typing the handoff at a shell prompt"
 
-    ok, why = orca.resume_with(handle, wake_prompt(agent, resumed, was_closed=closed,
+    if not orca.typeable_now(handle):
+        return False, "the session is busy or has a modal open; not typing the handoff"
+    ok, why = orca.resume_with(handle, wake_prompt(agent, False, was_closed=False,
                                                    moved_to=moved_to, con=con))
-    log(f"  {agent}: {why}{' (session resumed)' if resumed else ''}")
+    if ok:
+        db.set_handoff(con, agent, None)
+    log(f"  {agent}: {why}")
     return ok, why
 
 
@@ -847,17 +1143,6 @@ def expire_handoffs(con, log) -> list[str]:
         if not row["deadline"] or row["deadline"] >= now:
             continue
         agent = row["agent"]
-        # The clock says it is late, but the digest is what says whether the
-        # fold actually landed. A fold that finished just as the deadline
-        # passed must not be recorded as a timeout.
-        before = (row["detail"] or "")
-        if before.startswith("before=") and \
-                before[len("before="):] != str(foldmod.fold_fingerprint(agent)):
-            db.advance_handoff(con, row["id"], row["step"], state="done",
-                               detail="deadline passed, but the digest advanced")
-            log(f"  {agent}: fold landed just after its deadline - not a timeout")
-            continue
-        # The cursor is deliberately not advanced, so the delta is retried.
         db.advance_handoff(con, row["id"], row["step"], state="degraded",
                            detail=f"deadline passed at {row['deadline']}")
         db.bump_counter(con, agent, "throttle_count")
@@ -1013,6 +1298,12 @@ def sweep(con, log, actions: list[str]) -> None:
             own = status.read(agents.current_account(agent, con),
                               paths.agent_status_file(agent))
             session = None if own.error else own.session_id
+            # A session id lives under the account its session ran on. If the
+            # agent has moved since - its new session not yet visible - the id
+            # in its snapshot is the old account's, and a resume of it dies.
+            ran_on = own.raw.get("account")
+            if ran_on and ran_on != agents.current_account(agent, con):
+                session = None
             db.set_closed(con, agent, session)
             if row["state"] == RUNNING:
                 db.set_agent_state(con, agent, IDLE, detail="session ended without us")
@@ -1082,8 +1373,52 @@ def _unstick_running(con, agent: str, row, log, actions: list[str]) -> None:
 
 
 # ---------------------------------------------------------------- handoff
+def force_move(con, agent: str, dest: str, by: str, log) -> tuple[bool, str]:
+    """Move an agent's live session to `dest` now, through the handoff's own move.
+
+    Record the handoff, end the session with no resume id, start fresh on
+    `dest`, record the account: the path a usage wall takes with the
+    destination fixed. Nothing is ended unless `dest` takes one more agent. The
+    preference in agent.yaml follows first, since the launch chooses by it, and
+    is put back if the move does not happen. `by` is recorded on the event.
+    """
+    if agent not in paths.list_agents():
+        return False, f"no agent '{agent}'"
+    if dest not in paths.list_accounts() or not accounts.logged_in(dest):
+        return False, f"account '{dest}' does not exist or is not logged in"
+    here = agents.current_account(agent, con)
+    if here == dest:
+        return False, f"{agent} is already on {dest}"
+    row = db.get_agent_state(con, agent)
+    if not row or not row["terminal"] or row["closed_at"]:
+        return False, (f"{agent} has no live session to move - `ocp agent register` "
+                       f"the account for its next start")
+    if row["state"] in (HANDOFF, STALLED):
+        return False, f"{agent} is {row['state']}"
+    room, why = _forced_plan(con, dest)
+    if room is None:
+        return False, f"{why} - not moving {agent} there"
+    prefer = agents.account_of(agent)
+    trigger = triggers.Trigger(True, "forced", f"forced by {by}: {here} -> {dest}")
+    agents.register(agent, dest)
+    try:
+        perform_handoff(con, agent, trigger, log, dest=dest)
+    except BaseException:
+        agents.register(agent, prefer)
+        raise
+    landed = db.get_agent_state(con, agent)
+    # The raw record, not current_account: that falls back to the preference,
+    # which was just rewritten to dest and would report a move that never happened.
+    if not landed or landed["account"] != dest:
+        agents.register(agent, prefer)
+        return False, (f"{agent} did not move (mid-turn, or the new session did not "
+                       f"start on {dest}) - it stays on {here}")
+    db.add_event(con, agent, "forced_move", {"from": here, "to": dest, "by": by})
+    return True, f"{agent} moved {here} -> {dest} (forced by {by})"
+
+
 def perform_handoff(con, agent: str, trigger: triggers.Trigger, log,
-                    use_model: bool = True) -> bool:
+                    dest: str | None = None) -> bool:
     """Run the handoff pipeline, committing each step (8.9).
 
     Returns True when the agent ended parked cleanly, False when it degraded.
@@ -1096,16 +1431,19 @@ def perform_handoff(con, agent: str, trigger: triggers.Trigger, log,
             f"'{trigger.kind}' as an added reason")
         return True
 
-    # An agent that is mid-turn cannot be handed off: the fold would miss the
+    # An agent that is mid-turn cannot be handed off: the record would miss the
     # work in flight and the clear would throw it away. Check before starting,
     # with a short probe so one busy agent does not stall the whole tick, and
     # simply come back next tick - the trigger is a condition, so it still
     # holds then.
     last_h = db.last_handoff(con, agent)
     last = last_h["updated"] if last_h else None
-    if last and int(time.time()) - int(last) < MIN_HANDOFF_INTERVAL_S:
+    # A person asked for a forced move, so the too-soon guard (for triggers that
+    # repeat on their own) does not apply.
+    if last and trigger.kind != "forced" \
+            and int(time.time()) - int(last) < MIN_HANDOFF_INTERVAL_S:
         log(f"  {agent}: {trigger.kind} fired again {int(time.time()) - int(last)}s after the "
-            f"last handoff - too soon, skipping (a fold is not free)")
+            f"last handoff - too soon, skipping")
         return True
 
     handle = db.get_terminal(con, agent)
@@ -1115,48 +1453,41 @@ def perform_handoff(con, agent: str, trigger: triggers.Trigger, log,
         # than that a person may be typing, so the probe still decides.
         stopped = events.at_limit(con, agent)
         settled = stopped and int(time.time()) - stopped["at"] >= LIMIT_SETTLE_S
-        if not settled and not orca.idle_now(handle):
+        if not settled and not orca.typeable_now(handle):
             log(f"  {agent}: {trigger.kind} fired but the agent is mid-turn - deferring")
             return True
         if not session_present(agent):
-            # A handoff for a session that is not there costs a fold to write
-            # and then types its own text at a shell prompt. The context it
-            # wants to reclaim went with the session; the sweep records the
-            # agent closed, and a closed agent's triggers do not fire at all.
+            # A handoff for a session that is not there types its own text at
+            # a shell prompt. The context it wants to reclaim went with the
+            # session; the sweep records the agent closed, and a closed
+            # agent's triggers do not fire at all.
             log(f"  {agent}: {trigger.kind} fired but no session is running - "
                 f"not handing off")
             return True
 
     with lock.terminal(agent) as mine:
         if not mine:
-            # Before the fold, not after it. The clear comes at the end of this
-            # pipeline, and losing the terminal there meant the fold was paid
-            # for, the handoff was recorded done, and the context it exists to
-            # reclaim was still sitting in the agent. The trigger is a
-            # condition, so it fires again next tick.
+            # Before the record, not after it. The clear comes at the end of
+            # this pipeline, and losing the terminal there meant the handoff
+            # was recorded done and the context it exists to reclaim was still
+            # sitting in the agent. The trigger is a condition, so it fires
+            # again next tick.
             log(f"  {agent}: {trigger.kind} fired but something else is typing at it "
                 f"- not handing off")
             return True
-        return _perform_handoff(con, agent, trigger, log, use_model)
+        return _perform_handoff(con, agent, trigger, log, dest)
 
 
-# The triggers a move answers. `usage_unknown` is not one of them: it fires
-# because we cannot read the account, and "we do not know" is not "it is full".
-# Moving on it would send agents off an account nobody can see, which is the
-# fail-closed rule pointed the wrong way.
-MOVABLE_TRIGGERS = ("usage", "usage_7d", "usage_projected")
+# The triggers a move answers: the two walls, and a person's own order. Nothing
+# below a wall is a reason to move a working agent, and an account nobody can
+# read is not a wall.
+MOVABLE_TRIGGERS = ("usage", "usage_7d", "forced")
 
 
-def _takes_work(acct: str) -> bool:
-    """Can this account start a session? bootstrap: a never-run account has no
-    status.json, which a plain assignable() refuses and bootstrap exists to lift."""
-    return status.pick_account([acct], bootstrap=True)[0] == acct
-
-
-def _fold_backing_off(con, agent: str) -> bool:
-    """A fold that keeps failing is not retried every tick: the same backoff a
-    degraded handoff waits out. Both share one streak and one last-attempt
-    time, since both are the same fold failing."""
+def _handoff_backing_off(con, agent: str) -> bool:
+    """A handoff that keeps degrading is not retried every tick: a pinned move
+    waits out the same backoff a degraded park does. Both share one streak and
+    one last-attempt time."""
     row = db.get_agent_state(con, agent)
     streak = int(row["throttle_count"]) if row else 0
     last = con.execute("SELECT MAX(updated) AS t FROM handoff WHERE agent = ?",
@@ -1164,22 +1495,73 @@ def _fold_backing_off(con, agent: str) -> bool:
     return bool(streak and last and int(time.time()) < int(last) + backoff_for(streak))
 
 
-def _room_to_move(agent: str) -> str | None:
-    """Where a move may land: judged on the line the trigger fires at, not the
-    hard stop, since an account the daemon just decided is too full to work on
-    is too full to move to, and with clear headroom so it does not bounce."""
-    return launch.find_room(
-        agent, limit=triggers.MOVE_LINE_5H, limit_7d=triggers.MOVE_LINE_7D,
-        room=status.MOVE_MIN_HEADROOM_PCT)
+def _last_left(con, agent: str) -> str | None:
+    """The account this agent's most recent move took it off."""
+    row = con.execute("SELECT payload FROM events WHERE agent = ? AND kind = 'moved_account' "
+                      "ORDER BY id DESC LIMIT 1", (agent,)).fetchone()
+    try:
+        return json.loads(row["payload"]).get("from") if row else None
+    except ValueError:
+        return None
 
 
-def _move_to_room(con, agent: str, trigger: triggers.Trigger, log) -> bool:
+def _move_plan(con, agent: str, kind: str) -> tuple[str | None, str]:
+    """An agent at the wall: stay, or move and where to. (destination, why).
+
+    Stay when nothing is waiting for it or its own account resets sooner than a
+    cold start would pay back (`triggers.stay_or_move`). Otherwise the pick,
+    over every other account that can take one more agent - and never back to
+    the account it just left before that account resets, so one wall is one
+    move. None with a reason when it stays, including when every account is
+    capped or walled: the work then waits in the queue.
+    """
+    here = agents.current_account(agent, con)
+    now = time.time()
+    reset = status.read(here)
+    reset = reset.reset_7d if kind == "usage_7d" else reset.reset_5h
+    reset_in = max(0.0, reset - now) if reset else None
+    work = bool(db.queued_for(con, agent) or db.unannounced_answers(con, agent))
+    move, why = triggers.stay_or_move(
+        work, reset_in, triggers.stay_within_s(measure.cold_start_pct(con)))
+    if not move:
+        return None, why
+    exclude = {here: "the account it is at the wall on"}
+    left = _last_left(con, agent)
+    if left and left != here:
+        left_reset = status.read(left).reset_5h
+        if left_reset and left_reset > now:
+            exclude[left] = "the account it just left, until it resets"
+    dest, ranked = status.pick_account(
+        [a for a in paths.list_accounts() if accounts.logged_in(a)],
+        bootstrap=True, exclude=exclude, load=load.read_all(con))
+    if dest is None:
+        return None, "no account can take one more agent (" + "; ".join(
+            f"{a}: {r}" for a, r in ranked if a not in exclude) + ")"
+    return dest, dict(ranked)[dest]
+
+
+def _forced_plan(con, dest: str) -> tuple[str | None, str]:
+    """A person's chosen destination, held to the same room test as any other:
+    the pick over that one account, so a walled, capped or unreadable one is
+    refused with the pick's own reason. (destination, why)."""
+    picked, ranked = status.pick_account([dest], bootstrap=True, load=load.read_all(con))
+    if picked is None:
+        why = dict(ranked).get(dest) or "cannot take one more agent"
+        return None, f"{dest} {why}"
+    return picked, dict(ranked)[picked]
+
+
+def _move_to_room(con, agent: str, trigger: triggers.Trigger, log,
+                  dest: str | None = None) -> bool:
     """Put this agent's next session on an account that has room. True if it moved.
+
+    `dest` fixes the destination (a forced move); it still has to be one the
+    pick would send an agent to.
 
     What this changes is whether an agent waits out its own window while
     another account idles beside it. It needs no lease, because it does not
-    take anything from a session anyone is using: it runs after the fold, at
-    the point where this session was ending either way.
+    take anything from a session anyone is using: it runs after the handoff is
+    recorded, at the point where this session was ending either way.
 
     The new session cannot be the old one - a session id lives under one
     account's config directory - so the close records no resume id, and what
@@ -1189,25 +1571,19 @@ def _move_to_room(con, agent: str, trigger: triggers.Trigger, log) -> bool:
     if trigger.kind not in MOVABLE_TRIGGERS:
         return False
     here = agents.current_account(agent, con)
-    there = _room_to_move(agent)
-    if there is None or there == here:
-        log(f"  {agent}: staying on {here} - nowhere with room to move to")
+    there, picked_why = (_forced_plan(con, dest) if dest
+                         else _move_plan(con, agent, trigger.kind))
+    if there is None:
+        log(f"  {agent}: staying on {here} - {picked_why}")
         return False
-    there_st = status.read(there)
-    allowed = _takes_work(there)
-    why = "" if allowed else there_st.assignable()[1]
-    if not allowed:
-        log(f"  {agent}: staying on {here} - {there} takes no work either ({why})")
-        return False
-    picked_why = f"5h {there_st.trusted_pct_5h}%, 7d {there_st.trusted_pct_7d}%"
     handle = db.get_terminal(con, agent)
     if not handle or not orca.available() or not orca.alive(handle):
         return False
 
     # Closed through the same checks every other close goes through. `/exit`
     # typed at a shell exits the shell and Orca's terminal goes with it, and by
-    # here the fold has taken long enough that the session it started with may
-    # be gone. No resume id: that session belongs to the account being left.
+    # here the session it started with may be gone. No resume id: that session
+    # belongs to the account being left.
     st = status.read_for_agent(agent, here)
     ok, why = _end_session(con, agent, log, st, resume=None)
     if not ok:
@@ -1219,6 +1595,7 @@ def _move_to_room(con, agent: str, trigger: triggers.Trigger, log) -> bool:
     # acquire in this process does not nest - it fails, and a failed wake here
     # would read as "nowhere to go" and park the agent on the account it was
     # just moved off.
+    measure.begin(con, agent, there)
     woke, why = _wake_agent(con, agent, log, moved_to=there)
     landed = db.get_agent_state(con, agent)
     if not woke and landed and landed["closed_at"]:
@@ -1226,7 +1603,20 @@ def _move_to_room(con, agent: str, trigger: triggers.Trigger, log) -> bool:
         # so falling through parks it with a deadline - which is what brings a
         # closed agent back at all. Returning True here would leave it closed
         # with nothing due.
+        measure.forget(con, agent)
         log(f"  {agent}: closed on {here} but could not start on {there}: {why[:120]}")
+        return False
+
+    # The session that started must be the one on `there`. A process that
+    # outlived the /exit is still on `here`, and recording the move would name
+    # an account no process is on. Unreadable is not a contradiction.
+    sessions = obs.live_sessions()
+    pid = sessions.get(agent) if sessions else None
+    actual = obs.account_of_process(pid) if pid else None
+    if actual is not None and actual != there:
+        measure.forget(con, agent)
+        log(f"  {agent}: asked to move {here} -> {there} but its process is on "
+            f"{actual} - not recorded as moved")
         return False
 
     # A session is live on the new account. Whether the line after it - handing
@@ -1244,49 +1634,46 @@ def _move_to_room(con, agent: str, trigger: triggers.Trigger, log) -> bool:
 
 
 def _perform_handoff(con, agent: str, trigger: triggers.Trigger, log,
-                     use_model: bool = True) -> bool:
+                     dest: str | None = None) -> bool:
     hid = uuid.uuid4().hex[:12]
     st = status.read(agents.current_account(agent, con)) if agent in paths.list_agents() else None
-    cursor_from = db.get_cursor(con, f"fold:{agent}")
     deadline = int(time.time()) + HANDOFF_DEADLINE_S
     db.start_handoff(con, hid, agent, st.session_id if st else None, trigger.kind,
-                     cursor_from, deadline)
-    # Remember what the digest looked like going in, so "did the fold finish?"
-    # is answered by the digest itself rather than by the clock alone (8.3).
-    db.advance_handoff(con, hid, "requested",
-                       detail=f"before={foldmod.fold_fingerprint(agent)}")
+                     deadline)
     db.set_agent_state(con, agent, HANDOFF, detail=trigger.reason)
     log(f"  {agent}: HANDOFF ({trigger.kind}) - {trigger.reason}")
 
-    ok, msg = foldmod.fold(agent, use_model=use_model)
-    if ok:
-        db.advance_handoff(con, hid, "folded", cursor_to=db.get_cursor(con, f"fold:{agent}"))
-        # A handoff that worked ends the streak. This is the only thing that
-        # clears it, so a run of failures accumulates until 8.6 escalates.
-        db.reset_counter(con, agent, "throttle_count")
-    else:
-        # The failure edge out of HANDOFF that section 8.2 insists on. Without
-        # it, every fold failure converges here and the agent holds its slot
-        # forever in no state at all.
-        db.advance_handoff(con, hid, "folded", state="degraded", detail=msg[:300])
-        db.bump_counter(con, agent, "throttle_count")
-        log(f"  {agent}: fold failed -> DEGRADED ({msg[:120]})")
+    # Taken here, while the session is live: the move and the clear below both
+    # end it. A degraded record is the failure edge out of HANDOFF that section
+    # 8.2 insists on, and it is degraded only for a fact that could not be read.
+    prior_handoff = db.get_handoff(con, agent)
+    ok = _record_handoff(con, agent, hid, log)
 
     db.advance_handoff(con, hid, "extracted")
 
     # Where it goes next. An agent whose own account is out of room does not
     # have to sit out that window if another account has some. Here, after the
-    # fold, because this session is ending either way.
-    if _move_to_room(con, agent, trigger, log):
+    # handoff is recorded, because this session is ending either way.
+    if _move_to_room(con, agent, trigger, log, dest):
         db.advance_handoff(con, hid, "released", state="done" if ok else "degraded")
         db.bump_counter(con, agent, "continuations")
         return ok
+    landed = db.get_agent_state(con, agent)
+    if trigger.kind == "forced" and landed and not landed["closed_at"]:
+        # Nothing was ended, so there is nothing to park: the session is live
+        # and a park would clear the context of an agent that never left.
+        # The row goes back as it was: a record this attempt took would be
+        # injected at the next launch as "you were interrupted".
+        db.set_handoff(con, agent, prior_handoff)
+        db.advance_handoff(con, hid, "released", state="degraded",
+                           detail="forced move did not happen")
+        db.set_agent_state(con, agent, IDLE, detail="forced move did not happen")
+        return False
 
-    # Return the context. Folding and writing a handoff is only half of a
-    # handoff; without this the context never drops, a context trigger fires
-    # again next tick, and the agent hands off forever paying for a fold each
-    # time. /clear keeps the terminal, worktree and account and empties only
-    # the conversation.
+    # Return the context. Recording a handoff is only half of a handoff;
+    # without this the context never drops, and a context trigger fires again
+    # next tick and the agent hands off forever. /clear keeps the terminal,
+    # worktree and account and empties only the conversation.
     cleared, why = _reclaim_context(con, agent, log)
     db.advance_handoff(con, hid, "extracted", detail=why)
 
@@ -1296,7 +1683,9 @@ def _perform_handoff(con, agent: str, trigger: triggers.Trigger, log,
     # account agent.yaml happens to prefer, not to the one this agent may
     # actually be spending, so it earns only a short re-look instead.
     reading = agents.account_reading(agent, con)
-    if reading.source == "assumed":
+    if reading.source == "assumed" or trigger.kind == "forced":
+        # A forced move that ended the session and did not start it is not a
+        # wall: the account it left had room, so there is no window to wait out.
         wake = int(time.time()) + ASSUMED_ACCOUNT_RECHECK_S
     else:
         rst = status.read(reading.account)
@@ -1332,8 +1721,37 @@ def _perform_handoff(con, agent: str, trigger: triggers.Trigger, log,
 _SAID: dict[str, str] = {}
 
 
+def _running_account(agent: str) -> str | None:
+    """The account this agent's running process is spending, or None when
+    there is no process in the sweep's snapshot or its environment cannot be
+    read - "I don't know", which never contradicts anything."""
+    o = _seen.get(agent)
+    return obs.account_of_process(o.session_pid) if o and o.session_pid else None
+
+
+def _confirmed_reading(con, agent: str, reading, log):
+    """The reading, unless the running process is on another account.
+
+    The column names where a move sent the agent; the process is where it is.
+    A move whose old process outlived its /exit leaves the two apart, and
+    every judgement made on the column's account - the unpark first - is then
+    about an account the session is not spending: keeper was woken six times
+    into a rate limit that way. The process is the fact, so it wins and the
+    column is set right, which lets the agent's next park or move start from
+    where it really is."""
+    actual = _running_account(agent)
+    if actual is None or actual == reading.account:
+        return reading
+    log(f"  {agent}: recorded on {reading.account} but its process is on "
+        f"{actual} - judging it there")
+    db.add_event(con, agent, "account_mismatch",
+                 {"recorded": reading.account, "running": actual})
+    db.set_account(con, agent, actual)
+    return agents.AccountReading(actual, "recorded")
+
+
 def supervise(con, agent: str, log, now: int, samples: dict,
-              use_model: bool, actions: list[str]) -> None:
+              actions: list[str]) -> None:
     """One agent's turn in a tick.
 
     Its own function so that the whole of it - three calls out to Orca among
@@ -1357,7 +1775,7 @@ def supervise(con, agent: str, log, now: int, samples: dict,
     # agent's own running session over a column nothing has confirmed, so a
     # spawn's assumed guess (or a bare config preference) never stands in for
     # a running session's actual account when there is better evidence of it.
-    reading = agents.account_reading(agent, con)
+    reading = _confirmed_reading(con, agent, agents.account_reading(agent, con), log)
     acct = reading.account
     st = status.read_for_agent(agent, acct)
 
@@ -1379,7 +1797,7 @@ def supervise(con, agent: str, log, now: int, samples: dict,
         # A parked agent can also be a closed one, and then this wake restores
         # the session - which is the case the gate below exists for.
         restored = bool(row and row["closed_at"])
-        woke, why = wake_agent(con, agent, log, use_model=use_model)
+        woke, why = wake_agent(con, agent, log)
         if restored and not woke:
             # Same rule reconcile's step 2 writes: for an agent whose session
             # was closed, the wake is the whole point of the deadline, and the
@@ -1436,7 +1854,7 @@ def supervise(con, agent: str, log, now: int, samples: dict,
         # brought it back. Without this, nothing in the system ever wakes it.
         answers = db.unannounced_answers(con, agent)
         if waiting or answers:
-            ok, why = wake_agent(con, agent, log, use_model=use_model)
+            ok, why = wake_agent(con, agent, log)
             what = (f"{len(waiting)} waiting request(s)" if waiting
                     else f"{len(answers)} answer(s) it asked for")
             actions.append(f"{agent}: woken for {what}"
@@ -1471,30 +1889,37 @@ def supervise(con, agent: str, log, now: int, samples: dict,
         # still unanswered is the wrong order.
         deliver_answers(con, agent, log)
         deliver_queued(con, agent, log)
+        nudge_forgotten_resolve(con, agent, row, now, log)
 
     # Memory is the scarce resource on one laptop running a team, and an
     # idle session spends it while earning nothing: it holds its context,
     # costs no tokens, and answers no one. Closing it is not a handoff -
-    # nothing is folded, nothing is cleared - and waking it resumes the
-    # same session, so the only thing that changes is who has the memory.
+    # nothing is cleared - and waking it resumes the same session, so the
+    # only thing that changes is who has the memory.
     if not at_wall and should_close(con, agent, state, row, now, st):
         ok, _ = close_agent(con, agent, log, st)
         if ok:
             actions.append(f"{agent}: session closed while idle")
             row = db.get_agent_state(con, agent)
 
-    # Keep a short burn-rate history per account for the projection (8.1).
+    measure.settle(con, agent)
+
+    # Keep a short burn-rate history per account: it is how fast the account is
+    # filling, which the pick weighs (`pick_account`) and the screens show.
     # Only a figure this payload actually reported may enter the burn
     # history, stamped with when it was observed. A carried figure pairs an
     # unchanging percentage with a collected_at that moves every tick: the
-    # buffer fills with flat samples, the measured rate falls to zero and
-    # usage_projected stops firing for an account that was climbing.
+    # buffer fills with flat samples and the measured rate falls to zero for an
+    # account that was climbing.
     hist = samples.setdefault(acct, [])
     if st.pct_5h_source == "live" and st.pct_5h is not None and st.rl_at:
         if not hist or hist[-1][0] != st.rl_at:
             hist.append((st.rl_at, st.pct_5h))
             del hist[:-10]
     burn = triggers.burn_rate_per_s(hist)
+    # Stamped with the newest sample's time, so a pace nobody is keeping ages out.
+    if hist:
+        status.write_burn(acct, burn, hist[-1][0])
 
     # Un-parks a usage park - PARKED only, and only when the handoff that put
     # it there named a usage trigger, read off that handoff since nothing on
@@ -1507,13 +1932,14 @@ def supervise(con, agent: str, log, now: int, samples: dict,
             and state == PARKED and reading.source != "assumed" \
             and orca.available() and orca.alive(row["terminal"]):
         last = db.last_handoff(con, agent)
-        verdict = triggers.evaluate(st.trusted_pct_5h, st.trusted_ctx_pct, burn=burn,
+        verdict = triggers.evaluate(st.trusted_pct_5h, st.trusted_ctx_pct,
                                     pct_7d=st.trusted_pct_7d)
         movable = last and last["trigger_kind"] in MOVABLE_TRIGGERS
-        # Still full here, but another account may have rolled over since the
-        # park: move now rather than wait out this account's own window.
+        # Still at the wall here, but another account may have rolled over or
+        # freed a slot since the park: if the work is worth a cold start, move
+        # now rather than wait out this account's own window.
         if movable and verdict.fired and verdict.kind in MOVABLE_TRIGGERS \
-                and _room_to_move(agent) not in (None, acct):
+                and _move_plan(con, agent, verdict.kind)[0]:
             with lock.terminal(agent) as mine:
                 moved = mine and _move_to_room(con, agent, verdict, log)
             if moved:
@@ -1531,9 +1957,9 @@ def supervise(con, agent: str, log, now: int, samples: dict,
         return  # waiting on wake_at, already handled above
 
     # What sits at the other end of a closed agent is a shell prompt, and a
-    # handoff document is full of backticks - handing one off would pay for a
-    # fold and then type command substitutions at bash. `should_close` is
-    # careful about five things; this needs the same care about one.
+    # handoff document is full of backticks - handing one off would type
+    # command substitutions at bash. `should_close` is careful about five
+    # things; this needs the same care about one.
     #
     # An agent woken in this tick is judged on the next one, for the same reason
     # it is told about its inbox on the next one: `st` was read before the wake,
@@ -1544,13 +1970,9 @@ def supervise(con, agent: str, log, now: int, samples: dict,
         return
 
     # trusted_* is None only when we genuinely do not know: no snapshot, or
-    # one too old to believe. A frozen status.json keeps reporting its last
-    # value forever, and believing it is the same failure as reading a null
-    # as 0 - the trigger would simply never fire again after the collector
-    # died. An account whose window is merely quiet reads as 0, not as
-    # unknown, so an idle agent is left alone instead of handed off.
-    t = triggers.evaluate(st.trusted_pct_5h, st.trusted_ctx_pct, burn=burn,
-                          pct_7d=st.trusted_pct_7d)
+    # one too old to believe. Unknown is not a wall, so it does not fire; an
+    # account whose window is merely quiet reads as 0, not as unknown.
+    t = triggers.evaluate(st.trusted_pct_5h, st.trusted_ctx_pct, pct_7d=st.trusted_pct_7d)
     # A turn that ended on the usage limit means the agent is at the wall
     # whatever the reading says (it can lag, or be the other window): move it
     # the same way a trigger would.
@@ -1561,7 +1983,7 @@ def supervise(con, agent: str, log, now: int, samples: dict,
                              f"turn ended on its usage limit: {text} "
                              f"(read from {stopped.get('limit_source', '?')})")
     if t.fired:
-        ok = perform_handoff(con, agent, t, log, use_model=use_model)
+        ok = perform_handoff(con, agent, t, log)
         actions.append(f"{agent}: handoff ({t.kind}){'' if ok else ' -> degraded'}")
 
         fresh = db.get_agent_state(con, agent)
@@ -1580,7 +2002,52 @@ def supervise(con, agent: str, log, now: int, samples: dict,
 _last_rollover_day = {"day": ""}
 
 
-def tick(con, log, use_model: bool = True, samples: dict | None = None) -> Tick:
+def probe_stale_accounts(con, log, actions: list[str]) -> None:
+    """Find out whether an account whose 5h window has passed is free again.
+
+    An account only writes a reading while a session runs on it, so one that
+    nobody is using cannot say that its window rolled over - and agents wait
+    out a full account beside an empty one. Before the window ends the last
+    reading is a floor it keeps (`AccountStatus.assignable`); after it,
+    nothing does but asking.
+
+    Only when nowhere already has room for a waiting agent: a probe spends a
+    little of the very quota it is asking about, and a team with somewhere to
+    go needs no answer. The probe runs detached, because it takes a session's
+    startup to answer and a tick may not stop for that. What it leaves behind
+    is a fresh snapshot, which the next tick reads like any other.
+    """
+    waiting = [r["agent"] for r in db.all_agent_states(con)
+               if r["state"] in (PARKED, THROTTLED, DEGRADED) and not r["closed_at"]]
+    if not waiting:
+        return
+    dest, _ = status.pick_account(
+        [a for a in paths.list_accounts() if accounts.logged_in(a)],
+        bootstrap=True, load=load.read_all(con))
+    if dest is not None:
+        return  # somewhere already has room; no need to spend a probe
+    for acct in paths.list_accounts():
+        st = status.read(acct)
+        if not accounts.logged_in(acct) or \
+                not probe.due(st, db.get_cursor(con, f"probe:{acct}") or None):
+            continue
+        try:
+            subprocess.Popen([sys.executable, str(paths.repo_root() / "bin" / "ocp"),
+                              "account", "probe", acct],
+                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                             start_new_session=True)
+        except OSError as e:
+            # No cooldown on a probe that never ran: what it guards is the
+            # quota a probe spends, and this one spent nothing.
+            log(f"  probe {acct}: could not start - {e}")
+            continue
+        db.set_cursor(con, f"probe:{acct}", int(time.time()))
+        actions.append(f"probe {acct}: its 5h window has passed, asking where it stands")
+        log(f"  probe {acct}: its 5h window has passed, asking where it stands")
+        return  # one at a time; the next tick takes the next account
+
+
+def tick(con, log, samples: dict | None = None) -> Tick:
     now = int(time.time())
     actions: list[str] = []
     samples = samples if samples is not None else {}
@@ -1591,6 +2058,8 @@ def tick(con, log, use_model: bool = True, samples: dict | None = None) -> Tick:
 
     # A handoff past its deadline must fail here, not only at startup.
     actions += expire_handoffs(con, log)
+
+    probe_stale_accounts(con, log, actions)
 
     # Midnight rollover (section 5). Nothing else calls it, and without it
     # yesterday's "in progress" stays in progress forever - and every fold
@@ -1607,7 +2076,7 @@ def tick(con, log, use_model: bool = True, samples: dict | None = None) -> Tick:
 
     for agent in paths.list_agents():
         try:
-            supervise(con, agent, log, now, samples, use_model, actions)
+            supervise(con, agent, log, now, samples, actions)
         except Exception as e:  # noqa: BLE001
             # A real failure, not a resource shortage: bad config, unreadable
             # status, an Orca call that raised. This is what failed_attempts
@@ -1627,8 +2096,7 @@ def tick(con, log, use_model: bool = True, samples: dict | None = None) -> Tick:
 
 
 # ---------------------------------------------------------------- loop
-def run(once: bool = False, use_model: bool = True, verbose: bool = True,
-        max_ticks: int | None = None) -> int:
+def run(once: bool = False, verbose: bool = True, max_ticks: int | None = None) -> int:
     def log(msg: str) -> None:
         if verbose:
             print(f"[{time.strftime('%H:%M:%S')}] {msg}", flush=True)
@@ -1670,7 +2138,8 @@ def run(once: bool = False, use_model: bool = True, verbose: bool = True,
 
             ticks = 0
             while not stopping["now"]:
-                t = tick(con, log, use_model=use_model, samples=samples)
+                keep_pidfile(log)
+                t = tick(con, log, samples=samples)
                 ticks += 1
                 # A supervisor that runs for weeks must not fill the disk.
                 # Cheap when under threshold: two stat() calls and nothing
@@ -1683,14 +2152,7 @@ def run(once: bool = False, use_model: bool = True, verbose: bool = True,
                     log(f"log rotation failed: {e}")
                 if once or (max_ticks and ticks >= max_ticks):
                     break
-                # The hottest account sets the pace, not the quietest: min()
-                # here let an account at 88% be polled every 30s because
-                # another sat at 10%. An account whose usage is unknown also
-                # polls fast.
-                pcts = [status.read(a).trusted_pct_5h for a in paths.list_accounts()]
-                hottest = None if (not pcts or any(p is None for p in pcts)) else max(pcts)
-                burn = max((triggers.burn_rate_per_s(h) for h in samples.values()), default=0.0)
-                time.sleep(triggers.poll_interval(hottest, burn))
+                time.sleep(triggers.POLL_S)
             log(f"stopped after {ticks} tick(s)")
             return 0
         finally:

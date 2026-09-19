@@ -115,8 +115,6 @@ CREATE TABLE IF NOT EXISTS handoff (
   agent       TEXT NOT NULL,
   session_id  TEXT,
   trigger_kind TEXT,
-  cursor_from INTEGER,
-  cursor_to   INTEGER,
   step        TEXT NOT NULL,
   deadline    INTEGER,
   state       TEXT NOT NULL,
@@ -319,11 +317,22 @@ def _add_missing_columns(con) -> None:
         # No backfill: an existing row's session was launched on the account
         # agent.yaml named, which is exactly what a null here falls back to.
         con.execute("ALTER TABLE agent_state ADD COLUMN account TEXT")
+    if "handoff" not in state_cols:
+        # What the agent is handed when it comes back from a park or a move;
+        # see handoff.py. NULL once it has been handed over.
+        con.execute("ALTER TABLE agent_state ADD COLUMN handoff TEXT")
     if "account_source" not in state_cols:
         # NULL here means "recorded" too, for exactly the rows that predate
         # this column: every one of them was written by `_record_terminal` or
         # a move, both facts, before an "assumed" writer existed at all.
         con.execute("ALTER TABLE agent_state ADD COLUMN account_source TEXT")
+    if "launch_fingerprint" not in state_cols:
+        # No backfill: an existing row reads as drifted, which is right.
+        con.execute("ALTER TABLE agent_state ADD COLUMN launch_fingerprint TEXT")
+    if "notified_session" not in state_cols:
+        # The session the notify cursor's head was typed into. A delivery
+        # belongs to the session that read it, not to the agent.
+        con.execute("ALTER TABLE agent_state ADD COLUMN notified_session TEXT")
 
 
 
@@ -422,6 +431,17 @@ def set_task(con, agent: str, task: str | None) -> None:
 def get_cursor(con, name: str) -> int:
     row = con.execute("SELECT row_id FROM cursors WHERE name = ?", (name,)).fetchone()
     return int(row["row_id"]) if row else 0
+
+
+def get_notified_session(con, agent: str) -> str | None:
+    row = con.execute("SELECT notified_session FROM agent_state WHERE agent = ?",
+                      (agent,)).fetchone()
+    return row["notified_session"] if row else None
+
+
+def set_notified_session(con, agent: str, session_id: str | None) -> None:
+    con.execute("UPDATE agent_state SET notified_session = ? WHERE agent = ?",
+                (session_id, agent))
 
 
 def set_cursor(con, name: str, row_id: int) -> None:
@@ -523,6 +543,13 @@ def queue_depth(con, target: str) -> int:
     return len(queued_for(con, target))
 
 
+def open_asks_of(con, requester: str) -> int:
+    """What this agent asked that nobody has answered yet: what it may be
+    waiting on, which is not the same as having forgotten something."""
+    return con.execute("SELECT COUNT(*) FROM requests WHERE requester = ? "
+                       "AND state = 'queued'", (requester,)).fetchone()[0]
+
+
 def mark_delivered(con, rid: int) -> bool:
     """Record that this request has been shown to its target. Idempotent.
 
@@ -549,6 +576,21 @@ def retire_queued(con, rid: int, state: str, verdict: str | None = None) -> bool
         "resolved_at = COALESCE(resolved_at, ?), announced_at = COALESCE(announced_at, ?) "
         "WHERE id = ? AND state = 'queued'", (state, verdict, now, now, rid))
     return cur.rowcount > 0
+
+
+def close_if_queued(con, rid: int, state: str, verdict: str, announced: bool = False) -> bool:
+    """Close a request that is still open, atomically. True only if this call
+    was the one that closed it: an agent resolving it in the same instant wins,
+    and its answer is not overwritten. `announced=True` is `resolve`'s
+    `notify=False` case: stamped in this same write, for the reason
+    `set_request_state` gives."""
+    now = int(time.time())
+    cur = con.execute(
+        "UPDATE requests SET state = ?, verdict = ?, resolved_at = ?, "
+        "announced_at = COALESCE(announced_at, ?) WHERE id = ? AND state = 'queued'",
+        (state, verdict, now, now if announced else None, rid))
+    return cur.rowcount > 0
+
 
 
 def retire_if_undelivered(con, rid: int, state: str, verdict: str | None = None) -> bool:
@@ -656,9 +698,11 @@ def set_terminal(con, agent: str, terminal: str | None, worktree: str | None) ->
 def set_account(con, agent: str, account: str | None, source: str = "recorded") -> None:
     """Record which account a session is on, and how sure of it this is.
 
-    `source="recorded"` (the default) is `ocp launch`'s own write, from
-    inside the process that sets CLAUDE_CONFIG_DIR - the record and the
-    environment cannot disagree. `source="assumed"` is a guess made before
+    `source="recorded"` (the default) is written by `ocp launch`, by a move
+    once its session is up, or by the daemon's check of the running process;
+    only the launch writes from inside the process itself, so a move's record
+    can disagree with the environment until `daemon._confirmed_reading`
+    reconciles it. `source="assumed"` is a guess made before
     that process exists to confirm anything, written so a row is not simply
     null in the window between a spawn and its own launch reporting in -
     `agents.account_reading` is what tells the two apart on read.
@@ -669,6 +713,20 @@ def set_account(con, agent: str, account: str | None, source: str = "recorded") 
         "ON CONFLICT(agent) DO UPDATE SET account=excluded.account, "
         "account_source=excluded.account_source, updated=excluded.updated",
         (agent, "IDLE", int(time.time()), account, source),
+    )
+
+
+def set_launch_fingerprint(con, agent: str, fingerprint: str | None) -> None:
+    """Record what `launch.fingerprint` computed for the session just execve'd.
+
+    Written from inside that same process, alongside `set_account` - the one
+    moment a recipe and a running session are known to match.
+    """
+    con.execute(
+        "INSERT INTO agent_state(agent, state, updated, launch_fingerprint) VALUES(?,?,?,?) "
+        "ON CONFLICT(agent) DO UPDATE SET launch_fingerprint=excluded.launch_fingerprint, "
+        "updated=excluded.updated",
+        (agent, "IDLE", int(time.time()), fingerprint),
     )
 
 
@@ -687,12 +745,19 @@ def clear_closed(con, agent: str) -> None:
     )
 
 
+def last_event_ts(con, agent: str, kind: str) -> int | None:
+    row = con.execute("SELECT MAX(ts) AS t FROM events WHERE agent = ? AND kind = ?",
+                      (agent, kind)).fetchone()
+    return int(row["t"]) if row and row["t"] is not None else None
+
+
 def last_activity(con, agent: str) -> int | None:
     """When this agent last did anything we can see. Its own hook events are
     the record - the daemon's bookkeeping about an agent is not activity."""
     row = con.execute(
         "SELECT MAX(ts) AS t FROM events WHERE agent = ? AND kind NOT IN "
-        "('fold', 'fold_failed', 'handoff', 'park', 'close', 'wake', 'notified')", (agent,)
+        "('fold', 'fold_failed', 'handoff', 'park', 'close', 'close_failed', 'wake', "
+        "'notified', 'nudged')", (agent,)
     ).fetchone()
     return int(row["t"]) if row and row["t"] is not None else None
 
@@ -739,23 +804,41 @@ def all_agent_states(con):
 
 # Handoff steps, in order (section 8.9).
 def start_handoff(con, hid: str, agent: str, session_id: str | None, trigger_kind: str,
-                  cursor_from: int, deadline: int) -> None:
+                  deadline: int) -> None:
     con.execute(
-        "INSERT OR REPLACE INTO handoff(id, agent, session_id, trigger_kind, cursor_from, "
-        "cursor_to, step, deadline, state, detail, updated) "
-        "VALUES(?,?,?,?,?,NULL,'requested',?,'in_flight',NULL,?)",
-        (hid, agent, session_id, trigger_kind, cursor_from, deadline, int(time.time())),
+        "INSERT OR REPLACE INTO handoff(id, agent, session_id, trigger_kind, step, "
+        "deadline, state, detail, updated) "
+        "VALUES(?,?,?,?,'requested',?,'in_flight',NULL,?)",
+        (hid, agent, session_id, trigger_kind, deadline, int(time.time())),
     )
 
 
-def advance_handoff(con, hid: str, step: str, cursor_to: int | None = None,
+def advance_handoff(con, hid: str, step: str,
                     state: str | None = None, detail: str | None = None) -> None:
     """Commit one step. Each step is committed so a restart can resume from it."""
     con.execute(
-        "UPDATE handoff SET step = ?, cursor_to = COALESCE(?, cursor_to), "
-        "state = COALESCE(?, state), detail = COALESCE(?, detail), updated = ? WHERE id = ?",
-        (step, cursor_to, state, detail, int(time.time()), hid),
+        "UPDATE handoff SET step = ?, state = COALESCE(?, state), "
+        "detail = COALESCE(?, detail), updated = ? WHERE id = ?",
+        (step, state, detail, int(time.time()), hid),
     )
+
+
+def set_handoff(con, agent: str, text: str | None) -> None:
+    """Keep the record, or clear it with None. Keeping one for an agent that has
+    no row yet creates it idle: a handoff is written by hand for an agent that
+    has never run."""
+    if text is None:
+        con.execute("UPDATE agent_state SET handoff = NULL WHERE agent = ?", (agent,))
+        return
+    con.execute(
+        "INSERT INTO agent_state(agent, state, updated, handoff) VALUES(?, 'IDLE', ?, ?) "
+        "ON CONFLICT(agent) DO UPDATE SET handoff = excluded.handoff",
+        (agent, int(time.time()), text))
+
+
+def get_handoff(con, agent: str) -> str | None:
+    row = con.execute("SELECT handoff FROM agent_state WHERE agent = ?", (agent,)).fetchone()
+    return row["handoff"] if row and row["handoff"] else None
 
 
 def in_flight_handoffs(con):

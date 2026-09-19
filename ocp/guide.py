@@ -12,6 +12,7 @@ TOPICS = {
   ocp account add <name>           register it and log it in (a human types the login)
   ocp account remove <name>        log it out and move it aside; refused while an agent is on it
   ocp account list                 usage and whether the account is assignable
+  ocp agent move <agent> <account> record its handoff, end its live session and start fresh there, making it the preferred account (a human's call; also v on the bridge)
 
 ocp never reads, writes or copies credentials. A refresh token rotates on
 single use, so two copies of one credential invalidate each other.""",
@@ -30,7 +31,7 @@ command across hibernation and restore.""",
   ocp account list --json          machine-readable
 
 A pct_5h we cannot trust - no snapshot, unreadable, or too old - is not a full
-tank, it is a refusal. Reading it as 0 makes the 90% trigger false forever: the
+tank, it is a refusal. Reading it as 0 makes a walled account look open forever: the
 feature is dead while the dashboard stays green.
 
 A window nobody has spent in is different. Claude Code sends no five_hour block
@@ -41,13 +42,15 @@ age we will assign on - still a floor for triggers, no new work.
 
 Design section 4 has the five cases and why only one of them is fail-closed.
 
-An agent's account is a preference. A session starts on it when it has room to
-work - which ends a reserve short of the hard stop, where the fold fires - and
-on whichever account does when a current reading says it has not; the state row
-records where it went, and `ocp bridge` shows that rather than the preference.
-Nothing moves a live session - a move is one session ending and another
-starting, so it happens after a fold, and a resume always goes back to the
-account its session lives on.""",
+An agent's account is a preference. A session starts on it unless what is known
+says it is a bad place to start - at the wall, at its cap of agents mid-turn
+(`ocp account cap`), or filling so fast one more agent would not last half an
+hour - and on the best account that qualifies when it is; the state row records
+where it went, and `ocp bridge` shows that rather than the preference.
+Nothing moves a live session below the wall unless a person orders it (`ocp
+agent move`). At the wall an agent moves only if work is waiting and its account
+resets too late to wait for, once, and a resume always goes back to the account
+its session lives on.""",
     "work": """giving an agent work
   ocp team                        who you may ask, and what they are doing
   ocp ask <agent> "<task>"        queue it
@@ -56,6 +59,7 @@ account its session lives on.""",
   ocp ask human "..." --fyi       a report that asks nothing: not red, not counted as
                                   waiting on the founder, gone once read or superseded
   ocp withdraw <id>               take back your own request, before it is delivered
+  ocp cancel <id>                 the founder's: take any request out of an agent's queue
   ocp inbox                       the one thing currently waiting for you, and a count
   ocp inbox --all                 the whole queue and its history
   ocp read <id>                   one of them whole
@@ -65,17 +69,27 @@ account its session lives on.""",
 An agent is given one request at a time - the head of its queue - not the
 whole pile at once, so nobody has to hold eleven requests in their head to
 know what to do next. The next one is delivered only once you resolve or
-dismiss the current one. Before a request has been delivered, its own
+dismiss the current one. An agent that goes idle with the current one still
+open, having asked nobody anything, is reminded once after 10 minutes; if it is
+still idle on it 30 minutes after it last did anything, the bridge's STUCK panel
+shows it, with what is queued behind it. Before a request has been delivered, its own
 requester may still replace (`--replaces`) or withdraw it; once delivered, a
 correction is a reply in its thread (`ocp ask <agent> "..." --parent <id>`),
 not a new item behind it. Requests to `human` are the exception: a correction
 with `--replaces` retires your earlier one even after the bridge showed it.
+Only the founder can clear one that was delivered and never resolved: `ocp
+cancel <id>` closes it as rejected ("withdrawn by the founder"), tells its
+requester why and delivers what was behind it; the agent is told to stop if
+it can be reached right now, otherwise it finds out only when its own resolve
+of the row is refused. The row and its number stay; a request of the founder's
+own that was never delivered is simply withdrawn.
 
 On `ocp bridge`: ↑↓ walks the whole screen and crosses into the next panel at
 the end of one, ←→ jumps panel to panel, and the panel your keys act on is the
 one drawn in colour. Open a message with ↵ and answer it with `a` (or `e` for
 $EDITOR) - from the list or from inside it, whichever you are looking at. On an
-agent's page ←→ moves between its sections. `m` sends an order
+agent's page ←→ moves between its sections, and in WAITING FOR IT ↑↓ picks a
+request and `x` cancels it, after saying who will be told. `m` sends an order
 to the agent under the cursor and `e` writes a longer one in $EDITOR; `t` takes
 you to that agent's own terminal, starting one if it has none.
 
@@ -109,14 +123,15 @@ exchange as one thread; the screen's answer key does it for you.""",
   ocp resume <agent>               put it back, resuming the same session
 
 A session that is not being used holds 250-500MB and spends no tokens at all.
-Closing it ends the agent process; the terminal, its worktree and its account
-stay, because Orca runs our launch command inside a shell and claude is that
-shell's child. Waking types the launch command back into the same shell with
-`--resume <session>`, so the account comes back with it and the conversation is
-the one it had.
+Closing it ends the agent process, and is recorded only once the process has
+left the process table - a session that will not end is reported, not marked
+closed. The terminal, its worktree and its account stay, because Orca runs our
+launch command inside a shell and claude is that shell's child. Waking types
+the launch command back into the same shell with `--resume <session>` and the wake prompt as the session's first prompt, so the
+account comes back with it and the conversation is the one it had.
 
-This is not a handoff. Nothing is folded and no context is reclaimed, because
-there is nothing wrong with an idle agent's context. The daemon does it by
+This is not a handoff. No context is reclaimed, because there is nothing
+wrong with an idle agent's context. The daemon does it by
 itself after 30 minutes of silence, unless the agent is working, mid-handoff,
 STALLED, or has a request waiting.""",
 

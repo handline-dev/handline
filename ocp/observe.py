@@ -20,7 +20,9 @@ from __future__ import annotations
 import subprocess
 from dataclasses import dataclass
 
-from . import orca
+from pathlib import Path
+
+from . import orca, paths
 
 
 @dataclass
@@ -74,6 +76,34 @@ def process_table() -> list[tuple[int, str]] | None:
     return rows
 
 
+def _ps_command(pid: int, flags: str) -> str | None:
+    try:
+        r = subprocess.run(["ps", flags, "-o", "command=", "-p", str(pid)],
+                           capture_output=True, text=True, timeout=10)
+    except (OSError, subprocess.SubprocessError):
+        return None
+    return r.stdout if r.returncode == 0 and r.stdout.strip() else None
+
+
+def process_env(pid: int) -> str | None:
+    """The raw `ps eww` line for pid - its command plus its environment.
+
+    None whenever no environment came back: the process is gone (`ps` exits
+    non-zero, empty stdout), or it is another user's - `ps` prints their command
+    at rc 0 but withholds their environment, so the line is byte-identical to
+    plain `ps ww`. An environment was read only when `eww` says more than `ww`
+    does; comparing the two is exact where looking for `NAME=` tokens is not,
+    since a command line can carry those itself. None is "I don't know", never
+    "the variable was not set".
+    """
+    with_env = _ps_command(pid, "eww")
+    if with_env is None:
+        return None
+    if with_env == _ps_command(pid, "ww"):
+        return None
+    return with_env
+
+
 def env_of(pid: int, name: str) -> str | None:
     """One environment variable of a running process, as it was started with.
 
@@ -82,15 +112,29 @@ def env_of(pid: int, name: str) -> str | None:
     the same degree. None means unreadable or unset, and those two are the same
     answer here: neither says the process is somebody else's.
     """
-    try:
-        env = subprocess.run(["ps", "eww", "-o", "command=", "-p", str(pid)],
-                             capture_output=True, text=True, timeout=10).stdout
-    except (OSError, subprocess.SubprocessError):
+    env = process_env(pid)
+    if env is None:
         return None
     for token in env.split():
         if token.startswith(f"{name}="):
             return token.split("=", 1)[1]
     return None
+
+
+def account_of_process(pid: int) -> str | None:
+    """The account a running process is spending: the one its own
+    CLAUDE_CONFIG_DIR names, read off its environment. It is what the process
+    was started with and never changes, so it is the one answer that cannot be
+    out of date - unlike a column recorded when a move was decided.
+    None when unreadable, or a config dir that is not one of ours."""
+    cfg = env_of(pid, "CLAUDE_CONFIG_DIR")
+    if not cfg:
+        return None
+    try:
+        rel = Path(cfg).resolve().relative_to(paths.accounts_dir().resolve())
+    except (ValueError, OSError):
+        return None
+    return rel.parts[0] if rel.parts else None
 
 
 def live_sessions() -> dict[str, int] | None:

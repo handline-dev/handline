@@ -31,12 +31,14 @@ import subprocess
 import sys
 import tempfile
 import termios
+import textwrap
 import time
 import tty
 import unicodedata
 from pathlib import Path
 
-from . import accounts, actions, agents, daemon, db, launch, paths, status, triggers
+from . import (accounts, actions, agents, daemon, db, launch, load as loadmod, paths, status,
+               triggers)
 from . import waiting as promptwait
 
 ALT_ON, ALT_OFF = "\033[?1049h", "\033[?1049l"
@@ -67,6 +69,16 @@ WAITS_SHOWN = 5   # rows of the pinned block; the rest are counted, not drawn
 # name again in the list above.
 ACCOUNTS, AGENTS, MESSAGES, STUCK = 0, 1, 2, 3
 NAME_W = 22   # fits `└ orcapipe-manager +2`
+# The state cell carries the time an agent is waiting until ("PARKED·closed
+# 12m05"): park, a degraded retry and the await fallback all set one.
+STATE_W = 23
+# What an agent *is* - its model, its effort, and one day which tool it is at
+# all - against what is happening to it now. The second wins a narrow screen:
+# the kind of an agent is on its own page too and does not change while anyone
+# is watching, while the wake cell's account has nowhere else to be said. So
+# the column appears only where it costs that cell nothing.
+KIND_W = 13
+KIND_MIN_WIDTH = 112
 PANELS = (ACCOUNTS, AGENTS, MESSAGES, STUCK)
 PANEL_NAME = {ACCOUNTS: "accounts", AGENTS: "agents", MESSAGES: "messages",
               STUCK: "stuck"}
@@ -79,13 +91,14 @@ PANEL_NAME = {ACCOUNTS: "accounts", AGENTS: "agents", MESSAGES: "messages",
 AGENT_KEYS = [
     ("↵", "open"), ("t", "terminal"), ("m", "message"), ("e", "editor"),
     ("w", "wake"), ("c", "close"), ("p", "park"), ("f", "fold"), ("u", "unstall"),
+    ("v", "move"),
 ]
-ACCOUNT_KEYS = [("↵", "open"), ("l", "login"), ("a", "add"), ("x", "remove")]
+ACCOUNT_KEYS = [("↵", "open"), ("l", "login"), ("a", "add"), ("c", "cap"), ("x", "remove")]
 MESSAGE_KEYS = [("↵", "read"), ("a", "answer"), ("e", "answer in $EDITOR"),
                 ("x", "dismiss")]
 # A stuck row is about an agent, so it answers to the agent keys.
 STUCK_KEYS = AGENT_KEYS
-CONFIRM = {"close", "park", "unstall", "fold"}
+CONFIRM = {"close", "park", "unstall", "fold", "cancel"}
 
 
 def cwidth(ch: str) -> int:
@@ -130,12 +143,68 @@ def pad(s: str, width: int) -> str:
     return s + " " * max(0, width - vlen(s))
 
 
-def bar(pct: int | None, width: int = 10) -> str:
+def padfit(s: str, width: int) -> str:
+    """pad(), but a value wider than the column is cut to fit first (with
+    fit()'s ellipsis) instead of shoving whatever comes after it.
+
+    A backstop for a free-text cell (an account name, a `why`), not licence
+    for a bounded one to skip being measured - a value with a known worst
+    case should never reach the ellipsis at all."""
+    return pad(fit(s, width), width)
+
+
+def bar(pct: int | None, width: int = 10, last_seen: bool = False) -> str:
+    """`last_seen` draws the fill at the value but with no colour: the figure is
+    what an account was last seen at, not a gauge anyone is reading now."""
     if pct is None:
         return DIM + "·" * width + R
     filled = max(0, min(width, round(pct / 100 * width)))
+    if last_seen:
+        return DIM + "█" * filled + "░" * (width - filled) + R
     color = RED if pct >= 85 else (YEL if pct >= 60 else GRN)
     return color + "█" * filled + DIM + "░" * (width - filled) + R
+
+
+# The ACCOUNTS panel's columns, in the order they are drawn: the heading, every
+# row and the overflow test read these, so a width or a position changed here
+# moves all three and one written anywhere else is a bug. Each bounded cell
+# must stay strictly narrower than its column.
+ACCT_W = {"name": 10, "five": 17, "reset5": 7, "seven": 12, "reset7": 7, "runway": 15}
+ACCT_HEAD = {"name": "account", "five": "5h usage", "reset5": "reset", "seven": "7d",
+             "reset7": "7d rst", "runway": "runway (est.)"}
+ACCT_BAR_W = {"five": 10, "seven": 5}
+
+
+def _gauge(value: int | None, width: int, src: str) -> str:
+    """A bar and its figure, where `src` is the mark saying where it came from."""
+    if src == status.IDLE_MARK:
+        return f"{bar(value, width, last_seen=True)} {DIM}{pct(value)}%{src}{R}"
+    return f"{bar(value, width)} {pct(value)}%{src}"
+
+
+def account_cells(name: str, st, now: float | None = None) -> dict[str, str]:
+    """The bounded cells of an ACCOUNTS row, unpadded and keyed like ACCT_W.
+    The name is free text and is cut to fit where it is drawn."""
+    runway_text = status.describe_runway(status.runway(st, status.read_burn(name), now))
+    # One definition of the figure and its mark, shared with `ocp account list`.
+    # A last-seen figure is drawn at its value, dimmed and uncoloured, with its
+    # "?", so it cannot be read as a live gauge at the same number and is not
+    # drawn as an unknown either. Display only.
+    shown, src = st.shown_pct_5h()
+    five = _gauge(shown, ACCT_BAR_W["five"], src)
+    return {
+        "five": five,
+        "reset5": countdown(st.reset_5h),
+        # The weekly figure carries its provenance like the 5h one. Drawn
+        # bare, a number from a stale snapshot - or from a week that has since
+        # rolled over - reads as this week's measurement.
+        "seven": _gauge(st.trusted_pct_7d, ACCT_BAR_W["seven"],
+                        status.mark(st.pct_7d_source)),
+        # The deadline the ordering spends against: when this window's
+        # headroom is lost if nobody uses it.
+        "reset7": countdown(st.reset_7d),
+        "runway": runway_text,
+    }
 
 
 def pct(v: int | None) -> str:
@@ -148,19 +217,55 @@ def countdown(ts: int | None) -> str:
     left = ts - int(time.time())
     if left <= 0:
         return " due"
-    if left >= 3600:
-        return f"{left // 3600}h{(left % 3600) // 60:02d}"
-    return f"{left // 60:>2}m{left % 60:02d}"
+    return status.span(left, precise=True)
 
 
 def age(secs: float | None) -> str:
-    if secs is None:
-        return "?"
-    if secs < 90:
-        return f"{int(secs)}s"
-    if secs < 5400:
-        return f"{int(secs / 60)}m"
-    return f"{int(secs / 3600)}h"
+    return status.ago(secs)
+
+
+def hidden_urgency(con, names: list[str]) -> tuple[str, int, str] | None:
+    """The most urgent thing among agents a fold hides: (glyph, how many share
+    it, colour), or None when there is nothing to say.
+
+    A folded row reads as its own state, and "IDLE" is true of a supervisor
+    whose reports are all working. Three classes, most urgent first: something
+    waiting on the human (an open ask addressed to them); stuck (a state only a
+    person clears, or the usage wall); running. Idle reports add nothing.
+    """
+    found: dict[int, list[str]] = {}
+    for name in names:
+        row = db.get_agent_state(con, name)
+        state = row["state"] if row else "IDLE"
+        if con.execute("SELECT 1 FROM requests WHERE requester = ? AND target = ? "
+                       "AND state = 'queued'", (name, actions.HUMAN)).fetchone():
+            found.setdefault(0, []).append(YEL)
+        elif state in NEEDS_A_HUMAN:
+            found.setdefault(1, []).append(STATE_COLOR[state])
+        elif daemon.wall_reason(con, name, row):
+            found.setdefault(1, []).append(YEL)
+        elif state == "RUNNING" and not (row and row["closed_at"]):
+            found.setdefault(2, []).append(STATE_COLOR["RUNNING"])
+    if not found:
+        return None
+    worst = min(found)
+    colours = found[worst]
+    return ("▶" if worst == 2 else "!", len(colours), RED if RED in colours else colours[0])
+
+
+def fold_marker(name_cell: str, under: int, urgency: tuple[str, int, str] | None) -> str:
+    """The name and what its fold says: ` +3`, and ` ▶2` after it while the
+    column has room. The count of what is hidden is never the thing that goes;
+    the aggregate goes before it does, and the name is cut last."""
+    if not under:
+        return name_cell
+    count = f"{DIM} +{under}{R}"
+    if urgency:
+        glyph, n, colour = urgency
+        full = f"{count} {colour}{glyph}{n}{R}"
+        if vlen(name_cell) + vlen(full) <= NAME_W:
+            return name_cell + full
+    return fit(name_cell, NAME_W - vlen(count)) + count
 
 
 # Supervisors whose reports are drawn. Closed by default: the screen is for
@@ -180,13 +285,11 @@ def _wants_a_human() -> set[str]:
         con.close()
 
 
-def visible_tree() -> list[tuple[str, int, int]]:
-    """The team as drawn: (name, depth, how many under it are not drawn).
+def _walk_tree() -> list[tuple[str, int, list[str]]]:
+    """The team as drawn: (name, depth, the agents its fold hides, by name).
 
-    The cursor walks the same list, so it never lands on a row nobody can see.
-    A report that needs a person is drawn whether its supervisor is open or
-    not - hiding the one row this screen exists for is the one thing folding
-    must not do.
+    One walk decides what is hidden, so the count on a fold and what its marker
+    says about those agents cannot drift apart.
     """
     tree = actions.agent_tree()
     keep = _wants_a_human()
@@ -196,17 +299,28 @@ def visible_tree() -> list[tuple[str, int, int]]:
         while closed and depth <= closed[-1][0]:
             closed.pop()
         if closed and name not in keep:
-            rows[closed[-1][1]][2] += 1
+            rows[closed[-1][1]][2].append(name)
             continue
         under = 0
         for _n, d in tree[i + 1:]:
             if d <= depth:
                 break
             under += 1
-        rows.append([name, depth, 0])
+        rows.append([name, depth, []])
         if under and name not in EXPANDED:
             closed.append((depth, len(rows) - 1))
-    return [(n, d, u) for n, d, u in rows]
+    return [(n, d, h) for n, d, h in rows]
+
+
+def visible_tree() -> list[tuple[str, int, int]]:
+    """The team as drawn: (name, depth, how many under it are not drawn).
+
+    The cursor walks the same list, so it never lands on a row nobody can see.
+    A report that needs a person is drawn whether its supervisor is open or
+    not - hiding the one row this screen exists for is the one thing folding
+    must not do.
+    """
+    return [(n, d, len(h)) for n, d, h in _walk_tree()]
 
 
 def _fold(sel: dict, k: str) -> bool:
@@ -456,71 +570,74 @@ def build(width: int, sel: dict | None = None,
         # ---- accounts ------------------------------------------------
         acc = Panel("ACCOUNTS", width, focused=panel == ACCOUNTS)
         acc.selected = sel.get(ACCOUNTS)
-        acc.add(f"{DIM}{'':<2}{'account':<10}{'5h usage':<18}{'reset':<8}"
-                f"{'7d':<12}{'7d reset':<9}why{R}", heading=True)
+        w = ACCT_W
+        acc.add(f"{DIM}{'':<2}" + "".join(f"{ACCT_HEAD[k]:<{w[k]}}" for k in w)
+                + R, heading=True)
         # The account with the most headroom: where work goes when an agent's
         # own account is full. Only accounts that can start a session count.
-        # Captured whole, not just the pick: this panel says why each one sits
-        # where it does, not only which one won.
+        # The reason each one sits where it does is on its own page (Enter).
+        loads = loadmod.read_all()
         first, ranked = status.pick_account(
-            [a for a in paths.list_accounts() if _logged_in(a)])
-        why_of = dict(ranked)
+            [a for a in paths.list_accounts() if _logged_in(a)], load=loads)
         for name in paths.list_accounts():
             st = status.read(name)
-            allowed, plain_why = st.takes_work()
-            # An account outside the ranking (not logged in) has no ranked
-            # reason to fall back to - `assignable` already refused it and
-            # says why.
-            why = why_of.get(name, plain_why)
+            # The tick beside the name says the pick could use it: not only
+            # that it is under the wall but that it has a slot and would last.
+            allowed, _ = status.account_verdict(name, st, loads.get(name), ranked,
+                                                _logged_in(name))
             mark = f"{GRN}✔{R}" if allowed else f"{RED}✘{R}"
-            nxt = f"{GRN}{BOLD}>{R} " if name == first else "  "
-            # Show the figure decisions are made on, with a mark saying where
-            # it came from. Drawing a quiet window as "?" while the daemon acts
-            # on 0% is the dashboard and the daemon disagreeing.
-            five = st.trusted_pct_5h
-            src = status.mark(st.pct_5h_source)
+            # Where work goes next is said in a word after the tick, not drawn
+            # in the gutter the selection cursor uses on every other panel.
+            nxt = f" {GRN}{BOLD}next{R}" if name == first else ""
             # Every cell is padded on its visible width: the bars carry escape
             # sequences, so a plain :<n counts them and the columns drift out
-            # from under their own headings.
+            # from under their own headings. The figure shown is the one
+            # decisions are made on, with a mark saying where it came from -
+            # a quiet window drawn as "?" while the daemon acts on 0% is the
+            # dashboard and the daemon disagreeing.
+            cells = account_cells(name, st)
             acc.add(
-                nxt
-                + pad(f"{BOLD}{name}{R}", 10)
-                + pad(f"{bar(five)} {pct(five)}%{src}", 18)
-                + pad(countdown(st.reset_5h), 8)
-                # The weekly figure carries its provenance like the 5h one.
-                # Drawn bare, a number from a stale snapshot - or from a week
-                # that has since rolled over - reads as this week's measurement.
-                + pad(f"{bar(st.trusted_pct_7d, 6)} {pct(st.trusted_pct_7d)}%"
-                      f"{status.mark(st.pct_7d_source)}", 12)
-                # The deadline the ordering spends against: when this
-                # window's headroom is lost if nobody uses it.
-                + pad(countdown(st.reset_7d), 9)
-                + f"{mark} {DIM}{why}{R}",
+                "  "
+                + padfit(f"{BOLD}{name}{R}", w["name"])
+                + "".join(pad(cells[k], w[k]) for k in w if k != "name")
+                + mark + nxt,
                 key=name,
             )
         if not paths.list_accounts():
             acc.add(f"{DIM}  no accounts registered{R}")
+        outlook = status.team_outlook()
+        if outlook:
+            acc.add(f"{DIM}  {outlook}{R}")
 
         # ---- agents --------------------------------------------------
         ag = Panel("AGENTS", width, focused=panel == AGENTS)
         ag.selected = sel.get(AGENTS)
         # No heading for the last column: it is empty unless something is about
         # to happen, and then it says what, in words.
-        # No model and no effort: they are configuration, they do not change
-        # while anyone is watching, and they are on the agent's own page. This
-        # screen is about what is happening now.
-        ag.add(f"{DIM}{'agent':<{NAME_W}}{'acct':<8}{'state':<16}"
-               f"{'ctx':>4}   {'wake':<7}{'in':<4}{R}", heading=True)
-        for name, depth, under in visible_tree():
+        drawn_tree = _walk_tree()
+        # Model and effort are configuration and do not change while anyone is
+        # watching, which was the case for leaving them off. What changed is
+        # that they will not all be claude: with a second vendor coming, what
+        # an agent *is* stops being a constant of the screen and starts being
+        # the difference between two rows doing the same work at different
+        # prices. It sits beside the account for that reason - the two together
+        # are what a row costs.
+        kinds = width >= KIND_MIN_WIDTH
+        ag.add(f"{DIM}{'agent':<{NAME_W}}{'acct':<8}"
+               f"{'kind':<{KIND_W}}" * kinds
+               + f"{'state':<{STATE_W}}{'ctx':>4}   {'in':<4}{R}", heading=True)
+        for name, depth, hidden in drawn_tree:
+            under = len(hidden)
             # Indented under whoever routes work to it. Who an agent reports to
             # decides where its report goes and who may assign to it, and it was
             # written down in team.yaml all along - a flat list made the reader
             # hold the routing table in their head to know what they were
             # looking at.
             twig = f"{DIM}{'  ' * (depth - 1)}└ {R}" if depth else ""
-            # How many of its reports are not drawn. Fitted around, not into,
-            # the name: cut off, the only sign a team is hidden disappears.
-            folded = f"{DIM} +{under}{R}" if under else ""
+            # How many of its reports are not drawn, and the most urgent thing
+            # among them. Fitted around, not into, the name: cut off, the only
+            # sign a team is hidden disappears.
+            urgency = hidden_urgency(con, hidden) if under else None
             try:
                 acct = agents.current_account(name, con)
                 cfg = agents.read(name)
@@ -545,6 +662,14 @@ def build(width: int, sel: dict | None = None,
             t = triggers.evaluate(st.trusted_pct_5h, st.trusted_ctx_pct)
             fire = (f"{YEL}⚠ {t.kind}{R}"
                     if t.fired and daemon.triggers_apply(row) else "")
+            # The time it waits until, where it waits: park, a degraded retry
+            # and an await fallback all set one, and it is when the agent
+            # comes back.
+            until = countdown(row["wake_at"] if row else None).strip()
+            until = "" if until == "-" else until
+            state_cell = (f"{BOLD + RED if s == WAITING_ON_YOU else STATE_COLOR.get(s, '')}"
+                          f"{fit(s, STATE_W - 1 - (len(until) + 1 if until else 0))}{R}"
+                          + (f" {DIM}{until}{R}" if until else ""))
             ctxs = f"{pct(st.ctx_pct)}%"
             if st.ctx_pct is not None and st.ctx_pct >= triggers.CONTEXT_PCT:
                 ctxs = YEL + ctxs + R
@@ -556,13 +681,12 @@ def build(width: int, sel: dict | None = None,
                 # twig, is wider than the column, and `pad` alone then pushes
                 # every column after it right - the same drift the "·closed"
                 # suffix caused.
-                pad(fit(twig + f"{BOLD}{name}{R}", NAME_W - vlen(folded)) + folded,
-                    NAME_W)
+                pad(fold_marker(twig + f"{BOLD}{name}{R}", under, urgency), NAME_W)
                 + pad(acct, 8)
-                + pad(f"{BOLD + RED if s == WAITING_ON_YOU else STATE_COLOR.get(s, '')}"
-                      f"{fit(s, 15)}{R}", 16)
+                + (pad(f"{DIM}{fit(agents.kind(cfg), KIND_W - 1)}{R}", KIND_W)
+                   if kinds else "")
+                + pad(state_cell, STATE_W)
                 + pad(ctxs, 7)
-                + pad(countdown(row["wake_at"] if row else None), 7)
                 + pad(str(inbox) if inbox else "·", 4)
             )
             # Same predicate `ocp ps` and `ocp triggers` ask for this - so this
@@ -666,7 +790,8 @@ def build(width: int, sel: dict | None = None,
 
 
 def page(title: str, sections: list[tuple[str, list[str]]],
-         panel: int = AGENTS, key: object = None) -> dict:
+         panel: int = AGENTS, key: object = None,
+         picks: dict[str, list[int]] | None = None) -> dict:
     """A detail page laid out as the screen's own panels, not as a wall of text.
 
     It keeps its sections rather than the lines they make, because the width
@@ -676,7 +801,41 @@ def page(title: str, sections: list[tuple[str, list[str]]],
     """
     d = opened(title, [], panel, key)
     d["sections"] = sections
+    # Sections whose rows can be selected: the start of the heading, and the id
+    # each row stands for. The cursor is `at`, an index into that list.
+    d["picks"] = picks or {}
     return d
+
+
+def _agent_page(con, name: str, panel: int = AGENTS, title: str | None = None,
+                old: dict | None = None) -> dict:
+    """An agent's page, with its WAITING FOR IT rows selectable. `old` is the
+    page it replaces, so a redraw after an action keeps the section, the row
+    and the scroll the reader was at."""
+    d = page(title or f"agent {name}", actions.agent_detail(con, name), panel, name,
+             picks={"WAITING FOR IT": actions.waiting_ids(con, name)})
+    if old:
+        for k in ("tab", "at", "top"):
+            d[k] = old.get(k, 0)
+        # The row it was on may be the one that just left.
+        d["at"] = max(0, min(d["at"], len(d["picks"]["WAITING FOR IT"]) - 1))
+    return d
+
+
+def _picks_of(detail: dict, heading: str) -> list[int]:
+    for prefix, ids in (detail.get("picks") or {}).items():
+        if heading.startswith(prefix):
+            return ids
+    return []
+
+
+def _open_picks(detail: dict) -> list[int]:
+    """The requests the open section lets the cursor land on, or none."""
+    tabs = [h for h, _ in (detail.get("sections") or []) if h]
+    if not tabs:
+        return []
+    at = max(0, min(detail.get("tab", 0), len(tabs) - 1))
+    return _picks_of(detail, tabs[at])
 
 
 def lines_of(detail: dict, width: int) -> list[str]:
@@ -710,6 +869,15 @@ def lines_of(detail: dict, width: int) -> list[str]:
     # someone wrote, and a box that ends every line in "…" is not a section
     # anyone can read. A panel on the main screen cuts a row because the row
     # underneath needs the line; a page scrolls.
+    picks = _picks_of(detail, heading)
+    if picks and len(picks) == len(rows):
+        # One line a request, so the cursor is on a row and not on part of one.
+        at = max(0, min(detail.get("at", 0), len(picks) - 1))
+        detail["at"] = at
+        box.focused, box.selected = True, picks[at]
+        for r, rid in zip(rows, picks):
+            box.add(r, key=rid)
+        return lines + box.draw()
     for r in wrap(rows, max(1, width - 5)):
         box.add(r)
     return lines + box.draw()
@@ -853,7 +1021,8 @@ def _detail_frame(width: int, height: int, detail: dict, flash: str = "") -> str
         shown.append("")
     where = (f"{DIM}  line {top + 1}-{min(len(body), top + room)} of {len(body)}{R}"
              if len(body) > room else "")
-    keys = "esc back · ←→ section · ↑↓ scroll"
+    keys = ("esc back · ←→ section · ↑↓ pick · x cancel" if _open_picks(detail)
+            else "esc back · ←→ section · ↑↓ scroll")
     if detail.get("sections") is None or not [h for h, _ in detail["sections"] if h]:
         keys = "esc back · ↑↓ scroll · space page"
     if detail.get("panel") == MESSAGES:
@@ -998,8 +1167,14 @@ def _line(prompt: str, width: int, height: int) -> str | None:
 def _confirm(what: str, width: int, height: int) -> bool:
     if not sys.stdin.isatty():
         return False
-    sys.stdout.write(f"\033[{height};1H" + CLEAR_EOL
-                     + fit(f"{YEL}{what}?{R} {DIM}y / n{R}", width))
+    # What will happen and who is told can be longer than one line, and a
+    # question whose answer is cut off is one nobody can answer.
+    rows = textwrap.wrap(f"{what}?", max(10, width - 8))[:3] or [f"{what}?"]
+    out = "".join(f"\033[{height - len(rows) + 1 + i};1H" + CLEAR_EOL
+                  + fit(f"{YEL}{ln}{R}" + (f" {DIM}y / n{R}" if i == len(rows) - 1 else ""),
+                        width)
+                  for i, ln in enumerate(rows))
+    sys.stdout.write(out)
     sys.stdout.flush()
     while True:
         ch = _key(30.0)
@@ -1109,6 +1284,22 @@ def _in_detail(detail: dict, k: str, width: int, height: int,
         detail["tab"] = max(0, detail.get("tab", 0) - 1)
         detail["top"] = 0
         return detail, ""
+    picks = _open_picks(detail)
+    if picks and k in ("j", "\033[B", "\033OB", "k", "\033[A", "\033OA"):
+        down = k in ("j", "\033[B", "\033OB")
+        detail["at"] = max(0, min(len(picks) - 1, detail.get("at", 0) + (1 if down else -1)))
+        # Scrolled only as far as keeps the row in view.
+        body = lines_of(detail, width)
+        row = next((i for i, ln in enumerate(body) if "▸" in _ANSI.sub("", ln)), None)
+        if row is not None:
+            top = detail.get("top", 0)
+            top = row if row < top else (row - room + 1 if row >= top + room else top)
+            detail["top"] = max(0, top)
+        return detail, ""
+    if k == "x" and detail.get("panel") in (AGENTS, STUCK):
+        if not picks:
+            return detail, "x cancels a request: open WAITING FOR IT (←→) and pick one (↑↓)"
+        return _cancel_key(detail, picks, width, height)
     if k in ("j", "\033[B", "\033OB"):
         detail["top"] += 1
         return detail, ""
@@ -1151,15 +1342,14 @@ def _in_detail(detail: dict, k: str, width: int, height: int,
                     return detail, "not started"
                 _say(f"starting {name}", width, height)
                 return detail, actions.terminal(con, name, repo.strip() or os.getcwd())
+            if label == "move":
+                return detail, _move_agent(con, name, width, height)
             if label in CONFIRM and not _confirm(f"{label} {name}", width, height):
                 return detail, "left alone"
             _say(f"{label} {name}", width, height)
             said = getattr(actions, label)(con, name)
             # What it says about itself has just changed.
-            fresh = page(detail["title"], actions.agent_detail(con, name),
-                         detail["panel"], name)
-            fresh["top"] = detail["top"]
-            return fresh, said
+            return _agent_page(con, name, detail["panel"], detail["title"], detail), said
         finally:
             con.close()
     if detail.get("panel") != MESSAGES or k not in ("a", "e", "x"):
@@ -1178,10 +1368,31 @@ def _in_detail(detail: dict, k: str, width: int, height: int,
         con.close()
 
 
+def _cancel_key(detail: dict, picks: list[int], width: int, height: int
+                ) -> tuple[dict, str]:
+    """x on a request in WAITING FOR IT: say what it will do and to whom, ask,
+    then take it out of the queue. One key for a request not yet delivered
+    (withdrawn) and for one an agent is sitting on (closed as rejected)."""
+    rid = picks[max(0, min(detail.get("at", 0), len(picks) - 1))]
+    name = str(detail["key"])
+    con = db.connect()
+    try:
+        ok, plan = actions.cancel_plan(con, rid)
+        if not ok:
+            return detail, plan
+        if not _confirm(plan, width, height):
+            return detail, "left alone"
+        _say(f"cancelling #{rid}", width, height)
+        said = actions.cancel(con, rid)
+        return _agent_page(con, name, detail["panel"], detail["title"], detail), said
+    finally:
+        con.close()
+
+
 def _answer_key(con, detail: dict, rid: int, k: str, width: int, height: int,
                 fd, saved) -> tuple[dict | None, str]:
     if k == "x":
-        return None, actions.dismiss(con, rid)
+        return None, actions.dismiss(con, rid, me=actions.HUMAN)
     text = _compose(rid, k, width, height, fd, saved)
     if text is None:
         return detail, _nothing_sent(k)
@@ -1257,7 +1468,7 @@ def _say(what: str, width: int, height: int) -> None:
     """Put one line on the bottom row now, without waiting for a redraw.
 
     An action can take half a minute - waking waits for a session to appear,
-    parking pays for a fold - and a screen still showing the frame from before
+    parking clears a session - and a screen still showing the frame from before
     the keypress, or the confirmation that was just answered, reads as a hang.
     The next redraw repaints every row, so this cannot outlive its action.
     """
@@ -1351,6 +1562,23 @@ def _keys_of(panel: int) -> list:
         con.close()
 
 
+def _move_agent(con, name: str, width: int, height: int) -> str:
+    """Ask where, confirm (it ends a session), then the daemon's own move."""
+    dest = _line(f"move {name} to which account:", width, height)
+    if not dest:
+        return "not moved"
+    dest = dest.strip()
+    if not _confirm(f"move {name} to {dest} - records its handoff, ends its session, "
+                    f"and makes {dest} its preferred account", width, height):
+        return "left alone"
+    # A confirmation waits on a person; what was true at the keypress may not be.
+    allowed, why = actions.can(con, name, "move")
+    if not allowed:
+        return f"{why} - it changed while you looked"
+    _say(f"moving {name} to {dest}", width, height)
+    return actions.move(con, name, dest)
+
+
 def _add_account(width: int, height: int, fd, saved) -> str:
     """Name it, then the same sequence as `ocp account add`."""
     name = _line("new account name:", width, height)
@@ -1359,6 +1587,19 @@ def _add_account(width: int, height: int, fd, saved) -> str:
     ok, msg = accounts.add_account(
         name, lambda argv, env: _suspend(argv, env, fd, saved)[0])
     return msg
+
+
+def _set_cap(name: str, width: int, height: int) -> str:
+    """The most agents that may be mid-turn on this account at once."""
+    text = _line(f"most agents mid-turn on {name} at once [{loadmod.cap_of(name)}]:",
+                 width, height)
+    if not text or not text.strip():
+        return "cap unchanged"
+    try:
+        loadmod.set_cap(name, int(text.strip()))
+    except ValueError:
+        return "a cap is a whole number, at least 1"
+    return f"{name}: at most {text.strip()} agents mid-turn"
 
 
 def _remove_account(name: str, width: int, height: int, fd, saved) -> str:
@@ -1407,7 +1648,7 @@ def _act_on(panel: int, sel: dict, key: str, width: int, height: int,
         con = db.connect()
         try:
             return "", page(f"account {target}",
-                            actions.account_detail(con, str(target)),
+                            actions.account_detail(con, str(target), _logged_in),
                             ACCOUNTS, target)
         finally:
             con.close()
@@ -1418,14 +1659,15 @@ def _act_on(panel: int, sel: dict, key: str, width: int, height: int,
         return _suspend(argv, env, fd, saved)[1], None
     if panel == ACCOUNTS and key == "x":
         return _remove_account(str(target), width, height, fd, saved), None
+    if panel == ACCOUNTS and key == "c":
+        return _set_cap(str(target), width, height), None
 
     con = db.connect()
     try:
         if panel in (AGENTS, STUCK):
             name = str(target)
             if key in ("\r", "\n"):
-                return "", page(f"agent {name}", actions.agent_detail(con, name),
-                                panel, name)
+                return "", _agent_page(con, name, panel)
             label = dict(AGENT_KEYS).get(key)
             if not label:
                 return "", None
@@ -1446,6 +1688,8 @@ def _act_on(panel: int, sel: dict, key: str, width: int, height: int,
                 body = _compose_message(name, label, width, height, fd, saved)
                 return (actions.message(con, name, body) if body is not None
                         else _nothing_sent("e" if label == "editor" else "m")), None
+            if label == "move":
+                return _move_agent(con, name, width, height), None
             if label in CONFIRM:
                 if not _confirm(f"{label} {name}", width, height):
                     return "left alone", None
@@ -1478,7 +1722,7 @@ def _act_on(panel: int, sel: dict, key: str, width: int, height: int,
                 _say(f"answering #{rid}", width, height)
                 return actions.answer(con, rid, text), None
             if key == "x":
-                return actions.dismiss(con, rid), None
+                return actions.dismiss(con, rid, me=actions.HUMAN), None
         return "", None
     finally:
         con.close()

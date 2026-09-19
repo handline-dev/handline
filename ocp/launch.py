@@ -16,62 +16,47 @@ hibernation and restore, which makes this recover better than .envrc would.
 """
 from __future__ import annotations
 
+import hashlib
 import os
 import shutil
 import sys
 import time
+from pathlib import Path
 from dataclasses import dataclass
 
 from . import accounts, agents, db, paths, status, triggers
 
 
-# A session started this close to the wall folds almost at once: the usage
-# trigger fires a reserve short of the hard stop, so an account inside that
-# reserve has no room to work in, only room to hand off. The wall itself is
-# still where a launch is refused - `build` does that, and says which account.
-START_LIMIT = triggers.MOVE_LINE_5H
+# `build` and `fingerprint` must name the same tools, or a change to one
+# reads as a launch that never drifted to the other.
+#
+# ScheduleWakeup and CronCreate: a self-scheduled wakeup survives the park's
+# /clear and fires into a session at the usage wall, and ocp types the answer
+# into the session when it comes, so nothing an agent schedules is needed.
+DISALLOWED_TOOLS = "Agent,SendMessage,ScheduleWakeup,CronCreate"
 
 
-def find_room(agent: str, limit: int | None = None, limit_7d: int | None = None,
-              room: int = 0) -> str | None:
+def find_room(agent: str, exclude: dict[str, str] | None = None) -> str | None:
     """An account that can take this agent's next session, or None.
 
-    The preferred account when it is under the line, else the best of the
-    others by `pick_account`. `room` is the clear 5h headroom a destination
-    needs below the block, so a move does not land a point under the wall and
-    bounce straight back.
+    The preferred account unless what is known says it is a bad place to start
+    (`status.unfit`), else the best of the others by `pick_account`. `exclude`
+    names accounts to skip and why - the one the agent just left.
     """
     preferred = agents.account_of(agent)
-    line = limit if limit is not None else START_LIMIT
-    line7 = limit_7d if limit_7d is not None else triggers.MOVE_LINE_7D
-    line = min(line, status.PCT_5H_BLOCK - room)
-    # Only a reading that says "full" excludes an account. A missing snapshot
-    # is the account nobody has run on yet, and the session we are about to
-    # start is the only thing that writes one.
-    st = status.read(preferred)
-    pct = st.trusted_pct_5h
-    full = (pct is not None and pct >= line) or \
-           (st.pct_7d is not None and st.pct_7d >= line7)
-    # A stale reading that was at the line is still a floor until its window
-    # rolls over (a quiet account is not a recovered one), but a reading older
-    # than 5h cannot describe the current window.
-    if not full and st.pct_5h is not None and st.pct_5h >= line:
-        now = int(time.time())
-        full = st.reset_5h > now if st.reset_5h else (
-            st.age_s is not None and st.age_s < 5 * 3600)
-    if not full:
+    from . import load as loadmod
+    load = loadmod.read_all()
+    if not (exclude and preferred in exclude) \
+            and status.unfit(status.read(preferred), load.get(preferred)) is None:
         return preferred
     # Logged-in accounts only: `assignable` says nothing about credentials.
-    # bootstrap: a never-run account is a real place to go.
-    # `preferred` is out: it just crossed this line, and bare assignability
-    # would sort it straight back to the top on deadline alone.
+    # bootstrap: a never-run account is a real place to go. `preferred` is out:
+    # it is what was just found unfit.
     candidates = [a for a in paths.list_accounts() if accounts.logged_in(a) and a != preferred]
-    return status.pick_account(candidates, limit_5h=line, limit_7d=line7,
-                               bootstrap=True)[0]
+    return status.pick_account(candidates, bootstrap=True, exclude=exclude, load=load)[0]
 
 
-def choose_account(agent: str, resuming: bool = False, limit: int | None = None,
-                   limit_7d: int | None = None, con=None) -> str:
+def choose_account(agent: str, resuming: bool = False, con=None) -> str:
     """Which account this launch runs on.
 
     agent.yaml names a preference, not a destination: the moment a session is
@@ -90,7 +75,7 @@ def choose_account(agent: str, resuming: bool = False, limit: int | None = None,
         return agents.current_account(agent, con)
     # Nothing with room is not a reason to pick at random: `build` refuses on
     # a current reading at the wall, and names the account and the figure.
-    return find_room(agent, limit, limit_7d) or agents.account_of(agent)
+    return find_room(agent) or agents.account_of(agent)
 
 
 @dataclass
@@ -110,7 +95,7 @@ def wake_wait(agent: str, row, con) -> WakeWait | None:
 
     This is the check daemon.py makes before it types anything into a closed
     agent's terminal. A resume cannot follow an account change, but the
-    pinning rescue can fold and start fresh elsewhere, so a wait is not final. It is factored out here, rather than
+    pinning rescue can start fresh elsewhere, so a wait is not final. It is factored out here, rather than
     inlined at the call site, so the screens that show an agent can ask the
     same question instead of restating the rule and drifting from it.
 
@@ -192,11 +177,13 @@ def build(agent: str, extra: list[str] | None = None, force: bool = False) -> tu
     # nothing could be started after a quarter hour of quiet - the same
     # deadlock as refusing on first boot, just delayed.
     #
-    # Staleness is still fail-closed where it belongs, in status.assignable():
-    # the daemon will not *assign* work on a reading it cannot trust. And an
-    # account that really is full self-corrects in seconds - the status line
-    # refreshes as soon as the session starts, and the daemon's trigger then
-    # hands off on fresh data.
+    # Staleness still gates *assignment*, in status.assignable(): a stale
+    # reading only lets the daemon assign there when no agent of ours is
+    # already mid-turn on it, its window has not rolled over, and it is a
+    # floor clear of the wall by a margin (status.idle_floor) - anything else
+    # still refuses. And an account that really is full self-corrects in
+    # seconds - the status line refreshes as soon as the session starts, and
+    # the daemon's trigger then hands off on fresh data.
     st = status.read(acct)
     if st.exists and st.stale:
         age = "unknown age" if st.age_s is None else f"{int(st.age_s)}s"
@@ -224,11 +211,12 @@ def build(agent: str, extra: list[str] | None = None, force: bool = False) -> tu
     model = cfg.get("model")
     if model:
         argv += ["--model", str(model)]
-    # Work for another agent goes through `ocp ask`. A subagent does it where
-    # nothing can see it: no row on the bridge, gone with the session, spent on
-    # this account. The list is variadic, so an option must follow it - a
-    # prompt there would be read as one more tool name.
-    argv += ["--disallowedTools", "Agent"]
+    # Work for another agent goes through `ocp ask`, where the bridge can see
+    # it. Agent spawns a subagent that dies with the session, unseen; SendMessage
+    # reaches another agent's own session directly, bypassing the bridge the
+    # same way - a manager used exactly that tonight to resume two subordinates
+    # by hand instead of asking them. Both are denied for the same reason.
+    argv += ["--disallowedTools", DISALLOWED_TOOLS]
     # Always pass effort explicitly. Left unset it comes from whatever the
     # environment carries, which is how an agent ends up silently running at a
     # far more expensive level than intended.
@@ -242,7 +230,7 @@ def build(agent: str, extra: list[str] | None = None, force: bool = False) -> tu
 
     # The agent's standing context (team model section 1). base.md is injected
     # every session - that is what its 2KB budget is a budget for - and the
-    # handoff is injected on resume so the agent picks up where it left off.
+    # handoff waiting for it is injected so it picks up where it left off.
     preamble = context_for(agent)
     if preamble:
         argv += ["--append-system-prompt", preamble]
@@ -251,8 +239,11 @@ def build(agent: str, extra: list[str] | None = None, force: bool = False) -> tu
     return argv, accounts.env_for(acct, agent)
 
 
-def context_for(agent: str) -> str:
-    """ROLE.md + base.md + the latest handoff, as one system-prompt appendix."""
+def _static_preamble(agent: str) -> str:
+    """The part of `context_for` that a rebuild reproduces byte for byte:
+    everything except the handoff, which is supposed to differ every time
+    this agent is parked; `fingerprint` hashes only this part.
+    """
     d = paths.agent_dir(agent)
     parts = [f"You are `{agent}`, one agent in an orcapipe team. "
              f"Your name is also in $OCP_AGENT.",
@@ -270,15 +261,26 @@ def context_for(agent: str) -> str:
             text = p.read_text().strip()
             if text:
                 parts.append(f"# Your {label} ({fn})\n{text}")
-    handoff = d / "handoff" / "latest.md"
-    if handoff.exists():
-        text = handoff.read_text().strip()
-        if text:
-            parts.append(
-                "# Where you left off (handoff/latest.md)\n"
-                "You were interrupted and resumed. This is your own record.\n" + text
-            )
     return "\n\n".join(parts)
+
+
+def context_for(agent: str) -> str:
+    """ROLE.md + base.md + the handoff waiting for it, as one system-prompt appendix."""
+    parts = [_static_preamble(agent)]
+    text = _waiting_handoff(agent)
+    if text:
+        parts.append("# Where you left off (your handoff)\n"
+                     "You were interrupted and resumed. This is your own record.\n"
+                     + text.strip())
+    return "\n\n".join(p for p in parts if p)
+
+
+def _waiting_handoff(agent: str) -> str | None:
+    con = db.connect()
+    try:
+        return db.get_handoff(con, agent)
+    finally:
+        con.close()
 
 
 def _your_team(agent: str) -> str:
@@ -295,9 +297,15 @@ def _your_team(agent: str) -> str:
     boss = actions.supervisor_of(t, agent) or actions.HUMAN
     reports = [n for n in paths.list_agents()
                if n != agent and actions.supervisor_of(t, n) == agent]
-    lines = ["# Your team",
-             f"You report to `{boss}`: `ocp ask {boss} \"...\"` when you finish, "
-             f"or are blocked."]
+    report = (f"You report to `{boss}`. A task you were handed ends with `ocp resolve <id> "
+              f"\"<report>\"` (or dismiss) - that is your report, even a deferral: the next "
+              f"task arrives only then, and an answer typed in chat reaches no one.")
+    if boss != actions.HUMAN:
+        # An ask to the human is a row the founder has to clear, so it is named
+        # once, below, for the decisions that are theirs.
+        report += (f" `ocp ask {boss} \"...\"` is for being blocked, a decision only "
+                   f"they can make, or work nobody handed you.")
+    lines = ["# Your team", report]
     if reports:
         lines.append("Your reports: " + ", ".join(f"`{n}`" for n in reports) + ". "
                      "You do not implement - give one work with `ocp ask <name> "
@@ -306,18 +314,84 @@ def _your_team(agent: str) -> str:
                      "or `ocp withdraw <id>`, not a message behind it.")
     lines.append("`ocp team` shows who you may ask and what each is doing now. "
                  "A decision only the founder can make: `ocp ask human`.")
+    # A self-scheduled wakeup survives the park's /clear and fires into a
+    # session that is at the usage wall.
+    lines.append("Never schedule your own wakeup, /loop or poll to wait for a reply "
+                 "or a review: ocp types the answer into your session when it comes.")
     return "\n".join(lines)
 
 
-def exec_agent(agent: str, extra: list[str] | None = None, force: bool = False) -> None:
-    argv, env = build(agent, extra, force)
-    _record_terminal(agent, env.get("OCP_ACCOUNT"))
+def fingerprint(agent: str) -> str:
+    """What `build()` would launch this agent with right now, boiled down to
+    the pieces a running session cannot pick up on its own: the model, the
+    effort level, the disallowed-tools list, and the static preamble (team
+    line, ROLE.md, base.md). Never the account or the handoff - the account
+    is chosen fresh on every real launch regardless of what last time picked,
+    and the handoff is supposed to be different every time this agent is
+    parked, so hashing either would call a session stale for a reason that
+    has nothing to do with what it was launched with.
+
+    Recorded at launch time (`_record_terminal`) and compared by `drifted`
+    before typing a handoff into a session that is still open: the two agree
+    only when nothing `build` would produce has changed since that session
+    started. A row with nothing recorded disagrees too - nothing has confirmed
+    that session against the recipe.
+    """
+    cfg = agents.read(agent)
+    model = str(cfg.get("model") or "")
+    effort = str(cfg.get("effort") or agents.DEFAULT_EFFORT)
+    material = "\x1e".join([model, effort, DISALLOWED_TOOLS, _static_preamble(agent)])
+    return hashlib.sha256(material.encode()).hexdigest()[:16]
+
+
+def drifted(agent: str, row) -> bool:
+    """Was this agent's running session launched with a different recipe than
+    `build()` produces now? See `fingerprint`."""
+    return fingerprint(agent) != row["launch_fingerprint"]
+
+
+def take_prompt(path: str | None) -> str | None:
+    """Read and remove a prompt file the daemon left for this launch.
+
+    Removed as it is read, so a launch that dies before this point leaves a
+    file no later launch will pick up: a prompt belongs to one launch.
+    """
+    if not path:
+        return None
+    p = Path(path)
+    try:
+        text = p.read_text()
+        p.unlink()
+    except OSError:
+        return None
+    return text or None
+
+
+def exec_agent(agent: str, extra: list[str] | None = None, force: bool = False,
+               prompt_file: str | None = None) -> None:
+    prompt = take_prompt(prompt_file)
+    argv, env = build(agent, list(extra or []), force)
+    if prompt:
+        argv.append(prompt)
+    if not prompt_file:
+        # A launch nobody is waiting on consumed the handoff `build` put in the
+        # system prompt, so a record still on the row means one nobody was
+        # handed. The daemon's own wake passes a prompt file and clears the row
+        # itself once the session has started, because a launch that dies must
+        # leave it for the fallback launch.
+        con = db.connect()
+        try:
+            db.set_handoff(con, agent, None)
+        finally:
+            con.close()
+    _record_terminal(agent, env.get("OCP_ACCOUNT"), fingerprint(agent))
     sys.stdout.flush()
     os.execve(argv[0], argv, env)
 
 
-def _record_terminal(agent: str, acct: str | None = None) -> None:
-    """Remember where we are about to become the agent: the terminal, and the account.
+def _record_terminal(agent: str, acct: str | None = None, fp: str | None = None) -> None:
+    """Remember where we are about to become the agent: the terminal, the
+    account, and what `build()` produced this launch with.
 
     Orca puts the handle in the environment of every terminal it launches, and
     this is the only moment we can see it - after execve we are the agent. The
@@ -326,6 +400,9 @@ def _record_terminal(agent: str, acct: str | None = None) -> None:
     The account comes from the environment we are about to exec with, not from
     agent.yaml: those are the same value only when the preferred account had
     room, and the whole point of recording it is that the two can differ.
+
+    `fp` is the fingerprint `exec_agent` computed just before this ran; see
+    `fingerprint`.
     """
     # Late, because `spawn` imports this module: the launcher is the bottom of
     # the stack and the starters sit on top of it.
@@ -344,12 +421,38 @@ def _record_terminal(agent: str, acct: str | None = None) -> None:
                 # joins the team's Run here, so Orca draws it under whoever it
                 # reports to instead of as one more tab.
                 spawn.register_worker(con, agent, handle)
+                db.set_launch_fingerprint(con, agent, fp)
             if acct:
+                # Every path that starts a session passes through here, so
+                # this is the one place a landing account differing from the
+                # last one is ever seen - and the one place to carry what
+                # that last session had learned along with it, before
+                # `set_account` overwrites the record. Read the row directly
+                # rather than through `current_account`: an agent that has
+                # never run has no account to migrate anything from, and its
+                # preference is not one just because nothing else is on
+                # record.
+                prev_row = db.get_agent_state(con, agent)
+                previous = prev_row["account"] if prev_row else None
+                if previous and previous != acct:
+                    repo = agents.repo_of(agent)
+                    project = accounts.memory_project_dir(repo) if repo else None
+                    try:
+                        carried = accounts.migrate_memory(previous, acct, project=project)
+                        db.add_event(con, agent, "memory_migrated",
+                                     {"from": previous, "to": acct, "carried": carried})
+                    except Exception as e:  # noqa: BLE001 - record it, keep launching
+                        db.add_event(con, agent, "memory_migrated",
+                                     {"from": previous, "to": acct,
+                                      "error": f"{type(e).__name__}: {e}"})
                 db.set_account(con, agent, acct)
         finally:
             con.close()
-    except Exception:  # noqa: BLE001 - never block a launch on bookkeeping
-        pass
+    except Exception as e:  # noqa: BLE001 - never block a launch on bookkeeping
+        # Not silent: with no fingerprint on record the daemon relaunches this
+        # session at every wake, and nothing else would say why.
+        print(f"ocp launch: could not record this launch for {agent}: {e}",
+              file=sys.stderr)
 
 
 def command_for(agent: str) -> str:

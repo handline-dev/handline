@@ -24,8 +24,8 @@ import time
 from pathlib import Path
 
 from . import (accounts, agents, ask as askmod, daemon, db, events as evmod,
-               fold as foldmod, hr, observe as obs, orca, paths, spawn as spawnmod,
-               status, team, triggers, waiting)
+               fold as foldmod, hr, load as loadmod, observe as obs, orca, paths,
+               spawn as spawnmod, status, team, triggers, waiting)
 
 # The name a human's own requests are sent under, and the inbox `ocp bridge`
 # shows. Taken from `ask`, which is where escalations are addressed: a second
@@ -58,7 +58,7 @@ def unstall(con, agent: str) -> str:
 
 
 def park(con, agent: str) -> str:
-    """Fold, clear the context, and park until the window rolls over.
+    """Record a handoff, clear the context, and park until the window rolls over.
 
     `perform_handoff` returns True for three things that are not a handoff -
     merged into one already in flight, too soon after the last, and deferred
@@ -187,18 +187,24 @@ def answer(con, rid: int, verdict: str) -> str:
     return msg
 
 
-def dismiss(con, rid: int) -> str:
+def dismiss(con, rid: int, me: str | None = None) -> str:
     """Take one row off the mailbox without replying to it.
 
-    An answer to the human's own ask is already resolved - the agent wrote the
-    verdict when it finished. Resolving it again would stamp "read" over what
-    it said, so it is marked told instead, which is the same thing the daemon
-    does when it reads an answer out to an agent.
+    A row that has already left 'queued' carries somebody's real verdict.
+    Read by whoever asked for it (`me`, when known), it is marked told - the
+    same thing the daemon does when it reads an answer out to an agent - and
+    that marking is idempotent, so dismissing the same row twice is as
+    harmless as once. Read instead by the one who *wrote* that verdict (the
+    target dismissing its own answered request), there is nothing left to
+    do: stamping it told would announce it on the real requester's behalf,
+    and the requester would never actually be told.
     """
     row = db.get_request(con, rid)
     if row is None:
         return f"#{rid} is gone"
-    if _is_answer_to_human(row):
+    if row["state"] != "queued":
+        if me is not None and me == row["target"]:
+            return f"#{rid} was already answered - nothing more for you to do"
         db.mark_announced(con, [rid])
         return f"#{rid} marked read"
     if row["response"] != "async":
@@ -213,6 +219,39 @@ def dismiss(con, rid: int) -> str:
     # so it is told - and what it is told says it was read, not answered.
     ok, msg = askmod.resolve(rid, "read - no reply", state="done")
     return msg
+
+
+def waiting_ids(con, agent: str) -> list[int]:
+    """The requests in an agent's WAITING FOR IT list, in the order it is drawn."""
+    return [int(r["id"]) for r in db.queued_for(con, agent)]
+
+
+def cancel_plan(con, rid: int) -> tuple[bool, str]:
+    """What cancelling this request would do, and who is told: the sentence a
+    confirm shows before anything is closed."""
+    row = db.get_request(con, rid)
+    if row is None:
+        return False, f"#{rid} is gone"
+    if row["state"] != "queued":
+        return False, f"#{rid} is already {row['state']}"
+    target, requester = row["target"], row["requester"]
+    if requester == HUMAN and not row["delivered_at"]:
+        return True, f"withdraw #{rid} to {target}: not delivered yet, so nobody is told"
+    behind = [q for q in db.queued_for(con, target) if q["id"] != rid]
+    told = ([f"{target} is told to stop"] if row["delivered_at"] else []) + [
+        "you are not told" if requester == HUMAN
+        else f"{requester} is told '{askmod.CANCEL_VERDICT}'"]
+    return True, (f"cancel #{rid} ({'delivered to' if row['delivered_at'] else 'queued for'} "
+                  f"{target}): closed as rejected, '{askmod.CANCEL_VERDICT}'; "
+                  + ", ".join(told)
+                  + (f"; #{behind[0]['id']} delivers next" if row["delivered_at"] and behind
+                     else ""))
+
+
+def cancel(con, rid: int) -> str:
+    """Take a request out of an agent's queue as the founder. See `ask.cancel`."""
+    ok, msg = askmod.cancel(rid)
+    return msg if ok else f"not cancelled - {msg}"
 
 
 def _is_answer_to_human(row) -> bool:
@@ -513,6 +552,9 @@ def _delivery_block(con, agent: str, sessions: dict | None,
         return f"{agent} is mid-turn - nothing is typed at a working agent", True
     if row["state"] == daemon.HANDOFF:
         return f"{agent} is mid-handoff", True
+    walled = daemon.wall_reason(con, agent, row)
+    if walled:
+        return f"{walled} - delivered when it wakes or moves", True
     return "", True
 
 
@@ -577,14 +619,35 @@ def stuck(con) -> list[dict]:
     for h in db.in_flight_handoffs(con):
         left = (h["deadline"] or now) - now
         add(f"handoff {h['agent']} at '{h['step']}'", 0,
-            f"deadline in {left}s" if left > 0 else "past its deadline", h["agent"])
+            f"deadline in {status.ago(left)}" if left > 0 else "past its deadline",
+            h["agent"])
 
     queued = con.execute(
         "SELECT id, requester, target, ts FROM requests WHERE state = 'queued' "
         "AND target != ? ORDER BY ts", (HUMAN,),
     ).fetchall()
     sessions, handles = _world() if queued else (None, None)
+    # An agent that has been asked to resolve its head request and has not: one
+    # row for it says which request and what waits behind it, where the rows
+    # below would each say that a request "was told and has not answered" - true
+    # of the head, and false of everything queued behind it, which is waiting
+    # for the head and not for anyone's attention.
+    forgotten: dict[str, dict] = {}
+    for st_row in db.all_agent_states(con):
+        who = st_row["agent"]
+        found = daemon.forgotten_resolve(con, who, st_row, now)
+        if found and found["idle_s"] >= daemon.FORGOTTEN_STUCK_S \
+                and db.get_cursor(con, f"nudge:{who}") == int(found["head"]["id"]) \
+                and (sessions is None or sessions.get(who)):
+            forgotten[who] = found
+            ids = [f"#{q['id']}" for q in db.queued_for(con, who)[1:4]]
+            behind = (f"; {found['behind']} waiting behind it ({', '.join(ids)}"
+                      f"{', ...' if found['behind'] > len(ids) else ''})") if found["behind"] else ""
+            add(f"{who} idle on #{found['head']['id']}", found["idle_s"],
+                f"delivered, nudged, still open and it asked nothing{behind}", who)
     for r in queued:
+        if r["target"] in forgotten:
+            continue
         age, what = now - int(r["ts"]), f"#{r['id']} {r['requester']} → {r['target']}"
         why, self_clearing = _delivery_block(con, r["target"], sessions, handles, alive)
         if not why:
@@ -620,8 +683,10 @@ def stuck(con) -> list[dict]:
         if row["state"] in (daemon.STALLED, daemon.DEGRADED):
             add(f"{row['agent']} is {row['state']}", now - int(row["updated"]),
                 row["detail"] or "", row["agent"])
+    loads = loadmod.read_all(con)
     for acct in paths.list_accounts():
-        allowed, why = status.read(acct).assignable()
+        ld = loads.get(acct)
+        allowed, why = status.read(acct).assignable(ld.active if ld else 0)
         if not allowed:
             add(f"account {acct} takes no work", 0, why)
     return out
@@ -738,6 +803,12 @@ def login_argv(acct: str, force: bool = False) -> tuple[str, list[str], dict]:
             ["claude", "/login"], accounts.env_for(acct))
 
 
+def move(con, agent: str, account: str) -> str:
+    """Force this agent's live session onto `account`, recording its handoff first."""
+    ok, msg = daemon.force_move(con, agent, account, "human (bridge)", lambda _m: None)
+    return msg
+
+
 def can(con, agent: str, key: str) -> tuple[bool, str]:
     """Whether an action is worth offering for this agent, and why not.
 
@@ -757,7 +828,7 @@ def can(con, agent: str, key: str) -> tuple[bool, str]:
     # The states nothing may be done to from here. RUNNING and HANDOFF are
     # mid-something, and STALLED is the one state the daemon deliberately does
     # not touch - handing a stalled agent off would clear the stall a human was
-    # meant to read, and pay for a fold doing it.
+    # meant to read.
     busy = state in (daemon.RUNNING, daemon.HANDOFF, daemon.STALLED)
     busy_why = f"{agent} is {state}" + (" - only a human clears that (u)"
                                         if state == daemon.STALLED else "")
@@ -796,6 +867,13 @@ def can(con, agent: str, key: str) -> tuple[bool, str]:
         # terminal. An agent whose terminal is gone is one of the likelier ones
         # to want folded.
         return (False, busy_why) if busy else (True, "")
+    if key == "move":
+        if closed or not row["terminal"]:
+            return False, (f"{agent} has no live session to move - it starts on its "
+                           f"preferred account")
+        if state in (daemon.HANDOFF, daemon.STALLED):
+            return False, f"{agent} is {state}"
+        return True, ""
     if key == "start":
         if row["terminal"]:
             return False, (f"{agent} already has a terminal ({row['terminal']}) - "
@@ -859,10 +937,10 @@ def agent_detail(con, agent: str) -> list[tuple[str, list[str]]]:
             f"#{r['id']} from {r['target']}: "
             f"{((r['verdict'] or '').splitlines() or [r['state']])[0]}" for r in mine]))
 
-    hp = foldmod.handoff_path(agent)
+    kept = db.get_handoff(con, agent)
     sections.append(("WHAT IT KNOWS",
-                     hp.read_text().splitlines() if hp.exists()
-                     else ["no handoff written - it has not been parked"]))
+                     kept.splitlines() if kept
+                     else ["no handoff waiting - it has not been parked"]))
 
     recent = [f"{time.strftime('%H:%M:%S', time.localtime(e['ts']))}  "
               f"{e['kind']:<18}{(e['payload'] or '')[:60]}"
@@ -873,14 +951,24 @@ def agent_detail(con, agent: str) -> list[tuple[str, list[str]]]:
     return sections
 
 
-def account_detail(con, acct: str) -> list[tuple[str, list[str]]]:
-    """What is behind an account's row, in the same shape as an agent's."""
+def account_detail(con, acct: str, logged_in=None) -> list[tuple[str, list[str]]]:
+    """What is behind an account's row, in the same shape as an agent's.
+
+    `logged_in` is the caller's login check: the bridge redraws this page every
+    couple of seconds and passes its cached one, since the real one asks the
+    keychain.
+    """
+    logged_in = logged_in or accounts.logged_in
     st = status.read(acct)
-    allowed, why = st.assignable()
-    head = [f"login    {'logged in' if accounts.logged_in(acct) else 'NOT logged in'}",
+    loads = loadmod.read_all(con)
+    _, ranked = status.pick_account([a for a in paths.list_accounts() if logged_in(a)],
+                                    load=loads)
+    is_in = logged_in(acct)
+    allowed, why = status.account_verdict(acct, st, loads.get(acct), ranked, is_in)
+    head = [f"login    {'logged in' if is_in else 'NOT logged in'}",
             f"config   {paths.account_claude(acct)}",
             f"5h       {st.trusted_pct_5h}% ({st.pct_5h_source})   7d {st.pct_7d}%",
-            f"snapshot {'-' if st.age_s is None else str(int(st.age_s)) + 's old'}"
+            f"snapshot {'-' if st.age_s is None else status.ago(st.age_s) + ' old'}"
             f"   session {st.session_id or '-'}",
             f"assign   {'yes' if allowed else 'no'} - {why}"]
     live = status.live_cost(acct)

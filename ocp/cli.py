@@ -20,7 +20,8 @@ from pathlib import Path
 from . import (accounts, actions, agents, ask as askmod, daemon as daemonmod, db,
                tui,
                digest, doctor,
-               drift, events, fold as foldmod, guide, hooks, launch, paths, service,
+               drift, events, fold as foldmod, guide, handoff as handoffmod, hooks, launch,
+               load, observe as obs, paths, probe as probemod, service,
                hr, orca, status, spawn as spawnmod, team, triggers, waiting)
 
 
@@ -146,16 +147,37 @@ def cmd_account_remove(args) -> int:
     return 0 if ok else 1
 
 
+def cmd_account_cap(args) -> int:
+    if args.n is None:
+        print(f"{args.name}: at most {load.cap_of(args.name)} agents mid-turn at once")
+        return 0
+    try:
+        load.set_cap(args.name, args.n)
+    except ValueError as e:
+        print(e, file=sys.stderr)
+        return 1
+    print(f"{args.name}: at most {args.n} agents mid-turn at once")
+    return 0
+
+
+def _can_start(st, ld) -> tuple[bool, str]:
+    """takes_work, and what the pick adds to it: a slot and a stretch worth starting."""
+    ok, why = st.takes_work(ld.active if ld else 0)
+    bad = status.unfit(st, ld) if ok else None
+    return (False, bad) if bad else (ok, why)
+
+
 def cmd_account_list(args) -> int:
     names = paths.list_accounts()
     if not names:
         print("no accounts registered.")
         return 0
+    loads = load.read_all()
     if args.json:
         out = []
         for a in names:
             st = status.read(a)
-            allowed, why = st.takes_work()
+            allowed, why = _can_start(st, loads.get(a))
             out.append({
                 "account": a, "logged_in": accounts.logged_in(a),
                 "pct_5h": st.pct_5h, "pct_5h_effective": st.trusted_pct_5h,
@@ -168,24 +190,69 @@ def cmd_account_list(args) -> int:
         return 0
 
     print(f"{'ACCOUNT':<14}{'LOGIN':<8}{'PLAN':<6}{'5h':>5}{'7d':>5}  {'7d resets':<12}"
-          f"{'ctx':>6}{'AGE':>8}  ASSIGN")
+          f"{'ctx':>6}{'AGE':>8}  {'RUNWAY (est.)':<16}ASSIGN")
     for a in names:
         st = status.read(a)
-        allowed, why = st.takes_work()
+        allowed, why = _can_start(st, loads.get(a))
         cell = lambda v: "  -" if v is None else f"{v:>3}"  # noqa: E731
-        age = "-" if st.age_s is None else f"{int(st.age_s)}s"
+        age = status.ago(st.age_s)
         resets = "-" if not st.reset_7d else time.strftime("%m-%d %H:%M", time.localtime(st.reset_7d))
         plan = accounts.subscription_type(a) or "-"
         # A figure we inferred is marked, never dressed up as one we read.
-        five = f"{cell(st.trusted_pct_5h)}{status.mark(st.pct_5h_source)}"
+        shown, src = st.shown_pct_5h()
+        five = f"{cell(shown)}{src}"
         print(f"{a:<14}{'yes' if accounts.logged_in(a) else 'no':<8}{plan:<6}"
               f"{five:>5}{cell(st.pct_7d):>5}  {resets:<12}{cell(st.ctx_pct):>6}{age:>8}  "
+              f"{status.describe_runway(status.runway(st, status.read_burn(a))):<16}"
               f"{'yes' if allowed else 'NO':<4} {why}")
+    outlook = status.team_outlook()
+    if outlook:
+        print("  " + outlook)
     print("  " + status.SOURCE_LEGEND)
     return 0
 
 
+def cmd_account_probe(args) -> int:
+    """`ocp account probe <acct>` - the manual form of what the daemon does
+    when an account's window has passed and nothing has run on it since."""
+    if args.account not in paths.list_accounts():
+        print(f"no such account: {args.account}")
+        return 1
+    print(f"probing {args.account} (one small turn, up to {probemod.PROBE_TIMEOUT_S}s)...")
+    st = probemod.run(args.account)
+    ld = load.read_all().get(args.account)
+    allowed, why = st.takes_work(ld.active if ld else 0)
+    age = status.ago(st.age_s)
+    print(f"{args.account}: 5h {st.trusted_pct_5h}% ({st.pct_5h_source}), "
+          f"7d {st.trusted_pct_7d}%, reading {age} old")
+    print(f"takes work: {'yes' if allowed else 'NO'} - {why}")
+    return 0
+
+
 # ---------------------------------------------------------------- agent
+def cmd_agent_move(args) -> int:
+    """Move an agent's live session to another account now (a human's call)."""
+    if os.environ.get("OCP_AGENT"):
+        print("a forced move ends a session: it is the founder's, from a terminal or "
+              "the bridge, not an agent's", file=sys.stderr)
+        return 1
+    if not args.yes:
+        if not sys.stdin.isatty():
+            print("refusing without a terminal to confirm in - pass --yes", file=sys.stderr)
+            return 1
+        if input(f"move {args.agent} to '{args.account}'? this records its handoff, ends its session, and makes "
+                 f"'{args.account}' its preferred account (y/N): ").strip().lower() != "y":
+            print("not moved")
+            return 1
+    con = db.connect()
+    try:
+        ok, msg = daemonmod.force_move(con, args.agent, args.account, "human (cli)", print)
+    finally:
+        con.close()
+    print(msg, file=None if ok else sys.stderr)
+    return 0 if ok else 1
+
+
 def cmd_agent_register(args) -> int:
     if args.account not in paths.list_accounts():
         print(f"warning: account '{args.account}' is not registered yet. "
@@ -242,11 +309,16 @@ def cmd_base_promote(args) -> int:
 
 
 def cmd_handoff_write(args) -> int:
-    """Write a handoff now, without waiting for a trigger."""
-    ok, msg = foldmod.fold(args.agent, use_model=not args.no_model)
-    print(msg)
-    print(f"handoff: {foldmod.handoff_path(args.agent)}")
-    return 0 if ok else 1
+    """Record a handoff now, without waiting for a trigger."""
+    con = db.connect()
+    try:
+        missing = handoffmod.record(con, args.agent)
+        print(db.get_handoff(con, args.agent))
+    finally:
+        con.close()
+    if missing:
+        print(f"could not read: {', '.join(missing)}")
+    return 1 if missing else 0
 
 
 def cmd_close(args) -> int:
@@ -279,13 +351,15 @@ def cmd_agent_list(args) -> int:
     if not names:
         print("no agents registered.")
         return 0
+    loads = load.read_all()
     for n in names:
         try:
             acct = agents.account_of(n)
         except Exception as e:  # noqa: BLE001
             print(f"{n:<14} <error: {e}>")
             continue
-        allowed, _ = status.read(acct).takes_work()
+        ld = loads.get(acct)
+        allowed, _ = status.read(acct).takes_work(ld.active if ld else 0)
         cfg = agents.read(n)
         budget = " ".join(f"{fn}:{size}B{'!' if over else ''}"
                           for fn, size, _, over in agents.budget_report(n))
@@ -297,7 +371,8 @@ def cmd_agent_list(args) -> int:
 
 # ---------------------------------------------------------------- launch
 def cmd_launch(args) -> int:
-    launch.exec_agent(args.agent, args.extra, force=args.force)
+    launch.exec_agent(args.agent, args.extra, force=args.force,
+                      prompt_file=args.prompt_file)
     return 0  # unreachable when execve succeeds
 
 
@@ -379,8 +454,8 @@ def cmd_guide(args) -> int:
 
 # ---------------------------------------------------------------- daemon
 def cmd_daemon(args) -> int:
-    return daemonmod.run(once=args.once, use_model=not args.no_model,
-                         verbose=not args.quiet, max_ticks=args.max_ticks)
+    return daemonmod.run(once=args.once, verbose=not args.quiet,
+                         max_ticks=args.max_ticks)
 
 
 def _print_waits() -> None:
@@ -423,11 +498,18 @@ def cmd_daemon_status(args) -> int:
             sw = len(tui.WAITING_ON_YOU) + 1 if any(waits.values()) else 11
             print(f"\n{'AGENT':<{w}}{'STATE':<{sw}}{'WAKE':<8}{'fail':>5}{'cont':>6}{'thr':>5}  DETAIL")
             now = int(time.time())
+            sessions = obs.live_sessions()
             for r in rows:
                 wake = "-" if not r["wake_at"] else time.strftime("%H:%M", time.localtime(r["wake_at"]))
                 if r["wake_at"] and r["wake_at"] <= now:
                     wake += "!"
-                shown = r["state"] + ("·closed" if r["closed_at"] else "")
+                # A running session with a stale launch is not closed, so it
+                # needs its own mark; see `launch.fingerprint`.
+                drifted = bool(
+                    not r["closed_at"] and sessions and sessions.get(r["agent"])
+                    and launch.drifted(r["agent"], r))
+                shown = r["state"] + ("·closed" if r["closed_at"] else "") \
+                    + ("·drift" if drifted else "")
                 detail = r["detail"] or ""
                 held = waits[r["agent"]]
                 if held:
@@ -540,7 +622,8 @@ def cmd_triggers(args) -> int:
             cell = lambda v: "  -" if v is None else f"{v:>3}"  # noqa: E731
             # The figure the trigger used, not the raw one: a column saying "-"
             # beside a reason saying "0%" is the dashboard arguing with the daemon.
-            five = f"{cell(st.trusted_pct_5h)}{status.mark(st.pct_5h_source)}"
+            shown, src = st.shown_pct_5h()
+            five = f"{cell(shown)}{src}"
             row = db.get_agent_state(con, a)
             if daemonmod.triggers_apply(row):
                 fires, reason = "YES" if t.fired else "no ", t.reason
@@ -590,11 +673,15 @@ def cmd_digest(args) -> int:
 
 
 def cmd_handoff(args) -> int:
-    p = foldmod.handoff_path(args.agent)
-    if not p.exists():
-        print(f"no handoff at {p}")
+    con = db.connect()
+    try:
+        text = db.get_handoff(con, args.agent)
+    finally:
+        con.close()
+    if not text:
+        print(f"no handoff waiting for {args.agent}")
         return 1
-    print(p.read_text())
+    print(text)
     return 0
 
 
@@ -926,19 +1013,88 @@ def cmd_withdraw(args) -> int:
     return 0 if ok else 1
 
 
+def cmd_cancel(args) -> int:
+    """Take a request out of an agent's queue, as the founder.
+
+    Human only: an agent that could cancel a request could close the work
+    someone else handed it. Says what will happen and who will be told, and
+    asks, because it cannot be reopened - the row is closed, never deleted.
+    """
+    if askmod.asking_agent() != askmod.HUMAN:
+        print("cancel is the founder's: an agent takes back its own request with "
+              "`ocp withdraw`, and answers one it was handed with `ocp resolve`.")
+        return 1
+    con = db.connect()
+    try:
+        ok, plan = actions.cancel_plan(con, args.id)
+        if not ok:
+            print(f"not cancelled - {plan}")
+            return 1
+        if not args.yes:
+            print(plan)
+            if not sys.stdin.isatty():
+                print("refusing without a terminal to confirm in - pass --yes", file=sys.stderr)
+                return 1
+            if input("go ahead? [y/N] ").strip().lower() not in ("y", "yes"):
+                print("left alone")
+                return 1
+        print(actions.cancel(con, args.id))
+    finally:
+        con.close()
+    return 0
+
+
+# A blocking wait polls; these are how often, and for how long by default. Ten
+# minutes is a while to hold a terminal, and an answer that has not come in ten
+# is usually one to go and look at.
+WAIT_POLL_S = 3
+WAIT_DEFAULT_S = 600
+
+
+def _wait_for(check, timeout: int, what: str) -> bool:
+    """Block until `check(con)` is true, or the timeout runs out. True if it came.
+
+    Polling, not a notification: what this waits on is another process writing
+    a row, and sqlite has nowhere to hang a listener. One connection serves the
+    whole wait - `db.connect` runs the schema and its migrations on every call.
+    """
+    deadline = time.time() + timeout
+    con = db.connect()
+    try:
+        while True:
+            if check(con):
+                return True
+            if time.time() >= deadline:
+                print(f"nothing after {timeout}s: {what}", file=sys.stderr)
+                return False
+            time.sleep(WAIT_POLL_S)
+    finally:
+        con.close()
+
+
 def cmd_inbox(args) -> int:
     agent = args.agent or askmod.asking_agent()
     if not agent:
         print("cannot tell whose inbox this is: OCP_AGENT is unset and this is not "
               "an interactive shell. Name the agent.")
         return 1
+    if args.wait:
+        con = db.connect()
+        try:
+            seen = _waiting_ids(con, agent)
+        finally:
+            con.close()
+        if not _wait_for(lambda c: _waiting_ids(c, agent) - seen, args.timeout,
+                         f"nothing new for {agent}"):
+            return 0  # nothing new is an outcome, not a failure
+
     if agent == actions.HUMAN:
         # The human's mailbox is a place you read *and answer* things, and that
         # is the screen: two places to do it is two places to keep in step, and
         # the one you are not looking at is the one holding the escalation. A
         # pipe still gets text - a script asking for the list is not a human
         # asking for somewhere to sit.
-        if sys.stdout.isatty() and not args.all:
+        if sys.stdout.isatty() and not args.all and not args.wait:
             return tui.run()
         return _human_inbox(args.all)
     if args.all:
@@ -1056,10 +1212,36 @@ def cmd_dismiss(args) -> int:
             print(f"#{args.id} is {row['requester']} → {row['target']}, not yours to "
                   f"dismiss. `ocp read {args.id}` shows it.")
             return 1
-        print(actions.dismiss(con, args.id))
+        print(actions.dismiss(con, args.id, me=me))
         return 0
     finally:
         con.close()
+
+
+# Every state in which no verdict is coming: the three that never reached the
+# target, plus the two that settled one. A wait that does not know them waits
+# out its whole timeout for an answer nobody is going to write.
+SETTLED = ("done", "rejected", *db.NEVER_REACHED_TARGET)
+
+
+def _waiting_ids(con, agent: str) -> set:
+    """The request ids currently on this agent's list, human or not."""
+    if agent == actions.HUMAN:
+        return {m["id"] for m in actions.messages(con)}
+    return {r["id"] for r in askmod.inbox(agent, unread_only=False)
+            if r["state"] not in SETTLED}
+
+
+def _answered(con, request_id: int) -> bool:
+    """Is there anything more to wait for on this row?
+
+    A row that does not exist is answered in the only sense that matters here:
+    waiting ten minutes for a typo'd id helps nobody, and the caller says so.
+    Delivery is not an answer - it is a column, not a state, and it only means
+    the target was told the row exists.
+    """
+    row = db.get_request(con, request_id)
+    return row is None or bool(row["verdict"]) or row["state"] in SETTLED
 
 
 def cmd_read(args) -> int:
@@ -1073,6 +1255,10 @@ def cmd_read(args) -> int:
     of `ocp inbox`, `ocp digest` and `ocp handoff` - this makes it convenient
     rather than new. Nothing typed into a request is private to two agents.
     """
+    if args.wait and not _wait_for(
+            lambda c: _answered(c, args.id), args.timeout,
+            f"#{args.id} has no answer yet"):
+        return 1
     con = db.connect()
     try:
         row = db.get_request(con, args.id)
@@ -1126,6 +1312,14 @@ def cmd_resolve(args) -> int:
             print(f"#{args.id} is {row['requester']} → {row['target']}, not yours to "
                   f"answer. `ocp read {args.id}` shows it.")
             return 1
+        if row["state"] != "queued":
+            # Closed already - answered, or cancelled by the founder while this
+            # was being worked on. A second verdict would overwrite the first
+            # and be sent to the requester as though it were the answer.
+            print(f"#{args.id} is already {row['state']}"
+                  + (f" ({row['verdict'].splitlines()[0][:120]})" if row["verdict"] else "")
+                  + " - nothing to resolve.")
+            return 1
     finally:
         con.close()
     ok, msg = askmod.resolve(args.id, args.verdict, state=args.state)
@@ -1163,11 +1357,23 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("name")
     p.add_argument("--force", action="store_true", help="replace existing files with links")
     p.set_defaults(fn=cmd_account_register)
+    p = acc.add_parser("cap", help="show or set the most agents mid-turn on an account")
+    p.add_argument("name")
+    p.add_argument("n", type=int, nargs="?", default=None)
+    p.set_defaults(fn=cmd_account_cap)
     p = acc.add_parser("list", help="accounts with usage")
     p.add_argument("--json", action="store_true")
     p.set_defaults(fn=cmd_account_list)
+    p = acc.add_parser("probe", help="spend one small turn to learn where an account stands")
+    p.add_argument("account")
+    p.set_defaults(fn=cmd_account_probe)
 
     ag = sub.add_parser("agent", help="agents").add_subparsers(dest="sub", required=True)
+    p = ag.add_parser("move", help="move a live session to another account now")
+    p.add_argument("agent")
+    p.add_argument("account")
+    p.add_argument("--yes", action="store_true", help="skip the confirmation")
+    p.set_defaults(fn=cmd_agent_move)
     p = ag.add_parser("register", help="register an agent with its fixed account")
     p.add_argument("name")
     p.add_argument("--account", required=True)
@@ -1190,6 +1396,8 @@ def build_parser() -> argparse.ArgumentParser:
     p = sub.add_parser("launch", help="exec claude as this agent's account")
     p.add_argument("agent")
     p.add_argument("--force", action="store_true", help="start even when over the usage limit")
+    p.add_argument("--prompt-file", help="a file holding the session's first prompt; "
+                   "read and deleted at launch")
     p.add_argument("extra", nargs="*", help="passed through to claude")
     p.set_defaults(fn=cmd_launch)
 
@@ -1283,13 +1491,24 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--of", default=None, help="requester (defaults to $OCP_AGENT)")
     p.set_defaults(fn=cmd_withdraw)
 
+    p = sub.add_parser("cancel", help="the founder takes a request out of an agent's queue")
+    p.add_argument("id", type=int)
+    p.add_argument("--yes", action="store_true", help="do not ask to confirm")
+    p.set_defaults(fn=cmd_cancel)
+
     p = sub.add_parser("inbox", help="the one request currently waiting for an agent")
     p.add_argument("agent", nargs="?")
     p.add_argument("--all", action="store_true", help="the whole queue and its history")
+    p.add_argument("--wait", action="store_true", help="block until something new arrives, then print it")
+    p.add_argument("--timeout", type=int, default=WAIT_DEFAULT_S, metavar="SECONDS",
+                   help=f"how long --wait waits before giving up (default {WAIT_DEFAULT_S}s)")
     p.set_defaults(fn=cmd_inbox)
 
     p = sub.add_parser("read", help="print one request whole, with its answer")
     p.add_argument("id", type=int)
+    p.add_argument("--wait", action="store_true", help="block until it has been answered, then print it")
+    p.add_argument("--timeout", type=int, default=WAIT_DEFAULT_S, metavar="SECONDS",
+                   help=f"how long --wait waits before giving up (default {WAIT_DEFAULT_S}s)")
     p.set_defaults(fn=cmd_read)
 
     p = sub.add_parser("resolve", help="close a request with a verdict")
@@ -1319,7 +1538,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--date", default=None)
     p.set_defaults(fn=cmd_digest)
 
-    p = sub.add_parser("handoff", help="print an agent's handoff")
+    p = sub.add_parser("handoff", help="print the handoff waiting for an agent")
     p.add_argument("agent")
     p.set_defaults(fn=cmd_handoff)
 
@@ -1341,7 +1560,6 @@ def build_parser() -> argparse.ArgumentParser:
     p = sub.add_parser("daemon", help="run the supervisor loop")
     p.add_argument("--once", action="store_true", help="one tick, then exit")
     p.add_argument("--max-ticks", type=int, default=None)
-    p.add_argument("--no-model", action="store_true", help="never spend tokens on folds")
     p.add_argument("--quiet", action="store_true")
     p.add_argument("--foreground", action="store_true",
                    help="accepted for symmetry; the daemon always runs in the foreground")
@@ -1398,9 +1616,8 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--force", action="store_true", help="accept going over budget")
     p.set_defaults(fn=cmd_base_promote)
 
-    p = sub.add_parser("write-handoff", help="fold and write a handoff now")
+    p = sub.add_parser("write-handoff", help="record a handoff now")
     p.add_argument("agent")
-    p.add_argument("--no-model", action="store_true")
     p.set_defaults(fn=cmd_handoff_write)
 
     p = sub.add_parser("close", help="end an idle agent's session, keeping its terminal")

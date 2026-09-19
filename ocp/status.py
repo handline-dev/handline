@@ -18,11 +18,21 @@ opposite right answers. This module names five cases instead of two:
     carried      an earlier reading, still inside its window and recent enough
     carried_old  the same, but observed longer ago than we will assign on
     quiet        a live collector, and nobody has spent in this window -> 0%
-    unknown      no snapshot, unreadable, too old, or a reading we lost
+    unknown      no snapshot, unreadable, a reading we lost, or too old to trust
 
 `quiet` and `unknown` are the pair that matters: treating quiet as unknown
-parks idle agents, which costs a fold each and buys nothing, while treating
+parks idle agents, which buys nothing, while treating
 unknown as quiet hands out work on an account that may be at the wall.
+
+A snapshot too old to trust as a live figure is not automatically unknown,
+though: while its window has not rolled over, the last reading is a floor -
+a lower bound on usage, never an upper one (`idle_floor`). There is an
+unbounded invisible spender even on an idle account - a human running
+`claude -p` by hand, or anything else no collector sees - so the floor is
+judged against a line clear of the wall, not the wall itself, to cover spend
+we cannot see. Once the window rolls over the floor stops holding at all,
+because what happened since is unaccounted for; only a probe answers for it
+then.
 
 A carried figure is a floor, not a measurement: usage inside a window only
 rises, so the true number is at least that. The same is true, unmarked, of a
@@ -44,6 +54,7 @@ from __future__ import annotations
 
 import json
 import math
+import os
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -66,37 +77,56 @@ CARRY_MAX_AGE_S = STALE_AFTER_S
 # How a figure's provenance is drawn, in one place: four screens used to spell
 # this out separately, and one of them was left behind.
 SOURCE_MARK = {"live": " ", "carried": "~", "carried_old": "!", "quiet": "*", "unknown": " "}
+# Not one of the five cases: a figure nothing may act on as a measurement, but
+# the last thing anyone saw on an account that has since gone quiet. A column
+# drawn empty there says "we know nothing", and 96% is not nothing.
+IDLE_MARK = "?"
 SOURCE_LEGEND = ("* inferred: nothing spent in this window · ~ carried: an earlier "
-                 "reading · ! carried past its bound, no new work")
+                 "reading · ! carried past its bound, no new work · ? last seen "
+                 "before the account went quiet, window still open")
 # For a header that has to survive an 80-column terminal, where the long form
 # truncates mid-word and loses ~ and ! entirely.
-SOURCE_LEGEND_SHORT = "* inferred · ~ carried · ! too old"
+SOURCE_LEGEND_SHORT = "* inferred · ~ carried · ! too old · ? last seen"
 
 
 def mark(src: str) -> str:
     return SOURCE_MARK.get(src, " ")
 
 
-def _ago(secs: float) -> str:
-    """A duration in the largest unit that still says something."""
+def ago(secs: float | None) -> str:
+    """A duration in the largest unit that still says something.
+
+    The one formatter for an age or a wait: every screen that prints one calls
+    this, so a reading three hours old is not "3h" on one and "13118s" on
+    another, and nothing writes 162h for what is six and a half days.
+    """
+    if secs is None:
+        return "?"
     secs = int(secs)
     if secs < 120:
         return f"{secs}s"
     if secs < 5400:
         return f"{secs // 60}m"
-    if secs < 172800:
+    if secs < 86400:
         return f"{secs // 3600}h"
-    return f"{secs // 86400}d"
+    return span(secs)
 
 
-# Above these nothing can run at all. New work stops a reserve short of them,
-# at the lines a move trigger fires at (triggers.MOVE_LINE_*).
-PCT_5H_BLOCK = 90
-PCT_7D_BLOCK = 100
+# The wall: at these nothing can run at all, and nothing is handed work.
+# Below them an account is judged by how long it would last (`pick_account`),
+# not by a line.
+PCT_5H_BLOCK = triggers.WALL_PCT
+PCT_7D_BLOCK = triggers.WALL_PCT
 
-# Clear 5h headroom a move destination needs below the block, so it does not
-# bounce straight back. A plain launch has no such requirement.
-MOVE_MIN_HEADROOM_PCT = 15
+# A floor is a lower bound, not a measurement, and there is an unbounded
+# invisible spender even on an idle account: a human running `claude -p` by
+# hand, or any other call no collector sees (fold's own risk is closed
+# separately - it never pays with a stale reading at all, see
+# fold._cheapest_account). idle_floor judges the floor this far below the
+# wall to cover that - main's admission line (70), carried over as-is:
+# main's MOVE_LINE_5H (85) minus its MOVE_MIN_HEADROOM_PCT (15). Against the
+# wall this stack uses (100) that line is thirty points.
+IDLE_FLOOR_MARGIN_PCT = 30
 
 
 @dataclass
@@ -239,17 +269,42 @@ class AccountStatus:
     def trusted_ctx_pct(self) -> int | None:
         return None if self.stale else self.ctx_pct
 
-    def assignable(self) -> tuple[bool, str]:
-        """May we give this account new work? Returns (allowed, reason)."""
+    def last_known(self) -> str:
+        """The figures of a stale snapshot, with their age, for a reader.
+
+        Display only: nothing that decides reads this. A window whose reset has
+        passed is marked, since the real figure is then lower than the one shown.
+        """
+        if not self.exists or self.error or self.pct_5h is None:
+            return ""
+        now = time.time()
+        age = "unknown age" if self.age_s is None else f"{ago(self.age_s)} old"
+        gone = ", reset since" if self.reset_5h and self.reset_5h <= now else ""
+        text = f"5h {self.pct_5h}% ({age}{gone})"
+        if self.pct_7d is not None:
+            week_gone = " (reset since)" if self.reset_7d and self.reset_7d <= now else ""
+            text += f", 7d {self.pct_7d}%{week_gone}"
+        return text
+
+    def assignable(self, active: int = 0) -> tuple[bool, str]:
+        """May we give this account new work? Returns (allowed, reason).
+
+        `active` is agents of ours already mid-turn on this account
+        (`load.Load.active`); it only matters to a stale reading
+        (`idle_floor`) - a live one is judged on what it reports, agents
+        mid-turn on it and all."""
         if not self.exists:
             return False, "no status.json - no session has run yet (fail-closed)"
         if self.error:
             return False, f"status.json unreadable: {self.error} (fail-closed)"
         if self.stale:
+            idle_ok, idle_why = self.idle_floor(active)
+            if idle_why:
+                return idle_ok, idle_why
             # In the units a reader thinks in. "59213s > 900s" is two numbers
             # nobody subtracts; the line is on a dashboard, and what it has to
             # say is how long ago anything ran on this account.
-            shown = "unknown" if self.age_s is None else _ago(self.age_s)
+            shown = "unknown" if self.age_s is None else ago(self.age_s)
             return False, (f"nothing has run on it for {shown} - the snapshot is "
                            f"stale (fail-closed)")
         pct = self.trusted_pct_5h
@@ -274,23 +329,18 @@ class AccountStatus:
             return True, f"5h {pct}% (carried, still inside the window)"
         return True, f"5h {pct}%"
 
-    def takes_work(self, limit_5h: int = triggers.MOVE_LINE_5H,
-                   limit_7d: int = triggers.MOVE_LINE_7D) -> tuple[bool, str]:
+    def takes_work(self, active: int = 0) -> tuple[bool, str]:
         """May a session be started here: assignable, or a rolled-over stale
-        account, and under the lines a move trigger fires at. The one rule the
-        pick, the panel and `ocp account list` all use."""
-        ok, why = self.assignable()
+        account, and under the weekly wall. The usage half of the question; `unfit`
+        adds the cap and the stretch. `active` - see `assignable`."""
+        ok, why = self.assignable(active)
         week = self.trusted_pct_7d
-        if ok:
-            pct = self.trusted_pct_5h
-            if pct is not None and pct >= limit_5h:
-                return False, f"5h usage {pct}% >= {limit_5h}%"
-        elif self.rolled_over()[0]:
+        if not ok and self.rolled_over()[0]:
             # Its weekly figure is a floor unless the week itself has passed.
             ok, why = True, self.rolled_over()[1]
             week = None if self.reset_7d and self.reset_7d <= time.time() else self.pct_7d
-        if ok and week is not None and week >= limit_7d:
-            return False, f"7d usage {week}% >= {limit_7d}%"
+        if ok and week is not None and week >= PCT_7D_BLOCK:
+            return False, f"7d usage {week}% >= {PCT_7D_BLOCK}%"
         return ok, why
 
     def rolled_over(self) -> tuple[bool, str]:
@@ -314,8 +364,73 @@ class AccountStatus:
             return False, ""
         if week is not None and week >= PCT_7D_BLOCK and not week_over:
             return False, ""
+        last = self.last_known()
+        if last:
+            return True, f"{last} - stale, window rolled over"
         shown = "its week has rolled over" if week_over else f"7d {week}%"
         return True, f"stale, window rolled over, {shown}"
+
+    def idle_floor(self, active: int = 0) -> tuple[bool, str]:
+        """A stale account still inside its 5h window, with no agent of ours
+        mid-turn on it, is idle rather than unknown, and keeps its floor.
+        Returns (ok, reason).
+
+        Ruled by the founder on #474: a stale reading inside an unrolled
+        window is a floor, not unknown - that is what it is, not an
+        exception written around a stricter rule. Three independent gates
+        hold it to that:
+
+        - No agent of ours is mid-turn on it (`active`). This one is defence
+          against a premise, not an observed case: accounts.py sets a 10s
+          refreshInterval, so a live session keeps collected_at fresh and an
+          account cannot actually read as stale while an agent of ours is
+          running on it (auditor, #475). It stays because it costs nothing
+          and it is what keeps every reader of a stale reading agreeing -
+          `pick_account`, `doctor`, the bridge - not because the case it
+          guards has been seen.
+        - `reset_5h` has not passed. Past it the figure describes a window
+          that no longer exists - `rolled_over` and the probe answer for that
+          case, not this one.
+        - The floor is a lower bound, not a measurement - there is an
+          unbounded invisible spender even with no agent of ours running (a
+          human running `claude -p` by hand; `ocp fold`'s own risk is closed
+          separately, see fold._cheapest_account) - so it is judged this far
+          below the wall (`IDLE_FLOOR_MARGIN_PCT`), never against the wall
+          itself.
+        """
+        if (not self.exists or self.error or self.rl_lost or not self.stale
+                or self.pct_5h is None or not self.pct_5h_readable or active > 0):
+            return False, ""
+        now = time.time()
+        # Well-formed data cannot have reset_5h ahead of us while the snapshot
+        # itself is already older than a window is wide - only a rewound clock
+        # or a hand-edited file gets here, and that is not idle, it is unknown.
+        if self.age_s is not None and self.age_s >= 5 * 3600:
+            return False, ""
+        if not self.reset_5h or self.reset_5h <= now:
+            return False, ""  # rolled_over's case, not this one
+        last = self.last_known()
+        text = last or f"5h {self.pct_5h}%"
+        if self.pct_5h >= PCT_5H_BLOCK - IDLE_FLOOR_MARGIN_PCT:
+            return False, (f"{text} when last seen - too close to "
+                           f"{PCT_5H_BLOCK}% to start on a stale reading")
+        return True, f"{text} - stale but idle"
+
+    def shown_pct_5h(self) -> tuple[int | None, str]:
+        """What a 5h column draws: the figure and its mark.
+
+        The trusted figure where there is one. Otherwise the floor an idle
+        account was last seen at, marked `?` - nothing may act on it as a
+        measurement, and a reader still needs to see whether the account they
+        cannot assign was last at 1% or at 96%.
+        """
+        if self.trusted_pct_5h is not None:
+            return self.trusted_pct_5h, mark(self.pct_5h_source)
+        if (self.exists and not self.error and not self.rl_lost and self.stale
+                and self.pct_5h is not None and self.pct_5h_readable
+                and self.reset_5h and self.reset_5h > time.time()):
+            return self.pct_5h, IDLE_MARK
+        return None, " "
 
     def headroom(self) -> int | None:
         """Remaining 5h headroom in percent, or None when unknown."""
@@ -489,6 +604,125 @@ def live_cost(account: str) -> float | None:
 _CONFIDENCE = {"live": 3, "carried": 2, "quiet": 1}
 
 
+# A burn reading is the daemon's, taken from agents running on the account; one
+# older than this describes a pace nobody is keeping any more.
+BURN_MAX_AGE_S = 600
+
+
+def _burn_path(acct: str) -> Path:
+    return paths.accounts_dir() / acct / "burn.json"
+
+
+def write_burn(acct: str, burn: float, at: int) -> None:
+    """Record the burn rate the daemon measured (percent per second), so the
+    screens show the number the triggers act on instead of re-deriving one.
+    `at` is when the rate was measured (the sample's own time), not when this
+    is written."""
+    path = _burn_path(acct)
+    if not path.parent.is_dir():
+        return
+    tmp = path.with_suffix(".tmp")
+    tmp.write_text(json.dumps({"burn_per_s": burn, "at": at}))
+    os.replace(tmp, path)
+
+
+def read_burn(acct: str, now: float | None = None) -> float | None:
+    """The recorded burn in percent per second, or None when there is none or
+    it is too old to describe the present."""
+    try:
+        data = json.loads(_burn_path(acct).read_text())
+        at, burn = int(data["at"]), float(data["burn_per_s"])
+    except (OSError, ValueError, KeyError, TypeError):
+        return None
+    return burn if (now or time.time()) - at <= BURN_MAX_AGE_S else None
+
+
+def span(secs: float, precise: bool = False) -> str:
+    """A length of time: 6d18h from a day up, 5h03 from an hour, then minutes
+    (`precise` adds the seconds: 12m05). Ages (`ago`) are coarser
+    below a day - 3h, 40m - and call this from a day up, so no surface writes
+    162h."""
+    secs = int(secs)
+    if secs >= 86400:
+        return f"{secs // 86400}d{(secs % 86400) // 3600}h"
+    if secs >= 3600:
+        return f"{secs // 3600}h{(secs % 3600) // 60:02d}"
+    if precise:
+        return f"{secs // 60:>2}m{secs % 60:02d}"
+    return f"{max(1, secs // 60)}m"
+
+
+@dataclass
+class Runway:
+    left_5h: int              # points of 5h usage left before the wall
+    left_7d: int | None
+    eta_s: float | None       # seconds to the wall at the current burn
+    burning: bool             # False: no burn reading, or an idle account
+    past_reset: bool          # the 5h window rolls over before the line is reached
+
+
+def runway(st: "AccountStatus", burn: float | None, now: float | None = None) -> Runway | None:
+    """An estimate of how long this account's 5h headroom lasts at the current
+    burn. None when its reading is stale or unknown: no figure is better than
+    one drawn from a reading that stopped describing the account."""
+    pct = st.trusted_pct_5h
+    if pct is None:
+        return None
+    now = now or time.time()
+    week = st.trusted_pct_7d
+    left = max(0, PCT_5H_BLOCK - pct)
+    left7 = None if week is None else max(0, PCT_7D_BLOCK - week)
+    if not burn or burn <= 0:
+        return Runway(left, left7, None, False, False)
+    eta = left / burn
+    # A 5h window resets within 5h whether or not the collector told us when -
+    # an eta beyond that is not a long wait, it is the reset arriving first.
+    if st.reset_5h:
+        past_reset = now + eta > st.reset_5h
+    else:
+        past_reset = eta > 5 * 3600
+    return Runway(left, left7, eta, True, past_reset)
+
+
+def describe_runway(r: Runway | None) -> str:
+    if r is None:
+        return ""
+    if r.left_5h == 0:
+        return "at the wall"
+    if not r.burning:
+        return "no recent burn"
+    return "outlasts reset" if r.past_reset else f"~{span(r.eta_s)} to wall"
+
+
+def team_outlook(names: list[str] | None = None, now: float | None = None) -> str:
+    """One line on whether the team's combined 5h headroom lasts to the next
+    reset at the pace it is burning now. Only accounts with a current reading
+    count; blank when none has one."""
+    now = now or time.time()
+    counted = []
+    for n in (names if names is not None else paths.list_accounts()):
+        st = read(n)
+        burn = read_burn(n, now)
+        r = runway(st, burn, now)
+        if r is not None:
+            counted.append((st, r, burn or 0.0))
+    if not counted:
+        return ""
+    room = sum(r.left_5h for _, r, _ in counted)
+    pace = sum(b for _, _, b in counted)
+    resets = [st.reset_5h for st, _, _ in counted if st.reset_5h and st.reset_5h > now]
+    nxt = min(resets) if resets else None
+    clock = lambda t: time.strftime("%H:%M", time.localtime(t))  # noqa: E731
+    n = f"{len(counted)} account{'s' if len(counted) != 1 else ''}"
+    if pace <= 0:
+        return f"estimate: {room} points of 5h headroom across {n}, no recent burn"
+    stops = now + room / pace
+    if nxt and stops >= nxt:
+        return f"estimate: at this pace {n} last past the next reset ({clock(nxt)})"
+    tail = f"; next reset {clock(nxt)}" if nxt else ""
+    return f"estimate: at this pace {n} hit the wall around {clock(stops)}{tail}"
+
+
 def deadline_7d(st: "AccountStatus") -> float:
     """When this account's weekly headroom is lost if it goes unspent.
 
@@ -500,33 +734,111 @@ def deadline_7d(st: "AccountStatus") -> float:
     return float(st.reset_7d) if st.reset_7d and st.reset_7d > time.time() else float("inf")
 
 
-def _pick_reason(st: "AccountStatus", picked: bool) -> str:
+def account_verdict(name: str, st: "AccountStatus", ld, ranked: list[tuple[str, str]],
+                    logged_in: bool) -> tuple[bool, str]:
+    """Whether a session may start on this account, and the sentence for it.
+
+    The accounts panel draws the tick from this and the account's page draws
+    the sentence, so the two cannot say different things. `ranked` is
+    `pick_account`'s reasons; an account outside the ranking falls back to what
+    `takes_work` says.
+    """
+    if not logged_in:
+        return False, "not logged in"
+    allowed, why = st.takes_work(ld.active if ld else 0)
+    return allowed and unfit(st, ld) is None, dict(ranked).get(name, why)
+
+
+def unfit(st: "AccountStatus", ld) -> str | None:
+    """Why a session should not be started here, when what is known says so.
+
+    Only a reading that says so counts: a missing or stale one is the account
+    nobody has run on lately, and the session about to start is the only thing
+    that writes a fresh one. `pick_account` is the stricter question, for
+    choosing between accounts; this is the one for an agent whose own account
+    is not known to be a bad place.
+    """
+    pct, week = st.trusted_pct_5h, st.trusted_pct_7d
+    full = pct is not None and pct >= PCT_5H_BLOCK
+    # A stale reading at the wall is still a floor until its window has rolled
+    # over, but one older than 5h cannot describe the current window.
+    if not full and st.pct_5h is not None and st.pct_5h >= PCT_5H_BLOCK:
+        now = time.time()
+        full = st.reset_5h > now if st.reset_5h else (
+            st.age_s is not None and st.age_s < 5 * 3600)
+    if full:
+        return f"5h usage at the wall ({st.pct_5h}%)"
+    if week is not None and week >= PCT_7D_BLOCK:
+        return f"7d usage {week}% at the wall"
+    if pct is not None and not st.stale:
+        return _no_room(st, ld, pct)[0]
+    return _no_room(st, ld, None)[0]
+
+
+def _no_room(st: "AccountStatus", ld, pct: int | None) -> tuple[str | None, float | None]:
+    """(why it cannot take one more agent, how long it would last). The cap,
+    then the stretch when the fill `pct` is known; the one test `unfit` and
+    `pick_account` share."""
+    if ld and ld.at_cap:
+        return f"at its cap: {ld.active} of {ld.cap} agents mid-turn", None
+    if pct is None:
+        return None, None
+    lasts = triggers.stretch_s(PCT_5H_BLOCK - pct, ld.burn if ld and ld.burn else 0.0)
+    if lasts < triggers.MIN_STRETCH_S:
+        return (_stretch_reason(st, ld, lasts, pct) + f" - under the "
+                f"{span(triggers.MIN_STRETCH_S)} a start is worth"), lasts
+    return None, lasts
+
+
+def _per_min(rate: float) -> str:
+    return f"{rate * 60:.1f}%/min"
+
+
+def _stretch_reason(st: "AccountStatus", ld, lasts: float, pct: int) -> str:
+    """`pct` is the figure the stretch was computed on - the trusted one for a
+    live reading, or the floor idle_floor admitted for a stale one. Printing
+    `st.trusted_pct_5h` instead would read "None%" for exactly the accounts
+    that reach here on a floor, since that property is None while stale."""
+    fill = ld.burn if ld and ld.burn else 0.0
+    agents_ = f", {ld.active}/{ld.cap} agents" if ld else ""
+    return (f"5h {pct}%, fill {_per_min(fill)}{agents_}, one more agent "
+            f"lasts ~{span(lasts)}")
+
+
+def _pick_reason(st: "AccountStatus", ld, lasts: float | None, picked: bool) -> str:
     """Why this account sits where it does in the ordering."""
     week = st.trusted_pct_7d
     week_s = "unknown" if week is None else f"{week}%"
-    rolled = st.rolled_over()
-    if rolled[0]:
-        return rolled[1] + (" <- picked: earliest deadline" if picked else "")
-    when = "unknown" if not st.reset_7d else _ago(max(0.0, st.reset_7d - time.time()))
-    base = f"5h {st.trusted_pct_5h}%, 7d {week_s} (resets in {when})"
-    return base + " <- picked: earliest deadline" if picked else base
+    for stale_ok, stale_why in (st.rolled_over(), st.idle_floor(ld.active if ld else 0)):
+        if stale_ok:
+            return stale_why + (" <- picked: earliest 7d deadline" if picked else "")
+    when = "unknown" if not st.reset_7d else ago(max(0.0, st.reset_7d - time.time()))
+    # Neither early return above fired, so this account is live, not stale -
+    # trusted_pct_5h is never None here.
+    base = (_stretch_reason(st, ld, lasts, st.trusted_pct_5h) if lasts is not None
+            else f"5h {st.trusted_pct_5h}%") + f"; 7d {week_s} (resets in {when})"
+    return base + " <- picked: earliest 7d deadline" if picked else base
 
 
-def pick_account(candidates: list[str] | None = None,
-                 limit_5h: int = triggers.MOVE_LINE_5H,
-                 limit_7d: int = triggers.MOVE_LINE_7D,
-                 bootstrap: bool = False) -> tuple[str | None, list[tuple[str, str]]]:
+def pick_account(candidates: list[str] | None = None, bootstrap: bool = False,
+                 exclude: dict[str, str] | None = None,
+                 load: dict | None = None) -> tuple[str | None, list[tuple[str, str]]]:
     """Pick the account whose weekly headroom expires soonest, among those that
-    can take the work.
+    can take one more agent.
 
     Returns (choice, [(account, reason)]). When none can, the choice is None
     and the caller must refuse - that is the fail-closed path.
 
-    Accounts that fail `assignable`, or read at or over `limit_5h` or
-    `limit_7d` (by default the lines a move trigger fires at), are dropped
-    before any ranking: an agent started on one would be moved straight off.
-    The deadline order then only compares accounts that would last: reset_7d
-    soonest first; 5h headroom breaks ties and unknowns.
+    An account can take one more agent when it is not at the wall, is under its
+    cap of agents mid-turn (`load`), and lasts at least `MIN_STRETCH_S` before
+    its wall at its current fill plus one typical agent. How fast it is filling,
+    not a fixed line, is what says it has room: an account at 60% and idle has
+    more than one at 30% with three agents on it. The deadline order then only
+    compares accounts that qualify: reset_7d soonest first; 5h headroom breaks
+    ties and unknowns.
+
+    `exclude` names accounts to skip and why (the one an agent just left, until
+    it resets). `load` defaults to reading it.
 
     `bootstrap=True`: a logged-in account with no status.json at all - never
     run, so nothing else could ever give it one - is pickable as a last
@@ -536,35 +848,58 @@ def pick_account(candidates: list[str] | None = None,
     "unread", and needs its own explicit preference to be picked again.
     """
     names = candidates if candidates is not None else paths.list_accounts()
+    if load is None:
+        from . import load as loadmod
+        load = loadmod.read_all()
     reasons: list[tuple[str, str]] = []
-    usable: list[tuple[str, AccountStatus]] = []
+    usable: list[tuple[str, AccountStatus, object, float | None]] = []
     blank: list[str] = []
     for n in names:
         if paths.removing(n):
             reasons.append((n, "being removed"))
             continue
+        if exclude and n in exclude:
+            reasons.append((n, exclude[n]))
+            continue
         st = read(n)
-        allowed, why = st.takes_work(limit_5h, limit_7d)
-        if allowed:
-            usable.append((n, st))
-        elif bootstrap and not st.exists:
-            blank.append(n)
-            reasons.append((n, "no reading yet - a session has never run on it "
-                              "(bootstrap candidate, used only if nothing else qualifies)"))
+        ld = load.get(n)
+        active = ld.active if ld else 0
+        allowed, why = st.takes_work(active)
+        if not allowed:
+            if bootstrap and not st.exists:
+                blank.append(n)
+                reasons.append((n, "no reading yet - a session has never run on it "
+                                  "(bootstrap candidate, used only if nothing else qualifies)"))
+            else:
+                reasons.append((n, why))
+            continue
+        # A stale account whose window has rolled over reads as a fresh one; a
+        # stale account still inside its window is judged on the floor it was
+        # admitted on, not on a fill of 0 - that would prefer the account we
+        # cannot see over one we can see has real room.
+        if st.trusted_pct_5h is not None:
+            pct = st.trusted_pct_5h
+        elif st.idle_floor(active)[0]:
+            pct = st.pct_5h
         else:
-            reasons.append((n, why))
+            pct = 0
+        no_room, lasts = _no_room(st, ld, None if st.rolled_over()[0] else pct)
+        if no_room:
+            reasons.append((n, no_room))
+            continue
+        usable.append((n, st, ld, lasts))
     if not usable:
         return (blank[0] if blank else None), reasons
 
-    def sort_key(item: tuple[str, AccountStatus]):
-        _, st = item
+    def sort_key(item):
+        _, st, _, _ = item
         return (deadline_7d(st), -(st.headroom() or 0),
                 -_CONFIDENCE.get(st.pct_5h_source, 0))
 
     usable.sort(key=sort_key)
     picked = usable[0][0]
-    for n, st in usable:
-        reasons.append((n, _pick_reason(st, picked=(n == picked))))
+    for n, st, ld, lasts in usable:
+        reasons.append((n, _pick_reason(st, ld, lasts, picked=(n == picked))))
     order = {n: i for i, n in enumerate(names)}
     reasons.sort(key=lambda t: order[t[0]])
     return picked, reasons

@@ -69,6 +69,7 @@ Claude Code는 credential을 프로필 키 기반 저장소에 두지 않는다.
 "계정을 스위칭해도 이력이 이어지게"가 원래 요구였는데, **우리 설계에서는 이 문제가 애초에 발생하지 않는다.**
 
 - 재개는 `claude --resume`이 아니라 **handoff 주입**으로 한다. 이전 세션의 transcript가 어느 계정 디렉토리에 있든 무관하다
+- 그 handoff는 `handoff.record`가 디스크에 있는 사실 셋에서 **결정론적으로** 만든다. 재개 경로에서는 모델을 부르지 않는다 (`fold.run_model`은 `ocp fold`만 쓴다)
 - 에이전트의 단일 이력은 `agents/<name>/journal/`이다. **계정과 무관하게 에이전트 이름으로 묶인다**
 - 현재 transcript 위치가 필요하면 statusLine이 `transcript_path`로 알려준다
 
@@ -82,7 +83,7 @@ Claude Code는 credential을 프로필 키 기반 저장소에 두지 않는다.
 |---|---|---|---|---|
 | `ROLE.md` | **1 KB** | 불변 | 매 세션 | 사람 |
 | `base.md` | **2 KB** | 준불변 | 매 세션 | 승격(사람 승인) |
-| `handoff/latest.md` | **4 KB** | 휘발 | 재개 시만 | fold |
+| handoff (`agent_state.handoff`) | 작음 | 휘발 | 재개 시만 | 결정론 (모델 없음) |
 | `journal/<date>.md` | 무제한 | 영구 | **주입 안 함** | fold |
 
 ### 왜 빡빡해야 하는가 — 이건 고정비다
@@ -302,9 +303,6 @@ depth > max_chain_depth → orchestrator 에스컬레이션 (gate)
   agent.yaml           # intake, model, weight, account affinity
   ROLE.md              # ≤1KB
   base.md              # ≤2KB  ← 신규
-  handoff/
-    latest.md          # ≤4KB
-    2026-09-15T14-32-07-h3.md
   journal/
     2026-09-15.md        # 세대 보존은 git이 한다 (~/.orcapipe는 git repo)
   inbox/               # 수신 요청 큐 (serial 에이전트용)
