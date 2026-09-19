@@ -202,7 +202,7 @@ def _supervises_this_home(pid: int) -> bool:
         if token.startswith("OCP_HOME="):
             home = token.split("=", 1)[1]
             break
-    home_path = Path(home).expanduser() if home else (Path.home() / ".orcapipe")
+    home_path = Path(home).expanduser() if home else paths.default_home()
     return os.path.realpath(home_path) == os.path.realpath(paths.home())
 
 
@@ -219,13 +219,14 @@ def processes() -> list[int]:
     found = []
     for pid, cmd in obs.process_table() or []:
         argv = cmd.split()
-        # The program being run: our own path, `daemon` next, and both near the
-        # front of the command line - allowing for `python3 -u /path/ocp
-        # daemon`, launchd's own way of running it. Anywhere else in it is
-        # somebody talking about us - a `grep -n ocp daemon`, an editor on
-        # this file, a session whose system prompt quotes the command.
+        # The program being run: our own path, `daemon` next, and both at the
+        # front of the command line. Anywhere else in it is somebody talking
+        # about us - a `grep -n ocp daemon`, an editor on this file, a session
+        # whose system prompt quotes the command. `service.build_plist` sets
+        # ProgramArguments to exactly [ocp_executable(), "daemon"], so
+        # launchd's own line never needs more than this.
         if not any(argv[i].endswith("/ocp") and argv[i + 1] == "daemon"
-                   for i in range(min(3, len(argv) - 1))):
+                   for i in range(min(2, len(argv) - 1))):
             continue
         if pid != mine and _supervises_this_home(pid):
             found.append(pid)

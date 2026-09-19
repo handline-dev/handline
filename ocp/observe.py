@@ -77,17 +77,17 @@ def process_table() -> list[tuple[int, str]] | None:
 def process_env(pid: int) -> str | None:
     """The raw `ps eww` line for pid - its command plus its environment.
 
-    None only when the process table itself could not be read (pid gone, ps
-    unavailable). A caller that needs to tell "read, but the variable was not
-    set" from "could not read this process at all" - `_supervises_this_home`
-    does - keys off that None rather than off `env_of`, which folds both into
-    one answer for the callers that do not need the difference.
+    None whenever the process could not actually be read: gone (`ps` exits
+    non-zero, empty stdout), or another user's - `ps e` prints their command
+    but never their environment, which comes back exactly as empty. Both are
+    "I don't know", never "the variable was not set".
     """
     try:
-        return subprocess.run(["ps", "eww", "-o", "command=", "-p", str(pid)],
-                              capture_output=True, text=True, timeout=10).stdout
+        r = subprocess.run(["ps", "eww", "-o", "command=", "-p", str(pid)],
+                           capture_output=True, text=True, timeout=10)
     except (OSError, subprocess.SubprocessError):
         return None
+    return r.stdout if r.returncode == 0 and r.stdout.strip() else None
 
 
 def env_of(pid: int, name: str) -> str | None:

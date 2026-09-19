@@ -1719,6 +1719,7 @@ def test_one_daemon_is_counted_in_the_process_table(home: Path) -> None:
         (4802, "vim /Users/x/workspaces/orcapipe/ocp/daemon.py"),
         (4803, "/usr/bin/python /Users/x/.local/bin/ocp ps"),
         (4804, "claude --append-system-prompt Report with /Users/x/bin/ocp daemon"),
+        (4806, "claude -p /Users/x/bin/ocp daemon"),
         (os.getpid(), "/usr/bin/python /Users/x/bin/ocp daemon"),
     ]
     orig_table, orig_env = obsmod.process_table, obsmod.process_env
@@ -1727,6 +1728,9 @@ def test_one_daemon_is_counted_in_the_process_table(home: Path) -> None:
         obsmod.process_env = lambda pid: f"OCP_HOME={home}"
         check("ps: the running daemon is found, and only it",
               dmn.processes() == [4707], str(dmn.processes()))
+        check("ps: /ocp daemon quoted past the front (a session's own claude "
+              "-p argv, not launchd's [ocp_executable(), 'daemon']) is not one",
+              4806 not in dmn.processes(), str(dmn.processes()))
 
         obsmod.process_env = lambda pid: f"OCP_HOME={home}-elsewhere"
         check("ps: another installation's daemon is not this one's duplicate",
@@ -1759,6 +1763,33 @@ def test_one_daemon_is_counted_in_the_process_table(home: Path) -> None:
               dmn.processes() == [], str(dmn.processes()))
     finally:
         obsmod.process_table, obsmod.process_env = orig_table, orig_env
+
+
+def test_process_env_reads_a_gone_pid_as_unreadable(home: Path) -> None:
+    """auditor's #342 should-fix: `ps` on a gone pid, or another user's
+    process (whose environment it never prints), exits non-zero with empty
+    stdout rather than raising - both must read as unreadable (None), never
+    as "read, but the variable was not set"."""
+    real_run = obsmod.subprocess.run
+
+    class FakeResult:
+        def __init__(self, rc: int, out: str) -> None:
+            self.returncode, self.stdout = rc, out
+
+    try:
+        obsmod.subprocess.run = lambda *a, **k: FakeResult(1, "")
+        check("process_env: a gone pid is unreadable, not an empty environment",
+              obsmod.process_env(999991) is None)
+
+        obsmod.subprocess.run = lambda *a, **k: FakeResult(0, "")
+        check("process_env: empty stdout is unreadable even with rc 0",
+              obsmod.process_env(999991) is None)
+
+        obsmod.subprocess.run = lambda *a, **k: FakeResult(0, "OCP_HOME=/x\n")
+        check("process_env: a real line still comes through",
+              obsmod.process_env(999991) == "OCP_HOME=/x\n")
+    finally:
+        obsmod.subprocess.run = real_run
 
 
 def test_two_processes_cannot_both_supervise_one_home(home: Path) -> None:
@@ -8738,6 +8769,7 @@ def main() -> int:
         run(lambda: test_a_second_daemon_is_refused_with_no_pidfile_at_all(Path(td) / 'onedmn'))
         run(lambda: test_an_exiting_daemon_leaves_the_live_ones_name(Path(td) / 'pidname'))
         run(lambda: test_one_daemon_is_counted_in_the_process_table(Path(td) / 'dmnps'))
+        run(lambda: test_process_env_reads_a_gone_pid_as_unreadable(Path(td) / 'procenv'))
         run(lambda: test_a_refused_ask_is_not_a_new_message(Path(td) / 'refused'))
         run(lambda: test_a_refused_ask_is_never_announced_as_an_answer(Path(td) / 'noannounce'))
         run(lambda: test_a_refusal_is_not_read_back_as_an_answer(Path(td) / 'readref'))
