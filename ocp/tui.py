@@ -142,16 +142,20 @@ def bar(pct: int | None, width: int = 10) -> str:
     return color + "█" * filled + DIM + "░" * (width - filled) + R
 
 
-# The ACCOUNTS panel's columns: the heading, every row and the overflow test
-# read these, so a width changed here moves all three and one written anywhere
-# else is a bug. Each bounded cell must stay strictly narrower than its column.
+# The ACCOUNTS panel's columns, in the order they are drawn: the heading, every
+# row and the overflow test read these, so a width or a position changed here
+# moves all three and one written anywhere else is a bug. Each bounded cell
+# must stay strictly narrower than its column.
 ACCT_W = {"name": 10, "five": 18, "reset5": 8, "seven": 12, "reset7": 9, "runway": 16}
+ACCT_HEAD = {"name": "account", "five": "5h usage", "reset5": "reset", "seven": "7d",
+             "reset7": "7d reset", "runway": "runway (est.)"}
 ACCT_BAR_W = {"five": 10, "seven": 5}
 
 
-def account_cells(st, runway_text: str) -> dict[str, str]:
+def account_cells(name: str, st, now: float | None = None) -> dict[str, str]:
     """The bounded cells of an ACCOUNTS row, unpadded and keyed like ACCT_W.
     The name is free text and is cut to fit where it is drawn."""
+    runway_text = status.describe_runway(status.runway(st, status.read_burn(name), now))
     return {
         "five": f"{bar(st.trusted_pct_5h, ACCT_BAR_W['five'])} "
                 f"{pct(st.trusted_pct_5h)}%{status.mark(st.pct_5h_source)}",
@@ -454,10 +458,8 @@ def build(width: int, sel: dict | None = None,
         acc = Panel("ACCOUNTS", width, focused=panel == ACCOUNTS)
         acc.selected = sel.get(ACCOUNTS)
         w = ACCT_W
-        acc.add(f"{DIM}{'':<2}{'account':<{w['name']}}{'5h usage':<{w['five']}}"
-                f"{'reset':<{w['reset5']}}{'7d':<{w['seven']}}"
-                f"{'7d reset':<{w['reset7']}}{'runway (est.)':<{w['runway']}}why{R}",
-                heading=True)
+        acc.add(f"{DIM}{'':<2}" + "".join(f"{ACCT_HEAD[k]:<{w[k]}}" for k in w)
+                + f"why{R}", heading=True)
         # The account with the most headroom: where work goes when an agent's
         # own account is full. Only accounts that can start a session count.
         # Captured whole, not just the pick: this panel says why each one sits
@@ -480,12 +482,11 @@ def build(width: int, sel: dict | None = None,
             # decisions are made on, with a mark saying where it came from -
             # a quiet window drawn as "?" while the daemon acts on 0% is the
             # dashboard and the daemon disagreeing.
-            cells = account_cells(
-                st, status.describe_runway(status.runway(st, status.read_burn(name))))
+            cells = account_cells(name, st)
             acc.add(
                 nxt
                 + padfit(f"{BOLD}{name}{R}", w["name"])
-                + "".join(pad(c, w[k]) for k, c in cells.items())
+                + "".join(pad(cells[k], w[k]) for k in w if k != "name")
                 + f"{mark} {DIM}{why}{R}",
                 key=name,
             )

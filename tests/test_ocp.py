@@ -6551,20 +6551,20 @@ def test_the_panels_bounded_cells_fit_their_own_columns(home: Path) -> None:
     check("panel: every provenance mark is one column wide",
           all(tui.vlen(m) <= 1 for m in status.SOURCE_MARK.values()))
     drawn: dict[str, list[str]] = {k: [] for k in tui.ACCT_W if k != "name"}
-    resets = (None, now + 1, now + 59, now + 6 * 3600 - 1, now + 7 * 24 * 3600 - 1)
+    resets = (None, now - 1, now + 1, now + 59, now + 6 * 3600 - 1, now + 7 * 24 * 3600 - 1)
     for p in (0, 1, 60, 84, 85, 86, 99, 100, None):
         for reset in resets:
             for burn in (0.0, 1e-9, 5e-7, 30 / 3600, 1.0):
                 write_status(home, "alpha", pct_5h=p, pct_7d=p,
                              reset_5h=reset, reset_7d=reset)
                 status.write_burn("alpha", burn, now)
-                st = status.read("alpha")
-                cells = tui.account_cells(st, status.describe_runway(
-                    status.runway(st, status.read_burn("alpha"), now)))
+                cells = tui.account_cells("alpha", status.read("alpha"), now)
                 for k, c in cells.items():
                     drawn[k].append(c)
     check("panel: the cells cover every bounded column",
           set(tui.ACCT_W) - {"name"} == set(drawn), sorted(drawn))
+    check("panel: every column has a heading, and the heading names no other",
+          set(tui.ACCT_HEAD) == set(tui.ACCT_W), sorted(tui.ACCT_HEAD))
     for k, seen in drawn.items():
         widest = max(seen, key=tui.vlen)
         check(f"panel: the {k} cell fits its {tui.ACCT_W[k]}-wide column",
