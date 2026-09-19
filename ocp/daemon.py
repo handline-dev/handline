@@ -1590,6 +1590,15 @@ def _move_to_room(con, agent: str, trigger: triggers.Trigger, log,
         log(f"  {agent}: staying on {here} - {why}")
         return False
 
+    # `_perform_handoff` put this agent in HANDOFF before calling here, and
+    # HANDOFF is one of events.PROTECTED_STATES - `_mark_activity` refuses to
+    # move an agent out of a protected state, so the new session's own
+    # UserPromptSubmit could never set RUNNING while it stood. HANDOFF was
+    # protecting the session that just ended; that session is gone now, and
+    # there is nothing left for it to guard. Off it comes before the wake, so
+    # the hook can do its job.
+    db.set_agent_state(con, agent, QUEUED, detail=f"moving {here} -> {there}")
+
     # The unlocked wake. This runs inside the handoff's own hold on the
     # terminal, and `lock.terminal` is flock on a fresh descriptor, so a second
     # acquire in this process does not nest - it fails, and a failed wake here
@@ -1631,27 +1640,31 @@ def _move_to_room(con, agent: str, trigger: triggers.Trigger, log,
     # failed handback as a failed move would clear the context of the session
     # that just started and park it until the *old* account rolls over.
     db.set_account(con, agent, there)
-    # Re-read right here, not the `landed` snapshot from before the I/O above -
-    # the hook can land in that gap too, and a stale "not running yet" would
-    # reintroduce the same clobber this fix exists to close.
-    fresh = db.get_agent_state(con, agent)
-    hook_running = bool(fresh and fresh["state"] == RUNNING)
+    # A compare-and-set, not a read then a write: the hook can land in the I/O
+    # above, and a plain write here would still have a window to clobber it in
+    # - the read cannot be trusted a moment after it is taken. False means
+    # RUNNING is what is there instead, and the row is left exactly as the
+    # hook set it.
+    hook_running = not db.set_state_unless_running(
+        con, agent, QUEUED, detail=f"moved {here} -> {there} ({trigger.kind})")
     if hook_running:
-        # The hook already established RUNNING - the very state QUEUED would
-        # claw back - so the row is left as the hook set it. A closed mark left
-        # over from a wake that timed out before the hook fired is stale now:
-        # the session is confirmed up, so it comes off, the same as any other
-        # session found running (`sweep`).
-        if fresh["closed_at"]:
+        fresh = db.get_agent_state(con, agent)
+        # A closed mark left over from a wake that timed out before the hook
+        # fired is stale now: the session is confirmed up, so it comes off,
+        # the same as any other session found running (`sweep`). The wake's
+        # own bookkeeping for a failed attempt is stale the same way - it
+        # never reached clear_handoff or reset_counter because it believed
+        # the wake had failed, and the hook says otherwise.
+        if fresh and fresh["closed_at"]:
             db.clear_closed(con, agent)
-    else:
-        db.set_agent_state(con, agent, QUEUED, wake_at=None,
-                           detail=f"moved {here} -> {there} ({trigger.kind})")
+        if not woke:
+            db.reset_counter(con, agent, "wake_failures")
+            db.set_handoff(con, agent, None)
     db.add_event(con, agent, "moved_account", {"from": here, "to": there,
                                                "trigger": trigger.kind})
     log(f"  {agent}: moved {here} -> {there} ({trigger.kind}) - {picked_why}"
-        + ("" if woke else f" - but it was not handed its handoff: {why[:80]}"
-           + (" (a hook already shows it running)" if hook_running else "")))
+        + ("" if woke or hook_running
+           else f" - but it was not handed its handoff: {why[:80]}"))
     return True
 
 

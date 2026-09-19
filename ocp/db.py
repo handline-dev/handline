@@ -655,6 +655,21 @@ def set_agent_state(con, agent: str, state: str, wake_at: int | None = None,
     )
 
 
+def set_state_unless_running(con, agent: str, state: str, detail: str | None = None) -> bool:
+    """Write `state`, but only if the row is not RUNNING right now - atomically,
+    the same shape as `close_if_queued`. A read-then-write here (check RUNNING,
+    then write) leaves a window a hook's own RUNNING can land in between the
+    two; this closes it in one statement. True only if this call is the one
+    that wrote it - a caller that gets False knows RUNNING is what is there
+    instead, without a second read."""
+    cur = con.execute(
+        "UPDATE agent_state SET state = ?, wake_at = NULL, detail = ?, updated = ? "
+        "WHERE agent = ? AND state != 'RUNNING'",
+        (state, detail, int(time.time()), agent),
+    )
+    return cur.rowcount > 0
+
+
 def set_terminal(con, agent: str, terminal: str | None, worktree: str | None) -> None:
     """Record where an agent lives. This says nothing about what it is doing.
 
