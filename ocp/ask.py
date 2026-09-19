@@ -484,6 +484,58 @@ def withdraw(rid: int, requester: str | None = None) -> tuple[bool, str]:
         con.close()
 
 
+# What a cancelled request says, to the requester as its answer and to anyone
+# who reads the row: the founder took it out of the queue.
+CANCEL_VERDICT = "withdrawn by the founder"
+
+
+def cancel(rid: int) -> tuple[bool, str]:
+    """The founder takes a request out of an agent's queue.
+
+    `withdraw` is the requester's own and stops at delivery, which left no way
+    to clear a delivered head that its agent never resolved: everything behind
+    it waited. This is that way. A founder's own request that was never
+    delivered is simply withdrawn. Anything else is closed as rejected with
+    `CANCEL_VERDICT`, never deleted: its number and history stay, its requester
+    is told through the ordinary answer path, and the target - which may be
+    mid-work on it - is typed a notice with delivery's gates when it had been
+    delivered. Whatever is behind it delivers next.
+    """
+    from . import daemon
+
+    con = db.connect()
+    try:
+        row = db.get_request(con, rid)
+        if row is None:
+            return False, f"request {rid} does not exist"
+        if row["state"] != "queued":
+            return False, f"#{rid} is already {row['state']} - nothing to cancel"
+        if row["requester"] == HUMAN and not row["delivered_at"]:
+            return withdraw(rid, requester=HUMAN)
+        target = row["target"]
+        # Closed first, in one write, so an agent resolving it at this moment
+        # keeps its answer; only then is anyone told.
+        if not db.close_if_queued(con, rid, "rejected", CANCEL_VERDICT):
+            return False, f"#{rid} was closed while this ran - nothing to cancel"
+        said = []
+        if row["delivered_at"]:
+            typed, why = daemon.notify_cancelled(con, row, CANCEL_VERDICT)
+            said.append(f"{target} was told to stop" if typed else
+                        f"{target} could not be told now ({why}); resolving #{rid} "
+                        f"is refused to it, so it cannot undo this")
+        ok, msg = resolve(rid, CANCEL_VERDICT, state="rejected",
+                          notify=row["requester"] != HUMAN)
+        if not ok:
+            return False, msg
+        db.add_event(con, HUMAN, "cancel", {"request_id": rid, "target": target,
+                                            "requester": row["requester"],
+                                            "delivered": bool(row["delivered_at"])})
+        return True, (f"#{rid} to {target} cancelled"
+                      + (f" ({'; '.join(said)})" if said else "") + "\n" + msg)
+    finally:
+        con.close()
+
+
 def resolve(rid: int, verdict: str, state: str = "done", notify: bool = True) -> tuple[bool, str]:
     """`notify=False` is `dismiss`'s case: settle the row without telling the requester."""
     con = db.connect()

@@ -579,6 +579,33 @@ def nudge_forgotten_resolve(con, agent: str, row, now: int, log) -> bool:
     return ok
 
 
+def notify_cancelled(con, row, verdict: str) -> tuple[bool, str]:
+    """Type at an agent that a request it was handed has been closed under it.
+
+    It may be mid-work on it, so it is told the way a delivery is - the same
+    gates - and (typed, why not) says whether that happened. Not telling it is
+    safe: the row is closed, so its own `ocp resolve` of it is refused.
+    """
+    agent = row["target"]
+    handle = db.get_terminal(con, agent)
+    if wall_reason(con, agent):
+        return False, f"{agent} is at its usage limit"
+    if not handle or not orca.available() or not orca.alive(handle):
+        return False, f"{agent} has no terminal"
+    if not session_present(agent):
+        return False, f"{agent} has no running session"
+    if not orca.typeable_now(handle):
+        return False, f"{agent} is mid-work or at a prompt"
+    with lock.terminal(agent) as mine:
+        if not mine:
+            return False, f"something else is typing at {agent}"
+        ok, _ = orca.send(
+            handle,
+            f"#{row['id']} from {row['requester']} was cancelled: {verdict}. Stop work "
+            f"on it; it is closed and needs no resolve. `ocp read {row['id']}` shows it.")
+    return ok, "" if ok else "the send failed"
+
+
 def _tell(con, agent: str, head, depth: int, handle: str, log) -> bool:
     more = depth - 1
     body = head["body"] or "(empty)"

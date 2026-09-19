@@ -8933,6 +8933,244 @@ def test_an_answer_to_the_human_is_in_the_human_mailbox(home: Path) -> None:
         con.close()
 
 
+def test_the_founder_can_cancel_a_request_in_an_agents_queue(home: Path) -> None:
+    """A delivered head its agent never resolved held everything behind it for
+    an hour, and `withdraw` refuses anything already delivered. `cancel` closes
+    it as rejected - never deletes it - and tells everyone it touches."""
+    _daemon_home(home, 20)
+    con = db.connect()
+    sent: list[tuple[str, str]] = []
+    real = (orcamod.alive, orcamod.send, orcamod.available, orcamod.typeable_now,
+            askmod.asking_agent)
+    try:
+        orcamod.available = lambda: True
+        orcamod.live_terminals = lambda: {"term_b", "term_m"}
+        orcamod.alive = lambda h: True
+        orcamod.typeable_now = lambda h: True
+        orcamod.send = lambda h, text, enter=True: (sent.append((h, text)), (True, ""))[1]
+        sessions_are("backend", "marina")
+        for name, term in (("backend", "term_b"), ("marina", "term_m")):
+            agents.register(name, "alpha")
+            db.set_terminal(con, name, term, "wt")
+            db.set_agent_state(con, name, dmn.IDLE)
+
+        def ask(requester: str, body: str) -> int:
+            return db.add_request(con, requester, "backend", body, None,
+                                  "peer", "async", None, 0, None)
+
+        head = ask("marina", "the stuck one")
+        mine = ask(askmod.HUMAN, "founder's own, behind it")
+        other = ask("marina", "marina's second")
+        db.mark_delivered(con, head)
+        db.set_cursor(con, "notify:backend", head)
+
+        # Case 2/3: a delivered head, another agent's request.
+        ok, why = actions.cancel_plan(con, head)
+        check("cancel: the plan says what happens and who is told",
+              ok and "closed as rejected" in why and "backend is told to stop" in why
+              and "marina is told" in why and f"#{mine} delivers next" in why, why)
+        said = actions.cancel(con, head)
+        row = db.get_request(con, head)
+        check("cancel: a delivered head is closed as rejected with the verdict",
+              row["state"] == "rejected" and row["verdict"] == "withdrawn by the founder",
+              str(dict(row)))
+        check("cancel: and is still in the log, not deleted", row is not None)
+        check("cancel: the target is told to stop, at its own terminal",
+              any(h == "term_b" and f"#{head}" in t and "cancelled" in t and "Stop work" in t
+                  for h, t in sent), str(sent))
+        check("cancel: the requester is told through the answer path",
+              any(h == "term_m" and f"#{head} from backend: withdrawn by the founder" in t
+                  for h, t in sent), str(sent))
+        check("cancel: the item behind it is now the head and is delivered",
+              db.head_of_queue(con, "backend")["id"] == mine
+              and any(h == "term_b" and f"#{mine} from human" in t for h, t in sent), str(sent))
+        check("cancel: the cancel is on the record",
+              con.execute("SELECT 1 FROM events WHERE kind = 'cancel'").fetchone() is not None)
+        check("cancel: and the result says what was done", "cancelled" in said, said)
+
+        # The founder's own request, delivered: closed like any other, but the
+        # founder is not handed their own cancellation as news.
+        db.mark_delivered(con, mine)
+        sent.clear()
+        actions.cancel(con, mine)
+        check("cancel: the founder's own delivered request is closed as rejected",
+              db.get_request(con, mine)["state"] == "rejected")
+        check("cancel: and the founder is not told about their own cancel",
+              not db.unannounced_answers(con, askmod.HUMAN), str(db.unannounced_answers(con, askmod.HUMAN)))
+
+        # Case 3, undelivered: the target never saw it, so nothing is typed at it.
+        # (`other` became the head when the ones before it were cancelled, so it
+        # is a request behind it that has not been shown.)
+        check("cancel: what was behind a cancelled head was delivered in turn",
+              db.get_request(con, other)["delivered_at"] is not None)
+        tail = ask("marina", "marina's third, behind a delivered one")
+        sent.clear()
+        actions.cancel(con, tail)
+        other = tail
+        check("cancel: an undelivered request of another agent's is closed and its requester told",
+              db.get_request(con, other)["state"] == "rejected"
+              and any(h == "term_m" and f"#{other}" in t for h, t in sent), str(sent))
+        check("cancel: with nothing typed at a target that never saw it",
+              not any(h == "term_b" and "cancelled" in t for h, t in sent), str(sent))
+
+        # Case 1: the founder's own, not yet delivered - a plain withdraw.
+        undelivered = ask(askmod.HUMAN, "changed my mind")
+        sent.clear()
+        ok, why = actions.cancel_plan(con, undelivered)
+        check("cancel: an undelivered request of the founder's is planned as a withdraw",
+              ok and why.startswith("withdraw") and "nobody is told" in why, why)
+        actions.cancel(con, undelivered)
+        check("cancel: it is withdrawn, exactly as `ocp withdraw` does",
+              db.get_request(con, undelivered)["state"] == "withdrawn")
+        check("cancel: and nothing is typed anywhere", not sent, str(sent))
+
+        # An agent mid-work cannot be typed at; the row closes anyway, and the
+        # agent cannot undo it by resolving it later.
+        busy = ask("marina", "worked on right now")
+        db.mark_delivered(con, busy)
+        db.set_cursor(con, "notify:backend", busy)
+        orcamod.typeable_now = lambda h: False
+        sent.clear()
+        said = actions.cancel(con, busy)
+        check("cancel: a target it cannot type at is not told now, and the founder is told so",
+              db.get_request(con, busy)["state"] == "rejected"
+              and "could not be told" in said and not any(h == "term_b" for h, _t in sent), said)
+        orcamod.typeable_now = lambda h: True
+        os.environ["OCP_AGENT"] = "backend"
+        try:
+            out = _capture(lambda: climod.main(["resolve", str(busy), "did it anyway"]))
+        finally:
+            del os.environ["OCP_AGENT"]
+        check("cancel: the target resolving it later is refused, the verdict stands",
+              "already rejected" in out
+              and db.get_request(con, busy)["verdict"] == "withdrawn by the founder", out)
+
+        racer = ask("marina", "resolved at the same instant")
+        check("cancel: the close is one write - it loses to a resolve that got there first",
+              db.close_if_queued(con, racer, "done", "agent's own answer")
+              and not db.close_if_queued(con, racer, "rejected", "withdrawn by the founder")
+              and db.get_request(con, racer)["verdict"] == "agent's own answer")
+        check("cancel: a request that is already closed says so",
+              "already" in actions.cancel(con, head), actions.cancel(con, head))
+        ok, why = actions.cancel_plan(con, 99999)
+        check("cancel: and one that is not there says so", not ok, why)
+
+        # The terminal's version: the founder only.
+        again = ask("marina", "for the CLI")
+        os.environ["OCP_AGENT"] = "marina"
+        try:
+            out = _capture(lambda: climod.main(["cancel", str(again), "--yes"]))
+        finally:
+            del os.environ["OCP_AGENT"]
+        check("cancel: `ocp cancel` refuses an agent", "founder's" in out
+              and db.get_request(con, again)["state"] == "queued", out)
+        askmod.asking_agent = lambda: askmod.HUMAN
+        out = _capture(lambda: climod.main(["cancel", str(again), "--yes"]))
+        check("cancel: and does the same action for the founder",
+              db.get_request(con, again)["state"] == "rejected" and "cancelled" in out, out)
+    finally:
+        (orcamod.alive, orcamod.send, orcamod.available, orcamod.typeable_now,
+         askmod.asking_agent) = real
+        con.close()
+
+
+def test_the_agent_page_picks_a_waiting_request_and_cancels_it(home: Path) -> None:
+    """The cursor the founder already knows, on the one section that lists
+    requests, and one key behind a confirm that says what it will do."""
+    _daemon_home(home, 20)
+    con = db.connect()
+    sent: list[tuple[str, str]] = []
+    asked: list[str] = []
+    real = (orcamod.alive, orcamod.send, orcamod.available, orcamod.typeable_now,
+            tui._confirm, tui._say)
+    try:
+        orcamod.available = lambda: True
+        orcamod.live_terminals = lambda: {"term_b", "term_m"}
+        orcamod.alive = lambda h: True
+        orcamod.typeable_now = lambda h: True
+        orcamod.send = lambda h, text, enter=True: (sent.append((h, text)), (True, ""))[1]
+        tui._say = lambda *a, **k: None
+        sessions_are("backend", "marina")
+        for name, term in (("backend", "term_b"), ("marina", "term_m")):
+            agents.register(name, "alpha")
+            db.set_terminal(con, name, term, "wt")
+            db.set_agent_state(con, name, dmn.IDLE)
+        first = db.add_request(con, "marina", "backend", "first", None, "peer", "async",
+                               None, 0, None)
+        second = db.add_request(con, askmod.HUMAN, "backend", "second", None, "peer", "async",
+                                None, 0, None)
+        third = db.add_request(con, "marina", "backend", "third", None, "peer", "async",
+                               None, 0, None)
+        fourth = db.add_request(con, askmod.HUMAN, "backend", "fourth", None, "peer", "async",
+                                None, 0, None)
+        db.mark_delivered(con, first)
+        db.set_cursor(con, "notify:backend", first)
+
+        d = tui._agent_page(con, "backend")
+        d["tab"] = [h for h, _ in d["sections"] if h].index(
+            next(h for h, _ in d["sections"] if h.startswith("WAITING FOR IT")))
+        plain = lambda: [tui._ANSI.sub("", ln) for ln in tui.lines_of(d, 100)]  # noqa: E731
+        check("page: the waiting requests are selectable rows",
+              d["picks"]["WAITING FOR IT"] == [first, second, third, fourth], str(d["picks"]))
+        check("page: the cursor starts on the first, in the gutter the panels use",
+              any("▸" in ln and f"#{first}" in ln for ln in plain()), "\n".join(plain()))
+        d, _ = tui._in_detail(d, "j", 100, 40)
+        check("page: down moves it", any("▸" in ln and f"#{second}" in ln for ln in plain()),
+              "\n".join(plain()))
+        d, _ = tui._in_detail(d, "k", 100, 40)
+        d, _ = tui._in_detail(d, "k", 100, 40)
+        check("page: and up stops at the first", d["at"] == 0)
+        check("page: the keys line says x cancels here",
+              "x cancel" in tui._ANSI.sub("", tui._detail_frame(140, 40, d)))
+
+        # Declined: nothing changes.
+        tui._confirm = lambda what, w, h: (asked.append(what), False)[1]
+        d2, msg = tui._in_detail(d, "x", 100, 40)
+        check("page: the confirm says what will happen and who is told",
+              asked and "cancel" in asked[0] and "closed as rejected" in asked[0]
+              and "backend is told to stop" in asked[0] and "marina is told" in asked[0],
+              str(asked))
+        check("page: declined, it is left alone",
+              msg == "left alone" and db.get_request(con, first)["state"] == "queued", msg)
+
+        # Accepted on the delivered head: the item behind it is delivered.
+        tui._confirm = lambda what, w, h: (asked.append(what), True)[1]
+        d, msg = tui._in_detail(d, "x", 100, 40)
+        check("page: confirmed, the delivered head is closed as rejected",
+              db.get_request(con, first)["state"] == "rejected", msg)
+        check("page: the item behind it is delivered and is now first",
+              d["picks"]["WAITING FOR IT"] == [second, third, fourth]
+              and any(h == "term_b" and f"#{second} from human" in t for h, t in sent), str(sent))
+        check("page: both ends were told",
+              any(h == "term_b" and "cancelled" in t for h, t in sent)
+              and any(h == "term_m" and f"#{first} from backend" in t for h, t in sent),
+              str(sent))
+
+        # An undelivered request of the founder's, further down: withdrawn,
+        # nothing typed anywhere.
+        sent.clear()
+        for _ in range(2):
+            d, _m = tui._in_detail(d, "j", 100, 40)
+        d, msg = tui._in_detail(d, "x", 100, 40)
+        check("page: the founder's own undelivered request is withdrawn with nothing typed",
+              db.get_request(con, fourth)["state"] == "withdrawn" and not sent,
+              f"{msg} {sent}")
+        check("page: and the page has dropped it, the cursor kept on a row",
+              d["picks"]["WAITING FOR IT"] == [second, third] and d["at"] == 1,
+              str((d["picks"], d["at"])))
+
+        # x with no row to act on says where to go.
+        d0 = tui._agent_page(con, "backend")
+        tabs = [h for h, _ in d0["sections"] if h]
+        d0["tab"] = next(i for i, h in enumerate(tabs) if h.startswith("WHAT IT KNOWS"))
+        _d, msg = tui._in_detail(d0, "x", 100, 40)
+        check("page: x elsewhere on the page says how to use it", "WAITING FOR IT" in msg, msg)
+    finally:
+        (orcamod.alive, orcamod.send, orcamod.available, orcamod.typeable_now,
+         tui._confirm, tui._say) = real
+        con.close()
+
+
 def test_the_wake_time_is_in_the_state_cell_not_a_column(home: Path) -> None:
     """A parked agent's deadline is when it comes back, and park, a degraded
     retry and the await fallback all still set one. The column that carried it
@@ -11479,6 +11717,8 @@ def main() -> int:
         run(lambda: test_an_answer_to_the_human_is_in_the_human_mailbox(Path(td) / 'mailbox'))
         run(lambda: test_the_team_is_drawn_the_way_it_is_routed(Path(td) / 'tree'))
         run(lambda: test_the_wake_time_is_in_the_state_cell_not_a_column(Path(td) / 'waketime'))
+        run(lambda: test_the_founder_can_cancel_a_request_in_an_agents_queue(Path(td) / 'cancel'))
+        run(lambda: test_the_agent_page_picks_a_waiting_request_and_cancels_it(Path(td) / 'cancelpage'))
         run(lambda: test_a_folded_row_says_what_its_reports_are_doing(Path(td) / 'foldmark'))
         run(lambda: test_the_panel_and_the_daemon_agree_about_what_is_in_the_way(Path(td) / 'topagree'))
         run(lambda: test_the_screen_says_what_is_stuck_and_what_was_decided(Path(td) / 'topstuck'))
