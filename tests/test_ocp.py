@@ -7185,6 +7185,9 @@ edges:
         check("team: every agent is told not to schedule its own wakeup to wait",
               all("Never schedule your own wakeup" in c
                   for c in (mgr, dev, launch.context_for("scout"))))
+        check("team: every agent is told a request ends with resolve, even a deferral",
+              all("End every request with `ocp resolve <id>`" in c
+                  for c in (mgr, dev, launch.context_for("scout"))))
 
         # A team is closed until it is opened: the screen is for what needs
         # you, and every report drawn in full is a list to scroll past. The

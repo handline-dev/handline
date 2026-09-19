@@ -326,6 +326,8 @@ def _your_team(agent: str) -> str:
     # session that is at the usage wall.
     lines.append("Never schedule your own wakeup, /loop or poll to wait for a reply "
                  "or a review: ocp types the answer into your session when it comes.")
+    lines.append("End every request with `ocp resolve <id>` (or dismiss), even a deferral: "
+                 "the next arrives only then, and an answer typed in chat reaches no one.")
     return "\n".join(lines)
 
 
