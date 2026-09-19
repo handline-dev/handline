@@ -506,9 +506,11 @@ def deliver_queued(con, agent: str, log) -> bool:
 # something that is not an ask (a long job) can still say so when it is asked;
 # shorter would nag an agent between two turns of a task.
 NUDGE_AFTER_S = 600
-# The same idle stretch, still unresolved after the nudge, is what the human is
-# shown. Thirty minutes is the longest silence the daemon calls healthy
-# (STUCK_RUNNING_S), so the screen and the RUNNING label agree on what stuck is.
+# Once reminded, an agent still idle on the request this long after it last did
+# anything is what the human is shown. The nudge is typed as a prompt, so the
+# agent's answer to it counts as activity and this runs from there. Thirty
+# minutes is the longest silence the daemon calls healthy (STUCK_RUNNING_S), so
+# the screen and the RUNNING label agree on what stuck is.
 FORGOTTEN_STUCK_S = STUCK_RUNNING_S
 # A nudge that could not be typed (mid-turn, a modal) is not asked again for
 # this long, because the idle probe that says no costs its whole timeout.

@@ -2698,6 +2698,16 @@ def test_an_open_head_request_on_an_idle_agent_is_nudged_then_shown(home: Path) 
               and all(f"#{b}" in rows[0]["why"] for b in behind), str(rows))
         check("stuck: not a row per queued request saying nobody told it",
               not any("has not been told" in b["why"] for b in rows), str(rows))
+        # The nudge is typed as a prompt, so the agent's answer to it is its own
+        # activity and the thirty minutes run again from there.
+        for kind in ("UserPromptSubmit", "Stop"):
+            db.add_event(con, "backend", kind, {})
+        check("stuck: an agent that has just answered the nudge is not shown until it "
+              "has been idle again",
+              not any("idle on" in b["what"] for b in actions.stuck(con)))
+        idle_for(dmn.FORGOTTEN_STUCK_S + 60)
+        check("stuck: and is shown again once it has",
+              any("idle on" in b["what"] for b in actions.stuck(con)))
         db.set_request_state(con, head, "done", verdict="did it")
         check("stuck: resolving it clears the row",
               not any("idle on" in b["what"] for b in actions.stuck(con)))
