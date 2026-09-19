@@ -178,7 +178,8 @@ def cmd_account_list(args) -> int:
         resets = "-" if not st.reset_7d else time.strftime("%m-%d %H:%M", time.localtime(st.reset_7d))
         plan = accounts.subscription_type(a) or "-"
         # A figure we inferred is marked, never dressed up as one we read.
-        five = f"{cell(st.trusted_pct_5h)}{status.mark(st.pct_5h_source)}"
+        shown, src = st.shown_pct_5h()
+        five = f"{cell(shown)}{src}"
         print(f"{a:<14}{'yes' if accounts.logged_in(a) else 'no':<8}{plan:<6}"
               f"{five:>5}{cell(st.pct_7d):>5}  {resets:<12}{cell(st.ctx_pct):>6}{age:>8}  "
               f"{'yes' if allowed else 'NO':<4} {why}")
@@ -541,7 +542,8 @@ def cmd_triggers(args) -> int:
             cell = lambda v: "  -" if v is None else f"{v:>3}"  # noqa: E731
             # The figure the trigger used, not the raw one: a column saying "-"
             # beside a reason saying "0%" is the dashboard arguing with the daemon.
-            five = f"{cell(st.trusted_pct_5h)}{status.mark(st.pct_5h_source)}"
+            shown, src = st.shown_pct_5h()
+            five = f"{cell(shown)}{src}"
             row = db.get_agent_state(con, a)
             if daemonmod.triggers_apply(row):
                 fires, reason = "YES" if t.fired else "no ", t.reason
