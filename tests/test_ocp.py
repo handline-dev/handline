@@ -3225,6 +3225,25 @@ def test_migrate_memory_merges_the_index_and_stays_in_scope(home: Path) -> None:
     check("migrate_memory: the index keeps the destination's lines and gains the source's",
           index == ["- [old](old.md) - beta's", "- [new](new.md) - alpha's"], str(index))
 
+    # The same file indexed under two descriptions is one entry, from the side
+    # whose file wins the copy.
+    (src / "both.md").write_text("alpha's newer text\n")
+    (dst / "both.md").write_text("beta's older text\n")
+    os.utime(dst / "both.md", (1, 1))
+    os.utime(src / "both.md", (9, 9))
+    (dst / "MEMORY.md").write_text((dst / "MEMORY.md").read_text() + "- [both](both.md) - beta's take\n")
+    (src / "MEMORY.md").write_text((src / "MEMORY.md").read_text() + "- [both](both.md) - alpha's take\n")
+    accounts.migrate_memory("alpha", "beta", project=proj)
+    both = [ln for ln in (dst / "MEMORY.md").read_text().splitlines() if "(both.md)" in ln]
+    check("migrate_memory: one index entry per file, the winning side's description",
+          both == ["- [both](both.md) - alpha's take"], str(both))
+    os.utime(src / "both.md", (0, 0))
+    (dst / "MEMORY.md").write_text((dst / "MEMORY.md").read_text().replace("alpha's take", "beta's take"))
+    accounts.migrate_memory("alpha", "beta", project=proj)
+    both = [ln for ln in (dst / "MEMORY.md").read_text().splitlines() if "(both.md)" in ln]
+    check("migrate_memory: and the destination's when its file is the newer one",
+          both == ["- [both](both.md) - beta's take"], str(both))
+
     # Newest wins for an ordinary file, in both directions.
     os.utime(src / "new.md", (1, 1))
     (dst / "new.md").write_text("beta edited this later\n")

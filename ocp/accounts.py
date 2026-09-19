@@ -190,6 +190,43 @@ def memory_project_dir(repo: str) -> str:
     return re.sub(r"[^A-Za-z0-9]", "-", repo)
 
 
+_INDEX_TARGET = re.compile(r"\]\(([^)\s]+)\)")
+
+
+def _merge_memory_index(src_index: Path, dst_index: Path) -> str | None:
+    """The union of two `MEMORY.md` indexes, one line per file, or None when
+    the destination already says everything the source does.
+
+    Two accounts can describe the same file differently, so the line is keyed
+    on the file it links to. The line kept is the one from the side whose file
+    the copy will leave in place (the newer one), so the description matches
+    the content. A line with no link is kept once, verbatim."""
+    def target(line: str) -> str | None:
+        m = _INDEX_TARGET.search(line)
+        return m.group(1) if m else None
+
+    lines = dst_index.read_text().splitlines()
+    have = {target(ln): i for i, ln in enumerate(lines) if target(ln)}
+    changed = False
+    for ln in src_index.read_text().splitlines():
+        if not ln.strip():
+            continue
+        t = target(ln)
+        if t is None or t not in have:
+            if ln not in lines:
+                lines.append(ln)
+                if t:
+                    have[t] = len(lines) - 1
+                changed = True
+            continue
+        s_file, d_file = src_index.parent / t, dst_index.parent / t
+        if (s_file.is_file() and d_file.is_file()
+                and s_file.stat().st_mtime > d_file.stat().st_mtime and lines[have[t]] != ln):
+            lines[have[t]] = ln
+            changed = True
+    return "\n".join(lines) + "\n" if changed else None
+
+
 def migrate_memory(from_acct: str, to_acct: str, project: str | None = None) -> list[str]:
     """Carry what an agent has learned from one account's config dir to
     another. Which account a fact happened to be written under is an
@@ -207,8 +244,8 @@ def migrate_memory(from_acct: str, to_acct: str, project: str | None = None) -> 
     destination is itself the newer side - which a straight round trip
     (an agent moved back to an account it had already been on) makes routine.
     `MEMORY.md` is the exception: it is the index Claude Code loads, so the
-    two sides' lines are unioned rather than one replacing the other, or a
-    file on disk would stop being loaded. The memory is the repo's, not one
+    two sides' entries are unioned, one per file, rather than one replacing
+    the other, or a file on disk would stop being loaded. The memory is the repo's, not one
     agent's, so every agent's notes for it travel together.
     Only ever copies regular files into projects/*/memory/, matching the same
     restriction KICKOFF rule 1 states for the whole module.
@@ -235,11 +272,9 @@ def migrate_memory(from_acct: str, to_acct: str, project: str | None = None) -> 
                 continue
             dst_file = dst_mem / f.relative_to(src_mem)
             if f.name == "MEMORY.md" and dst_file.is_file():
-                have = dst_file.read_text().splitlines()
-                extra = [ln for ln in f.read_text().splitlines()
-                         if ln.strip() and ln not in have]
-                if extra:
-                    dst_file.write_text("\n".join(have + extra) + "\n")
+                merged = _merge_memory_index(f, dst_file)
+                if merged is not None:
+                    dst_file.write_text(merged)
                     copied_any = True
                 continue
             if dst_file.exists() and dst_file.stat().st_mtime >= f.stat().st_mtime:
