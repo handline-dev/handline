@@ -6513,6 +6513,19 @@ def test_a_report_to_the_founder_is_not_a_wait(home: Path) -> None:
         check("fyi: another sender's report is left alone",
               db.get_request(con, f2)["state"] == "queued")
 
+        real_who = askmod.asking_agent
+        try:
+            askmod.asking_agent = lambda: "backend"
+            _capture(lambda: climod.cmd_read(argparse.Namespace(id=f2)))
+            check("fyi: an agent reading it does not close it",
+                  db.get_request(con, f2)["state"] == "queued")
+            askmod.asking_agent = lambda: actions.HUMAN
+            _capture(lambda: climod.cmd_read(argparse.Namespace(id=f2)))
+            check("fyi: the founder's `ocp read` closes it",
+                  db.get_request(con, f2)["state"] == "done")
+        finally:
+            askmod.asking_agent = real_who
+        db.set_request_state(con, f2, "queued")
         actions.opened_by_human(con, f2)
         check("fyi: opening it closes it", db.get_request(con, f2)["state"] == "done")
         actions.opened_by_human(con, q)

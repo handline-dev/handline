@@ -320,6 +320,8 @@ def ask(target: str, body: str, files: str | None = None, requester: str | None 
             # the write itself is the gate, not a second look at delivered_at.
             retire = db.retire_queued if old["target"] == HUMAN else db.retire_if_undelivered
             if not retire(con, replaces, "replaced"):
+                if old["target"] == HUMAN:
+                    return False, f"#{replaces} was answered just now - nothing to replace", None
                 return False, (f"#{replaces} was delivered to {old['target']} just now - "
                                f"too late to replace; send a reply in its thread instead "
                                f"(`ocp ask {old['target']} \"...\" --parent {replaces}`)"), None
