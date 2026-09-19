@@ -3764,12 +3764,16 @@ def test_nothing_is_typed_at_a_modal(home: Path) -> None:
         orcamod.modal_open = lambda h: True
         check("modal: a waiting request is not typed at an open modal",
               not dmn.deliver_queued(con, "backend", lambda _m: None) and not sent, str(sent))
+        # Isolate the cause: no modal, nothing else in the way, only unsent text.
+        orcamod.modal_open = lambda h: False
         orcamod.unsent_text = lambda h: True
+        rid = db.queued_for(con, "backend")[0]["id"]
         check("unsent: a waiting request is not typed into text a human left in the input",
               not dmn.deliver_queued(con, "backend", lambda _m: None) and not sent, str(sent))
         check("unsent: and it stays queued to be retried, not dropped",
-              db.queued_for(con, "backend") is not None)
+              [r["id"] for r in db.queued_for(con, "backend")] == [rid])
         orcamod.unsent_text = lambda h: False
+        orcamod.modal_open = lambda h: True
         orcamod.modal_open = lambda h: False
         check("modal: it is told once the modal is gone",
               dmn.deliver_queued(con, "backend", lambda _m: None))
@@ -3810,9 +3814,27 @@ def test_nothing_is_typed_at_a_modal(home: Path) -> None:
             check("unsent: no draft key is an empty input", not orcamod.unsent_text("h"))
             screen["draft"] = ""
             check("unsent: an empty draft is an empty input", not orcamod.unsent_text("h"))
-            screen["draft"] = "x"
+            del screen["draft"]
             screen["source"] = "screen-unavailable"
             check("unsent: a screen that is not rendered counts as unsent", orcamod.unsent_text("h"))
+            screen["source"] = "screen"
+            screen["draft"] = "typed"
+            screen["tail"] = ["> "]
+            orcamod.modal_open = lambda h: False
+            orcamod.idle_now = lambda h: True
+            check("unsent: an idle agent with text in the input is not typeable",
+                  not orcamod.typeable_now("h"))
+            sent_: list[str] = []
+            orcamod.wait_idle = lambda h, t=0: True
+            orcamod.alive = lambda h: True
+            orcamod.send = lambda h, text, enter=True: (sent_.append(text), (True, ""))[1]
+            ok_c, why_c = REAL_ORCA["close_session"]("h")
+            check("unsent: /exit is refused, not typed into it", not ok_c and not sent_, why_c)
+            ok_c, why_c = REAL_ORCA["clear_context"]("h")
+            check("unsent: /clear is refused, not typed into it", not ok_c and not sent_, why_c)
+            del screen["draft"]
+            ok_c, why_c = REAL_ORCA["clear_context"]("h")
+            check("unsent: with the input empty /clear is typed", ok_c and sent_ == ["/clear"], why_c)
         finally:
             orcamod._run = real_run
     finally:

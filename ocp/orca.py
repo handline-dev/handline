@@ -257,6 +257,10 @@ def clear_context(handle: str, wait: bool = True,
         return False, f"terminal {handle} is not alive"
     if wait and not wait_idle(handle, timeout_ms):
         return False, "agent is mid-turn; not clearing"
+    if modal_open(handle):
+        return False, "a modal is open on its screen; not typing /clear at it"
+    if unsent_text(handle):
+        return False, "text is left unsent in its input; not typing /clear into it"
     ok, out = send(handle, "/clear")
     return ok, "context cleared" if ok else f"could not send /clear: {out[:200]}"
 
