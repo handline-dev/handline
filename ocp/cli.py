@@ -21,7 +21,7 @@ from . import (accounts, actions, agents, ask as askmod, daemon as daemonmod, db
                tui,
                digest, doctor,
                drift, events, fold as foldmod, guide, hooks, launch, paths, service,
-               hr, orca, status, spawn as spawnmod, team, triggers)
+               hr, orca, status, spawn as spawnmod, team, triggers, waiting)
 
 
 # ---------------------------------------------------------------- login
@@ -383,7 +383,25 @@ def cmd_daemon(args) -> int:
                          verbose=not args.quiet, max_ticks=args.max_ticks)
 
 
+def _print_waits() -> None:
+    """The founder's waits above everything else `ps` prints, in words: the same
+    list the bridge pins in red."""
+    con = db.connect()
+    try:
+        waits = actions.founder_waits(con)
+    finally:
+        con.close()
+    if not waits:
+        return
+    now = time.time()
+    print(f"{tui.WAITING_ON_YOU} ({len(waits)})")
+    for w in waits:
+        print(f"  {tui._plain(w['who'])} · {tui._plain(w['what'])} · {tui.age(now - w['since'])}")
+    print()
+
+
 def cmd_daemon_status(args) -> int:
+    _print_waits()
     pid = daemonmod.running_elsewhere()
     supervisor = service.supervisor_of(pid)
     print(f"daemon: {'running, pid ' + str(pid) if pid else 'not running'} - {supervisor}")
@@ -401,7 +419,9 @@ def cmd_daemon_status(args) -> int:
             print("no agent state recorded yet")
         else:
             w = _name_col([r["agent"] for r in rows], 14)
-            print(f"\n{'AGENT':<{w}}{'STATE':<11}{'WAKE':<8}{'fail':>5}{'cont':>6}{'thr':>5}  DETAIL")
+            waits = {r["agent"]: waiting.of(r) for r in rows}
+            sw = len(tui.WAITING_ON_YOU) + 1 if any(waits.values()) else 11
+            print(f"\n{'AGENT':<{w}}{'STATE':<{sw}}{'WAKE':<8}{'fail':>5}{'cont':>6}{'thr':>5}  DETAIL")
             now = int(time.time())
             for r in rows:
                 wake = "-" if not r["wake_at"] else time.strftime("%H:%M", time.localtime(r["wake_at"]))
@@ -409,6 +429,10 @@ def cmd_daemon_status(args) -> int:
                     wake += "!"
                 shown = r["state"] + ("·closed" if r["closed_at"] else "")
                 detail = r["detail"] or ""
+                held = waits[r["agent"]]
+                if held:
+                    shown = tui.WAITING_ON_YOU
+                    detail = tui._plain(f"{held['tool']}: {held['command']}")
                 walled = (daemonmod.would_wake(con, r) and
                           launch.wake_wait_reason(r["agent"], r, con))
                 if walled:
@@ -420,7 +444,7 @@ def cmd_daemon_status(args) -> int:
                     detail = f"{detail[:room]} · {walled}" if detail else walled
                 else:
                     detail = detail[:70]
-                print(f"{r['agent']:<{w}}{shown:<11}{wake:<8}"
+                print(f"{r['agent']:<{w}}{shown:<{sw}}{wake:<8}"
                       f"{r['failed_attempts']:>5}{r['continuations']:>6}{r['throttle_count']:>5}  "
                       f"{detail}")
         flight = db.in_flight_handoffs(con)
@@ -648,10 +672,10 @@ def cmd_hook_install(args) -> int:
     exe = os.environ.get("OCP_BIN") or shutil.which("ocp") or str(paths.repo_root() / "bin" / "ocp")
     block = data.setdefault("hooks", {})
     added, pruned = [], 0
-    for event in sorted(events.CAPTURED | set(block)):
+    for event in sorted(events.CAPTURED | events.ANSWERS | set(block)):
         groups = block.get(event)
         if groups is None:
-            if event not in events.CAPTURED:
+            if event not in events.CAPTURED | events.ANSWERS:
                 continue
             groups = block.setdefault(event, [])
         # Ours, in whatever spelling, collapses to exactly one entry.
@@ -675,7 +699,7 @@ def cmd_hook_install(args) -> int:
             seen = True
             keep.append(g)
         groups[:] = keep
-        if not seen and event in events.CAPTURED:
+        if not seen and event in events.CAPTURED | events.ANSWERS:
             groups.append({"hooks": [{"type": "command",
                                       "command": f"{exe} hook {event}", "timeout": 10}]})
             added.append(event)

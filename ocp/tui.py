@@ -37,6 +37,7 @@ import unicodedata
 from pathlib import Path
 
 from . import accounts, actions, agents, daemon, db, launch, paths, status, triggers
+from . import waiting as promptwait
 
 ALT_ON, ALT_OFF = "\033[?1049h", "\033[?1049l"
 CUR_OFF, CUR_ON = "\033[?25l", "\033[?25h"
@@ -54,6 +55,11 @@ STATE_COLOR = {
     "HANDOFF": YEL, "PARKED": YEL, "THROTTLED": YEL,
     "DEGRADED": RED, "STALLED": RED,
 }
+
+# What an agent reads as while it sits at a prompt only the founder can answer.
+# Its state underneath is still RUNNING; this is drawn over it.
+WAITING_ON_YOU = "WAITING ON YOU"
+WAITS_SHOWN = 5   # rows of the pinned block; the rest are counted, not drawn
 
 # The panels a cursor can sit in, in tab order. STUCK is one of them because a
 # row there names the agent that is stuck, and the keys that unstick it are the
@@ -346,6 +352,35 @@ def _needs_you(row) -> str:
     return f"{RED}{row['state'].lower()}{R} {DIM}{(row['detail'] or '')[:60]}{R}"
 
 
+def _plain(text: str) -> str:
+    """What someone else wrote, made safe to draw: an escape is invisible to the
+    width count and `esc [ 2J` clears the screen it is drawn on."""
+    return "".join(c if c.isprintable() else " " for c in _ANSI.sub("", text))
+
+
+def wait_lines(waits: list[dict], width: int, budget: int | None = None) -> list[str]:
+    """The block pinned above everything else: what is stopped until the founder
+    acts. Nothing when nothing is.
+
+    `budget` is the most lines it may take: the heading always shows, with the
+    count, and what does not fit is counted rather than drawn - a short window
+    keeps its mailbox.
+    """
+    if not waits:
+        return []
+    now = time.time()
+    out = [f"{BOLD}{RED}{WAITING_ON_YOU}{R} {DIM}({len(waits)}){R}"]
+    room = min(WAITS_SHOWN + 1, len(waits) if budget is None else max(0, budget - 1))
+    shown = len(waits) if len(waits) <= room else max(0, room - 1)
+    for w in waits[:shown]:
+        colour = RED if w["red"] else YEL
+        out.append(fit(f"{colour}  {_plain(w['who'])} · {_plain(w['what'])} · "
+                       f"{age(now - w['since'])}{R}", width))
+    if shown < len(waits) and room:
+        out.append(f"{DIM}  … {len(waits) - shown} more{R}")
+    return out
+
+
 def keybar(panel: int, width: int, hidden: int = 0) -> str:
     """The keys this panel answers to, in as much room as there is.
 
@@ -383,7 +418,8 @@ def keybar(panel: int, width: int, hidden: int = 0) -> str:
 
 
 def build(width: int, sel: dict | None = None,
-          panel: int | None = None) -> tuple[list[str], list[Panel]]:
+          panel: int | None = None,
+          wait_budget: int | None = None) -> tuple[list[str], list[Panel]]:
     """Return (header lines, panels) for one frame.
 
     `sel` is {panel: key}: which row carries the cursor in each panel, so the
@@ -412,7 +448,10 @@ def build(width: int, sel: dict | None = None,
         # Not "5h": both usage columns carry these marks now.
         with_legend = f"{bar_}{DIM} · {status.SOURCE_LEGEND_SHORT}{R}"
         show_legend = any(m.strip() for m in marks) and vlen(with_legend) <= width
-        header = [fit(with_legend if show_legend else bar_, width), ""]
+        header = [fit(with_legend if show_legend else bar_, width)]
+        # Above the accounts, above everything: it is the one thing on this
+        # screen that stops until a person acts.
+        header += wait_lines(actions.founder_waits(con), width, wait_budget) + [""]
 
         # ---- accounts ------------------------------------------------
         acc = Panel("ACCOUNTS", width, focused=panel == ACCOUNTS)
@@ -496,6 +535,8 @@ def build(width: int, sel: dict | None = None,
             # as PARKED hides the one difference that matters on this machine.
             if row and row["closed_at"]:
                 s += "·closed"
+            elif promptwait.of(row):
+                s = WAITING_ON_YOU
             # Only when something is actually about to happen. Measured on a
             # live team: nothing firing, six rows reading "— closed" - which
             # the state column says already, with the same word - and two
@@ -518,7 +559,8 @@ def build(width: int, sel: dict | None = None,
                 pad(fit(twig + f"{BOLD}{name}{R}", NAME_W - vlen(folded)) + folded,
                     NAME_W)
                 + pad(acct, 8)
-                + pad(f"{STATE_COLOR.get(s, '')}{fit(s, 15)}{R}", 16)
+                + pad(f"{BOLD + RED if s == WAITING_ON_YOU else STATE_COLOR.get(s, '')}"
+                      f"{fit(s, 15)}{R}", 16)
                 + pad(ctxs, 7)
                 + pad(countdown(row["wake_at"] if row else None), 7)
                 + pad(str(inbox) if inbox else "·", 4)
@@ -694,7 +736,9 @@ def frame(width: int, height: int, sel: dict | None = None, panel: int = AGENTS,
           flash: str = "", detail: dict | None = None) -> str:
     if detail is not None:
         return _detail_frame(width, height, detail, flash)
-    header, panels = build(width, sel, panel)
+    # The pinned block takes what is left after the bar, the blank line, the
+    # two footer rows and the smallest box the mailbox can be drawn in.
+    header, panels = build(width, sel, panel, wait_budget=height - 4 - PANEL_MIN)
     room = height - len(header) - 2                    # the two footer rows
     limits, hidden = _layout([len(p.rows) for p in panels], room)
     body: list[str] = []

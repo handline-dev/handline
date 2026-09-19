@@ -12,7 +12,7 @@ import json
 import os
 import sys
 
-from . import db
+from . import db, waiting
 
 # Which hook events we record. PostToolUse is deliberately absent.
 CAPTURED = {
@@ -29,6 +29,15 @@ CAPTURED = {
     # when Stop had no transition the whole system went blind for hours.
     "TeammateIdle",
 }
+
+# Hooks that say a permission prompt was answered. They are installed but
+# never recorded - PostToolUse fires on every tool call - and all they do is
+# take away the wait a PermissionRequest raised (`waiting.clear`).
+ANSWERS = {"PostToolUse", "PostToolUseFailure"}
+
+# The events after which no prompt can still be pending: a new prompt, or the
+# turn or the session ending.
+ENDS_WAIT = {"UserPromptSubmit", "Stop", "StopFailure", "SessionStart", "SessionEnd"}
 
 # Per event, the stdin fields worth keeping.
 ALLOWLIST = (
@@ -114,6 +123,13 @@ def record_from_stdin(argv: list[str] | None = None) -> int:
     event = raw.get("hook_event_name") or event
     agent = os.environ.get("OCP_AGENT")
     account = os.environ.get("OCP_ACCOUNT")
+    if agent and event in ANSWERS:
+        try:
+            waiting.clear(agent, raw.get("tool_name"), raw.get("tool_input"))
+        except Exception:  # noqa: BLE001 - a hook must never break the session
+            pass
+        print("{}")
+        return 0
     if not agent or event not in CAPTURED:
         # Not one of ours, or not an event we keep. Stay silent and succeed.
         print("{}")
@@ -127,6 +143,11 @@ def record_from_stdin(argv: list[str] | None = None) -> int:
                 lim = limit_reason(raw)
                 if lim:
                     payload["limit"], payload["limit_source"] = lim
+            if event == "PermissionRequest":
+                payload["command"] = waiting.summary(raw.get("tool_input"))
+                waiting.note(agent, raw.get("tool_name"), raw.get("tool_input"))
+            elif event in ENDS_WAIT:
+                waiting.clear(agent)
             db.add_event(con, agent, event, payload, account=account)
             _mark_activity(con, agent, event, payload)
         finally:

@@ -4,6 +4,7 @@ Run: python3 tests/test_ocp.py
 """
 from __future__ import annotations
 
+import argparse
 import contextlib
 import io
 import json
@@ -3599,8 +3600,8 @@ def test_installing_hooks_twice_does_not_double_them(home: Path) -> None:
     stops = [c for c in ours if c.endswith("hook Stop")]
     check("hooks: one entry per event however it was spelled before",
           len(stops) == 1, str(stops))
-    check("hooks: every captured event is installed",
-          {c.rsplit(" ", 1)[1] for c in ours} == set(evmod.CAPTURED),
+    check("hooks: every captured event is installed, and the ones that answer a prompt",
+          {c.rsplit(" ", 1)[1] for c in ours} == set(evmod.CAPTURED | evmod.ANSWERS),
           str(sorted({c.rsplit(" ", 1)[1] for c in ours})))
     check("hooks: Orca's own entries are left alone",
           any(h.get("command") == "orca-hook pre"
@@ -6342,6 +6343,148 @@ def test_room_is_filtered_before_the_ranking_not_after(home: Path) -> None:
         con.close()
 
 
+def _fire_hook(event: str, **fields) -> None:
+    real_in = sys.stdin
+    sys.stdin = io.StringIO(json.dumps({"hook_event_name": event, "session_id": "s", **fields}))
+    try:
+        evmod.record_from_stdin([event])
+    finally:
+        sys.stdin = real_in
+
+
+def test_a_permission_prompt_waits_on_the_founder_until_it_is_answered(home: Path) -> None:
+    """A PermissionRequest turns the row red and pins it above everything, in
+    the bridge and in ps; the answer clears it at once, not at the next Stop,
+    and clearing writes no event row."""
+    _daemon_home(home, 20)
+    os.environ["OCP_AGENT"], os.environ["OCP_ACCOUNT"] = "backend", "alpha"
+    con = db.connect()
+    try:
+        db.set_terminal(con, "backend", "term_x", "wt")
+        db.set_agent_state(con, "backend", dmn.RUNNING, detail="active")
+        cmd = "git push origin main " + "x" * 200
+
+        def waits():
+            return [w for w in actions.founder_waits(con) if w["kind"] == "permission"]
+
+        check("prompt: nothing is waiting before one is raised", not waits())
+        _fire_hook("PermissionRequest", tool_name="Bash", tool_input={"command": cmd})
+        w = waits()
+        check("prompt: the agent is waiting, with its tool and its command",
+              len(w) == 1 and w[0]["who"] == "backend" and w[0]["red"]
+              and w[0]["what"].startswith("Bash: git push origin main"), str(w))
+        check("prompt: the command is cut to 120 characters",
+              len(w[0]["what"]) == len("Bash: ") + 120, str(len(w[0]["what"])))
+        ev = [json.loads(e["payload"]) for e in db.events_after(con, 0, agent="backend")
+              if e["kind"] == "PermissionRequest"]
+        check("prompt: the event carries the command too", ev and ev[-1].get("command") == cmd[:120],
+              str(ev))
+        check("prompt: its state underneath is still RUNNING",
+              db.get_agent_state(con, "backend")["state"] == dmn.RUNNING)
+
+        frame = tui.frame(120, 40)
+        plain = [tui._ANSI.sub("", ln) for ln in frame.split("\n")]
+        first = next(i for i, ln in enumerate(plain) if "WAITING ON YOU" in ln)
+        check("bridge: the block is pinned above the accounts",
+              first < next(i for i, ln in enumerate(plain) if "ACCOUNTS" in ln), str(plain[:6]))
+        check("bridge: drawn in red, with the command and how long",
+              any(tui.RED in ln and "git push origin main" in ln for ln in frame.split("\n")),
+              str(plain[:6]))
+        check("bridge: and the agent's own row reads WAITING ON YOU, not RUNNING",
+              any(ln.lstrip("│ ").startswith("backend") and "WAITING ON YOU" in ln
+                  for ln in plain), str([ln for ln in plain if "backend" in ln]))
+
+        out = io.StringIO()
+        real_out = sys.stdout
+        sys.stdout = out
+        try:
+            climod.cmd_daemon_status(argparse.Namespace())
+        finally:
+            sys.stdout = real_out
+        said = out.getvalue()
+        check("ps: the block comes first and the state column says it",
+              said.startswith("WAITING ON YOU (1)") and "backend " in said
+              and said.count("WAITING ON YOU") == 2 and "Bash: git push" in said, said[:400])
+
+        rows_before = len(db.events_after(con, 0, agent="backend"))
+        _fire_hook("PostToolUse", tool_name="Read", tool_input={"file_path": "/x"})
+        check("prompt: another tool finishing is not the answer", len(waits()) == 1)
+        _fire_hook("PostToolUse", tool_name="Bash", tool_input={"command": cmd})
+        check("prompt: the answered call clears it at once", not waits())
+        check("prompt: and clearing wrote no event row",
+              len(db.events_after(con, 0, agent="backend")) == rows_before)
+        check("prompt: PostToolUse is still not a recorded event",
+              "PostToolUse" not in evmod.CAPTURED and "PostToolUse" in evmod.ANSWERS)
+
+        _fire_hook("PermissionRequest", tool_name="Bash", tool_input={"command": "rm x"})
+        _fire_hook("PostToolUseFailure", tool_name="Bash", tool_input={"command": "rm x"})
+        check("prompt: a refused call clears it as well", not waits())
+
+        for ends in ("Stop", "UserPromptSubmit", "SessionEnd"):
+            _fire_hook("PermissionRequest", tool_name="Edit", tool_input={"file_path": "/a"})
+            _fire_hook(ends)
+            check(f"prompt: {ends} clears it whatever else was missed", not waits())
+
+        _fire_hook("PermissionRequest", tool_name="Bash", tool_input={"command": "ls"})
+        db.set_agent_state(con, "backend", dmn.IDLE)
+        check("prompt: a session the daemon has moved off RUNNING is not at that prompt",
+              not waits())
+        db.set_agent_state(con, "backend", dmn.RUNNING)
+        db.set_closed(con, "backend", "sess-1")
+        check("prompt: nor is a closed one", not waits())
+    finally:
+        os.environ.pop("OCP_AGENT", None); os.environ.pop("OCP_ACCOUNT", None)
+        con.close()
+
+
+def test_a_proposal_and_an_escalation_wait_on_the_founder_too(home: Path) -> None:
+    """An hr proposal shows from the moment it is raised until it is applied or
+    refused; an escalation shows until it is answered."""
+    _daemon_home(home, 20)
+    accounts.register("beta")
+    con = db.connect()
+    try:
+        def waits(kind):
+            return [w for w in actions.founder_waits(con) if w["kind"] == kind]
+
+        ok, said = hr.propose("move", "backend", requester="backend", why="beta is quieter",
+                              account="beta")
+        pid = said.split()[1]
+        w = waits("proposal")
+        check("hr wait: a raised proposal is waiting on the founder, in red",
+              ok and len(w) == 1 and w[0]["red"] and "awaiting your decision" in w[0]["what"]
+              and "backend" in w[0]["what"], str(w))
+        check("hr wait: it is not also drawn as a bare escalation", not waits("escalation"))
+        check("hr wait: and the bridge pins it",
+              "hr move backend" in tui._ANSI.sub("", tui.frame(120, 40)))
+
+        rid = hr.load_proposal(pid)["request"]
+        askmod.resolve(rid, "approve", notify=False)
+        w = waits("proposal")
+        check("hr wait: approved but not applied it stays, no longer red",
+              len(w) == 1 and not w[0]["red"] and "not yet applied" in w[0]["what"], str(w))
+        ok, said = hr.apply(pid)
+        check("hr wait: applied, it is gone", ok and not waits("proposal"), said)
+
+        agents.register("marina", "beta")
+        ok, said = hr.propose("move", "marina", requester="marina", why="w", account="alpha")
+        askmod.resolve(hr.load_proposal(said.split()[1])["request"], "reject", notify=False)
+        check("hr wait: refused, it is gone", not waits("proposal"), str(waits("proposal")))
+
+        db.add_request(con, "marina", actions.HUMAN, "which branch do we cut?", None,
+                       "peer", "async", "escalate", 0, None)
+        w = waits("escalation")
+        check("escalation: an unanswered one is waiting on the founder, in red",
+              len(w) == 1 and w[0]["red"] and w[0]["who"] == "marina"
+              and "which branch" in w[0]["what"], str(w))
+        con.execute("UPDATE requests SET state = 'done', verdict = 'the release one' "
+                    "WHERE body LIKE 'which branch%'")
+        con.commit()
+        check("escalation: answered, it is gone", not waits("escalation"))
+    finally:
+        con.close()
+
+
 def test_a_turn_that_ends_on_the_usage_limit_is_at_the_wall(home: Path) -> None:
     """StopFailure with the limit message on a live agent: shown as stopped, not
     RUNNING, and handed off and moved though nothing reads full and the terminal
@@ -8787,6 +8930,8 @@ def main() -> int:
         run(lambda: test_a_stale_account_whose_window_rolled_over_can_take_work(Path(td) / 'stalebeta'))
         run(lambda: test_room_is_filtered_before_the_ranking_not_after(Path(td) / 'roomfirst'))
         run(lambda: test_a_turn_that_ends_on_the_usage_limit_is_at_the_wall(Path(td) / 'limitstop'))
+        run(lambda: test_a_permission_prompt_waits_on_the_founder_until_it_is_answered(Path(td) / 'promptwait'))
+        run(lambda: test_a_proposal_and_an_escalation_wait_on_the_founder_too(Path(td) / 'founderwaits'))
         run(lambda: test_choose_account_does_not_bounce_back_to_a_stale_preferred_account(
             Path(td) / 'nobounce'))
         run(lambda: test_move_requires_clear_headroom_not_bare_assignability(
