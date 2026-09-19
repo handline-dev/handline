@@ -237,6 +237,23 @@ class AccountStatus:
     def trusted_ctx_pct(self) -> int | None:
         return None if self.stale else self.ctx_pct
 
+    def last_known(self) -> str:
+        """The figures of a stale snapshot, with their age, for a reader.
+
+        Display only: nothing that decides reads this. A window whose reset has
+        passed is marked, since the real figure is then lower than the one shown.
+        """
+        if not self.exists or self.error or self.pct_5h is None:
+            return ""
+        now = time.time()
+        age = "unknown age" if self.age_s is None else f"{_ago(self.age_s)} old"
+        gone = ", reset since" if self.reset_5h and self.reset_5h <= now else ""
+        text = f"5h {self.pct_5h}% ({age}{gone})"
+        if self.pct_7d is not None:
+            week_gone = " (reset since)" if self.reset_7d and self.reset_7d <= now else ""
+            text += f", 7d {self.pct_7d}%{week_gone}"
+        return text
+
     def assignable(self) -> tuple[bool, str]:
         """May we give this account new work? Returns (allowed, reason)."""
         if not self.exists:
@@ -248,6 +265,9 @@ class AccountStatus:
             # nobody subtracts; the line is on a dashboard, and what it has to
             # say is how long ago anything ran on this account.
             shown = "unknown" if self.age_s is None else _ago(self.age_s)
+            last = self.last_known()
+            if last:
+                return False, f"{last} - stale, not offered"
             return False, (f"nothing has run on it for {shown} - the snapshot is "
                            f"stale (fail-closed)")
         pct = self.trusted_pct_5h
@@ -307,6 +327,9 @@ class AccountStatus:
             return False, ""
         if week is not None and week >= PCT_7D_BLOCK and not week_over:
             return False, ""
+        last = self.last_known()
+        if last:
+            return True, f"{last} - stale, window rolled over"
         shown = "its week has rolled over" if week_over else f"7d {week}%"
         return True, f"stale, window rolled over, {shown}"
 

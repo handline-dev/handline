@@ -7089,6 +7089,42 @@ def test_the_cold_start_is_measured_and_sets_how_long_to_wait(home: Path) -> Non
         con.close()
 
 
+def test_a_stale_snapshot_shows_its_last_figures_and_still_is_not_offered(home: Path) -> None:
+    """The last known 5h and 7d figures are shown with their age wherever an
+    account is, and a reset that has passed is said. Display only: the pick
+    refuses the account as before."""
+    _daemon_home(home, 20)
+    _with_accounts("alpha", "beta")
+    now = int(time.time())
+    write_status(home, "alpha", pct_5h=5, pct_7d=10, reset_5h=now + 3600,
+                 reset_7d=now + 86400)
+    write_status(home, "beta", pct_5h=41, pct_7d=20, reset_5h=now + 1800,
+                 reset_7d=now + 86400, collected_at=now - 3600)
+    st = status.read("beta")
+    ok, why = st.takes_work()
+    check("stale: the reason has the last 5h and 7d with the snapshot's age",
+          not ok and "5h 41% (60m old), 7d 20%" in why and "not offered" in why, why)
+    picked, ranked = status.pick_account(["beta"], load={})
+    check("stale: the pick still refuses it, and says the figures",
+          picked is None and "5h 41%" in dict(ranked)["beta"], str(ranked))
+    check("stale: nothing that decides reads the number",
+          st.trusted_pct_5h is None)
+    out = _capture(lambda: climod.main(["account", "list"]))
+    check("stale: `ocp account list` shows it", "5h 41% (60m old)" in out, out)
+    panel = tui._ANSI.sub("", tui.frame(200, 40))
+    check("stale: the bridge shows it", "5h 41% (60m old)" in panel, panel[:400])
+
+    write_status(home, "beta", pct_5h=41, pct_7d=20, reset_5h=now - 600,
+                 reset_7d=now + 86400, collected_at=now - 3600)
+    why = status.read("beta").takes_work()[1]
+    check("stale: a passed reset is marked, the number kept",
+          "5h 41% (60m old, reset since)" in why, why)
+    write_status(home, "beta", pct_5h=41, pct_7d=20, reset_5h=now + 1800,
+                 reset_7d=now - 60, collected_at=now - 3600)
+    why = status.read("beta").takes_work()[1]
+    check("stale: and a passed weekly reset", "7d 20% (reset since)" in why, why)
+
+
 def test_the_cap_is_set_from_the_command_line_and_the_bridge(home: Path) -> None:
     _daemon_home(home, 20)
     out = _capture(lambda: climod.main(["account", "cap", "alpha", "3"]))
@@ -9489,6 +9525,7 @@ def main() -> int:
         run(lambda: test_at_the_wall_it_is_a_cost_comparison_not_a_line(Path(td) / 'ar2'))
         run(lambda: test_a_working_agent_is_not_handed_off_on_a_percentage(Path(td) / 'ar3'))
         run(lambda: test_the_cold_start_is_measured_and_sets_how_long_to_wait(Path(td) / 'ar4'))
+        run(lambda: test_a_stale_snapshot_shows_its_last_figures_and_still_is_not_offered(Path(td) / 'ar4c'))
         run(lambda: test_agents_that_wall_together_respect_the_cap_and_a_start_is_not_its_own_rival(Path(td) / 'ar4b'))
         run(lambda: test_the_cap_is_set_from_the_command_line_and_the_bridge(Path(td) / 'ar5'))
         run(lambda: test_replaying_0919_makes_fewer_moves_than_the_old_rules(Path(td) / 'ar6'))
