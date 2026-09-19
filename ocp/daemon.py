@@ -245,7 +245,8 @@ def resume_handoff(con, row, log, use_model: bool = True) -> None:
         st = status.read(agents.current_account(agent, con))
     except Exception:  # noqa: BLE001 - a missing account must not wedge the resume
         pass
-    wake = triggers.next_reset(st.reset_5h if st else None)
+    wake = triggers.wake_after(row["trigger_kind"] or "", st.reset_5h if st else None,
+                               st.reset_7d if st else None)
     db.advance_handoff(con, hid, "released", state="done" if done_ok else "degraded")
     db.set_agent_state(con, agent, PARKED, wake_at=wake,
                        detail=f"resumed handoff; wakes at "
@@ -681,38 +682,34 @@ def _wake_agent(con, agent: str, log, moved_to: str | None = None,
         acct_st = status.read(acct)
         pct = acct_st.trusted_pct_5h
         if pct is not None and pct >= status.PCT_5H_BLOCK:
-            # Pinning (request #156/#165, item 1's unfinished piece, #223):
-            # `resuming=True` above only ever looks at the account the
-            # resume id lives under, so an agent whose own account hit the
-            # wall waited out its window even with another account sitting
-            # idle beside it - keeper's #173 was meant to fold this in as
-            # one more readiness case, but it was withdrawn, so it is built
-            # directly here instead (#253). The events a fold would read are
-            # durable whether or not the session is live, so they can still
-            # be folded now; losing `--resume` for a session that cannot be
-            # resumed on any other account anyway is the same trade a live
-            # move already makes.
+            # The resume account is at the wall. If another account has room,
+            # fold and start fresh there: a resume id cannot follow an account
+            # change, and the events a fold reads are durable without a live
+            # session. A failed fold keeps the id, since the session is the
+            # only complete copy of the context.
             rescued = False
-            if session:
-                elsewhere = launch.choose_account(
-                    agent, limit=triggers.HARD_STOP_PCT - triggers.DEFAULT_RESERVE_PCT,
-                    limit_7d=triggers.PCT_7D_HARD_STOP - triggers.DEFAULT_RESERVE_7D_PCT)
-                elsewhere_st = status.read(elsewhere)
-                headroom = elsewhere_st.headroom()
-                headroom7 = elsewhere_st.headroom_7d()
-                rescued = (elsewhere != acct and elsewhere_st.assignable()[0]
-                          and headroom is not None and headroom >= status.MOVE_MIN_HEADROOM_PCT
-                          and (headroom7 is None or headroom7 >= status.MOVE_MIN_HEADROOM_PCT))
-                if rescued:
-                    foldmod.fold(agent, use_model=use_model)
+            elsewhere = _room_to_move(agent) if session else None
+            if elsewhere and elsewhere != acct and status.read(elsewhere).assignable()[0]:
+                hid = uuid.uuid4().hex[:12]
+                db.start_handoff(con, hid, agent, session, "pinned",
+                                 db.get_cursor(con, f"fold:{agent}"),
+                                 int(time.time()) + HANDOFF_DEADLINE_S)
+                ok, msg = foldmod.fold(agent, use_model=use_model)
+                if ok:
+                    db.advance_handoff(con, hid, "released", state="done",
+                                       cursor_to=db.get_cursor(con, f"fold:{agent}"))
+                    db.reset_counter(con, agent, "throttle_count")
                     db.set_closed(con, agent, None)
                     db.add_event(con, agent, "moved_account",
                                  {"from": acct, "to": elsewhere, "trigger": "pinned"})
                     log(f"  {agent}: pinned to {acct} at {pct}% - folded and "
-                        f"starting fresh on {elsewhere} instead of waiting out "
-                        f"the window")
-                    session, acct = None, elsewhere
-                    moved_to = elsewhere
+                        f"starting fresh on {elsewhere}")
+                    session, acct, moved_to, rescued = None, elsewhere, elsewhere, True
+                else:
+                    db.advance_handoff(con, hid, "released", state="degraded",
+                                       detail=msg[:300])
+                    db.bump_counter(con, agent, "throttle_count")
+                    log(f"  {agent}: fold failed ({msg[:120]}); keeping the resume id")
             if not rescued:
                 why = (f"account {acct} is at {pct}% of the 5h limit; "
                        f"not launching until the window rolls over")
@@ -1083,7 +1080,17 @@ def perform_handoff(con, agent: str, trigger: triggers.Trigger, log,
 # because we cannot read the account, and "we do not know" is not "it is full".
 # Moving on it would send agents off an account nobody can see, which is the
 # fail-closed rule pointed the wrong way.
-MOVABLE_TRIGGERS = ("usage", "usage_projected")
+MOVABLE_TRIGGERS = ("usage", "usage_7d", "usage_projected")
+
+
+def _room_to_move(agent: str) -> str | None:
+    """Where a move may land: judged on the line the trigger fires at, not the
+    hard stop, since an account the daemon just decided is too full to work on
+    is too full to move to, and with clear headroom so it does not bounce."""
+    return launch.find_room(
+        agent, limit=triggers.HARD_STOP_PCT - triggers.DEFAULT_RESERVE_PCT,
+        limit_7d=triggers.PCT_7D_HARD_STOP - triggers.DEFAULT_RESERVE_7D_PCT,
+        room=status.MOVE_MIN_HEADROOM_PCT)
 
 
 def _move_to_room(con, agent: str, trigger: triggers.Trigger, log) -> bool:
@@ -1102,42 +1109,14 @@ def _move_to_room(con, agent: str, trigger: triggers.Trigger, log) -> bool:
     if trigger.kind not in MOVABLE_TRIGGERS:
         return False
     here = agents.current_account(agent, con)
-    # Judged on the line the trigger fired at, not on the hard stop. The fold
-    # happens a reserve short of the wall so there is room to pay for it, and
-    # an account the daemon has just decided is too full to work on is too full
-    # to move to as well. `choose_account` is the same function the launch this
-    # move ends in will call again on its own - see its own comment for why a
-    # stale reading of `preferred` no longer sends this straight back to an
-    # account it only just left (request #241).
-    there = launch.choose_account(
-        agent, limit=triggers.HARD_STOP_PCT - triggers.DEFAULT_RESERVE_PCT,
-        limit_7d=triggers.PCT_7D_HARD_STOP - triggers.DEFAULT_RESERVE_7D_PCT)
-    if there == here:
-        log(f"  {agent}: staying on {here} - nowhere with more room")
+    there = _room_to_move(agent)
+    if there is None or there == here:
+        log(f"  {agent}: staying on {here} - nowhere with room to move to")
         return False
     there_st = status.read(there)
     allowed, why = there_st.assignable()
     if not allowed:
         log(f"  {agent}: staying on {here} - {there} takes no work either ({why})")
-        return False
-    # Bare assignability is not enough for a move (request #241 decision a): a
-    # destination only a point or two under the wall re-triggers within one
-    # turn, so the agent pays for two folds instead of one. Headroom reads as
-    # unknown on a stale snapshot too, and a stale reading is not room either.
-    headroom = there_st.headroom()
-    if headroom is None or headroom < status.MOVE_MIN_HEADROOM_PCT:
-        shown = "unknown" if headroom is None else f"{headroom}%"
-        log(f"  {agent}: staying on {here} - {there} only has {shown} 5h headroom "
-            f"(needs >= {status.MOVE_MIN_HEADROOM_PCT}%)")
-        return False
-    # Same margin, the weekly figure (request #254): a destination that is
-    # itself only a point or two under its own 7d wall is the same bounce as
-    # (a), just in the other window - unknown passes, same as everywhere else
-    # a missing 7d reading is not treated as a refusal.
-    headroom7 = there_st.headroom_7d()
-    if headroom7 is not None and headroom7 < status.MOVE_MIN_HEADROOM_PCT:
-        log(f"  {agent}: staying on {here} - {there} only has {headroom7}% weekly "
-            f"headroom (needs >= {status.MOVE_MIN_HEADROOM_PCT}%)")
         return False
     picked_why = f"5h {there_st.trusted_pct_5h}%, 7d {there_st.trusted_pct_7d}%"
     handle = db.get_terminal(con, agent)
@@ -1232,8 +1211,8 @@ def _perform_handoff(con, agent: str, trigger: triggers.Trigger, log,
 
     # Park until the usage window rolls over - or longer, if this agent keeps
     # degrading, so a broken one is not retried at full cadence forever.
-    reset = st.reset_5h if st else None
-    wake = triggers.next_reset(reset)
+    wake = triggers.wake_after(trigger.kind, st.reset_5h if st else None,
+                               st.reset_7d if st else None)
     fresh = db.get_agent_state(con, agent)
     streak = int(fresh["throttle_count"]) if fresh else 0
     if streak:

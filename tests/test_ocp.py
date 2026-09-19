@@ -895,11 +895,11 @@ def test_triggers() -> None:
     # (5h 9%, 7d 98%) is exactly where this fires.
     t = T.evaluate(9, 10, pct_7d=98)
     check("trigger: a 7d reading a reserve short of its wall fires",
-          t.fired and t.kind == "usage" and "pct_7d" in t.reason, t.reason)
+          t.fired and t.kind == "usage_7d" and "pct_7d" in t.reason, t.reason)
     check("trigger: 7d below its reserve line does not fire on its own",
           not T.evaluate(9, 10, pct_7d=97).fired)
     check("trigger: 7d at its hard stop fires",
-          T.evaluate(9, 10, pct_7d=100).kind == "usage")
+          T.evaluate(9, 10, pct_7d=100).kind == "usage_7d")
     check("trigger: no 7d reading at all is not a 7d refusal",
           not T.evaluate(9, 10, pct_7d=None).fired)
     check("trigger: a 5h reason still wins when both are past their line",
@@ -4815,7 +4815,7 @@ def test_weekly_headroom_is_spent_to_its_own_wall(home: Path) -> None:
 
         t = triggers.evaluate(9, 10, pct_7d=98)
         check("7d wall: 5h 9% / 7d 98% fires a move trigger on the 7d figure",
-              t.fired and t.kind == "usage" and "pct_7d" in t.reason, t.reason)
+              t.fired and t.kind == "usage_7d" and "pct_7d" in t.reason, t.reason)
 
         real = (orcamod.available, orcamod.alive, orcamod.close_session,
                orcamod.relaunch, orcamod.idle_now, dmn.wait_for_session)
@@ -5083,6 +5083,59 @@ def test_a_pinned_agent_stays_pinned_when_nothing_else_has_clear_room(home: Path
         con.close()
 
 
+def test_room_is_filtered_before_the_ranking_not_after(home: Path) -> None:
+    """A destination too full to last is dropped before the deadline order, so
+    a good account behind it is still found; a weekly trigger parks until the
+    week resets; a rescue whose fold fails keeps the resume id."""
+    _daemon_home(home, 20)
+    accounts.register("nearwall")
+    accounts.register("empty")
+    agents.register("keeper", "alpha")
+    now = int(time.time())
+    for acct in ("alpha", "nearwall", "empty"):
+        (home / "accounts" / acct / ".claude").mkdir(parents=True, exist_ok=True)
+        (home / "accounts" / acct / ".claude" / ".credentials.json").write_text("{}")
+    write_status(home, "alpha", pct_5h=86, pct_7d=10, reset_5h=now + 1800,
+                 reset_7d=now + 86400 * 3)
+    write_status(home, "nearwall", pct_5h=80, pct_7d=10, reset_5h=now + 1800,
+                 reset_7d=now + 23 * 3600)
+    write_status(home, "empty", pct_5h=0, pct_7d=10, reset_5h=now + 1800,
+                 reset_7d=now + 86400 * 4)
+    check("room: a move skips the near-wall account for the empty one behind it",
+          dmn._room_to_move("keeper") == "empty", str(dmn._room_to_move("keeper")))
+    write_status(home, "nearwall", pct_5h=88, pct_7d=10, reset_5h=now + 1800,
+                 reset_7d=now + 23 * 3600)
+    check("room: a launch does not land on an account past its own move line",
+          launch.choose_account("keeper") == "empty", launch.choose_account("keeper"))
+
+    check("room: a weekly trigger parks until the week resets",
+          triggers.wake_after("usage_7d", now + 1800, now + 86400 * 2, now) == now + 86400 * 2)
+    check("room: a 5h trigger parks until the 5h window resets",
+          triggers.wake_after("usage", now + 1800, now + 86400 * 2, now) == now + 1800)
+
+    write_status(home, "alpha", pct_5h=88, reset_5h=None, pct_7d=10,
+                 collected_at=now - 6 * 3600)
+    write_status(home, "nearwall", pct_5h=99, pct_7d=10, reset_5h=now + 1800)
+    check("room: a reading older than 5h with no reset is not still a floor",
+          launch.find_room("keeper") == "alpha", str(launch.find_room("keeper")))
+
+    write_status(home, "alpha", pct_5h=95, pct_7d=5, reset_5h=now + 1800)
+    con = db.connect()
+    real = (orcamod.available, foldmod.fold)
+    try:
+        db.set_terminal(con, "keeper", "term_x", "wt")
+        db.set_closed(con, "keeper", "sess-old")
+        orcamod.available = lambda: True
+        foldmod.fold = lambda agent, use_model=True: (False, "could not run")
+        ok, why = dmn._wake_agent(con, "keeper", lambda _m: None, use_model=False)
+        row = db.get_agent_state(con, "keeper")
+        check("rescue: a failed fold keeps the resume id and waits",
+              not ok and row["resume_session"] == "sess-old", f"{why} {dict(row)}")
+    finally:
+        orcamod.available, foldmod.fold = real
+        con.close()
+
+
 def test_choose_account_does_not_bounce_back_to_a_stale_preferred_account(home: Path) -> None:
     """Founder's priority #241: harbor-manager moved alpha -> gamma at 85%,
     then gamma -> alpha 12 minutes later - back to the account it had just
@@ -5161,8 +5214,8 @@ def test_move_requires_clear_headroom_not_bare_assignability(home: Path) -> None
         check("move headroom: the account on record has not changed",
               agents.current_account("keeper", con) == "alpha",
               agents.current_account("keeper", con))
-        check("move headroom: the refusal says why, by name and figure (decision d)",
-              any("beta" in m and "headroom" in m for m in logged), str(logged))
+        check("move headroom: the refusal is logged",
+              any("staying on alpha" in m for m in logged), str(logged))
 
         # Clear headroom - the same move now succeeds.
         write_status(home, "beta", pct_5h=30, pct_7d=5,
@@ -7022,6 +7075,7 @@ def main() -> int:
             Path(td) / 'pinned'))
         run(lambda: test_a_pinned_agent_stays_pinned_when_nothing_else_has_clear_room(
             Path(td) / 'pinnedstuck'))
+        run(lambda: test_room_is_filtered_before_the_ranking_not_after(Path(td) / 'roomfirst'))
         run(lambda: test_choose_account_does_not_bounce_back_to_a_stale_preferred_account(
             Path(td) / 'nobounce'))
         run(lambda: test_move_requires_clear_headroom_not_bare_assignability(

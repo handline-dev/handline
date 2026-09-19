@@ -434,11 +434,12 @@ _CONFIDENCE = {"live": 3, "carried": 2, "quiet": 1}
 def deadline_7d(st: "AccountStatus") -> float:
     """When this account's weekly headroom is lost if it goes unspent.
 
-    Infinity, not now, for an account whose reset_7d we do not know: it is not
-    more urgent than one we can see approaching its own reset, and it still
-    has to sort somewhere among accounts tied on urgency.
+    Infinity, not now, for an account whose reset_7d we do not know or that is
+    already past (that window rolled over, so its headroom just refreshed): it
+    is not more urgent than one we can see approaching its own reset, and it
+    still has to sort somewhere among accounts tied on urgency.
     """
-    return float(st.reset_7d) if st.reset_7d else float("inf")
+    return float(st.reset_7d) if st.reset_7d and st.reset_7d > time.time() else float("inf")
 
 
 def _pick_reason(st: "AccountStatus", picked: bool) -> str:
@@ -450,17 +451,19 @@ def _pick_reason(st: "AccountStatus", picked: bool) -> str:
     return base + " <- picked: earliest deadline" if picked else base
 
 
-def pick_account(candidates: list[str] | None = None) -> tuple[str | None, list[tuple[str, str]]]:
-    """Pick the assignable account whose weekly headroom expires soonest.
+def pick_account(candidates: list[str] | None = None, limit_5h: int | None = None,
+                 limit_7d: int | None = None) -> tuple[str | None, list[tuple[str, str]]]:
+    """Pick the account whose weekly headroom expires soonest, among those that
+    can take the work.
 
-    Returns (choice, [(account, reason)]). When nothing is assignable the
-    choice is None and the caller must refuse - that is the fail-closed path.
+    Returns (choice, [(account, reason)]). When none can, the choice is None
+    and the caller must refuse - that is the fail-closed path.
 
-    Ordering (request #166, amended by #169/#170/#254): among accounts that
-    pass the hard gates, prefer the one whose reset_7d comes soonest - spend
-    the headroom that expires unused first, right up to its own wall rather
-    than holding back at a lower line. Within a tie, or when reset_7d is
-    unknown for everyone being compared, 5h headroom breaks it.
+    Accounts that fail `assignable`, or read at or over `limit_5h`, are
+    dropped before any ranking, so the deadline order only ever compares
+    accounts that would last. Those at or over `limit_7d` rank after the rest
+    but stay eligible: weekly headroom is spent to its wall, not held back.
+    Then reset_7d soonest first; 5h headroom breaks ties and unknowns.
     """
     names = candidates if candidates is not None else paths.list_accounts()
     reasons: list[tuple[str, str]] = []
@@ -468,6 +471,9 @@ def pick_account(candidates: list[str] | None = None) -> tuple[str | None, list[
     for n in names:
         st = read(n)
         allowed, why = st.assignable()
+        pct = st.trusted_pct_5h
+        if allowed and limit_5h is not None and pct is not None and pct >= limit_5h:
+            allowed, why = False, f"5h usage {pct}% >= {limit_5h}%"
         if allowed:
             usable.append((n, st))
         else:
@@ -477,7 +483,9 @@ def pick_account(candidates: list[str] | None = None) -> tuple[str | None, list[
 
     def sort_key(item: tuple[str, AccountStatus]):
         _, st = item
-        return (deadline_7d(st), -(st.headroom() or 0),
+        week = st.trusted_pct_7d
+        over_7d = limit_7d is not None and week is not None and week >= limit_7d
+        return (over_7d, deadline_7d(st), -(st.headroom() or 0),
                 -_CONFIDENCE.get(st.pct_5h_source, 0))
 
     usable.sort(key=sort_key)

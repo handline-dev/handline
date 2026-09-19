@@ -122,9 +122,9 @@ def evaluate(pct_5h: int | None, ctx_pct: int | None, reserve_pct: int = DEFAULT
     if pct_7d is not None:
         limit7 = PCT_7D_HARD_STOP - reserve_7d_pct
         if pct_7d >= PCT_7D_HARD_STOP:
-            return Trigger(True, "usage", f"pct_7d {pct_7d}% >= hard stop {PCT_7D_HARD_STOP}%")
+            return Trigger(True, "usage_7d", f"pct_7d {pct_7d}% >= hard stop {PCT_7D_HARD_STOP}%")
         if pct_7d >= limit7:
-            return Trigger(True, "usage", f"pct_7d {pct_7d}% >= {limit7}% "
+            return Trigger(True, "usage_7d", f"pct_7d {pct_7d}% >= {limit7}% "
                                           f"(hard stop {PCT_7D_HARD_STOP}% minus reserve "
                                           f"{reserve_7d_pct}%)")
 
@@ -153,3 +153,10 @@ def next_reset(reset_5h: int | None, now: int | None = None) -> int:
     if reset_5h and reset_5h > now:
         return int(reset_5h)
     return now + 300  # unknown: look again shortly rather than sleeping blind
+
+
+def wake_after(kind: str, reset_5h: int | None, reset_7d: int | None,
+               now: int | None = None) -> int:
+    """When a parked agent should look again: the window its trigger fired on
+    has to roll over, and a weekly trigger outlasts every 5h reset."""
+    return next_reset(reset_7d if kind == "usage_7d" else reset_5h, now)

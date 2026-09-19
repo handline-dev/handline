@@ -418,7 +418,7 @@ def build(width: int, sel: dict | None = None,
         acc = Panel("ACCOUNTS", width, focused=panel == ACCOUNTS)
         acc.selected = sel.get(ACCOUNTS)
         acc.add(f"{DIM}{'':<2}{'account':<10}{'5h usage':<18}{'reset':<8}"
-                f"{'7d':<12}{'7d resets':<8}why{R}", heading=True)
+                f"{'7d':<12}{'7d reset':<9}why{R}", heading=True)
         # The account with the most headroom: where work goes when an agent's
         # own account is full. Only accounts that can start a session count.
         # Captured whole, not just the pick: request #167/#170 asks this panel
@@ -455,7 +455,7 @@ def build(width: int, sel: dict | None = None,
                       f"{status.mark(st.pct_7d_source)}", 12)
                 # The deadline the ordering spends against (#166): when this
                 # window's headroom is lost if nobody uses it.
-                + pad(countdown(st.reset_7d), 8)
+                + pad(countdown(st.reset_7d), 9)
                 + f"{mark} {DIM}{why}{R}",
                 key=name,
             )
