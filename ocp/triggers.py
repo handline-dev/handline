@@ -22,6 +22,16 @@ CONTEXT_PCT = 60
 HARD_STOP_PCT = 90
 DEFAULT_RESERVE_PCT = 5
 
+# The weekly window is spent to its own ceiling (status.PCT_7D_BLOCK is the same
+# 100; this module takes raw figures and never imports status).
+PCT_7D_HARD_STOP = 100
+DEFAULT_RESERVE_7D_PCT = 2
+
+# The lines a move trigger fires at, and so the lines nothing may be handed
+# work at or past: an agent started there would be moved off at once.
+MOVE_LINE_5H = HARD_STOP_PCT - DEFAULT_RESERVE_PCT
+MOVE_LINE_7D = PCT_7D_HARD_STOP - DEFAULT_RESERVE_7D_PCT
+
 HOT_PCT = 80
 POLL_NORMAL_S = 30
 POLL_HOT_S = 5
@@ -83,7 +93,8 @@ def burn_rate_per_s(samples: list[tuple[int, int]]) -> float:
 
 def evaluate(pct_5h: int | None, ctx_pct: int | None, reserve_pct: int = DEFAULT_RESERVE_PCT,
              burn: float = 0.0, poll_s: int | None = None,
-             fold_eta_s: int = FOLD_ETA_S) -> Trigger:
+             fold_eta_s: int = FOLD_ETA_S, pct_7d: int | None = None,
+             reserve_7d_pct: int = DEFAULT_RESERVE_7D_PCT) -> Trigger:
     """Should this agent hand off now?"""
     # Unknown usage is fail-closed (section 4): hand off rather than run blind.
     # Callers pass the figure they may act on, so None here means no snapshot,
@@ -103,6 +114,17 @@ def evaluate(pct_5h: int | None, ctx_pct: int | None, reserve_pct: int = DEFAULT
     if pct_5h >= limit:
         return Trigger(True, "usage", f"pct_5h {pct_5h}% >= {limit}% "
                                       f"(hard stop {HARD_STOP_PCT}% minus reserve {reserve_pct}%)")
+
+    # The weekly figure, a reserve short of its own wall. Unknown (None) is not
+    # fail-closed here the way pct_5h is: a missing reading is not a wall.
+    if pct_7d is not None:
+        limit7 = PCT_7D_HARD_STOP - reserve_7d_pct
+        if pct_7d >= PCT_7D_HARD_STOP:
+            return Trigger(True, "usage_7d", f"pct_7d {pct_7d}% >= hard stop {PCT_7D_HARD_STOP}%")
+        if pct_7d >= limit7:
+            return Trigger(True, "usage_7d", f"pct_7d {pct_7d}% >= {limit7}% "
+                                          f"(hard stop {PCT_7D_HARD_STOP}% minus reserve "
+                                          f"{reserve_7d_pct}%)")
 
     # Project from wherever we are, not only above HOT_PCT. The horizon is the
     # sleep we are actually about to take plus the fold it would have to
@@ -129,3 +151,10 @@ def next_reset(reset_5h: int | None, now: int | None = None) -> int:
     if reset_5h and reset_5h > now:
         return int(reset_5h)
     return now + 300  # unknown: look again shortly rather than sleeping blind
+
+
+def wake_after(kind: str, reset_5h: int | None, reset_7d: int | None,
+               now: int | None = None) -> int:
+    """When a parked agent should look again: the window its trigger fired on
+    has to roll over, and a weekly trigger outlasts every 5h reset."""
+    return next_reset(reset_7d if kind == "usage_7d" else reset_5h, now)

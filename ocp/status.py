@@ -48,7 +48,7 @@ import time
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from . import paths
+from . import paths, triggers
 
 # statusLine only refreshes while a session is alive, so a snapshot older than
 # this is not trusted as "current" (section 4 constraint - refreshInterval
@@ -89,9 +89,14 @@ def _ago(secs: float) -> str:
     return f"{secs // 86400}d"
 
 
-# Above these, stop handing out new work.
+# Above these nothing can run at all. New work stops a reserve short of them,
+# at the lines a move trigger fires at (triggers.MOVE_LINE_*).
 PCT_5H_BLOCK = 90
-PCT_7D_BLOCK = 95
+PCT_7D_BLOCK = 100
+
+# Clear 5h headroom a move destination needs below the block, so it does not
+# bounce straight back. A plain launch has no such requirement.
+MOVE_MIN_HEADROOM_PCT = 15
 
 
 @dataclass
@@ -269,12 +274,62 @@ class AccountStatus:
             return True, f"5h {pct}% (carried, still inside the window)"
         return True, f"5h {pct}%"
 
+    def takes_work(self, limit_5h: int = triggers.MOVE_LINE_5H,
+                   limit_7d: int = triggers.MOVE_LINE_7D) -> tuple[bool, str]:
+        """May a session be started here: assignable, or a rolled-over stale
+        account, and under the lines a move trigger fires at. The one rule the
+        pick, the panel and `ocp account list` all use."""
+        ok, why = self.assignable()
+        week = self.trusted_pct_7d
+        if ok:
+            pct = self.trusted_pct_5h
+            if pct is not None and pct >= limit_5h:
+                return False, f"5h usage {pct}% >= {limit_5h}%"
+        elif self.rolled_over()[0]:
+            # Its weekly figure is a floor unless the week itself has passed.
+            ok, why = True, self.rolled_over()[1]
+            week = None if self.reset_7d and self.reset_7d <= time.time() else self.pct_7d
+        if ok and week is not None and week >= limit_7d:
+            return False, f"7d usage {week}% >= {limit_7d}%"
+        return ok, why
+
+    def rolled_over(self) -> tuple[bool, str]:
+        """A stale account whose 5h window has passed can take work if its last
+        weekly reading had room: the session that starts there writes a fresh
+        reading, and the move trigger takes the agent off if it is full.
+        Returns (ok, reason)."""
+        if (not self.exists or self.error or self.rl7_lost or not self.stale
+                or self.age_s is None):
+            return False, ""
+        now = time.time()
+        if self.reset_5h:
+            passed = self.reset_5h <= now
+        else:
+            passed = self.age_s >= 5 * 3600
+        if not passed:
+            return False, ""
+        week = self.pct_7d
+        week_over = bool(self.reset_7d and self.reset_7d <= now)
+        if week is None and not week_over:
+            return False, ""
+        if week is not None and week >= PCT_7D_BLOCK and not week_over:
+            return False, ""
+        shown = "its week has rolled over" if week_over else f"7d {week}%"
+        return True, f"stale, window rolled over, {shown}"
+
     def headroom(self) -> int | None:
         """Remaining 5h headroom in percent, or None when unknown."""
         pct = self.trusted_pct_5h
         if pct is None:
             return None
         return max(0, PCT_5H_BLOCK - pct)
+
+    def headroom_7d(self) -> int | None:
+        """Remaining weekly headroom in percent, or None when unknown."""
+        week = self.trusted_pct_7d
+        if week is None:
+            return None
+        return max(0, PCT_7D_BLOCK - week)
 
 
 def _as_pct(v):
@@ -428,12 +483,50 @@ def live_cost(account: str) -> float | None:
     return total if seen else None
 
 
-def pick_account(candidates: list[str] | None = None,
-                 bootstrap: bool = False) -> tuple[str | None, list[tuple[str, str]]]:
-    """Pick the assignable account with the most headroom.
+# Between two accounts whose deadline and headroom tie, prefer the one whose
+# figure we actually saw. An inferred 0% is sound and still a weaker claim
+# than a reported 0%.
+_CONFIDENCE = {"live": 3, "carried": 2, "quiet": 1}
 
-    Returns (choice, [(account, reason)]). When nothing is assignable the
-    choice is None and the caller must refuse - that is the fail-closed path.
+
+def deadline_7d(st: "AccountStatus") -> float:
+    """When this account's weekly headroom is lost if it goes unspent.
+
+    Infinity, not now, for an account whose reset_7d we do not know or that is
+    already past (that window rolled over, so its headroom just refreshed): it
+    is not more urgent than one we can see approaching its own reset, and it
+    still has to sort somewhere among accounts tied on urgency.
+    """
+    return float(st.reset_7d) if st.reset_7d and st.reset_7d > time.time() else float("inf")
+
+
+def _pick_reason(st: "AccountStatus", picked: bool) -> str:
+    """Why this account sits where it does in the ordering."""
+    week = st.trusted_pct_7d
+    week_s = "unknown" if week is None else f"{week}%"
+    rolled = st.rolled_over()
+    if rolled[0]:
+        return rolled[1] + (" <- picked: earliest deadline" if picked else "")
+    when = "unknown" if not st.reset_7d else _ago(max(0.0, st.reset_7d - time.time()))
+    base = f"5h {st.trusted_pct_5h}%, 7d {week_s} (resets in {when})"
+    return base + " <- picked: earliest deadline" if picked else base
+
+
+def pick_account(candidates: list[str] | None = None,
+                 limit_5h: int = triggers.MOVE_LINE_5H,
+                 limit_7d: int = triggers.MOVE_LINE_7D,
+                 bootstrap: bool = False) -> tuple[str | None, list[tuple[str, str]]]:
+    """Pick the account whose weekly headroom expires soonest, among those that
+    can take the work.
+
+    Returns (choice, [(account, reason)]). When none can, the choice is None
+    and the caller must refuse - that is the fail-closed path.
+
+    Accounts that fail `assignable`, or read at or over `limit_5h` or
+    `limit_7d` (by default the lines a move trigger fires at), are dropped
+    before any ranking: an agent started on one would be moved straight off.
+    The deadline order then only compares accounts that would last: reset_7d
+    soonest first; 5h headroom breaks ties and unknowns.
 
     `bootstrap=True`: a logged-in account with no status.json at all - never
     run, so nothing else could ever give it one - is pickable as a last
@@ -443,24 +536,32 @@ def pick_account(candidates: list[str] | None = None,
     "unread", and needs its own explicit preference to be picked again.
     """
     names = candidates if candidates is not None else paths.list_accounts()
-    reasons, usable, blank = [], [], []
-    # Headroom decides, but between two accounts with the same headroom take the
-    # one whose figure we actually saw. An inferred 0% is sound and still a
-    # weaker claim than a reported 0%.
-    confidence = {"live": 3, "carried": 2, "quiet": 1}
+    reasons: list[tuple[str, str]] = []
+    usable: list[tuple[str, AccountStatus]] = []
+    blank: list[str] = []
     for n in names:
         st = read(n)
-        allowed, why = st.assignable()
+        allowed, why = st.takes_work(limit_5h, limit_7d)
         if allowed:
-            usable.append((st.headroom() or 0, confidence.get(st.pct_5h_source, 0), n))
-            reasons.append((n, why))
+            usable.append((n, st))
         elif bootstrap and not st.exists:
             blank.append(n)
             reasons.append((n, "no reading yet - a session has never run on it "
                               "(bootstrap candidate, used only if nothing else qualifies)"))
         else:
             reasons.append((n, why))
-    if usable:
-        usable.sort(reverse=True)
-        return usable[0][2], reasons
-    return (blank[0] if blank else None), reasons
+    if not usable:
+        return (blank[0] if blank else None), reasons
+
+    def sort_key(item: tuple[str, AccountStatus]):
+        _, st = item
+        return (deadline_7d(st), -(st.headroom() or 0),
+                -_CONFIDENCE.get(st.pct_5h_source, 0))
+
+    usable.sort(key=sort_key)
+    picked = usable[0][0]
+    for n, st in usable:
+        reasons.append((n, _pick_reason(st, picked=(n == picked))))
+    order = {n: i for i, n in enumerate(names)}
+    reasons.sort(key=lambda t: order[t[0]])
+    return picked, reasons

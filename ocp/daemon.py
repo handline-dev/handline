@@ -256,7 +256,8 @@ def resume_handoff(con, row, log, use_model: bool = True) -> None:
     if reading is None or reading.source == "assumed":
         wake = int(time.time()) + ASSUMED_ACCOUNT_RECHECK_S
     else:
-        wake = triggers.next_reset(status.read(reading.account).reset_5h)
+        rst = status.read(reading.account)
+        wake = triggers.wake_after(row["trigger_kind"] or "", rst.reset_5h, rst.reset_7d)
     db.advance_handoff(con, hid, "released", state="done" if done_ok else "degraded")
     db.set_agent_state(con, agent, PARKED, wake_at=wake,
                        detail=f"resumed handoff; wakes at "
@@ -694,7 +695,7 @@ def _start_for_work(con, agent: str, log) -> str:
     return f"{agent}: could not be started - {said.splitlines()[0]}"
 
 
-def wake_agent(con, agent: str, log) -> tuple[bool, str]:
+def wake_agent(con, agent: str, log, use_model: bool = True) -> tuple[bool, str]:
     """Hand a cleared agent back its own handoff so it can carry on.
 
     This is the other half of the cycle: the agent kept its terminal and its
@@ -705,10 +706,11 @@ def wake_agent(con, agent: str, log) -> tuple[bool, str]:
             # A human's key and a tick can both land here, and this one holds
             # the terminal for as long as a session takes to appear.
             return False, "someone else is typing at this agent; not waking twice"
-        return _wake_agent(con, agent, log)
+        return _wake_agent(con, agent, log, use_model=use_model)
 
 
-def _wake_agent(con, agent: str, log, moved_to: str | None = None) -> tuple[bool, str]:
+def _wake_agent(con, agent: str, log, moved_to: str | None = None,
+                use_model: bool = True) -> tuple[bool, str]:
     """The body of a wake, without the lock. Callers already holding it use this.
 
     `moved_to` names the account this wake is starting the agent on when it is
@@ -734,10 +736,42 @@ def _wake_agent(con, agent: str, log, moved_to: str | None = None) -> tuple[bool
         # with nothing. Only a wake with nothing to resume is free to go where
         # there is room, which is the move's wake.
         session = row["resume_session"]
-        why = launch.wake_wait_reason(agent, row, con)
-        if why:
-            log(f"  {agent}: {why}")
-            return False, why
+        wait = launch.wake_wait(agent, row, con)
+        if wait:
+            # The resume account is at the wall. If another account has room,
+            # fold and start fresh there: a resume id cannot follow an account
+            # change, and the events a fold reads are durable without a live
+            # session. A failed fold keeps the id, since the session is the
+            # only complete copy of the context.
+            rescued = False
+            acct, pct = wait.account, wait.pct
+            elsewhere = _room_to_move(agent) if session and not wait.assumed \
+                and not _fold_backing_off(con, agent) else None
+            if elsewhere and elsewhere != acct and _takes_work(elsewhere):
+                hid = uuid.uuid4().hex[:12]
+                db.start_handoff(con, hid, agent, session, "pinned",
+                                 db.get_cursor(con, f"fold:{agent}"),
+                                 int(time.time()) + HANDOFF_DEADLINE_S)
+                ok, msg = foldmod.fold(agent, use_model=use_model)
+                if ok:
+                    db.advance_handoff(con, hid, "released", state="done",
+                                       cursor_to=db.get_cursor(con, f"fold:{agent}"))
+                    db.reset_counter(con, agent, "throttle_count")
+                    db.set_closed(con, agent, None)
+                    db.add_event(con, agent, "moved_account",
+                                 {"from": acct, "to": elsewhere, "trigger": "pinned"})
+                    log(f"  {agent}: pinned to {acct} at {pct}% - folded and "
+                        f"starting fresh on {elsewhere}")
+                    session, acct, moved_to, rescued = None, elsewhere, elsewhere, True
+                else:
+                    db.advance_handoff(con, hid, "released", state="degraded",
+                                       detail=msg[:300])
+                    db.bump_counter(con, agent, "throttle_count")
+                    log(f"  {agent}: fold failed ({msg[:120]}); keeping the resume id")
+            if not rescued:
+                why = launch.wake_wait_reason(agent, row, con)
+                log(f"  {agent}: {why}")
+                return False, why
         # The shell is still there; put the agent back into it. Resuming the
         # same session is what makes closing cheap, so it is tried first and
         # a fresh start is the fallback, not the plan.
@@ -1102,7 +1136,33 @@ def perform_handoff(con, agent: str, trigger: triggers.Trigger, log,
 # because we cannot read the account, and "we do not know" is not "it is full".
 # Moving on it would send agents off an account nobody can see, which is the
 # fail-closed rule pointed the wrong way.
-MOVABLE_TRIGGERS = ("usage", "usage_projected")
+MOVABLE_TRIGGERS = ("usage", "usage_7d", "usage_projected")
+
+
+def _takes_work(acct: str) -> bool:
+    """Can this account start a session? bootstrap: a never-run account has no
+    status.json, which a plain assignable() refuses and bootstrap exists to lift."""
+    return status.pick_account([acct], bootstrap=True)[0] == acct
+
+
+def _fold_backing_off(con, agent: str) -> bool:
+    """A fold that keeps failing is not retried every tick: the same backoff a
+    degraded handoff waits out. Both share one streak and one last-attempt
+    time, since both are the same fold failing."""
+    row = db.get_agent_state(con, agent)
+    streak = int(row["throttle_count"]) if row else 0
+    last = con.execute("SELECT MAX(updated) AS t FROM handoff WHERE agent = ?",
+                       (agent,)).fetchone()["t"]
+    return bool(streak and last and int(time.time()) < int(last) + backoff_for(streak))
+
+
+def _room_to_move(agent: str) -> str | None:
+    """Where a move may land: judged on the line the trigger fires at, not the
+    hard stop, since an account the daemon just decided is too full to work on
+    is too full to move to, and with clear headroom so it does not bounce."""
+    return launch.find_room(
+        agent, limit=triggers.MOVE_LINE_5H, limit_7d=triggers.MOVE_LINE_7D,
+        room=status.MOVE_MIN_HEADROOM_PCT)
 
 
 def _move_to_room(con, agent: str, trigger: triggers.Trigger, log) -> bool:
@@ -1121,22 +1181,17 @@ def _move_to_room(con, agent: str, trigger: triggers.Trigger, log) -> bool:
     if trigger.kind not in MOVABLE_TRIGGERS:
         return False
     here = agents.current_account(agent, con)
-    # Judged on the line the trigger fired at, not on the hard stop. The fold
-    # happens a reserve short of the wall so there is room to pay for it, and
-    # an account the daemon has just decided is too full to work on is too full
-    # to move to as well.
-    there = launch.choose_account(agent, limit=triggers.HARD_STOP_PCT - triggers.DEFAULT_RESERVE_PCT)
-    if there == here:
-        log(f"  {agent}: staying on {here} - nowhere with more room")
+    there = _room_to_move(agent)
+    if there is None or there == here:
+        log(f"  {agent}: staying on {here} - nowhere with room to move to")
         return False
-    # bootstrap=True: `there` may be exactly the account choose_account just
-    # bootstrapped - a plain assignable() would refuse the same account it
-    # was chosen for, on the "no status.json" reason bootstrap exists to lift.
-    allowed = status.pick_account([there], bootstrap=True)[0] == there
-    why = "" if allowed else status.read(there).assignable()[1]
+    there_st = status.read(there)
+    allowed = _takes_work(there)
+    why = "" if allowed else there_st.assignable()[1]
     if not allowed:
         log(f"  {agent}: staying on {here} - {there} takes no work either ({why})")
         return False
+    picked_why = f"5h {there_st.trusted_pct_5h}%, 7d {there_st.trusted_pct_7d}%"
     handle = db.get_terminal(con, agent)
     if not handle or not orca.available() or not orca.alive(handle):
         return False
@@ -1175,7 +1230,7 @@ def _move_to_room(con, agent: str, trigger: triggers.Trigger, log) -> bool:
                        detail=f"moved {here} -> {there} ({trigger.kind})")
     db.add_event(con, agent, "moved_account", {"from": here, "to": there,
                                                "trigger": trigger.kind})
-    log(f"  {agent}: moved {here} -> {there} ({trigger.kind})"
+    log(f"  {agent}: moved {here} -> {there} ({trigger.kind}) - {picked_why}"
         + ("" if woke else f" - but it was not handed its handoff: {why[:80]}"))
     return True
 
@@ -1231,13 +1286,13 @@ def _perform_handoff(con, agent: str, trigger: triggers.Trigger, log,
     # degrading, so a broken one is not retried at full cadence forever. Never
     # against an assumed account's rollover: that ceiling belongs to whatever
     # account agent.yaml happens to prefer, not to the one this agent may
-    # actually be spending, so it earns only a short re-look instead of a 5h
-    # sleep against a number that may not even be this agent's own.
+    # actually be spending, so it earns only a short re-look instead.
     reading = agents.account_reading(agent, con)
     if reading.source == "assumed":
         wake = int(time.time()) + ASSUMED_ACCOUNT_RECHECK_S
     else:
-        wake = triggers.next_reset(status.read(reading.account).reset_5h)
+        rst = status.read(reading.account)
+        wake = triggers.wake_after(trigger.kind, rst.reset_5h, rst.reset_7d)
     fresh = db.get_agent_state(con, agent)
     streak = int(fresh["throttle_count"]) if fresh else 0
     if streak:
@@ -1316,7 +1371,7 @@ def supervise(con, agent: str, log, now: int, samples: dict,
         # A parked agent can also be a closed one, and then this wake restores
         # the session - which is the case the gate below exists for.
         restored = bool(row and row["closed_at"])
-        woke, why = wake_agent(con, agent, log)
+        woke, why = wake_agent(con, agent, log, use_model=use_model)
         if restored and not woke:
             # Same rule reconcile's step 2 writes: for an agent whose session
             # was closed, the wake is the whole point of the deadline, and the
@@ -1373,7 +1428,7 @@ def supervise(con, agent: str, log, now: int, samples: dict,
         # brought it back. Without this, nothing in the system ever wakes it.
         answers = db.unannounced_answers(con, agent)
         if waiting or answers:
-            ok, why = wake_agent(con, agent, log)
+            ok, why = wake_agent(con, agent, log, use_model=use_model)
             what = (f"{len(waiting)} waiting request(s)" if waiting
                     else f"{len(answers)} answer(s) it asked for")
             actions.append(f"{agent}: woken for {what}"
@@ -1441,7 +1496,8 @@ def supervise(con, agent: str, log, now: int, samples: dict,
             and orca.available() and orca.alive(row["terminal"]):
         last = db.last_handoff(con, agent)
         if last and last["trigger_kind"] in MOVABLE_TRIGGERS and \
-                not triggers.evaluate(st.trusted_pct_5h, st.trusted_ctx_pct, burn=burn).fired:
+                not triggers.evaluate(st.trusted_pct_5h, st.trusted_ctx_pct, burn=burn,
+                                      pct_7d=st.trusted_pct_7d).fired:
             db.set_agent_state(con, agent, QUEUED, wake_at=None, detail="usage recovered")
             actions.append(f"{agent}: {state} -> QUEUED (usage recovered)")
             log(f"  {agent}: {state} -> QUEUED (usage recovered)")
@@ -1471,7 +1527,8 @@ def supervise(con, agent: str, log, now: int, samples: dict,
     # as 0 - the trigger would simply never fire again after the collector
     # died. An account whose window is merely quiet reads as 0, not as
     # unknown, so an idle agent is left alone instead of handed off.
-    t = triggers.evaluate(st.trusted_pct_5h, st.trusted_ctx_pct, burn=burn)
+    t = triggers.evaluate(st.trusted_pct_5h, st.trusted_ctx_pct, burn=burn,
+                          pct_7d=st.trusted_pct_7d)
     if t.fired:
         ok = perform_handoff(con, agent, t, log, use_model=use_model)
         actions.append(f"{agent}: handoff ({t.kind}){'' if ok else ' -> degraded'}")
