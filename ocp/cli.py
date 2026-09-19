@@ -162,7 +162,7 @@ def cmd_account_cap(args) -> int:
 
 def _can_start(st, ld) -> tuple[bool, str]:
     """takes_work, and what the pick adds to it: a slot and a stretch worth starting."""
-    ok, why = st.takes_work()
+    ok, why = st.takes_work(ld.active if ld else 0)
     bad = status.unfit(st, ld) if ok else None
     return (False, bad) if bad else (ok, why)
 

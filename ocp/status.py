@@ -271,14 +271,19 @@ class AccountStatus:
             text += f", 7d {self.pct_7d}%{week_gone}"
         return text
 
-    def assignable(self) -> tuple[bool, str]:
-        """May we give this account new work? Returns (allowed, reason)."""
+    def assignable(self, active: int = 0) -> tuple[bool, str]:
+        """May we give this account new work? Returns (allowed, reason).
+
+        `active` is agents of ours already mid-turn on this account
+        (`load.Load.active`); it only matters to a stale reading
+        (`idle_floor`) - a live one is judged on what it reports, agents
+        mid-turn on it and all."""
         if not self.exists:
             return False, "no status.json - no session has run yet (fail-closed)"
         if self.error:
             return False, f"status.json unreadable: {self.error} (fail-closed)"
         if self.stale:
-            idle_ok, idle_why = self.idle_floor()
+            idle_ok, idle_why = self.idle_floor(active)
             if idle_why:
                 return idle_ok, idle_why
             # In the units a reader thinks in. "59213s > 900s" is two numbers
@@ -309,11 +314,11 @@ class AccountStatus:
             return True, f"5h {pct}% (carried, still inside the window)"
         return True, f"5h {pct}%"
 
-    def takes_work(self) -> tuple[bool, str]:
+    def takes_work(self, active: int = 0) -> tuple[bool, str]:
         """May a session be started here: assignable, or a rolled-over stale
         account, and under the weekly wall. The usage half of the question; `unfit`
-        adds the cap and the stretch."""
-        ok, why = self.assignable()
+        adds the cap and the stretch. `active` - see `assignable`."""
+        ok, why = self.assignable(active)
         week = self.trusted_pct_7d
         if not ok and self.rolled_over()[0]:
             # Its weekly figure is a floor unless the week itself has passed.
@@ -350,24 +355,36 @@ class AccountStatus:
         shown = "its week has rolled over" if week_over else f"7d {week}%"
         return True, f"stale, window rolled over, {shown}"
 
-    def idle_floor(self) -> tuple[bool, str]:
-        """A stale account still inside its 5h window is idle, not unknown, and
-        keeps its floor. Returns (ok, reason).
+    def idle_floor(self, active: int = 0) -> tuple[bool, str]:
+        """A stale account still inside its 5h window, with no agent of ours
+        mid-turn on it, is idle rather than unknown, and keeps its floor.
+        Returns (ok, reason).
 
-        Staleness alone does not make an account unknown - why the reading is
-        old is what matters. A snapshot only refreshes while a session runs, so
-        an account nobody is using goes stale within the quarter-hour though
-        nothing of ours is running on it - but the figure is a lower bound on
-        usage, not a measurement: there is a known invisible spender even on an
-        idle account (`ocp fold`, headless, no collector ever sees it). So the
-        floor is judged this far below the wall (`IDLE_FLOOR_MARGIN_PCT`), never
-        against the wall itself. That holds only inside the window: once
-        `reset_5h` has passed the figure describes a window that no longer
-        exists, and what happened since is unaccounted for - `rolled_over` and
-        the probe answer for that case, not this one.
+        KICKOFF §3's Phase 1 criterion lists a stale reading as one of four
+        unconditional fail-closed triggers. This method is the code running
+        ahead of that criterion - main landed the same softening (89f7463)
+        before anyone asked, and the split codified here (idle_floor, gated
+        three ways below) is with the founder for a ruling (#474). Until that
+        rules, treat this as provisional: the criterion, not this docstring,
+        is the standing rule if the two disagree.
+
+        Three independent gates, because staleness alone does not make an
+        account unknown but does not make it fully known either:
+
+        - No agent of ours is mid-turn on it (`active`). An agent we can see
+          running is spend we are choosing not to count, and that is the
+          "cannot account for what burned" case, not idle.
+        - `reset_5h` has not passed. Past it the figure describes a window
+          that no longer exists - `rolled_over` and the probe answer for that
+          case, not this one.
+        - The floor is a lower bound, not a measurement - there is a known
+          invisible spender even with no agent of ours running (`ocp fold`,
+          headless, no collector ever sees it) - so it is judged this far
+          below the wall (`IDLE_FLOOR_MARGIN_PCT`), never against the wall
+          itself.
         """
         if (not self.exists or self.error or self.rl_lost or not self.stale
-                or self.pct_5h is None or not self.pct_5h_readable):
+                or self.pct_5h is None or not self.pct_5h_readable or active > 0):
             return False, ""
         now = time.time()
         # Well-formed data cannot have reset_5h ahead of us while the snapshot
@@ -742,7 +759,7 @@ def _pick_reason(st: "AccountStatus", ld, lasts: float | None, picked: bool) -> 
     """Why this account sits where it does in the ordering."""
     week = st.trusted_pct_7d
     week_s = "unknown" if week is None else f"{week}%"
-    for stale_ok, stale_why in (st.rolled_over(), st.idle_floor()):
+    for stale_ok, stale_why in (st.rolled_over(), st.idle_floor(ld.active if ld else 0)):
         if stale_ok:
             return stale_why + (" <- picked: earliest 7d deadline" if picked else "")
     when = "unknown" if not st.reset_7d else _ago(max(0.0, st.reset_7d - time.time()))
@@ -793,8 +810,9 @@ def pick_account(candidates: list[str] | None = None, bootstrap: bool = False,
             reasons.append((n, exclude[n]))
             continue
         st = read(n)
-        allowed, why = st.takes_work()
         ld = load.get(n)
+        active = ld.active if ld else 0
+        allowed, why = st.takes_work(active)
         if not allowed:
             if bootstrap and not st.exists:
                 blank.append(n)
@@ -809,7 +827,7 @@ def pick_account(candidates: list[str] | None = None, bootstrap: bool = False,
         # cannot see over one we can see has real room.
         if st.trusted_pct_5h is not None:
             pct = st.trusted_pct_5h
-        elif st.idle_floor()[0]:
+        elif st.idle_floor(active)[0]:
             pct = st.pct_5h
         else:
             pct = 0

@@ -7511,6 +7511,34 @@ def test_pick_account_judges_an_idle_account_on_its_floor_not_on_zero(home: Path
           picked is None, str(reasons))
 
 
+def test_idle_floor_refuses_an_account_with_an_agent_mid_turn_on_it(home: Path) -> None:
+    """A stale reading with an agent of ours actually mid-turn on the account
+    is not idle - it is exactly the spend we cannot account for, and must fail
+    closed regardless of the margin."""
+    _daemon_home(home, 20)
+    _with_accounts("alpha", "beta")
+    now = int(time.time())
+    write_status(home, "beta", pct_5h=40, pct_7d=10, reset_5h=now + 1800,
+                 reset_7d=now + 86400, collected_at=now - 3600)
+    check("idle_floor: with nothing running on it, the floor holds",
+          status.read("beta").idle_floor()[0])
+    check("idle_floor: with an agent mid-turn on it, it does not",
+          not status.read("beta").idle_floor(active=1)[0])
+    con = db.connect()
+    try:
+        _running_on(con, "beta", "w1")
+        ld = loadmod.read_all(con)
+        check("idle_floor: load.active reflects the running agent", ld["beta"].active == 1)
+        ok, why = status.read("beta").takes_work(ld["beta"].active)
+        check("takes_work: an account with an agent mid-turn on it fails closed",
+              not ok and "stale" in why, why)
+        picked, reasons = status.pick_account(["beta"], load=ld)
+        check("pick: it is not picked while an agent is mid-turn on it",
+              picked is None, str(reasons))
+    finally:
+        con.close()
+
+
 
 def test_a_sweep_after_a_move_does_not_keep_the_old_accounts_session(home: Path) -> None:
     """keeper 09-19 15:45: moved gamma -> alpha, and eight seconds later the
@@ -10225,6 +10253,7 @@ def main() -> int:
         run(lambda: test_the_cold_start_is_measured_and_sets_how_long_to_wait(Path(td) / 'ar4'))
         run(lambda: test_a_stale_snapshot_shows_its_last_figures_and_still_is_offered(Path(td) / 'ar4c'))
         run(lambda: test_pick_account_judges_an_idle_account_on_its_floor_not_on_zero(Path(td) / 'idlefloor'))
+        run(lambda: test_idle_floor_refuses_an_account_with_an_agent_mid_turn_on_it(Path(td) / 'idleactive'))
 
 
         run(lambda: test_a_span_of_a_day_or_more_reads_in_days(Path(td) / 'ar4f'))

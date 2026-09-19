@@ -178,12 +178,12 @@ def build(agent: str, extra: list[str] | None = None, force: bool = False) -> tu
     # deadlock as refusing on first boot, just delayed.
     #
     # Staleness still gates *assignment*, in status.assignable(): a stale
-    # reading only lets the daemon assign there when it is a floor clear of
-    # the wall by a margin (status.idle_floor) and its window has not rolled
-    # over - anything closer, or older than that, still refuses. And an
-    # account that really is full self-corrects in seconds - the status line
-    # refreshes as soon as the session starts, and the daemon's trigger then
-    # hands off on fresh data.
+    # reading only lets the daemon assign there when no agent of ours is
+    # already mid-turn on it, its window has not rolled over, and it is a
+    # floor clear of the wall by a margin (status.idle_floor) - anything else
+    # still refuses. And an account that really is full self-corrects in
+    # seconds - the status line refreshes as soon as the session starts, and
+    # the daemon's trigger then hands off on fresh data.
     st = status.read(acct)
     if st.exists and st.stale:
         age = "unknown age" if st.age_s is None else f"{int(st.age_s)}s"
