@@ -6294,7 +6294,7 @@ def test_login_points_at_the_account_and_touches_no_credential(home: Path) -> No
 
     action, msg = accounts.login_plan("beta")
     check("login: an account nobody registered says how to register it",
-          action == "unknown" and "ocp account register beta" in msg, msg)
+          action == "unknown" and "ocp account add beta" in msg, msg)
 
     action, msg = accounts.login_plan("alpha")
     check("login: one with no credentials gets the command that makes them",
@@ -7109,6 +7109,115 @@ def test_an_account_is_added_and_removed_from_ocp(home: Path) -> None:
     check("account remove: an unknown account is said to be unknown", rc == 1, out)
 
 
+def test_each_account_guard_fails_under_its_own_mutation(home: Path) -> None:
+    """One condition per check, so removing any one guard fails a test."""
+    home.mkdir(parents=True, exist_ok=True)
+    os.environ["OCP_HOME"] = str(home)
+    (home / "team.yaml").write_text("agents:\n  backend: { intake: dedicated }\n")
+    for a in ("alpha", "beta", "gamma"):
+        accounts.register(a)
+    agents.register("backend", "alpha")
+    orig_in, orig_id, orig_logout = accounts.logged_in, accounts.identity, accounts.logout_argv
+    logged = {"gamma": True}
+
+    def put_session_on(acct):
+        con = db.connect()
+        try:
+            db.set_agent_state(con, "backend", "RUNNING")
+            con.execute("UPDATE agent_state SET account = ? WHERE agent = 'backend'", (acct,))
+            con.commit()
+        finally:
+            con.close()
+
+    try:
+        accounts.logged_in = lambda a: logged.get(a, False)
+        accounts.identity = lambda a: None
+        accounts.logout_argv = lambda a: (["claude", "auth", "logout"], {}) if logged.get(a) else ([], {})
+
+        # users_of: each half alone, and the unreadable agent.
+        put_session_on("beta")
+        check("users_of: the preference half, with a row that disagrees",
+              accounts.users_of("alpha") == ["backend"], str(accounts.users_of("alpha")))
+        put_session_on("gamma")
+        check("users_of: the session half, with a preference that disagrees",
+              accounts.users_of("gamma") == ["backend"], str(accounts.users_of("gamma")))
+        put_session_on("alpha")
+        (home / "agents" / "backend" / "agent.yaml").write_text("not: [valid")
+        check("users_of: an agent that cannot be read counts as a user",
+              "backend" in accounts.users_of("beta"), str(accounts.users_of("beta")))
+        (home / "agents" / "backend" / "agent.yaml").unlink()
+        # remove: one condition per test. Nothing uses gamma from here on.
+        (home / "agents" / "backend" / "agent.yaml").write_text("account: alpha\n")
+        put_session_on("alpha")
+        yes = lambda: True  # noqa: E731
+
+        def code_1_but_out(argv, env):
+            logged["gamma"] = False
+            return 1
+        ok, msg = accounts.remove_account("gamma", yes, code_1_but_out)
+        check("remove: a non-zero exit refuses even though the account reads logged out",
+              not ok and "gamma" in paths.list_accounts(), msg)
+        logged["gamma"] = True
+        ok, msg = accounts.remove_account("gamma", yes, lambda argv, env: 0)
+        check("remove: exit 0 refuses while the account still reads logged in",
+              not ok and "gamma" in paths.list_accounts(), msg)
+        check("remove: a refused removal leaves no marker behind",
+              not paths.removing("gamma"))
+
+        # An agent arriving while the human is being asked.
+        def confirm_then_agent_arrives():
+            put_session_on("gamma")
+            return True
+        ok, msg = accounts.remove_account("gamma", confirm_then_agent_arrives, lambda a, e: 0)
+        check("remove: re-checks users after the confirmation",
+              not ok and "backend" in msg and "gamma" in paths.list_accounts(), msg)
+        put_session_on("alpha")
+
+        seen = {}
+        def logout_ok(argv, env):
+            seen["removing"] = paths.removing("gamma")
+            seen["picked"] = status.pick_account(["gamma"])[0]
+            logged["gamma"] = False
+            return 0
+        write_status(home, "gamma", pct_5h=5, pct_7d=5, reset_5h=int(time.time()) + 1800)
+        ok, msg = accounts.remove_account("gamma", yes, logout_ok)
+        check("remove: an account being removed is marked, and never picked",
+              seen.get("removing") is True and seen.get("picked") is None, str(seen))
+        check("remove: a good logout retires it",
+              ok and "gamma" not in paths.list_accounts(), msg)
+
+        # add: the exit code is not the answer, and a twin login is refused.
+        ran = []
+        ok, msg = accounts.add_account("delta", lambda a, e: (ran.append(a), 0)[1])
+        check("add: exit 0 without a login is not a login",
+              not ok and "not logged in" in msg, msg)
+        logged["epsilon"] = True
+        accounts.identity = lambda a: "same@x"
+        logged["alpha"] = True
+        ok, msg = accounts.add_account("epsilon2", lambda a, e: (logged.__setitem__("epsilon2", True), 1)[1])
+        check("add: the same Anthropic login as another account is refused",
+              not ok and "alpha" in msg, msg)
+        accounts.identity = lambda a: f"{a}@x"
+        ok, msg = accounts.add_account("zeta", lambda a, e: (logged.__setitem__("zeta", True), 1)[1])
+        check("add: a distinct login succeeds whatever the exit code",
+              ok and "zeta" in paths.list_accounts(), msg)
+
+        # The screen's remove: a failed logout keeps the account.
+        logged["beta"] = True
+        real_suspend, real_line = tui._suspend, tui._line
+        try:
+            # Logged out, but claude said it failed: the exit code alone refuses.
+            tui._suspend = lambda argv, env, fd, saved: (logged.__setitem__("beta", False), (1, "claude exited 1"))[1]
+            tui._line = lambda prompt, w, h: "beta"
+            line = tui._remove_account("beta", 80, 24, None, None)
+        finally:
+            tui._suspend, tui._line = real_suspend, real_line
+        check("panel: a failed logout keeps the account",
+              "logout failed" in line and "beta" in paths.list_accounts(), line)
+    finally:
+        accounts.logged_in, accounts.identity, accounts.logout_argv = orig_in, orig_id, orig_logout
+
+
 def test_a_second_name_for_one_login_is_caught(home: Path) -> None:
     """Two accounts on one Anthropic login are one usage limit under two
     names, and their two copies of the credential invalidate each other."""
@@ -7448,6 +7557,7 @@ def main() -> int:
         run(lambda: test_handoff_rate_limited(Path(td) / 'hrate'))
         run(lambda: test_handoff_drift_header(Path(td) / 'hdhome'))
         run(lambda: test_an_account_is_added_and_removed_from_ocp(Path(td) / 'acctaddrm'))
+        run(lambda: test_each_account_guard_fails_under_its_own_mutation(Path(td) / 'guards'))
         run(lambda: test_a_second_name_for_one_login_is_caught(Path(td) / 'acctsame'))
         run(lambda: test_the_accounts_panel_adds_and_removes(Path(td) / 'acctpanel'))
         run(lambda: test_a_second_daemon_is_refused_with_no_pidfile_at_all(Path(td) / 'onedmn'))

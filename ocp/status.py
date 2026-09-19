@@ -427,6 +427,9 @@ def pick_account(candidates: list[str] | None = None,
     # weaker claim than a reported 0%.
     confidence = {"live": 3, "carried": 2, "quiet": 1}
     for n in names:
+        if paths.removing(n):
+            reasons.append((n, "being removed"))
+            continue
         st = read(n)
         allowed, why = st.assignable()
         if allowed:

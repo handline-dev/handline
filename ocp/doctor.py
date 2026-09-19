@@ -137,7 +137,7 @@ def _check_orca_hooks(r: Report) -> None:
 def _check_accounts(r: Report) -> None:
     names = paths.list_accounts()
     if not names:
-        r.add(FAIL, "no accounts registered", "ocp account register <name>")
+        r.add(FAIL, "no accounts registered", "ocp account add <name>")
         return
     for a in names:
         cdir = paths.account_claude(a)

@@ -1250,48 +1250,26 @@ def _keys_of(panel: int) -> list:
 
 
 def _add_account(width: int, height: int, fd, saved) -> str:
-    """Name it, register it, and hand the terminal to claude to log it in -
-    the same steps as `ocp account add`, checked the same way afterwards."""
+    """Name it, then the same sequence as `ocp account add`."""
     name = _line("new account name:", width, height)
     if not name:
         return "not added"
-    if name in paths.list_accounts():
-        return f"account '{name}' already exists"
-    try:
-        accounts.register(name)
-    except ValueError as e:
-        return str(e)
-    line, argv, env = actions.login_argv(name)
-    if argv:
-        _suspend(argv, env, fd, saved)
-    if not accounts.logged_in(name):
-        return f"'{name}' is registered but not logged in - l logs it in"
-    twins = accounts.same_login_as(name)
-    if twins:
-        return (f"'{name}' is the same Anthropic login as {', '.join(twins)} - one "
-                f"limit under two names. x removes it.")
-    return f"'{name}' added and logged in"
+    ok, msg = accounts.add_account(
+        name, lambda argv, env: _suspend(argv, env, fd, saved)[0])
+    return msg
 
 
 def _remove_account(name: str, width: int, height: int, fd, saved) -> str:
-    """Refused while an agent is on it; otherwise confirmed by typing its name,
-    logged out by claude, and moved aside rather than deleted."""
+    """The same sequence as `ocp account remove`, confirmed by typing its name."""
     con = db.connect()
     try:
-        ok, why = accounts.remove_plan(name, con)
+        ok, msg = accounts.remove_account(
+            name, lambda: _line(f"remove '{name}'? type its name to confirm:",
+                                width, height) == name,
+            lambda argv, env: _suspend(argv, env, fd, saved)[0], con)
     finally:
         con.close()
-    if not ok:
-        return why
-    if _line(f"remove '{name}'? type its name to confirm:", width, height) != name:
-        return "not removed"
-    argv, env = accounts.logout_argv(name)
-    if argv:
-        _suspend(argv, env, fd, saved)
-        if accounts.logged_in(name):
-            return f"logout failed - '{name}' is still logged in, so it stays"
-    accounts.retire(name)
-    return f"removed '{name}' - logged out, directory kept under accounts/.retired"
+    return msg
 
 
 def _act(panel: int, sel: dict, key: str, width: int, height: int,

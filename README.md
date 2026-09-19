@@ -11,16 +11,13 @@ not spending tokens to decide things that can be decided deterministically.
 ```bash
 ln -s "$PWD/bin/ocp" /usr/local/bin/ocp     # or put bin/ on PATH
 ocp init
-ocp account register alpha
-ocp account register beta
+ocp account add alpha      # registers it, then hands the terminal to claude to log in
+ocp account add beta       # use a different Anthropic login for each
 ```
 
-Then, once per account, **by a human**:
-
-```bash
-CLAUDE_CONFIG_DIR=~/.orcapipe/accounts/alpha/.claude claude /login
-CLAUDE_CONFIG_DIR=~/.orcapipe/accounts/beta/.claude  claude /login
-```
+The login is claude's own screen, so **a human** types into it. `ocp account
+remove <name>` logs an account out and moves its directory aside; it refuses
+while an agent is on it. Both are also `a` and `x` in the accounts panel.
 
 `ocp` never reads, writes or copies credentials. A refresh token rotates on
 single use, so two copies of one credential invalidate each other.

@@ -85,6 +85,12 @@ def list_accounts() -> list[str]:
     return sorted(p.name for p in d.iterdir() if p.is_dir() and not p.name.startswith("."))
 
 
+def removing(acct: str) -> bool:
+    """Is this account mid-removal? Set between the confirmation and the
+    logout, so nothing is started on an account about to go."""
+    return (accounts_dir() / acct / ".removing").exists()
+
+
 def list_agents() -> list[str]:
     d = agents_dir()
     if not d.is_dir():

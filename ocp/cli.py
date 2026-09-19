@@ -36,7 +36,7 @@ def cmd_login(args) -> int:
     names = paths.list_accounts()
     if not args.account:
         if not names:
-            print("no accounts registered. `ocp account register <name>` first.")
+            print("no accounts registered. `ocp account add <name>` first.")
             return 1
         for a in names:
             state = "logged in" if accounts.logged_in(a) else "NOT logged in"
@@ -105,91 +105,45 @@ def cmd_account_register(args) -> int:
     return 0
 
 
+def _run_claude(argv: list[str], env: dict) -> int | None:
+    claude = shutil.which(argv[0])
+    if not claude:
+        return None
+    return subprocess.run([claude, *argv[1:]], env=env).returncode
+
+
 def cmd_account_add(args) -> int:
-    """Register an account and log it in, in one command.
-
-    The login is claude's own screen - a browser and a code typed back - so it
-    runs here and hands the terminal back, and this checks afterwards rather
-    than trusting the exit code: closing claude without finishing exits 0 too.
-    Log in with an Anthropic account no other account here uses: two copies
-    of one credential invalidate each other, and share one usage limit.
-    """
-    if args.name in paths.list_accounts():
-        print(f"account '{args.name}' already exists"
-              + ("" if accounts.logged_in(args.name) else f" - `ocp login {args.name}`"))
+    """Register an account and log it in, in one command."""
+    if not args.no_login and (not shutil.which("claude") or not sys.stdin.isatty()):
+        print(f"logging in needs a terminal you can type into. From one, run:\n\n"
+              f"  ocp account add {args.name}\n", file=sys.stderr)
         return 1
-    try:
-        accounts.register(args.name)
-    except ValueError as e:
-        print(e, file=sys.stderr)
-        return 1
-    print(f"registered account '{args.name}'")
-    if args.no_login:
-        print(f"log it in with: ocp login {args.name}")
-        return 0
-
-    claude = shutil.which("claude")
-    if not claude or not sys.stdin.isatty():
-        print(f"\nlogging in needs a terminal you can type into. From one, run:\n\n"
-              f"  ocp login {args.name}\n")
-        return 1
-    print("use an Anthropic account no other account here uses. "
-          "Finish the login in claude, then exit it (/exit) to come back.\n")
-    subprocess.run([claude, "/login"], env=accounts.env_for(args.name))
-    if not accounts.logged_in(args.name):
-        print(f"\n'{args.name}' is registered but not logged in. Try again with: "
-              f"ocp login {args.name}")
-        return 1
-    twins = accounts.same_login_as(args.name)
-    if twins:
-        print(f"\nWARNING: '{args.name}' is logged in as the same Anthropic account as "
-              f"{', '.join(twins)}. That is one usage limit under two names, and the "
-              f"two copies of the credential invalidate each other. "
-              f"`ocp account remove {args.name}` and add it with another login.")
-        return 1
-    print(f"\n'{args.name}' is logged in. It takes work once a session has run on it "
-          f"and reported its usage - until then it is fail-closed.")
-    return 0
+    if not args.no_login:
+        print("use an Anthropic account no other account here uses. "
+              "Finish the login in claude, then exit it (/exit) to come back.\n")
+    ok, msg = accounts.add_account(args.name, _run_claude, no_login=args.no_login)
+    print(msg, file=None if ok else sys.stderr)
+    return 0 if ok else 1
 
 
 def cmd_account_remove(args) -> int:
-    """Log an account out and take it off the roster.
+    """Log an account out and take it off the roster."""
+    def confirm() -> bool:
+        if args.yes:
+            return True
+        if not sys.stdin.isatty():
+            print("refusing without a terminal to confirm in - pass --yes", file=sys.stderr)
+            return False
+        return input(f"remove account '{args.name}'? type its name to confirm: "
+                     ).strip() == args.name
 
-    Refused while any agent is on it. The directory is moved aside, not
-    deleted - it holds the only transcripts of what was spent there.
-    """
     con = db.connect()
     try:
-        ok, why = accounts.remove_plan(args.name, con)
+        ok, msg = accounts.remove_account(args.name, confirm, _run_claude, con)
     finally:
         con.close()
-    if not ok:
-        print(why, file=sys.stderr)
-        return 1
-    if not args.yes:
-        if not sys.stdin.isatty():
-            print(f"refusing without a terminal to confirm in - pass --yes", file=sys.stderr)
-            return 1
-        typed = input(f"remove account '{args.name}'? type its name to confirm: ").strip()
-        if typed != args.name:
-            print("not removed")
-            return 1
-
-    argv, env = accounts.logout_argv(args.name)
-    if argv:
-        claude = shutil.which(argv[0])
-        r = subprocess.run([claude or argv[0], *argv[1:]], env=env) if claude else None
-        if r is None or r.returncode != 0 or accounts.logged_in(args.name):
-            # Moving the directory would orphan the credential: its Keychain
-            # name is derived from the directory's path, and nothing would
-            # ever log that one out again.
-            print(f"logout failed - '{args.name}' is still logged in, so it stays. "
-                  f"Run `claude auth logout` with CLAUDE_CONFIG_DIR="
-                  f"{paths.account_claude(args.name)} and try again.", file=sys.stderr)
-            return 1
-    dest = accounts.retire(args.name)
-    print(f"removed account '{args.name}' (logged out; directory kept at {dest})")
-    return 0
+    print(msg, file=None if ok else sys.stderr)
+    return 0 if ok else 1
 
 
 def cmd_account_list(args) -> int:
@@ -231,7 +185,7 @@ def cmd_account_list(args) -> int:
 def cmd_agent_register(args) -> int:
     if args.account not in paths.list_accounts():
         print(f"warning: account '{args.account}' is not registered yet. "
-              f"Run `ocp account register {args.account}` first.")
+              f"Run `ocp account add {args.account}` first.")
     d = agents.register(args.name, args.account, role=args.role, model=args.model,
                         effort=args.effort, weight=args.weight, role_file=args.role_file,
                         repo=args.repo)

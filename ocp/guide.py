@@ -9,8 +9,8 @@ from . import paths
 
 TOPICS = {
     "accounts": """accounts
-  ocp account register <name>      create the directory and link it to shared
-  <human, once>  CLAUDE_CONFIG_DIR=~/.orcapipe/accounts/<name>/.claude claude /login
+  ocp account add <name>           register it and log it in (a human types the login)
+  ocp account remove <name>        log it out and move it aside; refused while an agent is on it
   ocp account list                 usage and whether the account is assignable
 
 ocp never reads, writes or copies credentials. A refresh token rotates on
