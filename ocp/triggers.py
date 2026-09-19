@@ -17,8 +17,8 @@ from dataclasses import dataclass
 # Replaces the cache-expiry trigger that appendix A-2 removed.
 CONTEXT_PCT = 60
 
-# 90% is the hard stop. We act earlier by the reserve, which is the observed
-# average cost of a fold.
+# 90% is the hard stop. We act earlier by the reserve: room for a handoff to
+# finish before it.
 HARD_STOP_PCT = 90
 DEFAULT_RESERVE_PCT = 5
 
@@ -127,7 +127,7 @@ def evaluate(pct_5h: int | None, ctx_pct: int | None, reserve_pct: int = DEFAULT
                                           f"{reserve_7d_pct}%)")
 
     # Project from wherever we are, not only above HOT_PCT. The horizon is the
-    # sleep we are actually about to take plus the fold it would have to
+    # sleep we are actually about to take plus the handoff it would have to
     # finish, so a fast burner is caught before it crosses rather than after.
     if burn > 0:
         poll = poll_interval(pct_5h, burn, reserve_pct) if poll_s is None else poll_s

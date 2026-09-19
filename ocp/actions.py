@@ -58,7 +58,7 @@ def unstall(con, agent: str) -> str:
 
 
 def park(con, agent: str) -> str:
-    """Fold, clear the context, and park until the window rolls over.
+    """Record a handoff, clear the context, and park until the window rolls over.
 
     `perform_handoff` returns True for three things that are not a handoff -
     merged into one already in flight, too soon after the last, and deferred
@@ -701,7 +701,7 @@ def can(con, agent: str, key: str) -> tuple[bool, str]:
     # The states nothing may be done to from here. RUNNING and HANDOFF are
     # mid-something, and STALLED is the one state the daemon deliberately does
     # not touch - handing a stalled agent off would clear the stall a human was
-    # meant to read, and pay for a fold doing it.
+    # meant to read.
     busy = state in (daemon.RUNNING, daemon.HANDOFF, daemon.STALLED)
     busy_why = f"{agent} is {state}" + (" - only a human clears that (u)"
                                         if state == daemon.STALLED else "")
@@ -803,10 +803,10 @@ def agent_detail(con, agent: str) -> list[tuple[str, list[str]]]:
             f"#{r['id']} from {r['target']}: "
             f"{((r['verdict'] or '').splitlines() or [r['state']])[0]}" for r in mine]))
 
-    hp = foldmod.handoff_path(agent)
+    kept = db.get_handoff(con, agent)
     sections.append(("WHAT IT KNOWS",
-                     hp.read_text().splitlines() if hp.exists()
-                     else ["no handoff written - it has not been parked"]))
+                     kept.splitlines() if kept
+                     else ["no handoff waiting - it has not been parked"]))
 
     recent = [f"{time.strftime('%H:%M:%S', time.localtime(e['ts']))}  "
               f"{e['kind']:<18}{(e['payload'] or '')[:60]}"

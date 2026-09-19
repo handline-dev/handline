@@ -43,7 +43,7 @@ def register(name: str, account: str, role: str = "", model: str | None = None,
     if not name or "/" in name or name.startswith("."):
         raise ValueError(f"bad agent name: {name!r}")
     d = paths.agent_dir(name)
-    for sub in ("inbox", "journal", "handoff"):
+    for sub in ("inbox", "journal"):
         (d / sub).mkdir(parents=True, exist_ok=True)
 
     f = agent_file(name)

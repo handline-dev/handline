@@ -92,7 +92,7 @@ them in the process table and say so when there are two.
 | `ocp inbox` / `ocp resolve <id> "<verdict>"` / `ocp dismiss <id>` | request queue |
 | `ocp fold [agent]` | fold events into the digest (the one model call) |
 | `ocp rollover` | midnight carry-forward, no model |
-| `ocp digest` / `ocp handoff <agent>` | the record |
+| `ocp digest` / `ocp handoff <agent>` | the digest / the handoff waiting for an agent (three facts: its request, its transcript, its worktree) |
 | `ocp drift <repo>` | has the base moved under this agent? |
 | `ocp hooks sync --watch` | keep Orca's agent hooks mirrored |
 | `ocp service install/uninstall/status/logs` | run the daemon as a launchd LaunchAgent |
@@ -109,7 +109,7 @@ trigger false forever: the feature is dead while the dashboard stays green.
 session that has made no request since the window rolled over, so a live
 collector reporting nothing means nothing has been *reported* spent in this
 window. That reads as 0% and assigns, marked `*`. Refusing here parked five idle
-agents and paid for a fold each. The exception is ours: `ocp fold` runs headless,
+agents. The exception is ours: `ocp fold` runs headless,
 which has no status line, so its own small spend is never observed.
 
 **A figure has a provenance, and it is drawn.** `~` is carried - an earlier
@@ -122,7 +122,7 @@ response and the staler one must not win.
 
 **An account is a preference, not a destination.** `agent.yaml` says which
 account an agent would rather be on, and a session goes there whenever it has
-room. Room means room to work: the usage trigger folds a reserve short of the
+room. Room means room to work: the usage trigger fires a reserve short of the
 hard stop, so an account inside that reserve has room to hand off and nothing
 more. When a *current* reading says that - never a missing or stale one - the
 next session starts on whichever account does have room, and the row records
@@ -130,11 +130,12 @@ where it went. Total throughput is still accounts x window; what this
 buys is an agent not sitting out its own five hours while another account idles
 beside it. A live session is never moved: moving means ending one and starting
 another, so it only ever happens where the session was ending anyway - after a
-fold, at the wall - and a resume goes back to the account its session lives on,
+handoff, at the wall - and a resume goes back to the account its session lives on,
 because a session id exists only under that account's config directory.
 
 **Context and memory are different problems.** A handoff reclaims *context*: it
-folds the day, clears the session and costs one model call. Closing reclaims
+records the agent's request, its transcript path and its worktree's state,
+clears the session, and costs no model call. Closing reclaims
 *memory*: an idle session holds 250-500MB and no one is using it, so the session
 ends and the terminal, worktree and account stay. Waking resumes that same
 session, which costs nothing extra - measured, a resumed session read its whole
@@ -142,8 +143,8 @@ session, which costs nothing extra - measured, a resumed session read its whole
 the server and expires on time, not on whether our process stayed alive.
 
 **No model in the loop.** Triggers, account choice and resume decisions are all
-deterministic. The only model call is one fold per handoff - and closing an idle
-agent is not a handoff, so it costs none at all.
+deterministic, and so is the handoff. The only model call is `ocp fold`, which
+nothing on the handoff path runs.
 
 **Conditions, not edges.** Triggers are re-evaluated from persisted state every
 tick, so a threshold crossed while the daemon was dead is still acted on.
@@ -166,7 +167,7 @@ unrelated request repeating what they had already answered.
   shared/.claude/            settings + collector, symlinked into each account
   accounts/<acct>/.claude/   CLAUDE_CONFIG_DIR; credentials stay here, untouched
   accounts/<acct>/status.json
-  agents/<name>/             agent.yaml ROLE.md base.md inbox/ journal/ handoff/
+  agents/<name>/             agent.yaml ROLE.md base.md inbox/ journal/
 ```
 
 ## Tests

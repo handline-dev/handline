@@ -21,7 +21,7 @@ opposite right answers. This module names five cases instead of two:
     unknown      no snapshot, unreadable, too old, or a reading we lost
 
 `quiet` and `unknown` are the pair that matters: treating quiet as unknown
-parks idle agents, which costs a fold each and buys nothing, while treating
+parks idle agents, which buys nothing, while treating
 unknown as quiet hands out work on an account that may be at the wall.
 
 A carried figure is a floor, not a measurement: usage inside a window only

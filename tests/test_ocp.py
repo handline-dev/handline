@@ -23,8 +23,8 @@ sys.path.insert(0, str(ROOT))
 
 from ocp import (accounts, actions, agents, ask as askmod, cli as climod, daemon as dmn, db, hr,
                  digest,
-                 doctor, drift, events as evmod, fold as foldmod, launch, lock, observe as obsmod,
-                 orca as orcamod, paths, service, spawn as spawnmod, status, team, triggers,
+                 doctor, drift, events as evmod, fold as foldmod,
+                 handoff as handoffmod, launch, lock, observe as obsmod, orca as orcamod, paths, service, spawn as spawnmod, status, team, triggers,
                  tui, yamlcompat)  # noqa: E402
 
 PASS, FAIL = [], []
@@ -113,6 +113,36 @@ def write_status(home: Path, acct: str, **fields) -> None:
     payload = {"account": acct, "collected_at": int(time.time()), "session_id": "s"}
     payload.update(fields)
     (d / "status.json").write_text(json.dumps(payload))
+
+
+def readable_agent(con, home: Path, agent: str) -> None:
+    """Give `agent` the three things a handoff reads, so it comes out whole."""
+    wt = home / f"wt-{agent}"
+    if not wt.is_dir():
+        wt.mkdir(parents=True)
+        for args in (["init", "-q", "-b", "topic"], ["config", "user.email", "t@t"],
+                     ["config", "user.name", "t"], ["commit", "-q", "--allow-empty", "-m", "x"]):
+            subprocess.run(["git", *args], cwd=wt, check=True, capture_output=True)
+    db.set_terminal(con, agent, "term_x", str(wt))
+    write_agent_status(agent, "alpha", session_id="sess-1",
+                       transcript_path="/tmp/sess-1.jsonl")
+
+
+def keep_handoff(agent: str, text: str) -> None:
+    """Leave `text` as the handoff waiting for `agent`, as a park would."""
+    con = db.connect()
+    try:
+        db.set_handoff(con, agent, text)
+    finally:
+        con.close()
+
+
+def kept_handoff(agent: str) -> str | None:
+    con = db.connect()
+    try:
+        return db.get_handoff(con, agent)
+    finally:
+        con.close()
 
 
 def write_agent_status(agent: str, reported_account: str, **fields) -> None:
@@ -428,7 +458,7 @@ def test_agents(home: Path) -> None:
     cfg = agents.read("backend")
     check("re-register preserves other fields", cfg.get("model") == "sonnet", str(cfg))
     d = home / "agents" / "backend"
-    check("agent dirs created", all((d / s).is_dir() for s in ("inbox", "journal", "handoff")))
+    check("agent dirs created", all((d / s).is_dir() for s in ("inbox", "journal")))
     (d / "base.md").write_text("x" * 5000)
     over = [fn for fn, _, _, o in agents.budget_report("backend") if o]
     check("base.md budget is enforced", "base.md" in over)
@@ -997,9 +1027,8 @@ def test_fold(home: Path) -> None:
               and published.agent == "backend",
               f"{published.date} {published.agent} {published.updated}")
         check("fold: deterministic block is attached", "events folded" in published.facts)
-        hp = foldmod.handoff_path("backend")
-        check("fold: handoff is written", hp.exists())
-        check("fold: handoff carries the machine facts", "events folded" in hp.read_text())
+        check("fold: writes the digest and no handoff - that is not its job",
+              kept_handoff("backend") is None)
 
         # --- a fully written garbage file must not replace a good one ----
         con = db.connect()
@@ -1195,7 +1224,7 @@ def test_daemon_park(home: Path) -> None:
     logs: list[str] = []
     con = db.connect()
     try:
-        dmn.tick(con, logs.append, use_model=False)
+        dmn.tick(con, logs.append)
         row = db.get_agent_state(con, "backend")
         check("daemon: parks an agent that is over the limit",
               row["state"] == dmn.PARKED, str(dict(row)))
@@ -1218,7 +1247,7 @@ def test_daemon_resume(home: Path) -> None:
         db.set_agent_state(con, "backend", dmn.PARKED, wake_at=int(time.time()) - 10,
                            detail="parked earlier")
         write_status(home, "alpha", pct_5h=3, pct_7d=10, ctx_pct=5)
-        dmn.tick(con, lambda _m: None, use_model=False)
+        dmn.tick(con, lambda _m: None)
         row = db.get_agent_state(con, "backend")
         check("daemon: a due parked agent returns to QUEUED",
               row["state"] == dmn.QUEUED, str(dict(row)))
@@ -1233,7 +1262,7 @@ def test_daemon_kill_recovery(home: Path) -> None:
     con = db.connect()
     try:
         # Exactly what a SIGKILL mid-handoff leaves behind.
-        db.start_handoff(con, "hid1", "backend", "sess", "usage", 0,
+        db.start_handoff(con, "hid1", "backend", "sess", "usage",
                          int(time.time()) + 60)
         db.advance_handoff(con, "hid1", "folded")
         db.set_agent_state(con, "backend", dmn.HANDOFF, detail="killed mid-handoff")
@@ -1253,7 +1282,7 @@ def test_daemon_kill_recovery(home: Path) -> None:
         # An agent mid-handoff is excluded from trigger evaluation (8.9).
         write_status(home, "alpha", pct_5h=99, pct_7d=10, ctx_pct=90)
         before = len(db.in_flight_handoffs(con))
-        dmn.tick(con, lambda _m: None, use_model=False)
+        dmn.tick(con, lambda _m: None)
         check("daemon: no competing handoff is started",
               len(db.in_flight_handoffs(con)) == before, str(before))
     finally:
@@ -1264,7 +1293,7 @@ def test_daemon_handoff_timeout(home: Path) -> None:
     _daemon_home(home, 50)
     con = db.connect()
     try:
-        db.start_handoff(con, "hid2", "backend", "sess", "usage", 0, int(time.time()) - 5)
+        db.start_handoff(con, "hid2", "backend", "sess", "usage", int(time.time()) - 5)
         actions = dmn.reconcile(con, lambda _m: None)
         check("daemon: an expired handoff is timed out",
               any("timed out" in a for a in actions), str(actions))
@@ -1272,8 +1301,6 @@ def test_daemon_handoff_timeout(home: Path) -> None:
         check("daemon: a timed-out handoff degrades", row["state"] == dmn.DEGRADED)
         check("daemon: timing out increments the throttle counter",
               row["throttle_count"] == 1, str(dict(row)))
-        check("daemon: the cursor is not advanced by a timeout",
-              db.get_cursor(con, "fold:backend") == 0)
     finally:
         con.close()
 
@@ -1288,8 +1315,8 @@ def test_daemon_stall_escalation(home: Path) -> None:
     _daemon_home(home, 95)
     con = db.connect()
     try:
-        real = foldmod.fold
-        foldmod.fold = lambda *a, **k: (False, "fold keeps failing")
+        # The default fixture has no snapshot of the session and no worktree,
+        # so every handoff here is degraded for the facts it could not read.
         seen = []
         try:
             for _ in range(dmn.MAX_THROTTLE_STREAK + 3):
@@ -1304,7 +1331,7 @@ def test_daemon_stall_escalation(home: Path) -> None:
                 # handoff rate limiter does not read them as one runaway.
                 con.execute("UPDATE handoff SET updated = updated - ? WHERE agent = 'backend'",
                             (dmn.MIN_HANDOFF_INTERVAL_S * 2,))
-                dmn.tick(con, lambda _m: None, use_model=False)
+                dmn.tick(con, lambda _m: None)
                 cur = db.get_agent_state(con, "backend")
                 seen.append((cur["state"], cur["throttle_count"]))
 
@@ -1314,11 +1341,11 @@ def test_daemon_stall_escalation(home: Path) -> None:
             check("daemon: repeated degradation escalates to STALLED",
                   final["state"] == dmn.STALLED, str(seen))
 
-            dmn.tick(con, lambda _m: None, use_model=False)
+            dmn.tick(con, lambda _m: None)
             check("daemon: STALLED is not cleared automatically",
                   db.get_agent_state(con, "backend")["state"] == dmn.STALLED)
         finally:
-            foldmod.fold = real
+            pass
     finally:
         con.close()
 
@@ -1331,13 +1358,9 @@ def test_daemon_success_clears_streak(home: Path) -> None:
     try:
         for _ in range(3):
             db.bump_counter(con, "backend", "throttle_count")
-        real = foldmod.fold
-        foldmod.fold = lambda *a, **k: (True, "ok")
-        try:
-            db.set_agent_state(con, "backend", dmn.QUEUED)
-            dmn.tick(con, lambda _m: None, use_model=False)
-        finally:
-            foldmod.fold = real
+        readable_agent(con, home, "backend")
+        db.set_agent_state(con, "backend", dmn.QUEUED)
+        dmn.tick(con, lambda _m: None)
         row = db.get_agent_state(con, "backend")
         check("daemon: a successful handoff clears the throttle streak",
               row["throttle_count"] == 0, str(dict(row)))
@@ -1351,13 +1374,13 @@ def test_daemon_degraded_recovers(home: Path) -> None:
     _daemon_home(home, 50)
     con = db.connect()
     try:
-        db.start_handoff(con, "h_exp", "backend", "s", "usage", 0, int(time.time()) - 5)
-        dmn.tick(con, lambda _m: None, use_model=False)
+        db.start_handoff(con, "h_exp", "backend", "s", "usage", int(time.time()) - 5)
+        dmn.tick(con, lambda _m: None)
         row = db.get_agent_state(con, "backend")
         check("daemon: a timed-out handoff degrades with a wake_at",
               row["state"] == dmn.DEGRADED and row["wake_at"] is not None, str(dict(row)))
         db.set_agent_state(con, "backend", dmn.DEGRADED, wake_at=int(time.time()) - 1)
-        dmn.tick(con, lambda _m: None, use_model=False)
+        dmn.tick(con, lambda _m: None)
         row = db.get_agent_state(con, "backend")
         check("daemon: a due DEGRADED agent returns to QUEUED",
               row["state"] in (dmn.QUEUED, dmn.PARKED), str(dict(row)))
@@ -1370,9 +1393,9 @@ def test_daemon_tick_expires_handoff(home: Path) -> None:
     _daemon_home(home, 50)
     con = db.connect()
     try:
-        db.start_handoff(con, "h_tick", "backend", "s", "usage", 0, int(time.time()) - 600)
+        db.start_handoff(con, "h_tick", "backend", "s", "usage", int(time.time()) - 600)
         db.set_agent_state(con, "backend", dmn.HANDOFF)
-        dmn.tick(con, lambda _m: None, use_model=False)
+        dmn.tick(con, lambda _m: None)
         check("daemon: tick expires a handoff past its deadline",
               db.in_flight_handoffs(con) == [],
               str([dict(h) for h in db.in_flight_handoffs(con)]))
@@ -1770,7 +1793,7 @@ def test_two_processes_cannot_both_supervise_one_home(home: Path) -> None:
         check("lock: another process took the daemon lock",
               holder.stdout.readline().strip() == "True")
         out = subprocess.run([sys.executable, str(ROOT / "bin" / "ocp"), "daemon",
-                              "--once", "--no-model"],
+                              "--once"],
                              env=env, capture_output=True, text=True, timeout=120)
         check("daemon: the program itself refuses, not only a call to run()",
               out.returncode == 1, out.stdout + out.stderr)
@@ -1959,65 +1982,140 @@ def test_drift(tmp: Path) -> None:
           not bad.ok and bad.resume_header() == drift.OVERLAP_HEADER, bad.summary())
 
 
-def test_handoff_drift_header(home: Path) -> None:
-    """The resume header must actually reach handoff/latest.md."""
+def _worktree_with_a_dirty_file(root: Path) -> Path:
+    root.mkdir(parents=True, exist_ok=True)
+    for args in (["init", "-q", "-b", "topic"], ["config", "user.email", "t@t"],
+                 ["config", "user.name", "t"]):
+        subprocess.run(["git", *args], cwd=root, check=True, capture_output=True)
+    (root / "a.txt").write_text("a")
+    subprocess.run(["git", "add", "a.txt"], cwd=root, check=True, capture_output=True)
+    subprocess.run(["git", "commit", "-qm", "first"], cwd=root, check=True,
+                   capture_output=True)
+    (root / "dirty.txt").write_text("not committed")
+    return root
+
+
+def test_the_handoff_is_three_facts_read_without_a_model(home: Path) -> None:
+    """A handoff has to work when every account is walled, which is when a
+    model call cannot: it is the request in hand, the session's transcript path
+    and the worktree's state, read from disk, and it is degraded only when one
+    of those could not be read."""
+    _daemon_home(home, 50)
+    wt = _worktree_with_a_dirty_file(home / "wt-backend")
+    real = foldmod.run_model
+    foldmod.run_model = lambda *a, **k: (_ for _ in ()).throw(AssertionError("model called"))
+    con = db.connect()
+    try:
+        db.set_terminal(con, "backend", "term_x", str(wt))
+        rid = db.add_request(con, "marina", "backend", "fix the routing\nsecond line", None,
+                             "peer", "async", None, 0, None)
+        db.mark_delivered(con, rid)
+        write_agent_status("backend", "alpha", session_id="sess-1",
+                           transcript_path="/tmp/sess-1.jsonl")
+
+        missing = handoffmod.record(con, "backend")
+        text = db.get_handoff(con, "backend")
+        head = subprocess.run(["git", "rev-parse", "--short", "HEAD"], cwd=wt,
+                              capture_output=True, text=True).stdout.strip()
+        check("handoff: nothing is missing when the three facts can be read",
+              missing == [], str(missing))
+        check("handoff: it names the request in hand, first line only",
+              f"#{rid} from marina - fix the routing" in text and "second line" not in text,
+              text)
+        check("handoff: it names the previous session's transcript",
+              "sess-1" in text and "/tmp/sess-1.jsonl" in text, text)
+        check("handoff: it gives the branch, HEAD and what is uncommitted",
+              f"branch: topic @ {head}" in text and "?? dirty.txt" in text, text)
+        check("handoff: and nothing else - no digest sections",
+              "진행중" not in text and "recent commits" not in text, text)
+
+        # A request nobody has been shown yet is not one in hand.
+        db.add_request(con, "marina", "backend", "later", None, "peer", "async", None, 0, None)
+        db.set_request_state(con, rid, "done", "ok")
+        check("handoff: no delivered request is a fact, not a gap",
+              handoffmod.record(con, "backend") == []
+              and "request: none in progress" in db.get_handoff(con, "backend"))
+
+        # Each fact that cannot be read degrades it, and says which.
+        paths.agent_status_file("backend").unlink()
+        gaps = handoffmod.record(con, "backend")
+        check("handoff: no snapshot of the session names the transcript as the gap",
+              gaps == ["the session's transcript path"], str(gaps))
+        check("handoff: and the record says so where the agent reads it",
+              "could not read the session's transcript path" in db.get_handoff(con, "backend")
+              and "branch: topic" in db.get_handoff(con, "backend"))
+        db.set_terminal(con, "backend", "term_x", str(home / "gone"))
+        gaps = handoffmod.record(con, "backend")
+        check("handoff: a worktree that is gone is the other gap",
+              len(gaps) == 2 and gaps[1].startswith("the worktree"), str(gaps))
+    finally:
+        foldmod.run_model = real
+        con.close()
+
+
+def test_an_idle_close_keeps_a_handoff_only_if_it_closed(home: Path) -> None:
+    """A wake that has to start elsewhere has no live session to read the
+    transcript path from, so the close takes the record while there is one.
+    A close that did not happen leaves nothing behind to be read as current."""
+    _daemon_home(home, 20)
+    con = db.connect()
+    real = dmn._end_session
+    try:
+        readable_agent(con, home, "backend")
+        st = status.read_for_agent("backend", "alpha")
+        st.session_id = "sess-1"
+        dmn._end_session = lambda *a, **k: (True, "closed")
+        dmn._close_agent(con, "backend", lambda _m: None, st)
+        check("close: a successful close leaves the record for the wake",
+              "sess-1" in (db.get_handoff(con, "backend") or ""))
+        dmn._end_session = lambda *a, **k: (False, "no session process")
+        dmn._close_agent(con, "backend", lambda _m: None, st)
+        check("close: one that did not happen leaves none",
+              db.get_handoff(con, "backend") is None)
+    finally:
+        dmn._end_session = real
+        con.close()
+
+
+def test_a_park_with_every_account_walled_is_a_clean_handoff(home: Path) -> None:
+    """The fold used to fail here - no account could pay for the call - and every
+    walled park counted as degraded. The handoff needs no account."""
+    _daemon_home(home, 99)
+    wt = _worktree_with_a_dirty_file(home / "wt-backend")
+    con = db.connect()
+    try:
+        db.set_terminal(con, "backend", "term_x", str(wt))
+        write_agent_status("backend", "alpha", session_id="sess-1",
+                           transcript_path="/tmp/sess-1.jsonl")
+        logs: list[str] = []
+        dmn.tick(con, logs.append)
+        row = db.get_agent_state(con, "backend")
+        check("park: a walled agent is parked", row["state"] == dmn.PARKED, str(dict(row)))
+        check("park: the handoff is not degraded, so nothing accrues to the streak",
+              row["throttle_count"] == 0
+              and not any("degraded" in m for m in logs), f"{dict(row)} {logs}")
+        check("park: the record is waiting for its wake",
+              "sess-1" in (db.get_handoff(con, "backend") or ""))
+        check("park: no fold failure is logged",
+              not con.execute("SELECT 1 FROM events WHERE kind = 'fold_failed'").fetchall())
+    finally:
+        con.close()
+
+
+def test_the_digest_facts_do_not_repeat_one_event_kind(home: Path) -> None:
+    """The machine record in a digest counts turn boundaries and quotes what
+    happened, instead of repeating one event kind sixteen times."""
     home.mkdir(parents=True, exist_ok=True)
     os.environ["OCP_HOME"] = str(home)
     agents.register("backend", "alpha")
-    d = digest.Digest(date=foldmod.today(), agent="backend", updated="10:00", folded_through=1,
-                      sections={"done": ["shipped the thing"], "in_progress": [], "decided": [],
-                                "blocked": [], "next": [], "base_candidates": []})
-    foldmod._write_handoff("backend", d, "facts here", repo=None)
-    text = foldmod.handoff_path("backend").read_text()
-    check("handoff: completed items appear", "shipped the thing" in text)
-    check("handoff: a drift header is attached above them",
-          drift.OVERLAP_HEADER in text or drift.NO_OVERLAP_HEADER in text, text[:200])
-    check("handoff: unknown drift uses the cautious header",
-          drift.OVERLAP_HEADER in text, text[:300])
-
-    # A handoff written when the fold could not run is the last digest, not a
-    # record of the work just done. Unmarked, "진행중: (none)" reads as a
-    # finding, and manager resumed on one while it was mid-build.
-    d.late = ["fold could not run; 112 event(s) still pending"]
-    foldmod._write_handoff("backend", d, "facts here", repo=None)
-    text = foldmod.handoff_path("backend").read_text()
-    check("handoff: one the fold did not write says so, above the sections",
-          "did not run" in text and "112 event(s)" in text
-          and text.index("did not run") < text.index(digest.HEADINGS["in_progress"]),
-          text[:400])
-
-    # And the machine record does not repeat one event kind sixteen times.
     now = int(time.time())
     events = [{"id": i, "ts": now, "kind": "SubagentStop", "payload": "{}"} for i in range(20)]
     events.append({"id": 99, "ts": now, "kind": "commit", "payload": '{"sha": "abc"}'})
     facts = foldmod.deterministic_facts("backend", events, repo=None)
-    check("handoff: the record counts turn boundaries and quotes what happened",
+    check("digest: the record counts turn boundaries and quotes what happened",
           "SubagentStopx20" in facts and facts.count("SubagentStop {") == 0
           and "commit" in facts, facts)
 
-
-# ---------------------------------------------------------------- yaml differential
-DIFFERENTIAL_CASES = [
-    "reason: go#1\n",
-    "url: http://x/#frag\n",
-    "a: b # real comment\n",
-    "d:\n  - a:b\n",
-    "d:\n  - http://example.com\n",
-    "enabled: yes\nother: no\n",
-    "on_flag: on\noff_flag: off\n",
-    '"a:b": c\n',
-    "n: 0x10\n",
-    "n: 0o17\n",
-    "f: 1.5\ng: -2\nh: 1e3\n",
-    "q: 'single'\nr: \"double\"\n",
-    "empty:\n",
-    "nested:\n  a:\n    b: 1\n",
-    "lst:\n  - 1\n  - two\n  - true\n",
-    'flow: { a: 1, b: "x, y" }\n',
-    "flowlist: [1, 2, three]\n",
-    "edges:\n  - { from: \"*\", to: reviewer, creates_gate: no }\n",
-    "edges:\n  - { from: \"*\", to: reviewer, creates_gate: yes }\n",
-]
 
 
 def test_yaml_differential() -> None:
@@ -2604,7 +2702,7 @@ def test_work_arriving_wakes_a_closed_agent(home: Path) -> None:
         db.add_request(con, "reviewer", "backend", "please look at this", None,
                        "peer", "async", None, 0, None)
         sent.clear()
-        dmn.tick(con, lambda _m: None, use_model=False)
+        dmn.tick(con, lambda _m: None)
         check("wake: work arriving brings a closed agent back",
               any("--resume sess-9" in t for t in sent), str(sent[:2]))
         check("wake: and it is no longer marked closed",
@@ -2631,9 +2729,7 @@ def test_wake_without_a_closed_session_uses_the_handoff(home: Path) -> None:
         # makes typing the handoff into it the right move.
         sessions_are("backend")
         db.set_terminal(con, "backend", "term_x", "wt")
-        hp = foldmod.handoff_path("backend")
-        hp.parent.mkdir(parents=True, exist_ok=True)
-        hp.write_text("# handoff · backend\n- was mid-way through the routing fix")
+        keep_handoff("backend", "# handoff · backend\n- was mid-way through the routing fix")
         ok, _ = dmn.wake_agent(con, "backend", lambda _m: None)
         check("wake: a cleared agent gets its handoff", ok and "routing fix" in sent[-1],
               sent[-1][:120] if sent else "")
@@ -2641,6 +2737,8 @@ def test_wake_without_a_closed_session_uses_the_handoff(home: Path) -> None:
               "context was cleared" in sent[-1])
         check("wake: no launch command is typed at an agent that is still running",
               not any("launch" in t for t in sent), str(sent))
+        check("wake: a handoff that has been handed over is not handed over again",
+              kept_handoff("backend") is None)
     finally:
         orcamod.alive, orcamod.available, orcamod.send = real
         con.close()
@@ -3080,7 +3178,7 @@ def test_one_agents_bad_tick_is_not_everyones(home: Path) -> None:
             return real(con_, agent, *a, **k)
 
         dmn.supervise = explode
-        t = dmn.tick(con, lambda _m: None, use_model=False)
+        t = dmn.tick(con, lambda _m: None)
         check("tick: the failure is reported against the agent that had it",
               any("backend: error" in a for a in t.actions), str(t.actions))
         check("tick: and it counts as a failed attempt",
@@ -3282,7 +3380,7 @@ def test_a_closed_agent_is_not_handed_off(home: Path) -> None:
               triggers.evaluate(st.trusted_pct_5h, None).fired)
 
         sent.clear()
-        dmn.tick(con, lambda _m: None, use_model=False)
+        dmn.tick(con, lambda _m: None)
         row = db.get_agent_state(con, "backend")
         check("closed: but a closed agent is not handed off",
               row["state"] != dmn.PARKED, str(dict(row)))
@@ -3378,14 +3476,14 @@ def test_a_woken_agent_is_told_on_the_following_tick(home: Path) -> None:
         db.add_request(con, "reviewer", "backend", "look at this", None,
                        "peer", "async", None, 0, None)
         sent.clear()
-        dmn.tick(con, lambda _m: None, use_model=False)
+        dmn.tick(con, lambda _m: None)
         check("wake: the tick that wakes it brings the session back",
               any("--resume sess-4" in t for t in sent), str(sent))
         check("wake: and does not announce the inbox in the same breath",
               not any("ocp inbox" in t for t in sent), str(sent))
 
         sent.clear()
-        dmn.tick(con, lambda _m: None, use_model=False)
+        dmn.tick(con, lambda _m: None)
         check("wake: the following tick tells it what is waiting",
               any("ocp inbox" in t for t in sent), str(sent))
     finally:
@@ -3434,7 +3532,7 @@ def test_a_woken_agent_is_not_judged_on_the_snapshot_it_left(home: Path) -> None
         db.add_request(con, "reviewer", "backend", "look at this", None,
                        "peer", "async", None, 0, None)
         sent.clear()
-        dmn.tick(con, lambda _m: None, use_model=False)
+        dmn.tick(con, lambda _m: None)
         row = db.get_agent_state(con, "backend")
         check("wake: it comes back", any("--resume sess-7" in t for t in sent), str(sent))
         check("wake: and is not handed off on the reading it left behind",
@@ -3488,7 +3586,7 @@ def test_a_park_that_was_also_closed_is_woken_without_being_judged(home: Path) -
         write_status(home, "alpha", pct_5h=20, pct_7d=10,
                      collected_at=int(time.time()) - status.STALE_AFTER_S - 60)
         sent.clear()
-        dmn.tick(con, lambda _m: None, use_model=False)
+        dmn.tick(con, lambda _m: None)
         row = db.get_agent_state(con, "backend")
         check("parked+closed: wake_at brings the same session back",
               any("--resume sess-8" in t for t in sent), str(sent))
@@ -3552,24 +3650,32 @@ def test_reconcile_wakes_a_park_that_was_also_closed(home: Path) -> None:
 
 
 def test_a_wake_does_not_call_a_fresh_start_a_park(home: Path) -> None:
-    """Closing writes no handoff, because closing is not a handoff. Telling an
-    agent that could not be resumed "your context was cleared, below is your own
-    handoff record" hands it whatever an earlier park left behind, read as
-    current - the failure this branch exists to remove."""
+    """Telling an agent that could not be resumed "your context was cleared,
+    below is your own handoff record" says it was parked when it was not. A
+    fresh start after a close finds its record in the system prompt of the
+    session it started, so the prompt points there and does not repeat it."""
     _daemon_home(home, 20)
-    hp = foldmod.handoff_path("backend")
-    hp.parent.mkdir(parents=True, exist_ok=True)
-    hp.write_text("# handoff · backend\n- was mid-way through the routing fix")
+    keep_handoff("backend", "# handoff · backend\n- was mid-way through the routing fix")
+    con = db.connect()
+    try:
+        told = dmn.wake_prompt("backend", resumed=False, was_closed=True, con=con)
+        check("wake: a fresh start after a close is not called a park",
+              "You were parked" not in told, told[:140])
+        check("wake: and its handoff is in the system prompt, not typed again",
+              "routing fix" not in told and "system prompt above" in told, told[:200])
+        db.set_handoff(con, "backend", None)
+        told = dmn.wake_prompt("backend", resumed=False, was_closed=True, con=con)
+        check("wake: with none recorded it is told so",
+              "no handoff" in told.lower(), told[:200])
+    finally:
+        con.close()
 
-    told = dmn.wake_prompt("backend", resumed=False, was_closed=True)
-    check("wake: a fresh start after a close is not called a park",
-          "You were parked" not in told, told[:140])
-    check("wake: and is not handed a leftover handoff",
-          "routing fix" not in told, told[:200])
-    check("wake: it is told there is nothing folded to read",
-          "no handoff" in told, told[:200])
-
-    told = dmn.wake_prompt("backend", resumed=False, was_closed=False)
+    keep_handoff("backend", "# handoff · backend\n- was mid-way through the routing fix")
+    con = db.connect()
+    try:
+        told = dmn.wake_prompt("backend", resumed=False, was_closed=False, con=con)
+    finally:
+        con.close()
     check("wake: a real park still gets its record",
           "You were parked" in told and "routing fix" in told, told[:200])
 
@@ -3773,7 +3879,7 @@ def test_an_agent_with_nowhere_to_run_is_not_handed_off(home: Path) -> None:
         check("no terminal: but the agent is not a candidate",
               not dmn.triggers_apply(row), str(dict(row)))
 
-        dmn.tick(con, lambda _m: None, use_model=False)
+        dmn.tick(con, lambda _m: None)
         row = db.get_agent_state(con, "backend")
         check("no terminal: so it is not parked", row["state"] != dmn.PARKED, str(dict(row)))
         check("no terminal: and no fold was paid for",
@@ -3781,7 +3887,7 @@ def test_an_agent_with_nowhere_to_run_is_not_handed_off(home: Path) -> None:
 
         # And with somewhere to run, the same trigger does its job.
         db.set_terminal(con, "backend", "term_x", "wt")
-        dmn.tick(con, lambda _m: None, use_model=False)
+        dmn.tick(con, lambda _m: None)
         check("no terminal: an agent that has one is still parked",
               db.get_agent_state(con, "backend")["state"] == dmn.PARKED,
               str(dict(db.get_agent_state(con, "backend"))))
@@ -4221,7 +4327,7 @@ def test_a_park_that_cannot_be_woken_keeps_its_deadline(home: Path) -> None:
         write_status(home, "alpha", pct_5h=95, pct_7d=10, ctx_pct=5,
                      reset_5h=int(time.time()) + 600)
 
-        dmn.supervise(con, "backend", lambda _m: None, int(time.time()), {}, False, [])
+        dmn.supervise(con, "backend", lambda _m: None, int(time.time()), {}, [])
         row = db.get_agent_state(con, "backend")
         check("park: a wake the account refuses is not typed", not sent, str(sent))
         check("park: and the deadline stays, so the next tick tries again",
@@ -4232,7 +4338,7 @@ def test_a_park_that_cannot_be_woken_keeps_its_deadline(home: Path) -> None:
                      reset_5h=int(time.time()) + 1800)
         table = sessions_are()
         orcamod.send = relaunching_send(sent, table)
-        dmn.supervise(con, "backend", lambda _m: None, int(time.time()), {}, False, [])
+        dmn.supervise(con, "backend", lambda _m: None, int(time.time()), {}, [])
         row = db.get_agent_state(con, "backend")
         check("park: once it rolls over the park is woken and the deadline cleared",
               row["state"] == dmn.QUEUED and row["wake_at"] is None
@@ -4250,7 +4356,7 @@ def test_a_park_that_cannot_be_woken_keeps_its_deadline(home: Path) -> None:
             evmod._mark_activity(hooked, "backend", "UserPromptSubmit"),
             (True, "injected"))[1]
         try:
-            dmn.supervise(con, "backend", lambda _m: None, int(time.time()), {}, False, [])
+            dmn.supervise(con, "backend", lambda _m: None, int(time.time()), {}, [])
         finally:
             orcamod.resume_with = real_resume
             hooked.close()
@@ -4267,7 +4373,7 @@ def _park_via_handoff(con, agent: str, kind: str, hoff_state: str = "done") -> N
     with `trigger_kind` on the record - the only place a park's cause is
     named, since nothing on `agent_state` itself says why."""
     hid = f"hoff-{kind}"
-    db.start_handoff(con, hid, agent, None, kind, 0, int(time.time()) + 90)
+    db.start_handoff(con, hid, agent, None, kind, int(time.time()) + 90)
     db.advance_handoff(con, hid, "released", state=hoff_state)
 
 
@@ -4290,7 +4396,7 @@ def test_a_usage_park_is_woken_when_the_reading_clears(home: Path) -> None:
         write_status(home, "alpha", pct_5h=5, pct_7d=10, ctx_pct=5,
                      reset_5h=int(time.time()) + 1800)
 
-        dmn.supervise(con, "backend", lambda _m: None, int(time.time()), {}, False, [])
+        dmn.supervise(con, "backend", lambda _m: None, int(time.time()), {}, [])
         row = db.get_agent_state(con, "backend")
         check("park: an open session wakes the moment the reading clears, "
               "not at the deadline it was given",
@@ -4339,7 +4445,7 @@ def test_a_usage_park_does_not_oscillate_in_the_reserve_band(home: Path) -> None
         continuations_before = int(before["continuations"])
 
         for _ in range(5):
-            dmn.supervise(con, "backend", lambda _m: None, int(time.time()), {}, False, [])
+            dmn.supervise(con, "backend", lambda _m: None, int(time.time()), {}, [])
             row = db.get_agent_state(con, "backend")
             check("park: still parked - the reading is still over the line",
                   row["state"] == dmn.PARKED, str(dict(row)))
@@ -4395,7 +4501,7 @@ def test_a_weekly_park_stays_parked_while_the_week_is_full(home: Path) -> None:
         continuations_before = int(before["continuations"])
 
         for _ in range(5):
-            dmn.supervise(con, "backend", lambda _m: None, int(time.time()), {}, False, [])
+            dmn.supervise(con, "backend", lambda _m: None, int(time.time()), {}, [])
             row = db.get_agent_state(con, "backend")
             check("park: still parked - the reading is still over the line",
                   row["state"] == dmn.PARKED, str(dict(row)))
@@ -4431,7 +4537,7 @@ def test_a_degraded_park_does_not_auto_clear(home: Path) -> None:
         write_status(home, "alpha", pct_5h=5, pct_7d=10, ctx_pct=5,
                      reset_5h=int(time.time()) + 1800)
 
-        dmn.supervise(con, "backend", lambda _m: None, int(time.time()), {}, False, [])
+        dmn.supervise(con, "backend", lambda _m: None, int(time.time()), {}, [])
         row = db.get_agent_state(con, "backend")
         check("park: DEGRADED is not scoped in - it keeps its own deadline",
               row["state"] == dmn.DEGRADED and row["wake_at"] is not None, str(dict(row)))
@@ -4460,7 +4566,7 @@ def test_a_context_park_does_not_auto_clear_on_a_usage_reading(home: Path) -> No
         write_status(home, "alpha", pct_5h=5, pct_7d=10, ctx_pct=5,
                      reset_5h=int(time.time()) + 1800)
 
-        dmn.supervise(con, "backend", lambda _m: None, int(time.time()), {}, False, [])
+        dmn.supervise(con, "backend", lambda _m: None, int(time.time()), {}, [])
         row = db.get_agent_state(con, "backend")
         check("park: a context park is not a usage park - it keeps its own deadline",
               row["state"] == dmn.PARKED and row["wake_at"] is not None, str(dict(row)))
@@ -4498,7 +4604,7 @@ def test_an_assumed_account_does_not_auto_clear_a_park(home: Path) -> None:
         check("park: the account column really is null here",
               row["account"] is None, dict(row))
 
-        dmn.supervise(con, "backend", lambda _m: None, int(time.time()), {}, False, [])
+        dmn.supervise(con, "backend", lambda _m: None, int(time.time()), {}, [])
         row = db.get_agent_state(con, "backend")
         check("park: an assumed account never un-parks",
               row["state"] == dmn.PARKED and row["wake_at"] is not None, str(dict(row)))
@@ -4515,13 +4621,13 @@ def test_a_resumed_handoff_also_records_its_park(home: Path) -> None:
     _daemon_home(home, 20)
     con = db.connect()
     try:
-        db.start_handoff(con, "hoff-restart", "backend", None, "usage", 0,
+        db.start_handoff(con, "hoff-restart", "backend", None, "usage",
                          int(time.time()) + 90)
         row = db.in_flight_for(con, "backend")
         write_status(home, "alpha", pct_5h=20, pct_7d=10, ctx_pct=5,
                      reset_5h=int(time.time()) + 1800)
 
-        dmn.resume_handoff(con, row, lambda _m: None, use_model=False)
+        dmn.resume_handoff(con, row, lambda _m: None)
         events = db.events_after(con, 0, agent="backend", exclude_kinds=())
         check("resume: a recovered handoff's park is recorded too",
               any(e["kind"] == "park" for e in events), [e["kind"] for e in events])
@@ -4590,7 +4696,7 @@ def test_supervise_reads_the_reported_account_not_an_assumed_preference(home: Pa
         db.set_terminal(con, "backend", "term_x", "wt")
         db.set_agent_state(con, "backend", dmn.IDLE)
 
-        dmn.supervise(con, "backend", lambda _m: None, int(time.time()), {}, False, [])
+        dmn.supervise(con, "backend", lambda _m: None, int(time.time()), {}, [])
         row = db.get_agent_state(con, "backend")
         check("account: a park against the wrong, assumed account no longer happens",
               row["state"] != dmn.PARKED, dict(row))
@@ -4614,7 +4720,7 @@ def test_a_park_against_an_assumed_account_gets_a_short_recheck(home: Path) -> N
                      reset_5h=int(time.time()) + 4 * 3600)
         t = triggers.evaluate(95, 10)
         before = int(time.time())
-        dmn.perform_handoff(con, "backend", t, lambda _m: None, use_model=False)
+        dmn.perform_handoff(con, "backend", t, lambda _m: None)
         row = db.get_agent_state(con, "backend")
         check("account: an assumed park gets a short re-look, not alpha's own "
               "4h-out rollover",
@@ -4636,11 +4742,11 @@ def test_a_resumed_handoff_also_fails_closed_on_an_assumed_account(home: Path) -
     try:
         write_status(home, "alpha", pct_5h=20, pct_7d=10, ctx_pct=5,
                      reset_5h=int(time.time()) + 4 * 3600)
-        db.start_handoff(con, "hoff-restart2", "backend", None, "usage", 0,
+        db.start_handoff(con, "hoff-restart2", "backend", None, "usage",
                          int(time.time()) + 90)
         row = db.in_flight_for(con, "backend")
         before = int(time.time())
-        dmn.resume_handoff(con, row, lambda _m: None, use_model=False)
+        dmn.resume_handoff(con, row, lambda _m: None)
         fresh = db.get_agent_state(con, "backend")
         check("account: a resumed handoff's park also gets a short re-look, "
               "not alpha's own 4h-out rollover",
@@ -5440,14 +5546,14 @@ def test_an_answer_wakes_the_agent_that_was_waiting_for_it(home: Path) -> None:
         check("waiting: resolving leaves it closed, with no deadline left",
               row["closed_at"] is not None and row["wake_at"] is None, str(dict(row)))
 
-        dmn.supervise(con, "backend", lambda _m: None, int(time.time()), {}, False, [])
+        dmn.supervise(con, "backend", lambda _m: None, int(time.time()), {}, [])
         check("waiting: the tick wakes it for the answer it asked for",
               any("--resume sess-4" in t for t in sent), str(sent))
         check("waiting: and it is no longer closed",
               db.get_agent_state(con, "backend")["closed_at"] is None)
 
         sent.clear()
-        dmn.supervise(con, "backend", lambda _m: None, int(time.time()), {}, False, [])
+        dmn.supervise(con, "backend", lambda _m: None, int(time.time()), {}, [])
         check("waiting: the next tick hands it the answer",
               any("this way" in t for t in sent), str(sent)[:160])
 
@@ -5903,7 +6009,7 @@ def test_an_agent_can_put_another_one_to_work(home: Path) -> None:
         db.set_closed(con, "reviewer", "sess_old")
         logged: list[str] = []
         dmn.supervise(con, "reviewer", lambda m: logged.append(m),
-                      int(time.time()), {}, False, [])
+                      int(time.time()), {}, [])
         check("dispatch: an agent with an answer and no terminal is given one",
               ("reviewer", str((home / "checkout").resolve())) in started,
               f"{started} {logged}")
@@ -5921,7 +6027,7 @@ def test_an_agent_can_put_another_one_to_work(home: Path) -> None:
         logged.clear()
         for _ in range(3):
             dmn.supervise(con, "reviewer", lambda m: logged.append(m),
-                          int(time.time()), {}, False, [])
+                          int(time.time()), {}, [])
         said = [m for m in logged if "could not be woken" in m]
         check("dispatch: a wake that cannot happen is said out loud",
               len(said) == 1 and "answer(s) it asked for" in said[0], str(logged))
@@ -5990,7 +6096,7 @@ def test_weekly_headroom_is_spent_to_its_own_wall(home: Path) -> None:
             orcamod.close_session = lambda h, **kw: (True, "session ended")
             orcamod.relaunch = lambda h, cmd, **kw: (True, "relaunched")
             dmn.wait_for_session = lambda agent, timeout=0: True
-            foldmod.handoff_path("keeper").write_text("# handoff · keeper\n## 다음\n- carry on\n")
+            keep_handoff("keeper", "# handoff · keeper\n## 다음\n- carry on\n")
             check("7d wall: the agent moves off an account that hit its 7d wall",
                   dmn._move_to_room(con, "keeper", t, lambda _m: None))
             check("7d wall: it landed on the account with weekly room",
@@ -6020,7 +6126,7 @@ def test_an_agent_at_the_wall_moves_to_an_account_with_room(home: Path) -> None:
     for acct in ("alpha", "beta"):
         (home / "accounts" / acct / ".claude").mkdir(parents=True, exist_ok=True)
         (home / "accounts" / acct / ".claude" / ".credentials.json").write_text("{}")
-    foldmod.handoff_path("keeper").write_text("# handoff · keeper\n## 다음\n- carry on\n")
+    keep_handoff("keeper", "# handoff · keeper\n## 다음\n- carry on\n")
     real = (orcamod.available, orcamod.alive, orcamod.close_session, orcamod.relaunch,
             orcamod.clear_context, orcamod.resume_with, orcamod.idle_now,
             dmn.wait_for_session)
@@ -6052,7 +6158,7 @@ def test_an_agent_at_the_wall_moves_to_an_account_with_room(home: Path) -> None:
 
         t = triggers.evaluate(95, 10)
         check("move: 95% is a usage trigger", t.fired and t.kind == "usage", t.kind)
-        dmn.perform_handoff(con, "keeper", t, lambda _m: None, use_model=False)
+        dmn.perform_handoff(con, "keeper", t, lambda _m: None)
 
         row = db.get_agent_state(con, "keeper")
         # A state nothing else in the daemon will act on is where a moved agent
@@ -6138,8 +6244,7 @@ def test_an_agent_at_the_wall_moves_to_an_account_with_room(home: Path) -> None:
         db.set_agent_state(con, "keeper", dmn.IDLE)
         db.clear_closed(con, "keeper")
         con.execute("DELETE FROM handoff")     # MIN_HANDOFF_INTERVAL_S, not a real one
-        dmn.perform_handoff(con, "keeper", triggers.evaluate(95, 10), lambda _m: None,
-                            use_model=False)
+        dmn.perform_handoff(con, "keeper", triggers.evaluate(95, 10), lambda _m: None)
         row = db.get_agent_state(con, "keeper")
         check("move: with no room anywhere it parks and waits, as before",
               row["state"] == dmn.PARKED and row["wake_at"], f"{row['state']} {row['wake_at']}")
@@ -6193,6 +6298,9 @@ def test_a_pinned_closed_agent_moves_instead_of_waiting_out_its_window(home: Pat
     try:
         db.set_terminal(con, "keeper", "term_x", "wt")
         db.set_closed(con, "keeper", "sess-old")
+        # What the close took while the session was live; a snapshot read at
+        # wake time is stale by construction.
+        keep_handoff("keeper", "# handoff · keeper\nprevious session: sess-old")
         db.set_account(con, "keeper", "alpha")
         write_status(home, "alpha", pct_5h=95, pct_7d=5,
                      reset_5h=int(time.time()) + 1800)
@@ -6203,7 +6311,7 @@ def test_a_pinned_closed_agent_moves_instead_of_waiting_out_its_window(home: Pat
         orcamod.resume_with = lambda h, text: (True, "handed back")
         dmn.wait_for_session = lambda agent, timeout=0: True
 
-        ok, why = dmn._wake_agent(con, "keeper", lambda _m: None, use_model=False)
+        ok, why = dmn._wake_agent(con, "keeper", lambda _m: None)
         check("pinning: the wake succeeds instead of waiting out alpha's window",
               ok, why)
         check("pinning: the relaunch is a fresh start, not --resume on a full account",
@@ -6216,8 +6324,10 @@ def test_a_pinned_closed_agent_moves_instead_of_waiting_out_its_window(home: Pat
         check("pinning: the move is on the record",
               moved and '"from": "alpha"' in moved[-1]["payload"]
               and '"to": "beta"' in moved[-1]["payload"], str(moved))
-        check("pinning: a handoff was written from what was folded",
-              foldmod.handoff_path("keeper").exists())
+        pinned = con.execute("SELECT state FROM handoff WHERE agent = 'keeper' "
+                             "AND trigger_kind = 'pinned'").fetchall()
+        check("pinning: the move is a finished handoff, not a degraded one",
+              [r["state"] for r in pinned] == ["done"], str([dict(r) for r in pinned]))
     finally:
         orcamod.available, orcamod.relaunch, orcamod.resume_with, dmn.wait_for_session = real
         con.close()
@@ -6241,7 +6351,7 @@ def test_a_pinned_agent_stays_pinned_when_nothing_else_has_clear_room(home: Path
         write_status(home, "beta", pct_5h=93, pct_7d=5,
                      reset_5h=int(time.time()) + 1800)
         orcamod.available = lambda: True
-        ok, why = dmn._wake_agent(con, "keeper", lambda _m: None, use_model=False)
+        ok, why = dmn._wake_agent(con, "keeper", lambda _m: None)
         check("pinning: with nothing better, it still waits for its own window",
               not ok and "alpha" in why and "5h window" in why, why)
         row = db.get_agent_state(con, "keeper")
@@ -6321,24 +6431,30 @@ def test_room_is_filtered_before_the_ranking_not_after(home: Path) -> None:
           launch.find_room("keeper") == "alpha", str(launch.find_room("keeper")))
 
     write_status(home, "alpha", pct_5h=95, pct_7d=5, reset_5h=now + 1800)
+    write_status(home, "spare", pct_5h=10, pct_7d=5, reset_5h=now + 1800)
+    for acct in ("alpha", "spare"):
+        (home / "accounts" / acct / ".claude").mkdir(parents=True, exist_ok=True)
+        (home / "accounts" / acct / ".claude" / ".credentials.json").write_text("{}")
     con = db.connect()
-    real = (orcamod.available, foldmod.fold)
+    real = orcamod.available
     try:
         db.set_terminal(con, "keeper", "term_x", "wt")
         db.set_closed(con, "keeper", "sess-old")
+        db.set_account(con, "keeper", "alpha")      # recorded: an assumed one never moves
         orcamod.available = lambda: True
-        foldmod.fold = lambda agent, use_model=True: (False, "could not run")
-        ok, why = dmn._wake_agent(con, "keeper", lambda _m: None, use_model=False)
+        ok, why = dmn._wake_agent(con, "keeper", lambda _m: None)
         row = db.get_agent_state(con, "keeper")
-        check("rescue: a failed fold keeps the resume id and waits",
+        check("rescue: a handoff missing a fact keeps the resume id and waits",
               not ok and row["resume_session"] == "sess-old", f"{why} {dict(row)}")
-        calls = []
-        foldmod.fold = lambda agent, use_model=True: (calls.append(1), (False, "no"))[1]
-        dmn._wake_agent(con, "keeper", lambda _m: None, use_model=False)
-        dmn._wake_agent(con, "keeper", lambda _m: None, use_model=False)
-        check("rescue: a failing fold is not retried on the next tick", not calls, str(calls))
+        tried = con.execute("SELECT COUNT(*) AS n FROM handoff WHERE agent = 'keeper'"
+                            ).fetchone()["n"]
+        dmn._wake_agent(con, "keeper", lambda _m: None)
+        dmn._wake_agent(con, "keeper", lambda _m: None)
+        check("rescue: a degraded one is not retried on the next tick",
+              con.execute("SELECT COUNT(*) AS n FROM handoff WHERE agent = 'keeper'"
+                          ).fetchone()["n"] == tried == 1, str(tried))
     finally:
-        orcamod.available, foldmod.fold = real
+        orcamod.available = real
         con.close()
 
 
@@ -6390,7 +6506,7 @@ def test_a_turn_that_ends_on_the_usage_limit_is_at_the_wall(home: Path) -> None:
         try:
             check("limit: fresh, the mid-turn probe still defers the handoff",
                   dmn.perform_handoff(con, "backend", triggers.Trigger(True, "usage", "x"),
-                                      lambda _m: None, use_model=False) is True
+                                      lambda _m: None) is True
                   and db.in_flight_for(con, "backend") is None)
         finally:
             orcamod.idle_now, orcamod.available = real_idle, real_av
@@ -6416,14 +6532,14 @@ def test_a_turn_that_ends_on_the_usage_limit_is_at_the_wall(home: Path) -> None:
             dmn._move_to_room = lambda con_, a, t, log: (seen.append(t), True)[1]
             # Idle, so delivery would go through if nothing held it back.
             orcamod.idle_now = lambda h, **kw: True
-            dmn.supervise(con, "backend", lambda _m: None, now, {}, False, [])
+            dmn.supervise(con, "backend", lambda _m: None, now, {}, [])
             check("limit: a queued request is not typed into an agent at its limit",
                   not typed, str(typed))
             seen.clear()
             con.execute("UPDATE handoff SET updated = updated - 1000 WHERE agent = 'backend'")
             db.set_agent_state(con, "backend", dmn.IDLE, detail="at its usage limit")
             orcamod.idle_now = lambda h, **kw: False
-            dmn.supervise(con, "backend", lambda _m: None, now, {}, False, [])
+            dmn.supervise(con, "backend", lambda _m: None, now, {}, [])
         finally:
             (orcamod.available, orcamod.alive, orcamod.idle_now, dmn._move_to_room,
              dmn.session_present, orcamod.clear_context) = real
@@ -6666,7 +6782,7 @@ def test_move_requires_clear_headroom_not_bare_assignability(home: Path) -> None
             orcamod.close_session = lambda h, **kw: (True, "session ended")
             orcamod.relaunch = lambda h, cmd, **kw: (True, "relaunched")
             dmn.wait_for_session = lambda agent, timeout=0: True
-            foldmod.handoff_path("keeper").write_text("# handoff · keeper\n## 다음\n- carry on\n")
+            keep_handoff("keeper", "# handoff · keeper\n## 다음\n- carry on\n")
             logged.clear()
             check("move headroom: clear headroom lets the move through",
                   dmn._move_to_room(con, "keeper", t, logged.append))
@@ -6697,7 +6813,7 @@ def test_move_to_room_reaches_a_bootstrap_account(home: Path) -> None:
                  reset_5h=int(time.time()) + 1800)
     accounts.register("gamma")
     (home / "accounts" / "gamma" / ".claude" / ".credentials.json").write_text("{}")
-    foldmod.handoff_path("keeper").write_text("# handoff · keeper\n## 다음\n- carry on\n")
+    keep_handoff("keeper", "# handoff · keeper\n## 다음\n- carry on\n")
     real = (orcamod.available, orcamod.alive, orcamod.close_session, orcamod.relaunch,
             orcamod.clear_context, orcamod.resume_with, orcamod.idle_now,
             dmn.wait_for_session)
@@ -7488,8 +7604,7 @@ def test_a_message_is_read_whole_and_answered_where_it_is_read(home: Path) -> No
         for i in range(9):
             db.add_request(con, "marina", "backend", f"request {i}", None,
                            "peer", "async", None, 0, None)
-        foldmod.handoff_path("backend").parent.mkdir(parents=True, exist_ok=True)
-        foldmod.handoff_path("backend").write_text(
+        keep_handoff("backend",
             "\n".join(f"- line {i}" for i in range(30)))
         shown = "\n".join(ln for _, rows in actions.agent_detail(con, "backend")
                           for ln in rows)
@@ -7824,7 +7939,7 @@ def test_nothing_is_typed_into_a_shell_with_no_session(home: Path) -> None:
         check("shell: and its terminal is left recorded",
               db.get_agent_state(con, "backend")["terminal"] == "term_x")
 
-        foldmod.handoff_path("backend").write_text("# handoff · backend\n- carry on\n")
+        keep_handoff("backend", "# handoff · backend\n- carry on\n")
         ok, why = dmn.wake_agent(con, "backend", lambda _m: None)
         check("shell: a handoff is not typed at it either",
               not ok and not sent, f"{why} {sent}")
@@ -7837,7 +7952,7 @@ def test_nothing_is_typed_into_a_shell_with_no_session(home: Path) -> None:
               not ok and not cleared, f"{why} {cleared}")
 
         t = triggers.Trigger(True, "context", "context 72% >= 60%")
-        dmn.perform_handoff(con, "backend", t, lambda _m: None, use_model=False)
+        dmn.perform_handoff(con, "backend", t, lambda _m: None)
         row = db.get_agent_state(con, "backend")
         check("shell: no handoff is run for a session that is not there",
               not cleared and not sent and not db.in_flight_handoffs(con), str(sent))
@@ -7870,7 +7985,7 @@ def test_nothing_is_typed_into_a_shell_with_no_session(home: Path) -> None:
         obsmod.live_sessions = counted
         db.set_cursor(con, "notify:backend", 0)
         sent.clear()
-        dmn.tick(con, lambda _m: None, use_model=False)
+        dmn.tick(con, lambda _m: None)
         check("shell: the tick reads the process table once, and the sends reuse it",
               calls["n"] == 1 and any("ocp inbox" in t2 for t2 in sent),
               f"{calls['n']} listings, sent {sent}")
@@ -8042,7 +8157,7 @@ def test_handoff_reclaims_context(home: Path) -> None:
 
         db.set_terminal(con, "backend", "term_x", "wt")
         t = triggers.Trigger(True, "context", "context 72% >= 60%")
-        dmn.perform_handoff(con, "backend", t, lambda _m: None, use_model=False)
+        dmn.perform_handoff(con, "backend", t, lambda _m: None)
         check("handoff: clears the agent's context", cleared == ["term_x"], str(cleared))
         row = db.get_agent_state(con, "backend")
         check("handoff: still parks afterwards", row["state"] == dmn.PARKED, str(dict(row)))
@@ -8053,7 +8168,7 @@ def test_handoff_reclaims_context(home: Path) -> None:
         cleared.clear()
         before = len(db.in_flight_handoffs(con))
         db.set_agent_state(con, "backend", dmn.RUNNING, detail="mid-turn")
-        dmn.perform_handoff(con, "backend", t, lambda _m: None, use_model=False)
+        dmn.perform_handoff(con, "backend", t, lambda _m: None)
         check("handoff: a mid-turn agent is deferred, not cleared", cleared == [], str(cleared))
         check("handoff: and no handoff is started for it",
               len(db.in_flight_handoffs(con)) == before)
@@ -8085,7 +8200,7 @@ def test_wake_injects_handoff(home: Path) -> None:
         ok, why = dmn.wake_agent(con, "backend", lambda _m: None)
         check("wake: nothing to resume from without a handoff", not ok, why)
 
-        foldmod.handoff_path("backend").write_text("# handoff · backend\n## 다음\n- finish the thing\n")
+        keep_handoff("backend", "# handoff · backend\n## 다음\n- finish the thing\n")
         ok, why = dmn.wake_agent(con, "backend", lambda _m: None)
         check("wake: injects the handoff", ok and sent, why)
         check("wake: the agent is told its context was cleared",
@@ -8714,12 +8829,12 @@ def test_handoff_rate_limited(home: Path) -> None:
         db.set_terminal(con, "backend", "term_x", "wt")
         t = triggers.Trigger(True, "usage", "pct_5h 95% >= 85%")
 
-        dmn.perform_handoff(con, "backend", t, lambda _m: None, use_model=False)
+        dmn.perform_handoff(con, "backend", t, lambda _m: None)
         first = con.execute("SELECT COUNT(*) c FROM handoff WHERE agent='backend'").fetchone()["c"]
 
         # Simulate something un-parking it and the trigger firing again at once.
         db.set_agent_state(con, "backend", dmn.RUNNING, detail="un-parked somehow")
-        dmn.perform_handoff(con, "backend", t, lambda _m: None, use_model=False)
+        dmn.perform_handoff(con, "backend", t, lambda _m: None)
         second = con.execute("SELECT COUNT(*) c FROM handoff WHERE agent='backend'").fetchone()["c"]
 
         check("handoff: a second handoff right after the first is skipped",
@@ -8962,7 +9077,10 @@ def main() -> int:
         run(lambda: test_tui_frame_geometry(Path(td) / 'tui'))
         run(lambda: test_clear_does_not_look_like_waking(Path(td) / 'loopy'))
         run(lambda: test_handoff_rate_limited(Path(td) / 'hrate'))
-        run(lambda: test_handoff_drift_header(Path(td) / 'hdhome'))
+        run(lambda: test_the_handoff_is_three_facts_read_without_a_model(Path(td) / 'hdhome'))
+        run(lambda: test_a_park_with_every_account_walled_is_a_clean_handoff(Path(td) / 'hdwalled'))
+        run(lambda: test_an_idle_close_keeps_a_handoff_only_if_it_closed(Path(td) / 'hdclose'))
+        run(lambda: test_the_digest_facts_do_not_repeat_one_event_kind(Path(td) / 'hdfacts'))
         run(lambda: test_an_account_is_added_and_removed_from_ocp(Path(td) / 'acctaddrm'))
         run(lambda: test_each_account_guard_fails_under_its_own_mutation(Path(td) / 'guards'))
         run(lambda: test_a_second_name_for_one_login_is_caught(Path(td) / 'acctsame'))

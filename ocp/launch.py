@@ -25,7 +25,7 @@ from dataclasses import dataclass
 from . import accounts, agents, db, paths, status, triggers
 
 
-# A session started this close to the wall folds almost at once: the usage
+# A session started this close to the wall hands off almost at once: the usage
 # trigger fires a reserve short of the hard stop, so an account inside that
 # reserve has no room to work in, only room to hand off. The wall itself is
 # still where a launch is refused - `build` does that, and says which account.
@@ -110,7 +110,7 @@ def wake_wait(agent: str, row, con) -> WakeWait | None:
 
     This is the check daemon.py makes before it types anything into a closed
     agent's terminal. A resume cannot follow an account change, but the
-    pinning rescue can fold and start fresh elsewhere, so a wait is not final. It is factored out here, rather than
+    pinning rescue can start fresh elsewhere, so a wait is not final. It is factored out here, rather than
     inlined at the call site, so the screens that show an agent can ask the
     same question instead of restating the rule and drifting from it.
 
@@ -242,7 +242,7 @@ def build(agent: str, extra: list[str] | None = None, force: bool = False) -> tu
 
     # The agent's standing context (team model section 1). base.md is injected
     # every session - that is what its 2KB budget is a budget for - and the
-    # handoff is injected on resume so the agent picks up where it left off.
+    # handoff waiting for it is injected so it picks up where it left off.
     preamble = context_for(agent)
     if preamble:
         argv += ["--append-system-prompt", preamble]
@@ -252,7 +252,7 @@ def build(agent: str, extra: list[str] | None = None, force: bool = False) -> tu
 
 
 def context_for(agent: str) -> str:
-    """ROLE.md + base.md + the latest handoff, as one system-prompt appendix."""
+    """ROLE.md + base.md + the handoff waiting for it, as one system-prompt appendix."""
     d = paths.agent_dir(agent)
     parts = [f"You are `{agent}`, one agent in an orcapipe team. "
              f"Your name is also in $OCP_AGENT.",
@@ -270,15 +270,20 @@ def context_for(agent: str) -> str:
             text = p.read_text().strip()
             if text:
                 parts.append(f"# Your {label} ({fn})\n{text}")
-    handoff = d / "handoff" / "latest.md"
-    if handoff.exists():
-        text = handoff.read_text().strip()
-        if text:
-            parts.append(
-                "# Where you left off (handoff/latest.md)\n"
-                "You were interrupted and resumed. This is your own record.\n" + text
-            )
+    text = _waiting_handoff(agent)
+    if text:
+        parts.append("# Where you left off (your handoff)\n"
+                     "You were interrupted and resumed. This is your own record.\n"
+                     + text.strip())
     return "\n\n".join(parts)
+
+
+def _waiting_handoff(agent: str) -> str | None:
+    con = db.connect()
+    try:
+        return db.get_handoff(con, agent)
+    finally:
+        con.close()
 
 
 def _your_team(agent: str) -> str:

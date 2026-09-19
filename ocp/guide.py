@@ -42,11 +42,11 @@ age we will assign on - still a floor for triggers, no new work.
 Design section 4 has the five cases and why only one of them is fail-closed.
 
 An agent's account is a preference. A session starts on it when it has room to
-work - which ends a reserve short of the hard stop, where the fold fires - and
+work - which ends a reserve short of the hard stop, where the handoff fires - and
 on whichever account does when a current reading says it has not; the state row
 records where it went, and `ocp bridge` shows that rather than the preference.
 Nothing moves a live session - a move is one session ending and another
-starting, so it happens after a fold, and a resume always goes back to the
+starting, so it happens after the handoff is recorded, and a resume always goes back to the
 account its session lives on.""",
     "work": """giving an agent work
   ocp team                        who you may ask, and what they are doing
@@ -112,8 +112,8 @@ shell's child. Waking types the launch command back into the same shell with
 `--resume <session>`, so the account comes back with it and the conversation is
 the one it had.
 
-This is not a handoff. Nothing is folded and no context is reclaimed, because
-there is nothing wrong with an idle agent's context. The daemon does it by
+This is not a handoff. No context is reclaimed, because there is nothing
+wrong with an idle agent's context. The daemon does it by
 itself after 30 minutes of silence, unless the agent is working, mid-handoff,
 STALLED, or has a request waiting.""",
 

@@ -26,7 +26,7 @@ HEADINGS = {k: h for k, h in SECTIONS}
 BY_HEADING = {h: k for k, h in SECTIONS}
 
 # Appended by us after every fold, independent of anything a model produced, so
-# a failed fold still leaves a resumable handoff (section 5).
+# a failed fold still leaves these facts in the digest (section 5).
 FACTS_HEADING = "기계 기록"
 LATE_HEADING = "지각 반영"
 
