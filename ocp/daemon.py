@@ -751,6 +751,23 @@ def _wake_agent(con, agent: str, log, moved_to: str | None = None,
     row = db.get_agent_state(con, agent)
     closed = bool(row and row["closed_at"])
     resumed = False
+    if not closed and row and session_present(agent):
+        # A drifted session is ended and takes the closed agent's wake path
+        # below, with its own session id to resume; see `launch.fingerprint`.
+        if launch.drifted(agent, row):
+            acct = agents.current_account(agent, con)
+            st = status.read_for_agent(agent, acct)
+            if not st.session_id:
+                log(f"  {agent}: launch recipe changed but there is no session id "
+                    f"to resume - waking it in place")
+            elif not _end_session(con, agent, log, st, resume=st.session_id)[0]:
+                log(f"  {agent}: launch recipe changed but its session would not "
+                    f"end - waking it in place")
+            else:
+                log(f"  {agent}: launch recipe changed since this session "
+                    f"started - relaunching instead of waking it in place")
+                row = db.get_agent_state(con, agent)
+                closed = bool(row and row["closed_at"])
     if closed:
         # `ocp launch` refuses at the 5h wall, and the daemon can read that
         # before it types anything. Trying anyway would spend the wake timeout

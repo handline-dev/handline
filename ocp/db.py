@@ -319,6 +319,9 @@ def _add_missing_columns(con) -> None:
         # this column: every one of them was written by `_record_terminal` or
         # a move, both facts, before an "assumed" writer existed at all.
         con.execute("ALTER TABLE agent_state ADD COLUMN account_source TEXT")
+    if "launch_fingerprint" not in state_cols:
+        # No backfill: an existing row reads as drifted, which is right.
+        con.execute("ALTER TABLE agent_state ADD COLUMN launch_fingerprint TEXT")
 
 
 
@@ -648,6 +651,20 @@ def set_account(con, agent: str, account: str | None, source: str = "recorded") 
         "ON CONFLICT(agent) DO UPDATE SET account=excluded.account, "
         "account_source=excluded.account_source, updated=excluded.updated",
         (agent, "IDLE", int(time.time()), account, source),
+    )
+
+
+def set_launch_fingerprint(con, agent: str, fingerprint: str | None) -> None:
+    """Record what `launch.fingerprint` computed for the session just execve'd.
+
+    Written from inside that same process, alongside `set_account` - the one
+    moment a recipe and a running session are known to match.
+    """
+    con.execute(
+        "INSERT INTO agent_state(agent, state, updated, launch_fingerprint) VALUES(?,?,?,?) "
+        "ON CONFLICT(agent) DO UPDATE SET launch_fingerprint=excluded.launch_fingerprint, "
+        "updated=excluded.updated",
+        (agent, "IDLE", int(time.time()), fingerprint),
     )
 
 
