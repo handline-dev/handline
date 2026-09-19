@@ -5476,6 +5476,81 @@ def test_an_answer_to_the_human_is_in_the_human_mailbox(home: Path) -> None:
               parked in [r["id"] for r in db.unannounced_answers(con, "reviewer")],
               str(dict(db.get_request(con, parked))))
 
+        # #185: `resolve` used to call push_answer unconditionally, so a
+        # fire_and_forget dismissal delivered and even woke the requester
+        # before dismiss ever got to check whether anyone was waiting. Proven
+        # here against both an open requester (deliver_answers) and a closed
+        # one (wake_agent), by watching the daemon calls dismiss must not make.
+        woken: list = []
+        delivered: list = []
+        real_wake, real_deliver = dmn.wake_agent, dmn.deliver_answers
+        dmn.wake_agent = lambda con_, a, log_: (woken.append(a), (True, "woken"))[1]
+        dmn.deliver_answers = lambda con_, a, log_: (delivered.append(a), True)[1]
+        try:
+            agents.register("marina", "alpha")
+            db.set_terminal(con, "marina", "term_marina", None)
+            ff_open = db.add_request(con, "marina", actions.HUMAN, "FYI, open", None,
+                                     "peer", "fire_and_forget", None, 0, None)
+            actions.dismiss(con, ff_open)
+            check("mailbox: a fire_and_forget dismissal tells an open requester nothing",
+                  not delivered and not woken, f"woken={woken} delivered={delivered}")
+
+            db.set_closed(con, "marina", "sess_marina")
+            ff_closed = db.add_request(con, "marina", actions.HUMAN, "FYI, closed", None,
+                                       "peer", "fire_and_forget", None, 0, None)
+            actions.dismiss(con, ff_closed)
+            check("mailbox: nor wakes one whose session is closed",
+                  not delivered and not woken, f"woken={woken} delivered={delivered}")
+
+            parked2 = db.add_request(con, "marina", actions.HUMAN, "which one?", None,
+                                     "peer", "async", None, 0, None)
+            actions.dismiss(con, parked2)
+            check("mailbox: but an async dismissal still wakes its parked requester",
+                  woken == ["marina"], f"woken={woken} delivered={delivered}")
+
+            # #264: resolve(notify=False) committed 'done' with announced_at
+            # still NULL, and dismiss stamped it afterwards with its own
+            # db.mark_announced() call on a separate connection - a daemon
+            # sweep landing in that gap found the row 'done' with
+            # announced_at unset and announced it as news. Called directly,
+            # not through dismiss, so this proves resolve() itself does the
+            # stamping rather than relying on a caller's follow-up call.
+            direct = db.add_request(con, "marina", actions.HUMAN, "direct check", None,
+                                    "peer", "fire_and_forget", None, 0, None)
+            askmod.resolve(direct, "read - no reply", state="done", notify=False)
+            check("resolve: notify=False stamps announced_at in its own UPDATE",
+                  db.get_request(con, direct)["announced_at"] is not None,
+                  str(dict(db.get_request(con, direct))))
+            check("resolve: ...so it is never in unannounced_answers, even transiently",
+                  direct not in [r["id"] for r in db.unannounced_answers(con, "marina")])
+
+            # Skipping the requester's own answer is not the same as skipping
+            # the target's queue: one-task-at-a-time (#189) means resolving or
+            # dismissing the head of a target's queue is what makes the next
+            # request in it deliverable, and that must happen whether or not
+            # the requester was told anything.
+            woken.clear()
+            delivered.clear()
+            pushed: list = []
+            real_deliver_queued = dmn.deliver_queued
+            dmn.deliver_queued = lambda con_, a, log_: (pushed.append(a), True)[1]
+            try:
+                agents.register("nora", "beta")
+                db.set_terminal(con, "nora", "term_nora", None)
+                head_rid = db.add_request(con, "marina", "nora", "first", None,
+                                          "peer", "fire_and_forget", None, 0, None)
+                db.add_request(con, "marina", "nora", "second", None,
+                               "peer", "fire_and_forget", None, 0, None)
+                actions.dismiss(con, head_rid)
+                check("mailbox: dismissing the head still skips the requester's own answer",
+                      not woken and not delivered, f"woken={woken} delivered={delivered}")
+                check("mailbox: ...but pushes the target's next queued request",
+                      pushed == ["nora"], str(pushed))
+            finally:
+                dmn.deliver_queued = real_deliver_queued
+        finally:
+            dmn.wake_agent, dmn.deliver_answers = real_wake, real_deliver
+
         # A refusal is an answer too - the one that means do something else.
         ok, _said, rid2 = askmod.ask("reviewer", "rebase it", requester=actions.HUMAN)
         askmod.resolve(rid2, "no - the base moved", state="rejected")
@@ -7088,6 +7163,12 @@ def run(one) -> None:
 
 
 def main() -> int:
+    # An agent session that runs this suite already has both set for itself,
+    # and every test here that wants one sets it explicitly - so an ambient
+    # value is never a fixture's own, only this process's, and left in place
+    # it is read as a false speaker or a false account by code under test.
+    os.environ.pop("OCP_AGENT", None)
+    os.environ.pop("OCP_ACCOUNT", None)
     with tempfile.TemporaryDirectory() as td:
         home = Path(td) / "orcapipe"
         home.mkdir()
