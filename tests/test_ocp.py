@@ -15,6 +15,7 @@ import subprocess
 import sys
 import tempfile
 import time
+import traceback
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -7605,9 +7606,56 @@ def run(one) -> None:
     test after it - which is the bug class this suite exists to catch.
     Restoring here means no test can inherit another's world, whatever its
     own finally block remembers.
+
+    One test raising must not end the run: an uncaught error or `sys.exit`
+    would stop `main` before it printed a final count, and a short run that
+    looks like a clean pass is worse than a loud one. KeyboardInterrupt is
+    left alone - that is the human stopping the suite, not a test failing.
     """
     restore_world()
-    one()
+    try:
+        one()
+    except (Exception, SystemExit) as e:
+        tb = traceback.extract_tb(e.__traceback__)
+        test = next((f.name for f in tb if f.name.startswith("test_")), "<test>")
+        where = tb[-1] if tb else None
+        loc = f" at {where.filename}:{where.lineno}" if where else ""
+        check(f"{test}: uncaught {type(e).__name__}: {e}{loc}", False)
+
+
+def test_run_recovers_from_an_uncaught_error() -> None:
+    """Review of buddyron/test-suite-agent-independent: checked by hand is not
+    checked by the suite. Both a plain exception and a `sys.exit` from code
+    under test must be recorded as a failure, not left to end the run."""
+    global PASS, FAIL
+    real_pass, real_fail = PASS, FAIL
+    PASS, FAIL = [], []
+    try:
+        def test_synthetic_boom():
+            raise ValueError("synthetic")
+
+        def test_synthetic_quits():
+            sys.exit(1)
+
+        # These two are meant to fail - swallow their PASS/FAIL lines so a
+        # clean run's console output has no `FAIL` that is not a real one.
+        with contextlib.redirect_stdout(io.StringIO()):
+            run(lambda: test_synthetic_boom())
+            run(lambda: test_synthetic_quits())
+        caught = FAIL
+    finally:
+        PASS, FAIL = real_pass, real_fail
+
+    check("run(): an uncaught exception is caught, not propagated, and "
+          "recorded naming the test and the error",
+          len(caught) == 2 and "test_synthetic_boom" in caught[0]
+          and "ValueError" in caught[0], str(caught))
+    check("run(): sys.exit from code under test is caught the same way",
+          "test_synthetic_quits" in caught[1] and "SystemExit" in caught[1], str(caught))
+    # This is exactly `main`'s own final line - a non-empty FAIL, from either
+    # test above, is what turns into the process's exit code.
+    check("a failure recorded this way still drives the run's exit code to 1",
+          (1 if caught else 0) == 1)
 
 
 def main() -> int:
@@ -7770,6 +7818,7 @@ def main() -> int:
         run(lambda: test_a_refusal_is_not_read_back_as_an_answer(Path(td) / 'readref'))
         run(lambda: test_two_processes_cannot_both_supervise_one_home(Path(td) / 'twoproc'))
         run(lambda: test_the_screen_says_when_two_daemons_are_running(Path(td) / 'dmnwarn'))
+        run(lambda: test_run_recovers_from_an_uncaught_error())
     print(f"\n{len(PASS)} passed, {len(FAIL)} failed")
     for f in FAIL:
         print(f"  FAILED: {f}")
