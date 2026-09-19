@@ -21,6 +21,7 @@ import os
 import shutil
 import sys
 import time
+from pathlib import Path
 from dataclasses import dataclass
 
 from . import accounts, agents, db, paths, status, triggers
@@ -353,8 +354,29 @@ def drifted(agent: str, row) -> bool:
     return fingerprint(agent) != row["launch_fingerprint"]
 
 
-def exec_agent(agent: str, extra: list[str] | None = None, force: bool = False) -> None:
-    argv, env = build(agent, extra, force)
+def take_prompt(path: str | None) -> str | None:
+    """Read and remove a prompt file the daemon left for this launch.
+
+    Removed as it is read, so a launch that dies before this point leaves a
+    file no later launch will pick up: a prompt belongs to one launch.
+    """
+    if not path:
+        return None
+    p = Path(path)
+    try:
+        text = p.read_text()
+        p.unlink()
+    except OSError:
+        return None
+    return text or None
+
+
+def exec_agent(agent: str, extra: list[str] | None = None, force: bool = False,
+               prompt_file: str | None = None) -> None:
+    prompt = take_prompt(prompt_file)
+    argv, env = build(agent, list(extra or []), force)
+    if prompt:
+        argv.append(prompt)
     _record_terminal(agent, env.get("OCP_ACCOUNT"), fingerprint(agent))
     sys.stdout.flush()
     os.execve(argv[0], argv, env)

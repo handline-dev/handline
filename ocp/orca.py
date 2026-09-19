@@ -196,6 +196,37 @@ def idle_now(handle: str) -> bool:
     return wait_idle(handle, IDLE_PROBE_MS)
 
 
+# What Claude Code draws under a modal it opens itself ("Teach auto mode about
+# your environment?", trust prompts). Anything typed plus Enter answers it.
+MODAL_MARKERS = ("Enter to confirm", "Esc to cancel")
+MODAL_ROWS = 3
+
+
+def modal_open(handle: str) -> bool:
+    """Is a modal on the agent's screen, where typed text would answer it?
+
+    Fail-closed: a screen that cannot be read is a yes, because the cost of a
+    wrong no is an answer given to a question nobody asked.
+    """
+    ok, out = _run(["terminal", "read", "--terminal", handle, "--screen",
+                    "--limit", "40", "--json"], timeout=30)
+    term = _result(out, "terminal") if ok else None
+    tail = term.get("tail") if isinstance(term, dict) else None
+    # Any other source is the accumulated stream, whose history is the
+    # conversation, not the screen.
+    if not isinstance(tail, list) or term.get("source") != "screen":
+        return True
+    # A modal draws its footer on the bottom rows. Above them is the
+    # transcript, which may quote these words without anything being asked.
+    screen = "\n".join(str(x) for x in tail[-MODAL_ROWS:])
+    return any(m in screen for m in MODAL_MARKERS)
+
+
+def typeable_now(handle: str) -> bool:
+    """Idle, and nothing on screen that a typed line would answer."""
+    return idle_now(handle) and not modal_open(handle)
+
+
 def clear_context(handle: str, wait: bool = True,
                   timeout_ms: int = IDLE_TIMEOUT_MS) -> tuple[bool, str]:
     """Return the session's context without destroying the agent.

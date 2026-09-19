@@ -109,8 +109,8 @@ A session that is not being used holds 250-500MB and spends no tokens at all.
 Closing it ends the agent process; the terminal, its worktree and its account
 stay, because Orca runs our launch command inside a shell and claude is that
 shell's child. Waking types the launch command back into the same shell with
-`--resume <session>`, so the account comes back with it and the conversation is
-the one it had.
+`--resume <session>` and the wake prompt as the session's first prompt, so the
+account comes back with it and the conversation is the one it had.
 
 This is not a handoff. Nothing is folded and no context is reclaimed, because
 there is nothing wrong with an idle agent's context. The daemon does it by
