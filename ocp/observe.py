@@ -20,7 +20,9 @@ from __future__ import annotations
 import subprocess
 from dataclasses import dataclass
 
-from . import orca
+from pathlib import Path
+
+from . import orca, paths
 
 
 @dataclass
@@ -117,6 +119,22 @@ def env_of(pid: int, name: str) -> str | None:
         if token.startswith(f"{name}="):
             return token.split("=", 1)[1]
     return None
+
+
+def account_of_process(pid: int) -> str | None:
+    """The account a running process is spending: the one its own
+    CLAUDE_CONFIG_DIR names, read off its environment. It is what the process
+    was started with and never changes, so it is the one answer that cannot be
+    out of date - unlike a column recorded when a move was decided.
+    None when unreadable, or a config dir that is not one of ours."""
+    cfg = env_of(pid, "CLAUDE_CONFIG_DIR")
+    if not cfg:
+        return None
+    try:
+        rel = Path(cfg).resolve().relative_to(paths.accounts_dir().resolve())
+    except (ValueError, OSError):
+        return None
+    return rel.parts[0] if rel.parts else None
 
 
 def live_sessions() -> dict[str, int] | None:

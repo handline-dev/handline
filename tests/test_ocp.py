@@ -6688,6 +6688,114 @@ def test_an_agent_can_put_another_one_to_work(home: Path) -> None:
         con.close()
 
 
+def _process_on(account: str | None):
+    """Say which account the running process was started under, as `ps eww`
+    would show its CLAUDE_CONFIG_DIR. None: the environment cannot be read."""
+    def env_of(pid, name):
+        if name == "CLAUDE_CONFIG_DIR" and account:
+            return str(paths.account_claude(account))
+        return None
+    obsmod.env_of = env_of
+
+
+def test_an_agent_is_judged_on_the_account_its_process_is_on(home: Path) -> None:
+    """keeper #500: the column said gamma, the process was still on beta, and
+    the unpark read gamma's room six times into beta's rate limit."""
+    _daemon_home(home, 20)
+    _with_accounts("beta", "gamma")
+    con = db.connect()
+    real = (orcamod.available, orcamod.alive, obsmod.env_of)
+    try:
+        orcamod.available = lambda: True
+        orcamod.alive = lambda h: True
+        db.set_terminal(con, "backend", "term_x", "wt")
+        db.set_account(con, "backend", "gamma")
+        _park_via_handoff(con, "backend", "usage")
+        now = int(time.time())
+        db.set_agent_state(con, "backend", dmn.PARKED,
+                           wake_at=now + 3600, detail="usage; wakes at 23:00")
+        write_status(home, "beta", pct_5h=100, pct_7d=10, ctx_pct=5, reset_5h=now + 1800)
+        write_status(home, "gamma", pct_5h=5, pct_7d=10, ctx_pct=5, reset_5h=now + 1800)
+        dmn._seen["backend"] = obsmod.Observed(session_seen=True, session_pid=4242)
+
+        _process_on("beta")
+        dmn.supervise(con, "backend", lambda _m: None, now, {}, [])
+        row = db.get_agent_state(con, "backend")
+        check("process: on beta at the wall, it is not unparked on gamma's room",
+              row["state"] == dmn.PARKED, str(dict(row)))
+        check("process: and the column is set to where the process is",
+              row["account"] == "beta", str(dict(row)))
+        check("process: the disagreement is on the record",
+              any(e["kind"] == "account_mismatch"
+                  for e in db.events_after(con, 0, agent="backend")))
+
+        # The same world with the process where the column says: gamma has room.
+        db.set_account(con, "backend", "gamma")
+        _process_on("gamma")
+        dmn.supervise(con, "backend", lambda _m: None, now, {}, [])
+        check("process: on gamma, gamma's room does unpark it",
+              db.get_agent_state(con, "backend")["state"] == dmn.QUEUED,
+              str(dict(db.get_agent_state(con, "backend"))))
+    finally:
+        (orcamod.available, orcamod.alive, obsmod.env_of) = real
+        dmn._seen.pop("backend", None)
+        con.close()
+
+
+def test_a_move_is_not_recorded_while_the_process_is_still_on_the_old_account(
+        home: Path) -> None:
+    """A move that was asked for is not one that happened until the process
+    that is running is on the new account."""
+    _daemon_home(home, 20)
+    accounts.register("beta")
+    agents.register("keeper", "alpha")
+    for acct in ("alpha", "beta"):
+        (home / "accounts" / acct / ".claude").mkdir(parents=True, exist_ok=True)
+        (home / "accounts" / acct / ".claude" / ".credentials.json").write_text("{}")
+    now = int(time.time())
+    write_status(home, "alpha", pct_5h=9, pct_7d=100, reset_7d=now + 3600, reset_5h=now + 1800)
+    write_status(home, "beta", pct_5h=9, pct_7d=10, reset_7d=now + 90000, reset_5h=now + 1800)
+    con = db.connect()
+    real = (orcamod.available, orcamod.alive, orcamod.close_session, orcamod.relaunch,
+            orcamod.idle_now, dmn.wait_for_session, obsmod.env_of)
+    try:
+        db.set_terminal(con, "keeper", "term_x", "wt")
+        table = sessions_are("keeper")
+        db.set_account(con, "keeper", "alpha")
+        db.add_request(con, "marina", "keeper", "carry on", None, "peer", "async", None, 0, None)
+        t = triggers.evaluate(9, 10, pct_7d=100)
+        orcamod.available = lambda: True
+        orcamod.alive = lambda h: True
+        orcamod.idle_now = lambda h: True
+        orcamod.close_session = exit_ends_session("keeper")
+        orcamod.relaunch = lambda h, cmd, **kw: (table.__setitem__("keeper", 4200), (True, "ok"))[1]
+        dmn.wait_for_session = lambda agent, timeout=0: True
+        keep_handoff("keeper", "# handoff · keeper\n## 다음\n- carry on\n")
+
+        _process_on("alpha")
+        check("move: a process that came back on the old account is not a move",
+              not dmn._move_to_room(con, "keeper", t, lambda _m: None))
+        check("move: and the column still names the account it is on",
+              agents.current_account("keeper", con) == "alpha",
+              agents.current_account("keeper", con))
+        check("move: no moved_account event was written",
+              not any(e["kind"] == "moved_account"
+                      for e in db.events_after(con, 0, agent="keeper")))
+
+        # Back to a live session, then a relaunch that does land on beta.
+        con.execute("UPDATE agent_state SET closed_at = NULL, state = 'IDLE' "
+                    "WHERE agent = 'keeper'")
+        table["keeper"] = 4200
+        _process_on("beta")
+        check("move: on the new account it is one",
+              dmn._move_to_room(con, "keeper", t, lambda _m: None)
+              and agents.current_account("keeper", con) == "beta")
+    finally:
+        (orcamod.available, orcamod.alive, orcamod.close_session, orcamod.relaunch,
+         orcamod.idle_now, dmn.wait_for_session, obsmod.env_of) = real
+        con.close()
+
+
 def test_weekly_headroom_is_spent_to_its_own_wall(home: Path) -> None:
     """Founder's decision #254: an account at 5h 9% / 7d 99% is spent to the
     weekly wall, not stopped short of it - it must still be picked, and an
@@ -10771,6 +10879,8 @@ def main() -> int:
         run(lambda: test_the_whole_loop_runs_on_our_own_commands(Path(td) / 'loop'))
         run(lambda: test_an_agent_can_put_another_one_to_work(Path(td) / 'dispatch'))
         run(lambda: test_weekly_headroom_is_spent_to_its_own_wall(Path(td) / 'sevendaywall'))
+        run(lambda: test_an_agent_is_judged_on_the_account_its_process_is_on(Path(td) / 'procacct'))
+        run(lambda: test_a_move_is_not_recorded_while_the_process_is_still_on_the_old_account(Path(td) / 'movever'))
         run(lambda: test_an_agent_at_the_wall_moves_to_an_account_with_room(Path(td) / 'moveacct'))
         run(lambda: test_a_pinned_closed_agent_moves_instead_of_waiting_out_its_window(
             Path(td) / 'pinned'))
