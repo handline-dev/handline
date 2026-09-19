@@ -5727,13 +5727,20 @@ def test_a_turn_that_ends_on_the_usage_limit_is_at_the_wall(home: Path) -> None:
             orcamod.clear_context = lambda h, **kw: (True, "cleared")
             dmn.session_present = lambda a: True
             dmn._move_to_room = lambda con_, a, t, log: (seen.append(t), True)[1]
+            # Idle, so delivery would go through if nothing held it back.
+            orcamod.idle_now = lambda h, **kw: True
+            dmn.supervise(con, "backend", lambda _m: None, now, {}, False, [])
+            check("limit: a queued request is not typed into an agent at its limit",
+                  not typed, str(typed))
+            seen.clear()
+            con.execute("UPDATE handoff SET updated = updated - 1000 WHERE agent = 'backend'")
+            db.set_agent_state(con, "backend", dmn.IDLE, detail="at its usage limit")
+            orcamod.idle_now = lambda h, **kw: False
             dmn.supervise(con, "backend", lambda _m: None, now, {}, False, [])
         finally:
             (orcamod.available, orcamod.alive, orcamod.idle_now, dmn._move_to_room,
              dmn.session_present, orcamod.clear_context) = real
         orcamod.send = real_send
-        check("limit: a queued request is not typed into an agent at its limit",
-              not typed, str(typed))
         check("limit: once settled, handed off and moved though the probe says mid-turn",
               seen and seen[0].kind == "usage" and "payload.error" in seen[0].reason, str(seen))
     finally:
