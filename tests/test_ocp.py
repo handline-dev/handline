@@ -7600,6 +7600,25 @@ def test_idle_floor_refuses_a_snapshot_older_than_its_own_window(home: Path) -> 
           not st.assignable()[0] and "fail-closed" in st.assignable()[1], st.assignable()[1])
 
 
+def test_idle_floor_margin_and_its_refusal_line(home: Path) -> None:
+    """A stale floor is admitted only below 70% (30 below the wall), and when
+    the stretch refuses one, the line prints the floor it judged, not None."""
+    _daemon_home(home, 20)
+    _with_accounts("beta")
+    now = int(time.time())
+    for pct, admitted in ((69, True), (75, False)):
+        write_status(home, "beta", pct_5h=pct, pct_7d=10, reset_5h=now + 1800,
+                     reset_7d=now + 86400, collected_at=now - 3600)
+        check(f"idle_floor: a stale {pct}% floor is {'admitted' if admitted else 'refused'}",
+              status.read("beta").idle_floor()[0] is admitted)
+    write_status(home, "beta", pct_5h=65, pct_7d=10, reset_5h=now + 1800,
+                 reset_7d=now + 86400, collected_at=now - 3600)
+    ld = {"beta": loadmod.Load("beta", 0, triggers.DEFAULT_ACTIVE_CAP, 0.03)}
+    picked, reasons = status.pick_account(["beta"], load=ld)
+    line = " ".join(r for _a, r in reasons)
+    check("pick: the stale-floor refusal line prints the floor, not None",
+          picked is None and "5h 65%" in line and "None" not in line, line)
+
 
 def test_a_sweep_after_a_move_does_not_keep_the_old_accounts_session(home: Path) -> None:
     """keeper 09-19 15:45: moved gamma -> alpha, and eight seconds later the
@@ -10319,6 +10338,7 @@ def main() -> int:
         run(lambda: test_pick_account_judges_an_idle_account_on_its_floor_not_on_zero(Path(td) / 'idlefloor'))
         run(lambda: test_idle_floor_refuses_an_account_with_an_agent_mid_turn_on_it(Path(td) / 'idleactive'))
         run(lambda: test_idle_floor_refuses_a_snapshot_older_than_its_own_window(Path(td) / 'idleage'))
+        run(lambda: test_idle_floor_margin_and_its_refusal_line(Path(td) / 'idlemargin'))
 
 
         run(lambda: test_a_span_of_a_day_or_more_reads_in_days(Path(td) / 'ar4f'))

@@ -111,13 +111,9 @@ PCT_7D_BLOCK = triggers.WALL_PCT
 # hand, or any other call no collector sees (fold's own risk is closed
 # separately - it never pays with a stale reading at all, see
 # fold._cheapest_account). idle_floor judges the floor this far below the
-# wall to cover that - main's actual admission line (70), carried over as-is
-# rather than remeasured for this stack: main admitted below its old
-# MOVE_LINE_5H (85) minus its margin (15). DEFAULT_RESERVE_PCT (5, main's
-# constant) is the measured cost of one fold - four folding agents exhaust
-# it and STALL - so 15 was three folds of cover. Judged against the wall
-# this stack uses (100), the same admission line of 70 is thirty points,
-# six folds.
+# wall to cover that - main's admission line (70), carried over as-is:
+# main's MOVE_LINE_5H (85) minus its MOVE_MIN_HEADROOM_PCT (15). Against the
+# wall this stack uses (100) that line is thirty points.
 IDLE_FLOOR_MARGIN_PCT = 30
 
 
