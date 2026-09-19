@@ -6448,7 +6448,7 @@ def test_the_runway_is_an_estimate_from_the_daemons_burn(home: Path) -> None:
     check("runway: points left are counted to the move line (85), not the block",
           r and r.left_5h == 30 and r.left_7d == 88, str(r))
     check("runway: time to the move line follows the measured burn",
-          status.describe_runway(r) == "~1h00 to the move line", status.describe_runway(r))
+          status.describe_runway(r) == "~1h00 to 85%", status.describe_runway(r))
     write_status(home, "alpha", pct_5h=55, pct_7d=10, reset_5h=now + 1800)
     check("runway: a reset before the wall reads 'lasts past reset'",
           status.describe_runway(status.runway(status.read("alpha"),
@@ -6461,7 +6461,7 @@ def test_the_runway_is_an_estimate_from_the_daemons_burn(home: Path) -> None:
     write_status(home, "alpha", pct_5h=86, pct_7d=10, reset_5h=now + 6 * 3600)
     check("runway: at the line it is at the move line",
           status.describe_runway(status.runway(status.read("alpha"), per_s, now))
-          == "at the move line")
+          == "at 85%")
     check("runway: an old burn reading is not used",
           status.read_burn("alpha", now + status.BURN_MAX_AGE_S + 60) is None)
     write_status(home, "alpha", pct_5h=55, pct_7d=10, reset_5h=now + 6 * 3600,

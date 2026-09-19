@@ -499,14 +499,16 @@ def _burn_path(acct: str) -> Path:
     return paths.accounts_dir() / acct / "burn.json"
 
 
-def write_burn(acct: str, burn: float, now: int) -> None:
+def write_burn(acct: str, burn: float, at: int) -> None:
     """Record the burn rate the daemon measured (percent per second), so the
-    screens show the number the triggers act on instead of re-deriving one."""
+    screens show the number the triggers act on instead of re-deriving one.
+    `at` is when the rate was measured (the sample's own time), not when this
+    is written."""
     path = _burn_path(acct)
     if not path.parent.is_dir():
         return
     tmp = path.with_suffix(".tmp")
-    tmp.write_text(json.dumps({"burn_per_s": burn, "at": now}))
+    tmp.write_text(json.dumps({"burn_per_s": burn, "at": at}))
     os.replace(tmp, path)
 
 
@@ -556,11 +558,12 @@ def runway(st: "AccountStatus", burn: float | None, now: float | None = None) ->
 def describe_runway(r: Runway | None) -> str:
     if r is None:
         return ""
+    line = triggers.MOVE_LINE_5H
     if r.left_5h == 0:
-        return "at the move line"
+        return f"at {line}%"
     if not r.burning:
         return "no recent burn"
-    return "lasts past reset" if r.past_reset else f"~{_hm(r.eta_s)} to the move line"
+    return "lasts past reset" if r.past_reset else f"~{_hm(r.eta_s)} to {line}%"
 
 
 def team_outlook(names: list[str] | None = None, now: float | None = None) -> str:
