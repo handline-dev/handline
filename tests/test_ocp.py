@@ -6498,6 +6498,62 @@ def test_only_one_thing_types_at_an_agent_at_a_time(home: Path) -> None:
         con.close()
 
 
+def test_a_report_shows_its_name_without_its_parents_and_keeps_the_whole_key(home: Path) -> None:
+    """Founder #691/#694: orcapipe-manager.chat reads as `chat` under
+    orcapipe-manager. Display only: the prefix goes when it is the drawn
+    parent's own name, never on the dot alone, and every key stays whole."""
+    _daemon_home(home, 20)
+    (home / "team.yaml").write_text("""
+agents:
+  orcapipe-manager: { intake: dedicated }
+  orcapipe-manager.chat: { intake: dedicated }
+  other.tool: { intake: dedicated }
+edges:
+  - { from: "orcapipe-manager", to: "orcapipe-manager.chat", relation: supervisor, response: fire_and_forget }
+  - { from: "orcapipe-manager", to: "other.tool", relation: supervisor, response: fire_and_forget }
+  - { from: "*", to: "human", kind: escalate, creates_gate: true }
+""")
+    for n in ("orcapipe-manager", "orcapipe-manager.chat", "other.tool"):
+        agents.register(n, "alpha")
+    real_add = tui.Panel.add
+    keys: list[object] = []
+    tui.Panel.add = lambda self, row="", key=None, heading=False: (  # noqa: E731
+        keys.append((self.title, key, tui._ANSI.sub("", row))), real_add(self, row, key, heading))[1]
+    try:
+        tui.EXPANDED.add("orcapipe-manager")
+        tui.frame(140, 60)
+        open_tree = [n for n, _d, _u in tui.visible_tree()]
+        tui.EXPANDED.clear()
+        rows = [(k, r) for t, k, r in keys if t == "AGENTS" and k]
+        by_key = dict(rows)
+        check("dotted: the row under its parent reads `└ chat`",
+              "└ chat" in by_key.get("orcapipe-manager.chat", ""), str(by_key))
+        check("dotted: and its key is the whole name, so anything selected reads it whole",
+              "orcapipe-manager.chat" in by_key and "chat" not in by_key
+              and "orcapipe-manager.chat" in open_tree)
+        check("dotted: a dot alone strips nothing - other.tool is not orcapipe-manager's name",
+              "└ other.tool" in by_key.get("other.tool", ""), by_key.get("other.tool"))
+        check("dotted: the parent's row is untouched",
+              "orcapipe-manager" in by_key.get("orcapipe-manager", ""))
+        # The parent folded: its report is not drawn, so nothing is shortened
+        # against a parent that is not there.
+        drawn = [("orcapipe-manager.chat", 1, [])]
+        check("dotted: a parent that is not drawn leaves the name whole",
+              tui.shown_names(drawn) == {"orcapipe-manager.chat": "orcapipe-manager.chat"})
+        # Flat surfaces have no parent above the name and print it whole.
+        askmod.ask(askmod.HUMAN, "need a decision", requester="orcapipe-manager.chat")
+        con = db.connect()
+        try:
+            waits = [w["who"] for w in actions.founder_waits(con) if w["kind"] == "escalation"]
+        finally:
+            con.close()
+        check("dotted: WAITING ON YOU names it whole - a flat list has no parent above it",
+              waits == ["orcapipe-manager.chat"], str(waits))
+    finally:
+        tui.Panel.add = real_add
+        tui.EXPANDED.clear()
+
+
 def test_growing_the_team_needs_a_person(home: Path) -> None:
     """A team that cannot grow has one way to take on more work: each agent
     quietly making helpers that die with the session that made them. So growing
@@ -12482,6 +12538,8 @@ def main() -> int:
         run(lambda: test_only_one_thing_types_at_an_agent_at_a_time(Path(td) / 'locking'))
         run(lambda: test_growing_the_team_needs_a_person(Path(td) / 'hr'))
         run(lambda: test_the_founder_does_not_approve_their_own_request(Path(td) / 'hrself'))
+        run(lambda: test_a_report_shows_its_name_without_its_parents_and_keeps_the_whole_key(
+            Path(td) / 'dotted'))
         run(lambda: test_hr_move_changes_an_agents_account(Path(td) / 'hrmove'))
         run(lambda: test_hr_move_does_not_touch_a_live_sessions_own_record(Path(td) / 'hrmovelive'))
         run(lambda: test_hr_move_leaves_account_alone_when_liveness_cannot_be_read(Path(td) / 'hrmoveunknown'))

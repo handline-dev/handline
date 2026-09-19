@@ -312,6 +312,31 @@ def _walk_tree() -> list[tuple[str, int, list[str]]]:
     return [(n, d, h) for n, d, h in rows]
 
 
+def shown_names(drawn: list[tuple[str, int, list[str]]]) -> dict[str, str]:
+    """How each drawn agent's name reads in the tree: without its parent's name.
+
+    Display only: every key, send and lookup keeps the whole name. The prefix
+    goes only when it is `<parent>.` for the agent this row reports to and that
+    parent is drawn on the screen - never on the dot alone, and never where
+    the parent is not there to be read from. Flat lists have no parent above
+    a name and do not call this.
+    """
+    parent: dict[str, str | None] = {}
+    stack: list[str] = []
+    for name, depth in actions.agent_tree():
+        del stack[depth:]
+        parent[name] = stack[-1] if stack else None
+        stack.append(name)
+    on_screen = {n for n, _d, _h in drawn}
+    out = {}
+    for name, _d, _h in drawn:
+        boss = parent.get(name)
+        prefix = f"{boss}." if boss in on_screen else None
+        out[name] = name[len(prefix):] if prefix and name.startswith(prefix) \
+            and len(name) > len(prefix) else name
+    return out
+
+
 def visible_tree() -> list[tuple[str, int, int]]:
     """The team as drawn: (name, depth, how many under it are not drawn).
 
@@ -626,6 +651,7 @@ def build(width: int, sel: dict | None = None,
         ag.add(f"{DIM}{'agent':<{NAME_W}}{'acct':<8}"
                f"{'kind':<{KIND_W}}" * kinds
                + f"{'state':<{STATE_W}}{'ctx':>4}   {'in':<4}{R}", heading=True)
+        shown = shown_names(drawn_tree)
         for name, depth, hidden in drawn_tree:
             under = len(hidden)
             # Indented under whoever routes work to it. Who an agent reports to
@@ -642,7 +668,7 @@ def build(width: int, sel: dict | None = None,
                 acct = agents.current_account(name, con)
                 cfg = agents.read(name)
             except Exception as e:  # noqa: BLE001
-                ag.add(pad(fit(twig + name, NAME_W), NAME_W)
+                ag.add(pad(fit(twig + shown[name], NAME_W), NAME_W)
                        + f"{RED}config error: {e}{R}", key=name)
                 continue
             st = status.read_for_agent(name, acct)
@@ -681,7 +707,7 @@ def build(width: int, sel: dict | None = None,
                 # twig, is wider than the column, and `pad` alone then pushes
                 # every column after it right - the same drift the "·closed"
                 # suffix caused.
-                pad(fold_marker(twig + f"{BOLD}{name}{R}", under, urgency), NAME_W)
+                pad(fold_marker(twig + f"{BOLD}{shown[name]}{R}", under, urgency), NAME_W)
                 + pad(acct, 8)
                 + (pad(f"{DIM}{fit(agents.kind(cfg), KIND_W - 1)}{R}", KIND_W)
                    if kinds else "")
