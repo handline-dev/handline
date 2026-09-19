@@ -5476,6 +5476,40 @@ def test_an_answer_to_the_human_is_in_the_human_mailbox(home: Path) -> None:
               parked in [r["id"] for r in db.unannounced_answers(con, "reviewer")],
               str(dict(db.get_request(con, parked))))
 
+        # #185: `resolve` used to call push_answer unconditionally, so a
+        # fire_and_forget dismissal delivered and even woke the requester
+        # before dismiss ever got to check whether anyone was waiting. Proven
+        # here against both an open requester (deliver_answers) and a closed
+        # one (wake_agent), by watching the daemon calls dismiss must not make.
+        woken: list = []
+        delivered: list = []
+        real_wake, real_deliver = dmn.wake_agent, dmn.deliver_answers
+        dmn.wake_agent = lambda con_, a, log_: (woken.append(a), (True, "woken"))[1]
+        dmn.deliver_answers = lambda con_, a, log_: (delivered.append(a), True)[1]
+        try:
+            agents.register("marina", "alpha")
+            db.set_terminal(con, "marina", "term_marina", None)
+            ff_open = db.add_request(con, "marina", actions.HUMAN, "FYI, open", None,
+                                     "peer", "fire_and_forget", None, 0, None)
+            actions.dismiss(con, ff_open)
+            check("mailbox: a fire_and_forget dismissal tells an open requester nothing",
+                  not delivered and not woken, f"woken={woken} delivered={delivered}")
+
+            db.set_closed(con, "marina", "sess_marina")
+            ff_closed = db.add_request(con, "marina", actions.HUMAN, "FYI, closed", None,
+                                       "peer", "fire_and_forget", None, 0, None)
+            actions.dismiss(con, ff_closed)
+            check("mailbox: nor wakes one whose session is closed",
+                  not delivered and not woken, f"woken={woken} delivered={delivered}")
+
+            parked2 = db.add_request(con, "marina", actions.HUMAN, "which one?", None,
+                                     "peer", "async", None, 0, None)
+            actions.dismiss(con, parked2)
+            check("mailbox: but an async dismissal still wakes its parked requester",
+                  woken == ["marina"], f"woken={woken} delivered={delivered}")
+        finally:
+            dmn.wake_agent, dmn.deliver_answers = real_wake, real_deliver
+
         # A refusal is an answer too - the one that means do something else.
         ok, _said, rid2 = askmod.ask("reviewer", "rebase it", requester=actions.HUMAN)
         askmod.resolve(rid2, "no - the base moved", state="rejected")

@@ -484,7 +484,8 @@ def withdraw(rid: int, requester: str | None = None) -> tuple[bool, str]:
         con.close()
 
 
-def resolve(rid: int, verdict: str, state: str = "done") -> tuple[bool, str]:
+def resolve(rid: int, verdict: str, state: str = "done", notify: bool = True) -> tuple[bool, str]:
+    """`notify=False` is `dismiss`'s case: settle the row without telling the requester."""
     con = db.connect()
     try:
         row = db.get_request(con, rid)
@@ -509,11 +510,13 @@ def resolve(rid: int, verdict: str, state: str = "done") -> tuple[bool, str]:
         p = _inbox(row["target"]) / f"{rid:06d}.json"
         if p.exists():
             p.unlink()
-        said = push_answer(con, row["requester"])
+        said = push_answer(con, row["requester"]) if notify else ""
         # The next request in target's own queue, if any, becomes deliverable
-        # only now - tell them right away, the same as asking does.
+        # only now - tell them right away, the same as asking does. This runs
+        # whether or not the requester was told: a dismiss skips the
+        # requester's answer, never the target's own queue.
         if db.head_of_queue(con, row["target"]):
-            said += "\n" + push(con, row["target"])
-        return True, f"request #{rid} -> {state}\n" + said
+            said += ("\n" if said else "") + push(con, row["target"])
+        return True, f"request #{rid} -> {state}" + (f"\n{said}" if said else "")
     finally:
         con.close()
