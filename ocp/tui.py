@@ -75,15 +75,20 @@ WAITS_SHOWN = 5   # rows of the pinned block; the rest are counted, not drawn
 ACCOUNTS, AGENTS, MESSAGES, STUCK = 0, 1, 2, 3
 NAME_W = 22   # fits `└ orcapipe-manager +2`
 # The state cell carries the time an agent is waiting until ("PARKED·closed
-# 12m05s"): park, a degraded retry and the await fallback all set one.
-STATE_W = 24
+# 12m05s"): park, a degraded retry and the await fallback all set one. Its width
+# is measured per frame from what the rows print (see `_state_width`), not set
+# for the longest thing it could ever print: that was 24 columns on a screen
+# where nearly every row says RUNNING or IDLE.
+COUNTDOWN_W = 6   # `status.span(precise)`: 12m05s, 5h03m, 6d23h
 # What an agent *is* - its model, its effort, and one day which tool it is at
 # all - against what is happening to it now. The second wins a narrow screen:
 # the kind of an agent is on its own page too and does not change while anyone
 # is watching, while the wake cell's account has nowhere else to be said. So
-# the column appears only where it costs that cell nothing.
+# the column appears only where it costs that cell nothing (see `_kind_fits`).
 KIND_W = 13
-KIND_MIN_WIDTH = 112
+ACCT_COL = 8
+CTX_COL, IN_COL = 7, 4
+PANEL_BORDERS = 4   # the box's two edges and its gutter, as `room` below counts them
 PANELS = (ACCOUNTS, AGENTS, MESSAGES, STUCK)
 PANEL_NAME = {ACCOUNTS: "accounts", AGENTS: "agents", MESSAGES: "messages",
               STUCK: "stuck"}
@@ -480,6 +485,48 @@ class Panel:
 NEEDS_A_HUMAN = ("STALLED", "DEGRADED")
 
 
+def _state_text(row) -> tuple[str, str]:
+    """What the state cell says for an agent's row, and until when: ("PARKED·closed",
+    "12m05s"). The width is decided from these before any row is drawn, and the
+    row is drawn from the same two strings, so the two cannot disagree."""
+    s = row["state"] if row else "IDLE"
+    # A closed session holds no memory and answers no one; showing it as PARKED
+    # hides the one difference that matters on this machine.
+    if row and row["closed_at"]:
+        s += "·closed"
+    elif promptwait.of(row):
+        s = WAITING_ON_YOU
+    until = countdown(row["wake_at"] if row else None).strip()
+    return s, "" if until == "-" else until
+
+
+def _state_width(cells: list[tuple[str, str]]) -> int:
+    """The state column: the longest state the rows print, room for a countdown
+    when any row has one, and one column between it and ctx.
+
+    Measured per frame rather than fixed at the longest state there is: the rows
+    are aligned with each other, which is the drift that matters, and a column
+    that is wide for the sake of a state nobody is in is a column pushing ctx
+    off the screen. The countdown's width is its longest form, not its current
+    one, so the column does not breathe as 9m59s becomes 10m00s.
+    """
+    return 1 + max(len("state"),
+                   *(len(s) + (1 + COUNTDOWN_W if until else 0) for s, until in cells))
+
+
+def _kind_fits(width: int, state_w: int) -> bool:
+    """Is there room for the kind column without costing the wake cell.
+
+    The row is the columns drawn plus that cell, which names the account it
+    would wake on when it is not the agent's own: the longest account name is
+    what must still fit. `width` is the panel's, which is the screen's.
+    """
+    longest = max((len(a) for a in paths.list_accounts()), default=0)
+    wake = vlen(f"⏳ {'x' * longest}? 00:00")
+    drawn = NAME_W + ACCT_COL + KIND_W + state_w + CTX_COL + IN_COL
+    return width - PANEL_BORDERS - drawn >= wake
+
+
 def _needs_you(row) -> str:
     """The last column: what this agent needs from a human, or nothing.
 
@@ -652,10 +699,12 @@ def build(width: int, sel: dict | None = None,
         # the difference between two rows doing the same work at different
         # prices. It sits beside the account for that reason - the two together
         # are what a row costs.
-        kinds = width >= KIND_MIN_WIDTH
-        ag.add(f"{DIM}{'agent':<{NAME_W}}{'acct':<8}"
-               f"{'kind':<{KIND_W}}" * kinds
-               + f"{'state':<{STATE_W}}{'ctx':>4}   {'in':<4}{R}", heading=True)
+        cells = [_state_text(db.get_agent_state(con, n)) for n, _, _ in drawn_tree]
+        state_w = _state_width(cells) if cells else 1 + len("state")
+        kinds = _kind_fits(width, state_w)
+        ag.add(f"{DIM}{'agent':<{NAME_W}}{'acct':<{ACCT_COL}}"
+               + f"{'kind':<{KIND_W}}" * kinds
+               + f"{'state':<{state_w}}{'ctx':>4}   {'in':<4}{R}", heading=True)
         shown = shown_names(drawn_tree)
         for name, depth, hidden in drawn_tree:
             under = len(hidden)
@@ -678,13 +727,7 @@ def build(width: int, sel: dict | None = None,
                 continue
             st = status.read_for_agent(name, acct)
             row = db.get_agent_state(con, name)
-            s = row["state"] if row else "IDLE"
-            # A closed session holds no memory and answers no one; showing it
-            # as PARKED hides the one difference that matters on this machine.
-            if row and row["closed_at"]:
-                s += "·closed"
-            elif promptwait.of(row):
-                s = WAITING_ON_YOU
+            s, until = _state_text(row)
             # Only when something is actually about to happen. Measured on a
             # live team: nothing firing, six rows reading "— closed" - which
             # the state column says already, with the same word - and two
@@ -696,10 +739,8 @@ def build(width: int, sel: dict | None = None,
             # The time it waits until, where it waits: park, a degraded retry
             # and an await fallback all set one, and it is when the agent
             # comes back.
-            until = countdown(row["wake_at"] if row else None).strip()
-            until = "" if until == "-" else until
             state_cell = (f"{BOLD + RED if s == WAITING_ON_YOU else STATE_COLOR.get(s, '')}"
-                          f"{fit(s, STATE_W - 1 - (len(until) + 1 if until else 0))}{R}"
+                          f"{fit(s, state_w - 1 - (len(until) + 1 if until else 0))}{R}"
                           + (f" {DIM}{until}{R}" if until else ""))
             ctxs = f"{pct(st.ctx_pct)}%"
             if st.ctx_pct is not None and st.ctx_pct >= triggers.CONTEXT_PCT:
@@ -713,12 +754,12 @@ def build(width: int, sel: dict | None = None,
                 # every column after it right - the same drift the "·closed"
                 # suffix caused.
                 pad(fold_marker(twig + f"{BOLD}{shown[name]}{R}", under, urgency), NAME_W)
-                + pad(acct, 8)
+                + pad(acct, ACCT_COL)
                 + (pad(f"{DIM}{fit(agents.kind(cfg), KIND_W - 1)}{R}", KIND_W)
                    if kinds else "")
-                + pad(state_cell, STATE_W)
-                + pad(ctxs, 7)
-                + pad(str(inbox) if inbox else "·", 4)
+                + pad(state_cell, state_w)
+                + pad(ctxs, CTX_COL)
+                + pad(str(inbox) if inbox else "·", IN_COL)
             )
             # Same predicate `ocp ps` and `ocp triggers` ask for this - so this
             # screen cannot disagree with the daemon that actually acts on it -
@@ -734,7 +775,7 @@ def build(width: int, sel: dict | None = None,
                 # when there is room left for it beside the clock, which is
                 # never sacrificed.
                 mark = "?" if w.assumed else ""
-                room = width - 4 - vlen(prefix)  # borders + gutter
+                room = width - PANEL_BORDERS - vlen(prefix)
                 who = (f"{w.account}{mark} " if (w.account != acct or w.assumed)
                        and room >= vlen(f"⏳ {w.account}{mark} {when}") else "")
                 # No room to name the account, but still assumed: the mark
