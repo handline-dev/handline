@@ -538,9 +538,17 @@ def read_burn(acct: str, now: float | None = None) -> float | None:
     return burn if (now or time.time()) - at <= BURN_MAX_AGE_S else None
 
 
-def _hm(secs: float) -> str:
+def span(secs: float, precise: bool = False) -> str:
+    """The one way a length of time is written: 6d18h from a day up, 5h03 from
+    an hour, then minutes (`precise` adds the seconds: 12m05)."""
     secs = int(secs)
-    return f"{secs // 3600}h{(secs % 3600) // 60:02d}" if secs >= 3600 else f"{max(1, secs // 60)}m"
+    if secs >= 86400:
+        return f"{secs // 86400}d{(secs % 86400) // 3600}h"
+    if secs >= 3600:
+        return f"{secs // 3600}h{(secs % 3600) // 60:02d}"
+    if precise:
+        return f"{secs // 60:>2}m{secs % 60:02d}"
+    return f"{max(1, secs // 60)}m"
 
 
 @dataclass
@@ -582,7 +590,7 @@ def describe_runway(r: Runway | None) -> str:
         return "at the wall"
     if not r.burning:
         return "no recent burn"
-    return "outlasts reset" if r.past_reset else f"~{_hm(r.eta_s)} to wall"
+    return "outlasts reset" if r.past_reset else f"~{span(r.eta_s)} to wall"
 
 
 def team_outlook(names: list[str] | None = None, now: float | None = None) -> str:
@@ -662,7 +670,7 @@ def _no_room(st: "AccountStatus", ld, pct: int | None) -> tuple[str | None, floa
     lasts = triggers.stretch_s(PCT_5H_BLOCK - pct, ld.burn if ld and ld.burn else 0.0)
     if lasts < triggers.MIN_STRETCH_S:
         return (_stretch_reason(st, ld, lasts) + f" - under the "
-                f"{_hm(triggers.MIN_STRETCH_S)} a start is worth"), lasts
+                f"{span(triggers.MIN_STRETCH_S)} a start is worth"), lasts
     return None, lasts
 
 
@@ -674,7 +682,7 @@ def _stretch_reason(st: "AccountStatus", ld, lasts: float) -> str:
     fill = ld.burn if ld and ld.burn else 0.0
     agents_ = f", {ld.active}/{ld.cap} agents" if ld else ""
     return (f"5h {st.trusted_pct_5h}%, fill {_per_min(fill)}{agents_}, one more agent "
-            f"lasts ~{_hm(lasts)}")
+            f"lasts ~{span(lasts)}")
 
 
 def _pick_reason(st: "AccountStatus", ld, lasts: float | None, picked: bool) -> str:

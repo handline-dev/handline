@@ -183,9 +183,7 @@ def countdown(ts: int | None) -> str:
     left = ts - int(time.time())
     if left <= 0:
         return " due"
-    if left >= 3600:
-        return f"{left // 3600}h{(left % 3600) // 60:02d}"
-    return f"{left // 60:>2}m{left % 60:02d}"
+    return status.span(left, precise=True)
 
 
 def age(secs: float | None) -> str:

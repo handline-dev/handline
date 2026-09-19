@@ -7150,6 +7150,23 @@ def test_a_sweep_after_a_move_does_not_keep_the_old_accounts_session(home: Path)
         con.close()
 
 
+def test_a_span_of_a_day_or_more_reads_in_days(home: Path) -> None:
+    """162h20 is 6d18h; under a day the form is unchanged, and the widest day
+    value fits the column every surface draws it in."""
+    check("span: 162h20 reads 6d18h", status.span(162 * 3600 + 20 * 60) == "6d18h",
+          status.span(162 * 3600 + 20 * 60))
+    check("span: 5h03 stays 5h03", status.span(5 * 3600 + 3 * 60) == "5h03")
+    check("span: 24h is the first day", status.span(86400) == "1d0h")
+    check("span: 23h59 stays hours", status.span(86400 - 60) == "23h59")
+    check("span: a runway reads the same way", status.span(6 * 86400 + 23 * 3600) == "6d23h")
+    now = int(time.time())
+    for ts, want in ((now + 6 * 86400 + 23 * 3600 + 30, "6d23h"), (now + 5 * 3600 + 200, "5h03")):
+        cell = tui.countdown(ts)
+        check(f"span: the bridge countdown says {want}", cell == want, cell)
+    check("span: the widest fits the reset columns",
+          len("6d23h") < tui.ACCT_W["reset5"] and len("6d23h") < tui.ACCT_W["reset7"])
+
+
 def test_the_cap_is_set_from_the_command_line_and_the_bridge(home: Path) -> None:
     _daemon_home(home, 20)
     out = _capture(lambda: climod.main(["account", "cap", "alpha", "3"]))
@@ -9553,6 +9570,7 @@ def main() -> int:
         run(lambda: test_a_stale_snapshot_shows_its_last_figures_and_still_is_not_offered(Path(td) / 'ar4c'))
 
 
+        run(lambda: test_a_span_of_a_day_or_more_reads_in_days(Path(td) / 'ar4f'))
         run(lambda: test_a_sweep_after_a_move_does_not_keep_the_old_accounts_session(Path(td) / 'ar4e'))
         run(lambda: test_agents_that_wall_together_respect_the_cap_and_a_start_is_not_its_own_rival(Path(td) / 'ar4b'))
         run(lambda: test_the_cap_is_set_from_the_command_line_and_the_bridge(Path(td) / 'ar5'))
