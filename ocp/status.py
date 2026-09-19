@@ -274,6 +274,36 @@ class AccountStatus:
             return True, f"5h {pct}% (carried, still inside the window)"
         return True, f"5h {pct}%"
 
+    def rolled_over(self) -> tuple[bool, str]:
+        """Is this a stale account that can still take work? Returns (ok, reason).
+
+        A snapshot only refreshes while a session runs on the account, so an
+        account nobody uses stays stale for good. Once the 5h window it
+        describes has passed, its 5h figure says nothing about now, and if
+        its last weekly reading had room the session started there writes a
+        fresh one - and the move trigger takes the agent off if it is full.
+        A weekly reading at the wall (its own week not yet reset) still
+        refuses.
+        """
+        if (not self.exists or self.error or self.rl7_lost or not self.stale
+                or self.age_s is None):
+            return False, ""
+        now = time.time()
+        if self.reset_5h:
+            passed = self.reset_5h <= now
+        else:
+            passed = self.age_s >= 5 * 3600
+        if not passed:
+            return False, ""
+        week = self.pct_7d
+        week_over = bool(self.reset_7d and self.reset_7d <= now)
+        if week is None and not week_over:
+            return False, ""
+        if week is not None and week >= PCT_7D_BLOCK and not week_over:
+            return False, ""
+        shown = "its week has rolled over" if week_over else f"7d {week}%"
+        return True, f"stale, window rolled over, {shown}"
+
     def headroom(self) -> int | None:
         """Remaining 5h headroom in percent, or None when unknown."""
         pct = self.trusted_pct_5h
@@ -439,6 +469,9 @@ def _pick_reason(st: "AccountStatus", picked: bool) -> str:
     """Why this account sits where it does in the ordering."""
     week = st.trusted_pct_7d
     week_s = "unknown" if week is None else f"{week}%"
+    rolled = st.rolled_over()
+    if rolled[0]:
+        return rolled[1] + (" <- picked: earliest deadline" if picked else "")
     when = "unknown" if not st.reset_7d else _ago(max(0.0, st.reset_7d - time.time()))
     base = f"5h {st.trusted_pct_5h}%, 7d {week_s} (resets in {when})"
     return base + " <- picked: earliest deadline" if picked else base
@@ -477,6 +510,8 @@ def pick_account(candidates: list[str] | None = None, limit_5h: int | None = Non
         if allowed and limit_5h is not None and pct is not None and pct >= limit_5h:
             allowed, why = False, f"5h usage {pct}% >= {limit_5h}%"
         if allowed:
+            usable.append((n, st))
+        elif st.rolled_over()[0]:
             usable.append((n, st))
         elif bootstrap and not st.exists:
             blank.append(n)

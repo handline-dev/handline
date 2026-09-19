@@ -5550,6 +5550,32 @@ def test_a_pinned_agent_stays_pinned_when_nothing_else_has_clear_room(home: Path
         con.close()
 
 
+def test_a_stale_account_whose_window_rolled_over_can_take_work(home: Path) -> None:
+    """A snapshot only refreshes while a session runs on the account, so an
+    unused account stays stale for good unless a passed window counts."""
+    _daemon_home(home, 20)
+    accounts.register("beta")
+    now = int(time.time())
+    write_status(home, "alpha", pct_5h=10, pct_7d=98, reset_5h=now + 1800,
+                 reset_7d=now + 86400 * 3)
+    write_status(home, "beta", pct_5h=40, pct_7d=34, reset_5h=now - 9 * 3600 + 18000,
+                 reset_7d=now + 86400 * 2, collected_at=now - int(9.8 * 3600))
+    picked, reasons = status.pick_account(["alpha", "beta"])
+    check("stale: a rolled-over account with 7d room is picked ahead of alpha at 98",
+          picked == "beta", str(reasons))
+    check("stale: the reason says why",
+          any(n == "beta" and "window rolled over" in r and "34%" in r for n, r in reasons),
+          str(reasons))
+    write_status(home, "beta", pct_5h=40, pct_7d=100, reset_5h=now - 3600,
+                 reset_7d=now + 86400 * 2, collected_at=now - int(9.8 * 3600))
+    check("stale: a 7d reading at the wall still refuses",
+          status.pick_account(["beta"])[0] is None)
+    write_status(home, "beta", pct_5h=40, pct_7d=34, reset_5h=now + 3600,
+                 reset_7d=now + 86400 * 2, collected_at=now - int(2 * 3600))
+    check("stale: a window that has not passed still refuses",
+          status.pick_account(["beta"])[0] is None)
+
+
 def test_room_is_filtered_before_the_ranking_not_after(home: Path) -> None:
     """A destination too full to last is dropped before the deadline order, so
     a good account behind it is still found; a weekly trigger parks until the
@@ -7599,6 +7625,7 @@ def main() -> int:
             Path(td) / 'pinned'))
         run(lambda: test_a_pinned_agent_stays_pinned_when_nothing_else_has_clear_room(
             Path(td) / 'pinnedstuck'))
+        run(lambda: test_a_stale_account_whose_window_rolled_over_can_take_work(Path(td) / 'stalebeta'))
         run(lambda: test_room_is_filtered_before_the_ranking_not_after(Path(td) / 'roomfirst'))
         run(lambda: test_choose_account_does_not_bounce_back_to_a_stale_preferred_account(
             Path(td) / 'nobounce'))
