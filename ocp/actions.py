@@ -190,15 +190,18 @@ def answer(con, rid: int, verdict: str) -> str:
 def dismiss(con, rid: int) -> str:
     """Take one row off the mailbox without replying to it.
 
-    An answer to the human's own ask is already resolved - the agent wrote the
-    verdict when it finished. Resolving it again would stamp "read" over what
-    it said, so it is marked told instead, which is the same thing the daemon
-    does when it reads an answer out to an agent.
+    A row that has already left 'queued' carries somebody's real verdict -
+    the human's answer to their own ask, or an agent's answer to a request it
+    was sent. Calling `resolve` on it again would stamp "read - no reply"
+    over what was actually said, so it is only marked told instead, the same
+    thing the daemon does when it reads an answer out to an agent. That marking
+    is idempotent (a later `announced_at`, never a rewritten verdict), so
+    dismissing the same answered row twice is as harmless as dismissing it once.
     """
     row = db.get_request(con, rid)
     if row is None:
         return f"#{rid} is gone"
-    if _is_answer_to_human(row):
+    if row["state"] != "queued":
         db.mark_announced(con, [rid])
         return f"#{rid} marked read"
     if row["response"] != "async":
