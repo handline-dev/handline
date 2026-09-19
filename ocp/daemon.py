@@ -329,21 +329,16 @@ def _reclaim_context(con, agent: str, log) -> tuple[bool, str]:
 
 
 def deliver_queued(con, agent: str, log) -> bool:
-    """Tell an agent that work is waiting for it.
-
-    `ocp ask` writes a row and puts a file in the target's inbox; neither
-    reaches the target's screen. A session sitting at its prompt has no reason
-    to look, so without this every request needs a human to nudge the terminal
-    - which is exactly how this system was being run by hand.
-
-    Told once per request: the cursor is the newest id we have announced, so a
-    reminder only goes out when something new arrives.
+    """Tell an agent about the head of its own queue (`db.head_of_queue`) -
+    and only the head, per request #189. `ocp ask` writes a row and puts a
+    file in the target's inbox; neither reaches the target's screen, which is
+    why this exists at all. Told once per head: the cursor holds the id last
+    announced, so a reminder only goes out once the head actually changes.
     """
-    waiting = db.queued_for(con, agent)
-    if not waiting:
+    head = db.head_of_queue(con, agent)
+    if not head:
         return False
-    newest = max(int(r["id"]) for r in waiting)
-    if db.get_cursor(con, f"notify:{agent}") >= newest:
+    if db.get_cursor(con, f"notify:{agent}") == int(head["id"]):
         return False
     handle = db.get_terminal(con, agent)
     if not handle or not orca.available() or not orca.alive(handle):
@@ -358,23 +353,38 @@ def deliver_queued(con, agent: str, log) -> bool:
     # unsent, which is how three agents once came up having been told nothing.
     if not orca.idle_now(handle):
         return False
-    senders = ", ".join(sorted({r["requester"] for r in waiting}))
+    depth = db.queue_depth(con, agent)
     with lock.terminal(agent) as mine:
         if not mine:
             return False          # something else is mid-send; next tick
-        return _tell(con, agent, waiting, newest, senders, handle, log)
+        return _tell(con, agent, head, depth, handle, log)
 
 
-def _tell(con, agent: str, waiting, newest: int, senders: str, handle: str, log) -> bool:
+def _tell(con, agent: str, head, depth: int, handle: str, log) -> bool:
+    more = depth - 1
+    body = head["body"] or "(empty)"
+    # Capped at 400; `ocp read` has the rest.
+    shown = body if len(body) <= 400 else body[:400] + "…"
+    tail = (f"\n{more} more waiting - the next comes when you resolve or dismiss this one."
+            if more else "")
+    # Before the send, not after: this is what closes withdraw/replace's race
+    # against delivery (request #189). A send that then fails leaves the row
+    # marked anyway - its requester can no longer withdraw it, but the cursor
+    # below is not advanced, so the next tick retries the same head.
+    if not db.mark_delivered(con, int(head["id"])):
+        # Retired (withdrawn/replaced) in the gap between head_of_queue and
+        # here. Typing a dead request into the target's terminal would be
+        # worse than skipping it; the next tick picks up whatever is now head.
+        return False
     ok, _ = orca.send(
         handle,
-        f"{len(waiting)} request(s) waiting for you, from {senders}. "
-        f"Run `ocp inbox` to read them, do the work, and close each one with "
-        f"`ocp resolve <id> \"<verdict>\"`.")
+        f"#{head['id']} from {head['requester']}, waiting for you:\n{shown}{tail}\n"
+        f"`ocp read {head['id']}` shows it whole; answer with "
+        f"`ocp resolve {head['id']} \"<verdict>\"`, or `ocp inbox` any time.")
     if ok:
-        db.set_cursor(con, f"notify:{agent}", newest)
-        db.add_event(con, agent, "notified", {"through": newest, "count": len(waiting)})
-        log(f"  {agent}: told about {len(waiting)} waiting request(s)")
+        db.set_cursor(con, f"notify:{agent}", int(head["id"]))
+        db.add_event(con, agent, "notified", {"request_id": head["id"], "more_waiting": more})
+        log(f"  {agent}: told about #{head['id']}" + (f" ({more} more waiting)" if more else ""))
     return ok
 
 

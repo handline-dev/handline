@@ -50,7 +50,14 @@ CREATE TABLE IF NOT EXISTS requests (
   -- When the answer landed. `ts` is when the request was made, and the two can
   -- be two days apart: a screen that sorts answers by `ts` puts yesterday's
   -- reply above this morning's, which reads as an old message nobody answered.
-  resolved_at INTEGER
+  resolved_at INTEGER,
+  -- FIFO position within one target's queue - defaults to id, but `--first`
+  -- bisects between two existing orders, so this is REAL, not INTEGER.
+  queue_order REAL,
+  -- Set once, the first time this request is actually shown to its target
+  -- (request #189). NULL is what makes a request still withdrawable/
+  -- replaceable by its own requester.
+  delivered_at INTEGER
 );
 CREATE INDEX IF NOT EXISTS requests_target ON requests(target, state);
 CREATE INDEX IF NOT EXISTS requests_requester ON requests(requester, ts);
@@ -174,6 +181,23 @@ def _pre_schema_migrate(con) -> None:
         # Existing rows keep their own id as their chain, which is what a
         # parentless request would have had anyway.
         con.execute("UPDATE requests SET chain_id = CAST(id AS TEXT) WHERE chain_id IS NULL")
+    if request_cols and "queue_order" not in request_cols:
+        con.execute("ALTER TABLE requests ADD COLUMN queue_order REAL")
+        # id order is exactly what every existing queue already reads as FIFO,
+        # so an old row's place in line does not move the first time this runs.
+        con.execute("UPDATE requests SET queue_order = id WHERE queue_order IS NULL")
+    if request_cols and "delivered_at" not in request_cols:
+        con.execute("ALTER TABLE requests ADD COLUMN delivered_at INTEGER")
+        # Only each target's own head (queue_order was just backfilled to id,
+        # above, so the head is its smallest id). The old delivery did show a
+        # target every queued row, not just this one, so a row past the head
+        # may already have been read; marking it delivered anyway would leave
+        # --first nothing left to land in front of, which matters more.
+        con.execute("""
+            UPDATE requests SET delivered_at = ts WHERE state = 'queued' AND id IN (
+                SELECT MIN(id) FROM requests WHERE state = 'queued' GROUP BY target
+            )
+        """)
 
 
 def _unhide_the_humans_answers(con) -> None:
@@ -402,7 +426,12 @@ def set_cursor(con, name: str, row_id: int) -> None:
 def add_request(con, requester: str, target: str, body: str, files: str | None,
                 relation: str | None, response: str | None, kind: str | None,
                 chain_depth: int, parent_id: int | None, state: str = "queued",
-                verdict: str | None = None, chain_id: str | None = None) -> int:
+                verdict: str | None = None, chain_id: str | None = None,
+                first: bool = False, queue_order: float | None = None) -> int:
+    """Insert a request. `queue_order`, not `id`, decides FIFO position - see
+    `queued_for`. `first` and `queue_order` are request #189's --first and
+    --replaces.
+    """
     cur = con.execute(
         "INSERT INTO requests(ts, requester, target, body, files, relation, response, "
         "kind, chain_depth, parent_id, state, verdict, chain_id) "
@@ -414,21 +443,101 @@ def add_request(con, requester: str, target: str, body: str, files: str | None,
     if chain_id is None:
         # A request with no parent starts its own chain, named after itself.
         con.execute("UPDATE requests SET chain_id = ? WHERE id = ?", (str(rid), rid))
+    order = rid if queue_order is None else queue_order
+    if first and state == "queued":
+        # Midpoint between the last delivered row and the first undelivered
+        # one; queue_order is REAL so there is always room to bisect into.
+        row = con.execute(
+            "SELECT MIN(CASE WHEN delivered_at IS NULL THEN queue_order END) AS ceiling, "
+            "MAX(CASE WHEN delivered_at IS NOT NULL THEN queue_order END) AS floor_ "
+            "FROM requests WHERE target = ? AND state = 'queued'", (target,)).fetchone()
+        ceiling, floor_ = row["ceiling"], row["floor_"]
+        if ceiling is not None and floor_ is not None:
+            order = (float(ceiling) + float(floor_)) / 2
+        elif ceiling is not None:
+            order = float(ceiling) - 1
+        elif floor_ is not None:
+            order = float(floor_) + 1
+    con.execute("UPDATE requests SET queue_order = ? WHERE id = ?", (order, rid))
     return rid
 
 
-def chain_members(con, chain_id: str) -> list:
+# States a request can leave 'queued' for without ever having reached its
+# target: denied by routing, withdrawn by its own requester, or superseded by
+# a replacement. None of the three is evidence of a real exchange, so a cycle
+# or ping-pong check counting them would refuse a conversation that, from the
+# target's side, never happened.
+NEVER_REACHED_TARGET = ("denied", "withdrawn", "replaced")
+
+
+def chain_members(con, chain_id: str, exclude_id: int | None = None) -> list:
+    """`exclude_id` is a row still 'queued' that is about to be replaced or
+    withdrawn: the caller already knows it, and a cycle or ping-pong check
+    counting it before that write lands would count a conversation that, from
+    the target's side, never happened.
+    """
+    clauses = [f"state NOT IN ({','.join('?' * len(NEVER_REACHED_TARGET))})"]
+    params: list = [chain_id, *NEVER_REACHED_TARGET]
+    if exclude_id is not None:
+        clauses.append("id != ?")
+        params.append(exclude_id)
     return con.execute(
-        "SELECT * FROM requests WHERE chain_id = ? AND state != 'denied' ORDER BY id",
-        (chain_id,),
+        f"SELECT * FROM requests WHERE chain_id = ? AND {' AND '.join(clauses)} ORDER BY id",
+        params,
     ).fetchall()
 
 
 def queued_for(con, target: str):
+    """Every request still queued for `target`, ordered by queue_order (its
+    delivery position - see `add_request`), not by id."""
     return con.execute(
-        "SELECT * FROM requests WHERE target = ? AND state = 'queued' ORDER BY id",
+        "SELECT * FROM requests WHERE target = ? AND state = 'queued' "
+        "ORDER BY queue_order, id",
         (target,),
     ).fetchall()
+
+
+def head_of_queue(con, target: str):
+    """The one request `target` is meant to be working on right now, or None.
+
+    Request #189: an agent is given one request at a time, not its whole
+    queue - this is where that is decided, once, for every reader (delivery,
+    `ocp inbox`, resolve's hand-off to the next one) to agree on.
+    """
+    rows = queued_for(con, target)
+    return rows[0] if rows else None
+
+
+def queue_depth(con, target: str) -> int:
+    return len(queued_for(con, target))
+
+
+def mark_delivered(con, rid: int) -> bool:
+    """Record that this request has been shown to its target. Idempotent.
+
+    False if the row was withdrawn or replaced first - the caller must not
+    then act as if delivery happened.
+    """
+    cur = con.execute(
+        "UPDATE requests SET delivered_at = COALESCE(delivered_at, ?) "
+        "WHERE id = ? AND state = 'queued'",
+        (int(time.time()), rid))
+    return cur.rowcount > 0
+
+
+def retire_if_undelivered(con, rid: int, state: str, verdict: str | None = None) -> bool:
+    """Move a still-queued, undelivered request to a terminal state, atomically.
+
+    True only if this call is the one that moved it. A plain read-then-write
+    (check delivered_at, then update) races a delivery landing in between;
+    this closes that window in one statement.
+    """
+    cur = con.execute(
+        "UPDATE requests SET state = ?, verdict = COALESCE(?, verdict), "
+        "resolved_at = COALESCE(resolved_at, ?) "
+        "WHERE id = ? AND state = 'queued' AND delivered_at IS NULL",
+        (state, verdict, int(time.time()), rid))
+    return cur.rowcount > 0
 
 
 def get_request(con, rid: int):
