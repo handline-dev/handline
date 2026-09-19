@@ -491,7 +491,10 @@ def resolve(rid: int, verdict: str, state: str = "done", notify: bool = True) ->
         row = db.get_request(con, rid)
         if row is None:
             return False, f"request {rid} does not exist"
-        db.set_request_state(con, rid, state, verdict)
+        # Announcing is stamped in this same write when notify=False, so a
+        # sweep between here and the caller's own bookkeeping can never find
+        # the row 'done' with announced_at still NULL and treat it as news.
+        db.set_request_state(con, rid, state, verdict, announced=not notify)
         db.add_event(con, row["target"], "resolve",
                      {"request_id": rid, "state": state, "requester": row["requester"]})
 
