@@ -61,6 +61,13 @@ STATE_COLOR = {
 # name again in the list above.
 ACCOUNTS, AGENTS, MESSAGES, STUCK = 0, 1, 2, 3
 NAME_W = 22   # fits `└ orcapipe-manager +2`
+# What an agent *is* - its model, its effort, and one day which tool it is at
+# all - against what is happening to it now. The second wins a narrow screen:
+# the kind of an agent is on its own page too and does not change while anyone
+# is watching, while the wake cell's account has nowhere else to be said. So
+# the column appears only where it costs that cell nothing.
+KIND_W = 13
+KIND_MIN_WIDTH = 112
 PANELS = (ACCOUNTS, AGENTS, MESSAGES, STUCK)
 PANEL_NAME = {ACCOUNTS: "accounts", AGENTS: "agents", MESSAGES: "messages",
               STUCK: "stuck"}
@@ -466,11 +473,17 @@ def build(width: int, sel: dict | None = None,
         ag.selected = sel.get(AGENTS)
         # No heading for the last column: it is empty unless something is about
         # to happen, and then it says what, in words.
-        # No model and no effort: they are configuration, they do not change
-        # while anyone is watching, and they are on the agent's own page. This
-        # screen is about what is happening now.
-        ag.add(f"{DIM}{'agent':<{NAME_W}}{'acct':<8}{'state':<16}"
-               f"{'ctx':>4}   {'wake':<7}{'in':<4}{R}", heading=True)
+        # Model and effort are configuration and do not change while anyone is
+        # watching, which was the case for leaving them off. What changed is
+        # that they will not all be claude: with a second vendor coming, what
+        # an agent *is* stops being a constant of the screen and starts being
+        # the difference between two rows doing the same work at different
+        # prices. It sits beside the account for that reason - the two together
+        # are what a row costs.
+        kinds = width >= KIND_MIN_WIDTH
+        ag.add(f"{DIM}{'agent':<{NAME_W}}{'acct':<8}"
+               f"{'kind':<{KIND_W}}" * kinds
+               + f"{'state':<16}{'ctx':>4}   {'wake':<7}{'in':<4}{R}", heading=True)
         for name, depth, under in visible_tree():
             # Indented under whoever routes work to it. Who an agent reports to
             # decides where its report goes and who may assign to it, and it was
@@ -517,6 +530,8 @@ def build(width: int, sel: dict | None = None,
                 pad(fit(twig + f"{BOLD}{name}{R}", NAME_W - vlen(folded)) + folded,
                     NAME_W)
                 + pad(acct, 8)
+                + (pad(f"{DIM}{fit(agents.kind(cfg), KIND_W - 1)}{R}", KIND_W)
+                   if kinds else "")
                 + pad(f"{STATE_COLOR.get(s, '')}{fit(s, 15)}{R}", 16)
                 + pad(ctxs, 7)
                 + pad(countdown(row["wake_at"] if row else None), 7)
