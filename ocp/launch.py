@@ -178,7 +178,8 @@ def _mcp_config_material() -> str:
 
 
 def mcp_config_arg() -> tuple[list[str], str | None]:
-    """`--mcp-config <file>` for `paths.mcp_config()`, if it exists and parses.
+    """`--mcp-config <file>` for `paths.mcp_config()`, if it exists and is a
+    valid {"mcpServers": {...}} object.
 
     Not strict: passing this leaves an account's own servers loading too. A
     missing file changes nothing - the founder has not filled it in, or an
