@@ -314,6 +314,11 @@ def _add_missing_columns(con) -> None:
         # No backfill: an existing row's session was launched on the account
         # agent.yaml named, which is exactly what a null here falls back to.
         con.execute("ALTER TABLE agent_state ADD COLUMN account TEXT")
+    if "account_source" not in state_cols:
+        # NULL here means "recorded" too, for exactly the rows that predate
+        # this column: every one of them was written by `_record_terminal` or
+        # a move, both facts, before an "assumed" writer existed at all.
+        con.execute("ALTER TABLE agent_state ADD COLUMN account_source TEXT")
 
 
 
@@ -627,19 +632,22 @@ def set_terminal(con, agent: str, terminal: str | None, worktree: str | None) ->
     )
 
 
-def set_account(con, agent: str, account: str | None) -> None:
-    """Record which account the session being started is on.
+def set_account(con, agent: str, account: str | None, source: str = "recorded") -> None:
+    """Record which account a session is on, and how sure of it this is.
 
-    Written by `ocp launch`, which is the process that sets CLAUDE_CONFIG_DIR,
-    so the record and the environment cannot disagree. Everything that asks
-    where an agent's usage is coming from reads this; agent.yaml is the
-    preference this fell back to when it is null.
+    `source="recorded"` (the default) is `ocp launch`'s own write, from
+    inside the process that sets CLAUDE_CONFIG_DIR - the record and the
+    environment cannot disagree. `source="assumed"` is a guess made before
+    that process exists to confirm anything, written so a row is not simply
+    null in the window between a spawn and its own launch reporting in -
+    `agents.account_reading` is what tells the two apart on read.
     """
     con.execute(
-        "INSERT INTO agent_state(agent, state, updated, account) VALUES(?,?,?,?) "
+        "INSERT INTO agent_state(agent, state, updated, account, account_source) "
+        "VALUES(?,?,?,?,?) "
         "ON CONFLICT(agent) DO UPDATE SET account=excluded.account, "
-        "updated=excluded.updated",
-        (agent, "IDLE", int(time.time()), account),
+        "account_source=excluded.account_source, updated=excluded.updated",
+        (agent, "IDLE", int(time.time()), account, source),
     )
 
 
@@ -738,5 +746,18 @@ def in_flight_handoffs(con):
 def in_flight_for(con, agent: str):
     return con.execute(
         "SELECT * FROM handoff WHERE agent = ? AND state = 'in_flight' ORDER BY updated LIMIT 1",
+        (agent,),
+    ).fetchone()
+
+
+def last_handoff(con, agent: str):
+    """This agent's most recently updated handoff, in flight or not, or None.
+
+    One query, so the "was it too soon" check and the "what did the last
+    park say" read agree on which row is last instead of each writing its
+    own ORDER BY.
+    """
+    return con.execute(
+        "SELECT * FROM handoff WHERE agent = ? ORDER BY updated DESC LIMIT 1",
         (agent,),
     ).fetchone()

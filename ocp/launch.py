@@ -20,8 +20,9 @@ import os
 import shutil
 import sys
 import time
+from dataclasses import dataclass
 
-from . import accounts, agents, paths, status, triggers
+from . import accounts, agents, db, paths, status, triggers
 
 
 # A session started this close to the wall folds almost at once: the usage
@@ -70,7 +71,7 @@ def find_room(agent: str, limit: int | None = None, limit_7d: int | None = None,
 
 
 def choose_account(agent: str, resuming: bool = False, limit: int | None = None,
-                   limit_7d: int | None = None) -> str:
+                   limit_7d: int | None = None, con=None) -> str:
     """Which account this launch runs on.
 
     agent.yaml names a preference, not a destination: the moment a session is
@@ -80,12 +81,85 @@ def choose_account(agent: str, resuming: bool = False, limit: int | None = None,
     Resuming is not that moment. A session id belongs to one account's config
     directory, so a resumed session goes back to the account it was recorded
     on, or the run is not a resume at all.
+
+    `con`, when the caller already has one open, saves `current_account` its
+    own connect-and-migrate: a caller repainting a screen has this on every
+    row already and would otherwise open a database per row to ask.
     """
     if resuming:
-        return agents.current_account(agent)
+        return agents.current_account(agent, con)
     # Nothing with room is not a reason to pick at random: `build` refuses on
     # a current reading at the wall, and names the account and the figure.
     return find_room(agent, limit, limit_7d) or agents.account_of(agent)
+
+
+@dataclass
+class WakeWait:
+    account: str
+    pct: int
+    reset_5h: int | None
+    # True when `account` is a guess (agent.yaml's preference, or a spawn's
+    # own unconfirmed one) rather than the account this resume is actually
+    # tied to - `account_reading` prefers a fresher reported one first, so
+    # this is the residual case where nothing has confirmed one at all.
+    assumed: bool = False
+
+
+def wake_wait(agent: str, row, con) -> WakeWait | None:
+    """Is a closed agent's wake walled behind its own account's 5h window?
+
+    This is the check daemon.py makes before it types anything into a closed
+    agent's terminal. A resume cannot follow an account change, but the
+    pinning rescue can fold and start fresh elsewhere, so a wait is not final. It is factored out here, rather than
+    inlined at the call site, so the screens that show an agent can ask the
+    same question instead of restating the rule and drifting from it.
+
+    It answers only "is the account full", not "is anyone trying to wake this
+    agent" - the daemon's own call site (a move's wake included) needs the
+    former unconditionally, before it spends a wake attempt finding out the
+    hard way. A screen that means to show only the waits with something behind
+    them gates on `daemon.would_wake` first; this makes no such promise on its
+    own.
+
+    A computed condition, not a stored one: called again a moment later, on an
+    account whose window has since rolled over, it returns None.
+    """
+    if not row or not row["closed_at"]:
+        return None
+    if row["resume_session"]:
+        reading = agents.account_reading(agent, con)
+        acct, assumed = reading.account, reading.source == "assumed"
+    else:
+        # The move's wake: nowhere its own session was tied to, so there is
+        # no reading to prefer over a fresh choice - `account_reading`
+        # answers a question this branch does not ask.
+        acct, assumed = choose_account(agent, resuming=False, con=con), False
+    st = status.read(acct)
+    pct = st.trusted_pct_5h
+    if pct is None or pct < status.PCT_5H_BLOCK:
+        return None
+    return WakeWait(acct, pct, st.reset_5h, assumed)
+
+
+def wake_wait_reason(agent: str, row, con) -> str | None:
+    """The sentence ps, triggers and the daemon's own log line print for a
+    walled wake.
+
+    One wording, called from all three, so a screen can never say something
+    the daemon does not act on. The bridge draws the same `wake_wait` but
+    fits it to a fixed column instead of this sentence - it has no room for
+    the whole thing, not a different opinion of it.
+    """
+    w = wake_wait(agent, row, con)
+    return None if w is None else describe_wake_wait(w)
+
+
+def describe_wake_wait(w: WakeWait) -> str:
+    """The wording for a wait already computed, so a caller that holds one
+    does not recompute it (the window may have rolled over in between)."""
+    when = "unknown" if not w.reset_5h else time.strftime("%H:%M", time.localtime(w.reset_5h))
+    who = f"assumed account {w.account}" if w.assumed else w.account
+    return f"waiting for {who}'s 5h window ({w.pct}%, rolls over {when})"
 
 
 def _is_resume(extra: list[str] | None) -> bool:

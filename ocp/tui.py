@@ -36,7 +36,7 @@ import tty
 import unicodedata
 from pathlib import Path
 
-from . import accounts, actions, agents, daemon, db, paths, status, triggers
+from . import accounts, actions, agents, daemon, db, launch, paths, status, triggers
 
 ALT_ON, ALT_OFF = "\033[?1049h", "\033[?1049l"
 CUR_OFF, CUR_ON = "\033[?25l", "\033[?25h"
@@ -510,7 +510,7 @@ def build(width: int, sel: dict | None = None,
             inbox = len(db.queued_for(con, name))
             # Padded on visible width, like the accounts panel: a state that
             # grew a "·closed" suffix used to push every column after it right.
-            ag.add(
+            prefix = (
                 # Fitted before it is padded: a long name, or a deep enough
                 # twig, is wider than the column, and `pad` alone then pushes
                 # every column after it right - the same drift the "·closed"
@@ -522,7 +522,36 @@ def build(width: int, sel: dict | None = None,
                 + pad(ctxs, 7)
                 + pad(countdown(row["wake_at"] if row else None), 7)
                 + pad(str(inbox) if inbox else "·", 4)
-                + (fire or _needs_you(row)),
+            )
+            # Same predicate `ocp ps` and `ocp triggers` ask for this - so this
+            # screen cannot disagree with the daemon that actually acts on it -
+            # but drawn to fit the column instead of their full sentence: there
+            # is room here for the account and the clock, not "waiting for
+            # ...'s 5h window (...)" in full.
+            w = daemon.would_wake(con, row) and launch.wake_wait(name, row, con)
+            if w:
+                when = "?" if not w.reset_5h else time.strftime("%H:%M", time.localtime(w.reset_5h))
+                # The acct column already names it; only worth repeating when
+                # the wake would land elsewhere, or when it is only assumed -
+                # the acct column has no way to say that on its own - and only
+                # when there is room left for it beside the clock, which is
+                # never sacrificed.
+                mark = "?" if w.assumed else ""
+                room = width - 4 - vlen(prefix)  # borders + gutter
+                who = (f"{w.account}{mark} " if (w.account != acct or w.assumed)
+                       and room >= vlen(f"⏳ {w.account}{mark} {when}") else "")
+                # No room to name the account, but still assumed: the mark
+                # moves to the one thing left to put it on.
+                walled_cell = f"{YEL}⏳ {who}{when}{mark if not who else ''}{R}"
+            else:
+                walled_cell = ""
+            ag.add(
+                prefix
+                # A STALLED or DEGRADED agent needs a human whatever else is
+                # true of it; a wall clears itself the moment the window
+                # rolls over, so it is the last thing shown, not the thing
+                # that hides the one mark nobody but a human clears.
+                + (fire or _needs_you(row) or walled_cell),
                 key=name,
             )
         if not paths.list_agents():

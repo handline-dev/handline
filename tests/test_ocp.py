@@ -115,6 +115,16 @@ def write_status(home: Path, acct: str, **fields) -> None:
     (d / "status.json").write_text(json.dumps(payload))
 
 
+def write_agent_status(agent: str, reported_account: str, **fields) -> None:
+    """The agent's own snapshot, the one a running session writes under its
+    own env on every render - `agents.account_reading`'s 'reported' tier."""
+    f = paths.agent_status_file(agent)
+    f.parent.mkdir(parents=True, exist_ok=True)
+    payload = {"account": reported_account, "collected_at": int(time.time())}
+    payload.update(fields)
+    f.write_text(json.dumps(payload))
+
+
 # ---------------------------------------------------------------- fail-closed
 def test_failclosed(home: Path) -> None:
     os.environ["OCP_HOME"] = str(home)
@@ -3935,6 +3945,259 @@ def test_a_wake_is_believed_only_when_a_session_appears(home: Path) -> None:
         con.close()
 
 
+def test_a_walled_wake_says_so_everywhere(home: Path) -> None:
+    """A closed agent whose resume is blocked at its account's 5h wall used to
+    say nothing about it: `ocp ps` showed "·closed", `ocp triggers` said
+    "nothing to hand off", and the daemon's own refusal lived in a log line.
+    One predicate now answers all of them, so a screen cannot drift from what
+    the daemon actually acts on - and it has to fall silent again the moment
+    the account has room, since nothing here is stored state.
+    """
+    _daemon_home(home, 20)
+    con = db.connect()
+    real = (orcamod.available,)
+    try:
+        orcamod.available = lambda: True
+        db.set_closed(con, "backend", "sess-wall")
+        # A screen only shows the wall next to a wait that is real: queued
+        # work is what would actually make the daemon try this wake.
+        db.add_request(con, "reviewer", "backend", "look at this", None,
+                       "peer", "async", None, 0, None)
+        # A detail of its own is the ordinary case for this row - an answer
+        # sitting undelivered is the example this feature exists for - so the
+        # budget fix has to hold with one competing for the line, not only
+        # on the empty-detail row every other check here leaves behind.
+        db.set_agent_state(con, "backend", dmn.IDLE, detail="request 13 resolved: done")
+        reset_at = int(time.time()) + 1800
+        write_status(home, "alpha", pct_5h=95, pct_7d=10, ctx_pct=5, reset_5h=reset_at)
+        when = time.strftime("%H:%M", time.localtime(reset_at))
+
+        row = db.get_agent_state(con, "backend")
+        reason = launch.wake_wait_reason("backend", row, con)
+        check("walled: names the account and when it rolls over",
+              reason is not None and "alpha" in reason and when in reason, reason)
+
+        ok, why = dmn.wake_agent(con, "backend", lambda _m: None)
+        check("walled: the daemon's own refusal is the same sentence, not a cousin of it",
+              not ok and why == reason, f"{why!r} != {reason!r}")
+
+        ps_out = _capture(lambda: climod.main(["ps"]))
+        trig_out = _capture(lambda: climod.main(["triggers"]))
+        # `ocp team` is asked from somewhere - `reviewer` is a peer of every
+        # agent in DESIGN_TEAM, so backend is on its list.
+        os.environ["OCP_AGENT"] = "reviewer"
+        team_out = _capture(lambda: climod.main(["team"]))
+        del os.environ["OCP_AGENT"]
+        wide = tui._ANSI.sub("", tui.frame(200, 40))
+        narrow = tui._ANSI.sub("", tui.frame(80, 40))
+        check("walled: `ocp ps` says it", reason in ps_out, ps_out)
+        check("walled: `ocp triggers` says it", reason in trig_out, trig_out)
+        check("walled: `ocp team` says it too - the fourth surface",
+              "alpha" in team_out and when in team_out, team_out)
+        # The bridge has no room for the full sentence at a real terminal
+        # width - `ocp ps` and `ocp triggers` print it whole because a line of
+        # text can run as long as it needs to; a fixed column cannot. It
+        # draws the same predicate, fitted to the column: the account and the
+        # clock, not a paraphrase of the sentence.
+        check("walled: the bridge names the account and the clock at full width",
+              "alpha" in wide and when in wide,
+              str([ln for ln in wide.splitlines() if "backend" in ln]))
+        check("walled: and still does at a realistic terminal width",
+              "alpha" in narrow and when in narrow,
+              str([ln for ln in narrow.splitlines() if "backend" in ln]))
+
+        # It is computed, not stored: once the account has room the sentence
+        # disappears from every screen on its own, with nothing to clear.
+        write_status(home, "alpha", pct_5h=20, pct_7d=10, ctx_pct=5,
+                     reset_5h=int(time.time()) + 1800)
+        row = db.get_agent_state(con, "backend")
+        check("walled: and clears the moment the account has room",
+              launch.wake_wait_reason("backend", row, con) is None)
+        ps_out = _capture(lambda: climod.main(["ps"]))
+        trig_out = _capture(lambda: climod.main(["triggers"]))
+        os.environ["OCP_AGENT"] = "reviewer"
+        team_out = _capture(lambda: climod.main(["team"]))
+        del os.environ["OCP_AGENT"]
+        wide = tui._ANSI.sub("", tui.frame(200, 40))
+        check("walled: and every screen falls silent with it",
+              "rolls over" not in ps_out and "rolls over" not in trig_out
+              and when not in team_out and when not in wide,
+              "still walled somewhere after the window rolled over")
+    finally:
+        (orcamod.available,) = real
+        con.close()
+
+
+def test_a_walled_wake_is_not_shown_with_nothing_waiting(home: Path) -> None:
+    """A closed agent on a walled account, with no queued work, no answer it
+    asked for and no wake_at set, is idle by choice - nothing is trying to
+    wake it, so nothing should read "waiting" beside it. Before this, every
+    closed agent on a walled account read as walled, which on a live team
+    with six closed agents and nothing due was six rows of noise for zero
+    real waits.
+    """
+    _daemon_home(home, 20)
+    con = db.connect()
+    try:
+        db.set_closed(con, "backend", "sess-idle")
+        write_status(home, "alpha", pct_5h=95, pct_7d=10, ctx_pct=5,
+                     reset_5h=int(time.time()) + 1800)
+        row = db.get_agent_state(con, "backend")
+        check("walled: nothing waiting means would_wake says no",
+              not dmn.would_wake(con, row), dict(row))
+
+        # A deadline that has not arrived yet is not "due" - a bare
+        # `row["wake_at"]` truthy check would have said yes to any parked
+        # agent with any deadline at all, due or not.
+        db.set_agent_state(con, "backend", dmn.PARKED,
+                           wake_at=int(time.time()) + 3600, detail="usage; wakes later")
+        row = db.get_agent_state(con, "backend")
+        check("walled: a deadline that has not come due yet is not waiting either",
+              not dmn.would_wake(con, row), dict(row))
+
+        ps_out = _capture(lambda: climod.main(["ps"]))
+        trig_out = _capture(lambda: climod.main(["triggers"]))
+        os.environ["OCP_AGENT"] = "reviewer"
+        team_out = _capture(lambda: climod.main(["team"]))
+        del os.environ["OCP_AGENT"]
+        frame = tui._ANSI.sub("", tui.frame(200, 40))
+        check("walled: `ocp ps` stays quiet with nothing waiting",
+              "rolls over" not in ps_out, ps_out)
+        check("walled: `ocp triggers` stays quiet too",
+              "rolls over" not in trig_out, trig_out)
+        check("walled: `ocp team` stays quiet too", "rolls over" not in team_out, team_out)
+        check("walled: and the bridge",
+              "rolls over" not in frame and "⏳" not in frame,
+              str([ln for ln in frame.splitlines() if "backend" in ln]))
+
+        # `wake_wait` itself still answers - it is the daemon's own call site
+        # (a move's wake included) that needs the raw answer unconditionally,
+        # before it spends a wake attempt finding the wall out the hard way.
+        check("walled: but wake_wait itself is unconditional - the daemon "
+              "still needs the raw answer to decide a wake before trying it",
+              launch.wake_wait("backend", row, con) is not None)
+    finally:
+        con.close()
+
+
+def test_a_stalled_closed_agent_keeps_its_marker_when_walled(home: Path) -> None:
+    """A STALLED agent needs a human - unstalling it is the one thing that
+    clears that mark. If the wall's yellow cell were drawn ahead of it, a
+    STALLED agent whose account crossed 90% would silently read as merely
+    walled, and the one condition on that row that needs a person would clear
+    itself the moment the window rolled over, with nobody told there was
+    ever anything wrong.
+    """
+    _daemon_home(home, 20)
+    con = db.connect()
+    try:
+        db.set_closed(con, "backend", "sess-stalled")
+        db.set_agent_state(con, "backend", dmn.STALLED, detail="ran out of attempts")
+        db.add_request(con, "reviewer", "backend", "look at this", None,
+                       "peer", "async", None, 0, None)
+        write_status(home, "alpha", pct_5h=95, pct_7d=10, ctx_pct=5,
+                     reset_5h=int(time.time()) + 1800)
+        row = db.get_agent_state(con, "backend")
+        check("stalled+walled: both conditions actually hold here",
+              dmn.would_wake(con, row) and launch.wake_wait("backend", row, con),
+              dict(row))
+        frame = tui._ANSI.sub("", tui.frame(200, 40))
+        line = next((ln for ln in frame.splitlines() if "backend" in ln), "")
+        check("stalled+walled: the last cell is the human marker, not the wall",
+              "ran out of attempts" in line and "⏳" not in line, line)
+    finally:
+        con.close()
+
+
+def test_a_walled_wake_with_no_reset_reads_unknown(home: Path) -> None:
+    """A snapshot with no `reset_5h` still reports a wall - the account read
+    95% either way - it just cannot say when that clears. The account column
+    is never set here either, so this doubles as the assumed-account wording:
+    nothing recorded or reported means agent.yaml's preference, named as a
+    guess rather than as the fact the sentence used to imply."""
+    _daemon_home(home, 20)
+    con = db.connect()
+    try:
+        db.set_closed(con, "backend", "sess-wall")
+        db.add_request(con, "reviewer", "backend", "look at this", None,
+                       "peer", "async", None, 0, None)
+        write_status(home, "alpha", pct_5h=95, pct_7d=10, ctx_pct=5)
+        row = db.get_agent_state(con, "backend")
+        reason = launch.wake_wait_reason("backend", row, con)
+        check("walled: no reset_5h in the snapshot reads as unknown, not a crash",
+              reason == "waiting for assumed account alpha's 5h window "
+                        "(95%, rolls over unknown)", reason)
+    finally:
+        con.close()
+
+
+def test_a_moved_walled_wake_names_the_new_account(home: Path) -> None:
+    """The one branch where `choose_account` can name an account other than
+    the agent's own: no `resume_session` means this is the move's wake, not a
+    resume, so it is free to land wherever there is room, not tied to the
+    account its last session lived under. Before this, only the resuming
+    branch (where the account it checks is always the agent's own) was ever
+    exercised.
+    """
+    _daemon_home(home, 20)
+    con = db.connect()
+    real_login = accounts.logged_in
+    try:
+        db.set_account(con, "backend", "alpha")
+        db.set_closed(con, "backend", None)   # no resume id: the move's wake
+        db.add_request(con, "reviewer", "backend", "look at this", None,
+                       "peer", "async", None, 0, None)
+        write_status(home, "alpha", pct_5h=95, pct_7d=10, ctx_pct=5,
+                     reset_5h=int(time.time()) + 1800)
+        write_status(home, "beta", pct_5h=20, pct_7d=10, ctx_pct=5,
+                     reset_5h=int(time.time()) + 1800)
+        accounts.logged_in = lambda a: True  # noqa: E731 - keychain is not the subject
+        row = db.get_agent_state(con, "backend")
+        check("moved: this row has no resume id - the move's wake",
+              row["resume_session"] is None, dict(row))
+        check("moved: current_account is still the old one - nothing has "
+              "started under the new one yet",
+              agents.current_account("backend", con) == "alpha", row)
+        check("moved: but the wait is checked against the account it would "
+              "actually land on, which has room",
+              launch.choose_account("backend", resuming=False, con=con) == "beta")
+        check("moved: so it is not walled, even though the agent's own "
+              "account is",
+              launch.wake_wait("backend", row, con) is None)
+    finally:
+        accounts.logged_in = real_login
+        con.close()
+
+
+def test_a_walled_wake_names_the_account_only_with_room(home: Path) -> None:
+    """The bridge's column is narrow enough that naming a different account
+    can cost the clock its columns. The clock is the one thing this cell
+    exists to show - the acct column already says where the agent itself
+    sits - so at a realistic terminal width the cell drops the account and
+    keeps the clock; at a wide enough one there is room for both.
+    """
+    _daemon_home(home, 20)
+    con = db.connect()
+    real_would_wake, real_wake_wait = dmn.would_wake, launch.wake_wait
+    try:
+        db.set_closed(con, "backend", "sess-x")
+        reset_at = int(time.time()) + 1800
+        when = time.strftime("%H:%M", time.localtime(reset_at))
+        dmn.would_wake = lambda con, row: True
+        launch.wake_wait = lambda name, row, con: launch.WakeWait("beta", 95, reset_at)
+        narrow = tui._ANSI.sub("", tui.frame(80, 40))
+        wide = tui._ANSI.sub("", tui.frame(100, 40))
+        nline = next(ln for ln in narrow.splitlines() if "backend" in ln)
+        wline = next(ln for ln in wide.splitlines() if "backend" in ln)
+        check("walled: a narrow bridge keeps the clock and drops the account",
+              when in nline and "beta" not in nline, nline)
+        check("walled: a wider bridge has room for both",
+              when in wline and "beta" in wline, wline)
+    finally:
+        dmn.would_wake, launch.wake_wait = real_would_wake, real_wake_wait
+        con.close()
+
+
 def test_a_park_that_cannot_be_woken_keeps_its_deadline(home: Path) -> None:
     """The deadline is the only thing that makes a parked agent due again, and
     supervise cleared it before knowing whether the wake worked. A closed park
@@ -3996,6 +4259,425 @@ def test_a_park_that_cannot_be_woken_keeps_its_deadline(home: Path) -> None:
               row["state"] == dmn.RUNNING, str(dict(row)))
     finally:
         orcamod.available, orcamod.alive, orcamod.send = real
+        con.close()
+
+
+def _park_via_handoff(con, agent: str, kind: str, hoff_state: str = "done") -> None:
+    """Fabricate a completed handoff the way `_perform_handoff` leaves one,
+    with `trigger_kind` on the record - the only place a park's cause is
+    named, since nothing on `agent_state` itself says why."""
+    hid = f"hoff-{kind}"
+    db.start_handoff(con, hid, agent, None, kind, 0, int(time.time()) + 90)
+    db.advance_handoff(con, hid, "released", state=hoff_state)
+
+
+def test_a_usage_park_is_woken_when_the_reading_clears(home: Path) -> None:
+    """Parking is a level trigger - a usage reading over the line - and
+    un-parking was only an edge: an open session slept to `wake_at` even
+    after that same reading, evaluated the same way, would no longer fire.
+    """
+    _daemon_home(home, 20)
+    con = db.connect()
+    real = (orcamod.available, orcamod.alive)
+    try:
+        orcamod.available = lambda: True
+        orcamod.alive = lambda h: True
+        db.set_terminal(con, "backend", "term_x", "wt")
+        db.set_account(con, "backend", "alpha")
+        _park_via_handoff(con, "backend", "usage")
+        db.set_agent_state(con, "backend", dmn.PARKED,
+                           wake_at=int(time.time()) + 3600, detail="usage; wakes at 23:00")
+        write_status(home, "alpha", pct_5h=5, pct_7d=10, ctx_pct=5,
+                     reset_5h=int(time.time()) + 1800)
+
+        dmn.supervise(con, "backend", lambda _m: None, int(time.time()), {}, False, [])
+        row = db.get_agent_state(con, "backend")
+        check("park: an open session wakes the moment the reading clears, "
+              "not at the deadline it was given",
+              row["state"] == dmn.QUEUED and row["wake_at"] is None, str(dict(row)))
+    finally:
+        orcamod.available, orcamod.alive = real
+        con.close()
+
+
+def test_a_usage_park_does_not_oscillate_in_the_reserve_band(home: Path) -> None:
+    """`assignable()`'s 90% used to be the un-park question - a looser line
+    than the trigger's own 85% - so a reading in the band between them
+    flapped every tick: QUEUED, parked again by the very next trigger
+    evaluation, paying for a fold each round. Symmetric on the same
+    `evaluate()`, the same reading can never call for both in the same tick,
+    at any number of ticks - the band was the reserve keeping a handoff
+    affordable, not spare capacity to wake into.
+    """
+    _daemon_home(home, 20)
+    con = db.connect()
+    real = (orcamod.available, orcamod.alive, orcamod.idle_now, orcamod.clear_context,
+            dmn.session_present)
+    try:
+        orcamod.available = lambda: True
+        orcamod.alive = lambda h: True
+        # A re-fold, if the flap caused one, must be able to run to its end.
+        orcamod.idle_now = lambda h, **kw: True
+        orcamod.clear_context = lambda h, **kw: (True, "cleared")
+        dmn.session_present = lambda a: True
+        db.set_terminal(con, "backend", "term_x", "wt")
+        db.set_account(con, "backend", "alpha")
+        _park_via_handoff(con, "backend", "usage")
+        # Past MIN_HANDOFF_INTERVAL_S, so that guard cannot be what keeps a
+        # re-fold from happening in the ticks below.
+        con.execute("UPDATE handoff SET updated = ? WHERE agent = 'backend'",
+                    (int(time.time()) - 2 * dmn.MIN_HANDOFF_INTERVAL_S,))
+        db.set_agent_state(con, "backend", dmn.PARKED,
+                           wake_at=int(time.time()) + 3600, detail="usage; wakes at 23:00")
+        db.add_request(con, "reviewer", "backend", "look at this", None,
+                       "peer", "async", None, 0, None)
+        # Over the trigger's own line (85%) but under the account's hard
+        # block (90%) - assignable, the old question, but not cleared.
+        write_status(home, "alpha", pct_5h=87, pct_7d=10, ctx_pct=5,
+                     reset_5h=int(time.time()) + 1800)
+        before = db.get_agent_state(con, "backend")
+        continuations_before = int(before["continuations"])
+
+        for _ in range(5):
+            dmn.supervise(con, "backend", lambda _m: None, int(time.time()), {}, False, [])
+            row = db.get_agent_state(con, "backend")
+            check("park: still parked - the reading is still over the line",
+                  row["state"] == dmn.PARKED, str(dict(row)))
+        # The damage an oscillation actually does is folds, not the label
+        # a screen shows for a tick - a state that flapped back to PARKED
+        # every time would still look fine here if this only checked state.
+        check("park: no fold was ever paid for across the flap",
+              int(row["continuations"]) == continuations_before,
+              dict(before=continuations_before, after=row["continuations"]))
+    finally:
+        (orcamod.available, orcamod.alive, orcamod.idle_now, orcamod.clear_context,
+         dmn.session_present) = real
+        con.close()
+
+
+def test_a_weekly_park_stays_parked_while_the_week_is_full(home: Path) -> None:
+    """A weekly park is un-parked on the weekly reading too: 5h at 10% with 7d at 98%
+    is still the condition that parked it. `assignable()`'s 90% used to be the un-park question - a looser line
+    than the trigger's own 85% - so a reading in the band between them
+    flapped every tick: QUEUED, parked again by the very next trigger
+    evaluation, paying for a fold each round. Symmetric on the same
+    `evaluate()`, the same reading can never call for both in the same tick,
+    at any number of ticks - the band was the reserve keeping a handoff
+    affordable, not spare capacity to wake into.
+    """
+    _daemon_home(home, 20)
+    con = db.connect()
+    real = (orcamod.available, orcamod.alive, orcamod.idle_now, orcamod.clear_context,
+            dmn.session_present)
+    try:
+        orcamod.available = lambda: True
+        orcamod.alive = lambda h: True
+        # A re-fold, if the flap caused one, must be able to run to its end.
+        orcamod.idle_now = lambda h, **kw: True
+        orcamod.clear_context = lambda h, **kw: (True, "cleared")
+        dmn.session_present = lambda a: True
+        db.set_terminal(con, "backend", "term_x", "wt")
+        db.set_account(con, "backend", "alpha")
+        _park_via_handoff(con, "backend", "usage_7d")
+        # Past MIN_HANDOFF_INTERVAL_S, so that guard cannot be what keeps a
+        # re-fold from happening in the ticks below.
+        con.execute("UPDATE handoff SET updated = ? WHERE agent = 'backend'",
+                    (int(time.time()) - 2 * dmn.MIN_HANDOFF_INTERVAL_S,))
+        db.set_agent_state(con, "backend", dmn.PARKED,
+                           wake_at=int(time.time()) + 3600, detail="usage; wakes at 23:00")
+        db.add_request(con, "reviewer", "backend", "look at this", None,
+                       "peer", "async", None, 0, None)
+        # Over the trigger's own line (85%) but under the account's hard
+        # block (90%) - assignable, the old question, but not cleared.
+        write_status(home, "alpha", pct_5h=10, pct_7d=98, ctx_pct=5,
+                     reset_5h=int(time.time()) + 1800, reset_7d=int(time.time()) + 86400)
+        before = db.get_agent_state(con, "backend")
+        continuations_before = int(before["continuations"])
+
+        for _ in range(5):
+            dmn.supervise(con, "backend", lambda _m: None, int(time.time()), {}, False, [])
+            row = db.get_agent_state(con, "backend")
+            check("park: still parked - the reading is still over the line",
+                  row["state"] == dmn.PARKED, str(dict(row)))
+        # The damage an oscillation actually does is folds, not the label
+        # a screen shows for a tick - a state that flapped back to PARKED
+        # every time would still look fine here if this only checked state.
+        check("park: no fold was ever paid for across the flap",
+              int(row["continuations"]) == continuations_before,
+              dict(before=continuations_before, after=row["continuations"]))
+    finally:
+        (orcamod.available, orcamod.alive, orcamod.idle_now, orcamod.clear_context,
+         dmn.session_present) = real
+        con.close()
+
+
+def test_a_degraded_park_does_not_auto_clear(home: Path) -> None:
+    """DEGRADED is not a usage park. `DEGRADED_RETRY_S` is the only thing
+    that re-hands a failed handoff's own retry, and clearing it early on a
+    usage reading alone - which is not what parked this agent - would drop
+    that deadline instead.
+    """
+    _daemon_home(home, 20)
+    con = db.connect()
+    real = (orcamod.available, orcamod.alive)
+    try:
+        orcamod.available = lambda: True
+        orcamod.alive = lambda h: True
+        db.set_terminal(con, "backend", "term_x", "wt")
+        db.set_account(con, "backend", "alpha")
+        _park_via_handoff(con, "backend", "usage", hoff_state="degraded")
+        db.set_agent_state(con, "backend", dmn.DEGRADED,
+                           wake_at=int(time.time()) + 3600, detail="handoff timed out")
+        write_status(home, "alpha", pct_5h=5, pct_7d=10, ctx_pct=5,
+                     reset_5h=int(time.time()) + 1800)
+
+        dmn.supervise(con, "backend", lambda _m: None, int(time.time()), {}, False, [])
+        row = db.get_agent_state(con, "backend")
+        check("park: DEGRADED is not scoped in - it keeps its own deadline",
+              row["state"] == dmn.DEGRADED and row["wake_at"] is not None, str(dict(row)))
+    finally:
+        orcamod.available, orcamod.alive = real
+        con.close()
+
+
+def test_a_context_park_does_not_auto_clear_on_a_usage_reading(home: Path) -> None:
+    """A context park is not a usage park either, even though PARKED alone
+    does not say so - only the handoff that caused it does. A clear usage
+    reading is not the condition that parked this agent, so it stays parked
+    on its own deadline, the same as any other cause this scope excludes.
+    """
+    _daemon_home(home, 20)
+    con = db.connect()
+    real = (orcamod.available, orcamod.alive)
+    try:
+        orcamod.available = lambda: True
+        orcamod.alive = lambda h: True
+        db.set_terminal(con, "backend", "term_x", "wt")
+        db.set_account(con, "backend", "alpha")
+        _park_via_handoff(con, "backend", "context")
+        db.set_agent_state(con, "backend", dmn.PARKED,
+                           wake_at=int(time.time()) + 3600, detail="context; wakes at 23:00")
+        write_status(home, "alpha", pct_5h=5, pct_7d=10, ctx_pct=5,
+                     reset_5h=int(time.time()) + 1800)
+
+        dmn.supervise(con, "backend", lambda _m: None, int(time.time()), {}, False, [])
+        row = db.get_agent_state(con, "backend")
+        check("park: a context park is not a usage park - it keeps its own deadline",
+              row["state"] == dmn.PARKED and row["wake_at"] is not None, str(dict(row)))
+    finally:
+        orcamod.available, orcamod.alive = real
+        con.close()
+
+
+def test_an_assumed_account_does_not_auto_clear_a_park(home: Path) -> None:
+    """Case A: the db account column is null - `current_account` fell back
+    to agent.yaml's preference rather than reporting a fact - and the
+    reading that preference points at looks clear. That is the exact
+    divergence that parked keeper for 'usage' against the wrong account's
+    reading on 2026-09-18 while its real account sat at 3%; un-parking on
+    that same assumption would wake it into whatever its real, unknown
+    account is actually doing. It stays parked - no better, no worse than
+    before this fix - until something records which account it is on.
+    """
+    _daemon_home(home, 20)
+    con = db.connect()
+    real = (orcamod.available, orcamod.alive)
+    try:
+        orcamod.available = lambda: True
+        orcamod.alive = lambda h: True
+        db.set_terminal(con, "backend", "term_x", "wt")
+        # No db.set_account: the column stays null, exactly as it does from
+        # `started_for_work` until the launched process records itself.
+        _park_via_handoff(con, "backend", "usage")
+        db.set_agent_state(con, "backend", dmn.PARKED,
+                           wake_at=int(time.time()) + 3600, detail="usage; wakes at 23:00")
+        write_status(home, "alpha", pct_5h=5, pct_7d=10, ctx_pct=5,
+                     reset_5h=int(time.time()) + 1800)
+
+        row = db.get_agent_state(con, "backend")
+        check("park: the account column really is null here",
+              row["account"] is None, dict(row))
+
+        dmn.supervise(con, "backend", lambda _m: None, int(time.time()), {}, False, [])
+        row = db.get_agent_state(con, "backend")
+        check("park: an assumed account never un-parks",
+              row["state"] == dmn.PARKED and row["wake_at"] is not None, str(dict(row)))
+    finally:
+        orcamod.available, orcamod.alive = real
+        con.close()
+
+
+def test_a_resumed_handoff_also_records_its_park(home: Path) -> None:
+    """The event fixed for a fresh park applies just as much to one
+    recovered after a restart - `resume_handoff` writes the same PARKED
+    state through a different path, and it left the same gap.
+    """
+    _daemon_home(home, 20)
+    con = db.connect()
+    try:
+        db.start_handoff(con, "hoff-restart", "backend", None, "usage", 0,
+                         int(time.time()) + 90)
+        row = db.in_flight_for(con, "backend")
+        write_status(home, "alpha", pct_5h=20, pct_7d=10, ctx_pct=5,
+                     reset_5h=int(time.time()) + 1800)
+
+        dmn.resume_handoff(con, row, lambda _m: None, use_model=False)
+        events = db.events_after(con, 0, agent="backend", exclude_kinds=())
+        check("resume: a recovered handoff's park is recorded too",
+              any(e["kind"] == "park" for e in events), [e["kind"] for e in events])
+    finally:
+        con.close()
+
+
+def test_account_reading_prefers_recorded_then_reported_then_assumed(home: Path) -> None:
+    """Three sources, and only the first two are facts. A recorded column
+    wins outright; failing that, a fresh report from the agent's own running
+    session beats a bare config preference - and beats even a recorded
+    column when that column itself only holds an earlier guess, never
+    confirmed. Only when neither exists at all does agent.yaml's preference
+    stand in, and it is never mistaken for either fact.
+    """
+    _daemon_home(home, 20)
+    con = db.connect()
+    try:
+        db.set_account(con, "backend", "alpha")
+        r = agents.account_reading("backend", con)
+        check("account: a recorded column wins outright",
+              r.account == "alpha" and r.source == "recorded", r)
+
+        db.set_account(con, "backend", None)
+        con.execute("UPDATE agent_state SET account = NULL, account_source = NULL "
+                    "WHERE agent = 'backend'")
+        write_agent_status("backend", "beta", pct_5h=10)
+        r = agents.account_reading("backend", con)
+        check("account: null column falls to a fresh report",
+              r.account == "beta" and r.source == "reported", r)
+
+        write_agent_status("backend", "beta", pct_5h=10,
+                           collected_at=int(time.time()) - status.STALE_AFTER_S - 60)
+        r = agents.account_reading("backend", con)
+        check("account: a stale report is not evidence - falls to the config "
+              "preference, marked as a guess",
+              r.account == "alpha" and r.source == "assumed", r)
+
+        db.set_account(con, "backend", "alpha", source="assumed")
+        write_agent_status("backend", "beta", pct_5h=10)
+        r = agents.account_reading("backend", con)
+        check("account: a fresh report outranks a column that only holds a "
+              "guess of its own",
+              r.account == "beta" and r.source == "reported", r)
+    finally:
+        con.close()
+
+
+def test_supervise_reads_the_reported_account_not_an_assumed_preference(home: Path) -> None:
+    """The incident itself: a null recorded column used to mean reading
+    whatever agent.yaml prefers as if it were this agent's own usage. Backend
+    prefers alpha, which is pinned at the wall; its real, running session -
+    visible only through its own fresh report - is on beta, nowhere near it.
+    Before this fix `supervise` read alpha's 100% and parked an agent that
+    was not spending it; now it reads the account the session actually
+    reports and leaves it alone.
+    """
+    _daemon_home(home, 20)
+    con = db.connect()
+    try:
+        write_status(home, "alpha", pct_5h=100, pct_7d=10, ctx_pct=5,
+                     reset_5h=int(time.time()) + 1800)
+        write_status(home, "beta", pct_5h=5, pct_7d=10, ctx_pct=5,
+                     reset_5h=int(time.time()) + 1800)
+        write_agent_status("backend", "beta", pct_5h=5, ctx_pct=5)
+        db.set_terminal(con, "backend", "term_x", "wt")
+        db.set_agent_state(con, "backend", dmn.IDLE)
+
+        dmn.supervise(con, "backend", lambda _m: None, int(time.time()), {}, False, [])
+        row = db.get_agent_state(con, "backend")
+        check("account: a park against the wrong, assumed account no longer happens",
+              row["state"] != dmn.PARKED, dict(row))
+    finally:
+        con.close()
+
+
+def test_a_park_against_an_assumed_account_gets_a_short_recheck(home: Path) -> None:
+    """A park's ceiling is `reset_5h` off whatever account it judged the
+    trigger against - and against an assumed one, that number belongs to
+    agent.yaml's preference, not to any account this agent is shown to be
+    on. It fails closed to a short re-look instead of sleeping the hours
+    that account's own window happens to have left.
+    """
+    _daemon_home(home, 20)
+    con = db.connect()
+    try:
+        # No recorded column, no fresh report: alpha, the config preference,
+        # is the only thing left, and it is hours from rolling over.
+        write_status(home, "alpha", pct_5h=95, pct_7d=10, ctx_pct=5,
+                     reset_5h=int(time.time()) + 4 * 3600)
+        t = triggers.evaluate(95, 10)
+        before = int(time.time())
+        dmn.perform_handoff(con, "backend", t, lambda _m: None, use_model=False)
+        row = db.get_agent_state(con, "backend")
+        check("account: an assumed park gets a short re-look, not alpha's own "
+              "4h-out rollover",
+              row["state"] == dmn.PARKED
+              and row["wake_at"] is not None
+              and row["wake_at"] < before + dmn.ASSUMED_ACCOUNT_RECHECK_S + 5,
+              dict(row))
+    finally:
+        con.close()
+
+
+def test_a_resumed_handoff_also_fails_closed_on_an_assumed_account(home: Path) -> None:
+    """The same ceiling rule, through `resume_handoff`'s own path: a restart
+    recovering an in-flight handoff must not sleep against agent.yaml's
+    preference either.
+    """
+    _daemon_home(home, 20)
+    con = db.connect()
+    try:
+        write_status(home, "alpha", pct_5h=20, pct_7d=10, ctx_pct=5,
+                     reset_5h=int(time.time()) + 4 * 3600)
+        db.start_handoff(con, "hoff-restart2", "backend", None, "usage", 0,
+                         int(time.time()) + 90)
+        row = db.in_flight_for(con, "backend")
+        before = int(time.time())
+        dmn.resume_handoff(con, row, lambda _m: None, use_model=False)
+        fresh = db.get_agent_state(con, "backend")
+        check("account: a resumed handoff's park also gets a short re-look, "
+              "not alpha's own 4h-out rollover",
+              fresh["state"] == dmn.PARKED
+              and fresh["wake_at"] is not None
+              and fresh["wake_at"] < before + dmn.ASSUMED_ACCOUNT_RECHECK_S + 5,
+              dict(fresh))
+    finally:
+        con.close()
+
+
+def test_a_spawned_agent_gets_an_assumed_account_until_launch_confirms_it(home: Path) -> None:
+    """The window between a spawn and that spawn's own launch reporting in
+    is exactly where a null column used to sit undiagnosable. It now carries
+    a guess instead, marked as one - `account_reading` still prefers a fresh
+    report over it the moment there is one, and prefers it over nothing
+    (the previous behaviour) until then.
+    """
+    _daemon_home(home, 20)
+    con = db.connect()
+    real_spawn = spawnmod.spawn
+    try:
+        def fake_spawn(agent, repo, base="main", prompt=None):
+            db.set_terminal(con, agent, "term_new", None)
+            return True, "spawned"
+        spawnmod.spawn = fake_spawn
+        agents.register("marina", "alpha", repo=str(home / "checkout"))
+        db.add_request(con, "reviewer", "marina", "look at this", None,
+                       "peer", "async", None, 0, None)
+
+        dmn._start_for_work(con, "marina", lambda _m: None)
+        row = db.get_agent_state(con, "marina")
+        check("account: a fresh spawn's guess is marked assumed, not left null",
+              row["account"] == "alpha" and row["account_source"] == "assumed",
+              dict(row))
+    finally:
+        spawnmod.spawn = real_spawn
         con.close()
 
 
@@ -5461,6 +6143,9 @@ def test_an_agent_at_the_wall_moves_to_an_account_with_room(home: Path) -> None:
         row = db.get_agent_state(con, "keeper")
         check("move: with no room anywhere it parks and waits, as before",
               row["state"] == dmn.PARKED and row["wake_at"], f"{row['state']} {row['wake_at']}")
+        parked = db.events_after(con, 0, agent="keeper", exclude_kinds=())
+        check("move: the park itself is a recorded event, like close and wake",
+              any(e["kind"] == "park" for e in parked), [e["kind"] for e in parked])
 
         # An account we cannot read is not an account that is full. Moving on
         # `usage_unknown` would send agents off whichever account went dark.
@@ -5508,6 +6193,7 @@ def test_a_pinned_closed_agent_moves_instead_of_waiting_out_its_window(home: Pat
     try:
         db.set_terminal(con, "keeper", "term_x", "wt")
         db.set_closed(con, "keeper", "sess-old")
+        db.set_account(con, "keeper", "alpha")
         write_status(home, "alpha", pct_5h=95, pct_7d=5,
                      reset_5h=int(time.time()) + 1800)
         write_status(home, "beta", pct_5h=10, pct_7d=5,
@@ -5549,6 +6235,7 @@ def test_a_pinned_agent_stays_pinned_when_nothing_else_has_clear_room(home: Path
     try:
         db.set_terminal(con, "keeper", "term_x", "wt")
         db.set_closed(con, "keeper", "sess-old")
+        db.set_account(con, "keeper", "alpha")
         write_status(home, "alpha", pct_5h=95, pct_7d=5,
                      reset_5h=int(time.time()) + 1800)
         write_status(home, "beta", pct_5h=93, pct_7d=5,
@@ -5556,7 +6243,7 @@ def test_a_pinned_agent_stays_pinned_when_nothing_else_has_clear_room(home: Path
         orcamod.available = lambda: True
         ok, why = dmn._wake_agent(con, "keeper", lambda _m: None, use_model=False)
         check("pinning: with nothing better, it still waits for its own window",
-              not ok and "alpha" in why and "5h limit" in why, why)
+              not ok and "alpha" in why and "5h window" in why, why)
         row = db.get_agent_state(con, "keeper")
         check("pinning: resume_session is untouched when nothing rescues it",
               row["resume_session"] == "sess-old", str(dict(row)))
@@ -7962,7 +8649,25 @@ def main() -> int:
         run(lambda: test_an_agent_with_nowhere_to_run_is_not_handed_off(Path(td) / 'noterm'))
         run(lambda: test_nothing_is_typed_into_a_shell_with_no_session(Path(td) / 'shellgate'))
         run(lambda: test_a_wake_is_believed_only_when_a_session_appears(Path(td) / 'wakereceipt'))
+        run(lambda: test_a_walled_wake_says_so_everywhere(Path(td) / 'walled'))
+        run(lambda: test_a_walled_wake_is_not_shown_with_nothing_waiting(Path(td) / 'walledquiet'))
+        run(lambda: test_a_stalled_closed_agent_keeps_its_marker_when_walled(Path(td) / 'walledstalled'))
+        run(lambda: test_a_walled_wake_with_no_reset_reads_unknown(Path(td) / 'walledunknown'))
+        run(lambda: test_a_moved_walled_wake_names_the_new_account(Path(td) / 'walledmoved'))
+        run(lambda: test_a_walled_wake_names_the_account_only_with_room(Path(td) / 'walledroom'))
         run(lambda: test_a_park_that_cannot_be_woken_keeps_its_deadline(Path(td) / 'parkdue'))
+        run(lambda: test_a_usage_park_is_woken_when_the_reading_clears(Path(td) / 'parklevel1'))
+        run(lambda: test_a_usage_park_does_not_oscillate_in_the_reserve_band(Path(td) / 'parklevel2'))
+        run(lambda: test_a_weekly_park_stays_parked_while_the_week_is_full(Path(td) / 'weekpark'))
+        run(lambda: test_a_degraded_park_does_not_auto_clear(Path(td) / 'parklevel3'))
+        run(lambda: test_a_context_park_does_not_auto_clear_on_a_usage_reading(Path(td) / 'parklevel4'))
+        run(lambda: test_an_assumed_account_does_not_auto_clear_a_park(Path(td) / 'parklevel5'))
+        run(lambda: test_a_resumed_handoff_also_records_its_park(Path(td) / 'parklevel6'))
+        run(lambda: test_account_reading_prefers_recorded_then_reported_then_assumed(Path(td) / 'acctread'))
+        run(lambda: test_supervise_reads_the_reported_account_not_an_assumed_preference(Path(td) / 'acctsupervise'))
+        run(lambda: test_a_park_against_an_assumed_account_gets_a_short_recheck(Path(td) / 'acctrecheck'))
+        run(lambda: test_a_resumed_handoff_also_fails_closed_on_an_assumed_account(Path(td) / 'acctrecheck2'))
+        run(lambda: test_a_spawned_agent_gets_an_assumed_account_until_launch_confirms_it(Path(td) / 'acctspawn'))
         run(lambda: test_top_shows_what_is_waiting_on_the_human(Path(td) / 'foryou'))
         run(lambda: test_the_screen_reads_keys_from_the_terminal_not_from_a_buffer())
         run(lambda: test_top_acts_through_the_same_calls_the_daemon_makes(Path(td) / 'topact'))

@@ -5,6 +5,7 @@ name, the Orca task label and the folder name are all the same string.
 """
 from __future__ import annotations
 
+from dataclasses import dataclass
 from pathlib import Path
 
 from . import paths
@@ -93,13 +94,15 @@ def register(name: str, account: str, role: str = "", model: str | None = None,
 
 
 def current_account(name: str, con=None) -> str:
-    """The account this agent's session is actually on.
+    """The account a resume of this agent's session must run under.
 
     `account_of` is the preference in agent.yaml; this is where the session
-    went. They differ whenever the preferred account had no room at the moment
-    the session was made, and everything that asks "whose usage is this
-    spending" has to mean this one - a screen reading the preference would
-    watch an account the agent is not on.
+    actually went, when that is recorded - and a session id belongs to one
+    account's config directory, so a resume has no other answer to give
+    regardless of what the running account might otherwise turn out to be.
+    Falls back to the preference when nothing is recorded, the same silent
+    substitution `account_reading` exists to stop happening anywhere that is
+    asking about usage rather than about where `--resume` must point.
     """
     from . import db
     if con is not None:
@@ -111,6 +114,49 @@ def current_account(name: str, con=None) -> str:
         return (row["account"] if row else None) or account_of(name)
     finally:
         own.close()
+
+
+@dataclass
+class AccountReading:
+    account: str
+    # "recorded" - `ocp launch` confirmed it; "reported" - the agent's own
+    # fresh snapshot named it, better evidence than a merely assumed value;
+    # "assumed" - a guess (agent.yaml's preference, or one written before a
+    # launch had a chance to confirm it), never a destination, never a fact.
+    source: str
+
+
+def account_reading(name: str, con=None) -> AccountReading:
+    """Which account this agent's usage is actually landing on right now,
+    and how sure of it we are - for reading, never for choosing where a
+    launch or a resume goes (`choose_account`, `current_account` do that).
+
+    Three sources, tried in order: the db column when it is itself recorded
+    rather than merely assumed there; failing that, the agent's own status
+    snapshot, which reports where its running session actually is - fresher
+    evidence than a column nothing has confirmed yet, and unavailable in
+    exactly the way `reported_account` already refuses a stale or absent one
+    (a closed agent's snapshot among them, stale by construction); failing
+    that, whatever the column already holds if something is there at all;
+    failing that, agent.yaml's preference. Only the first counts as fact.
+    """
+    from . import db, status
+    if con is not None:
+        row = db.get_agent_state(con, name)
+    else:
+        own = db.connect()
+        try:
+            row = db.get_agent_state(own, name)
+        finally:
+            own.close()
+    if row and row["account"] and row["account_source"] != "assumed":
+        return AccountReading(row["account"], "recorded")
+    reported = status.reported_account(name)
+    if reported:
+        return AccountReading(reported, "reported")
+    if row and row["account"]:
+        return AccountReading(row["account"], "assumed")
+    return AccountReading(account_of(name), "assumed")
 
 
 def repo_of(name: str) -> str | None:
