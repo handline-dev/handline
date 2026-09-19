@@ -7862,6 +7862,42 @@ def test_replaying_0919_makes_fewer_moves_than_the_old_rules(home: Path) -> None
           f"{waiting_min} agent-minutes waiting at a wall; moves at minute offsets {starts}")
 
 
+def test_a_wait_returns_when_the_answer_lands_not_when_it_gives_up(home: Path) -> None:
+    """`--wait` turns "a row changed" into "a command finished", which is the
+    only one of the two that anything can be told about."""
+    import threading
+    from ocp import cli
+    _daemon_home(home, 20)
+    agents.register("reviewer", "alpha")
+    ok, _, rid = askmod.ask("reviewer", "audit branch keeper", requester=actions.HUMAN)
+    check("wait: the order is sent", ok)
+
+    parser = cli.build_parser()
+    args = parser.parse_args(["read", str(rid), "--wait", "--timeout", "6"])
+    threading.Timer(1.0, lambda: askmod.resolve(rid, "MERGE.")).start()
+    started = time.time()
+    rc = cli.cmd_read(args)
+    took = time.time() - started
+    check("wait: read --wait returns as soon as the verdict is written",
+          rc == 0 and took < 5, f"rc={rc} took={took:.1f}s")
+
+    ok, _, rid2 = askmod.ask("reviewer", "second order", requester=actions.HUMAN)
+    check("wait: a second order is sent", ok)
+    check("wait: an unanswered row times out and says so, rather than printing a half row",
+          cli.cmd_read(parser.parse_args(
+              ["read", str(rid2), "--wait", "--timeout", "1"])) == 1)
+
+    check("wait: --wait sits next to the positional instead of swallowing it",
+          parser.parse_args(["inbox", "reviewer", "--wait"]).agent == "reviewer")
+    con = db.connect()
+    try:
+        seen = cli._waiting_ids(con, "reviewer")
+    finally:
+        con.close()
+    check("wait: what is already on the list is not what a wait is waiting for",
+          rid2 in seen and rid not in seen, str(seen))
+
+
 def test_an_answer_to_the_human_is_in_the_human_mailbox(home: Path) -> None:
     """The reply loop was open at the human's end.
 
@@ -9781,7 +9817,7 @@ def test_a_refusal_is_not_read_back_as_an_answer(home: Path) -> None:
 
     buf = io.StringIO()
     with contextlib.redirect_stdout(buf):
-        climod.cmd_read(type("A", (), {"id": rid})())
+        climod.cmd_read(climod.build_parser().parse_args(["read", str(rid)]))
     out = buf.getvalue()
     check("read: a refused request does not name an answerer",
           "answered by b" not in out, out)
@@ -10355,6 +10391,7 @@ def main() -> int:
         run(lambda: test_move_requires_clear_headroom_not_bare_assignability(
             Path(td) / 'moveheadroom'))
         run(lambda: test_move_to_room_reaches_a_bootstrap_account(Path(td) / 'movebootstrap'))
+        run(lambda: test_a_wait_returns_when_the_answer_lands_not_when_it_gives_up(Path(td) / 'waitrow'))
         run(lambda: test_an_answer_to_the_human_is_in_the_human_mailbox(Path(td) / 'mailbox'))
         run(lambda: test_the_team_is_drawn_the_way_it_is_routed(Path(td) / 'tree'))
         run(lambda: test_the_panel_and_the_daemon_agree_about_what_is_in_the_way(Path(td) / 'topagree'))

@@ -77,11 +77,16 @@ CARRY_MAX_AGE_S = STALE_AFTER_S
 # How a figure's provenance is drawn, in one place: four screens used to spell
 # this out separately, and one of them was left behind.
 SOURCE_MARK = {"live": " ", "carried": "~", "carried_old": "!", "quiet": "*", "unknown": " "}
+# Not one of the five cases: a figure nothing may act on as a measurement, but
+# the last thing anyone saw on an account that has since gone quiet. A column
+# drawn empty there says "we know nothing", and 96% is not nothing.
+IDLE_MARK = "?"
 SOURCE_LEGEND = ("* inferred: nothing spent in this window · ~ carried: an earlier "
-                 "reading · ! carried past its bound, no new work")
+                 "reading · ! carried past its bound, no new work · ? last seen "
+                 "before the account went quiet, window still open")
 # For a header that has to survive an 80-column terminal, where the long form
 # truncates mid-word and loses ~ and ! entirely.
-SOURCE_LEGEND_SHORT = "* inferred · ~ carried · ! too old"
+SOURCE_LEGEND_SHORT = "* inferred · ~ carried · ! too old · ? last seen"
 
 
 def mark(src: str) -> str:
@@ -403,6 +408,22 @@ class AccountStatus:
             return False, (f"{text} when last seen - too close to "
                            f"{PCT_5H_BLOCK}% to start on a stale reading")
         return True, f"{text} - stale but idle"
+
+    def shown_pct_5h(self) -> tuple[int | None, str]:
+        """What a 5h column draws: the figure and its mark.
+
+        The trusted figure where there is one. Otherwise the floor an idle
+        account was last seen at, marked `?` - nothing may act on it as a
+        measurement, and a reader still needs to see whether the account they
+        cannot assign was last at 1% or at 96%.
+        """
+        if self.trusted_pct_5h is not None:
+            return self.trusted_pct_5h, mark(self.pct_5h_source)
+        if (self.exists and not self.error and not self.rl_lost and self.stale
+                and self.pct_5h is not None and self.pct_5h_readable
+                and self.reset_5h and self.reset_5h > time.time()):
+            return self.pct_5h, IDLE_MARK
+        return None, " "
 
     def headroom(self) -> int | None:
         """Remaining 5h headroom in percent, or None when unknown."""
