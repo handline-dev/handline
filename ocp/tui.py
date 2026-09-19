@@ -877,6 +877,28 @@ def move(keys: list, current, delta: int):
     return keys[i] if 0 <= i < len(keys) else None
 
 
+def settle(sel: dict, known: dict) -> None:
+    """Keep every panel's cursor on a row that exists.
+
+    A row leaves a list under the cursor - dismissed, answered, a report closing
+    on open - and a cursor keyed on it is then on nothing, drawn as nowhere.
+    It goes to the row that took the place, or to the one above when the last
+    row went, and is dropped only when the list is empty. `known` is each
+    panel's keys as of the last call, which is what says where the row was.
+    """
+    for panel in PANELS:
+        keys = _keys_of(panel)
+        cur = sel.get(panel)
+        if cur is not None and cur not in keys:
+            was = known.get(panel, [])
+            at = was.index(cur) if cur in was else 0
+            if keys:
+                sel[panel] = keys[min(at, len(keys) - 1)]
+            else:
+                del sel[panel]
+        known[panel] = keys
+
+
 def step(panel: int, sel: dict, delta: int) -> int:
     """One row down or up, crossing into the next panel at the end of one.
 
@@ -1026,11 +1048,13 @@ def run(interval: float = 2.0, once: bool = False) -> int:
     saved = termios.tcgetattr(fd) if sys.stdin.isatty() else None
     panel, sel, flash, detail = AGENTS, {}, "", None
     _enter(panel, sel)
+    known: dict = {}
     try:
         if saved:
             tty.setcbreak(fd)
         sys.stdout.write(ALT_ON + CUR_OFF)
         while True:
+            settle(sel, known)
             size = shutil.get_terminal_size((100, 40))
             width, height = size.columns, size.lines
             sys.stdout.write(HOME + frame(width, height, sel, panel, flash, detail))
@@ -1352,6 +1376,16 @@ def _remove_account(name: str, width: int, height: int, fd, saved) -> str:
 
 def _act(panel: int, sel: dict, key: str, width: int, height: int,
          fd, saved) -> tuple[str, list[str] | None]:
+    """One keypress on the selected row, leaving the cursor on a row that exists."""
+    before = {panel: _keys_of(panel)}
+    try:
+        return _act_on(panel, sel, key, width, height, fd, saved)
+    finally:
+        settle(sel, before)
+
+
+def _act_on(panel: int, sel: dict, key: str, width: int, height: int,
+            fd, saved) -> tuple[str, list[str] | None]:
     """One keypress on the selected row. Returns (line to show, detail or None)."""
     keys = _keys_of(panel)
     target = sel.get(panel)

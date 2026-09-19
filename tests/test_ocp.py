@@ -6485,6 +6485,65 @@ def test_a_proposal_and_an_escalation_wait_on_the_founder_too(home: Path) -> Non
         con.close()
 
 
+def test_the_cursor_follows_a_row_that_leaves_the_list(home: Path) -> None:
+    """A dismissed, answered or self-closing row leaves the cursor on nothing.
+    It goes to the row that took the place, or to the one above when the last
+    went, and vanishes only when the list is empty."""
+    _daemon_home(home, 20)
+    con = db.connect()
+    try:
+        ids = [db.add_request(con, "backend", actions.HUMAN, f"note {i}", None,
+                              "peer", "fire_and_forget", None, 0, None) for i in range(4)]
+        sel, known = {tui.MESSAGES: ids[1]}, {}
+        tui.settle(sel, known)
+        check("cursor: a row that exists keeps it", sel[tui.MESSAGES] == ids[1], str(sel))
+
+        actions.dismiss(con, ids[1])
+        tui.settle(sel, known)
+        check("cursor: dismissing the middle row moves it to the row that took its place",
+              sel[tui.MESSAGES] == ids[2], str(sel))
+
+        sel[tui.MESSAGES] = ids[3]
+        tui.settle(sel, known)
+        actions.dismiss(con, ids[3])
+        tui.settle(sel, known)
+        check("cursor: dismissing the last row moves it to the one above",
+              sel[tui.MESSAGES] == ids[2], str(sel))
+
+        actions.answer(con, ids[2], "ok")
+        tui.settle(sel, known)
+        check("cursor: answering the row under it moves it on too",
+              sel[tui.MESSAGES] == ids[0], str(sel))
+
+        actions.dismiss(con, ids[0])
+        tui.settle(sel, known)
+        check("cursor: it vanishes only when the list is empty", tui.MESSAGES not in sel,
+              str(sel))
+
+        # Through the key itself, which is what the screen calls.
+        ids = [db.add_request(con, "backend", actions.HUMAN, f"key {i}", None,
+                              "peer", "fire_and_forget", None, 0, None) for i in range(3)]
+        sel = {tui.MESSAGES: ids[1]}
+        tui._act(tui.MESSAGES, sel, "x", 100, 30, None, None)
+        check("cursor: x dismisses the middle row and the cursor takes the next",
+              sel.get(tui.MESSAGES) == ids[2], str(sel))
+        tui._act(tui.MESSAGES, sel, "x", 100, 30, None, None)
+        check("cursor: and dismissing the last leaves it on the one above",
+              sel.get(tui.MESSAGES) == ids[0], str(sel))
+
+        # A report closing itself on open.
+        ok, _m, f1 = askmod.ask(actions.HUMAN, "r1", requester="backend", fyi=True)
+        ok, _m, f2 = askmod.ask(actions.HUMAN, "r2", requester="frontend", fyi=True)
+        sel = {tui.MESSAGES: f1}
+        tui.settle(sel, known)
+        actions.opened_by_human(con, f1)
+        tui.settle(sel, known)
+        check("cursor: a report closing on open hands it to the next",
+              sel[tui.MESSAGES] == f2, str(sel))
+    finally:
+        con.close()
+
+
 def test_a_report_to_the_founder_is_not_a_wait(home: Path) -> None:
     """Red means the founder must act. `--fyi` is a report: listed, not red, not
     counted, closed once opened or when the sender's next report lands - and a
@@ -8929,6 +8988,7 @@ def main() -> int:
         run(lambda: test_work_arriving_wakes_a_closed_agent(Path(td) / 'wakework'))
         run(lambda: test_a_running_agent_is_told_when_work_arrives(Path(td) / 'deliver'))
         run(lambda: test_a_report_to_the_founder_is_not_a_wait(Path(td) / 'fyi'))
+        run(lambda: test_the_cursor_follows_a_row_that_leaves_the_list(Path(td) / 'cursor'))
         run(lambda: test_carry_bounds_and_losses(Path(td) / 'carry'))
         run(lambda: test_unobserved_spend_stays_off_unreadable_accounts(Path(td) / 'spend'))
         run(lambda: test_subscription_type_is_recorded_and_cached(Path(td) / 'subtype'))
