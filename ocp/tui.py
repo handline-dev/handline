@@ -438,8 +438,7 @@ def build(width: int, sel: dict | None = None,
             # Show the figure decisions are made on, with a mark saying where
             # it came from. Drawing a quiet window as "?" while the daemon acts
             # on 0% is the dashboard and the daemon disagreeing.
-            five = st.trusted_pct_5h
-            src = status.mark(st.pct_5h_source)
+            five, src = st.shown_pct_5h()
             # Every cell is padded on its visible width: the bars carry escape
             # sequences, so a plain :<n counts them and the columns drift out
             # from under their own headings.
