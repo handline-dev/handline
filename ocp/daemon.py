@@ -1976,8 +1976,26 @@ def supervise(con, agent: str, log, now: int, samples: dict,
 _last_rollover_day = {"day": ""}
 
 
+def _start_probe(con, acct: str, why: str, log, actions: list[str]) -> bool:
+    try:
+        subprocess.Popen([sys.executable, str(paths.repo_root() / "bin" / "ocp"),
+                          "account", "probe", acct],
+                         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                         start_new_session=True)
+    except OSError as e:
+        # No cooldown on a probe that never ran: what it guards is the
+        # quota a probe spends, and this one spent nothing.
+        log(f"  probe {acct}: could not start - {e}")
+        return False
+    db.set_cursor(con, f"probe:{acct}", int(time.time()))
+    actions.append(f"probe {acct}: {why}")
+    log(f"  probe {acct}: {why}")
+    return True
+
+
 def probe_stale_accounts(con, log, actions: list[str]) -> None:
-    """Find out whether an account whose 5h window has passed is free again.
+    """Read an account nothing has read, and find out whether one whose 5h
+    window has passed is free again.
 
     An account only writes a reading while a session runs on it, so one that
     nobody is using cannot say that its window rolled over - and agents wait
@@ -1985,12 +2003,20 @@ def probe_stale_accounts(con, log, actions: list[str]) -> None:
     reading is a floor it keeps (`AccountStatus.assignable`); after it,
     nothing does but asking.
 
-    Only when nowhere already has room for a waiting agent: a probe spends a
+    The second only when nowhere already has room for a waiting agent: a probe spends a
     little of the very quota it is asking about, and a team with somewhere to
     go needs no answer. The probe runs detached, because it takes a session's
     startup to answer and a tick may not stop for that. What it leaves behind
     is a fresh snapshot, which the next tick reads like any other.
     """
+    # A new account gets its first reading whoever is waiting: it is what makes
+    # it rankable at all, and it is asked once (`probe.unread`).
+    for acct in paths.list_accounts():
+        if accounts.logged_in(acct) and \
+                probe.unread(status.read(acct), db.get_cursor(con, f"probe:{acct}") or None):
+            if _start_probe(con, acct, "no reading yet, asking where it stands",
+                            log, actions):
+                return  # one at a time; the next tick takes the next account
     waiting = [r["agent"] for r in db.all_agent_states(con)
                if r["state"] in (PARKED, THROTTLED, DEGRADED) and not r["closed_at"]]
     if not waiting:
@@ -2005,20 +2031,9 @@ def probe_stale_accounts(con, log, actions: list[str]) -> None:
         if not accounts.logged_in(acct) or \
                 not probe.due(st, db.get_cursor(con, f"probe:{acct}") or None):
             continue
-        try:
-            subprocess.Popen([sys.executable, str(paths.repo_root() / "bin" / "ocp"),
-                              "account", "probe", acct],
-                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-                             start_new_session=True)
-        except OSError as e:
-            # No cooldown on a probe that never ran: what it guards is the
-            # quota a probe spends, and this one spent nothing.
-            log(f"  probe {acct}: could not start - {e}")
-            continue
-        db.set_cursor(con, f"probe:{acct}", int(time.time()))
-        actions.append(f"probe {acct}: its 5h window has passed, asking where it stands")
-        log(f"  probe {acct}: its 5h window has passed, asking where it stands")
-        return  # one at a time; the next tick takes the next account
+        if _start_probe(con, acct, "its 5h window has passed, asking where it stands",
+                        log, actions):
+            return  # one at a time; the next tick takes the next account
 
 
 def tick(con, log, samples: dict | None = None) -> Tick:
