@@ -1071,15 +1071,41 @@ def _move_to_room(con, agent: str, trigger: triggers.Trigger, log) -> bool:
     # Judged on the line the trigger fired at, not on the hard stop. The fold
     # happens a reserve short of the wall so there is room to pay for it, and
     # an account the daemon has just decided is too full to work on is too full
-    # to move to as well.
-    there = launch.choose_account(agent, limit=triggers.HARD_STOP_PCT - triggers.DEFAULT_RESERVE_PCT)
+    # to move to as well. `choose_account` is the same function the launch this
+    # move ends in will call again on its own - see its own comment for why a
+    # stale reading of `preferred` no longer sends this straight back to an
+    # account it only just left (request #241).
+    there = launch.choose_account(
+        agent, limit=triggers.HARD_STOP_PCT - triggers.DEFAULT_RESERVE_PCT,
+        limit_7d=triggers.PCT_7D_HARD_STOP - triggers.DEFAULT_RESERVE_7D_PCT)
     if there == here:
         log(f"  {agent}: staying on {here} - nowhere with more room")
         return False
-    allowed, why = status.read(there).assignable()
+    there_st = status.read(there)
+    allowed, why = there_st.assignable()
     if not allowed:
         log(f"  {agent}: staying on {here} - {there} takes no work either ({why})")
         return False
+    # Bare assignability is not enough for a move (request #241 decision a): a
+    # destination only a point or two under the wall re-triggers within one
+    # turn, so the agent pays for two folds instead of one. Headroom reads as
+    # unknown on a stale snapshot too, and a stale reading is not room either.
+    headroom = there_st.headroom()
+    if headroom is None or headroom < status.MOVE_MIN_HEADROOM_PCT:
+        shown = "unknown" if headroom is None else f"{headroom}%"
+        log(f"  {agent}: staying on {here} - {there} only has {shown} 5h headroom "
+            f"(needs >= {status.MOVE_MIN_HEADROOM_PCT}%)")
+        return False
+    # Same margin, the weekly figure (request #254): a destination that is
+    # itself only a point or two under its own 7d wall is the same bounce as
+    # (a), just in the other window - unknown passes, same as everywhere else
+    # a missing 7d reading is not treated as a refusal.
+    headroom7 = there_st.headroom_7d()
+    if headroom7 is not None and headroom7 < status.MOVE_MIN_HEADROOM_PCT:
+        log(f"  {agent}: staying on {here} - {there} only has {headroom7}% weekly "
+            f"headroom (needs >= {status.MOVE_MIN_HEADROOM_PCT}%)")
+        return False
+    picked_why = f"5h {there_st.trusted_pct_5h}%, 7d {there_st.trusted_pct_7d}%"
     handle = db.get_terminal(con, agent)
     if not handle or not orca.available() or not orca.alive(handle):
         return False
@@ -1118,7 +1144,7 @@ def _move_to_room(con, agent: str, trigger: triggers.Trigger, log) -> bool:
                        detail=f"moved {here} -> {there} ({trigger.kind})")
     db.add_event(con, agent, "moved_account", {"from": here, "to": there,
                                                "trigger": trigger.kind})
-    log(f"  {agent}: moved {here} -> {there} ({trigger.kind})"
+    log(f"  {agent}: moved {here} -> {there} ({trigger.kind}) - {picked_why}"
         + ("" if woke else f" - but it was not handed its handoff: {why[:80]}"))
     return True
 
@@ -1371,7 +1397,8 @@ def supervise(con, agent: str, log, now: int, samples: dict,
     # as 0 - the trigger would simply never fire again after the collector
     # died. An account whose window is merely quiet reads as 0, not as
     # unknown, so an idle agent is left alone instead of handed off.
-    t = triggers.evaluate(st.trusted_pct_5h, st.trusted_ctx_pct, burn=burn)
+    t = triggers.evaluate(st.trusted_pct_5h, st.trusted_ctx_pct, burn=burn,
+                          pct_7d=st.trusted_pct_7d)
     if t.fired:
         ok = perform_handoff(con, agent, t, log, use_model=use_model)
         actions.append(f"{agent}: handoff ({t.kind}){'' if ok else ' -> degraded'}")

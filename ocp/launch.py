@@ -19,6 +19,7 @@ from __future__ import annotations
 import os
 import shutil
 import sys
+import time
 
 from . import accounts, agents, paths, status, triggers
 
@@ -30,7 +31,8 @@ from . import accounts, agents, paths, status, triggers
 START_LIMIT = triggers.HARD_STOP_PCT - triggers.DEFAULT_RESERVE_PCT
 
 
-def choose_account(agent: str, resuming: bool = False, limit: int | None = None) -> str:
+def choose_account(agent: str, resuming: bool = False, limit: int | None = None,
+                   limit_7d: int | None = None) -> str:
     """Which account this launch runs on.
 
     agent.yaml names a preference, not a destination. The moment a session is
@@ -47,22 +49,39 @@ def choose_account(agent: str, resuming: bool = False, limit: int | None = None)
     if resuming:
         return agents.current_account(agent)
     preferred = agents.account_of(agent)
-    # Only a reading that says "full" moves an agent. A missing or stale
-    # snapshot is not a full tank and it is not an empty one either - it is the
-    # account nobody has run on yet, and the session we are about to start is
-    # the only thing that writes one. Treating unknown as full would send every
+    # Only a reading that says "full" moves an agent. A missing snapshot is
+    # not a full tank and it is not an empty one either - it is the account
+    # nobody has run on yet, and the session we are about to start is the
+    # only thing that writes one. Treating unknown as full would send every
     # agent on a fresh install to whichever account happened to have a
     # snapshot, and leave the preferred mapping meaning nothing.
     st = status.read(preferred)
+    line = limit if limit is not None else START_LIMIT
+    line7 = limit_7d if limit_7d is not None else status.PCT_7D_BLOCK
     pct = st.trusted_pct_5h
-    full = (pct is not None and pct >= (limit if limit is not None else START_LIMIT)) or \
-           (st.pct_7d is not None and st.pct_7d >= status.PCT_7D_BLOCK)
+    full = (pct is not None and pct >= line) or \
+           (st.pct_7d is not None and st.pct_7d >= line7)
+    # A *stale* snapshot is different from a missing one (request #241): it is
+    # not silence, it is the last thing this account ever reported, and usage
+    # only rises inside one window. Once the agent that was spending it stops
+    # (moved off, or simply idle), nothing refreshes the file, and it reads as
+    # unknown within minutes - which used to read as "not full" and send the
+    # very next move straight back to an account that had not actually
+    # recovered, only gone quiet. The raw figure is still a floor until the
+    # window it describes has actually rolled over.
+    if not full and st.pct_5h is not None and st.pct_5h >= line and not (
+            st.reset_5h and st.reset_5h <= int(time.time())):
+        full = True
     if not full:
         return preferred
-    # Among the accounts a human has actually logged in. `assignable` is about
-    # usage and says nothing about credentials, so without this an agent moves
-    # onto an account that cannot start anything and the launch dies there.
-    candidates = [a for a in paths.list_accounts() if accounts.logged_in(a)]
+    # Among the accounts a human has actually logged in, excluding `preferred`
+    # itself: it is full by the caller's own line (a reserve short of the true
+    # block, on a move), but `pick_account`'s ranking only knows the true
+    # block - a `preferred` that just crossed the reserve is still bare
+    # assignable, and would otherwise sort right back to the top on deadline
+    # alone (request #241/#254: the account that triggered this is not a
+    # candidate for where it goes next).
+    candidates = [a for a in paths.list_accounts() if accounts.logged_in(a) and a != preferred]
     picked, _reasons = status.pick_account(candidates)
     # Nothing assignable is not a reason to pick something at random: `build`
     # refuses below on a current reading at the wall, and that refusal names

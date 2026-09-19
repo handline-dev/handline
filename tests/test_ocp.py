@@ -202,8 +202,12 @@ def test_failclosed(home: Path) -> None:
     check("5h at 90% refuses", not allowed)
 
     write_status(home, "weekly", pct_5h=5, pct_7d=95)
-    allowed, _ = status.read("weekly").assignable()
-    check("7d at 95% refuses", not allowed)
+    allowed, why = status.read("weekly").assignable()
+    check("7d at 95% no longer refuses - request #254 spends it to its own "
+          "wall instead of holding back", allowed, why)
+    write_status(home, "weekly_full", pct_5h=5, pct_7d=100)
+    allowed, _ = status.read("weekly_full").assignable()
+    check("7d at 100% refuses", not allowed)
 
     write_status(home, "stale", pct_5h=5, collected_at=int(time.time()) - 5000)
     allowed, why = status.read("stale").assignable()
@@ -239,15 +243,15 @@ def test_failclosed(home: Path) -> None:
 
 
 def test_pick_account_orders_by_weekly_deadline(home: Path) -> None:
-    """Request #166/#167, amended by #169/#170: spend first the weekly
+    """Request #166/#167, amended by #169/#170/#254: spend first the weekly
     headroom that expires soonest unused - not simply the account with the
-    most 5h room right now."""
+    most 5h room right now, and right up to its own wall rather than holding
+    back at a lower line (the margin/tier rule #254 dropped)."""
     os.environ["OCP_HOME"] = str(home)
     now = int(time.time())
 
     # "later" has more 5h headroom than "soon" - the old rule would pick it -
-    # but "soon" loses its weekly window first, and both are well inside the
-    # preferred margin.
+    # but "soon" loses its weekly window first.
     write_status(home, "soon", pct_5h=50, pct_7d=10, reset_7d=now + 3600)
     write_status(home, "later", pct_5h=5, pct_7d=10, reset_7d=now + 90000)
     picked, reasons = status.pick_account(["soon", "later"])
@@ -256,34 +260,27 @@ def test_pick_account_orders_by_weekly_deadline(home: Path) -> None:
     said = dict(reasons)
     check("pick_account: the winner's reason says it was picked",
           "picked" in said["soon"], said["soon"])
-    check("pick_account: the reason names the tier", "preferred" in said["soon"],
-          said["soon"])
 
-    # "close_to_wall" resets sooner than "safe", but it is past the margin
-    # request #167 named (PCT_7D_BLOCK - PCT_7D_PREFER_MARGIN = 90): one fresh
-    # session could cross the hard block partway through a task. It is used
-    # only once nothing preferred qualifies.
+    # "close_to_wall" resets sooner than "safe" and is near its own 7d wall -
+    # under the old margin rule it would have been deprioritized behind
+    # "safe"; #254 drops that, so the sooner deadline still wins.
     write_status(home, "close_to_wall", pct_5h=5, pct_7d=92, reset_7d=now + 3600)
     write_status(home, "safe", pct_5h=5, pct_7d=50, reset_7d=now + 90000)
-    picked, reasons = status.pick_account(["close_to_wall", "safe"])
-    check("pick_account: a preferred account beats a sooner deadline over the margin",
-          picked == "safe", str(picked))
-    said = dict(reasons)
-    check("pick_account: the deprioritized one says so",
-          "over" in said["close_to_wall"] and "picked" not in said["close_to_wall"],
-          said["close_to_wall"])
+    picked, _ = status.pick_account(["close_to_wall", "safe"])
+    check("pick_account: the soonest deadline wins right up to its own wall, "
+          "not just within a margin of it",
+          picked == "close_to_wall", str(picked))
 
-    # Nothing preferred qualifies at all - the fallback tier still orders by
-    # deadline among itself, rather than refusing everything.
+    # Even both near their own walls, the sooner deadline still wins - there
+    # is no second tier to fall back into any more.
     write_status(home, "wall_a", pct_5h=5, pct_7d=91, reset_7d=now + 1000)
     write_status(home, "wall_b", pct_5h=5, pct_7d=93, reset_7d=now + 50)
     picked, _ = status.pick_account(["wall_a", "wall_b"])
-    check("pick_account: with nothing preferred, the fallback tier orders by deadline too",
+    check("pick_account: orders by deadline even when both are near the wall",
           picked == "wall_b", str(picked))
 
-    # An account whose 7d window has never been observed is not excluded from
-    # the preferred tier by a figure it does not have, and an unknown deadline
-    # sorts behind a known one rather than jumping the queue.
+    # An account whose 7d window has never been observed sorts behind a known,
+    # sooner deadline rather than jumping the queue.
     write_status(home, "never_seen_7d", pct_5h=5, pct_7d=None)
     picked, _ = status.pick_account(["never_seen_7d", "soon"])
     check("pick_account: a known, sooner deadline beats an unknown one",
@@ -892,6 +889,21 @@ def test_triggers() -> None:
           abs(T.burn_rate_per_s([(0, 60), (300, 75)]) * 60 - 3.0) < 0.01)
     check("burn: and a real climb near the line still fires",
           T.evaluate(83, 10, burn=0.05).kind == "usage_projected")
+
+    # Request #254: the weekly window gets a move trigger of its own, a
+    # reserve short of its own true ceiling - the founder's own example
+    # (5h 9%, 7d 98%) is exactly where this fires.
+    t = T.evaluate(9, 10, pct_7d=98)
+    check("trigger: a 7d reading a reserve short of its wall fires",
+          t.fired and t.kind == "usage" and "pct_7d" in t.reason, t.reason)
+    check("trigger: 7d below its reserve line does not fire on its own",
+          not T.evaluate(9, 10, pct_7d=97).fired)
+    check("trigger: 7d at its hard stop fires",
+          T.evaluate(9, 10, pct_7d=100).kind == "usage")
+    check("trigger: no 7d reading at all is not a 7d refusal",
+          not T.evaluate(9, 10, pct_7d=None).fired)
+    check("trigger: a 5h reason still wins when both are past their line",
+          "pct_5h" in T.evaluate(90, 10, pct_7d=99).reason)
 
 
 # ---------------------------------------------------------------- daemon
@@ -2474,7 +2486,7 @@ def test_carry_bounds_and_losses(home: Path) -> None:
     #    the absence of one, and a 7d mistake costs the rest of the week.
     collect({"session_id": "w", "rate_limits": {
         "five_hour": {"used_percentage": 5, "resets_at": now + 1800},
-        "seven_day": {"used_percentage": 96}}})
+        "seven_day": {"used_percentage": 100}}})
     check("carry: a blocking 7d refuses", not read().assignable()[0], read().assignable()[1])
     collect(idle)
     st = read()
@@ -4772,6 +4784,61 @@ def test_an_agent_can_put_another_one_to_work(home: Path) -> None:
         con.close()
 
 
+def test_weekly_headroom_is_spent_to_its_own_wall(home: Path) -> None:
+    """Founder's decision #254, the example given verbatim: an account at
+    5h 9% / 7d 98% is unusable under the old PCT_7D_BLOCK=95 gate, throwing
+    away headroom the week resets anyway - it must still be picked, and an
+    agent working on it moves only once 7d actually reaches its own wall."""
+    _daemon_home(home, 20)
+    accounts.register("beta")
+    agents.register("keeper", "alpha")
+    for acct in ("alpha", "beta"):
+        (home / "accounts" / acct / ".claude").mkdir(parents=True, exist_ok=True)
+        (home / "accounts" / acct / ".claude" / ".credentials.json").write_text("{}")
+
+    # alpha's weekly headroom expires soon and is still spendable; beta's is
+    # safer but resets much later. alpha wins on deadline, not despite being
+    # close to its own 7d wall.
+    write_status(home, "alpha", pct_5h=9, pct_7d=98,
+                 reset_7d=int(time.time()) + 3600, reset_5h=int(time.time()) + 1800)
+    write_status(home, "beta", pct_5h=9, pct_7d=10,
+                 reset_7d=int(time.time()) + 90000, reset_5h=int(time.time()) + 1800)
+    picked, reasons = status.pick_account(["alpha", "beta"])
+    check("7d wall: the soon-to-reset account is still picked at 7d 98%",
+          picked == "alpha", str((picked, reasons)))
+
+    con = db.connect()
+    try:
+        db.set_terminal(con, "keeper", "term_x", "wt")
+        sessions_are("keeper")
+        db.set_account(con, "keeper", "alpha")
+
+        t = triggers.evaluate(9, 10, pct_7d=98)
+        check("7d wall: 5h 9% / 7d 98% fires a move trigger on the 7d figure",
+              t.fired and t.kind == "usage" and "pct_7d" in t.reason, t.reason)
+
+        real = (orcamod.available, orcamod.alive, orcamod.close_session,
+               orcamod.relaunch, orcamod.idle_now, dmn.wait_for_session)
+        try:
+            orcamod.available = lambda: True
+            orcamod.alive = lambda h: True
+            orcamod.idle_now = lambda h: True
+            orcamod.close_session = lambda h, **kw: (True, "session ended")
+            orcamod.relaunch = lambda h, cmd, **kw: (True, "relaunched")
+            dmn.wait_for_session = lambda agent, timeout=0: True
+            foldmod.handoff_path("keeper").write_text("# handoff · keeper\n## 다음\n- carry on\n")
+            check("7d wall: the agent moves off an account that hit its 7d wall",
+                  dmn._move_to_room(con, "keeper", t, lambda _m: None))
+            check("7d wall: it landed on the account with weekly room",
+                  agents.current_account("keeper", con) == "beta",
+                  agents.current_account("keeper", con))
+        finally:
+            (orcamod.available, orcamod.alive, orcamod.close_session,
+             orcamod.relaunch, orcamod.idle_now, dmn.wait_for_session) = real
+    finally:
+        con.close()
+
+
 def test_an_agent_at_the_wall_moves_to_an_account_with_room(home: Path) -> None:
     """agent.yaml names a preference, not a destination.
 
@@ -4937,6 +5004,116 @@ def test_an_agent_at_the_wall_moves_to_an_account_with_room(home: Path) -> None:
         (orcamod.available, orcamod.alive, orcamod.close_session, orcamod.relaunch,
          orcamod.clear_context, orcamod.resume_with, orcamod.idle_now,
          dmn.wait_for_session) = real
+        con.close()
+
+
+def test_choose_account_does_not_bounce_back_to_a_stale_preferred_account(home: Path) -> None:
+    """Founder's priority #241: harbor-manager moved alpha -> gamma at 85%,
+    then gamma -> alpha 12 minutes later - back to the account it had just
+    left, whose 5h window (5 hours) plainly had not reset. `choose_account`'s
+    preferred-account check read a stale snapshot as "not full", because a
+    reading that stops refreshing the moment nobody is spending on it any
+    more is silence, not room - the raw figure is still a floor until the
+    window it describes has actually rolled over."""
+    _daemon_home(home, 20)
+    accounts.register("beta")
+    agents.register("keeper", "alpha")
+    for acct in ("alpha", "beta"):
+        (home / "accounts" / acct / ".claude").mkdir(parents=True, exist_ok=True)
+        (home / "accounts" / acct / ".claude" / ".credentials.json").write_text("{}")
+    write_status(home, "beta", pct_5h=10, pct_7d=5,
+                 reset_5h=int(time.time()) + 1800)
+
+    # alpha was last seen at 88% - over the move line - and nothing has run
+    # on it since, so its snapshot is now stale. Its window is still open.
+    write_status(home, "alpha", pct_5h=88, pct_7d=5,
+                 reset_5h=int(time.time()) + 1800,
+                 collected_at=int(time.time()) - 1000)
+    check("choose_account: a stale-but-still-full preferred account is not "
+          "read as room",
+          launch.choose_account("keeper") == "beta", launch.choose_account("keeper"))
+
+    # Its window has genuinely rolled over since the reading was taken - the
+    # figure is stale, but it no longer describes the window that is open
+    # now, so it is not a floor on anything.
+    write_status(home, "alpha", pct_5h=88, pct_7d=5,
+                 reset_5h=int(time.time()) - 60,
+                 collected_at=int(time.time()) - 1000)
+    check("choose_account: once its own window has actually reset, the "
+          "preferred account is trusted again",
+          launch.choose_account("keeper") == "alpha", launch.choose_account("keeper"))
+
+    # A stale account that was never full is not held back by this at all -
+    # only a figure that was itself over the line becomes a floor.
+    write_status(home, "alpha", pct_5h=20, pct_7d=5,
+                 reset_5h=int(time.time()) + 1800,
+                 collected_at=int(time.time()) - 1000)
+    check("choose_account: a stale reading that was never full is unaffected",
+          launch.choose_account("keeper") == "alpha", launch.choose_account("keeper"))
+
+
+def test_move_requires_clear_headroom_not_bare_assignability(home: Path) -> None:
+    """Founder's priority #241, decision (a): a move only goes to an account
+    with room to actually last. A destination only a point or two under the
+    wall is technically assignable but re-triggers within one turn, which is
+    the other half of the same bounce - two folds instead of one."""
+    _daemon_home(home, 20)
+    accounts.register("beta")
+    agents.register("keeper", "alpha")
+    for acct in ("alpha", "beta"):
+        (home / "accounts" / acct / ".claude").mkdir(parents=True, exist_ok=True)
+        (home / "accounts" / acct / ".claude" / ".credentials.json").write_text("{}")
+    con = db.connect()
+    try:
+        db.set_terminal(con, "keeper", "term_x", "wt")
+        sessions_are("keeper")
+        db.set_account(con, "keeper", "alpha")
+        write_status(home, "alpha", pct_5h=87, pct_7d=5,
+                     reset_5h=int(time.time()) + 1800)
+        # beta is assignable (77% < 90%) but only has 13% headroom - under
+        # MOVE_MIN_HEADROOM_PCT, so a move there would re-trigger almost at
+        # once.
+        write_status(home, "beta", pct_5h=77, pct_7d=5,
+                     reset_5h=int(time.time()) + 1800)
+        allowed, _ = status.read("beta").assignable()
+        check("move headroom: the destination is bare-assignable to begin with",
+              allowed)
+        t = triggers.evaluate(87, 10)
+        logged: list[str] = []
+        check("move headroom: a marginal destination is refused, agent stays put",
+              not dmn._move_to_room(con, "keeper", t, logged.append))
+        check("move headroom: the account on record has not changed",
+              agents.current_account("keeper", con) == "alpha",
+              agents.current_account("keeper", con))
+        check("move headroom: the refusal says why, by name and figure (decision d)",
+              any("beta" in m and "headroom" in m for m in logged), str(logged))
+
+        # Clear headroom - the same move now succeeds.
+        write_status(home, "beta", pct_5h=30, pct_7d=5,
+                     reset_5h=int(time.time()) + 1800)
+        real = (orcamod.available, orcamod.alive, orcamod.close_session,
+               orcamod.relaunch, orcamod.idle_now, dmn.wait_for_session)
+        try:
+            orcamod.available = lambda: True
+            orcamod.alive = lambda h: True
+            orcamod.idle_now = lambda h: True
+            orcamod.close_session = lambda h, **kw: (True, "session ended")
+            orcamod.relaunch = lambda h, cmd, **kw: (True, "relaunched")
+            dmn.wait_for_session = lambda agent, timeout=0: True
+            foldmod.handoff_path("keeper").write_text("# handoff · keeper\n## 다음\n- carry on\n")
+            logged.clear()
+            check("move headroom: clear headroom lets the move through",
+                  dmn._move_to_room(con, "keeper", t, logged.append))
+            check("move headroom: it actually landed on beta",
+                  agents.current_account("keeper", con) == "beta",
+                  agents.current_account("keeper", con))
+            check("move headroom: the successful move says why it picked beta "
+                  "(decision d)",
+                  any("moved alpha -> beta" in m and "5h" in m for m in logged), str(logged))
+        finally:
+            (orcamod.available, orcamod.alive, orcamod.close_session,
+             orcamod.relaunch, orcamod.idle_now, dmn.wait_for_session) = real
+    finally:
         con.close()
 
 
@@ -6763,7 +6940,12 @@ def main() -> int:
         run(lambda: test_a_long_name_does_not_run_into_the_column_beside_it(Path(td) / 'cols'))
         run(lambda: test_the_whole_loop_runs_on_our_own_commands(Path(td) / 'loop'))
         run(lambda: test_an_agent_can_put_another_one_to_work(Path(td) / 'dispatch'))
+        run(lambda: test_weekly_headroom_is_spent_to_its_own_wall(Path(td) / 'sevendaywall'))
         run(lambda: test_an_agent_at_the_wall_moves_to_an_account_with_room(Path(td) / 'moveacct'))
+        run(lambda: test_choose_account_does_not_bounce_back_to_a_stale_preferred_account(
+            Path(td) / 'nobounce'))
+        run(lambda: test_move_requires_clear_headroom_not_bare_assignability(
+            Path(td) / 'moveheadroom'))
         run(lambda: test_an_answer_to_the_human_is_in_the_human_mailbox(Path(td) / 'mailbox'))
         run(lambda: test_the_team_is_drawn_the_way_it_is_routed(Path(td) / 'tree'))
         run(lambda: test_the_panel_and_the_daemon_agree_about_what_is_in_the_way(Path(td) / 'topagree'))

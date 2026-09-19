@@ -22,6 +22,16 @@ CONTEXT_PCT = 60
 HARD_STOP_PCT = 90
 DEFAULT_RESERVE_PCT = 5
 
+# The weekly window is spent to its own true ceiling rather than held back
+# (request #254 - status.PCT_7D_BLOCK is the same 100, kept separate here the
+# same way HARD_STOP_PCT duplicates status.PCT_5H_BLOCK, so this module still
+# takes raw figures and never imports status). A move still has to pay for
+# its own fold, so this fires the same reserve short of the wall the 5h check
+# does - just a smaller one, since a week's headroom moves far slower per
+# fold than a 5h window's does.
+PCT_7D_HARD_STOP = 100
+DEFAULT_RESERVE_7D_PCT = 2
+
 HOT_PCT = 80
 POLL_NORMAL_S = 30
 POLL_HOT_S = 5
@@ -83,7 +93,8 @@ def burn_rate_per_s(samples: list[tuple[int, int]]) -> float:
 
 def evaluate(pct_5h: int | None, ctx_pct: int | None, reserve_pct: int = DEFAULT_RESERVE_PCT,
              burn: float = 0.0, poll_s: int | None = None,
-             fold_eta_s: int = FOLD_ETA_S) -> Trigger:
+             fold_eta_s: int = FOLD_ETA_S, pct_7d: int | None = None,
+             reserve_7d_pct: int = DEFAULT_RESERVE_7D_PCT) -> Trigger:
     """Should this agent hand off now?"""
     # Unknown usage is fail-closed (section 4): hand off rather than run blind.
     # Callers pass the figure they may act on, so None here means no snapshot,
@@ -103,6 +114,19 @@ def evaluate(pct_5h: int | None, ctx_pct: int | None, reserve_pct: int = DEFAULT
     if pct_5h >= limit:
         return Trigger(True, "usage", f"pct_5h {pct_5h}% >= {limit}% "
                                       f"(hard stop {HARD_STOP_PCT}% minus reserve {reserve_pct}%)")
+
+    # The weekly figure, on the same terms, just a reserve short of its own
+    # wall rather than a line held well back from it (request #254). Unknown
+    # (None) is not fail-closed here the way pct_5h is - a missing 7d reading
+    # is a missing reading, not a wall this agent has been observed to hit.
+    if pct_7d is not None:
+        limit7 = PCT_7D_HARD_STOP - reserve_7d_pct
+        if pct_7d >= PCT_7D_HARD_STOP:
+            return Trigger(True, "usage", f"pct_7d {pct_7d}% >= hard stop {PCT_7D_HARD_STOP}%")
+        if pct_7d >= limit7:
+            return Trigger(True, "usage", f"pct_7d {pct_7d}% >= {limit7}% "
+                                          f"(hard stop {PCT_7D_HARD_STOP}% minus reserve "
+                                          f"{reserve_7d_pct}%)")
 
     # Project from wherever we are, not only above HOT_PCT. The horizon is the
     # sleep we are actually about to take plus the fold it would have to

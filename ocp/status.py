@@ -89,20 +89,21 @@ def _ago(secs: float) -> str:
     return f"{secs // 86400}d"
 
 
-# Above these, stop handing out new work.
+# Above these, stop handing out new work. Request #254: weekly headroom held
+# back at a lower line is headroom thrown away when the week resets, so 7d is
+# spent to its own true ceiling rather than a reserve below it - the same way
+# the 5h reserve exists (paying for the fold) is handled separately, by
+# triggers.evaluate firing a move before an agent ever reaches this wall.
 PCT_5H_BLOCK = 90
-PCT_7D_BLOCK = 95
+PCT_7D_BLOCK = 100
 
-# The founder's ordering principle (request #166/#167/#170): among accounts
-# that may take work at all, spend first the weekly headroom that expires
-# soonest unused - reset_7d, earliest first. But not all the way to the hard
-# block: under this margin, one fresh session (a fold plus a first turn) can
-# cross PCT_7D_BLOCK partway through a task, and the agent has to move again
-# before the task is done. A move that does not last one task is churn, so an
-# account this close to its own wall is used only when nothing further from
-# it still qualifies.
-PCT_7D_PREFER_MARGIN = 5
-PCT_7D_PREFER_BLOCK = PCT_7D_BLOCK - PCT_7D_PREFER_MARGIN
+# A move only goes to an account with room to actually last (request #241): a
+# destination only a point or two under PCT_5H_BLOCK re-triggers within one
+# turn, so the agent bounces straight back and pays for two folds instead of
+# one. This is how much clear 5h headroom a move destination needs beyond
+# bare assignability - an ordinary launch has no such requirement, since
+# waiting is not an option there.
+MOVE_MIN_HEADROOM_PCT = 15
 
 
 @dataclass
@@ -287,6 +288,13 @@ class AccountStatus:
             return None
         return max(0, PCT_5H_BLOCK - pct)
 
+    def headroom_7d(self) -> int | None:
+        """Remaining weekly headroom in percent, or None when unknown."""
+        week = self.trusted_pct_7d
+        if week is None:
+            return None
+        return max(0, PCT_7D_BLOCK - week)
+
 
 def _as_pct(v):
     """Coerce a usage percentage to an int, rounding UP.
@@ -433,27 +441,13 @@ def deadline_7d(st: "AccountStatus") -> float:
     return float(st.reset_7d) if st.reset_7d else float("inf")
 
 
-def _prefer_now(st: "AccountStatus") -> bool:
-    """Is this account inside the margin the deadline ordering trusts?
-
-    None reads as "prefer": an account whose weekly figure we cannot see at
-    all has not been ruled out of anything, and refusing to prefer it would
-    make a status we have never read behave like one we know is close to its
-    wall.
-    """
-    week = st.trusted_pct_7d
-    return week is None or week <= PCT_7D_PREFER_BLOCK
-
-
 def _pick_reason(st: "AccountStatus", picked: bool) -> str:
     """Why this account sits where it does in the ordering."""
     week = st.trusted_pct_7d
     week_s = "unknown" if week is None else f"{week}%"
     when = "unknown" if not st.reset_7d else _ago(max(0.0, st.reset_7d - time.time()))
-    tier = (f"7d <= {PCT_7D_PREFER_BLOCK}% - preferred" if _prefer_now(st) else
-            f"7d over {PCT_7D_PREFER_BLOCK}% - spent only once nothing preferred qualifies")
-    base = f"5h {st.trusted_pct_5h}%, 7d {week_s} (resets in {when}), {tier}"
-    return base + " <- picked: earliest deadline in its tier" if picked else base
+    base = f"5h {st.trusted_pct_5h}%, 7d {week_s} (resets in {when})"
+    return base + " <- picked: earliest deadline" if picked else base
 
 
 def pick_account(candidates: list[str] | None = None) -> tuple[str | None, list[tuple[str, str]]]:
@@ -462,13 +456,11 @@ def pick_account(candidates: list[str] | None = None) -> tuple[str | None, list[
     Returns (choice, [(account, reason)]). When nothing is assignable the
     choice is None and the caller must refuse - that is the fail-closed path.
 
-    Ordering (request #166, amended by #169 and #170): among accounts that
-    pass the hard gates, prefer the one within PCT_7D_PREFER_BLOCK of its 7d
-    window whose reset_7d comes soonest - spend the headroom that expires
-    unused first. Only once nothing preferred qualifies does an account past
-    that margin get picked at all. Within one tier, or when reset_7d is tied
-    or unknown for everyone in it, 5h headroom breaks the tie exactly as it
-    always did.
+    Ordering (request #166, amended by #169/#170/#254): among accounts that
+    pass the hard gates, prefer the one whose reset_7d comes soonest - spend
+    the headroom that expires unused first, right up to its own wall rather
+    than holding back at a lower line. Within a tie, or when reset_7d is
+    unknown for everyone being compared, 5h headroom breaks it.
     """
     names = candidates if candidates is not None else paths.list_accounts()
     reasons: list[tuple[str, str]] = []
@@ -485,7 +477,7 @@ def pick_account(candidates: list[str] | None = None) -> tuple[str | None, list[
 
     def sort_key(item: tuple[str, AccountStatus]):
         _, st = item
-        return (0 if _prefer_now(st) else 1, deadline_7d(st), -(st.headroom() or 0),
+        return (deadline_7d(st), -(st.headroom() or 0),
                 -_CONFIDENCE.get(st.pct_5h_source, 0))
 
     usable.sort(key=sort_key)
