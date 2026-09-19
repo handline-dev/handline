@@ -7702,8 +7702,8 @@ def test_a_span_of_a_day_or_more_reads_in_days(home: Path) -> None:
     check("span: a runway reads the same way", status.span(6 * 86400 + 23 * 3600) == "6d23h")
     check("span: the bridge's age column reads days too", tui.age(162 * 3600 + 20 * 60) == "6d18h"
           and tui.age(3 * 3600 + 100) == "3h", tui.age(162 * 3600 + 20 * 60))
-    check("span: and so does the stale line's age", status._ago(162 * 3600 + 20 * 60) == "6d18h"
-          and status._ago(3 * 3600) == "3h")
+    check("span: and so does the stale line's age", status.ago(162 * 3600 + 20 * 60) == "6d18h"
+          and status.ago(3 * 3600) == "3h")
     now = int(time.time())
     for ts, want in ((now + 6 * 86400 + 23 * 3600 + 30, "6d23h"), (now + 5 * 3600 + 200, "5h03")):
         cell = tui.countdown(ts)

@@ -195,7 +195,7 @@ def cmd_account_list(args) -> int:
         st = status.read(a)
         allowed, why = _can_start(st, loads.get(a))
         cell = lambda v: "  -" if v is None else f"{v:>3}"  # noqa: E731
-        age = "-" if st.age_s is None else f"{int(st.age_s)}s"
+        age = status.ago(st.age_s)
         resets = "-" if not st.reset_7d else time.strftime("%m-%d %H:%M", time.localtime(st.reset_7d))
         plan = accounts.subscription_type(a) or "-"
         # A figure we inferred is marked, never dressed up as one we read.
@@ -222,7 +222,7 @@ def cmd_account_probe(args) -> int:
     st = probemod.run(args.account)
     ld = load.read_all().get(args.account)
     allowed, why = st.takes_work(ld.active if ld else 0)
-    age = "-" if st.age_s is None else f"{int(st.age_s)}s"
+    age = status.ago(st.age_s)
     print(f"{args.account}: 5h {st.trusted_pct_5h}% ({st.pct_5h_source}), "
           f"7d {st.trusted_pct_7d}%, reading {age} old")
     print(f"takes work: {'yes' if allowed else 'NO'} - {why}")

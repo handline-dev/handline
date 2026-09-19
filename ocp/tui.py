@@ -200,15 +200,7 @@ def countdown(ts: int | None) -> str:
 
 
 def age(secs: float | None) -> str:
-    if secs is None:
-        return "?"
-    if secs < 90:
-        return f"{int(secs)}s"
-    if secs < 5400:
-        return f"{int(secs / 60)}m"
-    if secs < 86400:
-        return f"{int(secs / 3600)}h"
-    return status.span(secs)
+    return status.ago(secs)
 
 
 # Supervisors whose reports are drawn. Closed by default: the screen is for
