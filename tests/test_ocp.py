@@ -8383,7 +8383,8 @@ def test_a_drifted_launch_relaunches_instead_of_waking_in_place(home: Path) -> N
               launched and "--resume sess-old" in launched[0], str(launched))
         check("wake: the fresh session is told it was resumed, cleanly - the "
               "same message a closed agent's ordinary wake sends",
-              sent and "Nothing was lost" in sent[-1], str(sent))
+              launched and "Nothing was lost" in launched_prompt(launched[0]), str(launched))
+        check("wake: nothing is typed at the terminal for it", not sent, str(sent))
         check("wake: the relaunch itself is reported as a success", ok, why)
         row = db.get_agent_state(con, "backend")
         check("wake: the row is no longer marked closed once it is running again",
