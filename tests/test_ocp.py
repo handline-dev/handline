@@ -8758,6 +8758,58 @@ def test_a_move_still_records_a_session_the_wait_missed_but_a_hook_saw(home: Pat
         con.close()
 
 
+def test_stalled_survives_a_hook_that_fires_after_the_third_failed_wake(home: Path) -> None:
+    """STALLED is protected the same way HANDOFF was: two failed wakes from
+    earlier ticks already sit on the counter, this move's own wake is the
+    third, and if its session comes up late - after `_wake_agent` has given up
+    and written STALLED - and its hook fires anyway, `_mark_activity` refuses
+    to move an agent out of a protected state. RUNNING is never reached, so the
+    compare-and-set below is never given the chance to overrule STALLED. Three
+    launches that started nothing is 8.6's human call, not something one more
+    race should quietly clear."""
+    _daemon_home(home, 20)
+    _with_accounts("alpha", "beta")
+    con = db.connect()
+    agents.register("mover", "alpha")
+    write_status(home, "beta", pct_5h=10, pct_7d=10, reset_5h=int(time.time()) + 3600)
+    real = (orcamod.available, orcamod.alive, orcamod.close_session, orcamod.relaunch,
+            orcamod.idle_now, dmn.wait_for_session)
+    try:
+        orcamod.available = lambda: True
+        orcamod.alive = lambda h: True
+        orcamod.idle_now = lambda h: True
+        orcamod.close_session = exit_ends_session("mover")
+        sessions_are("mover")
+        db.set_terminal(con, "mover", "term_x", "wt")
+        db.set_account(con, "mover", "alpha")
+        db.set_agent_state(con, "mover", dmn.PARKED, detail="parked earlier")
+        db.bump_counter(con, "mover", "wake_failures")
+        db.bump_counter(con, "mover", "wake_failures")
+        keep_handoff("mover", "# handoff · mover\n## 다음\n- carry on\n")
+        dmn.wait_for_session = lambda agent, timeout=0: False
+
+        def relaunch_fails_but_late(h, cmd, **kw):
+            # The session comes up late - after `_wake_agent` has already
+            # given up on this, its third, attempt - and its hook fires anyway.
+            _SESSION_TABLE["t"]["mover"] = 4242
+            evmod._mark_activity(con, "mover", "UserPromptSubmit")
+            return False, "no session seen within the timeout"
+        orcamod.relaunch = relaunch_fails_but_late
+
+        t = triggers.evaluate(100, 10)
+        moved = dmn._move_to_room(con, "mover", t, lambda _m: None, dest="beta")
+        check("stalled: the third failure is not recorded as a move", not moved)
+        row = db.get_agent_state(con, "mover")
+        check("stalled: it lands on STALLED, not clobbered by the late hook",
+              row["state"] == dmn.STALLED and row["wake_failures"] == 3, str(dict(row)))
+        check("stalled: the row still says closed - nothing here claims a live session",
+              bool(row["closed_at"]) and row["account"] == "alpha", str(dict(row)))
+    finally:
+        (orcamod.available, orcamod.alive, orcamod.close_session, orcamod.relaunch,
+         orcamod.idle_now, dmn.wait_for_session) = real
+        con.close()
+
+
 def _with_accounts(*names: str) -> None:
     """Registered accounts that count as logged in."""
     for n in names:
@@ -12492,6 +12544,8 @@ def main() -> int:
             Path(td) / 'moveclobber'))
         run(lambda: test_a_move_still_records_a_session_the_wait_missed_but_a_hook_saw(
             Path(td) / 'movemissed'))
+        run(lambda: test_stalled_survives_a_hook_that_fires_after_the_third_failed_wake(
+            Path(td) / 'movestalled'))
         run(lambda: test_a_wait_returns_when_the_answer_lands_not_when_it_gives_up(Path(td) / 'waitrow'))
         run(lambda: test_an_answer_to_the_human_is_in_the_human_mailbox(Path(td) / 'mailbox'))
         run(lambda: test_the_team_is_drawn_the_way_it_is_routed(Path(td) / 'tree'))

@@ -1620,6 +1620,12 @@ def _move_to_room(con, agent: str, trigger: triggers.Trigger, log,
         # the row still says closed, so falling through parks it with a
         # deadline - which is what brings a closed agent back at all.
         # Returning True here would leave it closed with nothing due.
+        # STALLED is one of the ways here: the third failed wake sets it, and
+        # STALLED is protected the same way HANDOFF was - a hook that fires
+        # late cannot turn it into RUNNING, so it never reaches the compare-
+        # and-set below to be overruled. That is right: three launches that
+        # started nothing is a human's call (8.6), not something a race
+        # against one more relaunch attempt should quietly clear.
         measure.forget(con, agent)
         log(f"  {agent}: closed on {here} but could not start on {there}: {why[:120]}")
         return False
