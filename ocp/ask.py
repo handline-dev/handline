@@ -501,9 +501,15 @@ def resolve(rid: int, verdict: str, state: str = "done", notify: bool = True) ->
         # The reply is the wake. QUEUED is the design's state for "ready to be
         # dispatched"; the daemon picks it up from there (section 8.2).
         # Only queue the requester when nothing else it asked for is still
-        # outstanding, and never out of a terminal state.
+        # outstanding, and never out of a terminal state. And not out of a
+        # usage park: an answer is not evidence the window rolled over, and
+        # queueing it would open the session to the very typing the park is
+        # there to prevent.
+        from . import daemon
+
         if row["response"] == "async" and row["requester"] != HUMAN \
-                and not _terminal(con, row["requester"]):
+                and not _terminal(con, row["requester"]) \
+                and not daemon.wall_reason(con, row["requester"]):
             outstanding = con.execute(
                 "SELECT COUNT(*) c FROM requests WHERE requester = ? AND state = 'queued' "
                 "AND response = 'async'", (row["requester"],)).fetchone()["c"]

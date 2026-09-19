@@ -350,6 +350,26 @@ def _reclaim_context(con, agent: str, log) -> tuple[bool, str]:
     return ok, why
 
 
+def wall_reason(con, agent: str, row=None) -> str | None:
+    """Why typing at this agent's open session would only spend quota, or None.
+
+    A turn that ended on the usage limit, or a park that a usage trigger put
+    it in, means the account cannot run one: what is typed starts a turn that
+    fails at once, marks the request delivered, clears the very mark that
+    says the agent is at the wall - and the next ask starts it over, each
+    round counting as a degraded handoff. Checked where the keystrokes are
+    sent, so no caller - `supervise`, `ocp ask`, `ocp resolve` - can skip it.
+    """
+    if events.at_limit(con, agent):
+        return f"{agent} is at its usage limit"
+    row = row if row is not None else db.get_agent_state(con, agent)
+    if row and row["state"] == PARKED and not row["closed_at"]:
+        last = db.last_handoff(con, agent)
+        if last and last["trigger_kind"] in MOVABLE_TRIGGERS:
+            return f"{agent} is parked until its usage window rolls over"
+    return None
+
+
 def deliver_queued(con, agent: str, log) -> bool:
     """Tell an agent about the head of its own queue (`db.head_of_queue`) -
     and only the head, per request #189. `ocp ask` writes a row and puts a
@@ -362,6 +382,8 @@ def deliver_queued(con, agent: str, log) -> bool:
         return False
     if db.get_cursor(con, f"notify:{agent}") == int(head["id"]):
         return False
+    if wall_reason(con, agent):
+        return False              # stays queued; told when it wakes or moves
     handle = db.get_terminal(con, agent)
     if not handle or not orca.available() or not orca.alive(handle):
         return False
@@ -427,6 +449,8 @@ def deliver_answers(con, agent: str, log) -> bool:
     answered = db.unannounced_answers(con, agent)
     if not answered:
         return False
+    if wall_reason(con, agent):
+        return False              # stays unannounced; told when it wakes or moves
     handle = db.get_terminal(con, agent)
     if not handle or not orca.available() or not orca.alive(handle):
         return False

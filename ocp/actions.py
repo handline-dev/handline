@@ -457,6 +457,9 @@ def _delivery_block(con, agent: str, sessions: dict | None,
         return f"{agent} is mid-turn - nothing is typed at a working agent", True
     if row["state"] == daemon.HANDOFF:
         return f"{agent} is mid-handoff", True
+    walled = daemon.wall_reason(con, agent, row)
+    if walled:
+        return f"{walled} - delivered when it wakes or moves", True
     return "", True
 
 

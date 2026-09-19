@@ -6342,6 +6342,88 @@ def test_room_is_filtered_before_the_ranking_not_after(home: Path) -> None:
         con.close()
 
 
+def test_ask_and_resolve_do_not_type_at_an_agent_at_the_wall(home: Path) -> None:
+    """`ocp ask` and `ocp resolve` call the deliver functions directly, not
+    through `supervise`, so the gate has to live in them: typing at an agent
+    whose turn ended on the usage limit, or that a usage trigger parked, starts
+    a turn that fails at once and the whole park cycle over again."""
+    _daemon_home(home, 20)
+    agents.register("product", "alpha")
+    os.environ["OCP_AGENT"], os.environ["OCP_ACCOUNT"] = "backend", "alpha"
+    con = db.connect()
+    sent: list[str] = []
+
+    def hook(event: str, **fields) -> None:
+        real_in = sys.stdin
+        sys.stdin = io.StringIO(json.dumps({"hook_event_name": event, "session_id": "s",
+                                            **fields}))
+        try:
+            evmod.record_from_stdin([event])
+        finally:
+            sys.stdin = real_in
+    real = (orcamod.alive, orcamod.idle_now, orcamod.send, orcamod.available)
+    try:
+        orcamod.available = lambda: True
+        orcamod.live_terminals = lambda: {"term_x", "term_p"}
+        orcamod.alive = lambda h: True
+        orcamod.idle_now = lambda h: True
+        orcamod.send = lambda h, text, enter=True: (sent.append(text), (True, ""))[1]
+        sessions_are("backend", "product")
+        db.set_terminal(con, "backend", "term_x", "wt")
+        db.set_terminal(con, "product", "term_p", "wt")
+        db.set_agent_state(con, "backend", dmn.IDLE)
+        db.set_agent_state(con, "product", dmn.IDLE)
+
+        # ---- a turn that ended on the usage limit
+        hook("StopFailure", error="rate_limit", error_details="You've hit your session limit")
+        actions._WORLD["at"] = 0.0
+        ok, msg, rid = askmod.ask("backend", "please look at this", requester="product")
+        row = db.get_request(con, rid)
+        check("wall: an ask to an agent at its usage limit types nothing", not sent, str(sent))
+        check("wall: it stays queued and undelivered",
+              row["state"] == "queued" and not row["delivered_at"]
+              and db.get_cursor(con, "notify:backend") != rid, str(dict(row)))
+        check("wall: and says why to whoever asked", "usage limit" in msg, msg)
+        check("wall: the daemon's own path is held the same way",
+              not dmn.deliver_queued(con, "backend", lambda _m: None) and not sent)
+        check("wall: the mark that says it is at the wall is still there",
+              evmod.at_limit(con, "backend") is not None)
+
+        hook("UserPromptSubmit")
+        check("wall: once it is running again the queued request is delivered",
+              dmn.deliver_queued(con, "backend", lambda _m: None)
+              and any("please look at this" in t for t in sent), str(sent))
+
+        # ---- an answer to an agent parked on usage
+        sent.clear()
+        hid = "h-usage"
+        db.start_handoff(con, hid, "product", "sess", "usage", 0, int(time.time()) + 60)
+        db.advance_handoff(con, hid, "released", state="done")
+        db.set_agent_state(con, "product", dmn.PARKED, wake_at=int(time.time()) + 3600)
+        ok, said = askmod.resolve(rid, "looked, fine")
+        check("wall: resolving to an agent parked on usage types nothing", not sent, str(sent))
+        check("wall: and the answer does not unpark it - that is the window's to end",
+              db.get_agent_state(con, "product")["state"] == dmn.PARKED,
+              db.get_agent_state(con, "product")["state"])
+        check("wall: the answer stays unannounced",
+              [r["id"] for r in db.unannounced_answers(con, "product")] == [rid])
+        check("wall: the daemon's own path is held the same way",
+              not dmn.deliver_answers(con, "product", lambda _m: None) and not sent)
+
+        # A park for any other reason is an ordinary open session.
+        db.start_handoff(con, "h-ctx", "product", "sess", "context", 0, int(time.time()) + 60)
+        db.advance_handoff(con, "h-ctx", "released", state="done")
+        con.execute("UPDATE handoff SET updated = updated + 5 WHERE id = 'h-ctx'")
+        con.commit()
+        check("wall: a context park is not the wall - the answer is delivered",
+              dmn.deliver_answers(con, "product", lambda _m: None)
+              and any("looked, fine" in t for t in sent), str(sent))
+    finally:
+        orcamod.alive, orcamod.idle_now, orcamod.send, orcamod.available = real
+        os.environ.pop("OCP_AGENT", None); os.environ.pop("OCP_ACCOUNT", None)
+        con.close()
+
+
 def test_a_turn_that_ends_on_the_usage_limit_is_at_the_wall(home: Path) -> None:
     """StopFailure with the limit message on a live agent: shown as stopped, not
     RUNNING, and handed off and moved though nothing reads full and the terminal
@@ -8787,6 +8869,7 @@ def main() -> int:
         run(lambda: test_a_stale_account_whose_window_rolled_over_can_take_work(Path(td) / 'stalebeta'))
         run(lambda: test_room_is_filtered_before_the_ranking_not_after(Path(td) / 'roomfirst'))
         run(lambda: test_a_turn_that_ends_on_the_usage_limit_is_at_the_wall(Path(td) / 'limitstop'))
+        run(lambda: test_ask_and_resolve_do_not_type_at_an_agent_at_the_wall(Path(td) / 'askwall'))
         run(lambda: test_choose_account_does_not_bounce_back_to_a_stale_preferred_account(
             Path(td) / 'nobounce'))
         run(lambda: test_move_requires_clear_headroom_not_bare_assignability(
