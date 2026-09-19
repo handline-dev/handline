@@ -6940,6 +6940,144 @@ def test_a_move_is_not_recorded_while_the_process_is_still_on_the_old_account(
         con.close()
 
 
+def test_a_forced_move_goes_through_the_verified_move_or_not_at_all(home: Path) -> None:
+    """A person names the destination; it still has to be one the pick would
+    send an agent to, the session ends only if it does, and a move that did not
+    land leaves the agent live where it was with its preference put back."""
+    _daemon_home(home, 20)
+    accounts.register("beta")
+    accounts.register("gamma")
+    agents.register("keeper", "alpha")
+    for acct in ("alpha", "beta", "gamma"):
+        (home / "accounts" / acct / ".claude").mkdir(parents=True, exist_ok=True)
+        (home / "accounts" / acct / ".claude" / ".credentials.json").write_text("{}")
+    now = int(time.time())
+    write_status(home, "alpha", pct_5h=9, pct_7d=10, reset_7d=now + 90000, reset_5h=now + 1800)
+    write_status(home, "beta", pct_5h=9, pct_7d=10, reset_7d=now + 90000, reset_5h=now + 1800)
+    write_status(home, "gamma", pct_5h=100, pct_7d=10, reset_7d=now + 90000, reset_5h=now + 1800)
+    con = db.connect()
+    real = (orcamod.available, orcamod.alive, orcamod.close_session, orcamod.relaunch,
+            orcamod.idle_now, orcamod.typeable_now, dmn.wait_for_session, obsmod.env_of,
+            accounts.logged_in)
+    try:
+        db.set_terminal(con, "keeper", "term_x", "wt")
+        table = sessions_are("keeper")
+        db.set_account(con, "keeper", "alpha")
+        orcamod.available = lambda: True
+        orcamod.alive = lambda h: True
+        orcamod.idle_now = lambda h: True
+        orcamod.typeable_now = lambda h: True
+        orcamod.close_session = exit_ends_session("keeper")
+        orcamod.relaunch = lambda h, cmd, **kw: (table.__setitem__("keeper", 4200), (True, "ok"))[1]
+        dmn.wait_for_session = lambda agent, timeout=0: True
+        accounts.logged_in = lambda a: True
+        keep_handoff("keeper", "# handoff · keeper\n## 다음\n- carry on\n")
+        log: list[str] = []
+
+        check("forced: a live session is offered the move", actions.can(con, "keeper", "move")[0])
+        check("forced: an agent with no terminal is not",
+              not actions.can(con, "ghost", "move")[0])
+        ok, msg = dmn.force_move(con, "keeper", "gamma", "test", log.append)
+        check("forced: an account with no room is refused before anything ends",
+              not ok and "keeper" in table and agents.account_of("keeper") == "alpha", msg)
+        ok, msg = dmn.force_move(con, "keeper", "alpha", "test", log.append)
+        check("forced: the account it is already on is refused", not ok and "already" in msg, msg)
+
+        # The process that comes up is still on alpha: not a move, and nothing
+        # is parked or cleared - the session is live.
+        # The move stops before it ends anything: the handoff it took must not
+        # stay on a session that never ended.
+        db.set_handoff(con, "keeper", None)
+        real_record = dmn.handoffmod.record
+        dmn.handoffmod.record = lambda c, a: (db.set_handoff(c, a, "# handoff · keeper\n"), [])[1]
+        orcamod.alive = lambda h: h != "term_x"
+        try:
+            ok, msg = dmn.force_move(con, "keeper", "beta", "test", log.append)
+        finally:
+            dmn.handoffmod.record = real_record
+            orcamod.alive = lambda h: True
+        check("forced: a move that stops before ending anything is not a move", not ok, msg)
+        check("forced: and the handoff it took is not left on a session that never ended",
+              db.get_handoff(con, "keeper") is None, str(db.get_handoff(con, "keeper")))
+        # A record already on the row stays exactly as it was.
+        db.set_handoff(con, "keeper", "# handoff · keeper\n- an earlier record\n")
+        dmn.handoffmod.record = lambda c, a: (db.set_handoff(c, a, "# handoff · keeper\n- new\n"), [])[1]
+        orcamod.alive = lambda h: h != "term_x"
+        try:
+            dmn.force_move(con, "keeper", "beta", "test", log.append)
+        finally:
+            dmn.handoffmod.record = real_record
+            orcamod.alive = lambda h: True
+        check("forced: a record that was already there is put back, not replaced",
+              db.get_handoff(con, "keeper") == "# handoff · keeper\n- an earlier record\n",
+              str(db.get_handoff(con, "keeper")))
+        db.set_agent_state(con, "keeper", dmn.IDLE)
+        keep_handoff("keeper", "# handoff · keeper\n## 다음\n- carry on\n")
+
+        _process_on("alpha")
+        ok, msg = dmn.force_move(con, "keeper", "beta", "test", log.append)
+        row = db.get_agent_state(con, "keeper")
+        check("forced: a process that stays on the old account is not a move", not ok, msg)
+        check("forced: and its preference is put back",
+              agents.account_of("keeper") == "alpha")
+        check("forced: and it is left live, not parked",
+              row["state"] == dmn.IDLE and row["account"] == "alpha", str(dict(row)))
+
+        con.execute("UPDATE agent_state SET closed_at = NULL WHERE agent = 'keeper'")
+        table["keeper"] = 4200
+        db.set_agent_state(con, "keeper", dmn.IDLE)
+        keep_handoff("keeper", "# handoff · keeper\n## 다음\n- carry on\n")
+        _process_on("beta")
+        ok, msg = dmn.force_move(con, "keeper", "beta", "the founder", log.append)
+        check("forced: onto an account with room, with the process there, it moves", ok, msg)
+        check("forced: the record and the preference name it",
+              db.get_agent_state(con, "keeper")["account"] == "beta"
+              and agents.account_of("keeper") == "beta")
+        check("forced: who ordered it is on the record",
+              any(e["kind"] == "forced_move" and "the founder" in str(e["payload"])
+                  for e in db.events_after(con, 0, agent="keeper")))
+
+        # The session ends and the launch on the new account fails: it is not a
+        # wall, so the agent comes back on the next look, not at a 5h reset.
+        table["keeper"] = 4200
+        db.set_agent_state(con, "keeper", dmn.IDLE)
+        keep_handoff("keeper", "# handoff · keeper\n## 다음\n- carry on\n")
+        orcamod.relaunch = lambda h, cmd, **kw: (False, "refused")
+        ok, msg = dmn.force_move(con, "keeper", "alpha", "test", log.append)
+        row = db.get_agent_state(con, "keeper")
+        check("forced: a launch that fails on the destination is not a move", not ok, msg)
+        check("forced: and it is parked for a short look, not until a 5h reset",
+              row["wake_at"] is not None
+              and row["wake_at"] <= int(time.time()) + dmn.ASSUMED_ACCOUNT_RECHECK_S + 5,
+              str(dict(row)))
+        check("forced: and its preference is back on the account it is on",
+              agents.account_of("keeper") == "beta")
+    finally:
+        (orcamod.available, orcamod.alive, orcamod.close_session, orcamod.relaunch,
+         orcamod.idle_now, orcamod.typeable_now, dmn.wait_for_session, obsmod.env_of,
+         accounts.logged_in) = real
+        con.close()
+
+
+def test_an_agent_cannot_force_a_move(home: Path) -> None:
+    """A forced move ends a session; it is a person's, not an agent's."""
+    _daemon_home(home, 20)
+    agents.register("keeper", "alpha")
+    real = os.environ.get("OCP_AGENT")
+    os.environ["OCP_AGENT"] = "keeper"
+    try:
+        code = []
+        _capture(lambda: code.append(climod.main(["agent", "move", "keeper", "beta", "--yes"])))
+        check("forced: `ocp agent move` from an agent's session is refused",
+              code == [1], str(code))
+        check("forced: and nothing was changed", agents.account_of("keeper") == "alpha")
+    finally:
+        if real is None:
+            os.environ.pop("OCP_AGENT", None)
+        else:
+            os.environ["OCP_AGENT"] = real
+
+
 def test_weekly_headroom_is_spent_to_its_own_wall(home: Path) -> None:
     """Founder's decision #254: an account at 5h 9% / 7d 99% is spent to the
     weekly wall, not stopped short of it - it must still be picked, and an
@@ -7564,7 +7702,7 @@ def test_a_turn_that_ends_on_the_usage_limit_is_at_the_wall(home: Path) -> None:
             orcamod.idle_now = lambda h, **kw: False   # the probe would say mid-turn
             orcamod.clear_context = lambda h, **kw: (True, "cleared")
             dmn.session_present = lambda a: True
-            dmn._move_to_room = lambda con_, a, t, log: (seen.append(t), True)[1]
+            dmn._move_to_room = lambda con_, a, t, log, dest=None: (seen.append(t), True)[1]
             # Idle, so delivery would go through if nothing held it back.
             orcamod.idle_now = lambda h, **kw: True
             dmn.supervise(con, "backend", lambda _m: None, now, {}, [])
@@ -9022,9 +9160,23 @@ edges:
         check("team: every agent is told not to schedule its own wakeup to wait",
               all("Never schedule your own wakeup" in c
                   for c in (mgr, dev, launch.context_for("scout"))))
-        check("team: every agent is told a request ends with resolve, even a deferral",
-              all("End every request with `ocp resolve <id>`" in c
-                  for c in (mgr, dev, launch.context_for("scout"))))
+        # What to do on finishing a task is one instruction, and it is the
+        # report-to line: `ocp ask` when you finish is what an agent once
+        # followed instead of resolving, leaving three requests behind it.
+        for who, ctx in (("manager", mgr), ("marina", dev), ("scout", launch.context_for("scout"))):
+            line = next((ln for ln in ctx.splitlines() if ln.startswith("You report to")), "")
+            check(f"team: {who}'s report-to line says a handed task ends with resolve, "
+                  "and that resolve is the report", "`ocp resolve <id>" in line
+                  and "that is your report" in line, line)
+            boss_is_human = "You report to `human`" in line
+            check(f"team: and {who} is told to ask its boss for blocks and decisions, not "
+                  "to finish - and the founder is not asked to clear a status report",
+                  "when you finish" not in ctx
+                  and ("is for being blocked" in line) != boss_is_human
+                  and (not boss_is_human or "ocp ask human" not in line)
+                  and "A decision only the founder can make: `ocp ask human`" in ctx, line)
+            check(f"team: and resolve is said once, in that line, not again after it",
+                  ctx.count("ocp resolve <id>") == 1, ctx)
 
         # A team is closed until it is opened: the screen is for what needs
         # you, and every report drawn in full is a list to scroll past. The
@@ -9579,7 +9731,7 @@ def test_the_frame_never_draws_wider_than_the_terminal(home: Path) -> None:
         # The navigation is the same on every panel and is what a reader
         # already knows, so it goes before any action does.
         wide = tui._ANSI.sub("", tui.keybar(tui.AGENTS, 160))
-        tight = tui._ANSI.sub("", tui.keybar(tui.AGENTS, 100))
+        tight = tui._ANSI.sub("", tui.keybar(tui.AGENTS, 110))
         tighter = tui._ANSI.sub("", tui.keybar(tui.AGENTS, 60))
         check("top: a tight line keeps every action and drops the navigation",
               "panel" in wide and "panel" not in tight
@@ -11298,6 +11450,8 @@ def main() -> int:
         run(lambda: test_weekly_headroom_is_spent_to_its_own_wall(Path(td) / 'sevendaywall'))
         run(lambda: test_an_agent_is_judged_on_the_account_its_process_is_on(Path(td) / 'procacct'))
         run(lambda: test_a_move_is_not_recorded_while_the_process_is_still_on_the_old_account(Path(td) / 'movever'))
+        run(lambda: test_a_forced_move_goes_through_the_verified_move_or_not_at_all(Path(td) / 'forced'))
+        run(lambda: test_an_agent_cannot_force_a_move(Path(td) / 'forcedagent'))
         run(lambda: test_an_agent_at_the_wall_moves_to_an_account_with_room(Path(td) / 'moveacct'))
         run(lambda: test_a_pinned_closed_agent_moves_instead_of_waiting_out_its_window(
             Path(td) / 'pinned'))

@@ -297,9 +297,15 @@ def _your_team(agent: str) -> str:
     boss = actions.supervisor_of(t, agent) or actions.HUMAN
     reports = [n for n in paths.list_agents()
                if n != agent and actions.supervisor_of(t, n) == agent]
-    lines = ["# Your team",
-             f"You report to `{boss}`: `ocp ask {boss} \"...\"` when you finish, "
-             f"or are blocked."]
+    report = (f"You report to `{boss}`. A task you were handed ends with `ocp resolve <id> "
+              f"\"<report>\"` (or dismiss) - that is your report, even a deferral: the next "
+              f"task arrives only then, and an answer typed in chat reaches no one.")
+    if boss != actions.HUMAN:
+        # An ask to the human is a row the founder has to clear, so it is named
+        # once, below, for the decisions that are theirs.
+        report += (f" `ocp ask {boss} \"...\"` is for being blocked, a decision only "
+                   f"they can make, or work nobody handed you.")
+    lines = ["# Your team", report]
     if reports:
         lines.append("Your reports: " + ", ".join(f"`{n}`" for n in reports) + ". "
                      "You do not implement - give one work with `ocp ask <name> "
@@ -312,8 +318,6 @@ def _your_team(agent: str) -> str:
     # session that is at the usage wall.
     lines.append("Never schedule your own wakeup, /loop or poll to wait for a reply "
                  "or a review: ocp types the answer into your session when it comes.")
-    lines.append("End every request with `ocp resolve <id>` (or dismiss), even a deferral: "
-                 "the next arrives only then, and an answer typed in chat reaches no one.")
     return "\n".join(lines)
 
 
