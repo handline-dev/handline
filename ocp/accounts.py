@@ -69,6 +69,41 @@ def ensure_shared() -> Path:
     return shared
 
 
+def _link_item(cdir: Path, shared: Path, item: str, force: bool = False,
+               replace_link: bool = False) -> bool:
+    """Symlink one shared item into an account's .claude dir.
+
+    False, and nothing touched, in every case that is not "make the link
+    match shared": the item is one we never touch, shared has nothing to link
+    yet, the link already points there, or it points somewhere else and this
+    call may not force it. That last one is deliberate: a link pointing
+    elsewhere is either a human's own override or a break they are already
+    looking at, and a pass that runs on every account without asking - which
+    is exactly what `relink_all` is - must never be the thing that guesses
+    wrong and takes out four logins at once. Only a human's own call may
+    replace it: `register` passes `replace_link` (a symlink elsewhere is
+    replaced, as it always was) and `force` (a real file or directory too).
+    """
+    if item in NEVER_TOUCH:
+        return False
+    target = shared / item
+    link = cdir / item
+    if not target.exists():
+        return False
+    if link.is_symlink():
+        if os.readlink(link) == str(target):
+            return False
+        if not (force or replace_link):
+            return False
+        link.unlink()
+    elif link.exists():
+        if not force:
+            return False
+        shutil.rmtree(link) if link.is_dir() else link.unlink()
+    link.symlink_to(target)
+    return True
+
+
 def register(acct: str, force: bool = False) -> Path:
     """Create the account directory and link it to shared. Does not log in."""
     if not acct or "/" in acct or acct.startswith("."):
@@ -84,22 +119,47 @@ def register(acct: str, force: bool = False) -> Path:
 
     shared = paths.shared_claude()
     for item in LINKED:
-        if item in NEVER_TOUCH:
-            continue
-        target = shared / item
-        link = cdir / item
-        if not target.exists():
-            continue
-        if link.is_symlink():
-            if os.readlink(link) == str(target) and not force:
-                continue
-            link.unlink()
-        elif link.exists():
-            if not force:
-                continue
-            shutil.rmtree(link) if link.is_dir() else link.unlink()
-        link.symlink_to(target)
+        _link_item(cdir, shared, item, force=force, replace_link=True)
     return cdir
+
+
+def relink_all() -> dict[str, list[str]]:
+    """Catch every already-registered account up to what shared/.claude has
+    gained since it was linked.
+
+    `register()` only runs when an account is created or re-registered by
+    hand, and only links an item whose shared target exists yet - so a file
+    added to shared later reaches nothing already registered until someone
+    remembers to run it again, by hand, for every account there is. This is
+    that "again, for every account", run without anyone remembering to.
+    Returns what it linked, by account, so a caller that runs this on a timer
+    (the daemon) has something to log and a caller in a test has something to
+    assert on beyond "and now it works". Does not call `ensure_shared()` -
+    this runs every tick, and rewriting shared/settings.json that often for no
+    reason is its own bug; nothing here needs shared to exist yet, since a
+    target that is not there is just an item this pass skips.
+    """
+    shared = paths.shared_claude()
+    done: dict[str, list[str]] = {}
+    for acct in paths.list_accounts():
+        cdir = paths.account_claude(acct)
+        if not cdir.is_dir():
+            # `accounts_dir()/acct` exists with no `.claude` under it - not an
+            # account `register()` ever ran on, since that call always makes
+            # this directory first. Creating one here, on a timer, for a
+            # directory a human or a probe made for some other reason is a
+            # bigger claim than "catch up the links" is meant to make.
+            continue
+        try:
+            # One account's mistake - a permission error, a filesystem loop -
+            # must not stop this from catching up every other account; the
+            # whole reason this exists is that nobody is watching it run.
+            linked = [item for item in LINKED if _link_item(cdir, shared, item)]
+        except OSError:
+            continue
+        if linked:
+            done[acct] = linked
+    return done
 
 
 def keychain_service(config_dir: Path) -> str:

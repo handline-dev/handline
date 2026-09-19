@@ -2064,6 +2064,19 @@ def tick(con, log, samples: dict | None = None) -> Tick:
     # calls out, whatever the size of the team, and they cost 0.2s together.
     sweep(con, log, actions)
 
+    # A file added to shared/.claude reaches only the accounts registered
+    # after it existed (accounts.register skips a target that was not there
+    # yet) unless something keeps running the catch-up - this is that
+    # something, so adding one is never a per-account command a human has to
+    # remember. A handful of stat calls per account; cheap enough for every
+    # tick, and correctness here means noticing within one tick of the file
+    # landing, not on the next `ocp account register`.
+    try:
+        for acct, linked in accounts.relink_all().items():
+            log(f"  relinked {acct}: {', '.join(linked)}")
+    except Exception as e:  # noqa: BLE001 - a bad account here is not the tick's failure
+        log(f"  relink: {e}")
+
     # A handoff past its deadline must fail here, not only at startup.
     actions += expire_handoffs(con, log)
 

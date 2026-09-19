@@ -15000,6 +15000,81 @@ def test_handoff_rate_limited(home: Path) -> None:
         con.close()
 
 
+def test_a_file_added_to_shared_reaches_every_existing_account(home: Path) -> None:
+    """The actual gap (founder #596, orcapipe-manager #668): `register()` skips
+    a LINKED item whose shared target did not exist yet, and it only runs when
+    an account is created or re-registered by hand - so alpha, beta and gamma
+    had no CLAUDE.md link at all, silently, because the file did not exist
+    when they were made. A fixture that creates the accounts after the file
+    exists would pass on the broken code; this creates them before it, the way
+    they actually are today."""
+    home.mkdir(parents=True, exist_ok=True)
+    os.environ["OCP_HOME"] = str(home)
+    accounts.register("alpha")
+    accounts.register("beta")
+    accounts.register("gamma")
+    alpha_claude = paths.account_claude("alpha") / "CLAUDE.md"
+    beta_claude = paths.account_claude("beta") / "CLAUDE.md"
+    gamma_claude = paths.account_claude("gamma") / "CLAUDE.md"
+    check("relink: matches today - no CLAUDE.md link exists yet",
+          not alpha_claude.exists() and not beta_claude.exists() and not gamma_claude.exists())
+
+    # A deliberate override: a real file, not a link - what a human's own fix
+    # or customization looks like on disk.
+    gamma_claude.write_text("gamma's own")
+
+    # The file is added the way the founder actually will: dropped straight
+    # into shared/.claude, no `ocp` command run at all afterward.
+    shared_target = paths.shared_claude() / "CLAUDE.md"
+    shared_target.write_text("policy text")
+
+    done = accounts.relink_all()
+    check("relink: it reaches every account that existed before it did",
+          alpha_claude.is_symlink() and beta_claude.is_symlink()
+          and os.readlink(alpha_claude) == str(shared_target)
+          and os.readlink(beta_claude) == str(shared_target), str(done))
+    check("relink: and says what it did, by account",
+          done.get("alpha") == ["CLAUDE.md"] and done.get("beta") == ["CLAUDE.md"], str(done))
+    check("relink: an account's own override is left alone, not overwritten",
+          "gamma" not in done and gamma_claude.read_text() == "gamma's own", str(done))
+    check("relink: idempotent - nothing left to do once everyone is caught up",
+          accounts.relink_all() == {})
+
+    # A link pointing elsewhere: the timed pass leaves it, a human's register replaces it.
+    beta_claude.unlink()
+    beta_claude.symlink_to(home / "elsewhere")
+    accounts.relink_all()
+    check("relink: a link pointing elsewhere is not replaced by the timed pass",
+          os.readlink(beta_claude) == str(home / "elsewhere"))
+    accounts.register("beta")
+    check("relink: register() still replaces it, as before",
+          os.readlink(beta_claude) == str(shared_target))
+
+    # The ordinary path still works: a freshly registered account gets it
+    # straight from `register()`, with no relink pass needed.
+    accounts.register("delta")
+    check("relink: a freshly registered account is linked by register() itself",
+          (paths.account_claude("delta") / "CLAUDE.md").is_symlink())
+
+    # And the daemon does this without being told to, every tick - the actual
+    # fix for "a human has to remember a command per account": nobody has to
+    # remember anything, because the daemon is already running.
+    accounts.register("epsilon")
+    # Simulate epsilon predating CLAUDE.md ever landing in shared, the same
+    # way alpha and beta did above - unlink what register() just linked, so
+    # the tick has something of its own to catch up on.
+    (paths.account_claude("epsilon") / "CLAUDE.md").unlink()
+    logs: list[str] = []
+    con = db.connect()
+    try:
+        dmn.tick(con, logs.append)
+    finally:
+        con.close()
+    check("relink: the daemon's own tick catches up an account with nothing to run for it",
+          (paths.account_claude("epsilon") / "CLAUDE.md").is_symlink()
+          and any("relinked epsilon" in ln for ln in logs), str(logs))
+
+
 def run(one) -> None:
     """Every test starts from the real world.
 
@@ -15355,6 +15430,7 @@ def main() -> int:
         run(lambda: test_each_account_guard_fails_under_its_own_mutation(Path(td) / 'guards'))
         run(lambda: test_a_second_name_for_one_login_is_caught(Path(td) / 'acctsame'))
         run(lambda: test_the_accounts_panel_adds_and_removes(Path(td) / 'acctpanel'))
+        run(lambda: test_a_file_added_to_shared_reaches_every_existing_account(Path(td) / 'relink'))
         run(lambda: test_a_second_daemon_is_refused_by_the_lock_alone(Path(td) / 'onedmn'))
         run(lambda: test_an_exiting_daemon_leaves_the_live_ones_name(Path(td) / 'pidname'))
         run(lambda: test_one_daemon_is_counted_in_the_process_table(Path(td) / 'dmnps'))
