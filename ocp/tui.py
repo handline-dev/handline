@@ -216,26 +216,6 @@ def age(secs: float | None) -> str:
     return status.ago(secs)
 
 
-def hidden_under(tree: list[tuple[str, int]], drawn: set[str], name: str) -> list[str]:
-    """The agents this row's fold hides: `visible_tree`'s count, by name.
-
-    A drawn report under it is not hidden, and neither is what hangs under that
-    report - its own fold answers for those, so a hidden agent is counted under
-    exactly one row.
-    """
-    at = next(i for i, (n, _d) in enumerate(tree) if n == name)
-    depth, hidden, skip = tree[at][1], [], None
-    for n, d in tree[at + 1:]:
-        if d <= depth:
-            break
-        if skip is not None and d > skip:
-            continue
-        skip = d if n in drawn else None
-        if n not in drawn:
-            hidden.append(n)
-    return hidden
-
-
 def hidden_urgency(con, names: list[str]) -> tuple[str, int, str] | None:
     """The most urgent thing among agents a fold hides: (glyph, how many share
     it, colour), or None when there is nothing to say.
@@ -297,13 +277,11 @@ def _wants_a_human() -> set[str]:
         con.close()
 
 
-def visible_tree() -> list[tuple[str, int, int]]:
-    """The team as drawn: (name, depth, how many under it are not drawn).
+def _walk_tree() -> list[tuple[str, int, list[str]]]:
+    """The team as drawn: (name, depth, the agents its fold hides, by name).
 
-    The cursor walks the same list, so it never lands on a row nobody can see.
-    A report that needs a person is drawn whether its supervisor is open or
-    not - hiding the one row this screen exists for is the one thing folding
-    must not do.
+    One walk decides what is hidden, so the count on a fold and what its marker
+    says about those agents cannot drift apart.
     """
     tree = actions.agent_tree()
     keep = _wants_a_human()
@@ -313,17 +291,28 @@ def visible_tree() -> list[tuple[str, int, int]]:
         while closed and depth <= closed[-1][0]:
             closed.pop()
         if closed and name not in keep:
-            rows[closed[-1][1]][2] += 1
+            rows[closed[-1][1]][2].append(name)
             continue
         under = 0
         for _n, d in tree[i + 1:]:
             if d <= depth:
                 break
             under += 1
-        rows.append([name, depth, 0])
+        rows.append([name, depth, []])
         if under and name not in EXPANDED:
             closed.append((depth, len(rows) - 1))
-    return [(n, d, u) for n, d, u in rows]
+    return [(n, d, h) for n, d, h in rows]
+
+
+def visible_tree() -> list[tuple[str, int, int]]:
+    """The team as drawn: (name, depth, how many under it are not drawn).
+
+    The cursor walks the same list, so it never lands on a row nobody can see.
+    A report that needs a person is drawn whether its supervisor is open or
+    not - hiding the one row this screen exists for is the one thing folding
+    must not do.
+    """
+    return [(n, d, len(h)) for n, d, h in _walk_tree()]
 
 
 def _fold(sel: dict, k: str) -> bool:
@@ -584,9 +573,7 @@ def build(width: int, sel: dict | None = None,
         ag.selected = sel.get(AGENTS)
         # No heading for the last column: it is empty unless something is about
         # to happen, and then it says what, in words.
-        drawn_tree = visible_tree()
-        drawn = {n for n, _d, _u in drawn_tree}
-        full_tree = actions.agent_tree()
+        drawn_tree = _walk_tree()
         # Model and effort are configuration and do not change while anyone is
         # watching, which was the case for leaving them off. What changed is
         # that they will not all be claude: with a second vendor coming, what
@@ -598,7 +585,8 @@ def build(width: int, sel: dict | None = None,
         ag.add(f"{DIM}{'agent':<{NAME_W}}{'acct':<8}"
                f"{'kind':<{KIND_W}}" * kinds
                + f"{'state':<{STATE_W}}{'ctx':>4}   {'in':<4}{R}", heading=True)
-        for name, depth, under in drawn_tree:
+        for name, depth, hidden in drawn_tree:
+            under = len(hidden)
             # Indented under whoever routes work to it. Who an agent reports to
             # decides where its report goes and who may assign to it, and it was
             # written down in team.yaml all along - a flat list made the reader
@@ -608,8 +596,7 @@ def build(width: int, sel: dict | None = None,
             # How many of its reports are not drawn, and the most urgent thing
             # among them. Fitted around, not into, the name: cut off, the only
             # sign a team is hidden disappears.
-            urgency = (hidden_urgency(con, hidden_under(full_tree, drawn, name))
-                       if under else None)
+            urgency = hidden_urgency(con, hidden) if under else None
             try:
                 acct = agents.current_account(name, con)
                 cfg = agents.read(name)

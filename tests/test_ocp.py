@@ -8923,11 +8923,22 @@ edges:
               "lead +1 ▶1" in lines["lead"], lines["lead"])
         check("fold: and not again under the manager, whose ▶ cannot exceed its +N",
               "manager +1" in lines["manager"] and "▶" not in lines["manager"], lines["manager"])
-        check("fold: hidden_under names the agents a fold hides",
-              tui.hidden_under(tui.actions.agent_tree(), {n for n, _d, _u in tui.visible_tree()},
-                               "manager") == ["idle1"],
-              str(tui.hidden_under(tui.actions.agent_tree(),
-                                   {n for n, _d, _u in tui.visible_tree()}, "manager")))
+        check("fold: the walk names the agents a fold hides, and the count is theirs",
+              {n: h for n, _d, h in tui._walk_tree()}["manager"] == ["idle1"]
+              and dict((n, u) for n, _d, u in tui.visible_tree())["manager"] == 1,
+              str(tui._walk_tree()))
+        # Opening the report while the manager stays folded: what hangs under it is
+        # still hidden, so it is still counted, and still said.
+        tui.EXPANDED.add("lead")
+        lines = {n: next((tui._ANSI.sub("", ln) for ln in tui.frame(120, 60).split(chr(10))
+                          if re.search(rf"(^|[ │└]){n}( |$)", tui._ANSI.sub("", ln))), "")
+                 for n in ("manager", "lead")}
+        check("fold: an opened report's team is still counted under the fold that hides it",
+              "manager +2 ▶1" in lines["manager"], lines["manager"])
+        check("fold: and it has no fold of its own to say it twice",
+              "▶" not in lines["lead"] and "+" not in lines["lead"].split("STALLED")[0],
+              lines["lead"])
+        tui.EXPANDED.clear()
 
         # Width: the aggregate goes before the count, and the count before the name.
         plain = lambda s_: tui._ANSI.sub("", s_)  # noqa: E731
