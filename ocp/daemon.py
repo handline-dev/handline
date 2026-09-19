@@ -360,6 +360,32 @@ def session_present(agent: str) -> bool:
     return bool(sessions is not None and sessions.get(agent))
 
 
+# How long a session told `/exit` has to leave the process table. SessionEnd
+# fires at once and the process can outlive it by more than a sweep tick (31s
+# measured), and the sweep reads a closed row over a live process as "running
+# again" and clears the mark.
+END_WAIT_S = 60
+END_POLL_S = 1
+
+
+def _wait_session_gone(agent: str) -> bool:
+    """Is this agent's session out of a fresh reading of the process table?
+
+    Always a fresh reading - the sweep's snapshot is what read the old process
+    as alive. An unreadable table is a no, the same fail-closed rule as
+    `session_present`: not knowing that it ended is not evidence that it did.
+    """
+    deadline = time.time() + END_WAIT_S
+    while True:
+        sessions = obs.live_sessions()
+        if sessions is not None and not sessions.get(agent):
+            _seen.pop(agent, None)
+            return True
+        if time.time() >= deadline:
+            return False
+        time.sleep(END_POLL_S)
+
+
 # How long a relaunched session has to show up in the process table. `ocp
 # launch` execs claude, so it appears at once when it appears at all; this is
 # slack for a slow start, not a wait for the TUI to be usable.
@@ -695,6 +721,16 @@ def _end_session(con, agent: str, log, st, resume: str | None) -> tuple[bool, st
     ok, why = orca.close_session(handle)
     if not ok:
         return False, why
+    # Typed is not ended: the `/exit` can be eaten or slow, and a closed row
+    # over a live process is cleared by the sweep, while a relaunch typed at
+    # that terminal reaches the old session as a prompt. A session that does
+    # not end is reported, neither retried (a second `/exit` goes to whatever
+    # ate the first) nor killed (that skips its own shutdown); the sweep
+    # records the close if it does end later.
+    if not _wait_session_gone(agent):
+        pid = (obs.live_sessions() or {}).get(agent)
+        return False, (f"/exit was typed but the session is still running"
+                       f"{f' (pid {pid})' if pid else ''} after {END_WAIT_S}s; not marked closed")
     db.set_closed(con, agent, resume)
     # RUNNING describes a session that exists. Leaving the label on a closed one
     # makes every screen say the opposite of what happened, and the daemon skips

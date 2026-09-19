@@ -107,10 +107,11 @@ exchange as one thread; the screen's answer key does it for you.""",
   ocp resume <agent>               put it back, resuming the same session
 
 A session that is not being used holds 250-500MB and spends no tokens at all.
-Closing it ends the agent process; the terminal, its worktree and its account
-stay, because Orca runs our launch command inside a shell and claude is that
-shell's child. Waking types the launch command back into the same shell with
-`--resume <session>` and the wake prompt as the session's first prompt, so the
+Closing it ends the agent process, and is recorded only once the process has
+left the process table - a session that will not end is reported, not marked
+closed. The terminal, its worktree and its account stay, because Orca runs our
+launch command inside a shell and claude is that shell's child. Waking types
+the launch command back into the same shell with `--resume <session>` and the wake prompt as the session's first prompt, so the
 account comes back with it and the conversation is the one it had.
 
 This is not a handoff. No context is reclaimed, because there is nothing
