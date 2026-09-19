@@ -56,6 +56,8 @@ its session lives on.""",
   ocp ask <agent> "<task>"        queue it
   ocp ask <agent> "..." --first   put it at the head of the queue
   ocp ask <agent> "..." --replaces <id>   correct a task you sent, before it is delivered
+  ocp ask human "..." --fyi       a report that asks nothing: not red, not counted as
+                                  waiting on the founder, gone once read or superseded
   ocp withdraw <id>               take back your own request, before it is delivered
   ocp cancel <id>                 the founder's: take any request out of an agent's queue
   ocp inbox                       the one thing currently waiting for you, and a count
@@ -73,12 +75,14 @@ still idle on it 30 minutes after it last did anything, the bridge's STUCK panel
 shows it, with what is queued behind it. Before a request has been delivered, its own
 requester may still replace (`--replaces`) or withdraw it; once delivered, a
 correction is a reply in its thread (`ocp ask <agent> "..." --parent <id>`),
-not a new item behind it. Only the founder can clear one that was delivered and
-never resolved: `ocp cancel <id>` closes it as rejected ("withdrawn by the
-founder"), tells its requester why and delivers what was behind it; the agent
-is told to stop if it can be reached right now, otherwise it finds out only
-when its own resolve of the row is refused. The row and its number stay; a
-request of the founder's own that was never delivered is simply withdrawn.
+not a new item behind it. Requests to `human` are the exception: a correction
+with `--replaces` retires your earlier one even after the bridge showed it.
+Only the founder can clear one that was delivered and never resolved: `ocp
+cancel <id>` closes it as rejected ("withdrawn by the founder"), tells its
+requester why and delivers what was behind it; the agent is told to stop if
+it can be reached right now, otherwise it finds out only when its own resolve
+of the row is refused. The row and its number stay; a request of the founder's
+own that was never delivered is simply withdrawn.
 
 On `ocp bridge`: ↑↓ walks the whole screen and crosses into the next panel at
 the end of one, ←→ jumps panel to panel, and the panel your keys act on is the

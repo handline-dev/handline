@@ -4,6 +4,7 @@ Run: python3 tests/test_ocp.py
 """
 from __future__ import annotations
 
+import argparse
 import contextlib
 import io
 import json
@@ -23,7 +24,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
-from ocp import (accounts, actions, agents, ask as askmod, cli as climod, daemon as dmn, db, hr,
+from ocp import (accounts, actions, agents, ask as askmod, burnrate, cli as climod, daemon as dmn, db, hr,
                  digest,
                  doctor, drift, events as evmod, fold as foldmod,
                  handoff as handoffmod, launch, load as loadmod, lock, measure,
@@ -4459,8 +4460,8 @@ def test_installing_hooks_twice_does_not_double_them(home: Path) -> None:
     stops = [c for c in ours if c.endswith("hook Stop")]
     check("hooks: one entry per event however it was spelled before",
           len(stops) == 1, str(stops))
-    check("hooks: every captured event is installed",
-          {c.rsplit(" ", 1)[1] for c in ours} == set(evmod.CAPTURED),
+    check("hooks: every captured event is installed, and the ones that answer a prompt",
+          {c.rsplit(" ", 1)[1] for c in ours} == set(evmod.CAPTURED | evmod.ANSWERS),
           str(sorted({c.rsplit(" ", 1)[1] for c in ours})))
     check("hooks: Orca's own entries are left alone",
           any(h.get("command") == "orca-hook pre"
@@ -7631,6 +7632,274 @@ def test_ask_and_resolve_do_not_type_at_an_agent_at_the_wall(home: Path) -> None
         con.close()
 
 
+def _fire_hook(event: str, **fields) -> None:
+    real_in = sys.stdin
+    sys.stdin = io.StringIO(json.dumps({"hook_event_name": event, "session_id": "s", **fields}))
+    try:
+        evmod.record_from_stdin([event])
+    finally:
+        sys.stdin = real_in
+
+
+def test_a_permission_prompt_waits_on_the_founder_until_it_is_answered(home: Path) -> None:
+    """A PermissionRequest turns the row red and pins it above everything, in
+    the bridge and in ps; the answer clears it at once, not at the next Stop,
+    and clearing writes no event row."""
+    _daemon_home(home, 20)
+    os.environ["OCP_AGENT"], os.environ["OCP_ACCOUNT"] = "backend", "alpha"
+    con = db.connect()
+    try:
+        db.set_terminal(con, "backend", "term_x", "wt")
+        db.set_agent_state(con, "backend", dmn.RUNNING, detail="active")
+        cmd = "git push origin main " + "x" * 200
+
+        def waits():
+            return [w for w in actions.founder_waits(con) if w["kind"] == "permission"]
+
+        check("prompt: nothing is waiting before one is raised", not waits())
+        _fire_hook("PermissionRequest", tool_name="Bash", tool_input={"command": cmd})
+        w = waits()
+        check("prompt: the agent is waiting, with its tool and its command",
+              len(w) == 1 and w[0]["who"] == "backend" and w[0]["red"]
+              and w[0]["what"].startswith("Bash: git push origin main"), str(w))
+        check("prompt: the command is cut to 120 characters",
+              len(w[0]["what"]) == len("Bash: ") + 120, str(len(w[0]["what"])))
+        ev = [json.loads(e["payload"]) for e in db.events_after(con, 0, agent="backend")
+              if e["kind"] == "PermissionRequest"]
+        check("prompt: the event carries the command too", ev and ev[-1].get("command") == cmd[:120],
+              str(ev))
+        check("prompt: its state underneath is still RUNNING",
+              db.get_agent_state(con, "backend")["state"] == dmn.RUNNING)
+
+        frame = tui.frame(120, 40)
+        plain = [tui._ANSI.sub("", ln) for ln in frame.split("\n")]
+        first = next(i for i, ln in enumerate(plain) if "WAITING ON YOU" in ln)
+        check("bridge: the block is pinned above the accounts",
+              first < next(i for i, ln in enumerate(plain) if "ACCOUNTS" in ln), str(plain[:6]))
+        check("bridge: drawn in red, with the command and how long",
+              any(tui.RED in ln and "git push origin main" in ln for ln in frame.split("\n")),
+              str(plain[:6]))
+        check("bridge: and the agent's own row reads WAITING ON YOU, not RUNNING",
+              any(ln.lstrip("│ ").startswith("backend") and "WAITING ON YOU" in ln
+                  for ln in plain), str([ln for ln in plain if "backend" in ln]))
+
+        out = io.StringIO()
+        real_out = sys.stdout
+        sys.stdout = out
+        try:
+            climod.cmd_daemon_status(argparse.Namespace())
+        finally:
+            sys.stdout = real_out
+        said = out.getvalue()
+        check("ps: the block comes first and the state column says it",
+              said.startswith("WAITING ON YOU (1)") and "backend " in said
+              and said.count("WAITING ON YOU") == 2 and "Bash: git push" in said, said[:400])
+
+        rows_before = len(db.events_after(con, 0, agent="backend"))
+        _fire_hook("PostToolUse", tool_name="Read", tool_input={"file_path": "/x"})
+        check("prompt: another tool finishing is not the answer", len(waits()) == 1)
+        _fire_hook("PostToolUse", tool_name="Bash", tool_input={"command": cmd})
+        check("prompt: the answered call clears it at once", not waits())
+        check("prompt: and clearing wrote no event row",
+              len(db.events_after(con, 0, agent="backend")) == rows_before)
+        check("prompt: PostToolUse is still not a recorded event",
+              "PostToolUse" not in evmod.CAPTURED and "PostToolUse" in evmod.ANSWERS)
+
+        _fire_hook("PermissionRequest", tool_name="Bash", tool_input={"command": "rm x"})
+        _fire_hook("PostToolUseFailure", tool_name="Bash", tool_input={"command": "rm x"})
+        check("prompt: a refused call clears it as well", not waits())
+
+        for ends in ("Stop", "UserPromptSubmit", "SessionEnd"):
+            _fire_hook("PermissionRequest", tool_name="Edit", tool_input={"file_path": "/a"})
+            _fire_hook(ends)
+            check(f"prompt: {ends} clears it whatever else was missed", not waits())
+
+        _fire_hook("PermissionRequest", tool_name="Bash", tool_input={"command": "ls"})
+        db.set_agent_state(con, "backend", dmn.IDLE)
+        check("prompt: a session the daemon has moved off RUNNING is not at that prompt",
+              not waits())
+        db.set_agent_state(con, "backend", dmn.RUNNING)
+        db.set_closed(con, "backend", "sess-1")
+        check("prompt: nor is a closed one", not waits())
+    finally:
+        os.environ.pop("OCP_AGENT", None); os.environ.pop("OCP_ACCOUNT", None)
+        con.close()
+
+
+def test_a_proposal_and_an_escalation_wait_on_the_founder_too(home: Path) -> None:
+    """An hr proposal shows from the moment it is raised until it is applied or
+    refused; an escalation shows until it is answered."""
+    _daemon_home(home, 20)
+    accounts.register("beta")
+    con = db.connect()
+    try:
+        def waits(kind):
+            return [w for w in actions.founder_waits(con) if w["kind"] == kind]
+
+        ok, said = hr.propose("move", "backend", requester="backend", why="beta is quieter",
+                              account="beta")
+        pid = said.split()[1]
+        w = waits("proposal")
+        check("hr wait: a raised proposal is waiting on the founder, in red",
+              ok and len(w) == 1 and w[0]["red"] and "awaiting your decision" in w[0]["what"]
+              and "backend" in w[0]["what"], str(w))
+        check("hr wait: it is not also drawn as a bare escalation", not waits("escalation"))
+        check("hr wait: and the bridge pins it",
+              "hr move backend" in tui._ANSI.sub("", tui.frame(120, 40)))
+
+        rid = hr.load_proposal(pid)["request"]
+        askmod.resolve(rid, "approve", notify=False)
+        w = waits("proposal")
+        check("hr wait: approved but not applied it stays, no longer red",
+              len(w) == 1 and not w[0]["red"] and "not yet applied" in w[0]["what"], str(w))
+        ok, said = hr.apply(pid)
+        check("hr wait: applied, it is gone", ok and not waits("proposal"), said)
+
+        agents.register("marina", "beta")
+        ok, said = hr.propose("move", "marina", requester="marina", why="w", account="alpha")
+        askmod.resolve(hr.load_proposal(said.split()[1])["request"], "reject", notify=False)
+        check("hr wait: refused, it is gone", not waits("proposal"), str(waits("proposal")))
+
+        db.add_request(con, "marina", actions.HUMAN, "which branch do we cut?", None,
+                       "peer", "async", "escalate", 0, None)
+        w = waits("escalation")
+        check("escalation: an unanswered one is waiting on the founder, in red",
+              len(w) == 1 and w[0]["red"] and w[0]["who"] == "marina"
+              and "which branch" in w[0]["what"], str(w))
+        con.execute("UPDATE requests SET state = 'done', verdict = 'the release one' "
+                    "WHERE body LIKE 'which branch%'")
+        con.commit()
+        check("escalation: answered, it is gone", not waits("escalation"))
+    finally:
+        con.close()
+
+
+def test_the_cursor_follows_a_row_that_leaves_the_list(home: Path) -> None:
+    """A dismissed, answered or self-closing row leaves the cursor on nothing.
+    It goes to the row that took the place, or to the one above when the last
+    went, and vanishes only when the list is empty."""
+    _daemon_home(home, 20)
+    con = db.connect()
+    try:
+        ids = [db.add_request(con, "backend", actions.HUMAN, f"note {i}", None,
+                              "peer", "fire_and_forget", None, 0, None) for i in range(4)]
+        sel, known = {tui.MESSAGES: ids[1]}, {}
+        tui.settle(sel, known)
+        check("cursor: a row that exists keeps it", sel[tui.MESSAGES] == ids[1], str(sel))
+
+        actions.dismiss(con, ids[1])
+        tui.settle(sel, known)
+        check("cursor: dismissing the middle row moves it to the row that took its place",
+              sel[tui.MESSAGES] == ids[2], str(sel))
+
+        sel[tui.MESSAGES] = ids[3]
+        tui.settle(sel, known)
+        actions.dismiss(con, ids[3])
+        tui.settle(sel, known)
+        check("cursor: dismissing the last row moves it to the one above",
+              sel[tui.MESSAGES] == ids[2], str(sel))
+
+        actions.answer(con, ids[2], "ok")
+        tui.settle(sel, known)
+        check("cursor: answering the row under it moves it on too",
+              sel[tui.MESSAGES] == ids[0], str(sel))
+
+        actions.dismiss(con, ids[0])
+        tui.settle(sel, known)
+        check("cursor: it vanishes only when the list is empty", tui.MESSAGES not in sel,
+              str(sel))
+
+        # Through the key itself, which is what the screen calls.
+        ids = [db.add_request(con, "backend", actions.HUMAN, f"key {i}", None,
+                              "peer", "fire_and_forget", None, 0, None) for i in range(3)]
+        sel = {tui.MESSAGES: ids[1]}
+        tui._act(tui.MESSAGES, sel, "x", 100, 30, None, None)
+        check("cursor: x dismisses the middle row and the cursor takes the next",
+              sel.get(tui.MESSAGES) == ids[2], str(sel))
+        tui._act(tui.MESSAGES, sel, "x", 100, 30, None, None)
+        check("cursor: and dismissing the last leaves it on the one above",
+              sel.get(tui.MESSAGES) == ids[0], str(sel))
+
+        # A report closing itself on open.
+        ok, _m, f1 = askmod.ask(actions.HUMAN, "r1", requester="backend", fyi=True)
+        ok, _m, f2 = askmod.ask(actions.HUMAN, "r2", requester="frontend", fyi=True)
+        sel = {tui.MESSAGES: f1}
+        tui.settle(sel, known)
+        actions.opened_by_human(con, f1)
+        tui.settle(sel, known)
+        check("cursor: a report closing on open hands it to the next",
+              sel[tui.MESSAGES] == f2, str(sel))
+    finally:
+        con.close()
+
+
+def test_a_report_to_the_founder_is_not_a_wait(home: Path) -> None:
+    """Red means the founder must act. `--fyi` is a report: listed, not red, not
+    counted, closed once opened or when the sender's next report lands - and a
+    correction retires a stale escalation even after the bridge showed it."""
+    _daemon_home(home, 20)
+    con = db.connect()
+    try:
+        def esc():
+            return [w for w in actions.founder_waits(con) if w["kind"] == "escalation"]
+
+        ok, _m, q = askmod.ask(actions.HUMAN, "merge keeper-3?", requester="backend")
+        ok1, _m, f1 = askmod.ask(actions.HUMAN, "status: half done", requester="backend",
+                                 fyi=True)
+        check("fyi: accepted", ok and ok1)
+        check("fyi: only the question is waiting on the founder, in red",
+              [w["what"].startswith(f"#{q}") for w in esc()] == [True], str(esc()))
+        row = next(m for m in actions.messages(con) if m["id"] == f1)
+        check("fyi: it is in the mailbox, not a gate", not row["gate"], str(row))
+
+        ok, _m, f2 = askmod.ask(actions.HUMAN, "status: done", requester="backend", fyi=True)
+        check("fyi: the sender's next report closes the earlier one",
+              db.get_request(con, f1)["state"] == "replaced"
+              and db.get_request(con, f2)["state"] == "queued")
+        ok, _m, other = askmod.ask(actions.HUMAN, "other's report", requester="frontend",
+                                   fyi=True)
+        check("fyi: another sender's report is left alone",
+              db.get_request(con, f2)["state"] == "queued")
+
+        real_who = askmod.asking_agent
+        try:
+            askmod.asking_agent = lambda: "backend"
+            _capture(lambda: climod.cmd_read(argparse.Namespace(id=f2, wait=False)))
+            check("fyi: an agent reading it does not close it",
+                  db.get_request(con, f2)["state"] == "queued")
+            askmod.asking_agent = lambda: actions.HUMAN
+            _capture(lambda: climod.cmd_read(argparse.Namespace(id=f2, wait=False)))
+            check("fyi: the founder's `ocp read` closes it",
+                  db.get_request(con, f2)["state"] == "done")
+        finally:
+            askmod.asking_agent = real_who
+        db.set_request_state(con, f2, "queued")
+        actions.opened_by_human(con, f2)
+        check("fyi: opening it closes it", db.get_request(con, f2)["state"] == "done")
+        actions.opened_by_human(con, q)
+        check("fyi: opening a question does not answer it",
+              db.get_request(con, q)["state"] == "queued")
+        ok, msg, _ = askmod.ask("frontend", "x", requester="backend", fyi=True)
+        check("fyi: only the founder gets one", not ok, msg)
+
+        # A correction reaches an escalation the bridge already showed.
+        db.mark_delivered(con, q)
+        ok, msg, new = askmod.ask(actions.HUMAN, "merge keeper-3 - now with tests",
+                                  requester="backend", replaces=q)
+        check("replaces: an escalation already shown to the founder is retired",
+              ok and db.get_request(con, q)["state"] == "replaced", msg)
+        check("replaces: and only the replacement waits", [w["what"].startswith(f"#{new}")
+              for w in esc()] == [True], str(esc()))
+        # An agent's delivered request still cannot be replaced.
+        rid = db.add_request(con, "backend", "frontend", "do it", None, "peer",
+                             "async", None, 0, None)
+        db.mark_delivered(con, rid)
+        ok, msg, _ = askmod.ask("frontend", "do it better", requester="backend", replaces=rid)
+        check("replaces: an agent's delivered request still cannot be", not ok, msg)
+    finally:
+        con.close()
+
+
 def test_a_turn_that_ends_on_the_usage_limit_is_at_the_wall(home: Path) -> None:
     """StopFailure with the limit message on a live agent: shown as stopped, not
     RUNNING, and handed off and moved though nothing reads full and the terminal
@@ -7737,7 +8006,7 @@ def test_the_runway_is_an_estimate_from_the_daemons_burn(home: Path) -> None:
     check("runway: points left are counted to the wall",
           r and r.left_5h == 45 and r.left_7d == 90, str(r))
     check("runway: time to the wall follows the measured burn",
-          status.describe_runway(r) == "~1h30 to wall", status.describe_runway(r))
+          status.describe_runway(r) == "~1h30m to wall", status.describe_runway(r))
     write_status(home, "alpha", pct_5h=55, pct_7d=10, reset_5h=now + 1800)
     check("runway: a reset before the wall reads 'outlasts reset'",
           status.describe_runway(status.runway(status.read("alpha"),
@@ -7822,8 +8091,354 @@ def test_an_unknown_reset_does_not_make_the_runway_absurd(home: Path) -> None:
     status.write_burn("alpha", 30 / 3600, now)
     r2 = status.runway(status.read("alpha"), status.read_burn("alpha"), now)
     check("runway: an eta safely inside the window is unaffected",
-          not r2.past_reset and status.describe_runway(r2) == "~1h30 to wall",
+          not r2.past_reset and status.describe_runway(r2) == "~1h30m to wall",
           status.describe_runway(r2))
+
+
+class _Reading:
+    """What `burnrate.observe` reads of an account: a live figure and when it was seen."""
+    def __init__(self, pct: int, at: int, reset: int = 9_999_999_999):
+        self.pct_5h, self.rl_at, self.reset_5h = pct, at, reset
+        self.pct_5h_source = "live"
+        self.is_live_reading = True
+
+
+def _samples_of(con) -> list[dict]:
+    return burnrate._load_samples(con)
+
+
+def _give_samples(con, rows: list[tuple[float, str | None, str | None]]) -> None:
+    """Samples as percent per minute, oldest first, filed under a model and effort."""
+    db.set_meta(con, burnrate._SAMPLES, json.dumps(
+        [{"t": i, "a": "alpha", "r": r / 60, "m": m, "e": e} for i, (r, m, e) in enumerate(rows)]))
+
+
+def test_what_one_agent_costs_is_measured_from_stretches_of_work(home: Path) -> None:
+    """A sample is the account's rise over a stretch in which the same agents
+    were mid-turn, divided by their number; a stretch is dropped when it is too
+    short or a window rolled, and kept when nothing rose."""
+    _daemon_home(home, 20)
+    con = db.connect()
+    agents.register("solo", "alpha", model="sonnet", effort="medium")
+    agents.register("duo-a", "alpha", model="opus", effort="high")
+    agents.register("duo-b", "alpha", model="opus", effort="high")
+    agents.register("duo-c", "alpha", model="opus", effort="low")
+    agents.register("mixed", "alpha", model="sonnet", effort="high")
+    t0 = 1_000_000
+
+    def stretch(who, readings, reset=9_999_999_999):
+        for dt, pct in readings:
+            burnrate.observe(con, "alpha", who, _Reading(pct, t0 + dt, reset))
+        burnrate.observe(con, "alpha", [], _Reading(readings[-1][1], t0 + readings[-1][0] + 30))
+
+    stretch(["solo"], [(0, 10), (300, 13), (700, 18)])
+    got = _samples_of(con)
+    check("burn: one agent's stretch is a sample of its own rise", len(got) == 1
+          and abs(got[0]["r"] - 8 / 700) < 1e-9 and got[0]["m"] == "sonnet"
+          and got[0]["e"] == "medium", str(got))
+    stretch(["solo"], [(1000, 20), (1300, 23)])
+    check("burn: a stretch too short to measure is not one", len(_samples_of(con)) == 1)
+    stretch(["solo"], [(2000, 30), (2700, 30)])
+    got = _samples_of(con)
+    check("burn: a stretch in which nothing rose is kept - dropping it would price agents high",
+          len(got) == 2 and got[1]["r"] == 0.0, str(got))
+    before = len(_samples_of(con))
+    stretch(["solo"], [(3000, 90), (3400, 5), (3900, 8), (4100, 9)])
+    got = _samples_of(con)[before:]
+    check("burn: a window that rolled over is not a rate; what comes after it starts afresh",
+          len(got) == 1 and abs(got[0]["r"] - 4 / 700) < 1e-9, str(got))
+    before = len(_samples_of(con))
+    for at, pct, reset in ((5000, 40, 100), (5400, 43, 100), (5800, 46, 200), (6000, 47, 200),
+                           (6300, 48, 200)):
+        burnrate.observe(con, "alpha", ["solo"], _Reading(pct, t0 + at, reset))
+    burnrate.observe(con, "alpha", [], _Reading(48, t0 + 6400))
+    check("burn: a new reset time is a new window as well: 40 -> 46 is not counted, "
+          "46 -> 48 is too short", len(_samples_of(con)) == before, str(_samples_of(con)[before:]))
+    stretch(["duo-a", "duo-b"], [(7000, 10), (7600, 22)])
+    got = _samples_of(con)[-1]
+    check("burn: two agents of one kind are their mean, filed under that kind",
+          abs(got["r"] - 6 / 600) < 1e-9 and (got["m"], got["e"]) == ("opus", "high"), str(got))
+    stretch(["duo-a", "duo-c"], [(8000, 10), (8600, 16)])
+    got = _samples_of(con)[-1]
+    check("burn: one model at two efforts is filed under the model only",
+          (got["m"], got["e"]) == ("opus", None), str(got))
+    stretch(["duo-a", "mixed"], [(9000, 10), (9600, 16)])
+    got = _samples_of(con)[-1]
+    check("burn: a rise that cannot be split between models is filed under neither",
+          (got["m"], got["e"]) == (None, None), str(got))
+    before = len(_samples_of(con))
+    burnrate.observe(con, "alpha", ["solo"], _Reading(10, t0 + 20000))
+    burnrate.observe(con, "alpha", ["solo"], _Reading(14, t0 + 20700))
+    burnrate.observe(con, "alpha", ["duo-a"], _Reading(30, t0 + 20730))
+    burnrate.observe(con, "alpha", [], _Reading(60, t0 + 21400))
+    got = _samples_of(con)[before:]
+    check("burn: a change of who is working closes the stretch before it, not across it",
+          len(got) == 1 and abs(got[0]["r"] - 4 / 700) < 1e-9, str(got))
+    # A stretch that runs on is cut where it is long enough and goes on from there.
+    before = len(_samples_of(con))
+    for i in range(0, 4000, 300):
+        burnrate.observe(con, "alpha", ["solo"], _Reading(10 + i // 100, t0 + 30000 + i))
+    check("burn: a run that never changes hands still yields samples",
+          len(_samples_of(con)) > before + 1, str(len(_samples_of(con))))
+    con.close()
+
+
+def test_an_agent_is_priced_by_the_nearest_kind_with_samples(home: Path) -> None:
+    """Its own kind at MIN_SAMPLES, then its model, then everyone, then the
+    starting value; a median of the last KEEP, held inside its bounds."""
+    _daemon_home(home, 20)
+    con = db.connect()
+    agents.register("op", "alpha", model="opus", effort="high")
+    agents.register("op-low", "alpha", model="opus", effort="low")
+    agents.register("so", "alpha", model="sonnet", effort="medium")
+    agents.register("newmodel", "alpha", model="haiku", effort="medium")
+    per_min = lambda a: round(burnrate.costs(con).per_s(a) * 60, 3)  # noqa: E731
+    start = round(triggers.TYPICAL_AGENT_BURN_PER_S * 60, 3)
+    check("cost: with no samples every agent is at the starting value",
+          per_min("op") == per_min("so") == per_min(None) == start, str(per_min("op")))
+    n = burnrate.MIN_SAMPLES
+    _give_samples(con, [(0.9, "opus", "high")] * (n - 1))
+    check("cost: one short of the floor is still the starting value", per_min("op") == start)
+    _give_samples(con, [(0.9, "opus", "high")] * n)
+    check("cost: at the floor an agent is priced by its own kind", per_min("op") == 0.9)
+    check("cost: another effort of the same model falls back to the model's - "
+          "that pool is the same samples", per_min("op-low") == 0.9)
+    check("cost: a model nobody has measured falls back to the all-agent median",
+          per_min("so") == per_min("newmodel") == per_min(None) == 0.9)
+    _give_samples(con, [(0.9, "opus", "high")] * n + [(0.3, "sonnet", "medium")] * n)
+    check("cost: each kind has its own number", (per_min("op"), per_min("so")) == (0.9, 0.3))
+    _give_samples(con, [(0.5, None, None)] * n)
+    check("cost: mixed-kind samples reach only the all-agent pool",
+          per_min("op") == per_min(None) == 0.5)
+    _give_samples(con, [(5.0, "opus", "high")] * n + [(0.0, "sonnet", "medium")] * n)
+    check("cost: the estimate is held inside its bounds",
+          (per_min("op"), per_min("so")) == (2.0, 0.1), f"{per_min('op')} {per_min('so')}")
+    _give_samples(con, [(2.0, "opus", "high")] * 40 + [(0.4, "opus", "high")] * burnrate.KEEP)
+    check("cost: only the last KEEP samples count", per_min("op") == 0.4)
+    _give_samples(con, [(0.4, "opus", "high")] * 8 + [(9.0, "opus", "high")] * 4)
+    check("cost: a median, so a few wild stretches do not move it", per_min("op") == 0.4)
+    db.set_meta(con, burnrate._SAMPLES, "not json")
+    check("cost: unreadable samples are the starting value", per_min("op") == start)
+    line = burnrate.costs(con).by_kind(["op", "so"])
+    check("cost: `account list` says what each kind is priced at and on what",
+          len(line) == 2 and "starting value" in line[0], str(line))
+    con.close()
+
+
+def test_the_price_of_an_agent_holds_still_across_ticks(home: Path) -> None:
+    """A move is judged every tick, so the estimate must not turn one agent away
+    and admit it again minutes later: at the fallback, at the floor, with no
+    samples, and as noisy stretches keep arriving around the line."""
+    import random
+    _daemon_home(home, 20)
+    _with_accounts("alpha", "beta")
+    con = db.connect()
+    agents.register("mover", "alpha", model="sonnet", effort="medium")
+    now = int(time.time())
+    # 40% headroom, filling at 0.5%/min: one more agent lasts 40 / (0.5 + a), and
+    # 30 minutes is the line, so a = 0.83%/min is exactly on it.
+    write_status(home, "beta", pct_5h=60, pct_7d=10, reset_5h=now + 3600, reset_7d=now + 86400)
+    status.write_burn("beta", 0.5 / 60, now)
+
+    def admitted() -> bool:
+        picked, _ = status.pick_account(["beta"], load=loadmod.read_all(con), agent="mover")
+        return picked == "beta"
+
+    def flips(trace: list[bool]) -> int:
+        return sum(1 for a, b in zip(trace, trace[1:]) if a != b)
+
+    check("ticks: with no samples the account is judged at the starting value, every tick",
+          {admitted() for _ in range(5)} == {True})
+    rng = random.Random(7)
+    trace, all_rates = [], []
+    for _ in range(80):
+        # Noisy stretches of an agent whose true cost, 0.65%/min, is under the
+        # 0.83 line: a point of resolution and how hard each stretch worked.
+        rate = max(0.0, 0.65 + rng.uniform(-0.4, 0.4))
+        all_rates.append(rate)
+        cur = json.loads(db.get_meta(con, burnrate._SAMPLES) or "[]")
+        cur.append({"t": len(cur), "a": "alpha", "r": rate / 60, "m": "sonnet", "e": "medium"})
+        db.set_meta(con, burnrate._SAMPLES, json.dumps(cur))
+        trace.append(admitted())
+    trace_live = []
+    for i in range(len(all_rates)):
+        recent = all_rates[max(0, i - 2):i + 1]
+        trace_live.append(40 / (0.5 + sum(recent) / len(recent)) >= 30)
+    check("ticks: through the floor and beyond, the same agent is never turned away",
+          flips(trace) == 0 and all(trace), str(trace))
+    check("ticks: a live average of the last three would have flipped it repeatedly",
+          flips(trace_live) >= 3, str(flips(trace_live)))
+    check("ticks: the same account is the same answer to the same agent, tick after tick",
+          len({admitted() for _ in range(20)}) == 1)
+    _give_samples(con, [(0.3, "sonnet", "medium")] * burnrate.MIN_SAMPLES)
+    check("ticks: at the floor the answer holds across ticks too",
+          len({admitted() for _ in range(20)}) == 1 and admitted())
+    con.close()
+
+
+def test_a_cheap_agent_is_admitted_where_a_dear_one_is_not(home: Path) -> None:
+    """The reason for measuring: the same account, the same fill, and each agent
+    priced by its own kind - sole and shared alike."""
+    _daemon_home(home, 20)
+    _with_accounts("alpha", "beta")
+    con = db.connect()
+    agents.register("dear", "alpha", model="opus", effort="high")
+    agents.register("cheap", "alpha", model="sonnet", effort="medium")
+    now = int(time.time())
+    write_status(home, "beta", pct_5h=60, pct_7d=10, reset_5h=now + 3600, reset_7d=now + 86400)
+    status.write_burn("beta", 0.5 / 60, now)
+    _give_samples(con, [(0.9, "opus", "high")] * 6 + [(0.3, "sonnet", "medium")] * 6)
+
+    def verdict(agent):
+        picked, reasons = status.pick_account(["beta"], load=loadmod.read_all(con), agent=agent)
+        return picked, dict(reasons)["beta"]
+
+    dear, cheap = verdict("dear"), verdict("cheap")
+    check("cost: the dear agent is refused (40 / (0.5 + 0.9) = 28m)",
+          dear[0] is None and "(0.90%/min)" in dear[1] and "~28m" in dear[1], str(dear))
+    check("cost: the cheap one is admitted on the same account (40 / (0.5 + 0.3) = 50m)",
+          cheap[0] == "beta" and "(0.30%/min)" in cheap[1], str(cheap))
+    check("cost: a screen that names no agent prices a typical one, and says so",
+          "(0.90%/min)" not in str(status.pick_account(["beta"], load=loadmod.read_all(con))[1]),
+          str(status.pick_account(["beta"], load=loadmod.read_all(con))[1]))
+    # Shared: the fill is already several agents' worth; the newcomer's price is
+    # still its own.
+    status.write_burn("beta", 1.0 / 60, now)
+    check("cost: on an account already filling at 1.0%/min the split holds: "
+          "40 / 1.9 = 21m refused, 40 / 1.3 = 30m admitted",
+          verdict("dear")[0] is None and verdict("cheap")[0] == "beta",
+          str((verdict("dear"), verdict("cheap"))))
+    con.close()
+
+
+def test_every_real_caller_prices_the_agent_it_is_placing(home: Path) -> None:
+    """`status.pick_account` being agent-aware is not enough on its own: each of
+    `_move_plan`, `_forced_plan` and `launch.find_room`'s two calls has to pass
+    `agent` through, or the newcomer is priced as a typical one and this test
+    catches it - dropping `agent=agent` from any of them turns the dear
+    agent's refusal into an admission."""
+    _daemon_home(home, 20)
+    accounts.register("beta")
+    for acct in ("alpha", "beta"):
+        (home / "accounts" / acct / ".claude").mkdir(parents=True, exist_ok=True)
+        (home / "accounts" / acct / ".claude" / ".credentials.json").write_text("{}")
+    agents.register("dear", "alpha", model="opus", effort="high")
+    agents.register("cheap", "alpha", model="sonnet", effort="medium")
+    agents.register("dear-pref", "beta", model="opus", effort="high")
+    agents.register("cheap-pref", "beta", model="sonnet", effort="medium")
+    now = int(time.time())
+    write_status(home, "alpha", pct_5h=100, pct_7d=10, reset_5h=now + 10 * 3600,
+                reset_7d=now + 86400)
+    write_status(home, "beta", pct_5h=60, pct_7d=10, reset_5h=now + 3600, reset_7d=now + 86400)
+    con = db.connect()
+    status.write_burn("beta", 0.5 / 60, now)
+    n = burnrate.MIN_SAMPLES
+    db.set_meta(con, burnrate._SAMPLES, json.dumps(
+        [{"t": i, "a": "x", "r": 0.9 / 60, "m": "opus", "e": "high"} for i in range(n)] +
+        [{"t": i, "a": "x", "r": 0.3 / 60, "m": "sonnet", "e": "medium"} for i in range(n)]))
+    db.set_account(con, "dear", "alpha")
+    db.set_account(con, "cheap", "alpha")
+    db.add_request(con, "marina", "dear", "carry on", None, "peer", "async", None, 0, None)
+    db.add_request(con, "marina", "cheap", "carry on", None, "peer", "async", None, 0, None)
+
+    dest, why = dmn._move_plan(con, "dear", "usage")
+    check("callers: _move_plan refuses the dear agent (40 / (0.5 + 0.9) = 28m)",
+          dest is None and "0.90%/min" in why, why)
+    dest, why = dmn._move_plan(con, "cheap", "usage")
+    check("callers: _move_plan admits the cheap one on the same account",
+          dest == "beta" and "0.30%/min" in why, why)
+
+    dest, why = dmn._forced_plan(con, "dear", "beta")
+    check("callers: _forced_plan refuses the dear agent's chosen destination too",
+          dest is None, why)
+    dest, why = dmn._forced_plan(con, "cheap", "beta")
+    check("callers: _forced_plan admits the cheap one", dest == "beta", why)
+
+    check("callers: find_room refuses the dear agent (walled preferred, refused fallback)",
+          launch.find_room("dear") is None, str(launch.find_room("dear")))
+    check("callers: find_room admits the cheap one via the fallback pick",
+          launch.find_room("cheap") == "beta", str(launch.find_room("cheap")))
+    check("callers: find_room refuses the dear agent on its own preferred account",
+          launch.find_room("dear-pref") is None, str(launch.find_room("dear-pref")))
+    check("callers: find_room admits the cheap one there directly, no fallback needed",
+          launch.find_room("cheap-pref") == "beta", str(launch.find_room("cheap-pref")))
+    con.close()
+
+
+def test_the_daemon_feeds_the_estimate_each_tick(home: Path) -> None:
+    """Ticks with one agent mid-turn on an account, its reading rising, end in a
+    sample under that agent's kind; and with none mid-turn, in none."""
+    _daemon_home(home, 20)
+    con = db.connect()
+    agents.register("worker", "alpha", model="opus", effort="high")
+    db.set_account(con, "worker", "alpha")
+    db.set_agent_state(con, "worker", dmn.RUNNING)
+    now = int(time.time())
+    base = now - 4000
+    logged: list[str] = []
+    for i, pct in enumerate((10, 12, 15, 17, 19)):
+        write_status(home, "alpha", pct_5h=pct, pct_7d=10, reset_5h=base + 18000,
+                     rl_at=base + i * 200, collected_at=now)
+        dmn.observe_burn(con, logged.append)
+    check("burn: a running agent's stretch is open, not yet a sample", not _samples_of(con))
+    db.set_agent_state(con, "worker", dmn.IDLE)
+    dmn.observe_burn(con, logged.append)
+    got = _samples_of(con)
+    check("burn: the tick that finds it idle files the sample under its kind",
+          len(got) == 1 and (got[0]["m"], got[0]["e"]) == ("opus", "high")
+          and abs(got[0]["r"] - 9 / 800) < 1e-9, str(got))
+    dmn.observe_burn(con, logged.append)
+    write_status(home, "alpha", pct_5h=20, pct_7d=10, reset_5h=base + 18000,
+                 rl_at=now, collected_at=now)
+    db.set_agent_state(con, "backend", dmn.RUNNING)
+    db.set_account(con, "backend", "alpha")
+    dmn.tick(con, logged.append)
+    check("burn: the daemon's own tick feeds it", db.get_meta(con, "burnseg:alpha") is not None,
+          str(logged))
+    db.set_agent_state(con, "backend", dmn.IDLE)
+    dmn.observe_burn(con, logged.append)
+    check("burn: and an idle account adds none", len(_samples_of(con)) == 1 and not logged,
+          str(logged))
+    con.close()
+
+
+def test_a_cold_start_is_not_priced_as_steady_work(home: Path) -> None:
+    """`measure.py` already prices the first turn since a SessionStart or
+    moved_account as a cold start; a burn sample must not price it again as
+    steady work, or an agent's cost is inflated by every launch."""
+    _daemon_home(home, 20)
+    con = db.connect()
+    agents.register("worker", "alpha", model="opus", effort="high")
+    db.set_account(con, "worker", "alpha")
+    now = int(time.time())
+    base = now - 4000
+    db.add_event(con, "worker", "SessionStart")
+    db.set_agent_state(con, "worker", dmn.RUNNING)
+    check("cold: fresh since SessionStart, no Stop yet - it is a first turn",
+          "worker" in loadmod.first_turn_agents(con))
+    for i, pct in enumerate((10, 12, 15, 17, 19)):
+        write_status(home, "alpha", pct_5h=pct, pct_7d=10, reset_5h=base + 18000,
+                     rl_at=base + i * 200, collected_at=now)
+        dmn.observe_burn(con, lambda _m: None)
+    db.set_agent_state(con, "worker", dmn.IDLE)
+    dmn.observe_burn(con, lambda _m: None)
+    check("cold: a stretch that held a first turn files no sample", not _samples_of(con))
+
+    db.add_event(con, "worker", "Stop")
+    check("cold: a completed turn is no longer a first one",
+          "worker" not in loadmod.first_turn_agents(con))
+    db.set_agent_state(con, "worker", dmn.RUNNING)
+    base2 = now
+    for i, pct in enumerate((20, 23, 27, 30, 34)):
+        write_status(home, "alpha", pct_5h=pct, pct_7d=10, reset_5h=base + 18000,
+                     rl_at=base2 + i * 200, collected_at=now)
+        dmn.observe_burn(con, lambda _m: None)
+    db.set_agent_state(con, "worker", dmn.IDLE)
+    dmn.observe_burn(con, lambda _m: None)
+    got = _samples_of(con)
+    check("cold: its second turn, after a Stop, files normally",
+          len(got) == 1 and (got[0]["m"], got[0]["e"]) == ("opus", "high"), str(got))
+    con.close()
 
 
 def test_the_panels_bounded_cells_fit_their_own_columns(home: Path) -> None:
@@ -8226,7 +8841,7 @@ def test_the_pick_weighs_how_fast_an_account_is_filling(home: Path) -> None:
     check("fill: and says why - the fill and what one more agent would last",
           "fill 3.0%/min" in why["alpha"] and "under the 30m" in why["alpha"], why["alpha"])
     check("fill: the pick shows its own reason too",
-          "one more agent lasts" in why["beta"] and "<- picked" in why["beta"], why["beta"])
+          "one more agent (0.75%/min) lasts" in why["beta"] and "<- picked" in why["beta"], why["beta"])
     status.write_burn("alpha", 0.0, now)
     check("fill: with the fill gone the earlier weekly deadline wins again",
           status.pick_account(["alpha", "beta"], load=loadmod.read_all())[0] == "alpha")
@@ -8568,25 +9183,39 @@ def test_a_sweep_after_a_move_does_not_keep_the_old_accounts_session(home: Path)
         con.close()
 
 
-def test_a_span_of_a_day_or_more_reads_in_days(home: Path) -> None:
-    """162h20 is 6d18h; under a day the form is unchanged, and the widest day
-    value fits the column every surface draws it in."""
-    check("span: 162h20 reads 6d18h", status.span(162 * 3600 + 20 * 60) == "6d18h",
-          status.span(162 * 3600 + 20 * 60))
-    check("span: 5h03 stays 5h03", status.span(5 * 3600 + 3 * 60) == "5h03")
-    check("span: 24h is the first day", status.span(86400) == "1d0h")
-    check("span: 23h59 stays hours", status.span(86400 - 60) == "23h59")
-    check("span: a runway reads the same way", status.span(6 * 86400 + 23 * 3600) == "6d23h")
+def test_a_span_ends_in_its_unit_and_fits_its_columns(home: Path) -> None:
+    """Every form of a span ends in its unit letter, so "2h40" is never read
+    as 2.40 hours, and the widest of each fits the column it is drawn in."""
+    for secs, precise, want in (
+            (162 * 3600 + 20 * 60, False, "6d18h"), (86400, False, "1d0h"),
+            (5 * 3600 + 3 * 60, False, "5h03m"), (86400 - 60, False, "23h59m"),
+            (3600, False, "1h00m"), (35 * 60 + 12, False, "35m"), (10, False, "1m"),
+            (35 * 60 + 12, True, "35m12s"), (2 * 60 + 5, True, " 2m05s"),
+            (5 * 3600 + 3 * 60, True, "5h03m"), (6 * 86400 + 23 * 3600, True, "6d23h")):
+        got = status.span(secs, precise=precise)
+        check(f"span: {secs}s{' precise' if precise else ''} reads {want!r}", got == want, got)
     check("span: the bridge's age column reads days too", tui.age(162 * 3600 + 20 * 60) == "6d18h"
           and tui.age(3 * 3600 + 100) == "3h", tui.age(162 * 3600 + 20 * 60))
     check("span: and so does the stale line's age", status.ago(162 * 3600 + 20 * 60) == "6d18h"
           and status.ago(3 * 3600) == "3h")
     now = int(time.time())
-    for ts, want in ((now + 6 * 86400 + 23 * 3600 + 30, "6d23h"), (now + 5 * 3600 + 200, "5h03")):
-        cell = tui.countdown(ts)
+    widest = 0
+    for ts, want in ((now + 6 * 86400 + 23 * 3600 + 30, "6d23h"), (now + 5 * 3600 + 200, "5h03m"),
+                     (now + 59 * 60 + 59, "59m59s")):
+        cell = tui.countdown(ts).strip()
+        widest = max(widest, len(cell))
         check(f"span: the bridge countdown says {want}", cell == want, cell)
+    longest_state = max(len(f"{st}·closed") for st in tui.STATE_COLOR)
+    check("span: the widest wait leaves the agents panel's longest state whole",
+          tui.STATE_W - 1 - (widest + 1) >= longest_state, f"{widest} {longest_state}")
     check("span: the widest fits the reset columns",
-          len("6d23h") < tui.ACCT_W["reset5"] and len("6d23h") < tui.ACCT_W["reset7"])
+          widest < tui.ACCT_W["reset5"] and widest < tui.ACCT_W["reset7"], str(widest))
+    # A runway is shown only while the wall comes before the 5h window resets,
+    # so its eta is under five hours.
+    widest_runway = max(len(f"~{status.span(s)} to wall") for s in (
+        5 * 3600 - 1, 3600, 59 * 60))
+    check("span: the widest runway fits its column in the bridge and in `account list`",
+          widest_runway < tui.ACCT_W["runway"] and widest_runway < 16, str(widest_runway))
 
 
 def test_the_cap_is_set_from_the_command_line_and_the_bridge(home: Path) -> None:
@@ -9533,7 +10162,7 @@ edges:
                   "when you finish" not in ctx
                   and ("is for being blocked" in line) != boss_is_human
                   and (not boss_is_human or "ocp ask human" not in line)
-                  and "A decision only the founder can make: `ocp ask human`" in ctx, line)
+                  and "A decision or a block only the founder can clear: `ocp ask human`" in ctx, line)
             check(f"team: and resolve is said once, in that line, not again after it",
                   ctx.count("ocp resolve <id>") == 1, ctx)
 
@@ -11735,6 +12364,8 @@ def main() -> int:
         run(lambda: test_reconcile_does_not_clear_closed_at_on_a_failed_wake(Path(td) / 'crashwake'))
         run(lambda: test_work_arriving_wakes_a_closed_agent(Path(td) / 'wakework'))
         run(lambda: test_a_running_agent_is_told_when_work_arrives(Path(td) / 'deliver'))
+        run(lambda: test_a_report_to_the_founder_is_not_a_wait(Path(td) / 'fyi'))
+        run(lambda: test_the_cursor_follows_a_row_that_leaves_the_list(Path(td) / 'cursor'))
         run(lambda: test_a_withdraw_landing_before_the_send_stops_the_send(Path(td) / 'withdrawrace'))
         run(lambda: test_a_delivery_belongs_to_the_session_it_was_typed_into(Path(td) / 'sessdeliver'))
         run(lambda: test_nothing_is_typed_at_a_modal(Path(td) / 'modal'))
@@ -11834,13 +12465,22 @@ def main() -> int:
         run(lambda: test_the_accounts_row_draws_a_last_seen_figure_only_inside_its_window(Path(td) / 'acctrow'))
 
 
-        run(lambda: test_a_span_of_a_day_or_more_reads_in_days(Path(td) / 'ar4f'))
+        run(lambda: test_a_span_ends_in_its_unit_and_fits_its_columns(Path(td) / 'ar4f'))
         run(lambda: test_a_sweep_after_a_move_does_not_keep_the_old_accounts_session(Path(td) / 'ar4e'))
         run(lambda: test_agents_that_wall_together_respect_the_cap_and_a_start_is_not_its_own_rival(Path(td) / 'ar4b'))
         run(lambda: test_the_cap_is_set_from_the_command_line_and_the_bridge(Path(td) / 'ar5'))
         run(lambda: test_replaying_0919_makes_fewer_moves_than_the_old_rules(Path(td) / 'ar6'))
         run(lambda: test_a_turn_that_ends_on_the_usage_limit_is_at_the_wall(Path(td) / 'limitstop'))
+        run(lambda: test_a_permission_prompt_waits_on_the_founder_until_it_is_answered(Path(td) / 'promptwait'))
+        run(lambda: test_a_proposal_and_an_escalation_wait_on_the_founder_too(Path(td) / 'founderwaits'))
         run(lambda: test_an_unknown_reset_does_not_make_the_runway_absurd(Path(td) / 'runwayunknown'))
+        run(lambda: test_what_one_agent_costs_is_measured_from_stretches_of_work(Path(td) / 'burnobs'))
+        run(lambda: test_an_agent_is_priced_by_the_nearest_kind_with_samples(Path(td) / 'burnkind'))
+        run(lambda: test_the_price_of_an_agent_holds_still_across_ticks(Path(td) / 'burnticks'))
+        run(lambda: test_a_cheap_agent_is_admitted_where_a_dear_one_is_not(Path(td) / 'burncheap'))
+        run(lambda: test_every_real_caller_prices_the_agent_it_is_placing(Path(td) / 'burncallers'))
+        run(lambda: test_the_daemon_feeds_the_estimate_each_tick(Path(td) / 'burntick'))
+        run(lambda: test_a_cold_start_is_not_priced_as_steady_work(Path(td) / 'burncold'))
         run(lambda: test_the_panels_bounded_cells_fit_their_own_columns(Path(td) / 'panelwidths'))
         run(lambda: test_ask_and_resolve_do_not_type_at_an_agent_at_the_wall(Path(td) / 'askwall'))
         run(lambda: test_choose_account_does_not_bounce_back_to_a_stale_preferred_account(

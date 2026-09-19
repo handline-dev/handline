@@ -39,6 +39,7 @@ from pathlib import Path
 
 from . import (accounts, actions, agents, daemon, db, launch, load as loadmod, paths, status,
                triggers)
+from . import waiting as promptwait
 
 ALT_ON, ALT_OFF = "\033[?1049h", "\033[?1049l"
 CUR_OFF, CUR_ON = "\033[?25l", "\033[?25h"
@@ -57,6 +58,11 @@ STATE_COLOR = {
     "DEGRADED": RED, "STALLED": RED,
 }
 
+# What an agent reads as while it sits at a prompt only the founder can answer.
+# Its state underneath is still RUNNING; this is drawn over it.
+WAITING_ON_YOU = "WAITING ON YOU"
+WAITS_SHOWN = 5   # rows of the pinned block; the rest are counted, not drawn
+
 # The panels a cursor can sit in, in tab order. STUCK is one of them because a
 # row there names the agent that is stuck, and the keys that unstick it are the
 # agent keys - pressing them where the problem is read beats finding the same
@@ -64,8 +70,8 @@ STATE_COLOR = {
 ACCOUNTS, AGENTS, MESSAGES, STUCK = 0, 1, 2, 3
 NAME_W = 22   # fits `└ orcapipe-manager +2`
 # The state cell carries the time an agent is waiting until ("PARKED·closed
-# 12m05"): park, a degraded retry and the await fallback all set one.
-STATE_W = 23
+# 12m05s"): park, a degraded retry and the await fallback all set one.
+STATE_W = 24
 # What an agent *is* - its model, its effort, and one day which tool it is at
 # all - against what is happening to it now. The second wins a narrow screen:
 # the kind of an agent is on its own page too and does not change while anyone
@@ -460,6 +466,35 @@ def _needs_you(row) -> str:
     return f"{RED}{row['state'].lower()}{R} {DIM}{(row['detail'] or '')[:60]}{R}"
 
 
+def _plain(text: str) -> str:
+    """What someone else wrote, made safe to draw: an escape is invisible to the
+    width count and `esc [ 2J` clears the screen it is drawn on."""
+    return "".join(c if c.isprintable() else " " for c in _ANSI.sub("", text))
+
+
+def wait_lines(waits: list[dict], width: int, budget: int | None = None) -> list[str]:
+    """The block pinned above everything else: what is stopped until the founder
+    acts. Nothing when nothing is.
+
+    `budget` is the most lines it may take: the heading always shows, with the
+    count, and what does not fit is counted rather than drawn - a short window
+    keeps its mailbox.
+    """
+    if not waits:
+        return []
+    now = time.time()
+    out = [f"{BOLD}{RED}{WAITING_ON_YOU}{R} {DIM}({len(waits)}){R}"]
+    room = min(WAITS_SHOWN + 1, len(waits) if budget is None else max(0, budget - 1))
+    shown = len(waits) if len(waits) <= room else max(0, room - 1)
+    for w in waits[:shown]:
+        colour = RED if w["red"] else YEL
+        out.append(fit(f"{colour}  {_plain(w['who'])} · {_plain(w['what'])} · "
+                       f"{age(now - w['since'])}{R}", width))
+    if shown < len(waits) and room:
+        out.append(f"{DIM}  … {len(waits) - shown} more{R}")
+    return out
+
+
 def keybar(panel: int, width: int, hidden: int = 0) -> str:
     """The keys this panel answers to, in as much room as there is.
 
@@ -497,7 +532,8 @@ def keybar(panel: int, width: int, hidden: int = 0) -> str:
 
 
 def build(width: int, sel: dict | None = None,
-          panel: int | None = None) -> tuple[list[str], list[Panel]]:
+          panel: int | None = None,
+          wait_budget: int | None = None) -> tuple[list[str], list[Panel]]:
     """Return (header lines, panels) for one frame.
 
     `sel` is {panel: key}: which row carries the cursor in each panel, so the
@@ -526,7 +562,10 @@ def build(width: int, sel: dict | None = None,
         # Not "5h": both usage columns carry these marks now.
         with_legend = f"{bar_}{DIM} · {status.SOURCE_LEGEND_SHORT}{R}"
         show_legend = any(m.strip() for m in marks) and vlen(with_legend) <= width
-        header = [fit(with_legend if show_legend else bar_, width), ""]
+        header = [fit(with_legend if show_legend else bar_, width)]
+        # Above the accounts, above everything: it is the one thing on this
+        # screen that stops until a person acts.
+        header += wait_lines(actions.founder_waits(con), width, wait_budget) + [""]
 
         # ---- accounts ------------------------------------------------
         acc = Panel("ACCOUNTS", width, focused=panel == ACCOUNTS)
@@ -613,6 +652,8 @@ def build(width: int, sel: dict | None = None,
             # as PARKED hides the one difference that matters on this machine.
             if row and row["closed_at"]:
                 s += "·closed"
+            elif promptwait.of(row):
+                s = WAITING_ON_YOU
             # Only when something is actually about to happen. Measured on a
             # live team: nothing firing, six rows reading "— closed" - which
             # the state column says already, with the same word - and two
@@ -626,7 +667,7 @@ def build(width: int, sel: dict | None = None,
             # comes back.
             until = countdown(row["wake_at"] if row else None).strip()
             until = "" if until == "-" else until
-            state_cell = (f"{STATE_COLOR.get(s, '')}"
+            state_cell = (f"{BOLD + RED if s == WAITING_ON_YOU else STATE_COLOR.get(s, '')}"
                           f"{fit(s, STATE_W - 1 - (len(until) + 1 if until else 0))}{R}"
                           + (f" {DIM}{until}{R}" if until else ""))
             ctxs = f"{pct(st.ctx_pct)}%"
@@ -863,7 +904,9 @@ def frame(width: int, height: int, sel: dict | None = None, panel: int = AGENTS,
           flash: str = "", detail: dict | None = None) -> str:
     if detail is not None:
         return _detail_frame(width, height, detail, flash)
-    header, panels = build(width, sel, panel)
+    # The pinned block takes what is left after the bar, the blank line, the
+    # two footer rows and the smallest box the mailbox can be drawn in.
+    header, panels = build(width, sel, panel, wait_budget=height - 4 - PANEL_MIN)
     room = height - len(header) - 2                    # the two footer rows
     limits, hidden = _layout([len(p.rows) for p in panels], room)
     body: list[str] = []
@@ -1001,6 +1044,28 @@ def move(keys: list, current, delta: int):
         return keys[0]
     i = keys.index(current) + delta
     return keys[i] if 0 <= i < len(keys) else None
+
+
+def settle(sel: dict, known: dict) -> None:
+    """Keep every panel's cursor on a row that exists.
+
+    A row leaves a list under the cursor - dismissed, answered, a report closing
+    on open - and a cursor keyed on it is then on nothing, drawn as nowhere.
+    It goes to the row that took the place, or to the one above when the last
+    row went, and is dropped only when the list is empty. `known` is each
+    panel's keys as of the last call, which is what says where the row was.
+    """
+    for panel in PANELS:
+        keys = _keys_of(panel)
+        cur = sel.get(panel)
+        if cur is not None and cur not in keys:
+            was = known.get(panel, [])
+            at = was.index(cur) if cur in was else 0
+            if keys:
+                sel[panel] = keys[min(at, len(keys) - 1)]
+            else:
+                del sel[panel]
+        known[panel] = keys
 
 
 def step(panel: int, sel: dict, delta: int) -> int:
@@ -1158,11 +1223,13 @@ def run(interval: float = 2.0, once: bool = False) -> int:
     saved = termios.tcgetattr(fd) if sys.stdin.isatty() else None
     panel, sel, flash, detail = AGENTS, {}, "", None
     _enter(panel, sel)
+    known: dict = {}
     try:
         if saved:
             tty.setcbreak(fd)
         sys.stdout.write(ALT_ON + CUR_OFF)
         while True:
+            settle(sel, known)
             size = shutil.get_terminal_size((100, 40))
             width, height = size.columns, size.lines
             sys.stdout.write(HOME + frame(width, height, sel, panel, flash, detail))
@@ -1550,6 +1617,16 @@ def _remove_account(name: str, width: int, height: int, fd, saved) -> str:
 
 def _act(panel: int, sel: dict, key: str, width: int, height: int,
          fd, saved) -> tuple[str, list[str] | None]:
+    """One keypress on the selected row, leaving the cursor on a row that exists."""
+    before = {panel: _keys_of(panel)}
+    try:
+        return _act_on(panel, sel, key, width, height, fd, saved)
+    finally:
+        settle(sel, before)
+
+
+def _act_on(panel: int, sel: dict, key: str, width: int, height: int,
+            fd, saved) -> tuple[str, list[str] | None]:
     """One keypress on the selected row. Returns (line to show, detail or None)."""
     keys = _keys_of(panel)
     target = sel.get(panel)
@@ -1632,6 +1709,7 @@ def _act(panel: int, sel: dict, key: str, width: int, height: int,
             if not row:
                 return f"#{rid} is gone", None
             if key in ("\r", "\n"):
+                actions.opened_by_human(con, rid)
                 detail = actions.message_detail(con, rid)
                 if detail is None:
                     return f"#{rid} is gone", None

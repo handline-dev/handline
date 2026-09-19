@@ -39,18 +39,22 @@ WINDOW_5H_S = 5 * 3600
 STAY_WITHIN_S = 39 * 60
 
 # What one agent working steadily costs an account, in percent of its 5h window
-# per second: 0.75%/min. Read off 09-19's trace, where each account's rise was
-# divided by the agents active on it - beta 50% -> 85% in 9 minutes with five,
-# gamma 7% -> 51% in 13 minutes with five. Nothing refines it; it is a constant.
+# per second, until enough has been measured to say (`burnrate`): 0.75%/min. It
+# is what 09-19's trace gave, where each account's rise was divided by the agents
+# active on it - beta 50% -> 85% in 9 minutes with five, gamma 7% -> 51% in 13
+# minutes with five - and it is where an agent of a kind nobody has measured yet
+# starts.
 TYPICAL_AGENT_BURN_PER_S = 0.75 / 60
 
-# An account can take one more agent only if, at its current fill plus one
-# typical agent, it lasts this long before its wall. Below that a session
-# spends more on getting started than it gets back: a cold start costs about
-# 17 minutes of one agent's steady burn (13% at 0.75%/min), so about twice that,
-# rounded to 30 minutes, is the least stretch that is worth beginning. (This is
-# time at an agent's burn; T above is time on the wall clock, which is why the
-# same 13% is 17 minutes here and 39 there.)
+# An account can take one more agent only if, at its current fill plus that
+# agent's cost, it lasts this long before its wall. Below that a session spends
+# more on getting started than it gets back: a cold start is about 13% of a
+# window, 17 minutes of an agent at the starting value's 0.75%/min, and twice
+# that, rounded to half an hour, is the least stretch worth beginning. The
+# half hour stays put as agents are measured: a cheaper agent already lasts
+# longer on the same account, and a floor derived from the cost would rise as
+# agents got cheaper and refuse them for it. (T above is the same start in
+# wall-clock time, and it does follow measure.py.)
 MIN_STRETCH_S = 30 * 60
 
 # Most agents mid-turn on one account at once (Pro). Set per account in config.
@@ -134,7 +138,8 @@ def stay_or_move(work_waiting: bool, reset_in_s: float | None,
 
 def stretch_s(headroom_pct: float, fill_per_s: float,
               agent_per_s: float = TYPICAL_AGENT_BURN_PER_S) -> float:
-    """How long an account lasts before its wall with one more agent on it."""
+    """How long an account lasts before its wall with one more agent on it, at
+    that agent's cost."""
     rate = max(0.0, fill_per_s) + agent_per_s
     return headroom_pct / rate if rate > 0 else float("inf")
 

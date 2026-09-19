@@ -126,7 +126,10 @@ known says it is a bad place to start: at the wall, at its cap of agents
 mid-turn (2 by default, `ocp account cap <name> <n>` or `c` on the bridge), or
 filling so fast that one more agent would last under half an hour. How fast it
 is filling - the account's measured burn - is what says it has room, not a
-fixed line.
+fixed line, and the agent being placed is priced by its own kind: what one more
+agent costs is the median of what agents of its model and effort were measured
+spending, falling back to its model's, all agents', and 0.75%/min of the window
+until enough has been seen.
 
 **A working agent runs to the wall.** Nothing below 100% moves or parks it: a
 turn that ends on the usage limit, or a reading at 100%, is the wall, and

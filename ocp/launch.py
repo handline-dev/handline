@@ -47,13 +47,14 @@ def find_room(agent: str, exclude: dict[str, str] | None = None) -> str | None:
     from . import load as loadmod
     load = loadmod.read_all()
     if not (exclude and preferred in exclude) \
-            and status.unfit(status.read(preferred), load.get(preferred)) is None:
+            and status.unfit(status.read(preferred), load.get(preferred), agent) is None:
         return preferred
     # Logged-in accounts only: `assignable` says nothing about credentials.
     # bootstrap: a never-run account is a real place to go. `preferred` is out:
     # it is what was just found unfit.
     candidates = [a for a in paths.list_accounts() if accounts.logged_in(a) and a != preferred]
-    return status.pick_account(candidates, bootstrap=True, exclude=exclude, load=load)[0]
+    return status.pick_account(candidates, bootstrap=True, exclude=exclude, load=load,
+                               agent=agent)[0]
 
 
 def choose_account(agent: str, resuming: bool = False, con=None) -> str:
@@ -313,7 +314,7 @@ def _your_team(agent: str) -> str:
                      "time; to correct one not yet delivered, `--replaces <id>` "
                      "or `ocp withdraw <id>`, not a message behind it.")
     lines.append("`ocp team` shows who you may ask and what each is doing now. "
-                 "A decision only the founder can make: `ocp ask human`.")
+                 "A decision or a block only the founder can clear: `ocp ask human`.")
     # A self-scheduled wakeup survives the park's /clear and fires into a
     # session that is at the usage wall.
     lines.append("Never schedule your own wakeup, /loop or poll to wait for a reply "

@@ -29,6 +29,13 @@ EFFORT_SHORT = {"low": "low", "medium": "mid", "high": "high",
                 "xhigh": "xhi", "max": "max"}
 
 
+def parts(cfg: dict) -> tuple[str, str, str]:
+    """(vendor, model, effort) as configured, defaults filled in."""
+    return (str(cfg.get("vendor") or DEFAULT_VENDOR),
+            str(cfg.get("model") or DEFAULT_MODEL),
+            str(cfg.get("effort") or DEFAULT_EFFORT))
+
+
 def kind(cfg: dict) -> str:
     """What an agent is, for a column: the model and its effort.
 
@@ -37,9 +44,7 @@ def kind(cfg: dict) -> str:
     team is a column that trains a reader not to look at it, and the day a
     codex agent appears is the day the word starts carrying information.
     """
-    vendor = str(cfg.get("vendor") or DEFAULT_VENDOR)
-    model = str(cfg.get("model") or DEFAULT_MODEL)
-    effort = str(cfg.get("effort") or DEFAULT_EFFORT)
+    vendor, model, effort = parts(cfg)
     out = f"{model} {EFFORT_SHORT.get(effort, effort)}"
     return out if vendor == DEFAULT_VENDOR else f"{vendor} {out}"
 

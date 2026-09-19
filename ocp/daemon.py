@@ -33,7 +33,7 @@ import uuid
 from dataclasses import dataclass
 from pathlib import Path
 
-from . import (accounts, agents, db, events, fold as foldmod, handoff as handoffmod, launch,
+from . import (accounts, agents, burnrate, db, events, fold as foldmod, handoff as handoffmod, launch,
                load, lock, measure, observe as obs, orca, paths, probe, service, spawn as spawnmod,
                status, triggers)
 
@@ -1395,7 +1395,7 @@ def force_move(con, agent: str, dest: str, by: str, log) -> tuple[bool, str]:
                        f"the account for its next start")
     if row["state"] in (HANDOFF, STALLED):
         return False, f"{agent} is {row['state']}"
-    room, why = _forced_plan(con, dest)
+    room, why = _forced_plan(con, agent, dest)
     if room is None:
         return False, f"{why} - not moving {agent} there"
     prefer = agents.account_of(agent)
@@ -1533,18 +1533,19 @@ def _move_plan(con, agent: str, kind: str) -> tuple[str | None, str]:
             exclude[left] = "the account it just left, until it resets"
     dest, ranked = status.pick_account(
         [a for a in paths.list_accounts() if accounts.logged_in(a)],
-        bootstrap=True, exclude=exclude, load=load.read_all(con))
+        bootstrap=True, exclude=exclude, load=load.read_all(con), agent=agent)
     if dest is None:
         return None, "no account can take one more agent (" + "; ".join(
             f"{a}: {r}" for a, r in ranked if a not in exclude) + ")"
     return dest, dict(ranked)[dest]
 
 
-def _forced_plan(con, dest: str) -> tuple[str | None, str]:
+def _forced_plan(con, agent: str, dest: str) -> tuple[str | None, str]:
     """A person's chosen destination, held to the same room test as any other:
     the pick over that one account, so a walled, capped or unreadable one is
     refused with the pick's own reason. (destination, why)."""
-    picked, ranked = status.pick_account([dest], bootstrap=True, load=load.read_all(con))
+    picked, ranked = status.pick_account([dest], bootstrap=True, load=load.read_all(con),
+                                         agent=agent)
     if picked is None:
         why = dict(ranked).get(dest) or "cannot take one more agent"
         return None, f"{dest} {why}"
@@ -1571,7 +1572,7 @@ def _move_to_room(con, agent: str, trigger: triggers.Trigger, log,
     if trigger.kind not in MOVABLE_TRIGGERS:
         return False
     here = agents.current_account(agent, con)
-    there, picked_why = (_forced_plan(con, dest) if dest
+    there, picked_why = (_forced_plan(con, agent, dest) if dest
                          else _move_plan(con, agent, trigger.kind))
     if there is None:
         log(f"  {agent}: staying on {here} - {picked_why}")
@@ -1947,7 +1948,7 @@ def supervise(con, agent: str, log, now: int, samples: dict,
     # buffer fills with flat samples and the measured rate falls to zero for an
     # account that was climbing.
     hist = samples.setdefault(acct, [])
-    if st.pct_5h_source == "live" and st.pct_5h is not None and st.rl_at:
+    if st.is_live_reading:
         if not hist or hist[-1][0] != st.rl_at:
             hist.append((st.rl_at, st.pct_5h))
             del hist[:-10]
@@ -2127,7 +2128,21 @@ def tick(con, log, samples: dict | None = None) -> Tick:
                                    detail=f"{fresh['failed_attempts']} failed attempts: {e}")
                 log(f"  {agent}: STALLED after {fresh['failed_attempts']} failed attempts")
 
+    observe_burn(con, log)
     return Tick(now, actions)
+
+
+def observe_burn(con, log) -> None:
+    """Feed each account's reading and who is working on it to the estimate of
+    what one more agent costs (`burnrate`). After the agents, so it sees the
+    states this tick left."""
+    working = load.active_by_account(con)
+    firsts = load.first_turn_agents(con)
+    for acct in paths.list_accounts():
+        try:
+            burnrate.observe(con, acct, working.get(acct, []), status.read(acct), firsts)
+        except Exception as e:  # noqa: BLE001 - a bad reading on one account is not the tick's failure
+            log(f"  burn: {acct}: {e}")
 
 
 # ---------------------------------------------------------------- loop

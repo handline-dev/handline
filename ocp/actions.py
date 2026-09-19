@@ -24,8 +24,8 @@ import time
 from pathlib import Path
 
 from . import (accounts, agents, ask as askmod, daemon, db, events as evmod,
-               fold as foldmod, load as loadmod, observe as obs, orca, paths,
-               spawn as spawnmod, status, team, triggers)
+               fold as foldmod, hr, load as loadmod, observe as obs, orca, paths,
+               spawn as spawnmod, status, team, triggers, waiting)
 
 # The name a human's own requests are sent under, and the inbox `ocp bridge`
 # shows. Taken from `ask`, which is where escalations are addressed: a second
@@ -332,6 +332,62 @@ def messages(con) -> list[dict]:
     # its id: an answer carries the time it came back, and a reply to an old
     # question has a low id and is this morning's news.
     return sorted(out, key=lambda m: (not m["gate"], not m["waiting"], m["ts"], m["id"]))
+
+
+def founder_waits(con) -> list[dict]:
+    """Everything that stops until the founder does something, oldest first.
+
+    Each is {kind, who, what, since, red}. A permission prompt and an
+    unanswered escalation are the founder's move (red). A roster proposal is
+    shown from the moment it is raised until it is applied or refused: once
+    approved it is waiting on whoever applies it, so it stays but not in red.
+    """
+    out: list[dict] = []
+    for row in db.all_agent_states(con):
+        w = waiting.of(row)
+        if w:
+            out.append({"kind": "permission", "who": row["agent"], "red": True,
+                        "what": " ".join(x for x in (f"{w.get('tool') or 'tool'}:",
+                                                      w.get("command")) if x),
+                        "since": int(w["since"])})
+
+    proposed: set[int] = set()
+    for prop in hr.listing():
+        if prop.get("state") != "proposed":
+            continue
+        req = db.get_request(con, int(prop.get("request") or 0))
+        if req is None:
+            continue
+        proposed.add(int(req["id"]))
+        if req["state"] == "queued":
+            how, red = "awaiting your decision", True
+        elif req["state"] == "done":
+            call = hr.decision(req["verdict"])
+            if call == "rejected":
+                continue
+            how, red = (("approved, not yet applied", False) if call == "approved"
+                        else ("answered, but not approve or reject", True))
+        else:
+            continue
+        out.append({"kind": "proposal", "who": prop.get("requested_by") or "?", "red": red,
+                    "what": f"hr {prop['kind']} {prop['agent']} - {how}",
+                    "since": int(req["ts"])})
+
+    for r in con.execute(
+        "SELECT id, ts, requester, body FROM requests WHERE target = ? "
+        "AND kind = 'escalate' AND state = 'queued' ORDER BY id", (HUMAN,)).fetchall():
+        if int(r["id"]) in proposed:
+            continue
+        out.append({"kind": "escalation", "who": r["requester"], "red": True,
+                    "what": f"#{r['id']} {first_line(r['body'])}", "since": int(r["ts"])})
+    return sorted(out, key=lambda w: (not w["red"], w["since"]))
+
+
+def opened_by_human(con, rid: int) -> None:
+    """Reading a report is what closes it: it asked nothing, so nothing is left."""
+    row = db.get_request(con, rid)
+    if row and row["fyi"] and row["target"] == HUMAN:
+        db.retire_queued(con, rid, "done", "read")
 
 
 def message_detail(con, rid: int) -> tuple[str, list[tuple[str, list[str]]]] | None:
