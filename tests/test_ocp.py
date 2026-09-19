@@ -1432,6 +1432,26 @@ def test_daemon_evaluates_parked(home: Path) -> None:
     check("daemon: STALLED is not auto-evaluated", dmn.STALLED not in dmn.EVALUATED)
 
 
+def test_the_daemon_writes_its_own_pidfile_back(home: Path) -> None:
+    """Whoever deletes the file, a supervisor that is running has to say so."""
+    home.mkdir(parents=True, exist_ok=True)
+    os.environ["OCP_HOME"] = str(home)
+    dmn._pidfile_logged["at"] = 0.0
+    lines: list[str] = []
+    dmn.write_pidfile()
+    check("pidfile: one that names this process is left alone",
+          dmn.keep_pidfile(lines.append) is False and not lines)
+    paths.daemon_pid().unlink()
+    check("pidfile: a missing one is written back",
+          dmn.keep_pidfile(lines.append) is True and dmn.read_pidfile()["pid"] == os.getpid())
+    paths.daemon_pid().write_text(json.dumps({"pid": os.getpid() + 1, "boot": 1}))
+    check("pidfile: one naming another process is taken back - the lock decides who holds it",
+          dmn.keep_pidfile(lines.append) is True and dmn.read_pidfile()["pid"] == os.getpid())
+    check("pidfile: it says so once, not every tick", len(lines) == 1, str(lines))
+    check("pidfile: no half-written file is left beside it",
+          not paths.daemon_pid().with_name("daemon.pid.tmp").exists())
+
+
 def test_daemon_pidfile(home: Path) -> None:
     home.mkdir(parents=True, exist_ok=True)
     os.environ["OCP_HOME"] = str(home)
@@ -10318,6 +10338,7 @@ def main() -> int:
         run(lambda: test_shared_account_context_isolation(Path(td) / 'shared'))
         run(lambda: test_db_dedup_only_swallows_dedup(Path(td) / 'strict'))
         run(lambda: test_agent_rewrite_uses_parser(Path(td) / 'rw'))
+        run(lambda: test_the_daemon_writes_its_own_pidfile_back(Path(td) / 'd6b'))
         run(lambda: test_daemon_pidfile(Path(td) / 'd6'))
         run(lambda: test_service_plist(Path(td) / 'svc1'))
         run(lambda: test_service_launchctl_gated(Path(td) / 'svc2'))
