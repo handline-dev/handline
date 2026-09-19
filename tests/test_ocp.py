@@ -1858,8 +1858,14 @@ def test_trust_roots(home: Path) -> None:
     ok, msg = trustmod.propose(str(home / "repos" / "fourth"), "for a test",
                                requester="backend")
     check("trust: the fourth proposal went through", ok, msg)
-    pid4 = trustmod.listing()[-1]["id"]
-    rid4 = trustmod.listing()[-1]["request"]
+
+    def proposal_for(path) -> dict:
+        # listing() is ordered by proposal id, which is random.
+        want = trustmod._resolved(path)
+        return next(p for p in trustmod.listing() if p["root"] == want)
+
+    pid4 = proposal_for(home / "repos" / "fourth")["id"]
+    rid4 = proposal_for(home / "repos" / "fourth")["request"]
     askmod.resolve(rid4, "approve")
     tampered = trustmod.load_proposal(pid4)
     tampered["root"] = str(home / "repos" / "not-what-was-approved")
@@ -1869,6 +1875,28 @@ def test_trust_roots(home: Path) -> None:
           not ok, msg)
     check("trust: and nothing is declared from it",
           not trustmod.is_declared(home / "repos" / "not-what-was-approved"))
+
+    # auditor's #384: a substring test let through a proposal edited to a
+    # PARENT of the path the founder read, which widens consent to everything
+    # under it.
+    ok, msg = trustmod.propose(str(home / "repos" / "fifth" / "deep"), "for a test",
+                               requester="backend")
+    check("trust: the fifth proposal went through", ok, msg)
+    pid5 = proposal_for(home / "repos" / "fifth" / "deep")["id"]
+    askmod.resolve(proposal_for(home / "repos" / "fifth" / "deep")["request"], "approve")
+    widened = trustmod.load_proposal(pid5)
+    widened["root"] = str(home / "repos" / "fifth")
+    trustmod._save_proposal(widened)
+    ok, msg = trustmod.apply(pid5)
+    check("trust: apply refuses a proposal edited to a parent of what was approved",
+          not ok and "does not match" in msg, msg)
+    check("trust: and neither the parent nor the child is declared from it",
+          not trustmod.is_declared(home / "repos" / "fifth")
+          and not trustmod.is_declared(home / "repos" / "fifth" / "deep"))
+    widened["root"] = str(home / "repos" / "fifth" / "deep")
+    trustmod._save_proposal(widened)
+    ok, msg = trustmod.apply(pid5)
+    check("trust: the path as approved still applies", ok, msg)
 
 
 def test_ocp_trust_cli_is_wired(home: Path) -> None:
@@ -7687,10 +7715,11 @@ def test_a_withdraw_landing_before_the_send_stops_the_send(home: Path) -> None:
 
 def test_the_daemon_never_types_into_a_trust_prompt_via_deliver(home: Path) -> None:
     """Blocking problem from auditor's #339: `deliver_queued`/`_tell` and
-    `deliver_answers` gate on `session_present`/`idle_now` alone, and a
-    session sitting at claude's folder-trust dialog reads as both present
-    and idle. Neither path may type into it, mark a request delivered, or
-    mark an answer announced underneath a dialog nobody actually read."""
+    `deliver_answers` gated on `session_present`/`idle_now` alone. Orca
+    reports the folder-trust dialog as blocked, not idle (measured, #378), so
+    that gate refuses today - but only because Orca says so. Neither path may
+    type into the dialog, mark a request delivered, or mark an answer
+    announced underneath it, whatever the idle probe answers."""
     _daemon_home(home, 20)
     con = db.connect()
     sent: list[str] = []
@@ -20137,7 +20166,7 @@ def test_a_declared_root_gets_standing_consent(home: Path) -> None:
 
     real = (orcamod.resume_with, orcamod.alive, orcamod.trust_prompt_showing,
             orcamod.confirm_trust, orcamod.wait_idle, orcamod.screen_text,
-            trustmod.is_declared)
+            trustmod.is_declared, orcamod.idle_now, orcamod.send, orcamod.time.sleep)
     sent: list[str] = []
     trusted: list[str] = []
     showing = {"v": True}
@@ -20198,10 +20227,60 @@ def test_a_declared_root_gets_standing_consent(home: Path) -> None:
         events = [dict(r) for r in db.events_after(con, 0, agent="backend")]
         check("wake: ...and standing consent is on the record",
               any(e["kind"] == "trust_confirmed" for e in events), events)
+
+        # 5. The keys land but claude is still redrawing: the settle waits for
+        # the screen to clear instead of reading the redraw as a refusal.
+        reset()
+        confirmed, reads = {"v": False}, {"n": 0}
+
+        def slow_redraw(h):
+            if not confirmed["v"]:
+                return True
+            reads["n"] += 1
+            return reads["n"] < 3      # still drawing for the first two reads
+
+        def confirm_landing(h):
+            confirmed["v"] = True
+            return True, "trusted"
+        orcamod.trust_prompt_showing = slow_redraw
+        orcamod.confirm_trust = confirm_landing
+        orcamod.time.sleep = lambda s: None
+        ok, why = dmn.wake_agent(con, "backend", lambda _m: None)
+        check("wake: a redraw that outlasts the press is waited out, not escalated",
+              ok and sent and reads["n"] >= 3
+              and db.get_agent_state(con, "backend")["state"] != dmn.STALLED,
+              str((ok, why, reads, sent)))
+        orcamod.time.sleep = real[-1]
+        orcamod.trust_prompt_showing = lambda h: showing["v"]
+
+        # 6. One tick reaches the screen from more than one path: it is
+        # escalated once, and neither path types.
+        reset()
+        orcamod.confirm_trust = lambda h: (trusted.append(h), (True, "trusted"))[1]
+        orcamod.screen_text = lambda h: screen_for(wt)
+        trustmod.is_declared = lambda p: False
+        orcamod.idle_now = lambda h: True
+        orcamod.send = lambda h, text, enter=True: (sent.append(text), (True, ""))[1]
+        db.add_request(con, "reviewer", "backend", "please look", None,
+                       "peer", "fire_and_forget", None, 0, None)
+        asked = db.add_request(con, "backend", "reviewer", "did it land?", None,
+                               "peer", "async", None, 0, None)
+        db.set_request_state(con, asked, "done", "yes")
+        db.set_agent_state(con, "backend", dmn.RUNNING)
+        def escalations() -> int:
+            return con.execute(
+                "SELECT COUNT(*) c FROM requests WHERE target = ? AND kind = 'escalate' "
+                "AND body LIKE '%folder-trust%'", (askmod.HUMAN,)).fetchone()["c"]
+        before = escalations()
+        dmn.deliver_answers(con, "backend", lambda _m: None)
+        dmn.deliver_queued(con, "backend", lambda _m: None)
+        check("trust: the same screen reached twice in one tick is escalated once",
+              escalations() - before == 1 and not sent and not trusted,
+              str((escalations() - before, sent, trusted)))
     finally:
         (orcamod.resume_with, orcamod.alive, orcamod.trust_prompt_showing,
          orcamod.confirm_trust, orcamod.wait_idle, orcamod.screen_text,
-         trustmod.is_declared) = real
+         trustmod.is_declared, orcamod.idle_now, orcamod.send, orcamod.time.sleep) = real
         con.close()
 
 

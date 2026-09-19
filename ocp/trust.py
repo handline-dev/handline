@@ -9,6 +9,7 @@ gate.
 from __future__ import annotations
 
 import json
+import re
 import time
 import uuid
 from pathlib import Path
@@ -122,6 +123,13 @@ def propose(root: str, why: str, requester: str) -> tuple[bool, str]:
                   f"founder answers it; then `ocp trust apply {prop['id']}`.")
 
 
+def _root_read(body: str | None, requester: str) -> str | None:
+    """The root the founder was shown: the path in the escalation's own first
+    line, and only if that line names this requester."""
+    m = re.fullmatch(r"\[trust\] add (.+) - asked by (\S+)", (body or "").split("\n", 1)[0])
+    return m.group(1) if m and m.group(2) == requester else None
+
+
 def _escalation(prop: dict) -> str:
     return (f"[trust] add {prop['root']} - asked by {prop['requested_by']}\n\n"
             f"{prop['why']}\n\n"
@@ -168,10 +176,12 @@ def apply(pid: str, con=None) -> tuple[bool, str]:
         if call != "approved":
             return False, (f"#{row['id']} was answered {(verdict or '').strip()[:60]!r}, "
                            f"which is not a decision.")
-        # What gets added is what the founder actually read: the escalation
-        # text is on the request row, and `prop['root']` has to be in it -
-        # this file is written by every agent, and the row is not.
-        if prop["root"] not in (row["body"] or ""):
+        # What gets added is exactly what the founder read: the path on the
+        # request row's first line, which this file cannot edit, must be the
+        # proposal's root - a substring test let a proposal edited to a
+        # parent directory through.
+        read = _root_read(row["body"], row["requester"])
+        if read is None or _resolved(read) != _resolved(prop["root"]):
             return False, (f"proposal {pid}'s root does not match what #{row['id']} "
                            f"asked the founder to approve - raise it again")
         rows = list_roots()

@@ -141,11 +141,9 @@ def wait_for_trust_prompt(handle: str, showing: bool, timeout_s: float = 5.0,
                           poll_s: float = 0.5) -> bool:
     """Poll until `trust_prompt_showing(handle)` is `showing`, or give up.
 
-    One loop for both directions this is needed in: waiting for the screen
-    to appear before pressing anything (a throwaway session just started),
-    and waiting for it to clear after pressing "Yes" (claude's redraw is not
-    instant, and checking on the very next line risks reading the screen
-    claude was still drawing).
+    The daemon uses it after pressing "Yes", to wait for the screen to clear:
+    claude's redraw is not instant, and checking on the very next line risks
+    reading the screen it was still drawing.
     """
     deadline = time.time() + timeout_s
     while trust_prompt_showing(handle) != showing:

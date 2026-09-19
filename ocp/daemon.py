@@ -608,10 +608,11 @@ def notify_cancelled(con, row, verdict: str) -> tuple[bool, str]:
 
 
 def _tell(con, agent: str, head, depth: int, handle: str, log) -> bool:
-    # Before anything else: a session sitting at claude's trust dialog looks
-    # exactly like an idle one to `session_present`/`idle_now`, and typing a
-    # notice into it sends Enter into "No, exit" - the session ends, and
-    # `mark_delivered` below would then be wrong about a request nobody read.
+    # Before anything else: typing a notice into claude's trust dialog sends
+    # Enter into "No, exit" - the session ends, and `mark_delivered` below
+    # would be wrong about a request nobody read. Orca reports that screen as
+    # blocked, not idle, so `idle_now` refuses today; this does not lean on
+    # that, which is Orca's to change.
     ok, _why = _clear_trust_prompt(con, agent, handle, log)
     if not ok:
         return False
@@ -687,8 +688,9 @@ def deliver_answers(con, agent: str, log) -> bool:
     with lock.terminal(agent) as mine:
         if not mine:
             return False
-        # A dialog reads as idle to the probe above; refuse before
-        # mark_announced would claim a session that never saw this.
+        # Not left to the idle probe above (Orca reports the dialog as
+        # blocked, which is Orca's to change): refuse before mark_announced
+        # would claim a session that never saw this.
         ok, _why = _clear_trust_prompt(con, agent, handle, log)
         if not ok:
             return False
@@ -1247,6 +1249,10 @@ def _clear_trust_prompt(con, agent: str, handle: str, log) -> tuple[bool, str]:
     pass through first. A no-op when there is nothing showing; otherwise
     standing consent (156 1b) or an escalation - never a caller deciding for
     itself whether the screen is safe to type into.
+
+    Orca reports this dialog as `blocked` (`agent-trust-workspace`), not
+    tui-idle, so the idle probe already keeps the deliver paths off it; this
+    gate is ours so that nothing depends on Orca continuing to say so.
     """
     if not orca.trust_prompt_showing(handle):
         return True, "clear"
@@ -1282,6 +1288,9 @@ def _handle_trust_prompt(con, agent: str, handle: str, log) -> tuple[bool, str]:
     return True, "trusted"
 
 
+TRUST_STALL = "folder-trust prompt"
+
+
 def _escalate_trust_prompt(con, agent: str, handle: str, log,
                           shown: str | None = None, recorded: str | None = None
                           ) -> tuple[bool, str]:
@@ -1290,8 +1299,13 @@ def _escalate_trust_prompt(con, agent: str, handle: str, log,
     default "No, exit". STALLED and escalated rather than retried: the screen
     does not resolve itself.
     """
+    # Already escalated: one tick reaches this screen from several paths, and
+    # the second would raise the same request again.
+    row = db.get_agent_state(con, agent)
+    if row and row["state"] == STALLED and TRUST_STALL in (row["detail"] or ""):
+        return False, row["detail"]
     acct = agents.current_account(agent, con)
-    why = (f"{agent}'s terminal is showing claude's folder-trust prompt for "
+    why = (f"{agent}'s terminal is showing claude's {TRUST_STALL} for "
            f"{shown or 'an unreadable folder'} (account {acct}, recorded "
            f"worktree {recorded or 'unknown'}) - nothing was typed into it")
     askmod.escalate(con, agent, f"[trust] {why}", why)
