@@ -1210,7 +1210,9 @@ def _wake_agent(con, agent: str, log, moved_to: str | None = None) -> tuple[bool
         return False, "no session process; not typing the handoff at a shell prompt"
 
     if orca.trust_prompt_showing(handle):
-        return _escalate_trust_prompt(con, agent, handle, log)
+        ok, why = _handle_trust_prompt(con, agent, handle, log)
+        if not ok:
+            return False, why
 
     if not orca.typeable_now(handle):
         return False, "the session is busy or has a modal open; not typing the handoff"
@@ -1220,6 +1222,32 @@ def _wake_agent(con, agent: str, log, moved_to: str | None = None) -> tuple[bool
         db.set_handoff(con, agent, None)
     log(f"  {agent}: {why}")
     return ok, why
+
+
+def _handle_trust_prompt(con, agent: str, handle: str, log) -> tuple[bool, str]:
+    """Standing consent (request 156 item 1b): inside a root the founder has
+    declared, the answer to "is this a project you trust" was already given
+    when that root was declared, so ocp presses it rather than stopping the
+    agent to ask again. Outside those roots, item 1a's escalation still
+    applies unchanged - this only narrows *when* that happens, never what it
+    does.
+    """
+    row = db.get_agent_state(con, agent)
+    path = spawnmod.worktree_path(row["worktree"]) if row else None
+    if not path or not agents.is_declared_root(path):
+        return _escalate_trust_prompt(con, agent, handle, log)
+    ok, why = orca.confirm_trust(handle)
+    if not ok:
+        # A confirm that did not land is not evidence the screen resolved
+        # itself - it is still sitting there, and typing a handoff into it
+        # next is the same loop 1a exists to stop.
+        return _escalate_trust_prompt(con, agent, handle, log)
+    db.add_event(con, agent, "trust_confirmed", {"path": path})
+    log(f"  {agent}: trusted {path} (standing consent)")
+    # The screen just changed under us; typing the wake prompt before claude
+    # has finished drawing its ordinary TUI loses the opening characters.
+    orca.wait_idle(handle)
+    return True, "trusted"
 
 
 def _escalate_trust_prompt(con, agent: str, handle: str, log) -> tuple[bool, str]:

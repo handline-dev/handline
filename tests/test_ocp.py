@@ -1770,6 +1770,96 @@ def test_agents(home: Path) -> None:
     check("base.md budget is enforced", "base.md" in over)
 
 
+def test_declared_roots(home: Path) -> None:
+    """Request 156 item 1b: the roots ocp may answer a folder-trust prompt
+    inside are derived from what is already registered - every agent's own
+    repo, plus WORKSPACES_ROOT - never a separately maintained list that could
+    say something the roster no longer does."""
+    os.environ["OCP_HOME"] = str(home)
+    repo = home / "repos" / "widget"
+    repo.mkdir(parents=True, exist_ok=True)
+    agents.register("backend", "alpha", model="sonnet")
+    agents.register("frontend", "beta", model="sonnet", repo=str(repo))
+
+    roots = agents.declared_roots()
+    check("declared_roots: includes WORKSPACES_ROOT",
+          agents.WORKSPACES_ROOT.resolve() in roots, str(roots))
+    check("declared_roots: includes a registered agent's repo",
+          repo.resolve() in roots, str(roots))
+    check("declared_roots: an agent with no repo adds nothing of its own",
+          len(roots) == 2, str(roots))
+
+    check("is_declared_root: the repo itself is a declared root",
+          agents.is_declared_root(repo))
+    check("is_declared_root: a worktree under it is too",
+          agents.is_declared_root(repo / "some-agent-worktree"))
+    check("is_declared_root: a sibling directory is not",
+          not agents.is_declared_root(repo.parent / "other"))
+    check("is_declared_root: WORKSPACES_ROOT itself counts",
+          agents.is_declared_root(agents.WORKSPACES_ROOT))
+
+
+def test_trust_all_worktrees(home: Path) -> None:
+    """Request 156 item 1c: `ocp account add` can pre-trust every registered
+    agent's own worktree on the new account, one throwaway session at a time,
+    rather than leaving a real session on it to meet the trust screen cold."""
+    os.environ["OCP_HOME"] = str(home)
+    agents.register("backend", "alpha")
+    wt = home / "worktree"
+    wt.mkdir(parents=True, exist_ok=True)
+    con = db.connect()
+    try:
+        db.set_terminal(con, "backend", "term_x", str(wt))
+    finally:
+        con.close()
+
+    created: list[tuple[str, str | None]] = []
+    sent: list[tuple[str, str]] = []
+    closed: list[str] = []
+    real = (orcamod.create_terminal, orcamod.trust_prompt_showing, orcamod.confirm_trust,
+            orcamod.wait_idle, orcamod.idle_now, orcamod.send, orcamod.close_terminal)
+    try:
+        orcamod.create_terminal = (
+            lambda cmd, **k: (created.append((cmd, k.get("title"))), "term_probe")[1])
+        orcamod.trust_prompt_showing = lambda h: True
+        orcamod.confirm_trust = lambda h: (True, "trusted")
+        orcamod.wait_idle = lambda h, *a, **k: True
+        orcamod.idle_now = lambda h: False
+        orcamod.send = lambda h, text, **k: (sent.append((h, text)), (True, "ok"))[1]
+        orcamod.close_terminal = lambda h, **k: (closed.append(h), (True, "closed"))[1]
+
+        result = climod._trust_all_worktrees("gamma")
+        check("trust_all: one line per registered worktree", len(result) == 1, str(result))
+        check("trust_all: reports the trust", "trusted" in result[0], result[0])
+        check("trust_all: starts the session in the worktree, under the new account",
+              created and str(wt) in created[0][0] and "gamma" in created[0][0],
+              str(created))
+        check("trust_all: exits the throwaway session afterwards",
+              sent == [("term_probe", "/exit")], sent)
+        check("trust_all: and closes its terminal", closed == ["term_probe"], closed)
+
+        created.clear(); sent.clear(); closed.clear()
+        orcamod.trust_prompt_showing = lambda h: False
+        result = climod._trust_all_worktrees("gamma")
+        check("trust_all: no prompt shown is reported, not claimed as a confirmed trust",
+              not result[0].endswith(": trusted") and "no trust prompt" in result[0],
+              result[0])
+        check("trust_all: still exits and closes even then",
+              sent == [("term_probe", "/exit")] and closed == ["term_probe"],
+              str((sent, closed)))
+    finally:
+        (orcamod.create_terminal, orcamod.trust_prompt_showing, orcamod.confirm_trust,
+         orcamod.wait_idle, orcamod.idle_now, orcamod.send, orcamod.close_terminal) = real
+
+
+def test_trust_all_worktrees_with_nothing_to_trust(home: Path) -> None:
+    """An agent that has never had a terminal has no worktree on record yet -
+    nothing to start a throwaway session in, and nothing this can trust."""
+    os.environ["OCP_HOME"] = str(home)
+    agents.register("backend", "alpha")
+    result = climod._trust_all_worktrees("gamma")
+    check("trust_all: an agent with no worktree yet is said plainly",
+          result == ["no agent has a worktree yet - nothing to trust"], result)
 
 
 # ---------------------------------------------------------------- launch
@@ -19436,6 +19526,39 @@ def test_orca_idle_parsing() -> None:
         orcamod._run = real
 
 
+def test_confirm_trust_presses_down_then_enter() -> None:
+    """Request 156 item 1b's two keys, measured against a live prompt (see
+    orca.py's own comment on TRUST_PROMPT_DOWN_ARROW): one Down off the
+    default 'No, exit' lands on 'Yes, I trust this folder', and a bare Enter
+    after that confirms it. Wrong order or a missing key each press whatever
+    the cursor happened to be sitting on instead."""
+    calls: list[list[str]] = []
+    real = orcamod._run
+    try:
+        orcamod._run = lambda args, *a, **k: (calls.append(args), (True, "{}"))[1]
+        ok, why = orcamod.confirm_trust("term_x")
+        check("confirm_trust: reports success", ok, why)
+        check("confirm_trust: sends exactly two commands", len(calls) == 2, str(calls))
+        check("confirm_trust: the first moves down, with no --enter",
+              calls[0] == ["terminal", "send", "--terminal", "term_x",
+                           "--text", orcamod.TRUST_PROMPT_DOWN_ARROW],
+              str(calls[0]))
+        check("confirm_trust: the second is a bare Enter",
+              calls[1] == ["terminal", "send", "--terminal", "term_x", "--text", "", "--enter"],
+              str(calls[1]))
+    finally:
+        orcamod._run = real
+
+    real = orcamod._run
+    try:
+        orcamod._run = lambda *a, **k: (False, "no such terminal")
+        ok, why = orcamod.confirm_trust("term_x")
+        check("confirm_trust: a failed first key is reported, not silently retried",
+              not ok and "Yes" in why, why)
+    finally:
+        orcamod._run = real
+
+
 def test_clear_refuses_mid_turn() -> None:
     real_alive, real_wait, real_send = orcamod.alive, orcamod.wait_idle, orcamod.send
     sent = []
@@ -19777,6 +19900,53 @@ def test_a_wake_reads_the_screen_before_typing_into_it(home: Path) -> None:
         check("wake: an ordinary screen is typed into as before", ok and sent, why)
     finally:
         orcamod.resume_with, orcamod.alive, orcamod.trust_prompt_showing = real
+        con.close()
+
+
+def test_a_declared_root_gets_standing_consent(home: Path) -> None:
+    """Request 156 item 1b: inside a root the founder declared, the trust
+    prompt's answer was already given when that root was declared, so ocp
+    presses it itself instead of stalling the agent to ask again - outside
+    those roots, item 1a's escalation is exactly as before."""
+    _daemon_home(home, 50)
+    con = db.connect()
+    wt = home / "worktree"
+    wt.mkdir(parents=True, exist_ok=True)
+    real = (orcamod.resume_with, orcamod.alive, orcamod.trust_prompt_showing,
+            orcamod.confirm_trust, orcamod.wait_idle, agents.is_declared_root)
+    sent: list[str] = []
+    trusted: list[str] = []
+    try:
+        orcamod.available = lambda: True
+        orcamod.alive = lambda h: True
+        orcamod.resume_with = lambda h, text: (sent.append(text), (True, "typed"))[1]
+        orcamod.confirm_trust = lambda h: (trusted.append(h), (True, "trusted"))[1]
+        orcamod.wait_idle = lambda h, *a, **k: True
+        sessions_are("backend")
+        db.set_terminal(con, "backend", "term_x", str(wt))
+        foldmod.handoff_path("backend").write_text("# handoff · backend\n## next\n- carry on\n")
+        orcamod.trust_prompt_showing = lambda h: True
+
+        agents.is_declared_root = lambda p: False
+        ok, why = dmn.wake_agent(con, "backend", lambda _m: None)
+        check("wake: outside a declared root, nothing is confirmed or typed",
+              not ok and not sent and not trusted, str((ok, sent, trusted)))
+        check("wake: ...and the agent is stalled, same as 1a alone",
+              db.get_agent_state(con, "backend")["state"] == dmn.STALLED)
+
+        db.set_agent_state(con, "backend", dmn.PARKED, detail="reset for the next case")
+        agents.is_declared_root = lambda p: True
+        ok, why = dmn.wake_agent(con, "backend", lambda _m: None)
+        check("wake: inside a declared root, the prompt is confirmed instead",
+              ok and trusted == ["term_x"], str((ok, trusted)))
+        check("wake: ...and the handoff is still typed once it is",
+              sent and "carry on" in sent[-1], sent)
+        events = [dict(r) for r in db.events_after(con, 0, agent="backend")]
+        check("wake: ...and standing consent is on the record",
+              any(e["kind"] == "trust_confirmed" for e in events), events)
+    finally:
+        (orcamod.resume_with, orcamod.alive, orcamod.trust_prompt_showing,
+         orcamod.confirm_trust, orcamod.wait_idle, agents.is_declared_root) = real
         con.close()
 
 
@@ -21711,6 +21881,9 @@ def main() -> int:
             Path(td) / 'pullpoll'))
         run(lambda: test_yaml())
         run(lambda: test_agents(home))
+        run(lambda: test_declared_roots(Path(td) / 'declared_roots'))
+        run(lambda: test_trust_all_worktrees(Path(td) / 'trust_all'))
+        run(lambda: test_trust_all_worktrees_with_nothing_to_trust(Path(td) / 'trust_all_empty'))
         run(lambda: test_launch(home))
         run(lambda: test_doctor_checks_shared_mcp_config(home))
         run(lambda: test_team_routing())
@@ -22046,6 +22219,7 @@ def main() -> int:
         run(lambda: test_a_rejected_fold_still_records_what_it_spent(Path(td) / 'spend'))
         run(lambda: test_one_agents_bad_tick_is_not_everyones(Path(td) / 'badtick'))
         run(lambda: test_orca_idle_parsing())
+        run(lambda: test_confirm_trust_presses_down_then_enter())
         run(lambda: test_clear_refuses_mid_turn())
         run(lambda: test_handoff_reclaims_context(Path(td) / 'reclaim'))
         run(lambda: test_wake_injects_handoff(Path(td) / 'wake'))
@@ -22054,6 +22228,7 @@ def main() -> int:
         run(lambda: test_a_launch_records_its_fingerprint_and_says_when_it_cannot(Path(td) / 'recfp'))
         run(lambda: test_a_drifted_wake_that_cannot_relaunch_says_why(Path(td) / 'driftlog'))
         run(lambda: test_a_wake_reads_the_screen_before_typing_into_it(Path(td) / 'trustscreen'))
+        run(lambda: test_a_declared_root_gets_standing_consent(Path(td) / 'trustroot'))
         run(lambda: test_hooks_report_activity(Path(td) / 'hooky'))
         run(lambda: test_tui_frame_geometry(Path(td) / 'tui'))
         run(lambda: test_clear_does_not_look_like_waking(Path(td) / 'loopy'))

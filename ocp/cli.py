@@ -126,7 +126,66 @@ def cmd_account_add(args) -> int:
               "Finish the login in claude, then exit it (/exit) to come back.\n")
     ok, msg = accounts.add_account(args.name, _run_claude, no_login=args.no_login)
     print(msg, file=None if ok else sys.stderr)
-    return 0 if ok else 1
+    if not ok:
+        return 1
+
+    # Request 156 item 1c: without this, the first real session this account
+    # runs for an existing agent meets claude's folder-trust screen cold - the
+    # same screen item 1a exists to stop an agent typing into. Only once it is
+    # actually logged in - `no_login` leaves nothing yet to start a session on.
+    if not args.no_login and orca.available() and input(
+            f"\nTrust every registered agent's worktree on '{args.name}' too? "
+            f"[y/N] ").strip().lower() in ("y", "yes"):
+        for line in _trust_all_worktrees(args.name):
+            print(f"  {line}")
+    return 0
+
+
+def _trust_all_worktrees(acct: str) -> list[str]:
+    """Pre-authorize `acct` for every registered agent's own worktree, one
+    throwaway session at a time, so a real session on it never meets claude's
+    folder-trust screen the first time it actually runs there."""
+    con = db.connect()
+    try:
+        worktrees = []
+        for name in paths.list_agents():
+            row = db.get_agent_state(con, name)
+            wt = spawnmod.worktree_path(row["worktree"]) if row else None
+            if wt:
+                worktrees.append((name, wt))
+    finally:
+        con.close()
+    if not worktrees:
+        return ["no agent has a worktree yet - nothing to trust"]
+    return [_trust_one_worktree(acct, name, wt) for name, wt in worktrees]
+
+
+def _trust_one_worktree(acct: str, agent: str, worktree: str) -> str:
+    cmd = f"cd '{worktree}' && CLAUDE_CONFIG_DIR={paths.account_claude(acct)} claude"
+    handle = orca.create_terminal(cmd, title=f"trust-{acct}-{agent}")
+    if not handle:
+        return f"{agent} ({worktree}): could not start a session to trust it"
+    try:
+        # Booting, not mid-turn: `wait_idle`'s probe is measured against a
+        # running session, and this one has none yet, so a bounded poll for
+        # the one screen this cares about instead of trusting that probe here.
+        deadline = time.time() + 20
+        while time.time() < deadline and not orca.trust_prompt_showing(handle):
+            if orca.idle_now(handle):
+                break
+            time.sleep(1)
+        if orca.trust_prompt_showing(handle):
+            ok, why = orca.confirm_trust(handle)
+            if not ok:
+                return f"{agent} ({worktree}): {why}"
+            orca.wait_idle(handle)
+            result = f"{agent} ({worktree}): trusted"
+        else:
+            result = f"{agent} ({worktree}): no trust prompt appeared - already trusted?"
+        orca.send(handle, "/exit")
+        return result
+    finally:
+        orca.close_terminal(handle)
 
 
 def cmd_account_remove(args) -> int:

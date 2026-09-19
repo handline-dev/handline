@@ -140,6 +140,61 @@ def trust_prompt_showing(handle: str) -> bool:
     return text is not None and TRUST_PROMPT_MARKER in text
 
 
+# Verified 2026-09-19 against a live prompt: a throwaway directory outside any
+# consented root, a session started under an account no agent runs on,
+# `orca terminal create` + `--screen` reads before and after each key. From
+# the prompt's default cursor ("No, exit"), one Down arrow moves it to "Yes,
+# I trust this folder"; a bare Enter after that confirms it. A bare Enter with
+# no Down confirms "No, exit" instead - which is what makes typing a handoff
+# into this screen the ~20s loop `trust_prompt_showing` exists to stop.
+TRUST_PROMPT_DOWN_ARROW = "\x1b[B"
+
+
+def confirm_trust(handle: str) -> tuple[bool, str]:
+    """Press the exact keys that choose "Yes, I trust this folder".
+
+    Only ever call this once `trust_prompt_showing` is true and the caller has
+    already decided this path may be trusted on the founder's own say-so
+    (standing consent, request 156 item 1b) - it does not check anything
+    itself, and pressing it anywhere else presses a security prompt blind.
+    Nothing is written to `.claude.json` here; the keys are the same two a
+    person would press, and whatever claude itself records is claude's own
+    business.
+    """
+    ok, out = _run(["terminal", "send", "--terminal", handle,
+                    "--text", TRUST_PROMPT_DOWN_ARROW])
+    if not ok:
+        return False, f"could not move to 'Yes, I trust this folder': {out[:200]}"
+    ok, out = send(handle, "")
+    return ok, "trusted" if ok else f"could not confirm the trust prompt: {out[:200]}"
+
+
+def create_terminal(command: str, worktree: str = "current",
+                    title: str | None = None) -> str | None:
+    """Start a fresh terminal running `command`, or None if Orca could not.
+
+    `worktree` is a selector as `orca terminal create --worktree` takes it -
+    "current" runs inside whatever worktree this process is already in, which
+    is what a throwaway probe wants (a directory `command` itself `cd`s into,
+    not one Orca has to know about).
+    """
+    args = ["terminal", "create", "--worktree", worktree, "--command", command]
+    if title:
+        args += ["--title", title]
+    ok, out = _run(args)
+    if not ok:
+        return None
+    return _result(out, "terminal", "handle")
+
+
+def close_terminal(handle: str, tab: bool = True) -> tuple[bool, str]:
+    """Close one terminal, and its tab unless told to leave the tab standing."""
+    args = ["terminal", "close", "--terminal", handle]
+    if tab:
+        args.append("--tab")
+    return _run(args)
+
+
 def run_create(objective: str) -> str | None:
     """Start an orchestration Run - the card a team's work hangs under.
 
