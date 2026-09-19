@@ -1717,11 +1717,11 @@ def probe_stale_accounts(con, log, actions: list[str]) -> None:
     reading is a floor it keeps (`AccountStatus.assignable`); after it,
     nothing does but asking.
 
-    Only when an agent is actually waiting for somewhere to go: a probe spends
-    a little of the very quota it is asking about, and an idle team needs no
-    answer. The probe runs detached, because it takes a session's startup to
-    answer and a tick may not stop for that. What it leaves behind is a fresh
-    snapshot, which the next tick reads like any other.
+    Only when nowhere already has room for a waiting agent: a probe spends a
+    little of the very quota it is asking about, and a team with somewhere to
+    go needs no answer. The probe runs detached, because it takes a session's
+    startup to answer and a tick may not stop for that. What it leaves behind
+    is a fresh snapshot, which the next tick reads like any other.
     """
     waiting = [r["agent"] for r in db.all_agent_states(con)
                if r["state"] in (PARKED, THROTTLED, DEGRADED) and not r["closed_at"]]

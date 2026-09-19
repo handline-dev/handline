@@ -7474,11 +7474,11 @@ def test_a_stale_snapshot_shows_its_last_figures_and_still_is_offered(home: Path
                  collected_at=now - 3600)
     check("stale: with no figure on file the cell is still ?",
           "?%" in tui.account_cells("beta", status.read("beta"))["five"])
-    write_status(home, "beta", pct_5h=100, pct_7d=20, reset_5h=now + 1800,
+    write_status(home, "beta", pct_5h=90, pct_7d=20, reset_5h=now + 1800,
                  reset_7d=now + 86400, collected_at=now - 3600)
     why = status.read("beta").takes_work()[1]
-    check("stale: at the wall when last seen still refuses",
-          not status.read("beta").takes_work()[0] and "at the wall" in why, why)
+    check("stale: within the margin of the wall when last seen still refuses",
+          not status.read("beta").takes_work()[0] and "too close to" in why, why)
     write_status(home, "beta", pct_5h=41, pct_7d=20, reset_5h=now - 600,
                  reset_7d=now + 86400, collected_at=now - 3600)
     why = status.read("beta").takes_work()[1]
@@ -7497,12 +7497,14 @@ def test_pick_account_judges_an_idle_account_on_its_floor_not_on_zero(home: Path
     _daemon_home(home, 20)
     _with_accounts("alpha", "beta")
     now = int(time.time())
-    write_status(home, "alpha", pct_5h=87, pct_7d=10, reset_5h=now + 1800,
+    write_status(home, "alpha", pct_5h=80, pct_7d=10, reset_5h=now + 1800,
                  reset_7d=now + 86400)
-    write_status(home, "beta", pct_5h=87, pct_7d=10, reset_5h=now + 1800,
+    write_status(home, "beta", pct_5h=80, pct_7d=10, reset_5h=now + 1800,
                  reset_7d=now + 86400, collected_at=now - 3600)
-    check("pick: a fresh reading at 87% is refused (too little stretch left)",
+    check("pick: a fresh reading at 80% is refused (too little stretch left)",
           status.pick_account(["alpha"], load={})[0] is None)
+    check("pick: the stale reading clears idle_floor's margin (below 85%)",
+          status.read("beta").idle_floor()[0])
     picked, reasons = status.pick_account(["alpha", "beta"], load={})
     check("pick: the stale account is judged on its floor, not a fill of 0 - "
           "it is refused for the same reason the fresh one is",

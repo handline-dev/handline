@@ -79,7 +79,7 @@ ps -o args= $(pgrep -f claude | head -1)
 
 | Phase | 산출물 | 끝났다고 말할 수 있는 조건 |
 |---|---|---|
-| **1** | statusLine 수집기, `ocp agent register`, `ocp doctor` | 계정 2개의 `status.json` 이 정확히 갱신된다. **믿을 수 없는 `pct_5h`(없음·판독 불가·낡음·유실) 일 때 배정 거부(fail-closed)** 가 동작한다 |
+| **1** | statusLine 수집기, `ocp agent register`, `ocp doctor` | 계정 2개의 `status.json` 이 정확히 갱신된다. **믿을 수 없는 `pct_5h`(없음·판독 불가·낡음·유실) 일 때 배정 거부(fail-closed)** 가 동작한다 (낡음은 창이 안 끝났고 벽에서 여유가 있을 때만 예외 — design/01-infra.md §4 `idle_floor`) |
 | **2** | `.envrc` 고정 매핑, `team.yaml`, `ocp ask` | 에이전트 3개(backend·reviewer·archivist)가 각자 계정에서 서로 요청을 주고받는다. 명시 안 된 에지는 거부된다 |
 | **3** | 훅 이벤트(SQLite), fold, 검증·롤백, 자정 롤오버 | 하루치 작업이 **모델 토큰 0** 으로 이벤트에 쌓이고, fold 가 형식을 깨면 롤백된다. 이벤트 누락·중복 0 |
 | **4** | 데몬 — 레벨 트리거, handoff, park, 리셋 재개, THROTTLED | 데몬을 `SIGKILL` 해도 재기동 시 전 상태가 복구된다. 90% 도달 시 사람 없이 park·재개한다 |

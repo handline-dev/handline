@@ -268,7 +268,15 @@ def fold(agent: str, use_model: bool = True, model: str = "haiku",
 
 
 def _cheapest_account() -> str | None:
-    picked, _ = status.pick_account()
+    # Only an account with a genuinely current reading, never one pick_account
+    # admitted on a stale floor (`status.idle_floor`, `rolled_over`): those are
+    # safe for a launch, which writes a fresh reading within seconds and
+    # self-corrects, but a fold never writes one - it is the one spend no
+    # collector ever sees, and sending it to an account we already cannot read
+    # only deepens the blindness. Same rule the fallback below applies.
+    readable = [a for a in paths.list_accounts()
+               if accounts.logged_in(a) and not status.read(a).stale]
+    picked, _ = status.pick_account(readable)
     if picked:
         return picked
     # Fall back to any logged-in account we can still read. A fold is small and

@@ -25,10 +25,12 @@ parks idle agents, which buys nothing, while treating
 unknown as quiet hands out work on an account that may be at the wall.
 
 A snapshot too old to trust as a live figure is not automatically unknown,
-though: while its window has not rolled over, nothing but this daemon spends
-on an account, and nothing of ours is running on one that has gone quiet - so
-the last reading is still an exact floor, not a guess (`idle_floor`). Once the
-window rolls over that stops holding, because what happened since is
+though: while its window has not rolled over, the last reading is a floor -
+a lower bound on usage, never an upper one (`idle_floor`). There is a known
+invisible spender even on an idle account: `ocp fold` runs headless and no
+collector ever sees it, so the floor is judged against a line clear of the
+wall, not the wall itself, to cover spend we cannot see. Once the window
+rolls over the floor stops holding at all, because what happened since is
 unaccounted for; only a probe answers for it then.
 
 A carried figure is a floor, not a measurement: usage inside a window only
@@ -102,6 +104,14 @@ def _ago(secs: float) -> str:
 # not by a line.
 PCT_5H_BLOCK = triggers.WALL_PCT
 PCT_7D_BLOCK = triggers.WALL_PCT
+
+# A floor is a lower bound, not a measurement, and there is a known invisible
+# spender even on an idle account (`ocp fold`, headless, no collector ever
+# sees it). idle_floor judges the floor this far below the wall to cover
+# spend we cannot see - main's already-accepted figure, carried over as-is;
+# nobody here has measured what a fold actually costs in percent, and
+# KICKOFF §1.2 forbids coding a new number on an unverified assumption.
+IDLE_FLOOR_MARGIN_PCT = 15
 
 
 @dataclass
@@ -347,9 +357,11 @@ class AccountStatus:
         Staleness alone does not make an account unknown - why the reading is
         old is what matters. A snapshot only refreshes while a session runs, so
         an account nobody is using goes stale within the quarter-hour though
-        nothing has spent on it since: the last figure is not a guess, it is an
-        exact floor, because this daemon is the only thing that spends here and
-        nothing of ours is running. That holds only inside the window: once
+        nothing of ours is running on it - but the figure is a lower bound on
+        usage, not a measurement: there is a known invisible spender even on an
+        idle account (`ocp fold`, headless, no collector ever sees it). So the
+        floor is judged this far below the wall (`IDLE_FLOOR_MARGIN_PCT`), never
+        against the wall itself. That holds only inside the window: once
         `reset_5h` has passed the figure describes a window that no longer
         exists, and what happened since is unaccounted for - `rolled_over` and
         the probe answer for that case, not this one.
@@ -367,8 +379,9 @@ class AccountStatus:
             return False, ""  # rolled_over's case, not this one
         last = self.last_known()
         text = last or f"5h {self.pct_5h}%"
-        if self.pct_5h >= PCT_5H_BLOCK:
-            return False, f"{text} when last seen - at the wall"
+        if self.pct_5h >= PCT_5H_BLOCK - IDLE_FLOOR_MARGIN_PCT:
+            return False, (f"{text} when last seen - too close to "
+                           f"{PCT_5H_BLOCK}% to start on a stale reading")
         return True, f"{text} - stale but idle"
 
     def headroom(self) -> int | None:
