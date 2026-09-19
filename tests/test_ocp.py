@@ -8327,8 +8327,7 @@ def test_a_span_ends_in_its_unit_and_fits_its_columns(home: Path) -> None:
         cell = tui.countdown(ts).strip()
         widest = max(widest, len(cell))
         check(f"span: the bridge countdown says {want}", cell == want, cell)
-    longest_state = max(len(f"{st}·closed") for st in
-                        (dmn.HANDOFF, dmn.STALLED, dmn.PARKED))
+    longest_state = max(len(f"{st}·closed") for st in tui.STATE_COLOR)
     check("span: the widest wait leaves the agents panel's longest state whole",
           tui.STATE_W - 1 - (widest + 1) >= longest_state, f"{widest} {longest_state}")
     check("span: the widest fits the reset columns",
