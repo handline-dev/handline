@@ -1086,7 +1086,11 @@ def _move_to_room(con, agent: str, trigger: triggers.Trigger, log) -> bool:
     if there == here:
         log(f"  {agent}: staying on {here} - nowhere with more room")
         return False
-    allowed, why = status.read(there).assignable()
+    # bootstrap=True: `there` may be exactly the account choose_account just
+    # bootstrapped - a plain assignable() would refuse the same account it
+    # was chosen for, on the "no status.json" reason bootstrap exists to lift.
+    allowed = status.pick_account([there], bootstrap=True)[0] == there
+    why = "" if allowed else status.read(there).assignable()[1]
     if not allowed:
         log(f"  {agent}: staying on {here} - {there} takes no work either ({why})")
         return False

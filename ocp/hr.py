@@ -38,7 +38,7 @@ from .yamlcompat import ConfigError, dump, load
 APPROVE = ("approve", "approved", "yes", "ok", "go", "승인")
 REJECT = ("reject", "rejected", "no", "deny", "denied", "반려")
 
-KINDS = ("add", "retire", "rename")
+KINDS = ("add", "retire", "rename", "move")
 
 
 def dir_() -> Path:
@@ -90,7 +90,7 @@ def _draft(kind: str, name: str, requester: str, why: str, account: str | None,
     registered = paths.list_agents()
     if kind == "add" and name in registered:
         return {}, f"{name} is already an agent"
-    if kind in ("retire", "rename") and name not in registered:
+    if kind in ("retire", "rename", "move") and name not in registered:
         return {}, f"{name} is not an agent"
     if kind == "rename":
         if not to or "/" in to or to.startswith("."):
@@ -99,12 +99,14 @@ def _draft(kind: str, name: str, requester: str, why: str, account: str | None,
             return {}, f"{to} is already an agent"
     if effort and effort not in agents.VALID_EFFORT:
         return {}, f"effort must be one of {', '.join(agents.VALID_EFFORT)}"
-    if kind == "add":
+    if kind in ("add", "move"):
         if not account:
-            return {}, "an added agent needs an account (--account)"
+            return {}, f"a {kind} needs an account (--account)"
         if account not in paths.list_accounts():
             return {}, (f"account '{account}' is not registered. A human logs an "
                         f"account in once; ocp never touches credentials.")
+        if kind == "move" and account == agents.account_of(name):
+            return {}, f"{name} already prefers account '{account}'"
 
     prop = {
         "id": uuid.uuid4().hex[:8],
@@ -163,7 +165,7 @@ def enact(kind: str, name: str, why: str, account: str | None = None,
     own = con is None
     con = con or db.connect()
     try:
-        doer = {"add": _add, "retire": _retire, "rename": _rename}[kind]
+        doer = {"add": _add, "retire": _retire, "rename": _rename, "move": _move}[kind]
         try:
             ok, said = doer(prop, con)
         except Exception as e:  # noqa: BLE001 - recorded, then raised on
@@ -202,6 +204,13 @@ def _escalation(prop: dict) -> str:
                   f"ever sent or received move with the name.",
                   "It has to be closed first - an identity cannot change under a "
                   "running session."]
+    elif prop["kind"] == "move":
+        lines += [f"{prop['agent']} would prefer account {prop.get('account')} instead "
+                  f"of its current one. Nothing about it in team.yaml changes.",
+                  "A session already running keeps the account it started with until "
+                  "it ends; this is where its *next* one lands, and a resume id "
+                  "recorded on the account it is leaving is dropped, because it means "
+                  "nothing on the new one."]
     else:
         lines += [f"{prop['agent']} would be taken out of team.yaml and its folder "
                   f"moved to agents/archive/. Its journal and handoffs are kept.",
@@ -250,7 +259,7 @@ def apply(pid: str, con=None) -> tuple[bool, str]:
             return False, (f"#{row['id']} was answered {(verdict or '').strip()[:60]!r}, "
                            f"which is not a decision. Ask the founder to answer "
                            f"`approve` or `reject`.")
-        doer = {"add": _add, "retire": _retire, "rename": _rename}[prop["kind"]]
+        doer = {"add": _add, "retire": _retire, "rename": _rename, "move": _move}[prop["kind"]]
         ok, said = doer(prop, con)
         if not ok:
             return False, said
@@ -282,6 +291,44 @@ def _add(prop: dict, con) -> tuple[bool, str]:
     return True, (f"{name} is an agent: account {prop['account']}"
                   + (f", team {prop['team']}" if prop.get("team") else "")
                   + f". {said}")
+
+
+def _move(prop: dict, con) -> tuple[bool, str]:
+    """Change which account an agent's *next* session prefers.
+
+    A resume id belongs to one account's config directory (#154's loop was
+    exactly that, run on the wrong one). `agent_state.account` is a live
+    session's own record of where it actually is, written at exec - a
+    session already running is still spending the old account, and every
+    usage read (triggers, handoff, wake, `ocp ps`) has to keep seeing that
+    truth until the session ends, not the preference it is about to become.
+    """
+    from . import observe as obs
+
+    name, new_account = prop["agent"], prop["account"]
+    agents.register(name, new_account)
+    live = obs.live_sessions()
+    if live is None:
+        # Can't tell (ps/env unreadable) - "not running" is the wrong guess to
+        # make here: it is exactly what would clear agent_state.account out
+        # from under a session that is actually live, on the very machines
+        # where this read fails. Assume live and leave the row alone.
+        return True, (f"{name} now prefers account '{new_account}' for its next session. "
+                      f"Whether one is running now could not be checked, so its account "
+                      f"record is left alone; if one is live it keeps spending what it "
+                      f"already has.")
+    if live.get(name):
+        return True, (f"{name} now prefers account '{new_account}' for its next session. "
+                      f"A session is running now and keeps the account it started on "
+                      f"until it ends.")
+    # Not live: nothing is currently "the account this session is on", so
+    # clearing it lets the preference just written answer that question until
+    # a session records its own. The resume id goes with it - it belongs to
+    # the account being left.
+    con.execute(
+        "UPDATE agent_state SET account = NULL, resume_session = NULL WHERE agent = ?",
+        (name,))
+    return True, f"{name} now prefers account '{new_account}'. Its next session lands there."
 
 
 def _retire(prop: dict, con) -> tuple[bool, str]:

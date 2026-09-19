@@ -406,14 +406,22 @@ def live_cost(account: str) -> float | None:
     return total if seen else None
 
 
-def pick_account(candidates: list[str] | None = None) -> tuple[str | None, list[tuple[str, str]]]:
+def pick_account(candidates: list[str] | None = None,
+                 bootstrap: bool = False) -> tuple[str | None, list[tuple[str, str]]]:
     """Pick the assignable account with the most headroom.
 
     Returns (choice, [(account, reason)]). When nothing is assignable the
     choice is None and the caller must refuse - that is the fail-closed path.
+
+    `bootstrap=True`: a logged-in account with no status.json at all - never
+    run, so nothing else could ever give it one - is pickable as a last
+    resort, in list_accounts order, once nothing with an actual reading
+    qualifies. Every other refusal (stale, at the wall, unreadable) still
+    refuses; a stale account that has run once and gone quiet is not
+    "unread", and needs its own explicit preference to be picked again.
     """
     names = candidates if candidates is not None else paths.list_accounts()
-    reasons, usable = [], []
+    reasons, usable, blank = [], [], []
     # Headroom decides, but between two accounts with the same headroom take the
     # one whose figure we actually saw. An inferred 0% is sound and still a
     # weaker claim than a reported 0%.
@@ -421,10 +429,16 @@ def pick_account(candidates: list[str] | None = None) -> tuple[str | None, list[
     for n in names:
         st = read(n)
         allowed, why = st.assignable()
-        reasons.append((n, why))
         if allowed:
             usable.append((st.headroom() or 0, confidence.get(st.pct_5h_source, 0), n))
-    if not usable:
-        return None, reasons
-    usable.sort(reverse=True)
-    return usable[0][2], reasons
+            reasons.append((n, why))
+        elif bootstrap and not st.exists:
+            blank.append(n)
+            reasons.append((n, "no reading yet - a session has never run on it "
+                              "(bootstrap candidate, used only if nothing else qualifies)"))
+        else:
+            reasons.append((n, why))
+    if usable:
+        usable.sort(reverse=True)
+        return usable[0][2], reasons
+    return (blank[0] if blank else None), reasons
