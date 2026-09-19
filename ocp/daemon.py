@@ -1886,7 +1886,7 @@ def supervise(con, agent: str, log, now: int, samples: dict,
     # buffer fills with flat samples and the measured rate falls to zero for an
     # account that was climbing.
     hist = samples.setdefault(acct, [])
-    if st.pct_5h_source == "live" and st.pct_5h is not None and st.rl_at:
+    if st.is_live_reading:
         if not hist or hist[-1][0] != st.rl_at:
             hist.append((st.rl_at, st.pct_5h))
             del hist[:-10]
@@ -2075,9 +2075,10 @@ def observe_burn(con, log) -> None:
     what one more agent costs (`burnrate`). After the agents, so it sees the
     states this tick left."""
     working = load.active_by_account(con)
+    firsts = load.first_turn_agents(con)
     for acct in paths.list_accounts():
         try:
-            burnrate.observe(con, acct, working.get(acct, []), status.read(acct))
+            burnrate.observe(con, acct, working.get(acct, []), status.read(acct), firsts)
         except Exception as e:  # noqa: BLE001 - a bad reading on one account is not the tick's failure
             log(f"  burn: {acct}: {e}")
 

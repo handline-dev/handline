@@ -81,6 +81,21 @@ def active_by_account(con) -> dict[str, list[str]]:
     return found
 
 
+def first_turn_agents(con) -> set[str]:
+    """Agents whose current mid-turn stretch is their very first since the
+    SessionStart or moved_account that began it - the turn `measure.py` already
+    prices as a cold start (about 13% of the window, `triggers.MIN_STRETCH_S`'s
+    own figure), so a burn sample must not price it again as steady work."""
+    rows = con.execute(
+        "SELECT DISTINCT e1.agent FROM events e1 "
+        "WHERE e1.kind IN ('SessionStart', 'moved_account') "
+        "AND e1.id = (SELECT MAX(e2.id) FROM events e2 WHERE e2.agent = e1.agent "
+        "AND e2.kind IN ('SessionStart', 'moved_account')) "
+        "AND NOT EXISTS (SELECT 1 FROM events e3 WHERE e3.agent = e1.agent "
+        "AND e3.kind = 'Stop' AND e3.id > e1.id)").fetchall()
+    return {row["agent"] for row in rows}
+
+
 def active_agents(con, exclude: str | None = None) -> dict[str, int]:
     """How many agents are mid-turn on each account. `exclude` leaves one agent
     out, for asking what is on an account besides it."""

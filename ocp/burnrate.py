@@ -8,16 +8,19 @@ A sample is the account's rise over a stretch in which the same agents were
 mid-turn from its first reading to its last, divided by how many they were. One
 agent is a clean sample; several are their mean, and are filed under a model or
 an effort only when all of them share it, because a rise cannot be split between
-kinds. A stretch is dropped when a window rolled over inside it. Whether it
-rose is never a reason to drop one: keeping only the busy stretches would price
-every agent higher than it is.
+kinds. A stretch is dropped when a window rolled over inside it, or when it
+held an agent's first turn since a SessionStart or moved_account - that turn's
+cold start is `measure.py`'s to price, not a rate to fold into steady work.
+Whether it rose is never a reason to drop one: keeping only the busy stretches
+would price every agent higher than it is.
 
 Each kind is priced by the median of its last `KEEP` samples once it has
 `MIN_SAMPLES`; else its model's pool, else all agents', else the starting value
 in `triggers.TYPICAL_AGENT_BURN_PER_S`. The window is fifteen because samples
 are noisy (a point of resolution over ten minutes is 0.1%/min): simulated at a
-true 0.5%/min, one new sample moves the median of five by more than 0.1%/min one
-time in twenty, of fifteen by 0.04. And it is a median, so one stretch that ran
+true 0.5%/min, one new sample moves the median of five samples by more than
+0.1%/min one time in twenty; with fifteen samples that same jump happens only
+four times in a hundred. And it is a median, so one stretch that ran
 while an agent sat on a long build does not move it.
 """
 from __future__ import annotations
@@ -72,7 +75,7 @@ def _load_samples(con) -> list[dict]:
 
 def _emit(con, acct: str, seg: dict) -> None:
     span = seg["t1"] - seg["t0"]
-    if span < SEG_MIN_S or seg["p1"] < seg["p0"]:
+    if span < SEG_MIN_S or seg["p1"] < seg["p0"] or seg.get("cold"):
         return
     kinds = [kind_of(a) for a in seg["agents"]]
     if not kinds or None in kinds:
@@ -86,18 +89,22 @@ def _emit(con, acct: str, seg: dict) -> None:
     db.set_meta(con, _SAMPLES, json.dumps(_load_samples(con)[-(KEEP_TOTAL - 1):] + [sample]))
 
 
-def observe(con, acct: str, active: list[str], st) -> None:
-    """One tick's look at an account: `active` are the agents mid-turn on it and
-    `st` its reading. Extends the open stretch, or closes it when who is working
-    changed or the window rolled over, and files a sample when it was long
-    enough."""
+def observe(con, acct: str, active: list[str], st, firsts: "set[str]" = frozenset()) -> None:
+    """One tick's look at an account: `active` are the agents mid-turn on it,
+    `st` its reading, and `firsts` those of them in their very first turn since
+    a SessionStart or moved_account (`load.first_turn_agents`) - a cold start
+    `measure.py` already prices, so it must not also be priced here as steady
+    work. Extends the open stretch, or closes it when who is working changed or
+    the window rolled over, and files a sample when it was long enough and
+    none of it was a cold start."""
     raw = db.get_meta(con, _seg_key(acct))
     try:
         seg = json.loads(raw) if raw else None
     except ValueError:
         seg = None
     who = sorted(active)
-    live = st.pct_5h_source == "live" and st.pct_5h is not None and st.rl_at
+    cold = bool(set(active) & firsts)
+    live = st.is_live_reading
     if seg and seg["agents"] != who:
         _emit(con, acct, seg)
         seg = None
@@ -108,12 +115,14 @@ def observe(con, acct: str, active: list[str], st) -> None:
     if who and live:
         if seg is None:
             seg = {"agents": who, "t0": st.rl_at, "p0": st.pct_5h,
-                   "t1": st.rl_at, "p1": st.pct_5h, "reset": st.reset_5h}
-        elif st.rl_at > seg["t1"]:
-            seg["t1"], seg["p1"] = st.rl_at, st.pct_5h
+                   "t1": st.rl_at, "p1": st.pct_5h, "reset": st.reset_5h, "cold": cold}
+        else:
+            seg["cold"] = seg.get("cold", False) or cold
+            if st.rl_at > seg["t1"]:
+                seg["t1"], seg["p1"] = st.rl_at, st.pct_5h
         if seg["t1"] - seg["t0"] >= SEG_MAX_S:
             _emit(con, acct, seg)
-            seg = {**seg, "t0": seg["t1"], "p0": seg["p1"]}
+            seg = {**seg, "t0": seg["t1"], "p0": seg["p1"], "cold": cold}
     db.set_meta(con, _seg_key(acct), json.dumps(seg) if seg else None)
 
 

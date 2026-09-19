@@ -7831,6 +7831,7 @@ class _Reading:
     def __init__(self, pct: int, at: int, reset: int = 9_999_999_999):
         self.pct_5h, self.rl_at, self.reset_5h = pct, at, reset
         self.pct_5h_source = "live"
+        self.is_live_reading = True
 
 
 def _samples_of(con) -> list[dict]:
@@ -8041,6 +8042,60 @@ def test_a_cheap_agent_is_admitted_where_a_dear_one_is_not(home: Path) -> None:
     con.close()
 
 
+def test_every_real_caller_prices_the_agent_it_is_placing(home: Path) -> None:
+    """`status.pick_account` being agent-aware is not enough on its own: each of
+    `_move_plan`, `_forced_plan` and `launch.find_room`'s two calls has to pass
+    `agent` through, or the newcomer is priced as a typical one and this test
+    catches it - dropping `agent=agent` from any of them turns the dear
+    agent's refusal into an admission."""
+    _daemon_home(home, 20)
+    accounts.register("beta")
+    for acct in ("alpha", "beta"):
+        (home / "accounts" / acct / ".claude").mkdir(parents=True, exist_ok=True)
+        (home / "accounts" / acct / ".claude" / ".credentials.json").write_text("{}")
+    agents.register("dear", "alpha", model="opus", effort="high")
+    agents.register("cheap", "alpha", model="sonnet", effort="medium")
+    agents.register("dear-pref", "beta", model="opus", effort="high")
+    agents.register("cheap-pref", "beta", model="sonnet", effort="medium")
+    now = int(time.time())
+    write_status(home, "alpha", pct_5h=100, pct_7d=10, reset_5h=now + 10 * 3600,
+                reset_7d=now + 86400)
+    write_status(home, "beta", pct_5h=60, pct_7d=10, reset_5h=now + 3600, reset_7d=now + 86400)
+    con = db.connect()
+    status.write_burn("beta", 0.5 / 60, now)
+    n = burnrate.MIN_SAMPLES
+    db.set_meta(con, burnrate._SAMPLES, json.dumps(
+        [{"t": i, "a": "x", "r": 0.9 / 60, "m": "opus", "e": "high"} for i in range(n)] +
+        [{"t": i, "a": "x", "r": 0.3 / 60, "m": "sonnet", "e": "medium"} for i in range(n)]))
+    db.set_account(con, "dear", "alpha")
+    db.set_account(con, "cheap", "alpha")
+    db.add_request(con, "marina", "dear", "carry on", None, "peer", "async", None, 0, None)
+    db.add_request(con, "marina", "cheap", "carry on", None, "peer", "async", None, 0, None)
+
+    dest, why = dmn._move_plan(con, "dear", "usage")
+    check("callers: _move_plan refuses the dear agent (40 / (0.5 + 0.9) = 28m)",
+          dest is None and "0.90%/min" in why, why)
+    dest, why = dmn._move_plan(con, "cheap", "usage")
+    check("callers: _move_plan admits the cheap one on the same account",
+          dest == "beta" and "0.30%/min" in why, why)
+
+    dest, why = dmn._forced_plan(con, "dear", "beta")
+    check("callers: _forced_plan refuses the dear agent's chosen destination too",
+          dest is None, why)
+    dest, why = dmn._forced_plan(con, "cheap", "beta")
+    check("callers: _forced_plan admits the cheap one", dest == "beta", why)
+
+    check("callers: find_room refuses the dear agent (walled preferred, refused fallback)",
+          launch.find_room("dear") is None, str(launch.find_room("dear")))
+    check("callers: find_room admits the cheap one via the fallback pick",
+          launch.find_room("cheap") == "beta", str(launch.find_room("cheap")))
+    check("callers: find_room refuses the dear agent on its own preferred account",
+          launch.find_room("dear-pref") is None, str(launch.find_room("dear-pref")))
+    check("callers: find_room admits the cheap one there directly, no fallback needed",
+          launch.find_room("cheap-pref") == "beta", str(launch.find_room("cheap-pref")))
+    con.close()
+
+
 def test_the_daemon_feeds_the_estimate_each_tick(home: Path) -> None:
     """Ticks with one agent mid-turn on an account, its reading rising, end in a
     sample under that agent's kind; and with none mid-turn, in none."""
@@ -8075,6 +8130,45 @@ def test_the_daemon_feeds_the_estimate_each_tick(home: Path) -> None:
     dmn.observe_burn(con, logged.append)
     check("burn: and an idle account adds none", len(_samples_of(con)) == 1 and not logged,
           str(logged))
+    con.close()
+
+
+def test_a_cold_start_is_not_priced_as_steady_work(home: Path) -> None:
+    """`measure.py` already prices the first turn since a SessionStart or
+    moved_account as a cold start; a burn sample must not price it again as
+    steady work, or an agent's cost is inflated by every launch."""
+    _daemon_home(home, 20)
+    con = db.connect()
+    agents.register("worker", "alpha", model="opus", effort="high")
+    db.set_account(con, "worker", "alpha")
+    now = int(time.time())
+    base = now - 4000
+    db.add_event(con, "worker", "SessionStart")
+    db.set_agent_state(con, "worker", dmn.RUNNING)
+    check("cold: fresh since SessionStart, no Stop yet - it is a first turn",
+          "worker" in loadmod.first_turn_agents(con))
+    for i, pct in enumerate((10, 12, 15, 17, 19)):
+        write_status(home, "alpha", pct_5h=pct, pct_7d=10, reset_5h=base + 18000,
+                     rl_at=base + i * 200, collected_at=now)
+        dmn.observe_burn(con, lambda _m: None)
+    db.set_agent_state(con, "worker", dmn.IDLE)
+    dmn.observe_burn(con, lambda _m: None)
+    check("cold: a stretch that held a first turn files no sample", not _samples_of(con))
+
+    db.add_event(con, "worker", "Stop")
+    check("cold: a completed turn is no longer a first one",
+          "worker" not in loadmod.first_turn_agents(con))
+    db.set_agent_state(con, "worker", dmn.RUNNING)
+    base2 = now
+    for i, pct in enumerate((20, 23, 27, 30, 34)):
+        write_status(home, "alpha", pct_5h=pct, pct_7d=10, reset_5h=base + 18000,
+                     rl_at=base2 + i * 200, collected_at=now)
+        dmn.observe_burn(con, lambda _m: None)
+    db.set_agent_state(con, "worker", dmn.IDLE)
+    dmn.observe_burn(con, lambda _m: None)
+    got = _samples_of(con)
+    check("cold: its second turn, after a Stop, files normally",
+          len(got) == 1 and (got[0]["m"], got[0]["e"]) == ("opus", "high"), str(got))
     con.close()
 
 
@@ -11710,7 +11804,9 @@ def main() -> int:
         run(lambda: test_an_agent_is_priced_by_the_nearest_kind_with_samples(Path(td) / 'burnkind'))
         run(lambda: test_the_price_of_an_agent_holds_still_across_ticks(Path(td) / 'burnticks'))
         run(lambda: test_a_cheap_agent_is_admitted_where_a_dear_one_is_not(Path(td) / 'burncheap'))
+        run(lambda: test_every_real_caller_prices_the_agent_it_is_placing(Path(td) / 'burncallers'))
         run(lambda: test_the_daemon_feeds_the_estimate_each_tick(Path(td) / 'burntick'))
+        run(lambda: test_a_cold_start_is_not_priced_as_steady_work(Path(td) / 'burncold'))
         run(lambda: test_the_panels_bounded_cells_fit_their_own_columns(Path(td) / 'panelwidths'))
         run(lambda: test_ask_and_resolve_do_not_type_at_an_agent_at_the_wall(Path(td) / 'askwall'))
         run(lambda: test_choose_account_does_not_bounce_back_to_a_stale_preferred_account(

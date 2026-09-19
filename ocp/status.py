@@ -203,6 +203,13 @@ class AccountStatus:
         return max(0.0, age)
 
     @property
+    def is_live_reading(self) -> bool:
+        """A figure this payload actually reported, timestamped, not carried
+        forward from an earlier one - the only kind a rate can be measured
+        from."""
+        return self.pct_5h_source == "live" and self.pct_5h is not None and bool(self.rl_at)
+
+    @property
     def pct_5h_source(self) -> str:
         """Which of the five cases this reading is: see the module docstring."""
         if not self.exists or self.error or self.stale or not self.pct_5h_readable:
@@ -779,8 +786,7 @@ def agent_burn(ld, agent: str | None) -> float:
     """What one more agent costs, in percent of the 5h window per second: the
     measured cost of `agent`'s kind, of a typical agent when none is named, and
     the starting value where nothing measured is to hand."""
-    costs = getattr(ld, "costs", None)
-    return costs.per_s(agent) if costs else triggers.TYPICAL_AGENT_BURN_PER_S
+    return ld.costs.per_s(agent) if ld and ld.costs else triggers.TYPICAL_AGENT_BURN_PER_S
 
 
 def _no_room(st: "AccountStatus", ld, pct: int | None,
