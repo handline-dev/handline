@@ -989,6 +989,37 @@ def cmd_withdraw(args) -> int:
     return 0 if ok else 1
 
 
+def cmd_cancel(args) -> int:
+    """Take a request out of an agent's queue, as the founder.
+
+    Human only: an agent that could cancel a request could close the work
+    someone else handed it. Says what will happen and who will be told, and
+    asks, because it cannot be reopened - the row is closed, never deleted.
+    """
+    if askmod.asking_agent() != askmod.HUMAN:
+        print("cancel is the founder's: an agent takes back its own request with "
+              "`ocp withdraw`, and answers one it was handed with `ocp resolve`.")
+        return 1
+    con = db.connect()
+    try:
+        ok, plan = actions.cancel_plan(con, args.id)
+        if not ok:
+            print(f"not cancelled - {plan}")
+            return 1
+        if not args.yes:
+            print(plan)
+            if not sys.stdin.isatty():
+                print("refusing without a terminal to confirm in - pass --yes", file=sys.stderr)
+                return 1
+            if input("go ahead? [y/N] ").strip().lower() not in ("y", "yes"):
+                print("left alone")
+                return 1
+        print(actions.cancel(con, args.id))
+    finally:
+        con.close()
+    return 0
+
+
 # A blocking wait polls; these are how often, and for how long by default. Ten
 # minutes is a while to hold a terminal, and an answer that has not come in ten
 # is usually one to go and look at.
@@ -1255,6 +1286,14 @@ def cmd_resolve(args) -> int:
             print(f"#{args.id} is {row['requester']} → {row['target']}, not yours to "
                   f"answer. `ocp read {args.id}` shows it.")
             return 1
+        if row["state"] != "queued":
+            # Closed already - answered, or cancelled by the founder while this
+            # was being worked on. A second verdict would overwrite the first
+            # and be sent to the requester as though it were the answer.
+            print(f"#{args.id} is already {row['state']}"
+                  + (f" ({row['verdict'].splitlines()[0][:120]})" if row["verdict"] else "")
+                  + " - nothing to resolve.")
+            return 1
     finally:
         con.close()
     ok, msg = askmod.resolve(args.id, args.verdict, state=args.state)
@@ -1421,6 +1460,11 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("id", type=int)
     p.add_argument("--of", default=None, help="requester (defaults to $OCP_AGENT)")
     p.set_defaults(fn=cmd_withdraw)
+
+    p = sub.add_parser("cancel", help="the founder takes a request out of an agent's queue")
+    p.add_argument("id", type=int)
+    p.add_argument("--yes", action="store_true", help="do not ask to confirm")
+    p.set_defaults(fn=cmd_cancel)
 
     p = sub.add_parser("inbox", help="the one request currently waiting for an agent")
     p.add_argument("agent", nargs="?")

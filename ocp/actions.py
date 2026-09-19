@@ -221,6 +221,39 @@ def dismiss(con, rid: int, me: str | None = None) -> str:
     return msg
 
 
+def waiting_ids(con, agent: str) -> list[int]:
+    """The requests in an agent's WAITING FOR IT list, in the order it is drawn."""
+    return [int(r["id"]) for r in db.queued_for(con, agent)]
+
+
+def cancel_plan(con, rid: int) -> tuple[bool, str]:
+    """What cancelling this request would do, and who is told: the sentence a
+    confirm shows before anything is closed."""
+    row = db.get_request(con, rid)
+    if row is None:
+        return False, f"#{rid} is gone"
+    if row["state"] != "queued":
+        return False, f"#{rid} is already {row['state']}"
+    target, requester = row["target"], row["requester"]
+    if requester == HUMAN and not row["delivered_at"]:
+        return True, f"withdraw #{rid} to {target}: not delivered yet, so nobody is told"
+    behind = [q for q in db.queued_for(con, target) if q["id"] != rid]
+    told = ([f"{target} is told to stop"] if row["delivered_at"] else []) + [
+        "you are not told" if requester == HUMAN
+        else f"{requester} is told '{askmod.CANCEL_VERDICT}'"]
+    return True, (f"cancel #{rid} ({'delivered to' if row['delivered_at'] else 'queued for'} "
+                  f"{target}): closed as rejected, '{askmod.CANCEL_VERDICT}'; "
+                  + ", ".join(told)
+                  + (f"; #{behind[0]['id']} delivers next" if row["delivered_at"] and behind
+                     else ""))
+
+
+def cancel(con, rid: int) -> str:
+    """Take a request out of an agent's queue as the founder. See `ask.cancel`."""
+    ok, msg = askmod.cancel(rid)
+    return msg if ok else f"not cancelled - {msg}"
+
+
 def _is_answer_to_human(row) -> bool:
     """Is this row an answer that came back to the human, rather than a request?
 

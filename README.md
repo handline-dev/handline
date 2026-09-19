@@ -89,7 +89,7 @@ them in the process table and say so when there are two.
 | `ocp doctor` | verify the preconditions of every phase |
 | `ocp status` / `ocp account list` | usage, and which account may take work |
 | `ocp ask <target> "<req>"` | queue work for an agent; the daemon delivers it |
-| `ocp inbox` / `ocp resolve <id> "<verdict>"` / `ocp dismiss <id>` | request queue |
+| `ocp inbox` / `ocp resolve <id> "<verdict>"` / `ocp dismiss <id>` / `ocp cancel <id>` (founder) | request queue |
 | `ocp fold [agent]` | fold events into the digest (the one model call) |
 | `ocp rollover` | midnight carry-forward, no model |
 | `ocp digest` / `ocp handoff <agent>` | the digest / the handoff waiting for an agent (three facts: its request, its transcript, its worktree) |

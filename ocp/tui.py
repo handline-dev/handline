@@ -31,6 +31,7 @@ import subprocess
 import sys
 import tempfile
 import termios
+import textwrap
 import time
 import tty
 import unicodedata
@@ -91,7 +92,7 @@ MESSAGE_KEYS = [("↵", "read"), ("a", "answer"), ("e", "answer in $EDITOR"),
                 ("x", "dismiss")]
 # A stuck row is about an agent, so it answers to the agent keys.
 STUCK_KEYS = AGENT_KEYS
-CONFIRM = {"close", "park", "unstall", "fold"}
+CONFIRM = {"close", "park", "unstall", "fold", "cancel"}
 
 
 def cwidth(ch: str) -> int:
@@ -748,7 +749,8 @@ def build(width: int, sel: dict | None = None,
 
 
 def page(title: str, sections: list[tuple[str, list[str]]],
-         panel: int = AGENTS, key: object = None) -> dict:
+         panel: int = AGENTS, key: object = None,
+         picks: dict[str, list[int]] | None = None) -> dict:
     """A detail page laid out as the screen's own panels, not as a wall of text.
 
     It keeps its sections rather than the lines they make, because the width
@@ -758,7 +760,41 @@ def page(title: str, sections: list[tuple[str, list[str]]],
     """
     d = opened(title, [], panel, key)
     d["sections"] = sections
+    # Sections whose rows can be selected: the start of the heading, and the id
+    # each row stands for. The cursor is `at`, an index into that list.
+    d["picks"] = picks or {}
     return d
+
+
+def _agent_page(con, name: str, panel: int = AGENTS, title: str | None = None,
+                old: dict | None = None) -> dict:
+    """An agent's page, with its WAITING FOR IT rows selectable. `old` is the
+    page it replaces, so a redraw after an action keeps the section, the row
+    and the scroll the reader was at."""
+    d = page(title or f"agent {name}", actions.agent_detail(con, name), panel, name,
+             picks={"WAITING FOR IT": actions.waiting_ids(con, name)})
+    if old:
+        for k in ("tab", "at", "top"):
+            d[k] = old.get(k, 0)
+        # The row it was on may be the one that just left.
+        d["at"] = max(0, min(d["at"], len(d["picks"]["WAITING FOR IT"]) - 1))
+    return d
+
+
+def _picks_of(detail: dict, heading: str) -> list[int]:
+    for prefix, ids in (detail.get("picks") or {}).items():
+        if heading.startswith(prefix):
+            return ids
+    return []
+
+
+def _open_picks(detail: dict) -> list[int]:
+    """The requests the open section lets the cursor land on, or none."""
+    tabs = [h for h, _ in (detail.get("sections") or []) if h]
+    if not tabs:
+        return []
+    at = max(0, min(detail.get("tab", 0), len(tabs) - 1))
+    return _picks_of(detail, tabs[at])
 
 
 def lines_of(detail: dict, width: int) -> list[str]:
@@ -792,6 +828,15 @@ def lines_of(detail: dict, width: int) -> list[str]:
     # someone wrote, and a box that ends every line in "…" is not a section
     # anyone can read. A panel on the main screen cuts a row because the row
     # underneath needs the line; a page scrolls.
+    picks = _picks_of(detail, heading)
+    if picks and len(picks) == len(rows):
+        # One line a request, so the cursor is on a row and not on part of one.
+        at = max(0, min(detail.get("at", 0), len(picks) - 1))
+        detail["at"] = at
+        box.focused, box.selected = True, picks[at]
+        for r, rid in zip(rows, picks):
+            box.add(r, key=rid)
+        return lines + box.draw()
     for r in wrap(rows, max(1, width - 5)):
         box.add(r)
     return lines + box.draw()
@@ -933,7 +978,8 @@ def _detail_frame(width: int, height: int, detail: dict, flash: str = "") -> str
         shown.append("")
     where = (f"{DIM}  line {top + 1}-{min(len(body), top + room)} of {len(body)}{R}"
              if len(body) > room else "")
-    keys = "esc back · ←→ section · ↑↓ scroll"
+    keys = ("esc back · ←→ section · ↑↓ pick · x cancel" if _open_picks(detail)
+            else "esc back · ←→ section · ↑↓ scroll")
     if detail.get("sections") is None or not [h for h, _ in detail["sections"] if h]:
         keys = "esc back · ↑↓ scroll · space page"
     if detail.get("panel") == MESSAGES:
@@ -1056,8 +1102,14 @@ def _line(prompt: str, width: int, height: int) -> str | None:
 def _confirm(what: str, width: int, height: int) -> bool:
     if not sys.stdin.isatty():
         return False
-    sys.stdout.write(f"\033[{height};1H" + CLEAR_EOL
-                     + fit(f"{YEL}{what}?{R} {DIM}y / n{R}", width))
+    # What will happen and who is told can be longer than one line, and a
+    # question whose answer is cut off is one nobody can answer.
+    rows = textwrap.wrap(f"{what}?", max(10, width - 8))[:3] or [f"{what}?"]
+    out = "".join(f"\033[{height - len(rows) + 1 + i};1H" + CLEAR_EOL
+                  + fit(f"{YEL}{ln}{R}" + (f" {DIM}y / n{R}" if i == len(rows) - 1 else ""),
+                        width)
+                  for i, ln in enumerate(rows))
+    sys.stdout.write(out)
     sys.stdout.flush()
     while True:
         ch = _key(30.0)
@@ -1165,6 +1217,22 @@ def _in_detail(detail: dict, k: str, width: int, height: int,
         detail["tab"] = max(0, detail.get("tab", 0) - 1)
         detail["top"] = 0
         return detail, ""
+    picks = _open_picks(detail)
+    if picks and k in ("j", "\033[B", "\033OB", "k", "\033[A", "\033OA"):
+        down = k in ("j", "\033[B", "\033OB")
+        detail["at"] = max(0, min(len(picks) - 1, detail.get("at", 0) + (1 if down else -1)))
+        # Scrolled only as far as keeps the row in view.
+        body = lines_of(detail, width)
+        row = next((i for i, ln in enumerate(body) if "▸" in _ANSI.sub("", ln)), None)
+        if row is not None:
+            top = detail.get("top", 0)
+            top = row if row < top else (row - room + 1 if row >= top + room else top)
+            detail["top"] = max(0, top)
+        return detail, ""
+    if k == "x" and detail.get("panel") in (AGENTS, STUCK):
+        if not picks:
+            return detail, "x cancels a request: open WAITING FOR IT (←→) and pick one (↑↓)"
+        return _cancel_key(detail, picks, width, height)
     if k in ("j", "\033[B", "\033OB"):
         detail["top"] += 1
         return detail, ""
@@ -1214,10 +1282,7 @@ def _in_detail(detail: dict, k: str, width: int, height: int,
             _say(f"{label} {name}", width, height)
             said = getattr(actions, label)(con, name)
             # What it says about itself has just changed.
-            fresh = page(detail["title"], actions.agent_detail(con, name),
-                         detail["panel"], name)
-            fresh["top"] = detail["top"]
-            return fresh, said
+            return _agent_page(con, name, detail["panel"], detail["title"], detail), said
         finally:
             con.close()
     if detail.get("panel") != MESSAGES or k not in ("a", "e", "x"):
@@ -1232,6 +1297,27 @@ def _in_detail(detail: dict, k: str, width: int, height: int,
         # start, a request resolved from elsewhere between the read and the
         # reply. That is this key's failure, not the screen's.
         return detail, f"{RED}{type(e).__name__}: {e}{R}"
+    finally:
+        con.close()
+
+
+def _cancel_key(detail: dict, picks: list[int], width: int, height: int
+                ) -> tuple[dict, str]:
+    """x on a request in WAITING FOR IT: say what it will do and to whom, ask,
+    then take it out of the queue. One key for a request not yet delivered
+    (withdrawn) and for one an agent is sitting on (closed as rejected)."""
+    rid = picks[max(0, min(detail.get("at", 0), len(picks) - 1))]
+    name = str(detail["key"])
+    con = db.connect()
+    try:
+        ok, plan = actions.cancel_plan(con, rid)
+        if not ok:
+            return detail, plan
+        if not _confirm(plan, width, height):
+            return detail, "left alone"
+        _say(f"cancelling #{rid}", width, height)
+        said = actions.cancel(con, rid)
+        return _agent_page(con, name, detail["panel"], detail["title"], detail), said
     finally:
         con.close()
 
@@ -1504,8 +1590,7 @@ def _act(panel: int, sel: dict, key: str, width: int, height: int,
         if panel in (AGENTS, STUCK):
             name = str(target)
             if key in ("\r", "\n"):
-                return "", page(f"agent {name}", actions.agent_detail(con, name),
-                                panel, name)
+                return "", _agent_page(con, name, panel)
             label = dict(AGENT_KEYS).get(key)
             if not label:
                 return "", None
