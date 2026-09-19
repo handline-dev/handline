@@ -1551,6 +1551,43 @@ def test_a_stale_wake_at_does_not_claim_work_that_does_not_exist(home: Path) -> 
         con.close()
 
 
+def test_the_other_wake_writers_also_read_the_queue(home: Path) -> None:
+    """reconcile's due wake and the usage-recovered wake claim QUEUED only with
+    something queued, like the supervise wake: IDLE on an empty queue."""
+    _daemon_home(home, 20)
+    con = db.connect()
+    real = (orcamod.available, orcamod.alive)
+    try:
+        orcamod.available = lambda: True
+        orcamod.alive = lambda h: True
+        db.set_terminal(con, "backend", "term_x", "wt")
+        db.set_account(con, "backend", "alpha")
+        for queued in (False, True):
+            want = dmn.QUEUED if queued else dmn.IDLE
+            if queued:
+                db.add_request(con, "marina", "backend", "carry on", None, "peer",
+                               "async", None, 0, None)
+            db.set_agent_state(con, "backend", dmn.THROTTLED,
+                               wake_at=int(time.time()) - 5, detail="stale")
+            dmn.reconcile(con, lambda _m: None)
+            row = db.get_agent_state(con, "backend")
+            check(f"reconcile wake: queued={queued} reads {want}",
+                  row["state"] == want and row["wake_at"] is None, str(dict(row)))
+
+            _park_via_handoff(con, "backend", "usage")
+            db.set_agent_state(con, "backend", dmn.PARKED,
+                               wake_at=int(time.time()) + 3600, detail="usage")
+            write_status(home, "alpha", pct_5h=5, pct_7d=10, ctx_pct=5,
+                         reset_5h=int(time.time()) + 1800)
+            dmn.supervise(con, "backend", lambda _m: None, int(time.time()), {}, [])
+            row = db.get_agent_state(con, "backend")
+            check(f"usage recovered: queued={queued} reads {want}",
+                  row["state"] == want and row["wake_at"] is None, str(dict(row)))
+    finally:
+        orcamod.available, orcamod.alive = real
+        con.close()
+
+
 def test_daemon_tick_expires_handoff(home: Path) -> None:
     """The deadline must be enforced every tick, not only at startup."""
     _daemon_home(home, 50)
@@ -14844,6 +14881,8 @@ def main() -> int:
         run(lambda: test_daemon_degraded_recovers(Path(td) / 'd5c'))
         run(lambda: test_a_stale_wake_at_does_not_claim_work_that_does_not_exist(
             Path(td) / 'stalewake'))
+        run(lambda: test_the_other_wake_writers_also_read_the_queue(
+            Path(td) / 'otherwake'))
         run(lambda: test_daemon_tick_expires_handoff(Path(td) / 'd5d'))
         run(lambda: test_daemon_ignores_stale_status(Path(td) / 'd5e'))
         run(lambda: test_status_edge_cases(Path(td) / 'se'))
