@@ -444,6 +444,16 @@ def remove_account(name: str, confirm, run, con=None) -> tuple[bool, str]:
                                f"{paths.account_claude(name)} and try again.")
         marker.unlink(missing_ok=True)
         dest = retire(name)
+        # The name can be added again: a probe remembered against the old
+        # account would keep the new one from ever being read.
+        from . import db
+        own = con is None
+        c = con or db.connect()
+        try:
+            db.clear_cursor(c, f"probe:{name}")
+        finally:
+            if own:
+                c.close()
     finally:
         marker.unlink(missing_ok=True)
     return True, f"removed account '{name}' (logged out; directory kept at {dest})"

@@ -1706,6 +1706,22 @@ def test_a_new_account_gets_its_first_reading_without_anyone_asking(home: Path) 
         accounts.logged_in = lambda a: False  # noqa: E731
         dmn.probe_stale_accounts(con, lambda _m: None, [])
         check("new account: not logged in, nothing to ask", started == [], str(started))
+        # A removed name added again is a new account, and is asked again.
+        accounts.register("epsilon")
+        db.set_cursor(con, "probe:alpha", int(time.time()))  # one probe per pass
+        accounts.logged_in = lambda a: True  # noqa: E731
+        dmn.probe_stale_accounts(con, lambda _m: None, [])
+        check("new account: epsilon was probed", db.get_cursor(con, "probe:epsilon") != 0)
+        accounts.logged_in = lambda a: False  # noqa: E731 - logout took
+        ok, msg = accounts.remove_account("epsilon", lambda: True, lambda a, e: 0, con)
+        check("new account: removing it forgets that it was probed",
+              ok and db.get_cursor(con, "probe:epsilon") == 0, msg)
+        accounts.register("epsilon")
+        accounts.logged_in = lambda a: True  # noqa: E731
+        started.clear()
+        dmn.probe_stale_accounts(con, lambda _m: None, [])
+        check("new account: the same name added again is probed again",
+              any(c[-1] == "epsilon" for c in started), str(started))
     finally:
         accounts.logged_in, subprocess.Popen = real_login, real_popen
         con.close()

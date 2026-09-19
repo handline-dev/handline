@@ -2003,9 +2003,9 @@ def probe_stale_accounts(con, log, actions: list[str]) -> None:
     reading is a floor it keeps (`AccountStatus.assignable`); after it,
     nothing does but asking.
 
-    The second only when nowhere already has room for a waiting agent: a probe spends a
-    little of the very quota it is asking about, and a team with somewhere to
-    go needs no answer. The probe runs detached, because it takes a session's
+    The second only when nowhere already has room for a waiting agent: a probe
+    spends a little of the very quota it is asking about, and a team with
+    somewhere to go needs no answer. The probe runs detached, because it takes a session's
     startup to answer and a tick may not stop for that. What it leaves behind
     is a fresh snapshot, which the next tick reads like any other.
     """
