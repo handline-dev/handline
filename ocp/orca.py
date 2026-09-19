@@ -201,16 +201,22 @@ MODAL_MARKERS = ("Enter to confirm", "Esc to cancel")
 MODAL_ROWS = 3
 
 
+def _screen(handle: str) -> dict | None:
+    """The rendered screen, or None when it cannot be read."""
+    ok, out = _run(["terminal", "read", "--terminal", handle, "--screen",
+                    "--limit", "40", "--json"], timeout=30)
+    term = _result(out, "terminal") if ok else None
+    return term if isinstance(term, dict) else None
+
+
 def modal_open(handle: str) -> bool:
     """Is a modal on the agent's screen, where typed text would answer it?
 
     Fail-closed: a screen that cannot be read is a yes, because the cost of a
     wrong no is an answer given to a question nobody asked.
     """
-    ok, out = _run(["terminal", "read", "--terminal", handle, "--screen",
-                    "--limit", "40", "--json"], timeout=30)
-    term = _result(out, "terminal") if ok else None
-    tail = term.get("tail") if isinstance(term, dict) else None
+    term = _screen(handle)
+    tail = term.get("tail") if term else None
     # Any other source is the accumulated stream, whose history is the
     # conversation, not the screen.
     if not isinstance(tail, list) or term.get("source") != "screen":
@@ -221,9 +227,23 @@ def modal_open(handle: str) -> bool:
     return any(m in screen for m in MODAL_MARKERS)
 
 
+def unsent_text(handle: str) -> bool:
+    """Is there text in the input box that nobody has submitted?
+
+    Orca reports it as `draft` on a screen read, only while it is non-empty, and
+    keeps it out of `tail`. Anything typed now lands in the middle of it and the
+    Enter submits the two as one prompt. Fail-closed like `modal_open`.
+    """
+    term = _screen(handle)
+    if term is None or term.get("source") != "screen":
+        return True
+    return bool(term.get("draft"))
+
+
 def typeable_now(handle: str) -> bool:
-    """Idle, and nothing on screen that a typed line would answer."""
-    return idle_now(handle) and not modal_open(handle)
+    """Idle, nothing on screen that a typed line would answer, and nothing
+    already typed that it would merge into."""
+    return idle_now(handle) and not modal_open(handle) and not unsent_text(handle)
 
 
 def clear_context(handle: str, wait: bool = True,
@@ -263,6 +283,8 @@ def close_session(handle: str, wait: bool = True,
         return False, "agent is mid-turn; not closing"
     if modal_open(handle):
         return False, "a modal is open on its screen; not typing /exit at it"
+    if unsent_text(handle):
+        return False, "text is left unsent in its input; not typing /exit into it"
     ok, out = send(handle, "/exit")
     return ok, "/exit typed" if ok else f"could not send /exit: {out[:200]}"
 

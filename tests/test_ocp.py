@@ -42,7 +42,8 @@ dmn.END_WAIT_S, dmn.END_POLL_S = 0.3, 0.05
 # once, put back by _daemon_home, so no test inherits another's world.
 REAL_ORCA = {n: getattr(orcamod, n) for n in (
     "available", "alive", "live_terminals", "wait_idle", "idle_now", "send",
-    "clear_context", "close_session", "relaunch", "resume_with", "modal_open")}
+    "clear_context", "close_session", "relaunch", "resume_with", "modal_open",
+    "unsent_text")}
 REAL_OBSERVE = {n: getattr(obsmod, n) for n in ("live_sessions", "live_terminals")
                 if hasattr(obsmod, n)}
 
@@ -52,6 +53,7 @@ def restore_world() -> None:
         setattr(orcamod, n, f)
     # No screen to read in a fixture; a test about a modal says so itself.
     orcamod.modal_open = lambda handle: False
+    orcamod.unsent_text = lambda handle: False
     for n, f in REAL_OBSERVE.items():
         setattr(obsmod, n, f)
     # Readings that outlive the tick or the frame by design, so one test's
@@ -3762,16 +3764,25 @@ def test_nothing_is_typed_at_a_modal(home: Path) -> None:
         orcamod.modal_open = lambda h: True
         check("modal: a waiting request is not typed at an open modal",
               not dmn.deliver_queued(con, "backend", lambda _m: None) and not sent, str(sent))
+        orcamod.unsent_text = lambda h: True
+        check("unsent: a waiting request is not typed into text a human left in the input",
+              not dmn.deliver_queued(con, "backend", lambda _m: None) and not sent, str(sent))
+        check("unsent: and it stays queued to be retried, not dropped",
+              db.queued_for(con, "backend") is not None)
+        orcamod.unsent_text = lambda h: False
         orcamod.modal_open = lambda h: False
         check("modal: it is told once the modal is gone",
               dmn.deliver_queued(con, "backend", lambda _m: None))
 
         # The reader itself, against what Orca returns.
         orcamod.modal_open = REAL_ORCA["modal_open"]
+        orcamod.unsent_text = REAL_ORCA["unsent_text"]
         screen = {"ok": True}
         def fake_run(args, timeout=180):
-            return screen["ok"], json.dumps({"result": {"terminal": {
-                "tail": screen["tail"], "source": screen.get("source", "screen")}}})
+            term = {"tail": screen["tail"], "source": screen.get("source", "screen")}
+            if "draft" in screen:
+                term["draft"] = screen["draft"]
+            return screen["ok"], json.dumps({"result": {"terminal": term}})
         real_run = orcamod._run
         orcamod._run = fake_run
         try:
@@ -3790,6 +3801,18 @@ def test_nothing_is_typed_at_a_modal(home: Path) -> None:
             check("modal: an empty prompt is not", not orcamod.modal_open("h"))
             screen["tail"] = None
             check("modal: a screen that cannot be read counts as a modal", orcamod.modal_open("h"))
+            # Measured on a live Claude Code terminal: `draft` is present only
+            # while the input box holds text, and `tail` does not show it.
+            screen["tail"] = ["> "]
+            screen["draft"] = "orca half-typed"
+            check("unsent: text left in the input is read as unsent", orcamod.unsent_text("h"))
+            del screen["draft"]
+            check("unsent: no draft key is an empty input", not orcamod.unsent_text("h"))
+            screen["draft"] = ""
+            check("unsent: an empty draft is an empty input", not orcamod.unsent_text("h"))
+            screen["draft"] = "x"
+            screen["source"] = "screen-unavailable"
+            check("unsent: a screen that is not rendered counts as unsent", orcamod.unsent_text("h"))
         finally:
             orcamod._run = real_run
     finally:
