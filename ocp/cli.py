@@ -208,6 +208,9 @@ def cmd_account_list(args) -> int:
     outlook = status.team_outlook()
     if outlook:
         print("  " + outlook)
+    priced = load.costs().by_kind(paths.list_agents())
+    if priced:
+        print("  one more agent costs, per minute of the 5h window: " + "; ".join(priced))
     print("  " + status.SOURCE_LEGEND)
     return 0
 

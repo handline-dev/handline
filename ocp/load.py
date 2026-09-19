@@ -16,7 +16,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from . import agents, db, paths, status, triggers
+from . import agents, burnrate, db, paths, status, triggers
 from .yamlcompat import ConfigError, dump, load as load_yaml
 
 
@@ -26,6 +26,7 @@ class Load:
     active: int              # agents mid-turn on it
     cap: int
     burn: float | None       # percent of the 5h window per second, None unmeasured
+    costs: "burnrate.Costs | None" = None   # what one more agent costs, shared by every account
 
     @property
     def at_cap(self) -> bool:
@@ -60,27 +61,44 @@ def set_cap(acct: str, n: int) -> None:
     paths.config_file().write_text(dump(cfg))
 
 
-def active_agents(con, exclude: str | None = None) -> dict[str, int]:
+def active_by_account(con) -> dict[str, list[str]]:
     """Agents mid-turn, by the account each is running on. An agent that has
     just moved is mid-turn on its handback before the daemon has seen it run,
     so it counts from the move until its next Stop; without that, agents that
-    wall together all see the same empty destination. `exclude` leaves one
-    agent out, for asking what is on an account besides it."""
-    counts: dict[str, int] = {}
+    wall together all see the same empty destination."""
+    found: dict[str, list[str]] = {}
     rows = con.execute(
         "SELECT agent FROM agent_state WHERE closed_at IS NULL AND (state = 'RUNNING' OR "
         "EXISTS (SELECT 1 FROM events m WHERE m.agent = agent_state.agent "
         "AND m.kind = 'moved_account' AND m.id > COALESCE((SELECT MAX(s.id) FROM events s "
         "WHERE s.agent = agent_state.agent AND s.kind = 'Stop'), 0)))").fetchall()
     for row in rows:
-        if row["agent"] == exclude:
-            continue
         try:
             acct = agents.current_account(row["agent"], con)
         except Exception:  # noqa: BLE001 - one agent's bad config is not the pick's problem
             continue
-        counts[acct] = counts.get(acct, 0) + 1
-    return counts
+        found.setdefault(acct, []).append(row["agent"])
+    return found
+
+
+def active_agents(con, exclude: str | None = None) -> dict[str, int]:
+    """How many agents are mid-turn on each account. `exclude` leaves one agent
+    out, for asking what is on an account besides it."""
+    return {a: n for a, n in
+            ((a, len([x for x in names if x != exclude]))
+             for a, names in active_by_account(con).items()) if n}
+
+
+def costs(con=None) -> "burnrate.Costs":
+    """What one more agent costs, shared by every account - the same estimate
+    `read_all` puts on each `Load`."""
+    own = con is None
+    con = db.connect() if own else con
+    try:
+        return burnrate.costs(con)
+    finally:
+        if own:
+            con.close()
 
 
 def read_all(con=None) -> dict[str, Load]:
@@ -88,9 +106,10 @@ def read_all(con=None) -> dict[str, Load]:
     con = db.connect() if own else con
     try:
         active = active_agents(con)
+        shared_costs = costs(con)
     finally:
         if own:
             con.close()
     cfg = _config()
-    return {a: Load(a, active.get(a, 0), cap_of(a, cfg), status.read_burn(a))
+    return {a: Load(a, active.get(a, 0), cap_of(a, cfg), status.read_burn(a), shared_costs)
             for a in paths.list_accounts()}
