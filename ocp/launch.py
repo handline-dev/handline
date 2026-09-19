@@ -161,15 +161,20 @@ def _is_resume(extra: list[str] | None) -> bool:
 
 
 def _mcp_config_material() -> str:
-    """What `fingerprint` hashes for the shared mcp.json: content, not just
-    presence, since the founder editing it in place (fixing an invalid file,
-    or adding a server) changes what a launch would pass without changing
-    the path."""
-    p = paths.mcp_config()
+    """What `fingerprint` hashes for the shared mcp.json: whether a launch
+    would pass `--mcp-config` at all, and if so, the file's content - so
+    editing it in place (fixing an invalid file, or adding a server) reads as
+    drift even though the path never changes. Missing and invalid hash the
+    same: neither puts anything on the argv, so replacing one broken file
+    with another must not read as drift either.
+    """
+    argv, _ = mcp_config_arg()
+    if not argv:
+        return "absent"
     try:
-        return hashlib.sha256(p.read_bytes()).hexdigest()
+        return hashlib.sha256(paths.mcp_config().read_bytes()).hexdigest()
     except OSError:
-        return "missing"
+        return "absent"
 
 
 def mcp_config_arg() -> tuple[list[str], str | None]:
@@ -186,9 +191,15 @@ def mcp_config_arg() -> tuple[list[str], str | None]:
     if not p.exists():
         return [], None
     try:
-        json.loads(p.read_text())
+        data = json.loads(p.read_text())
     except (OSError, ValueError) as e:
         return [], f"{p} is invalid ({e})"
+    # Well-formed JSON that is not claude's {"mcpServers": {...}} shape still
+    # makes `claude` exit before the session starts - the exact wall-off this
+    # skip exists to avoid. Server entries themselves need no checking: claude
+    # accepts and rejects those the same way with or without this guard.
+    if not (isinstance(data, dict) and isinstance(data.get("mcpServers"), dict)):
+        return [], f"{p} is invalid (not a {{\"mcpServers\": {{...}}}} object)"
     return ["--mcp-config", str(p)], None
 
 
@@ -366,11 +377,10 @@ def fingerprint(agent: str) -> str:
     the pieces a running session cannot pick up on its own: the model, the
     effort level, the disallowed-tools list, the shared mcp.json, and the
     static preamble (team line, ROLE.md, base.md). Never the account or the
-    handoff - the account
-    is chosen fresh on every real launch regardless of what last time picked,
-    and the handoff is supposed to be different every time this agent is
-    parked, so hashing either would call a session stale for a reason that
-    has nothing to do with what it was launched with.
+    handoff - the account is chosen fresh on every real launch regardless of
+    what last time picked, and the handoff is supposed to be different every
+    time this agent is parked, so hashing either would call a session stale
+    for a reason that has nothing to do with what it was launched with.
 
     Recorded at launch time (`_record_terminal`) and compared by `drifted`
     before typing a handoff into a session that is still open: the two agree

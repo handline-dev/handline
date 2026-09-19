@@ -557,7 +557,10 @@ def test_launch(home: Path) -> None:
     check("missing status.json does not block first boot", r.returncode == 0, r.stdout)
 
     # Shared mcp.json: missing changes nothing, a valid one is passed through,
-    # an invalid one is skipped (with a warning) rather than blocking launch.
+    # an invalid one (bad JSON, or JSON that is not {"mcpServers": {...}}) is
+    # skipped (with a warning) rather than blocking launch.
+    r = subprocess.run([sys.executable, str(ROOT / "bin" / "ocp"), "launch", "launchtest"],
+                       capture_output=True, text=True, env=env)
     check("no shared mcp.json: no --mcp-config", "--mcp-config" not in r.stdout, r.stdout)
 
     mcp_json = home / "shared" / "mcp.json"
@@ -574,6 +577,15 @@ def test_launch(home: Path) -> None:
     check("invalid shared mcp.json does not block launch", r.returncode == 0, r.stdout)
     check("invalid shared mcp.json is skipped, not passed", "--mcp-config" not in r.stdout, r.stdout)
     check("invalid shared mcp.json is named in the warning", str(mcp_json) in r.stderr, r.stderr)
+
+    # Well-formed JSON in the wrong shape is the case claude itself rejects at
+    # startup (exit 1, before the session starts) - the exact wall-off the
+    # skip exists to avoid, so it must be treated as invalid, not passed through.
+    mcp_json.write_text('{"servers": {"probe": {"command": "true"}}}')
+    r = subprocess.run([sys.executable, str(ROOT / "bin" / "ocp"), "launch", "launchtest"],
+                       capture_output=True, text=True, env=env)
+    check("wrong-shape shared mcp.json does not block launch", r.returncode == 0, r.stdout)
+    check("wrong-shape shared mcp.json is skipped, not passed", "--mcp-config" not in r.stdout, r.stdout)
 
     mcp_json.unlink()
     r = subprocess.run([sys.executable, str(ROOT / "bin" / "ocp"), "launch", "launchtest"],
@@ -592,27 +604,56 @@ def test_launch(home: Path) -> None:
     mcp_json.write_text('{"mcpServers": {"probe": {"command": "true"}, "x": {"command": "y"}}}')
     check("fingerprint: editing its contents changes it again",
           launch.fingerprint("launchtest") != after_add)
+    mcp_json.write_text("{not json")
+    check("fingerprint: an invalid file hashes the same as missing (nothing is passed either way)",
+          launch.fingerprint("launchtest") == before)
+
     mcp_json.unlink()
     check("fingerprint: removing it again matches the original", launch.fingerprint("launchtest") == before)
 
 
+def _doctor_row(r, needle: str):
+    return next(((lv, n, d) for lv, n, d in r.rows if needle in n), None)
+
+
 def test_doctor_checks_shared_mcp_config(home: Path) -> None:
     os.environ["OCP_HOME"] = str(home)
-    r = doctor.run()
-    names = [n for _, n, _ in r.rows]
-    check("doctor is fine with no shared mcp.json", any("no shared mcp.json" in n for n in names))
-
     mcp_json = paths.mcp_config()
     mcp_json.parent.mkdir(parents=True, exist_ok=True)
+    if mcp_json.exists():
+        mcp_json.unlink()
+
+    r = doctor.run()
+    row = _doctor_row(r, "shared mcp.json")
+    check("doctor is fine with no shared mcp.json", row and row[0] == doctor.OK, row)
+
     mcp_json.write_text('{"mcpServers": {}}')
     r = doctor.run()
+    row = _doctor_row(r, "shared mcp.json")
     check("doctor is fine with a valid shared mcp.json",
-          any("shared mcp.json is valid JSON" in n for _, n, _ in r.rows))
+          row and row[0] == doctor.OK and "valid" in row[1], row)
 
     mcp_json.write_text("{not json")
     r = doctor.run()
-    check("doctor fails an invalid shared mcp.json", r.failed > 0
-          and any("shared mcp.json is invalid" in n for _, n, _ in r.rows))
+    row = _doctor_row(r, "shared mcp.json")
+    check("doctor fails an invalid shared mcp.json",
+          row and row[0] == doctor.FAIL and "invalid" in row[1], row)
+
+    mcp_json.write_text('{"servers": {}}')
+    r = doctor.run()
+    row = _doctor_row(r, "shared mcp.json")
+    check("doctor fails a wrong-shape shared mcp.json",
+          row and row[0] == doctor.FAIL, row)
+
+    mcp_json.chmod(0o000)
+    try:
+        r = doctor.run()
+        row = _doctor_row(r, "shared mcp.json")
+        check("doctor fails an unreadable shared mcp.json",
+              row and row[0] == doctor.FAIL, row)
+    finally:
+        mcp_json.chmod(0o644)
+    mcp_json.unlink()
 
 
 DESIGN_TEAM = """

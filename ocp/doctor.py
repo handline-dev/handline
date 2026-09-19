@@ -122,16 +122,18 @@ def _check_home(r: Report) -> None:
 
 
 def _check_mcp_config(r: Report) -> None:
+    # `launch.mcp_config_arg` is the one place that decides "usable" - calling
+    # it here rather than re-checking the file keeps doctor from reporting OK
+    # on a shape a launch would still skip.
     p = paths.mcp_config()
     if not p.exists():
         r.add(OK, "no shared mcp.json (optional)", str(p))
         return
-    try:
-        json.loads(p.read_text())
-    except (OSError, ValueError) as e:
-        r.add(FAIL, "shared mcp.json is invalid", f"{p}: {e} - launches skip --mcp-config until fixed")
+    _, err = launch.mcp_config_arg()
+    if err:
+        r.add(FAIL, "shared mcp.json is invalid", f"{err} - launches skip --mcp-config until fixed")
         return
-    r.add(OK, "shared mcp.json is valid JSON", str(p))
+    r.add(OK, "shared mcp.json is valid", str(p))
 
 
 def _check_orca_hooks(r: Report) -> None:
