@@ -1034,6 +1034,12 @@ def sweep(con, log, actions: list[str]) -> None:
             own = status.read(agents.current_account(agent, con),
                               paths.agent_status_file(agent))
             session = None if own.error else own.session_id
+            # A session id lives under the account its session ran on. If the
+            # agent has moved since - its new session not yet visible - the id
+            # in its snapshot is the old account's, and a resume of it dies.
+            ran_on = own.raw.get("account")
+            if ran_on and ran_on != agents.current_account(agent, con):
+                session = None
             db.set_closed(con, agent, session)
             if row["state"] == RUNNING:
                 db.set_agent_state(con, agent, IDLE, detail="session ended without us")
