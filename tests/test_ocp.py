@@ -3172,8 +3172,7 @@ def test_carry_bounds_and_losses(home: Path) -> None:
 
 def test_migrate_memory_carries_projects_between_accounts(home: Path) -> None:
     """Claude Code's own memory - not ocp's - lives under the account's config
-    dir, keyed by project. Moving an agent off an account used to leave every
-    fact it had learned behind on it (request #154/#156 item 3)."""
+    dir, keyed by project, so a move to another account has to carry it."""
     os.environ["OCP_HOME"] = str(home)
     src = home / "accounts" / "alpha" / ".claude" / "projects" / "-Users-x-orcapipe" / "memory"
     src.mkdir(parents=True)
@@ -3205,6 +3204,53 @@ def test_migrate_memory_carries_projects_between_accounts(home: Path) -> None:
 
     check("migrate_memory: nothing to carry from an account with no projects dir",
           accounts.migrate_memory("never-existed", "also-never-existed") == [])
+
+
+def test_migrate_memory_merges_the_index_and_stays_in_scope(home: Path) -> None:
+    os.environ["OCP_HOME"] = str(home)
+    proj = "-Users-x-orcapipe"
+    root = lambda a: home / "accounts" / a / ".claude" / "projects"  # noqa: E731
+    src, dst = root("alpha") / proj / "memory", root("beta") / proj / "memory"
+    src.mkdir(parents=True)
+    dst.mkdir(parents=True)
+    (dst / "MEMORY.md").write_text("- [old](old.md) - beta's\n")
+    (dst / "old.md").write_text("beta's fact\n")
+    (src / "MEMORY.md").write_text("- [new](new.md) - alpha's\n- [old](old.md) - beta's\n")
+    (src / "new.md").write_text("alpha's fact\n")
+    # The source's index is the newer file, which must not let it replace the
+    # destination's: a memory file that drops out of the index is never loaded.
+    os.utime(dst / "MEMORY.md", (1, 1))
+    accounts.migrate_memory("alpha", "beta", project=proj)
+    index = (dst / "MEMORY.md").read_text().splitlines()
+    check("migrate_memory: the index keeps the destination's lines and gains the source's",
+          index == ["- [old](old.md) - beta's", "- [new](new.md) - alpha's"], str(index))
+
+    # Newest wins for an ordinary file, in both directions.
+    os.utime(src / "new.md", (1, 1))
+    (dst / "new.md").write_text("beta edited this later\n")
+    accounts.migrate_memory("alpha", "beta", project=proj)
+    check("migrate_memory: a newer destination file is not replaced by an older source one",
+          "later" in (dst / "new.md").read_text())
+    os.utime(dst / "new.md", (1, 1))
+    os.utime(src / "new.md", (5, 5))
+    accounts.migrate_memory("alpha", "beta", project=proj)
+    check("migrate_memory: a newer source file replaces an older destination one",
+          (dst / "new.md").read_text() == "alpha's fact\n")
+
+    # Only the named project moves, and a symlink is never followed.
+    other = root("alpha") / "-Users-x-other" / "memory"
+    other.mkdir(parents=True)
+    (other / "n.md").write_text("another repo's fact\n")
+    (src / "link.md").symlink_to(home / "accounts" / "alpha" / "status.json")
+    (home / "accounts" / "alpha" / "status.json").write_text("{}")
+    accounts.migrate_memory("alpha", "beta", project=proj)
+    check("migrate_memory: another repo's memory stays where it was",
+          not (root("beta") / "-Users-x-other").exists())
+    check("migrate_memory: a symlinked file is not carried", not (dst / "link.md").exists())
+
+    check("memory_project_dir: '/' and '.' and '_' all map to '-'",
+          accounts.memory_project_dir("/Users/ron/work/my.repo_x") == "-Users-ron-work-my-repo-x",
+          accounts.memory_project_dir("/Users/ron/work/my.repo_x"))
 
 
 def test_record_terminal_migrates_memory_on_an_account_change(home: Path) -> None:
@@ -10413,6 +10459,7 @@ def main() -> int:
         run(lambda: test_a_launch_takes_its_prompt_once(Path(td) / 'takeprompt'))
         run(lambda: test_carry_bounds_and_losses(Path(td) / 'carry'))
         run(lambda: test_migrate_memory_carries_projects_between_accounts(Path(td) / 'memmig'))
+        run(lambda: test_migrate_memory_merges_the_index_and_stays_in_scope(Path(td) / 'memmerge'))
         run(lambda: test_record_terminal_migrates_memory_on_an_account_change(Path(td) / 'memrec'))
         run(lambda: test_unobserved_spend_stays_off_unreadable_accounts(Path(td) / 'spend'))
         run(lambda: test_subscription_type_is_recorded_and_cached(Path(td) / 'subtype'))

@@ -14,6 +14,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -184,8 +185,9 @@ def subscription_type(acct: str, refresh: bool = False) -> str | None:
 
 def memory_project_dir(repo: str) -> str:
     """The `projects/<this>/memory/` folder Claude Code keeps one repo's
-    memory under - its own path encoding, '/' mapped to '-'."""
-    return repo.replace("/", "-")
+    memory under - its own path encoding, every non-alphanumeric character
+    mapped to '-'."""
+    return re.sub(r"[^A-Za-z0-9]", "-", repo)
 
 
 def migrate_memory(from_acct: str, to_acct: str, project: str | None = None) -> list[str]:
@@ -204,8 +206,12 @@ def migrate_memory(from_acct: str, to_acct: str, project: str | None = None) -> 
     never older there than a copy already at the destination unless the
     destination is itself the newer side - which a straight round trip
     (an agent moved back to an account it had already been on) makes routine.
-    Only ever copies individual files into projects/*/memory/, matching
-    the same restriction KICKOFF rule 1 states for the whole module.
+    `MEMORY.md` is the exception: it is the index Claude Code loads, so the
+    two sides' lines are unioned rather than one replacing the other, or a
+    file on disk would stop being loaded. The memory is the repo's, not one
+    agent's, so every agent's notes for it travel together.
+    Only ever copies regular files into projects/*/memory/, matching the same
+    restriction KICKOFF rule 1 states for the whole module.
     Deletions do not propagate: a fact removed as wrong on one account can
     still come back from the other on a later move.
 
@@ -225,9 +231,17 @@ def migrate_memory(from_acct: str, to_acct: str, project: str | None = None) -> 
         dst_mem = paths.account_claude(to_acct) / "projects" / project_dir.name / "memory"
         copied_any = False
         for f in sorted(src_mem.rglob("*")):
-            if not f.is_file():
+            if f.is_symlink() or not f.is_file():
                 continue
             dst_file = dst_mem / f.relative_to(src_mem)
+            if f.name == "MEMORY.md" and dst_file.is_file():
+                have = dst_file.read_text().splitlines()
+                extra = [ln for ln in f.read_text().splitlines()
+                         if ln.strip() and ln not in have]
+                if extra:
+                    dst_file.write_text("\n".join(have + extra) + "\n")
+                    copied_any = True
+                continue
             if dst_file.exists() and dst_file.stat().st_mtime >= f.stat().st_mtime:
                 continue
             dst_file.parent.mkdir(parents=True, exist_ok=True)
