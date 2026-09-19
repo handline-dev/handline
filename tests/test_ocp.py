@@ -6476,8 +6476,12 @@ def test_an_agent_at_the_wall_moves_to_an_account_with_room(home: Path) -> None:
               "agent's session directly - both go through `ocp ask`, where "
               "the bridge can see it",
               "--disallowedTools" in argv
-              and argv[argv.index("--disallowedTools") + 1] == "Agent,SendMessage",
+              and argv[argv.index("--disallowedTools") + 1] == launch.DISALLOWED_TOOLS
+              and {"Agent", "SendMessage"} <= set(launch.DISALLOWED_TOOLS.split(",")),
               str(argv))
+        check("launch: an agent cannot schedule its own wakeup or cron",
+              {"ScheduleWakeup", "CronCreate"} <= set(launch.DISALLOWED_TOOLS.split(",")),
+              launch.DISALLOWED_TOOLS)
         check("move: the launch it typed goes to the new account",
               env["OCP_ACCOUNT"] == "beta"
               and env["CLAUDE_CONFIG_DIR"].endswith("accounts/beta/.claude"),
@@ -7353,6 +7357,12 @@ edges:
               "You report to `manager`" in dev and "Your reports" not in dev, dev)
         check("team: an agent nobody supervises reports to the founder",
               "You report to `human`" in launch.context_for("scout"))
+        check("team: every agent is told not to schedule its own wakeup to wait",
+              all("Never schedule your own wakeup" in c
+                  for c in (mgr, dev, launch.context_for("scout"))))
+        check("team: every agent is told a request ends with resolve, even a deferral",
+              all("End every request with `ocp resolve <id>`" in c
+                  for c in (mgr, dev, launch.context_for("scout"))))
 
         # A team is closed until it is opened: the screen is for what needs
         # you, and every report drawn in full is a list to scroll past. The
