@@ -314,7 +314,7 @@ def _your_team(agent: str) -> str:
                      "time; to correct one not yet delivered, `--replaces <id>` "
                      "or `ocp withdraw <id>`, not a message behind it.")
     lines.append("`ocp team` shows who you may ask and what each is doing now. "
-                 "A decision only the founder can make: `ocp ask human`.")
+                 "A decision or a block only the founder can clear: `ocp ask human`.")
     # A self-scheduled wakeup survives the park's /clear and fires into a
     # session that is at the usage wall.
     lines.append("Never schedule your own wakeup, /loop or poll to wait for a reply "

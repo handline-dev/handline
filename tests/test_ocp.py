@@ -10037,7 +10037,7 @@ edges:
                   "when you finish" not in ctx
                   and ("is for being blocked" in line) != boss_is_human
                   and (not boss_is_human or "ocp ask human" not in line)
-                  and "A decision only the founder can make: `ocp ask human`" in ctx, line)
+                  and "A decision or a block only the founder can clear: `ocp ask human`" in ctx, line)
             check(f"team: and resolve is said once, in that line, not again after it",
                   ctx.count("ocp resolve <id>") == 1, ctx)
 
