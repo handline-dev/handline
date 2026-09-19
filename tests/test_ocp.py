@@ -11275,6 +11275,18 @@ def test_the_agent_footer_shows_only_what_the_row_can_do(home: Path) -> None:
         line, _ = tui._act(tui.AGENTS, sel, "?", 120, 30, None, None)
         check("footer: ? names fold and move even though the footer never does",
               "fold" in line and "move" in line and "open" not in line, line)
+
+        # The agent's own page (opened with ↵) has the same footer line, and
+        # must filter the same way - it is reached directly from this row.
+        db.set_agent_state(con, "backend", dmn.RUNNING)
+        _, detail = tui._act(tui.AGENTS, sel, "\r", 160, 40, None, None)
+        page_text = tui._ANSI.sub("", tui._detail_frame(160, 40, detail))
+        check("detail page: a running agent's page hides close and park too",
+              "close" not in page_text and "park" not in page_text
+              and "terminal" in page_text and "? help" in page_text, page_text)
+        _, said = tui._in_detail(detail, "?", 160, 40, None, None)
+        check("detail page: ? names fold and move there too",
+              "fold" in said and "move" in said, said)
     finally:
         con.close()
 

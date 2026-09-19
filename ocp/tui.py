@@ -1162,8 +1162,13 @@ def _detail_frame(width: int, height: int, detail: dict, flash: str = "") -> str
     if detail.get("panel") == MESSAGES:
         keys += " · a answer · e answer in $EDITOR · x dismiss"
     elif detail.get("panel") in (AGENTS, STUCK):
-        keys += " · " + " · ".join(f"{k} {label}" for k, label in AGENT_KEYS
-                                   if label != "open")
+        con = db.connect()
+        try:
+            agent_keys = agent_footer_keys(con, detail.get("agent"))
+        finally:
+            con.close()
+        keys += " · " + " · ".join(f"{k} {label}" for k, label in agent_keys
+                                   if label != "open") + " · ? help"
     lines = ([fit(f"{BOLD}{detail['title']}{R}{where}", width), ""]
              + [fit(ln, width) for ln in shown]
              + [fit(flash, width) if flash else "", fit(f"{DIM}{keys} · q quit{R}", width)])
@@ -1626,6 +1631,9 @@ def _in_detail(detail: dict, k: str, width: int, height: int,
         # An agent's page is opened to decide something about that agent, and
         # making the reader back out to the list to press the key is how a
         # decision gets put off.
+        if k == "?":
+            return detail, " ".join(f"{key} {label}" for key, label in AGENT_KEYS
+                                    if label != "open")
         label = dict(AGENT_KEYS).get(k)
         if not label or label == "open":
             return detail, ""
