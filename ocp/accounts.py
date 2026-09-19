@@ -182,6 +182,62 @@ def subscription_type(acct: str, refresh: bool = False) -> str | None:
     return sub
 
 
+def memory_project_dir(repo: str) -> str:
+    """The `projects/<this>/memory/` folder Claude Code keeps one repo's
+    memory under - its own path encoding, '/' mapped to '-'."""
+    return repo.replace("/", "-")
+
+
+def migrate_memory(from_acct: str, to_acct: str, project: str | None = None) -> list[str]:
+    """Carry what an agent has learned from one account's config dir to
+    another. Which account a fact happened to be written under is an
+    accident of which one was logged in at the time, so a move has to bring
+    the facts along.
+
+    `project` (see `memory_project_dir`) scopes the copy to one repo's
+    memory - the moving agent's own, not every repo anyone has ever worked
+    in on the old account. None copies every project there is, for a
+    caller that cannot resolve one.
+
+    Newest wins, by mtime (`copy2` preserves it): the source account is
+    where the agent was actually working last, so its copy of a file is
+    never older there than a copy already at the destination unless the
+    destination is itself the newer side - which a straight round trip
+    (an agent moved back to an account it had already been on) makes routine.
+    Only ever copies individual files into projects/*/memory/, matching
+    the same restriction KICKOFF rule 1 states for the whole module.
+    Deletions do not propagate: a fact removed as wrong on one account can
+    still come back from the other on a later move.
+
+    Returns the project names actually carried over, for the caller to log.
+    """
+    src_root = paths.account_claude(from_acct) / "projects"
+    if not src_root.is_dir():
+        return []
+    project_dirs = [src_root / project] if project else sorted(src_root.iterdir())
+    carried = []
+    for project_dir in project_dirs:
+        if not project_dir.is_dir():
+            continue
+        src_mem = project_dir / "memory"
+        if not src_mem.is_dir():
+            continue
+        dst_mem = paths.account_claude(to_acct) / "projects" / project_dir.name / "memory"
+        copied_any = False
+        for f in sorted(src_mem.rglob("*")):
+            if not f.is_file():
+                continue
+            dst_file = dst_mem / f.relative_to(src_mem)
+            if dst_file.exists() and dst_file.stat().st_mtime >= f.stat().st_mtime:
+                continue
+            dst_file.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(f, dst_file)
+            copied_any = True
+        if copied_any:
+            carried.append(project_dir.name)
+    return carried
+
+
 def login_plan(acct: str, force: bool = False) -> tuple[str, str]:
     """What `ocp login <acct>` should do, and the line to print about it.
 
