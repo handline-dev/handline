@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import json
 import os
+import shlex
 import signal
 import subprocess
 import time
@@ -396,6 +397,22 @@ def wall_reason(con, agent: str, row=None) -> str | None:
     return None
 
 
+def _live_session(con, agent: str) -> str | None:
+    st = status.read_for_agent(agent, agents.current_account(agent, con))
+    return st.session_id
+
+
+def _session_changed(con, agent: str) -> bool:
+    """Is the session on screen a different one from the one the head was typed into?
+
+    A delivery belongs to the session that read it. A resume keeps its id, so
+    it is not told twice; a fresh start has a new one and has read nothing. An
+    id that cannot be read is not a difference - nothing is retyped on a guess.
+    """
+    live = _live_session(con, agent)
+    return bool(live) and live != db.get_notified_session(con, agent)
+
+
 def deliver_queued(con, agent: str, log) -> bool:
     """Tell an agent about the head of its own queue (`db.head_of_queue`) -
     and only the head, per request #189. `ocp ask` writes a row and puts a
@@ -406,7 +423,8 @@ def deliver_queued(con, agent: str, log) -> bool:
     head = db.head_of_queue(con, agent)
     if not head:
         return False
-    if db.get_cursor(con, f"notify:{agent}") == int(head["id"]):
+    if db.get_cursor(con, f"notify:{agent}") == int(head["id"]) \
+            and not _session_changed(con, agent):
         return False
     if wall_reason(con, agent):
         return False              # stays queued; told when it wakes or moves
@@ -421,7 +439,7 @@ def deliver_queued(con, agent: str, log) -> bool:
         return False
     # Typing at an agent mid-turn leaves the text sitting in its input box
     # unsent, which is how three agents once came up having been told nothing.
-    if not orca.idle_now(handle):
+    if not orca.typeable_now(handle):
         return False
     depth = db.queue_depth(con, agent)
     with lock.terminal(agent) as mine:
@@ -453,6 +471,7 @@ def _tell(con, agent: str, head, depth: int, handle: str, log) -> bool:
         f"`ocp resolve {head['id']} \"<verdict>\"`, or `ocp inbox` any time.")
     if ok:
         db.set_cursor(con, f"notify:{agent}", int(head["id"]))
+        db.set_notified_session(con, agent, _live_session(con, agent))
         db.add_event(con, agent, "notified", {"request_id": head["id"], "more_waiting": more})
         log(f"  {agent}: told about #{head['id']}" + (f" ({more} more waiting)" if more else ""))
     return ok
@@ -482,7 +501,7 @@ def deliver_answers(con, agent: str, log) -> bool:
         return False
     if not session_present(agent):
         return False
-    if not orca.idle_now(handle):
+    if not orca.typeable_now(handle):
         return False
     shown, rest = answered[-3:], answered[:-3]
     lines, cut = [], False
@@ -665,8 +684,7 @@ def _end_session(con, agent: str, log, st, resume: str | None) -> tuple[bool, st
 
 
 def wake_prompt(agent: str, resumed: bool, was_closed: bool = False,
-                moved_to: str | None = None, con=None,
-                had_handoff: bool | None = None) -> str:
+                moved_to: str | None = None, con=None) -> str:
     """What an agent is told when it comes back.
 
     A resumed session already holds everything it knew, so it is told where it
@@ -674,13 +692,9 @@ def wake_prompt(agent: str, resumed: bool, was_closed: bool = False,
     one started fresh gets it in its system prompt, and is told which. The
     record is the request in hand, the session's transcript path and the
     worktree's state - the detail is in the transcript, and a session that has
-    no record is told so. `had_handoff` is whether one was waiting before the
-    launch, which consumes it; unset, the row is asked.
-    """
+    no record is told so.    """
     parts: list[str] = []
     record = None
-    if had_handoff is None:
-        had_handoff = bool(con and db.get_handoff(con, agent))
     if moved_to:
         # A move is not a close. Its handoff was taken as its session ended, and
         # `launch.context_for` has already put it in this session's system
@@ -698,7 +712,7 @@ def wake_prompt(agent: str, resumed: bool, was_closed: bool = False,
         parts.append("Your session was closed while you were idle and could not be "
                      "resumed, so this is a fresh one. "
                      + ("Your handoff is in your system prompt above."
-                        if had_handoff else
+                        if con and db.get_handoff(con, agent) else
                         "There is no handoff. Read your journal and your inbox "
                         "before carrying on."))
     else:
@@ -765,6 +779,14 @@ def _start_for_work(con, agent: str, log) -> str:
     return f"{agent}: could not be started - {said.splitlines()[0]}"
 
 
+def _write_wake_prompt(agent: str, text: str) -> Path:
+    d = paths.home() / "wake"
+    d.mkdir(parents=True, exist_ok=True)
+    p = d / f"{agent}.txt"
+    p.write_text(text)
+    return p
+
+
 def wake_agent(con, agent: str, log) -> tuple[bool, str]:
     """Hand a cleared agent back its own handoff so it can carry on.
 
@@ -792,7 +814,6 @@ def _wake_agent(con, agent: str, log, moved_to: str | None = None) -> tuple[bool
 
     row = db.get_agent_state(con, agent)
     closed = bool(row and row["closed_at"])
-    resumed = False
     if not closed and row and session_present(agent):
         # A drifted session is ended and takes the closed agent's wake path
         # below, with its own session id to resume; see `launch.fingerprint`.
@@ -810,7 +831,6 @@ def _wake_agent(con, agent: str, log, moved_to: str | None = None) -> tuple[bool
                     f"started - relaunching instead of waking it in place")
                 row = db.get_agent_state(con, agent)
                 closed = bool(row and row["closed_at"])
-    had_handoff = bool(db.get_handoff(con, agent))
     if closed:
         # `ocp launch` refuses at the 5h wall, and the daemon can read that
         # before it types anything. Trying anyway would spend the wake timeout
@@ -870,14 +890,23 @@ def _wake_agent(con, agent: str, log, moved_to: str | None = None) -> tuple[bool
         # a launch that refuses every time it is retried. A fresh start in the
         # same terminal loses the context and keeps the agent, which is the
         # better of the two ends this can have.
-        attempts = [base + f" -- --resume {session}", base] if session else [base]
+        # The wake prompt travels as the session's own first prompt, in a file
+        # the launch reads and deletes: typed at the terminal instead, it lands
+        # in a bare shell whenever the session dies first, and the shell runs
+        # it line by line.
         started = lambda: wait_for_session(agent, WAKE_SESSION_TIMEOUT_S)  # noqa: E731
         resumed = False
-        for cmd in attempts:
+        for resume in ([True, False] if session else [False]):
+            pf = _write_wake_prompt(
+                agent, wake_prompt(agent, resume, was_closed=closed,
+                                   moved_to=moved_to, con=con))
+            cmd = f"{base} --prompt-file {shlex.quote(str(pf))}" + (
+                f" -- --resume {session}" if resume else "")
             ok, why = orca.relaunch(handle, cmd, started=started)
             if ok:
-                resumed = "--resume" in cmd
+                resumed = resume
                 break
+            pf.unlink(missing_ok=True)
         if not ok:
             # The closed mark and resume_session are the whole way back. A wake
             # that started nothing leaves both alone: the next attempt - work
@@ -903,6 +932,9 @@ def _wake_agent(con, agent: str, log, moved_to: str | None = None) -> tuple[bool
         db.reset_counter(con, agent, "wake_failures")
         db.clear_closed(con, agent)
         db.add_event(con, agent, "wake", {"resumed_session": session if resumed else None})
+        db.set_handoff(con, agent, None)
+        log(f"  {agent}: relaunched with its wake prompt{' (session resumed)' if resumed else ''}")
+        return True, "relaunched with the wake prompt"
     elif not db.get_handoff(con, agent):
         return False, "no handoff to resume from"
     elif not session_present(agent):
@@ -913,12 +945,13 @@ def _wake_agent(con, agent: str, log, moved_to: str | None = None) -> tuple[bool
         # the branch above then relaunches it before anything is typed.
         return False, "no session process; not typing the handoff at a shell prompt"
 
-    ok, why = orca.resume_with(handle, wake_prompt(agent, resumed, was_closed=closed,
-                                                   moved_to=moved_to, con=con,
-                                                   had_handoff=had_handoff))
+    if not orca.typeable_now(handle):
+        return False, "the session is busy or has a modal open; not typing the handoff"
+    ok, why = orca.resume_with(handle, wake_prompt(agent, False, was_closed=False,
+                                                   moved_to=moved_to, con=con))
     if ok:
         db.set_handoff(con, agent, None)
-    log(f"  {agent}: {why}{' (session resumed)' if resumed else ''}")
+    log(f"  {agent}: {why}")
     return ok, why
 
 
@@ -1191,7 +1224,7 @@ def perform_handoff(con, agent: str, trigger: triggers.Trigger, log) -> bool:
         # than that a person may be typing, so the probe still decides.
         stopped = events.at_limit(con, agent)
         settled = stopped and int(time.time()) - stopped["at"] >= LIMIT_SETTLE_S
-        if not settled and not orca.idle_now(handle):
+        if not settled and not orca.typeable_now(handle):
             log(f"  {agent}: {trigger.kind} fired but the agent is mid-turn - deferring")
             return True
         if not session_present(agent):

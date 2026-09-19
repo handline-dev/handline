@@ -324,6 +324,10 @@ def _add_missing_columns(con) -> None:
     if "launch_fingerprint" not in state_cols:
         # No backfill: an existing row reads as drifted, which is right.
         con.execute("ALTER TABLE agent_state ADD COLUMN launch_fingerprint TEXT")
+    if "notified_session" not in state_cols:
+        # The session the notify cursor's head was typed into. A delivery
+        # belongs to the session that read it, not to the agent.
+        con.execute("ALTER TABLE agent_state ADD COLUMN notified_session TEXT")
 
 
 
@@ -422,6 +426,17 @@ def set_task(con, agent: str, task: str | None) -> None:
 def get_cursor(con, name: str) -> int:
     row = con.execute("SELECT row_id FROM cursors WHERE name = ?", (name,)).fetchone()
     return int(row["row_id"]) if row else 0
+
+
+def get_notified_session(con, agent: str) -> str | None:
+    row = con.execute("SELECT notified_session FROM agent_state WHERE agent = ?",
+                      (agent,)).fetchone()
+    return row["notified_session"] if row else None
+
+
+def set_notified_session(con, agent: str, session_id: str | None) -> None:
+    con.execute("UPDATE agent_state SET notified_session = ? WHERE agent = ?",
+                (session_id, agent))
 
 
 def set_cursor(con, name: str, row_id: int) -> None:
