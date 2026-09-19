@@ -812,6 +812,8 @@ def _agent_page(con, name: str, panel: int = AGENTS, title: str | None = None,
     """An agent's page, with its WAITING FOR IT rows selectable. `old` is the
     page it replaces, so a redraw after an action keeps the section, the row
     and the scroll the reader was at."""
+    if old and old.get("stem") == actions.CHAT_TAB:
+        actions.chat_seen(con, name)   # before it is counted: it is being read
     d = page(title or f"agent {name}", actions.agent_detail(con, name), panel, name,
              picks={"WAITING FOR IT": actions.waiting_ids(con, name)})
     d["agent"] = name
@@ -823,8 +825,6 @@ def _agent_page(con, name: str, panel: int = AGENTS, title: str | None = None,
         stems = [h.split(" (")[0] for h, _ in d["sections"] if h]
         if old.get("stem") in stems:
             d["tab"] = stems.index(old["stem"])
-        if old.get("stem") == actions.CHAT_TAB:
-            actions.chat_seen(con, name)
         # The row it was on may be the one that just left.
         d["at"] = max(0, min(d["at"], len(d["picks"]["WAITING FOR IT"]) - 1))
     return d
@@ -1021,6 +1021,8 @@ def _detail_frame(width: int, height: int, detail: dict, flash: str = "") -> str
     exactly the one someone is about to answer, which is why it can be answered
     from here.
     """
+    if detail.get("refresh_error") and not flash:
+        flash = f"{RED}page not refreshed - {detail['refresh_error']}{R}"
     body = lines_of(detail, width)
     room = max(1, height - 4)
     last = max(0, len(body) - room)
@@ -1179,6 +1181,8 @@ def _line(prompt: str, width: int, height: int) -> str | None:
             buf += ch
 
 
+# An escape sequence: `esc [` and parameters up to a final byte, or `esc O x`.
+_CSI = re.compile(r"\033(?:\[[0-?]*[ -/]*[@-~]|O.)")
 PASTE_ON, PASTE_OFF = "\033[?2004h", "\033[?2004l"
 
 
@@ -1204,8 +1208,11 @@ class Composer:
                 self.pasting, data = True, data[len(self.START):]
             elif data.startswith(self.END):
                 self.pasting, data = False, data[len(self.END):]
-            elif 1 < len(data) < 6 and (self.START.startswith(data) or self.END.startswith(data)):
-                self._carry = data         # a marker cut in two by the read
+            elif (len(data) < 6 and (self.START.startswith(data) or self.END.startswith(data))
+                  and (len(data) > 1 or self.pasting)):
+                # A marker cut in two by the read. A lone escape is one too
+                # while pasting; outside a paste it is the way out.
+                self._carry = data
                 return None
             elif self.pasting:
                 ch, data = data[0], data[1:]
@@ -1215,8 +1222,12 @@ class Composer:
             elif data[0] in "\r\n":
                 return "send"
             elif data[0] == "\033":
-                if data[1:2] in ("[", "O") and len(data) >= 3:
-                    data = data[3:]        # an arrow: not text, not a way out
+                m = _CSI.match(data)
+                if m:
+                    data = data[m.end():]  # an arrow, Delete...: not text
+                elif data[1:2] in ("[", "O"):
+                    self._carry = data     # a sequence cut short by the read
+                    return None
                 else:
                     return "cancel"
             elif data[0] in ("\x7f", "\b"):
@@ -1328,10 +1339,10 @@ def run(interval: float = 2.0, once: bool = False) -> int:
         sys.stdout.write(ALT_ON + CUR_OFF)
         while True:
             settle(sel, known)
-            detail = _refreshed(detail)
             size = shutil.get_terminal_size((100, 40))
             width, height = size.columns, size.lines
-            sys.stdout.write(HOME + frame(width, height, sel, panel, flash, detail))
+            shown, detail = _redraw(width, height, sel, panel, flash, detail)
+            sys.stdout.write(HOME + shown)
             sys.stdout.flush()
             k = _key(interval)
             if k is None:
@@ -1364,6 +1375,13 @@ def run(interval: float = 2.0, once: bool = False) -> int:
             termios.tcsetattr(fd, termios.TCSADRAIN, saved)
 
 
+def _redraw(width: int, height: int, sel: dict, panel: int, flash: str,
+            detail: dict | None) -> tuple[str, dict | None]:
+    """One tick of the screen: the open page brought up to date, then drawn."""
+    detail = _refreshed(detail)
+    return frame(width, height, sel, panel, flash, detail), detail
+
+
 def _refreshed(detail: dict | None) -> dict | None:
     """An open agent page as the database has it now.
 
@@ -1376,8 +1394,10 @@ def _refreshed(detail: dict | None) -> dict | None:
     con = db.connect()
     try:
         return _agent_page(con, detail["agent"], detail["panel"], detail["title"], detail)
-    except Exception:  # noqa: BLE001
-        return detail                  # a read that fails leaves the last page up
+    except Exception as e:  # noqa: BLE001
+        # The last page stays up, and says it is not current.
+        detail["refresh_error"] = f"{type(e).__name__}: {e}"
+        return detail
     finally:
         con.close()
 

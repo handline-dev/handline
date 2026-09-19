@@ -955,9 +955,10 @@ def conversation(con, agent: str) -> list[str]:
         out += [ln for m in msgs for ln in m[3]]
     if not out:
         out.append(f"nothing yet between you and {agent}")
-    parent = chat_parent(con, agent)
-    out += ["", f"↵ write to {agent}" + (f" · goes under #{parent}" if parent else
-                                        " · starts a new thread") + " · e in $EDITOR"]
+    how, rid = chat_target(con, agent)
+    goes = {"answers": f" · answers #{rid}", "under": f" · goes under #{rid}",
+            "new": " · starts a new thread"}[how]
+    out += ["", f"↵ write to {agent}{goes} · e in $EDITOR"]
     return out
 
 
@@ -974,24 +975,34 @@ def chat_parent(con, agent: str) -> int | None:
     return int(row["m"]) if row and row["m"] else None
 
 
-def chat_reply(con, agent: str, body: str) -> str:
-    """Send the human's message under the conversation it continues.
+def chat_target(con, agent: str) -> tuple[int | None, str]:
+    """The row a message from the human in this tab goes to, and what it does there.
 
-    Under the latest row between them, which decides what "reply" means: to a
-    request the agent is waiting on, the reply is its answer (an ask under it
-    would leave it queued in the mailbox and the agent parked); to an answer
-    already back, it is a new ask in that thread; to the human's own unanswered
-    ask, it is a follow-up in the same thread.
+    ('answers', id): the oldest question the agent has open for the human. It is
+    parked on that row, so a reply is its verdict - an ask under it would leave
+    it queued and the agent waiting. A report (fyi) is not a question, and
+    neither is the human's own row, so neither can be what a reply answers.
+    ('under', id): otherwise a new ask in the thread of the latest row between
+    them. ('new', None): nothing between them yet.
     """
+    q = con.execute(
+        "SELECT MIN(id) AS m FROM requests WHERE requester = ? AND target = ? "
+        "AND state = 'queued' AND fyi = 0", (agent, HUMAN)).fetchone()
+    if q and q["m"]:
+        return "answers", int(q["m"])
+    rid = chat_parent(con, agent)
+    return ("under", rid) if rid else ("new", None)
+
+
+def chat_reply(con, agent: str, body: str) -> str:
+    """Send the human's message where `chat_target` says it goes."""
     if not body.strip():
         return "nothing sent: no message typed"
-    rid = chat_parent(con, agent)
-    if rid is None:
+    how, rid = chat_target(con, agent)
+    if how == "new":
         return message(con, agent, body)
     row = db.get_request(con, rid)
-    if row["requester"] == agent and row["target"] == HUMAN and row["state"] == "queued":
-        return answer(con, rid, body)
-    if _is_answer_to_human(row):
+    if how == "answers" or _is_answer_to_human(row):
         return answer(con, rid, body)
     ok, msg, _ = askmod.ask(agent, body, requester=HUMAN, parent_id=rid)
     return msg
@@ -1006,6 +1017,8 @@ def chat_unread(con, agent: str) -> int:
 
     Counted from a time, not a row id: an answer lands on an old row, so ids
     arrive out of order and an id cursor would step past the older one for good.
+    Times are whole seconds, so what lands in the very second the tab was marked
+    counts as read; the other way, what was just read would stay new.
     """
     seen = db.get_cursor(con, _seen_key(agent))
     row = con.execute(

@@ -10610,16 +10610,29 @@ def test_the_messenger_tab_carries_a_conversation_both_ways(home: Path) -> None:
         actions.chat_seen(con, "reviewer")
         check("chat: seen clears the count", tab()[0] == "CONVERSATION", tab()[0])
 
-        # The open page follows the database on its own redraw.
+        # The open page follows the database on the screen's own redraw.
         page = tui._agent_page(con, "reviewer", tui.AGENTS)
-        page["tab"] = [h for h, _ in page["sections"] if h].index("CONVERSATION")
-        tui.lines_of(page, 100)
+        page["tab"] = [h.split(" (")[0] for h, _ in page["sections"] if h].index("CONVERSATION")
+        page["end"] = True             # as the tab key leaves it
+        sel: dict = {}
+        _, page = tui._redraw(100, 12, sel, tui.AGENTS, "", page)
         actions.chat_reply(con, "reviewer", "one more")
+        past = int(time.time()) - 100
+        db.set_cursor(con, "seen:reviewer", past)
         askmod.resolve(actions.chat_parent(con, "reviewer"), "second answer, landing while it is open")
-        page = tui._refreshed(page)
+        check("chat: it is unread before the redraw", actions.chat_unread(con, "reviewer") == 2)
+        shown, page = tui._redraw(100, 12, sel, tui.AGENTS, "", page)
+        plain = tui._ANSI.sub("", shown)
         check("chat: an open page shows an answer on its next redraw",
-              any("landing while it is open" in ln for ln in tui.lines_of(page, 100)))
-        check("chat: and reading it marks it read", actions.chat_unread(con, "reviewer") == 0)
+              "landing while it is open" in plain, plain[-300:])
+        check("chat: and being open on it marks it read", actions.chat_unread(con, "reviewer") == 0)
+        for i in range(9):
+            actions.chat_reply(con, "reviewer", f"filler {i}")
+        _, page = tui._redraw(100, 12, sel, tui.AGENTS, "", page)
+        actions.chat_reply(con, "reviewer", "the newest line")
+        shown, page = tui._redraw(100, 12, sel, tui.AGENTS, "", page)
+        check("chat: a conversation read at its end stays at its end",
+              "the newest line" in tui._ANSI.sub("", shown))
 
         # A reply goes under the thread it continues.
         before = actions.chat_parent(con, "reviewer")
@@ -10630,6 +10643,17 @@ def test_the_messenger_tab_carries_a_conversation_both_ways(home: Path) -> None:
               and second["parent_id"] == first, str(dict(second)))
         check("chat: one chain header, not two",
               sum(r.startswith("── chain") for r in tab()[1]) == 1, str(tab()[1]))
+
+        # A question followed by a report: the reply is to the question.
+        q = askmod.ask(actions.HUMAN, "which colour?", requester="reviewer")[2]
+        f = askmod.ask(actions.HUMAN, "status: halfway", requester="reviewer", fyi=True)[2]
+        check("chat: the footer names the question, not the newer report",
+              any(f"answers #{q}" in r for r in tab()[1]), str(tab()[1][-2:]))
+        actions.chat_reply(con, "reviewer", "blue")
+        check("chat: the reply closes the question and leaves the report",
+              db.get_request(con, q)["verdict"] == "blue"
+              and db.get_request(con, f)["verdict"] is None)
+        askmod.resolve(f, "read")
 
         # An agent's question to the human is answered, not asked under.
         rid, = [askmod.ask(actions.HUMAN, "which name?", requester="reviewer")[2]]
@@ -10656,6 +10680,15 @@ def test_the_composer_takes_a_paste_whole(home: Path) -> None:
     check("composer: an arrow is neither text nor a way out",
           tui.Composer().feed("\033[A") is None)
     check("composer: a bare escape cancels", tui.Composer().feed("\033") == "cancel")
+    # A read that ends on the escape of the end marker must not strand the paste.
+    c = tui.Composer()
+    c.feed("\033[200~abc\033")
+    c.feed("[201~")
+    check("composer: a marker split right after its escape is still a marker",
+          c.text == "abc" and not c.pasting and c.feed("\r") == "send", repr(c.text))
+    c = tui.Composer()
+    c.feed("a\033[3~b\033[1;5Cc")
+    check("composer: longer escape sequences are skipped whole", c.text == "abc", repr(c.text))
 
 
 def test_a_message_is_read_whole_and_answered_where_it_is_read(home: Path) -> None:
