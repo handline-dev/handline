@@ -22,5 +22,7 @@ You are handed one request at a time, the head of your queue - not the whole
 of it - and the next only arrives once you resolve or dismiss this one. To
 change a task you sent that has not been delivered yet, replace it
 (`ocp ask <target> "..." --replaces <id>`) or take it back (`ocp withdraw
-<id>`); do not send a correction behind it. For anything else: `ocp guide`
+<id>`); do not send a correction behind it. A question or decision for the
+founder is `ocp ask human "..."` and shows red until answered; a status report
+that needs nothing is `ocp ask human "..." --fyi`, which does not. For anything else: `ocp guide`
 lists topics, `ocp guide <topic>` prints one.

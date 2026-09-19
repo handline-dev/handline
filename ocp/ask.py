@@ -187,13 +187,15 @@ def _merge_into_queued(con, requester: str, target: str, body: str,
 
 def ask(target: str, body: str, files: str | None = None, requester: str | None = None,
         parent_id: int | None = None, mergeable: bool = False, first: bool = False,
-        replaces: int | None = None) -> tuple[bool, str, int | None]:
+        replaces: int | None = None, fyi: bool = False) -> tuple[bool, str, int | None]:
     """Route and, if allowed, enqueue. Returns (allowed, message, request id).
 
     `first` and `replaces` are request #189's --first and --replaces; see
     `db.add_request` and `db.head_of_queue`.
     """
     requester = requester or asking_agent()
+    if fyi and target != HUMAN:
+        return False, f"--fyi is a report to {HUMAN}; {target} is not {HUMAN}", None
     # Nobody may send as the human. That name carries two
     # privileges - the routing table lets it reach every agent, and a chain
     # through it is exempt from the loop guards, because the guards exist to
@@ -224,7 +226,10 @@ def ask(target: str, body: str, files: str | None = None, requester: str | None 
             if old["state"] != "queued":
                 return False, (f"#{replaces} is already {old['state']} - "
                                f"nothing to replace"), None
-            if old["delivered_at"]:
+            # The human's rows are "delivered" when drawn on the bridge, and
+            # nobody can withdraw or answer one on their behalf - so a
+            # correction is the only way a stale escalation ever leaves.
+            if old["delivered_at"] and old["target"] != HUMAN:
                 return False, (f"#{replaces} was already delivered to {old['target']} - "
                                f"it is too late to replace; send a reply in its thread "
                                f"instead (`ocp ask {old['target']} \"...\" --parent "
@@ -313,18 +318,28 @@ def ask(target: str, body: str, files: str | None = None, requester: str | None 
             # Atomic, and before the new row exists: a delivery landing
             # between the check above and here must not be undone by this, so
             # the write itself is the gate, not a second look at delivered_at.
-            if not db.retire_if_undelivered(con, replaces, "replaced"):
+            retire = db.retire_queued if old["target"] == HUMAN else db.retire_if_undelivered
+            if not retire(con, replaces, "replaced"):
+                if old["target"] == HUMAN:
+                    return False, f"#{replaces} was answered just now - nothing to replace", None
                 return False, (f"#{replaces} was delivered to {old['target']} just now - "
                                f"too late to replace; send a reply in its thread instead "
                                f"(`ocp ask {old['target']} \"...\" --parent {replaces}`)"), None
 
         rid = db.add_request(con, requester, target, body, files, decision.relation,
-                             decision.response, decision.kind, depth, parent_id,
-                             chain_id=chain_id, first=first,
+                             decision.response, "report" if fyi else decision.kind, depth, parent_id,
+                             chain_id=chain_id, first=first, fyi=fyi,
                              queue_order=(old["queue_order"]
                                          if old is not None and old["target"] == target
                                          else None))
         deliver(rid, requester, target, body, files, decision)
+        if fyi:
+            # One live report per sender: the newer one says what the older did.
+            for prev in con.execute(
+                    "SELECT id FROM requests WHERE requester = ? AND target = ? "
+                    "AND fyi = 1 AND state = 'queued' AND id != ?",
+                    (requester, HUMAN, rid)).fetchall():
+                db.retire_queued(con, int(prev["id"]), "replaced", f"replaced by #{rid}")
         if old is not None:
             con.execute("UPDATE requests SET verdict = ? WHERE id = ?",
                        (f"replaced by #{rid}", replaces))
@@ -356,7 +371,7 @@ def ask(target: str, body: str, files: str | None = None, requester: str | None 
                f"response={decision.response}, {note})"
         if old is not None:
             note = f"replaces #{replaces}; {note}"
-        if decision.creates_gate:
+        if decision.creates_gate and not fyi:
             note += " [escalation: needs a human gate]"
         else:
             note += "\n" + push(con, target)
