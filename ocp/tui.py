@@ -853,12 +853,26 @@ def _agent_page(con, name: str, panel: int = AGENTS, title: str | None = None,
             d[k] = old.get(k, 0)
         # A tab that appears or goes (ANSWERS IT HAS NOT BEEN TOLD) moves the
         # others; the reader stays on the section they were reading.
-        stems = [h.split(" (")[0] for h, _ in d["sections"] if h]
+        stems = _tab_stems(d)
         if old.get("stem") in stems:
             d["tab"] = stems.index(old["stem"])
         # The row it was on may be the one that just left.
         d["at"] = max(0, min(d["at"], len(d["picks"]["WAITING FOR IT"]) - 1))
     return d
+
+
+def _tab_stems(detail: dict) -> list[str]:
+    """The names of a page's tabs, without the counts in their headings."""
+    return [h.split(" (")[0] for h, _ in detail.get("sections") or [] if h]
+
+
+def _go_to_tab(detail: dict, at: int) -> None:
+    """Put the reader on tab `at`. The page follows the reader by the tab's
+    name (`stem`), so moving the number alone is undone by the next refresh."""
+    stems = _tab_stems(detail)
+    at = max(0, min(at, len(stems) - 1))
+    detail["tab"], detail["stem"] = at, stems[at] if stems else ""
+    detail["top"], detail["end"] = 0, True
 
 
 def _picks_of(detail: dict, heading: str) -> list[int]:
@@ -1493,12 +1507,10 @@ def _in_detail(detail: dict, k: str, width: int, height: int,
     if k in ("\033", "\x1b"):
         return None, ""
     if k in ("\033[C", "\033OC", "\t"):
-        detail["tab"] = detail.get("tab", 0) + 1
-        detail["top"], detail["end"] = 0, True
+        _go_to_tab(detail, detail.get("tab", 0) + 1)
         return detail, ""
     if k in ("\033[D", "\033OD", "\033[Z"):
-        detail["tab"] = max(0, detail.get("tab", 0) - 1)
-        detail["top"], detail["end"] = 0, True
+        _go_to_tab(detail, detail.get("tab", 0) - 1)
         return detail, ""
     if detail.get("stem") == actions.CHAT_TAB and k in ("\r", "\n", "e", "m"):
         return _write_in_thread(detail, k, width, height, fd, saved)
