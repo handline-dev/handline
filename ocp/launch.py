@@ -290,6 +290,13 @@ def _your_team(agent: str) -> str:
 
 def exec_agent(agent: str, extra: list[str] | None = None, force: bool = False) -> None:
     argv, env = build(agent, extra, force)
+    # The handoff `build` put in the system prompt is now the session's, so a
+    # record still on the row means one nobody has been handed.
+    con = db.connect()
+    try:
+        db.set_handoff(con, agent, None)
+    finally:
+        con.close()
     _record_terminal(agent, env.get("OCP_ACCOUNT"))
     sys.stdout.flush()
     os.execve(argv[0], argv, env)

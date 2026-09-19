@@ -625,7 +625,8 @@ def _end_session(con, agent: str, log, st, resume: str | None) -> tuple[bool, st
 
 
 def wake_prompt(agent: str, resumed: bool, was_closed: bool = False,
-                moved_to: str | None = None, con=None) -> str:
+                moved_to: str | None = None, con=None,
+                had_handoff: bool | None = None) -> str:
     """What an agent is told when it comes back.
 
     A resumed session already holds everything it knew, so it is told where it
@@ -633,10 +634,13 @@ def wake_prompt(agent: str, resumed: bool, was_closed: bool = False,
     one started fresh gets it in its system prompt, and is told which. The
     record is the request in hand, the session's transcript path and the
     worktree's state - the detail is in the transcript, and a session that has
-    no record is told so.
+    no record is told so. `had_handoff` is whether one was waiting before the
+    launch, which consumes it; unset, the row is asked.
     """
     parts: list[str] = []
     record = None
+    if had_handoff is None:
+        had_handoff = bool(con and db.get_handoff(con, agent))
     if moved_to:
         # A move is not a close. Its handoff was taken as its session ended, and
         # `launch.context_for` has already put it in this session's system
@@ -654,7 +658,7 @@ def wake_prompt(agent: str, resumed: bool, was_closed: bool = False,
         parts.append("Your session was closed while you were idle and could not be "
                      "resumed, so this is a fresh one. "
                      + ("Your handoff is in your system prompt above."
-                        if con and db.get_handoff(con, agent) else
+                        if had_handoff else
                         "There is no handoff. Read your journal and your inbox "
                         "before carrying on."))
     else:
@@ -749,6 +753,7 @@ def _wake_agent(con, agent: str, log, moved_to: str | None = None) -> tuple[bool
     row = db.get_agent_state(con, agent)
     closed = bool(row and row["closed_at"])
     resumed = False
+    had_handoff = bool(db.get_handoff(con, agent))
     if closed:
         # `ocp launch` refuses at the 5h wall, and the daemon can read that
         # before it types anything. Trying anyway would spend the wake timeout
@@ -853,7 +858,8 @@ def _wake_agent(con, agent: str, log, moved_to: str | None = None) -> tuple[bool
         return False, "no session process; not typing the handoff at a shell prompt"
 
     ok, why = orca.resume_with(handle, wake_prompt(agent, resumed, was_closed=closed,
-                                                   moved_to=moved_to, con=con))
+                                                   moved_to=moved_to, con=con,
+                                                   had_handoff=had_handoff))
     if ok:
         db.set_handoff(con, agent, None)
     log(f"  {agent}: {why}{' (session resumed)' if resumed else ''}")
