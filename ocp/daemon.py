@@ -1507,9 +1507,19 @@ def supervise(con, agent: str, log, now: int, samples: dict,
             and state == PARKED and reading.source != "assumed" \
             and orca.available() and orca.alive(row["terminal"]):
         last = db.last_handoff(con, agent)
-        if last and last["trigger_kind"] in MOVABLE_TRIGGERS and \
-                not triggers.evaluate(st.trusted_pct_5h, st.trusted_ctx_pct, burn=burn,
-                                      pct_7d=st.trusted_pct_7d).fired:
+        verdict = triggers.evaluate(st.trusted_pct_5h, st.trusted_ctx_pct, burn=burn,
+                                    pct_7d=st.trusted_pct_7d)
+        movable = last and last["trigger_kind"] in MOVABLE_TRIGGERS
+        # Still full here, but another account may have rolled over since the
+        # park: move now rather than wait out this account's own window.
+        if movable and verdict.fired and verdict.kind in MOVABLE_TRIGGERS \
+                and _room_to_move(agent) not in (None, acct):
+            with lock.terminal(agent) as mine:
+                moved = mine and _move_to_room(con, agent, verdict, log)
+            if moved:
+                actions.append(f"{agent}: moved off a parked account")
+                return
+        if movable and not verdict.fired:
             db.set_agent_state(con, agent, QUEUED, wake_at=None, detail="usage recovered")
             actions.append(f"{agent}: {state} -> QUEUED (usage recovered)")
             log(f"  {agent}: {state} -> QUEUED (usage recovered)")
