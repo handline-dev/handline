@@ -142,10 +142,14 @@ def padfit(s: str, width: int) -> str:
     return pad(fit(s, width), width)
 
 
-def bar(pct: int | None, width: int = 10) -> str:
+def bar(pct: int | None, width: int = 10, last_seen: bool = False) -> str:
+    """`last_seen` draws the fill at the value but with no colour: the figure is
+    what an account was last seen at, not a gauge anyone is reading now."""
     if pct is None:
         return DIM + "·" * width + R
     filled = max(0, min(width, round(pct / 100 * width)))
+    if last_seen:
+        return DIM + "█" * filled + "░" * (width - filled) + R
     color = RED if pct >= 85 else (YEL if pct >= 60 else GRN)
     return color + "█" * filled + DIM + "░" * (width - filled) + R
 
@@ -154,10 +158,17 @@ def bar(pct: int | None, width: int = 10) -> str:
 # row and the overflow test read these, so a width or a position changed here
 # moves all three and one written anywhere else is a bug. Each bounded cell
 # must stay strictly narrower than its column.
-ACCT_W = {"name": 10, "five": 18, "reset5": 8, "seven": 12, "reset7": 9, "runway": 16}
+ACCT_W = {"name": 10, "five": 17, "reset5": 7, "seven": 12, "reset7": 7, "runway": 15}
 ACCT_HEAD = {"name": "account", "five": "5h usage", "reset5": "reset", "seven": "7d",
-             "reset7": "7d reset", "runway": "runway (est.)"}
+             "reset7": "7d rst", "runway": "runway (est.)"}
 ACCT_BAR_W = {"five": 10, "seven": 5}
+
+
+def _gauge(value: int | None, width: int, src: str) -> str:
+    """A bar and its figure, where `src` is the mark saying where it came from."""
+    if src == status.IDLE_MARK:
+        return f"{bar(value, width, last_seen=True)} {DIM}{pct(value)}%{src}{R}"
+    return f"{bar(value, width)} {pct(value)}%{src}"
 
 
 def account_cells(name: str, st, now: float | None = None) -> dict[str, str]:
@@ -165,20 +176,19 @@ def account_cells(name: str, st, now: float | None = None) -> dict[str, str]:
     The name is free text and is cut to fit where it is drawn."""
     runway_text = status.describe_runway(status.runway(st, status.read_burn(name), now))
     # One definition of the figure and its mark, shared with `ocp account list`.
-    # A last-seen figure is dimmed on a dotted bar with no colour, so it cannot
-    # be read as a measurement. Display only.
+    # A last-seen figure is drawn at its value, dimmed and uncoloured, with its
+    # "?", so it cannot be read as a live gauge at the same number and is not
+    # drawn as an unknown either. Display only.
     shown, src = st.shown_pct_5h()
-    five = (f"{bar(None, ACCT_BAR_W['five'])} {DIM}{pct(shown)}%{src}{R}"
-            if src == status.IDLE_MARK else
-            f"{bar(shown, ACCT_BAR_W['five'])} {pct(shown)}%{src}")
+    five = _gauge(shown, ACCT_BAR_W["five"], src)
     return {
         "five": five,
         "reset5": countdown(st.reset_5h),
         # The weekly figure carries its provenance like the 5h one. Drawn
         # bare, a number from a stale snapshot - or from a week that has since
         # rolled over - reads as this week's measurement.
-        "seven": f"{bar(st.trusted_pct_7d, ACCT_BAR_W['seven'])} "
-                 f"{pct(st.trusted_pct_7d)}%{status.mark(st.pct_7d_source)}",
+        "seven": _gauge(st.trusted_pct_7d, ACCT_BAR_W["seven"],
+                        status.mark(st.pct_7d_source)),
         # The deadline the ordering spends against: when this window's
         # headroom is lost if nobody uses it.
         "reset7": countdown(st.reset_7d),
@@ -479,7 +489,9 @@ def build(width: int, sel: dict | None = None,
             allowed, _ = status.account_verdict(name, st, loads.get(name), ranked,
                                                 _logged_in(name))
             mark = f"{GRN}✔{R}" if allowed else f"{RED}✘{R}"
-            nxt = f"{GRN}{BOLD}>{R} " if name == first else "  "
+            # Where work goes next is said in a word after the tick, not drawn
+            # in the gutter the selection cursor uses on every other panel.
+            nxt = f" {GRN}{BOLD}next{R}" if name == first else ""
             # Every cell is padded on its visible width: the bars carry escape
             # sequences, so a plain :<n counts them and the columns drift out
             # from under their own headings. The figure shown is the one
@@ -488,10 +500,10 @@ def build(width: int, sel: dict | None = None,
             # dashboard and the daemon disagreeing.
             cells = account_cells(name, st)
             acc.add(
-                nxt
+                "  "
                 + padfit(f"{BOLD}{name}{R}", w["name"])
                 + "".join(pad(cells[k], w[k]) for k in w if k != "name")
-                + mark,
+                + mark + nxt,
                 key=name,
             )
         if not paths.list_accounts():

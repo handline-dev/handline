@@ -5655,7 +5655,7 @@ def test_the_screen_says_which_account_to_spend_next(home: Path) -> None:
         def marked() -> list[str]:
             plain = [tui._ANSI.sub("", ln) for ln in tui.frame(120, 60).split(chr(10))]
             rows = [ln for ln in plain if "alpha" in ln or "beta" in ln]
-            return [ln for ln in rows if ln.lstrip("│ ").startswith(">")]
+            return [ln for ln in rows if ln.rstrip("│ ").endswith(" next")]
 
         calls: list[str] = []
 
@@ -5671,8 +5671,22 @@ def test_the_screen_says_which_account_to_spend_next(home: Path) -> None:
         check("accounts: the login check is not run again on every redraw",
               len(calls) == seen and seen <= len(paths.list_accounts()), str(calls))
         accounts.logged_in = lambda a: True  # noqa: E731 - keychain is not the subject
-        check("accounts: the account with the most headroom is marked",
+        check("accounts: the account with the most headroom says next",
               len(got) == 1 and "beta" in got[0], str(got))
+        # An 80-column terminal is what the widths are budgeted for: the pick's
+        # row must keep its tick and its word there, and so must every other.
+        rows80 = [tui._ANSI.sub("", ln).rstrip("│ ") for ln in tui.frame(80, 60).split(chr(10))
+                  if "alpha" in ln or "beta" in ln]
+        rows80 = [r for r in rows80 if "IDLE" not in r and "sonnet" not in r]
+        check("accounts: at 80 columns the pick's row ends in '✔ next'",
+              any(r.endswith("✔ next") and "beta" in r for r in rows80), str(rows80))
+        check("accounts: and every account row keeps its tick",
+              len(rows80) == 2 and all("✔" in r or "✘" in r for r in rows80), str(rows80))
+        check("accounts: and it is the pick's own answer",
+              status.pick_account(["alpha", "beta"], load=loadmod.read_all())[0] == "beta")
+        check("accounts: nothing is drawn in the gutter the cursor uses",
+              not any(ln.lstrip("│ ").startswith(">") for ln in
+                      (tui._ANSI.sub("", x) for x in tui.frame(120, 60).split(chr(10)))))
 
         # An account nobody is logged into cannot start a session, however
         # much room it has.
@@ -8125,9 +8139,20 @@ def test_a_stale_snapshot_shows_its_last_figures_and_still_is_offered(home: Path
           panel[:400])
 
     cells = tui.account_cells("beta", status.read("beta"))
-    check("stale: the bridge cell shows the last figure on a dotted bar, dimmed",
-          "41%" in cells["five"] and "·" * 10 in cells["five"]
-          and "█" not in cells["five"] and tui.DIM in cells["five"], repr(cells["five"]))
+    check("stale: the bridge cell shows the last figure, filled to it and dimmed",
+          "41%?" in tui._ANSI.sub("", cells["five"]) and "█" in cells["five"]
+          and tui.GRN not in cells["five"] and tui.DIM in cells["five"], repr(cells["five"]))
+    # At 100 the last-seen fill must not be the live one: same fill, different
+    # colour, and the "?".
+    write_status(home, "beta", pct_5h=100, pct_7d=10, reset_5h=int(time.time()) + 1800,
+                 reset_7d=int(time.time()) + 86400, collected_at=int(time.time()) - 3600)
+    old = tui.account_cells("beta", status.read("beta"))["five"]
+    live = tui._gauge(100, tui.ACCT_BAR_W["five"], " ")
+    check("stale: at 100 the last-seen cell draws a full fill",
+          "█" * 10 in tui._ANSI.sub("", old), repr(old))
+    check("stale: and it differs from the live cell at 100",
+          old != live and tui.RED not in old and tui.RED in live, repr((old, live)))
+    check("stale: and carries the ?", "100%?" in tui._ANSI.sub("", old), repr(old))
     write_status(home, "beta", pct_5h=None, pct_7d=None, reset_5h=None, reset_7d=None,
                  collected_at=now - 3600)
     check("stale: with no figure on file the cell is still ?",
