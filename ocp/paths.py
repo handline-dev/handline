@@ -34,6 +34,14 @@ def shared_claude() -> Path:
     return home() / "shared" / ".claude"
 
 
+def mcp_config() -> Path:
+    """The MCP server registry every launch passes via `--mcp-config`.
+
+    One file ocp owns, the founder fills in - never generated from
+    ~/.claude.json, which KICKOFF rule 1 forbids touching."""
+    return home() / "shared" / "mcp.json"
+
+
 def accounts_dir() -> Path:
     return home() / "accounts"
 

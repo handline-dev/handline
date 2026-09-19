@@ -121,6 +121,19 @@ def _check_home(r: Report) -> None:
         r.add(FAIL, "shared statusLine is not our collector", f"currently {line.get('command')!r}")
 
 
+def _check_mcp_config(r: Report) -> None:
+    p = paths.mcp_config()
+    if not p.exists():
+        r.add(OK, "no shared mcp.json (optional)", str(p))
+        return
+    try:
+        json.loads(p.read_text())
+    except (OSError, ValueError) as e:
+        r.add(FAIL, "shared mcp.json is invalid", f"{p}: {e} - launches skip --mcp-config until fixed")
+        return
+    r.add(OK, "shared mcp.json is valid JSON", str(p))
+
+
 def _check_orca_hooks(r: Report) -> None:
     src, dst, drift = hooks.plan()
     if not src:
@@ -461,6 +474,7 @@ def run() -> Report:
     _check_claude_version(r)
     _check_managed(r)
     _check_home(r)
+    _check_mcp_config(r)
     _check_orca_hooks(r)
     _check_accounts(r)
     _check_rate_limits_present(r)

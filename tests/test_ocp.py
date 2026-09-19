@@ -556,6 +556,64 @@ def test_launch(home: Path) -> None:
                        capture_output=True, text=True, env=env)
     check("missing status.json does not block first boot", r.returncode == 0, r.stdout)
 
+    # Shared mcp.json: missing changes nothing, a valid one is passed through,
+    # an invalid one is skipped (with a warning) rather than blocking launch.
+    check("no shared mcp.json: no --mcp-config", "--mcp-config" not in r.stdout, r.stdout)
+
+    mcp_json = home / "shared" / "mcp.json"
+    mcp_json.parent.mkdir(parents=True, exist_ok=True)
+    mcp_json.write_text('{"mcpServers": {"probe": {"command": "true"}}}')
+    r = subprocess.run([sys.executable, str(ROOT / "bin" / "ocp"), "launch", "launchtest"],
+                       capture_output=True, text=True, env=env)
+    check("valid shared mcp.json is passed as --mcp-config",
+          f"--mcp-config {mcp_json}" in r.stdout, r.stdout)
+
+    mcp_json.write_text("{not json")
+    r = subprocess.run([sys.executable, str(ROOT / "bin" / "ocp"), "launch", "launchtest"],
+                       capture_output=True, text=True, env=env)
+    check("invalid shared mcp.json does not block launch", r.returncode == 0, r.stdout)
+    check("invalid shared mcp.json is skipped, not passed", "--mcp-config" not in r.stdout, r.stdout)
+    check("invalid shared mcp.json is named in the warning", str(mcp_json) in r.stderr, r.stderr)
+
+    mcp_json.unlink()
+    r = subprocess.run([sys.executable, str(ROOT / "bin" / "ocp"), "launch", "launchtest"],
+                       capture_output=True, text=True, env=env)
+    check("removing shared mcp.json leaves the launch unchanged", r.returncode == 0
+          and "--mcp-config" not in r.stdout, r.stdout)
+
+    # fingerprint must move when the shared mcp.json's content does, or the
+    # daemon reads a session launched before an edit as not drifted from it.
+    before = launch.fingerprint("launchtest")
+    check("fingerprint: no shared mcp.json is stable",
+          launch.fingerprint("launchtest") == before)
+    mcp_json.write_text('{"mcpServers": {"probe": {"command": "true"}}}')
+    after_add = launch.fingerprint("launchtest")
+    check("fingerprint: adding a shared mcp.json changes it", after_add != before)
+    mcp_json.write_text('{"mcpServers": {"probe": {"command": "true"}, "x": {"command": "y"}}}')
+    check("fingerprint: editing its contents changes it again",
+          launch.fingerprint("launchtest") != after_add)
+    mcp_json.unlink()
+    check("fingerprint: removing it again matches the original", launch.fingerprint("launchtest") == before)
+
+
+def test_doctor_checks_shared_mcp_config(home: Path) -> None:
+    os.environ["OCP_HOME"] = str(home)
+    r = doctor.run()
+    names = [n for _, n, _ in r.rows]
+    check("doctor is fine with no shared mcp.json", any("no shared mcp.json" in n for n in names))
+
+    mcp_json = paths.mcp_config()
+    mcp_json.parent.mkdir(parents=True, exist_ok=True)
+    mcp_json.write_text('{"mcpServers": {}}')
+    r = doctor.run()
+    check("doctor is fine with a valid shared mcp.json",
+          any("shared mcp.json is valid JSON" in n for _, n, _ in r.rows))
+
+    mcp_json.write_text("{not json")
+    r = doctor.run()
+    check("doctor fails an invalid shared mcp.json", r.failed > 0
+          and any("shared mcp.json is invalid" in n for _, n, _ in r.rows))
+
 
 DESIGN_TEAM = """
 teams:
@@ -12672,6 +12730,7 @@ def main() -> int:
         run(lambda: test_yaml())
         run(lambda: test_agents(home))
         run(lambda: test_launch(home))
+        run(lambda: test_doctor_checks_shared_mcp_config(home))
         run(lambda: test_team_routing())
         run(lambda: test_yaml_differential())
         run(lambda: test_yaml_rejects_ambiguity())
