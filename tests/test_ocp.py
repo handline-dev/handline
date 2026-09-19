@@ -2135,13 +2135,15 @@ def test_a_resolved_ask_does_not_stay_in_progress_across_a_park(home: Path) -> N
     # --- no new event at all: the "nothing to fold" path still checks the store
     ok, msg = foldmod.fold("backend", use_model=True, fold_account="alpha")
     check("fold: an unchanged cursor still says there was nothing new", "nothing new" in msg, msg)
-    handed = digest.parse(foldmod.handoff_path("backend").read_text())
+    handed = digest.parse(foldmod.journal_path("backend", day).read_text())
     check("fold: the resolved ask is not still in progress after an event-free refresh",
           not any(str(rid) in i for i in handed.items("in_progress")), handed.items("in_progress"))
     check("fold: and it reads as done", any(str(rid) in i for i in handed.items("done")),
           handed.items("done"))
 
     # --- a fold with a model that fails to reconcile it is still corrected
+    # (the refresh above already corrected the journal, so put the stale line back)
+    foldmod.journal_path("backend", day).write_text(digest.render(previous))
     con = db.connect()
     try:
         db.add_event(con, "backend", "commit", {"sha": "abc", "subject": "more work"})

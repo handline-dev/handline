@@ -236,10 +236,13 @@ def fold(agent: str, use_model: bool = True, model: str = "haiku",
             # have resolved an ask with no event to show it - reconcile the
             # journal against the store so a resume never reads a stale
             # in_progress/blocked line, and republish only if that moved one.
+            # reconcile_resolved mutates its argument in place, so the
+            # comparison needs the text taken before it runs.
+            before = digest.render(previous)
             reconciled = reconcile_resolved(con, previous)
-            if digest.render(reconciled) != digest.render(previous):
-                _publish(agent, jpath, digest.render(reconciled),
-                         commit_msg=f"fold {agent} {day} (reconcile)")
+            after = digest.render(reconciled)
+            if after != before:
+                _publish(agent, jpath, after, commit_msg=f"fold {agent} {day} (reconcile)")
             return True, f"{agent}: nothing new to fold (cursor at {cursor})"
 
         top = events[-1]["id"]
