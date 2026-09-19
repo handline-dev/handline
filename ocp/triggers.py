@@ -27,6 +27,11 @@ DEFAULT_RESERVE_PCT = 5
 PCT_7D_HARD_STOP = 100
 DEFAULT_RESERVE_7D_PCT = 2
 
+# The lines a move trigger fires at, and so the lines nothing may be handed
+# work at or past: an agent started there would be moved off at once.
+MOVE_LINE_5H = HARD_STOP_PCT - DEFAULT_RESERVE_PCT
+MOVE_LINE_7D = PCT_7D_HARD_STOP - DEFAULT_RESERVE_7D_PCT
+
 HOT_PCT = 80
 POLL_NORMAL_S = 30
 POLL_HOT_S = 5

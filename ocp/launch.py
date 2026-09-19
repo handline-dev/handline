@@ -28,7 +28,7 @@ from . import accounts, agents, paths, status, triggers
 # trigger fires a reserve short of the hard stop, so an account inside that
 # reserve has no room to work in, only room to hand off. The wall itself is
 # still where a launch is refused - `build` does that, and says which account.
-START_LIMIT = triggers.HARD_STOP_PCT - triggers.DEFAULT_RESERVE_PCT
+START_LIMIT = triggers.MOVE_LINE_5H
 
 
 def find_room(agent: str, limit: int | None = None, limit_7d: int | None = None,
@@ -42,7 +42,7 @@ def find_room(agent: str, limit: int | None = None, limit_7d: int | None = None,
     """
     preferred = agents.account_of(agent)
     line = limit if limit is not None else START_LIMIT
-    line7 = limit_7d if limit_7d is not None else status.PCT_7D_BLOCK
+    line7 = limit_7d if limit_7d is not None else triggers.MOVE_LINE_7D
     line = min(line, status.PCT_5H_BLOCK - room)
     # Only a reading that says "full" excludes an account. A missing snapshot
     # is the account nobody has run on yet, and the session we are about to

@@ -5263,16 +5263,30 @@ def test_weekly_headroom_is_spent_to_its_own_wall(home: Path) -> None:
         (home / "accounts" / acct / ".claude").mkdir(parents=True, exist_ok=True)
         (home / "accounts" / acct / ".claude" / ".credentials.json").write_text("{}")
 
-    # alpha's weekly headroom expires soon and is still spendable; beta's is
-    # safer but resets much later. alpha wins on deadline, not despite being
-    # close to its own 7d wall.
-    write_status(home, "alpha", pct_5h=9, pct_7d=98,
+    # alpha's weekly headroom expires soon and is still spendable up to the
+    # line its move trigger fires at (98); at the line it is refused, since an
+    # agent started there would be moved off at once.
+    write_status(home, "alpha", pct_5h=9, pct_7d=97,
                  reset_7d=int(time.time()) + 3600, reset_5h=int(time.time()) + 1800)
     write_status(home, "beta", pct_5h=9, pct_7d=10,
                  reset_7d=int(time.time()) + 90000, reset_5h=int(time.time()) + 1800)
     picked, reasons = status.pick_account(["alpha", "beta"])
-    check("7d wall: the soon-to-reset account is still picked at 7d 98%",
+    check("7d wall: the soon-to-reset account is picked at 7d 97%",
           picked == "alpha", str((picked, reasons)))
+    write_status(home, "alpha", pct_5h=9, pct_7d=98,
+                 reset_7d=int(time.time()) + 3600, reset_5h=int(time.time()) + 1800)
+    check("7d wall: at its own trigger line (98%) it is not picked",
+          status.pick_account(["alpha", "beta"])[0] == "beta")
+    write_status(home, "alpha", pct_5h=85, pct_7d=10,
+                 reset_7d=int(time.time()) + 3600, reset_5h=int(time.time()) + 1800)
+    check("5h wall: nor at its 5h trigger line (85%)",
+          status.pick_account(["alpha", "beta"])[0] == "beta")
+    write_status(home, "alpha", pct_5h=84, pct_7d=10,
+                 reset_7d=int(time.time()) + 3600, reset_5h=int(time.time()) + 1800)
+    check("5h wall: 84% is still picked",
+          status.pick_account(["alpha", "beta"])[0] == "alpha")
+    write_status(home, "alpha", pct_5h=9, pct_7d=98,
+                 reset_7d=int(time.time()) + 3600, reset_5h=int(time.time()) + 1800)
 
     con = db.connect()
     try:

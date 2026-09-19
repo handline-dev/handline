@@ -1115,8 +1115,7 @@ def _room_to_move(agent: str) -> str | None:
     hard stop, since an account the daemon just decided is too full to work on
     is too full to move to, and with clear headroom so it does not bounce."""
     return launch.find_room(
-        agent, limit=triggers.HARD_STOP_PCT - triggers.DEFAULT_RESERVE_PCT,
-        limit_7d=triggers.PCT_7D_HARD_STOP - triggers.DEFAULT_RESERVE_7D_PCT,
+        agent, limit=triggers.MOVE_LINE_5H, limit_7d=triggers.MOVE_LINE_7D,
         room=status.MOVE_MIN_HEADROOM_PCT)
 
 
@@ -1145,11 +1144,6 @@ def _move_to_room(con, agent: str, trigger: triggers.Trigger, log) -> bool:
     why = "" if allowed else there_st.assignable()[1]
     if not allowed:
         log(f"  {agent}: staying on {here} - {there} takes no work either ({why})")
-        return False
-    week = there_st.trusted_pct_7d
-    if trigger.kind == "usage_7d" and week is not None \
-            and week >= triggers.PCT_7D_HARD_STOP - triggers.DEFAULT_RESERVE_7D_PCT:
-        log(f"  {agent}: staying on {here} - {there} is at 7d {week}% too")
         return False
     picked_why = f"5h {there_st.trusted_pct_5h}%, 7d {there_st.trusted_pct_7d}%"
     handle = db.get_terminal(con, agent)

@@ -48,7 +48,7 @@ import time
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from . import paths
+from . import paths, triggers
 
 # statusLine only refreshes while a session is alive, so a snapshot older than
 # this is not trusted as "current" (section 4 constraint - refreshInterval
@@ -89,8 +89,8 @@ def _ago(secs: float) -> str:
     return f"{secs // 86400}d"
 
 
-# Above these, stop handing out new work. Weekly headroom is spent to its own
-# ceiling; the fold's cost is paid by the trigger firing a reserve short.
+# Above these nothing can run at all. New work stops a reserve short of them,
+# at the lines a move trigger fires at (triggers.MOVE_LINE_*).
 PCT_5H_BLOCK = 90
 PCT_7D_BLOCK = 100
 
@@ -476,8 +476,9 @@ def _pick_reason(st: "AccountStatus", picked: bool) -> str:
     return base + " <- picked: earliest deadline" if picked else base
 
 
-def pick_account(candidates: list[str] | None = None, limit_5h: int | None = None,
-                 limit_7d: int | None = None,
+def pick_account(candidates: list[str] | None = None,
+                 limit_5h: int = triggers.MOVE_LINE_5H,
+                 limit_7d: int = triggers.MOVE_LINE_7D,
                  bootstrap: bool = False) -> tuple[str | None, list[tuple[str, str]]]:
     """Pick the account whose weekly headroom expires soonest, among those that
     can take the work.
@@ -485,11 +486,11 @@ def pick_account(candidates: list[str] | None = None, limit_5h: int | None = Non
     Returns (choice, [(account, reason)]). When none can, the choice is None
     and the caller must refuse - that is the fail-closed path.
 
-    Accounts that fail `assignable`, or read at or over `limit_5h`, are
-    dropped before any ranking, so the deadline order only ever compares
-    accounts that would last. Those at or over `limit_7d` rank after the rest
-    but stay eligible: weekly headroom is spent to its wall, not held back.
-    Then reset_7d soonest first; 5h headroom breaks ties and unknowns.
+    Accounts that fail `assignable`, or read at or over `limit_5h` or
+    `limit_7d` (by default the lines a move trigger fires at), are dropped
+    before any ranking: an agent started on one would be moved straight off.
+    The deadline order then only compares accounts that would last: reset_7d
+    soonest first; 5h headroom breaks ties and unknowns.
 
     `bootstrap=True`: a logged-in account with no status.json at all - never
     run, so nothing else could ever give it one - is pickable as a last
@@ -506,12 +507,20 @@ def pick_account(candidates: list[str] | None = None, limit_5h: int | None = Non
         st = read(n)
         allowed, why = st.assignable()
         pct = st.trusted_pct_5h
-        if allowed and limit_5h is not None and pct is not None and pct >= limit_5h:
+        if allowed and pct is not None and pct >= limit_5h:
             allowed, why = False, f"5h usage {pct}% >= {limit_5h}%"
+        week = st.trusted_pct_7d
+        if allowed and week is not None and week >= limit_7d:
+            allowed, why = False, f"7d usage {week}% >= {limit_7d}%"
         if allowed:
             usable.append((n, st))
         elif st.rolled_over()[0]:
-            usable.append((n, st))
+            # Its weekly figure is a floor unless the week itself has passed.
+            week = st.pct_7d if not (st.reset_7d and st.reset_7d <= time.time()) else None
+            if week is not None and week >= limit_7d:
+                reasons.append((n, f"7d usage {week}% >= {limit_7d}%"))
+            else:
+                usable.append((n, st))
         elif bootstrap and not st.exists:
             blank.append(n)
             reasons.append((n, "no reading yet - a session has never run on it "
@@ -523,9 +532,7 @@ def pick_account(candidates: list[str] | None = None, limit_5h: int | None = Non
 
     def sort_key(item: tuple[str, AccountStatus]):
         _, st = item
-        week = st.trusted_pct_7d
-        over_7d = limit_7d is not None and week is not None and week >= limit_7d
-        return (over_7d, deadline_7d(st), -(st.headroom() or 0),
+        return (deadline_7d(st), -(st.headroom() or 0),
                 -_CONFIDENCE.get(st.pct_5h_source, 0))
 
     usable.sort(key=sort_key)
