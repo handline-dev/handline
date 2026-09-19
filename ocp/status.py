@@ -734,6 +734,21 @@ def deadline_7d(st: "AccountStatus") -> float:
     return float(st.reset_7d) if st.reset_7d and st.reset_7d > time.time() else float("inf")
 
 
+def account_verdict(name: str, st: "AccountStatus", ld, ranked: list[tuple[str, str]],
+                    logged_in: bool) -> tuple[bool, str]:
+    """Whether a session may start on this account, and the sentence for it.
+
+    The accounts panel draws the tick from this and the account's page draws
+    the sentence, so the two cannot say different things. `ranked` is
+    `pick_account`'s reasons; an account outside the ranking falls back to what
+    `takes_work` says.
+    """
+    if not logged_in:
+        return False, "not logged in"
+    allowed, why = st.takes_work(ld.active if ld else 0)
+    return allowed and unfit(st, ld) is None, dict(ranked).get(name, why)
+
+
 def unfit(st: "AccountStatus", ld) -> str | None:
     """Why a session should not be started here, when what is known says so.
 

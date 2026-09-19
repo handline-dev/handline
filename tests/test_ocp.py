@@ -6768,6 +6768,20 @@ def test_a_passed_window_is_probed_rather_than_guessed(home: Path) -> None:
           not probe.due(status.read("beta"), None))
 
 
+def test_one_verdict_for_the_panel_and_the_page(home: Path) -> None:
+    """The panel draws the tick and the page the sentence; both come from one
+    function, and an account nobody is logged in to is a no on both."""
+    _daemon_home(home, 20)
+    st = status.read("alpha")
+    ok, why = status.account_verdict("alpha", st, None, [], True)
+    check("verdict: a healthy, logged-in account is a yes", ok, why)
+    ok, why = status.account_verdict("alpha", st, None, [], False)
+    check("verdict: not logged in is a no that says so, whatever the reading",
+          not ok and why == "not logged in", why)
+    ok, why = status.account_verdict("alpha", st, None, [("alpha", "5h 10%, ranked")], True)
+    check("verdict: the ranked sentence wins where there is one", why == "5h 10%, ranked", why)
+
+
 def test_room_is_filtered_before_the_ranking_not_after(home: Path) -> None:
     """A destination too full to last is dropped before the deadline order, so
     a good account behind it is still found; a weekly trigger parks until the
@@ -7554,7 +7568,14 @@ def test_a_stale_snapshot_shows_its_last_figures_and_still_is_offered(home: Path
     out = _capture(lambda: climod.main(["account", "list"]))
     check("stale: `ocp account list` shows it", "5h 41% (60m old)" in out, out)
     panel = tui._ANSI.sub("", tui.frame(200, 40))
-    check("stale: the bridge shows it", "5h 41% (60m old)" in panel, panel[:400])
+    con = db.connect()
+    try:
+        page = "\n".join(r for _, rows in actions.account_detail(con, "beta") for r in rows)
+    finally:
+        con.close()
+    check("stale: the account's own page shows it", "5h 41% (60m old)" in page, page[:400])
+    check("stale: the panel keeps the sentence off the row", "5h 41% (60m old)" not in panel,
+          panel[:400])
 
     cells = tui.account_cells("beta", status.read("beta"))
     check("stale: the bridge cell shows the last figure on a dotted bar, dimmed",
@@ -7757,8 +7778,19 @@ def test_the_cap_is_set_from_the_command_line_and_the_bridge(home: Path) -> None
         con.close()
     write_status(home, "beta", pct_5h=10, pct_7d=10, reset_5h=int(time.time()) + 3600)
     panel = tui._ANSI.sub("", tui.frame(200, 40))
-    check("cap: the panel says why an account at its cap is not offered",
-          "at its cap: 2 of 2" in panel, panel[:400])
+    con = db.connect()
+    try:
+        page = "\n".join(r for _, rows in actions.account_detail(con, "beta") for r in rows)
+    finally:
+        con.close()
+    check("cap: the account's page says why it is not offered",
+          "at its cap: 2 of 2" in page, page[:400])
+    row = next(ln for ln in panel.splitlines() if "beta" in ln and "✘" in ln or
+               "beta" in ln and "✔" in ln)
+    check("cap: the panel row says no with the mark, and leaves the sentence to the page",
+          "✘" in row and "at its cap: 2 of 2" not in panel, row)
+    check("cap: the page and the panel agree - a cap reached reads 'assign   no'",
+          "assign   no" in page, page[:400])
 
 
 def test_agents_that_wall_together_respect_the_cap_and_a_start_is_not_its_own_rival(home: Path) -> None:
@@ -10431,6 +10463,7 @@ def main() -> int:
             Path(td) / 'pinnedstuck'))
         run(lambda: test_a_stale_account_whose_window_rolled_over_can_take_work(Path(td) / 'stalebeta'))
         run(lambda: test_a_passed_window_is_probed_rather_than_guessed(Path(td) / 'probedue'))
+        run(lambda: test_one_verdict_for_the_panel_and_the_page(Path(td) / 'verdict'))
         run(lambda: test_room_is_filtered_before_the_ranking_not_after(Path(td) / 'roomfirst'))
         run(lambda: test_the_runway_is_an_estimate_from_the_daemons_burn(Path(td) / 'runway'))
         run(lambda: test_the_active_cap_decides_where_the_next_agent_may_start(Path(td) / 'ar0'))
