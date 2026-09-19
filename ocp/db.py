@@ -592,7 +592,6 @@ def close_if_queued(con, rid: int, state: str, verdict: str, announced: bool = F
     return cur.rowcount > 0
 
 
-
 def retire_if_undelivered(con, rid: int, state: str, verdict: str | None = None) -> bool:
     """Move a still-queued, undelivered request to a terminal state, atomically.
 
