@@ -10716,6 +10716,18 @@ def test_a_paste_into_any_prompt_arrives_whole_and_confirms_nothing(home: Path) 
         os.write(master, b"\033[200~n\033[201~y")
         check("paste: a key after a paste still confirms", tui._confirm("remove x", 100, 24) is True)
 
+        # A paste begun on the main screen and finished inside a prompt.
+        tui._paste_state.update({"in": False, "carry": ""})
+        os.write(master, b"a\033[200~first part\n")
+        check("paste: the key before it is read", tui._key(1.0) == "a")
+        os.write(master, b"rest\nmore\033[201~\r")
+        check("paste: the prompt it opens keeps the rest as paste, and Enter sends",
+              tui._line("answer:", 100, 24) == "rest more", "")
+        check("paste: and the screen is not left dropping keys",
+              tui._paste_state["in"] is False)
+        os.write(master, b"q")
+        check("paste: so the next key is read", tui._key(1.0) == "q")
+
         # Not in a prompt: the main screen reads a paste as nothing at all, and
         # what it leaves in _pending is never the paste's text.
         tui._pending.clear()
@@ -10735,6 +10747,16 @@ def test_a_paste_into_any_prompt_arrives_whole_and_confirms_nothing(home: Path) 
         os.close(master)
         os.close(slave)
         con.close()
+
+
+def test_bracketed_paste_is_switched_on_with_the_screen() -> None:
+    """Without the terminal's marks nothing above can tell a paste from typing."""
+    import inspect
+    check("paste: it comes on with the alternate screen and goes off with it",
+          tui.PASTE_ON in tui.ALT_ON and tui.PASTE_OFF in tui.ALT_OFF)
+    check("paste: run() and the hand-over to another program use those",
+          all("ALT_ON" in inspect.getsource(f) and "ALT_OFF" in inspect.getsource(f)
+              for f in (tui.run, tui._suspend)))
 
 
 def test_the_composer_takes_a_paste_whole(home: Path) -> None:
@@ -12745,6 +12767,7 @@ def main() -> int:
         run(lambda: test_the_screen_says_what_is_stuck_and_what_was_decided(Path(td) / 'topstuck'))
         run(lambda: test_a_message_is_read_whole_and_answered_where_it_is_read(Path(td) / 'topread'))
         run(lambda: test_the_messenger_tab_carries_a_conversation_both_ways(Path(td) / 'chat'))
+        run(lambda: test_bracketed_paste_is_switched_on_with_the_screen())
         run(lambda: test_the_composer_takes_a_paste_whole(Path(td) / 'composer'))
         run(lambda: test_a_paste_into_any_prompt_arrives_whole_and_confirms_nothing(Path(td) / 'pasteany'))
         run(lambda: test_a_key_never_acts_on_a_row_nobody_pointed_at(Path(td) / 'topsel'))

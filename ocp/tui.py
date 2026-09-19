@@ -1269,6 +1269,20 @@ class Composer:
         return fit(f"{BOLD}{prompt}{R} {more}{last}▏", width)
 
 
+def _composer(multi: bool = False) -> Composer:
+    """A prompt's reader, starting where the screen's own reader left off.
+
+    A read can end in the middle of a paste that _key began skipping. There is
+    one paste state, and it moves to the prompt: left behind, the screen would
+    go on dropping keys and the prompt would take the rest of the paste as typing.
+    """
+    box = Composer(multi)
+    st = _paste_state
+    box.pasting, box._carry = st["in"], st["carry"]
+    st["in"], st["carry"] = False, ""
+    return box
+
+
 def _line(prompt: str, width: int, height: int, multi: bool = False) -> str | None:
     """Read a message with the screen still up. None when the human backs out.
 
@@ -1279,7 +1293,7 @@ def _line(prompt: str, width: int, height: int, multi: bool = False) -> str | No
     if not sys.stdin.isatty():
         return None
     fd = sys.stdin.fileno()
-    box = Composer(multi)
+    box = _composer(multi)
     data = "".join(_pending)           # keys already read ahead of this prompt
     _pending.clear()
     while True:
@@ -1314,7 +1328,7 @@ def _confirm(what: str, width: int, height: int) -> bool:
     # Read through a Composer so that what is pasted is not read as keys: a
     # paste with a "y" in it must not confirm a destructive action.
     fd = sys.stdin.fileno()
-    box = Composer()
+    box = _composer()
     data = "".join(_pending)
     _pending.clear()
     while True:
