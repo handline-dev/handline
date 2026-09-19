@@ -121,17 +121,24 @@ goes down, because every session reports from the moment of its own last API
 response and the staler one must not win.
 
 **An account is a preference, not a destination.** `agent.yaml` says which
-account an agent would rather be on, and a session goes there whenever it has
-room. Room means room to work: the usage trigger fires a reserve short of the
-hard stop, so an account inside that reserve has room to hand off and nothing
-more. When a *current* reading says that - never a missing or stale one - the
-next session starts on whichever account does have room, and the row records
-where it went. Total throughput is still accounts x window; what this
-buys is an agent not sitting out its own five hours while another account idles
-beside it. A live session is never moved: moving means ending one and starting
-another, so it only ever happens where the session was ending anyway - after a
-handoff, at the wall - and a resume goes back to the account its session lives on,
-because a session id exists only under that account's config directory.
+account an agent would rather be on, and a session goes there unless what is
+known says it is a bad place to start: at the wall, at its cap of agents
+mid-turn (2 by default, `ocp account cap <name> <n>` or `c` on the bridge), or
+filling so fast that one more agent would last under half an hour. How fast it
+is filling - the account's measured burn - is what says it has room, not a
+fixed line.
+
+**A working agent runs to the wall.** Nothing below 100% moves or parks it: a
+turn that ends on the usage limit, or a reading at 100%, is the wall, and
+nothing is lost there because the transcript keeps the work. An account nobody
+can read is not a wall. At the wall the choice to move is a cost comparison: an
+idle agent stays parked, and so does one whose account resets within T (30
+minutes, then the measured cost of a cold start as a share of a 5h window -
+`measure.py`). Otherwise it moves once, to the account the pick chooses - the
+weekly headroom that expires soonest first - and never back to the one it just
+left before that resets. If every account is capped or walled the work waits in
+the queue. A resume goes back to the account its session lives on, because a
+session id exists only under that account's config directory.
 
 **Context and memory are different problems.** A handoff reclaims *context*: it
 records the agent's request, its transcript path and its worktree's state,

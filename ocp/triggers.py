@@ -1,13 +1,16 @@
-"""Handoff triggers (design section 8.1).
+"""Handoff triggers and the rules for where an agent runs (design section 8.1).
 
 Triggers are conditions, evaluated fresh every tick, never edge detections.
 An edge trigger ("did we cross the line during this tick?") misses every
 crossing that happened while the daemon was down, and misses it permanently.
 Stating them as conditions means a restart re-observes reality and acts on it.
 
-Near the ceiling the current value is not good enough either. A heavy agent can
-go 88% -> 97% between two 30s ticks, so above HOT_PCT we poll faster and judge
-on the projected value, pct + burn * (poll + fold_eta), not on pct itself.
+A working agent is never handed off or moved on a percentage. It runs to the
+wall - a turn that ends on the usage limit, or a reading at 100% - because
+nothing is lost there (the transcript keeps the work and the next session picks
+it up) and everything below it is paid for: a session started elsewhere spends
+a measurable share of that account's window just getting back to where it was.
+Whether to pay that is a comparison (`stay_or_move`), not a line.
 """
 from __future__ import annotations
 
@@ -17,25 +20,40 @@ from dataclasses import dataclass
 # Replaces the cache-expiry trigger that appendix A-2 removed.
 CONTEXT_PCT = 60
 
-# 90% is the hard stop. We act earlier by the reserve: room for a handoff to
-# finish before it.
-HARD_STOP_PCT = 90
-DEFAULT_RESERVE_PCT = 5
+# Both windows are spent to their own ceiling.
+WALL_PCT = 100
 
-# The weekly window is spent to its own ceiling (status.PCT_7D_BLOCK is the same
-# 100; this module takes raw figures and never imports status).
-PCT_7D_HARD_STOP = 100
-DEFAULT_RESERVE_7D_PCT = 2
+# How often the daemon looks. Nothing here is racing a threshold any more: the
+# wall announces itself.
+POLL_S = 30
 
-# The lines a move trigger fires at, and so the lines nothing may be handed
-# work at or past: an agent started there would be moved off at once.
-MOVE_LINE_5H = HARD_STOP_PCT - DEFAULT_RESERVE_PCT
-MOVE_LINE_7D = PCT_7D_HARD_STOP - DEFAULT_RESERVE_7D_PCT
+WINDOW_5H_S = 5 * 3600
 
-HOT_PCT = 80
-POLL_NORMAL_S = 30
-POLL_HOT_S = 5
-FOLD_ETA_S = 45
+# T: an agent at the wall stays parked when its own account resets within this.
+# A move costs a cold start - the destination's window pays for a new session
+# to get back to where the old one was (measured on gamma: about 13% of a Pro
+# 5h window for one first turn) - and that is worth waiting for only if the
+# wait is shorter than what the start would spend: 13% of 5h is 39 minutes.
+# This is the starting value; `stay_within_s` replaces it with what the daemon
+# has measured once it has measured (measure.py).
+STAY_WITHIN_S = 30 * 60
+
+# What one agent working steadily costs an account, in percent of its 5h window
+# per second: 0.75%/min. Read off 09-19's trace, where each account's rise was
+# divided by the agents active on it - beta 50% -> 85% in 9 minutes with five,
+# gamma 7% -> 51% in 13 minutes with five. The daemon refines it from what it
+# sees (measure.py); this is what it uses until it has.
+TYPICAL_AGENT_BURN_PER_S = 0.75 / 60
+
+# An account can take one more agent only if, at its current fill plus one
+# typical agent, it lasts this long before its wall. Below that a session
+# spends more on getting started than it gets back: a cold start costs about
+# 17 minutes of one agent's steady burn (13% at 0.75%/min), so twice that is
+# the least stretch that is worth beginning.
+MIN_STRETCH_S = 30 * 60
+
+# Most agents mid-turn on one account at once (Pro). Set per account in config.
+DEFAULT_ACTIVE_CAP = 2
 
 
 @dataclass
@@ -43,26 +61,6 @@ class Trigger:
     fired: bool
     kind: str = ""
     reason: str = ""
-    projected: float | None = None
-
-
-def poll_interval(pct_5h: int | None, burn: float = 0.0,
-                  reserve_pct: int = DEFAULT_RESERVE_PCT) -> int:
-    """How long we may sleep before looking again.
-
-    Unknown usage polls fast: not knowing is a reason to look sooner, not to
-    relax. Otherwise the question is whether a normal-length sleep could carry
-    us past the line, so burn decides it, not the fixed HOT_PCT mark alone. At
-    0.3%/s - the rate in this module's own 88->97 example - an agent at 76%
-    would clear the reserve during one 30s sleep, and a fixed mark never sees
-    it coming.
-    """
-    if pct_5h is None or pct_5h >= HOT_PCT:
-        return POLL_HOT_S
-    limit = HARD_STOP_PCT - reserve_pct
-    if burn > 0 and pct_5h + burn * (POLL_NORMAL_S + FOLD_ETA_S) >= limit:
-        return POLL_HOT_S
-    return POLL_NORMAL_S
 
 
 # pct_5h arrives as a whole number, so the smallest change we can ever see is
@@ -91,58 +89,53 @@ def burn_rate_per_s(samples: list[tuple[int, int]]) -> float:
     return (p1 - p0) / span
 
 
-def evaluate(pct_5h: int | None, ctx_pct: int | None, reserve_pct: int = DEFAULT_RESERVE_PCT,
-             burn: float = 0.0, poll_s: int | None = None,
-             fold_eta_s: int = FOLD_ETA_S, pct_7d: int | None = None,
-             reserve_7d_pct: int = DEFAULT_RESERVE_7D_PCT) -> Trigger:
-    """Should this agent hand off now?"""
-    # Unknown usage is fail-closed (section 4): hand off rather than run blind.
-    # Callers pass the figure they may act on, so None here means no snapshot,
-    # an unreadable one, one too old to believe, or a reading the collector
-    # could not carry - never a window that is merely quiet.
-    if pct_5h is None:
-        return Trigger(True, "usage_unknown",
-                       "no usable pct_5h - usage unknown, handing off (fail-closed)")
+def evaluate(pct_5h: int | None, ctx_pct: int | None, pct_7d: int | None = None) -> Trigger:
+    """Should this agent hand off now?
 
-    limit = HARD_STOP_PCT - reserve_pct
-
-    if pct_5h >= HARD_STOP_PCT:
-        return Trigger(True, "usage", f"pct_5h {pct_5h}% >= hard stop {HARD_STOP_PCT}%")
-
-    # Plain threshold first, so an ordinary crossing is reported as such and
-    # "projected" is reserved for the case the projection actually adds.
-    if pct_5h >= limit:
-        return Trigger(True, "usage", f"pct_5h {pct_5h}% >= {limit}% "
-                                      f"(hard stop {HARD_STOP_PCT}% minus reserve {reserve_pct}%)")
-
-    # The weekly figure, a reserve short of its own wall. Unknown (None) is not
-    # fail-closed here the way pct_5h is: a missing reading is not a wall.
-    if pct_7d is not None:
-        limit7 = PCT_7D_HARD_STOP - reserve_7d_pct
-        if pct_7d >= PCT_7D_HARD_STOP:
-            return Trigger(True, "usage_7d", f"pct_7d {pct_7d}% >= hard stop {PCT_7D_HARD_STOP}%")
-        if pct_7d >= limit7:
-            return Trigger(True, "usage_7d", f"pct_7d {pct_7d}% >= {limit7}% "
-                                          f"(hard stop {PCT_7D_HARD_STOP}% minus reserve "
-                                          f"{reserve_7d_pct}%)")
-
-    # Project from wherever we are, not only above HOT_PCT. The horizon is the
-    # sleep we are actually about to take plus the handoff it would have to
-    # finish, so a fast burner is caught before it crosses rather than after.
-    if burn > 0:
-        poll = poll_interval(pct_5h, burn, reserve_pct) if poll_s is None else poll_s
-        projected = pct_5h + burn * (poll + fold_eta_s)
-        if projected >= limit:
-            return Trigger(True, "usage_projected",
-                           f"pct_5h {pct_5h}% projects to {projected:.1f}% within "
-                           f"{poll + fold_eta_s}s (burn {burn * 60:.2f}%/min) >= {limit}%",
-                           projected=projected)
-
+    Usage answers only at the wall. An unreadable figure is not a wall: the
+    wall announces itself, and moving an agent off an account nobody can read
+    spends a cold start on a guess.
+    """
+    if pct_5h is not None and pct_5h >= WALL_PCT:
+        return Trigger(True, "usage", f"pct_5h {pct_5h}% - at the wall")
+    if pct_7d is not None and pct_7d >= WALL_PCT:
+        return Trigger(True, "usage_7d", f"pct_7d {pct_7d}% - at the weekly wall")
     if ctx_pct is not None and ctx_pct >= CONTEXT_PCT:
         return Trigger(True, "context", f"context {ctx_pct}% >= {CONTEXT_PCT}%")
-
-    return Trigger(False, "", f"pct_5h {pct_5h}% < {limit}%, context "
+    return Trigger(False, "", f"pct_5h {'?' if pct_5h is None else str(pct_5h) + '%'} below "
+                              f"the wall, context "
                               f"{'?' if ctx_pct is None else str(ctx_pct) + '%'} < {CONTEXT_PCT}%")
+
+
+def stay_within_s(cold_start_pct: float | None = None) -> float:
+    """T. The measured cost of a cold start, as the seconds of window it
+    spends, when there is a measurement; the starting value otherwise."""
+    if cold_start_pct is None or cold_start_pct <= 0:
+        return STAY_WITHIN_S
+    return cold_start_pct / 100 * WINDOW_5H_S
+
+
+def stay_or_move(work_waiting: bool, reset_in_s: float | None,
+                 stay_within: float = STAY_WITHIN_S) -> tuple[bool, str]:
+    """An agent at the wall: is a move worth its cold start? (move, why).
+
+    Never for an idle agent - a move is for work that is waiting - and not when
+    its own window rolls over sooner than the start would pay back. An unknown
+    reset is not "soon": it is treated as further than T.
+    """
+    if not work_waiting:
+        return False, "no work is waiting - an idle agent does not move"
+    if reset_in_s is not None and reset_in_s <= stay_within:
+        return False, (f"its account resets in {int(reset_in_s // 60)}m, within "
+                       f"{int(stay_within // 60)}m - cheaper to wait")
+    return True, "work is waiting and its account resets too late to wait for"
+
+
+def stretch_s(headroom_pct: float, fill_per_s: float,
+              agent_per_s: float = TYPICAL_AGENT_BURN_PER_S) -> float:
+    """How long an account lasts before its wall with one more agent on it."""
+    rate = max(0.0, fill_per_s) + agent_per_s
+    return headroom_pct / rate if rate > 0 else float("inf")
 
 
 def next_reset(reset_5h: int | None, now: int | None = None) -> int:

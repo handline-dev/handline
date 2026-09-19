@@ -273,7 +273,7 @@ def _cheapest_account() -> str | None:
         return picked
     # Fall back to any logged-in account we can still read. A fold is small and
     # recording the day beats skipping it, but two accounts are off limits: one
-    # already at the hard stop, and one whose usage we cannot read at all.
+    # already at the wall, and one whose usage we cannot read at all.
     #
     # The second matters more than it looks. A fold runs `claude -p`, which is
     # headless and has no status line, so it is the one spender no collector

@@ -31,8 +31,8 @@ import uuid
 from dataclasses import dataclass
 from pathlib import Path
 
-from . import (agents, db, events, fold as foldmod, handoff as handoffmod, launch, lock,
-               observe as obs, orca, paths, service, spawn as spawnmod, status, triggers)
+from . import (accounts, agents, db, events, fold as foldmod, handoff as handoffmod, launch,
+               lock, measure, observe as obs, orca, paths, service, spawn as spawnmod, status, triggers)
 
 # Section 8.2 states.
 IDLE, QUEUED, RUNNING, DONE = "IDLE", "QUEUED", "RUNNING", "DONE"
@@ -505,10 +505,10 @@ def triggers_apply(row) -> bool:
 
     A closed agent has no session to hand off, and closing is precisely what
     makes it look like one that needs handing off: its status line stops, so the
-    snapshot goes stale and usage_unknown fires. An agent with no terminal has
-    nowhere to run at all - nothing to clear, nothing being spent - and
-    usage_unknown fires across a whole account at once, so it sweeps up the
-    registered-but-never-started agents with everyone else.
+    snapshot goes stale. An agent with no terminal has nowhere to run at all -
+    nothing to clear, nothing being spent - and a reading that is at the wall
+    is the account's, so it sweeps up the registered-but-never-started agents
+    with everyone else.
 
     Every screen asks this too - drawing a warning the daemon will never act on
     is the dashboard arguing with the daemon.
@@ -762,9 +762,9 @@ def _wake_agent(con, agent: str, log, moved_to: str | None = None) -> tuple[bool
             # complete copy of the context.
             rescued = False
             acct, pct = wait.account, wait.pct
-            elsewhere = _room_to_move(agent) if session and not wait.assumed \
+            elsewhere = _move_plan(con, agent, "usage")[0] if session and not wait.assumed \
                 and not _handoff_backing_off(con, agent) else None
-            if elsewhere and elsewhere != acct and _takes_work(elsewhere):
+            if elsewhere:
                 hid = uuid.uuid4().hex[:12]
                 db.start_handoff(con, hid, agent, session, "pinned",
                                  int(time.time()) + HANDOFF_DEADLINE_S)
@@ -779,6 +779,7 @@ def _wake_agent(con, agent: str, log, moved_to: str | None = None) -> tuple[bool
                     log(f"  {agent}: pinned to {acct} at {pct}% - starting fresh "
                         f"on {elsewhere}")
                     session, acct, moved_to, rescued = None, elsewhere, elsewhere, True
+                    measure.begin(con, agent, elsewhere)
                 else:
                     why = "could not read " + ", ".join(missing)
                     db.advance_handoff(con, hid, "released", state="degraded",
@@ -1144,17 +1145,9 @@ def perform_handoff(con, agent: str, trigger: triggers.Trigger, log) -> bool:
         return _perform_handoff(con, agent, trigger, log)
 
 
-# The triggers a move answers. `usage_unknown` is not one of them: it fires
-# because we cannot read the account, and "we do not know" is not "it is full".
-# Moving on it would send agents off an account nobody can see, which is the
-# fail-closed rule pointed the wrong way.
-MOVABLE_TRIGGERS = ("usage", "usage_7d", "usage_projected")
-
-
-def _takes_work(acct: str) -> bool:
-    """Can this account start a session? bootstrap: a never-run account has no
-    status.json, which a plain assignable() refuses and bootstrap exists to lift."""
-    return status.pick_account([acct], bootstrap=True)[0] == acct
+# The triggers a move answers: the two walls. Nothing below one is a reason to
+# move a working agent, and an account nobody can read is not a wall.
+MOVABLE_TRIGGERS = ("usage", "usage_7d")
 
 
 def _handoff_backing_off(con, agent: str) -> bool:
@@ -1168,13 +1161,49 @@ def _handoff_backing_off(con, agent: str) -> bool:
     return bool(streak and last and int(time.time()) < int(last) + backoff_for(streak))
 
 
-def _room_to_move(agent: str) -> str | None:
-    """Where a move may land: judged on the line the trigger fires at, not the
-    hard stop, since an account the daemon just decided is too full to work on
-    is too full to move to, and with clear headroom so it does not bounce."""
-    return launch.find_room(
-        agent, limit=triggers.MOVE_LINE_5H, limit_7d=triggers.MOVE_LINE_7D,
-        room=status.MOVE_MIN_HEADROOM_PCT)
+def _last_left(con, agent: str) -> str | None:
+    """The account this agent's most recent move took it off."""
+    row = con.execute("SELECT payload FROM events WHERE agent = ? AND kind = 'moved_account' "
+                      "ORDER BY id DESC LIMIT 1", (agent,)).fetchone()
+    try:
+        return json.loads(row["payload"]).get("from") if row else None
+    except ValueError:
+        return None
+
+
+def _move_plan(con, agent: str, kind: str) -> tuple[str | None, str]:
+    """An agent at the wall: stay, or move and where to. (destination, why).
+
+    Stay when nothing is waiting for it or its own account resets sooner than a
+    cold start would pay back (`triggers.stay_or_move`). Otherwise the pick,
+    over every other account that can take one more agent - and never back to
+    the account it just left before that account resets, so one wall is one
+    move. None with a reason when it stays, including when every account is
+    capped or walled: the work then waits in the queue.
+    """
+    here = agents.current_account(agent, con)
+    now = time.time()
+    reset = status.read(here)
+    reset = reset.reset_7d if kind == "usage_7d" else reset.reset_5h
+    reset_in = max(0.0, reset - now) if reset else None
+    work = bool(db.queued_for(con, agent) or db.unannounced_answers(con, agent))
+    move, why = triggers.stay_or_move(
+        work, reset_in, triggers.stay_within_s(measure.cold_start_pct(con)))
+    if not move:
+        return None, why
+    exclude = {here: "the account it is at the wall on"}
+    left = _last_left(con, agent)
+    if left and left != here:
+        left_reset = status.read(left).reset_5h
+        if left_reset and left_reset > now:
+            exclude[left] = "the account it just left, until it resets"
+    dest, ranked = status.pick_account(
+        [a for a in paths.list_accounts() if accounts.logged_in(a)],
+        bootstrap=True, exclude=exclude)
+    if dest is None:
+        return None, "no account can take one more agent (" + "; ".join(
+            f"{a}: {r}" for a, r in ranked if a not in exclude) + ")"
+    return dest, dict(ranked)[dest]
 
 
 def _move_to_room(con, agent: str, trigger: triggers.Trigger, log) -> bool:
@@ -1193,17 +1222,10 @@ def _move_to_room(con, agent: str, trigger: triggers.Trigger, log) -> bool:
     if trigger.kind not in MOVABLE_TRIGGERS:
         return False
     here = agents.current_account(agent, con)
-    there = _room_to_move(agent)
-    if there is None or there == here:
-        log(f"  {agent}: staying on {here} - nowhere with room to move to")
+    there, picked_why = _move_plan(con, agent, trigger.kind)
+    if there is None:
+        log(f"  {agent}: staying on {here} - {picked_why}")
         return False
-    there_st = status.read(there)
-    allowed = _takes_work(there)
-    why = "" if allowed else there_st.assignable()[1]
-    if not allowed:
-        log(f"  {agent}: staying on {here} - {there} takes no work either ({why})")
-        return False
-    picked_why = f"5h {there_st.trusted_pct_5h}%, 7d {there_st.trusted_pct_7d}%"
     handle = db.get_terminal(con, agent)
     if not handle or not orca.available() or not orca.alive(handle):
         return False
@@ -1238,6 +1260,7 @@ def _move_to_room(con, agent: str, trigger: triggers.Trigger, log) -> bool:
     # failed handback as a failed move would clear the context of the session
     # that just started and park it until the *old* account rolls over.
     db.set_account(con, agent, there)
+    measure.begin(con, agent, there)
     db.set_agent_state(con, agent, QUEUED, wake_at=None,
                        detail=f"moved {here} -> {there} ({trigger.kind})")
     db.add_event(con, agent, "moved_account", {"from": here, "to": there,
@@ -1470,12 +1493,15 @@ def supervise(con, agent: str, log, now: int, samples: dict,
             actions.append(f"{agent}: session closed while idle")
             row = db.get_agent_state(con, agent)
 
-    # Keep a short burn-rate history per account for the projection (8.1).
+    measure.settle(con, agent)
+
+    # Keep a short burn-rate history per account: it is how fast the account is
+    # filling, which the pick weighs (`pick_account`) and the screens show.
     # Only a figure this payload actually reported may enter the burn
     # history, stamped with when it was observed. A carried figure pairs an
     # unchanging percentage with a collected_at that moves every tick: the
-    # buffer fills with flat samples, the measured rate falls to zero and
-    # usage_projected stops firing for an account that was climbing.
+    # buffer fills with flat samples and the measured rate falls to zero for an
+    # account that was climbing.
     hist = samples.setdefault(acct, [])
     if st.pct_5h_source == "live" and st.pct_5h is not None and st.rl_at:
         if not hist or hist[-1][0] != st.rl_at:
@@ -1497,13 +1523,14 @@ def supervise(con, agent: str, log, now: int, samples: dict,
             and state == PARKED and reading.source != "assumed" \
             and orca.available() and orca.alive(row["terminal"]):
         last = db.last_handoff(con, agent)
-        verdict = triggers.evaluate(st.trusted_pct_5h, st.trusted_ctx_pct, burn=burn,
+        verdict = triggers.evaluate(st.trusted_pct_5h, st.trusted_ctx_pct,
                                     pct_7d=st.trusted_pct_7d)
         movable = last and last["trigger_kind"] in MOVABLE_TRIGGERS
-        # Still full here, but another account may have rolled over since the
-        # park: move now rather than wait out this account's own window.
+        # Still at the wall here, but another account may have rolled over or
+        # freed a slot since the park: if the work is worth a cold start, move
+        # now rather than wait out this account's own window.
         if movable and verdict.fired and verdict.kind in MOVABLE_TRIGGERS \
-                and _room_to_move(agent) not in (None, acct):
+                and _move_plan(con, agent, verdict.kind)[0]:
             with lock.terminal(agent) as mine:
                 moved = mine and _move_to_room(con, agent, verdict, log)
             if moved:
@@ -1539,8 +1566,7 @@ def supervise(con, agent: str, log, now: int, samples: dict,
     # as 0 - the trigger would simply never fire again after the collector
     # died. An account whose window is merely quiet reads as 0, not as
     # unknown, so an idle agent is left alone instead of handed off.
-    t = triggers.evaluate(st.trusted_pct_5h, st.trusted_ctx_pct, burn=burn,
-                          pct_7d=st.trusted_pct_7d)
+    t = triggers.evaluate(st.trusted_pct_5h, st.trusted_ctx_pct, pct_7d=st.trusted_pct_7d)
     # A turn that ended on the usage limit means the agent is at the wall
     # whatever the reading says (it can lag, or be the other window): move it
     # the same way a trigger would.
@@ -1672,14 +1698,7 @@ def run(once: bool = False, verbose: bool = True, max_ticks: int | None = None) 
                     log(f"log rotation failed: {e}")
                 if once or (max_ticks and ticks >= max_ticks):
                     break
-                # The hottest account sets the pace, not the quietest: min()
-                # here let an account at 88% be polled every 30s because
-                # another sat at 10%. An account whose usage is unknown also
-                # polls fast.
-                pcts = [status.read(a).trusted_pct_5h for a in paths.list_accounts()]
-                hottest = None if (not pcts or any(p is None for p in pcts)) else max(pcts)
-                burn = max((triggers.burn_rate_per_s(h) for h in samples.values()), default=0.0)
-                time.sleep(triggers.poll_interval(hottest, burn))
+                time.sleep(triggers.POLL_S)
             log(f"stopped after {ticks} tick(s)")
             return 0
         finally:

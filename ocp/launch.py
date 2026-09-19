@@ -25,53 +25,27 @@ from dataclasses import dataclass
 from . import accounts, agents, db, paths, status, triggers
 
 
-# A session started this close to the wall hands off almost at once: the usage
-# trigger fires a reserve short of the hard stop, so an account inside that
-# reserve has no room to work in, only room to hand off. The wall itself is
-# still where a launch is refused - `build` does that, and says which account.
-START_LIMIT = triggers.MOVE_LINE_5H
-
-
-def find_room(agent: str, limit: int | None = None, limit_7d: int | None = None,
-              room: int = 0) -> str | None:
+def find_room(agent: str, exclude: dict[str, str] | None = None) -> str | None:
     """An account that can take this agent's next session, or None.
 
-    The preferred account when it is under the line, else the best of the
-    others by `pick_account`. `room` is the clear 5h headroom a destination
-    needs below the block, so a move does not land a point under the wall and
-    bounce straight back.
+    The preferred account unless what is known says it is a bad place to start
+    (`status.unfit`), else the best of the others by `pick_account`. `exclude`
+    names accounts to skip and why - the one the agent just left.
     """
     preferred = agents.account_of(agent)
-    line = limit if limit is not None else START_LIMIT
-    line7 = limit_7d if limit_7d is not None else triggers.MOVE_LINE_7D
-    line = min(line, status.PCT_5H_BLOCK - room)
-    # Only a reading that says "full" excludes an account. A missing snapshot
-    # is the account nobody has run on yet, and the session we are about to
-    # start is the only thing that writes one.
-    st = status.read(preferred)
-    pct = st.trusted_pct_5h
-    full = (pct is not None and pct >= line) or \
-           (st.pct_7d is not None and st.pct_7d >= line7)
-    # A stale reading that was at the line is still a floor until its window
-    # rolls over (a quiet account is not a recovered one), but a reading older
-    # than 5h cannot describe the current window.
-    if not full and st.pct_5h is not None and st.pct_5h >= line:
-        now = int(time.time())
-        full = st.reset_5h > now if st.reset_5h else (
-            st.age_s is not None and st.age_s < 5 * 3600)
-    if not full:
+    from . import load as loadmod
+    load = loadmod.read_all()
+    if not (exclude and preferred in exclude) \
+            and status.unfit(status.read(preferred), load.get(preferred)) is None:
         return preferred
     # Logged-in accounts only: `assignable` says nothing about credentials.
-    # bootstrap: a never-run account is a real place to go.
-    # `preferred` is out: it just crossed this line, and bare assignability
-    # would sort it straight back to the top on deadline alone.
+    # bootstrap: a never-run account is a real place to go. `preferred` is out:
+    # it is what was just found unfit.
     candidates = [a for a in paths.list_accounts() if accounts.logged_in(a) and a != preferred]
-    return status.pick_account(candidates, limit_5h=line, limit_7d=line7,
-                               bootstrap=True)[0]
+    return status.pick_account(candidates, bootstrap=True, exclude=exclude, load=load)[0]
 
 
-def choose_account(agent: str, resuming: bool = False, limit: int | None = None,
-                   limit_7d: int | None = None, con=None) -> str:
+def choose_account(agent: str, resuming: bool = False, con=None) -> str:
     """Which account this launch runs on.
 
     agent.yaml names a preference, not a destination: the moment a session is
@@ -90,7 +64,7 @@ def choose_account(agent: str, resuming: bool = False, limit: int | None = None,
         return agents.current_account(agent, con)
     # Nothing with room is not a reason to pick at random: `build` refuses on
     # a current reading at the wall, and names the account and the figure.
-    return find_room(agent, limit, limit_7d) or agents.account_of(agent)
+    return find_room(agent) or agents.account_of(agent)
 
 
 @dataclass

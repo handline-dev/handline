@@ -36,7 +36,8 @@ import tty
 import unicodedata
 from pathlib import Path
 
-from . import accounts, actions, agents, daemon, db, launch, paths, status, triggers
+from . import (accounts, actions, agents, daemon, db, launch, load as loadmod, paths, status,
+               triggers)
 
 ALT_ON, ALT_OFF = "\033[?1049h", "\033[?1049l"
 CUR_OFF, CUR_ON = "\033[?25l", "\033[?25h"
@@ -74,7 +75,7 @@ AGENT_KEYS = [
     ("↵", "open"), ("t", "terminal"), ("m", "message"), ("e", "editor"),
     ("w", "wake"), ("c", "close"), ("p", "park"), ("f", "fold"), ("u", "unstall"),
 ]
-ACCOUNT_KEYS = [("↵", "open"), ("l", "login"), ("a", "add"), ("x", "remove")]
+ACCOUNT_KEYS = [("↵", "open"), ("l", "login"), ("a", "add"), ("c", "cap"), ("x", "remove")]
 MESSAGE_KEYS = [("↵", "read"), ("a", "answer"), ("e", "answer in $EDITOR"),
                 ("x", "dismiss")]
 # A stuck row is about an agent, so it answers to the agent keys.
@@ -464,12 +465,16 @@ def build(width: int, sel: dict | None = None,
         # own account is full. Only accounts that can start a session count.
         # Captured whole, not just the pick: this panel says why each one sits
         # where it does, not only which one won.
+        loads = loadmod.read_all()
         first, ranked = status.pick_account(
-            [a for a in paths.list_accounts() if _logged_in(a)])
+            [a for a in paths.list_accounts() if _logged_in(a)], load=loads)
         why_of = dict(ranked)
         for name in paths.list_accounts():
             st = status.read(name)
             allowed, plain_why = st.takes_work()
+            # The tick beside the name says the pick could use it: not only
+            # that it is under the wall but that it has a slot and would last.
+            allowed = allowed and status.unfit(st, loads.get(name)) is None
             # An account outside the ranking (not logged in) has no ranked
             # reason to fall back to - `assignable` already refused it and
             # says why.
@@ -1327,6 +1332,19 @@ def _add_account(width: int, height: int, fd, saved) -> str:
     return msg
 
 
+def _set_cap(name: str, width: int, height: int) -> str:
+    """The most agents that may be mid-turn on this account at once."""
+    text = _line(f"most agents mid-turn on {name} at once [{loadmod.cap_of(name)}]:",
+                 width, height)
+    if not text or not text.strip():
+        return "cap unchanged"
+    try:
+        loadmod.set_cap(name, int(text.strip()))
+    except ValueError:
+        return "a cap is a whole number, at least 1"
+    return f"{name}: at most {text.strip()} agents mid-turn"
+
+
 def _remove_account(name: str, width: int, height: int, fd, saved) -> str:
     """The same sequence as `ocp account remove`, confirmed by typing its name."""
     con = db.connect()
@@ -1374,6 +1392,8 @@ def _act(panel: int, sel: dict, key: str, width: int, height: int,
         return _suspend(argv, env, fd, saved)[1], None
     if panel == ACCOUNTS and key == "x":
         return _remove_account(str(target), width, height, fd, saved), None
+    if panel == ACCOUNTS and key == "c":
+        return _set_cap(str(target), width, height), None
 
     con = db.connect()
     try:

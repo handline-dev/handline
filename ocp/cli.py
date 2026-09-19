@@ -21,7 +21,7 @@ from . import (accounts, actions, agents, ask as askmod, daemon as daemonmod, db
                tui,
                digest, doctor,
                drift, events, fold as foldmod, guide, handoff as handoffmod, hooks, launch,
-               paths, service,
+               load, paths, service,
                hr, orca, status, spawn as spawnmod, team, triggers)
 
 
@@ -147,16 +147,37 @@ def cmd_account_remove(args) -> int:
     return 0 if ok else 1
 
 
+def cmd_account_cap(args) -> int:
+    if args.n is None:
+        print(f"{args.name}: at most {load.cap_of(args.name)} agents mid-turn at once")
+        return 0
+    try:
+        load.set_cap(args.name, args.n)
+    except ValueError as e:
+        print(e, file=sys.stderr)
+        return 1
+    print(f"{args.name}: at most {args.n} agents mid-turn at once")
+    return 0
+
+
+def _can_start(st, ld) -> tuple[bool, str]:
+    """takes_work, and what the pick adds to it: a slot and a stretch worth starting."""
+    ok, why = st.takes_work()
+    bad = status.unfit(st, ld) if ok else None
+    return (False, bad) if bad else (ok, why)
+
+
 def cmd_account_list(args) -> int:
     names = paths.list_accounts()
     if not names:
         print("no accounts registered.")
         return 0
+    loads = load.read_all()
     if args.json:
         out = []
         for a in names:
             st = status.read(a)
-            allowed, why = st.takes_work()
+            allowed, why = _can_start(st, loads.get(a))
             out.append({
                 "account": a, "logged_in": accounts.logged_in(a),
                 "pct_5h": st.pct_5h, "pct_5h_effective": st.trusted_pct_5h,
@@ -172,7 +193,7 @@ def cmd_account_list(args) -> int:
           f"{'ctx':>6}{'AGE':>8}  {'RUNWAY (est.)':<16}ASSIGN")
     for a in names:
         st = status.read(a)
-        allowed, why = st.takes_work()
+        allowed, why = _can_start(st, loads.get(a))
         cell = lambda v: "  -" if v is None else f"{v:>3}"  # noqa: E731
         age = "-" if st.age_s is None else f"{int(st.age_s)}s"
         resets = "-" if not st.reset_7d else time.strftime("%m-%d %H:%M", time.localtime(st.reset_7d))
@@ -1151,6 +1172,10 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("name")
     p.add_argument("--force", action="store_true", help="replace existing files with links")
     p.set_defaults(fn=cmd_account_register)
+    p = acc.add_parser("cap", help="show or set the most agents mid-turn on an account")
+    p.add_argument("name")
+    p.add_argument("n", type=int, nargs="?", default=None)
+    p.set_defaults(fn=cmd_account_cap)
     p = acc.add_parser("list", help="accounts with usage")
     p.add_argument("--json", action="store_true")
     p.set_defaults(fn=cmd_account_list)

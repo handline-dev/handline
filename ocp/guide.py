@@ -41,13 +41,14 @@ age we will assign on - still a floor for triggers, no new work.
 
 Design section 4 has the five cases and why only one of them is fail-closed.
 
-An agent's account is a preference. A session starts on it when it has room to
-work - which ends a reserve short of the hard stop, where the handoff fires - and
-on whichever account does when a current reading says it has not; the state row
-records where it went, and `ocp bridge` shows that rather than the preference.
-Nothing moves a live session - a move is one session ending and another
-starting, so it happens after the handoff is recorded, and a resume always goes back to the
-account its session lives on.""",
+An agent's account is a preference. A session starts on it unless what is known
+says it is a bad place to start - at the wall, at its cap of agents mid-turn
+(`ocp account cap`), or filling so fast one more agent would not last half an
+hour - and on the best account that qualifies when it is; the state row records
+where it went, and `ocp bridge` shows that rather than the preference.
+Nothing moves a live session below the wall. At the wall an agent moves only if
+work is waiting and its account resets too late to wait for, once, and a resume
+always goes back to the account its session lives on.""",
     "work": """giving an agent work
   ocp team                        who you may ask, and what they are doing
   ocp ask <agent> "<task>"        queue it
