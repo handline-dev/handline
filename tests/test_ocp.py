@@ -6999,6 +6999,18 @@ def test_a_forced_move_goes_through_the_verified_move_or_not_at_all(home: Path) 
         check("forced: a move that stops before ending anything is not a move", not ok, msg)
         check("forced: and the handoff it took is not left on a session that never ended",
               db.get_handoff(con, "keeper") is None, str(db.get_handoff(con, "keeper")))
+        # A record already on the row stays exactly as it was.
+        db.set_handoff(con, "keeper", "# handoff · keeper\n- an earlier record\n")
+        dmn.handoffmod.record = lambda c, a: (db.set_handoff(c, a, "# handoff · keeper\n- new\n"), [])[1]
+        orcamod.alive = lambda h: h != "term_x"
+        try:
+            dmn.force_move(con, "keeper", "beta", "test", log.append)
+        finally:
+            dmn.handoffmod.record = real_record
+            orcamod.alive = lambda h: True
+        check("forced: a record that was already there is put back, not replaced",
+              db.get_handoff(con, "keeper") == "# handoff · keeper\n- an earlier record\n",
+              str(db.get_handoff(con, "keeper")))
         db.set_agent_state(con, "keeper", dmn.IDLE)
         keep_handoff("keeper", "# handoff · keeper\n## 다음\n- carry on\n")
 
