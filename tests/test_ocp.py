@@ -3833,6 +3833,10 @@ def test_nothing_is_typed_at_a_modal(home: Path) -> None:
             ok_c, why_c = REAL_ORCA["clear_context"]("h")
             check("unsent: /clear is refused, not typed into it", not ok_c and not sent_, why_c)
             del screen["draft"]
+            orcamod.modal_open = lambda h: True
+            ok_c, why_c = REAL_ORCA["clear_context"]("h")
+            check("modal: /clear is refused at an open modal", not ok_c and not sent_, why_c)
+            orcamod.modal_open = lambda h: False
             ok_c, why_c = REAL_ORCA["clear_context"]("h")
             check("unsent: with the input empty /clear is typed", ok_c and sent_ == ["/clear"], why_c)
         finally:
