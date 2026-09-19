@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import sys
 
 from . import db
@@ -56,6 +57,56 @@ def _slim(raw: dict) -> dict:
     return out
 
 
+# The words claude prints when an account's usage runs out ("You've hit your
+# session limit · resets 2:30pm"). StopFailure's own `error` field is not in
+# ALLOWLIST, so the reason is read where it can be: the payload's error
+# fields if it carries the text, else the tail of the transcript, which always
+# holds the message the turn ended on.
+_LIMIT_RE = re.compile(r"(hit your [\w -]{0,30}limit|usage limit|rate_limit|limit reached)", re.I)
+_TRANSCRIPT_TAIL = 16384
+
+
+def limit_reason(raw: dict) -> tuple[str, str] | None:
+    """(text, where it was read from) when this StopFailure is a usage limit."""
+    for key in ("error", "error_details", "last_assistant_message"):
+        v = raw.get(key)
+        if isinstance(v, str) and _LIMIT_RE.search(v):
+            return v[:200], f"payload.{key}"
+    path = raw.get("transcript_path")
+    if isinstance(path, str):
+        try:
+            with open(path, "rb") as f:
+                f.seek(0, os.SEEK_END)
+                f.seek(max(0, f.tell() - _TRANSCRIPT_TAIL))
+                tail = f.read().decode("utf-8", "replace")
+        except OSError:
+            return None
+        hits = list(_LIMIT_RE.finditer(tail))
+        if hits:
+            m = hits[-1]
+            near = tail[max(0, m.start() - 40): m.end() + 60]
+            return " ".join(near.replace('"', " ").replace("\\n", " ").split())[:200], "transcript"
+    return None
+
+
+def at_limit(con, agent: str) -> dict | None:
+    """The limit this agent's last turn ended on, if nothing has run since.
+
+    Latest of StopFailure and UserPromptSubmit: a prompt after the failure means
+    the agent is working again (a move's wake types one).
+    """
+    row = con.execute(
+        "SELECT kind, payload FROM events WHERE agent = ? AND kind IN "
+        "('StopFailure', 'UserPromptSubmit') ORDER BY id DESC LIMIT 1", (agent,)).fetchone()
+    if not row or row["kind"] != "StopFailure":
+        return None
+    try:
+        data = json.loads(row["payload"])
+    except (TypeError, ValueError):
+        return None
+    return data if isinstance(data, dict) and data.get("limit") else None
+
+
 def record_from_stdin(argv: list[str] | None = None) -> int:
     """Entry point for `ocp hook <event>`. Always exits 0.
 
@@ -86,8 +137,13 @@ def record_from_stdin(argv: list[str] | None = None) -> int:
     try:
         con = db.connect()
         try:
-            db.add_event(con, agent, event, _slim(raw), account=account)
-            _mark_activity(con, agent, event)
+            payload = _slim(raw)
+            if event == "StopFailure":
+                lim = limit_reason(raw)
+                if lim:
+                    payload["limit"], payload["limit_source"] = lim
+            db.add_event(con, agent, event, payload, account=account)
+            _mark_activity(con, agent, event, payload)
         finally:
             con.close()
     except Exception:  # noqa: BLE001 - a hook must never break the session
@@ -123,7 +179,7 @@ QUIET_EVENTS = {"Stop"}
 PROTECTED_STATES = {"STALLED", "HANDOFF"}
 
 
-def _mark_activity(con, agent: str, event: str) -> None:
+def _mark_activity(con, agent: str, event: str, payload: dict | None = None) -> None:
     """Let the daemon know whether the agent is working.
 
     Without this, agent_state only ever changes when the daemon itself changes
@@ -144,6 +200,11 @@ def _mark_activity(con, agent: str, event: str) -> None:
         if row and row["state"] == "RUNNING" and not row["wake_at"]:
             return  # already correct; do not rewrite on every prompt
         db.set_agent_state(con, agent, "RUNNING", wake_at=None, detail=f"active ({event})")
+    elif event == "StopFailure" and payload and payload.get("limit"):
+        # Out of usage is not working: the turn ended and nothing will run.
+        if row and row["state"] == "RUNNING":
+            db.set_agent_state(con, agent, "IDLE", wake_at=None,
+                               detail=f"at its usage limit: {payload['limit'][:80]}")
     elif event in QUIET_EVENTS and row and row["state"] == "RUNNING":
         db.set_agent_state(con, agent, "IDLE", wake_at=None,
                            detail="finished its turn")

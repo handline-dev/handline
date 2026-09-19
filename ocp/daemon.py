@@ -31,7 +31,7 @@ import uuid
 from dataclasses import dataclass
 from pathlib import Path
 
-from . import (agents, db, fold as foldmod, launch, lock, observe as obs, orca,
+from . import (agents, db, events, fold as foldmod, launch, lock, observe as obs, orca,
                paths, service, spawn as spawnmod, status, triggers)
 
 # Section 8.2 states.
@@ -1062,7 +1062,9 @@ def perform_handoff(con, agent: str, trigger: triggers.Trigger, log,
 
     handle = db.get_terminal(con, agent)
     if handle and orca.available():
-        if not orca.idle_now(handle):
+        # A turn that ended on the usage limit is over, whatever the terminal's
+        # activity probe still says: nothing will run until it moves or waits.
+        if not events.at_limit(con, agent) and not orca.idle_now(handle):
             log(f"  {agent}: {trigger.kind} fired but the agent is mid-turn - deferring")
             return True
         if not session_present(agent):
@@ -1440,6 +1442,15 @@ def supervise(con, agent: str, log, now: int, samples: dict,
     # unknown, so an idle agent is left alone instead of handed off.
     t = triggers.evaluate(st.trusted_pct_5h, st.trusted_ctx_pct, burn=burn,
                           pct_7d=st.trusted_pct_7d)
+    # A turn that ended on the usage limit means the agent is at the wall
+    # whatever the reading says (it can lag, or be the other window): move it
+    # the same way a trigger would.
+    stopped = events.at_limit(con, agent)
+    if stopped and not (t.fired and t.kind in MOVABLE_TRIGGERS):
+        text = stopped["limit"]
+        t = triggers.Trigger(True, "usage_7d" if "week" in text.lower() else "usage",
+                             f"turn ended on its usage limit: {text} "
+                             f"(read from {stopped.get('limit_source', '?')})")
     if t.fired:
         ok = perform_handoff(con, agent, t, log, use_model=use_model)
         actions.append(f"{agent}: handoff ({t.kind}){'' if ok else ' -> degraded'}")

@@ -5655,6 +5655,61 @@ def test_room_is_filtered_before_the_ranking_not_after(home: Path) -> None:
         con.close()
 
 
+def test_a_turn_that_ends_on_the_usage_limit_is_at_the_wall(home: Path) -> None:
+    """StopFailure with the limit message on a live agent: shown as stopped, not
+    RUNNING, and handed off and moved though nothing reads full and the terminal
+    probe still says mid-turn."""
+    _daemon_home(home, 20)
+    accounts.register("beta")
+    now = int(time.time())
+    transcript = home / "t.jsonl"
+    transcript.write_text('{"type":"assistant","text":"You\'ve hit your session limit \u00b7 resets 2:30pm"}\n')
+    os.environ["OCP_AGENT"], os.environ["OCP_ACCOUNT"] = "backend", "alpha"
+    con = db.connect()
+    try:
+        db.set_terminal(con, "backend", "term_x", "wt")
+        db.set_account(con, "backend", "alpha")
+        db.set_agent_state(con, "backend", dmn.RUNNING, detail="active")
+        payload = json.dumps({"hook_event_name": "StopFailure", "session_id": "s",
+                              "transcript_path": str(transcript)})
+        real_in = sys.stdin
+        sys.stdin = io.StringIO(payload)
+        try:
+            evmod.record_from_stdin(["StopFailure"])
+        finally:
+            sys.stdin = real_in
+        row = db.get_agent_state(con, "backend")
+        lim = evmod.at_limit(con, "backend")
+        check("limit: the turn's limit is read from the transcript, and says where",
+              lim and "session limit" in lim["limit"] and lim["limit_source"] == "transcript", str(lim))
+        check("limit: the agent no longer reads RUNNING", row["state"] == dmn.IDLE, str(dict(row)))
+        db.add_event(con, "backend", "UserPromptSubmit", {})
+        check("limit: a prompt after the failure clears it", evmod.at_limit(con, "backend") is None)
+        db.add_event(con, "backend", "StopFailure", lim)
+
+        write_status(home, "alpha", pct_5h=20, pct_7d=10, reset_5h=now + 1800)
+        write_status(home, "beta", pct_5h=5, pct_7d=10, reset_5h=now + 1800)
+        seen = []
+        real = (orcamod.available, orcamod.alive, orcamod.idle_now, dmn._move_to_room,
+                dmn.session_present, orcamod.clear_context)
+        try:
+            orcamod.available = lambda: True
+            orcamod.alive = lambda h: True
+            orcamod.idle_now = lambda h, **kw: False   # the probe would say mid-turn
+            orcamod.clear_context = lambda h, **kw: (True, "cleared")
+            dmn.session_present = lambda a: True
+            dmn._move_to_room = lambda con_, a, t, log: (seen.append(t), True)[1]
+            dmn.supervise(con, "backend", lambda _m: None, now, {}, False, [])
+        finally:
+            (orcamod.available, orcamod.alive, orcamod.idle_now, dmn._move_to_room,
+             dmn.session_present, orcamod.clear_context) = real
+        check("limit: handed off and moved even though the probe says mid-turn",
+              seen and seen[0].kind == "usage" and "transcript" in seen[0].reason, str(seen))
+    finally:
+        os.environ.pop("OCP_AGENT", None); os.environ.pop("OCP_ACCOUNT", None)
+        con.close()
+
+
 def test_choose_account_does_not_bounce_back_to_a_stale_preferred_account(home: Path) -> None:
     """Founder's priority #241: harbor-manager moved alpha -> gamma at 85%,
     then gamma -> alpha 12 minutes later - back to the account it had just
@@ -7781,6 +7836,7 @@ def main() -> int:
             Path(td) / 'pinnedstuck'))
         run(lambda: test_a_stale_account_whose_window_rolled_over_can_take_work(Path(td) / 'stalebeta'))
         run(lambda: test_room_is_filtered_before_the_ranking_not_after(Path(td) / 'roomfirst'))
+        run(lambda: test_a_turn_that_ends_on_the_usage_limit_is_at_the_wall(Path(td) / 'limitstop'))
         run(lambda: test_choose_account_does_not_bounce_back_to_a_stale_preferred_account(
             Path(td) / 'nobounce'))
         run(lambda: test_move_requires_clear_headroom_not_bare_assignability(

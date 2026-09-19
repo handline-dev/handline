@@ -127,7 +127,7 @@ def cmd_account_list(args) -> int:
         print(json.dumps(out, indent=2))
         return 0
 
-    print(f"{'ACCOUNT':<14}{'LOGIN':<8}{'PLAN':<6}{'5h':>5}{'7d':>5}{'7d resets':<12}"
+    print(f"{'ACCOUNT':<14}{'LOGIN':<8}{'PLAN':<6}{'5h':>5}{'7d':>5}  {'7d resets':<12}"
           f"{'ctx':>6}{'AGE':>8}  ASSIGN")
     for a in names:
         st = status.read(a)
@@ -139,7 +139,7 @@ def cmd_account_list(args) -> int:
         # A figure we inferred is marked, never dressed up as one we read.
         five = f"{cell(st.trusted_pct_5h)}{status.mark(st.pct_5h_source)}"
         print(f"{a:<14}{'yes' if accounts.logged_in(a) else 'no':<8}{plan:<6}"
-              f"{five:>5}{cell(st.pct_7d):>5}{resets:<12}{cell(st.ctx_pct):>6}{age:>8}  "
+              f"{five:>5}{cell(st.pct_7d):>5}  {resets:<12}{cell(st.ctx_pct):>6}{age:>8}  "
               f"{'yes' if allowed else 'NO':<4} {why}")
     print("  " + status.SOURCE_LEGEND)
     return 0
