@@ -108,9 +108,12 @@ PCT_7D_BLOCK = triggers.WALL_PCT
 # A floor is a lower bound, not a measurement, and there is a known invisible
 # spender even on an idle account (`ocp fold`, headless, no collector ever
 # sees it). idle_floor judges the floor this far below the wall to cover
-# spend we cannot see - main's already-accepted figure, carried over as-is;
-# nobody here has measured what a fold actually costs in percent, and
-# KICKOFF §1.2 forbids coding a new number on an unverified assumption.
+# spend we cannot see - main's already-accepted figure, carried over as-is
+# rather than invented fresh: nobody here has measured what a fold actually
+# costs in percent, and KICKOFF §1.2 says to run the probe before coding on
+# an unverified assumption, not to skip measuring indefinitely. A measurement
+# of fold's cost is what would let this constant be set from something other
+# than main's number.
 IDLE_FLOOR_MARGIN_PCT = 15
 
 
@@ -739,7 +742,7 @@ def _no_room(st: "AccountStatus", ld, pct: int | None) -> tuple[str | None, floa
         return None, None
     lasts = triggers.stretch_s(PCT_5H_BLOCK - pct, ld.burn if ld and ld.burn else 0.0)
     if lasts < triggers.MIN_STRETCH_S:
-        return (_stretch_reason(st, ld, lasts) + f" - under the "
+        return (_stretch_reason(st, ld, lasts, pct) + f" - under the "
                 f"{span(triggers.MIN_STRETCH_S)} a start is worth"), lasts
     return None, lasts
 
@@ -748,10 +751,14 @@ def _per_min(rate: float) -> str:
     return f"{rate * 60:.1f}%/min"
 
 
-def _stretch_reason(st: "AccountStatus", ld, lasts: float) -> str:
+def _stretch_reason(st: "AccountStatus", ld, lasts: float, pct: int) -> str:
+    """`pct` is the figure the stretch was computed on - the trusted one for a
+    live reading, or the floor idle_floor admitted for a stale one. Printing
+    `st.trusted_pct_5h` instead would read "None%" for exactly the accounts
+    that reach here on a floor, since that property is None while stale."""
     fill = ld.burn if ld and ld.burn else 0.0
     agents_ = f", {ld.active}/{ld.cap} agents" if ld else ""
-    return (f"5h {st.trusted_pct_5h}%, fill {_per_min(fill)}{agents_}, one more agent "
+    return (f"5h {pct}%, fill {_per_min(fill)}{agents_}, one more agent "
             f"lasts ~{span(lasts)}")
 
 
@@ -763,7 +770,9 @@ def _pick_reason(st: "AccountStatus", ld, lasts: float | None, picked: bool) -> 
         if stale_ok:
             return stale_why + (" <- picked: earliest 7d deadline" if picked else "")
     when = "unknown" if not st.reset_7d else _ago(max(0.0, st.reset_7d - time.time()))
-    base = (_stretch_reason(st, ld, lasts) if lasts is not None
+    # Neither early return above fired, so this account is live, not stale -
+    # trusted_pct_5h is never None here.
+    base = (_stretch_reason(st, ld, lasts, st.trusted_pct_5h) if lasts is not None
             else f"5h {st.trusted_pct_5h}%") + f"; 7d {week_s} (resets in {when})"
     return base + " <- picked: earliest 7d deadline" if picked else base
 

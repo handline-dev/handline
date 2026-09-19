@@ -3201,6 +3201,22 @@ def test_unobserved_spend_stays_off_unreadable_accounts(home: Path) -> None:
         st = status.read("old")
         check("fold: even though it takes no new agents",
               not st.assignable()[0] and st.pct_5h_source == "carried_old")
+
+        # A stale reading pick_account would hand back on its idle floor is
+        # still an account this daemon cannot currently read - the fold must
+        # not prefer it over one with a genuinely current reading, even when
+        # the stale account would otherwise win the ranking (here, by far
+        # the earliest 7d deadline).
+        write_status(home, "fresh", pct_5h=50, reset_5h=now + 1800,
+                     reset_7d=now + 86400 * 2)
+        write_status(home, "stale_idle", pct_5h=5, reset_5h=now + 1800,
+                     reset_7d=now + 1800, collected_at=now - 3600)
+        check("fold: without the exclusion, pick_account would hand back "
+              "the stale account (earliest 7d deadline wins)",
+              status.pick_account(["fresh", "stale_idle"])[0] == "stale_idle")
+        check("fold: with it, the fold goes to the one it can actually read",
+              foldmod._cheapest_account() == "fresh",
+              str(foldmod._cheapest_account()))
     finally:
         accounts.logged_in = real_login
         tui._LOGIN.clear()
@@ -7539,6 +7555,22 @@ def test_idle_floor_refuses_an_account_with_an_agent_mid_turn_on_it(home: Path) 
         con.close()
 
 
+def test_idle_floor_refuses_a_snapshot_older_than_its_own_window(home: Path) -> None:
+    """reset_5h ahead of us while the snapshot itself is already older than a
+    5h window is wide cannot be well-formed data - a rewound clock or a
+    hand-edited file, not an idle account - and must not read as a floor."""
+    _daemon_home(home, 20)
+    _with_accounts("beta")
+    now = int(time.time())
+    write_status(home, "beta", pct_5h=40, pct_7d=10, reset_5h=now + 1800,
+                 reset_7d=now + 86400, collected_at=now - (26 * 3600))
+    st = status.read("beta")
+    check("idle_floor: an age past a whole window with reset_5h still ahead refuses",
+          not st.idle_floor()[0])
+    check("assignable: falls through to the ordinary stale refusal, not a floor",
+          not st.assignable()[0] and "fail-closed" in st.assignable()[1], st.assignable()[1])
+
+
 
 def test_a_sweep_after_a_move_does_not_keep_the_old_accounts_session(home: Path) -> None:
     """keeper 09-19 15:45: moved gamma -> alpha, and eight seconds later the
@@ -10254,6 +10286,7 @@ def main() -> int:
         run(lambda: test_a_stale_snapshot_shows_its_last_figures_and_still_is_offered(Path(td) / 'ar4c'))
         run(lambda: test_pick_account_judges_an_idle_account_on_its_floor_not_on_zero(Path(td) / 'idlefloor'))
         run(lambda: test_idle_floor_refuses_an_account_with_an_agent_mid_turn_on_it(Path(td) / 'idleactive'))
+        run(lambda: test_idle_floor_refuses_a_snapshot_older_than_its_own_window(Path(td) / 'idleage'))
 
 
         run(lambda: test_a_span_of_a_day_or_more_reads_in_days(Path(td) / 'ar4f'))
