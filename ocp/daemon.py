@@ -769,7 +769,7 @@ def _wake_agent(con, agent: str, log, moved_to: str | None = None,
                     db.bump_counter(con, agent, "throttle_count")
                     log(f"  {agent}: fold failed ({msg[:120]}); keeping the resume id")
             if not rescued:
-                why = launch.wake_wait_reason(agent, row, con)
+                why = launch.describe_wake_wait(wait)
                 log(f"  {agent}: {why}")
                 return False, why
         # The shell is still there; put the agent back into it. Resuming the

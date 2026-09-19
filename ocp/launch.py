@@ -109,8 +109,8 @@ def wake_wait(agent: str, row, con) -> WakeWait | None:
     """Is a closed agent's wake walled behind its own account's 5h window?
 
     This is the check daemon.py makes before it types anything into a closed
-    agent's terminal (a resume is tied to the account its session lives under,
-    so there is no other account to try). It is factored out here, rather than
+    agent's terminal. A resume cannot follow an account change, but the
+    pinning rescue can fold and start fresh elsewhere, so a wait is not final. It is factored out here, rather than
     inlined at the call site, so the screens that show an agent can ask the
     same question instead of restating the rule and drifting from it.
 
@@ -151,8 +151,12 @@ def wake_wait_reason(agent: str, row, con) -> str | None:
     the whole thing, not a different opinion of it.
     """
     w = wake_wait(agent, row, con)
-    if w is None:
-        return None
+    return None if w is None else describe_wake_wait(w)
+
+
+def describe_wake_wait(w: WakeWait) -> str:
+    """The wording for a wait already computed, so a caller that holds one
+    does not recompute it (the window may have rolled over in between)."""
     when = "unknown" if not w.reset_5h else time.strftime("%H:%M", time.localtime(w.reset_5h))
     who = f"assumed account {w.account}" if w.assumed else w.account
     return f"waiting for {who}'s 5h window ({w.pct}%, rolls over {when})"
