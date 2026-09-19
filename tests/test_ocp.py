@@ -8633,6 +8633,183 @@ def test_move_to_room_reaches_a_bootstrap_account(home: Path) -> None:
         con.close()
 
 
+def test_a_move_does_not_clobber_a_hook_reported_running_state(home: Path) -> None:
+    """Founder #613, on the path every usage-wall and forced move actually
+    takes: `_perform_handoff` sets HANDOFF before calling `_move_to_room`, and
+    HANDOFF is one of events.PROTECTED_STATES, so the new session's own
+    UserPromptSubmit could not have set RUNNING at all while it stood -
+    closing the race after `_wake_agent` returns is not enough if HANDOFF
+    itself keeps the hook from ever winning it. Driven through `force_move`,
+    the real caller (not `_move_to_room` given a hand-set RUNNING no caller
+    ever starts it in), and checked against actions.py's own typing gate, not
+    just the state column, since a QUEUED that still read as "not mid-turn"
+    is what let a delivery type into a working turn."""
+    _daemon_home(home, 20)
+    accounts.register("beta")
+    for acct in ("alpha", "beta"):
+        (home / "accounts" / acct / ".claude").mkdir(parents=True, exist_ok=True)
+        (home / "accounts" / acct / ".claude" / ".credentials.json").write_text("{}")
+    agents.register("mover", "alpha")
+    now = int(time.time())
+    write_status(home, "alpha", pct_5h=9, pct_7d=10, reset_7d=now + 90000, reset_5h=now + 1800)
+    write_status(home, "beta", pct_5h=9, pct_7d=10, reset_7d=now + 90000, reset_5h=now + 1800)
+    con = db.connect()
+    real = (orcamod.available, orcamod.alive, orcamod.close_session, orcamod.relaunch,
+            orcamod.idle_now, orcamod.typeable_now, orcamod.live_terminals,
+            dmn.wait_for_session, accounts.logged_in)
+    try:
+        db.set_terminal(con, "mover", "term_x", "wt")
+        sessions_are("mover")
+        db.set_account(con, "mover", "alpha")
+        orcamod.available = lambda: True
+        orcamod.alive = lambda h: True
+        orcamod.idle_now = lambda h: True
+        orcamod.typeable_now = lambda h: True
+        orcamod.live_terminals = lambda: {"term_x"}
+        orcamod.close_session = exit_ends_session("mover")
+        accounts.logged_in = lambda a: True
+        keep_handoff("mover", "# handoff · mover\n## 다음\n- carry on\n")
+
+        def relaunch_and_hook(h, cmd, **kw):
+            # The wake prompt is read as the session's own first prompt: by
+            # the time relaunch reports back, the hook may already have fired.
+            _SESSION_TABLE["t"]["mover"] = 4242
+            evmod._mark_activity(con, "mover", "UserPromptSubmit")
+            return True, "relaunched"
+        orcamod.relaunch = relaunch_and_hook
+        dmn.wait_for_session = lambda agent, timeout=0: True
+
+        ok, msg = dmn.force_move(con, "mover", "beta", "test", lambda _m: None)
+        check("clobber: the forced move completes", ok, msg)
+        row = db.get_agent_state(con, "mover")
+        check("clobber: HANDOFF came off before the wake, so the hook's RUNNING lands "
+              "and is not clobbered back to QUEUED", row["state"] == dmn.RUNNING, str(dict(row)))
+        check("clobber: it landed on the new account, with the closed mark cleared",
+              row["account"] == "beta" and not row["closed_at"], str(dict(row)))
+
+        why, _ = actions._delivery_block(con, "mover", *actions._world())
+        check("clobber: actions.py reads it as mid-turn - nothing is typed into it, "
+              "which is the harm founder #613 named", "mid-turn" in why, why)
+
+        evmod._mark_activity(con, "mover", "Stop")
+        row = db.get_agent_state(con, "mover")
+        check("clobber: the turn's own Stop clears it to IDLE, same as any other turn",
+              row["state"] == dmn.IDLE, str(dict(row)))
+    finally:
+        (orcamod.available, orcamod.alive, orcamod.close_session, orcamod.relaunch,
+         orcamod.idle_now, orcamod.typeable_now, orcamod.live_terminals,
+         dmn.wait_for_session, accounts.logged_in) = real
+        con.close()
+
+
+def test_a_move_still_records_a_session_the_wait_missed_but_a_hook_saw(home: Path) -> None:
+    """The edge founder #613 did not name, on the other real caller: the
+    move off a parked account (`supervise`'s own `_move_to_room` call, where
+    the row is genuinely PARKED - not in PROTECTED_STATES, so this path never
+    needed the HANDOFF fix above). `wait_for_session` can time out while the
+    session is genuinely up - a false negative, not a failed handback. A
+    hook's RUNNING is better evidence than that timeout, so the move is still
+    recorded, not discarded as `_wake_agent`'s failure path would otherwise
+    do - and the bookkeeping for a wake it believed had failed (the streak,
+    the still-pending handoff) is cleared along with it, not left stale."""
+    _daemon_home(home, 20)
+    _with_accounts("alpha", "beta")
+    con = db.connect()
+    agents.register("mover", "alpha")
+    write_status(home, "beta", pct_5h=10, pct_7d=10, reset_5h=int(time.time()) + 3600)
+    real = (orcamod.available, orcamod.alive, orcamod.close_session, orcamod.relaunch,
+            orcamod.idle_now, dmn.wait_for_session)
+    try:
+        orcamod.available = lambda: True
+        orcamod.alive = lambda h: True
+        orcamod.idle_now = lambda h: True
+        orcamod.close_session = exit_ends_session("mover")
+        sessions_are("mover")
+        db.set_terminal(con, "mover", "term_x", "wt")
+        db.set_account(con, "mover", "alpha")
+        db.set_agent_state(con, "mover", dmn.PARKED, detail="parked earlier")
+        db.bump_counter(con, "mover", "wake_failures")
+        keep_handoff("mover", "# handoff · mover\n## 다음\n- carry on\n")
+
+        def relaunch_but_miss(h, cmd, **kw):
+            # The session starts and its hook fires, but the wait `_wake_agent`
+            # gave it read as a timeout - what `relaunch` reports is "not woke".
+            _SESSION_TABLE["t"]["mover"] = 4242
+            evmod._mark_activity(con, "mover", "UserPromptSubmit")
+            return False, "no session seen within the timeout"
+        orcamod.relaunch = relaunch_but_miss
+        dmn.wait_for_session = lambda agent, timeout=0: False
+
+        t = triggers.evaluate(100, 10)
+        moved = dmn._move_to_room(con, "mover", t, lambda _m: None, dest="beta")
+        check("clobber: a hook's RUNNING outweighs a wake the wait missed - "
+              "the move is recorded, not discarded", moved)
+        row = db.get_agent_state(con, "mover")
+        check("clobber: the row lands on the new account with the hook's state kept",
+              row["account"] == "beta" and row["state"] == dmn.RUNNING
+              and not row["closed_at"], str(dict(row)))
+        check("clobber: the wake's own failed-attempt bookkeeping is cleared too, "
+              "since the hook says it did not fail",
+              row["wake_failures"] == 0 and db.get_handoff(con, "mover") is None,
+              str(dict(row)))
+    finally:
+        (orcamod.available, orcamod.alive, orcamod.close_session, orcamod.relaunch,
+         orcamod.idle_now, dmn.wait_for_session) = real
+        con.close()
+
+
+def test_stalled_survives_a_hook_that_fires_after_the_third_failed_wake(home: Path) -> None:
+    """STALLED is protected the same way HANDOFF was: two failed wakes from
+    earlier ticks already sit on the counter, this move's own wake is the
+    third, and if its session comes up late - after `_wake_agent` has given up
+    and written STALLED - and its hook fires anyway, `_mark_activity` refuses
+    to move an agent out of a protected state. RUNNING is never reached, so the
+    compare-and-set below is never given the chance to overrule STALLED. Three
+    launches that started nothing is 8.6's human call, not something one more
+    race should quietly clear."""
+    _daemon_home(home, 20)
+    _with_accounts("alpha", "beta")
+    con = db.connect()
+    agents.register("mover", "alpha")
+    write_status(home, "beta", pct_5h=10, pct_7d=10, reset_5h=int(time.time()) + 3600)
+    real = (orcamod.available, orcamod.alive, orcamod.close_session, orcamod.relaunch,
+            orcamod.idle_now, dmn.wait_for_session)
+    try:
+        orcamod.available = lambda: True
+        orcamod.alive = lambda h: True
+        orcamod.idle_now = lambda h: True
+        orcamod.close_session = exit_ends_session("mover")
+        sessions_are("mover")
+        db.set_terminal(con, "mover", "term_x", "wt")
+        db.set_account(con, "mover", "alpha")
+        db.set_agent_state(con, "mover", dmn.PARKED, detail="parked earlier")
+        db.bump_counter(con, "mover", "wake_failures")
+        db.bump_counter(con, "mover", "wake_failures")
+        keep_handoff("mover", "# handoff · mover\n## 다음\n- carry on\n")
+        dmn.wait_for_session = lambda agent, timeout=0: False
+
+        def relaunch_fails_but_late(h, cmd, **kw):
+            # The session comes up late - after `_wake_agent` has already
+            # given up on this, its third, attempt - and its hook fires anyway.
+            _SESSION_TABLE["t"]["mover"] = 4242
+            evmod._mark_activity(con, "mover", "UserPromptSubmit")
+            return False, "no session seen within the timeout"
+        orcamod.relaunch = relaunch_fails_but_late
+
+        t = triggers.evaluate(100, 10)
+        moved = dmn._move_to_room(con, "mover", t, lambda _m: None, dest="beta")
+        check("stalled: the third failure is not recorded as a move", not moved)
+        row = db.get_agent_state(con, "mover")
+        check("stalled: it lands on STALLED, not clobbered by the late hook",
+              row["state"] == dmn.STALLED and row["wake_failures"] == 3, str(dict(row)))
+        check("stalled: the row still says closed - nothing here claims a live session",
+              bool(row["closed_at"]) and row["account"] == "alpha", str(dict(row)))
+    finally:
+        (orcamod.available, orcamod.alive, orcamod.close_session, orcamod.relaunch,
+         orcamod.idle_now, dmn.wait_for_session) = real
+        con.close()
+
+
 def _with_accounts(*names: str) -> None:
     """Registered accounts that count as logged in."""
     for n in names:
@@ -12363,6 +12540,12 @@ def main() -> int:
         run(lambda: test_move_requires_clear_headroom_not_bare_assignability(
             Path(td) / 'moveheadroom'))
         run(lambda: test_move_to_room_reaches_a_bootstrap_account(Path(td) / 'movebootstrap'))
+        run(lambda: test_a_move_does_not_clobber_a_hook_reported_running_state(
+            Path(td) / 'moveclobber'))
+        run(lambda: test_a_move_still_records_a_session_the_wait_missed_but_a_hook_saw(
+            Path(td) / 'movemissed'))
+        run(lambda: test_stalled_survives_a_hook_that_fires_after_the_third_failed_wake(
+            Path(td) / 'movestalled'))
         run(lambda: test_a_wait_returns_when_the_answer_lands_not_when_it_gives_up(Path(td) / 'waitrow'))
         run(lambda: test_an_answer_to_the_human_is_in_the_human_mailbox(Path(td) / 'mailbox'))
         run(lambda: test_the_team_is_drawn_the_way_it_is_routed(Path(td) / 'tree'))
