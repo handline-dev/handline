@@ -8327,6 +8327,10 @@ def test_a_span_ends_in_its_unit_and_fits_its_columns(home: Path) -> None:
         cell = tui.countdown(ts).strip()
         widest = max(widest, len(cell))
         check(f"span: the bridge countdown says {want}", cell == want, cell)
+    longest_state = max(len(f"{st}·closed") for st in
+                        (dmn.HANDOFF, dmn.STALLED, dmn.PARKED))
+    check("span: the widest wait leaves the agents panel's longest state whole",
+          tui.STATE_W - 1 - (widest + 1) >= longest_state, f"{widest} {longest_state}")
     check("span: the widest fits the reset columns",
           widest < tui.ACCT_W["reset5"] and widest < tui.ACCT_W["reset7"], str(widest))
     # A runway is shown only while the wall comes before the 5h window resets,
