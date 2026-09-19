@@ -5566,6 +5566,8 @@ def test_a_stale_account_whose_window_rolled_over_can_take_work(home: Path) -> N
     check("stale: the reason says why",
           any(n == "beta" and "window rolled over" in r and "34%" in r for n, r in reasons),
           str(reasons))
+    check("stale: the panel and account list agree it takes work",
+          status.read("beta").takes_work()[0] and not status.read("beta").assignable()[0])
     write_status(home, "beta", pct_5h=40, pct_7d=100, reset_5h=now - 3600,
                  reset_7d=now + 86400 * 2, collected_at=now - int(9.8 * 3600))
     check("stale: a 7d reading at the wall still refuses",

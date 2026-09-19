@@ -115,7 +115,7 @@ def cmd_account_list(args) -> int:
         out = []
         for a in names:
             st = status.read(a)
-            allowed, why = st.assignable()
+            allowed, why = st.takes_work()
             out.append({
                 "account": a, "logged_in": accounts.logged_in(a),
                 "pct_5h": st.pct_5h, "pct_5h_effective": st.trusted_pct_5h,
@@ -131,7 +131,7 @@ def cmd_account_list(args) -> int:
           f"{'ctx':>6}{'AGE':>8}  ASSIGN")
     for a in names:
         st = status.read(a)
-        allowed, why = st.assignable()
+        allowed, why = st.takes_work()
         cell = lambda v: "  -" if v is None else f"{v:>3}"  # noqa: E731
         age = "-" if st.age_s is None else f"{int(st.age_s)}s"
         resets = "-" if not st.reset_7d else time.strftime("%m-%d %H:%M", time.localtime(st.reset_7d))
@@ -245,7 +245,7 @@ def cmd_agent_list(args) -> int:
         except Exception as e:  # noqa: BLE001
             print(f"{n:<14} <error: {e}>")
             continue
-        allowed, _ = status.read(acct).assignable()
+        allowed, _ = status.read(acct).takes_work()
         cfg = agents.read(n)
         budget = " ".join(f"{fn}:{size}B{'!' if over else ''}"
                           for fn, size, _, over in agents.budget_report(n))

@@ -428,7 +428,7 @@ def build(width: int, sel: dict | None = None,
         why_of = dict(ranked)
         for name in paths.list_accounts():
             st = status.read(name)
-            allowed, plain_why = st.assignable()
+            allowed, plain_why = st.takes_work()
             # An account outside the ranking (not logged in) has no ranked
             # reason to fall back to - `assignable` already refused it and
             # says why.

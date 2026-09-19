@@ -274,17 +274,16 @@ class AccountStatus:
             return True, f"5h {pct}% (carried, still inside the window)"
         return True, f"5h {pct}%"
 
-    def rolled_over(self) -> tuple[bool, str]:
-        """Is this a stale account that can still take work? Returns (ok, reason).
+    def takes_work(self) -> tuple[bool, str]:
+        """`assignable`, or a rolled-over stale account: the rule pick_account uses."""
+        ok, why = self.assignable()
+        return (True, self.rolled_over()[1]) if not ok and self.rolled_over()[0] else (ok, why)
 
-        A snapshot only refreshes while a session runs on the account, so an
-        account nobody uses stays stale for good. Once the 5h window it
-        describes has passed, its 5h figure says nothing about now, and if
-        its last weekly reading had room the session started there writes a
-        fresh one - and the move trigger takes the agent off if it is full.
-        A weekly reading at the wall (its own week not yet reset) still
-        refuses.
-        """
+    def rolled_over(self) -> tuple[bool, str]:
+        """A stale account whose 5h window has passed can take work if its last
+        weekly reading had room: the session that starts there writes a fresh
+        reading, and the move trigger takes the agent off if it is full.
+        Returns (ok, reason)."""
         if (not self.exists or self.error or self.rl7_lost or not self.stale
                 or self.age_s is None):
             return False, ""
