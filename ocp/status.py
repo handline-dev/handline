@@ -557,10 +557,10 @@ def describe_runway(r: Runway | None) -> str:
     if r is None:
         return ""
     if r.left_5h == 0:
-        return "at the wall"
+        return "at the move line"
     if not r.burning:
         return "no recent burn"
-    return "lasts past reset" if r.past_reset else f"~{_hm(r.eta_s)} to the wall"
+    return "lasts past reset" if r.past_reset else f"~{_hm(r.eta_s)} to the move line"
 
 
 def team_outlook(names: list[str] | None = None, now: float | None = None) -> str:
@@ -571,9 +571,10 @@ def team_outlook(names: list[str] | None = None, now: float | None = None) -> st
     counted = []
     for n in (names if names is not None else paths.list_accounts()):
         st = read(n)
-        r = runway(st, read_burn(n, now), now)
+        burn = read_burn(n, now)
+        r = runway(st, burn, now)
         if r is not None:
-            counted.append((st, r, read_burn(n, now) or 0.0))
+            counted.append((st, r, burn or 0.0))
     if not counted:
         return ""
     room = sum(r.left_5h for _, r, _ in counted)
@@ -588,7 +589,7 @@ def team_outlook(names: list[str] | None = None, now: float | None = None) -> st
     if nxt and stops >= nxt:
         return f"estimate: at this pace {n} last past the next reset ({clock(nxt)})"
     tail = f"; next reset {clock(nxt)}" if nxt else ""
-    return f"estimate: at this pace {n} hit the wall around {clock(stops)}{tail}"
+    return f"estimate: at this pace {n} hit the move line around {clock(stops)}{tail}"
 
 
 def deadline_7d(st: "AccountStatus") -> float:

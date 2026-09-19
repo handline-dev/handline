@@ -6447,8 +6447,8 @@ def test_the_runway_is_an_estimate_from_the_daemons_burn(home: Path) -> None:
     r = status.runway(status.read("alpha"), status.read_burn("alpha"), now)
     check("runway: points left are counted to the move line (85), not the block",
           r and r.left_5h == 30 and r.left_7d == 88, str(r))
-    check("runway: time to the wall follows the measured burn",
-          status.describe_runway(r) == "~1h00 to the wall", status.describe_runway(r))
+    check("runway: time to the move line follows the measured burn",
+          status.describe_runway(r) == "~1h00 to the move line", status.describe_runway(r))
     write_status(home, "alpha", pct_5h=55, pct_7d=10, reset_5h=now + 1800)
     check("runway: a reset before the wall reads 'lasts past reset'",
           status.describe_runway(status.runway(status.read("alpha"),
@@ -6459,9 +6459,9 @@ def test_the_runway_is_an_estimate_from_the_daemons_burn(home: Path) -> None:
           status.describe_runway(status.runway(status.read("alpha"), 0.0, now))
           == "no recent burn")
     write_status(home, "alpha", pct_5h=86, pct_7d=10, reset_5h=now + 6 * 3600)
-    check("runway: at the line it is at the wall",
+    check("runway: at the line it is at the move line",
           status.describe_runway(status.runway(status.read("alpha"), per_s, now))
-          == "at the wall")
+          == "at the move line")
     check("runway: an old burn reading is not used",
           status.read_burn("alpha", now + status.BURN_MAX_AGE_S + 60) is None)
     write_status(home, "alpha", pct_5h=55, pct_7d=10, reset_5h=now + 6 * 3600,
@@ -6477,7 +6477,7 @@ def test_the_runway_is_an_estimate_from_the_daemons_burn(home: Path) -> None:
     status.write_burn("beta", per_s, now)
     line = status.team_outlook(["alpha", "beta"], now)
     check("team: at the combined pace the accounts hit the wall before the reset",
-          "hit the wall around" in line and "next reset" in line and line.startswith("estimate"),
+          "hit the move line around" in line and "next reset" in line and line.startswith("estimate"),
           line)
     status.write_burn("alpha", per_s / 100, now)
     status.write_burn("beta", per_s / 100, now)
@@ -6494,11 +6494,25 @@ def test_the_runway_is_an_estimate_from_the_daemons_burn(home: Path) -> None:
     try:
         db.set_terminal(con, "backend", "term_x", "wt")
         db.set_account(con, "backend", "alpha")
-        dmn.supervise(con, "backend", lambda _m: None, now, {}, False, [])
+        dmn.supervise(con, "backend", lambda _m: None, now,
+                      {"alpha": [(now - 60, 20), (now, 21)]}, False, [])
     finally:
         con.close()
     check("burn: the daemon writes the rate it uses for triggers",
           status.read_burn("alpha") is not None)
+
+    # Samples stop, supervise keeps running for a parked agent on the account:
+    # the pace must age out, not be re-stamped every tick.
+    old = now - 2 * status.BURN_MAX_AGE_S
+    samples = {"alpha": [(old - 600, 20), (old, 30)]}
+    con = db.connect()
+    try:
+        db.set_agent_state(con, "backend", dmn.PARKED, wake_at=now + 3600, detail="parked")
+        dmn.supervise(con, "backend", lambda _m: None, now, samples, False, [])
+    finally:
+        con.close()
+    check("burn: a pace whose samples stopped goes stale though supervise keeps running",
+          status.read_burn("alpha", now) is None)
 
 
 def test_choose_account_does_not_bounce_back_to_a_stale_preferred_account(home: Path) -> None:
