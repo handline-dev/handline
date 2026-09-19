@@ -4208,13 +4208,22 @@ def test_a_usage_park_does_not_oscillate_in_the_reserve_band(home: Path) -> None
     """
     _daemon_home(home, 20)
     con = db.connect()
-    real = (orcamod.available, orcamod.alive)
+    real = (orcamod.available, orcamod.alive, orcamod.idle_now, orcamod.clear_context,
+            dmn.session_present)
     try:
         orcamod.available = lambda: True
         orcamod.alive = lambda h: True
+        # A re-fold, if the flap caused one, must be able to run to its end.
+        orcamod.idle_now = lambda h, **kw: True
+        orcamod.clear_context = lambda h, **kw: (True, "cleared")
+        dmn.session_present = lambda a: True
         db.set_terminal(con, "backend", "term_x", "wt")
         db.set_account(con, "backend", "alpha")
         _park_via_handoff(con, "backend", "usage")
+        # Past MIN_HANDOFF_INTERVAL_S, so that guard cannot be what keeps a
+        # re-fold from happening in the ticks below.
+        con.execute("UPDATE handoff SET updated = ? WHERE agent = 'backend'",
+                    (int(time.time()) - 2 * dmn.MIN_HANDOFF_INTERVAL_S,))
         db.set_agent_state(con, "backend", dmn.PARKED,
                            wake_at=int(time.time()) + 3600, detail="usage; wakes at 23:00")
         db.add_request(con, "reviewer", "backend", "look at this", None,
@@ -4238,7 +4247,8 @@ def test_a_usage_park_does_not_oscillate_in_the_reserve_band(home: Path) -> None
               int(row["continuations"]) == continuations_before,
               dict(before=continuations_before, after=row["continuations"]))
     finally:
-        orcamod.available, orcamod.alive = real
+        (orcamod.available, orcamod.alive, orcamod.idle_now, orcamod.clear_context,
+         dmn.session_present) = real
         con.close()
 
 
