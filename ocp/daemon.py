@@ -1598,11 +1598,18 @@ def _move_to_room(con, agent: str, trigger: triggers.Trigger, log,
     measure.begin(con, agent, there)
     woke, why = _wake_agent(con, agent, log, moved_to=there)
     landed = db.get_agent_state(con, agent)
-    if not woke and landed and landed["closed_at"]:
-        # Nothing started. The session is gone and the row still says closed,
-        # so falling through parks it with a deadline - which is what brings a
-        # closed agent back at all. Returning True here would leave it closed
-        # with nothing due.
+    # The wake prompt is the new session's own first prompt, so by the time
+    # `_wake_agent` returns, UserPromptSubmit may already have fired and set
+    # RUNNING - a hook that has seen the session is a better witness than
+    # `woke`, which only says whether *we* saw it start in time. A `wait_for_
+    # session` timeout can read as not-woke while the session is genuinely up.
+    # (Checked again, freshly, right before the write below - a lot of I/O
+    # happens between here and there, and the hook can land in that gap too.)
+    if not woke and landed and landed["state"] != RUNNING and landed["closed_at"]:
+        # Nothing started, and no hook says otherwise. The session is gone and
+        # the row still says closed, so falling through parks it with a
+        # deadline - which is what brings a closed agent back at all.
+        # Returning True here would leave it closed with nothing due.
         measure.forget(con, agent)
         log(f"  {agent}: closed on {here} but could not start on {there}: {why[:120]}")
         return False
@@ -1624,12 +1631,27 @@ def _move_to_room(con, agent: str, trigger: triggers.Trigger, log,
     # failed handback as a failed move would clear the context of the session
     # that just started and park it until the *old* account rolls over.
     db.set_account(con, agent, there)
-    db.set_agent_state(con, agent, QUEUED, wake_at=None,
-                       detail=f"moved {here} -> {there} ({trigger.kind})")
+    # Re-read right here, not the `landed` snapshot from before the I/O above -
+    # the hook can land in that gap too, and a stale "not running yet" would
+    # reintroduce the same clobber this fix exists to close.
+    fresh = db.get_agent_state(con, agent)
+    hook_running = bool(fresh and fresh["state"] == RUNNING)
+    if hook_running:
+        # The hook already established RUNNING - the very state QUEUED would
+        # claw back - so the row is left as the hook set it. A closed mark left
+        # over from a wake that timed out before the hook fired is stale now:
+        # the session is confirmed up, so it comes off, the same as any other
+        # session found running (`sweep`).
+        if fresh["closed_at"]:
+            db.clear_closed(con, agent)
+    else:
+        db.set_agent_state(con, agent, QUEUED, wake_at=None,
+                           detail=f"moved {here} -> {there} ({trigger.kind})")
     db.add_event(con, agent, "moved_account", {"from": here, "to": there,
                                                "trigger": trigger.kind})
     log(f"  {agent}: moved {here} -> {there} ({trigger.kind}) - {picked_why}"
-        + ("" if woke else f" - but it was not handed its handoff: {why[:80]}"))
+        + ("" if woke else f" - but it was not handed its handoff: {why[:80]}"
+           + (" (a hook already shows it running)" if hook_running else "")))
     return True
 
 
