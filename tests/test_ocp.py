@@ -1421,14 +1421,18 @@ def test_daemon_pidfile(home: Path) -> None:
     dmn.write_pidfile()
     check("daemon: pidfile records this process", dmn.running_elsewhere() == os.getpid())
 
-    # A pidfile from before the last boot cannot describe a live process.
+    # A pidfile from before the last boot cannot describe a live process - and
+    # reading that is not the reader's business to fix: only the daemon that
+    # eventually writes over it, under the lock, ever touches the file again.
     paths.daemon_pid().write_text(json.dumps({"pid": 99999, "boot": 1}))
-    check("daemon: a pre-boot pidfile is reclaimed", dmn.running_elsewhere() is None)
-    check("daemon: the stale pidfile is removed", not paths.daemon_pid().exists())
+    check("daemon: a pre-boot pidfile reads as stale", dmn.running_elsewhere() is None)
+    check("daemon: ...but a reader leaves the file itself alone",
+          paths.daemon_pid().exists())
 
-    # A dead PID from this boot is also reclaimed.
+    # A dead PID from this boot reads as stale the same way.
     paths.daemon_pid().write_text(json.dumps({"pid": 999999, "boot": dmn.boot_time()}))
-    check("daemon: a dead pid is reclaimed", dmn.running_elsewhere() is None)
+    check("daemon: a dead pid reads as stale", dmn.running_elsewhere() is None)
+    check("daemon: ...and is left standing too", paths.daemon_pid().exists())
 
 
 # ---------------------------------------------------------------- service
@@ -1692,9 +1696,8 @@ def test_an_exiting_daemon_leaves_the_live_ones_name(home: Path) -> None:
     dmn.clear_pidfile()
     check("pidfile: and does clear its own", not paths.daemon_pid().exists())
 
-    # Reclaiming a stale one has the same rule, and needs it more: every
-    # screen calls running_elsewhere(), so a daemon that starts between the
-    # read and the unlink has its own name deleted by a passer-by.
+    # The same guard protects `_reclaim`'s one remaining caller too: a daemon
+    # that starts between the read and the unlink must keep its own name.
     dead = os.getpid() + 1
     paths.daemon_pid().write_text(json.dumps({"pid": dead, "boot": dmn.boot_time()}))
     dmn.write_pidfile()          # the new daemon, inside the window
@@ -1716,16 +1719,20 @@ def test_one_daemon_is_counted_in_the_process_table(home: Path) -> None:
         (4802, "vim /Users/x/workspaces/orcapipe/ocp/daemon.py"),
         (4803, "/usr/bin/python /Users/x/.local/bin/ocp ps"),
         (4804, "claude --append-system-prompt Report with /Users/x/bin/ocp daemon"),
+        (4806, "claude -p /Users/x/bin/ocp daemon"),
         (os.getpid(), "/usr/bin/python /Users/x/bin/ocp daemon"),
     ]
-    orig_table, orig_env = obsmod.process_table, obsmod.env_of
+    orig_table, orig_env = obsmod.process_table, obsmod.process_env
     try:
         obsmod.process_table = lambda: table
-        obsmod.env_of = lambda pid, name: str(home)
+        obsmod.process_env = lambda pid: f"OCP_HOME={home}"
         check("ps: the running daemon is found, and only it",
               dmn.processes() == [4707], str(dmn.processes()))
+        check("ps: /ocp daemon quoted past the front (a session's own claude "
+              "-p argv, not launchd's [ocp_executable(), 'daemon']) is not one",
+              4806 not in dmn.processes(), str(dmn.processes()))
 
-        obsmod.env_of = lambda pid, name: f"{home}-elsewhere"
+        obsmod.process_env = lambda pid: f"OCP_HOME={home}-elsewhere"
         check("ps: another installation's daemon is not this one's duplicate",
               dmn.processes() == [], str(dmn.processes()))
 
@@ -1736,20 +1743,73 @@ def test_one_daemon_is_counted_in_the_process_table(home: Path) -> None:
         other = os.path.realpath(home)
         check("ps: (the fixture has two names for one directory)",
               other != str(home), f"{other} == {home}")
-        obsmod.env_of = lambda pid, name: other
+        obsmod.process_env = lambda pid: f"OCP_HOME={other}"
         check("ps: the home is compared as a directory, not as a spelling",
               dmn.processes() == [4707], str(dmn.processes()))
 
         # A process we cannot place is the one worth naming.
-        obsmod.env_of = lambda pid, name: None
+        obsmod.process_env = lambda pid: None
         check("ps: an unplaceable daemon is reported, not dropped",
               dmn.processes() == [4707], str(dmn.processes()))
+
+        # Read, but OCP_HOME simply is not set: that process runs against the
+        # default home, not against ours just because we could not name one.
+        obsmod.process_env = lambda pid: "SHELL=/bin/zsh"
+        check("ps: an unset OCP_HOME reads as the default home, not as ours",
+              dmn.processes() == [], str(dmn.processes()))
 
         obsmod.process_table = lambda: None
         check("ps: and a process table we could not read is not an empty one",
               dmn.processes() == [], str(dmn.processes()))
     finally:
-        obsmod.process_table, obsmod.env_of = orig_table, orig_env
+        obsmod.process_table, obsmod.process_env = orig_table, orig_env
+
+
+def test_process_env_reads_a_gone_pid_as_unreadable(home: Path) -> None:
+    """A process whose environment did not come back is unreadable (None),
+    never "read, but the variable was not set": a gone pid exits non-zero, and
+    another user's process prints its command at rc 0 with no environment, so
+    `ps eww` is byte-identical to `ps ww`."""
+    real_run = obsmod.subprocess.run
+
+    class FakeResult:
+        def __init__(self, rc: int, out: str) -> None:
+            self.returncode, self.stdout = rc, out
+
+    def ps(eww: FakeResult, ww: FakeResult):
+        return lambda argv, **k: eww if argv[1] == "eww" else ww
+
+    gone, blank = FakeResult(1, ""), FakeResult(0, "")
+    cmd = FakeResult(0, "/sbin/launchd\n")
+    own = FakeResult(0, "/bin/ocp daemon OCP_HOME=/x\n")
+    try:
+        obsmod.subprocess.run = ps(gone, gone)
+        check("process_env: a gone pid is unreadable, not an empty environment",
+              obsmod.process_env(999991) is None)
+
+        obsmod.subprocess.run = ps(blank, blank)
+        check("process_env: empty stdout is unreadable even with rc 0",
+              obsmod.process_env(999991) is None)
+
+        obsmod.subprocess.run = ps(cmd, cmd)
+        check("process_env: another user's process - command printed, no "
+              "environment - is unreadable",
+              obsmod.process_env(1) is None)
+
+        obsmod.subprocess.run = ps(FakeResult(0, "/x --opt=1\n"),
+                                   FakeResult(0, "/x --opt=1\n"))
+        check("process_env: a command line carrying `=` itself is not an "
+              "environment",
+              obsmod.process_env(1) is None)
+
+        obsmod.subprocess.run = ps(own, FakeResult(0, "/bin/ocp daemon\n"))
+        check("process_env: an environment that came back comes through",
+              obsmod.process_env(999991) == "/bin/ocp daemon OCP_HOME=/x\n")
+    finally:
+        obsmod.subprocess.run = real_run
+
+    check("process_env: root's launchd (pid 1) is unreadable on this machine",
+          obsmod.process_env(1) is None)
 
 
 def test_two_processes_cannot_both_supervise_one_home(home: Path) -> None:
@@ -9165,6 +9225,7 @@ def main() -> int:
         run(lambda: test_a_second_daemon_is_refused_with_no_pidfile_at_all(Path(td) / 'onedmn'))
         run(lambda: test_an_exiting_daemon_leaves_the_live_ones_name(Path(td) / 'pidname'))
         run(lambda: test_one_daemon_is_counted_in_the_process_table(Path(td) / 'dmnps'))
+        run(lambda: test_process_env_reads_a_gone_pid_as_unreadable(Path(td) / 'procenv'))
         run(lambda: test_a_refused_ask_is_not_a_new_message(Path(td) / 'refused'))
         run(lambda: test_a_refused_ask_is_never_announced_as_an_answer(Path(td) / 'noannounce'))
         run(lambda: test_a_refusal_is_not_read_back_as_an_answer(Path(td) / 'readref'))
