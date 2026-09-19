@@ -11282,11 +11282,20 @@ def test_the_agent_footer_shows_only_what_the_row_can_do(home: Path) -> None:
         _, detail = tui._act(tui.AGENTS, sel, "\r", 160, 40, None, None)
         page_text = tui._ANSI.sub("", tui._detail_frame(160, 40, detail))
         check("detail page: a running agent's page hides close and park too",
-              "close" not in page_text and "park" not in page_text
-              and "terminal" in page_text and "? help" in page_text, page_text)
+              "c close" not in page_text and "p park" not in page_text
+              and "t terminal" in page_text and "? help" in page_text, page_text)
         _, said = tui._in_detail(detail, "?", 160, 40, None, None)
         check("detail page: ? names fold and move there too",
               "fold" in said and "move" in said, said)
+
+        # STUCK answers to the agent keys too - `build` picks the footer's
+        # agent from `sel[STUCK]` there, the same way it does from
+        # `sel[AGENTS]`, whether or not anything is actually drawn as stuck.
+        db.set_agent_state(con, "backend", dmn.STALLED)
+        _, _, footer_keys = tui.build(160, {tui.STUCK: "backend"}, tui.STUCK)
+        got = [label for _, label in footer_keys]
+        check("footer: STUCK filters by the same agent state as AGENTS",
+              set(got) == {"open", "terminal", "message", "editor", "unstall"}, got)
     finally:
         con.close()
 

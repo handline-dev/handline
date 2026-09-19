@@ -133,6 +133,14 @@ def agent_footer_keys(con, agent: str | None) -> list[tuple[str, str]]:
             if label == "open" or actions.can(con, agent, label)[0]]
 
 
+def agent_help_line() -> str:
+    """The full AGENT_KEYS legend, for `?`: what the footer never shows at
+    all (fold, move) and whatever a row's own state hid from it. One place
+    for the three spots that print it, so they cannot drift into naming
+    different keys - the failure the detail-page footer already had once."""
+    return " · ".join(f"{k} {label}" for k, label in AGENT_KEYS if label != "open")
+
+
 def cwidth(ch: str) -> int:
     """How many columns one character takes.
 
@@ -1162,6 +1170,10 @@ def _detail_frame(width: int, height: int, detail: dict, flash: str = "") -> str
     if detail.get("panel") == MESSAGES:
         keys += " · a answer · e answer in $EDITOR · x dismiss"
     elif detail.get("panel") in (AGENTS, STUCK):
+        # A connection per render, unlike `build`'s one-per-frame: this page
+        # is already reopening the agent's own rows on every redraw
+        # (`_refreshed`), so a second connection here costs nothing this
+        # screen was not already paying.
         con = db.connect()
         try:
             agent_keys = agent_footer_keys(con, detail.get("agent"))
@@ -1494,6 +1506,10 @@ def _suspend(argv: list[str], env: dict, fd, saved) -> tuple[int | None, str]:
 
 def run(interval: float = 2.0, once: bool = False) -> int:
     if once or not sys.stdout.isatty():
+        # No cursor and no interaction: `sel` is deliberately left empty, so
+        # the footer falls back to the unfiltered common set rather than
+        # picking one agent among many to filter by. There is no single row
+        # this snapshot is "about" the way an interactive cursor names one.
         size = shutil.get_terminal_size((100, 40))
         print(frame(min(size.columns, 200), size.lines))
         return 0
@@ -1632,8 +1648,7 @@ def _in_detail(detail: dict, k: str, width: int, height: int,
         # making the reader back out to the list to press the key is how a
         # decision gets put off.
         if k == "?":
-            return detail, " ".join(f"{key} {label}" for key, label in AGENT_KEYS
-                                    if label != "open")
+            return detail, agent_help_line()
         label = dict(AGENT_KEYS).get(k)
         if not label or label == "open":
             return detail, ""
@@ -2007,8 +2022,7 @@ def _act_on(panel: int, sel: dict, key: str, width: int, height: int,
                 # Every key AGENT_KEYS binds, not only the ones the footer
                 # shows for this row: `?` is the one place fold and move (and
                 # whatever the row's own state hides) are named at all.
-                return (" ".join(f"{k} {label}" for k, label in AGENT_KEYS
-                                 if label != "open"), None)
+                return agent_help_line(), None
             label = dict(AGENT_KEYS).get(key)
             if not label:
                 return "", None
