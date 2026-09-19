@@ -6450,10 +6450,10 @@ def test_the_runway_is_an_estimate_from_the_daemons_burn(home: Path) -> None:
     check("runway: time to the move line follows the measured burn",
           status.describe_runway(r) == "~1h00 to 85%", status.describe_runway(r))
     write_status(home, "alpha", pct_5h=55, pct_7d=10, reset_5h=now + 1800)
-    check("runway: a reset before the wall reads 'lasts past reset'",
+    check("runway: a reset before the wall reads 'outlasts reset'",
           status.describe_runway(status.runway(status.read("alpha"),
                                                 status.read_burn("alpha"), now))
-          == "lasts past reset")
+          == "outlasts reset")
     status.write_burn("alpha", 0.0, now)
     check("runway: no burn is said, not projected",
           status.describe_runway(status.runway(status.read("alpha"), 0.0, now))

@@ -563,7 +563,7 @@ def describe_runway(r: Runway | None) -> str:
         return f"past {line}%"
     if not r.burning:
         return "no recent burn"
-    return "lasts past reset" if r.past_reset else f"~{_hm(r.eta_s)} to {line}%"
+    return "outlasts reset" if r.past_reset else f"~{_hm(r.eta_s)} to {line}%"
 
 
 def team_outlook(names: list[str] | None = None, now: float | None = None) -> str:

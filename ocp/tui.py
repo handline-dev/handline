@@ -451,7 +451,7 @@ def build(width: int, sel: dict | None = None,
                 # The weekly figure carries its provenance like the 5h one.
                 # Drawn bare, a number from a stale snapshot - or from a week
                 # that has since rolled over - reads as this week's measurement.
-                + pad(f"{bar(st.trusted_pct_7d, 6)} {pct(st.trusted_pct_7d)}%"
+                + pad(f"{bar(st.trusted_pct_7d, 5)} {pct(st.trusted_pct_7d)}%"
                       f"{status.mark(st.pct_7d_source)}", 12)
                 # The deadline the ordering spends against: when this
                 # window's headroom is lost if nobody uses it.
