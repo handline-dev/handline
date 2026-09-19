@@ -26,12 +26,13 @@ unknown as quiet hands out work on an account that may be at the wall.
 
 A snapshot too old to trust as a live figure is not automatically unknown,
 though: while its window has not rolled over, the last reading is a floor -
-a lower bound on usage, never an upper one (`idle_floor`). There is a known
-invisible spender even on an idle account: `ocp fold` runs headless and no
-collector ever sees it, so the floor is judged against a line clear of the
-wall, not the wall itself, to cover spend we cannot see. Once the window
-rolls over the floor stops holding at all, because what happened since is
-unaccounted for; only a probe answers for it then.
+a lower bound on usage, never an upper one (`idle_floor`). There is an
+unbounded invisible spender even on an idle account - a human running
+`claude -p` by hand, or anything else no collector sees - so the floor is
+judged against a line clear of the wall, not the wall itself, to cover spend
+we cannot see. Once the window rolls over the floor stops holding at all,
+because what happened since is unaccounted for; only a probe answers for it
+then.
 
 A carried figure is a floor, not a measurement: usage inside a window only
 rises, so the true number is at least that. The same is true, unmarked, of a
@@ -105,17 +106,18 @@ def _ago(secs: float) -> str:
 PCT_5H_BLOCK = triggers.WALL_PCT
 PCT_7D_BLOCK = triggers.WALL_PCT
 
-# A floor is a lower bound, not a measurement, and there is a known invisible
-# spender even on an idle account (`ocp fold`, headless, no collector ever
-# sees it). idle_floor judges the floor this far below the wall to cover
-# spend we cannot see - main's actual admission line, carried over as-is
-# rather than invented fresh: main admitted below its old MOVE_LINE_5H (85)
-# minus its margin (15), i.e. below 70 - thirty points clear of the wall
-# this stack judges against (100), not fifteen. Nobody here has measured what
-# a fold actually costs in percent; KICKOFF §1.2 is authority for measuring
-# before coding on an assumption, not for skipping the measurement, and a
-# measurement of fold's actual cost is what would let this constant be set
-# from something other than main's inherited line.
+# A floor is a lower bound, not a measurement, and there is an unbounded
+# invisible spender even on an idle account: a human running `claude -p` by
+# hand, or any other call no collector sees (fold's own risk is closed
+# separately - it never pays with a stale reading at all, see
+# fold._cheapest_account). idle_floor judges the floor this far below the
+# wall to cover that - main's actual admission line (70), carried over as-is
+# rather than remeasured for this stack: main admitted below its old
+# MOVE_LINE_5H (85) minus its margin (15). DEFAULT_RESERVE_PCT (5, main's
+# constant) is the measured cost of one fold - four folding agents exhaust
+# it and STALL - so 15 was three folds of cover. Judged against the wall
+# this stack uses (100), the same admission line of 70 is thirty points,
+# six folds.
 IDLE_FLOOR_MARGIN_PCT = 30
 
 
@@ -365,26 +367,26 @@ class AccountStatus:
         mid-turn on it, is idle rather than unknown, and keeps its floor.
         Returns (ok, reason).
 
-        KICKOFF §3's Phase 1 criterion lists a stale reading as one of four
-        unconditional fail-closed triggers. This method is the code running
-        ahead of that criterion - main landed the same softening (89f7463)
-        before anyone asked, and the split codified here (idle_floor, gated
-        three ways below) is with the founder for a ruling (#474). Until that
-        rules, treat this as provisional: the criterion, not this docstring,
-        is the standing rule if the two disagree.
+        Ruled by the founder on #474: a stale reading inside an unrolled
+        window is a floor, not unknown - that is what it is, not an
+        exception written around a stricter rule. Three independent gates
+        hold it to that:
 
-        Three independent gates, because staleness alone does not make an
-        account unknown but does not make it fully known either:
-
-        - No agent of ours is mid-turn on it (`active`). An agent we can see
-          running is spend we are choosing not to count, and that is the
-          "cannot account for what burned" case, not idle.
+        - No agent of ours is mid-turn on it (`active`). This one is defence
+          against a premise, not an observed case: accounts.py sets a 10s
+          refreshInterval, so a live session keeps collected_at fresh and an
+          account cannot actually read as stale while an agent of ours is
+          running on it (auditor, #475). It stays because it costs nothing
+          and it is what keeps every reader of a stale reading agreeing -
+          `pick_account`, `doctor`, the bridge - not because the case it
+          guards has been seen.
         - `reset_5h` has not passed. Past it the figure describes a window
           that no longer exists - `rolled_over` and the probe answer for that
           case, not this one.
-        - The floor is a lower bound, not a measurement - there is a known
-          invisible spender even with no agent of ours running (`ocp fold`,
-          headless, no collector ever sees it) - so it is judged this far
+        - The floor is a lower bound, not a measurement - there is an
+          unbounded invisible spender even with no agent of ours running (a
+          human running `claude -p` by hand; `ocp fold`'s own risk is closed
+          separately, see fold._cheapest_account) - so it is judged this far
           below the wall (`IDLE_FLOOR_MARGIN_PCT`), never against the wall
           itself.
         """
