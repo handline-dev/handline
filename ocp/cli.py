@@ -21,7 +21,7 @@ from . import (accounts, actions, agents, ask as askmod, daemon as daemonmod, db
                tui,
                digest, doctor,
                drift, events, fold as foldmod, guide, handoff as handoffmod, hooks, launch,
-               observe as obs, paths, service,
+               observe as obs, paths, probe as probemod, service,
                hr, orca, status, spawn as spawnmod, team, triggers)
 
 
@@ -183,6 +183,22 @@ def cmd_account_list(args) -> int:
               f"{five:>5}{cell(st.pct_7d):>5}  {resets:<12}{cell(st.ctx_pct):>6}{age:>8}  "
               f"{'yes' if allowed else 'NO':<4} {why}")
     print("  " + status.SOURCE_LEGEND)
+    return 0
+
+
+def cmd_account_probe(args) -> int:
+    """`ocp account probe <acct>` - the manual form of what the daemon does
+    when an account's window has passed and nothing has run on it since."""
+    if args.account not in paths.list_accounts():
+        print(f"no such account: {args.account}")
+        return 1
+    print(f"probing {args.account} (one small turn, up to {probemod.PROBE_TIMEOUT_S}s)...")
+    st = probemod.run(args.account)
+    allowed, why = st.takes_work()
+    age = "-" if st.age_s is None else f"{int(st.age_s)}s"
+    print(f"{args.account}: 5h {st.trusted_pct_5h}% ({st.pct_5h_source}), "
+          f"7d {st.trusted_pct_7d}%, reading {age} old")
+    print(f"takes work: {'yes' if allowed else 'NO'} - {why}")
     return 0
 
 
@@ -1158,6 +1174,9 @@ def build_parser() -> argparse.ArgumentParser:
     p = acc.add_parser("list", help="accounts with usage")
     p.add_argument("--json", action="store_true")
     p.set_defaults(fn=cmd_account_list)
+    p = acc.add_parser("probe", help="spend one small turn to learn where an account stands")
+    p.add_argument("account")
+    p.set_defaults(fn=cmd_account_probe)
 
     ag = sub.add_parser("agent", help="agents").add_subparsers(dest="sub", required=True)
     p = ag.add_parser("register", help="register an agent with its fixed account")
