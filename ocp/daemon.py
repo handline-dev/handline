@@ -1436,6 +1436,18 @@ def _move_to_room(con, agent: str, trigger: triggers.Trigger, log) -> bool:
         log(f"  {agent}: closed on {here} but could not start on {there}: {why[:120]}")
         return False
 
+    # The session that started must be the one on `there`. A process that
+    # outlived the /exit is still on `here`, and recording the move would name
+    # an account no process is on. Unreadable is not a contradiction.
+    sessions = obs.live_sessions()
+    pid = sessions.get(agent) if sessions else None
+    actual = obs.account_of_process(pid) if pid else None
+    if actual is not None and actual != there:
+        measure.forget(con, agent)
+        log(f"  {agent}: asked to move {here} -> {there} but its process is on "
+            f"{actual} - not recorded as moved")
+        return False
+
     # A session is live on the new account. Whether the line after it - handing
     # it its own handoff - also landed is not the same question, and treating a
     # failed handback as a failed move would clear the context of the session
@@ -1523,6 +1535,35 @@ def _perform_handoff(con, agent: str, trigger: triggers.Trigger, log) -> bool:
 _SAID: dict[str, str] = {}
 
 
+def _running_account(agent: str) -> str | None:
+    """The account this agent's running process is spending, or None when
+    there is no process in the sweep's snapshot or its environment cannot be
+    read - "I don't know", which never contradicts anything."""
+    o = _seen.get(agent)
+    return obs.account_of_process(o.session_pid) if o and o.session_pid else None
+
+
+def _confirmed_reading(con, agent: str, reading, log):
+    """The reading, unless the running process is on another account.
+
+    The column names where a move sent the agent; the process is where it is.
+    A move whose old process outlived its /exit leaves the two apart, and
+    every judgement made on the column's account - the unpark first - is then
+    about an account the session is not spending: keeper was woken six times
+    into a rate limit that way. The process is the fact, so it wins and the
+    column is set right, which lets the agent's next park or move start from
+    where it really is."""
+    actual = _running_account(agent)
+    if actual is None or actual == reading.account:
+        return reading
+    log(f"  {agent}: recorded on {reading.account} but its process is on "
+        f"{actual} - judging it there")
+    db.add_event(con, agent, "account_mismatch",
+                 {"recorded": reading.account, "running": actual})
+    db.set_account(con, agent, actual)
+    return agents.AccountReading(actual, "recorded")
+
+
 def supervise(con, agent: str, log, now: int, samples: dict,
               actions: list[str]) -> None:
     """One agent's turn in a tick.
@@ -1548,7 +1589,7 @@ def supervise(con, agent: str, log, now: int, samples: dict,
     # agent's own running session over a column nothing has confirmed, so a
     # spawn's assumed guess (or a bare config preference) never stands in for
     # a running session's actual account when there is better evidence of it.
-    reading = agents.account_reading(agent, con)
+    reading = _confirmed_reading(con, agent, agents.account_reading(agent, con), log)
     acct = reading.account
     st = status.read_for_agent(agent, acct)
 
