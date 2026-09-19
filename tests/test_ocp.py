@@ -2621,12 +2621,22 @@ def test_nothing_is_typed_at_a_modal(home: Path) -> None:
         orcamod.modal_open = REAL_ORCA["modal_open"]
         screen = {"ok": True}
         def fake_run(args, timeout=180):
-            return screen["ok"], json.dumps({"result": {"terminal": {"tail": screen["tail"]}}})
+            return screen["ok"], json.dumps({"result": {"terminal": {
+                "tail": screen["tail"], "source": screen.get("source", "screen")}}})
         real_run = orcamod._run
         orcamod._run = fake_run
         try:
             screen["tail"] = ["Teach auto mode about your environment?", "Enter to confirm · Esc to cancel"]
             check("modal: the auto-mode prompt is read as a modal", orcamod.modal_open("h"))
+            screen["tail"] = ["quoted: Esc to cancel", "old output", "more", "❯ ", "────",
+                              "? for shortcuts"]
+            check("modal: the words higher up in the transcript are not a modal",
+                  not orcamod.modal_open("h"))
+            screen["tail"] = ["Enter to confirm · Esc to cancel"]
+            screen["source"] = "screen-unavailable"
+            check("modal: anything but a rendered screen counts as a modal",
+                  orcamod.modal_open("h"))
+            screen["source"] = "screen"
             screen["tail"] = ["> "]
             check("modal: an empty prompt is not", not orcamod.modal_open("h"))
             screen["tail"] = None

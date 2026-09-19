@@ -199,6 +199,7 @@ def idle_now(handle: str) -> bool:
 # What Claude Code draws under a modal it opens itself ("Teach auto mode about
 # your environment?", trust prompts). Anything typed plus Enter answers it.
 MODAL_MARKERS = ("Enter to confirm", "Esc to cancel")
+MODAL_ROWS = 3
 
 
 def modal_open(handle: str) -> bool:
@@ -209,10 +210,15 @@ def modal_open(handle: str) -> bool:
     """
     ok, out = _run(["terminal", "read", "--terminal", handle, "--screen",
                     "--limit", "40", "--json"], timeout=30)
-    tail = _result(out, "terminal", "tail") if ok else None
-    if not isinstance(tail, list):
+    term = _result(out, "terminal") if ok else None
+    tail = term.get("tail") if isinstance(term, dict) else None
+    # Any other source is the accumulated stream, whose history is the
+    # conversation, not the screen.
+    if not isinstance(tail, list) or term.get("source") != "screen":
         return True
-    screen = "\n".join(str(x) for x in tail)
+    # A modal draws its footer on the bottom rows. Above them is the
+    # transcript, which may quote these words without anything being asked.
+    screen = "\n".join(str(x) for x in tail[-MODAL_ROWS:])
     return any(m in screen for m in MODAL_MARKERS)
 
 
