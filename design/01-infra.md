@@ -194,7 +194,6 @@ Run       (Orca) ── 목표 단위
       base.md                   # ≤2KB — 매 세션 주입되는 고정비
       inbox/
       journal/2026-09-15.md     # 다이제스트. 세대 보존은 git이 한다
-      handoff/latest.md
 ```
 
 ---
@@ -263,8 +262,8 @@ statusLine은 `resets_at` 도달 시 자동 재실행되므로 리셋 타이머�
 
 ```
 events (SQLite)   기계 이벤트. 훅이 INSERT. 사람도 모델도 안 읽음
-journal/<날짜>.md 다이제스트. handoff 때마다 fold로 통째 재작성
-handoff/latest.md 다이제스트에서 기계 추출. 재개 시 주입
+journal/<날짜>.md 다이제스트. `ocp fold` 가 통째 재작성 (handoff 경로는 호출하지 않는다)
+handoff        에이전트 행(agent_state.handoff)에 저장. 요청 id·직전 세션 transcript 경로·워크트리 branch/HEAD/status 세 가지를 모델 없이 읽어 만든다. 재개 시 한 번 주입하고 지운다
 ```
 
 이벤트를 파일이 아니라 **SQLite에 넣는다.** 델타 경계가 `WHERE id > cursor` 한 줄이 되고, 훅이 늦게 도착해도 순서가 깨지지 않는다.

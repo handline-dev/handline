@@ -20,7 +20,8 @@ from pathlib import Path
 from . import (accounts, actions, agents, ask as askmod, daemon as daemonmod, db,
                tui,
                digest, doctor,
-               drift, events, fold as foldmod, guide, hooks, launch, paths, service,
+               drift, events, fold as foldmod, guide, handoff as handoffmod, hooks, launch,
+               paths, service,
                hr, orca, status, spawn as spawnmod, team, triggers)
 
 
@@ -242,11 +243,16 @@ def cmd_base_promote(args) -> int:
 
 
 def cmd_handoff_write(args) -> int:
-    """Write a handoff now, without waiting for a trigger."""
-    ok, msg = foldmod.fold(args.agent, use_model=not args.no_model)
-    print(msg)
-    print(f"handoff: {foldmod.handoff_path(args.agent)}")
-    return 0 if ok else 1
+    """Record a handoff now, without waiting for a trigger."""
+    con = db.connect()
+    try:
+        missing = handoffmod.record(con, args.agent)
+        print(db.get_handoff(con, args.agent))
+    finally:
+        con.close()
+    if missing:
+        print(f"could not read: {', '.join(missing)}")
+    return 1 if missing else 0
 
 
 def cmd_close(args) -> int:
@@ -379,8 +385,8 @@ def cmd_guide(args) -> int:
 
 # ---------------------------------------------------------------- daemon
 def cmd_daemon(args) -> int:
-    return daemonmod.run(once=args.once, use_model=not args.no_model,
-                         verbose=not args.quiet, max_ticks=args.max_ticks)
+    return daemonmod.run(once=args.once, verbose=not args.quiet,
+                         max_ticks=args.max_ticks)
 
 
 def cmd_daemon_status(args) -> int:
@@ -566,11 +572,15 @@ def cmd_digest(args) -> int:
 
 
 def cmd_handoff(args) -> int:
-    p = foldmod.handoff_path(args.agent)
-    if not p.exists():
-        print(f"no handoff at {p}")
+    con = db.connect()
+    try:
+        text = db.get_handoff(con, args.agent)
+    finally:
+        con.close()
+    if not text:
+        print(f"no handoff waiting for {args.agent}")
         return 1
-    print(p.read_text())
+    print(text)
     return 0
 
 
@@ -1289,7 +1299,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--date", default=None)
     p.set_defaults(fn=cmd_digest)
 
-    p = sub.add_parser("handoff", help="print an agent's handoff")
+    p = sub.add_parser("handoff", help="print the handoff waiting for an agent")
     p.add_argument("agent")
     p.set_defaults(fn=cmd_handoff)
 
@@ -1311,7 +1321,6 @@ def build_parser() -> argparse.ArgumentParser:
     p = sub.add_parser("daemon", help="run the supervisor loop")
     p.add_argument("--once", action="store_true", help="one tick, then exit")
     p.add_argument("--max-ticks", type=int, default=None)
-    p.add_argument("--no-model", action="store_true", help="never spend tokens on folds")
     p.add_argument("--quiet", action="store_true")
     p.add_argument("--foreground", action="store_true",
                    help="accepted for symmetry; the daemon always runs in the foreground")
@@ -1368,9 +1377,8 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--force", action="store_true", help="accept going over budget")
     p.set_defaults(fn=cmd_base_promote)
 
-    p = sub.add_parser("write-handoff", help="fold and write a handoff now")
+    p = sub.add_parser("write-handoff", help="record a handoff now")
     p.add_argument("agent")
-    p.add_argument("--no-model", action="store_true")
     p.set_defaults(fn=cmd_handoff_write)
 
     p = sub.add_parser("close", help="end an idle agent's session, keeping its terminal")

@@ -1189,7 +1189,7 @@ def _say(what: str, width: int, height: int) -> None:
     """Put one line on the bottom row now, without waiting for a redraw.
 
     An action can take half a minute - waking waits for a session to appear,
-    parking pays for a fold - and a screen still showing the frame from before
+    parking clears a session - and a screen still showing the frame from before
     the keypress, or the confirmation that was just answered, reads as a hang.
     The next redraw repaints every row, so this cannot outlive its action.
     """

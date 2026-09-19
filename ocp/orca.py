@@ -2,10 +2,9 @@
 
 This is what makes "hand off, park, resume" actually reclaim context (team
 model section 2, axis 3: the cost of an async handoff is that the requester
-returns its context). Folding the events and writing a handoff file is only
-half of it - without clearing the session the context never drops, so a
-context trigger fires again on the very next tick and the agent hands off
-forever, paying for a fold each time.
+returns its context). Recording the handoff is only half of it - without
+clearing the session the context never drops, so a context trigger fires again
+on the very next tick and the agent hands off forever.
 
 `/clear` starts a fresh session in the same process: measured on a live agent,
 total_input_tokens went 97801 -> 0 and the session id changed, while the
@@ -201,7 +200,7 @@ def clear_context(handle: str, wait: bool = True,
     """Return the session's context without destroying the agent.
 
     Waits for the agent to finish what it is doing first: clearing mid-turn
-    would throw away work that the fold has not recorded yet.
+    would throw away work the handoff has not recorded yet.
     """
     if not alive(handle):
         return False, f"terminal {handle} is not alive"
