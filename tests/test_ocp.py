@@ -1369,10 +1369,11 @@ def test_daemon_resume(home: Path) -> None:
         # Park it in the past, as if the reset had already happened.
         db.set_agent_state(con, "backend", dmn.PARKED, wake_at=int(time.time()) - 10,
                            detail="parked earlier")
+        db.add_request(con, "marina", "backend", "carry on", None, "peer", "async", None, 0, None)
         write_status(home, "alpha", pct_5h=3, pct_7d=10, ctx_pct=5)
         dmn.tick(con, lambda _m: None)
         row = db.get_agent_state(con, "backend")
-        check("daemon: a due parked agent returns to QUEUED",
+        check("daemon: a due parked agent with real work returns to QUEUED",
               row["state"] == dmn.QUEUED, str(dict(row)))
         check("daemon: waking clears wake_at", row["wake_at"] is None)
     finally:
@@ -1502,11 +1503,50 @@ def test_daemon_degraded_recovers(home: Path) -> None:
         row = db.get_agent_state(con, "backend")
         check("daemon: a timed-out handoff degrades with a wake_at",
               row["state"] == dmn.DEGRADED and row["wake_at"] is not None, str(dict(row)))
+        db.add_request(con, "marina", "backend", "carry on", None, "peer", "async", None, 0, None)
         db.set_agent_state(con, "backend", dmn.DEGRADED, wake_at=int(time.time()) - 1)
         dmn.tick(con, lambda _m: None)
         row = db.get_agent_state(con, "backend")
-        check("daemon: a due DEGRADED agent returns to QUEUED",
+        check("daemon: a due DEGRADED agent with real work returns to QUEUED",
               row["state"] in (dmn.QUEUED, dmn.PARKED), str(dict(row)))
+    finally:
+        con.close()
+
+
+def test_a_stale_wake_at_does_not_claim_work_that_does_not_exist(home: Path) -> None:
+    """Founder #645: a THROTTLED wake_at armed for an unrelated reason can
+    outlive the turn it was set during - Stop only sets IDLE when the row was
+    RUNNING, so a row already THROTTLED when Stop fires stays THROTTLED, work
+    or no work, until this wake_at comes due. QUEUED is a claim about the
+    queue; the write must look at it before making that claim, the same way
+    `_move_plan`'s own "work waiting" does. Driven both ways on the same
+    agent: an empty queue reads IDLE, not QUEUED - what actions.py's delivery
+    gate and the bridge would both read as nothing to do - and a real
+    undelivered request still reads QUEUED, so the fix narrows the claim
+    rather than removing it."""
+    _daemon_home(home, 50)
+    con = db.connect()
+    try:
+        db.set_agent_state(con, "backend", dmn.THROTTLED, wake_at=int(time.time()) - 1,
+                           detail="throttled for an unrelated reason")
+        check("stale wake: before the tick, the row still claims THROTTLED",
+              db.get_agent_state(con, "backend")["state"] == dmn.THROTTLED)
+        dmn.supervise(con, "backend", lambda _m: None, int(time.time()), {}, [])
+        row = db.get_agent_state(con, "backend")
+        check("stale wake: with nothing queued, the wake reads IDLE, not QUEUED",
+              row["state"] == dmn.IDLE and row["wake_at"] is None
+              and row["detail"] == "wake_at reached with nothing queued", str(dict(row)))
+        check("stale wake: the queue really is empty, not just unread by the wake",
+              db.head_of_queue(con, "backend") is None
+              and not db.unannounced_answers(con, "backend"))
+
+        db.set_agent_state(con, "backend", dmn.THROTTLED, wake_at=int(time.time()) - 1,
+                           detail="throttled for an unrelated reason")
+        db.add_request(con, "marina", "backend", "carry on", None, "peer", "async", None, 0, None)
+        dmn.supervise(con, "backend", lambda _m: None, int(time.time()), {}, [])
+        row = db.get_agent_state(con, "backend")
+        check("stale wake: with a real request queued, the same wake still reads QUEUED",
+              row["state"] == dmn.QUEUED and row["wake_at"] is None, str(dict(row)))
     finally:
         con.close()
 
@@ -5786,6 +5826,7 @@ def test_a_park_that_cannot_be_woken_keeps_its_deadline(home: Path) -> None:
         db.set_closed(con, "backend", "sess-2")
         db.set_agent_state(con, "backend", dmn.PARKED, wake_at=int(time.time()) - 10,
                            detail="parked and closed")
+        db.add_request(con, "marina", "backend", "carry on", None, "peer", "async", None, 0, None)
         write_status(home, "alpha", pct_5h=100, pct_7d=10, ctx_pct=5,
                      reset_5h=int(time.time()) + 600)
 
@@ -14798,6 +14839,8 @@ def main() -> int:
         run(lambda: test_daemon_stall_escalation(Path(td) / 'd5'))
         run(lambda: test_daemon_success_clears_streak(Path(td) / 'd5b'))
         run(lambda: test_daemon_degraded_recovers(Path(td) / 'd5c'))
+        run(lambda: test_a_stale_wake_at_does_not_claim_work_that_does_not_exist(
+            Path(td) / 'stalewake'))
         run(lambda: test_daemon_tick_expires_handoff(Path(td) / 'd5d'))
         run(lambda: test_daemon_ignores_stale_status(Path(td) / 'd5e'))
         run(lambda: test_status_edge_cases(Path(td) / 'se'))

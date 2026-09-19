@@ -1766,11 +1766,31 @@ def supervise(con, agent: str, log, now: int, samples: dict,
             state = fresh["state"]
             woke_now = woke_now or restored
             return
-        db.set_agent_state(con, agent, QUEUED, wake_at=None, detail="wake_at reached")
-        actions.append(f"{agent}: {state} -> QUEUED (window rolled over)")
-        log(f"  {agent}: {state} -> QUEUED (window rolled over)")
+        # QUEUED is a claim about the queue, so the write has to look at it -
+        # the same definition `_move_plan`'s own "work waiting" uses, not a
+        # fresh query of this function's own: a request still queued, or an
+        # answer to something this agent asked that it has not been told
+        # about yet. Nothing queued means the wake found an agent that had
+        # already finished and gone idle on its own before this stale wake_at
+        # came due (Stop only sets IDLE when the row was RUNNING, so a
+        # wake_at armed for an unrelated reason - a throttle, a park - can
+        # outlive the turn it was set during without that turn's own Stop
+        # ever touching it). IDLE either way: for a closed session this wake
+        # just resumed, IDLE is what an open, working-on-nothing session is;
+        # for one that was never closed, it is what its own Stop would have
+        # written already, had the row been RUNNING when Stop fired.
+        if db.queued_for(con, agent) or db.unannounced_answers(con, agent):
+            db.set_agent_state(con, agent, QUEUED, wake_at=None, detail="wake_at reached")
+            actions.append(f"{agent}: {state} -> QUEUED (window rolled over)")
+            log(f"  {agent}: {state} -> QUEUED (window rolled over)")
+            state = QUEUED
+        else:
+            db.set_agent_state(con, agent, IDLE, wake_at=None,
+                               detail="wake_at reached with nothing queued")
+            actions.append(f"{agent}: {state} -> IDLE (wake_at reached, nothing queued)")
+            log(f"  {agent}: {state} -> IDLE (wake_at reached, nothing queued)")
+            state = IDLE
         row = db.get_agent_state(con, agent)
-        state = QUEUED
         woke_now = woke_now or restored
 
     # An agent with nowhere to run cannot be given work by anyone but a human,
