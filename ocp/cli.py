@@ -1134,7 +1134,7 @@ def cmd_dismiss(args) -> int:
             print(f"#{args.id} is {row['requester']} → {row['target']}, not yours to "
                   f"dismiss. `ocp read {args.id}` shows it.")
             return 1
-        print(actions.dismiss(con, args.id))
+        print(actions.dismiss(con, args.id, me=me))
         return 0
     finally:
         con.close()

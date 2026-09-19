@@ -1159,7 +1159,7 @@ def _in_detail(detail: dict, k: str, width: int, height: int,
 def _answer_key(con, detail: dict, rid: int, k: str, width: int, height: int,
                 fd, saved) -> tuple[dict | None, str]:
     if k == "x":
-        return None, actions.dismiss(con, rid)
+        return None, actions.dismiss(con, rid, me=actions.HUMAN)
     text = _compose(rid, k, width, height, fd, saved)
     if text is None:
         return detail, _nothing_sent(k)
@@ -1460,7 +1460,7 @@ def _act(panel: int, sel: dict, key: str, width: int, height: int,
                 _say(f"answering #{rid}", width, height)
                 return actions.answer(con, rid, text), None
             if key == "x":
-                return actions.dismiss(con, rid), None
+                return actions.dismiss(con, rid, me=actions.HUMAN), None
         return "", None
     finally:
         con.close()
