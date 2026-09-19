@@ -544,13 +544,22 @@ def get_request(con, rid: int):
     return con.execute("SELECT * FROM requests WHERE id = ?", (rid,)).fetchone()
 
 
-def set_request_state(con, rid: int, state: str, verdict: str | None = None) -> None:
+def set_request_state(con, rid: int, state: str, verdict: str | None = None,
+                      announced: bool = False) -> None:
     # `resolved_at` is stamped on the way out of 'queued' and never rewritten:
     # re-resolving an answered request does not make the answer newer.
+    #
+    # `announced` stamps announced_at in this same UPDATE rather than in a
+    # follow-up call on another connection - a row that is briefly 'done'
+    # with announced_at still NULL is exactly what unannounced_answers()
+    # looks for, and a sweep landing in that window announced it anyway.
+    now = int(time.time())
     con.execute(
         "UPDATE requests SET state = ?, verdict = COALESCE(?, verdict), "
-        "resolved_at = COALESCE(resolved_at, ?) WHERE id = ?",
-        (state, verdict, int(time.time()) if state != "queued" else None, rid))
+        "resolved_at = COALESCE(resolved_at, ?), "
+        "announced_at = COALESCE(announced_at, ?) WHERE id = ?",
+        (state, verdict, now if state != "queued" else None,
+         now if announced else None, rid))
 
 
 def oldest_counted_ask(con, requester: str, since_ts: int) -> int | None:
