@@ -2592,6 +2592,131 @@ def test_spawn_base_selection(tmp: Path) -> None:
     check("spawn: tells the human to merge first", "Merge" in why or "merge" in why, why)
 
 
+def test_an_open_head_request_on_an_idle_agent_is_nudged_then_shown(home: Path) -> None:
+    """purser finished #492, reported it as a new ask and never resolved it. The
+    queue gives an agent one request at a time, so three more waited behind it
+    for 53 minutes while it sat IDLE, and nothing said so."""
+    _daemon_home(home, 20)
+    con = db.connect()
+    sent: list[str] = []
+    said: list[str] = []
+    real = (orcamod.alive, orcamod.send, orcamod.available, orcamod.typeable_now,
+            dmn.wall_reason)
+    try:
+        orcamod.available = lambda: True
+        orcamod.live_terminals = lambda: {"term_x"}
+        orcamod.alive = lambda h: True
+        orcamod.typeable_now = lambda h: True
+        orcamod.send = lambda h, text, enter=True: (sent.append(text), (True, ""))[1]
+        sessions_are("backend")
+        agents.register("backend", "alpha")
+        db.set_terminal(con, "backend", "term_x", "wt")
+        db.set_agent_state(con, "backend", dmn.IDLE, detail="finished its turn")
+        now = int(time.time())
+        head = db.add_request(con, "marina", "backend", "the first thing", None,
+                              "peer", "async", None, 0, None)
+        behind = [db.add_request(con, "marina", "backend", f"then thing {i}", None,
+                                 "peer", "async", None, 0, None) for i in (2, 3)]
+        db.mark_delivered(con, head)
+        db.set_cursor(con, "notify:backend", head)
+
+        def idle_for(secs: int) -> int:
+            """The agent's last act, and the delivery, `secs` ago."""
+            con.execute("DELETE FROM events WHERE agent = 'backend'")
+            db.add_event(con, "backend", "Stop", {})
+            con.execute("UPDATE events SET ts = ? WHERE agent = 'backend'", (now - secs,))
+            con.execute("UPDATE requests SET delivered_at = ? WHERE id = ?", (now - secs, head))
+            return now
+
+        def nudge(at: int) -> bool:
+            return dmn.nudge_forgotten_resolve(
+                con, "backend", db.get_agent_state(con, "backend"), at, said.append)
+
+        idle_for(dmn.NUDGE_AFTER_S - 60)
+        check("nudge: an agent idle for less than the interval is left alone",
+              not nudge(now) and not sent, str(sent))
+
+        idle_for(dmn.NUDGE_AFTER_S + 60)
+        # What it may be waiting on is not a forgotten resolve.
+        ask = db.add_request(con, "backend", "auditor", "review this", None,
+                             "peer", "async", None, 0, None)
+        check("nudge: an agent with an ask of its own outstanding is waiting, not forgetful",
+              not nudge(now) and not sent, str(sent))
+        db.set_request_state(con, ask, "done", verdict="fine", announced=True)
+
+        # The gates delivery has.
+        dmn.wall_reason = lambda con_, agent, row=None: "at its 5h limit"
+        check("nudge: not at the usage wall", not nudge(now) and not sent, str(sent))
+        dmn.wall_reason = real[4]
+        orcamod.typeable_now = lambda h: False
+        check("nudge: not at a modal or a working agent", not nudge(now) and not sent, str(sent))
+        orcamod.typeable_now = lambda h: True
+        check("nudge: and a refusal is not asked again the next tick, which would probe "
+              "every tick", not nudge(now + 1) and not sent, str(sent))
+
+        check("nudge: once the retry spacing has passed it goes",
+              nudge(now + dmn.NUDGE_RETRY_S + 1) and len(sent) == 1, str(sent))
+        text = sent[0] if sent else ""
+        check("nudge: names the request and how long it has been idle",
+              f"#{head}" in text and "idle" in text, text)
+        check("nudge: says what to do, and how many are behind it",
+              "ocp resolve" in text and "2 more waiting" in text, text)
+        check("nudge: does not resolve it for the agent",
+              db.get_request(con, head)["state"] == "queued")
+        check("nudge: is logged", any("nudged" in m and f"#{head}" in m for m in said), str(said))
+        check("nudge: and recorded as an event",
+              con.execute("SELECT 1 FROM events WHERE kind = 'nudged'").fetchone() is not None)
+        check("nudge: which is not activity, so it does not restart the idle clock",
+              db.last_activity(con, "backend") == now - dmn.NUDGE_AFTER_S - 60)
+        check("nudge: and is never counted against the agent",
+              db.get_agent_state(con, "backend")["state"] == dmn.IDLE
+              and db.get_agent_state(con, "backend")["failed_attempts"] == 0
+              and db.get_agent_state(con, "backend")["wake_failures"] == 0)
+        check("nudge: not repeated for the same request",
+              not nudge(now + 10 * dmn.NUDGE_AFTER_S) and len(sent) == 1, str(sent))
+
+        # The tick reaches it, gated the same way.
+        sent.clear()
+        db.set_cursor(con, "nudge:backend", 0)
+        db.set_cursor(con, "nudge_try:backend", 0)
+        write_status(home, "alpha", pct_5h=20, pct_7d=10, ctx_pct=5,
+                     reset_5h=now + 1800)
+        db.set_cursor(con, "notify:backend", head)
+        dmn.supervise(con, "backend", lambda _m: None, int(time.time()), {}, [])
+        check("nudge: supervise makes the same call", len(sent) == 1 and "ocp resolve" in sent[0],
+              str(sent))
+
+        # The bridge: nothing until the second interval, then one row.
+        check("stuck: nothing on the screen for it before the second interval",
+              not any("idle on" in b["what"] for b in actions.stuck(con)))
+        idle_for(dmn.FORGOTTEN_STUCK_S + 60)
+        rows = [b for b in actions.stuck(con) if b["agent"] == "backend"]
+        check("stuck: one row for the agent, naming the request",
+              len(rows) == 1 and f"#{head}" in rows[0]["what"], str(rows))
+        check("stuck: and how many are waiting behind it",
+              rows and "2 waiting behind it" in rows[0]["why"]
+              and all(f"#{b}" in rows[0]["why"] for b in behind), str(rows))
+        check("stuck: not a row per queued request saying nobody told it",
+              not any("has not been told" in b["why"] for b in rows), str(rows))
+        # The nudge is typed as a prompt, so the agent's answer to it is its own
+        # activity and the thirty minutes run again from there.
+        for kind in ("UserPromptSubmit", "Stop"):
+            db.add_event(con, "backend", kind, {})
+        check("stuck: an agent that has just answered the nudge is not shown until it "
+              "has been idle again",
+              not any("idle on" in b["what"] for b in actions.stuck(con)))
+        idle_for(dmn.FORGOTTEN_STUCK_S + 60)
+        check("stuck: and is shown again once it has",
+              any("idle on" in b["what"] for b in actions.stuck(con)))
+        db.set_request_state(con, head, "done", verdict="did it")
+        check("stuck: resolving it clears the row",
+              not any("idle on" in b["what"] for b in actions.stuck(con)))
+    finally:
+        (orcamod.alive, orcamod.send, orcamod.available, orcamod.typeable_now,
+         dmn.wall_reason) = real
+        con.close()
+
+
 def test_a_close_is_recorded_only_once_the_process_has_ended(home: Path) -> None:
     """`/exit` typed is not a session ended: one was eaten outright and another
     took 31s to die, and either way a row marked closed over a live process was
@@ -10890,6 +11015,7 @@ def main() -> int:
         run(lambda: test_drift(Path(td) / 'drift'))
         run(lambda: test_spawn_base_selection(Path(td) / 'spawn'))
         run(lambda: test_idle_session_is_closed_and_resumed(Path(td) / 'idle'))
+        run(lambda: test_an_open_head_request_on_an_idle_agent_is_nudged_then_shown(Path(td) / 'nudge'))
         run(lambda: test_a_close_is_recorded_only_once_the_process_has_ended(Path(td) / 'exitwait'))
         run(lambda: test_a_close_that_will_not_take_is_not_tried_again_every_tick(Path(td) / 'exitretry'))
         run(lambda: test_wake_without_a_closed_session_uses_the_handoff(Path(td) / 'wakeh'))

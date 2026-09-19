@@ -538,7 +538,27 @@ def stuck(con) -> list[dict]:
         "AND target != ? ORDER BY ts", (HUMAN,),
     ).fetchall()
     sessions, handles = _world() if queued else (None, None)
+    # An agent that has been asked to resolve its head request and has not: one
+    # row for it says which request and what waits behind it, where the rows
+    # below would each say that a request "was told and has not answered" - true
+    # of the head, and false of everything queued behind it, which is waiting
+    # for the head and not for anyone's attention.
+    forgotten: dict[str, dict] = {}
+    for st_row in db.all_agent_states(con):
+        who = st_row["agent"]
+        found = daemon.forgotten_resolve(con, who, st_row, now)
+        if found and found["idle_s"] >= daemon.FORGOTTEN_STUCK_S \
+                and db.get_cursor(con, f"nudge:{who}") == int(found["head"]["id"]) \
+                and (sessions is None or sessions.get(who)):
+            forgotten[who] = found
+            ids = [f"#{q['id']}" for q in db.queued_for(con, who)[1:4]]
+            behind = (f"; {found['behind']} waiting behind it ({', '.join(ids)}"
+                      f"{', ...' if found['behind'] > len(ids) else ''})") if found["behind"] else ""
+            add(f"{who} idle on #{found['head']['id']}", found["idle_s"],
+                f"delivered, nudged, still open and it asked nothing{behind}", who)
     for r in queued:
+        if r["target"] in forgotten:
+            continue
         age, what = now - int(r["ts"]), f"#{r['id']} {r['requester']} → {r['target']}"
         why, self_clearing = _delivery_block(con, r["target"], sessions, handles, alive)
         if not why:

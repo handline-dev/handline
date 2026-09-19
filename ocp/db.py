@@ -537,6 +537,13 @@ def queue_depth(con, target: str) -> int:
     return len(queued_for(con, target))
 
 
+def open_asks_of(con, requester: str) -> int:
+    """What this agent asked that nobody has answered yet: what it may be
+    waiting on, which is not the same as having forgotten something."""
+    return con.execute("SELECT COUNT(*) FROM requests WHERE requester = ? "
+                       "AND state = 'queued'", (requester,)).fetchone()[0]
+
+
 def mark_delivered(con, rid: int) -> bool:
     """Record that this request has been shown to its target. Idempotent.
 
@@ -714,7 +721,7 @@ def last_activity(con, agent: str) -> int | None:
     row = con.execute(
         "SELECT MAX(ts) AS t FROM events WHERE agent = ? AND kind NOT IN "
         "('fold', 'fold_failed', 'handoff', 'park', 'close', 'close_failed', 'wake', "
-        "'notified')", (agent,)
+        "'notified', 'nudged')", (agent,)
     ).fetchone()
     return int(row["t"]) if row and row["t"] is not None else None
 

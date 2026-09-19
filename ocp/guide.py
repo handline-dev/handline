@@ -64,7 +64,10 @@ always goes back to the account its session lives on.""",
 An agent is given one request at a time - the head of its queue - not the
 whole pile at once, so nobody has to hold eleven requests in their head to
 know what to do next. The next one is delivered only once you resolve or
-dismiss the current one. Before a request has been delivered, its own
+dismiss the current one. An agent that goes idle with the current one still
+open, having asked nobody anything, is reminded once after 10 minutes; if it is
+still idle on it 30 minutes after it last did anything, the bridge's STUCK panel
+shows it, with what is queued behind it. Before a request has been delivered, its own
 requester may still replace (`--replaces`) or withdraw it; once delivered, a
 correction is a reply in its thread (`ocp ask <agent> "..." --parent <id>`),
 not a new item behind it.
