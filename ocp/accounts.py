@@ -191,13 +191,175 @@ def login_plan(acct: str, force: bool = False) -> tuple[str, str]:
     rule 1) - ocp only points the session at the right config directory.
     """
     if acct not in paths.list_accounts():
-        return "unknown", (f"no account '{acct}'. Register it first:\n\n"
-                           f"  ocp account register {acct}\n")
+        return "unknown", (f"no account '{acct}'. Add it first:\n\n"
+                           f"  ocp account add {acct}\n")
     if logged_in(acct) and not force:
         return "already", (f"account '{acct}' is already logged in.\n"
                            f"Use --force to log in again (a second copy of one "
                            f"credential invalidates the first).")
     return "login", login_command(acct)
+
+
+def identity(acct: str) -> str | None:
+    """The Anthropic login behind this account, as claude reports it.
+
+    Asked of `claude auth status`, which answers from its own records - ocp
+    reads no credential and no .claude.json to learn it (KICKOFF rule 1). None
+    when claude cannot say.
+    """
+    claude = shutil.which("claude")
+    if not claude:
+        return None
+    try:
+        r = subprocess.run([claude, "auth", "status"], env=env_for(acct),
+                           capture_output=True, text=True, timeout=30)
+        return json.loads(r.stdout).get("email") or None
+    except (OSError, subprocess.SubprocessError, ValueError):
+        return None
+
+
+def same_login_as(acct: str) -> list[str]:
+    """Other accounts logged in as the same Anthropic account as this one.
+
+    Two of them are one usage limit under two names - adding the second buys
+    no headroom - and two copies of one credential invalidate each other.
+    """
+    mine = identity(acct)
+    if not mine:
+        return []
+    return [a for a in paths.list_accounts()
+            if a != acct and logged_in(a) and identity(a) == mine]
+
+
+def users_of(acct: str, con=None) -> list[str]:
+    """Agents that would lose their account if this one went away.
+
+    Both halves of "on this account": a session that actually went there, and
+    agent.yaml naming it as the preference. They differ when the preferred
+    account had no room, and removing either one strands an agent. An agent
+    that cannot be read is counted as a user: what is unknown is not free.
+    """
+    from . import agents
+
+    def on(name: str) -> bool:
+        for get in (lambda: agents.current_account(name, con),
+                    lambda: agents.account_of(name)):
+            try:
+                if get() == acct:
+                    return True
+            except Exception:  # noqa: BLE001 - unreadable means in use
+                return True
+        return False
+
+    return [name for name in paths.list_agents() if on(name)]
+
+
+def remove_plan(acct: str, con=None) -> tuple[bool, str]:
+    """Whether this account may be removed, and the line to say about it.
+
+    Refused while any agent is on it. Moving them is a roster decision with
+    somewhere to go - which account, and whether that one has room - and a
+    removal that made it silently would leave an agent whose next start fails.
+    """
+    if acct not in paths.list_accounts():
+        return False, f"no account '{acct}'"
+    users = users_of(acct, con)
+    if users:
+        return False, (f"account '{acct}' is in use by {', '.join(users)} - move "
+                       f"{'it' if len(users) == 1 else 'them'} to another account first")
+    return True, ""
+
+
+def add_account(name: str, run, no_login: bool = False) -> tuple[bool, str]:
+    """The one add sequence, for the CLI and the screen: register, log in, check.
+
+    `run(argv, env)` hands the terminal to claude and returns its exit code, or
+    None if it could not run. The login is claude's own screen, so this checks
+    afterwards rather than trusting the exit code: closing claude without
+    finishing exits 0 too. Two accounts on one Anthropic login are one usage
+    limit under two names, and their credentials invalidate each other.
+    """
+    if name in paths.list_accounts():
+        return False, f"account '{name}' already exists"
+    try:
+        register(name)
+    except ValueError as e:
+        return False, str(e)
+    if no_login:
+        return True, f"registered account '{name}'; log it in with: ocp login {name}"
+    argv, env = ["claude", "/login"], env_for(name)
+    run(argv, env)
+    if not logged_in(name):
+        return False, f"'{name}' is registered but not logged in - ocp login {name}"
+    twins = same_login_as(name)
+    if twins:
+        return False, (f"'{name}' is logged in as the same Anthropic account as "
+                       f"{', '.join(twins)}: one usage limit under two names, and the "
+                       f"credentials invalidate each other. `ocp account remove {name}` "
+                       f"and add it with another login.")
+    return True, (f"'{name}' is logged in. It takes work once a session has run on it "
+                  f"and reported its usage.")
+
+
+def remove_account(name: str, confirm, run, con=None) -> tuple[bool, str]:
+    """The one remove sequence, for the CLI and the screen.
+
+    `confirm()` asks the human; `run(argv, env)` runs claude's logout and
+    returns its exit code (None if it could not run). Refused while an agent is
+    on the account, checked again after the confirmation since that waits on a
+    person. Logged out by claude first: moving the directory of a logged-in
+    account would orphan the credential, whose Keychain name derives from the
+    directory's path. The directory is moved aside, not deleted.
+    """
+    ok, why = remove_plan(name, con)
+    if not ok:
+        return False, why
+    if not confirm():
+        return False, "not removed"
+    marker = paths.accounts_dir() / name / ".removing"
+    marker.touch()
+    try:
+        ok, why = remove_plan(name, con)
+        if not ok:
+            return False, why
+        argv, env = logout_argv(name)
+        if argv:
+            code = run(argv, env)
+            if code != 0 or logged_in(name):
+                return False, (f"logout failed - '{name}' is still logged in, so it stays. "
+                               f"Run `claude auth logout` with CLAUDE_CONFIG_DIR="
+                               f"{paths.account_claude(name)} and try again.")
+        marker.unlink(missing_ok=True)
+        dest = retire(name)
+    finally:
+        marker.unlink(missing_ok=True)
+    return True, f"removed account '{name}' (logged out; directory kept at {dest})"
+
+
+def logout_argv(acct: str) -> tuple[list[str], dict]:
+    """claude's own logout, run against this account's config directory.
+
+    claude removes its own credential; ocp never touches it (KICKOFF rule 1).
+    Empty when there is nothing logged in to remove.
+    """
+    if not logged_in(acct):
+        return [], {}
+    return ["claude", "auth", "logout"], env_for(acct)
+
+
+def retire(acct: str) -> Path:
+    """Take the account off the roster by moving its directory aside.
+
+    Aside, not deleted: its transcripts are the only record of what was spent
+    on it, and a removal typed by mistake comes back with one `mv`. A dot
+    directory is invisible to `list_accounts`, so nothing reads it as live.
+    """
+    src = paths.accounts_dir() / acct
+    dest_dir = paths.accounts_dir() / ".retired"
+    dest_dir.mkdir(parents=True, exist_ok=True)
+    dest = dest_dir / f"{acct}-{time.strftime('%Y%m%d-%H%M%S')}"
+    src.rename(dest)
+    return dest
 
 
 def env_for(acct: str, agent: str | None = None) -> dict[str, str]:

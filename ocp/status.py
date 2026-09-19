@@ -518,6 +518,9 @@ def pick_account(candidates: list[str] | None = None,
     usable: list[tuple[str, AccountStatus]] = []
     blank: list[str] = []
     for n in names:
+        if paths.removing(n):
+            reasons.append((n, "being removed"))
+            continue
         st = read(n)
         allowed, why = st.takes_work(limit_5h, limit_7d)
         if allowed:

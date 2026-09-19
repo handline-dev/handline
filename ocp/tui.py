@@ -74,7 +74,7 @@ AGENT_KEYS = [
     ("↵", "open"), ("t", "terminal"), ("m", "message"), ("e", "editor"),
     ("w", "wake"), ("c", "close"), ("p", "park"), ("f", "fold"), ("u", "unstall"),
 ]
-ACCOUNT_KEYS = [("↵", "open"), ("l", "login")]
+ACCOUNT_KEYS = [("↵", "open"), ("l", "login"), ("a", "add"), ("x", "remove")]
 MESSAGE_KEYS = [("↵", "read"), ("a", "answer"), ("e", "answer in $EDITOR"),
                 ("x", "dismiss")]
 # A stuck row is about an agent, so it answers to the agent keys.
@@ -1254,11 +1254,38 @@ def _keys_of(panel: int) -> list:
         con.close()
 
 
+def _add_account(width: int, height: int, fd, saved) -> str:
+    """Name it, then the same sequence as `ocp account add`."""
+    name = _line("new account name:", width, height)
+    if not name:
+        return "not added"
+    ok, msg = accounts.add_account(
+        name, lambda argv, env: _suspend(argv, env, fd, saved)[0])
+    return msg
+
+
+def _remove_account(name: str, width: int, height: int, fd, saved) -> str:
+    """The same sequence as `ocp account remove`, confirmed by typing its name."""
+    con = db.connect()
+    try:
+        ok, msg = accounts.remove_account(
+            name, lambda: _line(f"remove '{name}'? type its name to confirm:",
+                                width, height) == name,
+            lambda argv, env: _suspend(argv, env, fd, saved)[0], con)
+    finally:
+        con.close()
+    return msg
+
+
 def _act(panel: int, sel: dict, key: str, width: int, height: int,
          fd, saved) -> tuple[str, list[str] | None]:
     """One keypress on the selected row. Returns (line to show, detail or None)."""
     keys = _keys_of(panel)
     target = sel.get(panel)
+    # Adding needs no row under the cursor: the first account is added to an
+    # empty panel.
+    if panel == ACCOUNTS and key == "a":
+        return _add_account(width, height, fd, saved), None
     if not keys:
         return "nothing to act on", None
     if target not in keys:
@@ -1282,6 +1309,8 @@ def _act(panel: int, sel: dict, key: str, width: int, height: int,
         if not argv:
             return line, None
         return _suspend(argv, env, fd, saved)[1], None
+    if panel == ACCOUNTS and key == "x":
+        return _remove_account(str(target), width, height, fd, saved), None
 
     con = db.connect()
     try:

@@ -36,7 +36,7 @@ def cmd_login(args) -> int:
     names = paths.list_accounts()
     if not args.account:
         if not names:
-            print("no accounts registered. `ocp account register <name>` first.")
+            print("no accounts registered. `ocp account add <name>` first.")
             return 1
         for a in names:
             state = "logged in" if accounts.logged_in(a) else "NOT logged in"
@@ -91,7 +91,7 @@ def cmd_init(args) -> int:
         print(f"initialized git repo in {h}")
 
     print(f"initialized {h}")
-    print("next: ocp account register <name>, then a human runs claude /login once")
+    print("next: ocp account add <name> - it registers the account and logs it in")
     return 0
 
 
@@ -100,10 +100,50 @@ def cmd_account_register(args) -> int:
     d = accounts.register(args.name, force=args.force)
     print(f"registered account '{args.name}': {d}")
     if not accounts.logged_in(args.name):
-        print("\nnot logged in yet. A human has to run this once:")
-        print(f"  {accounts.login_command(args.name)}")
-        print("\n(ocp does not read or copy credentials - refresh tokens rotate on use)")
+        print(f"\nnot logged in yet. From a terminal you can type into:\n\n"
+              f"  ocp login {args.name}\n")
     return 0
+
+
+def _run_claude(argv: list[str], env: dict) -> int | None:
+    claude = shutil.which(argv[0])
+    if not claude:
+        return None
+    return subprocess.run([claude, *argv[1:]], env=env).returncode
+
+
+def cmd_account_add(args) -> int:
+    """Register an account and log it in, in one command."""
+    if not args.no_login and (not shutil.which("claude") or not sys.stdin.isatty()):
+        print(f"logging in needs a terminal you can type into. From one, run:\n\n"
+              f"  ocp account add {args.name}\n", file=sys.stderr)
+        return 1
+    if not args.no_login:
+        print("use an Anthropic account no other account here uses. "
+              "Finish the login in claude, then exit it (/exit) to come back.\n")
+    ok, msg = accounts.add_account(args.name, _run_claude, no_login=args.no_login)
+    print(msg, file=None if ok else sys.stderr)
+    return 0 if ok else 1
+
+
+def cmd_account_remove(args) -> int:
+    """Log an account out and take it off the roster."""
+    def confirm() -> bool:
+        if args.yes:
+            return True
+        if not sys.stdin.isatty():
+            print("refusing without a terminal to confirm in - pass --yes", file=sys.stderr)
+            return False
+        return input(f"remove account '{args.name}'? type its name to confirm: "
+                     ).strip() == args.name
+
+    con = db.connect()
+    try:
+        ok, msg = accounts.remove_account(args.name, confirm, _run_claude, con)
+    finally:
+        con.close()
+    print(msg, file=None if ok else sys.stderr)
+    return 0 if ok else 1
 
 
 def cmd_account_list(args) -> int:
@@ -149,7 +189,7 @@ def cmd_account_list(args) -> int:
 def cmd_agent_register(args) -> int:
     if args.account not in paths.list_accounts():
         print(f"warning: account '{args.account}' is not registered yet. "
-              f"Run `ocp account register {args.account}` first.")
+              f"Run `ocp account add {args.account}` first.")
     d = agents.register(args.name, args.account, role=args.role, model=args.model,
                         effort=args.effort, weight=args.weight, role_file=args.role_file,
                         repo=args.repo)
@@ -1065,6 +1105,15 @@ def build_parser() -> argparse.ArgumentParser:
     p.set_defaults(fn=cmd_login)
 
     acc = sub.add_parser("account", help="accounts").add_subparsers(dest="sub", required=True)
+    p = acc.add_parser("add", help="register an account and log it in")
+    p.add_argument("name")
+    p.add_argument("--no-login", action="store_true",
+                   help="register only; log in later with `ocp login <name>`")
+    p.set_defaults(fn=cmd_account_add)
+    p = acc.add_parser("remove", help="log an account out and take it off the roster")
+    p.add_argument("name")
+    p.add_argument("--yes", action="store_true", help="do not ask to confirm")
+    p.set_defaults(fn=cmd_account_remove)
     p = acc.add_parser("register", help="create the account dir and link it to shared")
     p.add_argument("name")
     p.add_argument("--force", action="store_true", help="replace existing files with links")
