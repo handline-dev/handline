@@ -419,6 +419,28 @@ def _record_terminal(agent: str, acct: str | None = None, fp: str | None = None)
                 spawn.register_worker(con, agent, handle)
                 db.set_launch_fingerprint(con, agent, fp)
             if acct:
+                # Every path that starts a session passes through here, so
+                # this is the one place a landing account differing from the
+                # last one is ever seen - and the one place to carry what
+                # that last session had learned along with it, before
+                # `set_account` overwrites the record. Read the row directly
+                # rather than through `current_account`: an agent that has
+                # never run has no account to migrate anything from, and its
+                # preference is not one just because nothing else is on
+                # record.
+                prev_row = db.get_agent_state(con, agent)
+                previous = prev_row["account"] if prev_row else None
+                if previous and previous != acct:
+                    repo = agents.repo_of(agent)
+                    project = accounts.memory_project_dir(repo) if repo else None
+                    try:
+                        carried = accounts.migrate_memory(previous, acct, project=project)
+                        db.add_event(con, agent, "memory_migrated",
+                                     {"from": previous, "to": acct, "carried": carried})
+                    except Exception as e:  # noqa: BLE001 - record it, keep launching
+                        db.add_event(con, agent, "memory_migrated",
+                                     {"from": previous, "to": acct,
+                                      "error": f"{type(e).__name__}: {e}"})
                 db.set_account(con, agent, acct)
         finally:
             con.close()
