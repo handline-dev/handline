@@ -358,6 +358,11 @@ class AccountStatus:
                 or self.pct_5h is None or not self.pct_5h_readable):
             return False, ""
         now = time.time()
+        # Well-formed data cannot have reset_5h ahead of us while the snapshot
+        # itself is already older than a window is wide - only a rewound clock
+        # or a hand-edited file gets here, and that is not idle, it is unknown.
+        if self.age_s is not None and self.age_s >= 5 * 3600:
+            return False, ""
         if not self.reset_5h or self.reset_5h <= now:
             return False, ""  # rolled_over's case, not this one
         last = self.last_known()
@@ -785,8 +790,16 @@ def pick_account(candidates: list[str] | None = None, bootstrap: bool = False,
             else:
                 reasons.append((n, why))
             continue
-        # A stale account whose window has rolled over reads as a fresh one.
-        pct = st.trusted_pct_5h if st.trusted_pct_5h is not None else 0
+        # A stale account whose window has rolled over reads as a fresh one; a
+        # stale account still inside its window is judged on the floor it was
+        # admitted on, not on a fill of 0 - that would prefer the account we
+        # cannot see over one we can see has real room.
+        if st.trusted_pct_5h is not None:
+            pct = st.trusted_pct_5h
+        elif st.idle_floor()[0]:
+            pct = st.pct_5h
+        else:
+            pct = 0
         no_room, lasts = _no_room(st, ld, None if st.rolled_over()[0] else pct)
         if no_room:
             reasons.append((n, no_room))

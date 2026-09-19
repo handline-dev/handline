@@ -7490,6 +7490,26 @@ def test_a_stale_snapshot_shows_its_last_figures_and_still_is_offered(home: Path
     check("stale: and a passed weekly reset", "7d 20% (reset since)" in why, why)
 
 
+def test_pick_account_judges_an_idle_account_on_its_floor_not_on_zero(home: Path) -> None:
+    """A stale-but-idle account is admitted on its last figure, and must be
+    ranked on that figure - not on an assumed-empty window, which would prefer
+    an account we cannot see over one we can see has real room."""
+    _daemon_home(home, 20)
+    _with_accounts("alpha", "beta")
+    now = int(time.time())
+    write_status(home, "alpha", pct_5h=87, pct_7d=10, reset_5h=now + 1800,
+                 reset_7d=now + 86400)
+    write_status(home, "beta", pct_5h=87, pct_7d=10, reset_5h=now + 1800,
+                 reset_7d=now + 86400, collected_at=now - 3600)
+    check("pick: a fresh reading at 87% is refused (too little stretch left)",
+          status.pick_account(["alpha"], load={})[0] is None)
+    picked, reasons = status.pick_account(["alpha", "beta"], load={})
+    check("pick: the stale account is judged on its floor, not a fill of 0 - "
+          "it is refused for the same reason the fresh one is",
+          picked is None, str(reasons))
+
+
+
 def test_a_sweep_after_a_move_does_not_keep_the_old_accounts_session(home: Path) -> None:
     """keeper 09-19 15:45: moved gamma -> alpha, and eight seconds later the
     sweep recorded it closed with the gamma session id, which alpha cannot resume."""
@@ -10202,6 +10222,7 @@ def main() -> int:
         run(lambda: test_a_working_agent_is_not_handed_off_on_a_percentage(Path(td) / 'ar3'))
         run(lambda: test_the_cold_start_is_measured_and_sets_how_long_to_wait(Path(td) / 'ar4'))
         run(lambda: test_a_stale_snapshot_shows_its_last_figures_and_still_is_offered(Path(td) / 'ar4c'))
+        run(lambda: test_pick_account_judges_an_idle_account_on_its_floor_not_on_zero(Path(td) / 'idlefloor'))
 
 
         run(lambda: test_a_span_of_a_day_or_more_reads_in_days(Path(td) / 'ar4f'))
