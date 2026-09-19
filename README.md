@@ -132,7 +132,7 @@ fixed line.
 turn that ends on the usage limit, or a reading at 100%, is the wall, and
 nothing is lost there because the transcript keeps the work. An account nobody
 can read is not a wall. At the wall the choice to move is a cost comparison: an
-idle agent stays parked, and so does one whose account resets within T (30
+idle agent stays parked, and so does one whose account resets within T (39
 minutes, then the measured cost of a cold start as a share of a 5h window -
 `measure.py`). Otherwise it moves once, to the account the pick chooses - the
 weekly headroom that expires soonest first - and never back to the one it just

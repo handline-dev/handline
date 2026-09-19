@@ -69,9 +69,9 @@ def active_agents(con, exclude: str | None = None) -> dict[str, int]:
     counts: dict[str, int] = {}
     rows = con.execute(
         "SELECT agent FROM agent_state WHERE closed_at IS NULL AND (state = 'RUNNING' OR "
-        "(state = 'QUEUED' AND EXISTS (SELECT 1 FROM events m WHERE m.agent = agent_state.agent "
+        "EXISTS (SELECT 1 FROM events m WHERE m.agent = agent_state.agent "
         "AND m.kind = 'moved_account' AND m.id > COALESCE((SELECT MAX(s.id) FROM events s "
-        "WHERE s.agent = agent_state.agent AND s.kind = 'Stop'), 0))))").fetchall()
+        "WHERE s.agent = agent_state.agent AND s.kind = 'Stop'), 0)))").fetchall()
     for row in rows:
         if row["agent"] == exclude:
             continue

@@ -7013,7 +7013,7 @@ def test_a_working_agent_is_not_handed_off_on_a_percentage(home: Path) -> None:
 
 def test_the_cold_start_is_measured_and_sets_how_long_to_wait(home: Path) -> None:
     """T is what a cold start spends of the destination's window, measured on
-    starts nothing else was spending on - and 30 minutes until there are three."""
+    starts nothing else was spending on - and 39 minutes until there are three."""
     _daemon_home(home, 20)
     _with_accounts("alpha", "beta")
     con = db.connect()
@@ -7031,34 +7031,34 @@ def test_the_cold_start_is_measured_and_sets_how_long_to_wait(home: Path) -> Non
                          reset_5h=int(time.time()) + 3600)
             measure.settle(con, "backend")
 
-        start(20, 33)
+        start(20, 40)
         check("measure: one start is not enough to go on",
               measure.cold_start_pct(con) is None)
-        start(10, 25)
-        start(5, 16)
+        start(10, 30)
+        start(5, 25)
         check("measure: the middle of three starts is the cost",
-              measure.cold_start_pct(con) == 13.0, str(measure.cold_start_pct(con)))
+              measure.cold_start_pct(con) == 20.0, str(measure.cold_start_pct(con)))
         check("measure: T is that share of a 5h window", 
-              triggers.stay_within_s(13.0) == 39 * 60)
+              triggers.stay_within_s(20.0) == 60 * 60 and triggers.stay_within_s(None) == 39 * 60)
 
         # A start with another agent spending on the account is not measured.
         start(30, 0, others=1)
         check("measure: a start that something else was spending beside is discarded",
               db.get_meta(con, "coldstart:backend") is None)
 
-        # And T is what the decision uses: an account resetting in 35 minutes is
-        # not worth a start at 13% (39 minutes) but is at the 30-minute default.
+        # And T is what the decision uses: an account resetting in 50 minutes is
+        # worth waiting for at 20% (60 minutes) but not at the 39-minute default.
         db.set_agent_state(con, "busy", dmn.IDLE)
         agents.register("keeper", "alpha")
         db.set_account(con, "keeper", "alpha")
         db.add_request(con, "marina", "keeper", "carry on", None, "peer", "async", None, 0, None)
         now = int(time.time())
-        write_status(home, "alpha", pct_5h=100, pct_7d=10, reset_5h=now + 35 * 60,
+        write_status(home, "alpha", pct_5h=100, pct_7d=10, reset_5h=now + 50 * 60,
                      reset_7d=now + 86400)
         write_status(home, "beta", pct_5h=10, pct_7d=10, reset_5h=now + 3600,
                      reset_7d=now + 86400)
         dest, why = dmn._move_plan(con, "keeper", "usage")
-        check("measure: the measured T keeps it waiting", dest is None and "39m" in why, why)
+        check("measure: the measured T keeps it waiting", dest is None and "60m" in why, why)
     finally:
         con.close()
 
