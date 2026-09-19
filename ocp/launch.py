@@ -21,6 +21,7 @@ import os
 import shutil
 import sys
 import time
+from pathlib import Path
 from dataclasses import dataclass
 
 from . import accounts, agents, db, paths, status, triggers
@@ -333,15 +334,40 @@ def drifted(agent: str, row) -> bool:
     return fingerprint(agent) != row["launch_fingerprint"]
 
 
-def exec_agent(agent: str, extra: list[str] | None = None, force: bool = False) -> None:
-    argv, env = build(agent, extra, force)
-    # The handoff `build` put in the system prompt is now the session's, so a
-    # record still on the row means one nobody has been handed.
-    con = db.connect()
+def take_prompt(path: str | None) -> str | None:
+    """Read and remove a prompt file the daemon left for this launch.
+
+    Removed as it is read, so a launch that dies before this point leaves a
+    file no later launch will pick up: a prompt belongs to one launch.
+    """
+    if not path:
+        return None
+    p = Path(path)
     try:
-        db.set_handoff(con, agent, None)
-    finally:
-        con.close()
+        text = p.read_text()
+        p.unlink()
+    except OSError:
+        return None
+    return text or None
+
+
+def exec_agent(agent: str, extra: list[str] | None = None, force: bool = False,
+               prompt_file: str | None = None) -> None:
+    prompt = take_prompt(prompt_file)
+    argv, env = build(agent, list(extra or []), force)
+    if prompt:
+        argv.append(prompt)
+    if not prompt_file:
+        # A launch nobody is waiting on consumed the handoff `build` put in the
+        # system prompt, so a record still on the row means one nobody was
+        # handed. The daemon's own wake passes a prompt file and clears the row
+        # itself once the session has started, because a launch that dies must
+        # leave it for the fallback launch.
+        con = db.connect()
+        try:
+            db.set_handoff(con, agent, None)
+        finally:
+            con.close()
     _record_terminal(agent, env.get("OCP_ACCOUNT"), fingerprint(agent))
     sys.stdout.flush()
     os.execve(argv[0], argv, env)

@@ -10,6 +10,7 @@ import json
 import os
 import pty
 import select
+import shlex
 import signal
 import subprocess
 import sys
@@ -35,7 +36,7 @@ PASS, FAIL = [], []
 # once, put back by _daemon_home, so no test inherits another's world.
 REAL_ORCA = {n: getattr(orcamod, n) for n in (
     "available", "alive", "live_terminals", "wait_idle", "idle_now", "send",
-    "clear_context", "close_session", "relaunch", "resume_with")}
+    "clear_context", "close_session", "relaunch", "resume_with", "modal_open")}
 REAL_OBSERVE = {n: getattr(obsmod, n) for n in ("live_sessions", "live_terminals")
                 if hasattr(obsmod, n)}
 
@@ -43,6 +44,8 @@ REAL_OBSERVE = {n: getattr(obsmod, n) for n in ("live_sessions", "live_terminals
 def restore_world() -> None:
     for n, f in REAL_ORCA.items():
         setattr(orcamod, n, f)
+    # No screen to read in a fixture; a test about a modal says so itself.
+    orcamod.modal_open = lambda handle: False
     for n, f in REAL_OBSERVE.items():
         setattr(obsmod, n, f)
     # Readings that outlive the tick or the frame by design, so one test's
@@ -64,10 +67,20 @@ def relaunching_send(sent: list, table: dict[str, int]) -> object:
         sent.append(text)
         if " launch " in text:
             table[text.split(" launch ")[1].split()[0]] = 4242
+            # The wake prompt rides the launch as a file the launch reads, not
+            # as a line typed afterwards; listed here as what the session is
+            # handed on start, so tests can assert on what it was told.
+            if "--prompt-file " in text:
+                sent.append(Path(shlex.split(text.split("--prompt-file ")[1])[0]).read_text())
         elif text == "/exit":
             table.clear()       # one terminal, one agent, in every fixture here
         return True, ""
     return send
+
+
+def launched_prompt(command: str) -> str:
+    """The first prompt a launch command hands its session."""
+    return Path(shlex.split(command.split("--prompt-file ")[1])[0]).read_text()
 
 
 def sessions_are(*agents: str) -> dict[str, int]:
@@ -2148,9 +2161,13 @@ def test_an_idle_close_keeps_a_handoff_only_if_it_closed(home: Path) -> None:
         os.execve = lambda *a, **k: None
         launch._record_terminal = lambda *a, **k: None
         try:
+            launch.exec_agent("backend", prompt_file=str(home / "no-such-prompt"))
+            kept = db.get_handoff(con, "backend")
             launch.exec_agent("backend")
         finally:
             launch.build, os.execve, launch._record_terminal = realb, realx, realr
+        check("close: a daemon wake's launch leaves the record for its fallback launch",
+              "sess-R1" in (kept or ""), str(kept))
         db.set_agent_state(con, "backend", dmn.IDLE)
         dmn._close_agent(con, "backend", lambda _m: None, st)
         check("close: after a launch handed the record over, the close takes its own",
@@ -2636,7 +2653,7 @@ def test_idle_session_is_closed_and_resumed(home: Path) -> None:
               "--resume sess-1" in launched[0], launched[0] if launched else "")
         row = db.get_agent_state(con, "backend")
         check("wake: the closed mark is cleared", row["closed_at"] is None)
-        told = sent[-1][1]
+        told = launched_prompt(launched[0])
         check("wake: a resumed agent is told nothing was lost", "Nothing was lost" in told, told[:120])
         check("wake: and where its own record is", "/tmp/sess-1.jsonl" in told)
         check("wake: with the warning that reading it whole undoes the point",
@@ -2644,6 +2661,163 @@ def test_idle_session_is_closed_and_resumed(home: Path) -> None:
     finally:
         orcamod.alive, orcamod.wait_idle, orcamod.send, orcamod.available = real
         con.close()
+
+
+def _session_file(home: Path, session: str) -> None:
+    d = home / "agents" / "backend"
+    d.mkdir(parents=True, exist_ok=True)
+    (d / "status.json").write_text(json.dumps({
+        "account": "alpha", "collected_at": int(time.time()),
+        "session_id": session, "pct_5h": 20}))
+
+
+def test_a_delivery_belongs_to_the_session_it_was_typed_into(home: Path) -> None:
+    """The head is told once - to one session. A replacement that started
+    fresh has read nothing, so it is told again; a resume keeps its id and is
+    not."""
+    _daemon_home(home, 20)
+    con = db.connect()
+    sent: list[str] = []
+    try:
+        orcamod.available = lambda: True
+        orcamod.live_terminals = lambda: {"term_x"}
+        orcamod.alive = lambda h: True
+        orcamod.idle_now = lambda h: True
+        orcamod.send = lambda h, text, enter=True: (sent.append(text), (True, ""))[1]
+        sessions_are("backend")
+        db.set_terminal(con, "backend", "term_x", "wt")
+        db.set_agent_state(con, "backend", dmn.IDLE)
+        db.add_request(con, "reviewer", "backend", "look at this", None,
+                       "peer", "async", None, 0, None)
+
+        _session_file(home, "sess-A")
+        check("session: the head is told to session A",
+              dmn.deliver_queued(con, "backend", lambda _m: None))
+        sent.clear()
+        check("session: and not again while A is the session",
+              not dmn.deliver_queued(con, "backend", lambda _m: None) and not sent)
+
+        _session_file(home, "sess-B")
+        check("session: a fresh session B is told the same head",
+              dmn.deliver_queued(con, "backend", lambda _m: None) and "look at this" in sent[-1],
+              str(sent))
+        sent.clear()
+        check("session: and B is not told twice",
+              not dmn.deliver_queued(con, "backend", lambda _m: None) and not sent)
+
+        # A resume of B keeps B's id: a new process, the same session.
+        sessions_are()
+        sessions_are("backend")
+        check("session: a resume of the same session is not told again",
+              not dmn.deliver_queued(con, "backend", lambda _m: None) and not sent)
+
+        # An id nobody can read is not a difference.
+        (home / "agents" / "backend" / "status.json").unlink()
+        check("session: an unreadable id re-tells nothing",
+              not dmn.deliver_queued(con, "backend", lambda _m: None) and not sent)
+    finally:
+        con.close()
+
+
+def test_nothing_is_typed_at_a_modal(home: Path) -> None:
+    """Claude Code opens modals of its own at start; a typed line plus Enter
+    answers whichever option is highlighted."""
+    _daemon_home(home, 20)
+    con = db.connect()
+    sent: list[str] = []
+    try:
+        orcamod.available = lambda: True
+        orcamod.live_terminals = lambda: {"term_x"}
+        orcamod.alive = lambda h: True
+        orcamod.idle_now = lambda h: True
+        orcamod.send = lambda h, text, enter=True: (sent.append(text), (True, ""))[1]
+        sessions_are("backend")
+        db.set_terminal(con, "backend", "term_x", "wt")
+        db.set_agent_state(con, "backend", dmn.IDLE)
+        db.add_request(con, "reviewer", "backend", "look at this", None,
+                       "peer", "async", None, 0, None)
+        orcamod.modal_open = lambda h: True
+        check("modal: a waiting request is not typed at an open modal",
+              not dmn.deliver_queued(con, "backend", lambda _m: None) and not sent, str(sent))
+        orcamod.modal_open = lambda h: False
+        check("modal: it is told once the modal is gone",
+              dmn.deliver_queued(con, "backend", lambda _m: None))
+
+        # The reader itself, against what Orca returns.
+        orcamod.modal_open = REAL_ORCA["modal_open"]
+        screen = {"ok": True}
+        def fake_run(args, timeout=180):
+            return screen["ok"], json.dumps({"result": {"terminal": {
+                "tail": screen["tail"], "source": screen.get("source", "screen")}}})
+        real_run = orcamod._run
+        orcamod._run = fake_run
+        try:
+            screen["tail"] = ["Teach auto mode about your environment?", "Enter to confirm · Esc to cancel"]
+            check("modal: the auto-mode prompt is read as a modal", orcamod.modal_open("h"))
+            screen["tail"] = ["quoted: Esc to cancel", "old output", "more", "❯ ", "────",
+                              "? for shortcuts"]
+            check("modal: the words higher up in the transcript are not a modal",
+                  not orcamod.modal_open("h"))
+            screen["tail"] = ["❯ "]
+            screen["source"] = "screen-unavailable"
+            check("modal: anything but a rendered screen counts as a modal",
+                  orcamod.modal_open("h"))
+            screen["source"] = "screen"
+            screen["tail"] = ["> "]
+            check("modal: an empty prompt is not", not orcamod.modal_open("h"))
+            screen["tail"] = None
+            check("modal: a screen that cannot be read counts as a modal", orcamod.modal_open("h"))
+        finally:
+            orcamod._run = real_run
+    finally:
+        con.close()
+
+
+def test_a_wake_types_nothing_at_a_shell_when_the_session_dies(home: Path) -> None:
+    """The wake prompt is the session's launch argument. A session that starts
+    and exits before it is ready must leave the shell with only the launch
+    command typed at it, never the prompt."""
+    _daemon_home(home, 20)
+    con = db.connect()
+    sent: list[str] = []
+    resumed_with: list[str] = []
+    try:
+        orcamod.available = lambda: True
+        orcamod.live_terminals = lambda: {"term_x"}
+        orcamod.alive = lambda h: True
+        orcamod.idle_now = lambda h: True
+        orcamod.wait_idle = lambda h, timeout_ms=0: True
+        orcamod.resume_with = lambda h, text: (resumed_with.append(text), (True, ""))[1]
+        table = sessions_are()
+
+        def send(h, text, enter=True):
+            sent.append(text)
+            if " launch " in text:
+                table["backend"] = 4242        # the session starts ...
+                orcamod.send = lambda *a, **k: (sent.append(a[1]), (True, ""))[1]
+            return True, ""
+        orcamod.send = send
+        db.set_terminal(con, "backend", "term_x", "wt")
+        db.set_agent_state(con, "backend", dmn.QUEUED)
+        db.set_closed(con, "backend", "sess-1")
+        ok, why = dmn.wake_agent(con, "backend", lambda _m: None)
+        table.clear()                           # ... and is gone before anything else
+        check("wake: the launch was typed", ok and len(sent) == 1 and " launch " in sent[0],
+              str(sent))
+        check("wake: the prompt rides the launch, not the terminal",
+              "--prompt-file " in sent[0] and not resumed_with, str(sent))
+        check("wake: nothing else reaches the shell", len(sent) == 1, str(sent))
+    finally:
+        con.close()
+
+
+def test_a_launch_takes_its_prompt_once(home: Path) -> None:
+    home.mkdir(parents=True, exist_ok=True)
+    f = home / "p.txt"
+    f.write_text("carry on")
+    check("launch: the prompt file is read", launch.take_prompt(str(f)) == "carry on")
+    check("launch: and removed, so no later launch reads it", not f.exists())
+    check("launch: a missing file is no prompt", launch.take_prompt(str(f)) is None)
 
 
 def test_a_running_agent_is_told_when_work_arrives(home: Path) -> None:
@@ -2807,6 +2981,7 @@ def test_wake_without_a_closed_session_uses_the_handoff(home: Path) -> None:
         orcamod.available = lambda: True
         orcamod.live_terminals = lambda: {"term_x"}
         orcamod.alive = lambda h: True
+        orcamod.idle_now = lambda h: True
         sent: list[str] = []
         orcamod.send = lambda h, text, enter=True: (sent.append(text), (True, ""))[1]
         # Cleared, not closed: the session is still running, which is what
@@ -4022,19 +4197,19 @@ def test_a_wake_is_believed_only_when_a_session_appears(home: Path) -> None:
             sent.append(text)
             if " launch " in text and "--resume" not in text:
                 table.update({"backend": 4242})
-                # What `ocp launch` does: the record goes into the system prompt
-                # and off the row.
-                db.set_handoff(con, "backend", None)
             return True, ""
         orcamod.send = send_launching
         ok, why = dmn.wake_agent(con, "backend", lambda _m: None)
         row = db.get_agent_state(con, "backend")
         check("wake: a resume that starts nothing falls back to a fresh start", ok, why)
         check("wake: and the agent is told there is no handoff behind it",
-              any("could not be resumed" in t for t in sent), str(sent[-1:])[:120])
-        check("wake: and that its handoff is in the system prompt, though the launch "
-              "has already cleared the row",
-              "system prompt above" in sent[-1], str(sent[-1:])[:200])
+              any("could not be resumed" in launched_prompt(t)
+                  for t in sent if "--prompt-file" in t), str(sent[-1:])[:120])
+        check("wake: the record is cleared once the session has started, not by the launch",
+              db.get_handoff(con, "backend") is None)
+        check("wake: and its handoff is in the system prompt",
+              any("system prompt above" in launched_prompt(t)
+                  for t in sent if "--prompt-file" in t), str(sent[-1:])[:200])
         check("wake: the closed mark is cleared once something is running",
               row["closed_at"] is None, str(dict(row)))
 
@@ -4441,14 +4616,14 @@ def test_a_park_that_cannot_be_woken_keeps_its_deadline(home: Path) -> None:
                            detail="parked and closed again")
         db.set_closed(con, "backend", "sess-2")
         hooked = db.connect()
-        real_resume = orcamod.resume_with
-        orcamod.resume_with = lambda h, text: (
-            evmod._mark_activity(hooked, "backend", "UserPromptSubmit"),
-            (True, "injected"))[1]
+        table = sessions_are()
+        launching = relaunching_send(sent, table)
+        orcamod.send = lambda h, text, enter=True: (
+            evmod._mark_activity(hooked, "backend", "UserPromptSubmit")
+            if " launch " in text else None, launching(h, text, enter))[1]
         try:
             dmn.supervise(con, "backend", lambda _m: None, int(time.time()), {}, [])
         finally:
-            orcamod.resume_with = real_resume
             hooked.close()
         row = db.get_agent_state(con, "backend")
         check("park: an agent that has already answered its prompt stays RUNNING",
@@ -8853,6 +9028,7 @@ def test_wake_injects_handoff(home: Path) -> None:
     try:
         orcamod.available = lambda: True
         orcamod.alive = lambda h: True
+        orcamod.idle_now = lambda h: True
         orcamod.resume_with = lambda h, text: (sent.append(text), (True, "handoff injected"))[1]
         # Cleared, not closed - the session is still there to be handed its
         # own record back.
@@ -8927,7 +9103,8 @@ def test_a_drifted_launch_relaunches_instead_of_waking_in_place(home: Path) -> N
               launched and "--resume sess-old" in launched[0], str(launched))
         check("wake: the fresh session is told it was resumed, cleanly - the "
               "same message a closed agent's ordinary wake sends",
-              sent and "Nothing was lost" in sent[-1], str(sent))
+              launched and "Nothing was lost" in launched_prompt(launched[0]), str(launched))
+        check("wake: nothing is typed at the terminal for it", not sent, str(sent))
         check("wake: the relaunch itself is reported as a success", ok, why)
         row = db.get_agent_state(con, "backend")
         check("wake: the row is no longer marked closed once it is running again",
@@ -9836,6 +10013,10 @@ def main() -> int:
         run(lambda: test_reconcile_does_not_clear_closed_at_on_a_failed_wake(Path(td) / 'crashwake'))
         run(lambda: test_work_arriving_wakes_a_closed_agent(Path(td) / 'wakework'))
         run(lambda: test_a_running_agent_is_told_when_work_arrives(Path(td) / 'deliver'))
+        run(lambda: test_a_delivery_belongs_to_the_session_it_was_typed_into(Path(td) / 'sessdeliver'))
+        run(lambda: test_nothing_is_typed_at_a_modal(Path(td) / 'modal'))
+        run(lambda: test_a_wake_types_nothing_at_a_shell_when_the_session_dies(Path(td) / 'shellwake'))
+        run(lambda: test_a_launch_takes_its_prompt_once(Path(td) / 'takeprompt'))
         run(lambda: test_carry_bounds_and_losses(Path(td) / 'carry'))
         run(lambda: test_unobserved_spend_stays_off_unreadable_accounts(Path(td) / 'spend'))
         run(lambda: test_subscription_type_is_recorded_and_cached(Path(td) / 'subtype'))
