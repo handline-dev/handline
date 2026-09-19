@@ -4742,7 +4742,7 @@ def test_an_agent_can_put_another_one_to_work(home: Path) -> None:
         # answer has no way back at all. reviewer sat that way for a day.
         spawnmod.spawn = fake_spawn
         woken: list = []
-        dmn.wake_agent = lambda con_, a, log_: (woken.append(a), (False, "no terminal to wake"))[1]
+        dmn.wake_agent = lambda con_, a, log_, **kw: (woken.append(a), (False, "no terminal to wake"))[1]
         started.clear()
         agents.register("reviewer", "alpha", repo=str(home / "checkout"))
         db.set_terminal(con, "reviewer", None, None)
@@ -5004,6 +5004,82 @@ def test_an_agent_at_the_wall_moves_to_an_account_with_room(home: Path) -> None:
         (orcamod.available, orcamod.alive, orcamod.close_session, orcamod.relaunch,
          orcamod.clear_context, orcamod.resume_with, orcamod.idle_now,
          dmn.wait_for_session) = real
+        con.close()
+
+
+def test_a_pinned_closed_agent_moves_instead_of_waiting_out_its_window(home: Path) -> None:
+    """Request #156/#165 item 1's unfinished piece, #223: a closed agent's
+    resume id lives under one account's config directory, so the ordinary
+    wake only ever looked at that one account - an agent could sit closed
+    and waiting for its own window while another account had clear room the
+    whole time. keeper's #173 (readiness) was meant to fold this case in,
+    but it was withdrawn (#253), so it is fixed directly in the wake."""
+    _daemon_home(home, 20)
+    accounts.register("beta")
+    agents.register("keeper", "alpha")
+    for acct in ("alpha", "beta"):
+        (home / "accounts" / acct / ".claude").mkdir(parents=True, exist_ok=True)
+        (home / "accounts" / acct / ".claude" / ".credentials.json").write_text("{}")
+    con = db.connect()
+    real = (orcamod.available, orcamod.relaunch, orcamod.resume_with, dmn.wait_for_session)
+    launched: list[str] = []
+    try:
+        db.set_terminal(con, "keeper", "term_x", "wt")
+        db.set_closed(con, "keeper", "sess-old")
+        write_status(home, "alpha", pct_5h=95, pct_7d=5,
+                     reset_5h=int(time.time()) + 1800)
+        write_status(home, "beta", pct_5h=10, pct_7d=5,
+                     reset_5h=int(time.time()) + 1800)
+        orcamod.available = lambda: True
+        orcamod.relaunch = lambda h, cmd, **kw: (launched.append(cmd), (True, "relaunched"))[1]
+        orcamod.resume_with = lambda h, text: (True, "handed back")
+        dmn.wait_for_session = lambda agent, timeout=0: True
+
+        ok, why = dmn._wake_agent(con, "keeper", lambda _m: None, use_model=False)
+        check("pinning: the wake succeeds instead of waiting out alpha's window",
+              ok, why)
+        check("pinning: the relaunch is a fresh start, not --resume on a full account",
+              launched and "--resume" not in launched[-1], str(launched))
+        row = db.get_agent_state(con, "keeper")
+        check("pinning: resume_session is dropped - it belonged to alpha",
+              row["resume_session"] is None, str(dict(row)))
+        moved = [e for e in db.events_after(con, 0, agent="keeper")
+                 if e["kind"] == "moved_account"]
+        check("pinning: the move is on the record",
+              moved and '"from": "alpha"' in moved[-1]["payload"]
+              and '"to": "beta"' in moved[-1]["payload"], str(moved))
+        check("pinning: a handoff was written from what was folded",
+              foldmod.handoff_path("keeper").exists())
+    finally:
+        orcamod.available, orcamod.relaunch, orcamod.resume_with, dmn.wait_for_session = real
+        con.close()
+
+
+def test_a_pinned_agent_stays_pinned_when_nothing_else_has_clear_room(home: Path) -> None:
+    """The rescue only fires when another account genuinely has clear room -
+    with nothing better, the agent still waits out its own window, exactly
+    as before this fix."""
+    _daemon_home(home, 20)
+    accounts.register("beta")
+    agents.register("keeper", "alpha")
+    con = db.connect()
+    real = orcamod.available
+    try:
+        db.set_terminal(con, "keeper", "term_x", "wt")
+        db.set_closed(con, "keeper", "sess-old")
+        write_status(home, "alpha", pct_5h=95, pct_7d=5,
+                     reset_5h=int(time.time()) + 1800)
+        write_status(home, "beta", pct_5h=93, pct_7d=5,
+                     reset_5h=int(time.time()) + 1800)
+        orcamod.available = lambda: True
+        ok, why = dmn._wake_agent(con, "keeper", lambda _m: None, use_model=False)
+        check("pinning: with nothing better, it still waits for its own window",
+              not ok and "alpha" in why and "5h limit" in why, why)
+        row = db.get_agent_state(con, "keeper")
+        check("pinning: resume_session is untouched when nothing rescues it",
+              row["resume_session"] == "sess-old", str(dict(row)))
+    finally:
+        orcamod.available = real
         con.close()
 
 
@@ -6942,6 +7018,10 @@ def main() -> int:
         run(lambda: test_an_agent_can_put_another_one_to_work(Path(td) / 'dispatch'))
         run(lambda: test_weekly_headroom_is_spent_to_its_own_wall(Path(td) / 'sevendaywall'))
         run(lambda: test_an_agent_at_the_wall_moves_to_an_account_with_room(Path(td) / 'moveacct'))
+        run(lambda: test_a_pinned_closed_agent_moves_instead_of_waiting_out_its_window(
+            Path(td) / 'pinned'))
+        run(lambda: test_a_pinned_agent_stays_pinned_when_nothing_else_has_clear_room(
+            Path(td) / 'pinnedstuck'))
         run(lambda: test_choose_account_does_not_bounce_back_to_a_stale_preferred_account(
             Path(td) / 'nobounce'))
         run(lambda: test_move_requires_clear_headroom_not_bare_assignability(

@@ -636,7 +636,7 @@ def _start_for_work(con, agent: str, log) -> str:
     return f"{agent}: could not be started - {said.splitlines()[0]}"
 
 
-def wake_agent(con, agent: str, log) -> tuple[bool, str]:
+def wake_agent(con, agent: str, log, use_model: bool = True) -> tuple[bool, str]:
     """Hand a cleared agent back its own handoff so it can carry on.
 
     This is the other half of the cycle: the agent kept its terminal and its
@@ -647,10 +647,11 @@ def wake_agent(con, agent: str, log) -> tuple[bool, str]:
             # A human's key and a tick can both land here, and this one holds
             # the terminal for as long as a session takes to appear.
             return False, "someone else is typing at this agent; not waking twice"
-        return _wake_agent(con, agent, log)
+        return _wake_agent(con, agent, log, use_model=use_model)
 
 
-def _wake_agent(con, agent: str, log, moved_to: str | None = None) -> tuple[bool, str]:
+def _wake_agent(con, agent: str, log, moved_to: str | None = None,
+                use_model: bool = True) -> tuple[bool, str]:
     """The body of a wake, without the lock. Callers already holding it use this.
 
     `moved_to` names the account this wake is starting the agent on when it is
@@ -680,10 +681,43 @@ def _wake_agent(con, agent: str, log, moved_to: str | None = None) -> tuple[bool
         acct_st = status.read(acct)
         pct = acct_st.trusted_pct_5h
         if pct is not None and pct >= status.PCT_5H_BLOCK:
-            why = (f"account {acct} is at {pct}% of the 5h limit; "
-                   f"not launching until the window rolls over")
-            log(f"  {agent}: {why}")
-            return False, why
+            # Pinning (request #156/#165, item 1's unfinished piece, #223):
+            # `resuming=True` above only ever looks at the account the
+            # resume id lives under, so an agent whose own account hit the
+            # wall waited out its window even with another account sitting
+            # idle beside it - keeper's #173 was meant to fold this in as
+            # one more readiness case, but it was withdrawn, so it is built
+            # directly here instead (#253). The events a fold would read are
+            # durable whether or not the session is live, so they can still
+            # be folded now; losing `--resume` for a session that cannot be
+            # resumed on any other account anyway is the same trade a live
+            # move already makes.
+            rescued = False
+            if session:
+                elsewhere = launch.choose_account(
+                    agent, limit=triggers.HARD_STOP_PCT - triggers.DEFAULT_RESERVE_PCT,
+                    limit_7d=triggers.PCT_7D_HARD_STOP - triggers.DEFAULT_RESERVE_7D_PCT)
+                elsewhere_st = status.read(elsewhere)
+                headroom = elsewhere_st.headroom()
+                headroom7 = elsewhere_st.headroom_7d()
+                rescued = (elsewhere != acct and elsewhere_st.assignable()[0]
+                          and headroom is not None and headroom >= status.MOVE_MIN_HEADROOM_PCT
+                          and (headroom7 is None or headroom7 >= status.MOVE_MIN_HEADROOM_PCT))
+                if rescued:
+                    foldmod.fold(agent, use_model=use_model)
+                    db.set_closed(con, agent, None)
+                    db.add_event(con, agent, "moved_account",
+                                 {"from": acct, "to": elsewhere, "trigger": "pinned"})
+                    log(f"  {agent}: pinned to {acct} at {pct}% - folded and "
+                        f"starting fresh on {elsewhere} instead of waiting out "
+                        f"the window")
+                    session, acct = None, elsewhere
+                    moved_to = elsewhere
+            if not rescued:
+                why = (f"account {acct} is at {pct}% of the 5h limit; "
+                       f"not launching until the window rolls over")
+                log(f"  {agent}: {why}")
+                return False, why
         # The shell is still there; put the agent back into it. Resuming the
         # same session is what makes closing cheap, so it is tried first and
         # a fresh start is the fallback, not the plan.
@@ -1262,7 +1296,7 @@ def supervise(con, agent: str, log, now: int, samples: dict,
         # A parked agent can also be a closed one, and then this wake restores
         # the session - which is the case the gate below exists for.
         restored = bool(row and row["closed_at"])
-        woke, why = wake_agent(con, agent, log)
+        woke, why = wake_agent(con, agent, log, use_model=use_model)
         if restored and not woke:
             # Same rule reconcile's step 2 writes: for an agent whose session
             # was closed, the wake is the whole point of the deadline, and the
@@ -1319,7 +1353,7 @@ def supervise(con, agent: str, log, now: int, samples: dict,
         # brought it back. Without this, nothing in the system ever wakes it.
         answers = db.unannounced_answers(con, agent)
         if waiting or answers:
-            ok, why = wake_agent(con, agent, log)
+            ok, why = wake_agent(con, agent, log, use_model=use_model)
             what = (f"{len(waiting)} waiting request(s)" if waiting
                     else f"{len(answers)} answer(s) it asked for")
             actions.append(f"{agent}: woken for {what}"
