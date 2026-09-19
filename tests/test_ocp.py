@@ -6538,46 +6538,39 @@ def test_an_unknown_reset_does_not_make_the_runway_absurd(home: Path) -> None:
 
 
 def test_the_panels_bounded_cells_fit_their_own_columns(home: Path) -> None:
-    """The invariant auditor asked for, in place of pinning the strings that
-    happened to be the widest at the time (#334/#338/#357/#364 were all this
-    same failure, found one phrase at a time): every cell whose worst case is
-    known must be strictly narrower than the column it is padded to, checked
-    against that worst case rather than against whatever value a test wrote
-    in. A column this holds for can still grow its content; it just cannot
-    grow into its neighbour."""
-    # tui's ACCOUNTS row: bar + pct + one mark, at pct's own extremes.
-    for p in (0, 1, 60, 84, 85, 99, 100, None):
-        five = f"{tui.bar(p)} {tui.pct(p)}%X"
-        seven = f"{tui.bar(p, 5)} {tui.pct(p)}%X"
-        check(f"panel: 5h usage cell fits its 18-wide column at pct={p}",
-              tui.vlen(five) < 18, tui.vlen(five))
-        check(f"panel: 7d usage cell fits its 12-wide column at pct={p}",
-              tui.vlen(seven) < 12, tui.vlen(seven))
-    # countdown(): a 5h window's own bound, and a 7d window's.
-    now = int(time.time())
-    for delta in (0, 1, 59, 5 * 3600 - 1):
-        check(f"panel: a 5h countdown fits its 8-wide column at +{delta}s",
-              tui.vlen(tui.countdown(now + delta)) < 8)
-    for delta in (0, 1, 59, 7 * 24 * 3600 - 1):
-        check(f"panel: a 7d countdown fits its 9-wide column at +{delta}s",
-              tui.vlen(tui.countdown(now + delta)) < 9)
-    # describe_runway(): every branch, at the burns that used to break it.
+    """Every bounded cell of the ACCOUNTS row is strictly narrower than its
+    column. Measured on the cells build() itself draws, at the extremes of
+    every figure they show, against tui.ACCT_W - so a width changed in build()
+    or in a cell's format fails here, and a column can grow its content but
+    never into its neighbour."""
+    # The cells build() draws, from the function build() draws them with, at
+    # the extremes of every figure they show. Nothing here restates a width:
+    # the columns are tui.ACCT_W and the bars are inside account_cells.
     _daemon_home(home, 20)
-    cases = []
-    for reset in (None, now + 6 * 3600, now + 60):
-        for burn in (1e-9, 5e-7, 30 / 3600, 1.0):
-            write_status(home, "alpha", pct_5h=55, pct_7d=10, reset_5h=reset)
-            status.write_burn("alpha", burn, now)
-            cases.append(status.describe_runway(
-                status.runway(status.read("alpha"), status.read_burn("alpha"), now)))
-    write_status(home, "alpha", pct_5h=86, pct_7d=10, reset_5h=now + 6 * 3600)
-    status.write_burn("alpha", 30 / 3600, now)
-    cases.append(status.describe_runway(status.runway(status.read("alpha"),
-                                                        status.read_burn("alpha"), now)))
-    cases.append(status.describe_runway(status.runway(status.read("alpha"), 0.0, now)))
-    cases.append(status.describe_runway(None))
-    for c in cases:
-        check(f"panel: runway phrase {c!r} fits its 16-wide column", tui.vlen(c) < 16)
+    now = int(time.time())
+    check("panel: every provenance mark is one column wide",
+          all(tui.vlen(m) <= 1 for m in status.SOURCE_MARK.values()))
+    drawn: dict[str, list[str]] = {k: [] for k in tui.ACCT_W if k != "name"}
+    resets = (None, now + 1, now + 59, now + 6 * 3600 - 1, now + 7 * 24 * 3600 - 1)
+    for p in (0, 1, 60, 84, 85, 86, 99, 100, None):
+        for reset in resets:
+            for burn in (0.0, 1e-9, 5e-7, 30 / 3600, 1.0):
+                write_status(home, "alpha", pct_5h=p, pct_7d=p,
+                             reset_5h=reset, reset_7d=reset)
+                status.write_burn("alpha", burn, now)
+                st = status.read("alpha")
+                cells = tui.account_cells(st, status.describe_runway(
+                    status.runway(st, status.read_burn("alpha"), now)))
+                for k, c in cells.items():
+                    drawn[k].append(c)
+    check("panel: the cells cover every bounded column",
+          set(tui.ACCT_W) - {"name"} == set(drawn), sorted(drawn))
+    for k, seen in drawn.items():
+        widest = max(seen, key=tui.vlen)
+        check(f"panel: the {k} cell fits its {tui.ACCT_W[k]}-wide column",
+              tui.vlen(widest) < tui.ACCT_W[k], (widest, tui.vlen(widest)))
+    check("panel: an absent runway fits its column",
+          tui.vlen(status.describe_runway(None)) < tui.ACCT_W["runway"])
 
 
 def test_choose_account_does_not_bounce_back_to_a_stale_preferred_account(home: Path) -> None:

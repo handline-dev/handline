@@ -142,6 +142,32 @@ def bar(pct: int | None, width: int = 10) -> str:
     return color + "█" * filled + DIM + "░" * (width - filled) + R
 
 
+# The ACCOUNTS panel's columns: the heading, every row and the overflow test
+# read these, so a width changed here moves all three and one written anywhere
+# else is a bug. Each bounded cell must stay strictly narrower than its column.
+ACCT_W = {"name": 10, "five": 18, "reset5": 8, "seven": 12, "reset7": 9, "runway": 16}
+ACCT_BAR_W = {"five": 10, "seven": 5}
+
+
+def account_cells(st, runway_text: str) -> dict[str, str]:
+    """The bounded cells of an ACCOUNTS row, unpadded and keyed like ACCT_W.
+    The name is free text and is cut to fit where it is drawn."""
+    return {
+        "five": f"{bar(st.trusted_pct_5h, ACCT_BAR_W['five'])} "
+                f"{pct(st.trusted_pct_5h)}%{status.mark(st.pct_5h_source)}",
+        "reset5": countdown(st.reset_5h),
+        # The weekly figure carries its provenance like the 5h one. Drawn
+        # bare, a number from a stale snapshot - or from a week that has since
+        # rolled over - reads as this week's measurement.
+        "seven": f"{bar(st.trusted_pct_7d, ACCT_BAR_W['seven'])} "
+                 f"{pct(st.trusted_pct_7d)}%{status.mark(st.pct_7d_source)}",
+        # The deadline the ordering spends against: when this window's
+        # headroom is lost if nobody uses it.
+        "reset7": countdown(st.reset_7d),
+        "runway": runway_text,
+    }
+
+
 def pct(v: int | None) -> str:
     return "  ?" if v is None else f"{v:>3}"
 
@@ -427,8 +453,11 @@ def build(width: int, sel: dict | None = None,
         # ---- accounts ------------------------------------------------
         acc = Panel("ACCOUNTS", width, focused=panel == ACCOUNTS)
         acc.selected = sel.get(ACCOUNTS)
-        acc.add(f"{DIM}{'':<2}{'account':<10}{'5h usage':<18}{'reset':<8}"
-                f"{'7d':<12}{'7d reset':<9}{'runway (est.)':<16}why{R}", heading=True)
+        w = ACCT_W
+        acc.add(f"{DIM}{'':<2}{'account':<{w['name']}}{'5h usage':<{w['five']}}"
+                f"{'reset':<{w['reset5']}}{'7d':<{w['seven']}}"
+                f"{'7d reset':<{w['reset7']}}{'runway (est.)':<{w['runway']}}why{R}",
+                heading=True)
         # The account with the most headroom: where work goes when an agent's
         # own account is full. Only accounts that can start a session count.
         # Captured whole, not just the pick: this panel says why each one sits
@@ -445,30 +474,18 @@ def build(width: int, sel: dict | None = None,
             why = why_of.get(name, plain_why)
             mark = f"{GRN}✔{R}" if allowed else f"{RED}✘{R}"
             nxt = f"{GRN}{BOLD}>{R} " if name == first else "  "
-            # Show the figure decisions are made on, with a mark saying where
-            # it came from. Drawing a quiet window as "?" while the daemon acts
-            # on 0% is the dashboard and the daemon disagreeing.
-            five = st.trusted_pct_5h
-            src = status.mark(st.pct_5h_source)
             # Every cell is padded on its visible width: the bars carry escape
             # sequences, so a plain :<n counts them and the columns drift out
-            # from under their own headings.
+            # from under their own headings. The figure shown is the one
+            # decisions are made on, with a mark saying where it came from -
+            # a quiet window drawn as "?" while the daemon acts on 0% is the
+            # dashboard and the daemon disagreeing.
+            cells = account_cells(
+                st, status.describe_runway(status.runway(st, status.read_burn(name))))
             acc.add(
                 nxt
-                + padfit(f"{BOLD}{name}{R}", 10)
-                + pad(f"{bar(five)} {pct(five)}%{src}", 18)
-                + pad(countdown(st.reset_5h), 8)
-                # The weekly figure carries its provenance like the 5h one.
-                # Drawn bare, a number from a stale snapshot - or from a week
-                # that has since rolled over - reads as this week's measurement.
-                + pad(f"{bar(st.trusted_pct_7d, 5)} {pct(st.trusted_pct_7d)}%"
-                      f"{status.mark(st.pct_7d_source)}", 12)
-                # The deadline the ordering spends against: when this
-                # window's headroom is lost if nobody uses it.
-                + pad(countdown(st.reset_7d), 9)
-                # An estimate at the burn the daemon measured; blank when the
-                # reading is stale.
-                + pad(status.describe_runway(status.runway(st, status.read_burn(name))), 16)
+                + padfit(f"{BOLD}{name}{R}", w["name"])
+                + "".join(pad(c, w[k]) for k, c in cells.items())
                 + f"{mark} {DIM}{why}{R}",
                 key=name,
             )
