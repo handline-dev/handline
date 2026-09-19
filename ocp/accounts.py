@@ -267,7 +267,9 @@ def migrate_memory(from_acct: str, to_acct: str, project: str | None = None) -> 
             continue
         dst_mem = paths.account_claude(to_acct) / "projects" / project_dir.name / "memory"
         copied_any = False
-        for f in sorted(src_mem.rglob("*")):
+        # The index is merged against the files' mtimes as they stand before
+        # any copy moves them, so it goes first by rule, not by name order.
+        for f in sorted(src_mem.rglob("*"), key=lambda f: (f.name != "MEMORY.md", str(f))):
             if f.is_symlink() or not f.is_file():
                 continue
             dst_file = dst_mem / f.relative_to(src_mem)

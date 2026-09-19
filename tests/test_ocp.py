@@ -3244,6 +3244,22 @@ def test_migrate_memory_merges_the_index_and_stays_in_scope(home: Path) -> None:
     check("migrate_memory: and the destination's when its file is the newer one",
           both == ["- [both](both.md) - beta's take"], str(both))
 
+    # Files whose names sort before "MEMORY.md" are copied no later than it:
+    # the index must still be judged on the mtimes from before any copy.
+    for name in ("Alpha.md", "2fa.md"):
+        (src / name).write_text("alpha's newer text\n")
+        (dst / name).write_text("beta's older text\n")
+        os.utime(dst / name, (1, 1))
+        os.utime(src / name, (9, 9))
+        link = name[:-3]
+        (dst / "MEMORY.md").write_text((dst / "MEMORY.md").read_text() + f"- [{link}]({name}) - beta's take\n")
+        (src / "MEMORY.md").write_text((src / "MEMORY.md").read_text() + f"- [{link}]({name}) - alpha's take\n")
+    accounts.migrate_memory("alpha", "beta", project=proj)
+    for name in ("Alpha.md", "2fa.md"):
+        got = [ln for ln in (dst / "MEMORY.md").read_text().splitlines() if f"({name})" in ln]
+        check(f"migrate_memory: the newer description wins for {name}, whatever it sorts as",
+              got == [f"- [{name[:-3]}]({name}) - alpha's take"], str(got))
+
     # Newest wins for an ordinary file, in both directions.
     os.utime(src / "new.md", (1, 1))
     (dst / "new.md").write_text("beta edited this later\n")
