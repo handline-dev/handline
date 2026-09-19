@@ -44,18 +44,28 @@ def _save(rows: list[dict]) -> None:
     tmp.replace(p)
 
 
+def _resolved(path) -> str | None:
+    """The canonical form a root is stored and matched under, or None if it
+    cannot be resolved. One function so `is_declared` and `remove` can never
+    disagree about what a root's own spelling is."""
+    try:
+        return str(Path(path).expanduser().resolve())
+    except (OSError, RuntimeError, ValueError):
+        return None
+
+
 def is_declared(path) -> bool:
     """Is `path` inside a root the founder has declared, or one of its worktrees?"""
-    try:
-        target = Path(path).expanduser().resolve()
-    except (OSError, RuntimeError, ValueError):
+    target = _resolved(path)
+    if target is None:
         return False
+    target_p = Path(target)
     for row in list_roots():
-        try:
-            root = Path(row["root"]).expanduser().resolve()
-        except (OSError, RuntimeError, ValueError, KeyError):
+        root = _resolved(row.get("root"))
+        if root is None:
             continue
-        if target == root or root in target.parents:
+        root_p = Path(root)
+        if target_p == root_p or root_p in target_p.parents:
             return True
     return False
 
@@ -98,7 +108,7 @@ def propose(root: str, why: str, requester: str) -> tuple[bool, str]:
     """Ask the founder to add `root` to standing consent. Nothing changes yet."""
     if not (why or "").strip():
         return False, "say why: the founder is deciding, not rubber-stamping"
-    resolved = str(Path(root).expanduser())
+    resolved = _resolved(root) or str(Path(root).expanduser())
     if is_declared(resolved):
         return False, f"{resolved} is already inside a declared root"
     prop = {"id": uuid.uuid4().hex[:8], "root": resolved, "why": why.strip(),
@@ -122,7 +132,7 @@ def _escalation(prop: dict) -> str:
 
 def enact(root: str, why: str) -> tuple[bool, str]:
     """The founder adding a root directly. No proposal to approve."""
-    resolved = str(Path(root).expanduser())
+    resolved = _resolved(root) or str(Path(root).expanduser())
     if is_declared(resolved):
         return False, f"{resolved} is already inside a declared root"
     rows = list_roots()
@@ -158,6 +168,12 @@ def apply(pid: str, con=None) -> tuple[bool, str]:
         if call != "approved":
             return False, (f"#{row['id']} was answered {(verdict or '').strip()[:60]!r}, "
                            f"which is not a decision.")
+        # What gets added is what the founder actually read: the escalation
+        # text is on the request row, and `prop['root']` has to be in it -
+        # this file is written by every agent, and the row is not.
+        if prop["root"] not in (row["body"] or ""):
+            return False, (f"proposal {pid}'s root does not match what #{row['id']} "
+                           f"asked the founder to approve - raise it again")
         rows = list_roots()
         rows.append({"root": prop["root"], "why": prop["why"],
                      "added_by": prop["requested_by"], "added_at": prop["created"]})
@@ -174,9 +190,9 @@ def apply(pid: str, con=None) -> tuple[bool, str]:
 
 def remove(root: str) -> tuple[bool, str]:
     """Take a root off standing consent."""
-    resolved = str(Path(root).expanduser())
+    resolved = _resolved(root) or str(Path(root).expanduser())
     rows = list_roots()
-    kept = [r for r in rows if str(Path(r["root"]).expanduser()) != resolved]
+    kept = [r for r in rows if _resolved(r.get("root")) != resolved]
     if len(kept) == len(rows):
         return False, f"{resolved} is not a declared root"
     _save(kept)

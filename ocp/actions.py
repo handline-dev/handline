@@ -1521,7 +1521,7 @@ def _account_of(agent: str, con=None) -> str | None:
         return None
 
 
-def eligible_worktrees(acct: str) -> tuple[list[tuple[str, str]], list[tuple[str, str]]]:
+def eligible_worktrees() -> tuple[list[tuple[str, str]], list[tuple[str, str]]]:
     """Every registered agent's worktree, split (declared, undeclared).
 
     A y/N that presses "Yes" to whatever it finds means what it says only

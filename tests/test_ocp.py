@@ -1836,6 +1836,40 @@ def test_trust_roots(home: Path) -> None:
     ok, msg = trustmod.remove(str(root))
     check("trust: removing an undeclared root is refused", not ok, msg)
 
+    # note 6 (auditor's #339): is_declared and remove must agree on what a
+    # root's own spelling is, or a symlinked path declared one way is never
+    # removable the other way.
+    real_root = home / "repos" / "real"
+    real_root.mkdir(parents=True, exist_ok=True)
+    link_root = home / "repos" / "linked"
+    link_root.symlink_to(real_root)
+    ok, msg = trustmod.enact(str(link_root), "via a symlink")
+    check("trust: enacted through a symlinked spelling", ok, msg)
+    check("trust: stored under the resolved (real) path",
+          trustmod.list_roots()[-1]["root"] == str(real_root.resolve()),
+          trustmod.list_roots()[-1])
+    ok, msg = trustmod.remove(str(link_root))
+    check("trust: removed through the same symlinked spelling", ok, msg)
+    check("trust: gone, checked either way",
+          not trustmod.is_declared(real_root) and not trustmod.is_declared(link_root))
+
+    # note 7 (auditor's #339): apply refuses a proposal whose root was
+    # changed after the founder approved a (different) one.
+    ok, msg = trustmod.propose(str(home / "repos" / "fourth"), "for a test",
+                               requester="backend")
+    check("trust: the fourth proposal went through", ok, msg)
+    pid4 = trustmod.listing()[-1]["id"]
+    rid4 = trustmod.listing()[-1]["request"]
+    askmod.resolve(rid4, "approve")
+    tampered = trustmod.load_proposal(pid4)
+    tampered["root"] = str(home / "repos" / "not-what-was-approved")
+    trustmod._save_proposal(tampered)
+    ok, msg = trustmod.apply(pid4)
+    check("trust: apply refuses a root that does not match what was approved",
+          not ok, msg)
+    check("trust: and nothing is declared from it",
+          not trustmod.is_declared(home / "repos" / "not-what-was-approved"))
+
 
 def test_ocp_trust_cli_is_wired(home: Path) -> None:
     """`ocp trust add/list/remove` reach the same trust.py the daemon reads,
@@ -1885,7 +1919,7 @@ def test_eligible_worktrees_splits_declared_from_not(home: Path) -> None:
         con.close()
     trustmod.enact(str(home / "declared"), "test root")
 
-    declared, skipped = actions.eligible_worktrees("gamma")
+    declared, skipped = actions.eligible_worktrees()
     check("eligible: the declared worktree is offered",
           declared == [("backend", str(wt_in))], declared)
     check("eligible: the undeclared one is only reported as skipped",
@@ -7648,6 +7682,51 @@ def test_a_withdraw_landing_before_the_send_stops_the_send(home: Path) -> None:
               db.get_request(con, rid)["delivered_at"] is None)
     finally:
         orcamod.send = real
+        con.close()
+
+
+def test_the_daemon_never_types_into_a_trust_prompt_via_deliver(home: Path) -> None:
+    """Blocking problem from auditor's #339: `deliver_queued`/`_tell` and
+    `deliver_answers` gate on `session_present`/`idle_now` alone, and a
+    session sitting at claude's folder-trust dialog reads as both present
+    and idle. Neither path may type into it, mark a request delivered, or
+    mark an answer announced underneath a dialog nobody actually read."""
+    _daemon_home(home, 20)
+    con = db.connect()
+    sent: list[str] = []
+    real = (orcamod.send, orcamod.alive, orcamod.idle_now, orcamod.available,
+            orcamod.trust_prompt_showing)
+    try:
+        orcamod.available = lambda: True
+        orcamod.alive = lambda h: True
+        orcamod.idle_now = lambda h: True
+        orcamod.send = lambda h, text, enter=True: (sent.append(text), (True, ""))[1]
+        orcamod.trust_prompt_showing = lambda h: True
+        sessions_are("backend")
+
+        rid = db.add_request(con, "reviewer", "backend", "look at this", None,
+                             "peer", "fire_and_forget", None, 0, None)
+        ok = dmn.deliver_queued(con, "backend", lambda _m: None)
+        check("deliver_queued: nothing is typed into a trust dialog",
+              not ok and not sent, str(sent))
+        check("deliver_queued: the row is not marked delivered underneath it",
+              db.get_request(con, rid)["delivered_at"] is None)
+        check("deliver_queued: the agent is stalled and escalated instead, "
+              "the same fail-closed default the wake path takes",
+              db.get_agent_state(con, "backend")["state"] == dmn.STALLED)
+
+        db.set_agent_state(con, "backend", dmn.IDLE, detail="reset for the next case")
+        rid2 = db.add_request(con, "backend", "reviewer", "spec?", None,
+                              "peer", "async", None, 0, None)
+        askmod.resolve(rid2, "yes")
+        ok = dmn.deliver_answers(con, "backend", lambda _m: None)
+        check("deliver_answers: nothing is typed into a trust dialog either",
+              not ok and not sent, str(sent))
+        check("deliver_answers: the answer is not marked announced underneath it",
+              rid2 in [r["id"] for r in db.unannounced_answers(con, "backend")])
+    finally:
+        (orcamod.send, orcamod.alive, orcamod.idle_now, orcamod.available,
+         orcamod.trust_prompt_showing) = real
         con.close()
 
 
@@ -19614,6 +19693,54 @@ def test_orca_idle_parsing() -> None:
         orcamod._run = real
 
 
+# A real `orca terminal read --screen --json` capture (auditor's #339
+# should-fix 3): a throwaway session started under an account no agent
+# runs on, in a scratch directory outside any declared root, before any
+# key was sent. The path is wrapped at terminal width with no separator,
+# split across two lines by "Accessing workspace:".
+LIVE_TRUST_PROMPT_CAPTURE = "\n".join([
+    " ron@Ron-MacBookAir  ~/orca/workspaces/orcapipe/keeper-2   buddyron/trust-screen  "
+    "cd '/private/tmp/claude-501/-Users",
+    "-ron-orca-workspaces-orcapipe-keeper-2/592b2fde-6685-4f79-b057-8931a4b64d3a/"
+    "scratchpad/trust-probe' && CLAUDE_CONFIG_DIR",
+    "=/Users/ron/.orcapipe/accounts/gamma/.claude claude",
+    "─" * 124,
+    " Accessing workspace:",
+    " /private/tmp/claude-501/-Users-ron-orca-workspaces-orcapipe-keeper-2/"
+    "592b2fde-6685-4f79-b057-8931a4b64d3a/scratchpad/t",
+    " rust-probe",
+    " Quick safety check: Is this a project you created or one you trust? (Like your "
+    "own code, a well-known open source",
+    " project, or work from your team). If not, take a moment to review what's in "
+    "this folder first.",
+    " Claude Code'll be able to read, edit, and execute files here.",
+    " Security guide",
+    " ❯ No, exit",
+    "   Yes, I trust this folder",
+    " Enter to confirm · Esc to cancel",
+])
+LIVE_TRUST_PROMPT_FOLDER = (
+    "/private/tmp/claude-501/-Users-ron-orca-workspaces-orcapipe-keeper-2/"
+    "592b2fde-6685-4f79-b057-8931a4b64d3a/scratchpad/trust-probe")
+
+
+def test_trust_prompt_folder_parses_a_live_capture() -> None:
+    """auditor's #339 should-fix 3: `trust_prompt_folder` is what blocker 2's
+    whole fix rests on, and nothing pinned its join-bare, wrapped-path
+    behaviour against a real screen - only a synthetic one-liner. A parse
+    that silently comes out wrong fails closed (escalate + STALLED), so a
+    quiet regression here stalls every agent in a declared root."""
+    check("trust_prompt_folder: the wrapped path is joined bare, no space",
+          orcamod.trust_prompt_folder(LIVE_TRUST_PROMPT_CAPTURE) == LIVE_TRUST_PROMPT_FOLDER,
+          orcamod.trust_prompt_folder(LIVE_TRUST_PROMPT_CAPTURE))
+    check("trust_prompt_folder: trust_prompt_showing agrees this is the screen",
+          orcamod.TRUST_PROMPT_MARKER in LIVE_TRUST_PROMPT_CAPTURE)
+    check("trust_prompt_folder: no marker at all is None, not a guess",
+          orcamod.trust_prompt_folder("ordinary TUI, nothing to see here") is None)
+    check("trust_prompt_folder: the marker with nothing after it is None too",
+          orcamod.trust_prompt_folder("Accessing workspace:") is None)
+
+
 def test_confirm_trust_presses_down_then_enter() -> None:
     """Request 156 item 1b's two keys, measured against a live prompt (see
     orca.py's own comment on TRUST_PROMPT_DOWN_ARROW): one Down off the
@@ -22205,6 +22332,9 @@ def main() -> int:
         run(lambda: test_a_close_that_will_not_take_is_not_tried_again_every_tick(Path(td) / 'exitretry'))
         run(lambda: test_wake_without_a_closed_session_uses_the_handoff(Path(td) / 'wakeh'))
         run(lambda: test_reconcile_does_not_clear_closed_at_on_a_failed_wake(Path(td) / 'crashwake'))
+        run(lambda: test_a_withdraw_landing_before_the_send_stops_the_send(Path(td) / 'withdrawrace'))
+        run(lambda: test_the_daemon_never_types_into_a_trust_prompt_via_deliver(
+            Path(td) / 'delivertrust'))
         run(lambda: test_work_arriving_wakes_a_closed_agent(Path(td) / 'wakework'))
         run(lambda: test_a_running_agent_is_told_when_work_arrives(Path(td) / 'deliver'))
         run(lambda: test_a_report_to_the_founder_is_not_a_wait(Path(td) / 'fyi'))
@@ -22423,6 +22553,7 @@ def main() -> int:
         run(lambda: test_a_rejected_fold_still_records_what_it_spent(Path(td) / 'spend'))
         run(lambda: test_one_agents_bad_tick_is_not_everyones(Path(td) / 'badtick'))
         run(lambda: test_orca_idle_parsing())
+        run(lambda: test_trust_prompt_folder_parses_a_live_capture())
         run(lambda: test_confirm_trust_presses_down_then_enter())
         run(lambda: test_clear_refuses_mid_turn())
         run(lambda: test_handoff_reclaims_context(Path(td) / 'reclaim'))

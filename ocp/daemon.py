@@ -608,6 +608,13 @@ def notify_cancelled(con, row, verdict: str) -> tuple[bool, str]:
 
 
 def _tell(con, agent: str, head, depth: int, handle: str, log) -> bool:
+    # Before anything else: a session sitting at claude's trust dialog looks
+    # exactly like an idle one to `session_present`/`idle_now`, and typing a
+    # notice into it sends Enter into "No, exit" - the session ends, and
+    # `mark_delivered` below would then be wrong about a request nobody read.
+    ok, _why = _clear_trust_prompt(con, agent, handle, log)
+    if not ok:
+        return False
     more = depth - 1
     body = head["body"] or "(empty)"
     # Capped at 400; `ocp read` has the rest.
@@ -679,6 +686,11 @@ def deliver_answers(con, agent: str, log) -> bool:
     tail = "\nRead one whole with `ocp read <id>`." if cut else ""
     with lock.terminal(agent) as mine:
         if not mine:
+            return False
+        # A dialog reads as idle to the probe above; refuse before
+        # mark_announced would claim a session that never saw this.
+        ok, _why = _clear_trust_prompt(con, agent, handle, log)
+        if not ok:
             return False
         ok, _ = orca.send(
             handle, "Answers to what you asked:\n" + "\n".join(lines) + tail)
@@ -1209,10 +1221,9 @@ def _wake_agent(con, agent: str, log, moved_to: str | None = None) -> tuple[bool
         # the branch above then relaunches it before anything is typed.
         return False, "no session process; not typing the handoff at a shell prompt"
 
-    if orca.trust_prompt_showing(handle):
-        ok, why = _handle_trust_prompt(con, agent, handle, log)
-        if not ok:
-            return False, why
+    ok, why = _clear_trust_prompt(con, agent, handle, log)
+    if not ok:
+        return False, why
 
     if not orca.typeable_now(handle):
         return False, "the session is busy or has a modal open; not typing the handoff"
@@ -1231,6 +1242,17 @@ def _same_path(a: str, b: str) -> bool:
         return False
 
 
+def _clear_trust_prompt(con, agent: str, handle: str, log) -> tuple[bool, str]:
+    """The one gate every path that sends keystrokes into a session must
+    pass through first. A no-op when there is nothing showing; otherwise
+    standing consent (156 1b) or an escalation - never a caller deciding for
+    itself whether the screen is safe to type into.
+    """
+    if not orca.trust_prompt_showing(handle):
+        return True, "clear"
+    return _handle_trust_prompt(con, agent, handle, log)
+
+
 def _handle_trust_prompt(con, agent: str, handle: str, log) -> tuple[bool, str]:
     """Standing consent: press "Yes" only for the folder the dialog itself
     names, and only when that folder is both a declared root and the one on
@@ -1246,6 +1268,10 @@ def _handle_trust_prompt(con, agent: str, handle: str, log) -> tuple[bool, str]:
             or not _same_path(shown, recorded):
         return _escalate_trust_prompt(con, agent, handle, log, shown, recorded)
     ok, why = orca.confirm_trust(handle)
+    # The redraw is not instant; checking on the very next line risks reading
+    # the screen claude was still drawing, and escalating a trust that
+    # actually went through.
+    orca.wait_for_trust_prompt(handle, showing=False)
     if not ok or orca.trust_prompt_showing(handle):
         return _escalate_trust_prompt(con, agent, handle, log, shown, recorded)
     db.add_event(con, agent, "trust_confirmed", {"path": shown})

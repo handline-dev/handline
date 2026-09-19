@@ -2562,7 +2562,7 @@ def _add_account(width: int, height: int, fd, saved, under=None) -> str:
         return msg
     # 156 item 1c, from the screen too: the CLI and the TUI share the one
     # trusting sequence, `actions.trust_worktrees`.
-    declared, skipped = actions.eligible_worktrees(name)
+    declared, skipped = actions.eligible_worktrees()
     if not declared:
         return msg
     listed = ", ".join(f"{a} ({w})" for a, w in declared)

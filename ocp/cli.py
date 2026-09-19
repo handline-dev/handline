@@ -139,7 +139,7 @@ def cmd_account_add(args) -> int:
 
 def _offer_to_trust_worktrees(acct: str, ask) -> None:
     """Ask, listing exactly the worktrees a yes would trust, then do it."""
-    declared, skipped = actions.eligible_worktrees(acct)
+    declared, skipped = actions.eligible_worktrees()
     if not declared:
         if skipped:
             print(f"\n{len(skipped)} agent worktree(s) exist but are outside any "
