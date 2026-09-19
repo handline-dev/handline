@@ -64,8 +64,8 @@ STATE_COLOR = {
 ACCOUNTS, AGENTS, MESSAGES, STUCK = 0, 1, 2, 3
 NAME_W = 22   # fits `└ orcapipe-manager +2`
 # The state cell carries the time an agent is waiting until ("PARKED·closed
-# 12m05"): park, a degraded retry and the await fallback all set one.
-STATE_W = 23
+# 12m05s"): park, a degraded retry and the await fallback all set one.
+STATE_W = 24
 # What an agent *is* - its model, its effort, and one day which tool it is at
 # all - against what is happening to it now. The second wins a narrow screen:
 # the kind of an agent is on its own page too and does not change while anyone

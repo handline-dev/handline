@@ -638,17 +638,17 @@ def read_burn(acct: str, now: float | None = None) -> float | None:
 
 
 def span(secs: float, precise: bool = False) -> str:
-    """A length of time: 6d18h from a day up, 5h03 from an hour, then minutes
-    (`precise` adds the seconds: 12m05). Ages (`ago`) are coarser
-    below a day - 3h, 40m - and call this from a day up, so no surface writes
-    162h."""
+    """A length of time, every form ending in its unit: 6d18h from a day up,
+    5h03m from an hour, then minutes (`precise` adds the seconds: 12m05s).
+    Ages (`ago`) are coarser below a day - 3h, 40m - and call this from a day
+    up, so no surface writes 162h."""
     secs = int(secs)
     if secs >= 86400:
         return f"{secs // 86400}d{(secs % 86400) // 3600}h"
     if secs >= 3600:
-        return f"{secs // 3600}h{(secs % 3600) // 60:02d}"
+        return f"{secs // 3600}h{(secs % 3600) // 60:02d}m"
     if precise:
-        return f"{secs // 60:>2}m{secs % 60:02d}"
+        return f"{secs // 60:>2}m{secs % 60:02d}s"
     return f"{max(1, secs // 60)}m"
 
 

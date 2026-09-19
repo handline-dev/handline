@@ -7737,7 +7737,7 @@ def test_the_runway_is_an_estimate_from_the_daemons_burn(home: Path) -> None:
     check("runway: points left are counted to the wall",
           r and r.left_5h == 45 and r.left_7d == 90, str(r))
     check("runway: time to the wall follows the measured burn",
-          status.describe_runway(r) == "~1h30 to wall", status.describe_runway(r))
+          status.describe_runway(r) == "~1h30m to wall", status.describe_runway(r))
     write_status(home, "alpha", pct_5h=55, pct_7d=10, reset_5h=now + 1800)
     check("runway: a reset before the wall reads 'outlasts reset'",
           status.describe_runway(status.runway(status.read("alpha"),
@@ -7822,7 +7822,7 @@ def test_an_unknown_reset_does_not_make_the_runway_absurd(home: Path) -> None:
     status.write_burn("alpha", 30 / 3600, now)
     r2 = status.runway(status.read("alpha"), status.read_burn("alpha"), now)
     check("runway: an eta safely inside the window is unaffected",
-          not r2.past_reset and status.describe_runway(r2) == "~1h30 to wall",
+          not r2.past_reset and status.describe_runway(r2) == "~1h30m to wall",
           status.describe_runway(r2))
 
 
@@ -8443,25 +8443,39 @@ def test_a_sweep_after_a_move_does_not_keep_the_old_accounts_session(home: Path)
         con.close()
 
 
-def test_a_span_of_a_day_or_more_reads_in_days(home: Path) -> None:
-    """162h20 is 6d18h; under a day the form is unchanged, and the widest day
-    value fits the column every surface draws it in."""
-    check("span: 162h20 reads 6d18h", status.span(162 * 3600 + 20 * 60) == "6d18h",
-          status.span(162 * 3600 + 20 * 60))
-    check("span: 5h03 stays 5h03", status.span(5 * 3600 + 3 * 60) == "5h03")
-    check("span: 24h is the first day", status.span(86400) == "1d0h")
-    check("span: 23h59 stays hours", status.span(86400 - 60) == "23h59")
-    check("span: a runway reads the same way", status.span(6 * 86400 + 23 * 3600) == "6d23h")
+def test_a_span_ends_in_its_unit_and_fits_its_columns(home: Path) -> None:
+    """Every form of a span ends in its unit letter, so "2h40" is never read
+    as 2.40 hours, and the widest of each fits the column it is drawn in."""
+    for secs, precise, want in (
+            (162 * 3600 + 20 * 60, False, "6d18h"), (86400, False, "1d0h"),
+            (5 * 3600 + 3 * 60, False, "5h03m"), (86400 - 60, False, "23h59m"),
+            (3600, False, "1h00m"), (35 * 60 + 12, False, "35m"), (10, False, "1m"),
+            (35 * 60 + 12, True, "35m12s"), (2 * 60 + 5, True, " 2m05s"),
+            (5 * 3600 + 3 * 60, True, "5h03m"), (6 * 86400 + 23 * 3600, True, "6d23h")):
+        got = status.span(secs, precise=precise)
+        check(f"span: {secs}s{' precise' if precise else ''} reads {want!r}", got == want, got)
     check("span: the bridge's age column reads days too", tui.age(162 * 3600 + 20 * 60) == "6d18h"
           and tui.age(3 * 3600 + 100) == "3h", tui.age(162 * 3600 + 20 * 60))
     check("span: and so does the stale line's age", status.ago(162 * 3600 + 20 * 60) == "6d18h"
           and status.ago(3 * 3600) == "3h")
     now = int(time.time())
-    for ts, want in ((now + 6 * 86400 + 23 * 3600 + 30, "6d23h"), (now + 5 * 3600 + 200, "5h03")):
-        cell = tui.countdown(ts)
+    widest = 0
+    for ts, want in ((now + 6 * 86400 + 23 * 3600 + 30, "6d23h"), (now + 5 * 3600 + 200, "5h03m"),
+                     (now + 59 * 60 + 59, "59m59s")):
+        cell = tui.countdown(ts).strip()
+        widest = max(widest, len(cell))
         check(f"span: the bridge countdown says {want}", cell == want, cell)
+    longest_state = max(len(f"{st}·closed") for st in tui.STATE_COLOR)
+    check("span: the widest wait leaves the agents panel's longest state whole",
+          tui.STATE_W - 1 - (widest + 1) >= longest_state, f"{widest} {longest_state}")
     check("span: the widest fits the reset columns",
-          len("6d23h") < tui.ACCT_W["reset5"] and len("6d23h") < tui.ACCT_W["reset7"])
+          widest < tui.ACCT_W["reset5"] and widest < tui.ACCT_W["reset7"], str(widest))
+    # A runway is shown only while the wall comes before the 5h window resets,
+    # so its eta is under five hours.
+    widest_runway = max(len(f"~{status.span(s)} to wall") for s in (
+        5 * 3600 - 1, 3600, 59 * 60))
+    check("span: the widest runway fits its column in the bridge and in `account list`",
+          widest_runway < tui.ACCT_W["runway"] and widest_runway < 16, str(widest_runway))
 
 
 def test_the_cap_is_set_from_the_command_line_and_the_bridge(home: Path) -> None:
@@ -11709,7 +11723,7 @@ def main() -> int:
         run(lambda: test_the_accounts_row_draws_a_last_seen_figure_only_inside_its_window(Path(td) / 'acctrow'))
 
 
-        run(lambda: test_a_span_of_a_day_or_more_reads_in_days(Path(td) / 'ar4f'))
+        run(lambda: test_a_span_ends_in_its_unit_and_fits_its_columns(Path(td) / 'ar4f'))
         run(lambda: test_a_sweep_after_a_move_does_not_keep_the_old_accounts_session(Path(td) / 'ar4e'))
         run(lambda: test_agents_that_wall_together_respect_the_cap_and_a_start_is_not_its_own_rival(Path(td) / 'ar4b'))
         run(lambda: test_the_cap_is_set_from_the_command_line_and_the_bridge(Path(td) / 'ar5'))
