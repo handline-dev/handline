@@ -10677,15 +10677,57 @@ def test_the_messenger_tab_carries_a_conversation_both_ways(home: Path) -> None:
         con.close()
 
 
+def test_a_paste_into_any_prompt_arrives_whole_and_confirms_nothing(home: Path) -> None:
+    """The founder pasted one screen and it arrived as two messages (#684,
+    #686): the prompt sent at the first newline. Through a real pty, so the
+    reading is the screen's own."""
+    import io
+    import pty
+    import tty as ttymod
+    _daemon_home(home, 20)
+    agents.register("reviewer", "alpha")
+    con = db.connect()
+    master, slave = pty.openpty()
+    ttymod.setraw(slave)
+    real_in, real_out = sys.stdin, sys.stdout
+    sys.stdin, sys.stdout = os.fdopen(slave, "r", closefd=False), io.StringIO()
+    try:
+        rid = askmod.ask(actions.HUMAN, "which name?", requester="reviewer")[2]
+        paste = "\033[200~WAITING ON YOU (1)\n\n  #12 keeper: rebase?\r\nlast line\033[201~"
+        os.write(master, (paste + "\r").encode())
+        text = tui._compose(rid, "a", 100, 24, None, None)
+        want = "WAITING ON YOU (1)\n\n  #12 keeper: rebase?\nlast line"
+        check("paste: the answer prompt takes the whole paste", text == want, repr(text))
+        before = con.execute("SELECT COUNT(*) FROM requests").fetchone()[0]
+        actions.answer(con, rid, text)
+        row = db.get_request(con, rid)
+        check("paste: one stored body, byte for byte, no other message",
+              row["verdict"] == want
+              and con.execute("SELECT COUNT(*) FROM requests").fetchone()[0] == before)
+
+        os.write(master, b"\033[200~one\ntwo\033[201~\r")
+        check("paste: a one-line prompt flattens a paste and still needs Enter",
+              tui._line("account:", 100, 24) == "one two")
+        os.write(master, b"\033[200~yes\033[201~\r")
+        check("paste: a paste of 'yes' does not confirm", tui._confirm("remove x", 100, 24) is False)
+        os.write(master, b"\033[200~y\033[201~y")
+        check("paste: a key after a paste still does", tui._confirm("remove x", 100, 24) is True)
+    finally:
+        sys.stdin, sys.stdout = real_in, real_out
+        os.close(master)
+        os.close(slave)
+        con.close()
+
+
 def test_the_composer_takes_a_paste_whole(home: Path) -> None:
     """Enter sends, so a pasted newline must not: the old one-line prompt sent
     the first pasted line and dropped the rest (#193)."""
-    c = tui.Composer()
+    c = tui.Composer(multi=True)
     check("composer: typing", c.feed("hi") is None and c.text == "hi")
     check("composer: a paste keeps its newlines and does not send",
           c.feed("\033[200~a\nb\r\nc\033[201~") is None and c.text == "hia\nb\nc", repr(c.text))
     check("composer: Enter after it sends", c.feed("\r") == "send")
-    c = tui.Composer()
+    c = tui.Composer(multi=True)
     c.feed("\033[20"); c.feed("0~x\ny\033[20"); c.feed("1~")
     check("composer: a marker split across reads is still a marker",
           c.text == "x\ny" and not c.pasting, repr(c.text))
@@ -12686,6 +12728,7 @@ def main() -> int:
         run(lambda: test_a_message_is_read_whole_and_answered_where_it_is_read(Path(td) / 'topread'))
         run(lambda: test_the_messenger_tab_carries_a_conversation_both_ways(Path(td) / 'chat'))
         run(lambda: test_the_composer_takes_a_paste_whole(Path(td) / 'composer'))
+        run(lambda: test_a_paste_into_any_prompt_arrives_whole_and_confirms_nothing(Path(td) / 'pasteany'))
         run(lambda: test_a_key_never_acts_on_a_row_nobody_pointed_at(Path(td) / 'topsel'))
         run(lambda: test_the_frame_never_draws_wider_than_the_terminal(Path(td) / 'topwide'))
         run(lambda: test_the_cursor_walks_the_whole_screen(Path(td) / 'topcur'))

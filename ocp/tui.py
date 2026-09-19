@@ -1156,31 +1156,6 @@ def _key(timeout: float) -> str | None:
     return keys[0]
 
 
-def _line(prompt: str, width: int, height: int) -> str | None:
-    """Read one line with the screen still up. None when the human backs out."""
-    if not sys.stdin.isatty():
-        return None
-    buf = ""
-    while True:
-        sys.stdout.write(f"\033[{height};1H" + CLEAR_EOL
-                         + fit(f"{BOLD}{prompt}{R} {buf}▏", width))
-        sys.stdout.flush()
-        ch = _key(30.0)
-        if ch is None:
-            continue
-        if ch in ("\r", "\n"):
-            return buf
-        if ch == "\033":
-            return None
-        if ch in ("\x7f", "\b"):
-            buf = buf[:-1]
-            continue
-        if ch == "\x03":
-            return None
-        if ch.isprintable():
-            buf += ch
-
-
 # An escape sequence: `esc [` and parameters up to a final byte, or `esc O x`.
 _CSI = re.compile(r"\033(?:\[[0-?]*[ -/]*[@-~]|O.)")
 # What an escape sequence looks like before its final byte has arrived.
@@ -1194,13 +1169,17 @@ class Composer:
     Enter sends, so a newline inside the message cannot be told from Enter -
     except in a bracketed paste, where the terminal says where the pasted text
     begins and ends. Text between those markers is kept whole, newlines
-    included; the line-at-a-time prompt this replaces sent the first pasted line
-    and dropped the rest.
+    included; a paste never sends and never confirms, whatever it contains.
     """
     START, END = "\033[200~", "\033[201~"
 
-    def __init__(self) -> None:
+    def __init__(self, multi: bool = False) -> None:
+        # A prompt that wants one word (an account name, "type its name to
+        # confirm") has no use for a pasted newline, and keeping one would put
+        # a line break inside the answer.
+        self.multi = multi
         self.text, self.pasting, self._carry = "", False, ""
+        self.typed = ""                # what was keyed, as against pasted
 
     def feed(self, data: str) -> str | None:
         """'send', 'cancel', or None while the message is still being typed."""
@@ -1220,7 +1199,7 @@ class Composer:
                 ch, data = data[0], data[1:]
                 if ch == "\r" and data[:1] == "\n":
                     data = data[1:]
-                self.text += "\n" if ch in "\r\n" else ch
+                self.text += ("\n" if self.multi else " ") if ch in "\r\n" else ch
             elif data[0] in "\r\n":
                 return "send"
             elif data[0] == "\033":
@@ -1242,6 +1221,7 @@ class Composer:
                 ch, data = data[0], data[1:]
                 if ch.isprintable():
                     self.text += ch
+                    self.typed += ch
         return None
 
     def shown(self, prompt: str, width: int) -> str:
@@ -1251,28 +1231,36 @@ class Composer:
         return fit(f"{BOLD}{prompt}{R} {more}{last}▏", width)
 
 
-def _lines(prompt: str, width: int, height: int) -> str | None:
-    """A message typed or pasted on the bottom line, whole. None when backed out."""
+def _line(prompt: str, width: int, height: int, multi: bool = False) -> str | None:
+    """Read a message with the screen still up. None when the human backs out.
+
+    Every prompt reads through here, so a paste is one paste in all of them:
+    text arrives whole, and only a key the human presses sends it. `multi` is
+    for prompts whose text goes to an agent; the rest take one line.
+    """
     if not sys.stdin.isatty():
         return None
     fd = sys.stdin.fileno()
-    box = Composer()
+    box = Composer(multi)
     sys.stdout.write(PASTE_ON)
     try:
+        data = "".join(_pending)       # keys already read ahead of this prompt
+        _pending.clear()
         while True:
+            done = box.feed(data) if data else None
+            if done == "cancel":
+                return None
+            if done == "send":
+                return box.text.strip("\n") if multi else box.text.strip()
             sys.stdout.write(f"\033[{height};1H" + CLEAR_EOL + box.shown(prompt, width))
             sys.stdout.flush()
+            data = ""
             if not select.select([fd], [], [], 30.0)[0]:
                 continue
             try:
                 data = os.read(fd, 4096).decode(errors="ignore")
             except OSError:
                 return None
-            done = box.feed(data)
-            if done == "cancel":
-                return None
-            if done == "send":
-                return box.text.strip("\n") or None
     finally:
         sys.stdout.write(PASTE_OFF)
 
@@ -1289,11 +1277,28 @@ def _confirm(what: str, width: int, height: int) -> bool:
                   for i, ln in enumerate(rows))
     sys.stdout.write(out)
     sys.stdout.flush()
-    while True:
-        ch = _key(30.0)
-        if ch is None:
-            continue
-        return ch in ("y", "Y")
+    # Bracketed, so that what is pasted here is not read as keys: a paste with
+    # a "y" in it must not confirm a destructive action.
+    fd = sys.stdin.fileno()
+    box = Composer()
+    sys.stdout.write(PASTE_ON)
+    try:
+        data = "".join(_pending)
+        _pending.clear()
+        while True:
+            if data and box.feed(data) is not None:
+                return False           # Enter or escape is not a yes
+            if box.typed:
+                return box.typed[0] in ("y", "Y")
+            data = ""
+            if not select.select([fd], [], [], 30.0)[0]:
+                continue
+            try:
+                data = os.read(fd, 4096).decode(errors="ignore")
+            except OSError:
+                return False
+    finally:
+        sys.stdout.write(PASTE_OFF)
 
 
 def _suspend(argv: list[str], env: dict, fd, saved) -> tuple[int | None, str]:
@@ -1524,7 +1529,7 @@ def _write_in_thread(detail: dict, k: str, width: int, height: int,
             body = _editor(f"# a message to {name}. Lines starting with # are dropped.\n",
                            fd, saved)
         else:
-            body = _lines(f"to {name}:", width, height)
+            body = _line(f"to {name}:", width, height, multi=True)
         if body is None:
             return detail, _nothing_sent(k)
         said = actions.chat_reply(con, name, body)
@@ -1577,7 +1582,7 @@ def _compose_message(agent: str, label: str, width: int, height: int,
     if label == "editor":
         return _editor(f"# a message to {agent}. Lines starting with # are dropped.\n",
                        fd, saved)
-    return _line(f"message to {agent}:", width, height)
+    return _line(f"message to {agent}:", width, height, multi=True)
 
 
 def _compose(rid: int, key: str, width: int, height: int, fd, saved) -> str | None:
@@ -1585,7 +1590,7 @@ def _compose(rid: int, key: str, width: int, height: int, fd, saved) -> str | No
     if key == "e":
         return _editor(f"# answering #{rid}. Lines starting with # are dropped.\n",
                        fd, saved)
-    return _line(f"answer #{rid}:", width, height)
+    return _line(f"answer #{rid}:", width, height, multi=True)
 
 
 def _nothing_sent(key: str) -> str:
