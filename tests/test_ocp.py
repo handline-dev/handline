@@ -1766,30 +1766,50 @@ def test_one_daemon_is_counted_in_the_process_table(home: Path) -> None:
 
 
 def test_process_env_reads_a_gone_pid_as_unreadable(home: Path) -> None:
-    """auditor's #342 should-fix: `ps` on a gone pid, or another user's
-    process (whose environment it never prints), exits non-zero with empty
-    stdout rather than raising - both must read as unreadable (None), never
-    as "read, but the variable was not set"."""
+    """A process whose environment did not come back is unreadable (None),
+    never "read, but the variable was not set": a gone pid exits non-zero, and
+    another user's process prints its command at rc 0 with no environment, so
+    `ps eww` is byte-identical to `ps ww`."""
     real_run = obsmod.subprocess.run
 
     class FakeResult:
         def __init__(self, rc: int, out: str) -> None:
             self.returncode, self.stdout = rc, out
 
+    def ps(eww: FakeResult, ww: FakeResult):
+        return lambda argv, **k: eww if argv[1] == "eww" else ww
+
+    gone, blank = FakeResult(1, ""), FakeResult(0, "")
+    cmd = FakeResult(0, "/sbin/launchd\n")
+    own = FakeResult(0, "/bin/ocp daemon OCP_HOME=/x\n")
     try:
-        obsmod.subprocess.run = lambda *a, **k: FakeResult(1, "")
+        obsmod.subprocess.run = ps(gone, gone)
         check("process_env: a gone pid is unreadable, not an empty environment",
               obsmod.process_env(999991) is None)
 
-        obsmod.subprocess.run = lambda *a, **k: FakeResult(0, "")
+        obsmod.subprocess.run = ps(blank, blank)
         check("process_env: empty stdout is unreadable even with rc 0",
               obsmod.process_env(999991) is None)
 
-        obsmod.subprocess.run = lambda *a, **k: FakeResult(0, "OCP_HOME=/x\n")
-        check("process_env: a real line still comes through",
-              obsmod.process_env(999991) == "OCP_HOME=/x\n")
+        obsmod.subprocess.run = ps(cmd, cmd)
+        check("process_env: another user's process - command printed, no "
+              "environment - is unreadable",
+              obsmod.process_env(1) is None)
+
+        obsmod.subprocess.run = ps(FakeResult(0, "/x --opt=1\n"),
+                                   FakeResult(0, "/x --opt=1\n"))
+        check("process_env: a command line carrying `=` itself is not an "
+              "environment",
+              obsmod.process_env(1) is None)
+
+        obsmod.subprocess.run = ps(own, FakeResult(0, "/bin/ocp daemon\n"))
+        check("process_env: an environment that came back comes through",
+              obsmod.process_env(999991) == "/bin/ocp daemon OCP_HOME=/x\n")
     finally:
         obsmod.subprocess.run = real_run
+
+    check("process_env: root's launchd (pid 1) is unreadable on this machine",
+          obsmod.process_env(1) is None)
 
 
 def test_two_processes_cannot_both_supervise_one_home(home: Path) -> None:
