@@ -927,19 +927,57 @@ def cmd_withdraw(args) -> int:
     return 0 if ok else 1
 
 
+# A blocking wait polls; these are how often, and for how long by default. Ten
+# minutes is a while to hold a terminal, and an answer that has not come in ten
+# is usually one to go and look at.
+WAIT_POLL_S = 3
+WAIT_DEFAULT_S = 600
+
+
+def _wait_for(check, timeout: int, what: str) -> bool:
+    """Block until `check(con)` is true, or the timeout runs out. True if it came.
+
+    Polling, not a notification: what this waits on is another process writing
+    a row, and sqlite has nowhere to hang a listener. One connection serves the
+    whole wait - `db.connect` runs the schema and its migrations on every call.
+    """
+    deadline = time.time() + timeout
+    con = db.connect()
+    try:
+        while True:
+            if check(con):
+                return True
+            if time.time() >= deadline:
+                print(f"nothing after {timeout}s: {what}", file=sys.stderr)
+                return False
+            time.sleep(WAIT_POLL_S)
+    finally:
+        con.close()
+
+
 def cmd_inbox(args) -> int:
     agent = args.agent or askmod.asking_agent()
     if not agent:
         print("cannot tell whose inbox this is: OCP_AGENT is unset and this is not "
               "an interactive shell. Name the agent.")
         return 1
+    if args.wait:
+        con = db.connect()
+        try:
+            seen = _waiting_ids(con, agent)
+        finally:
+            con.close()
+        if not _wait_for(lambda c: _waiting_ids(c, agent) - seen, args.timeout,
+                         f"nothing new for {agent}"):
+            return 0  # nothing new is an outcome, not a failure
+
     if agent == actions.HUMAN:
         # The human's mailbox is a place you read *and answer* things, and that
         # is the screen: two places to do it is two places to keep in step, and
         # the one you are not looking at is the one holding the escalation. A
         # pipe still gets text - a script asking for the list is not a human
         # asking for somewhere to sit.
-        if sys.stdout.isatty() and not args.all:
+        if sys.stdout.isatty() and not args.all and not args.wait:
             return tui.run()
         return _human_inbox(args.all)
     if args.all:
@@ -1063,6 +1101,32 @@ def cmd_dismiss(args) -> int:
         con.close()
 
 
+# Every state in which no verdict is coming: the three that never reached the
+# target, plus the two that settled one. A wait that does not know them waits
+# out its whole timeout for an answer nobody is going to write.
+SETTLED = ("done", "rejected", *db.NEVER_REACHED_TARGET)
+
+
+def _waiting_ids(con, agent: str) -> set:
+    """The request ids currently on this agent's list, human or not."""
+    if agent == actions.HUMAN:
+        return {m["id"] for m in actions.messages(con)}
+    return {r["id"] for r in askmod.inbox(agent, unread_only=False)
+            if r["state"] not in SETTLED}
+
+
+def _answered(con, request_id: int) -> bool:
+    """Is there anything more to wait for on this row?
+
+    A row that does not exist is answered in the only sense that matters here:
+    waiting ten minutes for a typo'd id helps nobody, and the caller says so.
+    Delivery is not an answer - it is a column, not a state, and it only means
+    the target was told the row exists.
+    """
+    row = db.get_request(con, request_id)
+    return row is None or bool(row["verdict"]) or row["state"] in SETTLED
+
+
 def cmd_read(args) -> int:
     """Print one request whole - what was asked, and what came back.
 
@@ -1074,6 +1138,10 @@ def cmd_read(args) -> int:
     of `ocp inbox`, `ocp digest` and `ocp handoff` - this makes it convenient
     rather than new. Nothing typed into a request is private to two agents.
     """
+    if args.wait and not _wait_for(
+            lambda c: _answered(c, args.id), args.timeout,
+            f"#{args.id} has no answer yet"):
+        return 1
     con = db.connect()
     try:
         row = db.get_request(con, args.id)
@@ -1286,10 +1354,16 @@ def build_parser() -> argparse.ArgumentParser:
     p = sub.add_parser("inbox", help="the one request currently waiting for an agent")
     p.add_argument("agent", nargs="?")
     p.add_argument("--all", action="store_true", help="the whole queue and its history")
+    p.add_argument("--wait", action="store_true", help="block until something new arrives, then print it")
+    p.add_argument("--timeout", type=int, default=WAIT_DEFAULT_S, metavar="SECONDS",
+                   help=f"how long --wait waits before giving up (default {WAIT_DEFAULT_S}s)")
     p.set_defaults(fn=cmd_inbox)
 
     p = sub.add_parser("read", help="print one request whole, with its answer")
     p.add_argument("id", type=int)
+    p.add_argument("--wait", action="store_true", help="block until it has been answered, then print it")
+    p.add_argument("--timeout", type=int, default=WAIT_DEFAULT_S, metavar="SECONDS",
+                   help=f"how long --wait waits before giving up (default {WAIT_DEFAULT_S}s)")
     p.set_defaults(fn=cmd_read)
 
     p = sub.add_parser("resolve", help="close a request with a verdict")
