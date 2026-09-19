@@ -1613,8 +1613,10 @@ def _move_to_room(con, agent: str, trigger: triggers.Trigger, log,
     # RUNNING - a hook that has seen the session is a better witness than
     # `woke`, which only says whether *we* saw it start in time. A `wait_for_
     # session` timeout can read as not-woke while the session is genuinely up.
-    # (Checked again, freshly, right before the write below - a lot of I/O
-    # happens between here and there, and the hook can land in that gap too.)
+    # (The write below is a compare-and-set, not a second read of this same
+    # kind - a lot of I/O happens between here and there, and the hook can
+    # land in that gap too, so a read taken now would be no safer than this
+    # one.)
     if not woke and landed and landed["state"] != RUNNING and landed["closed_at"]:
         # Nothing started, and no hook says otherwise. The session is gone and
         # the row still says closed, so falling through parks it with a
@@ -1651,7 +1653,9 @@ def _move_to_room(con, agent: str, trigger: triggers.Trigger, log,
     # above, and a plain write here would still have a window to clobber it in
     # - the read cannot be trusted a moment after it is taken. False means
     # RUNNING is what is there instead, and the row is left exactly as the
-    # hook set it.
+    # hook set it. Only RUNNING, not STALLED too: a STALLED row already took
+    # the early return above (closed_at is never cleared on the way to it), so
+    # this line is never reached while it stands.
     hook_running = not db.set_state_unless_running(
         con, agent, QUEUED, detail=f"moved {here} -> {there} ({trigger.kind})")
     if hook_running:
