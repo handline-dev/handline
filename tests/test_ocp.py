@@ -11197,6 +11197,109 @@ def test_the_frame_never_draws_wider_than_the_terminal(home: Path) -> None:
         con.close()
 
 
+def test_the_agent_footer_shows_only_what_the_row_can_do(home: Path) -> None:
+    """The footer must never claim a key `actions.can` would then refuse - and
+    must never go quiet just because a key was hidden.
+
+    One state per row of the founder's list (#790): a running agent parks and
+    closes; a parked one wakes; a stalled one unstalls; a closed one only
+    wakes; an agent with no row yet still gets what a never-launched agent can
+    use. Fold and move are gone from every one of them - reached for rarely
+    enough to cost more room than they earn - but a hidden key still does what
+    it always did, because dispatch reads AGENT_KEYS whole and never asks the
+    footer first.
+    """
+    _daemon_home(home, 20)
+    con = db.connect()
+    try:
+        def labels(state=None, closed=False):
+            if state is not None:
+                db.set_agent_state(con, "backend", state)
+            if closed:
+                db.set_closed(con, "backend", None)
+            else:
+                db.clear_closed(con, "backend")
+            return [label for _, label in tui.agent_footer_keys(con, "backend")]
+
+        common = ("open", "terminal", "message", "editor")
+
+        got = labels(dmn.RUNNING)
+        check("footer: a running agent gets only the always-on keys",
+              got == list(common), got)
+
+        got = labels(dmn.PARKED)
+        check("footer: a parked agent adds wake, close and park",
+              set(got) == set(common) | {"wake", "close", "park"}
+              and "unstall" not in got, got)
+
+        got = labels(dmn.STALLED)
+        check("footer: a stalled agent adds only unstall",
+              set(got) == set(common) | {"unstall"}, got)
+
+        got = labels(dmn.PARKED, closed=True)
+        check("footer: a closed agent adds only wake, not close or park",
+              set(got) == set(common) | {"wake"}, got)
+
+        for got in (labels(dmn.RUNNING), labels(dmn.PARKED), labels(dmn.STALLED),
+                    labels(dmn.PARKED, closed=True)):
+            check("footer: fold and move never appear",
+                  "fold" not in got and "move" not in got, got)
+
+        # An agent with no row at all: everything `can` refuses when a row is
+        # missing (editor included - it is not in `can`'s row-is-None allow
+        # list) stays off the footer; `open` is still there, since dispatch
+        # never asks `can` about it.
+        got = [label for _, label in tui.agent_footer_keys(con, "freshone")]
+        check("footer: a never-started agent still offers open, terminal, message",
+              set(got) == {"open", "terminal", "message"}, got)
+
+        # The rendered frame agrees: `?` stands in for what filtering removed,
+        # and a hidden key still reaches `can` when it is pressed.
+        db.set_agent_state(con, "backend", dmn.PARKED)
+        db.clear_closed(con, "backend")
+        sel = {tui.AGENTS: "backend"}
+        text = tui._ANSI.sub("", tui.frame(160, 40, sel, tui.AGENTS))
+        check("footer: the rendered frame carries the filtered keys",
+              "wake" in text and "unstall" not in text and "fold" not in text
+              and "? help" in text, text)
+
+        line, _ = tui._act(tui.AGENTS, sel, "u", 120, 30, None, None)
+        check("footer: a hidden key still gets `can`'s own refusal, not silence",
+              "not STALLED" in line, line)
+        db.set_agent_state(con, "backend", dmn.PARKED)
+        line, _ = tui._act(tui.AGENTS, sel, "f", 120, 30, None, None)
+        check("footer: a hidden-but-applicable key (fold) still reaches the "
+              "confirm step rather than being swallowed",
+              line == "left alone", line)
+
+        line, _ = tui._act(tui.AGENTS, sel, "?", 120, 30, None, None)
+        check("footer: ? names fold and move even though the footer never does",
+              "fold" in line and "move" in line and "open" not in line, line)
+
+        # The agent's own page (opened with ↵) has the same footer line, and
+        # must filter the same way - it is reached directly from this row.
+        db.set_agent_state(con, "backend", dmn.RUNNING)
+        _, detail = tui._act(tui.AGENTS, sel, "\r", 160, 40, None, None)
+        page_text = tui._ANSI.sub("", tui._detail_frame(160, 40, detail))
+        check("detail page: a running agent's page hides close and park too",
+              "c close" not in page_text and "p park" not in page_text
+              and "t terminal" in page_text and "? help" in page_text, page_text)
+        _, said = tui._in_detail(detail, "?", 160, 40, None, None)
+        check("detail page: ? names fold and move there too",
+              "fold" in said and "move" in said, said)
+
+        # STUCK answers to the agent keys too - `build` picks the footer's
+        # agent from `sel[STUCK]` there, the same way it does from
+        # `sel[AGENTS]`, whether or not anything is actually drawn as stuck.
+        db.set_agent_state(con, "backend", dmn.STALLED)
+        _, _, footer_keys = tui.build(160, {tui.STUCK: "backend"}, tui.STUCK)
+        got = [label for _, label in footer_keys]
+        check("footer: STUCK filters by the same agent state as AGENTS",
+              set(got) == {"open", "terminal", "message", "editor", "unstall"}, got)
+    finally:
+        con.close()
+
+
 def test_the_cursor_walks_the_whole_screen(home: Path) -> None:
     """The lists change under the cursor - an agent is registered, a message is
     answered - so moving is defined on what is there now, not on a remembered
@@ -12981,6 +13084,7 @@ def main() -> int:
         run(lambda: test_a_paste_into_any_prompt_arrives_whole_and_confirms_nothing(Path(td) / 'pasteany'))
         run(lambda: test_a_key_never_acts_on_a_row_nobody_pointed_at(Path(td) / 'topsel'))
         run(lambda: test_the_frame_never_draws_wider_than_the_terminal(Path(td) / 'topwide'))
+        run(lambda: test_the_agent_footer_shows_only_what_the_row_can_do(Path(td) / 'topfooter'))
         run(lambda: test_the_cursor_walks_the_whole_screen(Path(td) / 'topcur'))
         run(lambda: test_login_points_at_the_account_and_touches_no_credential(Path(td) / 'login'))
         run(lambda: test_a_fold_with_no_account_says_which_and_why(Path(td) / 'foldacct'))

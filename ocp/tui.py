@@ -109,6 +109,37 @@ MESSAGE_KEYS = [("↵", "read"), ("a", "answer"), ("e", "answer in $EDITOR"),
 STUCK_KEYS = AGENT_KEYS
 CONFIRM = {"close", "park", "unstall", "fold", "cancel"}
 
+# Kept off the footer even when they apply: reached for rarely enough that
+# they cost more room on every row than they earn. Still bound - dispatch
+# reads AGENT_KEYS whole - and named under the `?` the footer adds in their
+# place.
+AGENT_RARE = {"fold", "move"}
+
+
+def agent_footer_keys(con, agent: str | None) -> list[tuple[str, str]]:
+    """Which of AGENT_KEYS belong on the footer for `agent` right now.
+
+    Filtered by `actions.can`, the same check the keypress itself makes, so
+    the footer never offers a key the row would then refuse - and a state it
+    does not name (`agent` is None: nothing is selected, or this is drawn for
+    a page with no single row) falls back to the unfiltered common set rather
+    than showing nothing. `open` is never checked: the panel handles it before
+    consulting AGENT_KEYS at all, so `can` was never asked about it.
+    """
+    common = [(k, label) for k, label in AGENT_KEYS if label not in AGENT_RARE]
+    if agent is None:
+        return common
+    return [(k, label) for k, label in common
+            if label == "open" or actions.can(con, agent, label)[0]]
+
+
+def agent_help_line() -> str:
+    """The full AGENT_KEYS legend, for `?`: what the footer never shows at
+    all (fold, move) and whatever a row's own state hid from it. One place
+    for the three spots that print it, so they cannot drift into naming
+    different keys - the failure the detail-page footer already had once."""
+    return " · ".join(f"{k} {label}" for k, label in AGENT_KEYS if label != "open")
+
 
 def cwidth(ch: str) -> int:
     """How many columns one character takes.
@@ -571,16 +602,26 @@ def wait_lines(waits: list[dict], width: int, budget: int | None = None) -> list
     return out
 
 
-def keybar(panel: int, width: int, hidden: int = 0) -> str:
+def keybar(panel: int, width: int, hidden: int = 0,
+           agent_keys: list[tuple[str, str]] | None = None) -> str:
     """The keys this panel answers to, in as much room as there is.
 
     Half an action's name is worse than no name: `u u…` tells a reader nothing
     and looks like a bug. So the line sheds whole pieces - the navigation
     first, since it is the same on every panel, then keys from the end - and
     says how many it dropped.
+
+    `agent_keys` is `agent_footer_keys`'s output for the row under the cursor,
+    on AGENTS or STUCK: what `build` computed while it still had the row open,
+    so this does not reopen the database to ask the same question again. A `?`
+    is appended there for the keys that filtering never shows at all (fold,
+    move) - the one thing on this line that is not itself an action.
     """
-    keys = {ACCOUNTS: ACCOUNT_KEYS, AGENTS: AGENT_KEYS, MESSAGES: MESSAGE_KEYS,
-            STUCK: STUCK_KEYS}[panel]
+    if agent_keys is not None:
+        keys = agent_keys + [("?", "help")]
+    else:
+        keys = {ACCOUNTS: ACCOUNT_KEYS, AGENTS: AGENT_KEYS, MESSAGES: MESSAGE_KEYS,
+                STUCK: STUCK_KEYS}[panel]
     # A panel that is not drawn and a panel with nothing in it look the same to
     # a reader, so that notice is part of the head and is never what gets
     # dropped to make room.
@@ -609,11 +650,18 @@ def keybar(panel: int, width: int, hidden: int = 0) -> str:
 
 def build(width: int, sel: dict | None = None,
           panel: int | None = None,
-          wait_budget: int | None = None) -> tuple[list[str], list[Panel]]:
-    """Return (header lines, panels) for one frame.
+          wait_budget: int | None = None
+          ) -> tuple[list[str], list[Panel], list[tuple[str, str]] | None]:
+    """Return (header lines, panels, footer agent keys) for one frame.
 
     `sel` is {panel: key}: which row carries the cursor in each panel, so the
     caller can keep a cursor across redraws without this knowing how it moves.
+
+    The third value is `agent_footer_keys` for the row under the cursor when
+    `panel` is AGENTS or STUCK, computed here while the database connection
+    and that row are already open - `keybar` takes it rather than reopening
+    both to ask the same question again. None on every other panel, where the
+    footer's keys do not depend on a row at all.
     """
     sel = sel or {}
     con = db.connect()
@@ -856,7 +904,12 @@ def build(width: int, sel: dict | None = None,
                    + pad(f"{DIM}{age(b['age']) if b['age'] else ''}{R}", 7)
                    + f"{DIM}{b['why']}{R}", key=b["agent"])
 
-        return header, [acc, ag, ms, fl]
+        footer_agent = sel.get(AGENTS) if panel == AGENTS else \
+            sel.get(STUCK) if panel == STUCK else None
+        footer_keys = (agent_footer_keys(con, str(footer_agent) if footer_agent is not None else None)
+                       if panel in (AGENTS, STUCK) else None)
+
+        return header, [acc, ag, ms, fl], footer_keys
     finally:
         con.close()
 
@@ -987,7 +1040,7 @@ def frame(width: int, height: int, sel: dict | None = None, panel: int = AGENTS,
         return _detail_frame(width, height, detail, flash)
     # The pinned block takes what is left after the bar, the blank line, the
     # two footer rows and the smallest box the mailbox can be drawn in.
-    header, panels = build(width, sel, panel, wait_budget=height - 4 - PANEL_MIN)
+    header, panels, footer_keys = build(width, sel, panel, wait_budget=height - 4 - PANEL_MIN)
     room = height - len(header) - 2                    # the two footer rows
     limits, hidden = _layout([len(p.rows) for p in panels], room)
     body: list[str] = []
@@ -995,7 +1048,7 @@ def frame(width: int, height: int, sel: dict | None = None, panel: int = AGENTS,
         if lim == 0:
             continue
         body += p.draw(limit=lim)
-    foot = [fit(flash, width) if flash else "", keybar(panel, width, hidden)]
+    foot = [fit(flash, width) if flash else "", keybar(panel, width, hidden, footer_keys)]
     lines = header + body
     lines = lines[:max(0, height - len(foot))]
     while len(lines) < height - len(foot):
@@ -1117,8 +1170,17 @@ def _detail_frame(width: int, height: int, detail: dict, flash: str = "") -> str
     if detail.get("panel") == MESSAGES:
         keys += " · a answer · e answer in $EDITOR · x dismiss"
     elif detail.get("panel") in (AGENTS, STUCK):
-        keys += " · " + " · ".join(f"{k} {label}" for k, label in AGENT_KEYS
-                                   if label != "open")
+        # A connection per render, unlike `build`'s one-per-frame: this page
+        # is already reopening the agent's own rows on every redraw
+        # (`_refreshed`), so a second connection here costs nothing this
+        # screen was not already paying.
+        con = db.connect()
+        try:
+            agent_keys = agent_footer_keys(con, detail.get("agent"))
+        finally:
+            con.close()
+        keys += " · " + " · ".join(f"{k} {label}" for k, label in agent_keys
+                                   if label != "open") + " · ? help"
     lines = ([fit(f"{BOLD}{detail['title']}{R}{where}", width), ""]
              + [fit(ln, width) for ln in shown]
              + [fit(flash, width) if flash else "", fit(f"{DIM}{keys} · q quit{R}", width)])
@@ -1444,6 +1506,10 @@ def _suspend(argv: list[str], env: dict, fd, saved) -> tuple[int | None, str]:
 
 def run(interval: float = 2.0, once: bool = False) -> int:
     if once or not sys.stdout.isatty():
+        # No cursor and no interaction: `sel` is deliberately left empty, so
+        # the footer falls back to the unfiltered common set rather than
+        # picking one agent among many to filter by. There is no single row
+        # this snapshot is "about" the way an interactive cursor names one.
         size = shutil.get_terminal_size((100, 40))
         print(frame(min(size.columns, 200), size.lines))
         return 0
@@ -1581,6 +1647,8 @@ def _in_detail(detail: dict, k: str, width: int, height: int,
         # An agent's page is opened to decide something about that agent, and
         # making the reader back out to the list to press the key is how a
         # decision gets put off.
+        if k == "?":
+            return detail, agent_help_line()
         label = dict(AGENT_KEYS).get(k)
         if not label or label == "open":
             return detail, ""
@@ -1950,6 +2018,11 @@ def _act_on(panel: int, sel: dict, key: str, width: int, height: int,
             name = str(target)
             if key in ("\r", "\n"):
                 return "", _agent_page(con, name, panel)
+            if key == "?":
+                # Every key AGENT_KEYS binds, not only the ones the footer
+                # shows for this row: `?` is the one place fold and move (and
+                # whatever the row's own state hides) are named at all.
+                return agent_help_line(), None
             label = dict(AGENT_KEYS).get(key)
             if not label:
                 return "", None
