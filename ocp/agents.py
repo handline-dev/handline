@@ -144,7 +144,8 @@ def current_account(name: str, con=None) -> str:
 @dataclass
 class AccountReading:
     account: str
-    # "recorded" - `ocp launch` confirmed it; "reported" - the agent's own
+    # "recorded" - a launch, a move or the process check wrote it (the tick
+    # reconciles it with the process); "reported" - the agent's own
     # fresh snapshot named it, better evidence than a merely assumed value;
     # "assumed" - a guess (agent.yaml's preference, or one written before a
     # launch had a chance to confirm it), never a destination, never a fact.

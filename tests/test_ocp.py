@@ -6787,9 +6787,13 @@ def test_a_move_is_not_recorded_while_the_process_is_still_on_the_old_account(
                     "WHERE agent = 'keeper'")
         table["keeper"] = 4200
         _process_on("beta")
+        con.execute("DELETE FROM events WHERE agent = 'keeper' AND kind = 'moved_account'")
         check("move: on the new account it is one",
               dmn._move_to_room(con, "keeper", t, lambda _m: None)
               and agents.current_account("keeper", con) == "beta")
+        check("move: and the move is on the record",
+              sum(e["kind"] == "moved_account"
+                  for e in db.events_after(con, 0, agent="keeper")) == 1)
     finally:
         (orcamod.available, orcamod.alive, orcamod.close_session, orcamod.relaunch,
          orcamod.idle_now, dmn.wait_for_session, obsmod.env_of) = real

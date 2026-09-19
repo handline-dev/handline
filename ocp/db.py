@@ -655,9 +655,11 @@ def set_terminal(con, agent: str, terminal: str | None, worktree: str | None) ->
 def set_account(con, agent: str, account: str | None, source: str = "recorded") -> None:
     """Record which account a session is on, and how sure of it this is.
 
-    `source="recorded"` (the default) is `ocp launch`'s own write, from
-    inside the process that sets CLAUDE_CONFIG_DIR - the record and the
-    environment cannot disagree. `source="assumed"` is a guess made before
+    `source="recorded"` (the default) is written by `ocp launch`, by a move
+    once its session is up, or by the daemon's check of the running process;
+    only the launch writes from inside the process itself, so a move's record
+    can disagree with the environment until `daemon._confirmed_reading`
+    reconciles it. `source="assumed"` is a guess made before
     that process exists to confirm anything, written so a row is not simply
     null in the window between a spawn and its own launch reporting in -
     `agents.account_reading` is what tells the two apart on read.
