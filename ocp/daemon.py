@@ -1102,7 +1102,8 @@ def _takes_work(acct: str) -> bool:
 
 def _fold_backing_off(con, agent: str) -> bool:
     """A fold that keeps failing is not retried every tick: the same backoff a
-    degraded handoff waits out."""
+    degraded handoff waits out. Both share one streak and one last-attempt
+    time, since both are the same fold failing."""
     row = db.get_agent_state(con, agent)
     streak = int(row["throttle_count"]) if row else 0
     last = con.execute("SELECT MAX(updated) AS t FROM handoff WHERE agent = ?",

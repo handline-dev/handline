@@ -274,10 +274,24 @@ class AccountStatus:
             return True, f"5h {pct}% (carried, still inside the window)"
         return True, f"5h {pct}%"
 
-    def takes_work(self) -> tuple[bool, str]:
-        """`assignable`, or a rolled-over stale account: the rule pick_account uses."""
+    def takes_work(self, limit_5h: int = triggers.MOVE_LINE_5H,
+                   limit_7d: int = triggers.MOVE_LINE_7D) -> tuple[bool, str]:
+        """May a session be started here: assignable, or a rolled-over stale
+        account, and under the lines a move trigger fires at. The one rule the
+        pick, the panel and `ocp account list` all use."""
         ok, why = self.assignable()
-        return (True, self.rolled_over()[1]) if not ok and self.rolled_over()[0] else (ok, why)
+        week = self.trusted_pct_7d
+        if ok:
+            pct = self.trusted_pct_5h
+            if pct is not None and pct >= limit_5h:
+                return False, f"5h usage {pct}% >= {limit_5h}%"
+        elif self.rolled_over()[0]:
+            # Its weekly figure is a floor unless the week itself has passed.
+            ok, why = True, self.rolled_over()[1]
+            week = None if self.reset_7d and self.reset_7d <= time.time() else self.pct_7d
+        if ok and week is not None and week >= limit_7d:
+            return False, f"7d usage {week}% >= {limit_7d}%"
+        return ok, why
 
     def rolled_over(self) -> tuple[bool, str]:
         """A stale account whose 5h window has passed can take work if its last
@@ -505,22 +519,9 @@ def pick_account(candidates: list[str] | None = None,
     blank: list[str] = []
     for n in names:
         st = read(n)
-        allowed, why = st.assignable()
-        pct = st.trusted_pct_5h
-        if allowed and pct is not None and pct >= limit_5h:
-            allowed, why = False, f"5h usage {pct}% >= {limit_5h}%"
-        week = st.trusted_pct_7d
-        if allowed and week is not None and week >= limit_7d:
-            allowed, why = False, f"7d usage {week}% >= {limit_7d}%"
+        allowed, why = st.takes_work(limit_5h, limit_7d)
         if allowed:
             usable.append((n, st))
-        elif st.rolled_over()[0]:
-            # Its weekly figure is a floor unless the week itself has passed.
-            week = st.pct_7d if not (st.reset_7d and st.reset_7d <= time.time()) else None
-            if week is not None and week >= limit_7d:
-                reasons.append((n, f"7d usage {week}% >= {limit_7d}%"))
-            else:
-                usable.append((n, st))
         elif bootstrap and not st.exists:
             blank.append(n)
             reasons.append((n, "no reading yet - a session has never run on it "

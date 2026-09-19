@@ -5588,6 +5588,10 @@ def test_a_stale_account_whose_window_rolled_over_can_take_work(home: Path) -> N
           status.pick_account(["beta"])[0] is None)
     write_status(home, "beta", pct_5h=40, pct_7d=34, reset_5h=now + 3600,
                  reset_7d=now + 86400 * 2, collected_at=now - int(2 * 3600))
+    write_status(home, "alpha", pct_5h=87, pct_7d=10, reset_5h=now + 1800,
+                 reset_7d=now + 86400)
+    check("takes_work: 87% is refused, matching the pick, not just assignable",
+          status.read("alpha").assignable()[0] and not status.read("alpha").takes_work()[0])
     check("stale: a window that has not passed still refuses",
           status.pick_account(["beta"])[0] is None)
 
