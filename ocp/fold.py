@@ -19,6 +19,7 @@ to a deterministic digest rather than publishing the garbage.
 from __future__ import annotations
 
 import json
+import re
 import shutil
 import subprocess
 import time
@@ -96,6 +97,45 @@ def deterministic_facts(agent: str, events, repo: Path | None = None) -> str:
         lines.append("- events folded: 0 (nothing new since the last fold)")
     lines.append(f"- generated: {time.strftime('%Y-%m-%d %H:%M:%S')}")
     return "\n".join(lines)
+
+
+# A fold's own event delta cannot tell it which of an agent's outstanding
+# asks an "answered" event closed - that event carries only a count (daemon.py
+# deliver_answers), never the ids, because the row itself is the record and a
+# second copy in the event log would just be one more place to drift from it.
+# So a request an agent is still asking about, in the 진행중/막힌 것 prose the
+# model wrote last time, can sit there for folds after the store already has
+# it as done: nothing in the delta ever named it closed. This checks the
+# store directly for every id already on the page, rather than asking the
+# model to infer closure from a delta that structurally cannot say it.
+_ID_RE = re.compile(r"\d+")
+_RECONCILE_SECTIONS = ("in_progress", "blocked")
+
+
+def _is_resolved(con, rid: int) -> bool:
+    r = db.get_request(con, rid)
+    return r is not None and r["state"] != "queued"
+
+
+def reconcile_resolved(con, d: digest.Digest) -> digest.Digest:
+    """Move a 진행중/막힌 것 line to 완료 once every id it names is resolved.
+
+    A line with no ids, or with an id the store does not recognize or has not
+    resolved, stays exactly where the model put it - this only closes what the
+    store can prove is done, never rewrites a line on its own judgment.
+    """
+    for key in _RECONCILE_SECTIONS:
+        items = d.sections.get(key, [])
+        if not items:
+            continue
+        kept, resolved = [], []
+        for item in items:
+            ids = [int(m) for m in _ID_RE.findall(item)]
+            (resolved if ids and all(_is_resolved(con, i) for i in ids) else kept).append(item)
+        if resolved:
+            d.sections[key] = kept
+            d.sections["done"] = d.sections.get("done", []) + resolved
+    return d
 
 
 def build_prompt(agent: str, previous: digest.Digest, events, day: str) -> str:
@@ -192,6 +232,14 @@ def fold(agent: str, use_model: bool = True, model: str = "haiku",
         facts = deterministic_facts(agent, events, repo=repo)
 
         if not events:
+            # No event of this agent's own to fold, but the store can still
+            # have resolved an ask with no event to show it - reconcile the
+            # journal against the store so a resume never reads a stale
+            # in_progress/blocked line, and republish only if that moved one.
+            reconciled = reconcile_resolved(con, previous)
+            if digest.render(reconciled) != digest.render(previous):
+                _publish(agent, jpath, digest.render(reconciled),
+                         commit_msg=f"fold {agent} {day} (reconcile)")
             return True, f"{agent}: nothing new to fold (cursor at {cursor})"
 
         top = events[-1]["id"]
@@ -224,7 +272,8 @@ def fold(agent: str, use_model: bool = True, model: str = "haiku",
         if not valid:
             # Degraded fold: deterministic only. The previous digest survives,
             # the cursor does not move, and the delta is retried next time.
-            degraded = _degraded(agent, previous, events, day, facts)
+            degraded_d = reconcile_resolved(con, digest.parse(_degraded(agent, previous, events, day, facts)))
+            degraded = digest.render(degraded_d)
             _publish(agent, jpath, degraded, commit_msg=f"fold {agent} {day} (degraded)")
             # A rejected fold spent exactly what an accepted one spends, and
             # these events are the only record that the account was charged -
@@ -244,7 +293,7 @@ def fold(agent: str, use_model: bool = True, model: str = "haiku",
         # stamped rather than accepted. Asked for the right values, a fold came
         # back saying it was updated at 20:12 - the time of the last event it
         # had just read, fourteen hours earlier.
-        merged = digest.parse(candidate)
+        merged = reconcile_resolved(con, digest.parse(candidate))
         merged.facts = facts
         merged.date = day
         merged.agent = agent

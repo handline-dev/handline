@@ -2093,6 +2093,80 @@ def test_fold(home: Path) -> None:
         foldmod.run_model = real
 
 
+def test_a_resolved_ask_does_not_stay_in_progress_across_a_park(home: Path) -> None:
+    """The event that would tell a fold an outstanding ask closed only ever
+    carries a count (daemon.py's `answered` event), never which id - and for
+    an agent that was parked when the answer landed, there may be no event at
+    all yet. Either way the store already knows; the fold has to check it
+    directly rather than wait for an event that may never name the id."""
+    home.mkdir(parents=True, exist_ok=True)
+    os.environ["OCP_HOME"] = str(home)
+    (home / "team.yaml").write_text(DESIGN_TEAM)
+    agents.register("backend", "alpha")
+
+    con = db.connect()
+    try:
+        rid = db.add_request(con, "backend", "auditor", "review this", None,
+                             "peer", "fire_and_forget", None, 0, None)
+        db.add_event(con, "backend", "ask", {"request_id": rid, "target": "auditor"})
+        top = db.max_event_id(con)
+        # A fold already ran and published the ask as in progress, before the
+        # park - the cursor is past it, same as in production.
+        db.set_cursor(con, "fold:backend", top)
+    finally:
+        con.close()
+
+    day = foldmod.today()
+    previous = digest.Digest(
+        date=day, agent="backend", updated="09:00", folded_through=top,
+        sections={"done": ["set up the branch"], "in_progress": [f"Auditor request {rid} dispatched"],
+                  "decided": [], "blocked": [], "next": [], "base_candidates": []})
+    foldmod.journal_path("backend", day).write_text(digest.render(previous))
+
+    # Answered while backend was parked: the store is updated, but nothing
+    # tells the agent's own event log which id it was - the daemon's delivery
+    # path only fires that event into a live session (design section 5).
+    con = db.connect()
+    try:
+        db.set_request_state(con, rid, "done", verdict="looks good", announced=True)
+    finally:
+        con.close()
+
+    # --- no new event at all: the "nothing to fold" path still checks the store
+    ok, msg = foldmod.fold("backend", use_model=True, fold_account="alpha")
+    check("fold: an unchanged cursor still says there was nothing new", "nothing new" in msg, msg)
+    handed = digest.parse(foldmod.handoff_path("backend").read_text())
+    check("fold: the resolved ask is not still in progress after an event-free refresh",
+          not any(str(rid) in i for i in handed.items("in_progress")), handed.items("in_progress"))
+    check("fold: and it reads as done", any(str(rid) in i for i in handed.items("done")),
+          handed.items("done"))
+
+    # --- a fold with a model that fails to reconcile it is still corrected
+    con = db.connect()
+    try:
+        db.add_event(con, "backend", "commit", {"sha": "abc", "subject": "more work"})
+        top2 = db.max_event_id(con)
+    finally:
+        con.close()
+    stuck = digest.render(digest.Digest(
+        date=day, agent="backend", updated="09:05", folded_through=top2,
+        sections={"done": ["set up the branch"], "in_progress": [f"Auditor request {rid} dispatched"],
+                  "decided": [], "blocked": [], "next": [], "base_candidates": []}))
+    real = foldmod.run_model
+    try:
+        foldmod.run_model = lambda *a, **k: (True, stuck)
+        ok, msg = foldmod.fold("backend", use_model=True, fold_account="alpha")
+        check("fold: succeeds even though the model carried the resolved ask forward", ok, msg)
+    finally:
+        foldmod.run_model = real
+    published = digest.parse(foldmod.journal_path("backend", day).read_text())
+    check("fold: the store overrules a model that left a resolved ask in progress",
+          not any(str(rid) in i for i in published.items("in_progress")),
+          published.items("in_progress"))
+    check("fold: completed work named earlier is not lost in the correction",
+          "set up the branch" in published.items("done"))
+
+
 def test_rollover(home: Path) -> None:
     home.mkdir(parents=True, exist_ok=True)
     os.environ["OCP_HOME"] = str(home)
@@ -19491,6 +19565,7 @@ def main() -> int:
         run(lambda: test_digest())
         run(lambda: test_event_allowlist())
         run(lambda: test_fold(Path(td) / 'foldhome'))
+        run(lambda: test_a_resolved_ask_does_not_stay_in_progress_across_a_park(Path(td) / 'foldparkhome'))
         run(lambda: test_rollover(Path(td) / 'rollhome'))
         run(lambda: test_triggers())
         run(lambda: test_daemon_evaluates_parked(Path(td) / 'd0'))
