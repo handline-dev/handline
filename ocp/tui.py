@@ -84,6 +84,7 @@ PANEL_NAME = {ACCOUNTS: "accounts", AGENTS: "agents", MESSAGES: "messages",
 AGENT_KEYS = [
     ("↵", "open"), ("t", "terminal"), ("m", "message"), ("e", "editor"),
     ("w", "wake"), ("c", "close"), ("p", "park"), ("f", "fold"), ("u", "unstall"),
+    ("v", "move"),
 ]
 ACCOUNT_KEYS = [("↵", "open"), ("l", "login"), ("a", "add"), ("c", "cap"), ("x", "remove")]
 MESSAGE_KEYS = [("↵", "read"), ("a", "answer"), ("e", "answer in $EDITOR"),
@@ -1206,6 +1207,8 @@ def _in_detail(detail: dict, k: str, width: int, height: int,
                     return detail, "not started"
                 _say(f"starting {name}", width, height)
                 return detail, actions.terminal(con, name, repo.strip() or os.getcwd())
+            if label == "move":
+                return detail, _move_agent(con, name, width, height)
             if label in CONFIRM and not _confirm(f"{label} {name}", width, height):
                 return detail, "left alone"
             _say(f"{label} {name}", width, height)
@@ -1406,6 +1409,23 @@ def _keys_of(panel: int) -> list:
         con.close()
 
 
+def _move_agent(con, name: str, width: int, height: int) -> str:
+    """Ask where, confirm (it ends a session), then the daemon's own move."""
+    dest = _line(f"move {name} to which account:", width, height)
+    if not dest:
+        return "not moved"
+    dest = dest.strip()
+    if not _confirm(f"move {name} to {dest} - records its handoff, ends its session, "
+                    f"and makes {dest} its preferred account", width, height):
+        return "left alone"
+    # A confirmation waits on a person; what was true at the keypress may not be.
+    allowed, why = actions.can(con, name, "move")
+    if not allowed:
+        return f"{why} - it changed while you looked"
+    _say(f"moving {name} to {dest}", width, height)
+    return actions.move(con, name, dest)
+
+
 def _add_account(width: int, height: int, fd, saved) -> str:
     """Name it, then the same sequence as `ocp account add`."""
     name = _line("new account name:", width, height)
@@ -1506,6 +1526,8 @@ def _act(panel: int, sel: dict, key: str, width: int, height: int,
                 body = _compose_message(name, label, width, height, fd, saved)
                 return (actions.message(con, name, body) if body is not None
                         else _nothing_sent("e" if label == "editor" else "m")), None
+            if label == "move":
+                return _move_agent(con, name, width, height), None
             if label in CONFIRM:
                 if not _confirm(f"{label} {name}", width, height):
                     return "left alone", None
