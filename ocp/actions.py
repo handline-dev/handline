@@ -823,12 +823,21 @@ def agent_detail(con, agent: str) -> list[tuple[str, list[str]]]:
     return sections
 
 
-def account_detail(con, acct: str) -> list[tuple[str, list[str]]]:
-    """What is behind an account's row, in the same shape as an agent's."""
+def account_detail(con, acct: str, logged_in=None) -> list[tuple[str, list[str]]]:
+    """What is behind an account's row, in the same shape as an agent's.
+
+    `logged_in` is the caller's login check: the bridge redraws this page every
+    couple of seconds and passes its cached one, since the real one asks the
+    keychain.
+    """
+    logged_in = logged_in or accounts.logged_in
     st = status.read(acct)
-    ld = loadmod.read_all(con).get(acct)
-    allowed, why = st.assignable(ld.active if ld else 0)
-    head = [f"login    {'logged in' if accounts.logged_in(acct) else 'NOT logged in'}",
+    loads = loadmod.read_all(con)
+    _, ranked = status.pick_account([a for a in paths.list_accounts() if logged_in(a)],
+                                    load=loads)
+    is_in = logged_in(acct)
+    allowed, why = status.account_verdict(acct, st, loads.get(acct), ranked, is_in)
+    head = [f"login    {'logged in' if is_in else 'NOT logged in'}",
             f"config   {paths.account_claude(acct)}",
             f"5h       {st.trusted_pct_5h}% ({st.pct_5h_source})   7d {st.pct_7d}%",
             f"snapshot {'-' if st.age_s is None else status.ago(st.age_s) + ' old'}"

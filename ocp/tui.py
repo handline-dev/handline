@@ -465,26 +465,19 @@ def build(width: int, sel: dict | None = None,
         acc.selected = sel.get(ACCOUNTS)
         w = ACCT_W
         acc.add(f"{DIM}{'':<2}" + "".join(f"{ACCT_HEAD[k]:<{w[k]}}" for k in w)
-                + f"why{R}", heading=True)
+                + R, heading=True)
         # The account with the most headroom: where work goes when an agent's
         # own account is full. Only accounts that can start a session count.
-        # Captured whole, not just the pick: this panel says why each one sits
-        # where it does, not only which one won.
+        # The reason each one sits where it does is on its own page (Enter).
         loads = loadmod.read_all()
         first, ranked = status.pick_account(
             [a for a in paths.list_accounts() if _logged_in(a)], load=loads)
-        why_of = dict(ranked)
         for name in paths.list_accounts():
             st = status.read(name)
-            ld = loads.get(name)
-            allowed, plain_why = st.takes_work(ld.active if ld else 0)
             # The tick beside the name says the pick could use it: not only
             # that it is under the wall but that it has a slot and would last.
-            allowed = allowed and status.unfit(st, ld) is None
-            # An account outside the ranking (not logged in) has no ranked
-            # reason to fall back to - `assignable` already refused it and
-            # says why.
-            why = why_of.get(name, plain_why)
+            allowed, _ = status.account_verdict(name, st, loads.get(name), ranked,
+                                                _logged_in(name))
             mark = f"{GRN}✔{R}" if allowed else f"{RED}✘{R}"
             nxt = f"{GRN}{BOLD}>{R} " if name == first else "  "
             # Every cell is padded on its visible width: the bars carry escape
@@ -498,7 +491,7 @@ def build(width: int, sel: dict | None = None,
                 nxt
                 + padfit(f"{BOLD}{name}{R}", w["name"])
                 + "".join(pad(cells[k], w[k]) for k in w if k != "name")
-                + f"{mark} {DIM}{why}{R}",
+                + mark,
                 key=name,
             )
         if not paths.list_accounts():
@@ -1395,7 +1388,7 @@ def _act(panel: int, sel: dict, key: str, width: int, height: int,
         con = db.connect()
         try:
             return "", page(f"account {target}",
-                            actions.account_detail(con, str(target)),
+                            actions.account_detail(con, str(target), _logged_in),
                             ACCOUNTS, target)
         finally:
             con.close()
