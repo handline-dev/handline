@@ -27,13 +27,14 @@ import os
 import shlex
 import signal
 import subprocess
+import sys
 import time
 import uuid
 from dataclasses import dataclass
 from pathlib import Path
 
-from . import (agents, db, events, fold as foldmod, launch, lock, observe as obs, orca,
-               paths, service, spawn as spawnmod, status, triggers)
+from . import (accounts, agents, db, events, fold as foldmod, launch, lock, observe as obs, orca,
+               paths, probe, service, spawn as spawnmod, status, triggers)
 
 # Section 8.2 states.
 IDLE, QUEUED, RUNNING, DONE = "IDLE", "QUEUED", "RUNNING", "DONE"
@@ -1676,6 +1677,45 @@ def supervise(con, agent: str, log, now: int, samples: dict,
 _last_rollover_day = {"day": ""}
 
 
+def probe_stale_accounts(con, log, actions: list[str]) -> None:
+    """Find out whether an account whose 5h window has passed is free again.
+
+    An account only writes a reading while a session runs on it, so one that
+    nobody is using cannot say that its window rolled over - and agents wait
+    out a full account beside an empty one. Before the window ends the last
+    reading answers this (`idle_floor`); after it, nothing does but asking.
+
+    Only when an agent is actually waiting for somewhere to go: a probe spends
+    a little of the very quota it is asking about, and an idle team needs no
+    answer. The probe runs detached, because it takes a session's startup to
+    answer and a tick may not stop for that. What it leaves behind is a fresh
+    snapshot, which the next tick reads like any other.
+    """
+    waiting = [r["agent"] for r in db.all_agent_states(con)
+               if r["state"] in (PARKED, THROTTLED, DEGRADED) and not r["closed_at"]]
+    if not waiting or not any(_room_to_move(a) is None for a in waiting):
+        return
+    for acct in paths.list_accounts():
+        st = status.read(acct)
+        if not accounts.logged_in(acct) or \
+                not probe.due(st, db.get_cursor(con, f"probe:{acct}") or None):
+            continue
+        try:
+            subprocess.Popen([sys.executable, str(paths.repo_root() / "bin" / "ocp"),
+                              "account", "probe", acct],
+                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                             start_new_session=True)
+        except OSError as e:
+            # No cooldown on a probe that never ran: what it guards is the
+            # quota a probe spends, and this one spent nothing.
+            log(f"  probe {acct}: could not start - {e}")
+            continue
+        db.set_cursor(con, f"probe:{acct}", int(time.time()))
+        actions.append(f"probe {acct}: its 5h window has passed, asking where it stands")
+        log(f"  probe {acct}: its 5h window has passed, asking where it stands")
+        return  # one at a time; the next tick takes the next account
+
+
 def tick(con, log, use_model: bool = True, samples: dict | None = None) -> Tick:
     now = int(time.time())
     actions: list[str] = []
@@ -1687,6 +1727,8 @@ def tick(con, log, use_model: bool = True, samples: dict | None = None) -> Tick:
 
     # A handoff past its deadline must fail here, not only at startup.
     actions += expire_handoffs(con, log)
+
+    probe_stale_accounts(con, log, actions)
 
     # Midnight rollover (section 5). Nothing else calls it, and without it
     # yesterday's "in progress" stays in progress forever - and every fold
