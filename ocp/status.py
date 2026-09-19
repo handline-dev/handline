@@ -93,8 +93,15 @@ def mark(src: str) -> str:
     return SOURCE_MARK.get(src, " ")
 
 
-def _ago(secs: float) -> str:
-    """A duration in the largest unit that still says something."""
+def ago(secs: float | None) -> str:
+    """A duration in the largest unit that still says something.
+
+    The one formatter for an age or a wait: every screen that prints one calls
+    this, so a reading three hours old is not "3h" on one and "13118s" on
+    another, and nothing writes 162h for what is six and a half days.
+    """
+    if secs is None:
+        return "?"
     secs = int(secs)
     if secs < 120:
         return f"{secs}s"
@@ -271,7 +278,7 @@ class AccountStatus:
         if not self.exists or self.error or self.pct_5h is None:
             return ""
         now = time.time()
-        age = "unknown age" if self.age_s is None else f"{_ago(self.age_s)} old"
+        age = "unknown age" if self.age_s is None else f"{ago(self.age_s)} old"
         gone = ", reset since" if self.reset_5h and self.reset_5h <= now else ""
         text = f"5h {self.pct_5h}% ({age}{gone})"
         if self.pct_7d is not None:
@@ -297,7 +304,7 @@ class AccountStatus:
             # In the units a reader thinks in. "59213s > 900s" is two numbers
             # nobody subtracts; the line is on a dashboard, and what it has to
             # say is how long ago anything ran on this account.
-            shown = "unknown" if self.age_s is None else _ago(self.age_s)
+            shown = "unknown" if self.age_s is None else ago(self.age_s)
             return False, (f"nothing has run on it for {shown} - the snapshot is "
                            f"stale (fail-closed)")
         pct = self.trusted_pct_5h
@@ -632,7 +639,7 @@ def read_burn(acct: str, now: float | None = None) -> float | None:
 
 def span(secs: float, precise: bool = False) -> str:
     """A length of time: 6d18h from a day up, 5h03 from an hour, then minutes
-    (`precise` adds the seconds: 12m05). Ages (`_ago`, `tui.age`) are coarser
+    (`precise` adds the seconds: 12m05). Ages (`ago`) are coarser
     below a day - 3h, 40m - and call this from a day up, so no surface writes
     162h."""
     secs = int(secs)
@@ -790,7 +797,7 @@ def _pick_reason(st: "AccountStatus", ld, lasts: float | None, picked: bool) -> 
     for stale_ok, stale_why in (st.rolled_over(), st.idle_floor(ld.active if ld else 0)):
         if stale_ok:
             return stale_why + (" <- picked: earliest 7d deadline" if picked else "")
-    when = "unknown" if not st.reset_7d else _ago(max(0.0, st.reset_7d - time.time()))
+    when = "unknown" if not st.reset_7d else ago(max(0.0, st.reset_7d - time.time()))
     # Neither early return above fired, so this account is live, not stale -
     # trusted_pct_5h is never None here.
     base = (_stretch_reason(st, ld, lasts, st.trusted_pct_5h) if lasts is not None
