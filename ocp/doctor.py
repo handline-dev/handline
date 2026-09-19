@@ -13,8 +13,8 @@ import subprocess
 import time
 from pathlib import Path
 
-from . import (accounts, agents, daemon, db, hooks, launch, observe as obs, orca, paths,
-               service, status)
+from . import (accounts, agents, daemon, db, hooks, launch, load as loadmod, observe as obs,
+               orca, paths, service, status)
 
 OK, WARN, FAIL = "ok", "warn", "fail"
 
@@ -139,6 +139,7 @@ def _check_accounts(r: Report) -> None:
     if not names:
         r.add(FAIL, "no accounts registered", "ocp account add <name>")
         return
+    loads = loadmod.read_all()
     for a in names:
         cdir = paths.account_claude(a)
         if not cdir.is_dir():
@@ -159,7 +160,8 @@ def _check_accounts(r: Report) -> None:
                   f"ocp account register --force {a}")
 
         st = status.read(a)
-        allowed, why = st.assignable()
+        ld = loads.get(a)
+        allowed, why = st.assignable(ld.active if ld else 0)
         if not st.exists:
             r.add(WARN, f"account {a}: no status.json",
                   "no session has run yet - assignment refused (fail-closed)")

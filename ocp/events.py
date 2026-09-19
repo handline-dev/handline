@@ -20,10 +20,8 @@ CAPTURED = {
     "SubagentStop", "PostCompact", "UserPromptSubmit",
     # An agent waiting on a permission prompt is neither working nor idle: it
     # emits no Stop, so it reads RUNNING forever, and its status line stops
-    # refreshing, so the account's usage reading goes stale behind it. On
-    # 09-17 that took out every agent on the account for fail-closed
-    # usage_unknown, fifteen minutes after keeper stopped at a prompt nobody
-    # could see. Orca installs the hook; we simply were not listening.
+    # refreshing, so the account's usage reading goes stale behind it. Orca
+    # installs the hook; we simply were not listening.
     "PermissionRequest",
     # A second witness that an agent went quiet. Stop was the only one, and
     # when Stop had no transition the whole system went blind for hours.

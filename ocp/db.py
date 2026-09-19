@@ -112,8 +112,6 @@ CREATE TABLE IF NOT EXISTS handoff (
   agent       TEXT NOT NULL,
   session_id  TEXT,
   trigger_kind TEXT,
-  cursor_from INTEGER,
-  cursor_to   INTEGER,
   step        TEXT NOT NULL,
   deadline    INTEGER,
   state       TEXT NOT NULL,
@@ -314,6 +312,10 @@ def _add_missing_columns(con) -> None:
         # No backfill: an existing row's session was launched on the account
         # agent.yaml named, which is exactly what a null here falls back to.
         con.execute("ALTER TABLE agent_state ADD COLUMN account TEXT")
+    if "handoff" not in state_cols:
+        # What the agent is handed when it comes back from a park or a move;
+        # see handoff.py. NULL once it has been handed over.
+        con.execute("ALTER TABLE agent_state ADD COLUMN handoff TEXT")
     if "account_source" not in state_cols:
         # NULL here means "recorded" too, for exactly the rows that predate
         # this column: every one of them was written by `_record_terminal` or
@@ -750,23 +752,41 @@ def all_agent_states(con):
 
 # Handoff steps, in order (section 8.9).
 def start_handoff(con, hid: str, agent: str, session_id: str | None, trigger_kind: str,
-                  cursor_from: int, deadline: int) -> None:
+                  deadline: int) -> None:
     con.execute(
-        "INSERT OR REPLACE INTO handoff(id, agent, session_id, trigger_kind, cursor_from, "
-        "cursor_to, step, deadline, state, detail, updated) "
-        "VALUES(?,?,?,?,?,NULL,'requested',?,'in_flight',NULL,?)",
-        (hid, agent, session_id, trigger_kind, cursor_from, deadline, int(time.time())),
+        "INSERT OR REPLACE INTO handoff(id, agent, session_id, trigger_kind, step, "
+        "deadline, state, detail, updated) "
+        "VALUES(?,?,?,?,'requested',?,'in_flight',NULL,?)",
+        (hid, agent, session_id, trigger_kind, deadline, int(time.time())),
     )
 
 
-def advance_handoff(con, hid: str, step: str, cursor_to: int | None = None,
+def advance_handoff(con, hid: str, step: str,
                     state: str | None = None, detail: str | None = None) -> None:
     """Commit one step. Each step is committed so a restart can resume from it."""
     con.execute(
-        "UPDATE handoff SET step = ?, cursor_to = COALESCE(?, cursor_to), "
-        "state = COALESCE(?, state), detail = COALESCE(?, detail), updated = ? WHERE id = ?",
-        (step, cursor_to, state, detail, int(time.time()), hid),
+        "UPDATE handoff SET step = ?, state = COALESCE(?, state), "
+        "detail = COALESCE(?, detail), updated = ? WHERE id = ?",
+        (step, state, detail, int(time.time()), hid),
     )
+
+
+def set_handoff(con, agent: str, text: str | None) -> None:
+    """Keep the record, or clear it with None. Keeping one for an agent that has
+    no row yet creates it idle: a handoff is written by hand for an agent that
+    has never run."""
+    if text is None:
+        con.execute("UPDATE agent_state SET handoff = NULL WHERE agent = ?", (agent,))
+        return
+    con.execute(
+        "INSERT INTO agent_state(agent, state, updated, handoff) VALUES(?, 'IDLE', ?, ?) "
+        "ON CONFLICT(agent) DO UPDATE SET handoff = excluded.handoff",
+        (agent, int(time.time()), text))
+
+
+def get_handoff(con, agent: str) -> str | None:
+    row = con.execute("SELECT handoff FROM agent_state WHERE agent = ?", (agent,)).fetchone()
+    return row["handoff"] if row and row["handoff"] else None
 
 
 def in_flight_handoffs(con):

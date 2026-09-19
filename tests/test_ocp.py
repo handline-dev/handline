@@ -24,9 +24,10 @@ sys.path.insert(0, str(ROOT))
 
 from ocp import (accounts, actions, agents, ask as askmod, cli as climod, daemon as dmn, db, hr,
                  digest,
-                 doctor, drift, events as evmod, fold as foldmod, launch, lock, observe as obsmod,
-                 orca as orcamod, paths, service, spawn as spawnmod, status, team, triggers,
-                 tui, yamlcompat)  # noqa: E402
+                 doctor, drift, events as evmod, fold as foldmod,
+                 handoff as handoffmod, launch, load as loadmod, lock, measure,
+                 observe as obsmod, orca as orcamod, paths, service, spawn as spawnmod,
+                 status, team, triggers, tui, yamlcompat)  # noqa: E402
 
 PASS, FAIL = [], []
 
@@ -128,6 +129,36 @@ def write_status(home: Path, acct: str, **fields) -> None:
     (d / "status.json").write_text(json.dumps(payload))
 
 
+def readable_agent(con, home: Path, agent: str) -> None:
+    """Give `agent` the three things a handoff reads, so it comes out whole."""
+    wt = home / f"wt-{agent}"
+    if not wt.is_dir():
+        wt.mkdir(parents=True)
+        for args in (["init", "-q", "-b", "topic"], ["config", "user.email", "t@t"],
+                     ["config", "user.name", "t"], ["commit", "-q", "--allow-empty", "-m", "x"]):
+            subprocess.run(["git", *args], cwd=wt, check=True, capture_output=True)
+    db.set_terminal(con, agent, "term_x", str(wt))
+    write_agent_status(agent, "alpha", session_id="sess-1",
+                       transcript_path="/tmp/sess-1.jsonl")
+
+
+def keep_handoff(agent: str, text: str) -> None:
+    """Leave `text` as the handoff waiting for `agent`, as a park would."""
+    con = db.connect()
+    try:
+        db.set_handoff(con, agent, text)
+    finally:
+        con.close()
+
+
+def kept_handoff(agent: str) -> str | None:
+    con = db.connect()
+    try:
+        return db.get_handoff(con, agent)
+    finally:
+        con.close()
+
+
 def write_agent_status(agent: str, reported_account: str, **fields) -> None:
     """The agent's own snapshot, the one a running session writes under its
     own env on every render - `agents.account_reading`'s 'reported' tier."""
@@ -175,7 +206,7 @@ def test_failclosed(home: Path) -> None:
     check("so a finished week cannot block an account forever",
           w.assignable()[0] or "7d" not in w.assignable()[1], str(w.assignable()))
     check("and says the 0% was inferred", "inferred" in why, why)
-    check("quiet headroom is the full window", q.headroom() == 90, str(q.headroom()))
+    check("quiet headroom is the full window", q.headroom() == 100, str(q.headroom()))
     check("the raw reading stays null", q.pct_5h is None, repr(q.pct_5h))
 
     # Unknown is what fail-closed is for, and these are the shapes of it.
@@ -214,16 +245,19 @@ def test_failclosed(home: Path) -> None:
     check("84.9% rounds to 85 and still assigns below the block", allowed, why)
     write_status(home, "overish", pct_5h=89.6, pct_7d=10)
     allowed, why = status.read("overish").assignable()
-    check("89.6% rounds to 90 and is refused", not allowed, why)
+    check("89.6% rounds to 90 and still assigns: the wall is 100", allowed, why)
+    write_status(home, "walled", pct_5h=99.6, pct_7d=10)
+    allowed, why = status.read("walled").assignable()
+    check("99.6% rounds to 100 and is refused", not allowed, why)
 
     write_status(home, "fresh", pct_5h=10, pct_7d=20)
     allowed, why = status.read("fresh").assignable()
     check("healthy account is assignable", allowed, why)
-    check("headroom computed", status.read("fresh").headroom() == 80)
+    check("headroom computed", status.read("fresh").headroom() == 90)
 
-    write_status(home, "hot", pct_5h=90, pct_7d=20)
+    write_status(home, "hot", pct_5h=100, pct_7d=20)
     allowed, _ = status.read("hot").assignable()
-    check("5h at 90% refuses", not allowed)
+    check("5h at the wall refuses", not allowed)
 
     write_status(home, "weekly", pct_5h=5, pct_7d=95)
     allowed, why = status.read("weekly").assignable()
@@ -441,7 +475,7 @@ def test_agents(home: Path) -> None:
     cfg = agents.read("backend")
     check("re-register preserves other fields", cfg.get("model") == "sonnet", str(cfg))
     d = home / "agents" / "backend"
-    check("agent dirs created", all((d / s).is_dir() for s in ("inbox", "journal", "handoff")))
+    check("agent dirs created", all((d / s).is_dir() for s in ("inbox", "journal")))
     (d / "base.md").write_text("x" * 5000)
     over = [fn for fn, _, _, o in agents.budget_report("backend") if o]
     check("base.md budget is enforced", "base.md" in over)
@@ -487,7 +521,7 @@ def test_launch(home: Path) -> None:
     check("launch passes the configured model", "--model sonnet" in r.stdout, r.stdout)
 
     # Over the 5h limit -> refuse, unless forced.
-    write_status(home, "gamma", pct_5h=95)
+    write_status(home, "gamma", pct_5h=100)
     r = subprocess.run([sys.executable, str(ROOT / "bin" / "ocp"), "launch", "launchtest"],
                        capture_output=True, text=True, env=env)
     check("launch refuses over the 5h limit", r.returncode != 0, r.stdout)
@@ -1010,9 +1044,8 @@ def test_fold(home: Path) -> None:
               and published.agent == "backend",
               f"{published.date} {published.agent} {published.updated}")
         check("fold: deterministic block is attached", "events folded" in published.facts)
-        hp = foldmod.handoff_path("backend")
-        check("fold: handoff is written", hp.exists())
-        check("fold: handoff carries the machine facts", "events folded" in hp.read_text())
+        check("fold: writes the digest and no handoff - that is not its job",
+              kept_handoff("backend") is None)
 
         # --- a fully written garbage file must not replace a good one ----
         con = db.connect()
@@ -1110,36 +1143,32 @@ def test_triggers() -> None:
     check("trigger: context at 60 fires", T.evaluate(10, 60).kind == "context")
     check("trigger: context below 60 does not", not T.evaluate(10, 59).fired)
 
-    t = T.evaluate(85, 10)
-    check("trigger: usage at 90-reserve fires", t.fired and t.kind == "usage", t.reason)
-    check("trigger: usage at 84 does not fire", not T.evaluate(84, 10).fired)
-    check("trigger: hard stop fires", T.evaluate(90, 10).kind == "usage")
+    # A working agent runs to the wall: nothing below 100% is a usage trigger.
+    for pct in (85, 90, 95, 99):
+        check(f"trigger: {pct}% is not a reason to hand off", not T.evaluate(pct, 10).fired)
+    t = T.evaluate(100, 10)
+    check("trigger: the wall fires", t.fired and t.kind == "usage", t.reason)
+    check("trigger: the weekly wall fires on its own figure",
+          T.evaluate(9, 10, pct_7d=100).kind == "usage_7d")
+    check("trigger: 98% of the week is not a wall", not T.evaluate(9, 10, pct_7d=98).fired)
 
-    # Unknown usage must fire, not be treated as headroom (fail-closed).
+    # Unknown usage is not a wall: the wall announces itself, and moving an agent
+    # off an account nobody can read spends a cold start on a guess.
     t = T.evaluate(None, 10)
-    check("trigger: unknown usage fires fail-closed", t.fired and t.kind == "usage_unknown")
+    check("trigger: unknown usage does not fire", not t.fired, t.reason)
 
-    # Projection: a heavy agent can jump 88 -> 97 between ticks.
-    check("trigger: projection fires below the threshold when burn is high",
-          T.evaluate(82, 10, burn=0.10).kind == "usage_projected")
-    check("trigger: projection does not fire when burn is low",
-          not T.evaluate(82, 10, burn=0.01).fired)
-    # Projection applies at any level once burn is high enough. Gating it on a
-    # fixed hot mark meant an agent at 76% burning 0.3%/s sailed past the
-    # reserve during one normal 30s sleep without ever firing.
-    check("trigger: a fast burner fires below the hot mark",
-          T.evaluate(76, 10, burn=0.3).kind == "usage_projected")
-    check("trigger: a slow burner well below the line does not fire",
-          not T.evaluate(40, 10, burn=0.01).fired)
-    check("trigger: a fast burner is also polled fast",
-          T.poll_interval(76, 0.3) == T.POLL_HOT_S)
-    check("trigger: a quiet agent is still polled slowly",
-          T.poll_interval(40, 0.0) == T.POLL_NORMAL_S)
-
-    check("trigger: polling tightens when hot", T.poll_interval(85) == T.POLL_HOT_S)
-    check("trigger: polling tightens when usage is unknown",
-          T.poll_interval(None) == T.POLL_HOT_S)
-    check("trigger: polling relaxes when quiet", T.poll_interval(10) == T.POLL_NORMAL_S)
+    check("stay: an idle agent never moves",
+          T.stay_or_move(False, 10 * 3600)[0] is False)
+    check("stay: its account resets sooner than a start pays back",
+          T.stay_or_move(True, 10 * 60)[0] is False)
+    check("move: work waits and the reset is far", T.stay_or_move(True, 3 * 3600)[0])
+    check("move: an unknown reset is not soon", T.stay_or_move(True, None)[0])
+    check("stay: T follows a measured cold start",
+          T.stay_within_s(13) == 13 / 100 * T.WINDOW_5H_S
+          and T.stay_within_s(None) == T.STAY_WITHIN_S)
+    check("stretch: an empty account lasts headroom over one agent's burn",
+          abs(T.stretch_s(45, 0.0) - 45 / T.TYPICAL_AGENT_BURN_PER_S) < 1e-6)
+    check("stretch: fill shortens it", T.stretch_s(45, 0.02) < T.stretch_s(45, 0.0))
 
     rate = T.burn_rate_per_s([(0, 10), (60, 13), (120, 17)])
     check("burn: measured across the window", abs(rate * 60 - 3.5) < 0.01, str(rate * 60))
@@ -1152,29 +1181,20 @@ def test_triggers() -> None:
     noisy = T.burn_rate_per_s([(0, 62), (2, 63)])
     check("burn: a quantized step over seconds is not a rate", noisy == 0.0,
           f"{noisy * 60}%/min")
-    check("burn: and it does not fire a projection",
-          not T.evaluate(63, 10, burn=noisy).fired)
+    check("burn: and it does not read as a wall", not T.evaluate(63, 10).fired)
     check("burn: a span shorter than the minimum is not measured",
           T.burn_rate_per_s([(0, 60), (T.MIN_BURN_SPAN_S - 1, 75)]) == 0.0)
     check("burn: a real climb over a long enough span still measures",
           abs(T.burn_rate_per_s([(0, 60), (300, 75)]) * 60 - 3.0) < 0.01)
-    check("burn: and a real climb near the line still fires",
-          T.evaluate(83, 10, burn=0.05).kind == "usage_projected")
 
-    # Request #254: the weekly window gets a move trigger of its own, a
-    # reserve short of its own true ceiling - the founder's own example
-    # (5h 9%, 7d 98%) is exactly where this fires.
-    t = T.evaluate(9, 10, pct_7d=98)
-    check("trigger: a 7d reading a reserve short of its wall fires",
+    # The weekly window is run to its own wall too.
+    t = T.evaluate(9, 10, pct_7d=100)
+    check("trigger: a 7d reading at its wall fires",
           t.fired and t.kind == "usage_7d" and "pct_7d" in t.reason, t.reason)
-    check("trigger: 7d below its reserve line does not fire on its own",
-          not T.evaluate(9, 10, pct_7d=97).fired)
-    check("trigger: 7d at its hard stop fires",
-          T.evaluate(9, 10, pct_7d=100).kind == "usage_7d")
     check("trigger: no 7d reading at all is not a 7d refusal",
           not T.evaluate(9, 10, pct_7d=None).fired)
-    check("trigger: a 5h reason still wins when both are past their line",
-          "pct_5h" in T.evaluate(90, 10, pct_7d=99).reason)
+    check("trigger: a 5h wall wins when both are at theirs",
+          T.evaluate(100, 10, pct_7d=100).kind == "usage")
 
 
 # ---------------------------------------------------------------- daemon
@@ -1203,12 +1223,12 @@ def _daemon_home(home: Path, pct: int | None) -> None:
 
 
 def test_daemon_park(home: Path) -> None:
-    """At 95% the daemon must park the agent with no human involved."""
-    _daemon_home(home, 95)
+    """At the wall the daemon must park the agent with no human involved."""
+    _daemon_home(home, 100)
     logs: list[str] = []
     con = db.connect()
     try:
-        dmn.tick(con, logs.append, use_model=False)
+        dmn.tick(con, logs.append)
         row = db.get_agent_state(con, "backend")
         check("daemon: parks an agent that is over the limit",
               row["state"] == dmn.PARKED, str(dict(row)))
@@ -1224,14 +1244,14 @@ def test_daemon_park(home: Path) -> None:
 
 def test_daemon_resume(home: Path) -> None:
     """A parked agent whose window rolled over resumes unattended."""
-    _daemon_home(home, 95)
+    _daemon_home(home, 100)
     con = db.connect()
     try:
         # Park it in the past, as if the reset had already happened.
         db.set_agent_state(con, "backend", dmn.PARKED, wake_at=int(time.time()) - 10,
                            detail="parked earlier")
         write_status(home, "alpha", pct_5h=3, pct_7d=10, ctx_pct=5)
-        dmn.tick(con, lambda _m: None, use_model=False)
+        dmn.tick(con, lambda _m: None)
         row = db.get_agent_state(con, "backend")
         check("daemon: a due parked agent returns to QUEUED",
               row["state"] == dmn.QUEUED, str(dict(row)))
@@ -1246,7 +1266,7 @@ def test_daemon_kill_recovery(home: Path) -> None:
     con = db.connect()
     try:
         # Exactly what a SIGKILL mid-handoff leaves behind.
-        db.start_handoff(con, "hid1", "backend", "sess", "usage", 0,
+        db.start_handoff(con, "hid1", "backend", "sess", "usage",
                          int(time.time()) + 60)
         db.advance_handoff(con, "hid1", "folded")
         db.set_agent_state(con, "backend", dmn.HANDOFF, detail="killed mid-handoff")
@@ -1264,9 +1284,9 @@ def test_daemon_kill_recovery(home: Path) -> None:
               row["state"] == dmn.PARKED, str(dict(row)))
 
         # An agent mid-handoff is excluded from trigger evaluation (8.9).
-        write_status(home, "alpha", pct_5h=99, pct_7d=10, ctx_pct=90)
+        write_status(home, "alpha", pct_5h=100, pct_7d=10, ctx_pct=90)
         before = len(db.in_flight_handoffs(con))
-        dmn.tick(con, lambda _m: None, use_model=False)
+        dmn.tick(con, lambda _m: None)
         check("daemon: no competing handoff is started",
               len(db.in_flight_handoffs(con)) == before, str(before))
     finally:
@@ -1277,7 +1297,7 @@ def test_daemon_handoff_timeout(home: Path) -> None:
     _daemon_home(home, 50)
     con = db.connect()
     try:
-        db.start_handoff(con, "hid2", "backend", "sess", "usage", 0, int(time.time()) - 5)
+        db.start_handoff(con, "hid2", "backend", "sess", "usage", int(time.time()) - 5)
         actions = dmn.reconcile(con, lambda _m: None)
         check("daemon: an expired handoff is timed out",
               any("timed out" in a for a in actions), str(actions))
@@ -1285,8 +1305,6 @@ def test_daemon_handoff_timeout(home: Path) -> None:
         check("daemon: a timed-out handoff degrades", row["state"] == dmn.DEGRADED)
         check("daemon: timing out increments the throttle counter",
               row["throttle_count"] == 1, str(dict(row)))
-        check("daemon: the cursor is not advanced by a timeout",
-              db.get_cursor(con, "fold:backend") == 0)
     finally:
         con.close()
 
@@ -1298,11 +1316,11 @@ def test_daemon_stall_escalation(home: Path) -> None:
     counter, is the point: resetting the streak on every wake pinned it at 1
     and made this escalation unreachable while a hand-bumped test still passed.
     """
-    _daemon_home(home, 95)
+    _daemon_home(home, 100)
     con = db.connect()
     try:
-        real = foldmod.fold
-        foldmod.fold = lambda *a, **k: (False, "fold keeps failing")
+        # The default fixture has no snapshot of the session and no worktree,
+        # so every handoff here is degraded for the facts it could not read.
         seen = []
         try:
             for _ in range(dmn.MAX_THROTTLE_STREAK + 3):
@@ -1317,7 +1335,7 @@ def test_daemon_stall_escalation(home: Path) -> None:
                 # handoff rate limiter does not read them as one runaway.
                 con.execute("UPDATE handoff SET updated = updated - ? WHERE agent = 'backend'",
                             (dmn.MIN_HANDOFF_INTERVAL_S * 2,))
-                dmn.tick(con, lambda _m: None, use_model=False)
+                dmn.tick(con, lambda _m: None)
                 cur = db.get_agent_state(con, "backend")
                 seen.append((cur["state"], cur["throttle_count"]))
 
@@ -1327,11 +1345,11 @@ def test_daemon_stall_escalation(home: Path) -> None:
             check("daemon: repeated degradation escalates to STALLED",
                   final["state"] == dmn.STALLED, str(seen))
 
-            dmn.tick(con, lambda _m: None, use_model=False)
+            dmn.tick(con, lambda _m: None)
             check("daemon: STALLED is not cleared automatically",
                   db.get_agent_state(con, "backend")["state"] == dmn.STALLED)
         finally:
-            foldmod.fold = real
+            pass
     finally:
         con.close()
 
@@ -1339,18 +1357,14 @@ def test_daemon_stall_escalation(home: Path) -> None:
 def test_daemon_success_clears_streak(home: Path) -> None:
     """A handoff that works must end the streak, or every agent eventually
     stalls just from having been busy."""
-    _daemon_home(home, 95)
+    _daemon_home(home, 100)
     con = db.connect()
     try:
         for _ in range(3):
             db.bump_counter(con, "backend", "throttle_count")
-        real = foldmod.fold
-        foldmod.fold = lambda *a, **k: (True, "ok")
-        try:
-            db.set_agent_state(con, "backend", dmn.QUEUED)
-            dmn.tick(con, lambda _m: None, use_model=False)
-        finally:
-            foldmod.fold = real
+        readable_agent(con, home, "backend")
+        db.set_agent_state(con, "backend", dmn.QUEUED)
+        dmn.tick(con, lambda _m: None)
         row = db.get_agent_state(con, "backend")
         check("daemon: a successful handoff clears the throttle streak",
               row["throttle_count"] == 0, str(dict(row)))
@@ -1364,13 +1378,13 @@ def test_daemon_degraded_recovers(home: Path) -> None:
     _daemon_home(home, 50)
     con = db.connect()
     try:
-        db.start_handoff(con, "h_exp", "backend", "s", "usage", 0, int(time.time()) - 5)
-        dmn.tick(con, lambda _m: None, use_model=False)
+        db.start_handoff(con, "h_exp", "backend", "s", "usage", int(time.time()) - 5)
+        dmn.tick(con, lambda _m: None)
         row = db.get_agent_state(con, "backend")
         check("daemon: a timed-out handoff degrades with a wake_at",
               row["state"] == dmn.DEGRADED and row["wake_at"] is not None, str(dict(row)))
         db.set_agent_state(con, "backend", dmn.DEGRADED, wake_at=int(time.time()) - 1)
-        dmn.tick(con, lambda _m: None, use_model=False)
+        dmn.tick(con, lambda _m: None)
         row = db.get_agent_state(con, "backend")
         check("daemon: a due DEGRADED agent returns to QUEUED",
               row["state"] in (dmn.QUEUED, dmn.PARKED), str(dict(row)))
@@ -1383,9 +1397,9 @@ def test_daemon_tick_expires_handoff(home: Path) -> None:
     _daemon_home(home, 50)
     con = db.connect()
     try:
-        db.start_handoff(con, "h_tick", "backend", "s", "usage", 0, int(time.time()) - 600)
+        db.start_handoff(con, "h_tick", "backend", "s", "usage", int(time.time()) - 600)
         db.set_agent_state(con, "backend", dmn.HANDOFF)
-        dmn.tick(con, lambda _m: None, use_model=False)
+        dmn.tick(con, lambda _m: None)
         check("daemon: tick expires a handoff past its deadline",
               db.in_flight_handoffs(con) == [],
               str([dict(h) for h in db.in_flight_handoffs(con)]))
@@ -1405,18 +1419,8 @@ def test_daemon_ignores_stale_status(home: Path) -> None:
     check("stale snapshot: pct is not trusted for triggers", st.trusted_pct_5h is None,
           str(st.trusted_pct_5h))
     t = triggers.evaluate(st.trusted_pct_5h, st.trusted_ctx_pct)
-    check("stale snapshot: the trigger fires fail-closed rather than trusting it",
-          t.fired and t.kind == "usage_unknown", t.reason)
-
-
-def test_daemon_poll_uses_hottest(home: Path) -> None:
-    """The pace is set by the hottest account, not the quietest."""
-    check("poll: a hot account polls fast", triggers.poll_interval(88) == triggers.POLL_HOT_S)
-    check("poll: max() over accounts is what matters",
-          triggers.poll_interval(max([10, 88])) == triggers.POLL_HOT_S)
-    check("poll: min() would have been wrong",
-          triggers.poll_interval(min([10, 88])) == triggers.POLL_NORMAL_S)
-    check("poll: unknown usage polls fast", triggers.poll_interval(None) == triggers.POLL_HOT_S)
+    check("stale snapshot: an unreadable figure is not a wall, so nothing fires on it",
+          not t.fired, t.reason)
 
 
 def test_daemon_evaluates_parked(home: Path) -> None:
@@ -1843,7 +1847,7 @@ def test_two_processes_cannot_both_supervise_one_home(home: Path) -> None:
         check("lock: another process took the daemon lock",
               holder.stdout.readline().strip() == "True")
         out = subprocess.run([sys.executable, str(ROOT / "bin" / "ocp"), "daemon",
-                              "--once", "--no-model"],
+                              "--once"],
                              env=env, capture_output=True, text=True, timeout=120)
         check("daemon: the program itself refuses, not only a call to run()",
               out.returncode == 1, out.stdout + out.stderr)
@@ -2032,65 +2036,187 @@ def test_drift(tmp: Path) -> None:
           not bad.ok and bad.resume_header() == drift.OVERLAP_HEADER, bad.summary())
 
 
-def test_handoff_drift_header(home: Path) -> None:
-    """The resume header must actually reach handoff/latest.md."""
+def _worktree_with_a_dirty_file(root: Path) -> Path:
+    root.mkdir(parents=True, exist_ok=True)
+    for args in (["init", "-q", "-b", "topic"], ["config", "user.email", "t@t"],
+                 ["config", "user.name", "t"]):
+        subprocess.run(["git", *args], cwd=root, check=True, capture_output=True)
+    (root / "a.txt").write_text("a")
+    subprocess.run(["git", "add", "a.txt"], cwd=root, check=True, capture_output=True)
+    subprocess.run(["git", "commit", "-qm", "first"], cwd=root, check=True,
+                   capture_output=True)
+    (root / "dirty.txt").write_text("not committed")
+    return root
+
+
+def test_the_handoff_is_three_facts_read_without_a_model(home: Path) -> None:
+    """A handoff has to work when every account is walled, which is when a
+    model call cannot: it is the request in hand, the session's transcript path
+    and the worktree's state, read from disk, and it is degraded only when one
+    of those could not be read."""
+    _daemon_home(home, 50)
+    wt = _worktree_with_a_dirty_file(home / "wt-backend")
+    real = foldmod.run_model
+    foldmod.run_model = lambda *a, **k: (_ for _ in ()).throw(AssertionError("model called"))
+    con = db.connect()
+    try:
+        db.set_terminal(con, "backend", "term_x", str(wt))
+        rid = db.add_request(con, "marina", "backend", "fix the routing\nsecond line", None,
+                             "peer", "async", None, 0, None)
+        db.mark_delivered(con, rid)
+        write_agent_status("backend", "alpha", session_id="sess-1",
+                           transcript_path="/tmp/sess-1.jsonl")
+
+        missing = handoffmod.record(con, "backend")
+        text = db.get_handoff(con, "backend")
+        head = subprocess.run(["git", "rev-parse", "--short", "HEAD"], cwd=wt,
+                              capture_output=True, text=True).stdout.strip()
+        check("handoff: nothing is missing when the three facts can be read",
+              missing == [], str(missing))
+        check("handoff: it names the request in hand, first line only",
+              f"#{rid} from marina - fix the routing" in text and "second line" not in text,
+              text)
+        check("handoff: it names the previous session's transcript",
+              "sess-1" in text and "/tmp/sess-1.jsonl" in text, text)
+        check("handoff: it gives the branch, HEAD and what is uncommitted",
+              f"branch: topic @ {head}" in text and "?? dirty.txt" in text, text)
+        check("handoff: and nothing else - no digest sections",
+              "진행중" not in text and "recent commits" not in text, text)
+
+        # A request nobody has been shown yet is not one in hand.
+        db.add_request(con, "marina", "backend", "later", None, "peer", "async", None, 0, None)
+        db.set_request_state(con, rid, "done", "ok")
+        check("handoff: no delivered request is a fact, not a gap",
+              handoffmod.record(con, "backend") == []
+              and "request: none in progress" in db.get_handoff(con, "backend"))
+
+        # Each fact that cannot be read degrades it, and says which.
+        paths.agent_status_file("backend").unlink()
+        gaps = handoffmod.record(con, "backend")
+        check("handoff: no snapshot of the session names the transcript as the gap",
+              gaps == ["the session's transcript path"], str(gaps))
+        check("handoff: and the record says so where the agent reads it",
+              "could not read the session's transcript path" in db.get_handoff(con, "backend")
+              and "branch: topic" in db.get_handoff(con, "backend"))
+        db.set_terminal(con, "backend", "term_x", str(home / "gone"))
+        gaps = handoffmod.record(con, "backend")
+        check("handoff: a worktree that is gone is the other gap",
+              len(gaps) == 2 and gaps[1].startswith("the worktree"), str(gaps))
+    finally:
+        foldmod.run_model = real
+        con.close()
+
+
+def test_an_idle_close_keeps_a_handoff_only_if_it_closed(home: Path) -> None:
+    """A wake that has to start elsewhere has no live session to read the
+    transcript path from, so the close takes the record while there is one.
+    A close that did not happen leaves nothing behind to be read as current."""
+    _daemon_home(home, 20)
+    con = db.connect()
+    real = dmn._end_session
+    try:
+        readable_agent(con, home, "backend")
+        st = status.read_for_agent("backend", "alpha")
+        st.session_id = "sess-1"
+        dmn._end_session = lambda *a, **k: (True, "closed")
+        dmn._close_agent(con, "backend", lambda _m: None, st)
+        check("close: a successful close leaves the record for the wake",
+              "sess-1" in (db.get_handoff(con, "backend") or ""))
+        db.set_handoff(con, "backend", None)
+        dmn._end_session = lambda *a, **k: (False, "no session process")
+        dmn._close_agent(con, "backend", lambda _m: None, st)
+        check("close: one that did not happen leaves none",
+              db.get_handoff(con, "backend") is None)
+
+        # A parked agent is closed on this machine within the hour, and its park
+        # record names the session from before its /clear - the one the close's
+        # own snapshot no longer does.
+        park = "# handoff · backend\nprevious session: sess-BEFORE-PARK"
+        db.set_handoff(con, "backend", park)
+        db.set_agent_state(con, "backend", dmn.PARKED, wake_at=int(time.time()) + 3600)
+        dmn._end_session = lambda *a, **k: (True, "closed")
+        dmn._close_agent(con, "backend", lambda _m: None, st)
+        check("close: a park's record survives the close, not replaced by a newer one",
+              db.get_handoff(con, "backend") == park, str(db.get_handoff(con, "backend")))
+        dmn._end_session = lambda *a, **k: (False, "no session process")
+        dmn._close_agent(con, "backend", lambda _m: None, st)
+        check("close: and a close that failed does not delete it",
+              db.get_handoff(con, "backend") == park, str(db.get_handoff(con, "backend")))
+
+        # A record missing a fact is not kept: a wake that moves elsewhere would
+        # drop the resume id, the only complete copy of the context.
+        db.set_handoff(con, "backend", None)
+        db.set_agent_state(con, "backend", dmn.IDLE)
+        db.set_terminal(con, "backend", "term_x", str(home / "gone"))
+        dmn._end_session = lambda *a, **k: (True, "closed")
+        dmn._close_agent(con, "backend", lambda _m: None, st)
+        check("close: a record that could not read its worktree is not kept",
+              db.get_handoff(con, "backend") is None, str(db.get_handoff(con, "backend")))
+
+        # A launch hands the record over, so the next close records the session
+        # that launch started rather than finding the park's and skipping.
+        db.set_handoff(con, "backend", "# handoff · backend\nprevious session: sess-R1")
+        realb, realx, realr = launch.build, os.execve, launch._record_terminal
+        launch.build = lambda *a, **k: (["x"], {})
+        os.execve = lambda *a, **k: None
+        launch._record_terminal = lambda *a, **k: None
+        try:
+            launch.exec_agent("backend", prompt_file=str(home / "no-such-prompt"))
+            kept = db.get_handoff(con, "backend")
+            launch.exec_agent("backend")
+        finally:
+            launch.build, os.execve, launch._record_terminal = realb, realx, realr
+        check("close: a daemon wake's launch leaves the record for its fallback launch",
+              "sess-R1" in (kept or ""), str(kept))
+        db.set_agent_state(con, "backend", dmn.IDLE)
+        dmn._close_agent(con, "backend", lambda _m: None, st)
+        check("close: after a launch handed the record over, the close takes its own",
+              "sess-R1" not in (db.get_handoff(con, "backend") or ""),
+              str(db.get_handoff(con, "backend")))
+    finally:
+        dmn._end_session = real
+        con.close()
+
+
+def test_a_park_with_every_account_walled_is_a_clean_handoff(home: Path) -> None:
+    """The fold used to fail here - no account could pay for the call - and every
+    walled park counted as degraded. The handoff needs no account."""
+    _daemon_home(home, 100)
+    wt = _worktree_with_a_dirty_file(home / "wt-backend")
+    con = db.connect()
+    try:
+        db.set_terminal(con, "backend", "term_x", str(wt))
+        write_agent_status("backend", "alpha", session_id="sess-1",
+                           transcript_path="/tmp/sess-1.jsonl")
+        logs: list[str] = []
+        dmn.tick(con, logs.append)
+        row = db.get_agent_state(con, "backend")
+        check("park: a walled agent is parked", row["state"] == dmn.PARKED, str(dict(row)))
+        check("park: the handoff is not degraded, so nothing accrues to the streak",
+              row["throttle_count"] == 0
+              and not any("degraded" in m for m in logs), f"{dict(row)} {logs}")
+        check("park: the record is waiting for its wake",
+              "sess-1" in (db.get_handoff(con, "backend") or ""))
+        check("park: no fold failure is logged",
+              not con.execute("SELECT 1 FROM events WHERE kind = 'fold_failed'").fetchall())
+    finally:
+        con.close()
+
+
+def test_the_digest_facts_do_not_repeat_one_event_kind(home: Path) -> None:
+    """The machine record in a digest counts turn boundaries and quotes what
+    happened, instead of repeating one event kind sixteen times."""
     home.mkdir(parents=True, exist_ok=True)
     os.environ["OCP_HOME"] = str(home)
     agents.register("backend", "alpha")
-    d = digest.Digest(date=foldmod.today(), agent="backend", updated="10:00", folded_through=1,
-                      sections={"done": ["shipped the thing"], "in_progress": [], "decided": [],
-                                "blocked": [], "next": [], "base_candidates": []})
-    foldmod._write_handoff("backend", d, "facts here", repo=None)
-    text = foldmod.handoff_path("backend").read_text()
-    check("handoff: completed items appear", "shipped the thing" in text)
-    check("handoff: a drift header is attached above them",
-          drift.OVERLAP_HEADER in text or drift.NO_OVERLAP_HEADER in text, text[:200])
-    check("handoff: unknown drift uses the cautious header",
-          drift.OVERLAP_HEADER in text, text[:300])
-
-    # A handoff written when the fold could not run is the last digest, not a
-    # record of the work just done. Unmarked, "진행중: (none)" reads as a
-    # finding, and manager resumed on one while it was mid-build.
-    d.late = ["fold could not run; 112 event(s) still pending"]
-    foldmod._write_handoff("backend", d, "facts here", repo=None)
-    text = foldmod.handoff_path("backend").read_text()
-    check("handoff: one the fold did not write says so, above the sections",
-          "did not run" in text and "112 event(s)" in text
-          and text.index("did not run") < text.index(digest.HEADINGS["in_progress"]),
-          text[:400])
-
-    # And the machine record does not repeat one event kind sixteen times.
     now = int(time.time())
     events = [{"id": i, "ts": now, "kind": "SubagentStop", "payload": "{}"} for i in range(20)]
     events.append({"id": 99, "ts": now, "kind": "commit", "payload": '{"sha": "abc"}'})
     facts = foldmod.deterministic_facts("backend", events, repo=None)
-    check("handoff: the record counts turn boundaries and quotes what happened",
+    check("digest: the record counts turn boundaries and quotes what happened",
           "SubagentStopx20" in facts and facts.count("SubagentStop {") == 0
           and "commit" in facts, facts)
 
-
-# ---------------------------------------------------------------- yaml differential
-DIFFERENTIAL_CASES = [
-    "reason: go#1\n",
-    "url: http://x/#frag\n",
-    "a: b # real comment\n",
-    "d:\n  - a:b\n",
-    "d:\n  - http://example.com\n",
-    "enabled: yes\nother: no\n",
-    "on_flag: on\noff_flag: off\n",
-    '"a:b": c\n',
-    "n: 0x10\n",
-    "n: 0o17\n",
-    "f: 1.5\ng: -2\nh: 1e3\n",
-    "q: 'single'\nr: \"double\"\n",
-    "empty:\n",
-    "nested:\n  a:\n    b: 1\n",
-    "lst:\n  - 1\n  - two\n  - true\n",
-    'flow: { a: 1, b: "x, y" }\n',
-    "flowlist: [1, 2, three]\n",
-    "edges:\n  - { from: \"*\", to: reviewer, creates_gate: no }\n",
-    "edges:\n  - { from: \"*\", to: reviewer, creates_gate: yes }\n",
-]
 
 
 def test_yaml_differential() -> None:
@@ -2263,7 +2389,7 @@ def test_launch_refuses_stale(home: Path) -> None:
           "may be out of date" in r.stderr, r.stderr)
 
     # A current reading over the limit still blocks.
-    write_status(home, "delta", pct_5h=95)
+    write_status(home, "delta", pct_5h=100)
     r = subprocess.run([sys.executable, str(ROOT / "bin" / "ocp"), "launch", "st"],
                        capture_output=True, text=True, env=env)
     check("launch: a current over-limit reading still blocks", r.returncode != 0, r.stdout)
@@ -2834,7 +2960,7 @@ def test_work_arriving_wakes_a_closed_agent(home: Path) -> None:
         db.add_request(con, "reviewer", "backend", "please look at this", None,
                        "peer", "async", None, 0, None)
         sent.clear()
-        dmn.tick(con, lambda _m: None, use_model=False)
+        dmn.tick(con, lambda _m: None)
         check("wake: work arriving brings a closed agent back",
               any("--resume sess-9" in t for t in sent), str(sent[:2]))
         check("wake: and it is no longer marked closed",
@@ -2862,9 +2988,7 @@ def test_wake_without_a_closed_session_uses_the_handoff(home: Path) -> None:
         # makes typing the handoff into it the right move.
         sessions_are("backend")
         db.set_terminal(con, "backend", "term_x", "wt")
-        hp = foldmod.handoff_path("backend")
-        hp.parent.mkdir(parents=True, exist_ok=True)
-        hp.write_text("# handoff · backend\n- was mid-way through the routing fix")
+        keep_handoff("backend", "# handoff · backend\n- was mid-way through the routing fix")
         ok, _ = dmn.wake_agent(con, "backend", lambda _m: None)
         check("wake: a cleared agent gets its handoff", ok and "routing fix" in sent[-1],
               sent[-1][:120] if sent else "")
@@ -2872,6 +2996,8 @@ def test_wake_without_a_closed_session_uses_the_handoff(home: Path) -> None:
               "context was cleared" in sent[-1])
         check("wake: no launch command is typed at an agent that is still running",
               not any("launch" in t for t in sent), str(sent))
+        check("wake: a handoff that has been handed over is not handed over again",
+              kept_handoff("backend") is None)
     finally:
         orcamod.alive, orcamod.available, orcamod.send = real
         con.close()
@@ -3056,7 +3182,7 @@ def test_unobserved_spend_stays_off_unreadable_accounts(home: Path) -> None:
         accounts.logged_in = lambda a: True  # noqa: E731 - keychain is not the subject
         now = int(time.time())
         write_status(home, "blind", pct_5h=None, rl_lost=True)
-        write_status(home, "hot", pct_5h=93, reset_5h=now + 1800)
+        write_status(home, "hot", pct_5h=100, reset_5h=now + 1800)
         check("fold: an account whose reading was lost is not a fallback",
               foldmod._cheapest_account() is None, str(foldmod._cheapest_account()))
         write_status(home, "usable", pct_5h=20, reset_5h=now + 1800)
@@ -3075,6 +3201,22 @@ def test_unobserved_spend_stays_off_unreadable_accounts(home: Path) -> None:
         st = status.read("old")
         check("fold: even though it takes no new agents",
               not st.assignable()[0] and st.pct_5h_source == "carried_old")
+
+        # A stale reading pick_account would hand back on its idle floor is
+        # still an account this daemon cannot currently read - the fold must
+        # not prefer it over one with a genuinely current reading, even when
+        # the stale account would otherwise win the ranking (here, by far
+        # the earliest 7d deadline).
+        write_status(home, "fresh", pct_5h=50, reset_5h=now + 1800,
+                     reset_7d=now + 86400 * 2)
+        write_status(home, "stale_idle", pct_5h=5, reset_5h=now + 1800,
+                     reset_7d=now + 1800, collected_at=now - 3600)
+        check("fold: without the exclusion, pick_account would hand back "
+              "the stale account (earliest 7d deadline wins)",
+              status.pick_account(["fresh", "stale_idle"])[0] == "stale_idle")
+        check("fold: with it, the fold goes to the one it can actually read",
+              foldmod._cheapest_account() == "fresh",
+              str(foldmod._cheapest_account()))
     finally:
         accounts.logged_in = real_login
         tui._LOGIN.clear()
@@ -3122,12 +3264,12 @@ def test_subscription_type_is_recorded_and_cached(home: Path) -> None:
 def test_launch_judges_on_the_figure_it_may_act_on(home: Path) -> None:
     """Inside a window usage only rises, so a carried figure is a floor - and a
     floor at the wall is at the wall. Reading the raw field let a launch start
-    on an account a carry had just placed at 95%."""
+    on an account a carry had just placed at 100%."""
     home.mkdir(parents=True, exist_ok=True)
     os.environ["OCP_HOME"] = str(home)
     agents.register("late", "alpha")
     now = int(time.time())
-    write_status(home, "alpha", pct_5h=95, reset_5h=now + 1800,
+    write_status(home, "alpha", pct_5h=100, reset_5h=now + 1800,
                  rl_carried=True, rl_at=now - 300)
     real_login = accounts.logged_in
     try:
@@ -3136,7 +3278,7 @@ def test_launch_judges_on_the_figure_it_may_act_on(home: Path) -> None:
             launch.build("late")
             check("launch: refuses on a carried figure at the wall", False, "it started")
         except SystemExit as e:
-            check("launch: refuses on a carried figure at the wall", "95%" in str(e), str(e))
+            check("launch: refuses on a carried figure at the wall", "100%" in str(e), str(e))
 
         # A reading we have no figure for at all still starts: the session we
         # are about to launch is the only thing that can report where the
@@ -3154,8 +3296,8 @@ def test_launch_judges_on_the_figure_it_may_act_on(home: Path) -> None:
 
 def test_burn_rate_ignores_carried_samples(home: Path) -> None:
     """A carried figure pairs an unchanging percentage with a collected_at that
-    moves every tick. Sampling that flattens the measured rate to zero and
-    usage_projected stops firing for an account that was climbing."""
+    moves every tick. Sampling that flattens the measured rate to zero, and an
+    account that was climbing then reads as one with nothing on it."""
     os.environ["OCP_HOME"] = str(home)
     rising = [(1000, 70), (1150, 74), (1300, 78)]
     live_burn = triggers.burn_rate_per_s(rising)
@@ -3166,11 +3308,8 @@ def test_burn_rate_ignores_carried_samples(home: Path) -> None:
     flattened = [(1450 + i * 30, 78) for i in range(10)]
     check("burn: flat carried samples measure as no burn at all",
           triggers.burn_rate_per_s(flattened) == 0.0)
-    fired = triggers.evaluate(83, None, burn=live_burn, poll_s=30)
-    check("burn: the real rate is what makes the projection fire",
-          fired.fired and fired.kind == "usage_projected", fired.reason)
-    check("burn: and a flattened one never would",
-          not triggers.evaluate(83, None, burn=0.0, poll_s=30).fired)
+    check("burn: the real rate is what shortens what an account has left for one more agent",
+          triggers.stretch_s(20, live_burn) < triggers.stretch_s(20, 0.0))
 
 
 def test_a_session_figure_is_not_shown_as_an_accounts(home: Path) -> None:
@@ -3250,6 +3389,33 @@ def test_doctor_says_one_thing_per_account(home: Path) -> None:
           any("7d" in m for _l, m in per_account["e_7dlost"]), str(per_account["e_7dlost"]))
 
 
+def test_doctor_agrees_with_the_pick_about_an_account_with_an_agent_mid_turn(
+        home: Path) -> None:
+    """doctor is the Phase 1 criterion's own surface (KICKOFF §3), so it must
+    not print "assignable" about a stale account the pick refuses for having
+    an agent of ours mid-turn on it - the five call sites idle_floor's active
+    gate does not reach by default (doctor, actions, tui, the two cli list
+    commands) each need the same figure pick_account already gets."""
+    _daemon_home(home, 20)
+    _with_accounts("beta")
+    now = int(time.time())
+    write_status(home, "beta", pct_5h=40, pct_7d=10, reset_5h=now + 1800,
+                 reset_7d=now + 86400, collected_at=now - 3600)
+    con = db.connect()
+    try:
+        _running_on(con, "beta", "w1")
+    finally:
+        con.close()
+    check("pick: refuses the account while an agent is mid-turn on it",
+          status.pick_account(["beta"])[0] is None)
+    r = doctor.Report()
+    doctor._check_accounts(r)
+    row = next(msg for _lvl, msg, _detail in r.rows if msg.startswith("account beta:")
+              and ("assignable" in msg))
+    check("doctor: agrees - not assignable, not the pick's blind spot",
+          "not assignable" in row, row)
+
+
 def test_fold_is_not_rejected_over_a_header_it_overwrites(home: Path) -> None:
     """The header is stamped after validation, so validating it throws away good
     section work over a line that was about to be replaced - and rejection is
@@ -3299,7 +3465,7 @@ def test_one_agents_bad_tick_is_not_everyones(home: Path) -> None:
     """Supervising an agent shells out to Orca three times. An exception in any
     of it used to end the tick, so every agent after it in the list went
     unsupervised with nothing saying so."""
-    _daemon_home(home, 95)
+    _daemon_home(home, 100)
     agents.register("zzlater", "alpha")
     con = db.connect()
     db.set_terminal(con, "zzlater", "term_z", "wt")
@@ -3311,7 +3477,7 @@ def test_one_agents_bad_tick_is_not_everyones(home: Path) -> None:
             return real(con_, agent, *a, **k)
 
         dmn.supervise = explode
-        t = dmn.tick(con, lambda _m: None, use_model=False)
+        t = dmn.tick(con, lambda _m: None)
         check("tick: the failure is reported against the agent that had it",
               any("backend: error" in a for a in t.actions), str(t.actions))
         check("tick: and it counts as a failed attempt",
@@ -3509,11 +3675,11 @@ def test_a_closed_agent_is_not_handed_off(home: Path) -> None:
         st = status.read_for_agent("backend", "alpha")
         check("closed: its usage does read as unknown",
               st.trusted_pct_5h is None, str(st.trusted_pct_5h))
-        check("closed: which on a live agent would fire",
-              triggers.evaluate(st.trusted_pct_5h, None).fired)
+        check("closed: and an unknown figure is not a wall, so nothing would fire on it",
+              not triggers.evaluate(st.trusted_pct_5h, None).fired)
 
         sent.clear()
-        dmn.tick(con, lambda _m: None, use_model=False)
+        dmn.tick(con, lambda _m: None)
         row = db.get_agent_state(con, "backend")
         check("closed: but a closed agent is not handed off",
               row["state"] != dmn.PARKED, str(dict(row)))
@@ -3609,14 +3775,14 @@ def test_a_woken_agent_is_told_on_the_following_tick(home: Path) -> None:
         db.add_request(con, "reviewer", "backend", "look at this", None,
                        "peer", "async", None, 0, None)
         sent.clear()
-        dmn.tick(con, lambda _m: None, use_model=False)
+        dmn.tick(con, lambda _m: None)
         check("wake: the tick that wakes it brings the session back",
               any("--resume sess-4" in t for t in sent), str(sent))
         check("wake: and does not announce the inbox in the same breath",
               not any("ocp inbox" in t for t in sent), str(sent))
 
         sent.clear()
-        dmn.tick(con, lambda _m: None, use_model=False)
+        dmn.tick(con, lambda _m: None)
         check("wake: the following tick tells it what is waiting",
               any("ocp inbox" in t for t in sent), str(sent))
     finally:
@@ -3659,13 +3825,13 @@ def test_a_woken_agent_is_not_judged_on_the_snapshot_it_left(home: Path) -> None
         write_status(home, "alpha", pct_5h=20, pct_7d=10,
                      collected_at=int(time.time()) - status.STALE_AFTER_S - 60)
         st = status.read_for_agent("backend", "alpha")
-        check("wake: the reading it left behind does fire",
-              triggers.evaluate(st.trusted_pct_5h, st.trusted_ctx_pct).fired)
+        check("wake: the reading it left behind is unknown, not a wall",
+              not triggers.evaluate(st.trusted_pct_5h, st.trusted_ctx_pct).fired)
 
         db.add_request(con, "reviewer", "backend", "look at this", None,
                        "peer", "async", None, 0, None)
         sent.clear()
-        dmn.tick(con, lambda _m: None, use_model=False)
+        dmn.tick(con, lambda _m: None)
         row = db.get_agent_state(con, "backend")
         check("wake: it comes back", any("--resume sess-7" in t for t in sent), str(sent))
         check("wake: and is not handed off on the reading it left behind",
@@ -3719,7 +3885,7 @@ def test_a_park_that_was_also_closed_is_woken_without_being_judged(home: Path) -
         write_status(home, "alpha", pct_5h=20, pct_7d=10,
                      collected_at=int(time.time()) - status.STALE_AFTER_S - 60)
         sent.clear()
-        dmn.tick(con, lambda _m: None, use_model=False)
+        dmn.tick(con, lambda _m: None)
         row = db.get_agent_state(con, "backend")
         check("parked+closed: wake_at brings the same session back",
               any("--resume sess-8" in t for t in sent), str(sent))
@@ -3783,24 +3949,32 @@ def test_reconcile_wakes_a_park_that_was_also_closed(home: Path) -> None:
 
 
 def test_a_wake_does_not_call_a_fresh_start_a_park(home: Path) -> None:
-    """Closing writes no handoff, because closing is not a handoff. Telling an
-    agent that could not be resumed "your context was cleared, below is your own
-    handoff record" hands it whatever an earlier park left behind, read as
-    current - the failure this branch exists to remove."""
+    """Telling an agent that could not be resumed "your context was cleared,
+    below is your own handoff record" says it was parked when it was not. A
+    fresh start after a close finds its record in the system prompt of the
+    session it started, so the prompt points there and does not repeat it."""
     _daemon_home(home, 20)
-    hp = foldmod.handoff_path("backend")
-    hp.parent.mkdir(parents=True, exist_ok=True)
-    hp.write_text("# handoff · backend\n- was mid-way through the routing fix")
+    keep_handoff("backend", "# handoff · backend\n- was mid-way through the routing fix")
+    con = db.connect()
+    try:
+        told = dmn.wake_prompt("backend", resumed=False, was_closed=True, con=con)
+        check("wake: a fresh start after a close is not called a park",
+              "You were parked" not in told, told[:140])
+        check("wake: and its handoff is in the system prompt, not typed again",
+              "routing fix" not in told and "system prompt above" in told, told[:200])
+        db.set_handoff(con, "backend", None)
+        told = dmn.wake_prompt("backend", resumed=False, was_closed=True, con=con)
+        check("wake: with none recorded it is told so",
+              "no handoff" in told.lower(), told[:200])
+    finally:
+        con.close()
 
-    told = dmn.wake_prompt("backend", resumed=False, was_closed=True)
-    check("wake: a fresh start after a close is not called a park",
-          "You were parked" not in told, told[:140])
-    check("wake: and is not handed a leftover handoff",
-          "routing fix" not in told, told[:200])
-    check("wake: it is told there is nothing folded to read",
-          "no handoff" in told, told[:200])
-
-    told = dmn.wake_prompt("backend", resumed=False, was_closed=False)
+    keep_handoff("backend", "# handoff · backend\n- was mid-way through the routing fix")
+    con = db.connect()
+    try:
+        told = dmn.wake_prompt("backend", resumed=False, was_closed=False, con=con)
+    finally:
+        con.close()
     check("wake: a real park still gets its record",
           "You were parked" in told and "routing fix" in told, told[:200])
 
@@ -3994,17 +4168,17 @@ def test_an_agent_with_nowhere_to_run_is_not_handed_off(home: Path) -> None:
     agents that are registered but were never started. There is nothing to fold,
     nothing to clear and nothing being spent - backend and manager were parked
     that way on 09-17 and manager's fold was charged for it."""
-    _daemon_home(home, 95)
+    _daemon_home(home, 100)
     con = db.connect()
     try:
         db.set_terminal(con, "backend", None, None)
         row = db.get_agent_state(con, "backend")
         check("no terminal: the trigger itself still fires",
-              triggers.evaluate(95, 5).fired)
+              triggers.evaluate(100, 5).fired)
         check("no terminal: but the agent is not a candidate",
               not dmn.triggers_apply(row), str(dict(row)))
 
-        dmn.tick(con, lambda _m: None, use_model=False)
+        dmn.tick(con, lambda _m: None)
         row = db.get_agent_state(con, "backend")
         check("no terminal: so it is not parked", row["state"] != dmn.PARKED, str(dict(row)))
         check("no terminal: and no fold was paid for",
@@ -4012,7 +4186,7 @@ def test_an_agent_with_nowhere_to_run_is_not_handed_off(home: Path) -> None:
 
         # And with somewhere to run, the same trigger does its job.
         db.set_terminal(con, "backend", "term_x", "wt")
-        dmn.tick(con, lambda _m: None, use_model=False)
+        dmn.tick(con, lambda _m: None)
         check("no terminal: an agent that has one is still parked",
               db.get_agent_state(con, "backend")["state"] == dmn.PARKED,
               str(dict(db.get_agent_state(con, "backend"))))
@@ -4060,17 +4234,25 @@ def test_a_wake_is_believed_only_when_a_session_appears(home: Path) -> None:
         # forever, since it is now kept rather than cleared. A fresh start in
         # the same terminal loses the context and keeps the agent.
         sent.clear()
-        orcamod.send = lambda h, text, enter=True: (
-            sent.append(text),
-            table.update({"backend": 4242}) if " launch " in text
-            and "--resume" not in text else None,
-            (True, ""))[2]
+        db.set_handoff(con, "backend", "# handoff · backend\nwaiting")
+
+        def send_launching(h, text, enter=True):
+            sent.append(text)
+            if " launch " in text and "--resume" not in text:
+                table.update({"backend": 4242})
+            return True, ""
+        orcamod.send = send_launching
         ok, why = dmn.wake_agent(con, "backend", lambda _m: None)
         row = db.get_agent_state(con, "backend")
         check("wake: a resume that starts nothing falls back to a fresh start", ok, why)
         check("wake: and the agent is told there is no handoff behind it",
               any("could not be resumed" in launched_prompt(t)
                   for t in sent if "--prompt-file" in t), str(sent[-1:])[:120])
+        check("wake: the record is cleared once the session has started, not by the launch",
+              db.get_handoff(con, "backend") is None)
+        check("wake: and its handoff is in the system prompt",
+              any("system prompt above" in launched_prompt(t)
+                  for t in sent if "--prompt-file" in t), str(sent[-1:])[:200])
         check("wake: the closed mark is cleared once something is running",
               row["closed_at"] is None, str(dict(row)))
 
@@ -4140,7 +4322,7 @@ def test_a_wake_is_believed_only_when_a_session_appears(home: Path) -> None:
         db.set_closed(con, "backend", "sess-8")
         db.set_agent_state(con, "backend", dmn.IDLE, detail="closed and at the wall")
         db.reset_counter(con, "backend", "wake_failures")
-        write_status(home, "alpha", pct_5h=95, pct_7d=10, ctx_pct=5,
+        write_status(home, "alpha", pct_5h=100, pct_7d=10, ctx_pct=5,
                      reset_5h=int(time.time()) + 600)
         sent.clear()
         ok, why = dmn.wake_agent(con, "backend", lambda _m: None)
@@ -4201,7 +4383,7 @@ def test_a_walled_wake_says_so_everywhere(home: Path) -> None:
         # on the empty-detail row every other check here leaves behind.
         db.set_agent_state(con, "backend", dmn.IDLE, detail="request 13 resolved: done")
         reset_at = int(time.time()) + 1800
-        write_status(home, "alpha", pct_5h=95, pct_7d=10, ctx_pct=5, reset_5h=reset_at)
+        write_status(home, "alpha", pct_5h=100, pct_7d=10, ctx_pct=5, reset_5h=reset_at)
         when = time.strftime("%H:%M", time.localtime(reset_at))
 
         row = db.get_agent_state(con, "backend")
@@ -4272,7 +4454,7 @@ def test_a_walled_wake_is_not_shown_with_nothing_waiting(home: Path) -> None:
     con = db.connect()
     try:
         db.set_closed(con, "backend", "sess-idle")
-        write_status(home, "alpha", pct_5h=95, pct_7d=10, ctx_pct=5,
+        write_status(home, "alpha", pct_5h=100, pct_7d=10, ctx_pct=5,
                      reset_5h=int(time.time()) + 1800)
         row = db.get_agent_state(con, "backend")
         check("walled: nothing waiting means would_wake says no",
@@ -4327,7 +4509,7 @@ def test_a_stalled_closed_agent_keeps_its_marker_when_walled(home: Path) -> None
         db.set_agent_state(con, "backend", dmn.STALLED, detail="ran out of attempts")
         db.add_request(con, "reviewer", "backend", "look at this", None,
                        "peer", "async", None, 0, None)
-        write_status(home, "alpha", pct_5h=95, pct_7d=10, ctx_pct=5,
+        write_status(home, "alpha", pct_5h=100, pct_7d=10, ctx_pct=5,
                      reset_5h=int(time.time()) + 1800)
         row = db.get_agent_state(con, "backend")
         check("stalled+walled: both conditions actually hold here",
@@ -4353,12 +4535,12 @@ def test_a_walled_wake_with_no_reset_reads_unknown(home: Path) -> None:
         db.set_closed(con, "backend", "sess-wall")
         db.add_request(con, "reviewer", "backend", "look at this", None,
                        "peer", "async", None, 0, None)
-        write_status(home, "alpha", pct_5h=95, pct_7d=10, ctx_pct=5)
+        write_status(home, "alpha", pct_5h=100, pct_7d=10, ctx_pct=5)
         row = db.get_agent_state(con, "backend")
         reason = launch.wake_wait_reason("backend", row, con)
         check("walled: no reset_5h in the snapshot reads as unknown, not a crash",
               reason == "waiting for assumed account alpha's 5h window "
-                        "(95%, rolls over unknown)", reason)
+                        "(100%, rolls over unknown)", reason)
     finally:
         con.close()
 
@@ -4379,7 +4561,7 @@ def test_a_moved_walled_wake_names_the_new_account(home: Path) -> None:
         db.set_closed(con, "backend", None)   # no resume id: the move's wake
         db.add_request(con, "reviewer", "backend", "look at this", None,
                        "peer", "async", None, 0, None)
-        write_status(home, "alpha", pct_5h=95, pct_7d=10, ctx_pct=5,
+        write_status(home, "alpha", pct_5h=100, pct_7d=10, ctx_pct=5,
                      reset_5h=int(time.time()) + 1800)
         write_status(home, "beta", pct_5h=20, pct_7d=10, ctx_pct=5,
                      reset_5h=int(time.time()) + 1800)
@@ -4477,10 +4659,10 @@ def test_a_park_that_cannot_be_woken_keeps_its_deadline(home: Path) -> None:
         db.set_closed(con, "backend", "sess-2")
         db.set_agent_state(con, "backend", dmn.PARKED, wake_at=int(time.time()) - 10,
                            detail="parked and closed")
-        write_status(home, "alpha", pct_5h=95, pct_7d=10, ctx_pct=5,
+        write_status(home, "alpha", pct_5h=100, pct_7d=10, ctx_pct=5,
                      reset_5h=int(time.time()) + 600)
 
-        dmn.supervise(con, "backend", lambda _m: None, int(time.time()), {}, False, [])
+        dmn.supervise(con, "backend", lambda _m: None, int(time.time()), {}, [])
         row = db.get_agent_state(con, "backend")
         check("park: a wake the account refuses is not typed", not sent, str(sent))
         check("park: and the deadline stays, so the next tick tries again",
@@ -4491,7 +4673,7 @@ def test_a_park_that_cannot_be_woken_keeps_its_deadline(home: Path) -> None:
                      reset_5h=int(time.time()) + 1800)
         table = sessions_are()
         orcamod.send = relaunching_send(sent, table)
-        dmn.supervise(con, "backend", lambda _m: None, int(time.time()), {}, False, [])
+        dmn.supervise(con, "backend", lambda _m: None, int(time.time()), {}, [])
         row = db.get_agent_state(con, "backend")
         check("park: once it rolls over the park is woken and the deadline cleared",
               row["state"] == dmn.QUEUED and row["wake_at"] is None
@@ -4510,7 +4692,7 @@ def test_a_park_that_cannot_be_woken_keeps_its_deadline(home: Path) -> None:
             evmod._mark_activity(hooked, "backend", "UserPromptSubmit")
             if " launch " in text else None, launching(h, text, enter))[1]
         try:
-            dmn.supervise(con, "backend", lambda _m: None, int(time.time()), {}, False, [])
+            dmn.supervise(con, "backend", lambda _m: None, int(time.time()), {}, [])
         finally:
             hooked.close()
         row = db.get_agent_state(con, "backend")
@@ -4526,7 +4708,7 @@ def _park_via_handoff(con, agent: str, kind: str, hoff_state: str = "done") -> N
     with `trigger_kind` on the record - the only place a park's cause is
     named, since nothing on `agent_state` itself says why."""
     hid = f"hoff-{kind}"
-    db.start_handoff(con, hid, agent, None, kind, 0, int(time.time()) + 90)
+    db.start_handoff(con, hid, agent, None, kind, int(time.time()) + 90)
     db.advance_handoff(con, hid, "released", state=hoff_state)
 
 
@@ -4549,7 +4731,7 @@ def test_a_usage_park_is_woken_when_the_reading_clears(home: Path) -> None:
         write_status(home, "alpha", pct_5h=5, pct_7d=10, ctx_pct=5,
                      reset_5h=int(time.time()) + 1800)
 
-        dmn.supervise(con, "backend", lambda _m: None, int(time.time()), {}, False, [])
+        dmn.supervise(con, "backend", lambda _m: None, int(time.time()), {}, [])
         row = db.get_agent_state(con, "backend")
         check("park: an open session wakes the moment the reading clears, "
               "not at the deadline it was given",
@@ -4559,15 +4741,10 @@ def test_a_usage_park_is_woken_when_the_reading_clears(home: Path) -> None:
         con.close()
 
 
-def test_a_usage_park_does_not_oscillate_in_the_reserve_band(home: Path) -> None:
-    """`assignable()`'s 90% used to be the un-park question - a looser line
-    than the trigger's own 85% - so a reading in the band between them
-    flapped every tick: QUEUED, parked again by the very next trigger
-    evaluation, paying for a fold each round. Symmetric on the same
-    `evaluate()`, the same reading can never call for both in the same tick,
-    at any number of ticks - the band was the reserve keeping a handoff
-    affordable, not spare capacity to wake into.
-    """
+def test_a_usage_park_stays_parked_while_the_reading_is_at_the_wall(home: Path) -> None:
+    """The un-park question and the trigger are the same `evaluate()`, so a
+    reading that parked an agent cannot also wake it, at any number of ticks:
+    it stays parked until the reading is off the wall."""
     _daemon_home(home, 20)
     con = db.connect()
     real = (orcamod.available, orcamod.alive, orcamod.idle_now, orcamod.clear_context,
@@ -4590,22 +4767,21 @@ def test_a_usage_park_does_not_oscillate_in_the_reserve_band(home: Path) -> None
                            wake_at=int(time.time()) + 3600, detail="usage; wakes at 23:00")
         db.add_request(con, "reviewer", "backend", "look at this", None,
                        "peer", "async", None, 0, None)
-        # Over the trigger's own line (85%) but under the account's hard
-        # block (90%) - assignable, the old question, but not cleared.
-        write_status(home, "alpha", pct_5h=87, pct_7d=10, ctx_pct=5,
+        # Still at the wall, with work waiting and the account's reset inside T:
+        # not cleared, and not worth a cold start to leave.
+        write_status(home, "alpha", pct_5h=100, pct_7d=10, ctx_pct=5,
                      reset_5h=int(time.time()) + 1800)
         before = db.get_agent_state(con, "backend")
         continuations_before = int(before["continuations"])
 
         for _ in range(5):
-            dmn.supervise(con, "backend", lambda _m: None, int(time.time()), {}, False, [])
+            dmn.supervise(con, "backend", lambda _m: None, int(time.time()), {}, [])
             row = db.get_agent_state(con, "backend")
-            check("park: still parked - the reading is still over the line",
+            check("park: still parked - the reading is still at the wall",
                   row["state"] == dmn.PARKED, str(dict(row)))
-        # The damage an oscillation actually does is folds, not the label
-        # a screen shows for a tick - a state that flapped back to PARKED
-        # every time would still look fine here if this only checked state.
-        check("park: no fold was ever paid for across the flap",
+        # A state that flapped back to PARKED every time would still look fine
+        # here if this only checked the label; a handoff per round would not.
+        check("park: no handoff was ever paid for across the flap",
               int(row["continuations"]) == continuations_before,
               dict(before=continuations_before, after=row["continuations"]))
     finally:
@@ -4615,15 +4791,8 @@ def test_a_usage_park_does_not_oscillate_in_the_reserve_band(home: Path) -> None
 
 
 def test_a_weekly_park_stays_parked_while_the_week_is_full(home: Path) -> None:
-    """A weekly park is un-parked on the weekly reading too: 5h at 10% with 7d at 98%
-    is still the condition that parked it. `assignable()`'s 90% used to be the un-park question - a looser line
-    than the trigger's own 85% - so a reading in the band between them
-    flapped every tick: QUEUED, parked again by the very next trigger
-    evaluation, paying for a fold each round. Symmetric on the same
-    `evaluate()`, the same reading can never call for both in the same tick,
-    at any number of ticks - the band was the reserve keeping a handoff
-    affordable, not spare capacity to wake into.
-    """
+    """A weekly park is un-parked on the weekly reading too: 5h at 10% with 7d at
+    100% is still the condition that parked it."""
     _daemon_home(home, 20)
     con = db.connect()
     real = (orcamod.available, orcamod.alive, orcamod.idle_now, orcamod.clear_context,
@@ -4646,22 +4815,19 @@ def test_a_weekly_park_stays_parked_while_the_week_is_full(home: Path) -> None:
                            wake_at=int(time.time()) + 3600, detail="usage; wakes at 23:00")
         db.add_request(con, "reviewer", "backend", "look at this", None,
                        "peer", "async", None, 0, None)
-        # Over the trigger's own line (85%) but under the account's hard
-        # block (90%) - assignable, the old question, but not cleared.
-        write_status(home, "alpha", pct_5h=10, pct_7d=98, ctx_pct=5,
+        write_status(home, "alpha", pct_5h=10, pct_7d=100, ctx_pct=5,
                      reset_5h=int(time.time()) + 1800, reset_7d=int(time.time()) + 86400)
         before = db.get_agent_state(con, "backend")
         continuations_before = int(before["continuations"])
 
         for _ in range(5):
-            dmn.supervise(con, "backend", lambda _m: None, int(time.time()), {}, False, [])
+            dmn.supervise(con, "backend", lambda _m: None, int(time.time()), {}, [])
             row = db.get_agent_state(con, "backend")
-            check("park: still parked - the reading is still over the line",
+            check("park: still parked - the reading is still at the wall",
                   row["state"] == dmn.PARKED, str(dict(row)))
-        # The damage an oscillation actually does is folds, not the label
-        # a screen shows for a tick - a state that flapped back to PARKED
-        # every time would still look fine here if this only checked state.
-        check("park: no fold was ever paid for across the flap",
+        # A state that flapped back to PARKED every time would still look fine
+        # here if this only checked the label; a handoff per round would not.
+        check("park: no handoff was ever paid for across the flap",
               int(row["continuations"]) == continuations_before,
               dict(before=continuations_before, after=row["continuations"]))
     finally:
@@ -4690,7 +4856,7 @@ def test_a_degraded_park_does_not_auto_clear(home: Path) -> None:
         write_status(home, "alpha", pct_5h=5, pct_7d=10, ctx_pct=5,
                      reset_5h=int(time.time()) + 1800)
 
-        dmn.supervise(con, "backend", lambda _m: None, int(time.time()), {}, False, [])
+        dmn.supervise(con, "backend", lambda _m: None, int(time.time()), {}, [])
         row = db.get_agent_state(con, "backend")
         check("park: DEGRADED is not scoped in - it keeps its own deadline",
               row["state"] == dmn.DEGRADED and row["wake_at"] is not None, str(dict(row)))
@@ -4719,7 +4885,7 @@ def test_a_context_park_does_not_auto_clear_on_a_usage_reading(home: Path) -> No
         write_status(home, "alpha", pct_5h=5, pct_7d=10, ctx_pct=5,
                      reset_5h=int(time.time()) + 1800)
 
-        dmn.supervise(con, "backend", lambda _m: None, int(time.time()), {}, False, [])
+        dmn.supervise(con, "backend", lambda _m: None, int(time.time()), {}, [])
         row = db.get_agent_state(con, "backend")
         check("park: a context park is not a usage park - it keeps its own deadline",
               row["state"] == dmn.PARKED and row["wake_at"] is not None, str(dict(row)))
@@ -4757,7 +4923,7 @@ def test_an_assumed_account_does_not_auto_clear_a_park(home: Path) -> None:
         check("park: the account column really is null here",
               row["account"] is None, dict(row))
 
-        dmn.supervise(con, "backend", lambda _m: None, int(time.time()), {}, False, [])
+        dmn.supervise(con, "backend", lambda _m: None, int(time.time()), {}, [])
         row = db.get_agent_state(con, "backend")
         check("park: an assumed account never un-parks",
               row["state"] == dmn.PARKED and row["wake_at"] is not None, str(dict(row)))
@@ -4774,13 +4940,13 @@ def test_a_resumed_handoff_also_records_its_park(home: Path) -> None:
     _daemon_home(home, 20)
     con = db.connect()
     try:
-        db.start_handoff(con, "hoff-restart", "backend", None, "usage", 0,
+        db.start_handoff(con, "hoff-restart", "backend", None, "usage",
                          int(time.time()) + 90)
         row = db.in_flight_for(con, "backend")
         write_status(home, "alpha", pct_5h=20, pct_7d=10, ctx_pct=5,
                      reset_5h=int(time.time()) + 1800)
 
-        dmn.resume_handoff(con, row, lambda _m: None, use_model=False)
+        dmn.resume_handoff(con, row, lambda _m: None)
         events = db.events_after(con, 0, agent="backend", exclude_kinds=())
         check("resume: a recovered handoff's park is recorded too",
               any(e["kind"] == "park" for e in events), [e["kind"] for e in events])
@@ -4849,7 +5015,7 @@ def test_supervise_reads_the_reported_account_not_an_assumed_preference(home: Pa
         db.set_terminal(con, "backend", "term_x", "wt")
         db.set_agent_state(con, "backend", dmn.IDLE)
 
-        dmn.supervise(con, "backend", lambda _m: None, int(time.time()), {}, False, [])
+        dmn.supervise(con, "backend", lambda _m: None, int(time.time()), {}, [])
         row = db.get_agent_state(con, "backend")
         check("account: a park against the wrong, assumed account no longer happens",
               row["state"] != dmn.PARKED, dict(row))
@@ -4869,11 +5035,11 @@ def test_a_park_against_an_assumed_account_gets_a_short_recheck(home: Path) -> N
     try:
         # No recorded column, no fresh report: alpha, the config preference,
         # is the only thing left, and it is hours from rolling over.
-        write_status(home, "alpha", pct_5h=95, pct_7d=10, ctx_pct=5,
+        write_status(home, "alpha", pct_5h=100, pct_7d=10, ctx_pct=5,
                      reset_5h=int(time.time()) + 4 * 3600)
         t = triggers.evaluate(95, 10)
         before = int(time.time())
-        dmn.perform_handoff(con, "backend", t, lambda _m: None, use_model=False)
+        dmn.perform_handoff(con, "backend", t, lambda _m: None)
         row = db.get_agent_state(con, "backend")
         check("account: an assumed park gets a short re-look, not alpha's own "
               "4h-out rollover",
@@ -4895,11 +5061,11 @@ def test_a_resumed_handoff_also_fails_closed_on_an_assumed_account(home: Path) -
     try:
         write_status(home, "alpha", pct_5h=20, pct_7d=10, ctx_pct=5,
                      reset_5h=int(time.time()) + 4 * 3600)
-        db.start_handoff(con, "hoff-restart2", "backend", None, "usage", 0,
+        db.start_handoff(con, "hoff-restart2", "backend", None, "usage",
                          int(time.time()) + 90)
         row = db.in_flight_for(con, "backend")
         before = int(time.time())
-        dmn.resume_handoff(con, row, lambda _m: None, use_model=False)
+        dmn.resume_handoff(con, row, lambda _m: None)
         fresh = db.get_agent_state(con, "backend")
         check("account: a resumed handoff's park also gets a short re-look, "
               "not alpha's own 4h-out rollover",
@@ -5066,7 +5232,7 @@ def test_the_screen_says_which_account_to_spend_next(home: Path) -> None:
         accounts.logged_in = lambda a: True  # noqa: E731
         tui._LOGIN.clear()
         for a in ("alpha", "beta"):
-            write_status(home, a, pct_5h=99, pct_7d=99, ctx_pct=5,
+            write_status(home, a, pct_5h=100, pct_7d=99, ctx_pct=5,
                          reset_5h=int(time.time()) + 1800)
         check("accounts: with nothing assignable, nothing is marked", not marked())
     finally:
@@ -5699,14 +5865,14 @@ def test_an_answer_wakes_the_agent_that_was_waiting_for_it(home: Path) -> None:
         check("waiting: resolving leaves it closed, with no deadline left",
               row["closed_at"] is not None and row["wake_at"] is None, str(dict(row)))
 
-        dmn.supervise(con, "backend", lambda _m: None, int(time.time()), {}, False, [])
+        dmn.supervise(con, "backend", lambda _m: None, int(time.time()), {}, [])
         check("waiting: the tick wakes it for the answer it asked for",
               any("--resume sess-4" in t for t in sent), str(sent))
         check("waiting: and it is no longer closed",
               db.get_agent_state(con, "backend")["closed_at"] is None)
 
         sent.clear()
-        dmn.supervise(con, "backend", lambda _m: None, int(time.time()), {}, False, [])
+        dmn.supervise(con, "backend", lambda _m: None, int(time.time()), {}, [])
         check("waiting: the next tick hands it the answer",
               any("this way" in t for t in sent), str(sent)[:160])
 
@@ -6162,7 +6328,7 @@ def test_an_agent_can_put_another_one_to_work(home: Path) -> None:
         db.set_closed(con, "reviewer", "sess_old")
         logged: list[str] = []
         dmn.supervise(con, "reviewer", lambda m: logged.append(m),
-                      int(time.time()), {}, False, [])
+                      int(time.time()), {}, [])
         check("dispatch: an agent with an answer and no terminal is given one",
               ("reviewer", str((home / "checkout").resolve())) in started,
               f"{started} {logged}")
@@ -6180,7 +6346,7 @@ def test_an_agent_can_put_another_one_to_work(home: Path) -> None:
         logged.clear()
         for _ in range(3):
             dmn.supervise(con, "reviewer", lambda m: logged.append(m),
-                          int(time.time()), {}, False, [])
+                          int(time.time()), {}, [])
         said = [m for m in logged if "could not be woken" in m]
         check("dispatch: a wake that cannot happen is said out loud",
               len(said) == 1 and "answer(s) it asked for" in said[0], str(logged))
@@ -6194,9 +6360,8 @@ def test_an_agent_can_put_another_one_to_work(home: Path) -> None:
 
 
 def test_weekly_headroom_is_spent_to_its_own_wall(home: Path) -> None:
-    """Founder's decision #254, the example given verbatim: an account at
-    5h 9% / 7d 98% is unusable under the old PCT_7D_BLOCK=95 gate, throwing
-    away headroom the week resets anyway - it must still be picked, and an
+    """Founder's decision #254: an account at 5h 9% / 7d 99% is spent to the
+    weekly wall, not stopped short of it - it must still be picked, and an
     agent working on it moves only once 7d actually reaches its own wall."""
     _daemon_home(home, 20)
     accounts.register("beta")
@@ -6205,30 +6370,33 @@ def test_weekly_headroom_is_spent_to_its_own_wall(home: Path) -> None:
         (home / "accounts" / acct / ".claude").mkdir(parents=True, exist_ok=True)
         (home / "accounts" / acct / ".claude" / ".credentials.json").write_text("{}")
 
-    # alpha's weekly headroom expires soon and is still spendable up to the
-    # line its move trigger fires at (98); at the line it is refused, since an
-    # agent started there would be moved off at once.
-    write_status(home, "alpha", pct_5h=9, pct_7d=97,
-                 reset_7d=int(time.time()) + 3600, reset_5h=int(time.time()) + 1800)
+    # alpha's weekly headroom expires soon and is spendable to the wall itself.
+    now = int(time.time())
+    def alpha(pct5, pct7):
+        write_status(home, "alpha", pct_5h=pct5, pct_7d=pct7,
+                     reset_7d=now + 3600, reset_5h=now + 1800)
     write_status(home, "beta", pct_5h=9, pct_7d=10,
-                 reset_7d=int(time.time()) + 90000, reset_5h=int(time.time()) + 1800)
-    picked, reasons = status.pick_account(["alpha", "beta"])
-    check("7d wall: the soon-to-reset account is picked at 7d 97%",
+                 reset_7d=now + 90000, reset_5h=now + 1800)
+    alpha(9, 99)
+    picked, reasons = status.pick_account(["alpha", "beta"], load={})
+    check("7d wall: the soon-to-reset account is picked at 7d 99%",
           picked == "alpha", str((picked, reasons)))
-    write_status(home, "alpha", pct_5h=9, pct_7d=98,
-                 reset_7d=int(time.time()) + 3600, reset_5h=int(time.time()) + 1800)
-    check("7d wall: at its own trigger line (98%) it is not picked",
-          status.pick_account(["alpha", "beta"])[0] == "beta")
-    write_status(home, "alpha", pct_5h=85, pct_7d=10,
-                 reset_7d=int(time.time()) + 3600, reset_5h=int(time.time()) + 1800)
-    check("5h wall: nor at its 5h trigger line (85%)",
-          status.pick_account(["alpha", "beta"])[0] == "beta")
-    write_status(home, "alpha", pct_5h=84, pct_7d=10,
-                 reset_7d=int(time.time()) + 3600, reset_5h=int(time.time()) + 1800)
-    check("5h wall: 84% is still picked",
-          status.pick_account(["alpha", "beta"])[0] == "alpha")
-    write_status(home, "alpha", pct_5h=9, pct_7d=98,
-                 reset_7d=int(time.time()) + 3600, reset_5h=int(time.time()) + 1800)
+    alpha(9, 100)
+    check("7d wall: at the wall it is not picked",
+          status.pick_account(["alpha", "beta"], load={})[0] == "beta")
+    # The 5h side is a stretch, not a line: an idle account is picked while one
+    # more agent would last the least worth starting, and not once it would not.
+    alpha(70, 10)
+    check("5h: 70% with nothing on it lasts long enough and is picked",
+          status.pick_account(["alpha", "beta"], load={})[0] == "alpha")
+    alpha(85, 10)
+    picked, reasons = status.pick_account(["alpha", "beta"], load={})
+    check("5h: 85% would last 20 minutes and is not picked",
+          picked == "beta" and "under the 30m" in dict(reasons)["alpha"], str(reasons))
+    alpha(100, 10)
+    check("5h: at the wall it is not picked",
+          status.pick_account(["alpha", "beta"], load={})[0] == "beta")
+    alpha(9, 100)
 
     con = db.connect()
     try:
@@ -6236,8 +6404,9 @@ def test_weekly_headroom_is_spent_to_its_own_wall(home: Path) -> None:
         sessions_are("keeper")
         db.set_account(con, "keeper", "alpha")
 
-        t = triggers.evaluate(9, 10, pct_7d=98)
-        check("7d wall: 5h 9% / 7d 98% fires a move trigger on the 7d figure",
+        db.add_request(con, "marina", "keeper", "carry on", None, "peer", "async", None, 0, None)
+        t = triggers.evaluate(9, 10, pct_7d=100)
+        check("7d wall: 5h 9% / 7d 100% fires a move trigger on the 7d figure",
               t.fired and t.kind == "usage_7d" and "pct_7d" in t.reason, t.reason)
 
         real = (orcamod.available, orcamod.alive, orcamod.close_session,
@@ -6249,7 +6418,7 @@ def test_weekly_headroom_is_spent_to_its_own_wall(home: Path) -> None:
             orcamod.close_session = lambda h, **kw: (True, "session ended")
             orcamod.relaunch = lambda h, cmd, **kw: (True, "relaunched")
             dmn.wait_for_session = lambda agent, timeout=0: True
-            foldmod.handoff_path("keeper").write_text("# handoff · keeper\n## 다음\n- carry on\n")
+            keep_handoff("keeper", "# handoff · keeper\n## 다음\n- carry on\n")
             check("7d wall: the agent moves off an account that hit its 7d wall",
                   dmn._move_to_room(con, "keeper", t, lambda _m: None))
             check("7d wall: it landed on the account with weekly room",
@@ -6267,9 +6436,9 @@ def test_an_agent_at_the_wall_moves_to_an_account_with_room(home: Path) -> None:
 
     Total throughput is accounts x window, and moving a session does not change
     it. What it changes is whether an agent sits out its own five hours while
-    another account idles beside it - the trade design section 0.5 put behind
-    the slot model, and the only part of it that needs no lease, because the
-    session being moved is already over: it has been folded and its context is
+    another account idles beside it - worth a cold start only for an agent that
+    is at the wall with work waiting and a reset too far off to wait for. The
+    session being moved is already over: it hit the wall, and its context is
     gone either way."""
     _daemon_home(home, 20)
     con = db.connect()
@@ -6279,7 +6448,9 @@ def test_an_agent_at_the_wall_moves_to_an_account_with_room(home: Path) -> None:
     for acct in ("alpha", "beta"):
         (home / "accounts" / acct / ".claude").mkdir(parents=True, exist_ok=True)
         (home / "accounts" / acct / ".claude" / ".credentials.json").write_text("{}")
-    foldmod.handoff_path("keeper").write_text("# handoff · keeper\n## 다음\n- carry on\n")
+    keep_handoff("keeper", "# handoff · keeper\n## 다음\n- carry on\n")
+    db.add_request(con, "marina", "keeper", "carry on", None, "peer", "async", None, 0, None)
+    far = int(time.time()) + 3 * 3600
     real = (orcamod.available, orcamod.alive, orcamod.close_session, orcamod.relaunch,
             orcamod.clear_context, orcamod.resume_with, orcamod.idle_now,
             dmn.wait_for_session)
@@ -6301,17 +6472,16 @@ def test_an_agent_at_the_wall_moves_to_an_account_with_room(home: Path) -> None:
               launch.choose_account("keeper") == "alpha",
               launch.choose_account("keeper"))
 
-        write_status(home, "alpha", pct_5h=95, pct_7d=20, ctx_pct=5,
-                     reset_5h=int(time.time()) + 1800)
+        write_status(home, "alpha", pct_5h=100, pct_7d=20, ctx_pct=5, reset_5h=far)
         check("move: a preference at the wall gives way to room",
               launch.choose_account("keeper") == "beta", launch.choose_account("keeper"))
         check("move: but a resume goes back where its session lives",
               launch.choose_account("keeper", resuming=True) == "alpha",
               launch.choose_account("keeper", resuming=True))
 
-        t = triggers.evaluate(95, 10)
-        check("move: 95% is a usage trigger", t.fired and t.kind == "usage", t.kind)
-        dmn.perform_handoff(con, "keeper", t, lambda _m: None, use_model=False)
+        t = triggers.evaluate(100, 10)
+        check("move: the wall is a usage trigger", t.fired and t.kind == "usage", t.kind)
+        dmn.perform_handoff(con, "keeper", t, lambda _m: None)
 
         row = db.get_agent_state(con, "keeper")
         # A state nothing else in the daemon will act on is where a moved agent
@@ -6362,22 +6532,19 @@ def test_an_agent_at_the_wall_moves_to_an_account_with_room(home: Path) -> None:
               moved and '"from": "alpha"' in moved[-1]["payload"]
               and '"to": "beta"' in moved[-1]["payload"], str(moved))
 
-        # The band the reserve exists for. The fold fires a reserve short of
-        # the wall, so judging "full" at the wall itself meant the ordinary
-        # handoff - the one this feature is for - declined to move and parked
-        # with the other account idle.
+        # Below the wall a working agent is left alone, but an account that
+        # would not last one more start is not somewhere to start a new one.
         db.set_account(con, "keeper", "alpha")
-        write_status(home, "alpha", pct_5h=87, pct_7d=20, ctx_pct=5,
-                     reset_5h=int(time.time()) + 1800)
+        write_status(home, "alpha", pct_5h=87, pct_7d=20, ctx_pct=5, reset_5h=far)
         t87 = triggers.evaluate(87, 10)
-        check("move: 87% is the ordinary handoff, a reserve short of the wall",
-              t87.fired and t87.kind == "usage", f"{t87.kind} {t87.reason}")
-        check("move: and an account inside the reserve gives way too",
+        check("move: 87% is not a trigger - it runs to the wall", not t87.fired, t87.reason)
+        check("move: but an account that would last 20 minutes gives way to one that lasts",
               launch.choose_account("keeper") == "beta", launch.choose_account("keeper"))
 
-        # A session that ended during the fold must not be typed at: `/exit` at
-        # a login shell exits the shell, and Orca's terminal goes with it.
+        # A session that ended during the handoff must not be typed at: `/exit`
+        # at a login shell exits the shell, and Orca's terminal goes with it.
         db.set_account(con, "keeper", "alpha")
+        write_status(home, "alpha", pct_5h=100, pct_7d=20, ctx_pct=5, reset_5h=far)
         db.set_agent_state(con, "keeper", dmn.IDLE)
         db.clear_closed(con, "keeper")
         typed: list[str] = []
@@ -6386,7 +6553,7 @@ def test_an_agent_at_the_wall_moves_to_an_account_with_room(home: Path) -> None:
             orcamod.close_session = lambda h, **kw: (typed.append("/exit"), (True, "ended"))[1]
             sessions_are()                      # it went away while we folded
             check("move: a session that is already gone is not moved",
-                  not dmn._move_to_room(con, "keeper", t87, lambda _m: None))
+                  not dmn._move_to_room(con, "keeper", t, lambda _m: None))
             check("move: and nothing is typed at the shell it left behind", not typed,
                   str(typed))
         finally:
@@ -6396,15 +6563,12 @@ def test_an_agent_at_the_wall_moves_to_an_account_with_room(home: Path) -> None:
         # Nowhere to go is the old behaviour, unchanged: fold, park, wait for
         # the window. Both accounts at the wall is that world.
         db.set_account(con, "keeper", "alpha")
-        write_status(home, "alpha", pct_5h=95, pct_7d=20, ctx_pct=5,
-                     reset_5h=int(time.time()) + 1800)
-        write_status(home, "beta", pct_5h=93, pct_7d=20, ctx_pct=5,
-                     reset_5h=int(time.time()) + 1800)
+        write_status(home, "alpha", pct_5h=100, pct_7d=20, ctx_pct=5, reset_5h=far)
+        write_status(home, "beta", pct_5h=100, pct_7d=20, ctx_pct=5, reset_5h=far)
         db.set_agent_state(con, "keeper", dmn.IDLE)
         db.clear_closed(con, "keeper")
         con.execute("DELETE FROM handoff")     # MIN_HANDOFF_INTERVAL_S, not a real one
-        dmn.perform_handoff(con, "keeper", triggers.evaluate(95, 10), lambda _m: None,
-                            use_model=False)
+        dmn.perform_handoff(con, "keeper", triggers.evaluate(100, 10), lambda _m: None)
         row = db.get_agent_state(con, "keeper")
         check("move: with no room anywhere it parks and waits, as before",
               row["state"] == dmn.PARKED and row["wake_at"], f"{row['state']} {row['wake_at']}")
@@ -6412,25 +6576,24 @@ def test_an_agent_at_the_wall_moves_to_an_account_with_room(home: Path) -> None:
         check("move: the park itself is a recorded event, like close and wake",
               any(e["kind"] == "park" for e in parked), [e["kind"] for e in parked])
 
-        # An account we cannot read is not an account that is full. Moving on
-        # `usage_unknown` would send agents off whichever account went dark.
+        # An account we cannot read is not an account that is full. Moving on it
+        # would send agents off whichever account went dark.
         write_status(home, "beta", pct_5h=10, pct_7d=5, ctx_pct=5,
                      reset_5h=int(time.time()) + 1800)
         unknown = triggers.evaluate(None, 10)
-        check("move: an unreadable account is a usage_unknown trigger",
-              unknown.fired and unknown.kind == "usage_unknown", unknown.kind)
+        check("move: an unreadable account is not a trigger", not unknown.fired, unknown.kind)
         check("move: and nothing moves on it",
               not dmn._move_to_room(con, "keeper", unknown, lambda _m: None))
 
-        # What it is told when it lands. A move is not a close: its work was
-        # folded a moment ago and `launch.context_for` put that handoff in the
-        # new session's system prompt, so telling it "nothing was folded" would
-        # send it hunting for what it is already holding.
+        # What it is told when it lands. A move is not a close: its handoff was
+        # taken a moment ago and `launch.context_for` put it in the new
+        # session's system prompt, so telling it there is none would send it
+        # hunting for what it is already holding.
         moved_text = dmn.wake_prompt("keeper", resumed=False, was_closed=True,
                                      moved_to="beta", con=con)
         check("move: the agent is told it was moved, and where",
               "beta" in moved_text and "5h limit" in moved_text, moved_text[:160])
-        check("move: and not that nothing was folded",
+        check("move: and not that there is no handoff",
               "There is no handoff" not in moved_text, moved_text[:160])
     finally:
         (orcamod.available, orcamod.alive, orcamod.close_session, orcamod.relaunch,
@@ -6458,9 +6621,13 @@ def test_a_pinned_closed_agent_moves_instead_of_waiting_out_its_window(home: Pat
     try:
         db.set_terminal(con, "keeper", "term_x", "wt")
         db.set_closed(con, "keeper", "sess-old")
+        # What the close took while the session was live; a snapshot read at
+        # wake time is stale by construction.
+        keep_handoff("keeper", "# handoff · keeper\nprevious session: sess-old")
         db.set_account(con, "keeper", "alpha")
-        write_status(home, "alpha", pct_5h=95, pct_7d=5,
-                     reset_5h=int(time.time()) + 1800)
+        db.add_request(con, "marina", "keeper", "carry on", None, "peer", "async", None, 0, None)
+        write_status(home, "alpha", pct_5h=100, pct_7d=5,
+                     reset_5h=int(time.time()) + 3 * 3600)
         write_status(home, "beta", pct_5h=10, pct_7d=5,
                      reset_5h=int(time.time()) + 1800)
         orcamod.available = lambda: True
@@ -6468,7 +6635,7 @@ def test_a_pinned_closed_agent_moves_instead_of_waiting_out_its_window(home: Pat
         orcamod.resume_with = lambda h, text: (True, "handed back")
         dmn.wait_for_session = lambda agent, timeout=0: True
 
-        ok, why = dmn._wake_agent(con, "keeper", lambda _m: None, use_model=False)
+        ok, why = dmn._wake_agent(con, "keeper", lambda _m: None)
         check("pinning: the wake succeeds instead of waiting out alpha's window",
               ok, why)
         check("pinning: the relaunch is a fresh start, not --resume on a full account",
@@ -6481,8 +6648,10 @@ def test_a_pinned_closed_agent_moves_instead_of_waiting_out_its_window(home: Pat
         check("pinning: the move is on the record",
               moved and '"from": "alpha"' in moved[-1]["payload"]
               and '"to": "beta"' in moved[-1]["payload"], str(moved))
-        check("pinning: a handoff was written from what was folded",
-              foldmod.handoff_path("keeper").exists())
+        pinned = con.execute("SELECT state FROM handoff WHERE agent = 'keeper' "
+                             "AND trigger_kind = 'pinned'").fetchall()
+        check("pinning: the move is a finished handoff, not a degraded one",
+              [r["state"] for r in pinned] == ["done"], str([dict(r) for r in pinned]))
     finally:
         orcamod.available, orcamod.relaunch, orcamod.resume_with, dmn.wait_for_session = real
         con.close()
@@ -6501,12 +6670,13 @@ def test_a_pinned_agent_stays_pinned_when_nothing_else_has_clear_room(home: Path
         db.set_terminal(con, "keeper", "term_x", "wt")
         db.set_closed(con, "keeper", "sess-old")
         db.set_account(con, "keeper", "alpha")
-        write_status(home, "alpha", pct_5h=95, pct_7d=5,
-                     reset_5h=int(time.time()) + 1800)
-        write_status(home, "beta", pct_5h=93, pct_7d=5,
+        db.add_request(con, "marina", "keeper", "carry on", None, "peer", "async", None, 0, None)
+        write_status(home, "alpha", pct_5h=100, pct_7d=5,
+                     reset_5h=int(time.time()) + 3 * 3600)
+        write_status(home, "beta", pct_5h=100, pct_7d=5,
                      reset_5h=int(time.time()) + 1800)
         orcamod.available = lambda: True
-        ok, why = dmn._wake_agent(con, "keeper", lambda _m: None, use_model=False)
+        ok, why = dmn._wake_agent(con, "keeper", lambda _m: None)
         check("pinning: with nothing better, it still waits for its own window",
               not ok and "alpha" in why and "5h window" in why, why)
         row = db.get_agent_state(con, "keeper")
@@ -6543,13 +6713,15 @@ def test_a_stale_account_whose_window_rolled_over_can_take_work(home: Path) -> N
                  reset_7d=now + 86400 * 2, collected_at=now - int(2 * 3600))
     write_status(home, "alpha", pct_5h=87, pct_7d=10, reset_5h=now + 1800,
                  reset_7d=now + 86400)
-    check("takes_work: 87% is refused, matching the pick, not just assignable",
-          status.read("alpha").assignable()[0] and not status.read("alpha").takes_work()[0])
+    check("takes_work: 87% is assignable, but the pick would not start an agent there",
+          status.read("alpha").assignable()[0]
+          and status.pick_account(["alpha"], load={})[0] is None
+          and status.unfit(status.read("alpha"), None) is not None)
     check("stale: an open window with room to spare is used, on the last figure seen",
           status.pick_account(["beta"])[0] == "beta")
-    write_status(home, "beta", pct_5h=75, pct_7d=34, reset_5h=now + 3600,
+    write_status(home, "beta", pct_5h=100, pct_7d=34, reset_5h=now + 3600,
                  reset_7d=now + 86400 * 2, collected_at=now - int(2 * 3600))
-    check("stale: an open window too close to the line refuses - the figure only rises",
+    check("stale: an open window at the wall still refuses - the figure only rises",
           status.pick_account(["beta"])[0] is None)
 
 
@@ -6579,7 +6751,7 @@ def test_a_passed_window_is_probed_rather_than_guessed(home: Path) -> None:
 def test_room_is_filtered_before_the_ranking_not_after(home: Path) -> None:
     """A destination too full to last is dropped before the deadline order, so
     a good account behind it is still found; a weekly trigger parks until the
-    week resets; a rescue whose fold fails keeps the resume id."""
+    week resets; a rescue whose handoff is missing a fact keeps the resume id."""
     _daemon_home(home, 20)
     accounts.register("nearwall")
     accounts.register("empty")
@@ -6588,17 +6760,19 @@ def test_room_is_filtered_before_the_ranking_not_after(home: Path) -> None:
     for acct in ("alpha", "nearwall", "empty"):
         (home / "accounts" / acct / ".claude").mkdir(parents=True, exist_ok=True)
         (home / "accounts" / acct / ".claude" / ".credentials.json").write_text("{}")
-    write_status(home, "alpha", pct_5h=86, pct_7d=10, reset_5h=now + 1800,
+    write_status(home, "alpha", pct_5h=100, pct_7d=10, reset_5h=now + 1800,
                  reset_7d=now + 86400 * 3)
     write_status(home, "nearwall", pct_5h=80, pct_7d=10, reset_5h=now + 1800,
                  reset_7d=now + 23 * 3600)
     write_status(home, "empty", pct_5h=0, pct_7d=10, reset_5h=now + 1800,
                  reset_7d=now + 86400 * 4)
-    check("room: a move skips the near-wall account for the empty one behind it",
-          dmn._room_to_move("keeper") == "empty", str(dmn._room_to_move("keeper")))
+    write_status(home, "nearwall", pct_5h=100, pct_7d=10, reset_5h=now + 1800,
+                 reset_7d=now + 23 * 3600)
+    check("room: the pick skips the account at the wall for the empty one behind it",
+          status.pick_account(["nearwall", "empty"], load={})[0] == "empty")
     write_status(home, "nearwall", pct_5h=88, pct_7d=10, reset_5h=now + 1800,
                  reset_7d=now + 23 * 3600)
-    check("room: a launch does not land on an account past its own move line",
+    check("room: a launch does not land on an account that would not last a start",
           launch.choose_account("keeper") == "empty", launch.choose_account("keeper"))
 
     check("room: a weekly trigger parks until the week resets",
@@ -6606,31 +6780,38 @@ def test_room_is_filtered_before_the_ranking_not_after(home: Path) -> None:
     check("room: a 5h trigger parks until the 5h window resets",
           triggers.wake_after("usage", now + 1800, now + 86400 * 2, now) == now + 1800)
 
-    write_status(home, "alpha", pct_5h=88, reset_5h=None, pct_7d=10,
+    write_status(home, "alpha", pct_5h=100, reset_5h=None, pct_7d=10,
                  collected_at=now - 6 * 3600)
-    write_status(home, "nearwall", pct_5h=99, pct_7d=10, reset_5h=now + 1800)
+    write_status(home, "nearwall", pct_5h=100, pct_7d=10, reset_5h=now + 1800)
     check("room: a reading older than 5h with no reset is not still a floor",
           launch.find_room("keeper") == "alpha", str(launch.find_room("keeper")))
 
-    write_status(home, "alpha", pct_5h=95, pct_7d=5, reset_5h=now + 1800)
+    write_status(home, "alpha", pct_5h=100, pct_7d=5, reset_5h=now + 3 * 3600)
+    write_status(home, "spare", pct_5h=10, pct_7d=5, reset_5h=now + 1800)
+    for acct in ("alpha", "spare"):
+        (home / "accounts" / acct / ".claude").mkdir(parents=True, exist_ok=True)
+        (home / "accounts" / acct / ".claude" / ".credentials.json").write_text("{}")
     con = db.connect()
-    real = (orcamod.available, foldmod.fold)
+    real = orcamod.available
     try:
         db.set_terminal(con, "keeper", "term_x", "wt")
         db.set_closed(con, "keeper", "sess-old")
+        db.set_account(con, "keeper", "alpha")      # recorded: an assumed one never moves
+        db.add_request(con, "marina", "keeper", "carry on", None, "peer", "async", None, 0, None)
         orcamod.available = lambda: True
-        foldmod.fold = lambda agent, use_model=True: (False, "could not run")
-        ok, why = dmn._wake_agent(con, "keeper", lambda _m: None, use_model=False)
+        ok, why = dmn._wake_agent(con, "keeper", lambda _m: None)
         row = db.get_agent_state(con, "keeper")
-        check("rescue: a failed fold keeps the resume id and waits",
+        check("rescue: a handoff missing a fact keeps the resume id and waits",
               not ok and row["resume_session"] == "sess-old", f"{why} {dict(row)}")
-        calls = []
-        foldmod.fold = lambda agent, use_model=True: (calls.append(1), (False, "no"))[1]
-        dmn._wake_agent(con, "keeper", lambda _m: None, use_model=False)
-        dmn._wake_agent(con, "keeper", lambda _m: None, use_model=False)
-        check("rescue: a failing fold is not retried on the next tick", not calls, str(calls))
+        tried = con.execute("SELECT COUNT(*) AS n FROM handoff WHERE agent = 'keeper'"
+                            ).fetchone()["n"]
+        dmn._wake_agent(con, "keeper", lambda _m: None)
+        dmn._wake_agent(con, "keeper", lambda _m: None)
+        check("rescue: a degraded one is not retried on the next tick",
+              con.execute("SELECT COUNT(*) AS n FROM handoff WHERE agent = 'keeper'"
+                          ).fetchone()["n"] == tried == 1, str(tried))
     finally:
-        orcamod.available, foldmod.fold = real
+        orcamod.available = real
         con.close()
 
 
@@ -6689,7 +6870,7 @@ def test_ask_and_resolve_do_not_type_at_an_agent_at_the_wall(home: Path) -> None
         # ---- an answer to an agent parked on usage
         sent.clear()
         hid = "h-usage"
-        db.start_handoff(con, hid, "product", "sess", "usage", 0, int(time.time()) + 60)
+        db.start_handoff(con, hid, "product", "sess", "usage", int(time.time()) + 60)
         db.advance_handoff(con, hid, "released", state="done")
         db.set_agent_state(con, "product", dmn.PARKED, wake_at=int(time.time()) + 3600)
         ok, said = askmod.resolve(rid, "looked, fine")
@@ -6703,7 +6884,7 @@ def test_ask_and_resolve_do_not_type_at_an_agent_at_the_wall(home: Path) -> None
               not dmn.deliver_answers(con, "product", lambda _m: None) and not sent)
 
         # A park for any other reason is an ordinary open session.
-        db.start_handoff(con, "h-ctx", "product", "sess", "context", 0, int(time.time()) + 60)
+        db.start_handoff(con, "h-ctx", "product", "sess", "context", int(time.time()) + 60)
         db.advance_handoff(con, "h-ctx", "released", state="done")
         con.execute("UPDATE handoff SET updated = updated + 5 WHERE id = 'h-ctx'")
         con.commit()
@@ -6764,7 +6945,7 @@ def test_a_turn_that_ends_on_the_usage_limit_is_at_the_wall(home: Path) -> None:
         try:
             check("limit: fresh, the mid-turn probe still defers the handoff",
                   dmn.perform_handoff(con, "backend", triggers.Trigger(True, "usage", "x"),
-                                      lambda _m: None, use_model=False) is True
+                                      lambda _m: None) is True
                   and db.in_flight_for(con, "backend") is None)
         finally:
             orcamod.idle_now, orcamod.available = real_idle, real_av
@@ -6790,14 +6971,14 @@ def test_a_turn_that_ends_on_the_usage_limit_is_at_the_wall(home: Path) -> None:
             dmn._move_to_room = lambda con_, a, t, log: (seen.append(t), True)[1]
             # Idle, so delivery would go through if nothing held it back.
             orcamod.idle_now = lambda h, **kw: True
-            dmn.supervise(con, "backend", lambda _m: None, now, {}, False, [])
+            dmn.supervise(con, "backend", lambda _m: None, now, {}, [])
             check("limit: a queued request is not typed into an agent at its limit",
                   not typed, str(typed))
             seen.clear()
             con.execute("UPDATE handoff SET updated = updated - 1000 WHERE agent = 'backend'")
             db.set_agent_state(con, "backend", dmn.IDLE, detail="at its usage limit")
             orcamod.idle_now = lambda h, **kw: False
-            dmn.supervise(con, "backend", lambda _m: None, now, {}, False, [])
+            dmn.supervise(con, "backend", lambda _m: None, now, {}, [])
         finally:
             (orcamod.available, orcamod.alive, orcamod.idle_now, dmn._move_to_room,
              dmn.session_present, orcamod.clear_context) = real
@@ -6807,6 +6988,144 @@ def test_a_turn_that_ends_on_the_usage_limit_is_at_the_wall(home: Path) -> None:
     finally:
         os.environ.pop("OCP_AGENT", None); os.environ.pop("OCP_ACCOUNT", None)
         con.close()
+
+
+def test_the_runway_is_an_estimate_from_the_daemons_burn(home: Path) -> None:
+    """Remaining headroom and time to the wall come from the burn the daemon
+    measured, and are blank rather than guessed on a stale reading."""
+    _daemon_home(home, 20)
+    accounts.register("beta")
+    now = int(time.time())
+    per_s = 30 / 3600      # 30 points an hour
+    write_status(home, "alpha", pct_5h=55, pct_7d=10, reset_5h=now + 6 * 3600)
+    status.write_burn("alpha", per_s, now)
+    r = status.runway(status.read("alpha"), status.read_burn("alpha"), now)
+    check("runway: points left are counted to the wall",
+          r and r.left_5h == 45 and r.left_7d == 90, str(r))
+    check("runway: time to the wall follows the measured burn",
+          status.describe_runway(r) == "~1h30 to wall", status.describe_runway(r))
+    write_status(home, "alpha", pct_5h=55, pct_7d=10, reset_5h=now + 1800)
+    check("runway: a reset before the wall reads 'outlasts reset'",
+          status.describe_runway(status.runway(status.read("alpha"),
+                                                status.read_burn("alpha"), now))
+          == "outlasts reset")
+    status.write_burn("alpha", 0.0, now)
+    check("runway: no burn is said, not projected",
+          status.describe_runway(status.runway(status.read("alpha"), 0.0, now))
+          == "no recent burn")
+    write_status(home, "alpha", pct_5h=100, pct_7d=10, reset_5h=now + 6 * 3600)
+    check("runway: at the wall it says so",
+          status.describe_runway(status.runway(status.read("alpha"), per_s, now))
+          == "at the wall")
+    check("runway: an old burn reading is not used",
+          status.read_burn("alpha", now + status.BURN_MAX_AGE_S + 60) is None)
+    write_status(home, "alpha", pct_5h=55, pct_7d=10, reset_5h=now + 6 * 3600,
+                 collected_at=now - 3 * 3600)
+    check("runway: a stale reading gives no estimate at all",
+          status.runway(status.read("alpha"), per_s, now) is None
+          and status.describe_runway(None) == "")
+
+    # The team line.
+    write_status(home, "alpha", pct_5h=55, pct_7d=10, reset_5h=now + 6 * 3600)
+    write_status(home, "beta", pct_5h=65, pct_7d=10, reset_5h=now + 7 * 3600)
+    status.write_burn("alpha", per_s, now)
+    status.write_burn("beta", per_s, now)
+    line = status.team_outlook(["alpha", "beta"], now)
+    check("team: at the combined pace the accounts hit the wall before the reset",
+          "hit the wall around" in line and "next reset" in line and line.startswith("estimate"),
+          line)
+    status.write_burn("alpha", per_s / 100, now)
+    status.write_burn("beta", per_s / 100, now)
+    check("team: a slow pace lasts past the next reset",
+          "last past the next reset" in status.team_outlook(["alpha", "beta"], now))
+    write_status(home, "alpha", pct_5h=55, pct_7d=10, collected_at=now - 3 * 3600)
+    write_status(home, "beta", pct_5h=65, pct_7d=10, collected_at=now - 3 * 3600)
+    check("team: blank when no reading is current", status.team_outlook(["alpha", "beta"], now) == "")
+
+    # The daemon records what it measured.
+    write_status(home, "alpha", pct_5h=20, pct_7d=10, reset_5h=now + 1800)
+    (home / "accounts" / "alpha" / "burn.json").unlink()
+    con = db.connect()
+    try:
+        db.set_terminal(con, "backend", "term_x", "wt")
+        db.set_account(con, "backend", "alpha")
+        dmn.supervise(con, "backend", lambda _m: None, now,
+                      {"alpha": [(now - 200, 20), (now, 21)]}, [])
+    finally:
+        con.close()
+    check("burn: the daemon writes the rate the pick and the screens use",
+          status.read_burn("alpha") is not None)
+
+    # Samples stop, supervise keeps running for a parked agent on the account:
+    # the pace must age out, not be re-stamped every tick.
+    old = now - 2 * status.BURN_MAX_AGE_S
+    samples = {"alpha": [(old - 600, 20), (old, 30)]}
+    con = db.connect()
+    try:
+        db.set_agent_state(con, "backend", dmn.PARKED, wake_at=now + 3600, detail="parked")
+        dmn.supervise(con, "backend", lambda _m: None, now, samples, [])
+    finally:
+        con.close()
+    check("burn: a pace whose samples stopped goes stale though supervise keeps running",
+          status.read_burn("alpha", now) is None)
+
+
+def test_an_unknown_reset_does_not_make_the_runway_absurd(home: Path) -> None:
+    """auditor #364: an unknown reset_5h left the eta line unbounded - a slow
+    enough burn read as tens of thousands of hours to the wall, which is not
+    just too wide for its column, it is wrong: a 5h window resets within 5h
+    whether or not the collector told us when."""
+    _daemon_home(home, 20)
+    now = int(time.time())
+    write_status(home, "alpha", pct_5h=55, pct_7d=10, reset_5h=None)
+    status.write_burn("alpha", 5e-7, now)  # a burn slow enough to imply years
+    r = status.runway(status.read("alpha"), status.read_burn("alpha"), now)
+    check("runway: an eta past the longest a 5h window can run is past_reset",
+          r.past_reset, r)
+    check("runway: so the line says it outlasts reset, not an absurd duration",
+          status.describe_runway(r) == "outlasts reset", status.describe_runway(r))
+    # A reset within the window's own bound still reads as an eta, known or not.
+    status.write_burn("alpha", 30 / 3600, now)
+    r2 = status.runway(status.read("alpha"), status.read_burn("alpha"), now)
+    check("runway: an eta safely inside the window is unaffected",
+          not r2.past_reset and status.describe_runway(r2) == "~1h30 to wall",
+          status.describe_runway(r2))
+
+
+def test_the_panels_bounded_cells_fit_their_own_columns(home: Path) -> None:
+    """Every bounded cell of the ACCOUNTS row is strictly narrower than its
+    column. Measured on the cells build() itself draws, at the extremes of
+    every figure they show, against tui.ACCT_W - so a width changed in build()
+    or in a cell's format fails here, and a column can grow its content but
+    never into its neighbour."""
+    # The cells build() draws, from the function build() draws them with, at
+    # the extremes of every figure they show. Nothing here restates a width:
+    # the columns are tui.ACCT_W and the bars are inside account_cells.
+    _daemon_home(home, 20)
+    now = int(time.time())
+    check("panel: every provenance mark is one column wide",
+          all(tui.vlen(m) <= 1 for m in status.SOURCE_MARK.values()))
+    drawn: dict[str, list[str]] = {k: [] for k in tui.ACCT_W if k != "name"}
+    resets = (None, now - 1, now + 1, now + 59, now + 6 * 3600 - 1, now + 7 * 24 * 3600 - 1)
+    for p in (0, 1, 60, 84, 85, 86, 99, 100, None):
+        for reset in resets:
+            for burn in (0.0, 1e-9, 5e-7, 30 / 3600, 1.0):
+                write_status(home, "alpha", pct_5h=p, pct_7d=p,
+                             reset_5h=reset, reset_7d=reset)
+                status.write_burn("alpha", burn, now)
+                cells = tui.account_cells("alpha", status.read("alpha"), now)
+                for k, c in cells.items():
+                    drawn[k].append(c)
+    check("panel: the cells cover every bounded column",
+          set(tui.ACCT_W) - {"name"} == set(drawn), sorted(drawn))
+    check("panel: every column has a heading, and the heading names no other",
+          set(tui.ACCT_HEAD) == set(tui.ACCT_W), sorted(tui.ACCT_HEAD))
+    for k, seen in drawn.items():
+        widest = max(seen, key=tui.vlen)
+        check(f"panel: the {k} cell fits its {tui.ACCT_W[k]}-wide column",
+              tui.vlen(widest) < tui.ACCT_W[k], (widest, tui.vlen(widest)))
+    check("panel: an absent runway fits its column",
+          tui.vlen(status.describe_runway(None)) < tui.ACCT_W["runway"])
 
 
 def test_choose_account_does_not_bounce_back_to_a_stale_preferred_account(home: Path) -> None:
@@ -6826,9 +7145,9 @@ def test_choose_account_does_not_bounce_back_to_a_stale_preferred_account(home: 
     write_status(home, "beta", pct_5h=10, pct_7d=5,
                  reset_5h=int(time.time()) + 1800)
 
-    # alpha was last seen at 88% - over the move line - and nothing has run
-    # on it since, so its snapshot is now stale. Its window is still open.
-    write_status(home, "alpha", pct_5h=88, pct_7d=5,
+    # alpha was last seen at the wall and nothing has run on it since, so its
+    # snapshot is now stale. Its window is still open.
+    write_status(home, "alpha", pct_5h=100, pct_7d=5,
                  reset_5h=int(time.time()) + 1800,
                  collected_at=int(time.time()) - 1000)
     check("choose_account: a stale-but-still-full preferred account is not "
@@ -6838,7 +7157,7 @@ def test_choose_account_does_not_bounce_back_to_a_stale_preferred_account(home: 
     # Its window has genuinely rolled over since the reading was taken - the
     # figure is stale, but it no longer describes the window that is open
     # now, so it is not a floor on anything.
-    write_status(home, "alpha", pct_5h=88, pct_7d=5,
+    write_status(home, "alpha", pct_5h=100, pct_7d=5,
                  reset_5h=int(time.time()) - 60,
                  collected_at=int(time.time()) - 1000)
     check("choose_account: once its own window has actually reset, the "
@@ -6846,7 +7165,7 @@ def test_choose_account_does_not_bounce_back_to_a_stale_preferred_account(home: 
           launch.choose_account("keeper") == "alpha", launch.choose_account("keeper"))
 
     # A stale account that was never full is not held back by this at all -
-    # only a figure that was itself over the line becomes a floor.
+    # only a figure that was itself at the wall becomes a floor.
     write_status(home, "alpha", pct_5h=20, pct_7d=5,
                  reset_5h=int(time.time()) + 1800,
                  collected_at=int(time.time()) - 1000)
@@ -6855,10 +7174,9 @@ def test_choose_account_does_not_bounce_back_to_a_stale_preferred_account(home: 
 
 
 def test_move_requires_clear_headroom_not_bare_assignability(home: Path) -> None:
-    """Founder's priority #241, decision (a): a move only goes to an account
-    with room to actually last. A destination only a point or two under the
-    wall is technically assignable but re-triggers within one turn, which is
-    the other half of the same bounce - two folds instead of one."""
+    """A move only goes to an account that would last: one that is assignable
+    but would run out within minutes of a cold start is a second move waiting to
+    happen, and each one spends a start."""
     _daemon_home(home, 20)
     accounts.register("beta")
     agents.register("keeper", "alpha")
@@ -6870,17 +7188,17 @@ def test_move_requires_clear_headroom_not_bare_assignability(home: Path) -> None
         db.set_terminal(con, "keeper", "term_x", "wt")
         sessions_are("keeper")
         db.set_account(con, "keeper", "alpha")
-        write_status(home, "alpha", pct_5h=87, pct_7d=5,
-                     reset_5h=int(time.time()) + 1800)
-        # beta is assignable (77% < 90%) but only has 13% headroom - under
-        # MOVE_MIN_HEADROOM_PCT, so a move there would re-trigger almost at
-        # once.
-        write_status(home, "beta", pct_5h=77, pct_7d=5,
+        db.add_request(con, "marina", "keeper", "carry on", None, "peer", "async", None, 0, None)
+        write_status(home, "alpha", pct_5h=100, pct_7d=5,
+                     reset_5h=int(time.time()) + 3 * 3600)
+        # beta is assignable (80% < 100%) but at that pace one more agent would
+        # last 27 minutes, under the least stretch a start is worth.
+        write_status(home, "beta", pct_5h=80, pct_7d=5,
                      reset_5h=int(time.time()) + 1800)
         allowed, _ = status.read("beta").assignable()
         check("move headroom: the destination is bare-assignable to begin with",
               allowed)
-        t = triggers.evaluate(87, 10)
+        t = triggers.evaluate(100, 10)
         logged: list[str] = []
         check("move headroom: a marginal destination is refused, agent stays put",
               not dmn._move_to_room(con, "keeper", t, logged.append))
@@ -6902,7 +7220,7 @@ def test_move_requires_clear_headroom_not_bare_assignability(home: Path) -> None
             orcamod.close_session = lambda h, **kw: (True, "session ended")
             orcamod.relaunch = lambda h, cmd, **kw: (True, "relaunched")
             dmn.wait_for_session = lambda agent, timeout=0: True
-            foldmod.handoff_path("keeper").write_text("# handoff · keeper\n## 다음\n- carry on\n")
+            keep_handoff("keeper", "# handoff · keeper\n## 다음\n- carry on\n")
             logged.clear()
             check("move headroom: clear headroom lets the move through",
                   dmn._move_to_room(con, "keeper", t, logged.append))
@@ -6929,11 +7247,12 @@ def test_move_to_room_reaches_a_bootstrap_account(home: Path) -> None:
     _daemon_home(home, 20)
     con = db.connect()
     agents.register("keeper", "alpha")
-    write_status(home, "alpha", pct_5h=95, pct_7d=20, ctx_pct=5,
-                 reset_5h=int(time.time()) + 1800)
+    write_status(home, "alpha", pct_5h=100, pct_7d=20, ctx_pct=5,
+                 reset_5h=int(time.time()) + 3 * 3600)
     accounts.register("gamma")
     (home / "accounts" / "gamma" / ".claude" / ".credentials.json").write_text("{}")
-    foldmod.handoff_path("keeper").write_text("# handoff · keeper\n## 다음\n- carry on\n")
+    keep_handoff("keeper", "# handoff · keeper\n## 다음\n- carry on\n")
+    db.add_request(con, "marina", "keeper", "carry on", None, "peer", "async", None, 0, None)
     real = (orcamod.available, orcamod.alive, orcamod.close_session, orcamod.relaunch,
             orcamod.clear_context, orcamod.resume_with, orcamod.idle_now,
             dmn.wait_for_session)
@@ -6951,9 +7270,8 @@ def test_move_to_room_reaches_a_bootstrap_account(home: Path) -> None:
         db.set_account(con, "keeper", "alpha")
 
         check("move (bootstrap): choose_account reaches the never-run account",
-              launch.choose_account("keeper", limit=triggers.HARD_STOP_PCT
-                                     - triggers.DEFAULT_RESERVE_PCT) == "gamma")
-        t = triggers.evaluate(95, 10)
+              launch.choose_account("keeper") == "gamma")
+        t = triggers.evaluate(100, 10)
         check("move (bootstrap): the move actually completes",
               dmn._move_to_room(con, "keeper", t, lambda _m: None))
         check("move (bootstrap): and lands on the bootstrapped account",
@@ -6964,6 +7282,630 @@ def test_move_to_room_reaches_a_bootstrap_account(home: Path) -> None:
          orcamod.clear_context, orcamod.resume_with, orcamod.idle_now,
          dmn.wait_for_session) = real
         con.close()
+
+
+def _with_accounts(*names: str) -> None:
+    """Registered accounts that count as logged in."""
+    for n in names:
+        accounts.register(n)
+        (paths.account_claude(n) / ".credentials.json").write_text("{}")
+
+
+def _running_on(con, acct: str, *names: str) -> None:
+    for n in names:
+        agents.register(n, acct)
+        db.set_account(con, n, acct)
+        db.set_agent_state(con, n, dmn.RUNNING)
+
+
+def test_the_active_cap_decides_where_the_next_agent_may_start(home: Path) -> None:
+    """An account at its cap of agents mid-turn drops out of the pick, so waking
+    work spills to the next account; running agents never move because of it."""
+    _daemon_home(home, 20)
+    _with_accounts("alpha", "beta")
+    now = int(time.time())
+    for a in ("alpha", "beta"):
+        write_status(home, a, pct_5h=10, pct_7d=10, reset_5h=now + 3600,
+                     reset_7d=now + 86400)
+    con = db.connect()
+    try:
+        paths.config_file().write_text("version: 1\n")
+        check("cap: two agents at once is the default", loadmod.cap_of("alpha") == 2)
+        loadmod.set_cap("alpha", 3)
+        check("cap: set per account, the others keep the default",
+              loadmod.cap_of("alpha") == 3 and loadmod.cap_of("beta") == 2)
+        check("cap: setting it keeps the rest of the config",
+              "version: 1" in paths.config_file().read_text())
+        try:
+            loadmod.set_cap("alpha", 0)
+            check("cap: less than one is refused", False)
+        except ValueError:
+            check("cap: less than one is refused", True)
+        loadmod.set_cap("alpha", 2)
+
+        _running_on(con, "alpha", "w1", "w2")
+        ld = loadmod.read_all(con)
+        check("cap: mid-turn agents are counted on the account they run on",
+              ld["alpha"].active == 2 and ld["beta"].active == 0, str(ld))
+        picked, reasons = status.pick_account(["alpha", "beta"], load=ld)
+        check("cap: the account at its cap drops out and work spills to the next",
+              picked == "beta" and "at its cap: 2 of 2" in dict(reasons)["alpha"],
+              str(reasons))
+        check("cap: running agents were not moved by it",
+              all(agents.current_account(n, con) == "alpha" for n in ("w1", "w2")))
+        check("cap: a launch's own account gives way too",
+              launch.choose_account("backend") == "beta", launch.choose_account("backend"))
+        loadmod.set_cap("alpha", 3)
+        check("cap: raising it puts the account back",
+              "at its cap" not in dict(status.pick_account(
+                  ["alpha", "beta"], load=loadmod.read_all(con))[1])["alpha"])
+        loadmod.set_cap("alpha", 2)
+
+        _running_on(con, "beta", "w3", "w4")
+        picked, reasons = status.pick_account(["alpha", "beta"], load=loadmod.read_all(con))
+        check("cap: every account capped means nothing is picked and work waits",
+              picked is None and all("at its cap" in r for _, r in reasons), str(reasons))
+    finally:
+        con.close()
+
+
+def test_the_pick_weighs_how_fast_an_account_is_filling(home: Path) -> None:
+    """Headroom alone does not say an account has room: one at 40% with three
+    agents filling it lasts less than an idle one at 60%."""
+    _daemon_home(home, 20)
+    _with_accounts("alpha", "beta")
+    now = int(time.time())
+    write_status(home, "alpha", pct_5h=40, pct_7d=10, reset_5h=now + 3600,
+                 reset_7d=now + 3600)
+    write_status(home, "beta", pct_5h=60, pct_7d=10, reset_5h=now + 3600,
+                 reset_7d=now + 86400)
+    status.write_burn("alpha", 3.0 / 60, now)      # 3%/min: three agents' worth
+    picked, reasons = status.pick_account(["alpha", "beta"], load=loadmod.read_all())
+    why = dict(reasons)
+    check("fill: the emptier account that is filling fast loses to the fuller idle one",
+          picked == "beta", str(reasons))
+    check("fill: and says why - the fill and what one more agent would last",
+          "fill 3.0%/min" in why["alpha"] and "under the 30m" in why["alpha"], why["alpha"])
+    check("fill: the pick shows its own reason too",
+          "one more agent lasts" in why["beta"] and "<- picked" in why["beta"], why["beta"])
+    status.write_burn("alpha", 0.0, now)
+    check("fill: with the fill gone the earlier weekly deadline wins again",
+          status.pick_account(["alpha", "beta"], load=loadmod.read_all())[0] == "alpha")
+
+
+def test_at_the_wall_it_is_a_cost_comparison_not_a_line(home: Path) -> None:
+    """Stay parked when nothing is waiting or the account resets within T;
+    otherwise move once, never back to the account just left before it resets."""
+    _daemon_home(home, 20)
+    _with_accounts("alpha", "beta")
+    now = int(time.time())
+    con = db.connect()
+    try:
+        agents.register("keeper", "alpha")
+        db.set_account(con, "keeper", "alpha")
+
+        def world(alpha_reset, beta_pct=10):
+            write_status(home, "alpha", pct_5h=100, pct_7d=10, reset_5h=alpha_reset,
+                         reset_7d=now + 86400)
+            write_status(home, "beta", pct_5h=beta_pct, pct_7d=10, reset_5h=now + 3600,
+                         reset_7d=now + 86400)
+
+        world(now + 3 * 3600)
+        dest, why = dmn._move_plan(con, "keeper", "usage")
+        check("stay: an idle agent never moves, however far the reset",
+              dest is None and "idle agent" in why, why)
+        db.add_request(con, "marina", "keeper", "carry on", None, "peer", "async", None, 0, None)
+        dest, why = dmn._move_plan(con, "keeper", "usage")
+        check("move: work is waiting and the reset is far - to the pick",
+              dest == "beta" and "<- picked" in why, f"{dest} {why}")
+        world(now + 10 * 60)
+        dest, why = dmn._move_plan(con, "keeper", "usage")
+        check("stay: its account resets within T - cheaper to wait",
+              dest is None and "cheaper to wait" in why, why)
+
+        # One wall is one move: not back to the account it just left, until that
+        # account has reset.
+        world(now + 3 * 3600)
+        db.add_event(con, "keeper", "moved_account", {"from": "beta", "to": "alpha",
+                                                      "trigger": "usage"})
+        dest, why = dmn._move_plan(con, "keeper", "usage")
+        check("once: it does not go back to the account it just left before it resets",
+              dest is None, f"{dest} {why}")
+        write_status(home, "beta", pct_5h=10, pct_7d=10, reset_5h=now - 60,
+                     reset_7d=now + 86400)
+        dest, why = dmn._move_plan(con, "keeper", "usage")
+        check("once: after it has reset it is an ordinary destination again",
+              dest == "beta", f"{dest} {why}")
+
+        # Every account walled or capped: the work waits in the queue.
+        world(now + 3 * 3600, beta_pct=10)
+        _running_on(con, "beta", "w1", "w2")
+        agents.register("other", "alpha")
+        db.set_account(con, "other", "alpha")
+        db.add_request(con, "marina", "other", "carry on", None, "peer", "async", None, 0, None)
+        dest, why = dmn._move_plan(con, "other", "usage")
+        check("wait: with every other account capped or walled the work stays queued",
+              dest is None and "no account can take one more agent" in why
+              and "at its cap" in why, why)
+    finally:
+        con.close()
+
+
+def test_a_working_agent_is_not_handed_off_on_a_percentage(home: Path) -> None:
+    """It runs until it hits the wall: nothing below 100% parks it, and an
+    account nobody can read is not a wall."""
+    for pct in (85, 92, 99):
+        _daemon_home(home / f"p{pct}", pct)
+        con = db.connect()
+        try:
+            dmn.tick(con, lambda _m: None)
+            row = db.get_agent_state(con, "backend")
+            check(f"wall: {pct}% does not park a working agent",
+                  row["state"] not in (dmn.PARKED, dmn.HANDOFF)
+                  and not con.execute("SELECT 1 FROM handoff").fetchall(), str(dict(row)))
+        finally:
+            con.close()
+    _daemon_home(home / "unread", 40)
+    write_status(home / "unread", "alpha", pct_5h=40, pct_7d=10, ctx_pct=5,
+                 collected_at=int(time.time()) - status.STALE_AFTER_S - 60)
+    con = db.connect()
+    try:
+        dmn.tick(con, lambda _m: None)
+        check("wall: an unreadable account does not park or move anyone",
+              db.get_agent_state(con, "backend")["state"] not in (dmn.PARKED, dmn.HANDOFF))
+    finally:
+        con.close()
+
+
+def test_the_cold_start_is_measured_and_sets_how_long_to_wait(home: Path) -> None:
+    """T is what a cold start spends of the destination's window, measured on
+    starts nothing else was spending on - and 39 minutes until there are three."""
+    _daemon_home(home, 20)
+    _with_accounts("alpha", "beta")
+    con = db.connect()
+    try:
+        def start(before, after, others=0):
+            write_status(home, "alpha", pct_5h=before, pct_7d=10,
+                         reset_5h=int(time.time()) + 3600)
+            if others:
+                _running_on(con, "alpha", "busy")
+            measure.begin(con, "backend", "alpha")
+            if others:
+                return
+            db.add_event(con, "backend", "Stop", {})
+            write_status(home, "alpha", pct_5h=after, pct_7d=10,
+                         reset_5h=int(time.time()) + 3600)
+            measure.settle(con, "backend")
+
+        start(20, 40)
+        check("measure: one start is not enough to go on",
+              measure.cold_start_pct(con) is None)
+        start(10, 30)
+        start(5, 25)
+        check("measure: the middle of three starts is the cost",
+              measure.cold_start_pct(con) == 20.0, str(measure.cold_start_pct(con)))
+        check("measure: T is that share of a 5h window", 
+              triggers.stay_within_s(20.0) == 60 * 60 and triggers.stay_within_s(None) == 39 * 60)
+
+        # A start with another agent spending on the account is not measured.
+        start(30, 0, others=1)
+        check("measure: a start that something else was spending beside is discarded",
+              db.get_meta(con, "coldstart:backend") is None)
+
+        # And T is what the decision uses: an account resetting in 50 minutes is
+        # worth waiting for at 20% (60 minutes) but not at the 39-minute default.
+        db.set_agent_state(con, "busy", dmn.IDLE)
+        agents.register("keeper", "alpha")
+        db.set_account(con, "keeper", "alpha")
+        db.add_request(con, "marina", "keeper", "carry on", None, "peer", "async", None, 0, None)
+        now = int(time.time())
+        write_status(home, "alpha", pct_5h=100, pct_7d=10, reset_5h=now + 50 * 60,
+                     reset_7d=now + 86400)
+        write_status(home, "beta", pct_5h=10, pct_7d=10, reset_5h=now + 3600,
+                     reset_7d=now + 86400)
+        dest, why = dmn._move_plan(con, "keeper", "usage")
+        check("measure: the measured T keeps it waiting", dest is None and "60m" in why, why)
+    finally:
+        con.close()
+
+
+def test_a_stale_snapshot_shows_its_last_figures_and_still_is_offered(home: Path) -> None:
+    """The last known 5h and 7d figures are shown with their age wherever an
+    account is, and a reset that has passed is said. An idle account whose
+    window has not passed keeps its floor: nothing has spent on it since the
+    last reading, so it is still offered on that figure, not refused merely
+    for being old."""
+    _daemon_home(home, 20)
+    _with_accounts("alpha", "beta")
+    now = int(time.time())
+    write_status(home, "alpha", pct_5h=5, pct_7d=10, reset_5h=now + 3600,
+                 reset_7d=now + 86400)
+    write_status(home, "beta", pct_5h=41, pct_7d=20, reset_5h=now + 1800,
+                 reset_7d=now + 86400, collected_at=now - 3600)
+    st = status.read("beta")
+    ok, why = st.takes_work()
+    check("stale: an idle account inside its window keeps its floor, and is offered",
+          ok and "5h 41% (60m old), 7d 20%" in why and "stale but idle" in why, why)
+    picked, ranked = status.pick_account(["beta"], load={})
+    check("stale: the pick uses it, on the last figure seen",
+          picked == "beta" and "5h 41%" in dict(ranked)["beta"], str(ranked))
+    check("stale: nothing that decides reads the number directly",
+          st.trusted_pct_5h is None)
+    out = _capture(lambda: climod.main(["account", "list"]))
+    check("stale: `ocp account list` shows it", "5h 41% (60m old)" in out, out)
+    panel = tui._ANSI.sub("", tui.frame(200, 40))
+    check("stale: the bridge shows it", "5h 41% (60m old)" in panel, panel[:400])
+
+    cells = tui.account_cells("beta", status.read("beta"))
+    check("stale: the bridge cell shows the last figure on a dotted bar, dimmed",
+          "41%" in cells["five"] and "·" * 10 in cells["five"]
+          and "█" not in cells["five"] and tui.DIM in cells["five"], repr(cells["five"]))
+    write_status(home, "beta", pct_5h=None, pct_7d=None, reset_5h=None, reset_7d=None,
+                 collected_at=now - 3600)
+    check("stale: with no figure on file the cell is still ?",
+          "?%" in tui.account_cells("beta", status.read("beta"))["five"])
+    write_status(home, "beta", pct_5h=90, pct_7d=20, reset_5h=now + 1800,
+                 reset_7d=now + 86400, collected_at=now - 3600)
+    why = status.read("beta").takes_work()[1]
+    check("stale: within the margin of the wall when last seen still refuses",
+          not status.read("beta").takes_work()[0] and "too close to" in why, why)
+    write_status(home, "beta", pct_5h=41, pct_7d=20, reset_5h=now - 600,
+                 reset_7d=now + 86400, collected_at=now - 3600)
+    why = status.read("beta").takes_work()[1]
+    check("stale: a passed reset is marked, the number kept",
+          "5h 41% (60m old, reset since)" in why, why)
+    write_status(home, "beta", pct_5h=41, pct_7d=20, reset_5h=now + 1800,
+                 reset_7d=now - 60, collected_at=now - 3600)
+    why = status.read("beta").takes_work()[1]
+    check("stale: and a passed weekly reset", "7d 20% (reset since)" in why, why)
+
+
+def test_pick_account_judges_an_idle_account_on_its_floor_not_on_zero(home: Path) -> None:
+    """A stale-but-idle account is admitted on its last figure, and its
+    stretch (whether it lasts long enough to be worth starting on) must be
+    computed from that floor - not from an assumed-empty window, which is
+    indistinguishable from real headroom once something is actually burning
+    on the account. The margin (30 points) alone cannot catch this: it only
+    guarantees enough headroom against zero burn, not against a real one."""
+    _daemon_home(home, 20)
+    _with_accounts("beta")
+    now = int(time.time())
+    write_status(home, "beta", pct_5h=65, pct_7d=10, reset_5h=now + 1800,
+                 reset_7d=now + 86400, collected_at=now - 3600)
+    check("pick: the stale reading clears idle_floor's margin (below 70%)",
+          status.read("beta").idle_floor()[0])
+    # Real floor 65%, headroom 35 - too little to last 30m at this burn.
+    # At a fill of 0 the same burn reads as headroom 100 and would last
+    # comfortably, which is exactly the bug: the account we cannot currently
+    # see would be preferred over one refused on real numbers just like it.
+    ld = {"beta": loadmod.Load("beta", 0, triggers.DEFAULT_ACTIVE_CAP, 0.03)}
+    check("pick: judged on its real floor, the stretch is too short to start",
+          status.pick_account(["beta"], load=ld)[0] is None)
+
+
+def test_idle_floor_refuses_an_account_with_an_agent_mid_turn_on_it(home: Path) -> None:
+    """A stale reading with an agent of ours actually mid-turn on the account
+    is not idle - it is exactly the spend we cannot account for, and must fail
+    closed regardless of the margin."""
+    _daemon_home(home, 20)
+    _with_accounts("alpha", "beta")
+    now = int(time.time())
+    write_status(home, "beta", pct_5h=40, pct_7d=10, reset_5h=now + 1800,
+                 reset_7d=now + 86400, collected_at=now - 3600)
+    check("idle_floor: with nothing running on it, the floor holds",
+          status.read("beta").idle_floor()[0])
+    check("idle_floor: with an agent mid-turn on it, it does not",
+          not status.read("beta").idle_floor(active=1)[0])
+    con = db.connect()
+    try:
+        _running_on(con, "beta", "w1")
+        ld = loadmod.read_all(con)
+        check("idle_floor: load.active reflects the running agent", ld["beta"].active == 1)
+        ok, why = status.read("beta").takes_work(ld["beta"].active)
+        check("takes_work: an account with an agent mid-turn on it fails closed",
+              not ok and "stale" in why, why)
+        picked, reasons = status.pick_account(["beta"], load=ld)
+        check("pick: it is not picked while an agent is mid-turn on it",
+              picked is None, str(reasons))
+    finally:
+        con.close()
+
+
+def test_idle_floor_refuses_a_snapshot_older_than_its_own_window(home: Path) -> None:
+    """reset_5h ahead of us while the snapshot itself is already older than a
+    5h window is wide cannot be well-formed data - a rewound clock or a
+    hand-edited file, not an idle account - and must not read as a floor."""
+    _daemon_home(home, 20)
+    _with_accounts("beta")
+    now = int(time.time())
+    write_status(home, "beta", pct_5h=40, pct_7d=10, reset_5h=now + 1800,
+                 reset_7d=now + 86400, collected_at=now - (26 * 3600))
+    st = status.read("beta")
+    check("idle_floor: an age past a whole window with reset_5h still ahead refuses",
+          not st.idle_floor()[0])
+    check("assignable: falls through to the ordinary stale refusal, not a floor",
+          not st.assignable()[0] and "fail-closed" in st.assignable()[1], st.assignable()[1])
+
+
+def test_idle_floor_margin_and_its_refusal_line(home: Path) -> None:
+    """A stale floor is admitted only below 70% (30 below the wall), and when
+    the stretch refuses one, the line prints the floor it judged, not None."""
+    _daemon_home(home, 20)
+    _with_accounts("beta")
+    now = int(time.time())
+    for pct, admitted in ((69, True), (75, False)):
+        write_status(home, "beta", pct_5h=pct, pct_7d=10, reset_5h=now + 1800,
+                     reset_7d=now + 86400, collected_at=now - 3600)
+        check(f"idle_floor: a stale {pct}% floor is {'admitted' if admitted else 'refused'}",
+              status.read("beta").idle_floor()[0] is admitted)
+    write_status(home, "beta", pct_5h=65, pct_7d=10, reset_5h=now + 1800,
+                 reset_7d=now + 86400, collected_at=now - 3600)
+    ld = {"beta": loadmod.Load("beta", 0, triggers.DEFAULT_ACTIVE_CAP, 0.03)}
+    picked, reasons = status.pick_account(["beta"], load=ld)
+    line = " ".join(r for _a, r in reasons)
+    check("pick: the stale-floor refusal line prints the floor, not None",
+          picked is None and "5h 65%" in line and "None" not in line, line)
+
+
+def test_the_accounts_row_draws_a_last_seen_figure_only_inside_its_window(home: Path) -> None:
+    """The ACCOUNTS row and `ocp account list` draw the 5h figure from one
+    definition: last seen, marked ?, while the window is open; nothing once it
+    has rolled over."""
+    _daemon_home(home, 20)
+    _with_accounts("beta")
+    now = int(time.time())
+    for reset, drawn in ((now + 1800, True), (now - 60, False)):
+        write_status(home, "beta", pct_5h=40, pct_7d=10, reset_5h=reset,
+                     reset_7d=now + 86400, collected_at=now - 3600)
+        st = status.read("beta")
+        cell = tui._ANSI.sub("", tui.account_cells("beta", st)["five"])
+        check(f"account_cells: window {'open' if drawn else 'rolled over'} - "
+              f"{'the last figure, marked ?' if drawn else 'no figure'}",
+              ("40%" in cell) is drawn and ("40%?" in cell) is drawn, cell)
+        check("account_cells: agrees with shown_pct_5h",
+              (st.shown_pct_5h()[0] == 40) is drawn, str(st.shown_pct_5h()))
+
+
+def test_a_sweep_after_a_move_does_not_keep_the_old_accounts_session(home: Path) -> None:
+    """keeper 09-19 15:45: moved gamma -> alpha, and eight seconds later the
+    sweep recorded it closed with the gamma session id, which alpha cannot resume."""
+    _daemon_home(home, 20)
+    _with_accounts("alpha", "beta")
+    con = db.connect()
+    real = (orcamod.available, orcamod.live_terminals, obsmod.live_sessions)
+    try:
+        db.set_terminal(con, "backend", "term_x", "wt")
+        db.set_account(con, "backend", "beta")
+        write_agent_status("backend", "alpha", session_id="sess-old",
+                           collected_at=int(time.time()) - status.STALE_AFTER_S - 60)
+        orcamod.available = lambda: True
+        orcamod.live_terminals = lambda: {"term_x"}
+        obsmod.live_sessions = lambda: {}
+        dmn.sweep(con, lambda _m: None, [])
+        row = db.get_agent_state(con, "backend")
+        check("sweep: it is recorded as closed", row["closed_at"] is not None)
+        check("sweep: but not with the session of the account it left",
+              row["resume_session"] is None, str(row["resume_session"]))
+    finally:
+        orcamod.available, orcamod.live_terminals, obsmod.live_sessions = real
+        con.close()
+
+
+def test_a_span_of_a_day_or_more_reads_in_days(home: Path) -> None:
+    """162h20 is 6d18h; under a day the form is unchanged, and the widest day
+    value fits the column every surface draws it in."""
+    check("span: 162h20 reads 6d18h", status.span(162 * 3600 + 20 * 60) == "6d18h",
+          status.span(162 * 3600 + 20 * 60))
+    check("span: 5h03 stays 5h03", status.span(5 * 3600 + 3 * 60) == "5h03")
+    check("span: 24h is the first day", status.span(86400) == "1d0h")
+    check("span: 23h59 stays hours", status.span(86400 - 60) == "23h59")
+    check("span: a runway reads the same way", status.span(6 * 86400 + 23 * 3600) == "6d23h")
+    check("span: the bridge's age column reads days too", tui.age(162 * 3600 + 20 * 60) == "6d18h"
+          and tui.age(3 * 3600 + 100) == "3h", tui.age(162 * 3600 + 20 * 60))
+    check("span: and so does the stale line's age", status._ago(162 * 3600 + 20 * 60) == "6d18h"
+          and status._ago(3 * 3600) == "3h")
+    now = int(time.time())
+    for ts, want in ((now + 6 * 86400 + 23 * 3600 + 30, "6d23h"), (now + 5 * 3600 + 200, "5h03")):
+        cell = tui.countdown(ts)
+        check(f"span: the bridge countdown says {want}", cell == want, cell)
+    check("span: the widest fits the reset columns",
+          len("6d23h") < tui.ACCT_W["reset5"] and len("6d23h") < tui.ACCT_W["reset7"])
+
+
+def test_the_cap_is_set_from_the_command_line_and_the_bridge(home: Path) -> None:
+    _daemon_home(home, 20)
+    out = _capture(lambda: climod.main(["account", "cap", "alpha", "3"]))
+    check("cap: `ocp account cap` sets it", loadmod.cap_of("alpha") == 3, out)
+    out = _capture(lambda: climod.main(["account", "cap", "alpha"]))
+    check("cap: and shows it", "at most 3" in out, out)
+    check("cap: the bridge has a key for it", ("c", "cap") in tui.ACCOUNT_KEYS)
+    real = tui._line
+    try:
+        tui._line = lambda *a, **k: "4"
+        said = tui._set_cap("alpha", 80, 24)
+        check("cap: the bridge sets it", loadmod.cap_of("alpha") == 4 and "4" in said, said)
+        tui._line = lambda *a, **k: "many"
+        check("cap: and refuses what is not a number",
+              "whole number" in tui._set_cap("alpha", 80, 24) and loadmod.cap_of("alpha") == 4)
+    finally:
+        tui._line = real
+    _with_accounts("beta")
+    con = db.connect()
+    try:
+        _running_on(con, "beta", "w1", "w2")
+    finally:
+        con.close()
+    write_status(home, "beta", pct_5h=10, pct_7d=10, reset_5h=int(time.time()) + 3600)
+    panel = tui._ANSI.sub("", tui.frame(200, 40))
+    check("cap: the panel says why an account at its cap is not offered",
+          "at its cap: 2 of 2" in panel, panel[:400])
+
+
+def test_agents_that_wall_together_respect_the_cap_and_a_start_is_not_its_own_rival(home: Path) -> None:
+    """Four agents walled at once on one account, cap 2: two move and two stay,
+    because a moved agent counts on its new account until its next Stop. And an
+    agent that is running again is not "something else" on its own start."""
+    _daemon_home(home, 20)
+    _with_accounts("alpha", "beta")
+    now = int(time.time())
+    write_status(home, "alpha", pct_5h=100, pct_7d=10, reset_5h=now + 3 * 3600,
+                 reset_7d=now + 86400)
+    write_status(home, "beta", pct_5h=5, pct_7d=10, reset_5h=now + 3600, reset_7d=now + 86400)
+    con = db.connect()
+    try:
+        names = ("a1", "a2", "a3", "a4")
+        _running_on(con, "alpha", *names)
+        for n in names:
+            db.add_request(con, "marina", n, "carry on", None, "peer", "async", None, 0, None)
+        moved = []
+        for n in names:
+            dest, _ = dmn._move_plan(con, n, "usage")
+            if dest:
+                db.set_account(con, n, dest)
+                db.set_agent_state(con, n, dmn.QUEUED)
+                db.add_event(con, n, "moved_account", {"from": "alpha", "to": dest})
+                moved.append(n)
+        check("cap: of four walled together, two move", len(moved) == 2, str(moved))
+
+        db.add_event(con, moved[0], "Stop", {})
+        check("cap: a moved agent stops counting once its turn has ended",
+              loadmod.active_agents(con).get("beta", 0) == 1)
+
+        write_status(home, "alpha", pct_5h=20, pct_7d=10, reset_5h=now + 3600,
+                     reset_7d=now + 86400)
+        db.set_agent_state(con, "a3", dmn.IDLE)
+        db.set_agent_state(con, "a4", dmn.IDLE)
+        db.set_agent_state(con, moved[1], dmn.IDLE)
+        db.set_account(con, "a1", "alpha")
+        db.set_agent_state(con, "a1", dmn.QUEUED)
+        measure.begin(con, "a1", "alpha")
+        db.add_event(con, "a1", "Stop", {})
+        db.set_agent_state(con, "a1", dmn.RUNNING)
+        write_status(home, "alpha", pct_5h=33, pct_7d=10, reset_5h=now + 3600,
+                     reset_7d=now + 86400)
+        measure.settle(con, "a1")
+        n = con.execute("SELECT COUNT(*) FROM events WHERE kind = 'cold_start'").fetchone()[0]
+        check("measure: the measured agent running again does not void its own sample",
+              n == 1, str(n))
+    finally:
+        con.close()
+
+
+def test_replaying_0919_makes_fewer_moves_than_the_old_rules(home: Path) -> None:
+    """Today's walls, 12:36 to 14:45, driven through the real decision functions.
+
+    Fixed by the log: alpha at 85% with four agents on it at 12:36 and its
+    window resetting at 14:00; beta at 20% resetting at 16:50; gamma unavailable
+    until marina's session gave it a reading at 14:30. The old rules moved four
+    agents alpha -> beta at 12:37-12:53 (at 85-89%, none at the wall) and three
+    beta -> gamma at 14:40: seven cold starts. Modelled, and the same for both:
+    an agent working costs its account 0.35%/min (alpha's own rise over the
+    same half hour, divided by the agents on it), and a cold start costs the
+    destination 13%."""
+    restore_world()
+    home.mkdir(parents=True, exist_ok=True)
+    os.environ["OCP_HOME"] = str(home)
+    (home / "team.yaml").write_text(DESIGN_TEAM)
+    orcamod.available = lambda: False
+    obsmod.live_sessions = lambda: None
+    base = int(time.time())
+    clock = {"m": 0}
+    real_time = time.time
+    time.time = lambda: base + clock["m"] * 60
+    STEADY, COLD = 0.35, 13.0
+    try:
+        _with_accounts("alpha", "beta")
+        names = ("mgr", "aud", "pur", "hm")
+        for n in names + ("rev",):
+            agents.register(n, "alpha")
+        con = db.connect()
+        for n in names:
+            db.set_account(con, n, "alpha")
+            db.set_agent_state(con, n, dmn.RUNNING)
+            db.add_request(con, "marina", n, "carry on", None, "peer", "async", None, 0, None)
+        db.add_request(con, "marina", "rev", "look", None, "peer", "async", None, 0, None)
+
+        pct = {"alpha": 85.0, "beta": 20.0}
+        reset = {"alpha": base + 84 * 60, "beta": base + 254 * 60}
+        mode = {n: "run" for n in names}
+        moves, cold_starts, waiting_min = [], 0, 0
+
+        def publish():
+            for a, p in pct.items():
+                n = sum(1 for x, m in mode.items() if m == "run"
+                        and agents.current_account(x, con) == a)
+                write_status(home, a, pct_5h=int(round(min(100.0, p))), pct_7d=20, ctx_pct=5,
+                             reset_5h=reset[a], reset_7d=base + 86400 * 3,
+                             collected_at=base + clock["m"] * 60)
+                status.write_burn(a, n * STEADY / 60, base + clock["m"] * 60)
+
+        def hold(n, acct):
+            db.set_account(con, n, acct)
+            db.set_agent_state(con, n, dmn.RUNNING if mode[n] == "run" else dmn.PARKED)
+
+        publish()
+        for m in range(0, 130):
+            clock["m"] = m
+            if m == 84:                                   # alpha's window rolls over
+                pct["alpha"], reset["alpha"] = 0.0, base + (84 + 300) * 60
+            if m == 114:                                  # marina's session on gamma
+                _with_accounts("gamma")
+                agents.register("marina", "gamma")
+                db.set_account(con, "marina", "gamma")
+                db.set_agent_state(con, "marina", dmn.RUNNING)
+                mode["marina"] = "run"
+                pct["gamma"], reset["gamma"] = 1.0, base + (114 + 300) * 60
+            if m == 14:                                   # reviewer's work arrives
+                a = launch.find_room("rev")
+                if a:
+                    mode["rev"] = "run"
+                    pct[a] += COLD
+                    cold_starts += 1
+                    hold("rev", a)
+                    moves.append((m, "rev", "start", a))
+                else:
+                    mode["rev"] = "wait"
+                    hold("rev", "alpha")
+            for a in list(pct):
+                n = sum(1 for x, md in mode.items() if md == "run"
+                        and agents.current_account(x, con) == a)
+                if a != "gamma" or m >= 114:
+                    pct[a] = min(100.0, pct[a] + n * STEADY)
+            publish()
+            for n in [x for x in mode if x != "marina"]:
+                here = agents.current_account(n, con)
+                if mode[n] == "run" and pct[here] >= 100:
+                    mode[n] = "wait"
+                    hold(n, here)
+                if mode[n] == "wait":
+                    if pct[here] < 100:
+                        mode[n] = "run"
+                        hold(n, here)          # its own window rolled over: no cold start
+                        continue
+                    waiting_min += 1
+                    dest, _ = dmn._move_plan(con, n, "usage")
+                    if dest:
+                        db.add_event(con, n, "moved_account",
+                                     {"from": here, "to": dest, "trigger": "usage"})
+                        mode[n] = "run"
+                        pct[dest] += COLD
+                        cold_starts += 1
+                        hold(n, dest)
+                        moves.append((m, n, here, dest))
+                        publish()
+        con.close()
+    finally:
+        time.time = real_time
+    old_moves = 7
+    hhmm = lambda m: time.strftime("%H:%M", time.localtime(base + m * 60 - 0))  # noqa: E731
+    starts = [(m, n, f"{s}->{d}") for m, n, s, d in moves if s != "start"]
+    check("replay: the new rules move fewer agents than the seven the old ones did",
+          len(starts) < old_moves, f"{len(starts)} moves: {starts}")
+    check("replay: and nothing was moved before the wall",
+          all(m >= 10 for m, *_ in starts), str(starts))
+    print(f"    replay 09-19 12:36-14:45: old rules 7 moves (7 cold starts); new rules "
+          f"{len(starts)} moves, {cold_starts} cold starts incl. reviewer's start, "
+          f"{waiting_min} agent-minutes waiting at a wall; moves at minute offsets {starts}")
 
 
 def test_a_wait_returns_when_the_answer_lands_not_when_it_gives_up(home: Path) -> None:
@@ -7766,8 +8708,7 @@ def test_a_message_is_read_whole_and_answered_where_it_is_read(home: Path) -> No
         for i in range(9):
             db.add_request(con, "marina", "backend", f"request {i}", None,
                            "peer", "async", None, 0, None)
-        foldmod.handoff_path("backend").parent.mkdir(parents=True, exist_ok=True)
-        foldmod.handoff_path("backend").write_text(
+        keep_handoff("backend",
             "\n".join(f"- line {i}" for i in range(30)))
         shown = "\n".join(ln for _, rows in actions.agent_detail(con, "backend")
                           for ln in rows)
@@ -7970,7 +8911,7 @@ def test_a_fold_with_no_account_says_which_and_why(home: Path) -> None:
         accounts.register(name)
     (paths.account_claude("full") / ".credentials.json").write_text("{}")
     (paths.account_claude("unreadable") / ".credentials.json").write_text("{}")
-    write_status(home, "full", pct_5h=95, pct_7d=10, ctx_pct=5)
+    write_status(home, "full", pct_5h=100, pct_7d=10, ctx_pct=5)
     # Stale, not quiet: a fresh snapshot with no figure is read as 0%, which is
     # a reading. What cannot be read at all is one nothing has refreshed.
     write_status(home, "unreadable", pct_5h=None, pct_7d=10, ctx_pct=5,
@@ -7978,7 +8919,7 @@ def test_a_fold_with_no_account_says_which_and_why(home: Path) -> None:
 
     said = foldmod._account_reasons()
     check("fold: the account at the wall is named with its figure",
-          "full at 95%" in said, said)
+          "full at 100%" in said, said)
     check("fold: the one nothing can read is named as that, not as logged out",
           "unreadable usage unreadable" in said, said)
     check("fold: and the one actually logged out is named as that",
@@ -8159,7 +9100,7 @@ def test_nothing_is_typed_into_a_shell_with_no_session(home: Path) -> None:
         check("shell: and its terminal is left recorded",
               db.get_agent_state(con, "backend")["terminal"] == "term_x")
 
-        foldmod.handoff_path("backend").write_text("# handoff · backend\n- carry on\n")
+        keep_handoff("backend", "# handoff · backend\n- carry on\n")
         ok, why = dmn.wake_agent(con, "backend", lambda _m: None)
         check("shell: a handoff is not typed at it either",
               not ok and not sent, f"{why} {sent}")
@@ -8172,7 +9113,7 @@ def test_nothing_is_typed_into_a_shell_with_no_session(home: Path) -> None:
               not ok and not cleared, f"{why} {cleared}")
 
         t = triggers.Trigger(True, "context", "context 72% >= 60%")
-        dmn.perform_handoff(con, "backend", t, lambda _m: None, use_model=False)
+        dmn.perform_handoff(con, "backend", t, lambda _m: None)
         row = db.get_agent_state(con, "backend")
         check("shell: no handoff is run for a session that is not there",
               not cleared and not sent and not db.in_flight_handoffs(con), str(sent))
@@ -8205,7 +9146,7 @@ def test_nothing_is_typed_into_a_shell_with_no_session(home: Path) -> None:
         obsmod.live_sessions = counted
         db.set_cursor(con, "notify:backend", 0)
         sent.clear()
-        dmn.tick(con, lambda _m: None, use_model=False)
+        dmn.tick(con, lambda _m: None)
         check("shell: the tick reads the process table once, and the sends reuse it",
               calls["n"] == 1 and any("ocp inbox" in t2 for t2 in sent),
               f"{calls['n']} listings, sent {sent}")
@@ -8377,7 +9318,7 @@ def test_handoff_reclaims_context(home: Path) -> None:
 
         db.set_terminal(con, "backend", "term_x", "wt")
         t = triggers.Trigger(True, "context", "context 72% >= 60%")
-        dmn.perform_handoff(con, "backend", t, lambda _m: None, use_model=False)
+        dmn.perform_handoff(con, "backend", t, lambda _m: None)
         check("handoff: clears the agent's context", cleared == ["term_x"], str(cleared))
         row = db.get_agent_state(con, "backend")
         check("handoff: still parks afterwards", row["state"] == dmn.PARKED, str(dict(row)))
@@ -8388,7 +9329,7 @@ def test_handoff_reclaims_context(home: Path) -> None:
         cleared.clear()
         before = len(db.in_flight_handoffs(con))
         db.set_agent_state(con, "backend", dmn.RUNNING, detail="mid-turn")
-        dmn.perform_handoff(con, "backend", t, lambda _m: None, use_model=False)
+        dmn.perform_handoff(con, "backend", t, lambda _m: None)
         check("handoff: a mid-turn agent is deferred, not cleared", cleared == [], str(cleared))
         check("handoff: and no handoff is started for it",
               len(db.in_flight_handoffs(con)) == before)
@@ -8421,7 +9362,7 @@ def test_wake_injects_handoff(home: Path) -> None:
         ok, why = dmn.wake_agent(con, "backend", lambda _m: None)
         check("wake: nothing to resume from without a handoff", not ok, why)
 
-        foldmod.handoff_path("backend").write_text("# handoff · backend\n## 다음\n- finish the thing\n")
+        keep_handoff("backend", "# handoff · backend\n## 다음\n- finish the thing\n")
         ok, why = dmn.wake_agent(con, "backend", lambda _m: None)
         check("wake: injects the handoff", ok and sent, why)
         check("wake: the agent is told its context was cleared",
@@ -8462,7 +9403,7 @@ def test_a_drifted_launch_relaunches_instead_of_waking_in_place(home: Path) -> N
         f.parent.mkdir(parents=True, exist_ok=True)
         f.write_text(json.dumps({"account": "alpha", "collected_at": int(time.time()),
                                  "session_id": "sess-old", "ctx_pct": 5}))
-        foldmod.handoff_path("backend").write_text("# handoff · backend\n## next\n- carry on\n")
+        keep_handoff("backend", "# handoff · backend\n## next\n- carry on\n")
         # Recorded as if an earlier `build()` launched this session - one that
         # cannot be what `launch.fingerprint` computes now, whatever it is.
         db.set_launch_fingerprint(con, "backend", "stale-fingerprint")
@@ -8521,7 +9462,7 @@ def test_a_parked_row_with_no_fingerprint_also_relaunches(home: Path) -> None:
         f.parent.mkdir(parents=True, exist_ok=True)
         f.write_text(json.dumps({"account": "alpha", "collected_at": int(time.time()),
                                  "session_id": "sess-old", "ctx_pct": 5}))
-        foldmod.handoff_path("backend").write_text("# handoff · backend\n## next\n- carry on\n")
+        keep_handoff("backend", "# handoff · backend\n## next\n- carry on\n")
         db.set_agent_state(con, "backend", dmn.PARKED, wake_at=int(time.time()) - 10,
                            detail="usage; wakes soon")
         # No db.set_launch_fingerprint call at all - the row this migrates
@@ -8598,7 +9539,7 @@ def test_a_drifted_wake_that_cannot_relaunch_says_why(home: Path) -> None:
         db.set_terminal(con, "backend", "term_x", "wt")
         write_status(home, "alpha", pct_5h=20, pct_7d=10, ctx_pct=5,
                      reset_5h=int(time.time()) + 1800)
-        foldmod.handoff_path("backend").write_text("# handoff · backend\n## next\n- go\n")
+        keep_handoff("backend", "# handoff · backend\n## next\n- go\n")
         db.set_launch_fingerprint(con, "backend", "stale-fingerprint")
         db.set_agent_state(con, "backend", dmn.PARKED, wake_at=int(time.time()) - 10,
                            detail="usage; wakes soon")
@@ -9177,6 +10118,12 @@ def test_tui_frame_geometry(home: Path) -> None:
     check("tui: fit truncates on visible width",
           tui.vlen(tui.fit("\033[31m" + "x" * 50 + "\033[0m", 10)) <= 10)
     check("tui: fit leaves a short string alone", tui.fit("abc", 10) == "abc")
+    check("tui: padfit never exceeds its width, on a value that overflows it",
+          tui.vlen(tui.padfit("a name nobody bounded", 10)) == 10)
+    check("tui: padfit's truncation is visible, not silent",
+          "…" in tui.padfit("a name nobody bounded", 10))
+    check("tui: padfit still pads a short value to width, like pad()",
+          tui.padfit("ab", 10) == tui.pad("ab", 10))
     check("tui: unknown usage draws as ?, never as 0", "?" in tui.pct(None))
     check("tui: a known 0 still draws as 0", tui.pct(0).strip() == "0")
     check("tui: an unknown bar is not an empty bar",
@@ -9229,7 +10176,7 @@ def test_clear_does_not_look_like_waking(home: Path) -> None:
 def test_handoff_rate_limited(home: Path) -> None:
     """Two handoffs in quick succession is never right: the usage that caused
     the first cannot have meaningfully changed. A fold is not free."""
-    _daemon_home(home, 95)
+    _daemon_home(home, 100)
     con = db.connect()
     real_alive, real_idle, real_clear = orcamod.alive, orcamod.idle_now, orcamod.clear_context
     try:
@@ -9238,14 +10185,14 @@ def test_handoff_rate_limited(home: Path) -> None:
         orcamod.idle_now = lambda h: True
         orcamod.clear_context = lambda h, wait=True, timeout_ms=0: (True, "context cleared")
         db.set_terminal(con, "backend", "term_x", "wt")
-        t = triggers.Trigger(True, "usage", "pct_5h 95% >= 85%")
+        t = triggers.Trigger(True, "usage", "pct_5h 100% - at the wall")
 
-        dmn.perform_handoff(con, "backend", t, lambda _m: None, use_model=False)
+        dmn.perform_handoff(con, "backend", t, lambda _m: None)
         first = con.execute("SELECT COUNT(*) c FROM handoff WHERE agent='backend'").fetchone()["c"]
 
         # Simulate something un-parking it and the trigger firing again at once.
         db.set_agent_state(con, "backend", dmn.RUNNING, detail="un-parked somehow")
-        dmn.perform_handoff(con, "backend", t, lambda _m: None, use_model=False)
+        dmn.perform_handoff(con, "backend", t, lambda _m: None)
         second = con.execute("SELECT COUNT(*) c FROM handoff WHERE agent='backend'").fetchone()["c"]
 
         check("handoff: a second handoff right after the first is skipped",
@@ -9363,7 +10310,6 @@ def main() -> int:
         run(lambda: test_daemon_degraded_recovers(Path(td) / 'd5c'))
         run(lambda: test_daemon_tick_expires_handoff(Path(td) / 'd5d'))
         run(lambda: test_daemon_ignores_stale_status(Path(td) / 'd5e'))
-        run(lambda: test_daemon_poll_uses_hottest(Path(td) / 'd5f'))
         run(lambda: test_status_edge_cases(Path(td) / 'se'))
         run(lambda: test_team_deny_validation())
         run(lambda: test_ask_respects_terminal_state(Path(td) / 'term'))
@@ -9388,6 +10334,7 @@ def main() -> int:
         run(lambda: test_reconcile_does_not_clear_closed_at_on_a_failed_wake(Path(td) / 'crashwake'))
         run(lambda: test_work_arriving_wakes_a_closed_agent(Path(td) / 'wakework'))
         run(lambda: test_a_running_agent_is_told_when_work_arrives(Path(td) / 'deliver'))
+        run(lambda: test_a_withdraw_landing_before_the_send_stops_the_send(Path(td) / 'withdrawrace'))
         run(lambda: test_a_delivery_belongs_to_the_session_it_was_typed_into(Path(td) / 'sessdeliver'))
         run(lambda: test_nothing_is_typed_at_a_modal(Path(td) / 'modal'))
         run(lambda: test_a_wake_types_nothing_at_a_shell_when_the_session_dies(Path(td) / 'shellwake'))
@@ -9399,6 +10346,8 @@ def main() -> int:
         run(lambda: test_burn_rate_ignores_carried_samples(Path(td) / 'burn'))
         run(lambda: test_a_session_figure_is_not_shown_as_an_accounts(Path(td) / 'sessfig'))
         run(lambda: test_doctor_says_one_thing_per_account(Path(td) / 'doc2'))
+        run(lambda: test_doctor_agrees_with_the_pick_about_an_account_with_an_agent_mid_turn(
+            Path(td) / 'docactive'))
         run(lambda: test_fold_is_not_rejected_over_a_header_it_overwrites(Path(td) / 'fhdr'))
         run(lambda: test_display_agrees_with_the_daemon(Path(td) / 'disp'))
         run(lambda: test_spawn_confirms_the_task_landed(Path(td) / 'spawnland'))
@@ -9425,7 +10374,7 @@ def main() -> int:
         run(lambda: test_a_walled_wake_names_the_account_only_with_room(Path(td) / 'walledroom'))
         run(lambda: test_a_park_that_cannot_be_woken_keeps_its_deadline(Path(td) / 'parkdue'))
         run(lambda: test_a_usage_park_is_woken_when_the_reading_clears(Path(td) / 'parklevel1'))
-        run(lambda: test_a_usage_park_does_not_oscillate_in_the_reserve_band(Path(td) / 'parklevel2'))
+        run(lambda: test_a_usage_park_stays_parked_while_the_reading_is_at_the_wall(Path(td) / 'parklevel2'))
         run(lambda: test_a_weekly_park_stays_parked_while_the_week_is_full(Path(td) / 'weekpark'))
         run(lambda: test_a_degraded_park_does_not_auto_clear(Path(td) / 'parklevel3'))
         run(lambda: test_a_context_park_does_not_auto_clear_on_a_usage_reading(Path(td) / 'parklevel4'))
@@ -9462,7 +10411,28 @@ def main() -> int:
         run(lambda: test_a_stale_account_whose_window_rolled_over_can_take_work(Path(td) / 'stalebeta'))
         run(lambda: test_a_passed_window_is_probed_rather_than_guessed(Path(td) / 'probedue'))
         run(lambda: test_room_is_filtered_before_the_ranking_not_after(Path(td) / 'roomfirst'))
+        run(lambda: test_the_runway_is_an_estimate_from_the_daemons_burn(Path(td) / 'runway'))
+        run(lambda: test_the_active_cap_decides_where_the_next_agent_may_start(Path(td) / 'ar0'))
+        run(lambda: test_the_pick_weighs_how_fast_an_account_is_filling(Path(td) / 'ar1'))
+        run(lambda: test_at_the_wall_it_is_a_cost_comparison_not_a_line(Path(td) / 'ar2'))
+        run(lambda: test_a_working_agent_is_not_handed_off_on_a_percentage(Path(td) / 'ar3'))
+        run(lambda: test_the_cold_start_is_measured_and_sets_how_long_to_wait(Path(td) / 'ar4'))
+        run(lambda: test_a_stale_snapshot_shows_its_last_figures_and_still_is_offered(Path(td) / 'ar4c'))
+        run(lambda: test_pick_account_judges_an_idle_account_on_its_floor_not_on_zero(Path(td) / 'idlefloor'))
+        run(lambda: test_idle_floor_refuses_an_account_with_an_agent_mid_turn_on_it(Path(td) / 'idleactive'))
+        run(lambda: test_idle_floor_refuses_a_snapshot_older_than_its_own_window(Path(td) / 'idleage'))
+        run(lambda: test_idle_floor_margin_and_its_refusal_line(Path(td) / 'idlemargin'))
+        run(lambda: test_the_accounts_row_draws_a_last_seen_figure_only_inside_its_window(Path(td) / 'acctrow'))
+
+
+        run(lambda: test_a_span_of_a_day_or_more_reads_in_days(Path(td) / 'ar4f'))
+        run(lambda: test_a_sweep_after_a_move_does_not_keep_the_old_accounts_session(Path(td) / 'ar4e'))
+        run(lambda: test_agents_that_wall_together_respect_the_cap_and_a_start_is_not_its_own_rival(Path(td) / 'ar4b'))
+        run(lambda: test_the_cap_is_set_from_the_command_line_and_the_bridge(Path(td) / 'ar5'))
+        run(lambda: test_replaying_0919_makes_fewer_moves_than_the_old_rules(Path(td) / 'ar6'))
         run(lambda: test_a_turn_that_ends_on_the_usage_limit_is_at_the_wall(Path(td) / 'limitstop'))
+        run(lambda: test_an_unknown_reset_does_not_make_the_runway_absurd(Path(td) / 'runwayunknown'))
+        run(lambda: test_the_panels_bounded_cells_fit_their_own_columns(Path(td) / 'panelwidths'))
         run(lambda: test_ask_and_resolve_do_not_type_at_an_agent_at_the_wall(Path(td) / 'askwall'))
         run(lambda: test_choose_account_does_not_bounce_back_to_a_stale_preferred_account(
             Path(td) / 'nobounce'))
@@ -9498,7 +10468,10 @@ def main() -> int:
         run(lambda: test_tui_frame_geometry(Path(td) / 'tui'))
         run(lambda: test_clear_does_not_look_like_waking(Path(td) / 'loopy'))
         run(lambda: test_handoff_rate_limited(Path(td) / 'hrate'))
-        run(lambda: test_handoff_drift_header(Path(td) / 'hdhome'))
+        run(lambda: test_the_handoff_is_three_facts_read_without_a_model(Path(td) / 'hdhome'))
+        run(lambda: test_a_park_with_every_account_walled_is_a_clean_handoff(Path(td) / 'hdwalled'))
+        run(lambda: test_an_idle_close_keeps_a_handoff_only_if_it_closed(Path(td) / 'hdclose'))
+        run(lambda: test_the_digest_facts_do_not_repeat_one_event_kind(Path(td) / 'hdfacts'))
         run(lambda: test_an_account_is_added_and_removed_from_ocp(Path(td) / 'acctaddrm'))
         run(lambda: test_each_account_guard_fails_under_its_own_mutation(Path(td) / 'guards'))
         run(lambda: test_a_second_name_for_one_login_is_caught(Path(td) / 'acctsame'))

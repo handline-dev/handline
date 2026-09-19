@@ -50,7 +50,7 @@ reviewer  → gamma      # serial, 가벼움
 archivist → gamma      # ephemeral, 짧게 쓰고 나감
 ```
 
-자기 계정이 90%에 닿으면 handoff하고 **리셋까지 쉰다.** 다른 계정으로 옮기지 않는다.
+자기 계정이 벽(100%)에 닿으면 handoff한다. 일이 기다리고 리셋이 멀면 자리가 있는 다른 계정으로 한 번 옮기고, 아니면 **리셋까지 쉰다.**
 
 위 파생 목록이 **전부 사라진다.** 남는 것:
 
@@ -59,7 +59,7 @@ archivist → gamma      # ephemeral, 짧게 쓰고 나감
 | 에이전트 폴더 + ROLE/base/handoff/journal + fold | 계정과 무관하게 가치 있고 복잡도가 낮다 |
 | `team.yaml` 라우팅 + `ocp ask` | 팀이 돌아가는 핵심. 계정과 직교 |
 | statusLine 수집기 | 읽기 전용. 여러 계정 상태를 한눈에 |
-| 데몬 (축소판) | 트리거 → fold → handoff → park → 리셋 시 재개 |
+| 데몬 (축소판) | 트리거 → handoff(세 가지 사실 기록) → park → 리셋 시 재개 |
 | Orca orchestration | 그대로 |
 
 데몬은 리스도 큐도 없이 **에이전트별 독립 루프**가 된다: `내 계정이 87%인가 / 컨텍스트가 60%인가 → handoff → park → 리셋 시각에 재개.`
@@ -194,14 +194,13 @@ Run       (Orca) ── 목표 단위
       base.md                   # ≤2KB — 매 세션 주입되는 고정비
       inbox/
       journal/2026-09-15.md     # 다이제스트. 세대 보존은 git이 한다
-      handoff/latest.md
 ```
 
 ---
 
 ## 4. 데이터 출처 — statusLine 수집기
 
-`~/.claude` 아래에 사용률 파일은 **없다.** 없는 파일을 읽어 `pct=0`을 반환하면 모든 슬롯이 만점이 되고 90% 트리거는 영원히 거짓이 된다 — **기능이 죽었는데 대시보드는 초록색**인 fail-open이다.
+`~/.claude` 아래에 사용률 파일은 **없다.** 없는 파일을 읽어 `pct=0`을 반환하면 모든 슬롯이 만점이 되고 벽 트리거는 영원히 거짓이 된다 — **기능이 죽었는데 대시보드는 초록색**인 fail-open이다.
 
 공식 계약은 **statusLine 스크립트의 stdin JSON**이다. 각 `CLAUDE_CONFIG_DIR`의 `settings.json`에 스크립트를 심고, 그 스크립트가 stdin JSON을 `accounts/<acct>/status.json`으로 원자적으로 쓴 뒤 원래 표시 문자열을 출력한다. 스크립트는 `$CLAUDE_CONFIG_DIR`로 자기 계정을 판별하므로 shared에 한 벌만 두면 된다.
 
@@ -230,8 +229,9 @@ statusLine은 `resets_at` 도달 시 자동 재실행되므로 리셋 타이머�
     하므로 하한이다) **새 배정은 거부한다**
   - `quiet` — 살아있는 수집기가 그 창에 대해 아무 말도 안 한다. 이 창에서 아무도 안 썼다는
     **관측**이므로 0%로 읽고 배정한다. 여기서 거부하면 노는 에이전트를 handoff 시키고 fold 비용만 태운다
-  - `unknown` — 스냅샷이 없거나·판독 불가(NaN·문자열·불리언)거나·낡았거나·**이월하지 못하고 잃었다**.
-    이것만 fail-closed 다
+  - `unknown` — 스냅샷이 없거나·판독 불가(NaN·문자열·불리언)거나·**이월하지 못하고 잃었다**.
+    이것만 fail-closed 다. 배정에서는 낡은 값을 unknown으로 거부하지 않는다 — 창 안에서는 하한(floor)이고,
+    창이 끝나면 그 하한도 의미를 잃어 probe로 다시 묻는다 (`status.idle_floor`)
 - 그래서 수집기가 지키는 규칙 넷
   - 어떤 창을 보고하지 않는 페이로드는 **그 창의 이전 값을 지우지 않는다** (`resets_at`이 남아 있는 동안.
     로컬 시계 오차 60초는 봐준다 — `resets_at` 은 서버가 정하고 비교는 로컬 시계로 한다)
@@ -263,8 +263,8 @@ statusLine은 `resets_at` 도달 시 자동 재실행되므로 리셋 타이머�
 
 ```
 events (SQLite)   기계 이벤트. 훅이 INSERT. 사람도 모델도 안 읽음
-journal/<날짜>.md 다이제스트. handoff 때마다 fold로 통째 재작성
-handoff/latest.md 다이제스트에서 기계 추출. 재개 시 주입
+journal/<날짜>.md 다이제스트. `ocp fold` 가 통째 재작성 (handoff 경로는 호출하지 않는다)
+handoff        에이전트 행(agent_state.handoff)에 저장. 요청 id·직전 세션 transcript 경로·워크트리 branch/HEAD/status 세 가지를 모델 없이 읽어 만든다. 재개 시 한 번 주입하고 지운다
 ```
 
 이벤트를 파일이 아니라 **SQLite에 넣는다.** 델타 경계가 `WHERE id > cursor` 한 줄이 되고, 훅이 늦게 도착해도 순서가 깨지지 않는다.
@@ -285,7 +285,7 @@ fold 실행 = 별도 호출. 해당 계정이 아니어도 되고, 저가 모델
 |---|---|---|
 | `SessionStart` / `Stop` / `SessionEnd` | 이벤트 INSERT | 안 씀 |
 | git `post-commit` | 커밋·diffstat | 안 씀 |
-| handoff | fold 1회 | **씀 (유일)** |
+| handoff | 요청 id·transcript 경로·워크트리 상태를 읽어 기록 | 안 씀 |
 
 `PostToolUse`는 쓰지 않는다 — 너무 잦고 신호 대비 잡음이 크다.
 
@@ -299,7 +299,7 @@ fold 실행 = 별도 호출. 해당 계정이 아니어도 되고, 저가 모델
 3. 실패 시 git으로 롤백 + degraded 폴백
 ```
 
-그리고 handoff에는 **모델 출력과 무관한 결정론적 블록을 항상 붙인다** — 브랜치·HEAD·직전 커밋 5개·변경 파일·최근 이벤트. fold가 망해도 재개가 맨손이 되지 않게.
+그리고 다이제스트에는 **모델 출력과 무관한 결정론적 블록을 항상 붙인다** — 브랜치·HEAD·직전 커밋 5개·변경 파일·최근 이벤트. fold가 망해도 사실이 남게. (handoff 자체는 fold 를 거치지 않고 전부 결정론이다.)
 
 ### 다이제스트 형식
 
@@ -411,13 +411,12 @@ handoff 시점에 리스를 일단 큐에 반납하고 재선택한다. 그러�
 
 ```
 컨텍스트  : context_pct >= 60%          ← 캐시 만료를 대체 (부록 A-2)
-사용량    : pct_5h >= 90 - reserve_pct
+사용량    : pct_5h >= 100  (또는 pct_7d >= 100, 또는 한도로 끝난 턴)   ← 벽에서만
 ```
 
 엣지 트리거(이번 틱에 경계를 넘었는가)로 구현하면 **데몬이 죽어 있는 동안 지나간 크로싱을 영원히 감지하지 못한다.** 조건식으로 정의한다.
 
-`reserve_pct`는 관측된 fold 평균 비용(초기 3~5%). 90%는 하드 정지선으로만 쓴다.
-`pct >= 80`이면 폴링을 5초로 좁히고, 판정은 현재값이 아니라 `pct + burn × (poll + fold_eta)` 투영값으로 한다 — heavy 에이전트는 30초 틱 사이에 88%→97%로 점프할 수 있다.
+일하는 에이전트는 퍼센트로 옮기지 않는다. 벽(한도로 끝난 턴, 또는 100% 읽기)까지 달리고, 작업은 transcript 에 남으니 잃는 것이 없다. 읽을 수 없는 계정은 벽이 아니다. 벽에서 옮길지는 선이 아니라 비용 비교다: 대기 중인 일이 없거나 그 계정이 T(39분, 이후 측정된 콜드스타트 비용) 안에 리셋되면 park 에 머물고, 아니면 한 번만 옮긴다. 계정 선택은 활성 에이전트 수 상한(기본 2)과, 계정의 현재 채워지는 속도(burn)에서 에이전트 하나가 더 붙어도 30분 이상 버티는지로 거른 뒤 주간 헤드룸이 가장 먼저 소멸하는 순서다.
 
 ### 8.2 상태머신
 
@@ -435,14 +434,13 @@ THROTTLED ──예산 창 롤오버──▶ QUEUED      (자동)
 STALLED   ──사람만 해제──▶ QUEUED
 ```
 
-**HANDOFF에서 나가는 실패 간선이 있어야 한다.** 없으면 fold 실패·타임아웃이 전부 여기 수렴해서 에이전트가 어떤 상태도 아닌 채로 슬롯을 영구 점유한다.
+**HANDOFF에서 나가는 실패 간선이 있어야 한다.** 없으면 handoff 실패(읽지 못한 사실)·타임아웃이 전부 여기 수렴해서 에이전트가 어떤 상태도 아닌 채로 슬롯을 영구 점유한다.
 
-### 8.3 fold 타임아웃
+### 8.3 handoff 타임아웃
 
 ```
-검출: 다이제스트 front-matter의 fold_id 일치 + 내용 해시 (mtime은 해상도 충돌·오인 문제)
-타임아웃 90초
-타임아웃 시: ① 커서 전진 안 함 ② 데몬이 모델 없이 degraded handoff 생성 ③ 반복되면 THROTTLED
+타임아웃 90초 (시계만으로 판정한다 — 모델 호출이 없으니 기다릴 결과물이 없다)
+타임아웃 시: ① degraded 로 기록 ② 반복되면 THROTTLED
 ```
 
 ### 8.4 PARKED를 깨울 주체
@@ -516,7 +514,7 @@ git diff --name-only HEAD...origin/<base>
 ```sql
 CREATE TABLE handoff (
   id TEXT PRIMARY KEY, agent TEXT, session_id TEXT, trigger_kind TEXT,
-  cursor_from INT, cursor_to INT, step TEXT,   -- requested|folded|extracted|released
+  step TEXT,                                   -- requested|recorded|extracted|released
   deadline INT, state TEXT                      -- in_flight|done|degraded
 );
 ```
@@ -597,7 +595,7 @@ ocp doctor
 에이전트 세션 하나가 상주하며 **250~500MB** 를 쥔다(실측: 5개 1.7GB, 그중 하루 논 둘이 554MB).
 노는 동안 토큰은 한 푼도 안 쓴다. 즉 **메모리만 쓰고 아무것도 안 하는 상태**가 존재한다.
 
-**handoff 와 구분해야 한다.** handoff 는 *컨텍스트*를 반납한다 — fold 1회(모델 호출)와 `/clear`.
+**handoff 와 구분해야 한다.** handoff 는 *컨텍스트*를 반납한다 — 세 가지 사실을 기록하고 `/clear`. 모델 호출은 없다.
 닫기는 *메모리*를 반납한다 — fold 없음, 모델 호출 없음, `/exit` 한 번. 컨텍스트가 문제인 게
 아니라 아무도 안 쓰는 게 문제이므로 요약할 것도 없다.
 
@@ -638,7 +636,7 @@ handoff·세션 id·트랜스크립트 경로를 **얼마든지 같이 줘도 �
 |---|---|---|
 | A | `CLAUDE_CONFIG_DIR` 분리로 계정 2개 동시 실행 | **✔ 참 · 실측 확인 (2026-09-16).** 계정 2개를 **동시에** 띄워 각각 자기 `status.json` 을 정확히 갱신했다 (alpha 5h 0%/7d 40%, beta 5h 20%/7d 49% — 서로 다른 세션·비용). credential 상호 무효화 없음 |
 | B | 사용률을 파일에서 읽기 | **✘ 거짓.** statusLine `rate_limits` 가 공식 계약 |
-| D | 헤드리스 주입 + clear | **✔ 참 · 실측 확인 (2026-09-16).** `orca terminal send --text "/clear"` 로 컨텍스트가 실제로 반납된다: 살아있는 에이전트에서 `total_input_tokens` 45028 → 0, 세션 ID 교체. 터미널·워크트리·계정은 유지된다. 깨울 때 `handoff/latest.md` 를 첫 프롬프트로 주입하면 이어서 일한다 |
+| D | 헤드리스 주입 + clear | **✔ 참 · 실측 확인 (2026-09-16).** `orca terminal send --text "/clear"` 로 컨텍스트가 실제로 반납된다: 살아있는 에이전트에서 `total_input_tokens` 45028 → 0, 세션 ID 교체. 터미널·워크트리·계정은 유지된다. 깨울 때 저장해 둔 handoff(에이전트 행)를 첫 프롬프트로 주입하면 이어서 일한다 |
 | E | JSONL 라인 1개 = API 요청 1개 | **✘ 거짓.** `message.id` dedup 필수. **단 §8.1 트리거는 이제 transcript 를 안 쓴다** (I 참조) — dedup 은 번레이트 계산에만 필요 |
 | F | `autoContinueAtUsageLimit` 이 §8 과 충돌 안 함 | **✘ 기능 실재 확인** (바이너리 설정 키). 택일 강제 — `ocp doctor` 가 점검 |
 | G | `CLAUDE_CODE_OAUTH_TOKEN` 경로에서 `rate_limits` | **미확인.** 토큰 없음. 계정 부족 시에만 필요 |
@@ -689,7 +687,7 @@ v0.3까지 있었으나 v0.4에서 뺐다. 나중에 누가 다시 제안할 때
 
 **A-1. `score = headroom / max(time_left, 0.05)`** — 절대 여유가 아니라 **페이스 비율**이라 의도를 뒤집었다. pct=0인 빈 계정도 리셋 후 50분간 heavy 부적격이고, 리셋 15분 전 pct=89인 계정이 score 2.2로 통과했다. 여유가 적을수록 점수가 높았다. `runway` 하나로 배정과 정렬을 모두 하면 이 왜곡이 원천적으로 없다.
 
-**A-2. 캐시 만료 트리거 (원래 요구사항 ④)** — 캐시 미스의 실제 추가 비용은 `N × (캐시쓰기 1.25배 − 캐시읽기 0.1배) ≈ 1.15N`이고 **1회성**이다. 다음 턴에 캐시가 재생성되므로 반복되지 않는다. 반면 handoff는 fold + 새 세션 재적재(10~30k)가 든다.
+**A-2. 캐시 만료 트리거 (원래 요구사항 ④)** — 캐시 미스의 실제 추가 비용은 `N × (캐시쓰기 1.25배 − 캐시읽기 0.1배) ≈ 1.15N`이고 **1회성**이다. 다음 턴에 캐시가 재생성되므로 반복되지 않는다. 반면 handoff는 새 세션 재적재(10~30k)가 든다.
 → 컨텍스트가 작으면 캐시 만료를 **그냥 무시하는 게 싸고**, 컨텍스트가 크면 캐시와 무관하게 handoff해야 한다. **두 경우 모두 캐시가 결정에 영향을 주지 않는다.** 그래서 트리거를 `context_pct`로 일원화했다.
 부수 효과로 `prompt_cache` 감시, `lead_time` 검증(`lead_time >= ttl`이면 매 턴 handoff하는 버그), `min_handoff_interval`, TTL 1h↔5m 동적 전환 대응이 **전부 불필요해졌다.** `prompt_cache`는 대시보드 표시용으로만 남긴다.
 

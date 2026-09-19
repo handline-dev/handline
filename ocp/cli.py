@@ -20,8 +20,8 @@ from pathlib import Path
 from . import (accounts, actions, agents, ask as askmod, daemon as daemonmod, db,
                tui,
                digest, doctor,
-               drift, events, fold as foldmod, guide, hooks, launch,
-               observe as obs, paths, probe as probemod, service,
+               drift, events, fold as foldmod, guide, handoff as handoffmod, hooks, launch,
+               load, observe as obs, paths, probe as probemod, service,
                hr, orca, status, spawn as spawnmod, team, triggers)
 
 
@@ -147,16 +147,37 @@ def cmd_account_remove(args) -> int:
     return 0 if ok else 1
 
 
+def cmd_account_cap(args) -> int:
+    if args.n is None:
+        print(f"{args.name}: at most {load.cap_of(args.name)} agents mid-turn at once")
+        return 0
+    try:
+        load.set_cap(args.name, args.n)
+    except ValueError as e:
+        print(e, file=sys.stderr)
+        return 1
+    print(f"{args.name}: at most {args.n} agents mid-turn at once")
+    return 0
+
+
+def _can_start(st, ld) -> tuple[bool, str]:
+    """takes_work, and what the pick adds to it: a slot and a stretch worth starting."""
+    ok, why = st.takes_work(ld.active if ld else 0)
+    bad = status.unfit(st, ld) if ok else None
+    return (False, bad) if bad else (ok, why)
+
+
 def cmd_account_list(args) -> int:
     names = paths.list_accounts()
     if not names:
         print("no accounts registered.")
         return 0
+    loads = load.read_all()
     if args.json:
         out = []
         for a in names:
             st = status.read(a)
-            allowed, why = st.takes_work()
+            allowed, why = _can_start(st, loads.get(a))
             out.append({
                 "account": a, "logged_in": accounts.logged_in(a),
                 "pct_5h": st.pct_5h, "pct_5h_effective": st.trusted_pct_5h,
@@ -169,10 +190,10 @@ def cmd_account_list(args) -> int:
         return 0
 
     print(f"{'ACCOUNT':<14}{'LOGIN':<8}{'PLAN':<6}{'5h':>5}{'7d':>5}  {'7d resets':<12}"
-          f"{'ctx':>6}{'AGE':>8}  ASSIGN")
+          f"{'ctx':>6}{'AGE':>8}  {'RUNWAY (est.)':<16}ASSIGN")
     for a in names:
         st = status.read(a)
-        allowed, why = st.takes_work()
+        allowed, why = _can_start(st, loads.get(a))
         cell = lambda v: "  -" if v is None else f"{v:>3}"  # noqa: E731
         age = "-" if st.age_s is None else f"{int(st.age_s)}s"
         resets = "-" if not st.reset_7d else time.strftime("%m-%d %H:%M", time.localtime(st.reset_7d))
@@ -182,7 +203,11 @@ def cmd_account_list(args) -> int:
         five = f"{cell(shown)}{src}"
         print(f"{a:<14}{'yes' if accounts.logged_in(a) else 'no':<8}{plan:<6}"
               f"{five:>5}{cell(st.pct_7d):>5}  {resets:<12}{cell(st.ctx_pct):>6}{age:>8}  "
+              f"{status.describe_runway(status.runway(st, status.read_burn(a))):<16}"
               f"{'yes' if allowed else 'NO':<4} {why}")
+    outlook = status.team_outlook()
+    if outlook:
+        print("  " + outlook)
     print("  " + status.SOURCE_LEGEND)
     return 0
 
@@ -195,7 +220,8 @@ def cmd_account_probe(args) -> int:
         return 1
     print(f"probing {args.account} (one small turn, up to {probemod.PROBE_TIMEOUT_S}s)...")
     st = probemod.run(args.account)
-    allowed, why = st.takes_work()
+    ld = load.read_all().get(args.account)
+    allowed, why = st.takes_work(ld.active if ld else 0)
     age = "-" if st.age_s is None else f"{int(st.age_s)}s"
     print(f"{args.account}: 5h {st.trusted_pct_5h}% ({st.pct_5h_source}), "
           f"7d {st.trusted_pct_7d}%, reading {age} old")
@@ -260,11 +286,16 @@ def cmd_base_promote(args) -> int:
 
 
 def cmd_handoff_write(args) -> int:
-    """Write a handoff now, without waiting for a trigger."""
-    ok, msg = foldmod.fold(args.agent, use_model=not args.no_model)
-    print(msg)
-    print(f"handoff: {foldmod.handoff_path(args.agent)}")
-    return 0 if ok else 1
+    """Record a handoff now, without waiting for a trigger."""
+    con = db.connect()
+    try:
+        missing = handoffmod.record(con, args.agent)
+        print(db.get_handoff(con, args.agent))
+    finally:
+        con.close()
+    if missing:
+        print(f"could not read: {', '.join(missing)}")
+    return 1 if missing else 0
 
 
 def cmd_close(args) -> int:
@@ -297,13 +328,15 @@ def cmd_agent_list(args) -> int:
     if not names:
         print("no agents registered.")
         return 0
+    loads = load.read_all()
     for n in names:
         try:
             acct = agents.account_of(n)
         except Exception as e:  # noqa: BLE001
             print(f"{n:<14} <error: {e}>")
             continue
-        allowed, _ = status.read(acct).takes_work()
+        ld = loads.get(acct)
+        allowed, _ = status.read(acct).takes_work(ld.active if ld else 0)
         cfg = agents.read(n)
         budget = " ".join(f"{fn}:{size}B{'!' if over else ''}"
                           for fn, size, _, over in agents.budget_report(n))
@@ -398,8 +431,8 @@ def cmd_guide(args) -> int:
 
 # ---------------------------------------------------------------- daemon
 def cmd_daemon(args) -> int:
-    return daemonmod.run(once=args.once, use_model=not args.no_model,
-                         verbose=not args.quiet, max_ticks=args.max_ticks)
+    return daemonmod.run(once=args.once, verbose=not args.quiet,
+                         max_ticks=args.max_ticks)
 
 
 def cmd_daemon_status(args) -> int:
@@ -593,11 +626,15 @@ def cmd_digest(args) -> int:
 
 
 def cmd_handoff(args) -> int:
-    p = foldmod.handoff_path(args.agent)
-    if not p.exists():
-        print(f"no handoff at {p}")
+    con = db.connect()
+    try:
+        text = db.get_handoff(con, args.agent)
+    finally:
+        con.close()
+    if not text:
+        print(f"no handoff waiting for {args.agent}")
         return 1
-    print(p.read_text())
+    print(text)
     return 0
 
 
@@ -1232,6 +1269,10 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("name")
     p.add_argument("--force", action="store_true", help="replace existing files with links")
     p.set_defaults(fn=cmd_account_register)
+    p = acc.add_parser("cap", help="show or set the most agents mid-turn on an account")
+    p.add_argument("name")
+    p.add_argument("n", type=int, nargs="?", default=None)
+    p.set_defaults(fn=cmd_account_cap)
     p = acc.add_parser("list", help="accounts with usage")
     p.add_argument("--json", action="store_true")
     p.set_defaults(fn=cmd_account_list)
@@ -1395,7 +1436,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--date", default=None)
     p.set_defaults(fn=cmd_digest)
 
-    p = sub.add_parser("handoff", help="print an agent's handoff")
+    p = sub.add_parser("handoff", help="print the handoff waiting for an agent")
     p.add_argument("agent")
     p.set_defaults(fn=cmd_handoff)
 
@@ -1417,7 +1458,6 @@ def build_parser() -> argparse.ArgumentParser:
     p = sub.add_parser("daemon", help="run the supervisor loop")
     p.add_argument("--once", action="store_true", help="one tick, then exit")
     p.add_argument("--max-ticks", type=int, default=None)
-    p.add_argument("--no-model", action="store_true", help="never spend tokens on folds")
     p.add_argument("--quiet", action="store_true")
     p.add_argument("--foreground", action="store_true",
                    help="accepted for symmetry; the daemon always runs in the foreground")
@@ -1474,9 +1514,8 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--force", action="store_true", help="accept going over budget")
     p.set_defaults(fn=cmd_base_promote)
 
-    p = sub.add_parser("write-handoff", help="fold and write a handoff now")
+    p = sub.add_parser("write-handoff", help="record a handoff now")
     p.add_argument("agent")
-    p.add_argument("--no-model", action="store_true")
     p.set_defaults(fn=cmd_handoff_write)
 
     p = sub.add_parser("close", help="end an idle agent's session, keeping its terminal")

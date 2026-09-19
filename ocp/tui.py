@@ -36,7 +36,8 @@ import tty
 import unicodedata
 from pathlib import Path
 
-from . import accounts, actions, agents, daemon, db, launch, paths, status, triggers
+from . import (accounts, actions, agents, daemon, db, launch, load as loadmod, paths, status,
+               triggers)
 
 ALT_ON, ALT_OFF = "\033[?1049h", "\033[?1049l"
 CUR_OFF, CUR_ON = "\033[?25l", "\033[?25h"
@@ -81,7 +82,7 @@ AGENT_KEYS = [
     ("↵", "open"), ("t", "terminal"), ("m", "message"), ("e", "editor"),
     ("w", "wake"), ("c", "close"), ("p", "park"), ("f", "fold"), ("u", "unstall"),
 ]
-ACCOUNT_KEYS = [("↵", "open"), ("l", "login"), ("a", "add"), ("x", "remove")]
+ACCOUNT_KEYS = [("↵", "open"), ("l", "login"), ("a", "add"), ("c", "cap"), ("x", "remove")]
 MESSAGE_KEYS = [("↵", "read"), ("a", "answer"), ("e", "answer in $EDITOR"),
                 ("x", "dismiss")]
 # A stuck row is about an agent, so it answers to the agent keys.
@@ -131,12 +132,58 @@ def pad(s: str, width: int) -> str:
     return s + " " * max(0, width - vlen(s))
 
 
+def padfit(s: str, width: int) -> str:
+    """pad(), but a value wider than the column is cut to fit first (with
+    fit()'s ellipsis) instead of shoving whatever comes after it.
+
+    A backstop for a free-text cell (an account name, a `why`), not licence
+    for a bounded one to skip being measured - a value with a known worst
+    case should never reach the ellipsis at all."""
+    return pad(fit(s, width), width)
+
+
 def bar(pct: int | None, width: int = 10) -> str:
     if pct is None:
         return DIM + "·" * width + R
     filled = max(0, min(width, round(pct / 100 * width)))
     color = RED if pct >= 85 else (YEL if pct >= 60 else GRN)
     return color + "█" * filled + DIM + "░" * (width - filled) + R
+
+
+# The ACCOUNTS panel's columns, in the order they are drawn: the heading, every
+# row and the overflow test read these, so a width or a position changed here
+# moves all three and one written anywhere else is a bug. Each bounded cell
+# must stay strictly narrower than its column.
+ACCT_W = {"name": 10, "five": 18, "reset5": 8, "seven": 12, "reset7": 9, "runway": 16}
+ACCT_HEAD = {"name": "account", "five": "5h usage", "reset5": "reset", "seven": "7d",
+             "reset7": "7d reset", "runway": "runway (est.)"}
+ACCT_BAR_W = {"five": 10, "seven": 5}
+
+
+def account_cells(name: str, st, now: float | None = None) -> dict[str, str]:
+    """The bounded cells of an ACCOUNTS row, unpadded and keyed like ACCT_W.
+    The name is free text and is cut to fit where it is drawn."""
+    runway_text = status.describe_runway(status.runway(st, status.read_burn(name), now))
+    # One definition of the figure and its mark, shared with `ocp account list`.
+    # A last-seen figure is dimmed on a dotted bar with no colour, so it cannot
+    # be read as a measurement. Display only.
+    shown, src = st.shown_pct_5h()
+    five = (f"{bar(None, ACCT_BAR_W['five'])} {DIM}{pct(shown)}%{src}{R}"
+            if src == status.IDLE_MARK else
+            f"{bar(shown, ACCT_BAR_W['five'])} {pct(shown)}%{src}")
+    return {
+        "five": five,
+        "reset5": countdown(st.reset_5h),
+        # The weekly figure carries its provenance like the 5h one. Drawn
+        # bare, a number from a stale snapshot - or from a week that has since
+        # rolled over - reads as this week's measurement.
+        "seven": f"{bar(st.trusted_pct_7d, ACCT_BAR_W['seven'])} "
+                 f"{pct(st.trusted_pct_7d)}%{status.mark(st.pct_7d_source)}",
+        # The deadline the ordering spends against: when this window's
+        # headroom is lost if nobody uses it.
+        "reset7": countdown(st.reset_7d),
+        "runway": runway_text,
+    }
 
 
 def pct(v: int | None) -> str:
@@ -149,9 +196,7 @@ def countdown(ts: int | None) -> str:
     left = ts - int(time.time())
     if left <= 0:
         return " due"
-    if left >= 3600:
-        return f"{left // 3600}h{(left % 3600) // 60:02d}"
-    return f"{left // 60:>2}m{left % 60:02d}"
+    return status.span(left, precise=True)
 
 
 def age(secs: float | None) -> str:
@@ -161,7 +206,9 @@ def age(secs: float | None) -> str:
         return f"{int(secs)}s"
     if secs < 5400:
         return f"{int(secs / 60)}m"
-    return f"{int(secs / 3600)}h"
+    if secs < 86400:
+        return f"{int(secs / 3600)}h"
+    return status.span(secs)
 
 
 # Supervisors whose reports are drawn. Closed by default: the screen is for
@@ -424,49 +471,49 @@ def build(width: int, sel: dict | None = None,
         # ---- accounts ------------------------------------------------
         acc = Panel("ACCOUNTS", width, focused=panel == ACCOUNTS)
         acc.selected = sel.get(ACCOUNTS)
-        acc.add(f"{DIM}{'':<2}{'account':<10}{'5h usage':<18}{'reset':<8}"
-                f"{'7d':<12}{'7d reset':<9}why{R}", heading=True)
+        w = ACCT_W
+        acc.add(f"{DIM}{'':<2}" + "".join(f"{ACCT_HEAD[k]:<{w[k]}}" for k in w)
+                + f"why{R}", heading=True)
         # The account with the most headroom: where work goes when an agent's
         # own account is full. Only accounts that can start a session count.
         # Captured whole, not just the pick: this panel says why each one sits
         # where it does, not only which one won.
+        loads = loadmod.read_all()
         first, ranked = status.pick_account(
-            [a for a in paths.list_accounts() if _logged_in(a)])
+            [a for a in paths.list_accounts() if _logged_in(a)], load=loads)
         why_of = dict(ranked)
         for name in paths.list_accounts():
             st = status.read(name)
-            allowed, plain_why = st.takes_work()
+            ld = loads.get(name)
+            allowed, plain_why = st.takes_work(ld.active if ld else 0)
+            # The tick beside the name says the pick could use it: not only
+            # that it is under the wall but that it has a slot and would last.
+            allowed = allowed and status.unfit(st, ld) is None
             # An account outside the ranking (not logged in) has no ranked
             # reason to fall back to - `assignable` already refused it and
             # says why.
             why = why_of.get(name, plain_why)
             mark = f"{GRN}✔{R}" if allowed else f"{RED}✘{R}"
             nxt = f"{GRN}{BOLD}>{R} " if name == first else "  "
-            # Show the figure decisions are made on, with a mark saying where
-            # it came from. Drawing a quiet window as "?" while the daemon acts
-            # on 0% is the dashboard and the daemon disagreeing.
-            five, src = st.shown_pct_5h()
             # Every cell is padded on its visible width: the bars carry escape
             # sequences, so a plain :<n counts them and the columns drift out
-            # from under their own headings.
+            # from under their own headings. The figure shown is the one
+            # decisions are made on, with a mark saying where it came from -
+            # a quiet window drawn as "?" while the daemon acts on 0% is the
+            # dashboard and the daemon disagreeing.
+            cells = account_cells(name, st)
             acc.add(
                 nxt
-                + pad(f"{BOLD}{name}{R}", 10)
-                + pad(f"{bar(five)} {pct(five)}%{src}", 18)
-                + pad(countdown(st.reset_5h), 8)
-                # The weekly figure carries its provenance like the 5h one.
-                # Drawn bare, a number from a stale snapshot - or from a week
-                # that has since rolled over - reads as this week's measurement.
-                + pad(f"{bar(st.trusted_pct_7d, 6)} {pct(st.trusted_pct_7d)}%"
-                      f"{status.mark(st.pct_7d_source)}", 12)
-                # The deadline the ordering spends against: when this
-                # window's headroom is lost if nobody uses it.
-                + pad(countdown(st.reset_7d), 9)
+                + padfit(f"{BOLD}{name}{R}", w["name"])
+                + "".join(pad(cells[k], w[k]) for k in w if k != "name")
                 + f"{mark} {DIM}{why}{R}",
                 key=name,
             )
         if not paths.list_accounts():
             acc.add(f"{DIM}  no accounts registered{R}")
+        outlook = status.team_outlook()
+        if outlook:
+            acc.add(f"{DIM}  {outlook}{R}")
 
         # ---- agents --------------------------------------------------
         ag = Panel("AGENTS", width, focused=panel == AGENTS)
@@ -1203,7 +1250,7 @@ def _say(what: str, width: int, height: int) -> None:
     """Put one line on the bottom row now, without waiting for a redraw.
 
     An action can take half a minute - waking waits for a session to appear,
-    parking pays for a fold - and a screen still showing the frame from before
+    parking clears a session - and a screen still showing the frame from before
     the keypress, or the confirmation that was just answered, reads as a hang.
     The next redraw repaints every row, so this cannot outlive its action.
     """
@@ -1307,6 +1354,19 @@ def _add_account(width: int, height: int, fd, saved) -> str:
     return msg
 
 
+def _set_cap(name: str, width: int, height: int) -> str:
+    """The most agents that may be mid-turn on this account at once."""
+    text = _line(f"most agents mid-turn on {name} at once [{loadmod.cap_of(name)}]:",
+                 width, height)
+    if not text or not text.strip():
+        return "cap unchanged"
+    try:
+        loadmod.set_cap(name, int(text.strip()))
+    except ValueError:
+        return "a cap is a whole number, at least 1"
+    return f"{name}: at most {text.strip()} agents mid-turn"
+
+
 def _remove_account(name: str, width: int, height: int, fd, saved) -> str:
     """The same sequence as `ocp account remove`, confirmed by typing its name."""
     con = db.connect()
@@ -1354,6 +1414,8 @@ def _act(panel: int, sel: dict, key: str, width: int, height: int,
         return _suspend(argv, env, fd, saved)[1], None
     if panel == ACCOUNTS and key == "x":
         return _remove_account(str(target), width, height, fd, saved), None
+    if panel == ACCOUNTS and key == "c":
+        return _set_cap(str(target), width, height), None
 
     con = db.connect()
     try:

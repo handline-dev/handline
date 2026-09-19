@@ -30,7 +30,7 @@ command across hibernation and restore.""",
   ocp account list --json          machine-readable
 
 A pct_5h we cannot trust - no snapshot, unreadable, or too old - is not a full
-tank, it is a refusal. Reading it as 0 makes the 90% trigger false forever: the
+tank, it is a refusal. Reading it as 0 makes a walled account look open forever: the
 feature is dead while the dashboard stays green.
 
 A window nobody has spent in is different. Claude Code sends no five_hour block
@@ -41,13 +41,14 @@ age we will assign on - still a floor for triggers, no new work.
 
 Design section 4 has the five cases and why only one of them is fail-closed.
 
-An agent's account is a preference. A session starts on it when it has room to
-work - which ends a reserve short of the hard stop, where the fold fires - and
-on whichever account does when a current reading says it has not; the state row
-records where it went, and `ocp bridge` shows that rather than the preference.
-Nothing moves a live session - a move is one session ending and another
-starting, so it happens after a fold, and a resume always goes back to the
-account its session lives on.""",
+An agent's account is a preference. A session starts on it unless what is known
+says it is a bad place to start - at the wall, at its cap of agents mid-turn
+(`ocp account cap`), or filling so fast one more agent would not last half an
+hour - and on the best account that qualifies when it is; the state row records
+where it went, and `ocp bridge` shows that rather than the preference.
+Nothing moves a live session below the wall. At the wall an agent moves only if
+work is waiting and its account resets too late to wait for, once, and a resume
+always goes back to the account its session lives on.""",
     "work": """giving an agent work
   ocp team                        who you may ask, and what they are doing
   ocp ask <agent> "<task>"        queue it
@@ -112,8 +113,8 @@ shell's child. Waking types the launch command back into the same shell with
 `--resume <session>` and the wake prompt as the session's first prompt, so the
 account comes back with it and the conversation is the one it had.
 
-This is not a handoff. Nothing is folded and no context is reclaimed, because
-there is nothing wrong with an idle agent's context. The daemon does it by
+This is not a handoff. No context is reclaimed, because there is nothing
+wrong with an idle agent's context. The daemon does it by
 itself after 30 minutes of silence, unless the agent is working, mid-handoff,
 STALLED, or has a request waiting.""",
 

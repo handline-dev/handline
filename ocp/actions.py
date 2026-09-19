@@ -24,8 +24,8 @@ import time
 from pathlib import Path
 
 from . import (accounts, agents, ask as askmod, daemon, db, events as evmod,
-               fold as foldmod, observe as obs, orca, paths, spawn as spawnmod,
-               status, team, triggers)
+               fold as foldmod, load as loadmod, observe as obs, orca, paths,
+               spawn as spawnmod, status, team, triggers)
 
 # The name a human's own requests are sent under, and the inbox `ocp bridge`
 # shows. Taken from `ask`, which is where escalations are addressed: a second
@@ -58,7 +58,7 @@ def unstall(con, agent: str) -> str:
 
 
 def park(con, agent: str) -> str:
-    """Fold, clear the context, and park until the window rolls over.
+    """Record a handoff, clear the context, and park until the window rolls over.
 
     `perform_handoff` returns True for three things that are not a handoff -
     merged into one already in flight, too soon after the last, and deferred
@@ -567,8 +567,10 @@ def stuck(con) -> list[dict]:
         if row["state"] in (daemon.STALLED, daemon.DEGRADED):
             add(f"{row['agent']} is {row['state']}", now - int(row["updated"]),
                 row["detail"] or "", row["agent"])
+    loads = loadmod.read_all(con)
     for acct in paths.list_accounts():
-        allowed, why = status.read(acct).assignable()
+        ld = loads.get(acct)
+        allowed, why = status.read(acct).assignable(ld.active if ld else 0)
         if not allowed:
             add(f"account {acct} takes no work", 0, why)
     return out
@@ -704,7 +706,7 @@ def can(con, agent: str, key: str) -> tuple[bool, str]:
     # The states nothing may be done to from here. RUNNING and HANDOFF are
     # mid-something, and STALLED is the one state the daemon deliberately does
     # not touch - handing a stalled agent off would clear the stall a human was
-    # meant to read, and pay for a fold doing it.
+    # meant to read.
     busy = state in (daemon.RUNNING, daemon.HANDOFF, daemon.STALLED)
     busy_why = f"{agent} is {state}" + (" - only a human clears that (u)"
                                         if state == daemon.STALLED else "")
@@ -806,10 +808,10 @@ def agent_detail(con, agent: str) -> list[tuple[str, list[str]]]:
             f"#{r['id']} from {r['target']}: "
             f"{((r['verdict'] or '').splitlines() or [r['state']])[0]}" for r in mine]))
 
-    hp = foldmod.handoff_path(agent)
+    kept = db.get_handoff(con, agent)
     sections.append(("WHAT IT KNOWS",
-                     hp.read_text().splitlines() if hp.exists()
-                     else ["no handoff written - it has not been parked"]))
+                     kept.splitlines() if kept
+                     else ["no handoff waiting - it has not been parked"]))
 
     recent = [f"{time.strftime('%H:%M:%S', time.localtime(e['ts']))}  "
               f"{e['kind']:<18}{(e['payload'] or '')[:60]}"
@@ -823,7 +825,8 @@ def agent_detail(con, agent: str) -> list[tuple[str, list[str]]]:
 def account_detail(con, acct: str) -> list[tuple[str, list[str]]]:
     """What is behind an account's row, in the same shape as an agent's."""
     st = status.read(acct)
-    allowed, why = st.assignable()
+    ld = loadmod.read_all(con).get(acct)
+    allowed, why = st.assignable(ld.active if ld else 0)
     head = [f"login    {'logged in' if accounts.logged_in(acct) else 'NOT logged in'}",
             f"config   {paths.account_claude(acct)}",
             f"5h       {st.trusted_pct_5h}% ({st.pct_5h_source})   7d {st.pct_7d}%",

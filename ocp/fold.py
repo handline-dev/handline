@@ -18,7 +18,6 @@ to a deterministic digest rather than publishing the garbage.
 """
 from __future__ import annotations
 
-import hashlib
 import json
 import shutil
 import subprocess
@@ -31,33 +30,10 @@ from . import accounts, agents, db, digest, events as evmod, paths, status
 FOLD_TIMEOUT_S = 180
 
 
-def fold_fingerprint(agent: str, day: str | None = None) -> str | None:
-    """Identity of the digest as it stands: its fold id plus a content hash.
-
-    Section 8.3 asks for this rather than mtime. mtime has second-level
-    resolution and is touched by anything that rewrites the file, so it cannot
-    tell "the fold finished" from "something touched the file". A fold id that
-    advanced, or content that changed, can.
-    """
-    p = journal_path(agent, day or today())
-    if not p.exists():
-        return None
-    text = p.read_text()
-    d = digest.parse(text)
-    body = hashlib.sha256(text.encode()).hexdigest()[:12]
-    return f"{d.folded_through}:{body}"
-
-
 def journal_path(agent: str, day: str) -> Path:
     d = paths.agent_dir(agent) / "journal"
     d.mkdir(parents=True, exist_ok=True)
     return d / f"{day}.md"
-
-
-def handoff_path(agent: str) -> Path:
-    d = paths.agent_dir(agent) / "handoff"
-    d.mkdir(parents=True, exist_ok=True)
-    return d / "latest.md"
 
 
 def today() -> str:
@@ -213,9 +189,6 @@ def fold(agent: str, use_model: bool = True, model: str = "haiku",
         facts = deterministic_facts(agent, events, repo=repo)
 
         if not events:
-            # Nothing to fold, but still refresh the deterministic block so a
-            # resume never reads stale facts.
-            _write_handoff(agent, previous, facts, repo=repo)
             return True, f"{agent}: nothing new to fold (cursor at {cursor})"
 
         top = events[-1]["id"]
@@ -250,7 +223,6 @@ def fold(agent: str, use_model: bool = True, model: str = "haiku",
             # the cursor does not move, and the delta is retried next time.
             degraded = _degraded(agent, previous, events, day, facts)
             _publish(agent, jpath, degraded, commit_msg=f"fold {agent} {day} (degraded)")
-            _write_handoff(agent, digest.parse(degraded), facts, repo=repo)
             # A rejected fold spent exactly what an accepted one spends, and
             # these events are the only record that the account was charged -
             # so leaving the account off here made the spend reconstructable
@@ -277,7 +249,6 @@ def fold(agent: str, use_model: bool = True, model: str = "haiku",
         merged.folded_through = top
         text = digest.render(merged)
         _publish(agent, jpath, text, commit_msg=f"fold {agent} {day}")
-        _write_handoff(agent, merged, facts, repo=repo)
 
         con.execute("BEGIN IMMEDIATE")
         try:
@@ -297,12 +268,20 @@ def fold(agent: str, use_model: bool = True, model: str = "haiku",
 
 
 def _cheapest_account() -> str | None:
-    picked, _ = status.pick_account()
+    # Only an account with a genuinely current reading, never one pick_account
+    # admitted on a stale floor (`status.idle_floor`, `rolled_over`): those are
+    # safe for a launch, which writes a fresh reading within seconds and
+    # self-corrects, but a fold never writes one - it is the one spend no
+    # collector ever sees, and sending it to an account we already cannot read
+    # only deepens the blindness. Same rule the fallback below applies.
+    readable = [a for a in paths.list_accounts()
+               if accounts.logged_in(a) and not status.read(a).stale]
+    picked, _ = status.pick_account(readable)
     if picked:
         return picked
     # Fall back to any logged-in account we can still read. A fold is small and
     # recording the day beats skipping it, but two accounts are off limits: one
-    # already at the hard stop, and one whose usage we cannot read at all.
+    # already at the wall, and one whose usage we cannot read at all.
     #
     # The second matters more than it looks. A fold runs `claude -p`, which is
     # headless and has no status line, so it is the one spender no collector
@@ -372,48 +351,6 @@ def _publish(agent: str, path: Path, text: str, commit_msg: str) -> None:
                        capture_output=True, check=False)
         subprocess.run(["git", "commit", "-q", "-m", commit_msg], cwd=home,
                        capture_output=True, check=False)
-
-
-def _write_handoff(agent: str, d: digest.Digest, facts: str,
-                   repo: Path | None = None, base: str = "main") -> Path:
-    """handoff/latest.md - machine-extracted, injected on resume.
-
-    The deterministic block is always included, so a resume after a failed fold
-    still has the branch, the recent commits and the recent events.
-    """
-    from . import drift as driftmod
-
-    p = handoff_path(agent)
-    parts = [f"# handoff · {agent}", f"generated: {time.strftime('%Y-%m-%d %H:%M:%S')}", ""]
-    if d.late:
-        # Without this the sections below read as a finding. A handoff written
-        # when the fold could not run says "진행중: (none)" about an agent that
-        # was mid-build, and the agent resumes believing it.
-        parts += ["> The fold did not run, so the sections below are the last "
-                  "digest, not a record of what you were just doing:",
-                  "> " + "; ".join(d.late), ""]
-    if d.items("done"):
-        # Section 8.8: which header goes above the completed items depends on
-        # whether the base moved under the files this agent touched.
-        dr = driftmod.check(repo, base=base, fetch=False) if repo else driftmod.Drift(ok=False)
-        parts += [f"> {dr.resume_header()}", f"> ({dr.summary()})", "",
-                  f"## {digest.HEADINGS['done']}"]
-        parts += [f"- {i}" for i in d.items("done")]
-        parts.append("")
-    for key in ("in_progress", "blocked", "next"):
-        items = d.items(key)
-        parts.append(f"## {digest.HEADINGS[key]}")
-        parts.extend(f"- {i}" for i in items)
-        if not items:
-            parts.append("- (none)")
-        parts.append("")
-    parts.append(f"## {digest.FACTS_HEADING}")
-    parts.append(facts)
-    parts.append("")
-    tmp = p.with_suffix(".md.tmp")
-    tmp.write_text("\n".join(parts))
-    tmp.replace(p)
-    return p
 
 
 def rollover(agent: str) -> tuple[bool, str]:
