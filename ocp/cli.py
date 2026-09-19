@@ -21,7 +21,7 @@ from . import (accounts, actions, agents, ask as askmod, daemon as daemonmod, db
                tui,
                digest, doctor,
                drift, events, fold as foldmod, guide, handoff as handoffmod, hooks, launch,
-               paths, service,
+               observe as obs, paths, service,
                hr, orca, status, spawn as spawnmod, team, triggers)
 
 
@@ -409,11 +409,18 @@ def cmd_daemon_status(args) -> int:
             w = _name_col([r["agent"] for r in rows], 14)
             print(f"\n{'AGENT':<{w}}{'STATE':<11}{'WAKE':<8}{'fail':>5}{'cont':>6}{'thr':>5}  DETAIL")
             now = int(time.time())
+            sessions = obs.live_sessions()
             for r in rows:
                 wake = "-" if not r["wake_at"] else time.strftime("%H:%M", time.localtime(r["wake_at"]))
                 if r["wake_at"] and r["wake_at"] <= now:
                     wake += "!"
-                shown = r["state"] + ("·closed" if r["closed_at"] else "")
+                # A running session with a stale launch is not closed, so it
+                # needs its own mark; see `launch.fingerprint`.
+                drifted = bool(
+                    not r["closed_at"] and sessions and sessions.get(r["agent"])
+                    and launch.drifted(r["agent"], r))
+                shown = r["state"] + ("·closed" if r["closed_at"] else "") \
+                    + ("·drift" if drifted else "")
                 detail = r["detail"] or ""
                 walled = (daemonmod.would_wake(con, r) and
                           launch.wake_wait_reason(r["agent"], r, con))
