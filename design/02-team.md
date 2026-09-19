@@ -69,6 +69,7 @@ Claude Code는 credential을 프로필 키 기반 저장소에 두지 않는다.
 "계정을 스위칭해도 이력이 이어지게"가 원래 요구였는데, **우리 설계에서는 이 문제가 애초에 발생하지 않는다.**
 
 - 재개는 `claude --resume`이 아니라 **handoff 주입**으로 한다. 이전 세션의 transcript가 어느 계정 디렉토리에 있든 무관하다
+- 그 handoff는 `handoff.record`가 디스크에 있는 사실 셋에서 **결정론적으로** 만든다. 재개 경로에서는 모델을 부르지 않는다 (`fold.run_model`은 `ocp fold`만 쓴다)
 - 에이전트의 단일 이력은 `agents/<name>/journal/`이다. **계정과 무관하게 에이전트 이름으로 묶인다**
 - 현재 transcript 위치가 필요하면 statusLine이 `transcript_path`로 알려준다
 
