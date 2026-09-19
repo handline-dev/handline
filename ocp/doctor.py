@@ -345,7 +345,7 @@ def _check_rate_limits_present(r: Report) -> None:
         elif src == "carried_old":
             age = st.rl_age_s
             r.add(WARN, f"account {acct}: the 5h figure is older than we assign on",
-                  f"5h {st.pct_5h}% observed {'?' if age is None else int(age / 60)}m ago; "
+                  f"5h {st.pct_5h}% observed {status.ago(age)} ago; "
                   f"still a floor for triggers, but no new work goes here")
         elif src == "quiet":
             r.add(OK, f"account {acct}: 5h window quiet",

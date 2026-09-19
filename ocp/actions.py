@@ -524,7 +524,8 @@ def stuck(con) -> list[dict]:
     for h in db.in_flight_handoffs(con):
         left = (h["deadline"] or now) - now
         add(f"handoff {h['agent']} at '{h['step']}'", 0,
-            f"deadline in {left}s" if left > 0 else "past its deadline", h["agent"])
+            f"deadline in {status.ago(left)}" if left > 0 else "past its deadline",
+            h["agent"])
 
     queued = con.execute(
         "SELECT id, requester, target, ts FROM requests WHERE state = 'queued' "
@@ -830,7 +831,7 @@ def account_detail(con, acct: str) -> list[tuple[str, list[str]]]:
     head = [f"login    {'logged in' if accounts.logged_in(acct) else 'NOT logged in'}",
             f"config   {paths.account_claude(acct)}",
             f"5h       {st.trusted_pct_5h}% ({st.pct_5h_source})   7d {st.pct_7d}%",
-            f"snapshot {'-' if st.age_s is None else str(int(st.age_s)) + 's old'}"
+            f"snapshot {'-' if st.age_s is None else status.ago(st.age_s) + ' old'}"
             f"   session {st.session_id or '-'}",
             f"assign   {'yes' if allowed else 'no'} - {why}"]
     live = status.live_cost(acct)
