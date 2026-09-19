@@ -7182,6 +7182,9 @@ edges:
               "You report to `manager`" in dev and "Your reports" not in dev, dev)
         check("team: an agent nobody supervises reports to the founder",
               "You report to `human`" in launch.context_for("scout"))
+        check("team: every agent is told not to schedule its own wakeup to wait",
+              all("Never schedule your own wakeup" in c
+                  for c in (mgr, dev, launch.context_for("scout"))))
 
         # A team is closed until it is opened: the screen is for what needs
         # you, and every report drawn in full is a list to scroll past. The

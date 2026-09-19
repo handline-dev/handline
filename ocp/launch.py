@@ -322,6 +322,10 @@ def _your_team(agent: str) -> str:
                      "or `ocp withdraw <id>`, not a message behind it.")
     lines.append("`ocp team` shows who you may ask and what each is doing now. "
                  "A decision only the founder can make: `ocp ask human`.")
+    # A self-scheduled wakeup survives the park's /clear and fires into a
+    # session that is at the usage wall.
+    lines.append("Never schedule your own wakeup, /loop or poll to wait for a reply "
+                 "or a review: ocp types the answer into your session when it comes.")
     return "\n".join(lines)
 
 
