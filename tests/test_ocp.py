@@ -2049,10 +2049,36 @@ def test_an_idle_close_keeps_a_handoff_only_if_it_closed(home: Path) -> None:
         dmn._close_agent(con, "backend", lambda _m: None, st)
         check("close: a successful close leaves the record for the wake",
               "sess-1" in (db.get_handoff(con, "backend") or ""))
+        db.set_handoff(con, "backend", None)
         dmn._end_session = lambda *a, **k: (False, "no session process")
         dmn._close_agent(con, "backend", lambda _m: None, st)
         check("close: one that did not happen leaves none",
               db.get_handoff(con, "backend") is None)
+
+        # A parked agent is closed on this machine within the hour, and its park
+        # record names the session from before its /clear - the one the close's
+        # own snapshot no longer does.
+        park = "# handoff · backend\nprevious session: sess-BEFORE-PARK"
+        db.set_handoff(con, "backend", park)
+        db.set_agent_state(con, "backend", dmn.PARKED, wake_at=int(time.time()) + 3600)
+        dmn._end_session = lambda *a, **k: (True, "closed")
+        dmn._close_agent(con, "backend", lambda _m: None, st)
+        check("close: a park's record survives the close, not replaced by a newer one",
+              db.get_handoff(con, "backend") == park, str(db.get_handoff(con, "backend")))
+        dmn._end_session = lambda *a, **k: (False, "no session process")
+        dmn._close_agent(con, "backend", lambda _m: None, st)
+        check("close: and a close that failed does not delete it",
+              db.get_handoff(con, "backend") == park, str(db.get_handoff(con, "backend")))
+
+        # A record missing a fact is not kept: a wake that moves elsewhere would
+        # drop the resume id, the only complete copy of the context.
+        db.set_handoff(con, "backend", None)
+        db.set_agent_state(con, "backend", dmn.IDLE)
+        db.set_terminal(con, "backend", "term_x", str(home / "gone"))
+        dmn._end_session = lambda *a, **k: (True, "closed")
+        dmn._close_agent(con, "backend", lambda _m: None, st)
+        check("close: a record that could not read its worktree is not kept",
+              db.get_handoff(con, "backend") is None, str(db.get_handoff(con, "backend")))
     finally:
         dmn._end_session = real
         con.close()
