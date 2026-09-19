@@ -168,7 +168,7 @@ def cmd_account_list(args) -> int:
         return 0
 
     print(f"{'ACCOUNT':<14}{'LOGIN':<8}{'PLAN':<6}{'5h':>5}{'7d':>5}  {'7d resets':<12}"
-          f"{'ctx':>6}{'AGE':>8}  ASSIGN")
+          f"{'ctx':>6}{'AGE':>8}  {'RUNWAY (est.)':<16}ASSIGN")
     for a in names:
         st = status.read(a)
         allowed, why = st.takes_work()
@@ -180,7 +180,11 @@ def cmd_account_list(args) -> int:
         five = f"{cell(st.trusted_pct_5h)}{status.mark(st.pct_5h_source)}"
         print(f"{a:<14}{'yes' if accounts.logged_in(a) else 'no':<8}{plan:<6}"
               f"{five:>5}{cell(st.pct_7d):>5}  {resets:<12}{cell(st.ctx_pct):>6}{age:>8}  "
+              f"{status.describe_runway(status.runway(st, status.read_burn(a))):<16}"
               f"{'yes' if allowed else 'NO':<4} {why}")
+    outlook = status.team_outlook()
+    if outlook:
+        print("  " + outlook)
     print("  " + status.SOURCE_LEGEND)
     return 0
 

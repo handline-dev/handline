@@ -44,6 +44,7 @@ from __future__ import annotations
 
 import json
 import math
+import os
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -487,6 +488,107 @@ def live_cost(account: str) -> float | None:
 # figure we actually saw. An inferred 0% is sound and still a weaker claim
 # than a reported 0%.
 _CONFIDENCE = {"live": 3, "carried": 2, "quiet": 1}
+
+
+# A burn reading is the daemon's, taken from agents running on the account; one
+# older than this describes a pace nobody is keeping any more.
+BURN_MAX_AGE_S = 600
+
+
+def _burn_path(acct: str) -> Path:
+    return paths.accounts_dir() / acct / "burn.json"
+
+
+def write_burn(acct: str, burn: float, now: int) -> None:
+    """Record the burn rate the daemon measured (percent per second), so the
+    screens show the number the triggers act on instead of re-deriving one."""
+    path = _burn_path(acct)
+    if not path.parent.is_dir():
+        return
+    tmp = path.with_suffix(".tmp")
+    tmp.write_text(json.dumps({"burn_per_s": burn, "at": now}))
+    os.replace(tmp, path)
+
+
+def read_burn(acct: str, now: float | None = None) -> float | None:
+    """The recorded burn in percent per second, or None when there is none or
+    it is too old to describe the present."""
+    try:
+        data = json.loads(_burn_path(acct).read_text())
+        at, burn = int(data["at"]), float(data["burn_per_s"])
+    except (OSError, ValueError, KeyError, TypeError):
+        return None
+    return burn if (now or time.time()) - at <= BURN_MAX_AGE_S else None
+
+
+def _hm(secs: float) -> str:
+    secs = int(secs)
+    return f"{secs // 3600}h{(secs % 3600) // 60:02d}" if secs >= 3600 else f"{max(1, secs // 60)}m"
+
+
+@dataclass
+class Runway:
+    left_5h: int              # points of 5h usage left before the move line
+    left_7d: int | None
+    eta_s: float | None       # seconds to the move line at the current burn
+    burning: bool             # False: no burn reading, or an idle account
+    past_reset: bool          # the 5h window rolls over before the line is reached
+
+
+def runway(st: "AccountStatus", burn: float | None, now: float | None = None) -> Runway | None:
+    """An estimate of how long this account's 5h headroom lasts at the current
+    burn. None when its reading is stale or unknown: no figure is better than
+    one drawn from a reading that stopped describing the account."""
+    pct = st.trusted_pct_5h
+    if pct is None:
+        return None
+    now = now or time.time()
+    week = st.trusted_pct_7d
+    left = max(0, triggers.MOVE_LINE_5H - pct)
+    left7 = None if week is None else max(0, triggers.MOVE_LINE_7D - week)
+    if not burn or burn <= 0:
+        return Runway(left, left7, None, False, False)
+    eta = left / burn
+    return Runway(left, left7, eta, True,
+                  bool(st.reset_5h and now + eta > st.reset_5h))
+
+
+def describe_runway(r: Runway | None) -> str:
+    if r is None:
+        return ""
+    if r.left_5h == 0:
+        return "at the wall"
+    if not r.burning:
+        return "no recent burn"
+    return "lasts past reset" if r.past_reset else f"~{_hm(r.eta_s)} to the wall"
+
+
+def team_outlook(names: list[str] | None = None, now: float | None = None) -> str:
+    """One line on whether the team's combined 5h headroom lasts to the next
+    reset at the pace it is burning now. Only accounts with a current reading
+    count; blank when none has one."""
+    now = now or time.time()
+    counted = []
+    for n in (names if names is not None else paths.list_accounts()):
+        st = read(n)
+        r = runway(st, read_burn(n, now), now)
+        if r is not None:
+            counted.append((st, r, read_burn(n, now) or 0.0))
+    if not counted:
+        return ""
+    room = sum(r.left_5h for _, r, _ in counted)
+    pace = sum(b for _, _, b in counted)
+    resets = [st.reset_5h for st, _, _ in counted if st.reset_5h and st.reset_5h > now]
+    nxt = min(resets) if resets else None
+    clock = lambda t: time.strftime("%H:%M", time.localtime(t))  # noqa: E731
+    n = f"{len(counted)} account{'s' if len(counted) != 1 else ''}"
+    if pace <= 0:
+        return f"estimate: {room} points of 5h headroom across {n}, no recent burn"
+    stops = now + room / pace
+    if nxt and stops >= nxt:
+        return f"estimate: at this pace {n} last past the next reset ({clock(nxt)})"
+    tail = f"; next reset {clock(nxt)}" if nxt else ""
+    return f"estimate: at this pace {n} hit the wall around {clock(stops)}{tail}"
 
 
 def deadline_7d(st: "AccountStatus") -> float:

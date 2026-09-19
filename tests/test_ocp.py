@@ -6435,6 +6435,72 @@ def test_a_turn_that_ends_on_the_usage_limit_is_at_the_wall(home: Path) -> None:
         con.close()
 
 
+def test_the_runway_is_an_estimate_from_the_daemons_burn(home: Path) -> None:
+    """Remaining headroom and time to the move line come from the burn the
+    daemon measured, and are blank rather than guessed on a stale reading."""
+    _daemon_home(home, 20)
+    accounts.register("beta")
+    now = int(time.time())
+    per_s = 30 / 3600      # 30 points an hour
+    write_status(home, "alpha", pct_5h=55, pct_7d=10, reset_5h=now + 6 * 3600)
+    status.write_burn("alpha", per_s, now)
+    r = status.runway(status.read("alpha"), status.read_burn("alpha"), now)
+    check("runway: points left are counted to the move line (85), not the block",
+          r and r.left_5h == 30 and r.left_7d == 88, str(r))
+    check("runway: time to the wall follows the measured burn",
+          status.describe_runway(r) == "~1h00 to the wall", status.describe_runway(r))
+    write_status(home, "alpha", pct_5h=55, pct_7d=10, reset_5h=now + 1800)
+    check("runway: a reset before the wall reads 'lasts past reset'",
+          status.describe_runway(status.runway(status.read("alpha"),
+                                                status.read_burn("alpha"), now))
+          == "lasts past reset")
+    status.write_burn("alpha", 0.0, now)
+    check("runway: no burn is said, not projected",
+          status.describe_runway(status.runway(status.read("alpha"), 0.0, now))
+          == "no recent burn")
+    write_status(home, "alpha", pct_5h=86, pct_7d=10, reset_5h=now + 6 * 3600)
+    check("runway: at the line it is at the wall",
+          status.describe_runway(status.runway(status.read("alpha"), per_s, now))
+          == "at the wall")
+    check("runway: an old burn reading is not used",
+          status.read_burn("alpha", now + status.BURN_MAX_AGE_S + 60) is None)
+    write_status(home, "alpha", pct_5h=55, pct_7d=10, reset_5h=now + 6 * 3600,
+                 collected_at=now - 3 * 3600)
+    check("runway: a stale reading gives no estimate at all",
+          status.runway(status.read("alpha"), per_s, now) is None
+          and status.describe_runway(None) == "")
+
+    # The team line.
+    write_status(home, "alpha", pct_5h=55, pct_7d=10, reset_5h=now + 6 * 3600)
+    write_status(home, "beta", pct_5h=65, pct_7d=10, reset_5h=now + 7 * 3600)
+    status.write_burn("alpha", per_s, now)
+    status.write_burn("beta", per_s, now)
+    line = status.team_outlook(["alpha", "beta"], now)
+    check("team: at the combined pace the accounts hit the wall before the reset",
+          "hit the wall around" in line and "next reset" in line and line.startswith("estimate"),
+          line)
+    status.write_burn("alpha", per_s / 100, now)
+    status.write_burn("beta", per_s / 100, now)
+    check("team: a slow pace lasts past the next reset",
+          "last past the next reset" in status.team_outlook(["alpha", "beta"], now))
+    write_status(home, "alpha", pct_5h=55, pct_7d=10, collected_at=now - 3 * 3600)
+    write_status(home, "beta", pct_5h=65, pct_7d=10, collected_at=now - 3 * 3600)
+    check("team: blank when no reading is current", status.team_outlook(["alpha", "beta"], now) == "")
+
+    # The daemon records what it measured.
+    write_status(home, "alpha", pct_5h=20, pct_7d=10, reset_5h=now + 1800)
+    (home / "accounts" / "alpha" / "burn.json").unlink()
+    con = db.connect()
+    try:
+        db.set_terminal(con, "backend", "term_x", "wt")
+        db.set_account(con, "backend", "alpha")
+        dmn.supervise(con, "backend", lambda _m: None, now, {}, False, [])
+    finally:
+        con.close()
+    check("burn: the daemon writes the rate it uses for triggers",
+          status.read_burn("alpha") is not None)
+
+
 def test_choose_account_does_not_bounce_back_to_a_stale_preferred_account(home: Path) -> None:
     """Founder's priority #241: harbor-manager moved alpha -> gamma at 85%,
     then gamma -> alpha 12 minutes later - back to the account it had just
@@ -8786,6 +8852,7 @@ def main() -> int:
             Path(td) / 'pinnedstuck'))
         run(lambda: test_a_stale_account_whose_window_rolled_over_can_take_work(Path(td) / 'stalebeta'))
         run(lambda: test_room_is_filtered_before_the_ranking_not_after(Path(td) / 'roomfirst'))
+        run(lambda: test_the_runway_is_an_estimate_from_the_daemons_burn(Path(td) / 'runway'))
         run(lambda: test_a_turn_that_ends_on_the_usage_limit_is_at_the_wall(Path(td) / 'limitstop'))
         run(lambda: test_choose_account_does_not_bounce_back_to_a_stale_preferred_account(
             Path(td) / 'nobounce'))

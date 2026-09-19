@@ -1495,6 +1495,7 @@ def supervise(con, agent: str, log, now: int, samples: dict,
             hist.append((st.rl_at, st.pct_5h))
             del hist[:-10]
     burn = triggers.burn_rate_per_s(hist)
+    status.write_burn(acct, burn, now)
 
     # Un-parks a usage park - PARKED only, and only when the handoff that put
     # it there named a usage trigger, read off that handoff since nothing on
