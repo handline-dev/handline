@@ -124,7 +124,12 @@ def boot_time() -> int:
 
 
 def write_pidfile() -> None:
-    paths.daemon_pid().write_text(json.dumps({"pid": os.getpid(), "boot": boot_time()}))
+    # Renamed into place, so a reader never sees the truncated file a plain
+    # write leaves for an instant - it would read as no daemon at all.
+    p = paths.daemon_pid()
+    tmp = p.with_name(p.name + ".tmp")
+    tmp.write_text(json.dumps({"pid": os.getpid(), "boot": boot_time()}))
+    os.replace(tmp, p)
 
 
 def read_pidfile() -> dict | None:
@@ -144,6 +149,25 @@ def clear_pidfile() -> None:
     a live daemon nothing records is one `ocp ps` reports as not running.
     """
     _reclaim(os.getpid())
+
+
+# Quiet between repeats: something that keeps deleting the file should be
+# visible, not a line every tick.
+_PIDFILE_LOG_EVERY_S = 300
+_pidfile_logged = {"at": 0.0}
+
+
+def keep_pidfile(log) -> bool:
+    """Rewrite the pidfile if it is missing or names another process. True if it did."""
+    info = read_pidfile()
+    if info and info.get("pid") == os.getpid():
+        return False
+    write_pidfile()
+    now = time.time()
+    if now - _pidfile_logged["at"] >= _PIDFILE_LOG_EVERY_S:
+        _pidfile_logged["at"] = now
+        log("pidfile was missing or named another process - written back")
+    return True
 
 
 def running_elsewhere() -> int | None:
@@ -1844,6 +1868,7 @@ def run(once: bool = False, verbose: bool = True, max_ticks: int | None = None) 
 
             ticks = 0
             while not stopping["now"]:
+                keep_pidfile(log)
                 t = tick(con, log, samples=samples)
                 ticks += 1
                 # A supervisor that runs for weeks must not fill the disk.
