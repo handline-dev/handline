@@ -216,6 +216,26 @@ def age(secs: float | None) -> str:
     return status.ago(secs)
 
 
+def hidden_under(tree: list[tuple[str, int]], drawn: set[str], name: str) -> list[str]:
+    """The agents this row's fold hides: `visible_tree`'s count, by name.
+
+    A drawn report under it is not hidden, and neither is what hangs under that
+    report - its own fold answers for those, so a hidden agent is counted under
+    exactly one row.
+    """
+    at = next(i for i, (n, _d) in enumerate(tree) if n == name)
+    depth, hidden, skip = tree[at][1], [], None
+    for n, d in tree[at + 1:]:
+        if d <= depth:
+            break
+        if skip is not None and d > skip:
+            continue
+        skip = d if n in drawn else None
+        if n not in drawn:
+            hidden.append(n)
+    return hidden
+
+
 def hidden_urgency(con, names: list[str]) -> tuple[str, int, str] | None:
     """The most urgent thing among agents a fold hides: (glyph, how many share
     it, colour), or None when there is nothing to say.
@@ -588,16 +608,8 @@ def build(width: int, sel: dict | None = None,
             # How many of its reports are not drawn, and the most urgent thing
             # among them. Fitted around, not into, the name: cut off, the only
             # sign a team is hidden disappears.
-            urgency = None
-            if under:
-                at = next(i for i, (n, _d) in enumerate(full_tree) if n == name)
-                hidden = []
-                for n, d in full_tree[at + 1:]:
-                    if d <= depth:
-                        break
-                    if n not in drawn:
-                        hidden.append(n)
-                urgency = hidden_urgency(con, hidden)
+            urgency = (hidden_urgency(con, hidden_under(full_tree, drawn, name))
+                       if under else None)
             try:
                 acct = agents.current_account(name, con)
                 cfg = agents.read(name)

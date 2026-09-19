@@ -8894,6 +8894,41 @@ edges:
               str(tui.hidden_urgency(con, ["marina", "keeper"])))
         check("fold: nothing hidden, nothing said", tui.hidden_urgency(con, []) is None)
 
+        # A hidden agent is counted under one row: the manager's fold does not
+        # claim what hangs under a report that is drawn and has a fold of its own.
+        (home / "team.yaml").write_text("""
+teams:
+  dev: [idle1, lead]
+  sub: [worker]
+agents:
+  manager: { intake: dedicated }
+  idle1:   { intake: dedicated }
+  lead:    { intake: dedicated }
+  worker:  { intake: dedicated }
+edges:
+  - { from: "manager", to: "dev.*", relation: supervisor, response: fire_and_forget }
+  - { from: "lead", to: "sub.*", relation: supervisor, response: fire_and_forget }
+  - { from: "human", to: "*", relation: supervisor, response: fire_and_forget }
+  - { from: "*", to: "human", kind: escalate, creates_gate: true }
+""")
+        for name in ("idle1", "lead", "worker"):
+            agents.register(name, "alpha")
+        for name, state in (("marina", dmn.IDLE), ("keeper", dmn.IDLE), ("idle1", dmn.IDLE),
+                            ("lead", dmn.STALLED), ("worker", dmn.RUNNING)):
+            db.set_agent_state(con, name, state, detail="x")
+        lines = {n: next((tui._ANSI.sub("", ln) for ln in tui.frame(120, 60).split(chr(10))
+                          if re.search(rf"(^|[ │└]){n}( |$)", tui._ANSI.sub("", ln))), "")
+                 for n in ("manager", "lead")}
+        check("fold: what hangs under a drawn report is counted under that report",
+              "lead +1 ▶1" in lines["lead"], lines["lead"])
+        check("fold: and not again under the manager, whose ▶ cannot exceed its +N",
+              "manager +1" in lines["manager"] and "▶" not in lines["manager"], lines["manager"])
+        check("fold: hidden_under names the agents a fold hides",
+              tui.hidden_under(tui.actions.agent_tree(), {n for n, _d, _u in tui.visible_tree()},
+                               "manager") == ["idle1"],
+              str(tui.hidden_under(tui.actions.agent_tree(),
+                                   {n for n, _d, _u in tui.visible_tree()}, "manager")))
+
         # Width: the aggregate goes before the count, and the count before the name.
         plain = lambda s_: tui._ANSI.sub("", s_)  # noqa: E731
         run = ("▶", 2, tui.GRN)
