@@ -9050,6 +9050,16 @@ def test_the_founder_can_cancel_a_request_in_an_agents_queue(home: Path) -> None
               db.close_if_queued(con, racer, "done", "agent's own answer")
               and not db.close_if_queued(con, racer, "rejected", "withdrawn by the founder")
               and db.get_request(con, racer)["verdict"] == "agent's own answer")
+
+        # The other direction: cancel's own close wins, and the resolve that
+        # lands after it - the target typing an answer to a row the founder
+        # just cancelled - is refused rather than overwriting the verdict.
+        overtaken = ask("marina", "cancelled just before its answer lands")
+        db.close_if_queued(con, overtaken, "rejected", askmod.CANCEL_VERDICT)
+        ok, msg = askmod.resolve(overtaken, "did it anyway")
+        check("cancel: a resolve landing after the close is refused, not applied",
+              not ok and "already rejected" in msg
+              and db.get_request(con, overtaken)["verdict"] == askmod.CANCEL_VERDICT, msg)
         check("cancel: a request that is already closed says so",
               "already" in actions.cancel(con, head), actions.cancel(con, head))
         ok, why = actions.cancel_plan(con, 99999)

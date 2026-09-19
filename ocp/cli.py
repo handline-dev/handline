@@ -1008,6 +1008,9 @@ def cmd_cancel(args) -> int:
             return 1
         if not args.yes:
             print(plan)
+            if not sys.stdin.isatty():
+                print("refusing without a terminal to confirm in - pass --yes", file=sys.stderr)
+                return 1
             if input("go ahead? [y/N] ").strip().lower() not in ("y", "yes"):
                 print("left alone")
                 return 1

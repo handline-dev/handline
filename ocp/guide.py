@@ -75,9 +75,10 @@ requester may still replace (`--replaces`) or withdraw it; once delivered, a
 correction is a reply in its thread (`ocp ask <agent> "..." --parent <id>`),
 not a new item behind it. Only the founder can clear one that was delivered and
 never resolved: `ocp cancel <id>` closes it as rejected ("withdrawn by the
-founder"), tells the agent to stop and its requester why, and delivers what was
-behind it. The row and its number stay; a request of the founder's own that was
-never delivered is simply withdrawn.
+founder"), tells its requester why and delivers what was behind it; the agent
+is told to stop if it can be reached right now, otherwise it finds out only
+when its own resolve of the row is refused. The row and its number stay; a
+request of the founder's own that was never delivered is simply withdrawn.
 
 On `ocp bridge`: ↑↓ walks the whole screen and crosses into the next panel at
 the end of one, ←→ jumps panel to panel, and the panel your keys act on is the

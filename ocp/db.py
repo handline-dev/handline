@@ -557,13 +557,17 @@ def mark_delivered(con, rid: int) -> bool:
     return cur.rowcount > 0
 
 
-def close_if_queued(con, rid: int, state: str, verdict: str) -> bool:
+def close_if_queued(con, rid: int, state: str, verdict: str, announced: bool = False) -> bool:
     """Close a request that is still open, atomically. True only if this call
     was the one that closed it: an agent resolving it in the same instant wins,
-    and its answer is not overwritten."""
+    and its answer is not overwritten. `announced=True` is `resolve`'s
+    `notify=False` case: stamped in this same write, for the reason
+    `set_request_state` gives."""
+    now = int(time.time())
     cur = con.execute(
-        "UPDATE requests SET state = ?, verdict = ?, resolved_at = ? "
-        "WHERE id = ? AND state = 'queued'", (state, verdict, int(time.time()), rid))
+        "UPDATE requests SET state = ?, verdict = ?, resolved_at = ?, "
+        "announced_at = COALESCE(announced_at, ?) WHERE id = ? AND state = 'queued'",
+        (state, verdict, now, now if announced else None, rid))
     return cur.rowcount > 0
 
 
