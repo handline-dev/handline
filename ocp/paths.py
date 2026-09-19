@@ -5,8 +5,13 @@ import os
 from pathlib import Path
 
 
+def default_home() -> Path:
+    """Where OCP_HOME points when nothing has set it."""
+    return Path.home() / ".orcapipe"
+
+
 def home() -> Path:
-    return Path(os.environ.get("OCP_HOME", Path.home() / ".orcapipe")).expanduser()
+    return Path(os.environ.get("OCP_HOME", default_home())).expanduser()
 
 
 def config_file() -> Path:
