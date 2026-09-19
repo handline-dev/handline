@@ -8853,8 +8853,13 @@ edges:
             check(f"team: {who}'s report-to line says a handed task ends with resolve, "
                   "and that resolve is the report", "`ocp resolve <id>" in line
                   and "that is your report" in line, line)
-            check(f"team: and {who} is told to ask for blocks and decisions, not to finish",
-                  "is for being blocked" in line and "when you finish" not in ctx, line)
+            boss_is_human = "You report to `human`" in line
+            check(f"team: and {who} is told to ask its boss for blocks and decisions, not "
+                  "to finish - and the founder is not asked to clear a status report",
+                  "when you finish" not in ctx
+                  and ("is for being blocked" in line) != boss_is_human
+                  and (not boss_is_human or "ocp ask human" not in line)
+                  and "A decision only the founder can make: `ocp ask human`" in ctx, line)
             check(f"team: and resolve is said once, in that line, not again after it",
                   ctx.count("ocp resolve <id>") == 1, ctx)
 
