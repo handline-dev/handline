@@ -6315,8 +6315,12 @@ def test_an_agent_at_the_wall_moves_to_an_account_with_room(home: Path) -> None:
               "agent's session directly - both go through `ocp ask`, where "
               "the bridge can see it",
               "--disallowedTools" in argv
-              and argv[argv.index("--disallowedTools") + 1] == "Agent,SendMessage",
+              and argv[argv.index("--disallowedTools") + 1] == launch.DISALLOWED_TOOLS
+              and {"Agent", "SendMessage"} <= set(launch.DISALLOWED_TOOLS.split(",")),
               str(argv))
+        check("launch: an agent cannot schedule its own wakeup or cron",
+              {"ScheduleWakeup", "CronCreate"} <= set(launch.DISALLOWED_TOOLS.split(",")),
+              launch.DISALLOWED_TOOLS)
         check("move: the launch it typed goes to the new account",
               env["OCP_ACCOUNT"] == "beta"
               and env["CLAUDE_CONFIG_DIR"].endswith("accounts/beta/.claude"),

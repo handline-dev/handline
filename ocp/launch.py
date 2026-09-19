@@ -35,7 +35,11 @@ START_LIMIT = triggers.MOVE_LINE_5H
 
 # `build` and `fingerprint` must name the same tools, or a change to one
 # reads as a launch that never drifted to the other.
-DISALLOWED_TOOLS = "Agent,SendMessage"
+#
+# ScheduleWakeup and CronCreate: a self-scheduled wakeup survives the park's
+# /clear and fires into a session at the usage wall, and ocp types the answer
+# into the session when it comes, so nothing an agent schedules is needed.
+DISALLOWED_TOOLS = "Agent,SendMessage,ScheduleWakeup,CronCreate"
 
 
 def find_room(agent: str, limit: int | None = None, limit_7d: int | None = None,
