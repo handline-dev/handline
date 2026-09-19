@@ -222,13 +222,8 @@ def _check_stuck_running(r: Report) -> None:
 def _check_launch_drift(r: Report) -> None:
     """A running session whose own launch no longer matches `build()`.
 
-    The daemon catches this itself before it next types a handoff into such a
-    session in place - see `daemon._wake_agent` - and relaunches it instead.
-    This is only visibility for the window before that happens: a human
-    reading `doctor` should not have to wonder why an agent is still missing a
-    flag or a system-prompt section that a recent change added. A row with no
-    recorded fingerprint at all reads the same way - nothing has confirmed it
-    against the current recipe either.
+    The daemon relaunches it at its next wake (`daemon._wake_agent`); this is
+    only visibility for the window before that. See `launch.fingerprint`.
     """
     sessions = obs.live_sessions()
     if sessions is None:
@@ -239,7 +234,7 @@ def _check_launch_drift(r: Report) -> None:
             agent = row["agent"]
             if row["closed_at"] or not sessions.get(agent):
                 continue
-            if not row["launch_fingerprint"] or launch.fingerprint(agent) != row["launch_fingerprint"]:
+            if launch.drifted(agent, row):
                 r.add(WARN, f"agent {agent}: running session predates the current launch "
                       "recipe",
                       "will be relaunched, with its own session to resume, the next time "

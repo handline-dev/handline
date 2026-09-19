@@ -728,24 +728,18 @@ def _wake_agent(con, agent: str, log, moved_to: str | None = None,
     closed = bool(row and row["closed_at"])
     resumed = False
     if not closed and row and session_present(agent):
-        # Typing a handoff into a session that is still open carries forward
-        # whatever `ocp launch` built it with, forever - a flag or a system
-        # prompt section added since would never reach it. A recorded
-        # fingerprint that no longer matches what `build()` would produce now
-        # is the signal that this session predates a real change, and it
-        # earns a relaunch instead: end it and fall into the same path a
-        # closed agent's wake already takes, with its own session id to
-        # resume so nothing about its context is lost. No fingerprint at all
-        # counts the same way - it means this session started before
-        # `launch_fingerprint` existed, so it has never been checked against
-        # anything `build()` has done since.
-        drifted = (not row["launch_fingerprint"]
-                  or launch.fingerprint(agent) != row["launch_fingerprint"])
-        if drifted:
+        # A drifted session is ended and takes the closed agent's wake path
+        # below, with its own session id to resume; see `launch.fingerprint`.
+        if launch.drifted(agent, row):
             acct = agents.current_account(agent, con)
             st = status.read_for_agent(agent, acct)
-            if st.session_id and _end_session(con, agent, log, st,
-                                               resume=st.session_id)[0]:
+            if not st.session_id:
+                log(f"  {agent}: launch recipe changed but there is no session id "
+                    f"to resume - waking it in place")
+            elif not _end_session(con, agent, log, st, resume=st.session_id)[0]:
+                log(f"  {agent}: launch recipe changed but its session would not "
+                    f"end - waking it in place")
+            else:
                 log(f"  {agent}: launch recipe changed since this session "
                     f"started - relaunching instead of waking it in place")
                 row = db.get_agent_state(con, agent)

@@ -260,9 +260,7 @@ def build(agent: str, extra: list[str] | None = None, force: bool = False) -> tu
 def _static_preamble(agent: str) -> str:
     """The part of `context_for` that a rebuild reproduces byte for byte:
     everything except the handoff, which is supposed to differ every time
-    this agent is parked. `fingerprint` hashes this, not the whole preamble -
-    hashing the handoff too would call a session stale for a reason that has
-    nothing to do with what it was launched with.
+    this agent is parked; `fingerprint` hashes only this part.
     """
     d = paths.agent_dir(agent)
     parts = [f"You are `{agent}`, one agent in an orcapipe team. "
@@ -336,16 +334,23 @@ def fingerprint(agent: str) -> str:
     parked, so hashing either would call a session stale for a reason that
     has nothing to do with what it was launched with.
 
-    Recorded at launch time (`_record_terminal`) and compared against a fresh
-    call before typing a handoff into a session that is still open: the two
-    agree only when nothing `build` would produce has changed since that
-    session started.
+    Recorded at launch time (`_record_terminal`) and compared by `drifted`
+    before typing a handoff into a session that is still open: the two agree
+    only when nothing `build` would produce has changed since that session
+    started. A row with nothing recorded disagrees too - nothing has confirmed
+    that session against the recipe.
     """
     cfg = agents.read(agent)
     model = str(cfg.get("model") or "")
     effort = str(cfg.get("effort") or agents.DEFAULT_EFFORT)
     material = "\x1e".join([model, effort, DISALLOWED_TOOLS, _static_preamble(agent)])
     return hashlib.sha256(material.encode()).hexdigest()[:16]
+
+
+def drifted(agent: str, row) -> bool:
+    """Was this agent's running session launched with a different recipe than
+    `build()` produces now? See `fingerprint`."""
+    return fingerprint(agent) != row["launch_fingerprint"]
 
 
 def exec_agent(agent: str, extra: list[str] | None = None, force: bool = False) -> None:
@@ -367,9 +372,8 @@ def _record_terminal(agent: str, acct: str | None = None, fp: str | None = None)
     agent.yaml: those are the same value only when the preferred account had
     room, and the whole point of recording it is that the two can differ.
 
-    `fp` is the fingerprint `exec_agent` computed just before this ran - the
-    daemon reads it back before waking this agent in place, so a launch that
-    changed since is relaunched instead of carried forward silently.
+    `fp` is the fingerprint `exec_agent` computed just before this ran; see
+    `fingerprint`.
     """
     # Late, because `spawn` imports this module: the launcher is the bottom of
     # the stack and the starters sit on top of it.
@@ -393,8 +397,11 @@ def _record_terminal(agent: str, acct: str | None = None, fp: str | None = None)
                 db.set_account(con, agent, acct)
         finally:
             con.close()
-    except Exception:  # noqa: BLE001 - never block a launch on bookkeeping
-        pass
+    except Exception as e:  # noqa: BLE001 - never block a launch on bookkeeping
+        # Not silent: with no fingerprint on record the daemon relaunches this
+        # session at every wake, and nothing else would say why.
+        print(f"ocp launch: could not record this launch for {agent}: {e}",
+              file=sys.stderr)
 
 
 def command_for(agent: str) -> str:

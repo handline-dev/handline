@@ -320,11 +320,7 @@ def _add_missing_columns(con) -> None:
         # a move, both facts, before an "assumed" writer existed at all.
         con.execute("ALTER TABLE agent_state ADD COLUMN account_source TEXT")
     if "launch_fingerprint" not in state_cols:
-        # No backfill, and none is needed: a session already running with
-        # nothing on record predates fingerprint tracking itself, which
-        # `daemon._wake_agent` reads the same way it reads a real mismatch -
-        # as drift, relaunched at its own next wake rather than carried
-        # forward on a recipe nothing has checked since it started.
+        # No backfill: an existing row reads as drifted, which is right.
         con.execute("ALTER TABLE agent_state ADD COLUMN launch_fingerprint TEXT")
 
 
@@ -662,10 +658,7 @@ def set_launch_fingerprint(con, agent: str, fingerprint: str | None) -> None:
     """Record what `launch.fingerprint` computed for the session just execve'd.
 
     Written from inside that same process, alongside `set_account` - the one
-    moment a recipe and a running session are known to match. Compared back
-    against a fresh `launch.fingerprint(agent)` before typing a handoff into
-    a session that is still open, so a launch change that predates it is
-    never carried forward by waking in place.
+    moment a recipe and a running session are known to match.
     """
     con.execute(
         "INSERT INTO agent_state(agent, state, updated, launch_fingerprint) VALUES(?,?,?,?) "

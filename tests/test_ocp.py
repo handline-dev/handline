@@ -8132,6 +8132,87 @@ def test_a_parked_row_with_no_fingerprint_also_relaunches(home: Path) -> None:
         con.close()
 
 
+
+def test_a_launch_records_its_fingerprint_and_says_when_it_cannot(home: Path) -> None:
+    """Drift is judged against what `_record_terminal` wrote: if that write
+    never lands, the daemon relaunches the session at every wake, so a failed
+    write has to be said, not swallowed."""
+    _daemon_home(home, 20)
+    os.environ["ORCA_TERMINAL_HANDLE"] = "term_rec"
+    real_set, real_err = db.set_launch_fingerprint, sys.stderr
+    try:
+        con = db.connect()
+        launch._record_terminal("backend", "alpha", "fp-123")
+        row = db.get_agent_state(con, "backend")
+        check("record: the launch's fingerprint is written to the row",
+              row and row["launch_fingerprint"] == "fp-123", str(row and dict(row)))
+        check("record: and a row that matches it is not drifted",
+              not launch.drifted("backend", {"launch_fingerprint": launch.fingerprint("backend")}))
+        check("record: one that does not match is",
+              launch.drifted("backend", {"launch_fingerprint": "fp-123"}))
+        check("record: one with nothing recorded is",
+              launch.drifted("backend", {"launch_fingerprint": None}))
+
+        def boom(*a, **k):
+            raise RuntimeError("disk full")
+        db.set_launch_fingerprint = boom
+        sys.stderr = io.StringIO()
+        launch._record_terminal("backend", "alpha", "fp-456")
+        said = sys.stderr.getvalue()
+        check("record: a failed write is reported, and does not block the launch",
+              "could not record this launch" in said and "disk full" in said, said)
+        con.close()
+    finally:
+        db.set_launch_fingerprint, sys.stderr = real_set, real_err
+        os.environ.pop("ORCA_TERMINAL_HANDLE", None)
+
+
+def test_a_drifted_wake_that_cannot_relaunch_says_why(home: Path) -> None:
+    """A drifted session that is neither relaunched nor left alone silently:
+    with no session id to resume, or a session that will not end, the wake
+    falls through to typing in place, and the log has to say that happened."""
+    _daemon_home(home, 20)
+    con = db.connect()
+    real = (orcamod.available, orcamod.alive, orcamod.close_session, orcamod.resume_with,
+            dmn.wait_for_session)
+    table = sessions_are("backend")
+    try:
+        orcamod.available = lambda: True
+        orcamod.alive = lambda h: True
+        db.set_terminal(con, "backend", "term_x", "wt")
+        write_status(home, "alpha", pct_5h=20, pct_7d=10, ctx_pct=5,
+                     reset_5h=int(time.time()) + 1800)
+        foldmod.handoff_path("backend").write_text("# handoff · backend\n## next\n- go\n")
+        db.set_launch_fingerprint(con, "backend", "stale-fingerprint")
+        db.set_agent_state(con, "backend", dmn.PARKED, wake_at=int(time.time()) - 10,
+                           detail="usage; wakes soon")
+        orcamod.resume_with = lambda h, text: (True, "typed")
+        dmn.wait_for_session = lambda agent, timeout=0: True
+        f = paths.agent_status_file("backend")
+        f.parent.mkdir(parents=True, exist_ok=True)
+
+        f.write_text(json.dumps({"account": "alpha", "collected_at": int(time.time()),
+                                 "ctx_pct": 5}))
+        logged: list[str] = []
+        dmn.wake_agent(con, "backend", logged.append)
+        check("drift wake: no session id to resume is logged, not silent",
+              any("no session id" in m and "in place" in m for m in logged), str(logged))
+
+        f.write_text(json.dumps({"account": "alpha", "collected_at": int(time.time()),
+                                 "session_id": "sess-old", "ctx_pct": 5}))
+        db.set_agent_state(con, "backend", dmn.PARKED, wake_at=int(time.time()) - 10,
+                           detail="usage; wakes soon")
+        orcamod.close_session = lambda h, **kw: (False, "would not close")
+        logged.clear()
+        dmn.wake_agent(con, "backend", logged.append)
+        check("drift wake: a session that will not end is logged, not silent",
+              any("would not end" in m and "in place" in m for m in logged), str(logged))
+    finally:
+        (orcamod.available, orcamod.alive, orcamod.close_session, orcamod.resume_with,
+         dmn.wait_for_session) = real
+        con.close()
+
+
 def test_hooks_report_activity(home: Path) -> None:
     """A working agent must not still read as PARKED.
 
@@ -8987,6 +9068,8 @@ def main() -> int:
         run(lambda: test_wake_injects_handoff(Path(td) / 'wake'))
         run(lambda: test_a_drifted_launch_relaunches_instead_of_waking_in_place(Path(td) / 'driftwake'))
         run(lambda: test_a_parked_row_with_no_fingerprint_also_relaunches(Path(td) / 'nofp'))
+        run(lambda: test_a_launch_records_its_fingerprint_and_says_when_it_cannot(Path(td) / 'recfp'))
+        run(lambda: test_a_drifted_wake_that_cannot_relaunch_says_why(Path(td) / 'driftlog'))
         run(lambda: test_hooks_report_activity(Path(td) / 'hooky'))
         run(lambda: test_tui_frame_geometry(Path(td) / 'tui'))
         run(lambda: test_clear_does_not_look_like_waking(Path(td) / 'loopy'))
