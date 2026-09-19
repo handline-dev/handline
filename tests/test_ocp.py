@@ -8845,9 +8845,18 @@ edges:
         check("team: every agent is told not to schedule its own wakeup to wait",
               all("Never schedule your own wakeup" in c
                   for c in (mgr, dev, launch.context_for("scout"))))
-        check("team: every agent is told a request ends with resolve, even a deferral",
-              all("End every request with `ocp resolve <id>`" in c
-                  for c in (mgr, dev, launch.context_for("scout"))))
+        # What to do on finishing a task is one instruction, and it is the
+        # report-to line: `ocp ask` when you finish is what an agent once
+        # followed instead of resolving, leaving three requests behind it.
+        for who, ctx in (("manager", mgr), ("marina", dev), ("scout", launch.context_for("scout"))):
+            line = next((ln for ln in ctx.splitlines() if ln.startswith("You report to")), "")
+            check(f"team: {who}'s report-to line says a handed task ends with resolve, "
+                  "and that resolve is the report", "`ocp resolve <id>" in line
+                  and "that is your report" in line, line)
+            check(f"team: and {who} is told to ask for blocks and decisions, not to finish",
+                  "is for being blocked" in line and "when you finish" not in ctx, line)
+            check(f"team: and resolve is said once, in that line, not again after it",
+                  ctx.count("ocp resolve <id>") == 1, ctx)
 
         # A team is closed until it is opened: the screen is for what needs
         # you, and every report drawn in full is a list to scroll past. The
