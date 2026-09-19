@@ -1425,14 +1425,18 @@ def test_daemon_pidfile(home: Path) -> None:
     dmn.write_pidfile()
     check("daemon: pidfile records this process", dmn.running_elsewhere() == os.getpid())
 
-    # A pidfile from before the last boot cannot describe a live process.
+    # A pidfile from before the last boot cannot describe a live process - and
+    # reading that is not the reader's business to fix: only the daemon that
+    # eventually writes over it, under the lock, ever touches the file again.
     paths.daemon_pid().write_text(json.dumps({"pid": 99999, "boot": 1}))
-    check("daemon: a pre-boot pidfile is reclaimed", dmn.running_elsewhere() is None)
-    check("daemon: the stale pidfile is removed", not paths.daemon_pid().exists())
+    check("daemon: a pre-boot pidfile reads as stale", dmn.running_elsewhere() is None)
+    check("daemon: ...but a reader leaves the file itself alone",
+          paths.daemon_pid().exists())
 
-    # A dead PID from this boot is also reclaimed.
+    # A dead PID from this boot reads as stale the same way.
     paths.daemon_pid().write_text(json.dumps({"pid": 999999, "boot": dmn.boot_time()}))
-    check("daemon: a dead pid is reclaimed", dmn.running_elsewhere() is None)
+    check("daemon: a dead pid reads as stale", dmn.running_elsewhere() is None)
+    check("daemon: ...and is left standing too", paths.daemon_pid().exists())
 
 
 # ---------------------------------------------------------------- service
@@ -1696,9 +1700,8 @@ def test_an_exiting_daemon_leaves_the_live_ones_name(home: Path) -> None:
     dmn.clear_pidfile()
     check("pidfile: and does clear its own", not paths.daemon_pid().exists())
 
-    # Reclaiming a stale one has the same rule, and needs it more: every
-    # screen calls running_elsewhere(), so a daemon that starts between the
-    # read and the unlink has its own name deleted by a passer-by.
+    # The same guard protects `_reclaim`'s one remaining caller too: a daemon
+    # that starts between the read and the unlink must keep its own name.
     dead = os.getpid() + 1
     paths.daemon_pid().write_text(json.dumps({"pid": dead, "boot": dmn.boot_time()}))
     dmn.write_pidfile()          # the new daemon, inside the window
@@ -1720,16 +1723,20 @@ def test_one_daemon_is_counted_in_the_process_table(home: Path) -> None:
         (4802, "vim /Users/x/workspaces/orcapipe/ocp/daemon.py"),
         (4803, "/usr/bin/python /Users/x/.local/bin/ocp ps"),
         (4804, "claude --append-system-prompt Report with /Users/x/bin/ocp daemon"),
+        (4806, "claude -p /Users/x/bin/ocp daemon"),
         (os.getpid(), "/usr/bin/python /Users/x/bin/ocp daemon"),
     ]
-    orig_table, orig_env = obsmod.process_table, obsmod.env_of
+    orig_table, orig_env = obsmod.process_table, obsmod.process_env
     try:
         obsmod.process_table = lambda: table
-        obsmod.env_of = lambda pid, name: str(home)
+        obsmod.process_env = lambda pid: f"OCP_HOME={home}"
         check("ps: the running daemon is found, and only it",
               dmn.processes() == [4707], str(dmn.processes()))
+        check("ps: /ocp daemon quoted past the front (a session's own claude "
+              "-p argv, not launchd's [ocp_executable(), 'daemon']) is not one",
+              4806 not in dmn.processes(), str(dmn.processes()))
 
-        obsmod.env_of = lambda pid, name: f"{home}-elsewhere"
+        obsmod.process_env = lambda pid: f"OCP_HOME={home}-elsewhere"
         check("ps: another installation's daemon is not this one's duplicate",
               dmn.processes() == [], str(dmn.processes()))
 
@@ -1740,20 +1747,73 @@ def test_one_daemon_is_counted_in_the_process_table(home: Path) -> None:
         other = os.path.realpath(home)
         check("ps: (the fixture has two names for one directory)",
               other != str(home), f"{other} == {home}")
-        obsmod.env_of = lambda pid, name: other
+        obsmod.process_env = lambda pid: f"OCP_HOME={other}"
         check("ps: the home is compared as a directory, not as a spelling",
               dmn.processes() == [4707], str(dmn.processes()))
 
         # A process we cannot place is the one worth naming.
-        obsmod.env_of = lambda pid, name: None
+        obsmod.process_env = lambda pid: None
         check("ps: an unplaceable daemon is reported, not dropped",
               dmn.processes() == [4707], str(dmn.processes()))
+
+        # Read, but OCP_HOME simply is not set: that process runs against the
+        # default home, not against ours just because we could not name one.
+        obsmod.process_env = lambda pid: "SHELL=/bin/zsh"
+        check("ps: an unset OCP_HOME reads as the default home, not as ours",
+              dmn.processes() == [], str(dmn.processes()))
 
         obsmod.process_table = lambda: None
         check("ps: and a process table we could not read is not an empty one",
               dmn.processes() == [], str(dmn.processes()))
     finally:
-        obsmod.process_table, obsmod.env_of = orig_table, orig_env
+        obsmod.process_table, obsmod.process_env = orig_table, orig_env
+
+
+def test_process_env_reads_a_gone_pid_as_unreadable(home: Path) -> None:
+    """A process whose environment did not come back is unreadable (None),
+    never "read, but the variable was not set": a gone pid exits non-zero, and
+    another user's process prints its command at rc 0 with no environment, so
+    `ps eww` is byte-identical to `ps ww`."""
+    real_run = obsmod.subprocess.run
+
+    class FakeResult:
+        def __init__(self, rc: int, out: str) -> None:
+            self.returncode, self.stdout = rc, out
+
+    def ps(eww: FakeResult, ww: FakeResult):
+        return lambda argv, **k: eww if argv[1] == "eww" else ww
+
+    gone, blank = FakeResult(1, ""), FakeResult(0, "")
+    cmd = FakeResult(0, "/sbin/launchd\n")
+    own = FakeResult(0, "/bin/ocp daemon OCP_HOME=/x\n")
+    try:
+        obsmod.subprocess.run = ps(gone, gone)
+        check("process_env: a gone pid is unreadable, not an empty environment",
+              obsmod.process_env(999991) is None)
+
+        obsmod.subprocess.run = ps(blank, blank)
+        check("process_env: empty stdout is unreadable even with rc 0",
+              obsmod.process_env(999991) is None)
+
+        obsmod.subprocess.run = ps(cmd, cmd)
+        check("process_env: another user's process - command printed, no "
+              "environment - is unreadable",
+              obsmod.process_env(1) is None)
+
+        obsmod.subprocess.run = ps(FakeResult(0, "/x --opt=1\n"),
+                                   FakeResult(0, "/x --opt=1\n"))
+        check("process_env: a command line carrying `=` itself is not an "
+              "environment",
+              obsmod.process_env(1) is None)
+
+        obsmod.subprocess.run = ps(own, FakeResult(0, "/bin/ocp daemon\n"))
+        check("process_env: an environment that came back comes through",
+              obsmod.process_env(999991) == "/bin/ocp daemon OCP_HOME=/x\n")
+    finally:
+        obsmod.subprocess.run = real_run
+
+    check("process_env: root's launchd (pid 1) is unreadable on this machine",
+          obsmod.process_env(1) is None)
 
 
 def test_two_processes_cannot_both_supervise_one_home(home: Path) -> None:
@@ -6203,10 +6263,12 @@ def test_an_agent_at_the_wall_moves_to_an_account_with_room(home: Path) -> None:
         # sets CLAUDE_CONFIG_DIR - so the record cannot disagree with the
         # environment the session is actually running in.
         argv, env = launch.build("keeper")
-        check("launch: an agent cannot make subagents - work to another agent "
-              "goes through `ocp ask`, where the bridge can see it",
+        check("launch: an agent cannot make subagents or message another "
+              "agent's session directly - both go through `ocp ask`, where "
+              "the bridge can see it",
               "--disallowedTools" in argv
-              and argv[argv.index("--disallowedTools") + 1] == "Agent", str(argv))
+              and argv[argv.index("--disallowedTools") + 1] == "Agent,SendMessage",
+              str(argv))
         check("move: the launch it typed goes to the new account",
               env["OCP_ACCOUNT"] == "beta"
               and env["CLAUDE_CONFIG_DIR"].endswith("accounts/beta/.claude"),
@@ -6474,6 +6536,88 @@ def test_room_is_filtered_before_the_ranking_not_after(home: Path) -> None:
                           ).fetchone()["n"] == tried == 1, str(tried))
     finally:
         orcamod.available = real
+        con.close()
+
+
+def test_ask_and_resolve_do_not_type_at_an_agent_at_the_wall(home: Path) -> None:
+    """`ocp ask` and `ocp resolve` call the deliver functions directly, not
+    through `supervise`, so the gate has to live in them: typing at an agent
+    whose turn ended on the usage limit, or that a usage trigger parked, starts
+    a turn that fails at once and the whole park cycle over again."""
+    _daemon_home(home, 20)
+    agents.register("product", "alpha")
+    os.environ["OCP_AGENT"], os.environ["OCP_ACCOUNT"] = "backend", "alpha"
+    con = db.connect()
+    sent: list[str] = []
+
+    def hook(event: str, **fields) -> None:
+        real_in = sys.stdin
+        sys.stdin = io.StringIO(json.dumps({"hook_event_name": event, "session_id": "s",
+                                            **fields}))
+        try:
+            evmod.record_from_stdin([event])
+        finally:
+            sys.stdin = real_in
+    real = (orcamod.alive, orcamod.idle_now, orcamod.send, orcamod.available)
+    try:
+        orcamod.available = lambda: True
+        orcamod.live_terminals = lambda: {"term_x", "term_p"}
+        orcamod.alive = lambda h: True
+        orcamod.idle_now = lambda h: True
+        orcamod.send = lambda h, text, enter=True: (sent.append(text), (True, ""))[1]
+        sessions_are("backend", "product")
+        db.set_terminal(con, "backend", "term_x", "wt")
+        db.set_terminal(con, "product", "term_p", "wt")
+        db.set_agent_state(con, "backend", dmn.IDLE)
+        db.set_agent_state(con, "product", dmn.IDLE)
+
+        # ---- a turn that ended on the usage limit
+        hook("StopFailure", error="rate_limit", error_details="You've hit your session limit")
+        actions._WORLD["at"] = 0.0
+        ok, msg, rid = askmod.ask("backend", "please look at this", requester="product")
+        row = db.get_request(con, rid)
+        check("wall: an ask to an agent at its usage limit types nothing", not sent, str(sent))
+        check("wall: it stays queued and undelivered",
+              row["state"] == "queued" and not row["delivered_at"]
+              and db.get_cursor(con, "notify:backend") != rid, str(dict(row)))
+        check("wall: and says why to whoever asked", "usage limit" in msg, msg)
+        check("wall: the daemon's own path is held the same way",
+              not dmn.deliver_queued(con, "backend", lambda _m: None) and not sent)
+        check("wall: the mark that says it is at the wall is still there",
+              evmod.at_limit(con, "backend") is not None)
+
+        hook("UserPromptSubmit")
+        check("wall: once it is running again the queued request is delivered",
+              dmn.deliver_queued(con, "backend", lambda _m: None)
+              and any("please look at this" in t for t in sent), str(sent))
+
+        # ---- an answer to an agent parked on usage
+        sent.clear()
+        hid = "h-usage"
+        db.start_handoff(con, hid, "product", "sess", "usage", int(time.time()) + 60)
+        db.advance_handoff(con, hid, "released", state="done")
+        db.set_agent_state(con, "product", dmn.PARKED, wake_at=int(time.time()) + 3600)
+        ok, said = askmod.resolve(rid, "looked, fine")
+        check("wall: resolving to an agent parked on usage types nothing", not sent, str(sent))
+        check("wall: and the answer does not unpark it - that is the window's to end",
+              db.get_agent_state(con, "product")["state"] == dmn.PARKED,
+              db.get_agent_state(con, "product")["state"])
+        check("wall: the answer stays unannounced",
+              [r["id"] for r in db.unannounced_answers(con, "product")] == [rid])
+        check("wall: the daemon's own path is held the same way",
+              not dmn.deliver_answers(con, "product", lambda _m: None) and not sent)
+
+        # A park for any other reason is an ordinary open session.
+        db.start_handoff(con, "h-ctx", "product", "sess", "context", int(time.time()) + 60)
+        db.advance_handoff(con, "h-ctx", "released", state="done")
+        con.execute("UPDATE handoff SET updated = updated + 5 WHERE id = 'h-ctx'")
+        con.commit()
+        check("wall: a context park is not the wall - the answer is delivered",
+              dmn.deliver_answers(con, "product", lambda _m: None)
+              and any("looked, fine" in t for t in sent), str(sent))
+    finally:
+        orcamod.alive, orcamod.idle_now, orcamod.send, orcamod.available = real
+        os.environ.pop("OCP_AGENT", None); os.environ.pop("OCP_ACCOUNT", None)
         con.close()
 
 
@@ -8424,6 +8568,63 @@ def test_doctor_says_when_the_record_and_the_process_table_disagree(home: Path) 
         obsmod.live_sessions, orcamod.live_terminals = real
         con.close()
 
+
+def test_doctor_and_ps_report_a_drifted_launch(home: Path) -> None:
+    """The daemon relaunches a drifted session on its own before it would
+    ever type into it again - `test_a_drifted_launch_relaunches_instead_of_
+    waking_in_place` above. Between the drift and that next wake, a human
+    reading `doctor` or `ps` should be able to see why a running agent still
+    looks like it predates a recent change, instead of only finding out once
+    it is woken.
+    """
+    _daemon_home(home, 20)
+    con = db.connect()
+    real = obsmod.live_sessions
+    try:
+        db.set_terminal(con, "backend", "term_x", "wt")
+        db.set_launch_fingerprint(con, "backend", "stale-fingerprint")
+
+        r = doctor.Report()
+        doctor._check_launch_drift(r)
+        check("doctor: says nothing without a session to be running the "
+              "stale recipe", not r.rows, str(r.rows))
+
+        sessions_are("backend")
+        r = doctor.Report()
+        doctor._check_launch_drift(r)
+        check("doctor: a running session on a fingerprint `build()` would "
+              "not produce now is reported",
+              r.rows and r.rows[-1][0] == doctor.WARN
+              and "backend" in r.rows[-1][1], str(r.rows))
+        printed = _capture(lambda: climod.cmd_daemon_status(None))
+        check("ps: the screen says it too",
+              any(l.startswith("backend") and "·drift" in l for l in printed.splitlines()),
+              printed)
+
+        db.set_launch_fingerprint(con, "backend", launch.fingerprint("backend"))
+        r = doctor.Report()
+        doctor._check_launch_drift(r)
+        check("doctor: and says nothing once the recorded fingerprint matches",
+              not r.rows, str(r.rows))
+
+        # A row from before `launch_fingerprint` existed has nothing recorded
+        # at all - not evidence the recipe still matches, so it reads the
+        # same as a real mismatch rather than being left alone.
+        db.set_launch_fingerprint(con, "backend", None)
+        r = doctor.Report()
+        doctor._check_launch_drift(r)
+        check("doctor: a session with no recorded fingerprint reads as drift too",
+              r.rows and r.rows[-1][0] == doctor.WARN
+              and "backend" in r.rows[-1][1], str(r.rows))
+        printed = _capture(lambda: climod.cmd_daemon_status(None))
+        check("ps: and the screen marks it the same way",
+              any(l.startswith("backend") and "·drift" in l for l in printed.splitlines()),
+              printed)
+    finally:
+        obsmod.live_sessions = real
+        con.close()
+
+
 def test_nothing_is_typed_into_a_shell_with_no_session(home: Path) -> None:
     """Orca runs claude as a login shell's child, so a session that ends leaves
     the terminal standing and our handle still working: `send` succeeds and the
@@ -8740,6 +8941,201 @@ def test_wake_injects_handoff(home: Path) -> None:
               "finish the thing" in sent[-1], sent[-1][:120])
     finally:
         orcamod.resume_with, orcamod.alive = real_resume, real_alive
+        con.close()
+
+
+def test_a_drifted_launch_relaunches_instead_of_waking_in_place(home: Path) -> None:
+    """A session still open when a park comes back is normally handed its
+    handoff in place - `test_wake_injects_handoff` above. But the argv and
+    system prompt `build()` produces are fixed at execve; a session launched
+    under an older recipe never picks up a flag or a prompt section added
+    since just by being typed at. Recorded drift catches it instead: the
+    fingerprint this session started with no longer matches what `build()`
+    would produce now, so the wake ends it (with its own session id to come
+    back to) and relaunches fresh, the same way a closed agent's wake already
+    does - rather than carrying the old recipe forward in place.
+    """
+    _daemon_home(home, 20)
+    con = db.connect()
+    real = (orcamod.available, orcamod.alive, orcamod.close_session, orcamod.relaunch,
+            orcamod.resume_with, dmn.wait_for_session)
+    sent: list[str] = []
+    closed: list[str] = []
+    launched: list[str] = []
+    table = sessions_are("backend")
+    try:
+        orcamod.available = lambda: True
+        orcamod.alive = lambda h: True
+        db.set_terminal(con, "backend", "term_x", "wt")
+        write_status(home, "alpha", pct_5h=20, pct_7d=10, ctx_pct=5,
+                     reset_5h=int(time.time()) + 1800)
+        f = paths.agent_status_file("backend")
+        f.parent.mkdir(parents=True, exist_ok=True)
+        f.write_text(json.dumps({"account": "alpha", "collected_at": int(time.time()),
+                                 "session_id": "sess-old", "ctx_pct": 5}))
+        keep_handoff("backend", "# handoff · backend\n## next\n- carry on\n")
+        # Recorded as if an earlier `build()` launched this session - one that
+        # cannot be what `launch.fingerprint` computes now, whatever it is.
+        db.set_launch_fingerprint(con, "backend", "stale-fingerprint")
+        db.set_agent_state(con, "backend", dmn.PARKED, wake_at=int(time.time()) - 10,
+                           detail="usage; wakes soon")
+
+        orcamod.resume_with = lambda h, text: (sent.append(text), (True, "typed"))[1]
+        orcamod.close_session = lambda h, **kw: (closed.append(h), table.pop("backend", None),
+                                                 (True, "session ended"))[2]
+        orcamod.relaunch = lambda h, cmd, started=None: (
+            launched.append(cmd), table.update({"backend": 4242}), (True, "relaunched"))[2]
+        dmn.wait_for_session = lambda agent, timeout=0: True
+
+        ok, why = dmn.wake_agent(con, "backend", lambda _m: None)
+        check("wake: a drifted launch's session is ended first, not typed into",
+              closed == ["term_x"], str(closed))
+        check("wake: and relaunched with its own session id to come back to",
+              launched and "--resume sess-old" in launched[0], str(launched))
+        check("wake: the fresh session is told it was resumed, cleanly - the "
+              "same message a closed agent's ordinary wake sends",
+              sent and "Nothing was lost" in sent[-1], str(sent))
+        check("wake: the relaunch itself is reported as a success", ok, why)
+        row = db.get_agent_state(con, "backend")
+        check("wake: the row is no longer marked closed once it is running again",
+              row["closed_at"] is None, str(dict(row)))
+    finally:
+        (orcamod.available, orcamod.alive, orcamod.close_session, orcamod.relaunch,
+         orcamod.resume_with, dmn.wait_for_session) = real
+        con.close()
+
+
+def test_a_parked_row_with_no_fingerprint_also_relaunches(home: Path) -> None:
+    """A row from before `launch_fingerprint` existed has nothing recorded to
+    compare - not evidence the recipe still matches, since nothing has ever
+    checked it. Left alone, this is the one case an old-format row could sit
+    forever without picking up a flag or a prompt section `build()` has
+    added since it last launched, silently, because there was never a
+    mismatch to catch. It has to relaunch the same way real drift does.
+    """
+    _daemon_home(home, 20)
+    con = db.connect()
+    real = (orcamod.available, orcamod.alive, orcamod.close_session, orcamod.relaunch,
+            orcamod.resume_with, dmn.wait_for_session)
+    sent: list[str] = []
+    closed: list[str] = []
+    launched: list[str] = []
+    table = sessions_are("backend")
+    try:
+        orcamod.available = lambda: True
+        orcamod.alive = lambda h: True
+        db.set_terminal(con, "backend", "term_x", "wt")
+        write_status(home, "alpha", pct_5h=20, pct_7d=10, ctx_pct=5,
+                     reset_5h=int(time.time()) + 1800)
+        f = paths.agent_status_file("backend")
+        f.parent.mkdir(parents=True, exist_ok=True)
+        f.write_text(json.dumps({"account": "alpha", "collected_at": int(time.time()),
+                                 "session_id": "sess-old", "ctx_pct": 5}))
+        keep_handoff("backend", "# handoff · backend\n## next\n- carry on\n")
+        db.set_agent_state(con, "backend", dmn.PARKED, wake_at=int(time.time()) - 10,
+                           detail="usage; wakes soon")
+        # No db.set_launch_fingerprint call at all - the row this migrates
+        # from an older schema looks like.
+        check("wake: the row starts with nothing recorded",
+              db.get_agent_state(con, "backend")["launch_fingerprint"] is None)
+
+        orcamod.resume_with = lambda h, text: (sent.append(text), (True, "typed"))[1]
+        orcamod.close_session = lambda h, **kw: (closed.append(h), table.pop("backend", None),
+                                                 (True, "session ended"))[2]
+        orcamod.relaunch = lambda h, cmd, started=None: (
+            launched.append(cmd), table.update({"backend": 4242}), (True, "relaunched"))[2]
+        dmn.wait_for_session = lambda agent, timeout=0: True
+
+        ok, why = dmn.wake_agent(con, "backend", lambda _m: None)
+        check("wake: an unrecorded fingerprint ends the session, not typed into",
+              closed == ["term_x"], str(closed))
+        check("wake: and relaunches with its own session id to come back to",
+              launched and "--resume sess-old" in launched[0], str(launched))
+        check("wake: the relaunch itself is reported as a success", ok, why)
+    finally:
+        (orcamod.available, orcamod.alive, orcamod.close_session, orcamod.relaunch,
+         orcamod.resume_with, dmn.wait_for_session) = real
+        con.close()
+
+
+
+def test_a_launch_records_its_fingerprint_and_says_when_it_cannot(home: Path) -> None:
+    """Drift is judged against what `_record_terminal` wrote: if that write
+    never lands, the daemon relaunches the session at every wake, so a failed
+    write has to be said, not swallowed."""
+    _daemon_home(home, 20)
+    os.environ["ORCA_TERMINAL_HANDLE"] = "term_rec"
+    real_set, real_err = db.set_launch_fingerprint, sys.stderr
+    try:
+        con = db.connect()
+        launch._record_terminal("backend", "alpha", "fp-123")
+        row = db.get_agent_state(con, "backend")
+        check("record: the launch's fingerprint is written to the row",
+              row and row["launch_fingerprint"] == "fp-123", str(row and dict(row)))
+        check("record: and a row that matches it is not drifted",
+              not launch.drifted("backend", {"launch_fingerprint": launch.fingerprint("backend")}))
+        check("record: one that does not match is",
+              launch.drifted("backend", {"launch_fingerprint": "fp-123"}))
+        check("record: one with nothing recorded is",
+              launch.drifted("backend", {"launch_fingerprint": None}))
+
+        def boom(*a, **k):
+            raise RuntimeError("disk full")
+        db.set_launch_fingerprint = boom
+        sys.stderr = io.StringIO()
+        launch._record_terminal("backend", "alpha", "fp-456")
+        said = sys.stderr.getvalue()
+        check("record: a failed write is reported, and does not block the launch",
+              "could not record this launch" in said and "disk full" in said, said)
+        con.close()
+    finally:
+        db.set_launch_fingerprint, sys.stderr = real_set, real_err
+        os.environ.pop("ORCA_TERMINAL_HANDLE", None)
+
+
+def test_a_drifted_wake_that_cannot_relaunch_says_why(home: Path) -> None:
+    """A drifted session that is neither relaunched nor left alone silently:
+    with no session id to resume, or a session that will not end, the wake
+    falls through to typing in place, and the log has to say that happened."""
+    _daemon_home(home, 20)
+    con = db.connect()
+    real = (orcamod.available, orcamod.alive, orcamod.close_session, orcamod.resume_with,
+            dmn.wait_for_session)
+    table = sessions_are("backend")
+    try:
+        orcamod.available = lambda: True
+        orcamod.alive = lambda h: True
+        db.set_terminal(con, "backend", "term_x", "wt")
+        write_status(home, "alpha", pct_5h=20, pct_7d=10, ctx_pct=5,
+                     reset_5h=int(time.time()) + 1800)
+        keep_handoff("backend", "# handoff · backend\n## next\n- go\n")
+        db.set_launch_fingerprint(con, "backend", "stale-fingerprint")
+        db.set_agent_state(con, "backend", dmn.PARKED, wake_at=int(time.time()) - 10,
+                           detail="usage; wakes soon")
+        orcamod.resume_with = lambda h, text: (True, "typed")
+        dmn.wait_for_session = lambda agent, timeout=0: True
+        f = paths.agent_status_file("backend")
+        f.parent.mkdir(parents=True, exist_ok=True)
+
+        f.write_text(json.dumps({"account": "alpha", "collected_at": int(time.time()),
+                                 "ctx_pct": 5}))
+        logged: list[str] = []
+        dmn.wake_agent(con, "backend", logged.append)
+        check("drift wake: no session id to resume is logged, not silent",
+              any("no session id" in m and "in place" in m for m in logged), str(logged))
+
+        f.write_text(json.dumps({"account": "alpha", "collected_at": int(time.time()),
+                                 "session_id": "sess-old", "ctx_pct": 5}))
+        db.set_agent_state(con, "backend", dmn.PARKED, wake_at=int(time.time()) - 10,
+                           detail="usage; wakes soon")
+        orcamod.close_session = lambda h, **kw: (False, "would not close")
+        logged.clear()
+        dmn.wake_agent(con, "backend", logged.append)
+        check("drift wake: a session that will not end is logged, not silent",
+              any("would not end" in m and "in place" in m for m in logged), str(logged))
+    finally:
+        (orcamod.available, orcamod.alive, orcamod.close_session, orcamod.resume_with,
+         dmn.wait_for_session) = real
         con.close()
 
 
@@ -9592,6 +9988,7 @@ def main() -> int:
         run(lambda: test_a_turn_that_ends_on_the_usage_limit_is_at_the_wall(Path(td) / 'limitstop'))
         run(lambda: test_an_unknown_reset_does_not_make_the_runway_absurd(Path(td) / 'runwayunknown'))
         run(lambda: test_the_panels_bounded_cells_fit_their_own_columns(Path(td) / 'panelwidths'))
+        run(lambda: test_ask_and_resolve_do_not_type_at_an_agent_at_the_wall(Path(td) / 'askwall'))
         run(lambda: test_choose_account_does_not_bounce_back_to_a_stale_preferred_account(
             Path(td) / 'nobounce'))
         run(lambda: test_move_requires_clear_headroom_not_bare_assignability(
@@ -9608,6 +10005,7 @@ def main() -> int:
         run(lambda: test_login_points_at_the_account_and_touches_no_credential(Path(td) / 'login'))
         run(lambda: test_a_fold_with_no_account_says_which_and_why(Path(td) / 'foldacct'))
         run(lambda: test_doctor_says_when_the_record_and_the_process_table_disagree(Path(td) / 'docsess'))
+        run(lambda: test_doctor_and_ps_report_a_drifted_launch(Path(td) / 'docdrift'))
         run(lambda: test_a_fold_is_a_process_not_a_session(Path(td) / 'foldproc'))
         run(lambda: test_who_is_asking_is_not_guessed(Path(td) / 'whoasks'))
         run(lambda: test_a_rejected_fold_still_records_what_it_spent(Path(td) / 'spend'))
@@ -9616,6 +10014,10 @@ def main() -> int:
         run(lambda: test_clear_refuses_mid_turn())
         run(lambda: test_handoff_reclaims_context(Path(td) / 'reclaim'))
         run(lambda: test_wake_injects_handoff(Path(td) / 'wake'))
+        run(lambda: test_a_drifted_launch_relaunches_instead_of_waking_in_place(Path(td) / 'driftwake'))
+        run(lambda: test_a_parked_row_with_no_fingerprint_also_relaunches(Path(td) / 'nofp'))
+        run(lambda: test_a_launch_records_its_fingerprint_and_says_when_it_cannot(Path(td) / 'recfp'))
+        run(lambda: test_a_drifted_wake_that_cannot_relaunch_says_why(Path(td) / 'driftlog'))
         run(lambda: test_hooks_report_activity(Path(td) / 'hooky'))
         run(lambda: test_tui_frame_geometry(Path(td) / 'tui'))
         run(lambda: test_clear_does_not_look_like_waking(Path(td) / 'loopy'))
@@ -9631,6 +10033,7 @@ def main() -> int:
         run(lambda: test_a_second_daemon_is_refused_with_no_pidfile_at_all(Path(td) / 'onedmn'))
         run(lambda: test_an_exiting_daemon_leaves_the_live_ones_name(Path(td) / 'pidname'))
         run(lambda: test_one_daemon_is_counted_in_the_process_table(Path(td) / 'dmnps'))
+        run(lambda: test_process_env_reads_a_gone_pid_as_unreadable(Path(td) / 'procenv'))
         run(lambda: test_a_refused_ask_is_not_a_new_message(Path(td) / 'refused'))
         run(lambda: test_a_refused_ask_is_never_announced_as_an_answer(Path(td) / 'noannounce'))
         run(lambda: test_a_refusal_is_not_read_back_as_an_answer(Path(td) / 'readref'))
