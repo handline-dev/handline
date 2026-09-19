@@ -2632,7 +2632,7 @@ def test_nothing_is_typed_at_a_modal(home: Path) -> None:
                               "? for shortcuts"]
             check("modal: the words higher up in the transcript are not a modal",
                   not orcamod.modal_open("h"))
-            screen["tail"] = ["Enter to confirm · Esc to cancel"]
+            screen["tail"] = ["❯ "]
             screen["source"] = "screen-unavailable"
             check("modal: anything but a rendered screen counts as a modal",
                   orcamod.modal_open("h"))
