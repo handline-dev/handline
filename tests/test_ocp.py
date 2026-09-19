@@ -7125,6 +7125,31 @@ def test_a_stale_snapshot_shows_its_last_figures_and_still_is_not_offered(home: 
     check("stale: and a passed weekly reset", "7d 20% (reset since)" in why, why)
 
 
+def test_a_sweep_after_a_move_does_not_keep_the_old_accounts_session(home: Path) -> None:
+    """keeper 09-19 15:45: moved gamma -> alpha, and eight seconds later the
+    sweep recorded it closed with the gamma session id, which alpha cannot resume."""
+    _daemon_home(home, 20)
+    _with_accounts("alpha", "beta")
+    con = db.connect()
+    real = (orcamod.available, orcamod.live_terminals, obsmod.live_sessions)
+    try:
+        db.set_terminal(con, "backend", "term_x", "wt")
+        db.set_account(con, "backend", "beta")
+        write_agent_status("backend", "alpha", session_id="sess-old",
+                           collected_at=int(time.time()) - status.STALE_AFTER_S - 60)
+        orcamod.available = lambda: True
+        orcamod.live_terminals = lambda: {"term_x"}
+        obsmod.live_sessions = lambda: {}
+        dmn.sweep(con, lambda _m: None, [])
+        row = db.get_agent_state(con, "backend")
+        check("sweep: it is recorded as closed", row["closed_at"] is not None)
+        check("sweep: but not with the session of the account it left",
+              row["resume_session"] is None, str(row["resume_session"]))
+    finally:
+        orcamod.available, orcamod.live_terminals, obsmod.live_sessions = real
+        con.close()
+
+
 def test_the_cap_is_set_from_the_command_line_and_the_bridge(home: Path) -> None:
     _daemon_home(home, 20)
     out = _capture(lambda: climod.main(["account", "cap", "alpha", "3"]))
@@ -9526,6 +9551,9 @@ def main() -> int:
         run(lambda: test_a_working_agent_is_not_handed_off_on_a_percentage(Path(td) / 'ar3'))
         run(lambda: test_the_cold_start_is_measured_and_sets_how_long_to_wait(Path(td) / 'ar4'))
         run(lambda: test_a_stale_snapshot_shows_its_last_figures_and_still_is_not_offered(Path(td) / 'ar4c'))
+
+
+        run(lambda: test_a_sweep_after_a_move_does_not_keep_the_old_accounts_session(Path(td) / 'ar4e'))
         run(lambda: test_agents_that_wall_together_respect_the_cap_and_a_start_is_not_its_own_rival(Path(td) / 'ar4b'))
         run(lambda: test_the_cap_is_set_from_the_command_line_and_the_bridge(Path(td) / 'ar5'))
         run(lambda: test_replaying_0919_makes_fewer_moves_than_the_old_rules(Path(td) / 'ar6'))
