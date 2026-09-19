@@ -474,6 +474,83 @@ def deliver_queued(con, agent: str, log) -> bool:
         return _tell(con, agent, head, depth, handle, log)
 
 
+# An agent is asked to resolve the request at the head of its queue once it has
+# been idle this long with nothing of its own outstanding. Ten minutes: a turn
+# that ended and left the request open is not thinking, and a real wait on
+# something that is not an ask (a long job) can still say so when it is asked;
+# shorter would nag an agent between two turns of a task.
+NUDGE_AFTER_S = 600
+# The same idle stretch, still unresolved after the nudge, is what the human is
+# shown. Thirty minutes is the longest silence the daemon calls healthy
+# (STUCK_RUNNING_S), so the screen and the RUNNING label agree on what stuck is.
+FORGOTTEN_STUCK_S = STUCK_RUNNING_S
+# A nudge that could not be typed (mid-turn, a modal) is not asked again for
+# this long, because the idle probe that says no costs its whole timeout.
+NUDGE_RETRY_S = 60
+
+
+def forgotten_resolve(con, agent: str, row, now: int) -> dict | None:
+    """The head of this agent's queue, if it looks like a resolve nobody wrote.
+
+    IDLE with a live terminal, the head delivered and told and still open, and
+    nothing the agent asked that is still unanswered - which is what separates
+    a request forgotten from one being waited on, since an agent waiting on an
+    answer is also IDLE with its head open. Idle time counts from the later of
+    its last activity and the delivery.
+    """
+    if not row or row["state"] != IDLE or row["closed_at"] or not row["terminal"]:
+        return None
+    head = db.head_of_queue(con, agent)
+    if not head or not head["delivered_at"] \
+            or db.get_cursor(con, f"notify:{agent}") != int(head["id"]):
+        return None
+    if db.open_asks_of(con, agent) or db.unannounced_answers(con, agent):
+        return None
+    idle = now - max(int(head["delivered_at"]), db.last_activity(con, agent) or 0)
+    return {"head": head, "idle_s": idle, "behind": db.queue_depth(con, agent) - 1}
+
+
+def nudge_forgotten_resolve(con, agent: str, row, now: int, log) -> bool:
+    """Type one reminder at an agent that has left its head request open.
+
+    Never resolves for it: the verdict is the agent's to write. Once per
+    request, gated like a delivery (not at the wall, nothing typed at a modal or
+    a working agent), and nothing here touches an attempt counter, so it cannot
+    stall an agent.
+    """
+    found = forgotten_resolve(con, agent, row, now)
+    if not found or found["idle_s"] < NUDGE_AFTER_S:
+        return False
+    head = found["head"]
+    if db.get_cursor(con, f"nudge:{agent}") == int(head["id"]) \
+            or now - db.get_cursor(con, f"nudge_try:{agent}") < NUDGE_RETRY_S:
+        return False
+    db.set_cursor(con, f"nudge_try:{agent}", now)
+    handle = db.get_terminal(con, agent)
+    if wall_reason(con, agent) or not handle or not orca.available() \
+            or not orca.alive(handle) or not session_present(agent) \
+            or not orca.typeable_now(handle):
+        return False
+    behind = found["behind"]
+    with lock.terminal(agent) as mine:
+        if not mine:
+            return False
+        ok, _ = orca.send(
+            handle,
+            f"#{head['id']} was delivered to you and is still open, and you have been "
+            f"idle {status.ago(found['idle_s'])}"
+            + (f" with {behind} more waiting behind it" if behind else "")
+            + f". If the work is done, `ocp resolve {head['id']} \"<verdict>\"`; if it is "
+            f"not, say what you are waiting on.")
+    if ok:
+        db.set_cursor(con, f"nudge:{agent}", int(head["id"]))
+        db.add_event(con, agent, "nudged", {"request_id": head["id"],
+                                            "idle_s": found["idle_s"], "behind": behind})
+        log(f"  {agent}: idle {status.ago(found['idle_s'])} with #{head['id']} open and "
+            f"nothing outstanding - nudged to resolve it")
+    return ok
+
+
 def _tell(con, agent: str, head, depth: int, handle: str, log) -> bool:
     more = depth - 1
     body = head["body"] or "(empty)"
@@ -1620,6 +1697,7 @@ def supervise(con, agent: str, log, now: int, samples: dict,
         # still unanswered is the wrong order.
         deliver_answers(con, agent, log)
         deliver_queued(con, agent, log)
+        nudge_forgotten_resolve(con, agent, row, now, log)
 
     # Memory is the scarce resource on one laptop running a team, and an
     # idle session spends it while earning nothing: it holds its context,
