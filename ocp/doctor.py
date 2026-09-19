@@ -349,8 +349,8 @@ def _check_pidfile(r: Report) -> None:
     if pid:
         r.add(OK, f"daemon running (pid {pid})")
     else:
-        r.add(WARN, "stale pidfile was reclaimed",
-              "it named a dead process or a previous boot")
+        r.add(WARN, "pidfile names a dead process or a previous boot",
+              "stale - the next daemon to start overwrites it; nothing else clears it")
 
 
 def _check_one_daemon(r: Report) -> None:

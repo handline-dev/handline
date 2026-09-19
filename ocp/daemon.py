@@ -141,7 +141,14 @@ def clear_pidfile() -> None:
 
 
 def running_elsewhere() -> int | None:
-    """PID of a live daemon, or None. Stale pidfiles are reclaimed (8.4)."""
+    """PID of a live daemon, or None on a stale pidfile - never touching it.
+
+    A reader that also deletes is still a race: write_pidfile is a plain
+    write_text, so a daemon that writes between this read and a reader's
+    unlink is erased unrecorded, the state this system spent a night in. The
+    daemon only ever writes this file under `lock.singleton`, overwriting
+    whatever is there, so nothing but the holder itself needs to clear it.
+    """
     info = read_pidfile()
     if not info:
         return None
@@ -153,23 +160,21 @@ def running_elsewhere() -> int | None:
     # guessing "stale" would let a second daemon start alongside a live one.
     current_boot = boot_time()
     if boot and current_boot and boot != current_boot:
-        _reclaim(pid)
         return None
     try:
         os.kill(int(pid), 0)
     except (OSError, ValueError):
-        _reclaim(pid)
         return None
     return int(pid)
 
 
 def _reclaim(stale_pid) -> None:
-    """Drop a pidfile that names `stale_pid`, and only while it still does.
+    """Drop the pidfile, but only while it still names `stale_pid`.
 
-    Every reader calls `running_elsewhere`, and a daemon that starts between
-    the read and the unlink writes its own name into the window. Deleting it
-    unrecorded is the state this system spent a night in: a live supervisor
-    that `ocp ps` reported as not running.
+    The one caller is `clear_pidfile`, on the way out - the guard is for a
+    daemon that starts between this exit and the unlink, so it does not
+    erase the new holder's own name (see `running_elsewhere`, which no
+    longer reclaims anything itself).
     """
     info = read_pidfile()
     if info and info.get("pid") == stale_pid:
@@ -184,12 +189,21 @@ def _supervises_this_home(pid: int) -> bool:
     spellings: /tmp and /private/tmp are one place on macOS, and an unresolved
     comparison answers "somebody else's" about our own duplicate.
     """
-    home = obs.env_of(pid, "OCP_HOME")
-    if home is None:
-        # Unreadable and unset are the same answer: a supervisor we cannot
-        # place is the one worth naming, and silence is what let two run.
+    env = obs.process_env(pid)
+    if env is None:
+        # Unreadable is the one worth naming: a supervisor we cannot place is
+        # exactly the one silence let run twice.
         return True
-    return os.path.realpath(Path(home).expanduser()) == os.path.realpath(paths.home())
+    # Read, but not set: `ocp launch` (and launchd) set OCP_HOME, but a daemon
+    # started by hand usually does not, and that process still runs against
+    # the default home - not against ours just because we could not name one.
+    home = None
+    for token in env.split():
+        if token.startswith("OCP_HOME="):
+            home = token.split("=", 1)[1]
+            break
+    home_path = Path(home).expanduser() if home else (Path.home() / ".orcapipe")
+    return os.path.realpath(home_path) == os.path.realpath(paths.home())
 
 
 def processes() -> list[int]:
@@ -205,12 +219,13 @@ def processes() -> list[int]:
     found = []
     for pid, cmd in obs.process_table() or []:
         argv = cmd.split()
-        # The program being run: our own path, `daemon` next, and both at the
-        # front of the command line. Anywhere else in it is somebody talking
-        # about us - a `grep -n ocp daemon`, an editor on this file, a session
-        # whose system prompt quotes the command.
+        # The program being run: our own path, `daemon` next, and both near the
+        # front of the command line - allowing for `python3 -u /path/ocp
+        # daemon`, launchd's own way of running it. Anywhere else in it is
+        # somebody talking about us - a `grep -n ocp daemon`, an editor on
+        # this file, a session whose system prompt quotes the command.
         if not any(argv[i].endswith("/ocp") and argv[i + 1] == "daemon"
-                   for i in range(min(2, len(argv) - 1))):
+                   for i in range(min(3, len(argv) - 1))):
             continue
         if pid != mine and _supervises_this_home(pid):
             found.append(pid)
