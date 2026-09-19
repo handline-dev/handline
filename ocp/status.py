@@ -560,7 +560,7 @@ def describe_runway(r: Runway | None) -> str:
         return ""
     line = triggers.MOVE_LINE_5H
     if r.left_5h == 0:
-        return f"at {line}%"
+        return f"past {line}%"
     if not r.burning:
         return "no recent burn"
     return "lasts past reset" if r.past_reset else f"~{_hm(r.eta_s)} to {line}%"
