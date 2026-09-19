@@ -698,8 +698,9 @@ def _wake_agent(con, agent: str, log, moved_to: str | None = None,
             # session. A failed fold keeps the id, since the session is the
             # only complete copy of the context.
             rescued = False
-            elsewhere = _room_to_move(agent) if session else None
-            if elsewhere and elsewhere != acct and status.read(elsewhere).assignable()[0]:
+            elsewhere = _room_to_move(agent) if session and not _fold_backing_off(con, agent) \
+                else None
+            if elsewhere and elsewhere != acct and _takes_work(elsewhere):
                 hid = uuid.uuid4().hex[:12]
                 db.start_handoff(con, hid, agent, session, "pinned",
                                  db.get_cursor(con, f"fold:{agent}"),
@@ -1093,6 +1094,22 @@ def perform_handoff(con, agent: str, trigger: triggers.Trigger, log,
 MOVABLE_TRIGGERS = ("usage", "usage_7d", "usage_projected")
 
 
+def _takes_work(acct: str) -> bool:
+    """Can this account start a session? bootstrap: a never-run account has no
+    status.json, which a plain assignable() refuses and bootstrap exists to lift."""
+    return status.pick_account([acct], bootstrap=True)[0] == acct
+
+
+def _fold_backing_off(con, agent: str) -> bool:
+    """A fold that keeps failing is not retried every tick: the same backoff a
+    degraded handoff waits out."""
+    row = db.get_agent_state(con, agent)
+    streak = int(row["throttle_count"]) if row else 0
+    last = con.execute("SELECT MAX(updated) AS t FROM handoff WHERE agent = ?",
+                       (agent,)).fetchone()["t"]
+    return bool(streak and last and int(time.time()) < int(last) + backoff_for(streak))
+
+
 def _room_to_move(agent: str) -> str | None:
     """Where a move may land: judged on the line the trigger fires at, not the
     hard stop, since an account the daemon just decided is too full to work on
@@ -1124,12 +1141,15 @@ def _move_to_room(con, agent: str, trigger: triggers.Trigger, log) -> bool:
         log(f"  {agent}: staying on {here} - nowhere with room to move to")
         return False
     there_st = status.read(there)
-    # bootstrap: `there` may be a never-run account find_room just chose,
-    # which a plain assignable() would refuse for having no status.json.
-    allowed = status.pick_account([there], bootstrap=True)[0] == there
+    allowed = _takes_work(there)
     why = "" if allowed else there_st.assignable()[1]
     if not allowed:
         log(f"  {agent}: staying on {here} - {there} takes no work either ({why})")
+        return False
+    week = there_st.trusted_pct_7d
+    if trigger.kind == "usage_7d" and week is not None \
+            and week >= triggers.PCT_7D_HARD_STOP - triggers.DEFAULT_RESERVE_7D_PCT:
+        log(f"  {agent}: staying on {here} - {there} is at 7d {week}% too")
         return False
     picked_why = f"5h {there_st.trusted_pct_5h}%, 7d {there_st.trusted_pct_7d}%"
     handle = db.get_terminal(con, agent)

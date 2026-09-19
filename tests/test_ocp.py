@@ -5624,6 +5624,11 @@ def test_room_is_filtered_before_the_ranking_not_after(home: Path) -> None:
         row = db.get_agent_state(con, "keeper")
         check("rescue: a failed fold keeps the resume id and waits",
               not ok and row["resume_session"] == "sess-old", f"{why} {dict(row)}")
+        calls = []
+        foldmod.fold = lambda agent, use_model=True: (calls.append(1), (False, "no"))[1]
+        dmn._wake_agent(con, "keeper", lambda _m: None, use_model=False)
+        dmn._wake_agent(con, "keeper", lambda _m: None, use_model=False)
+        check("rescue: a failing fold is not retried on the next tick", not calls, str(calls))
     finally:
         orcamod.available, foldmod.fold = real
         con.close()
