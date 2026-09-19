@@ -251,14 +251,20 @@ def close_session(handle: str, wait: bool = True,
     the machine, terminal still running, prompt in the same worktree.
 
     Same guard as clearing - ending a session mid-turn throws away work that
-    nothing has recorded yet.
+    nothing has recorded yet - and nothing is typed at a modal, where `/exit`
+    and Enter answer the question instead of ending anything.
+
+    "Ok" means the command was typed. Whether the process ended is the
+    caller's to confirm from the process table.
     """
     if not alive(handle):
         return False, f"terminal {handle} is not alive"
     if wait and not wait_idle(handle, timeout_ms):
         return False, "agent is mid-turn; not closing"
+    if modal_open(handle):
+        return False, "a modal is open on its screen; not typing /exit at it"
     ok, out = send(handle, "/exit")
-    return ok, "session closed" if ok else f"could not send /exit: {out[:200]}"
+    return ok, "/exit typed" if ok else f"could not send /exit: {out[:200]}"
 
 
 def relaunch(handle: str, command: str, timeout_ms: int = IDLE_TIMEOUT_MS,

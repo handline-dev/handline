@@ -707,12 +707,19 @@ def clear_closed(con, agent: str) -> None:
     )
 
 
+def last_event_ts(con, agent: str, kind: str) -> int | None:
+    row = con.execute("SELECT MAX(ts) AS t FROM events WHERE agent = ? AND kind = ?",
+                      (agent, kind)).fetchone()
+    return int(row["t"]) if row and row["t"] is not None else None
+
+
 def last_activity(con, agent: str) -> int | None:
     """When this agent last did anything we can see. Its own hook events are
     the record - the daemon's bookkeeping about an agent is not activity."""
     row = con.execute(
         "SELECT MAX(ts) AS t FROM events WHERE agent = ? AND kind NOT IN "
-        "('fold', 'fold_failed', 'handoff', 'park', 'close', 'wake', 'notified', 'nudged')", (agent,)
+        "('fold', 'fold_failed', 'handoff', 'park', 'close', 'close_failed', 'wake', "
+        "'notified', 'nudged')", (agent,)
     ).fetchone()
     return int(row["t"]) if row and row["t"] is not None else None
 

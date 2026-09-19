@@ -31,6 +31,10 @@ from ocp import (accounts, actions, agents, ask as askmod, cli as climod, daemon
 
 PASS, FAIL = [], []
 
+# A stand-in `close_session` that does not also end the session in the fake
+# process table would otherwise wait out the real minute before failing.
+dmn.END_WAIT_S, dmn.END_POLL_S = 0.3, 0.05
+
 # Every test that needs an Orca stands in for one, and a restore tuple that
 # forgot a name used to leak that stand-in into every test after it. Captured
 # once, put back by _daemon_home, so no test inherits another's world.
@@ -91,7 +95,21 @@ def sessions_are(*agents: str) -> dict[str, int]:
     """
     table = {a: 4200 + i for i, a in enumerate(agents)}
     obsmod.live_sessions = lambda: dict(table)
+    _SESSION_TABLE["t"] = table
     return table
+
+
+_SESSION_TABLE: dict = {"t": {}}
+
+
+def exit_ends_session(agent: str):
+    """A `close_session` stand-in whose `/exit` takes: the session leaves the
+    process table, which is what the daemon waits to see before it marks a
+    close."""
+    def close(h, **kw):
+        _SESSION_TABLE["t"].pop(agent, None)
+        return True, "/exit typed"
+    return close
 
 
 @contextlib.contextmanager
@@ -2686,6 +2704,144 @@ def test_an_open_head_request_on_an_idle_agent_is_nudged_then_shown(home: Path) 
     finally:
         (orcamod.alive, orcamod.send, orcamod.available, orcamod.typeable_now,
          dmn.wall_reason) = real
+        con.close()
+
+
+def test_a_close_is_recorded_only_once_the_process_has_ended(home: Path) -> None:
+    """`/exit` typed is not a session ended: one was eaten outright and another
+    took 31s to die, and either way a row marked closed over a live process was
+    reverted by the sweep as "running again" while a relaunch typed at that
+    terminal landed in the old session as a prompt."""
+    _daemon_home(home, 20)
+    con = db.connect()
+    typed: list[str] = []
+    real = (orcamod.alive, orcamod.wait_idle, orcamod.send, orcamod.available,
+            orcamod.modal_open, db.set_closed)
+    state = {"exiting": False, "reads": 0, "leaves_after": 3, "modal": False}
+    seen_at_mark: list[dict] = []
+    try:
+        orcamod.available = lambda: True
+        orcamod.live_terminals = lambda: {"term_x"}
+        orcamod.alive = lambda h: True
+        orcamod.wait_idle = lambda h, timeout_ms=0: True
+        orcamod.modal_open = lambda h: state["modal"]
+        sessions_are("backend")
+
+        def live() -> dict:
+            if state["exiting"]:
+                state["reads"] += 1
+                if state["leaves_after"] is not None and state["reads"] > state["leaves_after"]:
+                    return {}
+            return {"backend": 4200}
+        obsmod.live_sessions = live
+
+        def send(handle: str, text: str, enter: bool = True):
+            typed.append(text)
+            state["exiting"] = text == "/exit"
+            return True, ""
+        orcamod.send = send
+
+        def set_closed(c, agent, session_id):
+            seen_at_mark.append(live())
+            real[5](c, agent, session_id)
+        db.set_closed = set_closed
+
+        db.set_terminal(con, "backend", "term_x", "wt")
+        agent_dir = home / "agents" / "backend"
+        agent_dir.mkdir(parents=True, exist_ok=True)
+        (agent_dir / "status.json").write_text(json.dumps({
+            "account": "alpha", "collected_at": int(time.time()), "session_id": "sess-1",
+            "pct_5h": 20, "ctx_pct": 8}))
+        st = status.read_for_agent("backend", "alpha")
+
+        # It dies a few reads after /exit, as a slow teardown does.
+        ok, why = dmn._close_agent(con, "backend", lambda _m: None, st)
+        check("close: a session that leaves the process table is closed", ok, why)
+        check("close: and was already gone when the row was marked",
+              seen_at_mark and "backend" not in seen_at_mark[-1], str(seen_at_mark))
+
+        # It never dies: nothing is marked, nothing is retried, nothing is killed.
+        db.clear_closed(con, "backend")
+        con.execute("DELETE FROM events WHERE kind = 'close'")
+        typed.clear()
+        state.update(exiting=False, reads=0, leaves_after=None)
+        ok, why = dmn._close_agent(con, "backend", lambda _m: None, st)
+        row = db.get_agent_state(con, "backend")
+        check("close: a session still running after /exit is not closed", not ok, why)
+        check("close: and says so", "still running" in why, why)
+        check("close: the row is not marked closed, so the sweep has nothing to revert",
+              row["closed_at"] is None, str(row["closed_at"]))
+        check("close: no close event is written",
+              not con.execute("SELECT 1 FROM events WHERE kind = 'close'").fetchone())
+        check("close: /exit is typed once, not again at whatever ate it", typed == ["/exit"],
+              str(typed))
+
+        # A modal on screen: /exit and Enter would answer it.
+        typed.clear()
+        state.update(exiting=False, reads=0, leaves_after=3, modal=True)
+        ok, why = dmn._close_agent(con, "backend", lambda _m: None, st)
+        check("close: nothing is typed at a modal", not typed and not ok and "modal" in why,
+              f"{typed} {why}")
+    finally:
+        (orcamod.alive, orcamod.wait_idle, orcamod.send, orcamod.available,
+         orcamod.modal_open, db.set_closed) = real
+        con.close()
+
+
+def test_a_close_that_will_not_take_is_not_tried_again_every_tick(home: Path) -> None:
+    """The idle schedule asks `should_close` every tick. A session that does
+    not die after /exit must not be typed at again, and must not hold the
+    daemon for the whole wait again, on each of them."""
+    _daemon_home(home, 20)
+    con = db.connect()
+    typed: list[str] = []
+    waits: list[str] = []
+    real = (orcamod.alive, orcamod.wait_idle, orcamod.send, orcamod.available,
+            orcamod.modal_open, dmn._wait_session_gone)
+    try:
+        orcamod.available = lambda: True
+        orcamod.live_terminals = lambda: {"term_x"}
+        orcamod.alive = lambda h: True
+        orcamod.wait_idle = lambda h, timeout_ms=0: True
+        orcamod.modal_open = lambda h: False
+        orcamod.send = lambda h, text, enter=True: (typed.append(text), (True, ""))[1]
+        sessions_are("backend")               # and it stays there whatever is typed
+        dmn._wait_session_gone = lambda agent: (waits.append(agent), False)[1]
+        db.set_terminal(con, "backend", "term_x", "wt")
+        now = int(time.time())
+        write_status(home, "alpha", pct_5h=20, pct_7d=10, ctx_pct=8,
+                     reset_5h=now + 1800)
+        agent_dir = home / "agents" / "backend"
+        agent_dir.mkdir(parents=True, exist_ok=True)
+        (agent_dir / "status.json").write_text(json.dumps({
+            "account": "alpha", "collected_at": now, "session_id": "sess-1",
+            "pct_5h": 20, "ctx_pct": 8}))
+        db.add_event(con, "backend", "Stop", {})
+        con.execute("UPDATE events SET ts = ? WHERE agent = 'backend'",
+                    (now - dmn.IDLE_CLOSE_S - 60,))
+        st = status.read_for_agent("backend", "alpha")
+        check("close: the idle session is due to be closed",
+              dmn.should_close(con, "backend", dmn.IDLE, db.get_agent_state(con, "backend"), now, st))
+
+        for _ in range(3):
+            dmn.supervise(con, "backend", lambda _m: None, int(time.time()), {}, [])
+        check("close: three ticks over a session that will not die type /exit once",
+              typed.count("/exit") == 1, str(typed))
+        check("close: and wait for it once", len(waits) == 1, str(waits))
+        check("close: the failure is on the record",
+              db.last_event_ts(con, "backend", "close_failed") is not None)
+        row = db.get_agent_state(con, "backend")
+        check("close: and the row is not marked closed", row["closed_at"] is None)
+        check("close: a failed close is not activity - it does not restart the idle clock",
+              db.last_activity(con, "backend") == now - dmn.IDLE_CLOSE_S - 60)
+
+        # One idle window later it is tried again.
+        later = now + dmn.IDLE_CLOSE_S + 1
+        check("close: after a full idle window it is due again",
+              dmn.should_close(con, "backend", dmn.IDLE, row, later, st))
+    finally:
+        (orcamod.alive, orcamod.wait_idle, orcamod.send, orcamod.available,
+         orcamod.modal_open, dmn._wait_session_gone) = real
         con.close()
 
 
@@ -6703,7 +6859,7 @@ def test_weekly_headroom_is_spent_to_its_own_wall(home: Path) -> None:
             orcamod.available = lambda: True
             orcamod.alive = lambda h: True
             orcamod.idle_now = lambda h: True
-            orcamod.close_session = lambda h, **kw: (True, "session ended")
+            orcamod.close_session = exit_ends_session("keeper")
             orcamod.relaunch = lambda h, cmd, **kw: (True, "relaunched")
             dmn.wait_for_session = lambda agent, timeout=0: True
             keep_handoff("keeper", "# handoff · keeper\n## 다음\n- carry on\n")
@@ -6748,9 +6904,10 @@ def test_an_agent_at_the_wall_moves_to_an_account_with_room(home: Path) -> None:
         orcamod.alive = lambda h: True
         orcamod.idle_now = lambda h: True
         orcamod.clear_context = lambda h, **kw: (True, "cleared")
-        orcamod.close_session = lambda h, **kw: (True, "session ended")
+        orcamod.close_session = exit_ends_session("keeper")
         orcamod.resume_with = lambda h, text: (True, "handed back")
-        orcamod.relaunch = lambda h, cmd, **kw: (launched.append(cmd), (True, "relaunched"))[1]
+        orcamod.relaunch = lambda h, cmd, **kw: (
+            launched.append(cmd), _SESSION_TABLE["t"].update({"keeper": 4300}), (True, "relaunched"))[2]
         dmn.wait_for_session = lambda agent, timeout=0: True
         sessions_are("keeper")
         db.set_terminal(con, "keeper", "term_x", "wt")
@@ -7519,7 +7676,7 @@ def test_move_requires_clear_headroom_not_bare_assignability(home: Path) -> None
             orcamod.available = lambda: True
             orcamod.alive = lambda h: True
             orcamod.idle_now = lambda h: True
-            orcamod.close_session = lambda h, **kw: (True, "session ended")
+            orcamod.close_session = exit_ends_session("keeper")
             orcamod.relaunch = lambda h, cmd, **kw: (True, "relaunched")
             dmn.wait_for_session = lambda agent, timeout=0: True
             keep_handoff("keeper", "# handoff · keeper\n## 다음\n- carry on\n")
@@ -7563,7 +7720,7 @@ def test_move_to_room_reaches_a_bootstrap_account(home: Path) -> None:
         orcamod.alive = lambda h: True
         orcamod.idle_now = lambda h: True
         orcamod.clear_context = lambda h, **kw: (True, "cleared")
-        orcamod.close_session = lambda h, **kw: (True, "session ended")
+        orcamod.close_session = exit_ends_session("keeper")
         orcamod.resume_with = lambda h, text: (True, "handed back")
         orcamod.relaunch = lambda h, cmd, **kw: (True, "relaunched")
         dmn.wait_for_session = lambda agent, timeout=0: True
@@ -10416,6 +10573,91 @@ def test_the_accounts_panel_adds_and_removes(home: Path) -> None:
           "backend" in line and "alpha" in paths.list_accounts(), line)
 
 
+def test_dismissing_an_agents_own_answered_request_keeps_its_verdict(home: Path) -> None:
+    """Auditor's should-fix on #283: `cmd_dismiss` lets a requester clear its
+    own row once it has left 'queued', but `actions.dismiss` only special-cased
+    that for the human - an agent's own answered request fell through to
+    `resolve`, which stamped "read - no reply" over the verdict the target
+    actually wrote. Dismissing must never rewrite an answer, whoever asked for
+    it, and doing it twice must not either."""
+    _two_agents_one_slot(home)
+    ok, said, rid = askmod.ask("b", "spec?", requester="a")
+    check("dismiss: the ask went through", ok, said)
+    askmod.resolve(rid, "yes, ship it")
+
+    con = db.connect()
+    try:
+        actions.dismiss(con, rid)
+        check("dismiss: an agent's own answered request keeps its verdict",
+              db.get_request(con, rid)["verdict"] == "yes, ship it",
+              db.get_request(con, rid)["verdict"])
+        check("dismiss: and is marked read",
+              db.get_request(con, rid)["announced_at"] is not None)
+
+        actions.dismiss(con, rid)
+        check("dismiss: dismissing it a second time still keeps the verdict",
+              db.get_request(con, rid)["verdict"] == "yes, ship it",
+              db.get_request(con, rid)["verdict"])
+    finally:
+        con.close()
+
+    # The same, through the CLI path `cmd_dismiss` actually takes.
+    ok, said, rid2 = askmod.ask("b", "spec 2?", requester="a")
+    check("dismiss: the second ask went through", ok, said)
+    askmod.resolve(rid2, "no, hold it")
+    os.environ["OCP_AGENT"] = "a"
+    try:
+        out = _capture(lambda: climod.main(["dismiss", str(rid2)]))
+    finally:
+        os.environ.pop("OCP_AGENT", None)
+    con = db.connect()
+    try:
+        check("dismiss: `ocp dismiss` on your own answered row keeps it too",
+              db.get_request(con, rid2)["verdict"] == "no, hold it", out)
+    finally:
+        con.close()
+
+
+def test_dismissing_your_own_answer_does_not_announce_it_for_the_requester(
+        home: Path) -> None:
+    """Auditor's should-fix on #313: a TARGET dismissing a row it already
+    answered must not stamp announced_at on the requester's behalf - that
+    would mark the row as told when the requester has never actually seen
+    it."""
+    _two_agents_one_slot(home)
+    ok, said, rid = askmod.ask("b", "spec?", requester="a")
+    check("dismiss: the ask went through", ok, said)
+    askmod.resolve(rid, "yes, ship it")
+
+    con = db.connect()
+    try:
+        check("dismiss: unannounced to start",
+              rid in [r["id"] for r in db.unannounced_answers(con, "a")])
+        out = actions.dismiss(con, rid, me="b")
+        check("dismiss: the target is told there is nothing more to do",
+              "nothing more" in out, out)
+        check("dismiss: the verdict is untouched",
+              db.get_request(con, rid)["verdict"] == "yes, ship it")
+        check("dismiss: ...and the requester is still owed the answer",
+              rid in [r["id"] for r in db.unannounced_answers(con, "a")],
+              str(dict(db.get_request(con, rid))))
+    finally:
+        con.close()
+
+    # Through the CLI: `b` dismissing its own outgoing answer is the same no-op.
+    os.environ["OCP_AGENT"] = "b"
+    try:
+        out = _capture(lambda: climod.main(["dismiss", str(rid)]))
+    finally:
+        os.environ.pop("OCP_AGENT", None)
+    con = db.connect()
+    try:
+        check("dismiss: `ocp dismiss` from the target is the same no-op",
+              rid in [r["id"] for r in db.unannounced_answers(con, "a")], out)
+    finally:
+        con.close()
+
+
 def test_tui_frame_geometry(home: Path) -> None:
     """A frame must fill the screen exactly: every line the requested width,
     and exactly as many lines as the terminal has. Anything else scrolls the
@@ -10652,6 +10894,8 @@ def main() -> int:
         run(lambda: test_spawn_base_selection(Path(td) / 'spawn'))
         run(lambda: test_idle_session_is_closed_and_resumed(Path(td) / 'idle'))
         run(lambda: test_an_open_head_request_on_an_idle_agent_is_nudged_then_shown(Path(td) / 'nudge'))
+        run(lambda: test_a_close_is_recorded_only_once_the_process_has_ended(Path(td) / 'exitwait'))
+        run(lambda: test_a_close_that_will_not_take_is_not_tried_again_every_tick(Path(td) / 'exitretry'))
         run(lambda: test_wake_without_a_closed_session_uses_the_handoff(Path(td) / 'wakeh'))
         run(lambda: test_reconcile_does_not_clear_closed_at_on_a_failed_wake(Path(td) / 'crashwake'))
         run(lambda: test_work_arriving_wakes_a_closed_agent(Path(td) / 'wakework'))
@@ -10809,6 +11053,10 @@ def main() -> int:
         run(lambda: test_a_refused_ask_is_not_a_new_message(Path(td) / 'refused'))
         run(lambda: test_a_refused_ask_is_never_announced_as_an_answer(Path(td) / 'noannounce'))
         run(lambda: test_a_refusal_is_not_read_back_as_an_answer(Path(td) / 'readref'))
+        run(lambda: test_dismissing_an_agents_own_answered_request_keeps_its_verdict(
+            Path(td) / 'dismissverdict'))
+        run(lambda: test_dismissing_your_own_answer_does_not_announce_it_for_the_requester(
+            Path(td) / 'dismissownanswer'))
         run(lambda: test_two_processes_cannot_both_supervise_one_home(Path(td) / 'twoproc'))
         run(lambda: test_the_screen_says_when_two_daemons_are_running(Path(td) / 'dmnwarn'))
         run(lambda: test_run_recovers_from_an_uncaught_error())
