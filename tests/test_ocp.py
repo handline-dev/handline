@@ -14693,6 +14693,20 @@ edges:
         ok, said = hr.withdraw(pid, "hr")
         check("withdraw: and cannot be withdrawn twice", not ok, said)
 
+        # An approved but unapplied one, withdrawn: nothing enacts it after.
+        ok, said = hr.propose("add", "dohyun", requester="hr", why="third", account="beta")
+        pid3 = said.split()[1]
+        rid3 = int(said.split("#")[1].split(".")[0])
+        check("answer: an open proposal refuses a non-decision",
+              "approve" in actions.answer(con, rid3, "later")
+              and db.get_request(con, rid3)["state"] == "queued")
+        actions.answer(con, rid3, "approve")
+        ok, said = hr.withdraw(pid3, actions.HUMAN)
+        check("withdraw: the founder may withdraw an approved, unapplied proposal", ok, said)
+        ok, said = hr.apply(pid3)
+        check("withdraw: and apply then refuses it - approve, withdraw, apply enacts nothing",
+              not ok and "withdrawn" in said and "dohyun" not in paths.list_agents(), said)
+
         # Withdrawn while still unanswered: the escalation closes with it.
         ok, said = hr.propose("add", "dohyun", requester="hr", why="again", account="beta")
         pid2 = said.split()[1]

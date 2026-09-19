@@ -296,6 +296,8 @@ def apply(pid: str, con=None) -> tuple[bool, str]:
         return False, f"{pid} is not a proposal"
     if prop.get("state") == "applied":
         return False, f"proposal {pid} was already applied on {_when(prop.get('applied'))}"
+    if prop.get("state") == "withdrawn":
+        return False, f"proposal {pid} was withdrawn"
     own = con is None
     con = con or db.connect()
     try:
@@ -337,10 +339,12 @@ def apply(pid: str, con=None) -> tuple[bool, str]:
 def withdraw(pid: str, me: str, con=None) -> tuple[bool, str]:
     """The proposal's own author, or the founder, takes it back.
 
-    The way out of a proposal that has no decision and will get none: an
-    escalation closed without approve or reject leaves `apply` refusing it and
-    nothing else able to end it. Only an undecided proposal can be withdrawn;
-    the escalation is closed with it, unread by nobody, so no one is told.
+    The way out of a proposal that will get no decision: an escalation closed
+    without approve or reject leaves `apply` refusing it and nothing else able
+    to end it. Anything not yet applied can be withdrawn, an approved one
+    included, and `apply` refuses a withdrawn one. A still-queued escalation
+    is closed with it and marked told: the proposer is not messaged, whoever
+    withdrew.
     """
     prop = load_proposal(pid)
     if not prop:

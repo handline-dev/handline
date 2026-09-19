@@ -202,6 +202,9 @@ def answer_ok(con, rid: int, verdict: str) -> tuple[bool, str]:
             # to dismiss what they have just answered.
             db.mark_announced(con, [rid])
         return ok, msg
+    if row["state"] == "queued" and hr.is_open_proposal(rid) \
+            and hr.decision(verdict) == "unclear":
+        return False, f"#{rid} is a roster proposal - answer `approve` or `reject`"
     return askmod.resolve(rid, verdict)
 
 
