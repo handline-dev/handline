@@ -14648,6 +14648,63 @@ edges:
         tui.EXPANDED.clear()
 
 
+def test_a_proposal_dismissed_in_the_bridge_is_never_stranded(home: Path) -> None:
+    """Founder #689: "read" on a proposal escalation closed it with a verdict
+    that is neither approve nor reject, and the proposal stayed `proposed`
+    with a red row nothing could clear. The bridge's own dismiss now refuses a
+    proposal that is still open, and the proposer can withdraw it, which takes
+    it off the founder's list. The stranded state itself (a request closed by
+    an older build) is built by hand and cleared the same way."""
+    _daemon_home(home, 20)
+    con = db.connect()
+    try:
+        accounts.register("beta")
+        agents.register("hr", "beta")
+        (home / "team.yaml").write_text("""
+agents:
+  hr: { intake: serial }
+edges:
+  - { from: "*", to: "human", kind: escalate, creates_gate: true }
+""")
+        def rows():
+            return [w for w in actions.founder_waits(con) if w["kind"] == "proposal"]
+        ok, said = hr.propose("add", "dohyun", requester="hr", why="more hands",
+                              account="beta")
+        pid = said.split()[1]
+        rid = db.get_request(con, int(said.split("#")[1].split(".")[0]))["id"]
+        ok, msg = actions.dismiss(con, rid, me=actions.HUMAN)
+        check("dismiss: an open proposal cannot be read away",
+              not ok and "approve" in msg and db.get_request(con, rid)["state"] == "queued", msg)
+        check("dismiss: and stays on the founder's list", len(rows()) == 1, str(rows()))
+
+        # What an older build left behind: closed as "read - no reply".
+        askmod.resolve(rid, "read - no reply", state="done", notify=False)
+        check("stranded: the row is red with no way forward",
+              len(rows()) == 1 and rows()[0]["red"], str(rows()))
+        ok, said = hr.withdraw(pid, "marina")
+        check("withdraw: not another agent's to withdraw", not ok, said)
+        ok, said = hr.withdraw(pid, "hr")
+        check("withdraw: the proposer takes it back", ok and rows() == [], said)
+        check("withdraw: hr list shows it withdrawn",
+              hr.load_proposal(pid)["state"] == "withdrawn")
+        ok, said = hr.apply(pid)
+        check("withdraw: a withdrawn proposal is not applied", not ok
+              and "dohyun" not in paths.list_agents(), said)
+        ok, said = hr.withdraw(pid, "hr")
+        check("withdraw: and cannot be withdrawn twice", not ok, said)
+
+        # Withdrawn while still unanswered: the escalation closes with it.
+        ok, said = hr.propose("add", "dohyun", requester="hr", why="again", account="beta")
+        pid2 = said.split()[1]
+        rid2 = int(said.split("#")[1].split(".")[0])
+        ok, said = hr.withdraw(pid2, "hr")
+        check("withdraw: an unanswered one leaves the list and closes its escalation",
+              ok and rows() == [] and db.get_request(con, rid2)["state"] != "queued",
+              str(rows()))
+    finally:
+        con.close()
+
+
 def test_growing_the_team_needs_a_person(home: Path) -> None:
     """A team that cannot grow has one way to take on more work: each agent
     quietly making helpers that die with the session that made them. So growing
@@ -20497,12 +20554,17 @@ def test_no_command_prints_what_a_terminal_would_obey(home: Path) -> None:
                                  None, "peer", "async", None, 0, None)
             con.execute("UPDATE requests SET state = 'done', verdict = ? WHERE id = ?",
                         (f"reject {c1p}", hrq))
+            # For `hr withdraw`: a still-open proposal, its escalation still queued.
+            wq = db.add_request(con, "reviewer", askmod.HUMAN, "roster: rename reviewer?",
+                                None, "peer", "async", None, 0, None)
             # For `task list`: a title is text somebody typed.
             db.link_request(con, db.new_task(con, f"title {p}", "reviewer", "orcapipe"), q)
         finally:
             con.close()
         hr.save({"id": "poisontest", "kind": "retire", "agent": "reviewer",
                 "requested_by": "reviewer", "why": "test", "request": hrq, "state": "pending"})
+        hr.save({"id": "withdrawtest", "kind": "rename", "agent": "reviewer", "to": "revisor",
+                "requested_by": "reviewer", "why": "test", "request": wq, "state": "proposed"})
         keep_handoff("reviewer", f"handoff {p}\n- item {p}")
         journal = foldmod.journal_path("reviewer", foldmod.today())
         journal.parent.mkdir(parents=True, exist_ok=True)
@@ -20562,6 +20624,8 @@ def test_no_command_prints_what_a_terminal_would_obey(home: Path) -> None:
                        None, "spawn --dry-run")],
             "drift": [(["drift", str(repo), "--no-fetch"], None, "drift --no-fetch")],
             "hr apply": [(["hr", "apply", "poisontest"], None, "hr apply")],
+            "hr withdraw": [(["hr", "withdraw", "withdrawtest"], {"OCP_AGENT": "reviewer"},
+                             "hr withdraw")],
             "guide": [["guide"]], "task list": [["task", "list"]],
             "top": [["top", "--once"]], "watch": [["watch", "--once"]], "bridge": [["bridge", "--once"]],
             "write-handoff": [["write-handoff", "reviewer"]],
@@ -27237,6 +27301,8 @@ def main() -> int:
         run(lambda: test_hr_add_takes_the_vendor_from_the_named_account(Path(td) / 'hrvendor'))
         run(lambda: test_register_writes_vendor_onto_an_agent_that_already_exists(
             Path(td) / 'registervendor'))
+        run(lambda: test_a_proposal_dismissed_in_the_bridge_is_never_stranded(
+            Path(td) / 'hrdismiss'))
         run(lambda: test_hr_move_changes_an_agents_account(Path(td) / 'hrmove'))
         run(lambda: test_hr_move_does_not_touch_a_live_sessions_own_record(Path(td) / 'hrmovelive'))
         run(lambda: test_hr_move_leaves_account_alone_when_liveness_cannot_be_read(Path(td) / 'hrmoveunknown'))

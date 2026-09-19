@@ -319,7 +319,7 @@ def apply(pid: str, con=None) -> tuple[bool, str]:
         if call != "approved":
             return False, (f"#{row['id']} was answered {(verdict or '').strip()[:60]!r}, "
                            f"which is not a decision. Ask the founder to answer "
-                           f"`approve` or `reject`.")
+                           f"`approve` or `reject`, or `ocp hr withdraw {pid}`.")
         doer = {"add": _add, "retire": _retire, "rename": _rename, "move": _move}[prop["kind"]]
         ok, said = doer(prop, con)
         if not ok:
@@ -332,6 +332,43 @@ def apply(pid: str, con=None) -> tuple[bool, str]:
     finally:
         if own:
             con.close()
+
+
+def withdraw(pid: str, me: str, con=None) -> tuple[bool, str]:
+    """The proposal's own author, or the founder, takes it back.
+
+    The way out of a proposal that has no decision and will get none: an
+    escalation closed without approve or reject leaves `apply` refusing it and
+    nothing else able to end it. Only an undecided proposal can be withdrawn;
+    the escalation is closed with it, unread by nobody, so no one is told.
+    """
+    prop = load_proposal(pid)
+    if not prop:
+        return False, f"no proposal {pid}"
+    if me not in (prop.get("requested_by"), askmod.HUMAN):
+        return False, f"proposal {pid} is {prop.get('requested_by')}'s to withdraw, not yours"
+    if prop.get("state") != "proposed":
+        return False, f"proposal {pid} is already {prop.get('state')} - nothing to withdraw"
+    own = con is None
+    con = con or db.connect()
+    try:
+        if int(prop.get("request") or 0):
+            row = db.get_request(con, int(prop["request"]))
+            if row is not None and row["state"] == "queued":
+                db.close_if_queued(con, row["id"], "rejected", f"withdrawn by {me}",
+                                   announced=True)
+        prop["state"] = "withdrawn"
+        save(prop)
+        return True, f"proposal {pid} withdrawn"
+    finally:
+        if own:
+            con.close()
+
+
+def is_open_proposal(rid: int) -> bool:
+    """Is request `rid` the escalation of a proposal still waiting on approve or reject?"""
+    return any(p.get("state") == "proposed" and int(p.get("request") or 0) == rid
+               for p in listing())
 
 
 def _when(ts) -> str:

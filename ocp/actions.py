@@ -242,6 +242,11 @@ def dismiss(con, rid: int, me: str | None = None, reason: str | None = None,
         refusal = check_human_resolve(con, row, tasks, no_task, me)
         if refusal:
             return False, refusal
+    if row["state"] == "queued" and hr.is_open_proposal(rid):
+        # "read" would close it with a verdict that is neither approve nor
+        # reject, leaving a proposal nobody can apply or clear.
+        return False, (f"#{rid} is a roster proposal - answer `approve` or `reject`, "
+                       f"it cannot be dismissed")
     if row["state"] != "queued":
         if me is not None and me == row["target"]:
             return True, f"#{rid} was already answered - nothing more for you to do"

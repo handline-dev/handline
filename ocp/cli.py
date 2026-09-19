@@ -1266,6 +1266,13 @@ def cmd_hr(args) -> int:
         ok, said = hr.apply(args.id)
         print(said)
         return 0 if ok else 1
+    if args.hr_cmd == "withdraw":
+        if not me:
+            print(_who_refusal("withdraw"))
+            return 1
+        ok, said = hr.withdraw(args.id, me)
+        print(said)
+        return 0 if ok else 1
     if not me:
         print(_who_refusal("propos"))
         return 1
@@ -2109,6 +2116,10 @@ def build_parser() -> argparse.ArgumentParser:
     q.set_defaults(name=None, why=None, account=None, team=None, repo=None,
                    model=None, effort=None)
     q = hrsub.add_parser("apply", help="carry out an approved proposal")
+    q.add_argument("id")
+    q.set_defaults(name=None, why=None, account=None, team=None, repo=None,
+                   model=None, effort=None)
+    q = hrsub.add_parser("withdraw", help="take back your own undecided proposal")
     q.add_argument("id")
     q.set_defaults(name=None, why=None, account=None, team=None, repo=None,
                    model=None, effort=None)
