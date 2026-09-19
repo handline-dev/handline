@@ -10710,8 +10710,26 @@ def test_a_paste_into_any_prompt_arrives_whole_and_confirms_nothing(home: Path) 
               tui._line("account:", 100, 24) == "one two")
         os.write(master, b"\033[200~yes\033[201~\r")
         check("paste: a paste of 'yes' does not confirm", tui._confirm("remove x", 100, 24) is False)
-        os.write(master, b"\033[200~y\033[201~y")
-        check("paste: a key after a paste still does", tui._confirm("remove x", 100, 24) is True)
+        os.write(master, b"\033[200~y\033[201~n")
+        check("paste: a pasted y with no Enter, then a typed n, is a no",
+              tui._confirm("remove x", 100, 24) is False)
+        os.write(master, b"\033[200~n\033[201~y")
+        check("paste: a key after a paste still confirms", tui._confirm("remove x", 100, 24) is True)
+
+        # Not in a prompt: the main screen reads a paste as nothing at all, and
+        # what it leaves in _pending is never the paste's text.
+        tui._pending.clear()
+        os.write(master, b"\033[200~aWAITING ON YOU (1)\nsecond line\n\033[201~")
+        check("paste: on the main screen a paste is not a key", tui._key(1.0) is None
+              and not tui._pending, str(tui._pending))
+        tui._paste_state.update({"in": False, "carry": ""})
+        check("paste: a marker split after its escape is still one",
+              tui._unpasted("a\033[200~xx\033") + tui._unpasted("[201~b") == "ab")
+        os.write(master, b"\033[200~x\ny")
+        tui._key(1.0)
+        os.write(master, b"z\033[201~q")
+        check("paste: across reads too, and the key after it is read",
+              tui._key(1.0) == "q" and not tui._pending)
     finally:
         sys.stdin, sys.stdout = real_in, real_out
         os.close(master)

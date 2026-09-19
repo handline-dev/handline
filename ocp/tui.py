@@ -41,7 +41,12 @@ from . import (accounts, actions, agents, daemon, db, launch, load as loadmod, p
                triggers)
 from . import waiting as promptwait
 
-ALT_ON, ALT_OFF = "\033[?1049h", "\033[?1049l"
+# Bracketed paste goes on and off with the screen: the terminal then marks
+# where a paste begins and ends everywhere in the bridge, not only in a prompt,
+# so a paste can be told from typing wherever it lands. The editor and `claude`
+# are handed the terminal with it off.
+PASTE_ON, PASTE_OFF = "\033[?2004h", "\033[?2004l"
+ALT_ON, ALT_OFF = "\033[?1049h" + PASTE_ON, PASTE_OFF + "\033[?1049l"
 CUR_OFF, CUR_ON = "\033[?25l", "\033[?25h"
 HOME = "\033[H"
 CLEAR_EOL = "\033[K"
@@ -1132,6 +1137,39 @@ def split_keys(data: str) -> list[str]:
     return out
 
 
+_paste_state = {"in": False, "carry": ""}
+
+
+def _unpasted(data: str) -> str:
+    """One read of the terminal without the text that was pasted into it.
+
+    Outside a prompt a paste is not a command: read as keys, its first newline
+    is Enter and its letters are shortcuts (`a`, then a line of text, was how a
+    pasted screen became a message). The terminal marks a paste, so it is
+    dropped whole - across reads too, since a long paste arrives in pieces.
+    A prompt reads the marks itself (Composer) and keeps what is pasted.
+    """
+    st = _paste_state
+    text, st["carry"], out = st["carry"] + data, "", ""
+    start, end = Composer.START, Composer.END
+    while text:
+        mark = end if st["in"] else start
+        i = text.find(mark)
+        if i >= 0:
+            out += "" if st["in"] else text[:i]
+            text, st["in"] = text[i + len(mark):], not st["in"]
+            continue
+        # A mark cut off by the end of the read is carried to the next one. A
+        # lone escape is not: outside a paste it is the human backing out.
+        keep = next((k for k in range(min(len(mark) - 1, len(text)), 0, -1)
+                     if mark.startswith(text[-k:]) and (k > 1 or st["in"])), 0)
+        if not st["in"]:
+            out += text[:len(text) - keep]
+        st["carry"] = text[len(text) - keep:] if keep else ""
+        break
+    return out
+
+
 def _key(timeout: float) -> str | None:
     if not sys.stdin.isatty():
         time.sleep(timeout)
@@ -1146,9 +1184,10 @@ def _key(timeout: float) -> str | None:
     # reports the fd has nothing left - so every arrow key arrived here as a
     # bare escape with its `[B` still sitting in the buffer.
     try:
-        data = os.read(fd, 64).decode(errors="ignore")
+        data = os.read(fd, 4096).decode(errors="ignore")
     except OSError:
         return None
+    data = _unpasted(data)
     if not data:
         return None
     keys = split_keys(data)
@@ -1160,7 +1199,6 @@ def _key(timeout: float) -> str | None:
 _CSI = re.compile(r"\033(?:\[[0-?]*[ -/]*[@-~]|O.)")
 # What an escape sequence looks like before its final byte has arrived.
 _CSI_CUT = re.compile(r"\033(?:\[[0-?]*[ -/]*|O)")
-PASTE_ON, PASTE_OFF = "\033[?2004h", "\033[?2004l"
 
 
 class Composer:
@@ -1242,27 +1280,23 @@ def _line(prompt: str, width: int, height: int, multi: bool = False) -> str | No
         return None
     fd = sys.stdin.fileno()
     box = Composer(multi)
-    sys.stdout.write(PASTE_ON)
-    try:
-        data = "".join(_pending)       # keys already read ahead of this prompt
-        _pending.clear()
-        while True:
-            done = box.feed(data) if data else None
-            if done == "cancel":
-                return None
-            if done == "send":
-                return box.text.strip("\n") if multi else box.text.strip()
-            sys.stdout.write(f"\033[{height};1H" + CLEAR_EOL + box.shown(prompt, width))
-            sys.stdout.flush()
-            data = ""
-            if not select.select([fd], [], [], 30.0)[0]:
-                continue
-            try:
-                data = os.read(fd, 4096).decode(errors="ignore")
-            except OSError:
-                return None
-    finally:
-        sys.stdout.write(PASTE_OFF)
+    data = "".join(_pending)           # keys already read ahead of this prompt
+    _pending.clear()
+    while True:
+        done = box.feed(data) if data else None
+        if done == "cancel":
+            return None
+        if done == "send":
+            return box.text.strip("\n") if multi else box.text.strip()
+        sys.stdout.write(f"\033[{height};1H" + CLEAR_EOL + box.shown(prompt, width))
+        sys.stdout.flush()
+        data = ""
+        if not select.select([fd], [], [], 30.0)[0]:
+            continue
+        try:
+            data = os.read(fd, 4096).decode(errors="ignore")
+        except OSError:
+            return None
 
 
 def _confirm(what: str, width: int, height: int) -> bool:
@@ -1277,28 +1311,24 @@ def _confirm(what: str, width: int, height: int) -> bool:
                   for i, ln in enumerate(rows))
     sys.stdout.write(out)
     sys.stdout.flush()
-    # Bracketed, so that what is pasted here is not read as keys: a paste with
-    # a "y" in it must not confirm a destructive action.
+    # Read through a Composer so that what is pasted is not read as keys: a
+    # paste with a "y" in it must not confirm a destructive action.
     fd = sys.stdin.fileno()
     box = Composer()
-    sys.stdout.write(PASTE_ON)
-    try:
-        data = "".join(_pending)
-        _pending.clear()
-        while True:
-            if data and box.feed(data) is not None:
-                return False           # Enter or escape is not a yes
-            if box.typed:
-                return box.typed[0] in ("y", "Y")
-            data = ""
-            if not select.select([fd], [], [], 30.0)[0]:
-                continue
-            try:
-                data = os.read(fd, 4096).decode(errors="ignore")
-            except OSError:
-                return False
-    finally:
-        sys.stdout.write(PASTE_OFF)
+    data = "".join(_pending)
+    _pending.clear()
+    while True:
+        if data and box.feed(data) is not None:
+            return False               # Enter or escape is not a yes
+        if box.typed:
+            return box.typed[0] in ("y", "Y")
+        data = ""
+        if not select.select([fd], [], [], 30.0)[0]:
+            continue
+        try:
+            data = os.read(fd, 4096).decode(errors="ignore")
+        except OSError:
+            return False
 
 
 def _suspend(argv: list[str], env: dict, fd, saved) -> tuple[int | None, str]:
