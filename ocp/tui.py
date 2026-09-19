@@ -157,12 +157,13 @@ def account_cells(name: str, st, now: float | None = None) -> dict[str, str]:
     """The bounded cells of an ACCOUNTS row, unpadded and keyed like ACCT_W.
     The name is free text and is cut to fit where it is drawn."""
     runway_text = status.describe_runway(status.runway(st, status.read_burn(name), now))
-    # Nothing trusted but a figure on file: the last one, dimmed on a dotted bar
-    # with no colour, so it cannot be read as a measurement. Display only.
-    old = st.pct_5h if st.trusted_pct_5h is None and st.last_known() else None
-    five = (f"{bar(None, ACCT_BAR_W['five'])} {DIM}{pct(old)}%{R}" if old is not None else
-            f"{bar(st.trusted_pct_5h, ACCT_BAR_W['five'])} "
-            f"{pct(st.trusted_pct_5h)}%{status.mark(st.pct_5h_source)}")
+    # One definition of the figure and its mark, shared with `ocp account list`.
+    # A last-seen figure is dimmed on a dotted bar with no colour, so it cannot
+    # be read as a measurement. Display only.
+    shown, src = st.shown_pct_5h()
+    five = (f"{bar(None, ACCT_BAR_W['five'])} {DIM}{pct(shown)}%{src}{R}"
+            if src == status.IDLE_MARK else
+            f"{bar(shown, ACCT_BAR_W['five'])} {pct(shown)}%{src}")
     return {
         "five": five,
         "reset5": countdown(st.reset_5h),

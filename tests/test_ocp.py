@@ -7620,6 +7620,25 @@ def test_idle_floor_margin_and_its_refusal_line(home: Path) -> None:
           picked is None and "5h 65%" in line and "None" not in line, line)
 
 
+def test_the_accounts_row_draws_a_last_seen_figure_only_inside_its_window(home: Path) -> None:
+    """The ACCOUNTS row and `ocp account list` draw the 5h figure from one
+    definition: last seen, marked ?, while the window is open; nothing once it
+    has rolled over."""
+    _daemon_home(home, 20)
+    _with_accounts("beta")
+    now = int(time.time())
+    for reset, drawn in ((now + 1800, True), (now - 60, False)):
+        write_status(home, "beta", pct_5h=40, pct_7d=10, reset_5h=reset,
+                     reset_7d=now + 86400, collected_at=now - 3600)
+        st = status.read("beta")
+        cell = tui._ANSI.sub("", tui.account_cells("beta", st)["five"])
+        check(f"account_cells: window {'open' if drawn else 'rolled over'} - "
+              f"{'the last figure, marked ?' if drawn else 'no figure'}",
+              ("40%?" in cell) is drawn, cell)
+        check("account_cells: agrees with shown_pct_5h",
+              (st.shown_pct_5h()[0] == 40) is drawn, str(st.shown_pct_5h()))
+
+
 def test_a_sweep_after_a_move_does_not_keep_the_old_accounts_session(home: Path) -> None:
     """keeper 09-19 15:45: moved gamma -> alpha, and eight seconds later the
     sweep recorded it closed with the gamma session id, which alpha cannot resume."""
@@ -10375,6 +10394,7 @@ def main() -> int:
         run(lambda: test_idle_floor_refuses_an_account_with_an_agent_mid_turn_on_it(Path(td) / 'idleactive'))
         run(lambda: test_idle_floor_refuses_a_snapshot_older_than_its_own_window(Path(td) / 'idleage'))
         run(lambda: test_idle_floor_margin_and_its_refusal_line(Path(td) / 'idlemargin'))
+        run(lambda: test_the_accounts_row_draws_a_last_seen_figure_only_inside_its_window(Path(td) / 'acctrow'))
 
 
         run(lambda: test_a_span_of_a_day_or_more_reads_in_days(Path(td) / 'ar4f'))
