@@ -14,8 +14,9 @@ read is named in the record, and the handoff is degraded only for that reason.
 The record is taken while the session is still live, because the agent's own
 status snapshot goes stale once it is closed and its transcript path with it.
 It is stored on the agent's row (`db.get_handoff`). A wake that types it to the
-agent clears it (`db.set_handoff(con, agent, None)`); a launch by hand injects
-it and leaves it until the next wake or record replaces it.
+agent clears it (`db.set_handoff(con, agent, None)`), and so does a launch,
+which injects it into the system prompt: a record on the row is one no session
+has been handed.
 """
 from __future__ import annotations
 

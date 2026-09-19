@@ -2098,6 +2098,23 @@ def test_an_idle_close_keeps_a_handoff_only_if_it_closed(home: Path) -> None:
         dmn._close_agent(con, "backend", lambda _m: None, st)
         check("close: a record that could not read its worktree is not kept",
               db.get_handoff(con, "backend") is None, str(db.get_handoff(con, "backend")))
+
+        # A launch hands the record over, so the next close records the session
+        # that launch started rather than finding the park's and skipping.
+        db.set_handoff(con, "backend", "# handoff · backend\nprevious session: sess-R1")
+        realb, realx, realr = launch.build, os.execve, launch._record_terminal
+        launch.build = lambda *a, **k: (["x"], {})
+        os.execve = lambda *a, **k: None
+        launch._record_terminal = lambda *a, **k: None
+        try:
+            launch.exec_agent("backend")
+        finally:
+            launch.build, os.execve, launch._record_terminal = realb, realx, realr
+        db.set_agent_state(con, "backend", dmn.IDLE)
+        dmn._close_agent(con, "backend", lambda _m: None, st)
+        check("close: after a launch handed the record over, the close takes its own",
+              "sess-R1" not in (db.get_handoff(con, "backend") or ""),
+              str(db.get_handoff(con, "backend")))
     finally:
         dmn._end_session = real
         con.close()
