@@ -6485,6 +6485,60 @@ def test_a_proposal_and_an_escalation_wait_on_the_founder_too(home: Path) -> Non
         con.close()
 
 
+def test_a_report_to_the_founder_is_not_a_wait(home: Path) -> None:
+    """Red means the founder must act. `--fyi` is a report: listed, not red, not
+    counted, closed once opened or when the sender's next report lands - and a
+    correction retires a stale escalation even after the bridge showed it."""
+    _daemon_home(home, 20)
+    con = db.connect()
+    try:
+        def esc():
+            return [w for w in actions.founder_waits(con) if w["kind"] == "escalation"]
+
+        ok, _m, q = askmod.ask(actions.HUMAN, "merge keeper-3?", requester="backend")
+        ok1, _m, f1 = askmod.ask(actions.HUMAN, "status: half done", requester="backend",
+                                 fyi=True)
+        check("fyi: accepted", ok and ok1)
+        check("fyi: only the question is waiting on the founder, in red",
+              [w["what"].startswith(f"#{q}") for w in esc()] == [True], str(esc()))
+        row = next(m for m in actions.messages(con) if m["id"] == f1)
+        check("fyi: it is in the mailbox, not a gate", not row["gate"], str(row))
+
+        ok, _m, f2 = askmod.ask(actions.HUMAN, "status: done", requester="backend", fyi=True)
+        check("fyi: the sender's next report closes the earlier one",
+              db.get_request(con, f1)["state"] == "replaced"
+              and db.get_request(con, f2)["state"] == "queued")
+        ok, _m, other = askmod.ask(actions.HUMAN, "other's report", requester="frontend",
+                                   fyi=True)
+        check("fyi: another sender's report is left alone",
+              db.get_request(con, f2)["state"] == "queued")
+
+        actions.opened_by_human(con, f2)
+        check("fyi: opening it closes it", db.get_request(con, f2)["state"] == "done")
+        actions.opened_by_human(con, q)
+        check("fyi: opening a question does not answer it",
+              db.get_request(con, q)["state"] == "queued")
+        ok, msg, _ = askmod.ask("frontend", "x", requester="backend", fyi=True)
+        check("fyi: only the founder gets one", not ok, msg)
+
+        # A correction reaches an escalation the bridge already showed.
+        db.mark_delivered(con, q)
+        ok, msg, new = askmod.ask(actions.HUMAN, "merge keeper-3 - now with tests",
+                                  requester="backend", replaces=q)
+        check("replaces: an escalation already shown to the founder is retired",
+              ok and db.get_request(con, q)["state"] == "replaced", msg)
+        check("replaces: and only the replacement waits", [w["what"].startswith(f"#{new}")
+              for w in esc()] == [True], str(esc()))
+        # An agent's delivered request still cannot be replaced.
+        rid = db.add_request(con, "backend", "frontend", "do it", None, "peer",
+                             "async", None, 0, None)
+        db.mark_delivered(con, rid)
+        ok, msg, _ = askmod.ask("frontend", "do it better", requester="backend", replaces=rid)
+        check("replaces: an agent's delivered request still cannot be", not ok, msg)
+    finally:
+        con.close()
+
+
 def test_a_turn_that_ends_on_the_usage_limit_is_at_the_wall(home: Path) -> None:
     """StopFailure with the limit message on a live agent: shown as stopped, not
     RUNNING, and handed off and moved though nothing reads full and the terminal
@@ -8861,6 +8915,7 @@ def main() -> int:
         run(lambda: test_reconcile_does_not_clear_closed_at_on_a_failed_wake(Path(td) / 'crashwake'))
         run(lambda: test_work_arriving_wakes_a_closed_agent(Path(td) / 'wakework'))
         run(lambda: test_a_running_agent_is_told_when_work_arrives(Path(td) / 'deliver'))
+        run(lambda: test_a_report_to_the_founder_is_not_a_wait(Path(td) / 'fyi'))
         run(lambda: test_carry_bounds_and_losses(Path(td) / 'carry'))
         run(lambda: test_unobserved_spend_stays_off_unreadable_accounts(Path(td) / 'spend'))
         run(lambda: test_subscription_type_is_recorded_and_cached(Path(td) / 'subtype'))

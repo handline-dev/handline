@@ -53,6 +53,8 @@ account its session lives on.""",
   ocp ask <agent> "<task>"        queue it
   ocp ask <agent> "..." --first   put it at the head of the queue
   ocp ask <agent> "..." --replaces <id>   correct a task you sent, before it is delivered
+  ocp ask human "..." --fyi       a report that asks nothing: not red, not counted as
+                                  waiting on the founder, gone once read or superseded
   ocp withdraw <id>               take back your own request, before it is delivered
   ocp inbox                       the one thing currently waiting for you, and a count
   ocp inbox --all                 the whole queue and its history
@@ -66,7 +68,8 @@ know what to do next. The next one is delivered only once you resolve or
 dismiss the current one. Before a request has been delivered, its own
 requester may still replace (`--replaces`) or withdraw it; once delivered, a
 correction is a reply in its thread (`ocp ask <agent> "..." --parent <id>`),
-not a new item behind it.
+not a new item behind it. Requests to `human` are the exception: a correction
+with `--replaces` retires your earlier one even after the bridge showed it.
 
 On `ocp bridge`: ↑↓ walks the whole screen and crosses into the next panel at
 the end of one, ←→ jumps panel to panel, and the panel your keys act on is the

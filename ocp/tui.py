@@ -1431,6 +1431,7 @@ def _act(panel: int, sel: dict, key: str, width: int, height: int,
             if not row:
                 return f"#{rid} is gone", None
             if key in ("\r", "\n"):
+                actions.opened_by_human(con, rid)
                 detail = actions.message_detail(con, rid)
                 if detail is None:
                     return f"#{rid} is gone", None

@@ -914,7 +914,7 @@ def cmd_ask(args) -> int:
     ok, msg, _ = askmod.ask(args.target, args.body, files=args.files,
                             requester=args.of, parent_id=args.parent,
                             mergeable=args.mergeable, first=args.first,
-                            replaces=args.replaces)
+                            replaces=args.replaces, fyi=args.fyi)
     # ask() already phrases its own refusals; do not prefix them again.
     print(msg)
     return 0 if ok else 1
@@ -1079,6 +1079,8 @@ def cmd_read(args) -> int:
         if row is None:
             print(f"no request #{args.id}")
             return 1
+        if askmod.asking_agent() == actions.HUMAN:
+            actions.opened_by_human(con, args.id)
         when = time.strftime("%Y-%m-%d %H:%M", time.localtime(row["ts"]))
         print(f"#{row['id']}  {row['requester']} → {row['target']}  "
               f"{row['kind'] or 'ask'}  {row['state']}  {when}")
@@ -1270,6 +1272,10 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--replaces", type=int, default=None, metavar="ID",
                    help="correct your own request ID before it has been delivered; "
                         "ID is retired and this takes its place in line")
+    p.add_argument("--fyi", action="store_true",
+                   help="a report to the human that asks nothing of them: not red, not "
+                        "counted as waiting on them, gone once read or when your next "
+                        "report arrives")
     p.set_defaults(fn=cmd_ask)
 
     p = sub.add_parser("withdraw", help="take back your own request before it is delivered")

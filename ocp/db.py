@@ -57,7 +57,10 @@ CREATE TABLE IF NOT EXISTS requests (
   -- Set once, the first time this request is actually shown to its target
   -- (request #189). NULL is what makes a request still withdrawable/
   -- replaceable by its own requester.
-  delivered_at INTEGER
+  delivered_at INTEGER,
+  -- A report to the human that asks nothing of them: shown, never counted as
+  -- waiting on them, and closed once read or superseded by the sender's next.
+  fyi INTEGER NOT NULL DEFAULT 0
 );
 CREATE INDEX IF NOT EXISTS requests_target ON requests(target, state);
 CREATE INDEX IF NOT EXISTS requests_requester ON requests(requester, ts);
@@ -164,6 +167,8 @@ def _pre_schema_migrate(con) -> None:
         con.execute("DROP TABLE IF EXISTS handoff")
 
     request_cols = _cols(con, "requests")
+    if request_cols and "fyi" not in request_cols:
+        con.execute("ALTER TABLE requests ADD COLUMN fyi INTEGER NOT NULL DEFAULT 0")
     if request_cols and "announced_at" not in request_cols:
         con.execute("ALTER TABLE requests ADD COLUMN announced_at INTEGER")
         # Everything already resolved was resolved before anything announced
@@ -432,17 +437,18 @@ def add_request(con, requester: str, target: str, body: str, files: str | None,
                 relation: str | None, response: str | None, kind: str | None,
                 chain_depth: int, parent_id: int | None, state: str = "queued",
                 verdict: str | None = None, chain_id: str | None = None,
-                first: bool = False, queue_order: float | None = None) -> int:
+                first: bool = False, queue_order: float | None = None,
+                fyi: bool = False) -> int:
     """Insert a request. `queue_order`, not `id`, decides FIFO position - see
     `queued_for`. `first` and `queue_order` are request #189's --first and
     --replaces.
     """
     cur = con.execute(
         "INSERT INTO requests(ts, requester, target, body, files, relation, response, "
-        "kind, chain_depth, parent_id, state, verdict, chain_id) "
-        "VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)",
+        "kind, chain_depth, parent_id, state, verdict, chain_id, fyi) "
+        "VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
         (int(time.time()), requester, target, body, files, relation, response, kind,
-         chain_depth, parent_id, state, verdict, chain_id),
+         chain_depth, parent_id, state, verdict, chain_id, int(fyi)),
     )
     rid = int(cur.lastrowid)
     if chain_id is None:
@@ -527,6 +533,21 @@ def mark_delivered(con, rid: int) -> bool:
         "UPDATE requests SET delivered_at = COALESCE(delivered_at, ?) "
         "WHERE id = ? AND state = 'queued'",
         (int(time.time()), rid))
+    return cur.rowcount > 0
+
+
+def retire_queued(con, rid: int, state: str, verdict: str | None = None) -> bool:
+    """Take a still-queued request out of the queue, delivered or not.
+
+    For rows nobody can act on once a newer one exists - the human's, where
+    "delivered" only means it was drawn on a screen. Announced in the same
+    write: the sender retired its own row and is not told it was answered.
+    """
+    now = int(time.time())
+    cur = con.execute(
+        "UPDATE requests SET state = ?, verdict = COALESCE(?, verdict), "
+        "resolved_at = COALESCE(resolved_at, ?), announced_at = COALESCE(announced_at, ?) "
+        "WHERE id = ? AND state = 'queued'", (state, verdict, now, now, rid))
     return cur.rowcount > 0
 
 

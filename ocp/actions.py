@@ -344,6 +344,13 @@ def founder_waits(con) -> list[dict]:
     return sorted(out, key=lambda w: (not w["red"], w["since"]))
 
 
+def opened_by_human(con, rid: int) -> None:
+    """Reading a report is what closes it: it asked nothing, so nothing is left."""
+    row = db.get_request(con, rid)
+    if row and row["fyi"] and row["target"] == HUMAN:
+        db.retire_queued(con, rid, "done", "read")
+
+
 def message_detail(con, rid: int) -> tuple[str, list[tuple[str, list[str]]]] | None:
     """One message opened, with what it is a reply to underneath it.
 
