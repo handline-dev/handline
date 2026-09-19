@@ -4401,6 +4401,33 @@ def test_a_moved_walled_wake_names_the_new_account(home: Path) -> None:
         con.close()
 
 
+def test_the_bridge_says_what_an_agent_is_where_there_is_room(home: Path) -> None:
+    """Which model at which effort - and one day which tool at all - is what
+    separates two rows doing the same work at different prices. It is still
+    configuration, so it gives way to what is happening now on a narrow screen.
+    """
+    from ocp import agents as agentsmod
+    _daemon_home(home, 20)
+    check("kind: model and effort, effort short enough for a column",
+          agentsmod.kind({"model": "opus", "effort": "medium"}) == "opus mid")
+    check("kind: the defaults are what a launch would use",
+          agentsmod.kind({}) == f"{agentsmod.DEFAULT_MODEL} mid")
+    check("kind: a second vendor names itself; the first does not",
+          agentsmod.kind({"vendor": "codex", "model": "gpt-5", "effort": "high"})
+          == "codex gpt-5 high"
+          and "claude" not in agentsmod.kind({"vendor": "claude", "model": "opus"}))
+    check("kind: an effort we do not know is shown whole, not dressed as one of ours",
+          agentsmod.kind({"model": "opus", "effort": "glacial"}) == "opus glacial")
+
+    wide = tui._ANSI.sub("", tui.frame(tui.KIND_MIN_WIDTH, 40))
+    narrow = tui._ANSI.sub("", tui.frame(tui.KIND_MIN_WIDTH - 1, 40))
+    row = next(ln for ln in wide.splitlines() if "backend" in ln)
+    check("kind: a wide bridge draws it, under a heading that names it",
+          "kind" in wide and agentsmod.kind(agents.read("backend")) in row, row)
+    check("kind: a narrow one spends the columns on what is happening instead",
+          "kind" not in narrow and agentsmod.kind(agents.read("backend")) not in narrow)
+
+
 def test_a_walled_wake_names_the_account_only_with_room(home: Path) -> None:
     """The bridge's column is narrow enough that naming a different account
     can cost the clock its columns. The clock is the one thing this cell
@@ -9394,6 +9421,7 @@ def main() -> int:
         run(lambda: test_a_stalled_closed_agent_keeps_its_marker_when_walled(Path(td) / 'walledstalled'))
         run(lambda: test_a_walled_wake_with_no_reset_reads_unknown(Path(td) / 'walledunknown'))
         run(lambda: test_a_moved_walled_wake_names_the_new_account(Path(td) / 'walledmoved'))
+        run(lambda: test_the_bridge_says_what_an_agent_is_where_there_is_room(Path(td) / 'agentkind'))
         run(lambda: test_a_walled_wake_names_the_account_only_with_room(Path(td) / 'walledroom'))
         run(lambda: test_a_park_that_cannot_be_woken_keeps_its_deadline(Path(td) / 'parkdue'))
         run(lambda: test_a_usage_park_is_woken_when_the_reading_clears(Path(td) / 'parklevel1'))
