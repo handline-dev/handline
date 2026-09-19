@@ -7114,6 +7114,16 @@ def test_a_stale_snapshot_shows_its_last_figures_and_still_is_not_offered(home: 
     panel = tui._ANSI.sub("", tui.frame(200, 40))
     check("stale: the bridge shows it", "5h 41% (60m old)" in panel, panel[:400])
 
+    cells = tui.account_cells("beta", status.read("beta"))
+    check("stale: the bridge cell shows the last figure on a dotted bar, dimmed",
+          "41%" in cells["five"] and "·" * 10 in cells["five"]
+          and "█" not in cells["five"] and tui.DIM in cells["five"], repr(cells["five"]))
+    write_status(home, "beta", pct_5h=None, pct_7d=None, reset_5h=None, reset_7d=None,
+                 collected_at=now - 3600)
+    check("stale: with no figure on file the cell is still ?",
+          "?%" in tui.account_cells("beta", status.read("beta"))["five"])
+    write_status(home, "beta", pct_5h=41, pct_7d=20, reset_5h=now + 1800,
+                 reset_7d=now + 86400, collected_at=now - 3600)
     write_status(home, "beta", pct_5h=41, pct_7d=20, reset_5h=now - 600,
                  reset_7d=now + 86400, collected_at=now - 3600)
     why = status.read("beta").takes_work()[1]
