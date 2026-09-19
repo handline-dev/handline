@@ -155,27 +155,31 @@ def cmd_account_list(args) -> int:
         out = []
         for a in names:
             st = status.read(a)
-            allowed, why = st.assignable()
+            allowed, why = st.takes_work()
             out.append({
                 "account": a, "logged_in": accounts.logged_in(a),
                 "pct_5h": st.pct_5h, "pct_5h_effective": st.trusted_pct_5h,
                 "pct_5h_source": st.pct_5h_source,
-                "pct_7d": st.pct_7d, "ctx_pct": st.ctx_pct,
+                "pct_7d": st.pct_7d, "reset_7d": st.reset_7d, "ctx_pct": st.ctx_pct,
                 "age_s": st.age_s, "assignable": allowed, "reason": why,
+                "subscription_type": accounts.subscription_type(a),
             })
         print(json.dumps(out, indent=2))
         return 0
 
-    print(f"{'ACCOUNT':<14}{'LOGIN':<8}{'5h':>5}{'7d':>5}{'ctx':>6}{'AGE':>8}  ASSIGN")
+    print(f"{'ACCOUNT':<14}{'LOGIN':<8}{'PLAN':<6}{'5h':>5}{'7d':>5}{'7d resets':<12}"
+          f"{'ctx':>6}{'AGE':>8}  ASSIGN")
     for a in names:
         st = status.read(a)
-        allowed, why = st.assignable()
+        allowed, why = st.takes_work()
         cell = lambda v: "  -" if v is None else f"{v:>3}"  # noqa: E731
         age = "-" if st.age_s is None else f"{int(st.age_s)}s"
+        resets = "-" if not st.reset_7d else time.strftime("%m-%d %H:%M", time.localtime(st.reset_7d))
+        plan = accounts.subscription_type(a) or "-"
         # A figure we inferred is marked, never dressed up as one we read.
         five = f"{cell(st.trusted_pct_5h)}{status.mark(st.pct_5h_source)}"
-        print(f"{a:<14}{'yes' if accounts.logged_in(a) else 'no':<8}"
-              f"{five:>5}{cell(st.pct_7d):>5}{cell(st.ctx_pct):>6}{age:>8}  "
+        print(f"{a:<14}{'yes' if accounts.logged_in(a) else 'no':<8}{plan:<6}"
+              f"{five:>5}{cell(st.pct_7d):>5}{resets:<12}{cell(st.ctx_pct):>6}{age:>8}  "
               f"{'yes' if allowed else 'NO':<4} {why}")
     print("  " + status.SOURCE_LEGEND)
     return 0
@@ -281,7 +285,7 @@ def cmd_agent_list(args) -> int:
         except Exception as e:  # noqa: BLE001
             print(f"{n:<14} <error: {e}>")
             continue
-        allowed, _ = status.read(acct).assignable()
+        allowed, _ = status.read(acct).takes_work()
         cfg = agents.read(n)
         budget = " ".join(f"{fn}:{size}B{'!' if over else ''}"
                           for fn, size, _, over in agents.budget_report(n))
