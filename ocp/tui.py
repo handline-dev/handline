@@ -158,9 +158,9 @@ def bar(pct: int | None, width: int = 10, last_seen: bool = False) -> str:
 # row and the overflow test read these, so a width or a position changed here
 # moves all three and one written anywhere else is a bug. Each bounded cell
 # must stay strictly narrower than its column.
-ACCT_W = {"name": 10, "five": 18, "reset5": 8, "seven": 12, "reset7": 9, "runway": 16}
+ACCT_W = {"name": 10, "five": 17, "reset5": 7, "seven": 12, "reset7": 7, "runway": 15}
 ACCT_HEAD = {"name": "account", "five": "5h usage", "reset5": "reset", "seven": "7d",
-             "reset7": "7d reset", "runway": "runway (est.)"}
+             "reset7": "7d rst", "runway": "runway (est.)"}
 ACCT_BAR_W = {"five": 10, "seven": 5}
 
 

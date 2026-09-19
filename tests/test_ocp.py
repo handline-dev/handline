@@ -5548,6 +5548,15 @@ def test_the_screen_says_which_account_to_spend_next(home: Path) -> None:
         accounts.logged_in = lambda a: True  # noqa: E731 - keychain is not the subject
         check("accounts: the account with the most headroom says next",
               len(got) == 1 and "beta" in got[0], str(got))
+        # An 80-column terminal is what the widths are budgeted for: the pick's
+        # row must keep its tick and its word there, and so must every other.
+        rows80 = [tui._ANSI.sub("", ln).rstrip("│ ") for ln in tui.frame(80, 60).split(chr(10))
+                  if "alpha" in ln or "beta" in ln]
+        rows80 = [r for r in rows80 if "IDLE" not in r and "sonnet" not in r]
+        check("accounts: at 80 columns the pick's row ends in '✔ next'",
+              any(r.endswith("✔ next") and "beta" in r for r in rows80), str(rows80))
+        check("accounts: and every account row keeps its tick",
+              len(rows80) == 2 and all("✔" in r or "✘" in r for r in rows80), str(rows80))
         check("accounts: and it is the pick's own answer",
               status.pick_account(["alpha", "beta"], load=loadmod.read_all())[0] == "beta")
         check("accounts: nothing is drawn in the gutter the cursor uses",
