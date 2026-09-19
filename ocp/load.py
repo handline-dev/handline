@@ -60,11 +60,21 @@ def set_cap(acct: str, n: int) -> None:
     paths.config_file().write_text(dump(cfg))
 
 
-def active_agents(con) -> dict[str, int]:
-    """Agents mid-turn, by the account each is running on."""
+def active_agents(con, exclude: str | None = None) -> dict[str, int]:
+    """Agents mid-turn, by the account each is running on. An agent that has
+    just moved is mid-turn on its handback before the daemon has seen it run,
+    so it counts from the move until its next Stop; without that, agents that
+    wall together all see the same empty destination. `exclude` leaves one
+    agent out, for asking what is on an account besides it."""
     counts: dict[str, int] = {}
-    for row in con.execute("SELECT agent FROM agent_state WHERE state = 'RUNNING' "
-                           "AND closed_at IS NULL").fetchall():
+    rows = con.execute(
+        "SELECT agent FROM agent_state WHERE closed_at IS NULL AND (state = 'RUNNING' OR "
+        "(state = 'QUEUED' AND EXISTS (SELECT 1 FROM events m WHERE m.agent = agent_state.agent "
+        "AND m.kind = 'moved_account' AND m.id > COALESCE((SELECT MAX(s.id) FROM events s "
+        "WHERE s.agent = agent_state.agent AND s.kind = 'Stop'), 0))))").fetchall()
+    for row in rows:
+        if row["agent"] == exclude:
+            continue
         try:
             acct = agents.current_account(row["agent"], con)
         except Exception:  # noqa: BLE001 - one agent's bad config is not the pick's problem

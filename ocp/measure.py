@@ -10,6 +10,8 @@ window at either end, because the account's usage is one number and a second
 agent's work would be counted as the start's. That discards most starts on a
 busy account and keeps the ones that can be trusted; until there are
 `MIN_SAMPLES` of them the starting value in `triggers.STAY_WITHIN_S` stands.
+The first turn is timed whole, handback and real work together, so the
+measured cost is an upper bound on the start itself.
 """
 from __future__ import annotations
 
@@ -27,10 +29,15 @@ def _key(agent: str) -> str:
     return f"coldstart:{agent}"
 
 
+def forget(con, agent: str) -> None:
+    """Drop an open measurement, when the start it was for did not happen."""
+    db.set_meta(con, _key(agent), None)
+
+
 def begin(con, agent: str, acct: str) -> None:
     """A session has just been started for `agent` on `acct` from nothing."""
     pct = status.read(acct).trusted_pct_5h
-    if pct is None or load.active_agents(con).get(acct, 0):
+    if pct is None or load.active_agents(con, exclude=agent).get(acct, 0):
         db.set_meta(con, _key(agent), None)
         return
     db.set_meta(con, _key(agent), json.dumps({"account": acct, "before": pct,
@@ -53,7 +60,7 @@ def settle(con, agent: str) -> None:
         return
     db.set_meta(con, _key(agent), None)
     after = status.read(m["account"]).trusted_pct_5h
-    others = load.active_agents(con).get(m["account"], 0)
+    others = load.active_agents(con, exclude=agent).get(m["account"], 0)
     if after is None or others or after < m["before"]:
         return
     db.add_event(con, agent, "cold_start", {"account": m["account"], "before": m["before"],

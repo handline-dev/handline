@@ -50,7 +50,7 @@ reviewer  → gamma      # serial, 가벼움
 archivist → gamma      # ephemeral, 짧게 쓰고 나감
 ```
 
-자기 계정이 90%에 닿으면 handoff하고 **리셋까지 쉰다.** 다른 계정으로 옮기지 않는다.
+자기 계정이 벽(100%)에 닿으면 handoff한다. 일이 기다리고 리셋이 멀면 자리가 있는 다른 계정으로 한 번 옮기고, 아니면 **리셋까지 쉰다.**
 
 위 파생 목록이 **전부 사라진다.** 남는 것:
 
@@ -200,7 +200,7 @@ Run       (Orca) ── 목표 단위
 
 ## 4. 데이터 출처 — statusLine 수집기
 
-`~/.claude` 아래에 사용률 파일은 **없다.** 없는 파일을 읽어 `pct=0`을 반환하면 모든 슬롯이 만점이 되고 90% 트리거는 영원히 거짓이 된다 — **기능이 죽었는데 대시보드는 초록색**인 fail-open이다.
+`~/.claude` 아래에 사용률 파일은 **없다.** 없는 파일을 읽어 `pct=0`을 반환하면 모든 슬롯이 만점이 되고 벽 트리거는 영원히 거짓이 된다 — **기능이 죽었는데 대시보드는 초록색**인 fail-open이다.
 
 공식 계약은 **statusLine 스크립트의 stdin JSON**이다. 각 `CLAUDE_CONFIG_DIR`의 `settings.json`에 스크립트를 심고, 그 스크립트가 stdin JSON을 `accounts/<acct>/status.json`으로 원자적으로 쓴 뒤 원래 표시 문자열을 출력한다. 스크립트는 `$CLAUDE_CONFIG_DIR`로 자기 계정을 판별하므로 shared에 한 벌만 두면 된다.
 

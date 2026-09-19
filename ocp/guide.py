@@ -30,7 +30,7 @@ command across hibernation and restore.""",
   ocp account list --json          machine-readable
 
 A pct_5h we cannot trust - no snapshot, unreadable, or too old - is not a full
-tank, it is a refusal. Reading it as 0 makes the 90% trigger false forever: the
+tank, it is a refusal. Reading it as 0 makes a walled account look open forever: the
 feature is dead while the dashboard stays green.
 
 A window nobody has spent in is different. Claude Code sends no five_hour block

@@ -7092,6 +7092,56 @@ def test_the_cap_is_set_from_the_command_line_and_the_bridge(home: Path) -> None
           "at its cap: 2 of 2" in panel, panel[:400])
 
 
+def test_agents_that_wall_together_respect_the_cap_and_a_start_is_not_its_own_rival(home: Path) -> None:
+    """Four agents walled at once on one account, cap 2: two move and two stay,
+    because a moved agent counts on its new account until its next Stop. And an
+    agent that is running again is not "something else" on its own start."""
+    _daemon_home(home, 20)
+    _with_accounts("alpha", "beta")
+    now = int(time.time())
+    write_status(home, "alpha", pct_5h=100, pct_7d=10, reset_5h=now + 3 * 3600,
+                 reset_7d=now + 86400)
+    write_status(home, "beta", pct_5h=5, pct_7d=10, reset_5h=now + 3600, reset_7d=now + 86400)
+    con = db.connect()
+    try:
+        names = ("a1", "a2", "a3", "a4")
+        _running_on(con, "alpha", *names)
+        for n in names:
+            db.add_request(con, "marina", n, "carry on", None, "peer", "async", None, 0, None)
+        moved = []
+        for n in names:
+            dest, _ = dmn._move_plan(con, n, "usage")
+            if dest:
+                db.set_account(con, n, dest)
+                db.set_agent_state(con, n, dmn.QUEUED)
+                db.add_event(con, n, "moved_account", {"from": "alpha", "to": dest})
+                moved.append(n)
+        check("cap: of four walled together, two move", len(moved) == 2, str(moved))
+
+        db.add_event(con, moved[0], "Stop", {})
+        check("cap: a moved agent stops counting once its turn has ended",
+              loadmod.active_agents(con).get("beta", 0) == 1)
+
+        write_status(home, "alpha", pct_5h=20, pct_7d=10, reset_5h=now + 3600,
+                     reset_7d=now + 86400)
+        db.set_agent_state(con, "a3", dmn.IDLE)
+        db.set_agent_state(con, "a4", dmn.IDLE)
+        db.set_agent_state(con, moved[1], dmn.IDLE)
+        db.set_account(con, "a1", "alpha")
+        db.set_agent_state(con, "a1", dmn.QUEUED)
+        measure.begin(con, "a1", "alpha")
+        db.add_event(con, "a1", "Stop", {})
+        db.set_agent_state(con, "a1", dmn.RUNNING)
+        write_status(home, "alpha", pct_5h=33, pct_7d=10, reset_5h=now + 3600,
+                     reset_7d=now + 86400)
+        measure.settle(con, "a1")
+        n = con.execute("SELECT COUNT(*) FROM events WHERE kind = 'cold_start'").fetchone()[0]
+        check("measure: the measured agent running again does not void its own sample",
+              n == 1, str(n))
+    finally:
+        con.close()
+
+
 def test_replaying_0919_makes_fewer_moves_than_the_old_rules(home: Path) -> None:
     """Today's walls, 12:36 to 14:45, driven through the real decision functions.
 
@@ -9413,6 +9463,7 @@ def main() -> int:
         run(lambda: test_at_the_wall_it_is_a_cost_comparison_not_a_line(Path(td) / 'ar2'))
         run(lambda: test_a_working_agent_is_not_handed_off_on_a_percentage(Path(td) / 'ar3'))
         run(lambda: test_the_cold_start_is_measured_and_sets_how_long_to_wait(Path(td) / 'ar4'))
+        run(lambda: test_agents_that_wall_together_respect_the_cap_and_a_start_is_not_its_own_rival(Path(td) / 'ar4b'))
         run(lambda: test_the_cap_is_set_from_the_command_line_and_the_bridge(Path(td) / 'ar5'))
         run(lambda: test_replaying_0919_makes_fewer_moves_than_the_old_rules(Path(td) / 'ar6'))
         run(lambda: test_a_turn_that_ends_on_the_usage_limit_is_at_the_wall(Path(td) / 'limitstop'))

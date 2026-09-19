@@ -33,23 +33,24 @@ WINDOW_5H_S = 5 * 3600
 # A move costs a cold start - the destination's window pays for a new session
 # to get back to where the old one was (measured on gamma: about 13% of a Pro
 # 5h window for one first turn) - and that is worth waiting for only if the
-# wait is shorter than what the start would spend: 13% of 5h is 39 minutes.
-# This is the starting value; `stay_within_s` replaces it with what the daemon
-# has measured once it has measured (measure.py).
-STAY_WITHIN_S = 30 * 60
+# wait is shorter than the window time the start would spend: 13% of 5h is 39
+# minutes. This is the starting value; `stay_within_s` replaces it with what the
+# daemon has measured once it has enough samples (measure.py).
+STAY_WITHIN_S = 39 * 60
 
 # What one agent working steadily costs an account, in percent of its 5h window
 # per second: 0.75%/min. Read off 09-19's trace, where each account's rise was
 # divided by the agents active on it - beta 50% -> 85% in 9 minutes with five,
-# gamma 7% -> 51% in 13 minutes with five. The daemon refines it from what it
-# sees (measure.py); this is what it uses until it has.
+# gamma 7% -> 51% in 13 minutes with five. Nothing refines it; it is a constant.
 TYPICAL_AGENT_BURN_PER_S = 0.75 / 60
 
 # An account can take one more agent only if, at its current fill plus one
 # typical agent, it lasts this long before its wall. Below that a session
 # spends more on getting started than it gets back: a cold start costs about
-# 17 minutes of one agent's steady burn (13% at 0.75%/min), so twice that is
-# the least stretch that is worth beginning.
+# 17 minutes of one agent's steady burn (13% at 0.75%/min), so about twice that,
+# rounded to 30 minutes, is the least stretch that is worth beginning. (This is
+# time at an agent's burn; T above is time on the wall clock, which is why the
+# same 13% is 17 minutes here and 39 there.)
 MIN_STRETCH_S = 30 * 60
 
 # Most agents mid-turn on one account at once (Pro). Set per account in config.

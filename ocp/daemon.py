@@ -32,7 +32,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from . import (accounts, agents, db, events, fold as foldmod, handoff as handoffmod, launch,
-               lock, measure, observe as obs, orca, paths, service, spawn as spawnmod, status, triggers)
+               load, lock, measure, observe as obs, orca, paths, service, spawn as spawnmod, status, triggers)
 
 # Section 8.2 states.
 IDLE, QUEUED, RUNNING, DONE = "IDLE", "QUEUED", "RUNNING", "DONE"
@@ -1208,7 +1208,7 @@ def _move_plan(con, agent: str, kind: str) -> tuple[str | None, str]:
             exclude[left] = "the account it just left, until it resets"
     dest, ranked = status.pick_account(
         [a for a in paths.list_accounts() if accounts.logged_in(a)],
-        bootstrap=True, exclude=exclude)
+        bootstrap=True, exclude=exclude, load=load.read_all(con))
     if dest is None:
         return None, "no account can take one more agent (" + "; ".join(
             f"{a}: {r}" for a, r in ranked if a not in exclude) + ")"
@@ -1254,6 +1254,7 @@ def _move_to_room(con, agent: str, trigger: triggers.Trigger, log) -> bool:
     # acquire in this process does not nest - it fails, and a failed wake here
     # would read as "nowhere to go" and park the agent on the account it was
     # just moved off.
+    measure.begin(con, agent, there)
     woke, why = _wake_agent(con, agent, log, moved_to=there)
     landed = db.get_agent_state(con, agent)
     if not woke and landed and landed["closed_at"]:
@@ -1261,6 +1262,7 @@ def _move_to_room(con, agent: str, trigger: triggers.Trigger, log) -> bool:
         # so falling through parks it with a deadline - which is what brings a
         # closed agent back at all. Returning True here would leave it closed
         # with nothing due.
+        measure.forget(con, agent)
         log(f"  {agent}: closed on {here} but could not start on {there}: {why[:120]}")
         return False
 
@@ -1269,7 +1271,6 @@ def _move_to_room(con, agent: str, trigger: triggers.Trigger, log) -> bool:
     # failed handback as a failed move would clear the context of the session
     # that just started and park it until the *old* account rolls over.
     db.set_account(con, agent, there)
-    measure.begin(con, agent, there)
     db.set_agent_state(con, agent, QUEUED, wake_at=None,
                        detail=f"moved {here} -> {there} ({trigger.kind})")
     db.add_event(con, agent, "moved_account", {"from": here, "to": there,
@@ -1571,11 +1572,8 @@ def supervise(con, agent: str, log, now: int, samples: dict,
         return
 
     # trusted_* is None only when we genuinely do not know: no snapshot, or
-    # one too old to believe. A frozen status.json keeps reporting its last
-    # value forever, and believing it is the same failure as reading a null
-    # as 0 - the trigger would simply never fire again after the collector
-    # died. An account whose window is merely quiet reads as 0, not as
-    # unknown, so an idle agent is left alone instead of handed off.
+    # one too old to believe. Unknown is not a wall, so it does not fire; an
+    # account whose window is merely quiet reads as 0, not as unknown.
     t = triggers.evaluate(st.trusted_pct_5h, st.trusted_ctx_pct, pct_7d=st.trusted_pct_7d)
     # A turn that ended on the usage limit means the agent is at the wall
     # whatever the reading says (it can lag, or be the other window): move it

@@ -274,8 +274,8 @@ class AccountStatus:
 
     def takes_work(self) -> tuple[bool, str]:
         """May a session be started here: assignable, or a rolled-over stale
-        account, and under the weekly wall. The one rule the pick, the panel
-        and `ocp account list` all use."""
+        account, and under the weekly wall. The usage half of the question; `unfit`
+        adds the cap and the stretch."""
         ok, why = self.assignable()
         week = self.trusted_pct_7d
         if not ok and self.rolled_over()[0]:
@@ -623,13 +623,24 @@ def unfit(st: "AccountStatus", ld) -> str | None:
         return f"5h usage at the wall ({st.pct_5h}%)"
     if week is not None and week >= PCT_7D_BLOCK:
         return f"7d usage {week}% at the wall"
-    if ld and ld.at_cap:
-        return f"at its cap: {ld.active} of {ld.cap} agents mid-turn"
     if pct is not None and not st.stale:
-        lasts = triggers.stretch_s(PCT_5H_BLOCK - pct, ld.burn if ld and ld.burn else 0.0)
-        if lasts < triggers.MIN_STRETCH_S:
-            return _stretch_reason(st, ld, lasts)
-    return None
+        return _no_room(st, ld, pct)[0]
+    return _no_room(st, ld, None)[0]
+
+
+def _no_room(st: "AccountStatus", ld, pct: int | None) -> tuple[str | None, float | None]:
+    """(why it cannot take one more agent, how long it would last). The cap,
+    then the stretch when the fill `pct` is known; the one test `unfit` and
+    `pick_account` share."""
+    if ld and ld.at_cap:
+        return f"at its cap: {ld.active} of {ld.cap} agents mid-turn", None
+    if pct is None:
+        return None, None
+    lasts = triggers.stretch_s(PCT_5H_BLOCK - pct, ld.burn if ld and ld.burn else 0.0)
+    if lasts < triggers.MIN_STRETCH_S:
+        return (_stretch_reason(st, ld, lasts) + f" - under the "
+                f"{_hm(triggers.MIN_STRETCH_S)} a start is worth"), lasts
+    return None, lasts
 
 
 def _per_min(rate: float) -> str:
@@ -708,20 +719,12 @@ def pick_account(candidates: list[str] | None = None, bootstrap: bool = False,
             else:
                 reasons.append((n, why))
             continue
-        if ld and ld.at_cap:
-            reasons.append((n, f"at its cap: {ld.active} of {ld.cap} agents mid-turn"))
-            continue
         # A stale account whose window has rolled over reads as a fresh one.
         pct = st.trusted_pct_5h if st.trusted_pct_5h is not None else 0
-        lasts = None
-        if not st.rolled_over()[0]:
-            lasts = triggers.stretch_s(PCT_5H_BLOCK - pct,
-                                       ld.burn if ld and ld.burn else 0.0)
-            if lasts < triggers.MIN_STRETCH_S:
-                reasons.append((n, _stretch_reason(st, ld, lasts)
-                                + f" - under the {_hm(triggers.MIN_STRETCH_S)} a start "
-                                  f"is worth"))
-                continue
+        no_room, lasts = _no_room(st, ld, None if st.rolled_over()[0] else pct)
+        if no_room:
+            reasons.append((n, no_room))
+            continue
         usable.append((n, st, ld, lasts))
     if not usable:
         return (blank[0] if blank else None), reasons
