@@ -6985,18 +6985,27 @@ def test_a_forced_move_goes_through_the_verified_move_or_not_at_all(home: Path) 
 
         # The process that comes up is still on alpha: not a move, and nothing
         # is parked or cleared - the session is live.
-        _process_on("alpha")
+        # The move stops before it ends anything: the handoff it took must not
+        # stay on a session that never ended.
         db.set_handoff(con, "keeper", None)
         real_record = dmn.handoffmod.record
         dmn.handoffmod.record = lambda c, a: (db.set_handoff(c, a, "# handoff · keeper\n"), [])[1]
+        orcamod.alive = lambda h: h != "term_x"
         try:
             ok, msg = dmn.force_move(con, "keeper", "beta", "test", log.append)
         finally:
             dmn.handoffmod.record = real_record
-        row = db.get_agent_state(con, "keeper")
-        check("forced: a process that stays on the old account is not a move", not ok, msg)
+            orcamod.alive = lambda h: True
+        check("forced: a move that stops before ending anything is not a move", not ok, msg)
         check("forced: and the handoff it took is not left on a session that never ended",
               db.get_handoff(con, "keeper") is None, str(db.get_handoff(con, "keeper")))
+        db.set_agent_state(con, "keeper", dmn.IDLE)
+        keep_handoff("keeper", "# handoff · keeper\n## 다음\n- carry on\n")
+
+        _process_on("alpha")
+        ok, msg = dmn.force_move(con, "keeper", "beta", "test", log.append)
+        row = db.get_agent_state(con, "keeper")
+        check("forced: a process that stays on the old account is not a move", not ok, msg)
         check("forced: and its preference is put back",
               agents.account_of("keeper") == "alpha")
         check("forced: and it is left live, not parked",
