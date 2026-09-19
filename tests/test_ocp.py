@@ -241,6 +241,23 @@ def test_failclosed(home: Path) -> None:
     picked, _ = status.pick_account(["fresh", "roomy"])
     check("pick_account maximizes headroom", picked == "roomy", str(picked))
 
+    # request #154/#165 (c): an account nothing has ever run on cannot be
+    # picked by default - only bootstrap=True makes it a last resort.
+    picked, _ = status.pick_account(["ghost", "hot"])
+    check("pick_account: a never-run account is not picked by default",
+          picked is None, str(picked))
+    picked, reasons = status.pick_account(["ghost", "hot"], bootstrap=True)
+    check("pick_account: bootstrap=True picks it once nothing else qualifies",
+          picked == "ghost", str(picked))
+    check("pick_account: and says why", "bootstrap" in dict(reasons)["ghost"],
+          dict(reasons)["ghost"])
+    picked, _ = status.pick_account(["ghost", "fresh"], bootstrap=True)
+    check("pick_account: bootstrap never wins over an account that already qualifies",
+          picked == "fresh", str(picked))
+    picked, _ = status.pick_account(["stale"], bootstrap=True)
+    check("pick_account: bootstrap does not rescue a refusal that is not 'no reading at all'",
+          picked is None, str(picked))
+
 
 def test_pick_account_orders_by_weekly_deadline(home: Path) -> None:
     """Request #166/#167, amended by #169/#170/#254: spend first the weekly
@@ -619,6 +636,236 @@ def test_ask_flow(home: Path) -> None:
             break
         parent = new
     check("ask: chain depth stops runaway loops", depth_blocked)
+
+
+def test_one_request_at_a_time(home: Path) -> None:
+    """Request #189: an agent is given one request at a time - the head of
+    its queue - and the next only once it resolves or dismisses this one.
+    Before delivery its own requester may still replace or withdraw it;
+    once delivered, neither applies."""
+    home.mkdir(parents=True, exist_ok=True)
+    os.environ["OCP_HOME"] = str(home)
+    (home / "team.yaml").write_text(DESIGN_TEAM)
+    for name in ("backend", "reviewer"):
+        agents.register(name, "alpha")
+    con = db.connect()
+    try:
+        ok, msg, first = askmod.ask("reviewer", "task one", requester="backend")
+        check("one-at-a-time: the first ask queues", ok, msg)
+        check("one-at-a-time: the head is the first request",
+              db.head_of_queue(con, "reviewer")["id"] == first,
+              db.head_of_queue(con, "reviewer")["id"])
+        # Delivery itself - the daemon actually typing this into a terminal -
+        # is exercised in daemon tests; here the head is marked delivered
+        # directly, the way `deliver_queued` or a self-view of `ocp inbox`
+        # would, to set up what withdraw/replace are gated on.
+        db.mark_delivered(con, first)
+
+        ok, msg, second = askmod.ask("reviewer", "task two", requester="backend")
+        check("one-at-a-time: a second ask still queues", ok, msg)
+        check("one-at-a-time: the head is still the first - the second waits behind it",
+              db.head_of_queue(con, "reviewer")["id"] == first,
+              db.head_of_queue(con, "reviewer")["id"])
+        check("one-at-a-time: the second was never marked delivered",
+              db.get_request(con, second)["delivered_at"] is None)
+        check("one-at-a-time: two are queued for reviewer",
+              db.queue_depth(con, "reviewer") == 2, db.queue_depth(con, "reviewer"))
+
+        # --first jumps a third request ahead of the (undelivered) second one,
+        # but never ahead of the first, which is already delivered.
+        ok, msg, third = askmod.ask("reviewer", "task three - urgent", requester="backend",
+                                    first=True)
+        check("one-at-a-time: --first is accepted", ok, msg)
+        order = [r["id"] for r in db.queued_for(con, "reviewer")]
+        check("one-at-a-time: --first jumps ahead of what was not yet delivered",
+              order == [first, third, second], str(order))
+
+        # A second --first must not compute its ceiling from the first
+        # --first's row and walk straight past the delivered floor - the
+        # exact repro of the bug the review found: two --first asks in a row.
+        ok, msg, fourth = askmod.ask("reviewer", "task four - even more urgent",
+                                     requester="backend", first=True)
+        check("one-at-a-time: a second --first is accepted", ok, msg)
+        order = [r["id"] for r in db.queued_for(con, "reviewer")]
+        check("one-at-a-time: a second --first still never crosses the delivered head",
+              order == [first, fourth, third, second], str(order))
+        ok, msg = askmod.withdraw(fourth, requester="backend")
+        check("one-at-a-time: cleaning up the extra probe", ok, msg)
+
+        # A requester may replace its own undelivered request; a foreign
+        # requester, or a delivered one, may not.
+        ok, msg = askmod.ask("reviewer", "not yours", requester="reviewer",
+                             replaces=second)[:2]
+        check("one-at-a-time: only the original requester may replace a request",
+              not ok and "not yours" in msg, msg)
+
+        ok, msg, replacement = askmod.ask("reviewer", "task two, corrected",
+                                          requester="backend", replaces=second)
+        check("one-at-a-time: replacing an undelivered request is allowed", ok, msg)
+        check("one-at-a-time: the old one is retired", db.get_request(con, second)["state"],
+              db.get_request(con, second)["state"])
+        check("one-at-a-time: as 'replaced'",
+              db.get_request(con, second)["state"] == "replaced")
+        order = [r["id"] for r in db.queued_for(con, "reviewer")]
+        check("one-at-a-time: the replacement keeps the same place in line",
+              order == [first, third, replacement], str(order))
+
+        ok, msg = askmod.ask("reviewer", "too late", requester="backend", replaces=first)[:2]
+        check("one-at-a-time: a delivered request cannot be replaced",
+              not ok and "already delivered" in msg, msg)
+
+        ok, msg = askmod.withdraw(third, requester="backend")
+        check("one-at-a-time: withdrawing an undelivered request is allowed", ok, msg)
+        check("one-at-a-time: it is gone from the queue", db.get_request(con, third)["state"],
+              db.get_request(con, third)["state"])
+        check("one-at-a-time: as 'withdrawn'", db.get_request(con, third)["state"] == "withdrawn")
+
+        ok, msg = askmod.withdraw(first, requester="backend")
+        check("one-at-a-time: a delivered request cannot be withdrawn",
+              not ok and "already delivered" in msg, msg)
+
+        # Resolving the head hands delivery to the next one - the replacement,
+        # not the request it replaced.
+        ok, msg = askmod.resolve(first, "done")
+        check("one-at-a-time: resolving the head succeeds", ok, msg)
+        new_head = db.head_of_queue(con, "reviewer")
+        check("one-at-a-time: the replacement becomes the head",
+              new_head["id"] == replacement, new_head["id"])
+        check("one-at-a-time: withdrawn/replaced rows never become the head",
+              new_head["body"] == "task two, corrected", new_head["body"])
+    finally:
+        con.close()
+
+
+def test_migration_marks_only_each_targets_head_delivered(home: Path) -> None:
+    """Review of buddyron/one-task-at-a-time: the first version of this
+    migration marked every existing queued row delivered, which left --first
+    nothing to land in front of and sent it to the back of a live queue."""
+    import sqlite3
+    home.mkdir(parents=True, exist_ok=True)
+    p = home / "old.sqlite"
+    old = sqlite3.connect(p)
+    old.execute("""
+        CREATE TABLE requests (
+          id INTEGER PRIMARY KEY AUTOINCREMENT, ts INTEGER NOT NULL,
+          requester TEXT NOT NULL, target TEXT NOT NULL, body TEXT NOT NULL,
+          files TEXT, relation TEXT, response TEXT, kind TEXT,
+          chain_depth INTEGER NOT NULL DEFAULT 0, parent_id INTEGER,
+          chain_id TEXT, state TEXT NOT NULL DEFAULT 'queued', verdict TEXT,
+          announced_at INTEGER, resolved_at INTEGER
+        )
+    """)
+    now = int(time.time())
+    for i, body in enumerate(["first", "second", "third"]):
+        old.execute(
+            "INSERT INTO requests(ts, requester, target, body, state, chain_id) "
+            "VALUES(?,?,?,?,?,?)", (now, "backend", "keeper", body, "queued", str(i + 1)))
+    old.commit()
+    old.close()
+
+    con = db.connect(p)
+    try:
+        rows = con.execute(
+            "SELECT id, body, queue_order, delivered_at FROM requests ORDER BY id").fetchall()
+        check("migration: queue_order backfilled to id",
+              [r["queue_order"] for r in rows] == [r["id"] for r in rows], str([dict(r) for r in rows]))
+        check("migration: only the head is marked delivered",
+              rows[0]["delivered_at"] is not None and rows[1]["delivered_at"] is None
+              and rows[2]["delivered_at"] is None, str([dict(r) for r in rows]))
+
+        # --first now has room to land right after the migrated head, not at
+        # the back of the whole queue.
+        new_id = db.add_request(con, "someone", "keeper", "urgent", None,
+                                "peer", "async", None, 0, None, first=True)
+        order = [r["id"] for r in db.queued_for(con, "keeper")]
+        check("migration: --first lands right after the migrated head",
+              order == [rows[0]["id"], new_id, rows[1]["id"], rows[2]["id"]], str(order))
+    finally:
+        con.close()
+
+
+def test_replace_and_merge_respect_delivered_at(home: Path) -> None:
+    """Review of buddyron/one-task-at-a-time: --mergeable folded into an
+    already-delivered row (changing what the target was already reading, with
+    nobody told), and --replaces --mergeable together returned before the
+    replaced row was retired."""
+    home.mkdir(parents=True, exist_ok=True)
+    os.environ["OCP_HOME"] = str(home)
+    (home / "team.yaml").write_text(DESIGN_TEAM)
+    for name in ("backend", "reviewer"):
+        agents.register(name, "alpha")
+    con = db.connect()
+    try:
+        ok, msg, rid = askmod.ask("reviewer", "please look", requester="backend",
+                                  files="a.py")
+        db.mark_delivered(con, rid)
+        ok, msg, merged = askmod.ask("reviewer", "also this", requester="backend",
+                                     files="a.py", mergeable=True)
+        check("mergeable: does not fold into an already-delivered row",
+              merged != rid, str((rid, merged)))
+        check("mergeable: a separate request queues instead",
+              db.get_request(con, merged)["body"] == "also this",
+              db.get_request(con, merged)["body"])
+
+        # --replaces --mergeable: the replaced row must be retired, not left
+        # 'queued' because a merge path returned first.
+        ok, msg, third = askmod.ask("reviewer", "another one", requester="backend")
+        ok, msg, fourth = askmod.ask("reviewer", "another one, corrected",
+                                     requester="backend", replaces=third, mergeable=True)
+        check("replaces+mergeable: the ask succeeds", ok, msg)
+        check("replaces+mergeable: the replaced row is retired, not left queued",
+              db.get_request(con, third)["state"] == "replaced",
+              db.get_request(con, third)["state"])
+    finally:
+        con.close()
+
+
+def test_chain_members_excludes_a_row_about_to_be_replaced(home: Path) -> None:
+    """Review note: a replace's cycle/ping-pong check ran while the row it is
+    about to retire was still 'queued', counting a round that, from the
+    target's side, never happened."""
+    home.mkdir(parents=True, exist_ok=True)
+    os.environ["OCP_HOME"] = str(home)
+    con = db.connect()
+    try:
+        a = db.add_request(con, "x", "y", "one", None, "peer", "async", None, 0, None)
+        b = db.add_request(con, "y", "x", "two", None, "peer", "async", None, 0, None,
+                           chain_id=db.get_request(con, a)["chain_id"])
+        chain_id = db.get_request(con, a)["chain_id"]
+        check("chain_members: both rows count without exclusion",
+              len(db.chain_members(con, chain_id)) == 2)
+        check("chain_members: exclude_id drops just that one row",
+              [r["id"] for r in db.chain_members(con, chain_id, exclude_id=b)] == [a])
+    finally:
+        con.close()
+
+
+def test_retire_if_undelivered_is_the_gate_against_the_delivery_race(home: Path) -> None:
+    """Review of buddyron/one-task-at-a-time: a plain read-then-write let a
+    delivery land between checking delivered_at and retiring the row. The
+    atomic conditional update is the only thing withdraw/replace may trust."""
+    home.mkdir(parents=True, exist_ok=True)
+    os.environ["OCP_HOME"] = str(home)
+    con = db.connect()
+    try:
+        rid = db.add_request(con, "backend", "reviewer", "task", None,
+                             "peer", "async", None, 0, None)
+        check("retire_if_undelivered: succeeds on an undelivered row",
+              db.retire_if_undelivered(con, rid, "withdrawn"))
+        check("retire_if_undelivered: the row actually moved",
+              db.get_request(con, rid)["state"] == "withdrawn")
+
+        rid2 = db.add_request(con, "backend", "reviewer", "task two", None,
+                              "peer", "async", None, 0, None)
+        # A delivery "landing" between a caller's own check and its write is
+        # exactly db.mark_delivered running first.
+        db.mark_delivered(con, rid2)
+        check("retire_if_undelivered: refuses once delivered_at is set",
+              not db.retire_if_undelivered(con, rid2, "withdrawn"))
+        check("retire_if_undelivered: and does not touch the row",
+              db.get_request(con, rid2)["state"] == "queued")
+    finally:
+        con.close()
 
 
 def test_ask_rate_limit(home: Path) -> None:
@@ -2239,9 +2486,13 @@ def test_a_running_agent_is_told_when_work_arrives(home: Path) -> None:
         check("deliver: the same request is not announced twice",
               not dmn.deliver_queued(con, "backend", lambda _m: None) and not sent)
 
+        # Request #189: one at a time. A second request behind the first is
+        # queued, but the head has not changed - backend is not re-told, and
+        # it is not shown the second one's contents at all.
         db.add_request(con, "reviewer", "backend", "and this", None,
                        "peer", "async", None, 0, None)
-        check("deliver: but a new one is", dmn.deliver_queued(con, "backend", lambda _m: None))
+        check("deliver: a request behind the head does not get its own delivery",
+              not dmn.deliver_queued(con, "backend", lambda _m: None) and not sent, str(sent))
 
         # Typing at an agent mid-turn leaves the text in its input box, unsent.
         orcamod.idle_now = lambda h: False
@@ -2256,8 +2507,46 @@ def test_a_running_agent_is_told_when_work_arrives(home: Path) -> None:
         # close, and it never was awake in the first place.
         check("deliver: being told is not activity",
               db.last_activity(con, "backend") is None, str(db.last_activity(con, "backend")))
+
+        # Resolving the head reveals the next one - a different id - and
+        # resolve() delivers it right away, the same as asking delivers to an
+        # idle target right away rather than waiting for the next tick.
+        orcamod.idle_now = lambda h: True
+        head = db.head_of_queue(con, "backend")
+        sent.clear()
+        askmod.resolve(head["id"], "done")
+        check("deliver: resolving the head delivers the one behind it, right away",
+              sent and "and this" in sent[-1] and "look at this" not in sent[-1], str(sent))
     finally:
         orcamod.alive, orcamod.idle_now, orcamod.send, orcamod.available = real
+        con.close()
+
+
+def test_a_withdraw_landing_before_the_send_stops_the_send(home: Path) -> None:
+    """Review of buddyron/one-task-at-a-time, fix #5: deliver_queued reads
+    head_of_queue, then waits on idle_now and lock.terminal before _tell marks
+    the row and sends it - a withdraw or replace fitting in that gap must not
+    still get typed into the target's terminal."""
+    _daemon_home(home, 20)
+    con = db.connect()
+    sent: list[str] = []
+    real = orcamod.send
+    try:
+        orcamod.send = lambda h, text, enter=True: (sent.append(text), (True, ""))[1]
+        rid = db.add_request(con, "reviewer", "backend", "look at this", None,
+                             "peer", "async", None, 0, None)
+        head = db.head_of_queue(con, "backend")
+        # The gap: something retires the row after deliver_queued already read
+        # it as the head, but before _tell gets to mark_delivered.
+        check("race: the withdraw lands",
+              db.retire_if_undelivered(con, rid, "withdrawn"))
+        check("race: _tell refuses instead of sending a dead request",
+              not dmn._tell(con, "backend", head, 1, "term_x", lambda _m: None) and not sent,
+              str(sent))
+        check("race: the row was not marked delivered underneath the withdraw",
+              db.get_request(con, rid)["delivered_at"] is None)
+    finally:
+        orcamod.send = real
         con.close()
 
 
@@ -3934,6 +4223,129 @@ edges:
         con.close()
 
 
+def test_hr_move_changes_an_agents_account(home: Path) -> None:
+    """Request #154/#156: there was no command to change an agent's account -
+    a human edited agent.yaml by hand, and the loop #154 traced started with a
+    resume id recorded on the account being left, which `--resume` on the new
+    one cannot use (#154 item 4)."""
+    _daemon_home(home, 20)
+    accounts.register("beta")
+    con = db.connect()
+    real_live = obsmod.live_sessions
+    try:
+        db.set_account(con, "backend", "alpha")
+        db.set_closed(con, "backend", "sess-1")
+        # _daemon_home's default live_sessions is None (an unreadable table),
+        # which _move now treats as "can't tell, leave it alone" - this test
+        # wants the genuinely-not-running case, so it says so explicitly.
+        obsmod.live_sessions = lambda: {}
+
+        ok, said = hr.enact("move", "backend", why="alpha is at the wall", account="beta")
+        check("hr move: the founder's own move lands without a proposal", ok, said)
+        check("hr move: agent.yaml now prefers the new account",
+              agents.account_of("backend") == "beta", agents.account_of("backend"))
+        row = db.get_agent_state(con, "backend")
+        check("hr move: a closed agent's state row is cleared, not overwritten - "
+              "the preference just written answers 'where does it run' until a "
+              "session records its own",
+              row["account"] is None, str(dict(row)))
+        check("hr move: current_account falls back to the new preference",
+              agents.current_account("backend", con) == "beta",
+              agents.current_account("backend", con))
+        check("hr move: a resume id from the old account is dropped - it means "
+              "nothing on the new one",
+              row["resume_session"] is None, str(dict(row)))
+
+        check("hr move: an unregistered account is refused",
+              not hr.enact("move", "backend", why="w", account="nope")[0])
+        check("hr move: an agent that already prefers its target is refused",
+              not hr.enact("move", "backend", why="w", account="beta")[0])
+        check("hr move: an unknown agent is refused",
+              not hr.enact("move", "nobody", why="w", account="beta")[0])
+
+        # An agent may propose its own move; only the founder's own action
+        # applies it without a gate to approve.
+        ok, said = hr.propose("move", "backend", requester="backend",
+                              why="beta is quieter", account="alpha")
+        check("hr move: an agent may propose moving itself", ok, said)
+        check("hr move: but proposing changes nothing until it is applied",
+              agents.account_of("backend") == "beta", agents.account_of("backend"))
+    finally:
+        obsmod.live_sessions = real_live
+        con.close()
+
+
+def test_hr_move_does_not_touch_a_live_sessions_own_record(home: Path) -> None:
+    """Review of buddyron/bootstrap-and-hr-move: moving an agent while its
+    session is running used to rewrite agent_state.account under it, which
+    recreated the exact #154 mismatch this command exists to fix - every
+    usage read believed the new account while the session kept spending the
+    old one, and a later close recorded a resume id that belonged to the old
+    account under what current_account now called the new one."""
+    _daemon_home(home, 20)
+    accounts.register("beta")
+    con = db.connect()
+    real_live = obsmod.live_sessions
+    try:
+        db.set_account(con, "backend", "alpha")
+        obsmod.live_sessions = lambda: {"backend": 4242}
+
+        ok, said = hr.enact("move", "backend", why="beta has room", account="beta")
+        check("hr move (live): still succeeds - it changes the preference, not "
+              "the running session", ok, said)
+        check("hr move (live): agent.yaml takes the new preference",
+              agents.account_of("backend") == "beta", agents.account_of("backend"))
+        row = db.get_agent_state(con, "backend")
+        check("hr move (live): the live session's own account record is untouched",
+              row["account"] == "alpha", str(dict(row)))
+        check("hr move (live): current_account still reports where the session "
+              "actually is, not the new preference",
+              agents.current_account("backend", con) == "alpha",
+              agents.current_account("backend", con))
+
+        # Once the session ends and is closed with a resume id, that id
+        # belongs to alpha - current_account must keep saying alpha until
+        # the close is recorded, or a wake would try --resume on beta.
+        db.set_closed(con, "backend", "sess-live")
+        check("hr move (live): closing after the fact still resumes on the "
+              "account the session actually ran on",
+              agents.current_account("backend", con) == "alpha",
+              agents.current_account("backend", con))
+    finally:
+        obsmod.live_sessions = real_live
+        con.close()
+
+
+def test_hr_move_leaves_account_alone_when_liveness_cannot_be_read(home: Path) -> None:
+    """Review of buddyron/bootstrap-and-hr-move, should-fix #3: live_sessions()
+    returns None when the process table can't be read - treating that as 'not
+    running' clears agent_state.account under a session that may actually be
+    live, on exactly the machines where this read fails."""
+    _daemon_home(home, 20)
+    accounts.register("beta")
+    con = db.connect()
+    real_live = obsmod.live_sessions
+    try:
+        db.set_account(con, "backend", "alpha")
+        obsmod.live_sessions = lambda: None
+
+        ok, said = hr.enact("move", "backend", why="beta has room", account="beta")
+        check("hr move (unknown liveness): still succeeds", ok, said)
+        check("hr move (unknown liveness): agent.yaml takes the new preference",
+              agents.account_of("backend") == "beta", agents.account_of("backend"))
+        row = db.get_agent_state(con, "backend")
+        check("hr move (unknown liveness): the account record is left alone, not "
+              "cleared, since a live session cannot be ruled out",
+              row["account"] == "alpha", str(dict(row)))
+        check("hr move (unknown liveness): current_account keeps reporting the "
+              "account actually on record",
+              agents.current_account("backend", con) == "alpha",
+              agents.current_account("backend", con))
+    finally:
+        obsmod.live_sessions = real_live
+        con.close()
+
+
 def test_the_screen_reads_keys_from_the_terminal_not_from_a_buffer() -> None:
     """An arrow is `esc [ B`, and `sys.stdin.read(1)` pulls all three bytes
     into Python's own buffer - after which select() reports the descriptor has
@@ -4394,6 +4806,61 @@ def test_a_request_can_be_read_whole(home: Path) -> None:
               "no request" in _capture(lambda: climod.main(["read", "99999"])))
     finally:
         pass
+
+
+def test_inbox_and_withdraw_cli(home: Path) -> None:
+    """`ocp inbox` shows the head and a count, not the whole queue (request
+    #189); `ocp withdraw` takes back an undelivered request of your own."""
+    _daemon_home(home, 20)
+    agents.register("reviewer", "alpha")
+    con = db.connect()
+    try:
+        rid1 = db.add_request(con, "backend", "reviewer", "task one", None,
+                              "peer", "async", None, 0, None)
+        rid2 = db.add_request(con, "backend", "reviewer", "task two", None,
+                              "peer", "async", None, 0, None)
+    finally:
+        con.close()
+
+    real_agent = os.environ.get("OCP_AGENT")
+    try:
+        os.environ["OCP_AGENT"] = "reviewer"
+        out = _capture(lambda: climod.main(["inbox"]))
+        check("inbox: shows the head's body", "task one" in out, out)
+        check("inbox: not the one behind it", "task two" not in out, out)
+        check("inbox: says how many more are waiting", "1 more waiting" in out, out)
+
+        con = db.connect()
+        try:
+            check("inbox: viewing your own head marks it delivered",
+                  db.get_request(con, rid1)["delivered_at"] is not None)
+        finally:
+            con.close()
+
+        out = _capture(lambda: climod.main(["inbox", "--all"]))
+        check("inbox --all: shows the whole queue",
+              "task one" in out and "task two" in out, out)
+
+        os.environ["OCP_AGENT"] = "backend"
+        out = _capture(lambda: climod.main(["withdraw", str(rid2)]))
+        check("withdraw: an undelivered request of your own can be taken back",
+              "withdrawn" in out, out)
+        con = db.connect()
+        try:
+            check("withdraw: it leaves the queue",
+                  db.get_request(con, rid2)["state"] == "withdrawn",
+                  db.get_request(con, rid2)["state"])
+        finally:
+            con.close()
+
+        out = _capture(lambda: climod.main(["withdraw", str(rid1)]))
+        check("withdraw: a delivered request refuses",
+              "already delivered" in out, out)
+    finally:
+        if real_agent is None:
+            os.environ.pop("OCP_AGENT", None)
+        else:
+            os.environ["OCP_AGENT"] = real_agent
 
 
 def test_only_one_thing_types_at_an_agent_at_a_time(home: Path) -> None:
@@ -5243,6 +5710,53 @@ def test_move_requires_clear_headroom_not_bare_assignability(home: Path) -> None
             (orcamod.available, orcamod.alive, orcamod.close_session,
              orcamod.relaunch, orcamod.idle_now, dmn.wait_for_session) = real
     finally:
+        con.close()
+
+
+def test_move_to_room_reaches_a_bootstrap_account(home: Path) -> None:
+    """Review of buddyron/bootstrap-and-hr-move: choose_account(bootstrap=True)
+    could pick a never-run account for the move, but _move_to_room's own
+    re-check called plain assignable(), which refuses "no status.json" - the
+    same reason bootstrap exists to lift. A bootstrapped pick was reachable
+    from an ordinary launch and never from the one place an agent at the wall
+    needs a second account most."""
+    _daemon_home(home, 20)
+    con = db.connect()
+    agents.register("keeper", "alpha")
+    write_status(home, "alpha", pct_5h=95, pct_7d=20, ctx_pct=5,
+                 reset_5h=int(time.time()) + 1800)
+    accounts.register("gamma")
+    (home / "accounts" / "gamma" / ".claude" / ".credentials.json").write_text("{}")
+    foldmod.handoff_path("keeper").write_text("# handoff · keeper\n## 다음\n- carry on\n")
+    real = (orcamod.available, orcamod.alive, orcamod.close_session, orcamod.relaunch,
+            orcamod.clear_context, orcamod.resume_with, orcamod.idle_now,
+            dmn.wait_for_session)
+    try:
+        orcamod.available = lambda: True
+        orcamod.alive = lambda h: True
+        orcamod.idle_now = lambda h: True
+        orcamod.clear_context = lambda h, **kw: (True, "cleared")
+        orcamod.close_session = lambda h, **kw: (True, "session ended")
+        orcamod.resume_with = lambda h, text: (True, "handed back")
+        orcamod.relaunch = lambda h, cmd, **kw: (True, "relaunched")
+        dmn.wait_for_session = lambda agent, timeout=0: True
+        sessions_are("keeper")
+        db.set_terminal(con, "keeper", "term_x", "wt")
+        db.set_account(con, "keeper", "alpha")
+
+        check("move (bootstrap): choose_account reaches the never-run account",
+              launch.choose_account("keeper", limit=triggers.HARD_STOP_PCT
+                                     - triggers.DEFAULT_RESERVE_PCT) == "gamma")
+        t = triggers.evaluate(95, 10)
+        check("move (bootstrap): the move actually completes",
+              dmn._move_to_room(con, "keeper", t, lambda _m: None))
+        check("move (bootstrap): and lands on the bootstrapped account",
+              agents.current_account("keeper", con) == "gamma",
+              agents.current_account("keeper", con))
+    finally:
+        (orcamod.available, orcamod.alive, orcamod.close_session, orcamod.relaunch,
+         orcamod.clear_context, orcamod.resume_with, orcamod.idle_now,
+         dmn.wait_for_session) = real
         con.close()
 
 
@@ -6987,6 +7501,12 @@ def main() -> int:
         run(lambda: test_team_validation())
         run(lambda: test_db_dedup(home))
         run(lambda: test_ask_flow(Path(td) / 'askhome'))
+        run(lambda: test_one_request_at_a_time(Path(td) / 'onetask'))
+        run(lambda: test_migration_marks_only_each_targets_head_delivered(Path(td) / 'oldmig'))
+        run(lambda: test_replace_and_merge_respect_delivered_at(Path(td) / 'mergedeliv'))
+        run(lambda: test_chain_members_excludes_a_row_about_to_be_replaced(Path(td) / 'chainexc'))
+        run(lambda: test_retire_if_undelivered_is_the_gate_against_the_delivery_race(
+            Path(td) / 'retirerace'))
         run(lambda: test_ask_rate_limit(Path(td) / 'ratehome'))
         run(lambda: test_cycle_and_escalation(Path(td) / 'cyc'))
         run(lambda: test_review_pingpong(Path(td) / 'pingpong'))
@@ -7062,9 +7582,13 @@ def main() -> int:
         run(lambda: test_an_answer_reaches_the_agent_that_asked(Path(td) / 'answered'))
         run(lambda: test_an_answer_wakes_the_agent_that_was_waiting_for_it(Path(td) / 'waiting'))
         run(lambda: test_a_request_can_be_read_whole(Path(td) / 'readone'))
+        run(lambda: test_inbox_and_withdraw_cli(Path(td) / 'inboxcli'))
         run(lambda: test_only_one_thing_types_at_an_agent_at_a_time(Path(td) / 'locking'))
         run(lambda: test_growing_the_team_needs_a_person(Path(td) / 'hr'))
         run(lambda: test_the_founder_does_not_approve_their_own_request(Path(td) / 'hrself'))
+        run(lambda: test_hr_move_changes_an_agents_account(Path(td) / 'hrmove'))
+        run(lambda: test_hr_move_does_not_touch_a_live_sessions_own_record(Path(td) / 'hrmovelive'))
+        run(lambda: test_hr_move_leaves_account_alone_when_liveness_cannot_be_read(Path(td) / 'hrmoveunknown'))
         run(lambda: test_the_screen_says_which_account_to_spend_next(Path(td) / 'nextacct'))
         run(lambda: test_a_long_name_does_not_run_into_the_column_beside_it(Path(td) / 'cols'))
         run(lambda: test_the_whole_loop_runs_on_our_own_commands(Path(td) / 'loop'))
@@ -7080,6 +7604,7 @@ def main() -> int:
             Path(td) / 'nobounce'))
         run(lambda: test_move_requires_clear_headroom_not_bare_assignability(
             Path(td) / 'moveheadroom'))
+        run(lambda: test_move_to_room_reaches_a_bootstrap_account(Path(td) / 'movebootstrap'))
         run(lambda: test_an_answer_to_the_human_is_in_the_human_mailbox(Path(td) / 'mailbox'))
         run(lambda: test_the_team_is_drawn_the_way_it_is_routed(Path(td) / 'tree'))
         run(lambda: test_the_panel_and_the_daemon_agree_about_what_is_in_the_way(Path(td) / 'topagree'))

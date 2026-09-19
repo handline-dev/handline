@@ -60,10 +60,13 @@ def find_room(agent: str, limit: int | None = None, limit_7d: int | None = None,
             st.age_s is not None and st.age_s < 5 * 3600)
     if not full:
         return preferred
+    # Logged-in accounts only: `assignable` says nothing about credentials.
+    # bootstrap: a never-run account is a real place to go.
     # `preferred` is out: it just crossed this line, and bare assignability
     # would sort it straight back to the top on deadline alone.
     candidates = [a for a in paths.list_accounts() if accounts.logged_in(a) and a != preferred]
-    return status.pick_account(candidates, limit_5h=line, limit_7d=line7)[0]
+    return status.pick_account(candidates, limit_5h=line, limit_7d=line7,
+                               bootstrap=True)[0]
 
 
 def choose_account(agent: str, resuming: bool = False, limit: int | None = None,
@@ -224,7 +227,9 @@ def _your_team(agent: str) -> str:
     if reports:
         lines.append("Your reports: " + ", ".join(f"`{n}`" for n in reports) + ". "
                      "You do not implement - give one work with `ocp ask <name> "
-                     "\"<task>\"`, and read what it sends back.")
+                     "\"<task>\"`, and read what it sends back. One task at a "
+                     "time; to correct one not yet delivered, `--replaces <id>` "
+                     "or `ocp withdraw <id>`, not a message behind it.")
     lines.append("`ocp team` shows who you may ask and what each is doing now. "
                  "A decision only the founder can make: `ocp ask human`.")
     return "\n".join(lines)

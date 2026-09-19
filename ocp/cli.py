@@ -830,8 +830,15 @@ def cmd_team_check(args) -> int:
 def cmd_ask(args) -> int:
     ok, msg, _ = askmod.ask(args.target, args.body, files=args.files,
                             requester=args.of, parent_id=args.parent,
-                            mergeable=args.mergeable)
+                            mergeable=args.mergeable, first=args.first,
+                            replaces=args.replaces)
     # ask() already phrases its own refusals; do not prefix them again.
+    print(msg)
+    return 0 if ok else 1
+
+
+def cmd_withdraw(args) -> int:
+    ok, msg = askmod.withdraw(args.id, requester=args.of)
     print(msg)
     return 0 if ok else 1
 
@@ -851,14 +858,37 @@ def cmd_inbox(args) -> int:
         if sys.stdout.isatty() and not args.all:
             return tui.run()
         return _human_inbox(args.all)
-    rows = askmod.inbox(agent, unread_only=not args.all)
-    if not rows:
-        print(f"{agent}: inbox empty")
+    if args.all:
+        rows = askmod.inbox(agent, unread_only=False)
+        if not rows:
+            print(f"{agent}: inbox empty")
+            return 0
+        print(f"{len(rows)} total. `ocp read <id>` shows one whole.")
+        for r in rows:
+            print(f"#{r['id']:<5} from {r['requester']:<12} {r['state']:<9} "
+                  f"depth={r['chain_depth']} {r['body'][:60]}")
         return 0
-    print(f"{len(rows)} waiting. `ocp read <id>` shows one whole.")
-    for r in rows:
-        print(f"#{r['id']:<5} from {r['requester']:<12} {r['state']:<9} "
-              f"depth={r['chain_depth']} {r['body'][:60]}")
+
+    con = db.connect()
+    try:
+        head = db.head_of_queue(con, agent)
+        if not head:
+            print(f"{agent}: inbox empty")
+            return 0
+        more = db.queue_depth(con, agent) - 1
+        # Only a look at your own queue counts as being told - a foreign
+        # `ocp inbox <name>` must not spend the requester's withdraw/replace.
+        if agent == askmod.asking_agent():
+            db.mark_delivered(con, int(head["id"]))
+    finally:
+        con.close()
+    print(f"#{head['id']} from {head['requester']}  depth={head['chain_depth']}")
+    print()
+    print(head["body"] or "(empty)")
+    if more:
+        print(f"\n{more} more waiting - the next comes when you resolve or dismiss this one.")
+    print("\n`ocp resolve <id> \"<verdict>\"` answers it. `ocp inbox --all` shows the whole "
+          "queue and its history.")
     return 0
 
 
@@ -1091,7 +1121,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     p = sub.add_parser("hr", help="propose a roster change; the founder approves it")
     hrsub = p.add_subparsers(dest="hr_cmd", required=True)
-    for kind in ("add", "retire", "rename"):
+    for kind in ("add", "retire", "rename", "move"):
         q = hrsub.add_parser(kind, help=f"propose to {kind} an agent")
         q.add_argument("name")
         q.add_argument("--why", required=True, help="what the founder is deciding")
@@ -1105,6 +1135,9 @@ def build_parser() -> argparse.ArgumentParser:
             q.add_argument("--to", required=True, help="the new name")
             q.add_argument("--team", default=None, help="team it should be in after")
             q.set_defaults(account=None, repo=None, model=None, effort=None)
+        elif kind == "move":
+            q.add_argument("--account", required=True, help="the account it should prefer next")
+            q.set_defaults(team=None, repo=None, model=None, effort=None, to=None)
         else:
             q.set_defaults(account=None, team=None, repo=None, model=None, effort=None)
     q = hrsub.add_parser("list", help="proposals and what became of them")
@@ -1140,11 +1173,21 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--parent", type=int, default=None, help="parent request id, for chain depth")
     p.add_argument("--mergeable", action="store_true",
                    help="fold into an already-queued ask to the same target")
+    p.add_argument("--first", action="store_true",
+                   help="put this at the head of the target's queue")
+    p.add_argument("--replaces", type=int, default=None, metavar="ID",
+                   help="correct your own request ID before it has been delivered; "
+                        "ID is retired and this takes its place in line")
     p.set_defaults(fn=cmd_ask)
 
-    p = sub.add_parser("inbox", help="show queued requests for an agent")
+    p = sub.add_parser("withdraw", help="take back your own request before it is delivered")
+    p.add_argument("id", type=int)
+    p.add_argument("--of", default=None, help="requester (defaults to $OCP_AGENT)")
+    p.set_defaults(fn=cmd_withdraw)
+
+    p = sub.add_parser("inbox", help="the one request currently waiting for an agent")
     p.add_argument("agent", nargs="?")
-    p.add_argument("--all", action="store_true")
+    p.add_argument("--all", action="store_true", help="the whole queue and its history")
     p.set_defaults(fn=cmd_inbox)
 
     p = sub.add_parser("read", help="print one request whole, with its answer")

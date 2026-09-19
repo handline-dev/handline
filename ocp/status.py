@@ -452,7 +452,8 @@ def _pick_reason(st: "AccountStatus", picked: bool) -> str:
 
 
 def pick_account(candidates: list[str] | None = None, limit_5h: int | None = None,
-                 limit_7d: int | None = None) -> tuple[str | None, list[tuple[str, str]]]:
+                 limit_7d: int | None = None,
+                 bootstrap: bool = False) -> tuple[str | None, list[tuple[str, str]]]:
     """Pick the account whose weekly headroom expires soonest, among those that
     can take the work.
 
@@ -464,10 +465,18 @@ def pick_account(candidates: list[str] | None = None, limit_5h: int | None = Non
     accounts that would last. Those at or over `limit_7d` rank after the rest
     but stay eligible: weekly headroom is spent to its wall, not held back.
     Then reset_7d soonest first; 5h headroom breaks ties and unknowns.
+
+    `bootstrap=True`: a logged-in account with no status.json at all - never
+    run, so nothing else could ever give it one - is pickable as a last
+    resort, in list_accounts order, once nothing with an actual reading
+    qualifies. Every other refusal (stale, at the wall, unreadable) still
+    refuses; a stale account that has run once and gone quiet is not
+    "unread", and needs its own explicit preference to be picked again.
     """
     names = candidates if candidates is not None else paths.list_accounts()
     reasons: list[tuple[str, str]] = []
     usable: list[tuple[str, AccountStatus]] = []
+    blank: list[str] = []
     for n in names:
         st = read(n)
         allowed, why = st.assignable()
@@ -476,10 +485,14 @@ def pick_account(candidates: list[str] | None = None, limit_5h: int | None = Non
             allowed, why = False, f"5h usage {pct}% >= {limit_5h}%"
         if allowed:
             usable.append((n, st))
+        elif bootstrap and not st.exists:
+            blank.append(n)
+            reasons.append((n, "no reading yet - a session has never run on it "
+                              "(bootstrap candidate, used only if nothing else qualifies)"))
         else:
             reasons.append((n, why))
     if not usable:
-        return None, reasons
+        return (blank[0] if blank else None), reasons
 
     def sort_key(item: tuple[str, AccountStatus]):
         _, st = item

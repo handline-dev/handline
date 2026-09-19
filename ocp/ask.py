@@ -119,7 +119,8 @@ def _escalate(con, requester: str, target: str, body: str, files: str | None,
     return rid
 
 
-def _cycle_in_chain(con, chain_id: str | None, requester: str, target: str) -> str | None:
+def _cycle_in_chain(con, chain_id: str | None, requester: str, target: str,
+                    exclude_id: int | None = None) -> str | None:
     """Detect A->B->A inside one chain (team model section 6).
 
     Depth alone does not catch this: two agents can bounce a request back and
@@ -133,7 +134,7 @@ def _cycle_in_chain(con, chain_id: str | None, requester: str, target: str) -> s
     """
     if not chain_id or HUMAN in (requester, target):
         return None
-    rows = db.chain_members(con, chain_id)
+    rows = db.chain_members(con, chain_id, exclude_id=exclude_id)
     for r in rows:
         if r["requester"] == target and r["target"] == requester:
             return (f"cycle: {target} already asked {requester} in this chain "
@@ -141,7 +142,8 @@ def _cycle_in_chain(con, chain_id: str | None, requester: str, target: str) -> s
     return None
 
 
-def _review_pingpong(con, chain_id: str | None, target: str, files: str | None) -> str | None:
+def _review_pingpong(con, chain_id: str | None, target: str, files: str | None,
+                     exclude_id: int | None = None) -> str | None:
     """Count review round-trips on the same file within one chain."""
     if not chain_id or target != "reviewer" or not files:
         return None
@@ -149,7 +151,7 @@ def _review_pingpong(con, chain_id: str | None, target: str, files: str | None) 
     if not wanted:
         return None
     trips = 0
-    for r in db.chain_members(con, chain_id):
+    for r in db.chain_members(con, chain_id, exclude_id=exclude_id):
         if r["target"] != "reviewer":
             continue
         have = {f for f in (r["files"] or "").split(",") if f}
@@ -163,15 +165,15 @@ def _review_pingpong(con, chain_id: str | None, target: str, files: str | None) 
 
 def _merge_into_queued(con, requester: str, target: str, body: str,
                        files: str | None) -> int | None:
-    """Fold this ask into one already queued for the same target.
+    """Fold this ask into one already queued, undelivered, for the same target.
 
     Team model section 5: a review belongs to a PR, not to every commit in it.
-    Merging keeps the queue from filling with near-identical asks that would
-    each cost a full turn to answer.
+    Delivered is excluded: merging into a row the target is already reading
+    or working from would change its content with nobody told (request #189).
     """
     rows = con.execute(
         "SELECT * FROM requests WHERE requester = ? AND target = ? AND state = 'queued' "
-        "ORDER BY id DESC LIMIT 1", (requester, target)).fetchone()
+        "AND delivered_at IS NULL ORDER BY id DESC LIMIT 1", (requester, target)).fetchone()
     if rows is None:
         return None
     merged_body = rows["body"].rstrip() + "\n\n--- also ---\n" + body.strip()
@@ -184,8 +186,13 @@ def _merge_into_queued(con, requester: str, target: str, body: str,
 
 
 def ask(target: str, body: str, files: str | None = None, requester: str | None = None,
-        parent_id: int | None = None, mergeable: bool = False) -> tuple[bool, str, int | None]:
-    """Route and, if allowed, enqueue. Returns (allowed, message, request id)."""
+        parent_id: int | None = None, mergeable: bool = False, first: bool = False,
+        replaces: int | None = None) -> tuple[bool, str, int | None]:
+    """Route and, if allowed, enqueue. Returns (allowed, message, request id).
+
+    `first` and `replaces` are request #189's --first and --replaces; see
+    `db.add_request` and `db.head_of_queue`.
+    """
     requester = requester or asking_agent()
     # Nobody may send as the human. That name carries two
     # privileges - the routing table lets it reach every agent, and a chain
@@ -206,6 +213,23 @@ def ask(target: str, body: str, files: str | None = None, requester: str | None 
     t = team.Team.load()
     con = db.connect()
     try:
+        old = None
+        if replaces is not None:
+            old = db.get_request(con, replaces)
+            if old is None:
+                return False, f"request {replaces} does not exist", None
+            if old["requester"] != requester:
+                return False, (f"#{replaces} is {old['requester']} -> {old['target']}, "
+                               f"not yours to replace"), None
+            if old["state"] != "queued":
+                return False, (f"#{replaces} is already {old['state']} - "
+                               f"nothing to replace"), None
+            if old["delivered_at"]:
+                return False, (f"#{replaces} was already delivered to {old['target']} - "
+                               f"it is too late to replace; send a reply in its thread "
+                               f"instead (`ocp ask {old['target']} \"...\" --parent "
+                               f"{replaces}`)"), None
+
         depth, chain_id = 0, None
         if parent_id:
             parent = db.get_request(con, parent_id)
@@ -219,11 +243,18 @@ def ask(target: str, body: str, files: str | None = None, requester: str | None 
             # towards it.
             if requester == HUMAN:
                 depth = 0
+        elif old is not None:
+            # A correction to an undelivered request continues the same
+            # conversation, not a fresh one - but only when nothing else
+            # already said which conversation this is.
+            chain_id = old["chain_id"]
 
         # A loop is stopped and escalated, never silently dropped: a request
-        # that vanishes leaves the team stuck with nobody knowing why.
-        for detect in (_cycle_in_chain(con, chain_id, requester, target),
-                       _review_pingpong(con, chain_id, target, files)):
+        # that vanishes leaves the team stuck with nobody knowing why. `old`
+        # is excluded: it is about to be retired below and counting it here
+        # would count a round that, from the target's side, never happened.
+        for detect in (_cycle_in_chain(con, chain_id, requester, target, exclude_id=replaces),
+                       _review_pingpong(con, chain_id, target, files, exclude_id=replaces)):
             if detect:
                 eid = _escalate(con, requester, target, body, files, chain_id,
                                 depth, parent_id, detect)
@@ -271,20 +302,39 @@ def ask(target: str, body: str, files: str | None = None, requester: str | None 
                            f"next slot frees at {when}; wait for it rather than retrying, "
                            f"because a refusal sends nothing. Your text is kept as #{rid}."), None
 
-        if mergeable:
+        if mergeable and old is None:
             merged = _merge_into_queued(con, requester, target, body, files)
             if merged is not None:
                 row = db.get_request(con, merged)
                 deliver(merged, requester, target, row["body"], row["files"], decision)
                 return True, f"merged into the queued request #{merged} for {target}", merged
 
+        if old is not None:
+            # Atomic, and before the new row exists: a delivery landing
+            # between the check above and here must not be undone by this, so
+            # the write itself is the gate, not a second look at delivered_at.
+            if not db.retire_if_undelivered(con, replaces, "replaced"):
+                return False, (f"#{replaces} was delivered to {old['target']} just now - "
+                               f"too late to replace; send a reply in its thread instead "
+                               f"(`ocp ask {old['target']} \"...\" --parent {replaces}`)"), None
+
         rid = db.add_request(con, requester, target, body, files, decision.relation,
                              decision.response, decision.kind, depth, parent_id,
-                             chain_id=chain_id)
+                             chain_id=chain_id, first=first,
+                             queue_order=(old["queue_order"]
+                                         if old is not None and old["target"] == target
+                                         else None))
         deliver(rid, requester, target, body, files, decision)
+        if old is not None:
+            con.execute("UPDATE requests SET verdict = ? WHERE id = ?",
+                       (f"replaced by #{rid}", replaces))
+            p = _inbox(old["target"]) / f"{replaces:06d}.json"
+            if p.exists():
+                p.unlink()
         db.add_event(con, requester, "ask", {
             "request_id": rid, "target": target, "relation": decision.relation,
             "response": decision.response, "chain_depth": depth,
+            "replaces": replaces, "first": first,
         })
 
         # async: the requester parks rather than hold an account while it
@@ -304,6 +354,8 @@ def ask(target: str, body: str, files: str | None = None, requester: str | None 
 
         note = f"queued as #{rid} for {target} (intake={decision.intake}, " \
                f"response={decision.response}, {note})"
+        if old is not None:
+            note = f"replaces #{replaces}; {note}"
         if decision.creates_gate:
             note += " [escalation: needs a human gate]"
         else:
@@ -384,11 +436,50 @@ def _delivery_reason(con, target: str) -> tuple[str, bool]:
 
 
 def inbox(agent: str, unread_only: bool = True) -> list[dict]:
+    """The one request currently waiting for `agent`, or with
+    unread_only=False, its whole history in every state."""
     con = db.connect()
     try:
-        rows = db.queued_for(con, agent) if unread_only else con.execute(
+        if unread_only:
+            head = db.head_of_queue(con, agent)
+            return [dict(head)] if head else []
+        rows = con.execute(
             "SELECT * FROM requests WHERE target = ? ORDER BY id", (agent,)).fetchall()
         return [dict(r) for r in rows]
+    finally:
+        con.close()
+
+
+def withdraw(rid: int, requester: str | None = None) -> tuple[bool, str]:
+    """Take back your own request before it has been delivered (request #189).
+
+    Once delivered, a reply in its thread is the only way to change it.
+    """
+    requester = requester or asking_agent()
+    con = db.connect()
+    try:
+        row = db.get_request(con, rid)
+        if row is None:
+            return False, f"request {rid} does not exist"
+        if row["requester"] != requester:
+            return False, (f"#{rid} is {row['requester']} -> {row['target']}, "
+                           f"not yours to withdraw")
+        if row["state"] != "queued":
+            return False, f"#{rid} is already {row['state']} - nothing to withdraw"
+        too_late = (f"#{rid} was already delivered to {row['target']} - too late to withdraw; "
+                   f"send a reply in its thread instead "
+                   f"(`ocp ask {row['target']} \"...\" --parent {rid}`)")
+        if row["delivered_at"]:
+            return False, too_late
+        # Atomic: the write itself is the gate against a delivery landing
+        # between the check above and here.
+        if not db.retire_if_undelivered(con, rid, "withdrawn"):
+            return False, too_late
+        p = _inbox(row["target"]) / f"{rid:06d}.json"
+        if p.exists():
+            p.unlink()
+        db.add_event(con, requester, "withdraw", {"request_id": rid, "target": row["target"]})
+        return True, f"request #{rid} to {row['target']} withdrawn"
     finally:
         con.close()
 
@@ -418,6 +509,11 @@ def resolve(rid: int, verdict: str, state: str = "done") -> tuple[bool, str]:
         p = _inbox(row["target"]) / f"{rid:06d}.json"
         if p.exists():
             p.unlink()
-        return True, f"request #{rid} -> {state}\n" + push_answer(con, row["requester"])
+        said = push_answer(con, row["requester"])
+        # The next request in target's own queue, if any, becomes deliverable
+        # only now - tell them right away, the same as asking does.
+        if db.head_of_queue(con, row["target"]):
+            said += "\n" + push(con, row["target"])
+        return True, f"request #{rid} -> {state}\n" + said
     finally:
         con.close()
