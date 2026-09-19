@@ -551,8 +551,13 @@ def runway(st: "AccountStatus", burn: float | None, now: float | None = None) ->
     if not burn or burn <= 0:
         return Runway(left, left7, None, False, False)
     eta = left / burn
-    return Runway(left, left7, eta, True,
-                  bool(st.reset_5h and now + eta > st.reset_5h))
+    # A 5h window resets within 5h whether or not the collector told us when -
+    # an eta beyond that is not a long wait, it is the reset arriving first.
+    if st.reset_5h:
+        past_reset = now + eta > st.reset_5h
+    else:
+        past_reset = eta > 5 * 3600
+    return Runway(left, left7, eta, True, past_reset)
 
 
 def describe_runway(r: Runway | None) -> str:

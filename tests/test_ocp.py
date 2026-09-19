@@ -6515,6 +6515,71 @@ def test_the_runway_is_an_estimate_from_the_daemons_burn(home: Path) -> None:
           status.read_burn("alpha", now) is None)
 
 
+def test_an_unknown_reset_does_not_make_the_runway_absurd(home: Path) -> None:
+    """auditor #364: an unknown reset_5h left the eta line unbounded - a slow
+    enough burn read as tens of thousands of hours to the line, which is not
+    just too wide for its column, it is wrong: a 5h window resets within 5h
+    whether or not the collector told us when."""
+    _daemon_home(home, 20)
+    now = int(time.time())
+    write_status(home, "alpha", pct_5h=55, pct_7d=10, reset_5h=None)
+    status.write_burn("alpha", 5e-7, now)  # a burn slow enough to imply years
+    r = status.runway(status.read("alpha"), status.read_burn("alpha"), now)
+    check("runway: an eta past the longest a 5h window can run is past_reset",
+          r.past_reset, r)
+    check("runway: so the line says it outlasts reset, not an absurd duration",
+          status.describe_runway(r) == "outlasts reset", status.describe_runway(r))
+    # A reset within the window's own bound still reads as an eta, known or not.
+    status.write_burn("alpha", 30 / 3600, now)
+    r2 = status.runway(status.read("alpha"), status.read_burn("alpha"), now)
+    check("runway: an eta safely inside the window is unaffected",
+          not r2.past_reset and status.describe_runway(r2) == "~1h00 to 85%",
+          status.describe_runway(r2))
+
+
+def test_the_panels_bounded_cells_fit_their_own_columns(home: Path) -> None:
+    """The invariant auditor asked for, in place of pinning the strings that
+    happened to be the widest at the time (#334/#338/#357/#364 were all this
+    same failure, found one phrase at a time): every cell whose worst case is
+    known must be strictly narrower than the column it is padded to, checked
+    against that worst case rather than against whatever value a test wrote
+    in. A column this holds for can still grow its content; it just cannot
+    grow into its neighbour."""
+    # tui's ACCOUNTS row: bar + pct + one mark, at pct's own extremes.
+    for p in (0, 1, 60, 84, 85, 99, 100, None):
+        five = f"{tui.bar(p)} {tui.pct(p)}%X"
+        seven = f"{tui.bar(p, 5)} {tui.pct(p)}%X"
+        check(f"panel: 5h usage cell fits its 18-wide column at pct={p}",
+              tui.vlen(five) < 18, tui.vlen(five))
+        check(f"panel: 7d usage cell fits its 12-wide column at pct={p}",
+              tui.vlen(seven) < 12, tui.vlen(seven))
+    # countdown(): a 5h window's own bound, and a 7d window's.
+    now = int(time.time())
+    for delta in (0, 1, 59, 5 * 3600 - 1):
+        check(f"panel: a 5h countdown fits its 8-wide column at +{delta}s",
+              tui.vlen(tui.countdown(now + delta)) < 8)
+    for delta in (0, 1, 59, 7 * 24 * 3600 - 1):
+        check(f"panel: a 7d countdown fits its 9-wide column at +{delta}s",
+              tui.vlen(tui.countdown(now + delta)) < 9)
+    # describe_runway(): every branch, at the burns that used to break it.
+    _daemon_home(home, 20)
+    cases = []
+    for reset in (None, now + 6 * 3600, now + 60):
+        for burn in (1e-9, 5e-7, 30 / 3600, 1.0):
+            write_status(home, "alpha", pct_5h=55, pct_7d=10, reset_5h=reset)
+            status.write_burn("alpha", burn, now)
+            cases.append(status.describe_runway(
+                status.runway(status.read("alpha"), status.read_burn("alpha"), now)))
+    write_status(home, "alpha", pct_5h=86, pct_7d=10, reset_5h=now + 6 * 3600)
+    status.write_burn("alpha", 30 / 3600, now)
+    cases.append(status.describe_runway(status.runway(status.read("alpha"),
+                                                        status.read_burn("alpha"), now)))
+    cases.append(status.describe_runway(status.runway(status.read("alpha"), 0.0, now)))
+    cases.append(status.describe_runway(None))
+    for c in cases:
+        check(f"panel: runway phrase {c!r} fits its 16-wide column", tui.vlen(c) < 16)
+
+
 def test_choose_account_does_not_bounce_back_to_a_stale_preferred_account(home: Path) -> None:
     """Founder's priority #241: harbor-manager moved alpha -> gamma at 85%,
     then gamma -> alpha 12 minutes later - back to the account it had just
@@ -8587,6 +8652,12 @@ def test_tui_frame_geometry(home: Path) -> None:
     check("tui: fit truncates on visible width",
           tui.vlen(tui.fit("\033[31m" + "x" * 50 + "\033[0m", 10)) <= 10)
     check("tui: fit leaves a short string alone", tui.fit("abc", 10) == "abc")
+    check("tui: padfit never exceeds its width, on a value that overflows it",
+          tui.vlen(tui.padfit("a name nobody bounded", 10)) == 10)
+    check("tui: padfit's truncation is visible, not silent",
+          "…" in tui.padfit("a name nobody bounded", 10))
+    check("tui: padfit still pads a short value to width, like pad()",
+          tui.padfit("ab", 10) == tui.pad("ab", 10))
     check("tui: unknown usage draws as ?, never as 0", "?" in tui.pct(None))
     check("tui: a known 0 still draws as 0", tui.pct(0).strip() == "0")
     check("tui: an unknown bar is not an empty bar",
@@ -8868,6 +8939,8 @@ def main() -> int:
         run(lambda: test_room_is_filtered_before_the_ranking_not_after(Path(td) / 'roomfirst'))
         run(lambda: test_the_runway_is_an_estimate_from_the_daemons_burn(Path(td) / 'runway'))
         run(lambda: test_a_turn_that_ends_on_the_usage_limit_is_at_the_wall(Path(td) / 'limitstop'))
+        run(lambda: test_an_unknown_reset_does_not_make_the_runway_absurd(Path(td) / 'runwayunknown'))
+        run(lambda: test_the_panels_bounded_cells_fit_their_own_columns(Path(td) / 'panelwidths'))
         run(lambda: test_choose_account_does_not_bounce_back_to_a_stale_preferred_account(
             Path(td) / 'nobounce'))
         run(lambda: test_move_requires_clear_headroom_not_bare_assignability(

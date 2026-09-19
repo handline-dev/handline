@@ -124,6 +124,16 @@ def pad(s: str, width: int) -> str:
     return s + " " * max(0, width - vlen(s))
 
 
+def padfit(s: str, width: int) -> str:
+    """pad(), but a value wider than the column is cut to fit first (with
+    fit()'s ellipsis) instead of shoving whatever comes after it.
+
+    A backstop for a free-text cell (an account name, a `why`), not licence
+    for a bounded one to skip being measured - a value with a known worst
+    case should never reach the ellipsis at all."""
+    return pad(fit(s, width), width)
+
+
 def bar(pct: int | None, width: int = 10) -> str:
     if pct is None:
         return DIM + "·" * width + R
@@ -445,7 +455,7 @@ def build(width: int, sel: dict | None = None,
             # from under their own headings.
             acc.add(
                 nxt
-                + pad(f"{BOLD}{name}{R}", 10)
+                + padfit(f"{BOLD}{name}{R}", 10)
                 + pad(f"{bar(five)} {pct(five)}%{src}", 18)
                 + pad(countdown(st.reset_5h), 8)
                 # The weekly figure carries its provenance like the 5h one.
