@@ -15037,6 +15037,12 @@ def test_a_file_added_to_shared_reaches_every_existing_account(home: Path) -> No
           done.get("alpha") == ["CLAUDE.md"] and done.get("beta") == ["CLAUDE.md"], str(done))
     check("relink: an account's own override is left alone, not overwritten",
           "gamma" not in done and gamma_claude.read_text() == "gamma's own", str(done))
+    check("relink: the override is what doctor reports, and nothing else",
+          accounts.unlinked() == [("gamma", "CLAUDE.md")], str(accounts.unlinked()))
+    rr = doctor.Report()
+    doctor._check_shared_links(rr)
+    check("relink: doctor warns naming the account and item",
+          any(lv == doctor.WARN and "gamma: CLAUDE.md" in d for lv, _, d in rr.rows))
     check("relink: idempotent - nothing left to do once everyone is caught up",
           accounts.relink_all() == {})
 

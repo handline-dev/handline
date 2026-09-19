@@ -71,18 +71,11 @@ def ensure_shared() -> Path:
 
 def _link_item(cdir: Path, shared: Path, item: str, force: bool = False,
                replace_link: bool = False) -> bool:
-    """Symlink one shared item into an account's .claude dir.
+    """Symlink one shared item into an account's .claude dir; True if it changed.
 
-    False, and nothing touched, in every case that is not "make the link
-    match shared": the item is one we never touch, shared has nothing to link
-    yet, the link already points there, or it points somewhere else and this
-    call may not force it. That last one is deliberate: a link pointing
-    elsewhere is either a human's own override or a break they are already
-    looking at, and a pass that runs on every account without asking - which
-    is exactly what `relink_all` is - must never be the thing that guesses
-    wrong and takes out four logins at once. Only a human's own call may
-    replace it: `register` passes `replace_link` (a symlink elsewhere is
-    replaced, as it always was) and `force` (a real file or directory too).
+    A link pointing elsewhere is a human's override or a break they are
+    already looking at, so only a human's call may replace it: `register`
+    passes `replace_link` (a foreign symlink) and `force` (a real file or dir).
     """
     if item in NEVER_TOUCH:
         return False
@@ -123,43 +116,47 @@ def register(acct: str, force: bool = False) -> Path:
     return cdir
 
 
-def relink_all() -> dict[str, list[str]]:
-    """Catch every already-registered account up to what shared/.claude has
-    gained since it was linked.
+def relink_all(log=None) -> dict[str, list[str]]:
+    """Link every registered account to the shared items that gained a target
+    since `register()` last ran on it; returns what it linked, by account.
 
-    `register()` only runs when an account is created or re-registered by
-    hand, and only links an item whose shared target exists yet - so a file
-    added to shared later reaches nothing already registered until someone
-    remembers to run it again, by hand, for every account there is. This is
-    that "again, for every account", run without anyone remembering to.
-    Returns what it linked, by account, so a caller that runs this on a timer
-    (the daemon) has something to log and a caller in a test has something to
-    assert on beyond "and now it works". Does not call `ensure_shared()` -
-    this runs every tick, and rewriting shared/settings.json that often for no
-    reason is its own bug; nothing here needs shared to exist yet, since a
-    target that is not there is just an item this pass skips.
+    Leaves alone an entry that is not the shared link (see `_link_item`);
+    `unlinked()` is how a human finds those. An account that errors is
+    reported to `log` and skipped, so the rest are still caught up.
     """
     shared = paths.shared_claude()
     done: dict[str, list[str]] = {}
     for acct in paths.list_accounts():
         cdir = paths.account_claude(acct)
         if not cdir.is_dir():
-            # `accounts_dir()/acct` exists with no `.claude` under it - not an
-            # account `register()` ever ran on, since that call always makes
-            # this directory first. Creating one here, on a timer, for a
-            # directory a human or a probe made for some other reason is a
-            # bigger claim than "catch up the links" is meant to make.
-            continue
+            continue  # not an account `register()` ran on
         try:
-            # One account's mistake - a permission error, a filesystem loop -
-            # must not stop this from catching up every other account; the
-            # whole reason this exists is that nobody is watching it run.
             linked = [item for item in LINKED if _link_item(cdir, shared, item)]
-        except OSError:
+        except OSError as e:
+            if log:
+                log(f"  relink: {acct}: {e}")
             continue
         if linked:
             done[acct] = linked
     return done
+
+
+def unlinked() -> list[tuple[str, str]]:
+    """(account, item) for every shared item an account holds as something
+    other than the shared link, which `relink_all` will not replace."""
+    shared = paths.shared_claude()
+    out = []
+    for acct in paths.list_accounts():
+        cdir = paths.account_claude(acct)
+        if not cdir.is_dir():
+            continue
+        for item in LINKED:
+            if item in NEVER_TOUCH or not (shared / item).exists():
+                continue
+            link = cdir / item
+            if not (link.is_symlink() and os.readlink(link) == str(shared / item)):
+                out.append((acct, item))
+    return out
 
 
 def keychain_service(config_dir: Path) -> str:
