@@ -6986,9 +6986,17 @@ def test_a_forced_move_goes_through_the_verified_move_or_not_at_all(home: Path) 
         # The process that comes up is still on alpha: not a move, and nothing
         # is parked or cleared - the session is live.
         _process_on("alpha")
-        ok, msg = dmn.force_move(con, "keeper", "beta", "test", log.append)
+        db.set_handoff(con, "keeper", None)
+        real_record = dmn.handoffmod.record
+        dmn.handoffmod.record = lambda c, a: (db.set_handoff(c, a, "# handoff · keeper\n"), [])[1]
+        try:
+            ok, msg = dmn.force_move(con, "keeper", "beta", "test", log.append)
+        finally:
+            dmn.handoffmod.record = real_record
         row = db.get_agent_state(con, "keeper")
         check("forced: a process that stays on the old account is not a move", not ok, msg)
+        check("forced: and the handoff it took is not left on a session that never ended",
+              db.get_handoff(con, "keeper") is None, str(db.get_handoff(con, "keeper")))
         check("forced: and its preference is put back",
               agents.account_of("keeper") == "alpha")
         check("forced: and it is left live, not parked",
@@ -7007,6 +7015,22 @@ def test_a_forced_move_goes_through_the_verified_move_or_not_at_all(home: Path) 
         check("forced: who ordered it is on the record",
               any(e["kind"] == "forced_move" and "the founder" in str(e["payload"])
                   for e in db.events_after(con, 0, agent="keeper")))
+
+        # The session ends and the launch on the new account fails: it is not a
+        # wall, so the agent comes back on the next look, not at a 5h reset.
+        table["keeper"] = 4200
+        db.set_agent_state(con, "keeper", dmn.IDLE)
+        keep_handoff("keeper", "# handoff · keeper\n## 다음\n- carry on\n")
+        orcamod.relaunch = lambda h, cmd, **kw: (False, "refused")
+        ok, msg = dmn.force_move(con, "keeper", "alpha", "test", log.append)
+        row = db.get_agent_state(con, "keeper")
+        check("forced: a launch that fails on the destination is not a move", not ok, msg)
+        check("forced: and it is parked for a short look, not until a 5h reset",
+              row["wake_at"] is not None
+              and row["wake_at"] <= int(time.time()) + dmn.ASSUMED_ACCOUNT_RECHECK_S + 5,
+              str(dict(row)))
+        check("forced: and its preference is back on the account it is on",
+              agents.account_of("keeper") == "beta")
     finally:
         (orcamod.available, orcamod.alive, orcamod.close_session, orcamod.relaunch,
          orcamod.idle_now, orcamod.typeable_now, dmn.wait_for_session, obsmod.env_of,

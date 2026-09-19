@@ -1619,6 +1619,7 @@ def _perform_handoff(con, agent: str, trigger: triggers.Trigger, log,
     # Taken here, while the session is live: the move and the clear below both
     # end it. A degraded record is the failure edge out of HANDOFF that section
     # 8.2 insists on, and it is degraded only for a fact that could not be read.
+    had_handoff = bool(db.get_handoff(con, agent))
     ok = _record_handoff(con, agent, hid, log)
 
     db.advance_handoff(con, hid, "extracted")
@@ -1634,6 +1635,10 @@ def _perform_handoff(con, agent: str, trigger: triggers.Trigger, log,
     if trigger.kind == "forced" and landed and not landed["closed_at"]:
         # Nothing was ended, so there is nothing to park: the session is live
         # and a park would clear the context of an agent that never left.
+        # And no handoff left on the row: the next launch of a session that
+        # never ended would inject it as "you were interrupted".
+        if not had_handoff:
+            db.set_handoff(con, agent, None)
         db.advance_handoff(con, hid, "released", state="degraded",
                            detail="forced move did not happen")
         db.set_agent_state(con, agent, IDLE, detail="forced move did not happen")
@@ -1652,7 +1657,9 @@ def _perform_handoff(con, agent: str, trigger: triggers.Trigger, log,
     # account agent.yaml happens to prefer, not to the one this agent may
     # actually be spending, so it earns only a short re-look instead.
     reading = agents.account_reading(agent, con)
-    if reading.source == "assumed":
+    if reading.source == "assumed" or trigger.kind == "forced":
+        # A forced move that ended the session and did not start it is not a
+        # wall: the account it left had room, so there is no window to wait out.
         wake = int(time.time()) + ASSUMED_ACCOUNT_RECHECK_S
     else:
         rst = status.read(reading.account)
