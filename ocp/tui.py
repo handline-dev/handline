@@ -198,7 +198,9 @@ def age(secs: float | None) -> str:
         return f"{int(secs)}s"
     if secs < 5400:
         return f"{int(secs / 60)}m"
-    return f"{int(secs / 3600)}h"
+    if secs < 86400:
+        return f"{int(secs / 3600)}h"
+    return status.span(secs)
 
 
 # Supervisors whose reports are drawn. Closed by default: the screen is for

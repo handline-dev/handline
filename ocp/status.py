@@ -85,9 +85,9 @@ def _ago(secs: float) -> str:
         return f"{secs}s"
     if secs < 5400:
         return f"{secs // 60}m"
-    if secs < 172800:
+    if secs < 86400:
         return f"{secs // 3600}h"
-    return f"{secs // 86400}d"
+    return span(secs)
 
 
 # The wall: at these nothing can run at all, and nothing is handed work.
@@ -539,8 +539,10 @@ def read_burn(acct: str, now: float | None = None) -> float | None:
 
 
 def span(secs: float, precise: bool = False) -> str:
-    """The one way a length of time is written: 6d18h from a day up, 5h03 from
-    an hour, then minutes (`precise` adds the seconds: 12m05)."""
+    """A length of time: 6d18h from a day up, 5h03 from an hour, then minutes
+    (`precise` adds the seconds: 12m05). Ages (`_ago`, `tui.age`) are coarser
+    below a day - 3h, 40m - and call this from a day up, so no surface writes
+    162h."""
     secs = int(secs)
     if secs >= 86400:
         return f"{secs // 86400}d{(secs % 86400) // 3600}h"
