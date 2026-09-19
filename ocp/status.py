@@ -261,6 +261,9 @@ class AccountStatus:
         if self.error:
             return False, f"status.json unreadable: {self.error} (fail-closed)"
         if self.stale:
+            idle_ok, idle_why = self.idle_floor()
+            if idle_ok:
+                return True, idle_why
             # In the units a reader thinks in. "59213s > 900s" is two numbers
             # nobody subtracts; the line is on a dashboard, and what it has to
             # say is how long ago anything ran on this account.
@@ -332,6 +335,30 @@ class AccountStatus:
             return True, f"{last} - stale, window rolled over"
         shown = "its week has rolled over" if week_over else f"7d {week}%"
         return True, f"stale, window rolled over, {shown}"
+
+    def idle_floor(self) -> tuple[bool, str]:
+        """A stale account still inside its 5h window is idle, not unknown, and
+        keeps its floor. Returns (ok, reason).
+
+        Staleness alone does not make an account unknown - why the reading is
+        old is what matters. A snapshot only refreshes while a session runs, so
+        an account nobody is using goes stale within the quarter-hour though
+        nothing has spent on it since: the last figure is not a guess, it is an
+        exact floor, because this daemon is the only thing that spends here and
+        nothing of ours is running. That holds only inside the window: once
+        `reset_5h` has passed the figure describes a window that no longer
+        exists, and what happened since is unaccounted for - `rolled_over` and
+        the probe answer for that case, not this one.
+        """
+        if (not self.exists or self.error or self.rl_lost or not self.stale
+                or self.pct_5h is None or not self.pct_5h_readable):
+            return False, ""
+        now = time.time()
+        if not self.reset_5h or self.reset_5h <= now:
+            return False, ""  # rolled_over's case, not this one
+        if self.pct_5h >= PCT_5H_BLOCK:
+            return False, f"5h {self.pct_5h}% when last seen - at the wall"
+        return True, f"stale but idle, 5h {self.pct_5h}% when last seen"
 
     def headroom(self) -> int | None:
         """Remaining 5h headroom in percent, or None when unknown."""
@@ -691,9 +718,9 @@ def _pick_reason(st: "AccountStatus", ld, lasts: float | None, picked: bool) -> 
     """Why this account sits where it does in the ordering."""
     week = st.trusted_pct_7d
     week_s = "unknown" if week is None else f"{week}%"
-    rolled = st.rolled_over()
-    if rolled[0]:
-        return rolled[1] + (" <- picked: earliest 7d deadline" if picked else "")
+    for stale_ok, stale_why in (st.rolled_over(), st.idle_floor()):
+        if stale_ok:
+            return stale_why + (" <- picked: earliest 7d deadline" if picked else "")
     when = "unknown" if not st.reset_7d else _ago(max(0.0, st.reset_7d - time.time()))
     base = (_stretch_reason(st, ld, lasts) if lasts is not None
             else f"5h {st.trusted_pct_5h}%") + f"; 7d {week_s} (resets in {when})"

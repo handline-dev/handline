@@ -6647,8 +6647,35 @@ def test_a_stale_account_whose_window_rolled_over_can_take_work(home: Path) -> N
           status.read("alpha").assignable()[0]
           and status.pick_account(["alpha"], load={})[0] is None
           and status.unfit(status.read("alpha"), None) is not None)
-    check("stale: a window that has not passed still refuses",
+    check("stale: an open window with room to spare is used, on the last figure seen",
+          status.pick_account(["beta"])[0] == "beta")
+    write_status(home, "beta", pct_5h=100, pct_7d=34, reset_5h=now + 3600,
+                 reset_7d=now + 86400 * 2, collected_at=now - int(2 * 3600))
+    check("stale: an open window at the wall still refuses - the figure only rises",
           status.pick_account(["beta"])[0] is None)
+
+
+def test_a_passed_window_is_probed_rather_than_guessed(home: Path) -> None:
+    """After its window ends, an idle account's last figure describes a window
+    that no longer exists, so the only way to learn the truth is to ask."""
+    from ocp import probe
+    _daemon_home(home, 20)
+    accounts.register("beta")
+    now = int(time.time())
+    write_status(home, "beta", pct_5h=95, pct_7d=34, reset_5h=now + 1800,
+                 reset_7d=now + 86400 * 2, collected_at=now - 3600)
+    check("probe: an open window is answered by the last figure, not by spending",
+          not probe.due(status.read("beta"), None))
+    write_status(home, "beta", pct_5h=95, pct_7d=34, reset_5h=now - 60,
+                 reset_7d=now + 86400 * 2, collected_at=now - 3600)
+    check("probe: a passed window with no fresh reading is due",
+          probe.due(status.read("beta"), None))
+    check("probe: not twice inside the cooldown - a probe spends the quota it asks about",
+          not probe.due(status.read("beta"), now - 60))
+    write_status(home, "beta", pct_5h=95, pct_7d=34, reset_5h=now - 60,
+                 reset_7d=now + 86400 * 2, collected_at=now)
+    check("probe: a fresh reading answers it already",
+          not probe.due(status.read("beta"), None))
 
 
 def test_room_is_filtered_before_the_ranking_not_after(home: Path) -> None:
@@ -10161,6 +10188,7 @@ def main() -> int:
         run(lambda: test_a_pinned_agent_stays_pinned_when_nothing_else_has_clear_room(
             Path(td) / 'pinnedstuck'))
         run(lambda: test_a_stale_account_whose_window_rolled_over_can_take_work(Path(td) / 'stalebeta'))
+        run(lambda: test_a_passed_window_is_probed_rather_than_guessed(Path(td) / 'probedue'))
         run(lambda: test_room_is_filtered_before_the_ranking_not_after(Path(td) / 'roomfirst'))
         run(lambda: test_the_runway_is_an_estimate_from_the_daemons_burn(Path(td) / 'runway'))
         run(lambda: test_the_active_cap_decides_where_the_next_agent_may_start(Path(td) / 'ar0'))
