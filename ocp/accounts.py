@@ -140,12 +140,12 @@ def _subscription_file(acct: str) -> Path:
 
 
 def subscription_type(acct: str, refresh: bool = False) -> str | None:
-    """This account's plan, as `claude auth status` reports it (request #167/
-    #170: recorded, not yet weighted - every account today is "pro").
+    """This account's plan, as `claude auth status` reports it. Recorded, not
+    weighted in any pick.
 
     `claude auth status --json` is claude's own record of what it is signed in
     as; it touches no credential file, the same distinction `logged_in` above
-    already draws for `security find-generic-password` (KICKOFF rule 1). The
+    already draws for `security find-generic-password`. The
     answer is cached to disk once found, because it does not change between
     ticks and the accounts panel re-reads this on every refresh - pass
     refresh=True to ask again after a human changes a plan.
