@@ -6611,7 +6611,7 @@ def test_the_runway_is_an_estimate_from_the_daemons_burn(home: Path) -> None:
         db.set_terminal(con, "backend", "term_x", "wt")
         db.set_account(con, "backend", "alpha")
         dmn.supervise(con, "backend", lambda _m: None, now,
-                      {"alpha": [(now - 60, 20), (now, 21)]}, False, [])
+                      {"alpha": [(now - 60, 20), (now, 21)]}, [])
     finally:
         con.close()
     check("burn: the daemon writes the rate it uses for triggers",
