@@ -13070,6 +13070,45 @@ def test_the_composer_cursor_moves_and_edits_in_place(home: Path) -> None:
           "▏" in "".join(rows) and "more" in rows[0], str(rows))
 
 
+def test_the_composer_alt_keys_and_a_pasted_cursor_glyph(home: Path) -> None:
+    """Auditor's should-fix on #1033: ESC-then-key (Alt/Option, what macOS
+    Terminal and iTerm2 send for word moves by default) fell into the same
+    branch as a lone Escape and threw the typed message away; and the row the
+    cursor is on was found by searching for its own glyph, so a pasted
+    U+258F - a character ocp's own composer draws, so copying a composer line
+    back in produces one - could be mistaken for it."""
+    def plain(rows: list[str]) -> list[str]:
+        return [tui._ANSI.sub("", r) for r in rows]
+
+    c = tui.Composer()
+    c.feed("one two three")
+    check("alt: Option+Left (ESC b) is a word move, not a cancel",
+          c.feed("\033b") is None and c.text[:c.pos] == "one two ", repr(c.text[:c.pos]))
+    check("alt: Option+Right (ESC f) too",
+          c.feed("\033f") is None and c.text[:c.pos] == "one two three", repr(c.text[:c.pos]))
+    c.feed("\033b")   # word-left, twice: back to the start of "three"
+    check("alt: back at the start of the last word",
+          c.text[:c.pos] == "one two ", repr(c.text[:c.pos]))
+    check("alt: Option+Backspace (ESC DEL) deletes the word before the cursor, not this one",
+          c.feed("\033\x7f") is None and c.text == "one three" and c.pos == 4, repr(c.text))
+    c = tui.Composer()
+    c.feed("abc")
+    check("alt: an ESC+key this does not map is read and discarded, not a cancel",
+          c.feed("\033x") is None and c.text == "abc")
+    check("alt: a lone Escape - nothing after it in the same read - still cancels",
+          tui.Composer().feed("\033") == "cancel")
+
+    # A pasted cursor glyph earlier in the text must not pull the window to it
+    # instead of the real cursor - the row search the fix replaced would have.
+    c = tui.Composer()
+    c.feed("▏" + "x" * 30)   # a look-alike character, then ordinary text
+    check("cursor: typing after a glyph the text itself contains still leaves "
+          "the real cursor at the end", c.pos == 31)
+    rows = plain(c.shown("p:", 30, 2))
+    check("shown: the window follows the real cursor, not the look-alike earlier in the text",
+          rows[-1].endswith("▏") and "earlier" in rows[0] and len(rows) == 2, str(rows))
+
+
 def test_a_message_is_read_whole_and_answered_where_it_is_read(home: Path) -> None:
     """An agent's report arrives as one paragraph with no newline in it, and
     fitting that to the width shows its first sentence and drops the rest -
@@ -15187,6 +15226,7 @@ def main() -> int:
         run(lambda: test_bracketed_paste_is_switched_on_with_the_screen())
         run(lambda: test_the_composer_takes_a_paste_whole(Path(td) / 'composer'))
         run(lambda: test_the_composer_cursor_moves_and_edits_in_place(Path(td) / 'composer-cursor'))
+        run(lambda: test_the_composer_alt_keys_and_a_pasted_cursor_glyph(Path(td) / 'composer-alt'))
         run(lambda: test_a_paste_into_any_prompt_arrives_whole_and_confirms_nothing(Path(td) / 'pasteany'))
         run(lambda: test_a_key_never_acts_on_a_row_nobody_pointed_at(Path(td) / 'topsel'))
         run(lambda: test_the_frame_never_draws_wider_than_the_terminal(Path(td) / 'topwide'))

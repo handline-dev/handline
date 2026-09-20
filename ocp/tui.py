@@ -1670,6 +1670,10 @@ _MOVE = {
 }
 # Delete (not Backspace): removes the character at `pos` rather than moving it.
 _DELETE_AT = {"\033[3~"}
+# Alt/Option+key, sent as ESC then the key in the same read on this platform's
+# terminals: b/f for word-left/right, matching what macOS Terminal and iTerm2
+# send by default (auditor, #1033).
+_META_MOVE = {"b": _word_left, "f": _word_right}
 
 
 class Composer:
@@ -1726,6 +1730,18 @@ class Composer:
                         self._carry = data     # a sequence cut short by the read
                         return None
                     data = data[2:]        # not one after all (Alt-[): drop the prefix
+                elif len(data) > 1:
+                    # ESC with another character in the same read is Alt/Option
+                    # held with it, not a lone Escape - only ESC with nothing
+                    # after it (below) is the way out. An unmapped one is read
+                    # and discarded, the way an unmapped CSI sequence already is.
+                    ch, data = data[1], data[2:]
+                    if ch in _META_MOVE:
+                        self.pos = _META_MOVE[ch](self.pos, self.text)
+                    elif ch in ("\x7f", "\b"):
+                        end = self.pos
+                        self.pos = _word_left(self.pos, self.text)
+                        self.text = self.text[:self.pos] + self.text[end:]
                 else:
                     return "cancel"
             elif data[0] in ("\x7f", "\b"):
@@ -1749,12 +1765,18 @@ class Composer:
         been moved. At most `cap` rows: the window follows the cursor, so
         moving it out of view scrolls to it rather than losing it."""
         # A pasted escape is drawn as its picture, not sent to the terminal.
+        # One character in, one out on every branch here - self.pos indexes
+        # this escaped string directly below, and a substitution that changed
+        # length would put the cursor on the wrong character.
         text = "".join(c if c == "\n" or c.isprintable() else
                        chr(0x2400 + ord(c)) if c < " " else "\ufffd" for c in self.text)
         pos = max(0, min(self.pos, len(text)))
         marked = f"{text[:pos]}\u258f{text[pos:]}"
         rows = _wrap_typed(f"{prompt} {marked}", width)
-        cur = next((i for i, r in enumerate(rows) if "\u258f" in r), len(rows) - 1)
+        # Where the cursor's row is: not found by searching for its own glyph,
+        # which a pasted U+258F (a character ocp's own composer draws, so a
+        # copied composer line pastes one) would be mistaken for instead.
+        cur = len(_wrap_typed(f"{prompt} {text[:pos]}", width)) - 1
         rows = _window_rows(rows, cur, cap)
         left = len(prompt)         # the prompt is bold wherever it wrapped to
         out = []
@@ -1775,7 +1797,7 @@ def _window_rows(rows: list[str], cur: int, cap: int) -> list[str]:
     lo = max(0, min(cur, len(rows) - room))
     hi = lo + room
     before, after = lo, len(rows) - hi
-    if cap <= 1 or (not before and not after):
+    if cap <= 1:      # no room for a note; (not before and not after) never fires here
         return rows[lo:hi]
     bits = ([f"{before} earlier"] if before else []) + ([f"{after} more"] if after else [])
     return [f"{DIM}… {' and '.join(bits)} rows{R}"] + rows[lo:hi]
