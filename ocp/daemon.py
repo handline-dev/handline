@@ -2105,6 +2105,13 @@ def tick(con, log, samples: dict | None = None) -> Tick:
     # calls out, whatever the size of the team, and they cost 0.2s together.
     sweep(con, log, actions)
 
+    # Link a file added to shared/.claude into accounts registered before it.
+    try:
+        for acct, linked in accounts.relink_all(log).items():
+            log(f"  relinked {acct}: {', '.join(linked)}")
+    except Exception as e:  # noqa: BLE001 - a bad account here is not the tick's failure
+        log(f"  relink: {e}")
+
     # A handoff past its deadline must fail here, not only at startup.
     actions += expire_handoffs(con, log)
 

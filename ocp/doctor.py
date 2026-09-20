@@ -379,6 +379,17 @@ def _check_rate_limits_present(r: Report) -> None:
         r.add(WARN, "no snapshot has rate_limits yet", "no session has run")
 
 
+def _check_shared_links(r: Report) -> None:
+    """A shared file an account holds as something else never reaches that
+    account, and `relink_all` will not fix it."""
+    bad = accounts.unlinked()
+    if not bad:
+        r.add(OK, "shared files reach every account")
+        return
+    r.add(WARN, "shared files that do not reach an account",
+          ", ".join(f"{a}: {i}" for a, i in bad))
+
+
 def _check_one_daemon(r: Report) -> None:
     """Exactly one supervisor, counted in the process table.
 
@@ -472,6 +483,7 @@ def run() -> Report:
     _check_launch_drift(r)
     _check_session_matches_the_record(r)
     _check_one_daemon(r)
+    _check_shared_links(r)
     _check_service(r)
     _check_autocontinue(r)
     return r

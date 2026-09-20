@@ -69,6 +69,34 @@ def ensure_shared() -> Path:
     return shared
 
 
+def _link_item(cdir: Path, shared: Path, item: str, force: bool = False,
+               replace_link: bool = False) -> bool:
+    """Symlink one shared item into an account's .claude dir; True if it changed.
+
+    A link pointing elsewhere is a human's override or a break they are
+    already looking at, so only a human's call may replace it: `register`
+    passes `replace_link` (a foreign symlink) and `force` (a real file or dir).
+    """
+    if item in NEVER_TOUCH:
+        return False
+    target = shared / item
+    link = cdir / item
+    if not target.exists():
+        return False
+    if link.is_symlink():
+        if os.readlink(link) == str(target):
+            return False
+        if not (force or replace_link):
+            return False
+        link.unlink()
+    elif link.exists():
+        if not force:
+            return False
+        shutil.rmtree(link) if link.is_dir() else link.unlink()
+    link.symlink_to(target)
+    return True
+
+
 def register(acct: str, force: bool = False) -> Path:
     """Create the account directory and link it to shared. Does not log in."""
     if not acct or "/" in acct or acct.startswith("."):
@@ -84,22 +112,51 @@ def register(acct: str, force: bool = False) -> Path:
 
     shared = paths.shared_claude()
     for item in LINKED:
-        if item in NEVER_TOUCH:
-            continue
-        target = shared / item
-        link = cdir / item
-        if not target.exists():
-            continue
-        if link.is_symlink():
-            if os.readlink(link) == str(target) and not force:
-                continue
-            link.unlink()
-        elif link.exists():
-            if not force:
-                continue
-            shutil.rmtree(link) if link.is_dir() else link.unlink()
-        link.symlink_to(target)
+        _link_item(cdir, shared, item, force=force, replace_link=True)
     return cdir
+
+
+def relink_all(log=None) -> dict[str, list[str]]:
+    """Link every registered account to the shared items that gained a target
+    since `register()` last ran on it; returns what it linked, by account.
+
+    Leaves alone an entry that is not the shared link (see `_link_item`);
+    `unlinked()` is how a human finds those. An account that errors is
+    reported to `log` and skipped, so the rest are still caught up.
+    """
+    shared = paths.shared_claude()
+    done: dict[str, list[str]] = {}
+    for acct in paths.list_accounts():
+        cdir = paths.account_claude(acct)
+        if not cdir.is_dir():
+            continue  # not an account `register()` ran on
+        try:
+            linked = [item for item in LINKED if _link_item(cdir, shared, item)]
+        except OSError as e:
+            if log:
+                log(f"  relink: {acct}: {e}")
+            continue
+        if linked:
+            done[acct] = linked
+    return done
+
+
+def unlinked() -> list[tuple[str, str]]:
+    """(account, item) for every shared item an account holds as something
+    other than the shared link, which `relink_all` will not replace."""
+    shared = paths.shared_claude()
+    out = []
+    for acct in paths.list_accounts():
+        cdir = paths.account_claude(acct)
+        if not cdir.is_dir():
+            continue
+        for item in LINKED:
+            if item in NEVER_TOUCH or not (shared / item).exists():
+                continue
+            link = cdir / item
+            if not (link.is_symlink() and os.readlink(link) == str(shared / item)):
+                out.append((acct, item))
+    return out
 
 
 def keychain_service(config_dir: Path) -> str:
