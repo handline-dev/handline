@@ -21,6 +21,7 @@ is why logging in works from here at all.
 """
 from __future__ import annotations
 
+import codecs
 import json
 import os
 import re
@@ -1582,6 +1583,27 @@ def _unpasted(data: str) -> str:
     return out
 
 
+# The terminal's bytes as text, kept across reads: a character cut by the end of
+# one read (a Korean letter is three bytes) is held until the rest arrives, not
+# dropped. A byte that is not UTF-8 at all is drawn as U+FFFD, so it shows. A
+# lead byte whose continuation never comes stays held until the next byte, and
+# then surfaces as one U+FFFD glued to it - possibly in the next prompt's text.
+# It is visible, and it needs a byte that is never finished; that is left as is.
+_decoder = codecs.getincrementaldecoder("utf-8")(errors="replace")
+
+
+def _read(fd: int) -> str:
+    """One read of the terminal as text. Every place that reads the keyboard
+    reads through here, so a character and a key are each delivered whole
+    whatever the bytes' boundaries: a read that ends inside an escape sequence
+    waits for the rest (`ESC_WAIT`)."""
+    data = _decoder.decode(os.read(fd, 4096))
+    end = time.monotonic() + 4 * ESC_WAIT
+    while _cut(data) and time.monotonic() < end and select.select([fd], [], [], ESC_WAIT)[0]:
+        data += _decoder.decode(os.read(fd, 4096))
+    return data
+
+
 def _key(timeout: float) -> str | None:
     if not sys.stdin.isatty():
         time.sleep(timeout)
@@ -1596,10 +1618,7 @@ def _key(timeout: float) -> str | None:
     # reports the fd has nothing left - so every arrow key arrived here as a
     # bare escape with its `[B` still sitting in the buffer.
     try:
-        data = os.read(fd, 4096).decode(errors="ignore")
-        end = time.monotonic() + 4 * ESC_WAIT
-        while _cut(data) and time.monotonic() < end and select.select([fd], [], [], ESC_WAIT)[0]:
-            data += os.read(fd, 4096).decode(errors="ignore")
+        data = _read(fd)
     except OSError:
         return None
     data = _unpasted(data)
@@ -1778,7 +1797,7 @@ def _line(prompt: str, width: int, height: int, multi: bool = False,
         if not select.select([fd], [], [], 30.0)[0]:
             continue
         try:
-            data = os.read(fd, 4096).decode(errors="ignore")
+            data = _read(fd)
         except OSError:
             return None
 
@@ -1810,7 +1829,7 @@ def _confirm(what: str, width: int, height: int) -> bool:
         if not select.select([fd], [], [], 30.0)[0]:
             continue
         try:
-            data = os.read(fd, 4096).decode(errors="ignore")
+            data = _read(fd)
         except OSError:
             return False
 
