@@ -10783,6 +10783,82 @@ def test_the_screen_says_what_is_stuck_and_what_was_decided(home: Path) -> None:
         con.close()
 
 
+def test_the_arrows_change_tabs_on_an_agent_page_in_a_real_terminal(home: Path) -> None:
+    """Founder #799: on an agent's page ← and → did nothing, so CONVERSATION
+    could not be reached. The key moved the tab and the next redraw put it back,
+    which only the screen's own loop does - so this runs `tui.run` in a pty."""
+    import struct
+    import fcntl
+    import termios
+    _daemon_home(home, 20)
+    code = (f"import sys; sys.path.insert(0, {str(ROOT)!r});"
+            "from ocp import tui; tui.run(0.2)")
+    pid, fd = pty.fork()
+    if pid == 0:                                  # the child is the terminal
+        os.execvpe("python3", ["python3", "-c", code], dict(os.environ))
+    fcntl.ioctl(fd, termios.TIOCSWINSZ, struct.pack("HHHH", 40, 120, 0, 0))
+    got = ""
+
+    def screen(has: str) -> str:
+        """The latest frame, once it says `has` (or after five seconds)."""
+        nonlocal got
+        deadline, frame = time.time() + 5, ""
+        while time.time() < deadline:
+            r, _, _ = select.select([fd], [], [], 0.1)
+            if r:
+                try:
+                    got += os.read(fd, 65536).decode(errors="replace")
+                except OSError:
+                    break
+            frame = tui._ANSI.sub("", got.rsplit("\033[H", 2)[-2] if got.count("\033[H") > 1 else "")
+            if has in frame:
+                break
+        return frame
+
+    def press(key: bytes, has: str) -> str:
+        nonlocal got
+        got = ""
+        os.write(fd, key)
+        return screen(has)
+    try:
+        screen("agent")
+        page = press(b"\r", "nothing queued for it")
+        check("arrows: Enter opens the agent's page on WAITING FOR IT",
+              "nothing queued for it" in page, page[-300:])
+        for name, key in (("→", b"\x1b[C"), ("application-mode →", b"\x1bOC"), ("Tab", b"\t")):
+            press(b"\x1b[D" * 3, "nothing queued for it")     # back to the first tab
+            moved = press(key, "no handoff waiting")
+            time.sleep(0.6)                  # several redraws later
+            check(f"arrows: {name} moves to the next tab and stays there",
+                  "no handoff waiting" in moved and "no handoff waiting" in screen("no handoff waiting"))
+        press(b"\x1b[D", "nothing queued for it")
+        seen = [press(b"\x1b[C", "no handoff waiting"),
+                press(b"\x1b[C", "nothing recorded yet"),
+                press(b"\x1b[C", "nothing yet between you and backend")]
+        check("arrows: → three times reaches CONVERSATION",
+              "nothing yet between you and backend" in seen[2], seen[2][-300:])
+        check("arrows: → past the last tab stays on it",
+              "nothing yet between you and backend" in press(b"\x1b[C", "nothing yet between"))
+        # The screen loop swallows an exception into a red flash and stays on
+        # the tab, so only a direct call tells "stayed" from "crashed".
+        d = {"sections": [(f"{stem} (0)", []) for stem in "ABCD"], "tab": 3}
+        try:
+            tui._go_to_tab(d, len(tui._tab_stems(d)) + 5)
+            past = (d["tab"], d["stem"])
+        except IndexError as e:
+            past = repr(e)
+        check("arrows: going past the last tab lands on it without raising",
+              past == (3, "D"), str(past))
+        check("arrows: ← goes back a tab",
+              "nothing recorded yet" in press(b"\x1b[D", "nothing recorded yet"))
+        check("arrows: Esc leaves the page",
+              "nothing recorded yet" not in press(b"\x1b", "AGENTS"))
+    finally:
+        os.write(fd, b"q")
+        os.close(fd)
+        os.waitpid(pid, 0)
+
+
 def test_the_messenger_tab_carries_a_conversation_both_ways(home: Path) -> None:
     """The founder writes in the tab, the agent answers, and the answer is in
     the tab on the next redraw - with the message sent whole and under its
@@ -13078,6 +13154,7 @@ def main() -> int:
         run(lambda: test_the_panel_and_the_daemon_agree_about_what_is_in_the_way(Path(td) / 'topagree'))
         run(lambda: test_the_screen_says_what_is_stuck_and_what_was_decided(Path(td) / 'topstuck'))
         run(lambda: test_a_message_is_read_whole_and_answered_where_it_is_read(Path(td) / 'topread'))
+        run(lambda: test_the_arrows_change_tabs_on_an_agent_page_in_a_real_terminal(Path(td) / 'arrows'))
         run(lambda: test_the_messenger_tab_carries_a_conversation_both_ways(Path(td) / 'chat'))
         run(lambda: test_bracketed_paste_is_switched_on_with_the_screen())
         run(lambda: test_the_composer_takes_a_paste_whole(Path(td) / 'composer'))
