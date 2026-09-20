@@ -2780,9 +2780,41 @@ def test_a_name_that_yaml_would_not_read_as_text_is_refused_where_it_is_typed(ho
     finally:
         con.close()
     text = "agents:\n  harbor: { intake: dedicated }\n"
-    lockout = hr._add_text(text, "no", None)
-    check("names: without the guard the same line would make team.yaml unloadable",
-          _refused(lockout), lockout)
+    check("names: the line hr writes for an agent called no would make team.yaml unloadable",
+          _refused(text + "  no: { intake: dedicated }\n"))
+    try:
+        hr._add_text(text, "no", None)
+        check("names: so the writer refuses to write it", False)
+    except yamlcompat.ConfigError:
+        check("names: so the writer refuses to write it", True)
+    # The team's name is written as a block key too, and the guard has to stand at
+    # every door: proposing, and the write itself, which an old proposal reaches.
+    paths.team_file().write_text(team.STARTER)
+    before = paths.team_file().read_text()
+    listed = yamlcompat.parse(team.STARTER)
+    mover = next(iter(listed["agents"]))
+    ok, said = hr._draft("add", "dev1", "x", "why", "alpha", "no", None, None, None)
+    check("names: hr add of an agent into a team called no is refused at the proposal",
+          ok == {} and "bad team name" in said and "choose another" in said, str((ok, said)))
+    done, said = hr._in_team_yaml("dev1", "no", add=True)
+    check("names: and at the write, leaving team.yaml as it was",
+          not done and "bad team name" in said and paths.team_file().read_text() == before, said)
+    for label, call in (
+            ("a rename into a name yaml reads as a bool",
+             lambda: hr._rename_text(team.STARTER, mover, "on", None)),
+            ("a rename that joins a team called no",
+             lambda: hr._rename_text(team.STARTER, mover, "newname", "no")),
+            ("a join of an agent called no", lambda: hr._join_team(team.STARTER, "no", "eng"))):
+        try:
+            call()
+            check(f"names: {label} is refused at the write", False)
+        except yamlcompat.ConfigError:
+            check(f"names: {label} is refused at the write", True)
+    if yamlcompat.HAVE_PYYAML:
+        lockout = "teams:\n  no: [dev1]\n"
+        check("names: under PyYAML the same line loads, with the key False - which the "
+              "bundled parser refuses, so only the guard stands between the two",
+              False in yamlcompat.load(lockout)["teams"] and _refused(lockout))
     for n in bad[:6]:
         try:
             accounts.register(n)
