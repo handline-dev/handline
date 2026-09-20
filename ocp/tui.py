@@ -1026,9 +1026,50 @@ def lines_of(detail: dict, width: int) -> list[str]:
         for r, rid in zip(rows, picks):
             box.add(r, key=rid)
         return lines + box.draw()
+    if detail["stem"] == actions.CHAT_TAB:
+        for ln in _chat_lines(rows, max(1, width - 5)):
+            box.add(ln)
+        return lines + box.draw()
     for r in wrap(rows, max(1, width - 5)):
         box.add(r)
     return lines + box.draw()
+
+
+def _chat_lines(rows: list, width: int) -> list[str]:
+    """A conversation as the screen shows it: who spoke, when, then what.
+
+    A message is a marker and a name on one line and its text indented under it,
+    with a blank line between messages, so where one ends is a gap and not a
+    count. The name is said once for a run from the same speaker; the marker
+    stays, so the side is still there at a glance. What a sender typed goes
+    through `wrap`, which drops any escape in it, and is styled only after.
+    """
+    out: list[str] = []
+    prev: tuple | None = None
+    today = time.strftime("%m-%d")
+    for r in rows:
+        if not isinstance(r, actions.Said):
+            out += [f"{DIM}{ln}{R}" if ln else "" for ln in wrap([r], width)]
+            continue
+        if r.kind == "thread":
+            if out:
+                out.append("")
+            out.append(f"{DIM}{fit(r + ' ', width)}{'─' * max(0, width - vlen(r) - 1)}{R}")
+            prev = None
+            continue
+        if prev is not None:
+            out.append("")
+        head, dim = {"you": (f"{CYA}{BOLD}❯", ""), "agent": (f"{GRN}{BOLD}●", ""),
+                     "other": (f"{DIM}·", DIM)}[r.side]
+        name = "" if prev == (r.side, r.who) else f" {r.who}"
+        prev = (r.side, r.who)
+        day = time.strftime("%m-%d", time.localtime(r.ts))
+        when = time.strftime("%H:%M" if day == today else "%m-%d %H:%M", time.localtime(r.ts))
+        tail = (f" {DIM}·{R} {YEL if r.waiting else DIM}{r.tail}{R}" if r.tail else "")
+        out.append(fit(f"{head}{name}{R}  {DIM}{when}{R}{tail}", width))
+        out += [f"{dim}  {ln}{R}" if ln else ""
+                for ln in wrap(r.text.splitlines() or [""], max(1, width - 2))]
+    return out
 
 
 def _tabstrip(names: list[str], at: int) -> str:

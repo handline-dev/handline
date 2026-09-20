@@ -10916,6 +10916,54 @@ def test_a_conversation_stays_where_the_reader_scrolled_it(home: Path) -> None:
         con.close()
 
 
+def test_a_conversation_reads_as_turns_at_any_width(home: Path) -> None:
+    """Founder: the conversation was hard to read. At a glance who said what and
+    where a message ends: a name once per run, a gap between messages, text
+    indented under its speaker, and everything inside the column."""
+    _daemon_home(home, 20)
+    agents.register("reviewer", "alpha")
+    con = db.connect()
+    try:
+        long = "word " * 30
+        actions.chat_reply(con, "reviewer", f"first\n\nsecond paragraph {long}")
+        actions.chat_reply(con, "reviewer", "again")
+        first, second = [r["id"] for r in con.execute(
+            "SELECT id FROM requests ORDER BY id").fetchall()][-2:]
+        askmod.resolve(first, "answer with \033[2J an escape")
+        now = int(time.time())
+        con.execute("UPDATE requests SET ts = ? WHERE id = ?", (now - 300, first))
+        con.execute("UPDATE requests SET ts = ? WHERE id = ?", (now - 200, second))
+        con.execute("UPDATE requests SET resolved_at = ? WHERE id = ?", (now - 100, first))
+        page = tui._agent_page(con, "reviewer", tui.AGENTS)
+        tui._go_to_tab(page, tui._tab_stems(page).index(actions.CHAT_TAB))
+        for width in (100, 40, 24):
+            raw = tui.lines_of(page, width)
+            rows = [tui._ANSI.sub("", ln) for ln in raw]
+            inner = [ln[1:-1].rstrip() for ln in rows if ln.startswith("│")]
+            inner = inner[:next(i for i, ln in enumerate(inner) if ln.startswith("  ↵"))]
+            check(f"turns: nothing is wider than the terminal at {width}",
+                  all(tui.vlen(ln) <= width for ln in raw),
+                  str([ln for ln in rows if tui.vlen(ln) > width][:2]))
+            heads = [i for i, ln in enumerate(inner) if ln.startswith(("  ❯", "  ●"))]
+            check(f"turns: three messages, three headers at {width}", len(heads) == 3, str(inner))
+            named = [inner[i] for i in heads]
+            check(f"turns: the human is named once for a run of their messages at {width}",
+                  sum("you" in h for h in named) == 1 and "reviewer" in named[2], str(named))
+            check(f"turns: a blank line ends every message but the last at {width}",
+                  all(inner[i - 1] == "" for i in heads[1:]), str(inner))
+            loose = [ln for ln in inner if ln and not ln.startswith(("  ❯", "  ●", "  ──", "  ↵", "    "))]
+            check(f"turns: text is indented under its speaker, wrapped lines too at {width}",
+                  not loose, str(loose[:3]))
+            said = " ".join(inner)
+            check(f"turns: none of the text is lost at {width}",
+                  said.count("word") == 30 and "second paragraph" in said and "again" in said,
+                  said[:200])
+            check(f"turns: an escape in a message is not sent to the terminal at {width}",
+                  "\033[2J" not in "".join(raw))
+    finally:
+        con.close()
+
+
 def test_the_messenger_tab_carries_a_conversation_both_ways(home: Path) -> None:
     """The founder writes in the tab, the agent answers, and the answer is in
     the tab on the next redraw - with the message sent whole and under its
@@ -13214,6 +13262,7 @@ def main() -> int:
         run(lambda: test_the_arrows_change_tabs_on_an_agent_page_in_a_real_terminal(Path(td) / 'arrows'))
         run(lambda: test_the_messenger_tab_carries_a_conversation_both_ways(Path(td) / 'chat'))
         run(lambda: test_a_conversation_stays_where_the_reader_scrolled_it(Path(td) / 'scroll'))
+        run(lambda: test_a_conversation_reads_as_turns_at_any_width(Path(td) / 'turns'))
         run(lambda: test_bracketed_paste_is_switched_on_with_the_screen())
         run(lambda: test_the_composer_takes_a_paste_whole(Path(td) / 'composer'))
         run(lambda: test_a_paste_into_any_prompt_arrives_whole_and_confirms_nothing(Path(td) / 'pasteany'))

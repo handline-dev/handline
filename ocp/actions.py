@@ -905,14 +905,28 @@ def _chat_rows(con, agent: str) -> list:
         "ORDER BY id", (HUMAN, agent, agent, HUMAN)).fetchall()
 
 
-def _said(text: str | None, at: str, who: str, tail: str = "") -> list[str]:
-    """One message, whole: its first line beside who said it, the rest under."""
-    lines = (text or "").splitlines() or ["(empty)"]
-    pad = " " * 7
-    out = [f"{at}  {who}  {lines[0]}"] + [f"{pad}{ln}" for ln in lines[1:]]
-    if tail:
-        out.append(f"{pad}({tail})")
-    return out
+class Said(str):
+    """One row of a conversation: a message, or the rule that starts a thread.
+
+    As a string it is the plain reading - who, then what - which is all a
+    caller that only searches needs. The fields are what the bridge lays out
+    from at the width the terminal has now, so a message is wrapped where it is
+    drawn and its text never passes through anything that styles it.
+    """
+    kind: str          # "msg" or "thread"
+    who: str           # the speaker; "a → b" between two agents
+    side: str          # "you", "agent" (the one this tab is about) or "other"
+    text: str
+    ts: int
+    tail: str          # its delivery state, or the request an answer closes
+    waiting: bool      # the agent is waiting on the human for it
+
+    def __new__(cls, kind: str, who: str, text: str = "", side: str = "", ts: int = 0,
+                tail: str = "", waiting: bool = False):
+        self = super().__new__(cls, f"{who}  {text}" if kind == "msg" else who)
+        self.kind, self.who, self.side, self.text = kind, who, side, text
+        self.ts, self.tail, self.waiting = ts, tail, waiting
+        return self
 
 
 def conversation(con, agent: str) -> list[str]:
@@ -926,33 +940,39 @@ def conversation(con, agent: str) -> list[str]:
     chains: dict[str, list] = {}
     for r in _chat_rows(con, agent):
         chains.setdefault(str(r["chain_id"]), []).append(r)
+
+    def said(speaker: str, to: str, text, ts, tail: str = "", waiting: bool = False) -> Said:
+        side = "you" if speaker == HUMAN else "agent" if speaker == agent else "other"
+        who = "you" if speaker == HUMAN else speaker
+        if HUMAN not in (speaker, to):
+            who = f"{speaker} → {to}"
+        body = (text or "").strip("\n")
+        return Said("msg", who, body if body.strip() else "(empty)", side, ts or 0, tail,
+                    waiting)
+
     threads = []
     for cid, rows in chains.items():
         msgs = []
         for r in rows:
-            mine = r["requester"] == HUMAN
-            between = HUMAN in (r["requester"], r["target"])
-            who = ("you" if mine else r["requester"]) if between \
-                else f"{r['requester']} → {r['target']}"
             tail = ""
             if r["state"] == "queued":
                 tail = ("waiting for you" if r["target"] == HUMAN else
                         f"delivered {time.strftime('%H:%M', time.localtime(r['delivered_at']))}"
                         if r["delivered_at"] else "queued")
-            msgs.append((r["ts"], r["id"], 0, _said(r["body"], _hm(r["ts"]), who, tail)))
+            msgs.append((r["ts"], r["id"], 0,
+                         said(r["requester"], r["target"], r["body"], r["ts"], tail,
+                              r["state"] == "queued" and r["target"] == HUMAN)))
             if r["verdict"]:
-                back = r["target"] if between and mine else "you" if between \
-                    else r["target"]
-                msgs.append((r["resolved_at"] or r["ts"], r["id"], 1,
-                             _said(r["verdict"], _hm(r["resolved_at"] or r["ts"]),
-                                   f"↩ {back}")))
+                at = r["resolved_at"] or r["ts"]
+                msgs.append((at, r["id"], 1, said(r["target"], r["requester"], r["verdict"],
+                                                  at, f"answers #{r['id']}")))
         msgs.sort(key=lambda m: m[:3])
         threads.append((max(m[0] for m in msgs), cid, msgs))
     threads.sort(key=lambda t: t[0])
     out: list[str] = []
     for _, cid, msgs in threads[-CHAT_CHAINS:]:
-        out.append(f"── chain {cid} " + "─" * 20)
-        out += [ln for m in msgs for ln in m[3]]
+        out.append(Said("thread", f"── chain {cid}"))
+        out += [m[3] for m in msgs]
     if not out:
         out.append(f"nothing yet between you and {agent}")
     how, rid = chat_target(con, agent)
@@ -960,10 +980,6 @@ def conversation(con, agent: str) -> list[str]:
             "new": " · starts a new thread"}[how]
     out += ["", f"↵ write to {agent}{goes} · e in $EDITOR"]
     return out
-
-
-def _hm(ts) -> str:
-    return time.strftime("%m-%d %H:%M", time.localtime(ts or 0))
 
 
 def chat_parent(con, agent: str) -> int | None:
