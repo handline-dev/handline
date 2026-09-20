@@ -422,49 +422,262 @@ def test_failclosed(home: Path) -> None:
           picked is None, str(picked))
 
 
-def test_pick_account_orders_by_weekly_deadline(home: Path) -> None:
-    """Request #166/#167, amended by #169/#170/#254: spend first the weekly
-    headroom that expires soonest unused - not simply the account with the
-    most 5h room right now, and right up to its own wall rather than holding
-    back at a lower line (the margin/tier rule #254 dropped)."""
+def test_pick_account_orders_by_weekly_pace(home: Path) -> None:
+    """#1001, replacing the earliest-weekly-deadline rule (#166/#167/#169/
+    #170/#254) this same function used to test: among accounts admitted by
+    `takes_work`/`unfit`, the one furthest BEHIND its own weekly pace
+    (`status.pace_7d`) is picked - not simply the one with the most 5h room
+    right now, and not the one whose reset_7d timestamp happens to be soonest
+    regardless of what its pct_7d actually is."""
     os.environ["OCP_HOME"] = str(home)
     now = int(time.time())
 
-    # "later" has more 5h headroom than "soon" - the old rule would pick it -
-    # but "soon" loses its weekly window first.
+    # "later" has more 5h headroom than "soon" - the old rule would pick it on
+    # that alone - but "soon" is further behind its own pace: 10% used with an
+    # hour left (almost the whole week already elapsed) is further behind than
+    # 10% used with a day left (much less elapsed).
     write_status(home, "soon", pct_5h=50, pct_7d=10, reset_7d=now + 3600)
     write_status(home, "later", pct_5h=5, pct_7d=10, reset_7d=now + 90000)
     picked, reasons = status.pick_account(["soon", "later"])
-    check("pick_account: the earlier weekly deadline wins over more headroom",
+    check("pick_account: further behind its own pace wins over more headroom",
           picked == "soon", str(picked))
     said = dict(reasons)
     check("pick_account: the winner's reason says it was picked",
           "picked" in said["soon"], said["soon"])
 
-    # "close_to_wall" resets sooner than "safe" and is near its own 7d wall -
-    # under the old margin rule it would have been deprioritized behind
-    # "safe"; #254 drops that, so the sooner deadline still wins.
+    # "close_to_wall" resets sooner than "safe" and sits near its own 7d wall,
+    # but at 92% with its week almost entirely elapsed it is close to ON pace;
+    # "safe" at 50% with most of the week still to run is well behind its own -
+    # so "safe" is picked, not the one closer to its wall or to its reset.
     write_status(home, "close_to_wall", pct_5h=5, pct_7d=92, reset_7d=now + 3600)
     write_status(home, "safe", pct_5h=5, pct_7d=50, reset_7d=now + 90000)
     picked, _ = status.pick_account(["close_to_wall", "safe"])
-    check("pick_account: the soonest deadline wins right up to its own wall, "
-          "not just within a margin of it",
-          picked == "close_to_wall", str(picked))
+    check("pick_account: further behind its own pace wins even when the "
+          "nearer-wall account resets sooner",
+          picked == "safe", str(picked))
 
-    # Even both near their own walls, the sooner deadline still wins - there
-    # is no second tier to fall back into any more.
+    # Both near their own 7d wall, but not equally near their own pace:
+    # wall_a (91% with 1000s left) is fractionally further behind than
+    # wall_b (93% with 50s left, its week essentially fully elapsed).
     write_status(home, "wall_a", pct_5h=5, pct_7d=91, reset_7d=now + 1000)
     write_status(home, "wall_b", pct_5h=5, pct_7d=93, reset_7d=now + 50)
     picked, _ = status.pick_account(["wall_a", "wall_b"])
-    check("pick_account: orders by deadline even when both are near the wall",
-          picked == "wall_b", str(picked))
+    check("pick_account: orders by pace even when both are near the wall",
+          picked == "wall_a", str(picked))
 
-    # An account whose 7d window has never been observed sorts behind a known,
-    # sooner deadline rather than jumping the queue.
+    # An account whose 7d window has never been observed sorts behind a known
+    # pace rather than jumping the queue - a '?' is not low usage.
     write_status(home, "never_seen_7d", pct_5h=5, pct_7d=None)
     picked, _ = status.pick_account(["never_seen_7d", "soon"])
-    check("pick_account: a known, sooner deadline beats an unknown one",
+    check("pick_account: a known pace beats an unknown one",
           picked == "soon", str(picked))
+
+    # The old rule's real benefit, not given up: two accounts with the SAME
+    # usage but different resets are not a tie under pace, because the one
+    # closer to its reset has more of its week already elapsed - same
+    # numerator, smaller denominator, lower pace. So "spend the one that
+    # resets soonest" still holds in the ordinary case pace was built to
+    # improve on, not just the disagreeing case pace was built to fix.
+    write_status(home, "resets_soon", pct_5h=5, pct_7d=30, reset_7d=now + 7200)
+    write_status(home, "resets_later", pct_5h=5, pct_7d=30, reset_7d=now + 3 * 86400)
+    picked, _ = status.pick_account(["resets_soon", "resets_later"])
+    check("pick_account: at equal usage, the sooner reset still wins - pace "
+          "does not give up the old rule's real case, only its bad one",
+          picked == "resets_soon", str(picked))
+
+
+def test_pace_matches_the_founders_own_worked_examples(home: Path) -> None:
+    """#1001/#1036: the founder gave two examples of "ahead" and "behind" its
+    own pace, got the words backwards on both, and asked that they be pinned
+    as fixtures so nobody reads the words and implements them backwards again.
+    Pin the NUMBERS the corrected reading settled on, not the words: 85% with
+    one day elapsed (six left) is pace ~5.95 - the worst of the two, because
+    burning 85% in a seventh of the week is far ahead of a uniform pace, not
+    behind it - and 60% with the week 97.6% elapsed (four hours left) is pace
+    ~0.615, comfortably behind, which is what "ahead" was meant to mean."""
+    os.environ["OCP_HOME"] = str(home)
+    now = int(time.time())
+    write_status(home, "burns_fast", pct_5h=5, pct_7d=85, reset_7d=now + 6 * 86400)
+    write_status(home, "comfortable", pct_5h=5, pct_7d=60, reset_7d=now + 4 * 3600)
+    fast_pace = status.pace_7d(status.read("burns_fast"))
+    comfortable_pace = status.pace_7d(status.read("comfortable"))
+    check("founder's examples: 85% with six days left is far ahead of a "
+          "uniform pace (~5.95), not behind it",
+          5.9 < fast_pace < 6.0, fast_pace)
+    check("founder's examples: 60% with four hours left is comfortably "
+          "behind (~0.615), which is the one that reads as 'ahead' in the "
+          "sense that matters - it is not going to run out on its own",
+          0.6 < comfortable_pace < 0.63, comfortable_pace)
+    check("founder's examples: the lower number - comfortable, not fast - is "
+          "the one pace spends first", comfortable_pace < fast_pace)
+
+
+def test_a_near_wall_7d_account_is_not_specially_excluded(home: Path) -> None:
+    """Finding, from #1036: an account at 7d 99% with an hour left passes
+    `takes_work` and `unfit` exactly like one at 7d 10% with a day left - only
+    pace decides between them. There is no weekly analogue of MIN_STRETCH_S;
+    decision #254 deliberately dropped the margin that would have been one
+    ('spent to its own wall, not held back'), and #256 accepted the fallout by
+    name: 'if it runs out mid-session, the agent moves.' So a 99% account is
+    not refused for being a hair from its wall - it can still be PICKED, if
+    nothing better is on offer - and this pins that as the accepted shape
+    rather than an oversight the ranking should close."""
+    os.environ["OCP_HOME"] = str(home)
+    now = int(time.time())
+    write_status(home, "sliver", pct_5h=9, pct_7d=99, reset_5h=now + 1800, reset_7d=now + 3600)
+    st = status.read("sliver")
+    ld = loadmod.Load("sliver", 0, 2, 0.0)
+    check("near-wall: 99% with an hour left still takes_work",
+          st.takes_work(0)[0], st.takes_work(0))
+    check("near-wall: and unfit finds nothing wrong with it",
+          status.unfit(st, ld) is None)
+    # With nothing better available, it is still the pick - #254's spend-to-
+    # the-wall guarantee, which pace must not quietly take back.
+    picked, _ = status.pick_account(["sliver"])
+    check("near-wall: with no alternative, it is still picked, not skipped",
+          picked == "sliver", picked)
+
+
+def test_pick_account_does_not_bounce_between_two_close_accounts(home: Path) -> None:
+    """Many consecutive picks, with two accounts close in pace and usage
+    rising on both: the choice must cross from one to the other at most once,
+    never alternate back and forth as rounding moves the raw pace a hair to
+    either side of the tie."""
+    os.environ["OCP_HOME"] = str(home)
+    base = int(time.time())
+    reset_7d = base + 3 * 86400
+    clock = {"s": 0}
+    real_time = time.time
+    time.time = lambda: base + clock["s"]  # noqa: E731
+    try:
+        pct = {"a": 40.0, "b": 42.0}
+        picks = []
+        last = None
+        for _ in range(400):
+            for acct in ("a", "b"):
+                write_status(home, acct, pct_5h=10, pct_7d=pct[acct],
+                             reset_5h=base + clock["s"] + 7200, reset_7d=reset_7d)
+            # `prefer=last`, as a repeated caller (the accounts panel, a
+            # tick's own re-check) would pass what it picked last time - that
+            # is the memory the dead zone alone does not have.
+            picked, _ = status.pick_account(["a", "b"], prefer=last)
+            picks.append(picked)
+            last = picked
+            pct["a"] += 0.02
+            pct["b"] += 0.01
+            clock["s"] += 300
+        switches = sum(1 for x, y in zip(picks, picks[1:]) if x != y)
+        check("no-bounce: usage rising on both, the pick crosses at most once",
+              switches <= 1, f"{switches} switches: {picks}")
+        check("no-bounce: and it does cross, since 'a' starts and ends behind "
+              "'b' becomes ahead of it", picks[0] != picks[-1], picks)
+    finally:
+        time.time = real_time
+
+
+def test_pick_account_prefer_breaks_an_exact_bucket_tie(home: Path) -> None:
+    """The head start `prefer` gives an incumbent can land it exactly on a
+    challenger's bucket, not past it - and that tie must still go to the
+    incumbent, not to whichever of the two a later tiebreak (headroom,
+    confidence, name) happens to favor. Same pct_7d and reset_7d for both, so
+    the bucket tie is exact, not a floating-point accident; `y` has more 5h
+    headroom, which would win the headroom tiebreak if `prefer` did not
+    settle it first."""
+    os.environ["OCP_HOME"] = str(home)
+    now = int(time.time())
+    reset_7d = now + 3 * 86400
+    # x's raw pace bucket, minus prefer's one-step head start, lands exactly
+    # on y's raw bucket (44% and 42% of this week, both checked against
+    # PACE_HYSTERESIS = 0.02 above).
+    write_status(home, "x", pct_5h=50, pct_7d=44, reset_5h=now + 1800, reset_7d=reset_7d)
+    write_status(home, "y", pct_5h=10, pct_7d=42, reset_5h=now + 1800, reset_7d=reset_7d)
+    picked, reasons = status.pick_account(["x", "y"], prefer="x")
+    check("prefer: an exact bucket tie stays with the incumbent, not with "
+          "the account that has more headroom", picked == "x", str((picked, reasons)))
+
+
+def test_pick_account_tonights_shape(home: Path) -> None:
+    """#1001's own regression case: alpha 5h49/7d58 at cap, beta 5h19/7d85 at
+    cap, delta 5h8/7d30, gamma 5h88/7d89 - delta is picked. alpha and beta are
+    excluded outright by their cap, before pace ever runs on them;
+    gamma's 12 points of 5h headroom do not last `MIN_STRETCH_S` at the
+    typical agent's cost, so it is excluded too - delta is the only candidate
+    left, which this still checks end to end rather than assuming."""
+    os.environ["OCP_HOME"] = str(home)
+    now = int(time.time())
+    for acct, pct5, pct7 in (("alpha", 49, 58), ("beta", 19, 85),
+                             ("delta", 8, 30), ("gamma", 88, 89)):
+        write_status(home, acct, pct_5h=pct5, pct_7d=pct7,
+                     reset_5h=now + 1800, reset_7d=now + 3 * 86400)
+    ld = {
+        "alpha": loadmod.Load("alpha", 1, 1, 0.0),
+        "beta": loadmod.Load("beta", 1, 1, 0.0),
+        "delta": loadmod.Load("delta", 0, 2, 0.0),
+        "gamma": loadmod.Load("gamma", 0, 2, 0.0),
+    }
+    picked, reasons = status.pick_account(["alpha", "beta", "delta", "gamma"], load=ld)
+    said = dict(reasons)
+    check("tonight's shape: delta is picked", picked == "delta", str((picked, reasons)))
+    check("tonight's shape: alpha is excluded by its cap", "cap" in said["alpha"], said["alpha"])
+    check("tonight's shape: beta is excluded by its cap", "cap" in said["beta"], said["beta"])
+    check("tonight's shape: gamma is excluded - not enough of its 5h window "
+          "left to be worth a start", "gamma" != picked and said["gamma"] != "", said["gamma"])
+
+
+def test_pick_account_degrades_when_every_account_would_hit_the_wall(home: Path) -> None:
+    """No account qualifies: pick_account returns None and a reason for each,
+    not an exception - and a boundary account whose one more agent would still
+    last `MIN_STRETCH_S` is not swept into that refusal by mistake."""
+    os.environ["OCP_HOME"] = str(home)
+    now = int(time.time())
+    write_status(home, "full", pct_5h=100, pct_7d=10, reset_5h=now + 1800)
+    write_status(home, "near_wall", pct_5h=99, pct_7d=10, reset_5h=now + 1800)
+    picked, reasons = status.pick_account(["full", "near_wall"])
+    check("all-wall: nothing qualifies, so the pick refuses rather than "
+          "guessing", picked is None, str((picked, reasons)))
+    check("all-wall: every refusal says why",
+          all(why for _, why in reasons), reasons)
+
+    # 22 points of headroom at the typical cost (0.75%/min) lasts 1760s, just
+    # under MIN_STRETCH_S (1800s); 23 lasts 1840s, just over it.
+    write_status(home, "just_under", pct_5h=78, pct_7d=10, reset_5h=now + 1800)
+    write_status(home, "just_over", pct_5h=77, pct_7d=10, reset_5h=now + 1800)
+    check("all-wall: just under the stretch floor still refuses",
+          status.pick_account(["just_under"])[0] is None)
+    check("all-wall: one more point of headroom crosses it and is picked",
+          status.pick_account(["just_over"])[0] == "just_over")
+
+
+def test_pick_account_stale_and_unknown_pace(home: Path) -> None:
+    """A stale or missing figure must never read as low usage: `pace_7d`
+    returns infinity rather than 0 or a guess."""
+    os.environ["OCP_HOME"] = str(home)
+    now = int(time.time())
+
+    # Stale but idle - admitted on its floor, but the floor is not knowledge:
+    # a missing pct_7d - not merely a stale one, which still carries forward
+    # as a floor of its own - keeps pace unknown rather than inferring one.
+    write_status(home, "stale_idle", pct_5h=5, pct_7d=None, reset_5h=now + 1800,
+                 collected_at=now - 3600)
+    st = status.read("stale_idle")
+    check("stale/unknown: a missing 7d figure is unknown pace, not 0",
+          status.pace_7d(st) == float("inf"), status.pace_7d(st))
+
+    # A rolled-over 7d window (reset already past) is not a low pace either -
+    # trusted_pct_7d is None for it, same as never having read one at all.
+    write_status(home, "rolled_over", pct_5h=5, pct_7d=5, reset_5h=now + 1800,
+                 reset_7d=now - 10)
+    check("stale/unknown: a rolled-over week reads as unknown pace, not 0",
+          status.pace_7d(status.read("rolled_over")) == float("inf"))
+
+    # Unknown headroom_5h (stale, and past the idle-floor margin) still
+    # refuses outright, the same as any other unfit account - pace is never
+    # asked about an account that was refused.
+    write_status(home, "stale_full", pct_5h=95, reset_5h=now + 1800,
+                 collected_at=now - 3600)
+    allowed, why = status.read("stale_full").assignable()
+    check("stale/unknown: a stale reading too close to the wall still "
+          "refuses", not allowed, why)
 
 
 # ---------------------------------------------------------------- collector
@@ -5638,19 +5851,19 @@ def test_unobserved_spend_stays_off_unreadable_accounts(home: Path) -> None:
         check("fold: even though it takes no new agents",
               not st.assignable()[0] and st.pct_5h_source == "carried_old")
 
-        # A stale reading pick_account would hand back on its idle floor is
-        # still an account this daemon cannot currently read - the fold must
-        # not prefer it over one with a genuinely current reading, even when
-        # the stale account would otherwise win the ranking (here, by far
-        # the earliest 7d deadline).
+        # A stale reading is still an account this daemon cannot currently
+        # read, and the fold must not prefer it over one with a genuinely
+        # current reading. Neither account here has an actual pct_7d, so pace
+        # ties at "unknown" for both and headroom decides - already in favor
+        # of the readable one, before the fold's own exclusion even applies.
         write_status(home, "fresh", pct_5h=50, reset_5h=now + 1800,
                      reset_7d=now + 86400 * 2)
         write_status(home, "stale_idle", pct_5h=5, reset_5h=now + 1800,
                      reset_7d=now + 1800, collected_at=now - 3600)
-        check("fold: without the exclusion, pick_account would hand back "
-              "the stale account (earliest 7d deadline wins)",
-              status.pick_account(["fresh", "stale_idle"])[0] == "stale_idle")
-        check("fold: with it, the fold goes to the one it can actually read",
+        check("fold: pick_account already prefers the readable account "
+              "on headroom, with no pct_7d behind either reset",
+              status.pick_account(["fresh", "stale_idle"])[0] == "fresh")
+        check("fold: and the fold's own exclusion agrees",
               foldmod._cheapest_account() == "fresh",
               str(foldmod._cheapest_account()))
     finally:
@@ -7746,6 +7959,51 @@ def test_the_screen_says_which_account_to_spend_next(home: Path) -> None:
         accounts.logged_in = real_login
 
 
+def test_the_next_mark_does_not_flicker_between_close_accounts(home: Path) -> None:
+    """The panel's own memory (`tui._LAST_NEXT`) is what closes the gap
+    `test_pick_account_does_not_bounce_between_two_close_accounts` opens
+    without it: redraw twice with alpha and beta a hair apart in weekly pace,
+    and the mark must stay put rather than trade places on rounding alone."""
+    _daemon_home(home, 40)
+    write_status(home, "beta", pct_5h=8, pct_7d=13, ctx_pct=5,
+                 reset_5h=int(time.time()) + 1800)
+    accounts.register("beta")
+    real_login = accounts.logged_in
+    now = int(time.time())
+    reset_7d = now + 3 * 86400
+    try:
+        accounts.logged_in = lambda a: True  # noqa: E731
+        tui._LOGIN.clear()
+        tui._LAST_NEXT = None
+
+        def next_mark() -> str | None:
+            plain = [tui._ANSI.sub("", ln) for ln in tui.frame(120, 60).split(chr(10))]
+            for ln in plain:
+                if ("alpha" in ln or "beta" in ln) and ln.rstrip("│ ").endswith(" next"):
+                    return "alpha" if "alpha" in ln else "beta"
+            return None
+
+        write_status(home, "alpha", pct_5h=40, pct_7d=41, ctx_pct=5,
+                     reset_5h=now + 1800, reset_7d=reset_7d)
+        write_status(home, "beta", pct_5h=8, pct_7d=44, ctx_pct=5,
+                     reset_5h=now + 1800, reset_7d=reset_7d)
+        first = next_mark()
+        check("next mark: alpha is picked, clearly ahead on pace",
+              first == "alpha", first)
+        check("next mark: the panel remembers it", tui._LAST_NEXT == "alpha")
+
+        # beta closes to exactly one pace bucket ahead of alpha's raw figure -
+        # without the panel's memory this overtakes outright; the memory's
+        # own head start lands the two in the same bucket, and the mark stays.
+        write_status(home, "beta", pct_5h=8, pct_7d=40, ctx_pct=5,
+                     reset_5h=now + 1800, reset_7d=reset_7d)
+        check("next mark: stays on alpha rather than trading places with a "
+              "one-bucket move", next_mark() == "alpha", next_mark())
+    finally:
+        accounts.logged_in = real_login
+        tui._LAST_NEXT = None
+
+
 def test_the_founder_does_not_approve_their_own_request(home: Path) -> None:
     """HR gates *agents*, and the founder is the thing on the other side of the
     gate. Asked to propose, they got "an agent cannot ask itself" - the one
@@ -9391,10 +9649,17 @@ def test_an_agent_cannot_force_a_move(home: Path) -> None:
             os.environ["OCP_AGENT"] = real
 
 
-def test_weekly_headroom_is_spent_to_its_own_wall(home: Path) -> None:
-    """Founder's decision #254: an account at 5h 9% / 7d 99% is spent to the
-    weekly wall, not stopped short of it - it must still be picked, and an
-    agent working on it moves only once 7d actually reaches its own wall."""
+def test_a_near_wall_7d_account_is_still_a_candidate_but_not_guaranteed_the_pick(
+        home: Path) -> None:
+    """Founder's decision #254: an account at 5h 9% / 7d 99% is spendable to
+    the weekly wall, not held back short of it - it must still be a candidate,
+    and an agent working on it moves only once 7d actually reaches its own
+    wall. Which of two candidates the *pick* prefers is now pace (#1001), not
+    #254's concern; alpha at 99% with an hour left is close to on
+    pace (elapsed is almost the whole week already), while beta at 10% with a
+    day left is well behind its own - so beta is picked here, and alpha's
+    place in this test is to prove it is not refused for being this close to
+    its wall, not that it wins the pick."""
     _daemon_home(home, 20)
     accounts.register("beta")
     agents.register("keeper", "alpha")
@@ -9410,9 +9675,13 @@ def test_weekly_headroom_is_spent_to_its_own_wall(home: Path) -> None:
     write_status(home, "beta", pct_5h=9, pct_7d=10,
                  reset_7d=now + 90000, reset_5h=now + 1800)
     alpha(9, 99)
+    allowed, why = status.read("alpha").assignable()
+    check("7d wall: 99% is still assignable, not held back short of the wall",
+          allowed, why)
     picked, reasons = status.pick_account(["alpha", "beta"], load={})
-    check("7d wall: the soon-to-reset account is picked at 7d 99%",
-          picked == "alpha", str((picked, reasons)))
+    check("7d wall: at 99%, pace picks the account further behind its own "
+          "weekly pace instead (beta, 10% with a day left)",
+          picked == "beta", str((picked, reasons)))
     alpha(9, 100)
     check("7d wall: at the wall it is not picked",
           status.pick_account(["alpha", "beta"], load={})[0] == "beta")
@@ -16555,7 +16824,17 @@ def main() -> int:
         home = Path(td) / "orcapipe"
         home.mkdir()
         run(lambda: test_failclosed(home))
-        run(lambda: test_pick_account_orders_by_weekly_deadline(Path(td) / 'deadline'))
+        run(lambda: test_pick_account_orders_by_weekly_pace(Path(td) / 'deadline'))
+        run(lambda: test_pace_matches_the_founders_own_worked_examples(Path(td) / 'foundersex'))
+        run(lambda: test_a_near_wall_7d_account_is_not_specially_excluded(
+            Path(td) / 'nearwall'))
+        run(lambda: test_pick_account_does_not_bounce_between_two_close_accounts(
+            Path(td) / 'nobounce'))
+        run(lambda: test_pick_account_prefer_breaks_an_exact_bucket_tie(Path(td) / 'prefertie'))
+        run(lambda: test_pick_account_tonights_shape(Path(td) / 'tonight'))
+        run(lambda: test_pick_account_degrades_when_every_account_would_hit_the_wall(
+            Path(td) / 'allwall'))
+        run(lambda: test_pick_account_stale_and_unknown_pace(Path(td) / 'staleknown'))
         run(lambda: test_collector(home))
         run(lambda: test_yaml())
         run(lambda: test_agents(home))
@@ -16733,10 +17012,13 @@ def main() -> int:
         run(lambda: test_hr_move_does_not_touch_a_live_sessions_own_record(Path(td) / 'hrmovelive'))
         run(lambda: test_hr_move_leaves_account_alone_when_liveness_cannot_be_read(Path(td) / 'hrmoveunknown'))
         run(lambda: test_the_screen_says_which_account_to_spend_next(Path(td) / 'nextacct'))
+        run(lambda: test_the_next_mark_does_not_flicker_between_close_accounts(
+            Path(td) / 'nextflicker'))
         run(lambda: test_a_long_name_does_not_run_into_the_column_beside_it(Path(td) / 'cols'))
         run(lambda: test_the_whole_loop_runs_on_our_own_commands(Path(td) / 'loop'))
         run(lambda: test_an_agent_can_put_another_one_to_work(Path(td) / 'dispatch'))
-        run(lambda: test_weekly_headroom_is_spent_to_its_own_wall(Path(td) / 'sevendaywall'))
+        run(lambda: test_a_near_wall_7d_account_is_still_a_candidate_but_not_guaranteed_the_pick(
+            Path(td) / 'sevendaywall'))
         run(lambda: test_an_agent_is_judged_on_the_account_its_process_is_on(Path(td) / 'procacct'))
         run(lambda: test_a_move_is_not_recorded_while_the_process_is_still_on_the_old_account(Path(td) / 'movever'))
         run(lambda: test_a_forced_move_goes_through_the_verified_move_or_not_at_all(Path(td) / 'forced'))

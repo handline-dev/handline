@@ -730,15 +730,55 @@ def team_outlook(names: list[str] | None = None, now: float | None = None) -> st
     return f"estimate: at this pace {n} hit the wall around {clock(stops)}{tail}"
 
 
-def deadline_7d(st: "AccountStatus") -> float:
-    """When this account's weekly headroom is lost if it goes unspent.
+# A tier for "cannot realistically be exhausted" was tried here and dropped
+# (#1085): telling an abundant account from a thrifty one needs to know plan
+# size, and nothing this module reads carries it. headroom is a percent of a
+# window, capped at 100 whatever the plan; agent_burn comes from load.py's
+# Costs, which is one estimate shared by every account (load.py: "shared by
+# every account, built once at load.py:154"), not a per-account figure. So the
+# only thing that varied between accounts in that computation was the cap,
+# and "cap running flat out would not spend the headroom before reset" reduces
+# to "both windows reset soon" - the earliest-deadline rule this change exists
+# to replace, reinstated above the rule that replaced it, and confirmed by its
+# own test: the fixture that was supposed to prove tier 1 bound something used
+# a reset 30 minutes out, and picked the account with less headroom and the
+# sooner deadline over the one with more headroom and a pace far behind. Pace
+# alone carries the rule now.
 
-    Infinity, not now, for an account whose reset_7d we do not know or that is
-    already past (that window rolled over, so its headroom just refreshed): it
-    is not more urgent than one we can see approaching its own reset, and it
-    still has to sort somewhere among accounts tied on urgency.
+
+# A pace this close to another's is noise, not a real difference in how far
+# behind two accounts are - two readings a point apart on a 5h window jitter
+# by more than this from one poll to the next. Without a dead zone the sort
+# would relitigate the same near-tie every tick as rounding moved it back and
+# forth, moving new work between two accounts that are, for this purpose,
+# equally behind. Ties inside it fall through to account name, which never
+# changes - so a run of picks either stays on one account or crosses to the
+# other exactly once, on the poll where the gap actually opens past this line.
+PACE_HYSTERESIS = 0.02
+
+
+def pace_7d(st: "AccountStatus") -> float:
+    """This account's weekly usage against its weekly timer: `pct_7d` as a
+    multiple of the usage a uniform pace through the week would have reached by
+    now. Below 1 is behind that pace - the "use it or lose it" case, since
+    whatever headroom is left unspent here is not carried past the reset - and
+    is what `pick_account` spends first, on the same reasoning the old
+    earliest-7d-deadline rule was right about: an account that is not going to
+    catch up on its own gets the work while the work is still worth something
+    to it.
+
+    Infinity for a `pct_7d` or a `reset_7d` we do not know, or a week already
+    rolled over: never sorted as low usage, which reading it as 0 - or as
+    ratio 0/0 - would do.
     """
-    return float(st.reset_7d) if st.reset_7d and st.reset_7d > time.time() else float("inf")
+    week = st.trusted_pct_7d
+    if week is None or not st.reset_7d:
+        return float("inf")
+    remaining = st.reset_7d - time.time()
+    if remaining <= 0:
+        return float("inf")
+    elapsed_frac = max(triggers.WINDOW_7D_S - remaining, 1.0) / triggers.WINDOW_7D_S
+    return week / (elapsed_frac * 100)
 
 
 def account_verdict(name: str, st: "AccountStatus", ld, ranked: list[tuple[str, str]],
@@ -827,23 +867,51 @@ def _pick_reason(st: "AccountStatus", ld, lasts: float | None, picked: bool,
     """Why this account sits where it does in the ordering."""
     week = st.trusted_pct_7d
     week_s = "unknown" if week is None else f"{week}%"
+    tag = " <- picked" if picked else ""
     for stale_ok, stale_why in (st.rolled_over(), st.idle_floor(ld.active if ld else 0)):
         if stale_ok:
-            return stale_why + (" <- picked: earliest 7d deadline" if picked else "")
+            return stale_why + tag
     when = "unknown" if not st.reset_7d else ago(max(0.0, st.reset_7d - time.time()))
+    pace = pace_7d(st)
+    pace_s = "unknown pace" if pace == float("inf") else f"{pace:.2f}x its weekly pace"
     # Neither early return above fired, so this account is live, not stale -
     # trusted_pct_5h is never None here.
     base = (_stretch_reason(st, ld, lasts, st.trusted_pct_5h, agent) if lasts is not None
-            else f"5h {st.trusted_pct_5h}%") + f"; 7d {week_s} (resets in {when})"
-    return base + " <- picked: earliest 7d deadline" if picked else base
+            else f"5h {st.trusted_pct_5h}%") + f"; 7d {week_s} (resets in {when}, {pace_s})"
+    return base + tag
 
 
 def pick_account(candidates: list[str] | None = None, bootstrap: bool = False,
                  exclude: dict[str, str] | None = None,
                  load: dict | None = None,
-                 agent: str | None = None) -> tuple[str | None, list[tuple[str, str]]]:
-    """Pick the account whose weekly headroom expires soonest, among those that
-    can take one more agent.
+                 agent: str | None = None,
+                 prefer: str | None = None) -> tuple[str | None, list[tuple[str, str]]]:
+    """Pick among the accounts that can take one more agent - any account that
+    will not hit its own wall, the same test `unfit` already answers - the one
+    furthest behind its own weekly pace (`pace_7d`) goes first, since headroom
+    a slower account leaves unspent is lost at its reset and one already ahead
+    of pace is not going to run out on its own.
+
+    An earlier version of this also ranked a top tier of accounts "abundant"
+    enough to be spent without limit, ahead of pace. Dropped (#1085): telling
+    an abundant account from a thrifty one needs to know plan size, and
+    nothing here reads it - headroom is a percent of a window, capped at 100
+    whatever the plan, and the per-agent cost this module has is one estimate
+    shared by every account, not a per-account figure. What that tier actually
+    computed was "does this account's window reset before its cap could
+    plausibly spend the headroom", which - at the one burn rate available -
+    reduces to "resets soon", the earliest-deadline rule this change exists to
+    replace. Pace alone carries the rule now.
+
+    `prefer` is the account a repeated caller picked last time - the accounts
+    panel redrawing, or a wait re-checked every tick. Passed back in, it keeps
+    its seat inside the pace dead zone `PACE_HYSTERESIS` already gives every
+    other pair: without memory of the last pick, two accounts a hair apart in
+    pace still swap the lead back and forth as rounding tips first one way then
+    the other while both climb, which is exactly the flicker a repeated caller
+    must not show. A real gap past that zone still moves it - `prefer` only
+    breaks a tie that would otherwise come down to which side of a bucket
+    boundary rounding landed on this time.
 
     Returns (choice, [(account, reason)]). When none can, the choice is None
     and the caller must refuse - that is the fail-closed path.
@@ -853,9 +921,7 @@ def pick_account(candidates: list[str] | None = None, bootstrap: bool = False,
     its wall at its current fill plus one more agent of the kind `agent` names (a
     typical one when it names none). How fast it is filling,
     not a fixed line, is what says it has room: an account at 60% and idle has
-    more than one at 30% with three agents on it. The deadline order then only
-    compares accounts that qualify: reset_7d soonest first; 5h headroom breaks
-    ties and unknowns.
+    more than one at 30% with three agents on it.
 
     `exclude` names accounts to skip and why (the one an agent just left, until
     it resets). `load` defaults to reading it.
@@ -912,9 +978,29 @@ def pick_account(candidates: list[str] | None = None, bootstrap: bool = False,
         return (blank[0] if blank else None), reasons
 
     def sort_key(item):
-        _, st, _, _ = item
-        return (deadline_7d(st), -(st.headroom() or 0),
-                -_CONFIDENCE.get(st.pct_5h_source, 0))
+        n, st, ld, _ = item
+        pace = pace_7d(st)
+        # A dead zone, not the raw figure: two paces this close are noise, not
+        # a real difference in how far behind the accounts are (PACE_HYSTERESIS
+        # docstring). Account name is the final tiebreak precisely because it
+        # never moves - two accounts landing in the same bucket keep the same
+        # order every time, rather than the pick drifting with rounding.
+        bucket = pace if pace == float("inf") else round(pace / PACE_HYSTERESIS) * PACE_HYSTERESIS
+        if prefer == n and bucket != float("inf"):
+            # A full step's head start: a challenger only unseats the last
+            # pick by clearing the dead zone outright, not by tying it - a
+            # tie is what rounding alone produces as both accounts climb.
+            bucket -= PACE_HYSTERESIS
+        # Pace ties at infinity whenever the weekly figure is unknown for every
+        # candidate - most tests, and any account nobody has tracked a week on
+        # yet - so headroom is still the tiebreak under it, not dropped: the
+        # old "maximizes headroom" rule survives exactly where pace has nothing
+        # to say. `prefer` breaks a bucket tie before headroom does, though -
+        # the head start above can land exactly on a challenger's bucket, and
+        # that tie must still go to the incumbent, not to whichever of them
+        # happens to have a hair more headroom this tick.
+        return (bucket, 0 if n == prefer else 1,
+                -(st.headroom() or 0), -_CONFIDENCE.get(st.pct_5h_source, 0), n)
 
     usable.sort(key=sort_key)
     picked = usable[0][0]
