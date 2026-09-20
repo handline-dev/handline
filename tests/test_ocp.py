@@ -1551,6 +1551,29 @@ def test_a_stale_wake_at_does_not_claim_work_that_does_not_exist(home: Path) -> 
         con.close()
 
 
+def test_a_wake_with_only_an_answer_waiting_still_reads_queued(home: Path) -> None:
+    """An answer an agent asked for and has not been told is work waiting, the
+    same as a queued request (`would_wake` counts both): the wake that reads
+    the queue must not turn it into IDLE."""
+    _daemon_home(home, 50)
+    con = db.connect()
+    try:
+        rid = db.add_request(con, "backend", "marina", "how", None, "peer", "async",
+                             None, 0, None)
+        check("answer wake: the answer is closed and not yet told",
+              db.close_if_queued(con, rid, "done", "like this", announced=False)
+              and [r["id"] for r in db.unannounced_answers(con, "backend")] == [rid]
+              and db.head_of_queue(con, "backend") is None)
+        db.set_agent_state(con, "backend", dmn.THROTTLED, wake_at=int(time.time()) - 1,
+                           detail="throttled for an unrelated reason")
+        dmn.supervise(con, "backend", lambda _m: None, int(time.time()), {}, [])
+        row = db.get_agent_state(con, "backend")
+        check("answer wake: with only an answer waiting, the wake still reads QUEUED",
+              row["state"] == dmn.QUEUED and row["wake_at"] is None, str(dict(row)))
+    finally:
+        con.close()
+
+
 def test_the_other_wake_writers_also_read_the_queue(home: Path) -> None:
     """reconcile's due wake and the usage-recovered wake claim QUEUED only with
     something queued, like the supervise wake: IDLE on an empty queue."""
@@ -14881,6 +14904,8 @@ def main() -> int:
         run(lambda: test_daemon_degraded_recovers(Path(td) / 'd5c'))
         run(lambda: test_a_stale_wake_at_does_not_claim_work_that_does_not_exist(
             Path(td) / 'stalewake'))
+        run(lambda: test_a_wake_with_only_an_answer_waiting_still_reads_queued(
+            Path(td) / 'answerwake'))
         run(lambda: test_the_other_wake_writers_also_read_the_queue(
             Path(td) / 'otherwake'))
         run(lambda: test_daemon_tick_expires_handoff(Path(td) / 'd5d'))
