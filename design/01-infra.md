@@ -545,7 +545,8 @@ ocp unstall <agent>
 
 ocp daemon [--foreground]
 ocp watch
-ocp status [--json|--table]
+ocp status [--json]
+ocp bridge [--once]
 ocp doctor
 ```
 
@@ -583,7 +584,7 @@ ocp doctor
 └───────────────────────────────────────────────────────────┘
 ```
 
-읽기 전용 조인 뷰. 로직이 없다. **Phase 5** — `ocp status --table`로 버티다 마지막에 만든다.
+읽기 전용 조인 뷰. 로직이 없다. **Phase 5** — `ocp bridge`로 만들었다. 한 프레임만 찍으려면 `ocp bridge --once`.
 
 ---
 

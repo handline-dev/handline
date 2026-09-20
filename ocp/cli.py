@@ -173,13 +173,21 @@ def cmd_account_list(args) -> int:
         print("no accounts registered.")
         return 0
     loads = load.read_all()
+    con = db.connect()
+    try:
+        roster, unplaced = load.roster(con)
+    finally:
+        con.close()
     if args.json:
         out = []
         for a in names:
             st = status.read(a)
             allowed, why = _can_start(st, loads.get(a))
+            assigned, running = roster.get(a, (0, 0))
             out.append({
                 "account": a, "logged_in": accounts.logged_in(a),
+                "agents_assigned": assigned, "agents_running": running,
+                "agents_unplaced": unplaced,
                 "pct_5h": st.pct_5h, "pct_5h_effective": st.trusted_pct_5h,
                 "pct_5h_source": st.pct_5h_source,
                 "pct_7d": st.pct_7d, "reset_7d": st.reset_7d, "ctx_pct": st.ctx_pct,
@@ -189,8 +197,9 @@ def cmd_account_list(args) -> int:
         print(json.dumps(out, indent=2))
         return 0
 
-    print(f"{'ACCOUNT':<14}{'LOGIN':<8}{'PLAN':<6}{'5h':>5}{'7d':>5}  {'7d resets':<12}"
-          f"{'ctx':>6}{'AGE':>8}  {'RUNWAY (est.)':<16}ASSIGN")
+    aw = tui.ACCT_W["agents"]
+    print(f"{'ACCOUNT':<14}{'LOGIN':<8}{'PLAN':<6}{tui.ACCT_HEAD['agents'].upper():<{aw}}{'5h':>5}{'7d':>5}  "
+          f"{'7d resets':<12}{'ctx':>6}{'AGE':>8}  {'RUNWAY (est.)':<16}ASSIGN")
     for a in names:
         st = status.read(a)
         allowed, why = _can_start(st, loads.get(a))
@@ -201,16 +210,17 @@ def cmd_account_list(args) -> int:
         # A figure we inferred is marked, never dressed up as one we read.
         shown, src = st.shown_pct_5h()
         five = f"{cell(shown)}{src}"
-        print(f"{a:<14}{'yes' if accounts.logged_in(a) else 'no':<8}{plan:<6}"
+        # The bridge's cell, in words only: one definition, one format.
+        agents_ = tui._plain(tui.agents_cell(roster.get(a, (0, 0)), unplaced))
+        print(f"{a:<14}{'yes' if accounts.logged_in(a) else 'no':<8}{plan:<6}{agents_:<{aw}}"
               f"{five:>5}{cell(st.pct_7d):>5}  {resets:<12}{cell(st.ctx_pct):>6}{age:>8}  "
               f"{status.describe_runway(status.runway(st, status.read_burn(a))):<16}"
               f"{'yes' if allowed else 'NO':<4} {why}")
     outlook = status.team_outlook()
     if outlook:
         print("  " + outlook)
-    priced = load.costs().by_kind(paths.list_agents())
-    if priced:
-        print("  one more agent costs, per minute of the 5h window: " + "; ".join(priced))
+    if unplaced:
+        print(f"  ? {unplaced} agent(s) have no readable account and are counted on none")
     print("  " + status.SOURCE_LEGEND)
     return 0
 
@@ -413,16 +423,20 @@ def cmd_doctor(args) -> int:
 
 
 def cmd_status(args) -> int:
-    if args.table:
-        return tui.run(once=True)
     picked, reasons = status.pick_account()
+    # What the pick's "one more agent lasts" rests on: each kind's price and
+    # whether it was measured or is still the starting value.
+    priced = load.costs().by_kind(paths.list_agents())
     if args.json:
         print(json.dumps({"picked": picked,
-                          "candidates": [{"account": a, "reason": w} for a, w in reasons]},
+                          "candidates": [{"account": a, "reason": w} for a, w in reasons],
+                          "agent_costs": priced},
                          indent=2, ensure_ascii=False))
         return 0 if picked else 1
     for a, why in reasons:
         print(f"  {a:<14} {why}")
+    if priced:
+        print("  one more agent costs, per minute of the 5h window: " + "; ".join(priced))
     print()
     print(f"picked: {picked}" if picked
           else "picked: none - no account may take work (fail-closed)")
@@ -1421,7 +1435,6 @@ def build_parser() -> argparse.ArgumentParser:
 
     p = sub.add_parser("status", help="which account may take work")
     p.add_argument("--json", action="store_true")
-    p.add_argument("--table", action="store_true", help="the dashboard view")
     p.set_defaults(fn=cmd_status)
 
     p = sub.add_parser("hr", help="propose a roster change; the founder approves it")

@@ -11,7 +11,7 @@ TOPICS = {
     "accounts": """accounts
   ocp account add <name>           register it and log it in (a human types the login)
   ocp account remove <name>        log it out and move it aside; refused while an agent is on it
-  ocp account list                 usage and whether the account is assignable
+  ocp account list                 usage, agents assigned and running, and whether it is assignable
   ocp agent move <agent> <account> record its handoff, end its live session and start fresh there, making it the preferred account (a human's call; also v on the bridge)
 
 ocp never reads, writes or copies credentials. A refresh token rotates on
@@ -27,7 +27,7 @@ direnv is not used. Orca leaves CLAUDE_CONFIG_DIR empty and --command takes an
 arbitrary shell string, so one wrapper is enough - and Orca preserves the launch
 command across hibernation and restore.""",
     "status": """usage and fail-closed
-  ocp status                       which account may take new work
+  ocp status                       why the pick chose the account it did
   ocp account list --json          machine-readable
 
 A pct_5h we cannot trust - no snapshot, unreadable, or too old - is not a full
