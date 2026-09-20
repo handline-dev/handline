@@ -6189,6 +6189,81 @@ def test_the_screen_reads_keys_from_the_terminal_not_from_a_buffer() -> None:
           "'\\x1b[B'" in got and "'\\x1bOA'" in got, got.strip()[-120:])
 
 
+def test_a_key_arrives_whole_however_its_bytes_are_read(home: Path) -> None:
+    """Auditor #915: `esc` and `[ B` in two reads were delivered as three keys,
+    and a bare Esc closes the open page - so about one arrow in eight shut the
+    page being read. Every split of every sequence, byte by byte, a burst after
+    it, and a bare Esc that is still Esc."""
+    import threading
+    import tty as ttymod
+    master, slave = pty.openpty()
+    ttymod.setraw(slave)
+    real_in, real_wait = sys.stdin, tui.ESC_WAIT
+    sys.stdin = os.fdopen(slave, "r", closefd=False)
+
+    def keys_of(chunks: list[bytes], want: int, gap: float = 0.02,
+                wait: float = 3.0) -> tuple[list[str], float]:
+        """`wait` is generous for a split, so a slow machine cannot make the
+        second half arrive after the reader gave up on it."""
+        tui.ESC_WAIT = wait
+        tui._pending.clear()
+        tui._paste_state.update({"in": False, "carry": ""})
+
+        def write() -> None:
+            for c in chunks:
+                os.write(master, c)
+                time.sleep(gap)
+        t = threading.Thread(target=write)
+        t.start()
+        got, began = [], time.time()
+        while len(got) < want:
+            k = tui._key(1.0)
+            if k is None:
+                break
+            got.append(k)
+        took = time.time() - began
+        t.join()
+        return got, took
+
+    try:
+        seqs = ["\033[A", "\033[B", "\033OA", "\033OB", "\033[5~", "\033[6~", "\033[1;5A"]
+        for seq in seqs:
+            raw = seq.encode()
+            bad = []
+            for cut in range(1, len(raw)):
+                got, _ = keys_of([raw[:cut], raw[cut:]], 1)
+                if got != [seq]:
+                    bad.append((cut, got))
+                got, _ = keys_of([raw[:cut], raw[cut:] + b"jk"], 3)
+                if got != [seq, "j", "k"]:
+                    bad.append((cut, "burst", got))
+            got, _ = keys_of([bytes([b]) for b in raw], 1)
+            if got != [seq]:
+                bad.append(("byte by byte", got))
+            check(f"keys: {seq!r} is one key split at every byte, in a burst and byte by byte",
+                  not bad, str(bad[:3]))
+        got, _ = keys_of([b"j\033", b"[Bk"], 3)
+        check("keys: an escape that ends one read joins the rest of the next after other keys",
+              got == ["j", "\033[B", "k"], str(got))
+        got, _ = keys_of([b"\033[A\033[B"], 2)
+        check("keys: two arrows in one read are two keys", got == ["\033[A", "\033[B"], str(got))
+        got, took = keys_of([b"\033"], 1, wait=real_wait)
+        check("keys: a bare Esc is Esc, and is not held back long",
+              got == ["\033"] and took < 0.4, f"{got} in {took:.2f}s")
+        got, _ = keys_of([b"\033", b"j"], 2, gap=0.3, wait=real_wait)
+        check("keys: an Esc and then a key a moment later are two keys",
+              got == ["\033", "j"], str(got))
+        check("keys: PageUp is one key, not an escape and two letters",
+              tui.split_keys("\033[5~") == ["\033[5~"] and tui.split_keys("\033[1;5A") == ["\033[1;5A"])
+        check("keys: a read cut inside a sequence is known to be cut",
+              all(tui._cut(c) for c in ("\033", "\033[", "\033[1;5", "\033O", "a\033["))
+              and not any(tui._cut(c) for c in ("", "j", "\033[A", "\033OA", "\033[5~", "\033x")))
+    finally:
+        sys.stdin, tui.ESC_WAIT = real_in, real_wait
+        os.close(master)
+        os.close(slave)
+
+
 def test_top_acts_through_the_same_calls_the_daemon_makes(home: Path) -> None:
     """The screen may act, but it may not decide: every key is a call into
     `actions`, which calls what the daemon calls. What it does decide is which
@@ -13357,6 +13432,7 @@ def main() -> int:
         run(lambda: test_a_spawned_agent_gets_an_assumed_account_until_launch_confirms_it(Path(td) / 'acctspawn'))
         run(lambda: test_top_shows_what_is_waiting_on_the_human(Path(td) / 'foryou'))
         run(lambda: test_the_screen_reads_keys_from_the_terminal_not_from_a_buffer())
+        run(lambda: test_a_key_arrives_whole_however_its_bytes_are_read(Path(td) / 'keysplit'))
         run(lambda: test_top_acts_through_the_same_calls_the_daemon_makes(Path(td) / 'topact'))
         run(lambda: test_an_answer_reaches_the_agent_that_asked(Path(td) / 'answered'))
         run(lambda: test_an_answer_wakes_the_agent_that_was_waiting_for_it(Path(td) / 'waiting'))
