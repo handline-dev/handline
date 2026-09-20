@@ -5,6 +5,7 @@ Run: python3 tests/test_ocp.py
 from __future__ import annotations
 
 import argparse
+import atexit
 import contextlib
 import io
 import json
@@ -13,6 +14,7 @@ import pty
 import re
 import select
 import shlex
+import shutil
 import signal
 import subprocess
 import sys
@@ -48,7 +50,69 @@ REAL_OBSERVE = {n: getattr(obsmod, n) for n in ("live_sessions", "live_terminals
                 if hasattr(obsmod, n)}
 
 
+CURRENT_TEST: dict[str, str] = {"name": "<setup>"}
+
+# A stand-in `orca` at the front of PATH for this process and every child of it:
+# it records which test ran it and does nothing else, and exits 1 the way an Orca
+# that is not answering does. A test that stands in for what it calls never
+# reaches it. The four that run the real `ocp` as a child process do, and are
+# named below; any other test that reaches it is a test that has not stood in
+# for something, and the run ends on it.
+FAKE_ORCA_DIR = Path(tempfile.mkdtemp(prefix="ocp-fake-orca-"))
+FAKE_ORCA_LOG = FAKE_ORCA_DIR / "calls.log"
+(FAKE_ORCA_DIR / "orca").write_text(
+    "#!/bin/sh\n"
+    "printf '%s\\t%s\\n' \"${OCP_TEST:-<none>}\" \"$*\" >> LOGFILE\n"
+    "exit 1\n".replace("LOGFILE", f'"{FAKE_ORCA_LOG}"'))
+(FAKE_ORCA_DIR / "orca").chmod(0o755)
+os.environ["PATH"] = str(FAKE_ORCA_DIR) + os.pathsep + os.environ.get("PATH", "")
+atexit.register(shutil.rmtree, FAKE_ORCA_DIR, True)
+
+# Tests whose subject is a child `ocp` process (a launch, the bridge on a pty),
+# which asks Orca for its terminals and its Run. They reach the stand-in, never
+# the real one.
+ORCA_CHILD_TESTS = {"test_launch", "test_launch_refuses_stale",
+                    "test_every_prompt_leaves_the_screen_above_it_drawn_through_tui_run",
+                    "test_the_composer_and_the_fill_on_a_real_screen_through_tui_run"}
+
+
+def calls_that_reached_the_stand_in_orca() -> dict[str, list[str]]:
+    """The calls the fake `orca` recorded, by the test that made them."""
+    out: dict[str, list[str]] = {}
+    if FAKE_ORCA_LOG.exists():
+        for line in FAKE_ORCA_LOG.read_text().splitlines():
+            test, _, call = line.partition("\t")
+            out.setdefault(test, []).append(call)
+    return out
+
+_REAL_POPEN_INIT = subprocess.Popen.__init__
+# Every `orca` a test tried to start in this process, kept by the guard before it
+# raises, so a test that catches the error still leaves the run failing.
+ORCA_ATTEMPTS: list[tuple[str, str]] = []
+
+
+def _is_orca(args) -> bool:
+    first = args if isinstance(args, str) else (args[0] if args else "")
+    return os.path.basename(str(first).split()[0] if str(first).split() else "") == "orca"
+
+
+def _guarded_popen_init(self, args, *a, **kw):
+    """Every subprocess in this process starts here. One that runs `orca` is a
+    test that has not stood in for what it calls: it would type at, list, create
+    or wait on the real Orca of whoever runs the suite. It raises, naming the
+    test and the call. (Code that catches Exception can swallow this; the fake
+    `orca` main() puts on PATH is what still sees it, and the run ends on it.)"""
+    if _is_orca(args):
+        argv = args if isinstance(args, str) else " ".join(str(x) for x in args)
+        ORCA_ATTEMPTS.append((CURRENT_TEST["name"], argv))
+        ours = [f for f in traceback.extract_stack() if "/ocp/" in f.filename or "/tests/" in f.filename]
+        via = " (via " + " > ".join(f"{Path(f.filename).name}:{f.lineno} {f.name}" for f in ours[-6:-1]) + ")" if ours else ""
+        raise AssertionError(f"{CURRENT_TEST['name']} reached the real Orca: {argv}{via}")
+    _REAL_POPEN_INIT(self, args, *a, **kw)
+
+
 def restore_world() -> None:
+    subprocess.Popen.__init__ = _guarded_popen_init
     for n, f in REAL_ORCA.items():
         setattr(orcamod, n, f)
     # No screen to read in a fixture; a test about a modal says so itself.
@@ -625,6 +689,7 @@ def _doctor_row(r, needle: str):
 
 def test_doctor_checks_shared_mcp_config(home: Path) -> None:
     os.environ["OCP_HOME"] = str(home)
+    orcamod.live_terminals = lambda: None    # doctor asks Orca for its terminals; this is about mcp.json
     mcp_json = paths.mcp_config()
     mcp_json.parent.mkdir(parents=True, exist_ok=True)
     if mcp_json.exists():
@@ -3801,6 +3866,34 @@ def test_agent_yaml_is_written_by_dump_so_what_was_typed_reads_back(home: Path) 
           agents.read("plain")["account"] == "beta" and agents.read("plain")["model"] == "4.5")
 
 
+def test_the_guard_against_the_real_orca_names_the_test_and_cannot_be_swallowed() -> None:
+    """A test that starts `orca` itself is stopped and named; one that catches
+    the error still fails the run, because the attempt is kept; and a child
+    process that reaches `orca` reaches the stand-in on PATH, which records the
+    test that ran it. (Each is cleaned out here so it does not fail the run.)"""
+    n = len(ORCA_ATTEMPTS)
+    try:
+        subprocess.run(["orca", "terminal", "list", "--json"], capture_output=True)
+        said = ""
+    except AssertionError as e:
+        said = str(e)
+    swallowed = ORCA_ATTEMPTS[n:]
+    del ORCA_ATTEMPTS[n:]
+    check("orca guard: an orca started in process raises, naming the test and the call",
+          CURRENT_TEST["name"] in said and "terminal list --json" in said, said)
+    check("orca guard: and the attempt is kept, so catching the error does not hide it",
+          swallowed == [(CURRENT_TEST["name"], "orca terminal list --json")], str(swallowed))
+    r = subprocess.run(["sh", "-c", "orca worktree list"], capture_output=True)
+    mine = [c for t, c in calls_that_reached_the_stand_in_orca().items() if t == CURRENT_TEST["name"]]
+    check("orca guard: a child that runs orca reaches the stand-in, which exits 1 and logs the test",
+          r.returncode == 1 and mine and mine[0] == ["worktree list"], str((r.returncode, mine)))
+    kept = [ln for ln in FAKE_ORCA_LOG.read_text().splitlines()
+            if not ln.startswith(CURRENT_TEST["name"] + "\t")]
+    FAKE_ORCA_LOG.write_text("".join(ln + "\n" for ln in kept))
+    check("orca guard: which is the one place `orca` resolves to for this suite",
+          shutil.which("orca") == str(FAKE_ORCA_DIR / "orca"), str(shutil.which("orca")))
+
+
 def test_a_name_that_yaml_would_not_read_as_text_is_refused_where_it_is_typed(home: Path) -> None:
     """A name is written unquoted into team.yaml, agent.yaml and config.yaml. `no`
     is False to PyYAML and a refusal to the bundled parser, and a refusal on a
@@ -5685,6 +5778,8 @@ def test_spawn_survives_its_own_main_path(home: Path) -> None:
         spawnmod._run = fake_run
         spawnmod.prompt_landed = lambda agent, since, timeout_s=0: True
         orcamod.wait_idle = lambda h, timeout_ms=0: True
+        orcamod.run_current = lambda: None       # register_worker looks for a Run to join;
+        orcamod.run_create = lambda objective: None    # there is none, so the worker is not registered
 
         ok, msg = spawnmod.spawn("spawny", ROOT, base="main", prompt="do the thing")
         check("spawn: the command's main path runs to the end", ok, msg)
@@ -6491,6 +6586,7 @@ def test_a_walled_wake_says_so_everywhere(home: Path) -> None:
     real = (orcamod.available,)
     try:
         orcamod.available = lambda: True
+        orcamod.live_terminals = lambda: None    # the bridge's stuck panel asks; this is about the wall
         db.set_closed(con, "backend", "sess-wall")
         # A screen only shows the wall next to a wait that is real: queued
         # work is what would actually make the daemon try this wake.
@@ -6823,6 +6919,7 @@ def test_a_park_that_cannot_be_woken_keeps_its_deadline(home: Path) -> None:
         orcamod.available = lambda: True
         orcamod.live_terminals = lambda: {"term_x"}
         orcamod.alive = lambda h: True
+        orcamod.wait_idle = lambda h, timeout_ms=0: True     # the relaunch waits for the shell
         orcamod.send = lambda h, text, enter=True: (sent.append(text), (True, ""))[1]
         sessions_are()
         db.set_terminal(con, "backend", "term_x", "wt")
@@ -8083,7 +8180,13 @@ def test_top_acts_through_the_same_calls_the_daemon_makes(home: Path) -> None:
             orcamod.focus, spawnmod.spawn = real_focus, real_spawn
         db.set_terminal(con, "backend", None, None)
         check("top: one with none is", actions.can(con, "backend", "start")[0])
-        said = actions.start(con, "backend", repo=str(home))
+        real_run = spawnmod._run
+        # The Orca that refuses: `worktree create` on a folder that is not a repository.
+        spawnmod._run = lambda args, cwd=None: (1, "", "orca: not a git repository")
+        try:
+            said = actions.start(con, "backend", repo=str(home))
+        finally:
+            spawnmod._run = real_run
         check("top: and starting it says why when it cannot",
               "orca" in said or "worktree" in said or "base" in said, said)
         db.set_terminal(con, "backend", "term_x", "wt")
@@ -15077,6 +15180,7 @@ def test_a_drifted_wake_that_cannot_relaunch_says_why(home: Path) -> None:
     try:
         orcamod.available = lambda: True
         orcamod.alive = lambda h: True
+        orcamod.wait_idle = lambda h, timeout_ms=0: True     # typeable_now asks whether it is idle
         db.set_terminal(con, "backend", "term_x", "wt")
         write_status(home, "alpha", pct_5h=20, pct_7d=10, ctx_pct=5,
                      reset_5h=int(time.time()) + 1800)
@@ -15118,6 +15222,7 @@ def test_hooks_report_activity(home: Path) -> None:
     that was parked and then given work directly stays PARKED - and the daemon
     would "wake" it mid-task by injecting a handoff it never needed.
     """
+    orcamod.live_terminals = lambda: None    # doctor.run() below asks Orca; nothing here is about it
     home.mkdir(parents=True, exist_ok=True)
     os.environ["OCP_HOME"] = str(home)
     agents.register("hooky", "alpha")
@@ -15843,6 +15948,13 @@ def run(one) -> None:
     left alone - that is the human stopping the suite, not a test failing.
     """
     restore_world()
+    # The test that is running, by the name its lambda calls: what the guard
+    # against the real Orca says, and what a fake `orca` on PATH logs.
+    named = [getattr(one, "__name__", "")]
+    named += [n for n in one.__code__.co_names]
+    named += [getattr(c.cell_contents, "__name__", "") for c in (one.__closure__ or ())]
+    CURRENT_TEST["name"] = next((n for n in named if n.startswith("test_")), "<test>")
+    os.environ["OCP_TEST"] = CURRENT_TEST["name"]
     try:
         one()
     except (Exception, SystemExit) as e:
@@ -15910,6 +16022,7 @@ def main() -> int:
         run(lambda: test_the_bundled_parser_reads_what_pyyaml_reads_as_strings_and_refuses_the_rest())
         run(lambda: test_yaml_rejects_ambiguity())
         run(lambda: test_a_name_that_yaml_would_not_read_as_text_is_refused_where_it_is_typed(Path(td) / 'nameguard'))
+        run(lambda: test_the_guard_against_the_real_orca_names_the_test_and_cannot_be_swallowed())
         run(lambda: test_agent_yaml_is_written_by_dump_so_what_was_typed_reads_back(Path(td) / 'agentyaml'))
         run(lambda: test_the_suite_and_the_package_name_only_what_exists())
         run(lambda: test_yaml_booleans())
@@ -16207,6 +16320,15 @@ def main() -> int:
         run(lambda: test_two_processes_cannot_both_supervise_one_home(Path(td) / 'twoproc'))
         run(lambda: test_the_screen_says_when_two_daemons_are_running(Path(td) / 'dmnwarn'))
         run(lambda: test_run_recovers_from_an_uncaught_error())
+    # The whole run's dealings with Orca: none of its tests may have reached even
+    # the stand-in, except the four that run a child `ocp`. (A test's own
+    # `except Exception` can swallow the guard's error; this cannot be swallowed.)
+    reached = calls_that_reached_the_stand_in_orca()
+    stray = {t: c for t, c in reached.items() if t not in ORCA_CHILD_TESTS}
+    check("orca: no test reached Orca except through the child ocp it runs",
+          not stray, "; ".join(f"{t}: {c[0]}" for t, c in sorted(stray.items())[:4]))
+    check("orca: no test started an orca process itself, whether or not it caught the error",
+          not ORCA_ATTEMPTS, "; ".join(f"{t}: {c}" for t, c in ORCA_ATTEMPTS[:4]))
     print(f"\n{len(PASS)} passed, {len(FAIL)} failed")
     for f in FAIL:
         print(f"  FAILED: {f}")
