@@ -443,12 +443,15 @@ def cmd_status(args) -> int:
 
 
 def cmd_drift(args) -> int:
+    # Filenames come from git, which C-quotes a control byte in a path - but
+    # only by default (core.quotePath=false, standard advice for readable
+    # Korean/Japanese names, turns that off), so this prints its own way.
     d = drift.check(Path(args.repo).resolve(), base=args.base, fetch=not args.no_fetch)
-    print(d.summary())
+    print(textsafe.oneline(d.summary()))
     if d.overlap:
         print("\noverlapping files:")
         for f in d.overlap[:20]:
-            print(f"  {f}")
+            print(f"  {textsafe.oneline(f)}")
     print(f"\nresume header:\n  {d.resume_header()}")
     return 0 if d.ok and not d.significant else 1
 

@@ -30,7 +30,7 @@ import time
 import uuid
 from pathlib import Path
 
-from . import agents, ask as askmod, db, paths, team
+from . import agents, ask as askmod, db, paths, team, textsafe
 from .yamlcompat import ConfigError, dump, is_plain_text, load
 
 # What the founder types to decide. Printed in the escalation, so the words are
@@ -266,7 +266,11 @@ def apply(pid: str, con=None) -> tuple[bool, str]:
             prop["state"] = "rejected"
             prop["verdict"] = verdict
             save(prop)
-            return False, f"proposal {pid} was rejected: {(verdict or '').strip()[:120]}"
+            # The founder's own text, printed raw by cmd_hr - sanitised here
+            # rather than trusted to save()'s control-character refusal above,
+            # which does not cover the C1 range (auditor, #1048).
+            return False, (f"proposal {pid} was rejected: "
+                           f"{textsafe.oneline((verdict or '').strip())[:120]}")
         if call != "approved":
             return False, (f"#{row['id']} was answered {(verdict or '').strip()[:60]!r}, "
                            f"which is not a decision. Ask the founder to answer "

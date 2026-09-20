@@ -12530,6 +12530,13 @@ def test_no_command_prints_what_a_terminal_would_obey(home: Path) -> None:
 
     def scene(where: Path, hostile: bool) -> dict[str, str]:
         p = poison if hostile else _reference_text(poison)
+        # A verdict is written through yamlcompat.dump, which already refuses a
+        # C0 control or DEL - the full poison above would never reach print(),
+        # so this fixture would prove nothing about the print. C1 alone (the
+        # class textsafe exists for, and what drift's own leak turned out to
+        # be) is not something dump refuses, so this is what actually exercises
+        # the fix rather than dump's unrelated guard.
+        c1p = "\x9b1mMARKED\x9b0m" if hostile else _reference_text("\x9b1mMARKED\x9b0m")
         _daemon_home(where, 20)
         agents.register("reviewer", "alpha")
         con = db.connect()
@@ -12545,8 +12552,17 @@ def test_no_command_prints_what_a_terminal_would_obey(home: Path) -> None:
             db.set_agent_state(con, "reviewer", "STALLED", detail=f"detail {p}")
             db.add_event(con, "reviewer", f"kind{p}", {"x": p})
             db.set_terminal(con, "reviewer", f"term{p}", f"wt{p}")
+            # For `hr apply`: a proposal rejected with a poisoned verdict. Built
+            # by hand rather than through hr.propose(), so the fixture does not
+            # depend on anything else the scene registers or retires.
+            hrq = db.add_request(con, "reviewer", askmod.HUMAN, "roster: retire reviewer?",
+                                 None, "peer", "async", None, 0, None)
+            con.execute("UPDATE requests SET state = 'done', verdict = ? WHERE id = ?",
+                        (f"reject {c1p}", hrq))
         finally:
             con.close()
+        hr.save({"id": "poisontest", "kind": "retire", "agent": "reviewer",
+                "requested_by": "reviewer", "why": "test", "request": hrq, "state": "pending"})
         keep_handoff("reviewer", f"handoff {p}\n- item {p}")
         journal = foldmod.journal_path("reviewer", foldmod.today())
         journal.parent.mkdir(parents=True, exist_ok=True)
@@ -12562,6 +12578,13 @@ def test_no_command_prints_what_a_terminal_would_obey(home: Path) -> None:
         git("init", "-q", "-b", "main")
         git("config", "user.email", "t@example.com")
         git("config", "user.name", "t")
+        # The standard advice for readable Korean/Japanese filenames, which this
+        # project is full of - and it also stops git quoting a control byte in a
+        # path, so the fixture is driven where that actually bites (auditor,
+        # #1003/#1048): with the default left on, git's own quoting of the C1
+        # byte in `name` would pass this test whether or not cmd_drift sanitised
+        # a thing.
+        git("config", "core.quotePath", "false")
         (repo / "base.txt").write_text("x")
         git("add", ".")
         git("commit", "-qm", "base")
@@ -12597,6 +12620,7 @@ def test_no_command_prints_what_a_terminal_would_obey(home: Path) -> None:
             "spawn": [(["spawn", "reviewer", "--repo", str(repo), "--prompt", f"p {p}", "--dry-run"],
                        None, "spawn --dry-run")],
             "drift": [(["drift", str(repo), "--no-fetch"], None, "drift --no-fetch")],
+            "hr apply": [(["hr", "apply", "poisontest"], None, "hr apply")],
             "guide": [["guide"]],
             "top": [["top", "--once"]], "watch": [["watch", "--once"]], "bridge": [["bridge", "--once"]],
             "write-handoff": [["write-handoff", "reviewer"]],
@@ -12678,7 +12702,6 @@ def test_no_command_prints_what_a_terminal_would_obey(home: Path) -> None:
         "install-hooks": "writes the shared settings",
         "hr add": "writes a proposal; prints its id", "hr retire": "writes a proposal; prints its id",
         "hr rename": "writes a proposal; prints its id", "hr move": "writes a proposal; prints its id",
-        "hr apply": "needs the founder's approval to have happened; prints ids and names",
         "team init": "writes team.yaml",
         "cancel": "founder-only; its return strings hold ids and names (read in actions.cancel, ask.cancel)",
         "dismiss": "needs a human identity; returns ids (read in actions.dismiss)",
