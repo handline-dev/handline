@@ -970,9 +970,10 @@ def _wake_agent(con, agent: str, log, moved_to: str | None = None) -> tuple[bool
                     db.bump_counter(con, agent, "throttle_count")
                     log(f"  {agent}: handoff degraded ({why}); keeping the resume id")
             if not rescued:
-                why = launch.describe_wake_wait(wait)
-                log(f"  {agent}: {why}")
-                return False, why
+                # Returned, not logged: this is reached on every retry for as
+                # long as the window lasts, and each caller says it in its own
+                # place - the tick once per reason, a command at once.
+                return False, launch.describe_wake_wait(wait)
         # The shell is still there; put the agent back into it. Resuming the
         # same session is what makes closing cheap, so it is tried first and
         # a fresh start is the fallback, not the plan.
