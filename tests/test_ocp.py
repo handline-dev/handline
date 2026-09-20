@@ -29,7 +29,7 @@ from ocp import (accounts, actions, agents, ask as askmod, burnrate, cli as clim
                  doctor, drift, events as evmod, fold as foldmod,
                  handoff as handoffmod, launch, load as loadmod, lock, measure,
                  observe as obsmod, orca as orcamod, paths, service, spawn as spawnmod,
-                 status, team, triggers, tui, yamlcompat)  # noqa: E402
+                 status, team, textsafe, triggers, tui, yamlcompat)  # noqa: E402
 
 PASS, FAIL = [], []
 
@@ -9178,7 +9178,7 @@ def test_account_list_is_the_present_state_and_status_is_the_pick(home: Path) ->
         db.set_agent_state(con, "backend", dmn.RUNNING, detail="working")
         db.set_agent_state(con, "frontend", dmn.IDLE)
         found, unplaced = loadmod.roster(con)
-        cell = lambda a: tui._plain(tui.agents_cell(found.get(a, (0, 0)), unplaced))  # noqa: E731
+        cell = lambda a: textsafe.oneline(tui.agents_cell(found.get(a, (0, 0)), unplaced))  # noqa: E731
     finally:
         con.close()
     out = _capture(lambda: climod.main(["account", "list"]))

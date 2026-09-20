@@ -1,0 +1,97 @@
+"""What a terminal would obey, and how to show text without it.
+
+Text that someone else wrote - a request body, a verdict, an agent's state
+detail, a handoff - is drawn on the founder's terminal by every front end: the
+bridge's screen and the CLI's output alike. A terminal acts on some bytes
+instead of drawing them: an OSC sequence (window title, clipboard write, link),
+a CSI sequence (cursor moves, erase, colour), a lone ESC, any other C0 control
+(BEL, backspace, carriage return), DEL, and the C1 range (0x9b is CSI, 0x9d is
+OSC). This module is the one rule for taking those out, and it imports nothing
+of any front end, so a new one reaches it without reaching a screen.
+
+What it does not do is style, lay out or truncate: those belong to the front
+end that owns the terminal it draws on.
+"""
+
+from __future__ import annotations
+
+import re
+import unicodedata
+
+# OSC (title, clipboard, links) up to its terminator or the end of the text;
+# CSI with any parameter and intermediate bytes; then every byte left that is a
+# control - a lone ESC, C0, DEL and C1.
+_OSC = re.compile(r"\033\][^\a\033]*(?:\a|\033\\)?")
+_CSI = re.compile(r"\033\[[0-?]*[ -/]*[@-~]")
+_CONTROL = re.compile(r"[\x00-\x08\x0b-\x1f\x7f-\x9f]")
+
+
+def drawable(text: str) -> list[str]:
+    """`text` as lines of plain text and nothing a terminal would obey.
+
+    A line break is anything `str.splitlines` breaks on, which includes the
+    ones a terminal would obey (carriage return, vertical tab, form feed): they
+    become line breaks here rather than being overwritten in place. A tab
+    becomes spaces: it is the one control whose width is not one.
+    """
+    text = _CSI.sub("", _OSC.sub("", text))
+    return [_CONTROL.sub("", ln.expandtabs(4)) for ln in text.splitlines() or [""]]
+
+
+def text(value: str) -> str:
+    """`value` as one string that can be printed as it is: `drawable`'s lines,
+    joined by newlines. For a command that writes into someone's shell."""
+    return "\n".join(drawable(value))
+
+
+def oneline(value: str) -> str:
+    """`value` as a single line of printable text: `drawable`, a newline being
+    a space, and anything else unprintable blanked."""
+    return "".join(c if c.isprintable() else " " for c in " ".join(drawable(value)))
+
+
+def cwidth(ch: str) -> int:
+    """How many columns one character takes.
+
+    A Korean or Japanese glyph is drawn two columns wide, and counting it as
+    one put every box border a column short per glyph: a handoff written in
+    Korean tore the panel it was drawn in. Combining marks take none.
+    """
+    if unicodedata.combining(ch):
+        return 0
+    return 2 if unicodedata.east_asian_width(ch) in ("W", "F") else 1
+
+
+def wrap(lines: list[str], width: int) -> list[str]:
+    """Break long lines to the terminal's width, at spaces where there are any.
+
+    A message body arrives as whatever the sender typed, and an agent's report
+    is often one paragraph with no newline in it at all. Fitting that to the
+    width shows its first sentence and drops the rest - which is not reading
+    the message. Every line goes through `drawable` first.
+    """
+    width = max(1, width)
+    out: list[str] = []
+    for raw in lines:
+        for line in drawable(raw):
+            line = line.rstrip()
+            if not line:
+                out.append("")
+                continue
+            while sum(map(cwidth, line)) > width:
+                # Cut on width, not on characters: with wide glyphs the two are
+                # not the same number, and cutting on the second wraps a line
+                # that is already too long back onto itself.
+                room, cut = 0, 0
+                for i, ch in enumerate(line):
+                    if room + cwidth(ch) > width:
+                        break
+                    room += cwidth(ch)
+                    cut = i + 1
+                space = line.rfind(" ", 0, cut + 1)
+                if space > 0:
+                    cut = space
+                out.append(line[:cut].rstrip())
+                line = line[cut:].lstrip()
+            out.append(line)
+    return out

@@ -22,7 +22,7 @@ from . import (accounts, actions, agents, ask as askmod, daemon as daemonmod, db
                digest, doctor,
                drift, events, fold as foldmod, guide, handoff as handoffmod, hooks, launch,
                load, observe as obs, paths, probe as probemod, service,
-               hr, orca, status, spawn as spawnmod, team, triggers, waiting)
+               hr, orca, status, spawn as spawnmod, team, textsafe, triggers, waiting)
 
 
 # ---------------------------------------------------------------- login
@@ -211,7 +211,7 @@ def cmd_account_list(args) -> int:
         shown, src = st.shown_pct_5h()
         five = f"{cell(shown)}{src}"
         # The bridge's cell, in words only: one definition, one format.
-        agents_ = tui._plain(tui.agents_cell(roster.get(a, (0, 0)), unplaced))
+        agents_ = textsafe.oneline(tui.agents_cell(roster.get(a, (0, 0)), unplaced))
         print(f"{a:<14}{'yes' if accounts.logged_in(a) else 'no':<8}{plan:<6}{agents_:<{aw}}"
               f"{five:>5}{cell(st.pct_7d):>5}  {resets:<12}{cell(st.ctx_pct):>6}{age:>8}  "
               f"{status.describe_runway(status.runway(st, status.read_burn(a))):<16}"
@@ -488,7 +488,7 @@ def _print_waits() -> None:
     now = time.time()
     print(f"{tui.WAITING_ON_YOU} ({len(waits)})")
     for w in waits:
-        print(f"  {tui._plain(w['who'])} · {tui._plain(w['what'])} · {tui.age(now - w['since'])}")
+        print(f"  {textsafe.oneline(w['who'])} · {textsafe.oneline(w['what'])} · {tui.age(now - w['since'])}")
     print()
 
 
@@ -531,7 +531,7 @@ def cmd_daemon_status(args) -> int:
                 held = waits[r["agent"]]
                 if held:
                     shown = tui.WAITING_ON_YOU
-                    detail = tui._plain(f"{held['tool']}: {held['command']}")
+                    detail = textsafe.oneline(f"{held['tool']}: {held['command']}")
                 walled = (daemonmod.would_wake(con, r) and
                           launch.wake_wait_reason(r["agent"], r, con))
                 if walled:
