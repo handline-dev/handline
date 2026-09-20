@@ -2484,7 +2484,7 @@ DIFFERENTIAL_CASES = [
     "1.5: x\n", "1_000: x\n", "x:\n  1: a\n  b: c\n", "- 1: a\n", "- on: a\n",
     "{ a: 1, 1: x }\n", "{ a: 1, on: y }\n",
     "y: 1\n1e3: 2\n08: 3\na b: 4\n-: 5\n", "'1': a\n\"on\": b\n'2026-09-20': c\n",
-    "&a k: v\n", "*a: v\n", '"a" b: 1\n', "'a' b: 1\n",
+    "&a k: v\n", "*a: v\n", '"a" b: 1\n', "'a' b: 1\n", "a>b: 1\nx*y: 2\n",
     # A quote that is not closed at the end of the scalar is an error, not text.
     'a: "x & y\n', "a: 'x\n", 'a: "x" y\n',
 ]
@@ -2683,6 +2683,15 @@ def test_the_bundled_parser_reads_what_pyyaml_reads_as_strings_and_refuses_the_r
                                         "x:\n  - { true: a }\n")))
     check("yaml: text after a quoted key's closing quote is refused, not read as the key",
           all(_refused(src) for src in ('"a" b: 1\n', "'a' b: 1\n", '{ "a" b: 1 }\n')))
+    check("yaml: a key that only contains an indicator is text, as in PyYAML",
+          _parsed("a>b: 1\nx*y: 2\nq&r: 3\n") == {"a>b": 1, "x*y": 2, "q&r": 3})
+    try:
+        yamlcompat.parse(">x: 1\n")
+        why_key = ""
+    except yamlcompat.ConfigError as e:
+        why_key = str(e)
+    check("yaml: a key that starts with an indicator says what it is and how to fix it",
+          "key '>x'" in why_key and "quote it" in why_key and "has PyYAML" not in why_key, why_key)
     check("yaml: an anchor or an alias where a key starts is refused",
           _refused("&a k: v\n") and _refused("*a: v\n"))
     check("yaml: a quote opened and never closed is refused, not read with its quote",
@@ -2729,6 +2738,57 @@ def _undefined_globals(path: Path) -> set[tuple[str, str]]:
             walk(child)
     walk(top)
     return found
+
+
+def test_a_name_that_yaml_would_not_read_as_text_is_refused_where_it_is_typed(home: Path) -> None:
+    """A name is written unquoted into team.yaml, agent.yaml and config.yaml. `no`
+    is False to PyYAML and a refusal to the bundled parser, and a refusal on a
+    key makes the whole file unloadable, so the name is turned away when it is
+    typed and not when every command next reads the roster."""
+    restore_world()
+    home.mkdir(parents=True, exist_ok=True)
+    os.environ["OCP_HOME"] = str(home)
+    bad = ("no", "on", "off", "yes", "1", "2026-09-20", "null", "~", "true", "0x10", "a: b")
+    good = ("harbor", "harbor.deck", "orcapipe.purser", "a-b_c", "y", "1e3", "é")
+    check("names: what yaml reads as something else is not plain text",
+          not any(yamlcompat.is_plain_text(n) for n in bad), str([n for n in bad if yamlcompat.is_plain_text(n)]))
+    check("names: what ocp names its agents is",
+          all(yamlcompat.is_plain_text(n) for n in good), str([n for n in good if not yamlcompat.is_plain_text(n)]))
+    refused = []
+    for n in bad:
+        try:
+            agents.register(n, "alpha")
+            refused.append(n)
+        except ValueError:
+            pass
+    check("names: agents.register turns each away and creates nothing",
+          not refused and not any((paths.agent_dir(n)).exists() for n in bad), str(refused))
+    for n in good:
+        agents.register(n, "alpha")
+    check("names: and takes each ordinary one", set(good) <= set(paths.list_agents()))
+    for kind in ("add", "rename"):
+        ok, said = hr._draft(kind, "no" if kind == "add" else "harbor", "x", "why", "alpha",
+                             None, None, None, "on" if kind == "rename" else None)
+        check(f"names: hr {kind} is refused before anything is raised or written",
+              ok == {} and "bad agent name" in said and "choose another" in said, str((ok, said)))
+    con = db.connect()
+    try:
+        before = len(actions.messages(con))
+        ok, said = hr.propose("add", "no", requester="harbor", why="w", account="alpha")
+        check("names: hr.propose of one queues nothing for the founder",
+              not ok and len(actions.messages(con)) == before, said)
+    finally:
+        con.close()
+    text = "agents:\n  harbor: { intake: dedicated }\n"
+    lockout = hr._add_text(text, "no", None)
+    check("names: without the guard the same line would make team.yaml unloadable",
+          _refused(lockout), lockout)
+    for n in bad[:6]:
+        try:
+            accounts.register(n)
+            check(f"names: accounts.register turns away {n!r}", False)
+        except ValueError:
+            check(f"names: accounts.register turns away {n!r}", True)
 
 
 def test_the_suite_and_the_package_name_only_what_exists() -> None:
@@ -14612,6 +14672,7 @@ def main() -> int:
         run(lambda: test_yaml_differential())
         run(lambda: test_the_bundled_parser_reads_what_pyyaml_reads_as_strings_and_refuses_the_rest())
         run(lambda: test_yaml_rejects_ambiguity())
+        run(lambda: test_a_name_that_yaml_would_not_read_as_text_is_refused_where_it_is_typed(Path(td) / 'nameguard'))
         run(lambda: test_the_suite_and_the_package_name_only_what_exists())
         run(lambda: test_yaml_booleans())
         run(lambda: test_team_validation())

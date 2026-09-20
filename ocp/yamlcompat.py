@@ -140,8 +140,12 @@ def _key(raw: str, line: int = 0) -> str:
             raise ConfigError(f"line {line}: quoted key is not closed at its end: {k!r}")
         return _unquote(k, line)
     # An anchor, alias, tag, block indicator or merge key is syntax only where
-    # the key starts.
-    _check(line, k[:2])
+    # the key starts; `a>b` is text to PyYAML.
+    bad = next((u for u in _UNSUPPORTED if k.startswith(u)), None)
+    if bad:
+        raise ConfigError(f"line {line}: key {k!r} starts with {bad!r}, which is YAML syntax "
+                          "(an anchor, alias, tag, block scalar or merge key); "
+                          "quote it if you mean the text")
     got = _scalar(k, line)
     if not isinstance(got, str) or got != k:
         raise ConfigError(f"line {line}: key {k!r} is read as {got!r} by PyYAML; "
@@ -442,6 +446,22 @@ def _map(rows, i: int, indent: int):
             out[key] = None
             i += 1
     return out, i
+
+
+def is_plain_text(name: str) -> bool:
+    """Whether `name` is read back as itself wherever ocp writes one unquoted:
+    as a block key, as a value, as a list item and as a flow key. It is the test
+    for a name before it is written into a file, because a name that fails it
+    would make the file refuse to load, or load as something else."""
+    shapes = ((f"{name}: 1\n", {name: 1}), (f"k: {name}\n", {"k": name}),
+              (f"k: [{name}]\n", {"k": [name]}), (f"k: {{ {name}: 1 }}\n", {"k": {name: 1}}))
+    for src, want in shapes:
+        try:
+            if parse(src) != want:
+                return False
+        except ConfigError:
+            return False
+    return True
 
 
 def _reads_back_as_other(text: str) -> bool:

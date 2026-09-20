@@ -10,7 +10,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from . import paths
-from .yamlcompat import ConfigError, dump, load
+from .yamlcompat import ConfigError, dump, is_plain_text, load
 
 DEFAULT_MODEL = "sonnet"
 
@@ -68,6 +68,11 @@ def read(name: str) -> dict:
     return data
 
 
+# Said wherever a name is refused for what YAML would make of it. A name is
+# written unquoted into team.yaml and agent.yaml, and `no`, `on`, `1` and a date
+# are not text there: one would make the file refuse to load or load as a bool.
+NOT_TEXT = ("It would not be read back as text from the YAML files it is written into "
+            "(no, on, null, numbers and dates are not); choose another.")
 _CONTROL = re.compile(r"[\x00-\x1f\x7f-\x9f\u2028\u2029]")
 
 
@@ -78,6 +83,8 @@ def register(name: str, account: str, role: str = "", model: str | None = None,
     # byte in it (an escape, a newline) is refused here, where it would stay.
     if not name or "/" in name or name.startswith(".") or _CONTROL.search(name):
         raise ValueError(f"bad agent name: {name!r}")
+    if not is_plain_text(name):
+        raise ValueError(f"bad agent name: {name!r}. {NOT_TEXT}")
     d = paths.agent_dir(name)
     for sub in ("inbox", "journal"):
         (d / sub).mkdir(parents=True, exist_ok=True)

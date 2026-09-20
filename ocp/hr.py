@@ -31,7 +31,7 @@ import uuid
 from pathlib import Path
 
 from . import agents, ask as askmod, db, paths, team
-from .yamlcompat import ConfigError, dump, load
+from .yamlcompat import ConfigError, dump, is_plain_text, load
 
 # What the founder types to decide. Printed in the escalation, so the words are
 # in front of whoever answers rather than in a document they have not read.
@@ -84,6 +84,8 @@ def _draft(kind: str, name: str, requester: str, why: str, account: str | None,
         return {}, f"kind must be one of {', '.join(KINDS)}"
     if not name or "/" in name or name.startswith("."):
         return {}, f"bad agent name: {name!r}"
+    if not is_plain_text(name):
+        return {}, f"bad agent name: {name!r}. {agents.NOT_TEXT}"
     if not (why or "").strip():
         return {}, "say why: the founder is being asked to decide, not to rubber-stamp"
 
@@ -95,6 +97,8 @@ def _draft(kind: str, name: str, requester: str, why: str, account: str | None,
     if kind == "rename":
         if not to or "/" in to or to.startswith("."):
             return {}, "a rename needs a new name (--to)"
+        if not is_plain_text(to):
+            return {}, f"bad agent name: {to!r}. {agents.NOT_TEXT}"
         if to in registered:
             return {}, f"{to} is already an agent"
     if effort and effort not in agents.VALID_EFFORT:
