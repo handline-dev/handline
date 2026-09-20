@@ -31,7 +31,7 @@ from ocp import (accounts, actions, agents, ask as askmod, blocked as blockedmod
                  doctor, drift, events as evmod, fold as foldmod,
                  handoff as handoffmod, launch, load as loadmod, lock, measure,
                  observe as obsmod, orca as orcamod, paths, service, spawn as spawnmod,
-                 status, team, triggers, tui, yamlcompat)  # noqa: E402
+                 status, team, textsafe, triggers, tui, yamlcompat)  # noqa: E402
 
 PASS, FAIL = [], []
 
@@ -10646,7 +10646,7 @@ def test_account_list_is_the_present_state_and_status_is_the_pick(home: Path) ->
         db.set_agent_state(con, "backend", dmn.RUNNING, detail="working")
         db.set_agent_state(con, "frontend", dmn.IDLE)
         found, unplaced = loadmod.roster(con)
-        cell = lambda a: tui._plain(tui.agents_cell(found.get(a, (0, 0)), unplaced))  # noqa: E731
+        cell = lambda a: textsafe.oneline(tui.agents_cell(found.get(a, (0, 0)), unplaced))  # noqa: E731
     finally:
         con.close()
     out = _capture(lambda: climod.main(["account", "list"]))
@@ -13879,6 +13879,244 @@ def test_an_agent_name_is_text_and_no_screen_can_be_made_to_obey_it(home: Path) 
                   dirty[label][:200])
 
 
+def test_no_command_prints_what_a_terminal_would_obey(home: Path) -> None:
+    """The bridge's screen was made safe first; the CLI writes the same text into
+    the founder's shell. Every stored field an agent can write - a request's
+    body and verdict, a state detail, an event kind and payload, a handoff, a
+    digest, a terminal handle, the daemon's log - is
+    poisoned, every command that shows any of it is run, and each output is
+    graded as the screen is: our own codes counted against a twin drawn from the
+    reading of the same text (a stray-only check would pass what the screen's
+    once did). The ones that do not show it are listed, so a command that never
+    displays a field cannot be mistaken for one that displays it safely."""
+    from ocp import fold as foldmod, service
+    poison = "\033]0;PWNED\007\033[31mMARKED\033[0m\x9b1m\033[2m"
+
+    def scene(where: Path, hostile: bool) -> dict[str, str]:
+        p = poison if hostile else _reference_text(poison)
+        # A verdict is written through yamlcompat.dump, which already refuses a
+        # C0 control or DEL - the full poison above would never reach print(),
+        # so this fixture would prove nothing about the print. C1 alone (the
+        # class textsafe exists for, and what drift's own leak turned out to
+        # be) is not something dump refuses, so this is what actually exercises
+        # the fix rather than dump's unrelated guard.
+        c1p = "\x9b1mMARKED\x9b0m" if hostile else _reference_text("\x9b1mMARKED\x9b0m")
+        _daemon_home(where, 20)
+        agents.register("reviewer", "alpha")
+        con = db.connect()
+        try:
+            q = db.add_request(con, "marina", "reviewer", f"body {p} end\n\tsecond {p}", None,
+                               "peer", "async", None, 0, None)
+            h = db.add_request(con, "reviewer", "human", f"escalation {p}", None, "peer", "async",
+                               "escalate", 0, None)
+            d = db.add_request(con, "reviewer", "backend", f"asked {p}", None, "peer", "async",
+                               None, 0, None)
+            con.execute("UPDATE requests SET state = 'done', verdict = ?, resolved_at = ? WHERE id = ?",
+                        (f"verdict {p}\nmore {p}", int(time.time()), d))
+            db.set_agent_state(con, "reviewer", "STALLED", detail=f"detail {p}")
+            db.add_event(con, "reviewer", f"kind{p}", {"x": p})
+            db.set_terminal(con, "reviewer", f"term{p}", f"wt{p}")
+            # For `hr apply`: a proposal rejected with a poisoned verdict. Built
+            # by hand rather than through hr.propose(), so the fixture does not
+            # depend on anything else the scene registers or retires.
+            hrq = db.add_request(con, "reviewer", askmod.HUMAN, "roster: retire reviewer?",
+                                 None, "peer", "async", None, 0, None)
+            con.execute("UPDATE requests SET state = 'done', verdict = ? WHERE id = ?",
+                        (f"reject {c1p}", hrq))
+        finally:
+            con.close()
+        hr.save({"id": "poisontest", "kind": "retire", "agent": "reviewer",
+                "requested_by": "reviewer", "why": "test", "request": hrq, "state": "pending"})
+        keep_handoff("reviewer", f"handoff {p}\n- item {p}")
+        journal = foldmod.journal_path("reviewer", foldmod.today())
+        journal.parent.mkdir(parents=True, exist_ok=True)
+        journal.write_text(f"## 완료\n- done {p}\n")
+        service.out_log().parent.mkdir(parents=True, exist_ok=True)
+        service.out_log().write_text(f"[12:00:00] reviewer: {p}\n")
+        repo = where / "repo"                  # for `drift`: a file name is text someone chose
+        repo.mkdir()
+        name = "a" + p + "b.txt"
+
+        def git(*args: str) -> None:
+            subprocess.run(["git", *args], cwd=repo, check=True, capture_output=True)
+        git("init", "-q", "-b", "main")
+        git("config", "user.email", "t@example.com")
+        git("config", "user.name", "t")
+        # The standard advice for readable Korean/Japanese filenames, which this
+        # project is full of - and it also stops git quoting a control byte in a
+        # path, so the fixture is driven where that actually bites (auditor,
+        # #1003/#1048): with the default left on, git's own quoting of the C1
+        # byte in `name` would pass this test whether or not cmd_drift sanitised
+        # a thing.
+        git("config", "core.quotePath", "false")
+        (repo / "base.txt").write_text("x")
+        git("add", ".")
+        git("commit", "-qm", "base")
+        git("checkout", "-q", "-b", "work")
+        (repo / name).write_text("y")
+        git("add", ".")
+        git("commit", "-qm", "work")
+        git("checkout", "-q", "main")
+        (repo / name).write_text("z")
+        git("add", ".")
+        git("commit", "-qm", "main moves")
+        git("update-ref", "refs/remotes/origin/main", "HEAD")
+        git("checkout", "-q", "work")
+        (repo / name).write_text("w")
+
+        # Every leaf of the CLI is one of these two, so a subcommand that is added
+        # is noticed: it is driven here, or it is skipped with a reason.
+        driven = {
+            "status": [["status"], ["status", "--json"]], "doctor": [["doctor", "--no-color"]],
+            "team check": [["team", "check"]], "ps": [["ps"]], "triggers": [["triggers"]],
+            "events": [["events", "--limit", "50", "--all"], ["events", "--agent", "reviewer"]],
+            "inbox": [["inbox", "reviewer"], ["inbox", "reviewer", "--all"],
+                      ["inbox", "human", "--all"]],
+            "read": [["read", str(q)], ["read", str(h)], ["read", str(d)]],
+            "resolve": [(["resolve", str(d), "again"], {"OCP_AGENT": "backend"})],
+            "digest": [["digest", "reviewer"]], "handoff": [["handoff", "reviewer"]],
+            "agent list": [["agent", "list"]],
+            "agent show": [["agent", "show", "reviewer"], ["agent", "show", "reviewer", "--json"]],
+            "account list": [["account", "list"], ["account", "list", "--json"]],
+            "hr list": [["hr", "list"]], "service logs": [["service", "logs"]],
+            "resume": [["resume", "reviewer"]], "fold": [["fold", "reviewer", "--no-model"]],
+            "command": [["command", "reviewer"]], "org": [["org"]], "rollover": [["rollover", "reviewer"]],
+            "spawn": [(["spawn", "reviewer", "--repo", str(repo), "--prompt", f"p {p}", "--dry-run"],
+                       None, "spawn --dry-run")],
+            "drift": [(["drift", str(repo), "--no-fetch"], None, "drift --no-fetch")],
+            "hr apply": [(["hr", "apply", "poisontest"], None, "hr apply")],
+            "guide": [["guide"]],
+            "top": [["top", "--once"]], "watch": [["watch", "--once"]], "bridge": [["bridge", "--once"]],
+            "write-handoff": [["write-handoff", "reviewer"]],
+            "ask": [(["ask", "reviewer", f"a new one {p}", "--of", "marina"], None, "ask")],
+            "withdraw": [["withdraw", str(d + 1), "--of", "marina"]],
+            "unstall": [["unstall", "reviewer"]],
+        }
+        out = {}
+
+        def run_it(argv: list[str], env: dict | None = None, key: str | None = None) -> None:
+            buf, err = io.StringIO(), io.StringIO()
+            saved = {k: os.environ.get(k) for k in (env or {})}
+            os.environ.update(env or {})
+            try:
+                with contextlib.redirect_stdout(buf), contextlib.redirect_stderr(err):
+                    try:
+                        climod.main(argv)
+                    except SystemExit:
+                        pass
+            finally:
+                for k, v in saved.items():
+                    if v is None:
+                        os.environ.pop(k, None)
+                    else:
+                        os.environ[k] = v
+            out[key or " ".join(argv)] = buf.getvalue() + err.getvalue()
+        # A fold whose model returns a digest that lost what was done: the refusal
+        # names the lost items, which the agent wrote.
+        real_model, real_record = foldmod.run_model, handoffmod.record
+        foldmod.run_model = lambda *a, **k: (True, "# 2026-01-01 · reviewer\n\n## 완료\n")
+        # `write-handoff` reads the agent's own terminal for the handoff, which
+        # there is none of here: stand in for that step and print what it stored.
+        handoffmod.record = lambda con, agent: []
+        try:
+            run_it(["fold", "reviewer", "--account", "alpha"], key="fold reviewer (model lost a done item)")
+            for leaf, runs in driven.items():
+                if leaf in ("ask", "withdraw", "unstall"):
+                    continue                      # they change what the others show: last
+                for one in runs:
+                    argv, env, key = (one + (None, None))[:3] if isinstance(one, tuple) else (one, None, None)
+                    run_it(argv, env, key=key or " ".join(argv) + (" (as backend)" if env else ""))
+            run_it(*driven["ask"][0][:2], key=driven["ask"][0][2])
+            run_it(driven["withdraw"][0])
+            run_it(driven["unstall"][0])
+        finally:
+            foldmod.run_model, handoffmod.record = real_model, real_record
+        scene.driven = driven
+        return out
+
+    dirty = scene(home / "dirty", True)
+    clean = scene(home / "clean", False)
+
+    def leaves() -> list[str]:
+        """Every command the CLI has, read from its own parser."""
+        found_, parser = [], climod.build_parser()
+
+        def walk(prefix: str, p_) -> None:
+            subs = [a for a in p_._actions if isinstance(a, argparse._SubParsersAction)]
+            if not subs:
+                found_.append(prefix)
+                return
+            for n, sp in subs[0].choices.items():
+                walk((prefix + " " + n).strip(), sp)
+        walk("", parser)
+        return found_
+
+    # The ones not driven, and why. This is the list a later hand has to justify:
+    # a new command is neither here nor driven until someone decides which.
+    skipped = {
+        "init": "creates the home and the shared settings",
+        "login": "interactive: hands the terminal to claude",
+        "account add": "interactive login", "account remove": "interactive logout and a confirm",
+        "account register": "creates an account directory; prints its path",
+        "account cap": "writes a cap; prints numbers",
+        "account probe": "runs the probe against a real login",
+        "agent move": "a confirm, and Orca", "agent register": "writes agent.yaml; a name with a control byte is refused before it prints",
+        "launch": "execs claude",
+        "hooks sync": "rewrites the shared settings", "hooks status": "reads the shared settings; prints paths",
+        "install-hooks": "writes the shared settings",
+        "hr add": "writes a proposal; prints its id", "hr retire": "writes a proposal; prints its id",
+        "hr rename": "writes a proposal; prints its id", "hr move": "writes a proposal; prints its id",
+        "team init": "writes team.yaml",
+        "cancel": "founder-only; its return strings hold ids and names (read in actions.cancel, ask.cancel)",
+        "dismiss": "needs a human identity; returns ids (read in actions.dismiss)",
+        "hook": "reads a hook payload on stdin and prints nothing",
+        "daemon": "runs forever", "service install": "launchd", "service uninstall": "launchd",
+        "service status": "launchd; prints a pid",
+        "close": "types into a terminal through Orca", "base promote": "writes base.md; prints sizes and a path",
+    }
+    have = set(driven_now := scene.driven) | set(skipped)
+    every = set(leaves())
+    check("cli: every command the CLI has is driven here or skipped with a reason",
+          every == have and not (set(driven_now) & set(skipped)),
+          f"new: {sorted(every - have)}; gone: {sorted(have - every)}; both: {sorted(set(driven_now) & set(skipped))}")
+    found = _leaks(dirty, clean, skip_counts=("top --once", "watch --once", "bridge --once"))
+    for label in dirty:
+        check(f"cli: `ocp {label}` prints nothing of a terminal's, and no code of ours a plain text would not",
+              not [f for f in found if f.startswith(label + ":")],
+              str([f for f in found if f.startswith(label + ":")])[:300])
+    shows = {k for k, v in clean.items() if "MARKED" in v}
+    must = {"ps", "events --limit 50 --all", "events --agent reviewer", "inbox reviewer",
+            "inbox reviewer --all", "inbox human --all", "read 1", "read 2", "read 3",
+            "digest reviewer", "handoff reviewer", "write-handoff reviewer",
+            "resolve 3 again (as backend)", "drift --no-fetch", "agent show reviewer",
+            "agent show reviewer --json", "service logs", "fold reviewer (model lost a done item)"}
+    check("cli: the poison is really on screen for every command this test claims to grade",
+          must <= shows, str(sorted(must - shows)))
+    # (JSON writes a control byte as the text \\u001b, and git quotes one in a path as
+    # \\033: both are text, not a byte, and are safe to show.)
+    quoted = re.compile(r"\\+(?:u001b|033)\]0;PWNED\\+(?:u0007|a|007)")
+    check("cli: the payload of a title is not printed either",
+          not [k for k, v in dirty.items() if "PWNED" in quoted.sub("", v)],
+          str([k for k, v in dirty.items() if "PWNED" in quoted.sub("", v)]))
+    check("cli: and the rest are the ones that do not show these fields at all",
+          all(v == "" or "MARKED" not in v for k, v in clean.items() if k not in shows))
+    check("cli: what it keeps of a body is its text - a tab stays a tab, so a patch reads as written",
+          "\tsecond" in dirty["read 1"] and "\tsecond" in dirty["inbox reviewer"], repr(dirty["read 1"])[:200])
+    dumped = dirty["agent show reviewer --json"]
+    seen = subprocess.run([sys.executable, "-c",
+                           f"import sys; sys.path.insert(0, {str(ROOT)!r}); import ocp.textsafe; "
+                           "print(sorted(m for m in sys.modules if m.startswith('ocp.')))"],
+                          capture_output=True, text=True).stdout
+    check("cli: the rule about what a terminal would obey imports no front end - only itself",
+          seen.strip() == "['ocp.textsafe']", seen.strip())
+    check("cli: a command's json still parses, and holds no DEL or C1 byte",
+          isinstance(json.loads(dumped), dict) and not re.search(r"[\x7f-\x9f]", dumped), dumped[:200])
+    odd = {"k": "a\x9b31m\x7f\x85b \u2028 \u00e9 한"}
+    said = textsafe.json_dumps(odd)
+    check("cli: json_dumps writes DEL and C1 as escapes - the same json, no such bytes",
+          json.loads(said) == odd and not re.search(r"[\x7f-\x9f]", said), said)
+
+
 def test_every_prompt_leaves_the_screen_above_it_drawn_through_tui_run(home: Path) -> None:
     """Auditor #899: the composer's `under` was proven with the test's own
     callback, and there are five real call sites. Each is opened by its own
@@ -16578,6 +16816,7 @@ def main() -> int:
         run(lambda: test_the_composer_and_the_fill_on_a_real_screen_through_tui_run(Path(td) / 'realscreen'))
         run(lambda: test_nothing_a_terminal_would_obey_gets_through_what_someone_else_wrote(Path(td) / 'esc'))
         run(lambda: test_an_agent_name_is_text_and_no_screen_can_be_made_to_obey_it(Path(td) / 'names'))
+        run(lambda: test_no_command_prints_what_a_terminal_would_obey(Path(td) / 'cli'))
         run(lambda: test_every_prompt_leaves_the_screen_above_it_drawn_through_tui_run(Path(td) / 'prompts'))
         run(lambda: test_the_agent_pages_tabs_show_everything_and_read_as_blocks(Path(td) / 'tabs'))
         run(lambda: test_a_message_being_typed_wraps_and_keeps_the_cursor_on_its_last_character(Path(td) / 'typing'))
