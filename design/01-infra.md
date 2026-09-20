@@ -429,8 +429,8 @@ IDLE → QUEUED → RUNNING → DONE
                    │                          │         (후보 없음)
                    │            실패·타임아웃 ─┴──▶ DEGRADED ──▶ PARKED
                    │
-PARKED    ──wake_at──▶ QUEUED
-THROTTLED ──예산 창 롤오버──▶ QUEUED      (자동)
+PARKED    ──wake_at──▶ QUEUED      (기다리는 요청·답이 없으면 IDLE)
+THROTTLED ──예산 창 롤오버──▶ QUEUED      (자동; 기다리는 요청·답이 없으면 IDLE)
 STALLED   ──사람만 해제──▶ QUEUED
 ```
 
@@ -473,7 +473,7 @@ continuations   : handoff 기인. 무제한
 ### 8.6 THROTTLED와 STALLED
 
 ```
-THROTTLED : 자원 문제. 예산 창 롤오버 시 자동 → QUEUED. 연속 K회 상한 + 지수 백오프
+THROTTLED : 자원 문제. 예산 창 롤오버 시 자동 → QUEUED (기다리는 요청·답이 없으면 IDLE). 연속 K회 상한 + 지수 백오프
 STALLED   : 태스크 결함. 사람만 해제. gate-create는 THROTTLED 자동해제 K회 실패 후에만
 ```
 

@@ -1369,10 +1369,11 @@ def test_daemon_resume(home: Path) -> None:
         # Park it in the past, as if the reset had already happened.
         db.set_agent_state(con, "backend", dmn.PARKED, wake_at=int(time.time()) - 10,
                            detail="parked earlier")
+        db.add_request(con, "marina", "backend", "carry on", None, "peer", "async", None, 0, None)
         write_status(home, "alpha", pct_5h=3, pct_7d=10, ctx_pct=5)
         dmn.tick(con, lambda _m: None)
         row = db.get_agent_state(con, "backend")
-        check("daemon: a due parked agent returns to QUEUED",
+        check("daemon: a due parked agent with real work returns to QUEUED",
               row["state"] == dmn.QUEUED, str(dict(row)))
         check("daemon: waking clears wake_at", row["wake_at"] is None)
     finally:
@@ -1502,12 +1503,111 @@ def test_daemon_degraded_recovers(home: Path) -> None:
         row = db.get_agent_state(con, "backend")
         check("daemon: a timed-out handoff degrades with a wake_at",
               row["state"] == dmn.DEGRADED and row["wake_at"] is not None, str(dict(row)))
+        db.add_request(con, "marina", "backend", "carry on", None, "peer", "async", None, 0, None)
         db.set_agent_state(con, "backend", dmn.DEGRADED, wake_at=int(time.time()) - 1)
         dmn.tick(con, lambda _m: None)
         row = db.get_agent_state(con, "backend")
-        check("daemon: a due DEGRADED agent returns to QUEUED",
+        check("daemon: a due DEGRADED agent with real work returns to QUEUED",
               row["state"] in (dmn.QUEUED, dmn.PARKED), str(dict(row)))
     finally:
+        con.close()
+
+
+def test_a_stale_wake_at_does_not_claim_work_that_does_not_exist(home: Path) -> None:
+    """Founder #645: a THROTTLED wake_at armed for an unrelated reason can
+    outlive the turn it was set during - Stop only sets IDLE when the row was
+    RUNNING, so a row already THROTTLED when Stop fires stays THROTTLED, work
+    or no work, until this wake_at comes due. QUEUED is a claim about the
+    queue; the write must look at it before making that claim, the same way
+    `_move_plan`'s own "work waiting" does. Driven both ways on the same
+    agent: an empty queue reads IDLE, not QUEUED - what actions.py's delivery
+    gate and the bridge would both read as nothing to do - and a real
+    undelivered request still reads QUEUED, so the fix narrows the claim
+    rather than removing it."""
+    _daemon_home(home, 50)
+    con = db.connect()
+    try:
+        db.set_agent_state(con, "backend", dmn.THROTTLED, wake_at=int(time.time()) - 1,
+                           detail="throttled for an unrelated reason")
+        check("stale wake: before the tick, the row still claims THROTTLED",
+              db.get_agent_state(con, "backend")["state"] == dmn.THROTTLED)
+        dmn.supervise(con, "backend", lambda _m: None, int(time.time()), {}, [])
+        row = db.get_agent_state(con, "backend")
+        check("stale wake: with nothing queued, the wake reads IDLE, not QUEUED",
+              row["state"] == dmn.IDLE and row["wake_at"] is None
+              and row["detail"] == "wake_at reached; no requests waiting", str(dict(row)))
+        check("stale wake: the queue really is empty, not just unread by the wake",
+              db.head_of_queue(con, "backend") is None
+              and not db.unannounced_answers(con, "backend"))
+
+        db.set_agent_state(con, "backend", dmn.THROTTLED, wake_at=int(time.time()) - 1,
+                           detail="throttled for an unrelated reason")
+        db.add_request(con, "marina", "backend", "carry on", None, "peer", "async", None, 0, None)
+        dmn.supervise(con, "backend", lambda _m: None, int(time.time()), {}, [])
+        row = db.get_agent_state(con, "backend")
+        check("stale wake: with a real request queued, the same wake still reads QUEUED",
+              row["state"] == dmn.QUEUED and row["wake_at"] is None, str(dict(row)))
+    finally:
+        con.close()
+
+
+def test_a_wake_with_only_an_answer_waiting_still_reads_queued(home: Path) -> None:
+    """An answer an agent asked for and has not been told is work waiting, the
+    same as a queued request (`would_wake` counts both): the wake that reads
+    the queue must not turn it into IDLE."""
+    _daemon_home(home, 50)
+    con = db.connect()
+    try:
+        rid = db.add_request(con, "backend", "marina", "how", None, "peer", "async",
+                             None, 0, None)
+        check("answer wake: the answer is closed and not yet told",
+              db.close_if_queued(con, rid, "done", "like this", announced=False)
+              and [r["id"] for r in db.unannounced_answers(con, "backend")] == [rid]
+              and db.head_of_queue(con, "backend") is None)
+        db.set_agent_state(con, "backend", dmn.THROTTLED, wake_at=int(time.time()) - 1,
+                           detail="throttled for an unrelated reason")
+        dmn.supervise(con, "backend", lambda _m: None, int(time.time()), {}, [])
+        row = db.get_agent_state(con, "backend")
+        check("answer wake: with only an answer waiting, the wake still reads QUEUED",
+              row["state"] == dmn.QUEUED and row["wake_at"] is None, str(dict(row)))
+    finally:
+        con.close()
+
+
+def test_the_other_wake_writers_also_read_the_queue(home: Path) -> None:
+    """reconcile's due wake and the usage-recovered wake claim QUEUED only with
+    something queued, like the supervise wake: IDLE on an empty queue."""
+    _daemon_home(home, 20)
+    con = db.connect()
+    real = (orcamod.available, orcamod.alive)
+    try:
+        orcamod.available = lambda: True
+        orcamod.alive = lambda h: True
+        db.set_terminal(con, "backend", "term_x", "wt")
+        db.set_account(con, "backend", "alpha")
+        for queued in (False, True):
+            want = dmn.QUEUED if queued else dmn.IDLE
+            if queued:
+                db.add_request(con, "marina", "backend", "carry on", None, "peer",
+                               "async", None, 0, None)
+            db.set_agent_state(con, "backend", dmn.THROTTLED,
+                               wake_at=int(time.time()) - 5, detail="stale")
+            dmn.reconcile(con, lambda _m: None)
+            row = db.get_agent_state(con, "backend")
+            check(f"reconcile wake: queued={queued} reads {want}",
+                  row["state"] == want and row["wake_at"] is None, str(dict(row)))
+
+            _park_via_handoff(con, "backend", "usage")
+            db.set_agent_state(con, "backend", dmn.PARKED,
+                               wake_at=int(time.time()) + 3600, detail="usage")
+            write_status(home, "alpha", pct_5h=5, pct_7d=10, ctx_pct=5,
+                         reset_5h=int(time.time()) + 1800)
+            dmn.supervise(con, "backend", lambda _m: None, int(time.time()), {}, [])
+            row = db.get_agent_state(con, "backend")
+            check(f"usage recovered: queued={queued} reads {want}",
+                  row["state"] == want and row["wake_at"] is None, str(dict(row)))
+    finally:
+        orcamod.available, orcamod.alive = real
         con.close()
 
 
@@ -3970,6 +4070,7 @@ def test_reconcile_does_not_clear_closed_at_on_a_failed_wake(home: Path) -> None
         orcamod.live_terminals = lambda: {"term_gone"}
         orcamod.wait_idle = lambda h, timeout_ms=0: True
         orcamod.send = relaunching_send(sent, table)
+        db.add_request(con, "marina", "backend", "carry on", None, "peer", "async", None, 0, None)
         dmn.reconcile(con, lambda _m: None)
         row = db.get_agent_state(con, "backend")
         check("reconcile: the retry resumes the session it kept",
@@ -5786,6 +5887,7 @@ def test_a_park_that_cannot_be_woken_keeps_its_deadline(home: Path) -> None:
         db.set_closed(con, "backend", "sess-2")
         db.set_agent_state(con, "backend", dmn.PARKED, wake_at=int(time.time()) - 10,
                            detail="parked and closed")
+        db.add_request(con, "marina", "backend", "carry on", None, "peer", "async", None, 0, None)
         write_status(home, "alpha", pct_5h=100, pct_7d=10, ctx_pct=5,
                      reset_5h=int(time.time()) + 600)
 
@@ -5858,6 +5960,7 @@ def test_a_usage_park_is_woken_when_the_reading_clears(home: Path) -> None:
         write_status(home, "alpha", pct_5h=5, pct_7d=10, ctx_pct=5,
                      reset_5h=int(time.time()) + 1800)
 
+        db.add_request(con, "marina", "backend", "carry on", None, "peer", "async", None, 0, None)
         dmn.supervise(con, "backend", lambda _m: None, int(time.time()), {}, [])
         row = db.get_agent_state(con, "backend")
         check("park: an open session wakes the moment the reading clears, "
@@ -7812,6 +7915,7 @@ def test_an_agent_is_judged_on_the_account_its_process_is_on(home: Path) -> None
         # The same world with the process where the column says: gamma has room.
         db.set_account(con, "backend", "gamma")
         _process_on("gamma")
+        db.add_request(con, "marina", "backend", "carry on", None, "peer", "async", None, 0, None)
         dmn.supervise(con, "backend", lambda _m: None, now, {}, [])
         check("process: on gamma, gamma's room does unpark it",
               db.get_agent_state(con, "backend")["state"] == dmn.QUEUED,
@@ -14798,6 +14902,12 @@ def main() -> int:
         run(lambda: test_daemon_stall_escalation(Path(td) / 'd5'))
         run(lambda: test_daemon_success_clears_streak(Path(td) / 'd5b'))
         run(lambda: test_daemon_degraded_recovers(Path(td) / 'd5c'))
+        run(lambda: test_a_stale_wake_at_does_not_claim_work_that_does_not_exist(
+            Path(td) / 'stalewake'))
+        run(lambda: test_a_wake_with_only_an_answer_waiting_still_reads_queued(
+            Path(td) / 'answerwake'))
+        run(lambda: test_the_other_wake_writers_also_read_the_queue(
+            Path(td) / 'otherwake'))
         run(lambda: test_daemon_tick_expires_handoff(Path(td) / 'd5d'))
         run(lambda: test_daemon_ignores_stale_status(Path(td) / 'd5e'))
         run(lambda: test_status_edge_cases(Path(td) / 'se'))
