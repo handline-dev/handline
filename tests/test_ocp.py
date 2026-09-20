@@ -10949,22 +10949,90 @@ def test_a_conversation_reads_as_turns_at_any_width(home: Path) -> None:
             check(f"turns: nothing is wider than the terminal at {width}",
                   all(tui.vlen(ln) <= width for ln in raw),
                   str([ln for ln in rows if tui.vlen(ln) > width][:2]))
-            heads = [i for i, ln in enumerate(inner) if ln.startswith(("  ❯", "  ●"))]
+            heads = [i for i, ln in enumerate(inner) if re.match(r"  [▌│┆] [❯●·]", ln)]
             check(f"turns: three messages, three headers at {width}", len(heads) == 3, str(inner))
             named = [inner[i] for i in heads]
             check(f"turns: the human is named once for a run of their messages at {width}",
                   sum("you" in h for h in named) == 1 and "reviewer" in named[2], str(named))
             check(f"turns: a blank line ends every message but the last at {width}",
                   all(inner[i - 1] == "" for i in heads[1:]), str(inner))
-            loose = [ln for ln in inner if ln and not ln.startswith(("  ❯", "  ●", "  ──", "  ↵", "    "))]
-            check(f"turns: text is indented under its speaker, wrapped lines too at {width}",
+            loose = [ln for ln in inner if ln and not ln.startswith(("  ▌", "  │", "  ┆", "  ──", "  ↵"))]
+            check(f"turns: every line of a message carries its side's bar, wrapped lines too at {width}",
                   not loose, str(loose[:3]))
-            said = " ".join(inner)
+            said = " ".join(re.sub(r"^\s*[▌│┆]?\s*", "", ln) for ln in inner)
             check(f"turns: none of the text is lost at {width}",
                   said.count("word") == 30 and "second paragraph" in said and "again" in said,
                   said[:200])
             check(f"turns: an escape in a message is not sent to the terminal at {width}",
                   "\033[2J" not in "".join(raw))
+    finally:
+        con.close()
+
+
+def test_a_conversation_shows_whose_message_is_whose_without_colour(home: Path) -> None:
+    """Founder: at the very least what I said must look different from what the
+    agent said. Every line of a message carries its side's bar - long,
+    multi-line, in a run, narrow - and a third party's is neither of theirs."""
+    _daemon_home(home, 20)
+    agents.register("reviewer", "alpha")
+    con = db.connect()
+    try:
+        actions.chat_reply(con, "reviewer", "start here " + "and a long first line " * 5)
+        first = actions.chat_parent(con, "reviewer")
+        actions.chat_reply(con, "reviewer", "second of the run\n\nafter a blank\nlast line")
+        third = askmod.ask("backend", "need the build log\nplease", requester="reviewer",
+                           parent_id=first)[2]
+        askmod.resolve(third, "here it is\nall of it")
+        askmod.resolve(first, "agent answer " + "with a long first line " * 4 + "\nand a second line")
+        now = int(time.time())
+        for i, rid in enumerate((first, first + 1, third)):
+            con.execute("UPDATE requests SET ts = ?, resolved_at = ? WHERE id = ?",
+                        (now - 900 + i * 100, now - 800 + i * 100 + 50, rid))
+        page = tui._agent_page(con, "reviewer", tui.AGENTS)
+        tui._go_to_tab(page, tui._tab_stems(page).index(actions.CHAT_TAB))
+        bars = {"you": "▌", "agent": "│", "other": "┆"}
+        marker = {"❯": "you", "●": "agent", "·": "other"}
+        for width in (100, 40, 24):
+            raw = [ln for ln in tui.lines_of(page, width) if tui._ANSI.sub("", ln).startswith("│")]
+            groups: list[list[tuple[str, str]]] = []      # (plain, raw) lines of a message
+            for r in raw:
+                inner = tui._ANSI.sub("", r)[1:-1].rstrip()
+                if inner.startswith("  ↵"):
+                    break                                  # the hint, and what it wrapped to
+                if not inner or inner.startswith("  ──"):
+                    groups.append([])
+                    continue
+                if not groups:
+                    groups.append([])
+                groups[-1].append((inner, r))
+            groups = [g for g in groups if g]
+            sides = []
+            for g in groups:
+                m = re.match(r"  [▌│┆] ([❯●·])", g[0][0])
+                if not m:
+                    sides.append(("?", g))
+                    continue
+                sides.append((marker[m.group(1)], g))
+            check(f"whose: every message starts on a header at {width}",
+                  all(sd != "?" for sd, _ in sides), str([g[0][0] for _, g in sides]))
+            check(f"whose: the human's, the agent's and a third party's are all there at {width}",
+                  {sd for sd, _ in sides} == {"you", "agent", "other"}, str([sd for sd, _ in sides]))
+            check(f"whose: every line of every message has its own side's bar at {width}",
+                  all(ln.startswith(f"  {bars[sd]}") for sd, g in sides for ln, _ in g),
+                  str([(sd, [ln for ln, _ in g]) for sd, g in sides
+                       if any(not ln.startswith(f"  {bars[sd]}") for ln, _ in g)][:2]))
+            check(f"whose: and in colour too, on every line, in a different one at {width}",
+                  all((tui.CYA if sd == "you" else tui.GRN if sd == "agent" else tui.DIM) in rw
+                      for sd, g in sides for _, rw in g))
+            check(f"whose: a line between two agents is the third party's, never the agent's at {width}",
+                  all((" → " in " ".join(ln.split(None, 1)[-1] for ln, _ in g[:2])) == (sd == "other")
+                      for sd, g in sides),
+                  str([(sd, g[0][0]) for sd, g in sides]))
+            check(f"whose: the third party is named as who to whom, not as either of them at {width}",
+                  any(re.search(r"(reviewer → backend|backend → reviewer)",
+                                " ".join(" ".join(ln.replace("┆", "").split()) for ln, _ in g[:2]))
+                      for sd, g in sides if sd == "other"), str([g[0][0] for _, g in sides]))
+        check("whose: three sides, three bars", len(set(bars.values())) == 3)
     finally:
         con.close()
 
@@ -13439,6 +13507,7 @@ def main() -> int:
         run(lambda: test_the_messenger_tab_carries_a_conversation_both_ways(Path(td) / 'chat'))
         run(lambda: test_a_conversation_stays_where_the_reader_scrolled_it(Path(td) / 'scroll'))
         run(lambda: test_a_conversation_reads_as_turns_at_any_width(Path(td) / 'turns'))
+        run(lambda: test_a_conversation_shows_whose_message_is_whose_without_colour(Path(td) / 'whose'))
         run(lambda: test_the_agent_pages_tabs_show_everything_and_read_as_blocks(Path(td) / 'tabs'))
         run(lambda: test_a_message_being_typed_wraps_and_keeps_the_cursor_on_its_last_character(Path(td) / 'typing'))
         run(lambda: test_bracketed_paste_is_switched_on_with_the_screen())

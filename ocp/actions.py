@@ -984,10 +984,11 @@ def conversation(con, agent: str) -> list[str]:
         chains.setdefault(str(r["chain_id"]), []).append(r)
 
     def said(speaker: str, to: str, text, ts, tail: str = "", waiting: bool = False) -> Said:
-        side = "you" if speaker == HUMAN else "agent" if speaker == agent else "other"
-        who = "you" if speaker == HUMAN else speaker
-        if HUMAN not in (speaker, to):
-            who = f"{speaker} → {to}"
+        # What is not between the human and this agent is neither's: the agent
+        # asking a third agent is drawn as that, not as the agent speaking to them.
+        between = HUMAN in (speaker, to)
+        side = "you" if speaker == HUMAN else "agent" if between else "other"
+        who = "you" if speaker == HUMAN else speaker if between else f"{speaker} → {to}"
         body = (text or "").strip("\n")
         return Said("msg", who, body if body.strip() else "(empty)", side, ts or 0, tail,
                     waiting)

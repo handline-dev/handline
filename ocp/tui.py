@@ -1121,6 +1121,37 @@ def _note_lines(rows: list[str], width: int) -> list[str]:
     return out
 
 
+def _header(bar: str, marker: str, who: str, when: str, tail: str, waiting: bool,
+            width: int) -> list[str]:
+    """A message's first line: the marker and who, then when and its state. What
+    does not fit goes on a line of its own under it - the name is never cut, and
+    neither is the state."""
+    names = wrap([who], max(1, width - 4)) if who else [""]
+    lines = [f"{bar} {marker} {names[0]}{R}"]
+    lines += [f"{bar}   {n}" for n in names[1:]]
+    used = vlen(lines[-1])
+    for plain, styled in ((when, f"{DIM}{when}{R}"),
+                          (f"· {tail}" if tail else "",
+                           f"{YEL if waiting else DIM}\u00b7 {tail}{R}")):
+        if not plain:
+            continue
+        if used + 2 + vlen(plain) <= width:
+            lines[-1] += f"  {styled}"
+            used += 2 + vlen(plain)
+        else:
+            lines.append(f"{bar}   {styled}")
+            used = 4 + vlen(plain)
+    return lines
+
+
+# Who said it, three ways that do not depend on colour: the bar down the side
+# of the message (heavy for the human, thin for the agent this page is about,
+# dotted for anyone else), the marker on its header, and the name.
+_SIDES = {"you": (f"{CYA}{BOLD}\u258c{R}", f"{CYA}{BOLD}\u276f", ""),
+          "agent": (f"{GRN}\u2502{R}", f"{GRN}{BOLD}\u25cf", ""),
+          "other": (f"{DIM}\u2506{R}", f"{DIM}\u00b7", DIM)}
+
+
 def _rows_lines(rows: list, width: int, dim_plain: bool = False) -> list[str]:
     """The rows of a tab as the screen shows them, each kind laid out its own way.
 
@@ -1155,13 +1186,14 @@ def _rows_lines(rows: list, width: int, dim_plain: bool = False) -> list[str]:
             continue
         if block:
             out.append("")
-        head, dim = {"you": (f"{CYA}{BOLD}\u276f", ""), "agent": (f"{GRN}{BOLD}\u25cf", ""),
-                     "other": (f"{DIM}\u00b7", DIM)}[r.side]
-        name = "" if prev == (r.side, r.who) else f" {r.who}"
+        bar, head, dim = _SIDES[r.side]
+        who = "" if prev == (r.side, r.who) else r.who
         prev, block = (r.side, r.who), True
-        tail = (f" {DIM}\u00b7{R} {YEL if r.waiting else DIM}{r.tail}{R}" if r.tail else "")
-        out.append(fit(f"{head}{name}{R}  {DIM}{_clock(r.ts)}{R}{tail}", width))
-        out += [f"{dim}{ln}{R}" if ln else "" for ln in _body(r.text, width)]
+        out += _header(bar, head, who, _clock(r.ts), r.tail, r.waiting, width)
+        # The bar is on every line of the message, blank ones included, so a
+        # long or multi-line message is still one side's from top to bottom.
+        out += [f"{bar}{dim}   {ln}{R}" if ln else bar
+                for ln in wrap(r.text.splitlines() or [""], max(1, width - 4))]
     return out
 
 
