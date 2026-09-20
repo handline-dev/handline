@@ -730,46 +730,20 @@ def team_outlook(names: list[str] | None = None, now: float | None = None) -> st
     return f"estimate: at this pace {n} hit the wall around {clock(stops)}{tail}"
 
 
-def _max_burn_per_s(ld, agent: str | None) -> float:
-    """The fastest an account could possibly fill: every seat of its cap
-    running flat out, each at `agent`'s own cost - not `ld.burn`, which is only
-    how fast it happens to be filling right now."""
-    cap = ld.cap if ld else triggers.DEFAULT_ACTIVE_CAP
-    return cap * agent_burn(ld, agent)
-
-
-def _abundant(headroom: int | None, reset_at: int | None, ld, agent: str | None) -> bool:
-    """True when `headroom` points of usage would still not be spent by
-    `reset_at`, even if the account's cap ran flat out from now until then.
-
-    False on a headroom or a reset we do not know, same as everywhere else in
-    this module: an unknown figure is a reason to refuse the stronger claim,
-    not license to assume it. A tier this feeds is fail-closed to tier 2, the
-    weaker one, on the same figures `unfit` already trusts or refuses.
-    """
-    if headroom is None or not reset_at:
-        return False
-    remaining = reset_at - time.time()
-    if remaining <= 0:
-        return False
-    return headroom > _max_burn_per_s(ld, agent) * remaining
-
-
-def tier(st: "AccountStatus", ld, agent: str | None = None) -> int:
-    """Where this account sits among ones already admitted (`takes_work` says
-    yes and `unfit` says nothing is wrong): 1 when it cannot realistically be
-    exhausted before EITHER window resets - even its cap of agents running flat
-    out would not spend it - 2 otherwise.
-
-    Tier 2 is not a weaker version of tier 1; it is everything `unfit` already
-    let through and tier 1 did not additionally clear. Nothing here repeats
-    `unfit`'s own wall-and-cap-and-stretch test - an account tier() is asked
-    about has already passed it.
-    """
-    if _abundant(st.headroom(), st.reset_5h, ld, agent) and \
-            _abundant(st.headroom_7d(), st.reset_7d, ld, agent):
-        return 1
-    return 2
+# A tier for "cannot realistically be exhausted" was tried here and dropped
+# (#1085): telling an abundant account from a thrifty one needs to know plan
+# size, and nothing this module reads carries it. headroom is a percent of a
+# window, capped at 100 whatever the plan; agent_burn comes from load.py's
+# Costs, which is one estimate shared by every account (load.py: "shared by
+# every account, built once at load.py:154"), not a per-account figure. So the
+# only thing that varied between accounts in that computation was the cap,
+# and "cap running flat out would not spend the headroom before reset" reduces
+# to "both windows reset soon" - the earliest-deadline rule this change exists
+# to replace, reinstated above the rule that replaced it, and confirmed by its
+# own test: the fixture that was supposed to prove tier 1 bound something used
+# a reset 30 minutes out, and picked the account with less headroom and the
+# sooner deadline over the one with more headroom and a pace far behind. Pace
+# alone carries the rule now.
 
 
 # A pace this close to another's is noise, not a real difference in how far
@@ -788,9 +762,10 @@ def pace_7d(st: "AccountStatus") -> float:
     multiple of the usage a uniform pace through the week would have reached by
     now. Below 1 is behind that pace - the "use it or lose it" case, since
     whatever headroom is left unspent here is not carried past the reset - and
-    is what tier 3 spends first, on the same reasoning the old earliest-7d-
-    deadline rule was right about: an account that is not going to catch up on
-    its own gets the work while the work is still worth something to it.
+    is what `pick_account` spends first, on the same reasoning the old
+    earliest-7d-deadline rule was right about: an account that is not going to
+    catch up on its own gets the work while the work is still worth something
+    to it.
 
     Infinity for a `pct_7d` or a `reset_7d` we do not know, or a week already
     rolled over: never sorted as low usage, which reading it as 0 - or as
@@ -892,7 +867,7 @@ def _pick_reason(st: "AccountStatus", ld, lasts: float | None, picked: bool,
     """Why this account sits where it does in the ordering."""
     week = st.trusted_pct_7d
     week_s = "unknown" if week is None else f"{week}%"
-    tag = f" <- picked: tier {tier(st, ld, agent)}" if picked else ""
+    tag = " <- picked" if picked else ""
     for stale_ok, stale_why in (st.rolled_over(), st.idle_floor(ld.active if ld else 0)):
         if stale_ok:
             return stale_why + tag
@@ -911,13 +886,22 @@ def pick_account(candidates: list[str] | None = None, bootstrap: bool = False,
                  load: dict | None = None,
                  agent: str | None = None,
                  prefer: str | None = None) -> tuple[str | None, list[tuple[str, str]]]:
-    """Pick among the accounts that can take one more agent, in three tiers:
-    1) one that cannot realistically be exhausted before either window resets,
-    even at its cap running flat out (`tier`); 2) otherwise, any account that
-    will not hit its own wall - the same test `unfit` already answers; within
-    a tier, the one furthest behind its own weekly pace (`pace_7d`) goes first,
-    since headroom a slower account leaves unspent is lost at its reset and one
-    already ahead of pace is not going to run out on its own.
+    """Pick among the accounts that can take one more agent - any account that
+    will not hit its own wall, the same test `unfit` already answers - the one
+    furthest behind its own weekly pace (`pace_7d`) goes first, since headroom
+    a slower account leaves unspent is lost at its reset and one already ahead
+    of pace is not going to run out on its own.
+
+    An earlier version of this also ranked a top tier of accounts "abundant"
+    enough to be spent without limit, ahead of pace. Dropped (#1085): telling
+    an abundant account from a thrifty one needs to know plan size, and
+    nothing here reads it - headroom is a percent of a window, capped at 100
+    whatever the plan, and the per-agent cost this module has is one estimate
+    shared by every account, not a per-account figure. What that tier actually
+    computed was "does this account's window reset before its cap could
+    plausibly spend the headroom", which - at the one burn rate available -
+    reduces to "resets soon", the earliest-deadline rule this change exists to
+    replace. Pace alone carries the rule now.
 
     `prefer` is the account a repeated caller picked last time - the accounts
     panel redrawing, or a wait re-checked every tick. Passed back in, it keeps
@@ -925,9 +909,9 @@ def pick_account(candidates: list[str] | None = None, bootstrap: bool = False,
     other pair: without memory of the last pick, two accounts a hair apart in
     pace still swap the lead back and forth as rounding tips first one way then
     the other while both climb, which is exactly the flicker a repeated caller
-    must not show. A tier-1 opening, or a real gap past that zone, still moves
-    it - `prefer` only breaks a tie that would otherwise come down to which
-    side of a bucket boundary rounding landed on this time.
+    must not show. A real gap past that zone still moves it - `prefer` only
+    breaks a tie that would otherwise come down to which side of a bucket
+    boundary rounding landed on this time.
 
     Returns (choice, [(account, reason)]). When none can, the choice is None
     and the caller must refuse - that is the fail-closed path.
@@ -1015,7 +999,7 @@ def pick_account(candidates: list[str] | None = None, bootstrap: bool = False,
         # the head start above can land exactly on a challenger's bucket, and
         # that tie must still go to the incumbent, not to whichever of them
         # happens to have a hair more headroom this tick.
-        return (tier(st, ld, agent), bucket, 0 if n == prefer else 1,
+        return (bucket, 0 if n == prefer else 1,
                 -(st.headroom() or 0), -_CONFIDENCE.get(st.pct_5h_source, 0), n)
 
     usable.sort(key=sort_key)

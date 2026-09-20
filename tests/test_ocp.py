@@ -403,18 +403,18 @@ def test_failclosed(home: Path) -> None:
 
 def test_pick_account_orders_by_weekly_pace(home: Path) -> None:
     """#1001, replacing the earliest-weekly-deadline rule (#166/#167/#169/
-    #170/#254) this same function used to test: among accounts tier 2 already
-    admits, the one furthest BEHIND its own weekly pace (`status.pace_7d`) is
-    picked - not simply the one with the most 5h room right now, and not the
-    one whose reset_7d timestamp happens to be soonest regardless of what its
-    pct_7d actually is."""
+    #170/#254) this same function used to test: among accounts admitted by
+    `takes_work`/`unfit`, the one furthest BEHIND its own weekly pace
+    (`status.pace_7d`) is picked - not simply the one with the most 5h room
+    right now, and not the one whose reset_7d timestamp happens to be soonest
+    regardless of what its pct_7d actually is."""
     os.environ["OCP_HOME"] = str(home)
     now = int(time.time())
 
     # "later" has more 5h headroom than "soon" - the old rule would pick it on
-    # that alone - but both are tier 2, and "soon" is further behind its own
-    # pace: 10% used with an hour left (almost the whole week already elapsed)
-    # is further behind than 10% used with a day left (much less elapsed).
+    # that alone - but "soon" is further behind its own pace: 10% used with an
+    # hour left (almost the whole week already elapsed) is further behind than
+    # 10% used with a day left (much less elapsed).
     write_status(home, "soon", pct_5h=50, pct_7d=10, reset_7d=now + 3600)
     write_status(home, "later", pct_5h=5, pct_7d=10, reset_7d=now + 90000)
     picked, reasons = status.pick_account(["soon", "later"])
@@ -488,19 +488,19 @@ def test_pace_matches_the_founders_own_worked_examples(home: Path) -> None:
           "sense that matters - it is not going to run out on its own",
           0.6 < comfortable_pace < 0.63, comfortable_pace)
     check("founder's examples: the lower number - comfortable, not fast - is "
-          "the one tier 3 spends first", comfortable_pace < fast_pace)
+          "the one pace spends first", comfortable_pace < fast_pace)
 
 
-def test_a_near_wall_7d_account_is_not_specially_excluded_from_tier_2(home: Path) -> None:
+def test_a_near_wall_7d_account_is_not_specially_excluded(home: Path) -> None:
     """Finding, from #1036: an account at 7d 99% with an hour left passes
-    `takes_work` and `unfit` exactly like one at 7d 10% with a day left - both
-    land in tier 2, and only pace decides between them. There is no weekly
-    analogue of MIN_STRETCH_S; decision #254 deliberately dropped the margin
-    that would have been one ('spent to its own wall, not held back'), and
-    #256 accepted the fallout by name: 'if it runs out mid-session, the agent
-    moves.' So a 99% account is not refused for being a hair from its wall -
-    it can still be PICKED, if nothing better is on offer - and this pins
-    that as the accepted shape rather than an oversight tier() should close."""
+    `takes_work` and `unfit` exactly like one at 7d 10% with a day left - only
+    pace decides between them. There is no weekly analogue of MIN_STRETCH_S;
+    decision #254 deliberately dropped the margin that would have been one
+    ('spent to its own wall, not held back'), and #256 accepted the fallout by
+    name: 'if it runs out mid-session, the agent moves.' So a 99% account is
+    not refused for being a hair from its wall - it can still be PICKED, if
+    nothing better is on offer - and this pins that as the accepted shape
+    rather than an oversight the ranking should close."""
     os.environ["OCP_HOME"] = str(home)
     now = int(time.time())
     write_status(home, "sliver", pct_5h=9, pct_7d=99, reset_5h=now + 1800, reset_7d=now + 3600)
@@ -510,11 +510,8 @@ def test_a_near_wall_7d_account_is_not_specially_excluded_from_tier_2(home: Path
           st.takes_work(0)[0], st.takes_work(0))
     check("near-wall: and unfit finds nothing wrong with it",
           status.unfit(st, ld) is None)
-    check("near-wall: it lands in tier 2, the same as any other non-abundant "
-          "account - not refused, not a tier of its own",
-          status.tier(st, ld) == 2)
     # With nothing better available, it is still the pick - #254's spend-to-
-    # the-wall guarantee, which tier 3 must not quietly take back.
+    # the-wall guarantee, which pace must not quietly take back.
     picked, _ = status.pick_account(["sliver"])
     check("near-wall: with no alternative, it is still picked, not skipped",
           picked == "sliver", picked)
@@ -581,7 +578,7 @@ def test_pick_account_prefer_breaks_an_exact_bucket_tie(home: Path) -> None:
 def test_pick_account_tonights_shape(home: Path) -> None:
     """#1001's own regression case: alpha 5h49/7d58 at cap, beta 5h19/7d85 at
     cap, delta 5h8/7d30, gamma 5h88/7d89 - delta is picked. alpha and beta are
-    excluded outright by their cap, before tier or pace ever runs on them;
+    excluded outright by their cap, before pace ever runs on them;
     gamma's 12 points of 5h headroom do not last `MIN_STRETCH_S` at the
     typical agent's cost, so it is excluded too - delta is the only candidate
     left, which this still checks end to end rather than assuming."""
@@ -604,46 +601,6 @@ def test_pick_account_tonights_shape(home: Path) -> None:
     check("tonight's shape: beta is excluded by its cap", "cap" in said["beta"], said["beta"])
     check("tonight's shape: gamma is excluded - not enough of its 5h window "
           "left to be worth a start", "gamma" != picked and said["gamma"] != "", said["gamma"])
-
-
-def test_pick_account_tiers_bind(home: Path) -> None:
-    """Each tier actually decides something, not just tier 3: a tier-1 account
-    wins over a tier-2 one even when the tier-2 account's pace looks more
-    urgent, and among two tier-2 accounts pace still breaks the tie. Verified
-    by mutation while this was written: forcing `tier` to always return 2
-    reddens the first check; forcing `pace_7d` to always return the same
-    value reddens the second."""
-    os.environ["OCP_HOME"] = str(home)
-    now = int(time.time())
-    # tier_1: both windows reset soon enough that even the cap running flat
-    # out could not spend 90 points of headroom - genuinely tier 1.
-    write_status(home, "tier_1", pct_5h=10, pct_7d=10,
-                 reset_5h=now + 1800, reset_7d=now + 1800)
-    # tier_2_low_pace: 99 points of 7d headroom, but three days left - the cap
-    # running flat out for three days could spend far more than that, so this
-    # is tier 2 despite a pace (1/57%) far lower than tier_1's (10/99.7%).
-    write_status(home, "tier_2_low_pace", pct_5h=10, pct_7d=1,
-                 reset_5h=now + 1800, reset_7d=now + 3 * 86400)
-    picked, reasons = status.pick_account(["tier_1", "tier_2_low_pace"])
-    check("tiers: tier 1 wins over a tier-2 account with a lower (more "
-          "urgent-looking) pace", picked == "tier_1", str((picked, reasons)))
-    check("tiers: and says so", "tier 1" in dict(reasons)["tier_1"], dict(reasons)["tier_1"])
-
-    # Two tier-2 accounts (long weekly windows, so neither is tier 1): pace
-    # alone decides between them, as test_pick_account_orders_by_weekly_pace
-    # already covers in depth - this just confirms tier 2 is reached at all.
-    write_status(home, "tier_2_a", pct_5h=10, pct_7d=10,
-                 reset_5h=now + 1800, reset_7d=now + 3 * 86400)
-    write_status(home, "tier_2_b", pct_5h=10, pct_7d=40,
-                 reset_5h=now + 1800, reset_7d=now + 3 * 86400)
-    picked, reasons = status.pick_account(["tier_2_a", "tier_2_b"])
-    check("tiers: within tier 2, pace still breaks the tie",
-          picked == "tier_2_a", str((picked, reasons)))
-    ld2 = loadmod.Load("x", 0, 2, 0.0)
-    check("tiers: both are tier 2, not tier 1 - the long weekly window makes "
-          "that the real test of the tie",
-          status.tier(status.read("tier_2_a"), ld2) == 2
-          and status.tier(status.read("tier_2_b"), ld2) == 2, reasons)
 
 
 def test_pick_account_degrades_when_every_account_would_hit_the_wall(home: Path) -> None:
@@ -670,24 +627,19 @@ def test_pick_account_degrades_when_every_account_would_hit_the_wall(home: Path)
           status.pick_account(["just_over"])[0] == "just_over")
 
 
-def test_pick_account_stale_and_unknown_at_every_tier(home: Path) -> None:
-    """A stale or missing figure must never read as low usage, at either
-    tier: `tier` refuses to call an account tier 1 on a headroom it does not
-    trust, and `pace_7d` returns infinity rather than 0 or a guess."""
+def test_pick_account_stale_and_unknown_pace(home: Path) -> None:
+    """A stale or missing figure must never read as low usage: `pace_7d`
+    returns infinity rather than 0 or a guess."""
     os.environ["OCP_HOME"] = str(home)
     now = int(time.time())
 
     # Stale but idle - admitted on its floor, but the floor is not knowledge:
-    # tier() must not call this tier 1 just because the floor is small, and a
-    # missing pct_7d - not merely a stale one, which still carries forward as
-    # a floor of its own - keeps pace unknown rather than inferring one.
+    # a missing pct_7d - not merely a stale one, which still carries forward
+    # as a floor of its own - keeps pace unknown rather than inferring one.
     write_status(home, "stale_idle", pct_5h=5, pct_7d=None, reset_5h=now + 1800,
                  collected_at=now - 3600)
-    ld = {"stale_idle": loadmod.Load("stale_idle", 0, 2, 0.0)}
     st = status.read("stale_idle")
-    check("stale/unknown: a stale reading is not tier 1 on its floor alone",
-          status.tier(st, ld["stale_idle"]) == 2, st)
-    check("stale/unknown: and a missing 7d figure is unknown pace, not 0",
+    check("stale/unknown: a missing 7d figure is unknown pace, not 0",
           status.pace_7d(st) == float("inf"), status.pace_7d(st))
 
     # A rolled-over 7d window (reset already past) is not a low pace either -
@@ -698,7 +650,7 @@ def test_pick_account_stale_and_unknown_at_every_tier(home: Path) -> None:
           status.pace_7d(status.read("rolled_over")) == float("inf"))
 
     # Unknown headroom_5h (stale, and past the idle-floor margin) still
-    # refuses outright, the same as any other unfit account - tier is never
+    # refuses outright, the same as any other unfit account - pace is never
     # asked about an account that was refused.
     write_status(home, "stale_full", pct_5h=95, reset_5h=now + 1800,
                  collected_at=now - 3600)
@@ -4735,10 +4687,9 @@ def test_unobserved_spend_stays_off_unreadable_accounts(home: Path) -> None:
 
         # A stale reading is still an account this daemon cannot currently
         # read, and the fold must not prefer it over one with a genuinely
-        # current reading. Neither account here has an actual pct_7d, so tier
-        # 3's pace ties at "unknown" for both and headroom decides - already
-        # in favor of the readable one, before the fold's own exclusion even
-        # applies.
+        # current reading. Neither account here has an actual pct_7d, so pace
+        # ties at "unknown" for both and headroom decides - already in favor
+        # of the readable one, before the fold's own exclusion even applies.
         write_status(home, "fresh", pct_5h=50, reset_5h=now + 1800,
                      reset_7d=now + 86400 * 2)
         write_status(home, "stale_idle", pct_5h=5, reset_5h=now + 1800,
@@ -8537,8 +8488,8 @@ def test_a_near_wall_7d_account_is_still_a_candidate_but_not_guaranteed_the_pick
     """Founder's decision #254: an account at 5h 9% / 7d 99% is spendable to
     the weekly wall, not held back short of it - it must still be a candidate,
     and an agent working on it moves only once 7d actually reaches its own
-    wall. Which of two candidates the *pick* prefers is now tier 3's pace
-    (#1001), not #254's concern; alpha at 99% with an hour left is close to on
+    wall. Which of two candidates the *pick* prefers is now pace (#1001), not
+    #254's concern; alpha at 99% with an hour left is close to on
     pace (elapsed is almost the whole week already), while beta at 10% with a
     day left is well behind its own - so beta is picked here, and alpha's
     place in this test is to prove it is not refused for being this close to
@@ -8562,7 +8513,7 @@ def test_a_near_wall_7d_account_is_still_a_candidate_but_not_guaranteed_the_pick
     check("7d wall: 99% is still assignable, not held back short of the wall",
           allowed, why)
     picked, reasons = status.pick_account(["alpha", "beta"], load={})
-    check("7d wall: at 99%, tier 3 picks the account further behind its own "
+    check("7d wall: at 99%, pace picks the account further behind its own "
           "weekly pace instead (beta, 10% with a day left)",
           picked == "beta", str((picked, reasons)))
     alpha(9, 100)
@@ -15294,16 +15245,15 @@ def main() -> int:
         run(lambda: test_failclosed(home))
         run(lambda: test_pick_account_orders_by_weekly_pace(Path(td) / 'deadline'))
         run(lambda: test_pace_matches_the_founders_own_worked_examples(Path(td) / 'foundersex'))
-        run(lambda: test_a_near_wall_7d_account_is_not_specially_excluded_from_tier_2(
+        run(lambda: test_a_near_wall_7d_account_is_not_specially_excluded(
             Path(td) / 'nearwall'))
         run(lambda: test_pick_account_does_not_bounce_between_two_close_accounts(
             Path(td) / 'nobounce'))
         run(lambda: test_pick_account_prefer_breaks_an_exact_bucket_tie(Path(td) / 'prefertie'))
         run(lambda: test_pick_account_tonights_shape(Path(td) / 'tonight'))
-        run(lambda: test_pick_account_tiers_bind(Path(td) / 'tiersbind'))
         run(lambda: test_pick_account_degrades_when_every_account_would_hit_the_wall(
             Path(td) / 'allwall'))
-        run(lambda: test_pick_account_stale_and_unknown_at_every_tier(Path(td) / 'staleknown'))
+        run(lambda: test_pick_account_stale_and_unknown_pace(Path(td) / 'staleknown'))
         run(lambda: test_collector(home))
         run(lambda: test_yaml())
         run(lambda: test_agents(home))
