@@ -61,6 +61,12 @@ DEGRADED_RETRY_S = 600
 # next tick has a recorded or reported account to judge it by instead.
 ASSUMED_ACCOUNT_RECHECK_S = 300
 
+# An account with no reading and no credentials asks `logged_in` every tick
+# for ever otherwise - on macOS a keychain subprocess apiece. This is a
+# cooldown of its own, never the probe cursor: that one must stay untouched so
+# the account's first real reading is not suppressed once it does log in.
+LOGIN_CHECK_COOLDOWN_S = 300
+
 MAX_FAILED_ATTEMPTS = 3      # 8.5: real failures only
 MAX_THROTTLE_STREAK = 5      # 8.6: then escalate to a human gate
 
@@ -2009,16 +2015,26 @@ def probe_stale_accounts(con, log, actions: list[str]) -> None:
     startup to answer and a tick may not stop for that. What it leaves behind
     is a fresh snapshot, which the next tick reads like any other.
     """
+    now = int(time.time())
     # A new account gets its first reading whoever is waiting: it is what makes
     # it rankable at all, and it is asked once (`probe.unread`). Asked of the
     # cheap file and cursor first: `logged_in` can be a keychain subprocess, and
-    # this runs every tick for every account.
+    # this runs every tick for every account. An account that comes up not
+    # logged in stays `unread` forever - nothing else would write its cursor -
+    # so a cooldown of its own (never the probe cursor, or the first real
+    # reading would be suppressed once it does log in) keeps that account from
+    # paying a login check every tick for as long as it never logs in.
     for acct in paths.list_accounts():
-        if probe.unread(status.read(acct), db.get_cursor(con, f"probe:{acct}") or None) \
-                and accounts.logged_in(acct):
+        if not probe.unread(status.read(acct), db.get_cursor(con, f"probe:{acct}") or None):
+            continue
+        if now < db.get_cursor(con, f"login-check:{acct}"):
+            continue
+        if accounts.logged_in(acct):
             if _start_probe(con, acct, "no reading yet, asking where it stands",
                             log, actions):
                 return  # one at a time; the next tick takes the next account
+        else:
+            db.set_cursor(con, f"login-check:{acct}", now + LOGIN_CHECK_COOLDOWN_S)
     waiting = [r["agent"] for r in db.all_agent_states(con)
                if r["state"] in (PARKED, THROTTLED, DEGRADED) and not r["closed_at"]]
     if not waiting:

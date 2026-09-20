@@ -1710,9 +1710,17 @@ def test_a_new_account_gets_its_first_reading_without_anyone_asking(home: Path) 
               asked == [], str(asked))
         started.clear()
         db.set_cursor(con, "probe:alpha", 0)
-        accounts.logged_in = lambda a: False  # noqa: E731
+        asked = []
+        accounts.logged_in = lambda a: asked.append(a) or False  # noqa: E731
         dmn.probe_stale_accounts(con, lambda _m: None, [])
         check("new account: not logged in, nothing to ask", started == [], str(started))
+        # Still unread, so still eligible every tick - but a login check that
+        # came up empty must not repeat every tick for as long as it stays
+        # empty, or a never-logged-in account costs a keychain subprocess for
+        # ever.
+        dmn.probe_stale_accounts(con, lambda _m: None, [])
+        check("new account: and a login check that came up empty is not repeated next tick",
+              asked == ["alpha"], str(asked))
         # A removed name added again is a new account, and is asked again.
         accounts.register("epsilon")
         db.set_cursor(con, "probe:alpha", int(time.time()))  # one probe per pass

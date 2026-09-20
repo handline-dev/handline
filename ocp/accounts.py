@@ -451,6 +451,7 @@ def remove_account(name: str, confirm, run, con=None) -> tuple[bool, str]:
         c = con or db.connect()
         try:
             db.clear_cursor(c, f"probe:{name}")
+            db.clear_cursor(c, f"login-check:{name}")
         finally:
             if own:
                 c.close()
