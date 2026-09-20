@@ -3063,6 +3063,44 @@ def test_the_guard_against_the_real_orca_names_the_test_and_cannot_be_swallowed(
           shutil.which("orca") == str(FAKE_ORCA_DIR / "orca"), str(shutil.which("orca")))
 
 
+def test_a_walled_wake_is_said_once_not_every_tick(home: Path) -> None:
+    """A closed agent with work waiting is retried every tick for as long as its
+    account sits at the wall, and the wall is one reason that lasts for hours.
+    `_wake_agent` returns it and the tick says it once; `_wake_agent` used to log
+    it as well, on every retry, which is a line per tick for the same sentence."""
+    _daemon_home(home, 100)
+    con = db.connect()
+    real_avail, real_alive, real_run = orcamod.available, orcamod.alive, orcamod._run
+
+    def no_orca(args, timeout=180):
+        raise AssertionError(f"reached the real orca: {args}")
+    try:
+        orcamod.available, orcamod.alive, orcamod._run = (lambda: True), (lambda h: True), no_orca
+        db.set_closed(con, "backend", "sess-1")
+        db.add_request(con, "marina", "backend", "please look", None, "peer", "async",
+                       None, 0, None)
+        dmn._SAID.clear()
+        logged: list[str] = []
+        for _ in range(4):
+            dmn.supervise(con, "backend", logged.append, int(time.time()), {}, [])
+        wall = [m for m in logged if "5h window" in m]
+        check("wall wake: the account really is the reason, so the fixture reaches the wall",
+              wall, str(logged))
+        check("wall wake: it is said once across four ticks, not once per tick",
+              len(wall) == 1, str(logged))
+        ok, why = dmn.wake_agent(con, "backend", logged.append)
+        check("wall wake: and the wake itself still refuses and returns the reason",
+              not ok and "5h window" in why, why)
+        logged.clear()
+        dmn.wake_agent(con, "backend", logged.append)
+        check("wall wake: a direct wake does not log it either - its caller has the reason",
+              not [m for m in logged if "5h window" in m], str(logged))
+    finally:
+        orcamod.available, orcamod.alive, orcamod._run = real_avail, real_alive, real_run
+        dmn._SAID.clear()
+        con.close()
+
+
 def test_a_name_that_yaml_would_not_read_as_text_is_refused_where_it_is_typed(home: Path) -> None:
     """A name is written unquoted into team.yaml, agent.yaml and config.yaml. `no`
     is False to PyYAML and a refusal to the bundled parser, and a refusal on a
@@ -15052,6 +15090,7 @@ def main() -> int:
         run(lambda: test_yaml_rejects_ambiguity())
         run(lambda: test_a_name_that_yaml_would_not_read_as_text_is_refused_where_it_is_typed(Path(td) / 'nameguard'))
         run(lambda: test_the_guard_against_the_real_orca_names_the_test_and_cannot_be_swallowed())
+        run(lambda: test_a_walled_wake_is_said_once_not_every_tick(Path(td) / 'wallonce'))
         run(lambda: test_agent_yaml_is_written_by_dump_so_what_was_typed_reads_back(Path(td) / 'agentyaml'))
         run(lambda: test_the_suite_and_the_package_name_only_what_exists())
         run(lambda: test_yaml_booleans())
