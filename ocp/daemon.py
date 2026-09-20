@@ -2010,10 +2010,12 @@ def probe_stale_accounts(con, log, actions: list[str]) -> None:
     is a fresh snapshot, which the next tick reads like any other.
     """
     # A new account gets its first reading whoever is waiting: it is what makes
-    # it rankable at all, and it is asked once (`probe.unread`).
+    # it rankable at all, and it is asked once (`probe.unread`). Asked of the
+    # cheap file and cursor first: `logged_in` can be a keychain subprocess, and
+    # this runs every tick for every account.
     for acct in paths.list_accounts():
-        if accounts.logged_in(acct) and \
-                probe.unread(status.read(acct), db.get_cursor(con, f"probe:{acct}") or None):
+        if probe.unread(status.read(acct), db.get_cursor(con, f"probe:{acct}") or None) \
+                and accounts.logged_in(acct):
             if _start_probe(con, acct, "no reading yet, asking where it stands",
                             log, actions):
                 return  # one at a time; the next tick takes the next account

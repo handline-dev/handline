@@ -1701,6 +1701,13 @@ def test_a_new_account_gets_its_first_reading_without_anyone_asking(home: Path) 
               not any(c[-1] == "alpha" for c in started[n:]), str(started[n:]))
         check("new account: probe.due still refuses an absent snapshot",
               not probe.due(st, None))
+        # Every tick asks, so an account that has a reading, or was asked, must not
+        # cost a login check: on macOS that is a `security` subprocess apiece.
+        asked: list[str] = []
+        accounts.logged_in = lambda a: asked.append(a) or True  # noqa: E731
+        dmn.probe_stale_accounts(con, lambda _m: None, [])
+        check("new account: one already asked, or already read, is not login-checked each tick",
+              asked == [], str(asked))
         started.clear()
         db.set_cursor(con, "probe:alpha", 0)
         accounts.logged_in = lambda a: False  # noqa: E731
