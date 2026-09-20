@@ -2136,6 +2136,7 @@ def test_a_dialog_in_the_way_of_work_is_said_once_and_clears_itself(home: Path) 
     across ticks and a restart - and both go the tick it can be given."""
     con = _blocked_world(home)
     lines: list[str] = []
+    orcamod.live_terminals = lambda: {"term_x"}
     seen = {"screen": orcamod.Blocker(orcamod.MODAL, orcamod.describe_modal(EXIT_DIALOG, len(EXIT_DIALOG) - 1))}
     reads = []
     orcamod.screen_blocker = lambda h: (reads.append(h), seen["screen"])[1]
@@ -2359,6 +2360,8 @@ def test_the_tick_looks_for_blocks(home: Path) -> None:
     """Nothing here works unless the loop the daemon actually runs calls it."""
     con = _blocked_world(home)
     orcamod.live_terminals = lambda: {"term_x"}
+    orcamod.idle_now = lambda h: True
+    orcamod.send = lambda h, text, enter=True: (False, "refused")
     orcamod.screen_blocker = lambda h: orcamod.Blocker(orcamod.MODAL, '"A dialog"')
     try:
         dmn.tick(con, lambda _m: None)
