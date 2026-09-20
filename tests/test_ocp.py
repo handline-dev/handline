@@ -451,6 +451,74 @@ def test_pick_account_orders_by_weekly_pace(home: Path) -> None:
     check("pick_account: a known pace beats an unknown one",
           picked == "soon", str(picked))
 
+    # The old rule's real benefit, not given up: two accounts with the SAME
+    # usage but different resets are not a tie under pace, because the one
+    # closer to its reset has more of its week already elapsed - same
+    # numerator, smaller denominator, lower pace. So "spend the one that
+    # resets soonest" still holds in the ordinary case pace was built to
+    # improve on, not just the disagreeing case pace was built to fix.
+    write_status(home, "resets_soon", pct_5h=5, pct_7d=30, reset_7d=now + 7200)
+    write_status(home, "resets_later", pct_5h=5, pct_7d=30, reset_7d=now + 3 * 86400)
+    picked, _ = status.pick_account(["resets_soon", "resets_later"])
+    check("pick_account: at equal usage, the sooner reset still wins - pace "
+          "does not give up the old rule's real case, only its bad one",
+          picked == "resets_soon", str(picked))
+
+
+def test_pace_matches_the_founders_own_worked_examples(home: Path) -> None:
+    """#1001/#1036: the founder gave two examples of "ahead" and "behind" its
+    own pace, got the words backwards on both, and asked that they be pinned
+    as fixtures so nobody reads the words and implements them backwards again.
+    Pin the NUMBERS the corrected reading settled on, not the words: 85% with
+    one day elapsed (six left) is pace ~5.95 - the worst of the two, because
+    burning 85% in a seventh of the week is far ahead of a uniform pace, not
+    behind it - and 60% with the week 97.6% elapsed (four hours left) is pace
+    ~0.615, comfortably behind, which is what "ahead" was meant to mean."""
+    os.environ["OCP_HOME"] = str(home)
+    now = int(time.time())
+    write_status(home, "burns_fast", pct_5h=5, pct_7d=85, reset_7d=now + 6 * 86400)
+    write_status(home, "comfortable", pct_5h=5, pct_7d=60, reset_7d=now + 4 * 3600)
+    fast_pace = status.pace_7d(status.read("burns_fast"))
+    comfortable_pace = status.pace_7d(status.read("comfortable"))
+    check("founder's examples: 85% with six days left is far ahead of a "
+          "uniform pace (~5.95), not behind it",
+          5.9 < fast_pace < 6.0, fast_pace)
+    check("founder's examples: 60% with four hours left is comfortably "
+          "behind (~0.615), which is the one that reads as 'ahead' in the "
+          "sense that matters - it is not going to run out on its own",
+          0.6 < comfortable_pace < 0.63, comfortable_pace)
+    check("founder's examples: the lower number - comfortable, not fast - is "
+          "the one tier 3 spends first", comfortable_pace < fast_pace)
+
+
+def test_a_near_wall_7d_account_is_not_specially_excluded_from_tier_2(home: Path) -> None:
+    """Finding, from #1036: an account at 7d 99% with an hour left passes
+    `takes_work` and `unfit` exactly like one at 7d 10% with a day left - both
+    land in tier 2, and only pace decides between them. There is no weekly
+    analogue of MIN_STRETCH_S; decision #254 deliberately dropped the margin
+    that would have been one ('spent to its own wall, not held back'), and
+    #256 accepted the fallout by name: 'if it runs out mid-session, the agent
+    moves.' So a 99% account is not refused for being a hair from its wall -
+    it can still be PICKED, if nothing better is on offer - and this pins
+    that as the accepted shape rather than an oversight tier() should close."""
+    os.environ["OCP_HOME"] = str(home)
+    now = int(time.time())
+    write_status(home, "sliver", pct_5h=9, pct_7d=99, reset_5h=now + 1800, reset_7d=now + 3600)
+    st = status.read("sliver")
+    ld = loadmod.Load("sliver", 0, 2, 0.0)
+    check("near-wall: 99% with an hour left still takes_work",
+          st.takes_work(0)[0], st.takes_work(0))
+    check("near-wall: and unfit finds nothing wrong with it",
+          status.unfit(st, ld) is None)
+    check("near-wall: it lands in tier 2, the same as any other non-abundant "
+          "account - not refused, not a tier of its own",
+          status.tier(st, ld) == 2)
+    # With nothing better available, it is still the pick - #254's spend-to-
+    # the-wall guarantee, which tier 3 must not quietly take back.
+    picked, _ = status.pick_account(["sliver"])
+    check("near-wall: with no alternative, it is still picked, not skipped",
+          picked == "sliver", picked)
+
 
 def test_pick_account_does_not_bounce_between_two_close_accounts(home: Path) -> None:
     """Many consecutive picks, with two accounts close in pace and usage
@@ -8464,7 +8532,8 @@ def test_an_agent_cannot_force_a_move(home: Path) -> None:
             os.environ["OCP_AGENT"] = real
 
 
-def test_weekly_headroom_is_spent_to_its_own_wall(home: Path) -> None:
+def test_a_near_wall_7d_account_is_still_a_candidate_but_not_guaranteed_the_pick(
+        home: Path) -> None:
     """Founder's decision #254: an account at 5h 9% / 7d 99% is spendable to
     the weekly wall, not held back short of it - it must still be a candidate,
     and an agent working on it moves only once 7d actually reaches its own
@@ -15224,6 +15293,9 @@ def main() -> int:
         home.mkdir()
         run(lambda: test_failclosed(home))
         run(lambda: test_pick_account_orders_by_weekly_pace(Path(td) / 'deadline'))
+        run(lambda: test_pace_matches_the_founders_own_worked_examples(Path(td) / 'foundersex'))
+        run(lambda: test_a_near_wall_7d_account_is_not_specially_excluded_from_tier_2(
+            Path(td) / 'nearwall'))
         run(lambda: test_pick_account_does_not_bounce_between_two_close_accounts(
             Path(td) / 'nobounce'))
         run(lambda: test_pick_account_prefer_breaks_an_exact_bucket_tie(Path(td) / 'prefertie'))
@@ -15391,7 +15463,8 @@ def main() -> int:
         run(lambda: test_a_long_name_does_not_run_into_the_column_beside_it(Path(td) / 'cols'))
         run(lambda: test_the_whole_loop_runs_on_our_own_commands(Path(td) / 'loop'))
         run(lambda: test_an_agent_can_put_another_one_to_work(Path(td) / 'dispatch'))
-        run(lambda: test_weekly_headroom_is_spent_to_its_own_wall(Path(td) / 'sevendaywall'))
+        run(lambda: test_a_near_wall_7d_account_is_still_a_candidate_but_not_guaranteed_the_pick(
+            Path(td) / 'sevendaywall'))
         run(lambda: test_an_agent_is_judged_on_the_account_its_process_is_on(Path(td) / 'procacct'))
         run(lambda: test_a_move_is_not_recorded_while_the_process_is_still_on_the_old_account(Path(td) / 'movever'))
         run(lambda: test_a_forced_move_goes_through_the_verified_move_or_not_at_all(Path(td) / 'forced'))
