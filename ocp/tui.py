@@ -1636,6 +1636,42 @@ _CSI = re.compile(r"\033(?:\[[0-?]*[ -/]*[@-~]|O.)")
 _CSI_CUT = re.compile(r"\033(?:\[[0-?]*[ -/]*|O)")
 
 
+def _word_left(pos: int, text: str) -> int:
+    while pos and text[pos - 1] == " ":
+        pos -= 1
+    while pos and text[pos - 1] != " ":
+        pos -= 1
+    return pos
+
+
+def _word_right(pos: int, text: str) -> int:
+    n = len(text)
+    while pos < n and text[pos] == " ":
+        pos += 1
+    while pos < n and text[pos] != " ":
+        pos += 1
+    return pos
+
+
+# Where a key moves the cursor to, by the CSI sequence a terminal sends for it -
+# both the `\033[` and the older `\033O` forms, since a terminal's application-
+# cursor-keys mode picks one or the other for the plain arrows. A sequence this
+# does not name still reaches Composer.feed (so Delete, function keys and the
+# rest are still read and discarded, as before), it just does not move `pos`.
+_MOVE = {
+    "\033[D": lambda p, t: max(0, p - 1), "\033OD": lambda p, t: max(0, p - 1),
+    "\033[C": lambda p, t: min(len(t), p + 1), "\033OC": lambda p, t: min(len(t), p + 1),
+    "\033[H": lambda p, t: 0, "\033OH": lambda p, t: 0,
+    "\033[1~": lambda p, t: 0, "\033[7~": lambda p, t: 0,
+    "\033[F": lambda p, t: len(t), "\033OF": lambda p, t: len(t),
+    "\033[4~": lambda p, t: len(t), "\033[8~": lambda p, t: len(t),
+    "\033[1;5D": _word_left, "\033[1;3D": _word_left,
+    "\033[1;5C": _word_right, "\033[1;3C": _word_right,
+}
+# Delete (not Backspace): removes the character at `pos` rather than moving it.
+_DELETE_AT = {"\033[3~"}
+
+
 class Composer:
     """Text typed on the bottom line, as many lines as the sender pasted.
 
@@ -1653,6 +1689,7 @@ class Composer:
         self.multi = multi
         self.text, self.pasting, self._carry = "", False, ""
         self.typed = ""                # what was keyed, as against pasted
+        self.pos = 0                   # where in `text` the next key lands
 
     def feed(self, data: str) -> str | None:
         """'send', 'cancel', or None while the message is still being typed."""
@@ -1672,13 +1709,18 @@ class Composer:
                 ch, data = data[0], data[1:]
                 if ch == "\r" and data[:1] == "\n":
                     data = data[1:]
-                self.text += ("\n" if self.multi else " ") if ch in "\r\n" else ch
+                ins = ("\n" if self.multi else " ") if ch in "\r\n" else ch
+                self.text = self.text[:self.pos] + ins + self.text[self.pos:]
+                self.pos += len(ins)
             elif data[0] in "\r\n":
                 return "send"
             elif data[0] == "\033":
                 m = _CSI.match(data)
                 if m:
-                    data = data[m.end():]  # an arrow, Delete...: not text
+                    seq, data = data[:m.end()], data[m.end():]
+                    self.pos = _MOVE.get(seq, lambda p, t: p)(self.pos, self.text)
+                    if seq in _DELETE_AT:
+                        self.text = self.text[:self.pos] + self.text[self.pos + 1:]
                 elif data[1:2] in ("[", "O"):
                     if _CSI_CUT.fullmatch(data):
                         self._carry = data     # a sequence cut short by the read
@@ -1687,33 +1729,56 @@ class Composer:
                 else:
                     return "cancel"
             elif data[0] in ("\x7f", "\b"):
-                self.text, data = self.text[:-1], data[1:]
+                if self.pos:
+                    self.text = self.text[:self.pos - 1] + self.text[self.pos:]
+                    self.pos -= 1
+                data = data[1:]
             elif data[0] == "\x03":
                 return "cancel"
             else:
                 ch, data = data[0], data[1:]
                 if ch.isprintable():
-                    self.text += ch
+                    self.text = self.text[:self.pos] + ch + self.text[self.pos:]
+                    self.pos += 1
                     self.typed += ch
         return None
 
     def shown(self, prompt: str, width: int, cap: int) -> list[str]:
         """The prompt and everything typed, wrapped at the column edge, with the
-        cursor after the last character. At most `cap` rows: past that the
-        oldest are left off and the first row says how many."""
+        cursor at the edit position - the last character only while it has not
+        been moved. At most `cap` rows: the window follows the cursor, so
+        moving it out of view scrolls to it rather than losing it."""
         # A pasted escape is drawn as its picture, not sent to the terminal.
         text = "".join(c if c == "\n" or c.isprintable() else
                        chr(0x2400 + ord(c)) if c < " " else "\ufffd" for c in self.text)
-        rows = _wrap_typed(f"{prompt} {text}\u258f", width)
-        if len(rows) > cap:
-            gone = len(rows) - max(1, cap - 1)
-            rows = ([f"{DIM}… {gone} earlier rows{R}"] if cap > 1 else []) + rows[gone:]
+        pos = max(0, min(self.pos, len(text)))
+        marked = f"{text[:pos]}\u258f{text[pos:]}"
+        rows = _wrap_typed(f"{prompt} {marked}", width)
+        cur = next((i for i, r in enumerate(rows) if "\u258f" in r), len(rows) - 1)
+        rows = _window_rows(rows, cur, cap)
         left = len(prompt)         # the prompt is bold wherever it wrapped to
         out = []
         for row in rows:
             k, left = min(left, len(row)), max(0, left - len(row))
             out.append(f"{BOLD}{row[:k]}{R}{row[k:]}" if k else row)
         return out
+
+
+def _window_rows(rows: list[str], cur: int, cap: int) -> list[str]:
+    """At most `cap` rows, keeping row `cur` (the cursor's) visible. This is the
+    old behaviour - the last `cap` rows - when `cur` is the last row, which it
+    always was before the cursor could move; moving it back now scrolls the
+    window to it instead of losing it."""
+    if len(rows) <= cap:
+        return rows
+    room = max(1, cap - 1)     # one row spent on the note, when there is one
+    lo = max(0, min(cur, len(rows) - room))
+    hi = lo + room
+    before, after = lo, len(rows) - hi
+    if cap <= 1 or (not before and not after):
+        return rows[lo:hi]
+    bits = ([f"{before} earlier"] if before else []) + ([f"{after} more"] if after else [])
+    return [f"{DIM}… {' and '.join(bits)} rows{R}"] + rows[lo:hi]
 
 
 def _wrap_typed(text: str, width: int) -> list[str]:

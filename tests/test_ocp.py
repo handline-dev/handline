@@ -6919,14 +6919,18 @@ def test_typed_text_and_keys_arrive_whole_however_the_reads_fall(home: Path) -> 
         note("read: a byte that is not UTF-8 is shown as U+FFFD, and its neighbours survive",
               tui._line("p:", 100, 24) == "a\ufffdb")
 
-        # Esc, and the arrow that begins with one.
+        # Esc, and the arrow that begins with one. Now that Left actually moves
+        # the cursor (#1020), "def" lands where the arrow left it, not at the
+        # end - the point of the test is that the split sequence is read as
+        # one key and acts once, not that the arrow is a no-op.
+        moved = {b"\033[D": "abdefc", b"\033OD": "abdefc", b"\033[1;5D": "defabc"}
         for seq in (b"\033[D", b"\033OD", b"\033[1;5D"):
             bad = [k for k in range(1, len(seq))
-                   if typed([b"abc", seq[:k], seq[k:] + b"def\r"]) != "abcdef"]
+                   if typed([b"abc", seq[:k], seq[k:] + b"def\r"]) != moved[seq]]
             note(f"read: {seq!r} split inside it does not cancel a prompt or lose its text",
                   not bad, str(bad))
         note("read: and at the very end of what was typed, byte by byte",
-              typed([b"abc", b"\033", b"[", b"D", b"def\r"]) == "abcdef")
+              typed([b"abc", b"\033", b"[", b"D", b"def\r"]) == "abdefc")
         began = time.time()
         got = typed([b"abc", b"\033"], wait=real_wait)
         note("read: a real Esc still cancels a prompt, without a long wait",
@@ -12719,6 +12723,7 @@ def test_a_message_being_typed_wraps_and_keeps_the_cursor_on_its_last_character(
     for width in (80, 20, 7):
         for n in range(0, 90):
             box.text = ("ab cd " * 40)[:n]
+            box.pos = len(box.text)
             rows = plain(box.shown("to reviewer:", width, 100))
             if ("".join(rows) != "to reviewer: " + box.text + "\u258f"
                     or not rows[-1].endswith("\u258f")
@@ -12727,17 +12732,21 @@ def test_a_message_being_typed_wraps_and_keeps_the_cursor_on_its_last_character(
     check("typing: at any length and width nothing is lost, the cursor is last, nothing is too wide",
           not lost, str(lost[:2]))
     box.text = "one two " + "three " * 30 + "trailing space "
+    box.pos = len(box.text)
     rows = plain(box.shown("to x:", 30, 100))
     check("typing: a space just typed is where the cursor is, on the row it wrapped to",
           rows[-1].endswith(" \u258f") or rows[-1] == "\u258f", str(rows[-2:]))
     box.text = box.text[:-1]
+    box.pos = len(box.text)
     check("typing: and Backspace takes the cursor back onto the character before it",
           plain(box.shown("to x:", 30, 100))[-1] == "space\u258f")
     box.text = "\n".join(f"line {i}" for i in range(40))
+    box.pos = len(box.text)
     rows = plain(box.shown("to x:", 30, 6))
     check("typing: past the room it has, the newest rows show and the first says how many went",
           len(rows) == 6 and "earlier rows" in rows[0] and rows[-1] == "line 39\u258f", str(rows))
     box.text = "a\033[2Jb"
+    box.pos = len(box.text)
     check("typing: a pasted escape is shown as a picture, never sent",
           "\033[2J" not in "".join(box.shown("p:", 30, 5)))
 
@@ -12984,6 +12993,81 @@ def test_the_composer_takes_a_paste_whole(home: Path) -> None:
     c = tui.Composer()
     c.feed("a\033[3~b\033[1;5Cc")
     check("composer: longer escape sequences are skipped whole", c.text == "abc", repr(c.text))
+
+
+def test_the_composer_cursor_moves_and_edits_in_place(home: Path) -> None:
+    """Founder: they could not put the cursor back into what they had typed -
+    Left/Right were read and then discarded by the generic escape branch, so
+    the keys did nothing at all (#1008/#1020). The fix: a real position,
+    moved and edited at, not only ever appended to or popped from the end."""
+    c = tui.Composer()
+    c.feed("abc")
+    check("cursor: typing leaves it after the last character", c.pos == 3)
+    c.feed("\033[D")
+    check("cursor: Left steps it back one", c.pos == 2)
+    c.feed("x")
+    check("cursor: what is typed goes in at the cursor, not appended to the end",
+          c.text == "abxc" and c.pos == 3, repr(c.text))
+    c.feed("\033[C")
+    check("cursor: Right steps it forward one", c.pos == 4 and c.text == "abxc")
+    c.feed("\033[D\033[D\033[D\033[D\033[D")   # past the start, five times
+    check("cursor: Left clamps at 0, it does not go negative", c.pos == 0)
+    c.feed("\033[F")   # End
+    check("cursor: End puts it after the last character", c.pos == len(c.text) == 4)
+    c.feed("\033[H")   # Home
+    check("cursor: Home puts it at the first", c.pos == 0)
+    c.feed("\x7f")
+    check("cursor: Backspace at the start does nothing - nothing is before it",
+          c.text == "abxc" and c.pos == 0)
+    c.feed("\033[C\033[C")
+    c.feed("\x7f")
+    check("cursor: Backspace removes the character before the cursor, not the last one typed",
+          c.text == "axc" and c.pos == 1, repr(c.text))
+    c.feed("\033[3~")   # Delete
+    check("cursor: Delete removes the character at the cursor, and does not move it",
+          c.text == "ac" and c.pos == 1, repr(c.text))
+
+    c = tui.Composer()
+    c.feed("one two three")
+    c.feed("\033[1;5D")   # Ctrl-Left / word-left
+    check("cursor: word-left lands at the start of the last word",
+          c.text[:c.pos] == "one two ", repr(c.text[:c.pos]))
+    c.feed("\033[1;5D")
+    check("cursor: and again at the start of the word before it",
+          c.text[:c.pos] == "one ", repr(c.text[:c.pos]))
+    c.feed("\033[1;5C")   # Ctrl-Right / word-right
+    check("cursor: word-right lands past the end of that word",
+          c.text[:c.pos] == "one two", repr(c.text[:c.pos]))
+
+    c = tui.Composer(multi=True)
+    c.feed("abc")
+    c.feed("\033[D")
+    c.feed("\033[200~X\nY\033[201~")
+    check("cursor: a paste also inserts at the cursor, not at the end",
+          c.text == "abX\nYc" and c.pos == 5, repr(c.text))
+
+    def plain(rows: list[str]) -> list[str]:
+        return [tui._ANSI.sub("", r) for r in rows]
+
+    # shown() draws the glyph at the cursor, not always after the last character.
+    c = tui.Composer()
+    c.feed("abc")
+    c.feed("\033[D")
+    check("shown: the glyph sits where the cursor is, not at the end",
+          "".join(plain(c.shown("p:", 40, 5))) == "p: ab▏c", plain(c.shown("p:", 40, 5)))
+
+    # Longer than the visible cap: moving the cursor out of the window scrolls
+    # to it, the way the window always followed the end while only typing.
+    c = tui.Composer(multi=True)
+    c.text = "\n".join(f"line {i}" for i in range(10))
+    c.pos = len(c.text)
+    rows = plain(c.shown("p:", 30, 4))
+    check("shown: at the end, the window is the tail, as before typing could move it",
+          rows[-1].endswith("line 9▏") and "earlier" in rows[0], str(rows))
+    c.pos = 0   # the cursor moved to the very first character
+    rows = plain(c.shown("p:", 30, 4))
+    check("shown: with the cursor moved to the top, the window follows it there",
+          "▏" in "".join(rows) and "more" in rows[0], str(rows))
 
 
 def test_a_message_is_read_whole_and_answered_where_it_is_read(home: Path) -> None:
@@ -15102,6 +15186,7 @@ def main() -> int:
         run(lambda: test_a_message_being_typed_wraps_and_keeps_the_cursor_on_its_last_character(Path(td) / 'typing'))
         run(lambda: test_bracketed_paste_is_switched_on_with_the_screen())
         run(lambda: test_the_composer_takes_a_paste_whole(Path(td) / 'composer'))
+        run(lambda: test_the_composer_cursor_moves_and_edits_in_place(Path(td) / 'composer-cursor'))
         run(lambda: test_a_paste_into_any_prompt_arrives_whole_and_confirms_nothing(Path(td) / 'pasteany'))
         run(lambda: test_a_key_never_acts_on_a_row_nobody_pointed_at(Path(td) / 'topsel'))
         run(lambda: test_the_frame_never_draws_wider_than_the_terminal(Path(td) / 'topwide'))
