@@ -1095,9 +1095,8 @@ def reconcile(con, log) -> list[str]:
                                f"still due - {why}")
                 continue
             actions.append(f"{agent}: woken at reconciliation")
-        db.set_agent_state(con, agent, QUEUED, wake_at=None,
-                           detail=f"woke from {row['state']} at reconciliation")
-        actions.append(f"{agent}: {row['state']} -> QUEUED (wake_at was {row['wake_at']})")
+        new_state = _queued_or_idle(con, agent, f"woke from {row['state']} at reconciliation")
+        actions.append(f"{agent}: {row['state']} -> {new_state} (wake_at was {row['wake_at']})")
 
     # 3. Agents we know about but have no state row for.
     known = set(paths.list_agents())
@@ -1701,6 +1700,25 @@ def _confirmed_reading(con, agent: str, reading, log):
     return agents.AccountReading(actual, "recorded")
 
 
+def _queued_or_idle(con, agent: str, when: str) -> str:
+    """Write QUEUED when there is a request still queued or an answer this
+    agent asked for and has not been told about, IDLE otherwise - and return
+    which. That is the project's one definition of work waiting, not this
+    helper's: `would_wake`, `_move_plan` and `supervise` ask the same two
+    questions, and the founder's screen builds WAITING FOR IT and ANSWERS IT HAS
+    NOT BEEN TOLD from the same two queries, so a row this calls IDLE is one the
+    screen shows with nothing in either section.
+    Shared by every writer of a due wake_at (a stale one, from an unrelated
+    throttle or park, can come due after the turn it was set during already
+    went idle on its own - Stop only clears RUNNING), so QUEUED stays a claim
+    about the queue everywhere it is made, not only where #645 was noticed."""
+    if db.queued_for(con, agent) or db.unannounced_answers(con, agent):
+        db.set_agent_state(con, agent, QUEUED, wake_at=None, detail=when)
+        return QUEUED
+    db.set_agent_state(con, agent, IDLE, wake_at=None, detail=f"{when}; no requests waiting")
+    return IDLE
+
+
 def supervise(con, agent: str, log, now: int, samples: dict,
               actions: list[str]) -> None:
     """One agent's turn in a tick.
@@ -1766,11 +1784,16 @@ def supervise(con, agent: str, log, now: int, samples: dict,
             state = fresh["state"]
             woke_now = woke_now or restored
             return
-        db.set_agent_state(con, agent, QUEUED, wake_at=None, detail="wake_at reached")
-        actions.append(f"{agent}: {state} -> QUEUED (window rolled over)")
-        log(f"  {agent}: {state} -> QUEUED (window rolled over)")
+        # QUEUED is a claim about the queue, so the write has to look at it
+        # (`_queued_or_idle`) - a stale wake_at can come due after the turn it
+        # was set during already went idle on its own, since Stop only clears
+        # RUNNING.
+        new_state = _queued_or_idle(con, agent, "wake_at reached")
+        why_word = "window rolled over" if new_state == QUEUED else "nothing queued"
+        actions.append(f"{agent}: {state} -> {new_state} ({why_word})")
+        log(f"  {agent}: {state} -> {new_state} ({why_word})")
+        state = new_state
         row = db.get_agent_state(con, agent)
-        state = QUEUED
         woke_now = woke_now or restored
 
     # An agent with nowhere to run cannot be given work by anyone but a human,
@@ -1897,11 +1920,11 @@ def supervise(con, agent: str, log, now: int, samples: dict,
                 actions.append(f"{agent}: moved off a parked account")
                 return
         if movable and not verdict.fired:
-            db.set_agent_state(con, agent, QUEUED, wake_at=None, detail="usage recovered")
-            actions.append(f"{agent}: {state} -> QUEUED (usage recovered)")
-            log(f"  {agent}: {state} -> QUEUED (usage recovered)")
+            new_state = _queued_or_idle(con, agent, "usage recovered")
+            actions.append(f"{agent}: {state} -> {new_state} (usage recovered)")
+            log(f"  {agent}: {state} -> {new_state} (usage recovered)")
             row = db.get_agent_state(con, agent)
-            state = QUEUED
+            state = new_state
             woke_now = True
 
     if state in (PARKED, THROTTLED, DEGRADED):
