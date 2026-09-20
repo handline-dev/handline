@@ -1702,8 +1702,12 @@ def _confirmed_reading(con, agent: str, reading, log):
 
 def _queued_or_idle(con, agent: str, when: str) -> str:
     """Write QUEUED when there is a request still queued or an answer this
-    agent asked for and has not been told about, IDLE otherwise (`_move_plan`'s
-    own "work waiting", not a query of this helper's own) - and return which.
+    agent asked for and has not been told about, IDLE otherwise - and return
+    which. That is the project's one definition of work waiting, not this
+    helper's: `would_wake`, `_move_plan` and `supervise` ask the same two
+    questions, and the founder's screen builds WAITING FOR IT and ANSWERS IT HAS
+    NOT BEEN TOLD from the same two queries, so a row this calls IDLE is one the
+    screen shows with nothing in either section.
     Shared by every writer of a due wake_at (a stale one, from an unrelated
     throttle or park, can come due after the turn it was set during already
     went idle on its own - Stop only clears RUNNING), so QUEUED stays a claim

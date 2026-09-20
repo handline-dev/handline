@@ -429,8 +429,8 @@ IDLE → QUEUED → RUNNING → DONE
                    │                          │         (후보 없음)
                    │            실패·타임아웃 ─┴──▶ DEGRADED ──▶ PARKED
                    │
-PARKED    ──wake_at──▶ QUEUED
-THROTTLED ──예산 창 롤오버──▶ QUEUED      (자동)
+PARKED    ──wake_at──▶ QUEUED      (기다리는 요청·답이 없으면 IDLE)
+THROTTLED ──예산 창 롤오버──▶ QUEUED      (자동; 기다리는 요청·답이 없으면 IDLE)
 STALLED   ──사람만 해제──▶ QUEUED
 ```
 
