@@ -122,6 +122,44 @@ CREATE TABLE IF NOT EXISTS handoff (
   updated     INTEGER NOT NULL
 );
 CREATE INDEX IF NOT EXISTS handoff_agent ON handoff(agent, state);
+
+-- One row per agent while ocp has work for it and cannot give it: the daemon
+-- writes it, and the bridge, `ocp ps` and `ocp doctor` - other processes - read
+-- it. Gone the tick the agent can be given its work again.
+CREATE TABLE IF NOT EXISTS delivery_blocks (
+  agent      TEXT PRIMARY KEY,
+  kind       TEXT NOT NULL,
+  detail     TEXT NOT NULL,
+  work       TEXT NOT NULL,
+  since      INTEGER NOT NULL,
+  -- When it goes on the founder's list; the escalation is raised from `since`.
+  show_at    INTEGER NOT NULL,
+  seen       INTEGER NOT NULL,
+  -- The request raised for this episode, so it is raised once and closed once.
+  request_id INTEGER,
+  -- 'tick' ends with the work; 'close' - ocp's own /exit raised the dialog -
+  -- stands for as long as the dialog does.
+  origin     TEXT NOT NULL DEFAULT 'tick',
+  -- The dialog's own title, raw from orca.Blocker (parse_dialog), for a MODAL
+  -- block - never reconstructed from `detail`, which is a rendering a title
+  -- with a quote in it or over DETAIL_CHARS long does not round-trip through.
+  -- Empty for anything but MODAL.
+  title      TEXT NOT NULL DEFAULT ''
+);
+
+-- What ocp did about a dialog on an agent's screen, one row per attempt or per
+-- decision not to: the record a returning dialog is counted from, and what a
+-- request says when it stops pressing. Never rewritten.
+CREATE TABLE IF NOT EXISTS dialog_presses (
+  id      INTEGER PRIMARY KEY AUTOINCREMENT,
+  agent   TEXT NOT NULL,
+  at      INTEGER NOT NULL,
+  title   TEXT NOT NULL,
+  -- 'cleared' | 'still-open' | 'not-pressed'
+  outcome TEXT NOT NULL,
+  note    TEXT NOT NULL DEFAULT ''
+);
+CREATE INDEX IF NOT EXISTS dialog_presses_agent ON dialog_presses(agent, at);
 """
 
 
@@ -674,6 +712,48 @@ def set_agent_state(con, agent: str, state: str, wake_at: int | None = None,
         "detail=excluded.detail, updated=excluded.updated",
         (agent, state, wake_at, detail, int(time.time())),
     )
+
+
+def block_get(con, agent: str):
+    return con.execute("SELECT * FROM delivery_blocks WHERE agent = ?", (agent,)).fetchone()
+
+
+def blocks(con) -> list:
+    return con.execute("SELECT * FROM delivery_blocks ORDER BY since, agent").fetchall()
+
+
+def block_open(con, agent: str, kind: str, detail: str, work: str, now: int,
+               show_at: int, origin: str = "tick", title: str = "") -> None:
+    con.execute(
+        "INSERT OR REPLACE INTO delivery_blocks"
+        "(agent, kind, detail, work, since, show_at, seen, request_id, origin, title) "
+        "VALUES(?,?,?,?,?,?,?,NULL,?,?)",
+        (agent, kind, detail, work, now, show_at, now, origin, title))
+
+
+def block_update(con, agent: str, kind: str, detail: str, work: str, now: int,
+                 title: str = "") -> None:
+    con.execute("UPDATE delivery_blocks SET kind = ?, detail = ?, work = ?, seen = ?, title = ? "
+                "WHERE agent = ?", (kind, detail, work, now, title, agent))
+
+
+def block_set_request(con, agents: list[str], rid: int) -> None:
+    con.executemany("UPDATE delivery_blocks SET request_id = ? WHERE agent = ?",
+                    [(rid, a) for a in agents])
+
+
+def press_add(con, agent: str, now: int, title: str, outcome: str, note: str = "") -> None:
+    con.execute("INSERT INTO dialog_presses(agent, at, title, outcome, note) VALUES(?,?,?,?,?)",
+                (agent, now, title, outcome, note))
+
+
+def presses_since(con, agent: str, since: int) -> list:
+    return con.execute("SELECT * FROM dialog_presses WHERE agent = ? AND at >= ? "
+                       "ORDER BY id", (agent, since)).fetchall()
+
+
+def block_clear(con, agent: str) -> None:
+    con.execute("DELETE FROM delivery_blocks WHERE agent = ?", (agent,))
 
 
 def set_state_unless_running(con, agent: str, state: str, detail: str | None = None) -> bool:

@@ -83,6 +83,14 @@ reported are one fact and there is no pidfile to go stale. `ocp ps` and
 `ocp doctor` also count daemons in the process table and say so when there are
 two.
 
+An agent ocp has work for and cannot give it - a dialog open on its screen (such
+as `/exit` meeting background shells), text left unsent in its input, no terminal
+or session - is written to `delivery_blocks` and is not silent: `ocp ps` and the
+bridge list it under WAITING ON YOU after `blocked.SHOW_AFTER_S`, naming the
+dialog from the screen, and it becomes one request to `human` after
+`blocked.ESCALATE_AFTER_S`, closed by the daemon when the agent can be given its
+work again. ocp names the dialog and never answers it.
+
 ## Commands
 
 | | |
