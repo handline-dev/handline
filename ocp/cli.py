@@ -308,10 +308,10 @@ def cmd_agent_show(args) -> int:
                    for fn, size, lim, over in agents.budget_report(args.name)},
     }
     if args.json:
-        print(json.dumps(info, indent=2, ensure_ascii=False))
+        print(textsafe.json_dumps(info, indent=2))
         return 0
     for k, v in info.items():
-        print(f"{k:<17}{v}")
+        print(f"{k:<17}{textsafe.oneline(str(v))}")
     return 0
 
 
@@ -326,7 +326,7 @@ def cmd_handoff_write(args) -> int:
     con = db.connect()
     try:
         missing = handoffmod.record(con, args.agent)
-        print(db.get_handoff(con, args.agent))
+        print(textsafe.text(db.get_handoff(con, args.agent) or ""))
     finally:
         con.close()
     if missing:
@@ -376,8 +376,8 @@ def cmd_agent_list(args) -> int:
         cfg = agents.read(n)
         budget = " ".join(f"{fn}:{size}B{'!' if over else ''}"
                           for fn, size, _, over in agents.budget_report(n))
-        print(f"{n:<11} -> {acct:<7} {str(cfg.get('model')):<7} "
-              f"{str(cfg.get('effort') or agents.DEFAULT_EFFORT):<7} "
+        print(f"{n:<11} -> {acct:<7} {textsafe.oneline(str(cfg.get('model'))):<7} "
+              f"{textsafe.oneline(str(cfg.get('effort') or agents.DEFAULT_EFFORT)):<7} "
               f"{'ok' if allowed else 'BLOCKED':<8} {budget}")
     return 0
 
@@ -428,10 +428,9 @@ def cmd_status(args) -> int:
     # whether it was measured or is still the starting value.
     priced = load.costs().by_kind(paths.list_agents())
     if args.json:
-        print(json.dumps({"picked": picked,
-                          "candidates": [{"account": a, "reason": w} for a, w in reasons],
-                          "agent_costs": priced},
-                         indent=2, ensure_ascii=False))
+        print(textsafe.json_dumps({"picked": picked,
+                                  "candidates": [{"account": a, "reason": w} for a, w in reasons],
+                                  "agent_costs": priced}, indent=2))
         return 0 if picked else 1
     for a, why in reasons:
         print(f"  {a:<14} {why}")
@@ -527,7 +526,7 @@ def cmd_daemon_status(args) -> int:
                     and launch.drifted(r["agent"], r))
                 shown = r["state"] + ("·closed" if r["closed_at"] else "") \
                     + ("·drift" if drifted else "")
-                detail = r["detail"] or ""
+                detail = textsafe.oneline(r["detail"] or "")
                 held = waits[r["agent"]]
                 if held:
                     shown = tui.WAITING_ON_YOU
@@ -589,7 +588,7 @@ def cmd_service_status(args) -> int:
 
 def cmd_service_logs(args) -> int:
     path = service.err_log() if args.err else service.out_log()
-    print(service.tail(path, lines=args.lines))
+    print(textsafe.text(service.tail(path, lines=args.lines)))
     return 0
 
 
@@ -667,7 +666,7 @@ def cmd_fold(args) -> int:
         ok, msg = foldmod.fold(a, use_model=not args.no_model, model=args.model,
                                fold_account=args.account,
                                repo=Path(args.repo).resolve() if args.repo else None)
-        print(msg)
+        print(textsafe.text(msg))
         bad += 0 if ok else 1
     return 1 if bad else 0
 
@@ -685,7 +684,7 @@ def cmd_digest(args) -> int:
     if not p.exists():
         print(f"no digest at {p}")
         return 1
-    print(p.read_text())
+    print(textsafe.text(p.read_text()))
     return 0
 
 
@@ -698,7 +697,7 @@ def cmd_handoff(args) -> int:
     if not text:
         print(f"no handoff waiting for {args.agent}")
         return 1
-    print(text)
+    print(textsafe.text(text))
     return 0
 
 
@@ -723,7 +722,8 @@ def cmd_events(args) -> int:
             return 0
         for r in rows:
             when = time.strftime("%m-%d %H:%M", time.localtime(r["ts"]))
-            print(f"{r['id']:<6} {when} {r['agent']:<12} {r['kind']:<16} {(r['payload'] or '')[:70]}")
+            print(f"{r['id']:<6} {when} {r['agent']:<12} {textsafe.oneline(r['kind']):<16} "
+                  f"{textsafe.oneline(r['payload'] or '')[:70]}")
         # With --after the whole table is not the population being paged, and
         # saying it is misleads in the same direction as the bug this replaced.
         total = db.count_events(con, agent=args.agent, after=args.after)
@@ -1122,7 +1122,7 @@ def cmd_inbox(args) -> int:
         print(f"{len(rows)} total. `ocp read <id>` shows one whole.")
         for r in rows:
             print(f"#{r['id']:<5} from {r['requester']:<12} {r['state']:<9} "
-                  f"depth={r['chain_depth']} {r['body'][:60]}")
+                  f"depth={r['chain_depth']} {textsafe.oneline(r['body'])[:60]}")
         return 0
 
     con = db.connect()
@@ -1140,7 +1140,7 @@ def cmd_inbox(args) -> int:
         con.close()
     print(f"#{head['id']} from {head['requester']}  depth={head['chain_depth']}")
     print()
-    print(head["body"] or "(empty)")
+    print(textsafe.text(head["body"] or "(empty)"))
     if more:
         print(f"\n{more} more waiting - the next comes when you resolve or dismiss this one.")
     print("\n`ocp resolve <id> \"<verdict>\"` answers it. `ocp inbox --all` shows the whole "
@@ -1170,7 +1170,7 @@ def _human_inbox(show_all: bool = False) -> int:
         for m in rows:
             mark = "!" if m["gate"] else ("<" if m["answer"] else ".")
             print(f"{mark} #{m['id']:<5} {m['from']:<12} {(m['kind'] or 'ask'):<9} "
-                  f"{actions.first_line(m['body'])[:60]}")
+                  f"{textsafe.oneline(actions.first_line(m['body']))[:60]}")
         print("`ocp resolve <id> \"<text>\"` answers one - on a `<` row that goes back "
               "as a reply in its thread; `ocp dismiss <id>` takes it off the list.")
         if show_all:
@@ -1187,7 +1187,7 @@ def _human_inbox(show_all: bool = False) -> int:
                 other = r["target"] if r["requester"] == actions.HUMAN else r["requester"]
                 arrow = "→" if r["requester"] == actions.HUMAN else "←"
                 print(f"  #{r['id']:<5} {arrow} {other:<12} {r['state']:<9} "
-                      f"{actions.first_line(r['verdict'] or r['body'])[:60]}")
+                      f"{textsafe.oneline(actions.first_line(r['verdict'] or r['body']))[:60]}")
         return 0
     finally:
         con.close()
@@ -1290,14 +1290,14 @@ def cmd_read(args) -> int:
         print(f"relation {row['relation']}   response {row['response']}   "
               f"depth {row['chain_depth']}")
         print()
-        print(row["body"] or "(empty)")
+        print(textsafe.text(row["body"] or "(empty)"))
         if row["verdict"]:
             print()
             # A denied row never reached its target, so nothing came back from
             # it: the verdict there is this system refusing to send it.
             print(f"--- refused ---" if row["state"] == "denied"
                   else f"--- answered by {row['target']} ---")
-            print(row["verdict"])
+            print(textsafe.text(row["verdict"]))
         return 0
     finally:
         con.close()
@@ -1334,7 +1334,7 @@ def cmd_resolve(args) -> int:
             # was being worked on. A second verdict would overwrite the first
             # and be sent to the requester as though it were the answer.
             print(f"#{args.id} is already {row['state']}"
-                  + (f" ({row['verdict'].splitlines()[0][:120]})" if row["verdict"] else "")
+                  + (f" ({textsafe.oneline(row['verdict'])[:120]})" if row["verdict"] else "")
                   + " - nothing to resolve.")
             return 1
     finally:

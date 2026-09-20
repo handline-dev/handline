@@ -15,6 +15,7 @@ end that owns the terminal it draws on.
 
 from __future__ import annotations
 
+import json
 import re
 import unicodedata
 
@@ -26,28 +27,40 @@ _CSI = re.compile(r"\033\[[0-?]*[ -/]*[@-~]")
 _CONTROL = re.compile(r"[\x00-\x08\x0b-\x1f\x7f-\x9f]")
 
 
-def drawable(text: str) -> list[str]:
+def drawable(text: str, tabs: int | None = 4) -> list[str]:
     """`text` as lines of plain text and nothing a terminal would obey.
 
     A line break is anything `str.splitlines` breaks on, which includes the
     ones a terminal would obey (carriage return, vertical tab, form feed): they
     become line breaks here rather than being overwritten in place. A tab
-    becomes spaces: it is the one control whose width is not one.
+    becomes `tabs` spaces, since it is the one control whose width is not one;
+    `None` leaves it, for output that is read as text and not laid out.
     """
     text = _CSI.sub("", _OSC.sub("", text))
-    return [_CONTROL.sub("", ln.expandtabs(4)) for ln in text.splitlines() or [""]]
+    return [_CONTROL.sub("", ln.expandtabs(tabs) if tabs else ln)
+            for ln in text.splitlines() or [""]]
 
 
 def text(value: str) -> str:
     """`value` as one string that can be printed as it is: `drawable`'s lines,
-    joined by newlines. For a command that writes into someone's shell."""
-    return "\n".join(drawable(value))
+    joined by newlines, tabs kept. For a command that writes into someone's
+    shell, where the text is read - by a person or by an agent - and not laid
+    out, so a tab in a patch must stay a tab."""
+    return "\n".join(drawable(value, tabs=None))
 
 
 def oneline(value: str) -> str:
     """`value` as a single line of printable text: `drawable`, a newline being
     a space, and anything else unprintable blanked."""
     return "".join(c if c.isprintable() else " " for c in " ".join(drawable(value)))
+
+
+def json_dumps(obj, **kw) -> str:
+    """`json.dumps(obj, ensure_ascii=False)` for a terminal: DEL and C1 are the
+    controls JSON leaves as they are, so they are written as \\uXXXX escapes,
+    which is still the same JSON."""
+    return re.sub(r"[\x7f-\x9f]", lambda m: f"\\u{ord(m.group()):04x}",
+                  json.dumps(obj, ensure_ascii=False, **kw))
 
 
 def cwidth(ch: str) -> int:

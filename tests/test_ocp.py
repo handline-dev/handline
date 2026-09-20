@@ -12411,6 +12411,125 @@ def test_an_agent_name_is_text_and_no_screen_can_be_made_to_obey_it(home: Path) 
                   dirty[label][:200])
 
 
+def test_no_command_prints_what_a_terminal_would_obey(home: Path) -> None:
+    """The bridge's screen was made safe first; the CLI writes the same text into
+    the founder's shell. Every stored field an agent can write - a request's
+    body and verdict, a state detail, an event kind and payload, a handoff, a
+    digest, a terminal handle, the daemon's log - is
+    poisoned, every command that shows any of it is run, and each output is
+    graded as the screen is: our own codes counted against a twin drawn from the
+    reading of the same text (a stray-only check would pass what the screen's
+    once did). The ones that do not show it are listed, so a command that never
+    displays a field cannot be mistaken for one that displays it safely."""
+    from ocp import fold as foldmod, service
+    poison = "\033]0;PWNED\007\033[31mMARKED\033[0m\x9b1m\033[2m"
+
+    def scene(where: Path, hostile: bool) -> dict[str, str]:
+        p = poison if hostile else _reference_text(poison)
+        _daemon_home(where, 20)
+        agents.register("reviewer", "alpha")
+        con = db.connect()
+        try:
+            q = db.add_request(con, "marina", "reviewer", f"body {p} end\n\tsecond {p}", None,
+                               "peer", "async", None, 0, None)
+            h = db.add_request(con, "reviewer", "human", f"escalation {p}", None, "peer", "async",
+                               "escalate", 0, None)
+            d = db.add_request(con, "reviewer", "backend", f"asked {p}", None, "peer", "async",
+                               None, 0, None)
+            con.execute("UPDATE requests SET state = 'done', verdict = ?, resolved_at = ? WHERE id = ?",
+                        (f"verdict {p}\nmore {p}", int(time.time()), d))
+            db.set_agent_state(con, "reviewer", "STALLED", detail=f"detail {p}")
+            db.add_event(con, "reviewer", f"kind{p}", {"x": p})
+            db.set_terminal(con, "reviewer", f"term{p}", f"wt{p}")
+        finally:
+            con.close()
+        keep_handoff("reviewer", f"handoff {p}\n- item {p}")
+        journal = foldmod.journal_path("reviewer", foldmod.today())
+        journal.parent.mkdir(parents=True, exist_ok=True)
+        journal.write_text(f"## 완료\n- done {p}\n")
+        service.out_log().parent.mkdir(parents=True, exist_ok=True)
+        service.out_log().write_text(f"[12:00:00] reviewer: {p}\n")
+        commands = [
+            ["ps"], ["events", "--limit", "50", "--all"], ["events", "--agent", "reviewer"],
+            ["inbox", "reviewer"], ["inbox", "reviewer", "--all"], ["inbox", "human", "--all"],
+            ["read", str(q)], ["read", str(h)], ["read", str(d)],
+            ["digest", "reviewer"], ["handoff", "reviewer"],
+            ["agent", "list"], ["agent", "show", "reviewer"], ["agent", "show", "reviewer", "--json"],
+            ["status"], ["status", "--json"], ["doctor", "--no-color"], ["team", "check"],
+            ["triggers"], ["account", "list"], ["account", "list", "--json"], ["hr", "list"],
+            ["service", "logs"], ["resume", "reviewer"], ["fold", "reviewer", "--no-model"],
+        ]
+        out = {}
+        # A fold whose model returns a digest that lost what was done: the refusal
+        # names the lost items, which the agent wrote.
+        real_model = foldmod.run_model
+        foldmod.run_model = lambda *a, **k: (True, "# 2026-01-01 · reviewer\n\n## 완료\n")
+        try:
+            buf = io.StringIO()
+            with contextlib.redirect_stdout(buf):
+                climod.main(["fold", "reviewer", "--account", "alpha"])
+            out["fold reviewer (model lost a done item)"] = buf.getvalue()
+        finally:
+            foldmod.run_model = real_model
+        for argv in commands:
+            buf, err = io.StringIO(), io.StringIO()
+            with contextlib.redirect_stdout(buf), contextlib.redirect_stderr(err):
+                try:
+                    climod.main(argv)
+                except SystemExit:
+                    pass
+            out[" ".join(argv)] = buf.getvalue() + err.getvalue()
+        # `write-handoff` reads the agent's own terminal for the handoff, which
+        # there is none of here: stand in for that step and print what it stored.
+        real_record = handoffmod.record
+        handoffmod.record = lambda con, agent: []
+        try:
+            buf = io.StringIO()
+            with contextlib.redirect_stdout(buf):
+                climod.main(["write-handoff", "reviewer"])
+            out["write-handoff reviewer (recorded)"] = buf.getvalue()
+        finally:
+            handoffmod.record = real_record
+        return out
+
+    dirty = scene(home / "dirty", True)
+    clean = scene(home / "clean", False)
+    found = _leaks(dirty, clean)
+    for label in dirty:
+        check(f"cli: `ocp {label}` prints nothing of a terminal's, and no code of ours a plain text would not",
+              not [f for f in found if f.startswith(label + ":")],
+              str([f for f in found if f.startswith(label + ":")])[:300])
+    shows = {k for k, v in clean.items() if "MARKED" in v}
+    must = {"ps", "events --limit 50 --all", "events --agent reviewer", "inbox reviewer",
+            "inbox reviewer --all", "inbox human --all", "read 1", "read 2", "read 3",
+            "digest reviewer", "handoff reviewer", "write-handoff reviewer (recorded)",
+            "agent show reviewer",
+            "agent show reviewer --json", "service logs", "fold reviewer (model lost a done item)"}
+    check("cli: the poison is really on screen for every command this test claims to grade",
+          must <= shows, str(sorted(must - shows)))
+    # (JSON stores a control byte as the text \\u001b, which is safe to show.)
+    check("cli: the payload of a title is not printed either",
+          not [k for k, v in dirty.items() if "PWNED" in v.replace("\\u001b]0;PWNED\\u0007", "")],
+          str([k for k, v in dirty.items() if "PWNED" in v.replace("\\u001b]0;PWNED\\u0007", "")]))
+    check("cli: and the rest are the ones that do not show these fields at all",
+          all(v == "" or "MARKED" not in v for k, v in clean.items() if k not in shows))
+    check("cli: what it keeps of a body is its text - a tab stays a tab, so a patch reads as written",
+          "\tsecond" in dirty["read 1"] and "\tsecond" in dirty["inbox reviewer"], repr(dirty["read 1"])[:200])
+    dumped = dirty["agent show reviewer --json"]
+    seen = subprocess.run([sys.executable, "-c",
+                           f"import sys; sys.path.insert(0, {str(ROOT)!r}); import ocp.textsafe; "
+                           "print(sorted(m for m in sys.modules if m.startswith('ocp.')))"],
+                          capture_output=True, text=True).stdout
+    check("cli: the rule about what a terminal would obey imports no front end - only itself",
+          seen.strip() == "['ocp.textsafe']", seen.strip())
+    check("cli: a command's json still parses, and holds no DEL or C1 byte",
+          isinstance(json.loads(dumped), dict) and not re.search(r"[\x7f-\x9f]", dumped), dumped[:200])
+    odd = {"k": "a\x9b31m\x7f\x85b \u2028 \u00e9 한"}
+    said = textsafe.json_dumps(odd)
+    check("cli: json_dumps writes DEL and C1 as escapes - the same json, no such bytes",
+          json.loads(said) == odd and not re.search(r"[\x7f-\x9f]", said), said)
+
+
 def test_every_prompt_leaves_the_screen_above_it_drawn_through_tui_run(home: Path) -> None:
     """Auditor #899: the composer's `under` was proven with the test's own
     callback, and there are five real call sites. Each is opened by its own
@@ -14987,6 +15106,7 @@ def main() -> int:
         run(lambda: test_the_composer_and_the_fill_on_a_real_screen_through_tui_run(Path(td) / 'realscreen'))
         run(lambda: test_nothing_a_terminal_would_obey_gets_through_what_someone_else_wrote(Path(td) / 'esc'))
         run(lambda: test_an_agent_name_is_text_and_no_screen_can_be_made_to_obey_it(Path(td) / 'names'))
+        run(lambda: test_no_command_prints_what_a_terminal_would_obey(Path(td) / 'cli'))
         run(lambda: test_every_prompt_leaves_the_screen_above_it_drawn_through_tui_run(Path(td) / 'prompts'))
         run(lambda: test_the_agent_pages_tabs_show_everything_and_read_as_blocks(Path(td) / 'tabs'))
         run(lambda: test_a_message_being_typed_wraps_and_keeps_the_cursor_on_its_last_character(Path(td) / 'typing'))
