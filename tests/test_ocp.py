@@ -2461,6 +2461,14 @@ DIFFERENTIAL_CASES = [
     "n: -1_000.5\nm: +1_0.5e+3\n",
     "n: 0x_1F\nm: 0b1_0\no: 0_7\n",
     "n: 1__0\nm: 1_\n",
+    # Sexagesimals with a sign, an underscore, or a fraction.
+    "n: +12:30\nm: -12:30\n",
+    "n: 1_0:30\nm: +1_0:30\n",
+    "n: +12:30.5\nm: 1:30:00\n",
+    # inf and nan only in the spellings PyYAML takes: the rest are strings.
+    "n: .iNf\nm: -.nan\no: +.nan\n",
+    # Characters the fallback refuses when bare are text inside quotes.
+    "a: \"handoff -> resolve, then merge\"\nb: 'a & b'\nc: \"x | y\"\nd: '*x'\n",
     # A sign belongs to a float only before digits, and y, n and mixed-case
     # spellings are strings to PyYAML.
     "n: .5\nm: -.5\no: +.5\np: 1.\n",
@@ -2479,7 +2487,13 @@ DUMP_STRINGS = [
     "+.inf", "-.inf", ".nan", "-1_000.5", "1_000", "0x_1", ".5", "-.5", "1e3", "0o7", "08",
     "-5", "+7", "1.5", "0", "", "~", " lead", "trail ", "a: b", "#c", "a b", "é",
     "-", "- a", "?", "!x", "%x", "@x", "`x", "=", "a\"b\\c\"d",
+    # What the read path refuses when it is bare, and so must be quoted to be read.
+    "handoff -> resolve, then merge", "a & b", "*x", "x | y", "!!x", "a << b", "<<", ">", "|",
+    "+12:30", "1_0:30", "+1_0:30", "+12:30.5", ".iNf", "-.nan", ".inf", ".NaN",
 ]
+# Values that are not strings, which the same write must also read back as themselves.
+DUMP_VALUES = [0.1, -0.0, 2.5, 1e16, -1e16, 1e-7, 1.5e300, 5e-324, 0, -3, 10 ** 30,
+               True, False, None]
 
 
 def _check_yaml_differential() -> None:
@@ -2524,7 +2538,12 @@ def _check_yaml_differential() -> None:
             theirs = "<error>"
         if ours != {"k": value} or theirs != {"k": value}:
             unread.append((value, text, ours, theirs))
-    check("yaml differential: what dump writes, both parsers read back as the string",
+    for value in DUMP_VALUES:
+        text = yamlcompat.dump({"k": value})
+        ours, theirs = yamlcompat.parse(text), pyyaml.safe_load(text)
+        if repr(ours.get("k")) != repr(value) or repr(theirs["k"]) != repr(value):
+            unread.append((value, text, ours, theirs))
+    check("yaml differential: what dump writes, both parsers read back as the value",
           not unread, "; ".join(f"{v!r} -> {t!r}: ours={o!r} pyyaml={p!r}"
                                 for v, t, o, p in unread[:3]))
 
@@ -2574,6 +2593,14 @@ def test_yaml_differential() -> None:
     _check_yaml_differential()
 
 
+def _refused(src: str) -> bool:
+    try:
+        yamlcompat.parse(src)
+    except yamlcompat.ConfigError:
+        return True
+    return False
+
+
 def test_the_bundled_parser_reads_what_pyyaml_reads_as_strings_and_refuses_the_rest() -> None:
     """Under any interpreter: what PyYAML reads as a non-string is refused, not
     returned as text, and what it reads as a string is one here."""
@@ -2605,6 +2632,25 @@ def test_the_bundled_parser_reads_what_pyyaml_reads_as_strings_and_refuses_the_r
               if yamlcompat.parse(yamlcompat.dump({"k": v})) != {"k": v}]
     check("yaml: everything dump writes is read back as the same string", not unread,
           str(unread[:3]))
+    check("yaml: every non-string dump writes is read back as the same value",
+          all(repr(yamlcompat.parse(yamlcompat.dump({"k": v}))["k"]) == repr(v)
+              for v in DUMP_VALUES))
+    check("yaml: a why with an arrow is written quoted and read back",
+          yamlcompat.parse(yamlcompat.dump({"why": "handoff -> resolve, then merge"}))
+          == {"why": "handoff -> resolve, then merge"})
+    check("yaml: bare, the same arrow is still refused, not read as anything else",
+          _refused("why: handoff -> resolve\n"))
+    for src, label in [("n: +12:30\n", "a signed sexagesimal"), ("n: 1_0:30\n", "an underscored one"),
+                       ("n: +12:30.5\n", "a signed fractional one")]:
+        check(f"yaml: refuses {label}", _refused(src))
+    check("yaml: .iNf and -.nan are strings, as in PyYAML",
+          yamlcompat.parse("a: .iNf\nb: -.nan\n") == {"a": ".iNf", "b": "-.nan"})
+    for value in (float("inf"), float("-inf"), float("nan")):
+        try:
+            yamlcompat.dump({"k": value})
+            check(f"yaml: dump refuses {value!r}, which no parser reads back", False)
+        except yamlcompat.ConfigError:
+            check(f"yaml: dump refuses {value!r}, which no parser reads back", True)
     try:
         yamlcompat.dump({"k": "a\nb"})
         check("yaml: dump refuses a control character rather than write a broken line", False)
@@ -2643,9 +2689,12 @@ def test_the_suite_and_the_package_name_only_what_exists() -> None:
     it uses when it runs, so this reads them all, and it reads the registration
     list too, since a test that is never called never fails."""
     here = Path(__file__).resolve()
-    for path in [here] + sorted((here.parent.parent / "ocp").glob("*.py")):
+    root = here.parent.parent
+    for path in ([here] + sorted((root / "ocp").glob("*.py"))
+                 + [root / "bin" / "ocp", root / "libexec" / "ptyrun.py"]):
         bad = sorted(_undefined_globals(path))
-        check(f"names: {path.name} reads no name that is not defined", not bad, str(bad[:5]))
+        check(f"names: {path.relative_to(root)} reads no name that is not defined",
+              not bad, str(bad[:5]))
     text = here.read_text()
     defined = re.findall(r"^def (test_\w+)\(", text, re.M)
     registered = set(re.findall(r"(test_\w+)\(", text[text.index("\ndef main()"):]))
@@ -7210,6 +7259,14 @@ edges:
                               "waiting on one developer", account="beta", team_name="dev",
                               repo=str(home / "harbor"))
         pid = said.split()[1]
+        # A why the record cannot hold is refused before anything is raised.
+        before = len(actions.messages(con))
+        ok2, said2 = hr.propose("add", "twoline", requester="hr", why="one\ntwo",
+                                account="beta", team_name="dev", repo=str(home / "harbor"))
+        check("hr: a why with a line break is refused, and nothing reaches the founder",
+              not ok2 and "nothing was raised" in said2
+              and len(actions.messages(con)) == before
+              and not any("twoline" in (m["body"] or "") for m in actions.messages(con)), said2)
         check("hr: proposing raises it to the founder and changes nothing",
               ok and "dohyun" not in paths.list_agents(), said)
         rid = [m["id"] for m in actions.messages(con) if "dohyun" in (m["body"] or "")]

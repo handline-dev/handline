@@ -63,7 +63,7 @@ _FALSE = {"false", "no", "off", "n"}
 
 # Sexagesimal (12:30 -> 750) and similar legacy forms. We do not implement
 # them; we refuse them, so we cannot disagree with PyYAML about them.
-_SEXAGESIMAL = re.compile(r"^-?\d+(:[0-5]?\d)+(\.\d+)?$")
+_SEXAGESIMAL = re.compile(r"^[-+]?[0-9][0-9_]*(:[0-5]?[0-9])+(\.[0-9_]*)?$")
 
 # These mirror PyYAML's own resolver, because anywhere they differ we would
 # silently disagree with it. Notably YAML 1.1 has no "0o" octal (that is a
@@ -76,13 +76,13 @@ _DEC = re.compile(r"^[-+]?(0|[1-9][0-9]*)$")
 # A sign goes only before digits: "-.5" is a string to PyYAML, ".5" a float.
 _FLOAT = re.compile(r"^([-+]?\d+\.\d*|\.\d+)([eE][-+]\d+)?$")
 # What PyYAML reads as a number or a timestamp and this parser does not: the
-# underscore forms (1_000, -1_0.5, 0x_1F), .inf and .nan in any spelling, and
-# dates. Each is refused, because returning the text would disagree with a
+# underscore forms (1_000, -1_0.5, 0x_1F), .inf and .nan in the spellings it
+# takes, and dates. Each is refused, because returning the text would disagree with a
 # reader that returns an int, an inf or a date.
 _PY_NUMBER = re.compile(
     r"^(?:[-+]?0b[01_]+|[-+]?0[0-7_]+|[-+]?(?:0|[1-9][0-9_]*)|[-+]?0x[0-9a-fA-F_]+"
     r"|[-+]?[0-9][0-9_]*\.[0-9_]*(?:[eE][-+][0-9]+)?|\.[0-9][0-9_]*(?:[eE][-+][0-9]+)?)$")
-_INF_NAN = re.compile(r"^[-+]?\.(inf|nan)$", re.IGNORECASE)
+_INF_NAN = re.compile(r"^(?:[-+]?\.(?:inf|Inf|INF)|\.(?:nan|NaN|NAN))$")
 _TIMESTAMP = re.compile(
     r"^(?:[0-9]{4}-[0-9]{2}-[0-9]{2}"
     r"|[0-9]{4}-[0-9]{1,2}-[0-9]{1,2}(?:[Tt]|[ \t]+)[0-9]{1,2}:[0-9]{2}:[0-9]{2}"
@@ -290,9 +290,29 @@ def _rows(text: str):
         yield n, len(line) - len(line.lstrip()), stripped
 
 
+def _outside_quotes(body: str) -> str:
+    """`body` with its quoted scalars removed: what is inside quotes is text
+    whatever it holds, so only what is outside can be syntax."""
+    out, quote, escaped = [], None, False
+    for ch in body:
+        if quote:
+            if escaped:
+                escaped = False
+            elif ch == "\\" and quote == '"':
+                escaped = True
+            elif ch == quote:
+                quote = None
+        elif ch in "\"'":
+            quote = ch
+        else:
+            out.append(ch)
+    return "".join(out)
+
+
 def _check(n: int, body: str) -> None:
+    outside = _outside_quotes(body)
     for bad in _UNSUPPORTED:
-        if bad in body:
+        if bad in outside:
             raise ConfigError(
                 f"line {n}: bundled YAML parser does not support {bad!r}. "
                 "Run ocp under a python3 that has PyYAML, or simplify the syntax."
@@ -394,12 +414,29 @@ def _reads_back_as_other(text: str) -> bool:
         return True
 
 
+def _float_text(value: float) -> str:
+    """A float as YAML 1.1 reads it back as a float: PyYAML takes an exponent
+    only after a decimal point, so 1e+16 is written 1.0e+16. inf and nan have
+    no form both readers return as the value."""
+    if value != value or value in (float("inf"), float("-inf")):
+        raise ConfigError(f"dump does not write {value!r}: no form both parsers read back")
+    text = repr(value)
+    mantissa, e, exponent = text.partition("e")
+    return text if "." in mantissa or not e else f"{mantissa}.0e{exponent}"
+
+
+def _quoted(text: str) -> str:
+    return '"' + text.replace("\\", "\\\\").replace('"', '\\"') + '"'
+
+
 def dump(data: dict) -> str:
     """Serialize a shallow config map back to YAML.
 
     Deliberately limited to what ocp writes: agent.yaml, which is a flat map of
     scalars. Anything nested is rejected rather than emitted in a form the
-    subset parser might not read back the same way.
+    subset parser might not read back the same way. Every line is read back
+    through `parse` before it is kept, so a value the read path would refuse or
+    change is an error here, at the write, and not a file that fails to load.
     """
     if not isinstance(data, dict):
         raise ConfigError("dump expects a map")
@@ -407,15 +444,18 @@ def dump(data: dict) -> str:
     for key, value in data.items():
         if isinstance(value, dict) or isinstance(value, list):
             raise ConfigError(f"dump does not write nested values (key {key!r})")
+        candidates = []
         if value is None:
-            rendered = "null"
+            candidates.append("null")
         elif isinstance(value, bool):
-            rendered = "true" if value else "false"
-        elif isinstance(value, (int, float)):
-            rendered = str(value)
+            candidates.append("true" if value else "false")
+        elif isinstance(value, int):
+            candidates.append(str(value))
+        elif isinstance(value, float):
+            candidates.append(_float_text(value))
         else:
-            text = str(value)
-            if any(ord(c) < 32 or ord(c) == 127 for c in text):
+            value = str(value)
+            if any(ord(c) < 32 or ord(c) == 127 for c in value):
                 raise ConfigError(f"dump does not write control characters (key {key!r})")
             # Quote anything a reader would take for something else, or that
             # carries structure. A string this parser would not read back as
@@ -423,13 +463,24 @@ def dump(data: dict) -> str:
             # the leading characters are the YAML indicators, which PyYAML
             # refuses at the start of a plain scalar.
             needs_quotes = (
-                text.strip() != text
-                or text == ""
-                or text.lower() in _TRUE | _FALSE | {"null", "~"}
-                or text[0] in "-?!%@`=" or text.startswith(_UNSUPPORTED)
-                or any(c in text for c in ":#[]{},&*|>'\"")
-                or _reads_back_as_other(text)
+                value.strip() != value
+                or value == ""
+                or value.lower() in _TRUE | _FALSE | {"null", "~"}
+                or value[0] in "-?!%@`=" or value.startswith(_UNSUPPORTED)
+                or any(c in value for c in ":#[]{},&*|>'\"")
+                or _reads_back_as_other(value)
             )
-            rendered = '"' + text.replace("\\", "\\\\").replace('"', '\\"') + '"' if needs_quotes else text
-        lines.append(f"{key}: {rendered}")
+            candidates = [_quoted(value)] if needs_quotes else [value, _quoted(value)]
+        for rendered in candidates:
+            line = f"{key}: {rendered}"
+            try:
+                back = parse(line + "\n")
+            except ConfigError:
+                continue
+            if isinstance(back, dict) and repr(back.get(key)) == repr(value):
+                lines.append(line)
+                break
+        else:
+            raise ConfigError(f"dump cannot write {key!r}: the parser does not read "
+                              f"{candidates[-1]!r} back as {value!r}")
     return "\n".join(lines) + "\n"
