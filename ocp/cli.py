@@ -828,7 +828,10 @@ def cmd_hr(args) -> int:
     """
     me = askmod.asking_agent()
     if args.hr_cmd == "list":
-        rows = hr.listing()
+        skipped: list[str] = []
+        rows = hr.listing(skipped)
+        for why in skipped:
+            print(f"skipped, cannot be read - {why}", file=sys.stderr)
         if not rows:
             print("no proposals")
             return 0
