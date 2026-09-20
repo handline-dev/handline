@@ -10690,6 +10690,16 @@ def test_the_arrows_change_tabs_on_an_agent_page_in_a_real_terminal(home: Path) 
               "nothing yet between you and backend" in seen[2], seen[2][-300:])
         check("arrows: → past the last tab stays on it",
               "nothing yet between you and backend" in press(b"\x1b[C", "nothing yet between"))
+        # The screen loop swallows an exception into a red flash and stays on
+        # the tab, so only a direct call tells "stayed" from "crashed".
+        d = {"sections": [(f"{stem} (0)", []) for stem in "ABCD"], "tab": 3}
+        try:
+            tui._go_to_tab(d, len(tui._tab_stems(d)) + 5)
+            past = (d["tab"], d["stem"])
+        except IndexError as e:
+            past = repr(e)
+        check("arrows: going past the last tab lands on it without raising",
+              past == (3, "D"), str(past))
         check("arrows: ← goes back a tab",
               "nothing recorded yet" in press(b"\x1b[D", "nothing recorded yet"))
         check("arrows: Esc leaves the page",
