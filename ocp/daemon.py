@@ -1497,7 +1497,14 @@ def _move_to_room(con, agent: str, trigger: triggers.Trigger, log,
         log(f"  {agent}: staying on {here} - {picked_why}")
         return False, False
     handle = db.get_terminal(con, agent)
-    if not handle or not orca.available() or not orca.alive(handle):
+    if not handle:
+        return False, False
+    if not orca.available():
+        # Orca itself being unreachable is nobody's terminal in particular -
+        # every agent's move would fail the same way, so this is not evidence
+        # that a short recheck buys anything the account's own window would not.
+        return False, False
+    if not orca.alive(handle):
         return False, True
 
     # Closed through the same checks every other close goes through. `/exit`
@@ -2116,8 +2123,12 @@ def observe_burn(con, log) -> None:
 # ---------------------------------------------------------------- loop
 def run(once: bool = False, verbose: bool = True, max_ticks: int | None = None) -> int:
     def log(msg: str) -> None:
+        # Every line here can carry text an agent's own screen wrote - a
+        # dialog's title among it - and this is stdout, tailed raw by whoever
+        # watches the daemon log; the same hole auditor found in a request
+        # body, at the sink it reaches most often.
         if verbose:
-            print(f"[{time.strftime('%H:%M:%S')}] {msg}", flush=True)
+            print(f"[{time.strftime('%H:%M:%S')}] {orca._visible(msg)}", flush=True)
 
     # The lock decides who supervises, and records who: a daemon started by
     # hand, or orphaned when launchd reloaded the job under it, is still a

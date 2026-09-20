@@ -237,13 +237,29 @@ _RULE = re.compile(r"^\u2594{8,}$")
 _OPTION = re.compile(r"^(?:\u276f\s*)?\d+\.\s+\S")
 DETAIL_CHARS = 200
 
+# What a terminal would obey in text quoted off a screen: an OSC or CSI
+# sequence, a lone ESC, C0, DEL, C1. An agent can paint its own screen, so a
+# dialog's title and options are exactly the hostile-text case
+# buddyron/shared-sanitiser's textsafe.oneline() exists for; this is the same
+# rule, applied at the source - the earliest point this text leaves a screen,
+# before it reaches a log line or a request body neither of us sees the sink
+# of - so it converges with that module rather than inventing a second rule.
+_OSC = re.compile(r"\033\][^\a\033]*(?:\a|\033\\)?")
+_CSI = re.compile(r"\033\[[0-?]*[ -/]*[@-~]")
+
+
+def _visible(s: str) -> str:
+    """`s` as one line with nothing a terminal would obey."""
+    s = _CSI.sub("", _OSC.sub("", s))
+    return "".join(c if c.isprintable() else " " for c in " ".join(s.splitlines()))
+
 
 def describe_modal(tail: list[str], footer: int) -> str:
     """The dialog above row `footer` in its own words: its title, then its
     numbered options. Where no rule marks where the dialog begins, the last
     three lines above the footer, verbatim - a quotation, so a layout this has
     not seen still says something true."""
-    lines = [str(x).strip() for x in tail[:footer]]
+    lines = [_visible(str(x).strip()) for x in tail[:footer]]
     top = next((i for i in range(len(lines) - 1, -1, -1) if _RULE.match(lines[i])), None)
     if top is None:
         return " / ".join([ln for ln in lines if ln][-3:])[:DETAIL_CHARS]
@@ -278,7 +294,7 @@ def parse_dialog(tail: list[str], footer: int) -> Dialog | None:
     """The dialog above row `footer` as data, or None when any part of it is
     not there to read: no rule opening the panel, no title, or fewer than two
     options numbered 1, 2, ... in order. What cannot be parsed is not guessed."""
-    lines = [str(x).strip() for x in tail[:footer]]
+    lines = [_visible(str(x).strip()) for x in tail[:footer]]
     top = next((i for i in range(len(lines) - 1, -1, -1) if _RULE.match(lines[i])), None)
     if top is None:
         return None
@@ -288,7 +304,7 @@ def parse_dialog(tail: list[str], footer: int) -> Dialog | None:
     options = [(int(m[1]), m[2].strip()) for m in map(_OPTION_LABEL.match, body[1:]) if m]
     if len(options) < 2 or [n for n, _ in options] != list(range(1, len(options) + 1)):
         return None
-    return Dialog(body[0], tuple(options), str(tail[footer]).strip())
+    return Dialog(body[0], tuple(options), _visible(str(tail[footer]).strip()))
 
 
 # The whole label of an option that leaves the world as it is, and nothing wider:
@@ -379,6 +395,8 @@ def decline_dialog(handle: str) -> tuple[str, str, str]:
     for _ in range(PRESS_SETTLE_READS):
         time.sleep(PRESS_SETTLE_S)
         after = screen_blocker(handle)
+        if after is not None and after.kind == UNREADABLE:
+            continue  # not evidence either way - the same screen fails closed everywhere else
         if after is None or after.kind != MODAL:
             return CLEARED, dialog.title, ""
     return STILL_OPEN, dialog.title, "the dialog is still on screen after Esc"

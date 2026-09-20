@@ -2112,6 +2112,22 @@ def test_the_screen_names_what_is_in_the_way(home: Path) -> None:
         orcamod._screen = lambda h: None
         check("screen: nothing read is fail closed too",
               orcamod.screen_blocker("term_x").kind == orcamod.UNREADABLE)
+
+        # An agent paints its own screen: a dialog's title and options are
+        # exactly the hostile-text case auditor measured against describe_modal
+        # (blocked-delivery #981/#987's should-fix) - checked here too, since
+        # this module builds the same text from the same screen.
+        hostile = EXIT_DIALOG[:3] + ["   \033]0;PWNED\x07\033[31mTitle\033[0m", "   ❯ 1. yes",
+                                     "     2. Stay", EXIT_DIALOG[-1]]
+        orcamod._screen = lambda h: _screen_of(hostile)
+        b = orcamod.screen_blocker("term_x")
+        check("screen: an OSC/CSI sequence in the dialog's own text does not reach the quote",
+              b and "\033" not in b.detail and "PWNED" not in b.detail and "Title" in b.detail,
+              str(b))
+        footer = len(hostile) - 1
+        d = orcamod.parse_dialog(hostile, footer)
+        check("screen: nor the parsed title used to decide what is safe to press",
+              d and "\033" not in d.title and "PWNED" not in d.title, str(d))
     finally:
         orcamod._screen = real
 
@@ -2611,6 +2627,36 @@ def test_ocp_presses_only_the_key_that_declines(home: Path) -> None:
     check("press: the screen is read before the key and again after it", term.reads >= 3, str(term.reads))
     check("press: the only key that is ever named is Esc",
           orcamod.ESCAPE == "\x1b" and "Enter" not in repr(orcamod.declining_key))
+
+    # A read that fails right after the key is not evidence the dialog went -
+    # the same screen fails closed everywhere else in this module.
+    calls = {"n": 0}
+
+    def flaky_then_gone(h):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            return _screen_of(EXIT_DIALOG)                       # read before the key
+        if calls["n"] == 2:
+            return _screen_of(EXIT_DIALOG, source="stream")      # one bad read right after
+        return _screen_of(CLEARED_SCREEN)                        # then it really is gone
+    sent: list = []
+    orcamod._screen = flaky_then_gone
+    orcamod.send = lambda h, text, enter=True: (sent.append((text, enter)), (True, ""))[1]
+    out = orcamod.decline_dialog("term_x")
+    check("press: an unreadable screen right after Esc is not read as cleared",
+          out[0] == orcamod.CLEARED and calls["n"] >= 3, f"{out} reads={calls['n']}")
+
+    # And if it never comes back readable, that is reported as still open, not
+    # as a clear nobody can stand behind.
+    reads = {"n": 0}
+
+    def never_readable_after(h):
+        reads["n"] += 1
+        return _screen_of(EXIT_DIALOG) if reads["n"] == 1 else _screen_of(EXIT_DIALOG, source="stream")
+    orcamod._screen = never_readable_after
+    out = orcamod.decline_dialog("term_x")
+    check("press: a screen that stays unreadable is still open, never a false clear",
+          out[0] == orcamod.STILL_OPEN, out)
 
 
 def _decline_world(home: Path, tail=EXIT_DIALOG, **kw):
@@ -9259,6 +9305,22 @@ def test_a_move_blocked_by_a_dialog_retries_soon_not_at_the_old_accounts_wall(ho
         check("dialog move: with nowhere to go, still the long wait - the two are not confused",
               row2["wake_at"] > before2 + dmn.ASSUMED_ACCOUNT_RECHECK_S + 30,
               f"wake_at={row2['wake_at']} before={before2}")
+
+        # Contrast again: a destination exists, but Orca itself is down - that
+        # is nobody's terminal in particular, so it is the long wait too, not
+        # the short recheck the dialog got.
+        write_status(home, "beta", pct_5h=10, pct_7d=5, ctx_pct=5,
+                     reset_5h=int(time.time()) + 1800)
+        db.set_agent_state(con, "keeper", dmn.IDLE)
+        db.clear_closed(con, "keeper")
+        con.execute("DELETE FROM handoff")
+        orcamod.available = lambda: False
+        before3 = int(time.time())
+        dmn.perform_handoff(con, "keeper", triggers.evaluate(100, 10), lambda _m: None)
+        row3 = db.get_agent_state(con, "keeper")
+        check("dialog move: orca itself down is not 'about this terminal' either",
+              row3["wake_at"] > before3 + dmn.ASSUMED_ACCOUNT_RECHECK_S + 30,
+              f"wake_at={row3['wake_at']} before={before3}")
     finally:
         (orcamod.available, orcamod.alive, orcamod.close_session, orcamod.clear_context,
          orcamod.idle_now, orcamod.screen_blocker) = real
