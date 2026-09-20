@@ -13,8 +13,11 @@ list from SHOW_AFTER_S, and becomes one request to the founder at
 ESCALATE_AFTER_S. It is written by the daemon and read by the bridge and
 `ocp ps`, which are other processes, so it lives in the database.
 
-ocp names what is in the way and never answers it. A dialog is answered by a
-person; that is decided, not an oversight.
+ocp names what is in the way, and presses at most one key at a dialog: Esc, and
+only where the dialog itself says Esc cancels and offers an option that just
+declines (`orca.declining_key`). It never chooses, so the worst a press does is
+change nothing. What it cleared it reports, and a dialog that keeps coming back
+is a loop the founder is told about, not one it keeps pressing.
 """
 from __future__ import annotations
 
@@ -35,26 +38,41 @@ ESCALATE_AFTER_S = 600
 # What each check costs an agent is a screen read and a terminal listing, so a
 # block is re-read this often and no more; a block that is not due is left as it was.
 RECHECK_S = 10
+# A person at the terminal reads a dialog for a minute before it is theirs to
+# answer; ocp's own `/exit` has no person in it and is pressed at once. Shorter
+# than SHOW_AFTER_S, so a dialog ocp clears is never on the founder's list at
+# all - it is reported once, as done.
+PRESS_AFTER_S = 60
+# A dialog that returns after ocp cleared it is a loop. Idle agents are closed
+# every IDLE_CLOSE_S (30 minutes), so a close that meets background shells
+# raises the same dialog on each pass: one clear is an event, two could be
+# chance, and the third within the window is the pattern. Then ocp stops
+# pressing and the founder is told at once, not at ESCALATE_AFTER_S.
+MAX_PRESSES = 3
+PRESS_WINDOW_S = 6 * 3600
+# Esc that leaves the dialog standing is not pressed again and again.
+MAX_IGNORED = 2
 
 NO_TERMINAL, NO_SESSION, STALLED = "no terminal", "no session", "stalled"
 
 # What to do about each, in the words of the bridge's own keys.
 ADVICE = {
-    orca.MODAL: "answer it in its terminal (t on the agents panel); ocp will not",
+    orca.MODAL: "answer it in its terminal (t on the agents panel)",
     orca.UNSENT: "send or clear the text in its terminal (t); ocp will not type into it",
+    orca.UNREADABLE: "check its terminal (t on the agents panel); ocp cannot read its screen",
     NO_TERMINAL: "t on the agents panel starts one",
     NO_SESSION: "w on the agents panel wakes it",
     STALLED: "u on the agents panel clears it",
 }
-LABEL = {orca.MODAL: "dialog open", orca.UNSENT: "unsent text", NO_TERMINAL: "no terminal",
-         NO_SESSION: "no session", STALLED: "stalled"}
+LABEL = {orca.MODAL: "dialog open", orca.UNSENT: "unsent text", orca.UNREADABLE: "screen unreadable",
+         NO_TERMINAL: "no terminal", NO_SESSION: "no session", STALLED: "stalled"}
 
 _checked: dict[str, int] = {}
 
 
 def reason(kind: str, detail: str) -> str:
     """What is in the way, as a sentence."""
-    if kind in (orca.MODAL, orca.UNSENT):
+    if kind in (orca.MODAL, orca.UNSENT, orca.UNREADABLE):
         return orca.Blocker(kind, detail).reason()
     return f"{LABEL.get(kind, kind)}: {detail}" if detail else LABEL.get(kind, kind)
 
@@ -117,10 +135,12 @@ def classify(con, agent: str, row) -> tuple[str, str] | None:
     if row["state"] not in (daemon.RUNNING, daemon.HANDOFF) and not daemon.session_present(agent):
         return NO_SESSION, ""
     seen = orca.screen_blocker(handle)
-    if seen is None or seen.kind == orca.UNREADABLE:
+    if seen is None:
         return None
     # A working agent's input box has whatever its user is typing into it; only
-    # a dialog is in the way there.
+    # a dialog is in the way there. An unreadable screen is not that box: it
+    # blocks delivery (screen_blocker's callers fail closed on it) whatever
+    # the agent's state, so it is named here too, not silently skipped.
     if seen.kind == orca.UNSENT and row["state"] in (daemon.RUNNING, daemon.HANDOFF):
         return None
     return seen.kind, seen.detail
@@ -140,14 +160,61 @@ def note_close_failure(con, agent: str, log) -> None:
                       work_waiting(con, agent, db.get_agent_state(con, agent), now), now,
                       show_at=now, origin="close")
         log(f"  {agent}: {reason(seen.kind, seen.detail)} - ocp's own /exit raised it")
-    dismiss_own_dialog(agent, handle)
 
 
-def dismiss_own_dialog(agent: str, handle: str) -> bool:
-    """Where an exception would act: cancelling the dialog ocp's own `/exit`
-    raised, which undoes ocp's action and decides nothing for the agent. Not
-    granted, so it does nothing; whoever grants it changes this function."""
-    return False
+def stopped_pressing(con, agent: str, now: int) -> str:
+    """Why ocp will not press this agent's dialog again, or '' when it may."""
+    history = db.presses_since(con, agent, now - PRESS_WINDOW_S)
+    cleared = sum(1 for p in history if p["outcome"] == "cleared")
+    if cleared >= MAX_PRESSES:
+        return (f"ocp cleared it {cleared} times in {status.ago(PRESS_WINDOW_S)} and it "
+                f"came back each time, so it has stopped pressing")
+    pressed = [p for p in history if p["outcome"] != "not-pressed"]
+    if len(pressed) >= MAX_IGNORED and all(p["outcome"] == "still-open" for p in pressed[-MAX_IGNORED:]):
+        return "Esc did not close it, so ocp has stopped pressing"
+    return ""
+
+
+def press_note(con, agent: str, rec, now: int) -> str:
+    """What ocp says about not having cleared this block's dialog, or ''."""
+    if rec["kind"] != orca.MODAL:
+        return ""
+    stopped = stopped_pressing(con, agent, now)
+    if stopped:
+        return stopped
+    said = [p for p in db.presses_since(con, agent, rec["since"]) if p["outcome"] == "not-pressed"]
+    return f"ocp did not press it: {said[-1]['note']}" if said else ""
+
+
+def _decline(con, agent: str, rec, now: int, log):
+    """Press Esc at this block's dialog when the rules allow, and say what came
+    of it. The block, or None when the dialog is gone."""
+    press_at = rec["since"] if rec["origin"] == "close" else rec["since"] + PRESS_AFTER_S
+    handle = db.get_terminal(con, agent)
+    if now < press_at or not handle or stopped_pressing(con, agent, now):
+        return rec
+    outcome, title, why = orca.decline_dialog(handle)
+    if outcome == orca.NOT_PRESSED:
+        last = [p for p in db.presses_since(con, agent, rec["since"]) if p["outcome"] == "not-pressed"]
+        if not last or last[-1]["note"] != why or last[-1]["title"] != title:
+            db.press_add(con, agent, now, title, outcome, why)
+            log(f"  {agent}: ocp did not press its dialog - {why}")
+        return rec
+    db.press_add(con, agent, now, title, outcome, why)
+    if outcome == orca.STILL_OPEN:
+        log(f"  {agent}: pressed Esc on \"{title}\" and it is still open")
+        return rec
+    how = f'cleared by ocp: pressed Esc on "{title}"'
+    db.add_event(con, agent, "dialog_declined", {"title": title, "key": "Esc", "work": rec["work"]})
+    askmod.report(con, agent,
+                  f"{how}.\n{agent} could not be given its work ({rec['work'] or 'nothing yet'}) "
+                  f"while it was open: {reason(rec['kind'], rec['detail'])}.\nThe dialog's own footer "
+                  f"says Esc cancels it and it offers an option that only declines, so that was the "
+                  f"only key ocp pressed; nothing was chosen. If it comes back {MAX_PRESSES} times "
+                  f"in {status.ago(PRESS_WINDOW_S)} ocp stops pressing and tells you.",
+                  "dialog declined")
+    _end(con, agent, rec, how, log)
+    return None
 
 
 def sweep(con, log, now: int | None = None) -> None:
@@ -168,14 +235,16 @@ def sweep(con, log, now: int | None = None) -> None:
         except Exception as e:  # noqa: BLE001 - one agent's unreadable screen is not the tick's failure
             log(f"  {agent}: block check failed: {e}")
             continue
-        if rec is not None and rec["request_id"] is None \
-                and now - rec["since"] >= ESCALATE_AFTER_S:
+        if rec is not None and rec["request_id"] is None and (
+                now - rec["since"] >= ESCALATE_AFTER_S or stopped_pressing(con, agent, now)):
             due.append(rec)
     if due:
         _raise(con, due, now, log)
 
 
 def _track(con, agent: str, row, now: int, log):
+    from . import daemon
+
     rec = db.block_get(con, agent)
     work = work_waiting(con, agent, row, now)
     if not work and not (rec and rec["origin"] == "close"):
@@ -198,7 +267,12 @@ def _track(con, agent: str, row, now: int, log):
         if rec["kind"] != kind:
             log(f"  {agent}: still cannot be given its work - {reason(kind, detail)}")
         db.block_update(con, agent, kind, detail, work or rec["work"], now)
-    return db.block_get(con, agent)
+    rec = db.block_get(con, agent)
+    # An agent that is working may be waiting on a person for that very dialog;
+    # only an idle one's is pressed.
+    if rec["kind"] == orca.MODAL and row["state"] not in (daemon.RUNNING, daemon.HANDOFF):
+        return _decline(con, agent, rec, now, log)
+    return rec
 
 
 def _end(con, agent: str, rec, why: str, log) -> None:
@@ -215,12 +289,14 @@ def _raise(con, recs, now: int, log) -> None:
     lines = []
     for r in recs:
         held = now - r["since"]
+        note = press_note(con, r["agent"], r, now)
         lines.append(f"{r['agent']} cannot be given its work ({status.ago(held)}).\n"
                      f"  In the way: {reason(r['kind'], r['detail'])}\n"
                      f"  Waiting: {r['work'] or 'nothing yet'}\n"
-                     f"  To clear it: {ADVICE.get(r['kind'], 'see `ocp ps`')}.")
+                     + (f"  {note[0].upper() + note[1:]}.\n" if note else "")
+                     + f"  To clear it: {ADVICE.get(r['kind'], 'see `ocp ps`')}.")
     text = "[blocked] " + ("\n\n".join(lines)) + \
-        "\n\nocp typed nothing at it. This closes itself when it can be given its work."
+        "\n\nThis closes itself when it can be given its work."
     rid = askmod.escalate(con, recs[0]["agent"], text, "delivery blocked")
     db.block_set_request(con, [r["agent"] for r in recs], rid)
     log(f"  blocked: raised #{rid} for {', '.join(r['agent'] for r in recs)}")
@@ -228,6 +304,12 @@ def _raise(con, recs, now: int, log) -> None:
 
 def founder_rows(con, now: int) -> list[dict]:
     """The blocks that are on the founder's list, in `founder_waits`' shape."""
-    return [{"kind": "blocked", "who": r["agent"], "red": True, "since": int(r["since"]),
-             "what": f"{headline(r['kind'], r['detail'])} · waiting: {r['work'] or 'nothing yet'}"}
-            for r in db.blocks(con) if now >= r["show_at"]]
+    rows = []
+    for r in db.blocks(con):
+        if now < r["show_at"]:
+            continue
+        note = press_note(con, r["agent"], r, now)
+        rows.append({"kind": "blocked", "who": r["agent"], "red": True, "since": int(r["since"]),
+                     "what": f"{headline(r['kind'], r['detail'])} · waiting: "
+                             f"{r['work'] or 'nothing yet'}" + (f" · {note}" if note else "")})
+    return rows

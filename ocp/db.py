@@ -141,6 +141,20 @@ CREATE TABLE IF NOT EXISTS delivery_blocks (
   -- stands for as long as the dialog does.
   origin     TEXT NOT NULL DEFAULT 'tick'
 );
+
+-- What ocp did about a dialog on an agent's screen, one row per attempt or per
+-- decision not to: the record a returning dialog is counted from, and what a
+-- request says when it stops pressing. Never rewritten.
+CREATE TABLE IF NOT EXISTS dialog_presses (
+  id      INTEGER PRIMARY KEY AUTOINCREMENT,
+  agent   TEXT NOT NULL,
+  at      INTEGER NOT NULL,
+  title   TEXT NOT NULL,
+  -- 'cleared' | 'still-open' | 'not-pressed'
+  outcome TEXT NOT NULL,
+  note    TEXT NOT NULL DEFAULT ''
+);
+CREATE INDEX IF NOT EXISTS dialog_presses_agent ON dialog_presses(agent, at);
 """
 
 
@@ -720,6 +734,16 @@ def block_update(con, agent: str, kind: str, detail: str, work: str, now: int) -
 def block_set_request(con, agents: list[str], rid: int) -> None:
     con.executemany("UPDATE delivery_blocks SET request_id = ? WHERE agent = ?",
                     [(rid, a) for a in agents])
+
+
+def press_add(con, agent: str, now: int, title: str, outcome: str, note: str = "") -> None:
+    con.execute("INSERT INTO dialog_presses(agent, at, title, outcome, note) VALUES(?,?,?,?,?)",
+                (agent, now, title, outcome, note))
+
+
+def presses_since(con, agent: str, since: int) -> list:
+    return con.execute("SELECT * FROM dialog_presses WHERE agent = ? AND at >= ? "
+                       "ORDER BY id", (agent, since)).fetchall()
 
 
 def block_clear(con, agent: str) -> None:

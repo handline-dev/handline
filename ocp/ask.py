@@ -133,6 +133,21 @@ def escalate(con, agent: str, text: str, reason: str, files: str | None = None, 
     return rid
 
 
+def report(con, agent: str, text: str, reason: str) -> int:
+    """Tell the human something that asks nothing: a report, closed by reading it.
+
+    `agent` is who it is about. Fire and forget and `fyi`, so nothing is typed
+    back at `agent` and nothing waits on the human.
+    """
+    rid = db.add_request(con, agent, ESCALATION_TARGET, text, None, None, "fire_and_forget",
+                         "report", 0, None, fyi=True)
+    deliver(rid, agent, ESCALATION_TARGET, text, None,
+            team.Decision(True, reason, kind="report", response="fire_and_forget",
+                          creates_gate=False, chain_depth=0))
+    db.add_event(con, agent, "report", {"request_id": rid, "reason": reason})
+    return rid
+
+
 def _cycle_in_chain(con, chain_id: str | None, requester: str, target: str,
                     exclude_id: int | None = None) -> str | None:
     """Detect A->B->A inside one chain (team model section 6).
