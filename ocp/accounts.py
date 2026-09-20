@@ -22,6 +22,7 @@ import time
 from pathlib import Path
 
 from . import paths
+from .yamlcompat import is_plain_text
 
 # What each account directory links back to shared. Nothing credential-shaped
 # appears here, deliberately.
@@ -72,6 +73,11 @@ def register(acct: str, force: bool = False) -> Path:
     """Create the account directory and link it to shared. Does not log in."""
     if not acct or "/" in acct or acct.startswith("."):
         raise ValueError(f"bad account name: {acct!r}")
+    # It is written as `account: <name>` in every agent.yaml and as a key in
+    # config.yaml, so it must be text there.
+    if not is_plain_text(acct):
+        raise ValueError(f"bad account name: {acct!r}. It would not be read back as text "
+                         "from the YAML files it is written into; choose another.")
     ensure_shared()
     cdir = paths.account_claude(acct)
     cdir.mkdir(parents=True, exist_ok=True)

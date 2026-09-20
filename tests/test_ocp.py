@@ -2478,6 +2478,13 @@ DIFFERENTIAL_CASES = [
     'q: "a\\"b"\nr: "a\\\\b"\n',
     '"k\\"x": 1\n',
     "q: 'x # not a comment'\nr: \"x # \\\" # still not\"\n",
+    # Keys: PyYAML reads a plain 1, on, null or date as an int, a bool, None or a
+    # date, so those are refused here; text and quoted keys agree.
+    "1: x\n", "on: x\nyes: y\n", "null: x\n", "~: x\n", "2026-09-20: x\n", "0x10: x\n",
+    "1.5: x\n", "1_000: x\n", "x:\n  1: a\n  b: c\n", "- 1: a\n", "- on: a\n",
+    "{ a: 1, 1: x }\n", "{ a: 1, on: y }\n",
+    "y: 1\n1e3: 2\n08: 3\na b: 4\n-: 5\n", "'1': a\n\"on\": b\n'2026-09-20': c\n",
+    "&a k: v\n", "*a: v\n", '"a" b: 1\n', "'a' b: 1\n", "a>b: 1\nx*y: 2\n",
     # A quote that is not closed at the end of the scalar is an error, not text.
     'a: "x & y\n', "a: 'x\n", 'a: "x" y\n',
 ]
@@ -2603,6 +2610,15 @@ def _parsed(src: str):
         return "<refused>"
 
 
+def _roundtrip(value, key: str = "k"):
+    """What the bundled parser reads back from what dump writes for one value,
+    or "<refused>" where either raises."""
+    try:
+        return yamlcompat.parse(yamlcompat.dump({key: value}))
+    except yamlcompat.ConfigError:
+        return "<refused>"
+
+
 def _refused(src: str) -> bool:
     try:
         yamlcompat.parse(src)
@@ -2628,25 +2644,23 @@ def test_the_bundled_parser_reads_what_pyyaml_reads_as_strings_and_refuses_the_r
             check(f"yaml: refuses {label}", False, f"parsed as {got!r}")
         except yamlcompat.ConfigError:
             check(f"yaml: refuses {label}", True)
-    got = yamlcompat.parse("a: y\nb: n\nc: yEs\nd: tRUE\ne: nULL\nf: -.5\ng: 08\nh: 1e3\n")
+    got = _parsed("a: y\nb: n\nc: yEs\nd: tRUE\ne: nULL\nf: -.5\ng: 08\nh: 1e3\n")
     check("yaml: y, n, mixed case, a signed .5, 08 and 1e3 are strings, as in PyYAML",
           got == {"a": "y", "b": "n", "c": "yEs", "d": "tRUE", "e": "nULL", "f": "-.5",
                   "g": "08", "h": "1e3"}, str(got))
     check("yaml: the spellings PyYAML takes are still booleans and null",
-          yamlcompat.parse("a: Yes\nb: OFF\nc: True\nd: ~\ne: NULL\n")
+          _parsed("a: Yes\nb: OFF\nc: True\nd: ~\ne: NULL\n")
           == {"a": True, "b": False, "c": True, "d": None, "e": None})
     check("yaml: a doubled single quote, and the two escapes, read as one character",
-          yamlcompat.parse("a: 'it''s'\nb: \"x\\\"y\"\nc: \"p\\\\q\"\n")
+          _parsed("a: 'it''s'\nb: \"x\\\"y\"\nc: \"p\\\\q\"\n")
           == {"a": "it's", "b": 'x"y', "c": "p\\q"})
-    unread = [(v, yamlcompat.dump({"k": v})) for v in DUMP_STRINGS
-              if yamlcompat.parse(yamlcompat.dump({"k": v})) != {"k": v}]
+    unread = [(v, _roundtrip(v)) for v in DUMP_STRINGS if _roundtrip(v) != {"k": v}]
     check("yaml: everything dump writes is read back as the same string", not unread,
           str(unread[:3]))
     check("yaml: every non-string dump writes is read back as the same value",
-          all(repr(yamlcompat.parse(yamlcompat.dump({"k": v}))["k"]) == repr(v)
-              for v in DUMP_VALUES))
+          all(repr(_roundtrip(v)) == repr({"k": v}) for v in DUMP_VALUES))
     check("yaml: a why with an arrow is written quoted and read back",
-          yamlcompat.parse(yamlcompat.dump({"why": "handoff -> resolve, then merge"}))
+          _roundtrip("handoff -> resolve, then merge", "why")
           == {"why": "handoff -> resolve, then merge"})
     # _outside_quotes decides what _check may refuse, and breaking it only makes
     # _check refuse more, which the differential tolerates - so these two say
@@ -2655,6 +2669,31 @@ def test_the_bundled_parser_reads_what_pyyaml_reads_as_strings_and_refuses_the_r
           _parsed("a: 'a & b'\n") == {"a": "a & b"}, str(_parsed("a: 'a & b'\n")))
     check("yaml: an escaped quote does not end the quoted text",
           _parsed('a: "x\\" & y"\n') == {"a": 'x" & y'}, str(_parsed('a: "x\\" & y"\n')))
+    check("yaml: a quoted key is its text, whatever it looks like",
+          _parsed("'1': a\n\"on\": b\n'2026-09-20': c\n") == {"1": "a", "on": "b", "2026-09-20": "c"})
+    check("yaml: a plain key that is text to PyYAML too is read unchanged",
+          _parsed("y: 1\n1e3: 2\n08: 3\na b: 4\n-: 5\n")
+          == {"y": 1, "1e3": 2, "08": 3, "a b": 4, "-": 5})
+    check("yaml: a plain key PyYAML reads as a number, bool, null or date is refused",
+          all(_refused(f"{k}: x\n") for k in ("1", "on", "Yes", "true", "null", "~", "1.5", "0x10",
+                                             "1_000", "2026-09-20", "+.inf", "12:30", "")),
+          str([k for k in ("1", "on", "null", "~", "") if not _refused(f"{k}: x\n")]))
+    check("yaml: in a list item, a flow map and a nested map too",
+          all(_refused(src) for src in ("- on: a\n", "{a: 1, 1: x}\n", "x:\n  1: a\n",
+                                        "x:\n  - { true: a }\n")))
+    check("yaml: text after a quoted key's closing quote is refused, not read as the key",
+          all(_refused(src) for src in ('"a" b: 1\n', "'a' b: 1\n", '{ "a" b: 1 }\n')))
+    check("yaml: a key that only contains an indicator is text, as in PyYAML",
+          _parsed("a>b: 1\nx*y: 2\nq&r: 3\n") == {"a>b": 1, "x*y": 2, "q&r": 3})
+    try:
+        yamlcompat.parse(">x: 1\n")
+        why_key = ""
+    except yamlcompat.ConfigError as e:
+        why_key = str(e)
+    check("yaml: a key that starts with an indicator says what it is and how to fix it",
+          "key '>x'" in why_key and "quote it" in why_key and "has PyYAML" not in why_key, why_key)
+    check("yaml: an anchor or an alias where a key starts is refused",
+          _refused("&a k: v\n") and _refused("*a: v\n"))
     check("yaml: a quote opened and never closed is refused, not read with its quote",
           all(_refused(src) for src in ('a: "x & y\n', "a: 'x & y\n", 'a: "x" y\n',
                                         "a: 'x' 'y'\n", 'a: "x\\"\n', 'a: "\n')))
@@ -2664,7 +2703,7 @@ def test_the_bundled_parser_reads_what_pyyaml_reads_as_strings_and_refuses_the_r
                        ("n: +12:30.5\n", "a signed fractional one")]:
         check(f"yaml: refuses {label}", _refused(src))
     check("yaml: .iNf and -.nan are strings, as in PyYAML",
-          yamlcompat.parse("a: .iNf\nb: -.nan\n") == {"a": ".iNf", "b": "-.nan"})
+          _parsed("a: .iNf\nb: -.nan\n") == {"a": ".iNf", "b": "-.nan"})
     for value in (float("inf"), float("-inf"), float("nan")):
         try:
             yamlcompat.dump({"k": value})
@@ -2699,6 +2738,139 @@ def _undefined_globals(path: Path) -> set[tuple[str, str]]:
             walk(child)
     walk(top)
     return found
+
+
+def test_agent_yaml_is_written_by_dump_so_what_was_typed_reads_back(home: Path) -> None:
+    """`ocp hr add --model 4.5` wrote `model: 4.5`, which reads back as a float,
+    and `--model 2026-09-20` wrote a file that did not load. The file is built as
+    a map and written by dump, which quotes what a reader would take for
+    something else, so each value reads back as the text that was typed."""
+    restore_world()
+    home.mkdir(parents=True, exist_ok=True)
+    os.environ["OCP_HOME"] = str(home)
+    agents.register("plain", "alpha")
+    agents.register("full", "alpha", model="opus", effort="high", weight="heavy",
+                    repo="/Users/ron/some repo")
+    check("agent.yaml: the ordinary file is byte for byte what it was",
+          agents.agent_file("plain").read_text()
+          == f"name: plain\naccount: alpha\nmodel: {agents.DEFAULT_MODEL}\n"
+             f"effort: {agents.DEFAULT_EFFORT}\nweight: light\nenabled: true\n"
+          and agents.agent_file("full").read_text()
+          == "name: full\naccount: alpha\nmodel: opus\neffort: high\nweight: heavy\n"
+             "enabled: true\nrepo: /Users/ron/some repo\n")
+    typed = [("model", "2026-09-20"), ("model", "no"), ("model", "4.5"), ("weight", "on"),
+             ("repo", "1_000")]
+    for i, (field, value) in enumerate(typed):
+        agents.register(f"agent{i}", "alpha", **{field: value})
+        cfg = agents.read(f"agent{i}")
+        check(f"agent.yaml: --{field} {value} reads back as that text",
+              cfg[field] == value and cfg["enabled"] is True and cfg["name"] == f"agent{i}",
+              repr(cfg))
+        if yamlcompat.HAVE_PYYAML:
+            import yaml as pyyaml
+            check(f"agent.yaml: and PyYAML reads --{field} {value} the same",
+                  pyyaml.safe_load(agents.agent_file(f"agent{i}").read_text()) == cfg)
+    # What the replay does: apply builds the agent from the saved proposal's fields.
+    paths.team_file().write_text(team.STARTER)
+    ok, said = hr._add({"agent": "replayed", "account": "alpha", "model": "4.5",
+                        "effort": "high", "repo": "1_000", "why": "w",
+                        "requested_by": "human", "created": int(time.time())}, None)
+    cfg = agents.read("replayed")
+    check("agent.yaml: an applied proposal carrying such values leaves a file that loads",
+          ok and cfg["model"] == "4.5" and cfg["repo"] == "1_000" and cfg["effort"] == "high",
+          f"{said} {cfg}")
+    try:
+        agents.register("ctrl", "alpha", model="a\nb")
+        check("agent.yaml: a control character is refused", False)
+    except yamlcompat.ConfigError:
+        check("agent.yaml: a control character is refused, and leaves no folder behind",
+              not paths.agent_dir("ctrl").exists())
+    agents.register("plain", "beta", model="4.5")
+    check("agent.yaml: registering again updates through the same writer",
+          agents.read("plain")["account"] == "beta" and agents.read("plain")["model"] == "4.5")
+
+
+def test_a_name_that_yaml_would_not_read_as_text_is_refused_where_it_is_typed(home: Path) -> None:
+    """A name is written unquoted into team.yaml, agent.yaml and config.yaml. `no`
+    is False to PyYAML and a refusal to the bundled parser, and a refusal on a
+    key makes the whole file unloadable, so the name is turned away when it is
+    typed and not when every command next reads the roster."""
+    restore_world()
+    home.mkdir(parents=True, exist_ok=True)
+    os.environ["OCP_HOME"] = str(home)
+    bad = ("no", "on", "off", "yes", "1", "2026-09-20", "null", "~", "true", "0x10", "a: b")
+    good = ("harbor", "harbor.deck", "orcapipe.purser", "a-b_c", "y", "1e3", "é")
+    check("names: what yaml reads as something else is not plain text",
+          not any(yamlcompat.is_plain_text(n) for n in bad), str([n for n in bad if yamlcompat.is_plain_text(n)]))
+    check("names: what ocp names its agents is",
+          all(yamlcompat.is_plain_text(n) for n in good), str([n for n in good if not yamlcompat.is_plain_text(n)]))
+    refused = []
+    for n in bad:
+        try:
+            agents.register(n, "alpha")
+            refused.append(n)
+        except ValueError:
+            pass
+    check("names: agents.register turns each away and creates nothing",
+          not refused and not any((paths.agent_dir(n)).exists() for n in bad), str(refused))
+    for n in good:
+        agents.register(n, "alpha")
+    check("names: and takes each ordinary one", set(good) <= set(paths.list_agents()))
+    for kind in ("add", "rename"):
+        ok, said = hr._draft(kind, "no" if kind == "add" else "harbor", "x", "why", "alpha",
+                             None, None, None, "on" if kind == "rename" else None)
+        check(f"names: hr {kind} is refused before anything is raised or written",
+              ok == {} and "bad agent name" in said and "choose another" in said, str((ok, said)))
+    con = db.connect()
+    try:
+        before = len(actions.messages(con))
+        ok, said = hr.propose("add", "no", requester="harbor", why="w", account="alpha")
+        check("names: hr.propose of one queues nothing for the founder",
+              not ok and len(actions.messages(con)) == before, said)
+    finally:
+        con.close()
+    text = "agents:\n  harbor: { intake: dedicated }\n"
+    check("names: the line hr writes for an agent called no would make team.yaml unloadable",
+          _refused(text + "  no: { intake: dedicated }\n"))
+    try:
+        hr._add_text(text, "no", None)
+        check("names: so the writer refuses to write it", False)
+    except yamlcompat.ConfigError:
+        check("names: so the writer refuses to write it", True)
+    # The team's name is written as a block key too, and the guard has to stand at
+    # every door: proposing, and the write itself, which an old proposal reaches.
+    paths.team_file().write_text(team.STARTER)
+    before = paths.team_file().read_text()
+    listed = yamlcompat.parse(team.STARTER)
+    mover = next(iter(listed["agents"]))
+    ok, said = hr._draft("add", "dev1", "x", "why", "alpha", "no", None, None, None)
+    check("names: hr add of an agent into a team called no is refused at the proposal",
+          ok == {} and "bad team name" in said and "choose another" in said, str((ok, said)))
+    done, said = hr._in_team_yaml("dev1", "no", add=True)
+    check("names: and at the write, leaving team.yaml as it was",
+          not done and "bad team name" in said and paths.team_file().read_text() == before, said)
+    for label, call in (
+            ("a rename into a name yaml reads as a bool",
+             lambda: hr._rename_text(team.STARTER, mover, "on", None)),
+            ("a rename that joins a team called no",
+             lambda: hr._rename_text(team.STARTER, mover, "newname", "no")),
+            ("a join of an agent called no", lambda: hr._join_team(team.STARTER, "no", "eng"))):
+        try:
+            call()
+            check(f"names: {label} is refused at the write", False)
+        except yamlcompat.ConfigError:
+            check(f"names: {label} is refused at the write", True)
+    if yamlcompat.HAVE_PYYAML:
+        lockout = "teams:\n  no: [dev1]\n"
+        check("names: under PyYAML the same line loads, with the key False - which the "
+              "bundled parser refuses, so only the guard stands between the two",
+              False in yamlcompat.load(lockout)["teams"] and _refused(lockout))
+    for n in bad[:6]:
+        try:
+            accounts.register(n)
+            check(f"names: accounts.register turns away {n!r}", False)
+        except ValueError:
+            check(f"names: accounts.register turns away {n!r}", True)
 
 
 def test_the_suite_and_the_package_name_only_what_exists() -> None:
@@ -14582,6 +14754,8 @@ def main() -> int:
         run(lambda: test_yaml_differential())
         run(lambda: test_the_bundled_parser_reads_what_pyyaml_reads_as_strings_and_refuses_the_rest())
         run(lambda: test_yaml_rejects_ambiguity())
+        run(lambda: test_a_name_that_yaml_would_not_read_as_text_is_refused_where_it_is_typed(Path(td) / 'nameguard'))
+        run(lambda: test_agent_yaml_is_written_by_dump_so_what_was_typed_reads_back(Path(td) / 'agentyaml'))
         run(lambda: test_the_suite_and_the_package_name_only_what_exists())
         run(lambda: test_yaml_booleans())
         run(lambda: test_team_validation())

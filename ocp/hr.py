@@ -31,7 +31,7 @@ import uuid
 from pathlib import Path
 
 from . import agents, ask as askmod, db, paths, team
-from .yamlcompat import ConfigError, dump, load
+from .yamlcompat import ConfigError, dump, is_plain_text, load
 
 # What the founder types to decide. Printed in the escalation, so the words are
 # in front of whoever answers rather than in a document they have not read.
@@ -84,6 +84,8 @@ def _draft(kind: str, name: str, requester: str, why: str, account: str | None,
         return {}, f"kind must be one of {', '.join(KINDS)}"
     if not name or "/" in name or name.startswith("."):
         return {}, f"bad agent name: {name!r}"
+    if not is_plain_text(name):
+        return {}, f"bad agent name: {name!r}. {agents.NOT_TEXT}"
     if not (why or "").strip():
         return {}, "say why: the founder is being asked to decide, not to rubber-stamp"
 
@@ -95,8 +97,12 @@ def _draft(kind: str, name: str, requester: str, why: str, account: str | None,
     if kind == "rename":
         if not to or "/" in to or to.startswith("."):
             return {}, "a rename needs a new name (--to)"
+        if not is_plain_text(to):
+            return {}, f"bad agent name: {to!r}. {agents.NOT_TEXT}"
         if to in registered:
             return {}, f"{to} is already an agent"
+    if team_name and not is_plain_text(team_name):
+        return {}, f"bad team name: {team_name!r}. {agents.NOT_TEXT}"
     if effort and effort not in agents.VALID_EFFORT:
         return {}, f"effort must be one of {', '.join(agents.VALID_EFFORT)}"
     if kind in ("add", "move"):
@@ -504,7 +510,16 @@ def _block(lines: list[str], header: str) -> tuple[int, int]:
     raise ConfigError(f"team.yaml has no `{header}` block")
 
 
+def _text_only(what: str, value: str | None) -> None:
+    """Refuse to write into team.yaml a name YAML would not read back as text.
+    `_draft` refuses these when a proposal is made; this is at the write, which
+    a proposal saved before that check, or edited by hand, reaches without it."""
+    if value and not is_plain_text(value):
+        raise ConfigError(f"bad {what} name: {value!r}. {agents.NOT_TEXT}")
+
+
 def _add_text(text: str, name: str, team_name: str | None) -> str:
+    _text_only("agent", name)
     lines = text.splitlines()
     head, end = _block(lines, "agents:")
     if any(re.match(rf"\s*{re.escape(name)}\s*:", ln) for ln in lines[head + 1:end]):
@@ -515,6 +530,8 @@ def _add_text(text: str, name: str, team_name: str | None) -> str:
 
 
 def _join_team(text: str, name: str, team_name: str) -> str:
+    _text_only("agent", name)
+    _text_only("team", team_name)
     lines = text.splitlines()
     head, end = _block(lines, "teams:")
     pattern = re.compile(rf"^(\s*{re.escape(team_name)}\s*:\s*\[)([^\]]*)(\].*)$")
@@ -538,6 +555,7 @@ def _rename_text(text: str, old: str, new: str, team_name: str | None) -> str:
     left `from: "manager"` naming nobody, and the renamed manager with no
     edge to the reports it supervises. Its intake stays what it was.
     """
+    _text_only("agent", new)
     word = re.escape(old)
     lines = text.splitlines()
     head, end = _block(lines, "agents:")

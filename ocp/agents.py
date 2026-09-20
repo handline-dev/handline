@@ -10,7 +10,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from . import paths
-from .yamlcompat import ConfigError, dump, load
+from .yamlcompat import ConfigError, dump, is_plain_text, load
 
 DEFAULT_MODEL = "sonnet"
 
@@ -68,6 +68,11 @@ def read(name: str) -> dict:
     return data
 
 
+# Said wherever a name is refused for what YAML would make of it. A name is
+# written unquoted into team.yaml and agent.yaml, and `no`, `on`, `1` and a date
+# are not text there: one would make the file refuse to load or load as a bool.
+NOT_TEXT = ("It would not be read back as text from the YAML files it is written into "
+            "(no, on, null, numbers and dates are not); choose another.")
 _CONTROL = re.compile(r"[\x00-\x1f\x7f-\x9f\u2028\u2029]")
 
 
@@ -78,20 +83,25 @@ def register(name: str, account: str, role: str = "", model: str | None = None,
     # byte in it (an escape, a newline) is refused here, where it would stay.
     if not name or "/" in name or name.startswith(".") or _CONTROL.search(name):
         raise ValueError(f"bad agent name: {name!r}")
+    if not is_plain_text(name):
+        raise ValueError(f"bad agent name: {name!r}. {NOT_TEXT}")
+    if effort and effort not in VALID_EFFORT:
+        raise ValueError(f"effort must be one of {', '.join(VALID_EFFORT)}, not {effort!r}")
     d = paths.agent_dir(name)
+    f = agent_file(name)
+    text = None
+    if not f.exists():
+        # Built as a map and written by dump, which reads every line back: a
+        # model of 4.5, or a weight of on, is quoted and stays the text typed.
+        # Built before the folder exists, so a value it refuses leaves nothing.
+        text = dump({"name": name, "account": account, "model": model or DEFAULT_MODEL,
+                     "effort": effort or DEFAULT_EFFORT, "weight": weight or "light",
+                     "enabled": True, **({"repo": repo} if repo else {})})
     for sub in ("inbox", "journal"):
         (d / sub).mkdir(parents=True, exist_ok=True)
 
-    f = agent_file(name)
-    if effort and effort not in VALID_EFFORT:
-        raise ValueError(f"effort must be one of {', '.join(VALID_EFFORT)}, not {effort!r}")
-    if not f.exists():
-        f.write_text(
-            f"name: {name}\naccount: {account}\nmodel: {model or DEFAULT_MODEL}\n"
-            f"effort: {effort or DEFAULT_EFFORT}\nweight: {weight or 'light'}\n"
-            "enabled: true\n"
-            + (f"repo: {repo}\n" if repo else "")
-        )
+    if text is not None:
+        f.write_text(text)
     else:
         # Already registered: update what was actually asked for and leave the
         # rest of the mapping alone. Re-serialize from the parsed document
