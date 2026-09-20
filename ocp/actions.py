@@ -892,6 +892,7 @@ def can(con, agent: str, key: str) -> tuple[bool, str]:
 # been at work for a week has more of them than a page can hold.
 CHAT_CHAINS = 8
 CHAT_TAB = "CONVERSATION"
+KNOWS_TAB = "WHAT IT KNOWS"
 
 
 def _chat_rows(con, agent: str) -> list:
@@ -905,14 +906,55 @@ def _chat_rows(con, agent: str) -> list:
         "ORDER BY id", (HUMAN, agent, agent, HUMAN)).fetchall()
 
 
-class Said(str):
-    """One row of a conversation: a message, or the rule that starts a thread.
+class Row(str):
+    """A row of an agent's page that the screen lays out from its fields.
 
-    As a string it is the plain reading - who, then what - which is all a
-    caller that only searches needs. The fields are what the bridge lays out
-    from at the width the terminal has now, so a message is wrapped where it is
-    drawn and its text never passes through anything that styles it.
+    As a string it is the plain reading, which is all a caller that only
+    searches needs. The fields are what the bridge draws from at the width the
+    terminal has now, so a row is wrapped where it is drawn and its text never
+    passes through anything that styles it.
     """
+
+
+class Fact(Row):
+    """Labelled values that belong together: `account alpha   model sonnet`."""
+    pairs: list[tuple[str, str]]
+
+    def __new__(cls, *pairs: tuple[str, str]):
+        self = super().__new__(cls, "   ".join(f"{k} {v}" for k, v in pairs))
+        self.pairs = list(pairs)
+        return self
+
+
+class Entry(Row):
+    """A request as a block: its number, who it is with, and all of its text."""
+    id: int
+    who: str
+    text: str
+    ts: int
+
+    def __new__(cls, id: int, who: str, text: str, ts: int):
+        self = super().__new__(cls, f"#{id} from {who}: {text}")
+        self.id, self.who, self.text, self.ts = id, who, text, ts or 0
+        return self
+
+
+class Event(Row):
+    """One thing the daemon or the agent did, with its whole payload."""
+    ts: int
+    kind: str
+    payload: str
+
+    def __new__(cls, ts: int, kind: str, payload: str):
+        self = super().__new__(
+            cls, f"{time.strftime('%H:%M:%S', time.localtime(ts))}  {kind:<18}{payload}")
+        self.ts, self.kind, self.payload = ts or 0, kind, payload
+        return self
+
+
+class Said(Row):
+    """One row of a conversation: a message, or the rule that starts a thread.
+    As a string it is who, then what."""
     kind: str          # "msg" or "thread"
     who: str           # the speaker; "a → b" between two agents
     side: str          # "you", "agent" (the one this tab is about) or "other"
@@ -1070,42 +1112,40 @@ def agent_detail(con, agent: str) -> list[tuple[str, list[str]]]:
     # an account the agent is not spending on.
     prefers = agents.account_of(agent)
     where = acct if acct == prefers else f"{acct} (prefers {prefers})"
-    head = [f"account {where}   model {cfg.get('model')}   "
-            f"effort {cfg.get('effort') or agents.DEFAULT_EFFORT}   "
-            f"ctx {'?' if st.ctx_pct is None else str(st.ctx_pct) + '%'}"]
+    head = [Fact(("account", where), ("model", str(cfg.get("model"))),
+                 ("effort", cfg.get("effort") or agents.DEFAULT_EFFORT),
+                 ("ctx", "?" if st.ctx_pct is None else str(st.ctx_pct) + "%"))]
     if row:
         closed = "  ·closed" if row["closed_at"] else ""
-        head.append(f"state {row['state']}{closed}"
-                    + (f"   wakes {time.strftime('%H:%M', time.localtime(row['wake_at']))}"
-                       if row["wake_at"] else ""))
+        head.append(Fact(("state", f"{row['state']}{closed}"),
+                         *([("wakes", time.strftime("%H:%M", time.localtime(row["wake_at"])))]
+                           if row["wake_at"] else [])))
         if row["detail"]:
             head.append(row["detail"])
-        head.append(f"terminal {row['terminal'] or 'none'}")
+        head.append(Fact(("terminal", row["terminal"] or "none")))
         if row["worktree"]:
-            head.append(f"worktree {worktree_path(row['worktree']) or row['worktree']}")
+            head.append(Fact(("worktree", worktree_path(row["worktree"]) or row["worktree"])))
         if row["closed_at"]:
-            head.append(f"resumes session {row['resume_session'] or 'unknown'}")
+            head.append(Fact(("resumes session", row["resume_session"] or "unknown")))
     sections = [("", head)]
 
     waiting = db.queued_for(con, agent)
     sections.append((f"WAITING FOR IT ({len(waiting)})", [
-        f"#{r['id']} from {r['requester']}: "
-        f"{((r['body'] or '').splitlines() or [''])[0]}" for r in waiting
+        Entry(r["id"], r["requester"], r["body"] or "", r["ts"]) for r in waiting
     ] or ["nothing queued for it"]))
 
     mine = db.unannounced_answers(con, agent)
     if mine:
         sections.append((f"ANSWERS IT HAS NOT BEEN TOLD ({len(mine)})", [
-            f"#{r['id']} from {r['target']}: "
-            f"{((r['verdict'] or '').splitlines() or [r['state']])[0]}" for r in mine]))
+            Entry(r["id"], r["target"], r["verdict"] or r["state"], r["resolved_at"] or r["ts"])
+            for r in mine]))
 
     kept = db.get_handoff(con, agent)
-    sections.append(("WHAT IT KNOWS",
+    sections.append((KNOWS_TAB,
                      kept.splitlines() if kept
                      else ["no handoff waiting - it has not been parked"]))
 
-    recent = [f"{time.strftime('%H:%M:%S', time.localtime(e['ts']))}  "
-              f"{e['kind']:<18}{(e['payload'] or '')[:60]}"
+    recent = [Event(e["ts"], e["kind"], e["payload"] or "")
               for e in con.execute(
                   "SELECT ts, kind, payload FROM events WHERE agent = ? "
                   "ORDER BY id DESC LIMIT 12", (agent,)).fetchall()]

@@ -1002,7 +1002,7 @@ def lines_of(detail: dict, width: int) -> list[str]:
     # page is *about*, so it stays; the rest is ←→.
     intro = [r for h, rows in sections if not h for r in rows]
     tabs = [(h, rows) for h, rows in sections if h]
-    lines: list[str] = wrap(intro, width) + [""] if intro else []
+    lines: list[str] = _rows_lines(intro, width) + [""] if intro else []
     if not tabs:
         return lines
     at = max(0, min(detail.get("tab", 0), len(tabs) - 1))
@@ -1023,52 +1023,145 @@ def lines_of(detail: dict, width: int) -> list[str]:
         at = max(0, min(detail.get("at", 0), len(picks) - 1))
         detail["at"] = at
         box.focused, box.selected = True, picks[at]
-        for r, rid in zip(rows, picks):
-            box.add(r, key=rid)
+        for i, (r, rid) in enumerate(zip(rows, picks)):
+            if i:
+                box.add("")
+            head, *rest = (_entry_lines(r, max(1, width - 5)) if isinstance(r, actions.Entry)
+                           else wrap([r], max(1, width - 5)))
+            box.add(head, key=rid)         # the cursor is in the gutter of its first line
+            for ln in rest:
+                box.add(ln)
         return lines + box.draw()
-    if detail["stem"] == actions.CHAT_TAB:
-        for ln in _chat_lines(rows, max(1, width - 5)):
-            box.add(ln)
-        return lines + box.draw()
-    for r in wrap(rows, max(1, width - 5)):
-        box.add(r)
+    room = max(1, width - 5)
+    for ln in (_note_lines(rows, room) if detail["stem"] == actions.KNOWS_TAB
+               else _rows_lines(rows, room, dim_plain=detail["stem"] == actions.CHAT_TAB)):
+        box.add(ln)
     return lines + box.draw()
 
 
-def _chat_lines(rows: list, width: int) -> list[str]:
-    """A conversation as the screen shows it: who spoke, when, then what.
+def _clock(ts: float, seconds: bool = False) -> str:
+    """A time of day, with the date only when it is not today."""
+    t = time.localtime(ts)
+    if time.strftime("%m-%d", t) == time.strftime("%m-%d"):
+        return time.strftime("%H:%M:%S" if seconds else "%H:%M", t)
+    return time.strftime("%m-%d %H:%M:%S" if seconds else "%m-%d %H:%M", t)
 
-    A message is a marker and a name on one line and its text indented under it,
-    with a blank line between messages, so where one ends is a gap and not a
-    count. The name is said once for a run from the same speaker; the marker
-    stays, so the side is still there at a glance. What a sender typed goes
-    through `wrap`, which drops any escape in it, and is styled only after.
+
+def _body(text: str, width: int) -> list[str]:
+    """What a sender typed, wrapped to the column and indented under its
+    header. It goes through `wrap`, which drops any escape in it; the caller
+    styles only what it adds."""
+    return [f"  {ln}" if ln else "" for ln in wrap(text.splitlines() or ["(empty)"],
+                                                  max(1, width - 2))]
+
+
+def _entry_lines(e, width: int) -> list[str]:
+    """A request: its number and who it is with on one line, all of its text under."""
+    head = f"{BOLD}#{e.id}{R} from {e.who}  {DIM}{_clock(e.ts)}{R}"
+    return [fit(head, width)] + _body(e.text if e.text.strip() else "", width)
+
+
+def _fact_lines(f, width: int) -> list[str]:
+    """Labelled values, as many to a line as fit; one never breaks from its label."""
+    out: list[str] = []
+    cur, used = "", 0
+    for k, v in f.pairs:
+        parts = wrap([f"{k} {v}"], width)
+        styled = [f"{DIM}{k}{R}{p[len(k):]}" if p.startswith(k) and j == 0 else p
+                  for j, p in enumerate(parts)]
+        if len(parts) == 1 and cur and used + 3 + vlen(parts[0]) <= width:
+            cur, used = f"{cur}   {styled[0]}", used + 3 + vlen(parts[0])
+            continue
+        if cur:
+            out.append(cur)
+        out += styled[:-1]
+        cur, used = styled[-1], vlen(parts[-1])
+    return out + ([cur] if cur else [])
+
+
+def _event_lines(events: list, width: int) -> list[str]:
+    """What was done, in columns while there is room for them and stacked when
+    there is not. A payload is wrapped under its own column, never cut."""
+    tw = max(vlen(_clock(e.ts, True)) for e in events)
+    kw = min(18, max(vlen(e.kind) for e in events))
+    cols = tw + 2 + kw + 2
+    out: list[str] = []
+    for e in events:
+        when = f"{DIM}{pad(_clock(e.ts, True), tw)}{R}"
+        if cols > width // 2 or vlen(e.kind) > kw:
+            clock = _clock(e.ts, True)
+            head = wrap([f"{clock}  {e.kind}"], width)
+            out.append(f"{DIM}{clock}{R}{BOLD}{head[0][len(clock):]}{R}" if head[0].startswith(clock)
+                       else head[0])
+            out += head[1:]
+            out += _body(e.payload, width) if e.payload.strip() else []
+            continue
+        rows = wrap(e.payload.splitlines() or [""], max(1, width - cols))
+        out.append(f"{when}  {BOLD}{pad(e.kind, kw)}{R}  {rows[0]}".rstrip())
+        out += [" " * cols + ln if ln else "" for ln in rows[1:]]
+    return out
+
+
+_ITEM = re.compile(r"^(\s*(?:[-*\u2022]|\d+[.)])\s+|\s+)")
+
+
+def _note_lines(rows: list[str], width: int) -> list[str]:
+    """Free text an agent kept for itself: `#` lines are headings, and a wrapped
+    list item goes back under its own words rather than under its bullet."""
+    out: list[str] = []
+    for r in rows:
+        if r.lstrip().startswith("#"):
+            out += [f"{BOLD}{ln}{R}" if ln else "" for ln in wrap([r], width)]
+            continue
+        indent = len(m.group(1).expandtabs()) if (m := _ITEM.match(r)) else 0
+        lead = r[:indent] if indent else ""
+        rest = wrap([r[indent:]], max(1, width - indent)) or [""]
+        out += [(lead if i == 0 else " " * indent) + ln if ln else ""
+                for i, ln in enumerate(rest)]
+    return out
+
+
+def _rows_lines(rows: list, width: int, dim_plain: bool = False) -> list[str]:
+    """The rows of a tab as the screen shows them, each kind laid out its own way.
+
+    A message or a request is a block: a header line and its text indented
+    under it, with a blank line between blocks, so where one ends is a gap and
+    not a count. Plain rows are wrapped.
     """
     out: list[str] = []
-    prev: tuple | None = None
-    today = time.strftime("%m-%d")
+    prev: tuple | None = None          # the speaker of the message above
+    block = False                      # the row above was a block
+    if rows and all(isinstance(r, actions.Event) for r in rows):
+        return _event_lines(rows, width)   # columns are the section's, not a row's
     for r in rows:
-        if not isinstance(r, actions.Said):
-            out += [f"{DIM}{ln}{R}" if ln else "" for ln in wrap([r], width)]
+        if not isinstance(r, actions.Row):
+            out += [f"{DIM}{ln}{R}" if dim_plain and ln else ln for ln in wrap([r], width)]
+            block = False
+            continue
+        if isinstance(r, actions.Fact):
+            out += _fact_lines(r, width)
+            continue
+        if isinstance(r, actions.Entry):
+            if block:
+                out.append("")
+            out += _entry_lines(r, width)
+            block = True
             continue
         if r.kind == "thread":
             if out:
                 out.append("")
             out.append(f"{DIM}{fit(r + ' ', width)}{'─' * max(0, width - vlen(r) - 1)}{R}")
-            prev = None
+            prev, block = None, False
             continue
-        if prev is not None:
+        if block:
             out.append("")
-        head, dim = {"you": (f"{CYA}{BOLD}❯", ""), "agent": (f"{GRN}{BOLD}●", ""),
-                     "other": (f"{DIM}·", DIM)}[r.side]
+        head, dim = {"you": (f"{CYA}{BOLD}\u276f", ""), "agent": (f"{GRN}{BOLD}\u25cf", ""),
+                     "other": (f"{DIM}\u00b7", DIM)}[r.side]
         name = "" if prev == (r.side, r.who) else f" {r.who}"
-        prev = (r.side, r.who)
-        day = time.strftime("%m-%d", time.localtime(r.ts))
-        when = time.strftime("%H:%M" if day == today else "%m-%d %H:%M", time.localtime(r.ts))
-        tail = (f" {DIM}·{R} {YEL if r.waiting else DIM}{r.tail}{R}" if r.tail else "")
-        out.append(fit(f"{head}{name}{R}  {DIM}{when}{R}{tail}", width))
-        out += [f"{dim}  {ln}{R}" if ln else ""
-                for ln in wrap(r.text.splitlines() or [""], max(1, width - 2))]
+        prev, block = (r.side, r.who), True
+        tail = (f" {DIM}\u00b7{R} {YEL if r.waiting else DIM}{r.tail}{R}" if r.tail else "")
+        out.append(fit(f"{head}{name}{R}  {DIM}{_clock(r.ts)}{R}{tail}", width))
+        out += [f"{dim}{ln}{R}" if ln else "" for ln in _body(r.text, width)]
     return out
 
 
@@ -1725,12 +1818,18 @@ def _in_detail(detail: dict, k: str, width: int, height: int,
     if picks and k in ("j", "\033[B", "\033OB", "k", "\033[A", "\033OA"):
         down = k in ("j", "\033[B", "\033OB")
         detail["at"] = max(0, min(len(picks) - 1, detail.get("at", 0) + (1 if down else -1)))
-        # Scrolled only as far as keeps the row in view.
-        body = lines_of(detail, width)
-        row = next((i for i, ln in enumerate(body) if "▸" in _ANSI.sub("", ln)), None)
+        # Scrolled only as far as keeps the whole request in view - or its
+        # first line, when it is taller than the page.
+        plain = [_ANSI.sub("", ln) for ln in lines_of(detail, width)]
+        row = next((i for i, ln in enumerate(plain) if ln.startswith("│▸")), None)
         if row is not None:
+            end = next((i for i in range(row + 1, len(plain))
+                        if not plain[i][1:-1].strip() or plain[i].startswith("└")), len(plain)) - 1
             top = detail.get("top", 0)
-            top = row if row < top else (row - room + 1 if row >= top + room else top)
+            if row < top:
+                top = row
+            elif end >= top + room:
+                top = min(row, end - room + 1)
             detail["top"] = max(0, top)
         return detail, ""
     if k == "x" and detail.get("panel") in (AGENTS, STUCK):

@@ -11140,6 +11140,105 @@ def test_a_message_being_typed_wraps_and_keeps_the_cursor_on_its_last_character(
     check("typing: and it is not painted over more than half of it", last[0][0] >= 12)
 
 
+def test_the_agent_pages_tabs_show_everything_and_read_as_blocks(home: Path) -> None:
+    """Founder: the other tabs of an agent's page were cut to one line, cut at
+    60 characters, or not wrapped. A request, an event and a handoff are shown
+    whole at any width, and a row is a block you can tell from the next."""
+    from collections import Counter
+    _daemon_home(home, 20)
+    agents.register("reviewer", "alpha")
+    con = db.connect()
+    try:
+        body = ("Please review the branch.\n\nSteps:\n  1. read the diff\n  2. run the tests "
+                + "and a long line " * 6 + "TAILONE")
+        a = db.add_request(con, "marina", "reviewer", body, None, "peer", "async", None, 0, None)
+        b = db.add_request(con, askmod.HUMAN, "reviewer",
+                           "second\n" + "\n".join(f"line {i}" for i in range(5)) + "\nTAILTWO",
+                           None, "peer", "async", None, 0, None)
+        asked = askmod.ask("backend", "is main green?", requester="reviewer")[2]
+        askmod.resolve(asked, "yes, green\nsince the rebase TAILANS")
+        asked2 = askmod.ask("backend", "and the docs?", requester="reviewer")[2]
+        askmod.resolve(asked2, "no\nnot yet TAILANS2")
+        db.set_agent_state(con, "reviewer", dmn.IDLE, detail="waiting on a long thing " * 4 + "TAILHEAD")
+        db.add_event(con, "reviewer", "wake", {"resumed_session": "s-1", "why": "x" * 90 + "TAILEV"})
+        db.add_event(con, "reviewer", "a_rather_long_event_kind_name", {"k": 1})
+        keep_handoff("reviewer", "# Goal\nship it\n- first item, long enough to wrap around the "
+                     "column edge " + "more " * 10 + "TAILKEEP\n1. numbered " + "x " * 30)
+
+        def page_at() -> dict:
+            return tui._agent_page(con, "reviewer", tui.AGENTS)
+
+        def tab(page: dict, name: str, width: int) -> list[str]:
+            tui._go_to_tab(page, tui._tab_stems(page).index(name))
+            return [tui._ANSI.sub("", ln) for ln in tui.lines_of(page, width)]
+
+        def words(lines: list[str]) -> Counter:
+            return Counter(w for ln in lines for w in ln.strip("│┌└┐┘─ ").split())
+
+        for width in (100, 40, 22):
+            pg = page_at()
+            everything = []
+            for name in ("WAITING FOR IT", "ANSWERS IT HAS NOT BEEN TOLD", "WHAT IT KNOWS",
+                         "WHAT IT HAS DONE"):
+                lines = tab(pg, name, width)
+                everything.append(lines)
+                check(f"tabs: {name} is not wider than the terminal at {width}",
+                      all(tui.vlen(ln) <= width for ln in lines),
+                      str([ln for ln in lines if tui.vlen(ln) > width][:2]))
+            waiting, told, knows, done = everything
+            want = words(body.split("\n") + ["second"] + [f"line {i}" for i in range(5)]
+                         + ["TAILTWO"])
+            check(f"tabs: every word of a request is there, not its first line at {width}",
+                  not want - words(waiting), str(want - words(waiting)))
+            if width == 100:
+                check("tabs: the head block puts what fits on one line, labels apart from values",
+                      "account alpha   model sonnet   effort medium   ctx ?"
+                      in tab(pg, "WAITING FOR IT", width))
+            head = [ln for ln in tab(pg, "WAITING FOR IT", width)
+                    if "TAILHEAD" in ln or "waiting on" in ln]
+            check(f"tabs: the head block keeps its whole detail at {width}",
+                  words(tab(pg, "WAITING FOR IT", width))["TAILHEAD"] == 1 and head)
+            inner = [ln[1:-1].rstrip() for ln in waiting if ln.startswith("│")]
+            heads = [i for i, ln in enumerate(inner) if "from marina" in ln or "from human" in ln]
+            check(f"tabs: a request is a header, its text under it, a blank line between at {width}",
+                  len(heads) == 2 and inner[heads[1] - 1] == ""
+                  and all(ln.startswith("    ") or not ln for ln in inner[heads[0] + 1:heads[1]])
+                  and all(ln.startswith("    ") or not ln for ln in inner[heads[1] + 1:]),
+                  str(inner))
+            told_in = [ln[1:-1].rstrip() for ln in told if ln.startswith("│")]
+            check(f"tabs: the answers it was not told are whole, a blank line apart at {width}",
+                  not words(["yes, green", "since the rebase TAILANS", "no", "not yet TAILANS2"])
+                  - words(told) and "" in told_in[1:-1], str(told))
+            check(f"tabs: an event's payload is whole, not cut at 60 at {width}",
+                  "x" * 90 + "TAILEV" in "".join(ln.strip("│ ") for ln in done),
+                  str(done))
+            check(f"tabs: an event kind too wide for its column is shown whole at {width}",
+                  "a_rather_long_event_kind_name" in "".join(ln.strip("│ ") for ln in done)
+                  or width == 22, str(done))
+            check(f"tabs: a handoff is whole and a wrapped item goes under its words at {width}",
+                  words(knows)["TAILKEEP"] == 1 and all(
+                      ln.startswith("│    ") for ln in knows
+                      if ln.startswith("│") and "more" in ln and "- first" not in ln),
+                  str(knows))
+        check("tabs: the columns line up under a wide terminal",
+              len({ln.index("wake") for ln in tab(page_at(), "WHAT IT HAS DONE", 100)
+                   if " wake " in ln}) == 1)
+
+        # ↓ keeps the whole of the request the cursor is on in view.
+        pg = page_at()
+        tui._go_to_tab(pg, tui._tab_stems(pg).index("WAITING FOR IT"))
+        pg, _ = tui._in_detail(pg, "j", 60, 24)
+        frame = tui._ANSI.sub("", tui._detail_frame(60, 24, pg))
+        check("tabs: moving to a long request shows all of it, not its first line",
+              "TAILTWO" in frame and f"#{b}" in frame, frame)
+        pg, _ = tui._in_detail(pg, "k", 60, 24)
+        frame = tui._ANSI.sub("", tui._detail_frame(60, 24, pg))
+        check("tabs: and back up shows the first one from its header",
+              f"#{a} from marina" in frame, frame)
+    finally:
+        con.close()
+
+
 def test_a_paste_into_any_prompt_arrives_whole_and_confirms_nothing(home: Path) -> None:
     """The founder pasted one screen and it arrived as two messages (#684,
     #686): the prompt sent at the first newline. Through a real pty, so the
@@ -13340,6 +13439,7 @@ def main() -> int:
         run(lambda: test_the_messenger_tab_carries_a_conversation_both_ways(Path(td) / 'chat'))
         run(lambda: test_a_conversation_stays_where_the_reader_scrolled_it(Path(td) / 'scroll'))
         run(lambda: test_a_conversation_reads_as_turns_at_any_width(Path(td) / 'turns'))
+        run(lambda: test_the_agent_pages_tabs_show_everything_and_read_as_blocks(Path(td) / 'tabs'))
         run(lambda: test_a_message_being_typed_wraps_and_keeps_the_cursor_on_its_last_character(Path(td) / 'typing'))
         run(lambda: test_bracketed_paste_is_switched_on_with_the_screen())
         run(lambda: test_the_composer_takes_a_paste_whole(Path(td) / 'composer'))
