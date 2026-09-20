@@ -3990,6 +3990,8 @@ def test_one_unreadable_proposal_does_not_take_the_hr_listing_down(home: Path) -
     ok, said = hr.apply("other")
     check("hr apply: a file that is not a proposal is said not to be one",
           not ok and "not a proposal" in said, said)
+    ok, said = hr.apply("binary")
+    check("hr apply: one that is not text says so too", not ok and "cannot be read" in said, said)
     for f in d.glob("*.yaml"):
         if f.name != "good.yaml":
             f.unlink()
