@@ -1383,7 +1383,10 @@ def _unpasted(data: str) -> str:
 
 # The terminal's bytes as text, kept across reads: a character cut by the end of
 # one read (a Korean letter is three bytes) is held until the rest arrives, not
-# dropped. A byte that is not UTF-8 at all is drawn as U+FFFD, so it shows.
+# dropped. A byte that is not UTF-8 at all is drawn as U+FFFD, so it shows. A
+# lead byte whose continuation never comes stays held until the next byte, and
+# then surfaces as one U+FFFD glued to it - possibly in the next prompt's text.
+# It is visible, and it needs a byte that is never finished; that is left as is.
 _decoder = codecs.getincrementaldecoder("utf-8")(errors="replace")
 
 
