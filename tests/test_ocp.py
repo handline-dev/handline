@@ -10859,6 +10859,63 @@ def test_the_arrows_change_tabs_on_an_agent_page_in_a_real_terminal(home: Path) 
         os.waitpid(pid, 0)
 
 
+def test_a_conversation_stays_where_the_reader_scrolled_it(home: Path) -> None:
+    """Founder: on the CONVERSATION tab ↑/↓ did nothing. The frame pinned a
+    conversation to its end while `end` was set, and nothing a scroll key did
+    cleared it. The keys and the redraw are the ones `tui.run` calls."""
+    _daemon_home(home, 20)
+    agents.register("reviewer", "alpha")
+    con = db.connect()
+    try:
+        for i in range(14):           # the human is limited to 20 asks an hour
+            actions.chat_reply(con, "reviewer", f"message {i}")
+        sel: dict = {}
+        page = tui._agent_page(con, "reviewer", tui.AGENTS)
+        tui._go_to_tab(page, tui._tab_stems(page).index(actions.CHAT_TAB))
+
+        def draw() -> str:
+            nonlocal page
+            shown, page = tui._redraw(100, 14, sel, tui.AGENTS, "", page)
+            return tui._ANSI.sub("", shown)
+
+        def press(k: str, times: int = 1) -> None:
+            nonlocal page
+            for _ in range(times):
+                page, _ = tui._in_detail(page, k, 100, 14)
+
+        check("scroll: a conversation just opened is at its newest message",
+              "message 13" in draw())
+        for name, up in (("↑", "\033[A"), ("k", "k"), ("Page Up", "\033[5~")):
+            press("G")
+            draw()
+            press(up, 8)
+            top = page["top"]
+            for _ in range(3):
+                seen = draw()             # refreshes that follow the scroll
+            check(f"scroll: {name} moves up and the next redraws leave it there",
+                  "message 13" not in seen and page["top"] == top,
+                  f"top {page['top']} was {top}")
+        press("G")
+        draw()
+        press("\033[A", 4)
+        top = page["top"]
+        actions.chat_reply(con, "reviewer", "message 14")
+        seen = draw()
+        check("scroll: a message arriving while scrolled up does not move the reader",
+              page["top"] == top and "message 14" not in seen,
+              f"top {page['top']} was {top}")
+        press("\033[B", 200)
+        check("scroll: ↓ back to the bottom shows the newest", "message 14" in draw())
+        actions.chat_reply(con, "reviewer", "message 15")
+        check("scroll: and from there the conversation follows what arrives",
+              "message 15" in draw())
+        press("G")
+        actions.chat_reply(con, "reviewer", "message 16")
+        check("scroll: G goes to the end and follows it too", "message 16" in draw())
+    finally:
+        con.close()
+
+
 def test_the_messenger_tab_carries_a_conversation_both_ways(home: Path) -> None:
     """The founder writes in the tab, the agent answers, and the answer is in
     the tab on the next redraw - with the message sent whole and under its
@@ -13156,6 +13213,7 @@ def main() -> int:
         run(lambda: test_a_message_is_read_whole_and_answered_where_it_is_read(Path(td) / 'topread'))
         run(lambda: test_the_arrows_change_tabs_on_an_agent_page_in_a_real_terminal(Path(td) / 'arrows'))
         run(lambda: test_the_messenger_tab_carries_a_conversation_both_ways(Path(td) / 'chat'))
+        run(lambda: test_a_conversation_stays_where_the_reader_scrolled_it(Path(td) / 'scroll'))
         run(lambda: test_bracketed_paste_is_switched_on_with_the_screen())
         run(lambda: test_the_composer_takes_a_paste_whole(Path(td) / 'composer'))
         run(lambda: test_a_paste_into_any_prompt_arrives_whole_and_confirms_nothing(Path(td) / 'pasteany'))

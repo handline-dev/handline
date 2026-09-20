@@ -1602,6 +1602,10 @@ def _refreshed(detail: dict | None) -> dict | None:
         con.close()
 
 
+SCROLL_KEYS = ("j", "\033[B", "\033OB", "k", "\033[A", "\033OA",
+               " ", "\033[6~", "b", "\033[5~", "g", "G")
+
+
 def _in_detail(detail: dict, k: str, width: int, height: int,
                fd=None, saved=None) -> tuple[dict | None, str]:
     """One keypress while something is open. Returns (what is open now, line).
@@ -1637,6 +1641,11 @@ def _in_detail(detail: dict, k: str, width: int, height: int,
         if not picks:
             return detail, "x cancels a request: open WAITING FOR IT (←→) and pick one (↑↓)"
         return _cancel_key(detail, picks, width, height)
+    if k in SCROLL_KEYS:
+        # The frame pins a conversation to its end while `end` is set, so a
+        # reader who scrolls has to clear it; the frame sets it again when
+        # they come back to the bottom.
+        detail["end"] = False
     if k in ("j", "\033[B", "\033OB"):
         detail["top"] += 1
         return detail, ""
