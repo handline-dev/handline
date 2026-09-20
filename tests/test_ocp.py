@@ -2740,6 +2740,56 @@ def _undefined_globals(path: Path) -> set[tuple[str, str]]:
     return found
 
 
+def test_agent_yaml_is_written_by_dump_so_what_was_typed_reads_back(home: Path) -> None:
+    """`ocp hr add --model 4.5` wrote `model: 4.5`, which reads back as a float,
+    and `--model 2026-09-20` wrote a file that did not load. The file is built as
+    a map and written by dump, which quotes what a reader would take for
+    something else, so each value reads back as the text that was typed."""
+    restore_world()
+    home.mkdir(parents=True, exist_ok=True)
+    os.environ["OCP_HOME"] = str(home)
+    agents.register("plain", "alpha")
+    agents.register("full", "alpha", model="opus", effort="high", weight="heavy",
+                    repo="/Users/ron/some repo")
+    check("agent.yaml: the ordinary file is byte for byte what it was",
+          agents.agent_file("plain").read_text()
+          == f"name: plain\naccount: alpha\nmodel: {agents.DEFAULT_MODEL}\n"
+             f"effort: {agents.DEFAULT_EFFORT}\nweight: light\nenabled: true\n"
+          and agents.agent_file("full").read_text()
+          == "name: full\naccount: alpha\nmodel: opus\neffort: high\nweight: heavy\n"
+             "enabled: true\nrepo: /Users/ron/some repo\n")
+    typed = [("model", "2026-09-20"), ("model", "no"), ("model", "4.5"), ("weight", "on"),
+             ("repo", "1_000")]
+    for i, (field, value) in enumerate(typed):
+        agents.register(f"agent{i}", "alpha", **{field: value})
+        cfg = agents.read(f"agent{i}")
+        check(f"agent.yaml: --{field} {value} reads back as that text",
+              cfg[field] == value and cfg["enabled"] is True and cfg["name"] == f"agent{i}",
+              repr(cfg))
+        if yamlcompat.HAVE_PYYAML:
+            import yaml as pyyaml
+            check(f"agent.yaml: and PyYAML reads --{field} {value} the same",
+                  pyyaml.safe_load(agents.agent_file(f"agent{i}").read_text()) == cfg)
+    # What the replay does: apply builds the agent from the saved proposal's fields.
+    paths.team_file().write_text(team.STARTER)
+    ok, said = hr._add({"agent": "replayed", "account": "alpha", "model": "4.5",
+                        "effort": "high", "repo": "1_000", "why": "w",
+                        "requested_by": "human", "created": int(time.time())}, None)
+    cfg = agents.read("replayed")
+    check("agent.yaml: an applied proposal carrying such values leaves a file that loads",
+          ok and cfg["model"] == "4.5" and cfg["repo"] == "1_000" and cfg["effort"] == "high",
+          f"{said} {cfg}")
+    try:
+        agents.register("ctrl", "alpha", model="a\nb")
+        check("agent.yaml: a control character is refused", False)
+    except yamlcompat.ConfigError:
+        check("agent.yaml: a control character is refused, and leaves no folder behind",
+              not paths.agent_dir("ctrl").exists())
+    agents.register("plain", "beta", model="4.5")
+    check("agent.yaml: registering again updates through the same writer",
+          agents.read("plain")["account"] == "beta" and agents.read("plain")["model"] == "4.5")
+
+
 def test_a_name_that_yaml_would_not_read_as_text_is_refused_where_it_is_typed(home: Path) -> None:
     """A name is written unquoted into team.yaml, agent.yaml and config.yaml. `no`
     is False to PyYAML and a refusal to the bundled parser, and a refusal on a
@@ -14705,6 +14755,7 @@ def main() -> int:
         run(lambda: test_the_bundled_parser_reads_what_pyyaml_reads_as_strings_and_refuses_the_rest())
         run(lambda: test_yaml_rejects_ambiguity())
         run(lambda: test_a_name_that_yaml_would_not_read_as_text_is_refused_where_it_is_typed(Path(td) / 'nameguard'))
+        run(lambda: test_agent_yaml_is_written_by_dump_so_what_was_typed_reads_back(Path(td) / 'agentyaml'))
         run(lambda: test_the_suite_and_the_package_name_only_what_exists())
         run(lambda: test_yaml_booleans())
         run(lambda: test_team_validation())
