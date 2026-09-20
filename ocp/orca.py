@@ -319,6 +319,12 @@ def parse_dialog(tail: list[str], footer: int) -> Dialog | None:
 # not in it. A label not here is not pressed for, however harmless it looks.
 INERT_LABELS = frozenset({"stay", "cancel", "no", "back", "keep", "do nothing",
                           "not now", "never mind"})
+# Checked against a live terminal, not only against fixtures: orcapipe (the
+# founder) sent this exact byte via `orca terminal send --text $'\033'` to two
+# real, stuck Claude Code dialogs on 2026-09-21 - orcapipe.auditor and
+# harbor.marina, both showing "Background work is running" - and both cleared
+# on the next screen read. `accepted:true` and the dialog actually closing are
+# different claims; both were seen to hold.
 ESCAPE = "\x1b"
 
 
