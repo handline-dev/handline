@@ -1518,18 +1518,35 @@ def split_keys(data: str) -> list[str]:
     """One read of the terminal, split into the keys it contains.
 
     An arrow is three bytes, `esc [ A`, or `esc O A` where the terminal has
-    switched to application cursor keys; a bare escape is one byte and means
-    the human backed out.
+    switched to application cursor keys; PageUp and a modified arrow are longer
+    (`esc [ 5 ~`, `esc [ 1 ; 5 A`). A bare escape is one byte and means the
+    human backed out.
     """
     out, i = [], 0
     while i < len(data):
-        if data[i] == "\033" and i + 2 < len(data) and data[i + 1] in "[O":
-            out.append(data[i:i + 3])
-            i += 3
-        else:
-            out.append(data[i])
-            i += 1
+        m = _CSI.match(data, i) if data[i] == "\033" else None
+        out.append(m.group() if m else data[i])
+        i = m.end() if m else i + 1
     return out
+
+
+def _cut(data: str) -> bool:
+    """Whether `data` ends part way through an escape sequence - or on an
+    escape that may be the start of one."""
+    i = data.rfind("\033")
+    return i >= 0 and (i == len(data) - 1 or bool(_CSI_CUT.fullmatch(data[i:])))
+
+
+# How long a read that ends inside an escape sequence waits for the rest. An
+# arrow can reach us as `esc` and then `[ B`, and that first byte is what a
+# bare Esc looks like: the two are told apart only by whether more follows, so
+# the wait is the price of Esc - short enough that it cannot be felt. 50 ms is
+# right for a local terminal (a split arrow joined at gaps up to about 45 ms).
+# Over a link whose jitter exceeds it an arrow arrives as Esc, as in every
+# terminal program; raise it here if the bridge is ever driven over one. The
+# whole join is bounded to a few waits, so a stream that never completes a
+# sequence cannot hold the screen.
+ESC_WAIT = 0.05
 
 
 _paste_state = {"in": False, "carry": ""}
@@ -1580,6 +1597,9 @@ def _key(timeout: float) -> str | None:
     # bare escape with its `[B` still sitting in the buffer.
     try:
         data = os.read(fd, 4096).decode(errors="ignore")
+        end = time.monotonic() + 4 * ESC_WAIT
+        while _cut(data) and time.monotonic() < end and select.select([fd], [], [], ESC_WAIT)[0]:
+            data += os.read(fd, 4096).decode(errors="ignore")
     except OSError:
         return None
     data = _unpasted(data)
