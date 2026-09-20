@@ -12,7 +12,7 @@ evaluate, and the event that would have resumed them can never fire. The system
 would sit still with empty accounts forever.
 
 Reconciliation runs unconditionally at startup (8.4). One pass covers triggers
-missed while down, stale pidfiles, and lost timers at the same time. In-memory
+missed while down and lost timers at the same time. In-memory
 timers are an optimization and never the source of truth.
 
 Handoff progress is committed per step (8.9), so a restart resumes from the
@@ -97,118 +97,25 @@ def backoff_for(streak: int) -> int:
     return min(BACKOFF_MAX_S, BACKOFF_BASE_S * (2 ** (streak - 1)))
 
 
-# ---------------------------------------------------------------- pidfile
+# ---------------------------------------------------------------- the lock
 # The name of the hold that makes this a single-instance program. One per
 # OCP_HOME, so two installations on one machine still supervise their own.
 DAEMON_LOCK = "daemon"
 
 
-def boot_time() -> int:
-    """Boot time, so a recycled PID cannot be mistaken for a live daemon."""
-    try:
-        out = subprocess.run(["sysctl", "-n", "kern.boottime"], capture_output=True,
-                             text=True, timeout=5).stdout
-        for part in out.replace("{", "").replace("}", "").split(","):
-            if "sec" in part:
-                return int(part.split("=")[1].strip())
-    except (OSError, subprocess.SubprocessError, ValueError, IndexError):
-        pass
-    try:  # Linux fallback
-        with open("/proc/stat") as f:
-            for line in f:
-                if line.startswith("btime"):
-                    return int(line.split()[1])
-    except OSError:
-        pass
-    return 0
-
-
-def write_pidfile() -> None:
-    # Renamed into place, so a reader never sees the truncated file a plain
-    # write leaves for an instant - it would read as no daemon at all.
-    p = paths.daemon_pid()
-    tmp = p.with_name(p.name + ".tmp")
-    tmp.write_text(json.dumps({"pid": os.getpid(), "boot": boot_time()}))
-    os.replace(tmp, p)
-
-
-def read_pidfile() -> dict | None:
-    p = paths.daemon_pid()
-    if not p.exists():
-        return None
-    try:
-        return json.loads(p.read_text())
-    except (OSError, json.JSONDecodeError):
-        return None
-
-
-def clear_pidfile() -> None:
-    """Remove the pidfile, but only while it still names this process.
-
-    An exit that clears the file unconditionally clears whoever holds it, and
-    a live daemon nothing records is one `ocp ps` reports as not running.
-    """
-    _reclaim(os.getpid())
-
-
-# Quiet between repeats: something that keeps deleting the file should be
-# visible, not a line every tick.
-_PIDFILE_LOG_EVERY_S = 300
-_pidfile_logged = {"at": 0.0}
-
-
-def keep_pidfile(log) -> bool:
-    """Rewrite the pidfile if it is missing or names another process. True if it did."""
-    info = read_pidfile()
-    if info and info.get("pid") == os.getpid():
-        return False
-    write_pidfile()
-    now = time.time()
-    if now - _pidfile_logged["at"] >= _PIDFILE_LOG_EVERY_S:
-        _pidfile_logged["at"] = now
-        log("pidfile was missing or named another process - written back")
-    return True
-
-
 def running_elsewhere() -> int | None:
-    """PID of a live daemon, or None on a stale pidfile - never touching it.
+    """PID of the daemon supervising this OCP_HOME, or None when none is.
 
-    A reader that also deletes is still a race: write_pidfile is a plain
-    write_text, so a daemon that writes between this read and a reader's
-    unlink is erased unrecorded, the state this system spent a night in. The
-    daemon only ever writes this file under `lock.singleton`, overwriting
-    whatever is there, so nothing but the holder itself needs to clear it.
+    Asked of the lock that refuses a second daemon (`lock.holder`), so a daemon
+    is reported exactly when it is the one holding it. One that holds the lock
+    without having written its pid - started before the lock recorded it - is
+    named from the process table instead; only one that is in neither reads as
+    None.
     """
-    info = read_pidfile()
-    if not info:
+    pid = lock.holder(DAEMON_LOCK)
+    if pid is None:
         return None
-    pid, boot = info.get("pid"), info.get("boot", 0)
-    if not pid:
-        return None
-    # A pidfile from before the last boot cannot describe a live process. If we
-    # cannot read the boot time (either side being 0), we do not know that, and
-    # guessing "stale" would let a second daemon start alongside a live one.
-    current_boot = boot_time()
-    if boot and current_boot and boot != current_boot:
-        return None
-    try:
-        os.kill(int(pid), 0)
-    except (OSError, ValueError):
-        return None
-    return int(pid)
-
-
-def _reclaim(stale_pid) -> None:
-    """Drop the pidfile, but only while it still names `stale_pid`.
-
-    The one caller is `clear_pidfile`, on the way out - the guard is for a
-    daemon that starts between this exit and the unlink, so it does not
-    erase the new holder's own name (see `running_elsewhere`, which no
-    longer reclaims anything itself).
-    """
-    info = read_pidfile()
-    if info and info.get("pid") == stale_pid:
-        paths.daemon_pid().unlink(missing_ok=True)
+    return pid or next(iter(processes()), None)
 
 
 def _supervises_this_home(pid: int) -> bool:
@@ -240,10 +147,8 @@ def processes() -> list[int]:
     """PIDs of every `ocp daemon` supervising this OCP_HOME, this one aside.
 
     The lock refuses the next duplicate; it cannot end one that was already
-    running when it arrived, and that one is invisible to the pidfile, which
-    names whoever wrote it last - so a daemon that exited and took the file
-    with it leaves a live supervisor nothing records. The process table is the
-    only place both of them appear.
+    running when it arrived, and the lock names only its holder. The process
+    table is the only place both of them appear.
     """
     mine = os.getpid()
     found = []
@@ -2161,9 +2066,9 @@ def run(once: bool = False, verbose: bool = True, max_ticks: int | None = None) 
         if verbose:
             print(f"[{time.strftime('%H:%M:%S')}] {msg}", flush=True)
 
-    # The lock decides who supervises, not the pidfile: a daemon that never
-    # wrote the file - started by hand, or orphaned when launchd reloaded the
-    # job under it - is still a second supervisor, and the file cannot see one.
+    # The lock decides who supervises, and records who: a daemon started by
+    # hand, or orphaned when launchd reloaded the job under it, is still a
+    # second supervisor.
     with lock.singleton(DAEMON_LOCK) as only:
         if not only:
             other = running_elsewhere()
@@ -2176,8 +2081,6 @@ def run(once: bool = False, verbose: bool = True, max_ticks: int | None = None) 
             # every check, dead the whole time.
             log(f"daemon starting - already running{named}, exiting")
             return 1
-        write_pidfile()
-
         stopping = {"now": False}
 
         def stop(signum, _frame):
@@ -2198,7 +2101,6 @@ def run(once: bool = False, verbose: bool = True, max_ticks: int | None = None) 
 
             ticks = 0
             while not stopping["now"]:
-                keep_pidfile(log)
                 t = tick(con, log, samples=samples)
                 ticks += 1
                 # A supervisor that runs for weeks must not fill the disk.
@@ -2217,4 +2119,3 @@ def run(once: bool = False, verbose: bool = True, max_ticks: int | None = None) 
             return 0
         finally:
             con.close()
-            clear_pidfile()

@@ -76,10 +76,12 @@ ocp service uninstall  # unload the job and remove the plist
 ```
 
 One daemon runs, whoever started it: it holds an flock for its whole life, and
-a second one exits rather than supervise beside it. `~/.orcapipe/daemon.pid`
-names the holder for `ocp ps`, which is not the same thing as deciding - a
-daemon nothing recorded is still a daemon, so `ocp ps` and `ocp doctor` count
-them in the process table and say so when there are two.
+a second one exits rather than supervise beside it. The holder writes its pid
+into that lock file, and `ocp ps`, `ocp doctor` and the bridge ask the lock
+itself whether a daemon is running, so what refuses a second daemon and what is
+reported are one fact and there is no pidfile to go stale. `ocp ps` and
+`ocp doctor` also count daemons in the process table and say so when there are
+two.
 
 ## Commands
 
@@ -172,7 +174,7 @@ unrelated request repeating what they had already answered.
 
 ```
 ~/.orcapipe/                 git repo; accounts/ and logs/ are ignored
-  config.yaml team.yaml db.sqlite daemon.pid
+  config.yaml team.yaml db.sqlite locks/
   logs/daemon.out.log logs/daemon.err.log   # launchd's StandardOut/ErrorPath
   shared/.claude/            settings + collector, symlinked into each account
   shared/mcp.json            MCP servers every launch passes via --mcp-config;

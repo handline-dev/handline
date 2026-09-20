@@ -488,8 +488,6 @@ def cmd_daemon_status(args) -> int:
         print(f"  WARNING: {len(live)} daemons are running (pid "
               f"{', '.join(str(x) for x in live)}). Two supervisors notify, park and wake "
               f"the same agent twice - end all but one.")
-    elif live and not pid:
-        print(f"  (running as pid {live[0]}, which no pidfile names)")
     con = db.connect()
     try:
         rows = db.all_agent_states(con)
