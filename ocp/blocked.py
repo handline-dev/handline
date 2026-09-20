@@ -187,6 +187,15 @@ def stopped_pressing(con, agent: str, rec, now: int) -> str:
     whole 6-hour past."""
     title = rec["title"]
     all_history = db.presses_since(con, agent, now - PRESS_WINDOW_S)
+    # The absolute stop, checked first and independent of any title matching:
+    # a title an agent varies (a counter, an elapsed time - no malice needed)
+    # would otherwise never trip the per-dialog count below, since it never
+    # repeats. This one never claims a single dialog came back; it says only
+    # that ocp stopped, on this agent, however many different dialogs.
+    all_cleared = sum(1 for p in all_history if p["outcome"] == "cleared")
+    if all_cleared >= MAX_PRESSES_AGENT:
+        return (f"ocp cleared {all_cleared} dialogs on this agent in {status.ago(PRESS_WINDOW_S)} "
+                f"(titles varied), so it has stopped pressing")
     history = [p for p in all_history if p["title"] == title]
     cleared = sum(1 for p in history if p["outcome"] == "cleared")
     if cleared >= MAX_PRESSES:
@@ -195,10 +204,6 @@ def stopped_pressing(con, agent: str, rec, now: int) -> str:
     pressed = [p for p in history if p["outcome"] != "not-pressed"]
     if len(pressed) >= MAX_IGNORED and all(p["outcome"] == "still-open" for p in pressed[-MAX_IGNORED:]):
         return "Esc did not close it, so ocp has stopped pressing"
-    all_cleared = sum(1 for p in all_history if p["outcome"] == "cleared")
-    if all_cleared >= MAX_PRESSES_AGENT:
-        return (f"ocp cleared {all_cleared} dialogs on this agent in {status.ago(PRESS_WINDOW_S)} "
-                f"(titles varied), so it has stopped pressing")
     return ""
 
 

@@ -2989,10 +2989,11 @@ def test_press_history_is_scoped_to_one_dialog_not_the_whole_agent(home: Path) -
     # `title` is the raw value now, compared to the raw value, never rendered.
     for kind, title in (("quote", 'Delete "build" and stop tasks?'),
                         ("long", "Q" * (orcamod.DETAIL_CHARS + 50))):
+        agent = f"quirky-{kind}"        # separate agents: five clears must stay under MAX_PRESSES_AGENT
         for i in range(5):
-            db.press_add(con, "quirky", now - i * 60, title, "cleared")
+            db.press_add(con, agent, now - i * 60, title, "cleared")
         rec = {"kind": orcamod.MODAL, "detail": f'"{title}" - 1. yes / 2. Stay', "title": title}
-        stopped = blockedmod.stopped_pressing(con, "quirky", rec, now)
+        stopped = blockedmod.stopped_pressing(con, agent, rec, now)
         check(f"press history: a {kind} title's own five clears are still counted",
               "cleared it 5 times" in stopped, stopped)
 
