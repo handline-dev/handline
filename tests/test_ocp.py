@@ -6282,6 +6282,117 @@ def test_a_key_arrives_whole_however_its_bytes_are_read(home: Path) -> None:
         os.close(slave)
 
 
+def test_typed_text_and_keys_arrive_whole_however_the_reads_fall(home: Path) -> None:
+    """Founder writes in Korean: three bytes a letter, and a paste or a burst
+    that straddles a read dropped the letter (`errors='ignore'`) with nothing on
+    screen saying so. And an arrow split between ESC and `[` while a prompt was
+    open was read as Esc, cancelling it and losing what was typed. Every reader
+    of the keyboard, through a real pty, split at every byte."""
+    import array
+    import fcntl
+    import io
+    import termios
+    import threading
+    import tty as ttymod
+    master, slave = pty.openpty()
+    ttymod.setraw(slave)
+    real_in, real_out, real_wait = sys.stdin, sys.stdout, tui.ESC_WAIT
+    sys.stdin, sys.stdout = os.fdopen(slave, "r", closefd=False), io.StringIO()
+
+    def feed(chunks: list[bytes], gap: float = 0.02, wait: float = 3.0):
+        """Write the chunks with `gap` between them, from a thread."""
+        tui.ESC_WAIT = wait
+        tui._pending.clear()
+        tui._paste_state.update({"in": False, "carry": ""})
+        tui._decoder.reset()
+
+        def unread() -> int:
+            buf = array.array("i", [0])
+            fcntl.ioctl(slave, termios.FIONREAD, buf, True)
+            return buf[0]
+
+        def write() -> None:
+            for c in chunks:
+                os.write(master, c)
+                # The next chunk waits until the reader has taken this one, so
+                # the two are never one read whatever the machine's speed.
+                deadline = time.time() + 2
+                while unread() and time.time() < deadline:
+                    time.sleep(0.001)
+                time.sleep(gap)
+        t = threading.Thread(target=write)
+        t.start()
+        return t
+
+    def typed(chunks: list[bytes], **kw):
+        t = feed(chunks, **kw)
+        try:
+            return tui._line("to x:", 100, 24, multi=True)
+        finally:
+            t.join()
+
+    seen: list[tuple[str, bool, str]] = []
+
+    def note(name: str, cond: bool, detail: str = "") -> None:
+        """The prompts draw on stdout, which is swapped out here: say it after."""
+        seen.append((name, bool(cond), detail))
+
+    text = "안녕하세요 abc 한국어로 씁니다 - 가나다라마바사 z"
+    raw = text.encode()
+    try:
+        bad = [k for k in range(1, len(raw))
+               if typed([raw[:k], raw[k:] + b"\r"]) != text]
+        note("read: a prompt takes Korean split at every one of its bytes", not bad, str(bad[:5]))
+        bad = [k for k in range(1, len(raw))
+               if typed([raw[:k], raw[k:k + 1], raw[k + 1:] + b"\r"]) != text]
+        note("read: and split twice in a row, one byte between", not bad, str(bad[:5]))
+        note("read: a burst of mixed ASCII and Korean, byte by byte",
+              typed([bytes([b]) for b in raw] + [b"\r"], gap=0.001) == text)
+        big = ("한국어 " * 2500).strip()                       # ~22 KB: many reads of 4096
+        got = typed([b"\033[200~" + big.encode() + b"\033[201~", b"\r"], gap=0.05)
+        note("read: a paste larger than any read arrives exactly as pasted",
+              got == big.replace("\n", " "), f"{len(got)} of {len(big)}")
+        tui._pending.clear()
+        tui._decoder.reset()
+        t = feed([b"\xea", b"\xb0", b"\x80"])
+        keys = []
+        deadline = time.time() + 5
+        while not keys and time.time() < deadline:      # None until the letter is whole
+            keys = [k for k in [tui._key(1.0)] if k]
+        t.join()
+        note("read: the main screen's key reader gets a whole character too", keys == ["가"], str(keys))
+        feed([b"a\xffb\r"])
+        note("read: a byte that is not UTF-8 is shown as U+FFFD, and its neighbours survive",
+              tui._line("p:", 100, 24) == "a\ufffdb")
+
+        # Esc, and the arrow that begins with one.
+        for seq in (b"\033[D", b"\033OD", b"\033[1;5D"):
+            bad = [k for k in range(1, len(seq))
+                   if typed([b"abc", seq[:k], seq[k:] + b"def\r"]) != "abcdef"]
+            note(f"read: {seq!r} split inside it does not cancel a prompt or lose its text",
+                  not bad, str(bad))
+        note("read: and at the very end of what was typed, byte by byte",
+              typed([b"abc", b"\033", b"[", b"D", b"def\r"]) == "abcdef")
+        began = time.time()
+        got = typed([b"abc", b"\033"], wait=real_wait)
+        note("read: a real Esc still cancels a prompt, without a long wait",
+              got is None and time.time() - began < 0.5, f"{got!r} in {time.time() - began:.2f}s")
+        t = feed([b"\033", b"[", b"A", b"y"])
+        note("read: an arrow split at ESC does not cancel a confirm, and y still confirms",
+              tui._confirm("remove x", 100, 24) is True)
+        t.join()
+        t = feed([b"\033"], wait=real_wait)
+        note("read: a bare Esc declines a confirm", tui._confirm("remove x", 100, 24) is False)
+        t.join()
+    finally:
+        sys.stdin, sys.stdout, tui.ESC_WAIT = real_in, real_out, real_wait
+        tui._decoder.reset()
+        os.close(master)
+        os.close(slave)
+    for name, cond, detail in seen:
+        check(name, cond, detail)
+
+
 def test_top_acts_through_the_same_calls_the_daemon_makes(home: Path) -> None:
     """The screen may act, but it may not decide: every key is a call into
     `actions`, which calls what the daemon calls. What it does decide is which
@@ -13451,6 +13562,7 @@ def main() -> int:
         run(lambda: test_top_shows_what_is_waiting_on_the_human(Path(td) / 'foryou'))
         run(lambda: test_the_screen_reads_keys_from_the_terminal_not_from_a_buffer())
         run(lambda: test_a_key_arrives_whole_however_its_bytes_are_read(Path(td) / 'keysplit'))
+        run(lambda: test_typed_text_and_keys_arrive_whole_however_the_reads_fall(Path(td) / 'readwhole'))
         run(lambda: test_top_acts_through_the_same_calls_the_daemon_makes(Path(td) / 'topact'))
         run(lambda: test_an_answer_reaches_the_agent_that_asked(Path(td) / 'answered'))
         run(lambda: test_an_answer_wakes_the_agent_that_was_waiting_for_it(Path(td) / 'waiting'))
