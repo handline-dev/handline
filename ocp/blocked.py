@@ -52,6 +52,14 @@ MAX_PRESSES = 3
 PRESS_WINDOW_S = 6 * 3600
 # Esc that leaves the dialog standing is not pressed again and again.
 MAX_IGNORED = 2
+# The per-dialog count above is keyed on the dialog's own title, which is
+# text an agent's screen paints - a counter or a timestamp in it (no malice
+# required) outruns MAX_PRESSES by never repeating. This is the absolute stop
+# that does not depend on the key: however many different titles, ocp does
+# not clear more than this many dialogs on one agent in the same window.
+# Well above MAX_PRESSES, so an agent that genuinely meets a few different,
+# legitimate dialogs is not the case this catches.
+MAX_PRESSES_AGENT = 10
 
 NO_TERMINAL, NO_SESSION, STALLED, ORCA_DOWN = "no terminal", "no session", "stalled", "orca down"
 
@@ -178,7 +186,8 @@ def stopped_pressing(con, agent: str, rec, now: int) -> str:
     or over DETAIL_CHARS long does not round-trip through), not the agent's
     whole 6-hour past."""
     title = rec["title"]
-    history = [p for p in db.presses_since(con, agent, now - PRESS_WINDOW_S) if p["title"] == title]
+    all_history = db.presses_since(con, agent, now - PRESS_WINDOW_S)
+    history = [p for p in all_history if p["title"] == title]
     cleared = sum(1 for p in history if p["outcome"] == "cleared")
     if cleared >= MAX_PRESSES:
         return (f"ocp cleared it {cleared} times in {status.ago(PRESS_WINDOW_S)} and it "
@@ -186,6 +195,10 @@ def stopped_pressing(con, agent: str, rec, now: int) -> str:
     pressed = [p for p in history if p["outcome"] != "not-pressed"]
     if len(pressed) >= MAX_IGNORED and all(p["outcome"] == "still-open" for p in pressed[-MAX_IGNORED:]):
         return "Esc did not close it, so ocp has stopped pressing"
+    all_cleared = sum(1 for p in all_history if p["outcome"] == "cleared")
+    if all_cleared >= MAX_PRESSES_AGENT:
+        return (f"ocp cleared {all_cleared} dialogs on this agent in {status.ago(PRESS_WINDOW_S)} "
+                f"(titles varied), so it has stopped pressing")
     return ""
 
 
