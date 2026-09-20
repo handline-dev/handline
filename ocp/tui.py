@@ -471,6 +471,13 @@ def _fold(sel: dict, k: str) -> bool:
 LOGIN_TTL_S = 60
 _LOGIN: dict[str, tuple[float, bool]] = {}
 
+# The account the ACCOUNTS panel marked "next" last redraw. Fed back into
+# pick_account as `prefer`: the panel redraws every couple of seconds, and
+# without this the "next" mark would flicker between two close accounts as
+# usage crept past a rounding boundary, tick after tick, with nothing having
+# really changed.
+_LAST_NEXT: str | None = None
+
 
 def _logged_in(acct: str) -> bool:
     now = time.time()
@@ -758,8 +765,11 @@ def build(width: int, sel: dict | None = None,
         # The reason each one sits where it does is on its own page (Enter).
         loads = loadmod.read_all()
         roster, unplaced = loadmod.roster(con)
+        global _LAST_NEXT
         first, ranked = status.pick_account(
-            [a for a in paths.list_accounts() if _logged_in(a)], load=loads)
+            [a for a in paths.list_accounts() if _logged_in(a)], load=loads,
+            prefer=_LAST_NEXT)
+        _LAST_NEXT = first
         for name in paths.list_accounts():
             st = status.read(name)
             # The tick beside the name says the pick could use it: not only
