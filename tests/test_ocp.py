@@ -5293,6 +5293,103 @@ def test_a_walled_wake_is_said_once_not_every_tick(home: Path) -> None:
         con.close()
 
 
+class FakeOrca:
+    """Orca's `worktree show` and `worktree set`, over a dict of checkouts by
+    path, and nothing else: any other call is an error, so a test that uses it
+    cannot reach the real Orca or type at a terminal."""
+
+    def __init__(self, worktrees: dict[str, str], sets: bool = True):
+        self.names = dict(worktrees)     # path -> displayName
+        self.sets = sets                 # False: it says ok and changes nothing
+        self.calls: list[list[str]] = []
+
+    def run(self, args: list[str], timeout: int = 180) -> tuple[bool, str]:
+        self.calls.append(list(args))
+        assert args[:1] == ["worktree"] and args[1] in ("show", "set"), args
+        path = args[args.index("--worktree") + 1].removeprefix("path:")
+        if path not in self.names:
+            return False, json.dumps({"ok": False, "error": {"code": "selector_not_found"}})
+        if args[1] == "set":
+            if self.sets:
+                self.names[path] = args[args.index("--display-name") + 1]
+            return True, json.dumps({"ok": True, "result": {}})
+        return True, json.dumps({"ok": True, "result": {"worktree": {
+            "path": path, "displayName": self.names[path]}}})
+
+
+def test_a_rename_names_the_agents_orca_worktree(home: Path) -> None:
+    """What the founder reads in Orca's sidebar is the worktree's display name,
+    so a rename that left it alone looks like a rename that failed. The label is
+    set, read back, and never moves anything: no folder, no memory, no terminal."""
+    _daemon_home(home, 20)
+    (home / "team.yaml").write_text("""
+teams:
+  dev: [oldname]
+agents:
+  oldname: { intake: dedicated }
+  marina:  { intake: dedicated }
+edges:
+  - { from: "*", to: "human", kind: escalate, creates_gate: true }
+  - { from: "human", to: "*", relation: supervisor, response: fire_and_forget }
+""")
+    agents.register("oldname", "alpha")
+    wt = home / "trees" / "oldname"
+    wt.mkdir(parents=True)
+    con = db.connect()
+    real_run, real_avail = orcamod._run, orcamod.available
+    fake = FakeOrca({str(wt): "oldname"})
+    try:
+        sessions_are()
+        db.set_terminal(con, "oldname", "term_x", f"repo-id::{wt}")
+        orcamod._run, orcamod.available = fake.run, lambda: True
+        ok, said = hr.enact("rename", "oldname", to="newname", why="the name it should have had")
+        check("label: the rename went through", ok and "newname" in paths.list_agents(), said)
+        check("label: Orca's worktree is now named for the agent, and the message says so",
+              fake.names[str(wt)] == "newname" and "Orca now labels" in said, said + str(fake.names))
+        sets = [c for c in fake.calls if c[1] == "set"]
+        check("label: exactly one set, on that path, with the new name and nothing else",
+              len(sets) == 1 and sets[0] == ["worktree", "set", "--worktree", f"path:{wt}",
+                                            "--display-name", "newname", "--json"], str(sets))
+        check("label: the checkout was not moved and the recorded worktree is the same",
+              wt.is_dir() and db.get_agent_state(con, "newname")["worktree"] == f"repo-id::{wt}")
+
+        # `hr relabel` is the same call for a rename already applied.
+        fake.names[str(wt)] = "stale"
+        out, err = io.StringIO(), io.StringIO()
+        with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+            code = climod.main(["hr", "relabel", "newname"])
+        check("label: hr relabel names it again, for a rename that was applied before",
+              code == 0 and fake.names[str(wt)] == "newname" and "Orca now labels" in out.getvalue(),
+              out.getvalue() + err.getvalue())
+
+        # Orca says ok and does not change the name: not reported as done.
+        fake.sets, fake.names[str(wt)] = False, "stale"
+        done, said = hr.label(con, "newname")
+        check("label: an ok that changed nothing is not a label",
+              not done and "would not set the label" in said
+              and f"--display-name newname" in said, said)
+
+        # Orca is not there: the rename stands, and the command to run is given.
+        orcamod.available = lambda: False
+        done, said = hr.label(con, "newname")
+        check("label: with no Orca on PATH it says what to run instead",
+              not done and "not on PATH" in said and f"path:{wt}" in said, said)
+        orcamod.available = lambda: True
+
+        # Nothing recorded, or a folder that is gone: nothing to label, no call made.
+        n = len(fake.calls)
+        agents.register("bare", "alpha")
+        db.set_terminal(con, "marina", "term_y", f"repo-id::{home / 'gone'}")
+        check("label: an agent with no worktree, or a folder that is gone, is left alone",
+              hr.label(con, "bare") == (True, "") and hr.label(con, "marina") == (True, "")
+              and len(fake.calls) == n, str(fake.calls[n:]))
+        check("label: nothing but show and set ever reached Orca",
+              all(c[0] == "worktree" and c[1] in ("show", "set") for c in fake.calls))
+    finally:
+        orcamod._run, orcamod.available = real_run, real_avail
+        con.close()
+
+
 def test_a_name_that_yaml_would_not_read_as_text_is_refused_where_it_is_typed(home: Path) -> None:
     """A name is written unquoted into team.yaml, agent.yaml and config.yaml. `no`
     is False to PyYAML and a refusal to the bundled parser, and a refusal on a
@@ -19383,6 +19480,7 @@ def main() -> int:
         run(lambda: test_the_guard_against_the_real_orca_names_the_test_and_cannot_be_swallowed())
         run(lambda: test_one_unreadable_proposal_does_not_take_the_hr_listing_down(Path(td) / 'hrlist'))
         run(lambda: test_a_walled_wake_is_said_once_not_every_tick(Path(td) / 'wallonce'))
+        run(lambda: test_a_rename_names_the_agents_orca_worktree(Path(td) / 'renamelabel'))
         run(lambda: test_agent_yaml_is_written_by_dump_so_what_was_typed_reads_back(Path(td) / 'agentyaml'))
         run(lambda: test_the_suite_and_the_package_name_only_what_exists())
         run(lambda: test_yaml_booleans())

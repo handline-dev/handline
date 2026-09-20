@@ -843,6 +843,14 @@ def cmd_hr(args) -> int:
                   f"{p_.get('state', '?'):<10}"
                   f"#{p_.get('request', '-')}  by {p_.get('requested_by', '?')}")
         return 0
+    if args.hr_cmd == "relabel":
+        con = db.connect()
+        try:
+            ok, said = hr.label(con, args.id)
+        finally:
+            con.close()
+        print(said or f"{args.id} has no worktree recorded - nothing to label")
+        return 0 if ok else 1
     if args.hr_cmd == "apply":
         ok, said = hr.apply(args.id)
         print(said)
@@ -1476,6 +1484,11 @@ def build_parser() -> argparse.ArgumentParser:
         else:
             q.set_defaults(account=None, team=None, repo=None, model=None, effort=None)
     q = hrsub.add_parser("list", help="proposals and what became of them")
+    q.set_defaults(name=None, why=None, account=None, team=None, repo=None,
+                   model=None, effort=None)
+    q = hrsub.add_parser("relabel", help="name a renamed agent's Orca worktree for it "
+                                         "(what a rename does; for one already applied)")
+    q.add_argument("id", help="the agent's name")
     q.set_defaults(name=None, why=None, account=None, team=None, repo=None,
                    model=None, effort=None)
     q = hrsub.add_parser("apply", help="carry out an approved proposal")
