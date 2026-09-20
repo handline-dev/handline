@@ -1338,7 +1338,12 @@ def _cut(data: str) -> bool:
 # How long a read that ends inside an escape sequence waits for the rest. An
 # arrow can reach us as `esc` and then `[ B`, and that first byte is what a
 # bare Esc looks like: the two are told apart only by whether more follows, so
-# the wait is the price of Esc - short enough that it cannot be felt.
+# the wait is the price of Esc - short enough that it cannot be felt. 50 ms is
+# right for a local terminal (a split arrow joined at gaps up to about 45 ms).
+# Over a link whose jitter exceeds it an arrow arrives as Esc, as in every
+# terminal program; raise it here if the bridge is ever driven over one. The
+# whole join is bounded to a few waits, so a stream that never completes a
+# sequence cannot hold the screen.
 ESC_WAIT = 0.05
 
 
@@ -1390,7 +1395,8 @@ def _key(timeout: float) -> str | None:
     # bare escape with its `[B` still sitting in the buffer.
     try:
         data = os.read(fd, 4096).decode(errors="ignore")
-        while _cut(data) and select.select([fd], [], [], ESC_WAIT)[0]:
+        end = time.monotonic() + 4 * ESC_WAIT
+        while _cut(data) and time.monotonic() < end and select.select([fd], [], [], ESC_WAIT)[0]:
             data += os.read(fd, 4096).decode(errors="ignore")
     except OSError:
         return None

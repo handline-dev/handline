@@ -6255,6 +6255,24 @@ def test_a_key_arrives_whole_however_its_bytes_are_read(home: Path) -> None:
               got == ["\033", "j"], str(got))
         check("keys: PageUp is one key, not an escape and two letters",
               tui.split_keys("\033[5~") == ["\033[5~"] and tui.split_keys("\033[1;5A") == ["\033[1;5A"])
+        # A stream that never finishes a sequence must not hold the screen.
+        stop = threading.Event()
+
+        def flood() -> None:
+            until = time.time() + 2                  # so a reader that never leaves ends the test
+            while not stop.is_set() and time.time() < until:
+                os.write(master, b"\033[")
+                time.sleep(0.01)
+        tui.ESC_WAIT, tui._pending[:] = real_wait, []
+        t = threading.Thread(target=flood)
+        t.start()
+        began = time.time()
+        tui._key(5.0)
+        took = time.time() - began
+        stop.set()
+        t.join()
+        check("keys: a stream that never completes a sequence cannot hold the reader",
+              took < 5 * 4 * real_wait, f"{took:.2f}s with ESC_WAIT {real_wait}")
         check("keys: a read cut inside a sequence is known to be cut",
               all(tui._cut(c) for c in ("\033", "\033[", "\033[1;5", "\033O", "a\033["))
               and not any(tui._cut(c) for c in ("", "j", "\033[A", "\033OA", "\033[5~", "\033x")))
