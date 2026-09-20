@@ -1505,6 +1505,11 @@ def _move_to_room(con, agent: str, trigger: triggers.Trigger, log,
         # that a short recheck buys anything the account's own window would not.
         return False, False
     if not orca.alive(handle):
+        # Two things this can mean - a terminal genuinely gone (not transient;
+        # a short recheck buys nothing) or `live_terminals()` itself failing to
+        # read (transient, same as `not handle`) - and `alive()`'s bool does
+        # not say which. Treated as retry_soon anyway: the wrong guess here
+        # costs an extra 5-minute recheck at worst, not a wrong long wait.
         return False, True
 
     # Closed through the same checks every other close goes through. `/exit`

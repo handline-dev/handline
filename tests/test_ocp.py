@@ -2628,6 +2628,16 @@ def test_ocp_presses_only_the_key_that_declines(home: Path) -> None:
     check("press: the only key that is ever named is Esc",
           orcamod.ESCAPE == "\x1b" and "Enter" not in repr(orcamod.declining_key))
 
+    # Esc is not inert at a Claude Code prompt - it clears typed text. A
+    # dialog's footer and a person's own unsent draft on the same read must
+    # never be pressed over, even though the dialog itself would decline clean.
+    unsent = []
+    orcamod._screen = lambda h: dict(_screen_of(EXIT_DIALOG), draft="a person's half-typed reply")
+    orcamod.send = lambda h, text, enter=True: (unsent.append((text, enter)), (True, ""))[1]
+    out = orcamod.decline_dialog("term_x")
+    check("press: unsent text on the same read as the dialog is not pressed over",
+          out[0] == orcamod.NOT_PRESSED and unsent == [], f"{out} sent={unsent}")
+
     # A read that fails right after the key is not evidence the dialog went -
     # the same screen fails closed everywhere else in this module.
     calls = {"n": 0}
@@ -2838,6 +2848,42 @@ def test_nothing_is_pressed_for_what_is_not_a_dialog(home: Path) -> None:
             check(f"never: {name} - no key at all", term.sent == [], str(term.sent))
         finally:
             con.close()
+
+
+def test_press_history_is_scoped_to_one_dialog_not_the_whole_agent(home: Path) -> None:
+    """Auditor's #1026 blocking finding, driven end to end: three different
+    dialogs, each cleared once over five hours, must never read as one dialog
+    looping - and a brand-new, unrelated block must never escalate on sight
+    because of that history."""
+    con = _blocked_world(home)
+    now = int(time.time())
+    for i, title in enumerate(("Background work is running",
+                               "Do you trust the files in this folder?",
+                               "Overwrite the file?")):
+        db.press_add(con, "backend", now - (5 - i) * 3600, title, "cleared")
+    fourth = {"kind": orcamod.MODAL, "detail": '"A fourth, unrelated dialog" - 1. yes / 2. Stay'}
+    check("press history: three unrelated dialogs, each cleared once, is not a loop",
+          blockedmod.stopped_pressing(con, "backend", fourth, now) == "",
+          blockedmod.stopped_pressing(con, "backend", fourth, now))
+    same = {"kind": orcamod.MODAL, "detail": '"Background work is running" - 1. yes / 2. Stay'}
+    check("press history: but the SAME dialog's own history still counts against it",
+          "cleared it 1 times" not in blockedmod.stopped_pressing(con, "backend", same, now))
+
+    # The escalation gate: a brand-new UNSENT block on the same agent must not
+    # jump SHOW_AFTER_S/ESCALATE_AFTER_S because of that stale MODAL history.
+    orcamod.screen_blocker = lambda h: orcamod.Blocker(orcamod.UNSENT, "typed")
+    lines: list[str] = []
+    try:
+        blockedmod.sweep(con, lines.append, now)
+        esc = con.execute("SELECT id FROM requests WHERE target = 'human' "
+                          "AND kind = 'escalate'").fetchall()
+        check("press history: a fresh, unrelated block is not escalated on sight",
+              not esc, str(esc))
+        rec = db.block_get(con, "backend")
+        check("press history: it is only tracked, not yet raised",
+              rec and rec["kind"] == "unsent" and rec["request_id"] is None, str(dict(rec) if rec else None))
+    finally:
+        con.close()
 
 
 def test_the_panel_says_the_true_thing_about_a_queue(home: Path) -> None:
@@ -4272,7 +4318,7 @@ def test_a_close_is_recorded_only_once_the_process_has_ended(home: Path) -> None
     con = db.connect()
     typed: list[str] = []
     real = (orcamod.alive, orcamod.wait_idle, orcamod.send, orcamod.available,
-            orcamod.modal_open, db.set_closed)
+            orcamod.screen_blocker, db.set_closed)
     state = {"exiting": False, "reads": 0, "leaves_after": 3, "modal": False}
     seen_at_mark: list[dict] = []
     try:
@@ -4280,7 +4326,7 @@ def test_a_close_is_recorded_only_once_the_process_has_ended(home: Path) -> None
         orcamod.live_terminals = lambda: {"term_x"}
         orcamod.alive = lambda h: True
         orcamod.wait_idle = lambda h, timeout_ms=0: True
-        orcamod.modal_open = lambda h: state["modal"]
+        orcamod.screen_blocker = lambda h: orcamod.Blocker(orcamod.MODAL, "dialog") if state["modal"] else None
         sessions_are("backend")
 
         def live() -> dict:
@@ -4340,7 +4386,7 @@ def test_a_close_is_recorded_only_once_the_process_has_ended(home: Path) -> None
               f"{typed} {why}")
     finally:
         (orcamod.alive, orcamod.wait_idle, orcamod.send, orcamod.available,
-         orcamod.modal_open, db.set_closed) = real
+         orcamod.screen_blocker, db.set_closed) = real
         con.close()
 
 
@@ -4583,20 +4629,17 @@ def test_nothing_is_typed_at_a_modal(home: Path) -> None:
         db.set_agent_state(con, "backend", dmn.IDLE)
         db.add_request(con, "reviewer", "backend", "look at this", None,
                        "peer", "async", None, 0, None)
-        orcamod.modal_open = lambda h: True
+        orcamod.screen_blocker = lambda h: orcamod.Blocker(orcamod.MODAL, "dialog")
         check("modal: a waiting request is not typed at an open modal",
               not dmn.deliver_queued(con, "backend", lambda _m: None) and not sent, str(sent))
         # Isolate the cause: no modal, nothing else in the way, only unsent text.
-        orcamod.modal_open = lambda h: False
-        orcamod.unsent_text = lambda h: True
+        orcamod.screen_blocker = lambda h: orcamod.Blocker(orcamod.UNSENT, "typed")
         rid = db.queued_for(con, "backend")[0]["id"]
         check("unsent: a waiting request is not typed into text a human left in the input",
               not dmn.deliver_queued(con, "backend", lambda _m: None) and not sent, str(sent))
         check("unsent: and it stays queued to be retried, not dropped",
               [r["id"] for r in db.queued_for(con, "backend")] == [rid])
-        orcamod.unsent_text = lambda h: False
-        orcamod.modal_open = lambda h: True
-        orcamod.modal_open = lambda h: False
+        orcamod.screen_blocker = lambda h: None
         check("modal: it is told once the modal is gone",
               dmn.deliver_queued(con, "backend", lambda _m: None))
 
@@ -4644,7 +4687,6 @@ def test_nothing_is_typed_at_a_modal(home: Path) -> None:
             screen["source"] = "screen"
             screen["draft"] = "typed"
             screen["tail"] = ["> "]
-            orcamod.modal_open = lambda h: False
             orcamod.idle_now = lambda h: True
             check("unsent: an idle agent with text in the input is not typeable",
                   not orcamod.typeable_now("h"))
@@ -4657,10 +4699,10 @@ def test_nothing_is_typed_at_a_modal(home: Path) -> None:
             ok_c, why_c = REAL_ORCA["clear_context"]("h")
             check("unsent: /clear is refused, not typed into it", not ok_c and not sent_, why_c)
             del screen["draft"]
-            orcamod.modal_open = lambda h: True
+            screen["tail"] = ["Confirm?", "Enter to confirm · Esc to cancel"]
             ok_c, why_c = REAL_ORCA["clear_context"]("h")
             check("modal: /clear is refused at an open modal", not ok_c and not sent_, why_c)
-            orcamod.modal_open = lambda h: False
+            screen["tail"] = ["> "]
             ok_c, why_c = REAL_ORCA["clear_context"]("h")
             check("unsent: with the input empty /clear is typed", ok_c and sent_ == ["/clear"], why_c)
         finally:
@@ -9264,6 +9306,13 @@ def test_a_move_blocked_by_a_dialog_retries_soon_not_at_the_old_accounts_wall(ho
         (home / "accounts" / acct / ".claude" / ".credentials.json").write_text("{}")
     keep_handoff("keeper", "# handoff · keeper\n## 다음\n- carry on\n")
     db.add_request(con, "marina", "keeper", "carry on", None, "peer", "async", None, 0, None)
+    # The turn ended on the usage limit and has long since settled, so
+    # perform_handoff does not gate on typeable_now at all - it is
+    # `screen_blocker`'s job below to say a dialog is what stops the close,
+    # not this earlier probe.
+    db.add_event(con, "keeper", "StopFailure", {"limit": "5h"})
+    con.execute("UPDATE events SET ts = ? WHERE agent = 'keeper' AND kind = 'StopFailure'",
+                (int(time.time()) - dmn.LIMIT_SETTLE_S - 60,))
     real = (orcamod.available, orcamod.alive, orcamod.close_session, orcamod.clear_context,
             orcamod.idle_now, orcamod.screen_blocker)
     try:
@@ -15896,6 +15945,7 @@ def main() -> int:
         run(lambda: test_a_dialog_that_keeps_coming_back_stops_being_pressed_and_is_escalated(Path(td) / 'dcl4'))
         run(lambda: test_esc_that_does_not_close_a_dialog_is_not_pressed_again_and_again(Path(td) / 'dcl5'))
         run(lambda: test_nothing_is_pressed_for_what_is_not_a_dialog(Path(td) / 'dcl6'))
+        run(lambda: test_press_history_is_scoped_to_one_dialog_not_the_whole_agent(Path(td) / 'dcl7'))
         run(lambda: test_the_panel_says_the_true_thing_about_a_queue(Path(td) / 'blk7'))
         run(lambda: test_a_running_daemon_is_reported_whatever_daemon_pid_says(Path(td) / 'd6'))
         run(lambda: test_a_daemon_that_never_wrote_its_name_is_still_reported(Path(td) / 'd6b'))

@@ -240,10 +240,12 @@ DETAIL_CHARS = 200
 # What a terminal would obey in text quoted off a screen: an OSC or CSI
 # sequence, a lone ESC, C0, DEL, C1. An agent can paint its own screen, so a
 # dialog's title and options are exactly the hostile-text case
-# buddyron/shared-sanitiser's textsafe.oneline() exists for; this is the same
-# rule, applied at the source - the earliest point this text leaves a screen,
-# before it reaches a log line or a request body neither of us sees the sink
-# of - so it converges with that module rather than inventing a second rule.
+# buddyron/shared-sanitiser's textsafe.oneline() exists for - this IS a second
+# copy of its rule, not merged yet only because that branch is not on main.
+# Applied at the source - the earliest point this text leaves a screen, before
+# it reaches a log line or a request body neither of us sees the sink of.
+# Nothing here fails if the two drift before shared-sanitiser lands; once it
+# does, this becomes a call to textsafe.oneline() and these two regexes go.
 _OSC = re.compile(r"\033\][^\a\033]*(?:\a|\033\\)?")
 _CSI = re.compile(r"\033\[[0-?]*[ -/]*[@-~]")
 
@@ -383,6 +385,12 @@ def decline_dialog(handle: str) -> tuple[str, str, str]:
     footer = _footer_row(tail)
     if footer is None:
         return NOT_PRESSED, "", "no dialog is open"
+    if term.get("draft"):
+        # Esc is not inert at a Claude Code prompt - it clears the input box.
+        # "The worst a press does is change nothing" only holds where landing
+        # anywhere but the dialog is impossible; a person's own unsent text
+        # sitting in the same read is the one case it is not.
+        return NOT_PRESSED, "", "text is left unsent in its input; not pressing over it"
     dialog = parse_dialog(tail, footer)
     if dialog is None:
         return NOT_PRESSED, "", "its title or options could not be parsed"
@@ -421,7 +429,11 @@ def unsent_text(handle: str) -> bool:
 def typeable_now(handle: str) -> bool:
     """Idle, nothing on screen that a typed line would answer, and nothing
     already typed that it would merge into."""
-    return idle_now(handle) and not modal_open(handle) and not unsent_text(handle)
+    # screen_blocker's own kinds are exactly MODAL, UNSENT and UNREADABLE, so
+    # not-modal-and-not-unsent (each fail-closed on UNREADABLE too) is the
+    # same question as "nothing at all" - asked with one read, not two, so a
+    # dialog that opens between two separate reads cannot be read as neither.
+    return idle_now(handle) and screen_blocker(handle) is None
 
 
 def clear_context(handle: str, wait: bool = True,
@@ -435,9 +447,10 @@ def clear_context(handle: str, wait: bool = True,
         return False, f"terminal {handle} is not alive"
     if wait and not wait_idle(handle, timeout_ms):
         return False, "agent is mid-turn; not clearing"
-    if modal_open(handle):
+    blocked = screen_blocker(handle)          # one read, not modal_open() then unsent_text()
+    if blocked and blocked.kind in (MODAL, UNREADABLE):
         return False, "a modal is open on its screen; not typing /clear at it"
-    if unsent_text(handle):
+    if blocked and blocked.kind == UNSENT:
         return False, "text is left unsent in its input; not typing /clear into it"
     ok, out = send(handle, "/clear")
     return ok, "context cleared" if ok else f"could not send /clear: {out[:200]}"
@@ -463,9 +476,10 @@ def close_session(handle: str, wait: bool = True,
         return False, f"terminal {handle} is not alive"
     if wait and not wait_idle(handle, timeout_ms):
         return False, "agent is mid-turn; not closing"
-    if modal_open(handle):
+    blocked = screen_blocker(handle)          # one read, not modal_open() then unsent_text()
+    if blocked and blocked.kind in (MODAL, UNREADABLE):
         return False, "a modal is open on its screen; not typing /exit at it"
-    if unsent_text(handle):
+    if blocked and blocked.kind == UNSENT:
         return False, "text is left unsent in its input; not typing /exit into it"
     ok, out = send(handle, "/exit")
     return ok, "/exit typed" if ok else f"could not send /exit: {out[:200]}"

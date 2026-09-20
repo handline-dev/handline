@@ -21,6 +21,7 @@ is a loop the founder is told about, not one it keeps pressing.
 """
 from __future__ import annotations
 
+import re
 import time
 
 from . import ask as askmod, db, orca, paths, status, waiting
@@ -138,9 +139,11 @@ def classify(con, agent: str, row) -> tuple[str, str] | None:
     if seen is None:
         return None
     # A working agent's input box has whatever its user is typing into it; only
-    # a dialog is in the way there. An unreadable screen is not that box: it
-    # blocks delivery (screen_blocker's callers fail closed on it) whatever
-    # the agent's state, so it is named here too, not silently skipped.
+    # a dialog is in the way there. An unreadable screen is not that box - it
+    # is not something the agent's own user is legitimately mid-way through -
+    # and it blocks delivery the same way for a RUNNING agent as an idle one
+    # (screen_blocker's callers fail closed on it regardless of state), so
+    # named here too, not carved out the way UNSENT is above.
     if seen.kind == orca.UNSENT and row["state"] in (daemon.RUNNING, daemon.HANDOFF):
         return None
     return seen.kind, seen.detail
@@ -162,9 +165,24 @@ def note_close_failure(con, agent: str, log) -> None:
         log(f"  {agent}: {reason(seen.kind, seen.detail)} - ocp's own /exit raised it")
 
 
-def stopped_pressing(con, agent: str, now: int) -> str:
-    """Why ocp will not press this agent's dialog again, or '' when it may."""
-    history = db.presses_since(con, agent, now - PRESS_WINDOW_S)
+_QUOTED_TITLE = re.compile(r'^"([^"]*)"')
+
+
+def _title_of(detail: str) -> str:
+    """The dialog's own title, pulled out of describe_modal's quoted form, so
+    a loop is counted against one dialog and never against everything an
+    agent's screen has shown in the window - two unrelated dialogs, each
+    cleared once, are two events, not one that looks like a loop."""
+    m = _QUOTED_TITLE.match(detail)
+    return m.group(1) if m else detail
+
+
+def stopped_pressing(con, agent: str, rec, now: int) -> str:
+    """Why ocp will not press this agent's dialog again, or '' when it may.
+    `rec` is the block it is asked about - the history is this one dialog's,
+    by title, not the agent's whole 6-hour past."""
+    title = _title_of(rec["detail"])
+    history = [p for p in db.presses_since(con, agent, now - PRESS_WINDOW_S) if p["title"] == title]
     cleared = sum(1 for p in history if p["outcome"] == "cleared")
     if cleared >= MAX_PRESSES:
         return (f"ocp cleared it {cleared} times in {status.ago(PRESS_WINDOW_S)} and it "
@@ -179,7 +197,7 @@ def press_note(con, agent: str, rec, now: int) -> str:
     """What ocp says about not having cleared this block's dialog, or ''."""
     if rec["kind"] != orca.MODAL:
         return ""
-    stopped = stopped_pressing(con, agent, now)
+    stopped = stopped_pressing(con, agent, rec, now)
     if stopped:
         return stopped
     said = [p for p in db.presses_since(con, agent, rec["since"]) if p["outcome"] == "not-pressed"]
@@ -191,7 +209,7 @@ def _decline(con, agent: str, rec, now: int, log):
     of it. The block, or None when the dialog is gone."""
     press_at = rec["since"] if rec["origin"] == "close" else rec["since"] + PRESS_AFTER_S
     handle = db.get_terminal(con, agent)
-    if now < press_at or not handle or stopped_pressing(con, agent, now):
+    if now < press_at or not handle or stopped_pressing(con, agent, rec, now):
         return rec
     outcome, title, why = orca.decline_dialog(handle)
     if outcome == orca.NOT_PRESSED:
@@ -236,7 +254,8 @@ def sweep(con, log, now: int | None = None) -> None:
             log(f"  {agent}: block check failed: {e}")
             continue
         if rec is not None and rec["request_id"] is None and (
-                now - rec["since"] >= ESCALATE_AFTER_S or stopped_pressing(con, agent, now)):
+                now - rec["since"] >= ESCALATE_AFTER_S
+                or (rec["kind"] == orca.MODAL and stopped_pressing(con, agent, rec, now))):
             due.append(rec)
     if due:
         _raise(con, due, now, log)
