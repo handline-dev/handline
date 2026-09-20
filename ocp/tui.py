@@ -812,7 +812,7 @@ def build(width: int, sel: dict | None = None,
         ag.add(f"{DIM}{'agent':<{NAME_W}}{'acct':<{ACCT_COL}}"
                + f"{'kind':<{KIND_W}}" * kinds
                + f"{'state':<{state_w}}{'ctx':>4}   {'in':<4}{R}", heading=True)
-        shown = shown_names(drawn_tree)
+        shown = {k: _plain(v) for k, v in shown_names(drawn_tree).items()}
         for name, depth, hidden in drawn_tree:
             under = len(hidden)
             # Indented under whoever routes work to it. Who an agent reports to
@@ -929,22 +929,23 @@ def build(width: int, sel: dict | None = None,
             # line is the first one with something on it, as it is everywhere
             # else - a body that starts with a blank line drew an empty row.
             first = drawable(actions.first_line(m["body"]))[0]
+            sender = _plain(m["from"])
             # An agent parked until this is answered is the only thing on the
             # screen that no one else will ever clear; it is not drawn like a
             # report that happens to be addressed here.
             if m["gate"]:
-                mark, name = f"{YEL}⚠{R}", f"{BOLD}{m['from']:<12}{R}"
+                mark, name = f"{YEL}⚠{R}", f"{BOLD}{sender:<12}{R}"
             elif m["waiting"]:
-                mark, name = f"{CYA}◷{R}", f"{BOLD}{m['from']:<12}{R}"
+                mark, name = f"{CYA}◷{R}", f"{BOLD}{sender:<12}{R}"
             elif m["answer"]:
                 # An answer is the one row here that is not addressed to the
                 # human at all: they asked for it. Drawn as what it is, so a
                 # reply cannot be read as a new demand on their time.
-                mark, name = f"{GRN}↩{R}", f"{BOLD}{m['from']:<12}{R}"
+                mark, name = f"{GRN}↩{R}", f"{BOLD}{sender:<12}{R}"
             else:
-                mark, name = f"{DIM}·{R}", f"{DIM}{m['from']:<12}{R}"
+                mark, name = f"{DIM}·{R}", f"{DIM}{sender:<12}{R}"
             ms.add(f"{DIM}{when}{R} {mark} {CYA}#{m['id']:<5}{R}{name}"
-                   f"{pad(m['kind'] or 'ask', 11)}{first}", key=m["id"])
+                   f"{pad(_plain(m['kind'] or 'ask'), 11)}{first}", key=m["id"])
         if not waiting:
             ms.add(f"{DIM}  nothing waiting on you{R}")
 
@@ -958,7 +959,7 @@ def build(width: int, sel: dict | None = None,
                    focused=panel == STUCK)
         fl.selected = sel.get(STUCK)
         for b in blocked:
-            fl.add(pad(f"{YEL}{b['what']}{R}", 34)
+            fl.add(pad(f"{YEL}{_plain(b['what'])}{R}", 34)
                    + pad(f"{DIM}{age(b['age']) if b['age'] else ''}{R}", 7)
                    + f"{DIM}{_plain(b['why'])}{R}", key=b["agent"])
 
@@ -1115,7 +1116,7 @@ def _body(text: str, width: int) -> list[str]:
 
 def _entry_lines(e, width: int) -> list[str]:
     """A request: its number and who it is with on one line, all of its text under."""
-    head = f"{BOLD}#{e.id}{R} from {e.who}  {DIM}{_clock(e.ts)}{R}"
+    head = f"{BOLD}#{e.id}{R} from {_plain(e.who)}  {DIM}{_clock(e.ts)}{R}"
     return [fit(head, width)] + _body(e.text if e.text.strip() else "", width)
 
 
@@ -1274,7 +1275,7 @@ def _rows_lines(rows: list, width: int, dim_plain: bool = False) -> list[str]:
 
 def _tabstrip(names: list[str], at: int) -> str:
     """The sections of an open page, with the one being read lit."""
-    parts = [f"{CYA}{BOLD}{n}{R}" if i == at else f"{DIM}{n}{R}"
+    parts = [f"{CYA}{BOLD}{_plain(n)}{R}" if i == at else f"{DIM}{_plain(n)}{R}"
              for i, n in enumerate(names)]
     return f" {DIM}·{R} ".join(parts)
 
@@ -1448,7 +1449,7 @@ def _detail_frame(width: int, height: int, detail: dict, flash: str = "") -> str
             con.close()
         keys += " · " + " · ".join(f"{k} {label}" for k, label in agent_keys
                                    if label != "open") + " · ? help"
-    lines = ([fit(f"{BOLD}{detail['title']}{R}{where}", width), ""]
+    lines = ([fit(f"{BOLD}{_plain(detail['title'])}{R}{where}", width), ""]
              + [fit(ln, width) for ln in shown]
              + [fit(flash, width) if flash else "", fit(f"{DIM}{keys} · q quit{R}", width)])
     return "\n".join(line + CLEAR_EOL for line in lines[:height])
@@ -1803,6 +1804,13 @@ def _line(prompt: str, width: int, height: int, multi: bool = False,
 
 
 def _confirm(what: str, width: int, height: int) -> bool:
+    """Ask yes or no over the bottom of the screen; only a typed y confirms.
+
+    It takes no `under`, unlike `_line`, and that is safe for one reason: its
+    row count is fixed by `textwrap.wrap(what)[:3]` and drawn once, before it
+    reads anything, and it never draws what is typed - so a paste cannot make it
+    grow over the page.
+    """
     if not sys.stdin.isatty():
         return False
     # What will happen and who is told can be longer than one line, and a

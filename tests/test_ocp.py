@@ -11754,84 +11754,197 @@ def test_the_composer_and_the_fill_on_a_real_screen_through_tui_run(home: Path) 
         os.waitpid(pid, 0)
 
 
+def _reference_text(text: str) -> str:
+    """What a reader should see of `text`: written here, apart from the code under
+    test, so that a twin built from it does not share that code's mistakes."""
+    text = re.sub(r"\033\][^\a\033]*(?:\a|\033\\)?", "", text)
+    text = re.sub(r"\033\[[0-?]*[ -/]*[@-~]", "", text)
+    return re.sub(r"[\x00-\x1f\x7f-\x9f]", "", text)
+
+
+def _leaks(dirty: dict[str, str], clean: dict[str, str], skip_counts: tuple = ()) -> list[str]:
+    """Where a screen drawn from hostile text differs from the same screen drawn
+    from the text a reader should see. Two ways, because each alone is unsafe:
+    a byte that is none of our own codes is a stray; and if our code emitted a
+    different NUMBER of any of our own codes, the hostile text added or ended one
+    - an injected reset or DIM that subtracting our codes would have called clean."""
+    own = sorted({v for v in vars(tui).values() if isinstance(v, str) and v.startswith("\033")
+                  and len(v) <= 12} | set(tui.STATE_COLOR.values()), key=len, reverse=True)
+    found = []
+    for label, text in dirty.items():
+        rest = text
+        for c in own:
+            rest = rest.replace(c, "")
+        stray = sorted({hex(ord(c)) for c in re.findall(r"[\x00-\x08\x0b-\x1f\x7f-\x9f]", rest)})
+        if stray:
+            found.append(f"{label}: stray {stray}")
+        if label in skip_counts:
+            continue
+        differ = {c: (text.count(c), clean[label].count(c)) for c in own
+                  if text.count(c) != clean[label].count(c)}
+        if differ:
+            found.append(f"{label}: codes differ {differ}")
+    return found
+
+
 def test_nothing_a_terminal_would_obey_gets_through_what_someone_else_wrote(home: Path) -> None:
     """Auditor #899: `wrap` stripped only simple CSI, so a title, a clipboard
     write, a link, a terminal reset, a charset switch, a CSI with an
     intermediate byte, BEL, backspace and C1 CSI in a message body reached the
-    terminal. Each is put through every tab of the real page and the frame."""
-    _daemon_home(home, 20)
-    agents.register("reviewer", "alpha")
-    con = db.connect()
+    terminal. Each is put through every tab of the real page and the frame, and
+    the screen is compared with one drawn from the text a reader should see."""
     attacks = {
         "title": "\033]0;PWNED\007", "clipboard": "\033]52;c;Zm9v\007",
         "link": "\033]8;;http://x\033\\link\033]8;;\033\\", "reset": "\033c",
         "charset": "\033(0", "cursor style": "\033[ q", "bell": "\007", "backspace": "\b\b",
-        "c1 csi": "\x9b31m", "misc": "\x0b\x0c\x7f\x00\x1b", "unterminated": "\033]0;never ended",
+        "c1 csi": "\x9b31m", "misc": "\x7f\x00\x1b", "unterminated": "\033]0;never ended",
         "colour": "\033[31mred\033[0m", "clear": "\033[2J\033[H",
+        "our own reset": "\033[0m", "our own dim": "\033[2m", "our own fill": "\033[97;100m",
     }
-    try:
-        shout = " ".join(f"<{name}>before{bad}after" for name, bad in attacks.items())
-        actions.chat_reply(con, "reviewer", shout)
-        first = actions.chat_parent(con, "reviewer")
-        askmod.resolve(first, shout)
-        third = askmod.ask("backend", shout, requester="reviewer", parent_id=first)[2]
-        askmod.resolve(third, shout)
-        db.add_request(con, "marina", "reviewer", shout, None, "peer", "async", None, 0, None)
-        told = askmod.ask("backend", "a question", requester="reviewer")[2]
-        askmod.resolve(told, shout)
-        keep_handoff("reviewer", shout + "\n" + shout)
-        db.set_agent_state(con, "reviewer", dmn.IDLE, detail=shout)
-        db.add_event(con, "reviewer", "wake", {"why": shout})
-        askmod.ask(actions.HUMAN, shout, requester="reviewer")
-        # Fields the agent's own file and its state set, drawn on the main screen.
-        poison = "\033]0;PWNED\007\033[31mx\x9b1m"
-        db.add_event(con, "reviewer", f"kind{poison}", {})
-        db.add_event(con, "reviewer", "wake", {})
-        db.set_agent_state(con, "reviewer", "STALLED", detail=f"stuck {poison} " * 8)
-        cfg = Path(paths.agent_dir("reviewer")) / "agent.yaml"
-        cfg.write_text(cfg.read_text().replace("model: sonnet", 'model: "\\x1b]0;PWNED\\x07\\x1b[31mmodel"')
-                       .replace("effort: medium", 'effort: "\\x1b]0;PWNED\\x07effort"'))
-        page = tui._agent_page(con, "reviewer", tui.AGENTS)
-        # What is ours is exactly the escape constants the module draws with.
-        # Anything else that is an escape, a control, DEL or C1 is a hit, so
-        # nothing an attacker writes can look like ours and be let through.
-        own = sorted({v for v in vars(tui).values() if isinstance(v, str) and v.startswith("\033")
-                      and len(v) <= 12} | set(tui.STATE_COLOR.values()), key=len, reverse=True)
+    poison = "\033]0;PWNED\007\033[31mx\x9b1m\033[0m"
 
-        def hits(text: str) -> list[str]:
-            for c in own:
-                text = text.replace(c, "")
-            return sorted({hex(ord(c)) for c in re.findall(r"[\x00-\x08\x0b-\x1f\x7f-\x9f]", text)})
-        for name in tui._tab_stems(page):
-            for width in (100, 30):
-                tui._go_to_tab(page, tui._tab_stems(page).index(name))
-                page["top"], page["end"] = 0, False
-                frame = tui._detail_frame(width, 400, page)
-                bad = hits(frame)
-                check(f"escape: nothing a terminal would obey is in {name} at {width}", not bad, str(bad))
-                check(f"escape: and what surrounded it is still read in {name} at {width}",
-                      "before" in frame.replace("\n", "") or "befor" in frame, frame[:120])
-        real_kind, real_acct = agents.kind, agents.current_account
-        agents.kind = lambda cfg: f"kind{poison}"        # agent.yaml's fields, whatever parses them
-        agents.current_account = lambda name, con=None: f"acct{poison}"
+    def scene(where: Path, hostile: bool) -> dict[str, str]:
+        """Everything drawn from text someone else wrote, hostile or its reading."""
+        say = (lambda t: t) if hostile else _reference_text
+        shout = " ".join(f"<{name}>before{say(bad)}after" for name, bad in attacks.items())
+        pois = say(poison)
+        _daemon_home(where, 20)
+        agents.register("reviewer", "alpha")
+        con = db.connect()
         try:
-            mains = {w: tui.frame(w, 50) for w in (100, 30)}
+            actions.chat_reply(con, "reviewer", shout)
+            first = actions.chat_parent(con, "reviewer")
+            askmod.resolve(first, shout)
+            third = askmod.ask("backend", shout, requester="reviewer", parent_id=first)[2]
+            askmod.resolve(third, shout)
+            db.add_request(con, "marina", "reviewer", shout, None, "peer", "async", None, 0, None)
+            told = askmod.ask("backend", "a question", requester="reviewer")[2]
+            askmod.resolve(told, shout)
+            keep_handoff("reviewer", shout + "\n" + shout)
+            db.set_agent_state(con, "reviewer", dmn.IDLE, detail=shout)
+            askmod.ask(actions.HUMAN, shout, requester="reviewer")
+            # (An event's payload is stored as JSON, so its control bytes are
+            # already text there: it is not a way in, and its length would differ.)
+            # Fields the agent's own file and its state set, drawn on the main screen.
+            db.add_event(con, "reviewer", f"kind{pois}", {})
+            db.add_event(con, "reviewer", "wake", {})
+            db.set_agent_state(con, "reviewer", "STALLED", detail=f"stuck {pois} " * 8)
+            shown = {}
+            page = tui._agent_page(con, "reviewer", tui.AGENTS)
+            for name in tui._tab_stems(page):
+                for width in (200, 30):
+                    tui._go_to_tab(page, tui._tab_stems(page).index(name))
+                    page["top"], page["end"] = 0, False
+                    shown[f"{name} at {width}"] = tui._detail_frame(width, 400, page)
+            real_kind, real_acct = agents.kind, agents.current_account
+            agents.kind = lambda cfg: f"kind{pois}"      # agent.yaml's fields, whatever parses them
+            agents.current_account = lambda name, con=None: f"acct{pois}"
+            try:
+                shown["main at 200"], shown["main at 30"] = tui.frame(200, 50), tui.frame(30, 50)
+            finally:
+                agents.kind, agents.current_account = real_kind, real_acct
+            return shown
         finally:
-            agents.kind, agents.current_account = real_kind, real_acct
-        for width in (100, 30):
-            main = mains[width]
-            check(f"escape: nor is the main screen - FOR YOU, the state detail, the kind column at {width}",
-                  not hits(main) and "PWNED" not in main and (width < 100 or "before" in main),
-                  str(hits(main)))
-            check(f"escape: and what surrounded it on the main screen is still read at {width}",
-                  width < 100 or "stuck" in main, tui._ANSI.sub("", main)[:300])
-        check("escape: the head block's detail is a body too",
-              "\033]" not in "".join(tui.lines_of(tui._agent_page(con, "reviewer", tui.AGENTS), 100)))
-        check("escape: wrap alone, for anything else that goes through it",
-              tui.wrap(["a\033]0;t\007b\x9bc\td\nnext"], 20) == ["ab" + "c" + "    d", "next"],
-              str(tui.wrap(["a\033]0;t\007b\x9bc\td\nnext"], 20)))
-    finally:
-        con.close()
+            con.close()
+
+    dirty = scene(home / "dirty", True)
+    clean = scene(home / "clean", False)
+    check("escape: the twin is not itself hostile",
+          not _leaks(clean, clean), str(_leaks(clean, clean))[:200])
+    # A narrow screen cuts a long value and closes the cut with a reset, so a
+    # hostile text and its reading need not cut alike: counts are compared
+    # where nothing is cut; strays are looked for everywhere.
+    found = _leaks(dirty, clean, skip_counts=tuple(k for k in dirty if k.endswith("at 30")))
+    for label in dirty:
+        check(f"escape: nothing of a terminal's is in {label}, and no code of ours added or ended",
+              not [f for f in found if f.startswith(label + ":")],
+              str([f for f in found if f.startswith(label + ":")])[:300])
+    check("escape: what surrounded it is still read",
+          all("before" in dirty[k].replace("\n", "") for k in dirty if k.endswith("at 200")
+              and not k.startswith(("WHAT IT HAS", "main"))) and "stuck" in dirty["main at 200"])
+    check("escape: the payload of a title is not drawn", not any("PWNED" in t for t in dirty.values()),
+          str([k for k, t in dirty.items() if "PWNED" in t]))
+    check("escape: wrap alone, for anything else that goes through it",
+          tui.wrap(["a\033]0;t\007b\x9bc\td\nnext"], 20) == ["ab" + "c" + "    d", "next"],
+          str(tui.wrap(["a\033]0;t\007b\x9bc\td\nnext"], 20)))
+
+
+def test_an_agent_name_is_text_and_no_screen_can_be_made_to_obey_it(home: Path) -> None:
+    """Auditor #927: a name is free text - register refused only '', '/' and a
+    leading '.', so an escape passed, and it was drawn raw in the team list, the
+    STUCK panel, the FOR YOU rows, the request headers and the page titles. A
+    control byte is refused where the name is stored, and every place that draws
+    one draws it as text. The screen is rendered twice, once with the poisoned
+    name and once with a plain one of the same length: what differs in our own
+    escape codes, or is left over that we did not write, is a leak. (Subtracting
+    our own codes instead let an injected reset or DIM pass as ours.)"""
+    _daemon_home(home / "refuse", 20)
+    for bad in ("a\033]0;T\007b", "a\nb", "a\x9bb", "a\x7fb", "a\x00b", "a\u2028b", "", ".x", "a/b"):
+        try:
+            agents.register(bad, "alpha")
+            refused = False
+        except ValueError:
+            refused = True
+        check(f"names: {bad!r} is not a name", refused)
+    agents.register("백엔드-2", "alpha")
+    check("names: a Korean name still is one", "백엔드-2" in paths.list_agents())
+
+    poison = "ev\033]0;T\007il\033[0m\033[2m\033[7m\033[K\x9b1m"
+
+    def scene(where: Path, name: str) -> dict[str, str]:
+        """Everything the screen draws about an agent called `name`."""
+        _daemon_home(where, 20)
+        d = paths.agent_dir(name)             # made by hand: register would refuse it
+        (d / "inbox").mkdir(parents=True)
+        (d / "agent.yaml").write_text("name: backend\naccount: alpha\nmodel: sonnet\n"
+                                      "effort: medium\nweight: light\nenabled: true\n")
+        con = db.connect()
+        try:
+            db.set_agent_state(con, name, "STALLED", detail="stuck on something")
+            db.add_request(con, name, "human", "which one?", None, "peer", "async",
+                           "escalate", 0, None)
+            db.add_request(con, "marina", name, "please look", None, "peer", "async", None, 0, None)
+            db.add_request(con, "human", name, "hello", None, "peer", "async", None, 0, None)
+            back = db.add_request(con, name, "backend", "a question", None, "peer", "async",
+                                  None, 0, None)
+            con.execute("UPDATE requests SET state = 'done', verdict = 'answered', "
+                        "resolved_at = ? WHERE id = ?", (int(time.time()), back))
+            db.add_event(con, name, "wake", {})
+            db.add_request(con, name, "backend", "another", None, "peer", "async", None, 0, None)
+            asked = db.add_request(con, "backend", name, "and this?", None, "peer", "async",
+                                   None, 0, None)
+            con.execute("UPDATE requests SET state = 'done', verdict = 'answered too', "
+                        "resolved_at = ? WHERE id = ?", (int(time.time()), asked))
+            shown = {"main": tui.frame(200, 60), "main narrow": tui.frame(60, 60)}
+            other = tui._agent_page(con, "backend", tui.AGENTS)      # where the name is a requester
+            for tab in tui._tab_stems(other):
+                tui._go_to_tab(other, tui._tab_stems(other).index(tab))
+                other["top"], other["end"] = 0, False
+                shown[f"backend's page {tab}"] = tui._detail_frame(200, 400, other)
+            page = tui._agent_page(con, name, tui.AGENTS)
+            for tab in tui._tab_stems(page):
+                tui._go_to_tab(page, tui._tab_stems(page).index(tab))
+                page["top"], page["end"] = 0, False
+                shown[f"page {tab}"] = tui._detail_frame(200, 400, page)
+            mine = con.execute("SELECT id FROM requests WHERE requester = ? AND target = 'human'",
+                               (name,)).fetchone()["id"]
+            title, sections = actions.message_detail(con, mine)
+            shown["message page"] = tui._detail_frame(200, 400, tui.page(title, sections, tui.MESSAGES, mine))
+            return shown
+        finally:
+            con.close()
+
+    dirty = scene(home / "dirty", poison)
+    clean = scene(home / "clean", _reference_text(poison))
+    found = _leaks(dirty, clean, skip_counts=("main narrow",))
+    for label in dirty:
+        check(f"names: {label} draws nothing of a terminal's, and no code of ours a plain name would not",
+              not [f for f in found if f.startswith(label + ":")],
+              str([f for f in found if f.startswith(label + ":")])[:300])
+        if label in ("main", "message page", "backend's page WAITING FOR IT",
+                     "backend's page ANSWERS IT HAS NOT BEEN TOLD"):
+            check(f"names: the name is still there to read in {label}", "evil" in dirty[label],
+                  dirty[label][:200])
 
 
 def test_every_prompt_leaves_the_screen_above_it_drawn_through_tui_run(home: Path) -> None:
@@ -14405,6 +14518,7 @@ def main() -> int:
         run(lambda: test_the_founders_messages_sit_on_a_background_that_fills_the_whole_block(Path(td) / 'fill'))
         run(lambda: test_the_composer_and_the_fill_on_a_real_screen_through_tui_run(Path(td) / 'realscreen'))
         run(lambda: test_nothing_a_terminal_would_obey_gets_through_what_someone_else_wrote(Path(td) / 'esc'))
+        run(lambda: test_an_agent_name_is_text_and_no_screen_can_be_made_to_obey_it(Path(td) / 'names'))
         run(lambda: test_every_prompt_leaves_the_screen_above_it_drawn_through_tui_run(Path(td) / 'prompts'))
         run(lambda: test_the_agent_pages_tabs_show_everything_and_read_as_blocks(Path(td) / 'tabs'))
         run(lambda: test_a_message_being_typed_wraps_and_keeps_the_cursor_on_its_last_character(Path(td) / 'typing'))
