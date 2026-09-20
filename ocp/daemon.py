@@ -735,6 +735,12 @@ def _end_session(con, agent: str, log, st, resume: str | None) -> tuple[bool, st
         return False, "no session process; nothing to close"
     ok, why = orca.close_session(handle)
     if not ok:
+        # Refused outright - most often a dialog already on screen (ocp's own
+        # earlier `/exit`, or Claude Code's own start-up modal) - is ocp's own
+        # doing exactly as much as a `/exit` that was typed and never landed,
+        # so it is on the list the same way: at once, not on blocked.sweep()'s
+        # own next pass over this agent.
+        blocked.note_close_failure(con, agent, log)
         return False, why
     # Typed is not ended: the `/exit` can be eaten or slow, and a closed row
     # over a live process is cleared by the sweep, while a relaunch typed at
@@ -1458,8 +1464,16 @@ def _forced_plan(con, agent: str, dest: str) -> tuple[str | None, str]:
 
 
 def _move_to_room(con, agent: str, trigger: triggers.Trigger, log,
-                  dest: str | None = None) -> bool:
-    """Put this agent's next session on an account that has room. True if it moved.
+                  dest: str | None = None) -> tuple[bool, bool]:
+    """Put this agent's next session on an account that has room.
+
+    (moved, retry_soon). `retry_soon` is only meaningful when `moved` is
+    False: True once a destination account was actually found, so whatever
+    stopped the move is about this terminal right now - a modal, unsent text,
+    a session that would not end - and not about the accounts, which is the
+    caller's cue to look again shortly rather than park until this account's
+    own window rolls over. False when no destination existed (a real park) or
+    the trigger never moves accounts at all.
 
     `dest` fixes the destination (a forced move); it still has to be one the
     pick would send an agent to.
@@ -1475,16 +1489,16 @@ def _move_to_room(con, agent: str, trigger: triggers.Trigger, log,
     prompt, and the old transcript's path to grep.
     """
     if trigger.kind not in MOVABLE_TRIGGERS:
-        return False
+        return False, False
     here = agents.current_account(agent, con)
     there, picked_why = (_forced_plan(con, agent, dest) if dest
                          else _move_plan(con, agent, trigger.kind))
     if there is None:
         log(f"  {agent}: staying on {here} - {picked_why}")
-        return False
+        return False, False
     handle = db.get_terminal(con, agent)
     if not handle or not orca.available() or not orca.alive(handle):
-        return False
+        return False, True
 
     # Closed through the same checks every other close goes through. `/exit`
     # typed at a shell exits the shell and Orca's terminal goes with it, and by
@@ -1494,7 +1508,7 @@ def _move_to_room(con, agent: str, trigger: triggers.Trigger, log,
     ok, why = _end_session(con, agent, log, st, resume=None)
     if not ok:
         log(f"  {agent}: staying on {here} - {why}")
-        return False
+        return False, True
 
     # `_perform_handoff` put this agent in HANDOFF before calling here, and
     # HANDOFF is one of events.PROTECTED_STATES - `_mark_activity` refuses to
@@ -1535,7 +1549,7 @@ def _move_to_room(con, agent: str, trigger: triggers.Trigger, log,
         # against one more relaunch attempt should quietly clear.
         measure.forget(con, agent)
         log(f"  {agent}: closed on {here} but could not start on {there}: {why[:120]}")
-        return False
+        return False, True
 
     # The session that started must be the one on `there`. A process that
     # outlived the /exit is still on `here`, and recording the move would name
@@ -1547,7 +1561,7 @@ def _move_to_room(con, agent: str, trigger: triggers.Trigger, log,
         measure.forget(con, agent)
         log(f"  {agent}: asked to move {here} -> {there} but its process is on "
             f"{actual} - not recorded as moved")
-        return False
+        return False, True
 
     # A session is live on the new account. Whether the line after it - handing
     # it its own handoff - also landed is not the same question, and treating a
@@ -1581,7 +1595,7 @@ def _move_to_room(con, agent: str, trigger: triggers.Trigger, log,
     log(f"  {agent}: moved {here} -> {there} ({trigger.kind}) - {picked_why}"
         + ("" if woke or hook_running
            else f" - but it was not handed its handoff: {why[:80]}"))
-    return True
+    return True, False
 
 
 def _perform_handoff(con, agent: str, trigger: triggers.Trigger, log,
@@ -1605,7 +1619,8 @@ def _perform_handoff(con, agent: str, trigger: triggers.Trigger, log,
     # Where it goes next. An agent whose own account is out of room does not
     # have to sit out that window if another account has some. Here, after the
     # handoff is recorded, because this session is ending either way.
-    if _move_to_room(con, agent, trigger, log, dest):
+    moved, retry_soon = _move_to_room(con, agent, trigger, log, dest)
+    if moved:
         db.advance_handoff(con, hid, "released", state="done" if ok else "degraded")
         db.bump_counter(con, agent, "continuations")
         return ok
@@ -1634,9 +1649,16 @@ def _perform_handoff(con, agent: str, trigger: triggers.Trigger, log,
     # account agent.yaml happens to prefer, not to the one this agent may
     # actually be spending, so it earns only a short re-look instead.
     reading = agents.account_reading(agent, con)
-    if reading.source == "assumed" or trigger.kind == "forced":
+    if reading.source == "assumed" or trigger.kind == "forced" or retry_soon:
         # A forced move that ended the session and did not start it is not a
         # wall: the account it left had room, so there is no window to wait out.
+        # `retry_soon` is the same shape: a destination had room, so whatever
+        # stopped the move - a dialog blocking `/exit`, unsent text, a session
+        # that would not end - is about this terminal, not this account, and
+        # may already be gone by the time this account's own window would
+        # have rolled over. blocked.sweep() is already re-reading that screen
+        # and pressing what it can (#996) every tick regardless of this park;
+        # this only keeps the move itself from waiting hours to look again.
         wake = int(time.time()) + ASSUMED_ACCOUNT_RECHECK_S
     else:
         rst = status.read(reading.account)
@@ -1922,7 +1944,7 @@ def supervise(con, agent: str, log, now: int, samples: dict,
         if movable and verdict.fired and verdict.kind in MOVABLE_TRIGGERS \
                 and _move_plan(con, agent, verdict.kind)[0]:
             with lock.terminal(agent) as mine:
-                moved = mine and _move_to_room(con, agent, verdict, log)
+                moved = bool(mine) and _move_to_room(con, agent, verdict, log)[0]
             if moved:
                 actions.append(f"{agent}: moved off a parked account")
                 return

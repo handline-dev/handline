@@ -8785,7 +8785,7 @@ def test_a_move_is_not_recorded_while_the_process_is_still_on_the_old_account(
 
         _process_on("alpha")
         check("move: a process that came back on the old account is not a move",
-              not dmn._move_to_room(con, "keeper", t, lambda _m: None))
+              not dmn._move_to_room(con, "keeper", t, lambda _m: None)[0])
         check("move: and the column still names the account it is on",
               agents.current_account("keeper", con) == "alpha",
               agents.current_account("keeper", con))
@@ -8800,7 +8800,7 @@ def test_a_move_is_not_recorded_while_the_process_is_still_on_the_old_account(
         _process_on("beta")
         con.execute("DELETE FROM events WHERE agent = 'keeper' AND kind = 'moved_account'")
         check("move: on the new account it is one",
-              dmn._move_to_room(con, "keeper", t, lambda _m: None)
+              dmn._move_to_room(con, "keeper", t, lambda _m: None)[0]
               and agents.current_account("keeper", con) == "beta")
         check("move: and the move is on the record",
               sum(e["kind"] == "moved_account"
@@ -9010,7 +9010,7 @@ def test_weekly_headroom_is_spent_to_its_own_wall(home: Path) -> None:
             dmn.wait_for_session = lambda agent, timeout=0: True
             keep_handoff("keeper", "# handoff · keeper\n## 다음\n- carry on\n")
             check("7d wall: the agent moves off an account that hit its 7d wall",
-                  dmn._move_to_room(con, "keeper", t, lambda _m: None))
+                  dmn._move_to_room(con, "keeper", t, lambda _m: None)[0])
             check("7d wall: it landed on the account with weekly room",
                   agents.current_account("keeper", con) == "beta",
                   agents.current_account("keeper", con))
@@ -9144,7 +9144,7 @@ def test_an_agent_at_the_wall_moves_to_an_account_with_room(home: Path) -> None:
             orcamod.close_session = lambda h, **kw: (typed.append("/exit"), (True, "ended"))[1]
             sessions_are()                      # it went away while we folded
             check("move: a session that is already gone is not moved",
-                  not dmn._move_to_room(con, "keeper", t, lambda _m: None))
+                  not dmn._move_to_room(con, "keeper", t, lambda _m: None)[0])
             check("move: and nothing is typed at the shell it left behind", not typed,
                   str(typed))
         finally:
@@ -9174,7 +9174,7 @@ def test_an_agent_at_the_wall_moves_to_an_account_with_room(home: Path) -> None:
         unknown = triggers.evaluate(None, 10)
         check("move: an unreadable account is not a trigger", not unknown.fired, unknown.kind)
         check("move: and nothing moves on it",
-              not dmn._move_to_room(con, "keeper", unknown, lambda _m: None))
+              not dmn._move_to_room(con, "keeper", unknown, lambda _m: None)[0])
 
         # What it is told when it lands. A move is not a close: its handoff was
         # taken a moment ago and `launch.context_for` put it in the new
@@ -9190,6 +9190,78 @@ def test_an_agent_at_the_wall_moves_to_an_account_with_room(home: Path) -> None:
         (orcamod.available, orcamod.alive, orcamod.close_session, orcamod.relaunch,
          orcamod.clear_context, orcamod.resume_with, orcamod.idle_now,
          dmn.wait_for_session) = real
+        con.close()
+
+
+def test_a_move_blocked_by_a_dialog_retries_soon_not_at_the_old_accounts_wall(home: Path) -> None:
+    """#1013, from the real log: chat hit its wall with beta and delta free,
+    could not close because a modal (ocp's own earlier /exit) was open, and
+    the fallback parked it 2h21m against the walled account's own reset - the
+    worst of both, since a destination existed the whole time and the modal
+    is exactly what #996 presses.
+
+    The property: a move that fails because a destination was found but the
+    close could not happen (a dialog, unsent text, a session that would not
+    end) parks for a short recheck, the same shape as an assumed account -
+    never against the account being LEFT, which has nothing to do with why
+    the move failed."""
+    _daemon_home(home, 20)
+    con = db.connect()
+    agents.register("keeper", "alpha")
+    db.set_account(con, "keeper", "alpha")      # a recorded account, not merely assumed
+    write_status(home, "beta", pct_5h=10, pct_7d=5, ctx_pct=5,
+                 reset_5h=int(time.time()) + 1800)
+    write_status(home, "alpha", pct_5h=100, pct_7d=20, ctx_pct=5,
+                 reset_5h=int(time.time()) + 3 * 3600)
+    for acct in ("alpha", "beta"):
+        (home / "accounts" / acct / ".claude").mkdir(parents=True, exist_ok=True)
+        (home / "accounts" / acct / ".claude" / ".credentials.json").write_text("{}")
+    keep_handoff("keeper", "# handoff · keeper\n## 다음\n- carry on\n")
+    db.add_request(con, "marina", "keeper", "carry on", None, "peer", "async", None, 0, None)
+    real = (orcamod.available, orcamod.alive, orcamod.close_session, orcamod.clear_context,
+            orcamod.idle_now, orcamod.screen_blocker)
+    try:
+        orcamod.available = lambda: True
+        orcamod.alive = lambda h: True
+        orcamod.idle_now = lambda h: True
+        orcamod.clear_context = lambda h, **kw: (False, "a modal is open on its screen; not typing /clear at it")
+        orcamod.close_session = lambda h, **kw: (False, "a modal is open on its screen; not typing /exit at it")
+        orcamod.screen_blocker = lambda h: orcamod.Blocker(orcamod.MODAL, '"Stay in this session?"')
+        sessions_are("keeper")
+        db.set_terminal(con, "keeper", "term_x", "wt")
+
+        t = triggers.evaluate(100, 10)
+        before = int(time.time())
+        dmn.perform_handoff(con, "keeper", t, lambda _m: None)
+
+        row = db.get_agent_state(con, "keeper")
+        check("dialog move: it parks - the close never happened",
+              row["state"] == dmn.PARKED and row["wake_at"], f"{row['state']} {row['wake_at']}")
+        check("dialog move: not moved - the account is still the one it started on",
+              agents.current_account("keeper", con) == "alpha", agents.current_account("keeper", con))
+        check("dialog move: but the recheck is short, not the walled account's own 3h reset",
+              row["wake_at"] < before + dmn.ASSUMED_ACCOUNT_RECHECK_S + 30,
+              f"wake_at={row['wake_at']} before={before}")
+        check("dialog move: the dialog itself is tracked, for #996 to press",
+              db.block_get(con, "keeper") is not None and
+              db.block_get(con, "keeper")["kind"] == orcamod.MODAL)
+
+        # Contrast: no destination at all still parks against the wall it hit.
+        db.block_clear(con, "keeper")
+        write_status(home, "beta", pct_5h=100, pct_7d=20, ctx_pct=5,
+                     reset_5h=int(time.time()) + 3 * 3600)
+        db.set_agent_state(con, "keeper", dmn.IDLE)
+        db.clear_closed(con, "keeper")
+        con.execute("DELETE FROM handoff")
+        before2 = int(time.time())
+        dmn.perform_handoff(con, "keeper", triggers.evaluate(100, 10), lambda _m: None)
+        row2 = db.get_agent_state(con, "keeper")
+        check("dialog move: with nowhere to go, still the long wait - the two are not confused",
+              row2["wake_at"] > before2 + dmn.ASSUMED_ACCOUNT_RECHECK_S + 30,
+              f"wake_at={row2['wake_at']} before={before2}")
+    finally:
+        (orcamod.available, orcamod.alive, orcamod.close_session, orcamod.clear_context,
+         orcamod.idle_now, orcamod.screen_blocker) = real
         con.close()
 
 
@@ -9841,7 +9913,7 @@ def test_a_turn_that_ends_on_the_usage_limit_is_at_the_wall(home: Path) -> None:
             orcamod.idle_now = lambda h, **kw: False   # the probe would say mid-turn
             orcamod.clear_context = lambda h, **kw: (True, "cleared")
             dmn.session_present = lambda a: True
-            dmn._move_to_room = lambda con_, a, t, log, dest=None: (seen.append(t), True)[1]
+            dmn._move_to_room = lambda con_, a, t, log, dest=None: (seen.append(t), (True, False))[1]
             # Idle, so delivery would go through if nothing held it back.
             orcamod.idle_now = lambda h, **kw: True
             dmn.supervise(con, "backend", lambda _m: None, now, {}, [])
@@ -10634,7 +10706,7 @@ def test_move_requires_clear_headroom_not_bare_assignability(home: Path) -> None
         t = triggers.evaluate(100, 10)
         logged: list[str] = []
         check("move headroom: a marginal destination is refused, agent stays put",
-              not dmn._move_to_room(con, "keeper", t, logged.append))
+              not dmn._move_to_room(con, "keeper", t, logged.append)[0])
         check("move headroom: the account on record has not changed",
               agents.current_account("keeper", con) == "alpha",
               agents.current_account("keeper", con))
@@ -10656,7 +10728,7 @@ def test_move_requires_clear_headroom_not_bare_assignability(home: Path) -> None
             keep_handoff("keeper", "# handoff · keeper\n## 다음\n- carry on\n")
             logged.clear()
             check("move headroom: clear headroom lets the move through",
-                  dmn._move_to_room(con, "keeper", t, logged.append))
+                  dmn._move_to_room(con, "keeper", t, logged.append)[0])
             check("move headroom: it actually landed on beta",
                   agents.current_account("keeper", con) == "beta",
                   agents.current_account("keeper", con))
@@ -10706,7 +10778,7 @@ def test_move_to_room_reaches_a_bootstrap_account(home: Path) -> None:
               launch.choose_account("keeper") == "gamma")
         t = triggers.evaluate(100, 10)
         check("move (bootstrap): the move actually completes",
-              dmn._move_to_room(con, "keeper", t, lambda _m: None))
+              dmn._move_to_room(con, "keeper", t, lambda _m: None)[0])
         check("move (bootstrap): and lands on the bootstrapped account",
               agents.current_account("keeper", con) == "gamma",
               agents.current_account("keeper", con))
@@ -10825,7 +10897,7 @@ def test_a_move_still_records_a_session_the_wait_missed_but_a_hook_saw(home: Pat
         dmn.wait_for_session = lambda agent, timeout=0: False
 
         t = triggers.evaluate(100, 10)
-        moved = dmn._move_to_room(con, "mover", t, lambda _m: None, dest="beta")
+        moved = dmn._move_to_room(con, "mover", t, lambda _m: None, dest="beta")[0]
         check("clobber: a hook's RUNNING outweighs a wake the wait missed - "
               "the move is recorded, not discarded", moved)
         row = db.get_agent_state(con, "mover")
@@ -10881,7 +10953,7 @@ def test_stalled_survives_a_hook_that_fires_after_the_third_failed_wake(home: Pa
         orcamod.relaunch = relaunch_fails_but_late
 
         t = triggers.evaluate(100, 10)
-        moved = dmn._move_to_room(con, "mover", t, lambda _m: None, dest="beta")
+        moved = dmn._move_to_room(con, "mover", t, lambda _m: None, dest="beta")[0]
         check("stalled: the third failure is not recorded as a move", not moved)
         row = db.get_agent_state(con, "mover")
         check("stalled: it lands on STALLED, not clobbered by the late hook",
@@ -15870,6 +15942,8 @@ def main() -> int:
         run(lambda: test_a_forced_move_goes_through_the_verified_move_or_not_at_all(Path(td) / 'forced'))
         run(lambda: test_an_agent_cannot_force_a_move(Path(td) / 'forcedagent'))
         run(lambda: test_an_agent_at_the_wall_moves_to_an_account_with_room(Path(td) / 'moveacct'))
+        run(lambda: test_a_move_blocked_by_a_dialog_retries_soon_not_at_the_old_accounts_wall(
+            Path(td) / 'movedialog'))
         run(lambda: test_a_pinned_closed_agent_moves_instead_of_waiting_out_its_window(
             Path(td) / 'pinned'))
         run(lambda: test_a_pinned_agent_stays_pinned_when_nothing_else_has_clear_room(
