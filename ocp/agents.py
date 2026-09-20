@@ -5,6 +5,7 @@ name, the Orca task label and the folder name are all the same string.
 """
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -67,10 +68,15 @@ def read(name: str) -> dict:
     return data
 
 
+_CONTROL = re.compile(r"[\x00-\x1f\x7f-\x9f\u2028\u2029]")
+
+
 def register(name: str, account: str, role: str = "", model: str | None = None,
              effort: str | None = None, weight: str | None = None,
              role_file: str | None = None, repo: str | None = None) -> Path:
-    if not name or "/" in name or name.startswith("."):
+    # A name is stored, drawn on every screen and typed into terminals: a control
+    # byte in it (an escape, a newline) is refused here, where it would stay.
+    if not name or "/" in name or name.startswith(".") or _CONTROL.search(name):
         raise ValueError(f"bad agent name: {name!r}")
     d = paths.agent_dir(name)
     for sub in ("inbox", "journal"):
