@@ -11037,6 +11037,76 @@ def test_a_conversation_shows_whose_message_is_whose_without_colour(home: Path) 
         con.close()
 
 
+def test_the_founders_messages_sit_on_a_background_that_fills_the_whole_block(home: Path) -> None:
+    """Founder: their messages on a different background from the agent's, as
+    in Claude Code. The fill runs border to border on every line of the message
+    - wrapped ones and blank ones inside it too - and is off by the end of
+    every line, so it cannot bleed into the next message, the footer or a
+    scrolled frame."""
+    _daemon_home(home, 20)
+    agents.register("reviewer", "alpha")
+    con = db.connect()
+    try:
+        actions.chat_reply(con, "reviewer", "start here " + "and a long first line " * 5
+                           + "\n\nafter a blank\nlast line")
+        first = actions.chat_parent(con, "reviewer")
+        actions.chat_reply(con, "reviewer", "and another from me")
+        third = askmod.ask("backend", "need the log\nplease", requester="reviewer",
+                           parent_id=first)[2]
+        askmod.resolve(third, "here it is")
+        askmod.resolve(first, "agent answer " + "with a long first line " * 4)
+        now = int(time.time())
+        for i, rid in enumerate((first, first + 1, third)):
+            con.execute("UPDATE requests SET ts = ?, resolved_at = ? WHERE id = ?",
+                        (now - 900 + i * 100, now - 800 + i * 100 + 50, rid))
+        page = tui._agent_page(con, "reviewer", tui.AGENTS)
+        tui._go_to_tab(page, tui._tab_stems(page).index(actions.CHAT_TAB))
+
+        def background(raw: str) -> tuple[list[bool], bool]:
+            """Whether the background is set under each visible character, and
+            whether it is still set when the line ends."""
+            on, under = False, []
+            for tok in re.split(r"(\033\[[0-9;]*[A-Za-z])", raw):
+                m = re.fullmatch(r"\033\[([0-9;]*)m", tok)
+                if m:
+                    for code in (m.group(1) or "0").split(";"):
+                        on = True if code == "100" else False if code in ("0", "", "49") else on
+                elif not tok.startswith("\033"):
+                    under += [on] * len(tok)
+            return under, on
+
+        def judge(lines: list[str], width: int, what: str, need: bool = True) -> None:
+            mine = [ln for ln in lines if tui._ANSI.sub("", ln)[1:].lstrip().startswith("\u258c")]
+            if need:
+                check(f"fill: the founder's lines are found {what}", bool(mine))
+            bad_open = [ln for ln in lines if background(ln)[1]]
+            check(f"fill: no line ends with the background still on {what}", not bad_open,
+                  str([tui._ANSI.sub("", ln) for ln in bad_open[:2]]))
+            ragged = [tui._ANSI.sub("", ln) for ln in mine
+                      if not (lambda u: len(u) == width and not u[0] and not u[-1] and all(u[1:-1]))(
+                          background(ln)[0])]
+            check(f"fill: it runs border to border on every line of their messages {what}",
+                  not ragged, str(ragged[:2]))
+            leaked = [tui._ANSI.sub("", ln) for ln in lines if ln not in mine
+                      and any(background(ln)[0])]
+            check(f"fill: and nothing else has it - agent, third party, gaps, hint {what}",
+                  not leaked, str(leaked[:2]))
+
+        for width in (100, 40, 24):
+            box = [ln for ln in tui.lines_of(page, width) if tui._ANSI.sub("", ln).startswith("│")]
+            judge(box, width, f"at {width}")
+        # Scrolled, so a message is cut by the top and bottom of the screen.
+        for top in (0, 3, 6, 9):
+            page["top"], page["end"] = top, False
+            frame = tui._detail_frame(40, 12, page).split("\n")
+            judge([ln.replace("\033[K", "") for ln in frame if tui._ANSI.sub("", ln).startswith("│")],
+                  40, f"scrolled to {top}", need=False)
+            check(f"fill: the title and footer are never on it, scrolled to {top}",
+                  not any(any(background(ln)[0]) for ln in (frame[0], frame[-1], frame[-2])))
+    finally:
+        con.close()
+
+
 def test_the_messenger_tab_carries_a_conversation_both_ways(home: Path) -> None:
     """The founder writes in the tab, the agent answers, and the answer is in
     the tab on the next redraw - with the message sent whole and under its
@@ -13508,6 +13578,7 @@ def main() -> int:
         run(lambda: test_a_conversation_stays_where_the_reader_scrolled_it(Path(td) / 'scroll'))
         run(lambda: test_a_conversation_reads_as_turns_at_any_width(Path(td) / 'turns'))
         run(lambda: test_a_conversation_shows_whose_message_is_whose_without_colour(Path(td) / 'whose'))
+        run(lambda: test_the_founders_messages_sit_on_a_background_that_fills_the_whole_block(Path(td) / 'fill'))
         run(lambda: test_the_agent_pages_tabs_show_everything_and_read_as_blocks(Path(td) / 'tabs'))
         run(lambda: test_a_message_being_typed_wraps_and_keeps_the_cursor_on_its_last_character(Path(td) / 'typing'))
         run(lambda: test_bracketed_paste_is_switched_on_with_the_screen())

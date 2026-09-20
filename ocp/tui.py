@@ -502,7 +502,14 @@ class Panel:
             # reader had four arrows and no idea which their keys meant.
             here = self.focused and key is not None and key == self.selected
             gutter = f"{CYA}▸{R} " if here else "  "
-            out.append(f"{DIM}│{R}" + pad(fit(gutter + row, inner), inner) + f"{DIM}│{R}")
+            line = pad(fit(gutter + row, inner), inner)
+            fill = getattr(row, "fill", "")
+            if fill:
+                # The fill runs from border to border. Every reset inside the
+                # row ends it, so it is switched on again after each, and the
+                # last reset is the line's own: nothing carries to the next line.
+                line = fill + line.replace(R, R + fill) + R
+            out.append(f"{DIM}│{R}" + line + f"{DIM}│{R}")
         if held_back and limit is not None and limit >= 2:
             more = f"{DIM}  … {held_back} more{R}"
             out.append(f"{DIM}│{R}" + pad(fit(more, inner), inner) + f"{DIM}│{R}")
@@ -1144,6 +1151,21 @@ def _header(bar: str, marker: str, who: str, when: str, tail: str, waiting: bool
     return lines
 
 
+class Filled(str):
+    """A row of a panel drawn on a background: `fill` is the colour, and the
+    panel paints it across the whole row."""
+    fill: str
+
+    def __new__(cls, text: str, fill: str):
+        self = super().__new__(cls, text)
+        self.fill = fill
+        return self
+
+
+# The founder's messages: bright white on bright black, both set, so the text
+# does not depend on the terminal's own foreground; 16-colour codes only.
+FILL_YOU = "\033[97;100m"
+
 # Who said it, three ways that do not depend on colour: the bar down the side
 # of the message (heavy for the human, thin for the agent this page is about,
 # dotted for anyone else), the marker on its header, and the name.
@@ -1189,11 +1211,12 @@ def _rows_lines(rows: list, width: int, dim_plain: bool = False) -> list[str]:
         bar, head, dim = _SIDES[r.side]
         who = "" if prev == (r.side, r.who) else r.who
         prev, block = (r.side, r.who), True
-        out += _header(bar, head, who, _clock(r.ts), r.tail, r.waiting, width)
         # The bar is on every line of the message, blank ones included, so a
         # long or multi-line message is still one side's from top to bottom.
-        out += [f"{bar}{dim}   {ln}{R}" if ln else bar
-                for ln in wrap(r.text.splitlines() or [""], max(1, width - 4))]
+        lines = _header(bar, head, who, _clock(r.ts), r.tail, r.waiting, width) + [
+            f"{bar}{dim}   {ln}{R}" if ln else bar
+            for ln in wrap(r.text.splitlines() or [""], max(1, width - 4))]
+        out += [Filled(ln, FILL_YOU) for ln in lines] if r.side == "you" else lines
     return out
 
 
