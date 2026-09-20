@@ -549,7 +549,14 @@ class Panel:
             # reader had four arrows and no idea which their keys meant.
             here = self.focused and key is not None and key == self.selected
             gutter = f"{CYA}▸{R} " if here else "  "
-            out.append(f"{DIM}│{R}" + pad(fit(gutter + row, inner), inner) + f"{DIM}│{R}")
+            line = pad(fit(gutter + row, inner), inner)
+            fill = getattr(row, "fill", "")
+            if fill:
+                # The fill runs from border to border. Every reset inside the
+                # row ends it, so it is switched on again after each, and the
+                # last reset is the line's own: nothing carries to the next line.
+                line = fill + line.replace(R, R + fill) + R
+            out.append(f"{DIM}│{R}" + line + f"{DIM}│{R}")
         if held_back and limit is not None and limit >= 2:
             more = f"{DIM}  … {held_back} more{R}"
             out.append(f"{DIM}│{R}" + pad(fit(more, inner), inner) + f"{DIM}│{R}")
@@ -617,13 +624,13 @@ def _needs_you(row) -> str:
     """
     if not row or row["state"] not in NEEDS_A_HUMAN:
         return ""
-    return f"{RED}{row['state'].lower()}{R} {DIM}{(row['detail'] or '')[:60]}{R}"
+    return f"{RED}{row['state'].lower()}{R} {DIM}{_plain(row['detail'] or '')[:60]}{R}"
 
 
 def _plain(text: str) -> str:
-    """What someone else wrote, made safe to draw: an escape is invisible to the
-    width count and `esc [ 2J` clears the screen it is drawn on."""
-    return "".join(c if c.isprintable() else " " for c in _ANSI.sub("", text))
+    """What someone else wrote, as one line of text safe to draw: nothing a
+    terminal would obey (see `drawable`), and a newline is a space."""
+    return "".join(c if c.isprintable() else " " for c in " ".join(drawable(text)))
 
 
 def wait_lines(waits: list[dict], width: int, budget: int | None = None) -> list[str]:
@@ -852,8 +859,8 @@ def build(width: int, sel: dict | None = None,
                 # every column after it right - the same drift the "·closed"
                 # suffix caused.
                 pad(fold_marker(twig + f"{BOLD}{shown[name]}{R}", under, urgency), NAME_W)
-                + pad(acct, ACCT_COL)
-                + (pad(f"{DIM}{fit(agents.kind(cfg), KIND_W - 1)}{R}", KIND_W)
+                + pad(_plain(acct), ACCT_COL)
+                + (pad(f"{DIM}{fit(_plain(agents.kind(cfg)), KIND_W - 1)}{R}", KIND_W)
                    if kinds else "")
                 + pad(state_cell, state_w)
                 + pad(ctxs, CTX_COL)
@@ -920,7 +927,7 @@ def build(width: int, sel: dict | None = None,
             # truncated, and `esc [ 2J` clears the screen drawing it. The first
             # line is the first one with something on it, as it is everywhere
             # else - a body that starts with a blank line drew an empty row.
-            first = _ANSI.sub("", actions.first_line(m["body"]))
+            first = drawable(actions.first_line(m["body"]))[0]
             # An agent parked until this is answered is the only thing on the
             # screen that no one else will ever clear; it is not drawn like a
             # report that happens to be addressed here.
@@ -952,7 +959,7 @@ def build(width: int, sel: dict | None = None,
         for b in blocked:
             fl.add(pad(f"{YEL}{b['what']}{R}", 34)
                    + pad(f"{DIM}{age(b['age']) if b['age'] else ''}{R}", 7)
-                   + f"{DIM}{b['why']}{R}", key=b["agent"])
+                   + f"{DIM}{_plain(b['why'])}{R}", key=b["agent"])
 
         footer_agent = sel.get(AGENTS) if panel == AGENTS else \
             sel.get(STUCK) if panel == STUCK else None
@@ -1052,7 +1059,7 @@ def lines_of(detail: dict, width: int) -> list[str]:
     # page is *about*, so it stays; the rest is ←→.
     intro = [r for h, rows in sections if not h for r in rows]
     tabs = [(h, rows) for h, rows in sections if h]
-    lines: list[str] = wrap(intro, width) + [""] if intro else []
+    lines: list[str] = _rows_lines(intro, width) + [""] if intro else []
     if not tabs:
         return lines
     at = max(0, min(detail.get("tab", 0), len(tabs) - 1))
@@ -1073,12 +1080,195 @@ def lines_of(detail: dict, width: int) -> list[str]:
         at = max(0, min(detail.get("at", 0), len(picks) - 1))
         detail["at"] = at
         box.focused, box.selected = True, picks[at]
-        for r, rid in zip(rows, picks):
-            box.add(r, key=rid)
+        for i, (r, rid) in enumerate(zip(rows, picks)):
+            if i:
+                box.add("")
+            head, *rest = (_entry_lines(r, max(1, width - 5)) if isinstance(r, actions.Entry)
+                           else wrap([r], max(1, width - 5)))
+            box.add(head, key=rid)         # the cursor is in the gutter of its first line
+            for ln in rest:
+                box.add(ln)
         return lines + box.draw()
-    for r in wrap(rows, max(1, width - 5)):
-        box.add(r)
+    room = max(1, width - 5)
+    for ln in (_note_lines(rows, room) if detail["stem"] == actions.KNOWS_TAB
+               else _rows_lines(rows, room, dim_plain=detail["stem"] == actions.CHAT_TAB)):
+        box.add(ln)
     return lines + box.draw()
+
+
+def _clock(ts: float, seconds: bool = False) -> str:
+    """A time of day, with the date only when it is not today."""
+    t = time.localtime(ts)
+    if time.strftime("%m-%d", t) == time.strftime("%m-%d"):
+        return time.strftime("%H:%M:%S" if seconds else "%H:%M", t)
+    return time.strftime("%m-%d %H:%M:%S" if seconds else "%m-%d %H:%M", t)
+
+
+def _body(text: str, width: int) -> list[str]:
+    """What a sender typed, wrapped to the column and indented under its
+    header. It goes through `wrap`, which drops any escape in it; the caller
+    styles only what it adds."""
+    return [f"  {ln}" if ln else "" for ln in wrap(text.splitlines() or ["(empty)"],
+                                                  max(1, width - 2))]
+
+
+def _entry_lines(e, width: int) -> list[str]:
+    """A request: its number and who it is with on one line, all of its text under."""
+    head = f"{BOLD}#{e.id}{R} from {e.who}  {DIM}{_clock(e.ts)}{R}"
+    return [fit(head, width)] + _body(e.text if e.text.strip() else "", width)
+
+
+def _fact_lines(f, width: int) -> list[str]:
+    """Labelled values, as many to a line as fit; one never breaks from its label."""
+    out: list[str] = []
+    cur, used = "", 0
+    for k, v in f.pairs:
+        parts = wrap([f"{k} {v}"], width)
+        styled = [f"{DIM}{k}{R}{p[len(k):]}" if p.startswith(k) and j == 0 else p
+                  for j, p in enumerate(parts)]
+        if len(parts) == 1 and cur and used + 3 + vlen(parts[0]) <= width:
+            cur, used = f"{cur}   {styled[0]}", used + 3 + vlen(parts[0])
+            continue
+        if cur:
+            out.append(cur)
+        out += styled[:-1]
+        cur, used = styled[-1], vlen(parts[-1])
+    return out + ([cur] if cur else [])
+
+
+def _event_lines(events: list, width: int) -> list[str]:
+    """What was done, in columns while there is room for them and stacked when
+    there is not. A payload is wrapped under its own column, never cut."""
+    kinds = [_plain(e.kind) for e in events]
+    tw = max(vlen(_clock(e.ts, True)) for e in events)
+    kw = min(18, max(vlen(k) for k in kinds))
+    cols = tw + 2 + kw + 2
+    out: list[str] = []
+    for e, kind in zip(events, kinds):
+        when = f"{DIM}{pad(_clock(e.ts, True), tw)}{R}"
+        if cols > width // 2 or vlen(kind) > kw:
+            clock = _clock(e.ts, True)
+            head = wrap([f"{clock}  {kind}"], width)
+            out.append(f"{DIM}{clock}{R}{BOLD}{head[0][len(clock):]}{R}" if head[0].startswith(clock)
+                       else head[0])
+            out += head[1:]
+            out += _body(e.payload, width) if e.payload.strip() else []
+            continue
+        rows = wrap(e.payload.splitlines() or [""], max(1, width - cols))
+        out.append(f"{when}  {BOLD}{pad(kind, kw)}{R}  {rows[0]}".rstrip())
+        out += [" " * cols + ln if ln else "" for ln in rows[1:]]
+    return out
+
+
+_ITEM = re.compile(r"^(\s*(?:[-*\u2022]|\d+[.)])\s+|\s+)")
+
+
+def _note_lines(rows: list[str], width: int) -> list[str]:
+    """Free text an agent kept for itself: `#` lines are headings, and a wrapped
+    list item goes back under its own words rather than under its bullet."""
+    out: list[str] = []
+    for r in rows:
+        if r.lstrip().startswith("#"):
+            out += [f"{BOLD}{ln}{R}" if ln else "" for ln in wrap([r], width)]
+            continue
+        indent = len(m.group(1).expandtabs()) if (m := _ITEM.match(r)) else 0
+        lead = r[:indent] if indent else ""
+        rest = wrap([r[indent:]], max(1, width - indent)) or [""]
+        out += [(lead if i == 0 else " " * indent) + ln if ln else ""
+                for i, ln in enumerate(rest)]
+    return out
+
+
+def _header(bar: str, marker: str, who: str, when: str, tail: str, waiting: bool,
+            width: int) -> list[str]:
+    """A message's first line: the marker and who, then when and its state. What
+    does not fit goes on a line of its own under it - the name is never cut, and
+    neither is the state."""
+    names = wrap([who], max(1, width - 4)) if who else [""]
+    lines = [f"{bar} {marker} {names[0]}{R}"]
+    lines += [f"{bar}   {n}" for n in names[1:]]
+    used = vlen(lines[-1])
+    for plain, styled in ((when, f"{DIM}{when}{R}"),
+                          (f"· {tail}" if tail else "",
+                           f"{YEL if waiting else DIM}\u00b7 {tail}{R}")):
+        if not plain:
+            continue
+        if used + 2 + vlen(plain) <= width:
+            lines[-1] += f"  {styled}"
+            used += 2 + vlen(plain)
+        else:
+            lines.append(f"{bar}   {styled}")
+            used = 4 + vlen(plain)
+    return lines
+
+
+class Filled(str):
+    """A row of a panel drawn on a background: `fill` is the colour, and the
+    panel paints it across the whole row."""
+    fill: str
+
+    def __new__(cls, text: str, fill: str):
+        self = super().__new__(cls, text)
+        self.fill = fill
+        return self
+
+
+# The founder's messages: bright white on bright black, both set, so the text
+# does not depend on the terminal's own foreground; 16-colour codes only.
+FILL_YOU = "\033[97;100m"
+
+# Who said it, three ways that do not depend on colour: the bar down the side
+# of the message (heavy for the human, thin for the agent this page is about,
+# dotted for anyone else), the marker on its header, and the name.
+_SIDES = {"you": (f"{CYA}{BOLD}\u258c{R}", f"{CYA}{BOLD}\u276f", ""),
+          "agent": (f"{GRN}\u2502{R}", f"{GRN}{BOLD}\u25cf", ""),
+          "other": (f"{DIM}\u2506{R}", f"{DIM}\u00b7", DIM)}
+
+
+def _rows_lines(rows: list, width: int, dim_plain: bool = False) -> list[str]:
+    """The rows of a tab as the screen shows them, each kind laid out its own way.
+
+    A message or a request is a block: a header line and its text indented
+    under it, with a blank line between blocks, so where one ends is a gap and
+    not a count. Plain rows are wrapped.
+    """
+    out: list[str] = []
+    prev: tuple | None = None          # the speaker of the message above
+    block = False                      # the row above was a block
+    if rows and all(isinstance(r, actions.Event) for r in rows):
+        return _event_lines(rows, width)   # columns are the section's, not a row's
+    for r in rows:
+        if not isinstance(r, actions.Row):
+            out += [f"{DIM}{ln}{R}" if dim_plain and ln else ln for ln in wrap([r], width)]
+            block = False
+            continue
+        if isinstance(r, actions.Fact):
+            out += _fact_lines(r, width)
+            continue
+        if isinstance(r, actions.Entry):
+            if block:
+                out.append("")
+            out += _entry_lines(r, width)
+            block = True
+            continue
+        if r.kind == "thread":
+            if out:
+                out.append("")
+            out.append(f"{DIM}{fit(r + ' ', width)}{'─' * max(0, width - vlen(r) - 1)}{R}")
+            prev, block = None, False
+            continue
+        if block:
+            out.append("")
+        bar, head, dim = _SIDES[r.side]
+        who = "" if prev == (r.side, r.who) else r.who
+        prev, block = (r.side, r.who), True
+        # The bar is on every line of the message, blank ones included, so a
+        # long or multi-line message is still one side's from top to bottom.
+        lines = _header(bar, head, who, _clock(r.ts), r.tail, r.waiting, width) + [
+            f"{bar}{dim}   {ln}{R}" if ln else bar
+            for ln in wrap(r.text.splitlines() or [""], max(1, width - 4))]
+        out += [Filled(ln, FILL_YOU) for ln in lines] if r.side == "you" else lines
+    return out
 
 
 def _tabstrip(names: list[str], at: int) -> str:
@@ -1164,6 +1354,21 @@ def _layout(want: list[int], room: int) -> tuple[list[int | None], int]:
             for i in range(len(want))], len(want) - keep
 
 
+# What a terminal acts on rather than draws: OSC (title, clipboard, links) up to
+# its terminator, CSI with any parameter and intermediate bytes, and then every
+# byte that is left of a control - a lone ESC, C0, DEL and C1 (0x9b is CSI).
+_OSC = re.compile(r"\033\][^\a\033]*(?:\a|\033\\)?")
+_UNTRUSTED_CSI = re.compile(r"\033\[[0-?]*[ -/]*[@-~]")
+_CONTROL = re.compile(r"[\x00-\x08\x0b-\x1f\x7f-\x9f]")
+
+
+def drawable(text: str) -> list[str]:
+    """What someone else wrote, as lines of text and nothing a terminal would
+    obey. A tab becomes spaces: it is the one control whose width is not one."""
+    text = _UNTRUSTED_CSI.sub("", _OSC.sub("", text))
+    return [_CONTROL.sub("", ln.expandtabs(4)) for ln in text.splitlines() or [""]]
+
+
 def wrap(lines: list[str], width: int) -> list[str]:
     """Break long lines to the terminal's width, at spaces where there are any.
 
@@ -1174,31 +1379,28 @@ def wrap(lines: list[str], width: int) -> list[str]:
     """
     width = max(1, width)
     out: list[str] = []
-    for line in lines:
-        # A body is whatever the sender typed. Escapes in it are invisible to
-        # vlen, so they are never counted and never truncated: a pasted colour
-        # runs past its line, and a pasted `esc [ 2J` clears the screen this is
-        # drawing. What a message says is its text.
-        line = _ANSI.sub("", line).rstrip()
-        if not line:
-            out.append("")
-            continue
-        while vlen(line) > width:
-            # Cut on width, not on characters: with wide glyphs the two are not
-            # the same number, and cutting on the second wraps a line that is
-            # already too long back onto itself.
-            room, cut = 0, 0
-            for i, ch in enumerate(line):
-                if room + cwidth(ch) > width:
-                    break
-                room += cwidth(ch)
-                cut = i + 1
-            space = line.rfind(" ", 0, cut + 1)
-            if space > 0:
-                cut = space
-            out.append(line[:cut].rstrip())
-            line = line[cut:].lstrip()
-        out.append(line)
+    for raw in lines:
+        for line in drawable(raw):
+            line = line.rstrip()
+            if not line:
+                out.append("")
+                continue
+            while vlen(line) > width:
+                # Cut on width, not on characters: with wide glyphs the two are
+                # not the same number, and cutting on the second wraps a line
+                # that is already too long back onto itself.
+                room, cut = 0, 0
+                for i, ch in enumerate(line):
+                    if room + cwidth(ch) > width:
+                        break
+                    room += cwidth(ch)
+                    cut = i + 1
+                space = line.rfind(" ", 0, cut + 1)
+                if space > 0:
+                    cut = space
+                out.append(line[:cut].rstrip())
+                line = line[cut:].lstrip()
+            out.append(line)
     return out
 
 
@@ -1455,11 +1657,53 @@ class Composer:
                     self.typed += ch
         return None
 
-    def shown(self, prompt: str, width: int) -> str:
-        n = self.text.count("\n")
-        last = self.text.rsplit("\n", 1)[-1]
-        more = f"{DIM}[{n + 1} lines]{R} " if n else ""
-        return fit(f"{BOLD}{prompt}{R} {more}{last}▏", width)
+    def shown(self, prompt: str, width: int, cap: int) -> list[str]:
+        """The prompt and everything typed, wrapped at the column edge, with the
+        cursor after the last character. At most `cap` rows: past that the
+        oldest are left off and the first row says how many."""
+        # A pasted escape is drawn as its picture, not sent to the terminal.
+        text = "".join(c if c == "\n" or c.isprintable() else
+                       chr(0x2400 + ord(c)) if c < " " else "\ufffd" for c in self.text)
+        rows = _wrap_typed(f"{prompt} {text}\u258f", width)
+        if len(rows) > cap:
+            gone = len(rows) - max(1, cap - 1)
+            rows = ([f"{DIM}… {gone} earlier rows{R}"] if cap > 1 else []) + rows[gone:]
+        left = len(prompt)         # the prompt is bold wherever it wrapped to
+        out = []
+        for row in rows:
+            k, left = min(left, len(row)), max(0, left - len(row))
+            out.append(f"{BOLD}{row[:k]}{R}{row[k:]}" if k else row)
+        return out
+
+
+def _wrap_typed(text: str, width: int) -> list[str]:
+    """Break text into rows of at most `width` columns and lose none of it.
+
+    `wrap` drops the spaces it breaks on, which is right for reading and wrong
+    for editing: the cursor is after the last character typed, and a trailing
+    space that vanished puts it on the wrong one. A row ends after the last
+    space that fits, or at the column edge when a word does not.
+    """
+    width = max(1, width)
+    out: list[str] = []
+    for line in text.split("\n"):
+        while True:
+            room = cut = 0
+            for i, ch in enumerate(line):
+                if room + cwidth(ch) > width:
+                    break
+                room += cwidth(ch)
+                cut = i + 1
+            else:
+                out.append(line)
+                break
+            cut = max(cut, 1)
+            space = line.rfind(" ", 0, cut)
+            if line[cut] != " " and line[cut - 1] != " " and space > 0:
+                cut = space + 1
+            out.append(line[:cut])
+            line = line[cut:]
+    return out
 
 
 def _composer(multi: bool = False) -> Composer:
@@ -1476,12 +1720,18 @@ def _composer(multi: bool = False) -> Composer:
     return box
 
 
-def _line(prompt: str, width: int, height: int, multi: bool = False) -> str | None:
+def _line(prompt: str, width: int, height: int, multi: bool = False,
+          under=None) -> str | None:
     """Read a message with the screen still up. None when the human backs out.
 
     Every prompt reads through here, so a paste is one paste in all of them:
     text arrives whole, and only a key the human presses sends it. `multi` is
     for prompts whose text goes to an agent; the rest take one line.
+
+    What is typed is shown whole, on as many rows as it takes (at most half the
+    screen). The rows come out of the bottom of the screen, so `under(h)` - the
+    screen as it draws at height h - is painted above them; without it they
+    cover what was there until the prompt closes.
     """
     if not sys.stdin.isatty():
         return None
@@ -1489,13 +1739,20 @@ def _line(prompt: str, width: int, height: int, multi: bool = False) -> str | No
     box = _composer(multi)
     data = "".join(_pending)           # keys already read ahead of this prompt
     _pending.clear()
+    painted = 1                        # rows the prompt has, as the screen was drawn
     while True:
         done = box.feed(data) if data else None
         if done == "cancel":
             return None
         if done == "send":
             return box.text.strip("\n") if multi else box.text.strip()
-        sys.stdout.write(f"\033[{height};1H" + CLEAR_EOL + box.shown(prompt, width))
+        rows = box.shown(prompt, width, max(1, height // 2))
+        top = height - len(rows) + 1
+        if under and len(rows) != painted:
+            sys.stdout.write(HOME + under(top))
+        painted = len(rows)
+        sys.stdout.write("".join(f"\033[{top + i};1H" + CLEAR_EOL + row
+                                 for i, row in enumerate(rows)))
         sys.stdout.flush()
         data = ""
         if not select.select([fd], [], [], 30.0)[0]:
@@ -1652,6 +1909,10 @@ def _refreshed(detail: dict | None) -> dict | None:
         con.close()
 
 
+SCROLL_KEYS = ("j", "\033[B", "\033OB", "k", "\033[A", "\033OA",
+               " ", "\033[6~", "b", "\033[5~", "g", "G")
+
+
 def _in_detail(detail: dict, k: str, width: int, height: int,
                fd=None, saved=None) -> tuple[dict | None, str]:
     """One keypress while something is open. Returns (what is open now, line).
@@ -1675,18 +1936,29 @@ def _in_detail(detail: dict, k: str, width: int, height: int,
     if picks and k in ("j", "\033[B", "\033OB", "k", "\033[A", "\033OA"):
         down = k in ("j", "\033[B", "\033OB")
         detail["at"] = max(0, min(len(picks) - 1, detail.get("at", 0) + (1 if down else -1)))
-        # Scrolled only as far as keeps the row in view.
-        body = lines_of(detail, width)
-        row = next((i for i, ln in enumerate(body) if "▸" in _ANSI.sub("", ln)), None)
+        # Scrolled only as far as keeps the whole request in view - or its
+        # first line, when it is taller than the page.
+        plain = [_ANSI.sub("", ln) for ln in lines_of(detail, width)]
+        row = next((i for i, ln in enumerate(plain) if ln.startswith("│▸")), None)
         if row is not None:
+            end = next((i for i in range(row + 1, len(plain))
+                        if not plain[i][1:-1].strip() or plain[i].startswith("└")), len(plain)) - 1
             top = detail.get("top", 0)
-            top = row if row < top else (row - room + 1 if row >= top + room else top)
+            if row < top:
+                top = row
+            elif end >= top + room:
+                top = min(row, end - room + 1)
             detail["top"] = max(0, top)
         return detail, ""
     if k == "x" and detail.get("panel") in (AGENTS, STUCK):
         if not picks:
             return detail, "x cancels a request: open WAITING FOR IT (←→) and pick one (↑↓)"
         return _cancel_key(detail, picks, width, height)
+    if k in SCROLL_KEYS:
+        # The frame pins a conversation to its end while `end` is set, so a
+        # reader who scrolls has to clear it; the frame sets it again when
+        # they come back to the bottom.
+        detail["end"] = False
     if k in ("j", "\033[B", "\033OB"):
         detail["top"] += 1
         return detail, ""
@@ -1721,18 +1993,21 @@ def _in_detail(detail: dict, k: str, width: int, height: int,
             if not allowed:
                 return detail, why
             if label in ("message", "editor"):
-                body = _compose_message(name, label, width, height, fd, saved)
+                body = _compose_message(name, label, width, height, fd, saved,
+                                        under=lambda h: _detail_frame(width, h, dict(detail)))
                 return detail, (actions.message(con, name, body) if body is not None
                                 else _nothing_sent("e" if label == "editor" else "m"))
             if label == "terminal" and _needs_a_terminal(con, name):
                 repo = _line(f"{name} has nowhere to run - repo to start it in "
-                             f"[{os.getcwd()}]:", width, height)
+                             f"[{os.getcwd()}]:", width, height,
+                             under=lambda h: _detail_frame(width, h, dict(detail)))
                 if repo is None:
                     return detail, "not started"
                 _say(f"starting {name}", width, height)
                 return detail, actions.terminal(con, name, repo.strip() or os.getcwd())
             if label == "move":
-                return detail, _move_agent(con, name, width, height)
+                return detail, _move_agent(con, name, width, height,
+                                           under=lambda h: _detail_frame(width, h, dict(detail)))
             if label in CONFIRM and not _confirm(f"{label} {name}", width, height):
                 return detail, "left alone"
             _say(f"{label} {name}", width, height)
@@ -1770,7 +2045,8 @@ def _write_in_thread(detail: dict, k: str, width: int, height: int,
             body = _editor(f"# a message to {name}. Lines starting with # are dropped.\n",
                            fd, saved)
         else:
-            body = _line(f"to {name}:", width, height, multi=True)
+            body = _line(f"to {name}:", width, height, multi=True,
+                         under=lambda h: _detail_frame(width, h, dict(detail)))
         if body is None:
             return detail, _nothing_sent(k)
         said = actions.chat_reply(con, name, body)
@@ -1805,7 +2081,8 @@ def _answer_key(con, detail: dict, rid: int, k: str, width: int, height: int,
                 fd, saved) -> tuple[dict | None, str]:
     if k == "x":
         return None, actions.dismiss(con, rid, me=actions.HUMAN)
-    text = _compose(rid, k, width, height, fd, saved)
+    text = _compose(rid, k, width, height, fd, saved,
+                    under=lambda h: _detail_frame(width, h, dict(detail)))
     if text is None:
         return detail, _nothing_sent(k)
     _say(f"answering #{rid}", width, height)
@@ -1813,7 +2090,7 @@ def _answer_key(con, detail: dict, rid: int, k: str, width: int, height: int,
 
 
 def _compose_message(agent: str, label: str, width: int, height: int,
-                     fd, saved) -> str | None:
+                     fd, saved, under=None) -> str | None:
     """An order, typed on the line or written in $EDITOR. None means none.
 
     The line is enough to say "rebase onto main"; it is not enough to say what
@@ -1823,15 +2100,16 @@ def _compose_message(agent: str, label: str, width: int, height: int,
     if label == "editor":
         return _editor(f"# a message to {agent}. Lines starting with # are dropped.\n",
                        fd, saved)
-    return _line(f"message to {agent}:", width, height, multi=True)
+    return _line(f"message to {agent}:", width, height, multi=True, under=under)
 
 
-def _compose(rid: int, key: str, width: int, height: int, fd, saved) -> str | None:
+def _compose(rid: int, key: str, width: int, height: int, fd, saved,
+             under=None) -> str | None:
     """An answer, typed on the line or written in $EDITOR. None means none."""
     if key == "e":
         return _editor(f"# answering #{rid}. Lines starting with # are dropped.\n",
                        fd, saved)
-    return _line(f"answer #{rid}:", width, height, multi=True)
+    return _line(f"answer #{rid}:", width, height, multi=True, under=under)
 
 
 def _nothing_sent(key: str) -> str:
@@ -1974,9 +2252,9 @@ def _keys_of(panel: int) -> list:
         con.close()
 
 
-def _move_agent(con, name: str, width: int, height: int) -> str:
+def _move_agent(con, name: str, width: int, height: int, under=None) -> str:
     """Ask where, confirm (it ends a session), then the daemon's own move."""
-    dest = _line(f"move {name} to which account:", width, height)
+    dest = _line(f"move {name} to which account:", width, height, under=under)
     if not dest:
         return "not moved"
     dest = dest.strip()
@@ -1991,9 +2269,9 @@ def _move_agent(con, name: str, width: int, height: int) -> str:
     return actions.move(con, name, dest)
 
 
-def _add_account(width: int, height: int, fd, saved) -> str:
+def _add_account(width: int, height: int, fd, saved, under=None) -> str:
     """Name it, then the same sequence as `ocp account add`."""
-    name = _line("new account name:", width, height)
+    name = _line("new account name:", width, height, under=under)
     if not name:
         return "not added"
     ok, msg = accounts.add_account(
@@ -2001,10 +2279,10 @@ def _add_account(width: int, height: int, fd, saved) -> str:
     return msg
 
 
-def _set_cap(name: str, width: int, height: int) -> str:
+def _set_cap(name: str, width: int, height: int, under=None) -> str:
     """The most agents that may be mid-turn on this account at once."""
     text = _line(f"most agents mid-turn on {name} at once [{loadmod.cap_of(name)}]:",
-                 width, height)
+                 width, height, under=under)
     if not text or not text.strip():
         return "cap unchanged"
     try:
@@ -2014,13 +2292,13 @@ def _set_cap(name: str, width: int, height: int) -> str:
     return f"{name}: at most {text.strip()} agents mid-turn"
 
 
-def _remove_account(name: str, width: int, height: int, fd, saved) -> str:
+def _remove_account(name: str, width: int, height: int, fd, saved, under=None) -> str:
     """The same sequence as `ocp account remove`, confirmed by typing its name."""
     con = db.connect()
     try:
         ok, msg = accounts.remove_account(
             name, lambda: _line(f"remove '{name}'? type its name to confirm:",
-                                width, height) == name,
+                                width, height, under=under) == name,
             lambda argv, env: _suspend(argv, env, fd, saved)[0], con)
     finally:
         con.close()
@@ -2045,7 +2323,8 @@ def _act_on(panel: int, sel: dict, key: str, width: int, height: int,
     # Adding needs no row under the cursor: the first account is added to an
     # empty panel.
     if panel == ACCOUNTS and key == "a":
-        return _add_account(width, height, fd, saved), None
+        return _add_account(width, height, fd, saved,
+                            under=lambda h: frame(width, h, sel, panel)), None
     if not keys:
         return "nothing to act on", None
     if target not in keys:
@@ -2070,9 +2349,11 @@ def _act_on(panel: int, sel: dict, key: str, width: int, height: int,
             return line, None
         return _suspend(argv, env, fd, saved)[1], None
     if panel == ACCOUNTS and key == "x":
-        return _remove_account(str(target), width, height, fd, saved), None
+        return _remove_account(str(target), width, height, fd, saved,
+                               under=lambda h: frame(width, h, sel, panel)), None
     if panel == ACCOUNTS and key == "c":
-        return _set_cap(str(target), width, height), None
+        return _set_cap(str(target), width, height,
+                        under=lambda h: frame(width, h, sel, panel)), None
 
     con = db.connect()
     try:
@@ -2096,17 +2377,20 @@ def _act_on(panel: int, sel: dict, key: str, width: int, height: int,
                 # somewhere first, and the only thing that cannot be worked out
                 # from here is which repo.
                 repo = _line(f"{name} has nowhere to run - repo to start it in "
-                             f"[{os.getcwd()}]:", width, height)
+                             f"[{os.getcwd()}]:", width, height,
+                             under=lambda h: frame(width, h, sel, panel))
                 if repo is None:
                     return "not started", None
                 _say(f"starting {name}", width, height)
                 return actions.terminal(con, name, repo.strip() or os.getcwd()), None
             if label in ("message", "editor"):
-                body = _compose_message(name, label, width, height, fd, saved)
+                body = _compose_message(name, label, width, height, fd, saved,
+                                        under=lambda h: frame(width, h, sel, panel))
                 return (actions.message(con, name, body) if body is not None
                         else _nothing_sent("e" if label == "editor" else "m")), None
             if label == "move":
-                return _move_agent(con, name, width, height), None
+                return _move_agent(con, name, width, height,
+                                   under=lambda h: frame(width, h, sel, panel)), None
             if label in CONFIRM:
                 if not _confirm(f"{label} {name}", width, height):
                     return "left alone", None
@@ -2133,7 +2417,8 @@ def _act_on(panel: int, sel: dict, key: str, width: int, height: int,
                 title, sections = detail
                 return "", page(title, sections, MESSAGES, rid)
             if key in ("a", "e"):
-                text = _compose(rid, key, width, height, fd, saved)
+                text = _compose(rid, key, width, height, fd, saved,
+                                under=lambda h: frame(width, h, sel, panel))
                 if text is None:
                     return _nothing_sent(key), None
                 _say(f"answering #{rid}", width, height)
