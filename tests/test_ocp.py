@@ -486,10 +486,12 @@ def test_pick_account_orders_by_weekly_pace(home: Path) -> None:
           picked == "resets_soon", str(picked))
 
 
-def test_pace_matches_the_founders_own_worked_examples(home: Path) -> None:
-    """#1001/#1036: the founder gave two examples of "ahead" and "behind" its
-    own pace, got the words backwards on both, and asked that they be pinned
-    as fixtures so nobody reads the words and implements them backwards again.
+def test_pace_matches_the_worked_examples_that_were_written_backwards(home: Path) -> None:
+    """#1001/#1036: the two worked examples of "ahead" and "behind" its own
+    pace came from orcapipe, not from the founder, and orcapipe had the words
+    backwards on both - three times, the last of them in the review request
+    that asked for this check. Pinned as fixtures so nobody reads the words
+    and implements them backwards again.
     Pin the NUMBERS the corrected reading settled on, not the words: 85% with
     one day elapsed (six left) is pace ~5.95 - the worst of the two, because
     burning 85% in a seventh of the week is far ahead of a uniform pace, not
@@ -16825,7 +16827,7 @@ def main() -> int:
         home.mkdir()
         run(lambda: test_failclosed(home))
         run(lambda: test_pick_account_orders_by_weekly_pace(Path(td) / 'deadline'))
-        run(lambda: test_pace_matches_the_founders_own_worked_examples(Path(td) / 'foundersex'))
+        run(lambda: test_pace_matches_the_worked_examples_that_were_written_backwards(Path(td) / 'foundersex'))
         run(lambda: test_a_near_wall_7d_account_is_not_specially_excluded(
             Path(td) / 'nearwall'))
         run(lambda: test_pick_account_does_not_bounce_between_two_close_accounts(
