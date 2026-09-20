@@ -3944,6 +3944,60 @@ def test_the_guard_against_the_real_orca_names_the_test_and_cannot_be_swallowed(
           shutil.which("orca") == str(FAKE_ORCA_DIR / "orca"), str(shutil.which("orca")))
 
 
+def test_one_unreadable_proposal_does_not_take_the_hr_listing_down(home: Path) -> None:
+    """`hr.listing()` feeds `ocp hr list` and the bridge's waiting list. A file
+    that does not parse used to raise out of both, and the parser refuses more
+    than it did, so the same one file would have hidden every proposal. It is
+    left out and named, and a file that parses to something that is not a
+    proposal is treated the same way."""
+    restore_world()
+    home.mkdir(parents=True, exist_ok=True)
+    os.environ["OCP_HOME"] = str(home)
+    d = hr.dir_()
+    (d / "good.yaml").write_text("id: good\nkind: add\nagent: newone\nstate: proposed\n"
+                                 "requested_by: x\n")
+    (d / "broken.yaml").write_text("id: broken\nkind: add\nagent: [unclosed\n")
+    (d / "alist.yaml").write_text("- just\n- a list\n")
+    (d / "other.yaml").write_text("colour: blue\n")
+    (d / "kindless.yaml").write_text("id: k\nagent: a\n")
+    (d / "binary.yaml").write_bytes(b"id: \xff\xfe\n")
+    skipped: list[str] = []
+    rows = hr.listing(skipped)
+    check("hr listing: the one good proposal is listed",
+          [r["id"] for r in rows] == ["good"], str(rows))
+    check("hr listing: each file left out is named, with the reason",
+          sorted(x.split(":")[0] for x in skipped)
+          == ["alist.yaml", "binary.yaml", "broken.yaml", "kindless.yaml", "other.yaml"]
+          and sum("not a proposal" in x for x in skipped) == 3, str(skipped))
+    check("hr listing: asked for no report, it still returns the good ones",
+          [r["id"] for r in hr.listing()] == ["good"])
+    out, err = io.StringIO(), io.StringIO()
+    with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+        code = climod.main(["hr", "list"])
+    check("hr list: prints the good proposal and says what it skipped, and succeeds",
+          code == 0 and "good" in out.getvalue() and "skipped, cannot be read - broken.yaml" in err.getvalue()
+          and "Traceback" not in err.getvalue(), out.getvalue() + err.getvalue())
+    con = db.connect()
+    try:
+        waits = actions.founder_waits(con)
+        check("the bridge's waiting list is built with the bad files present",
+              isinstance(waits, list))
+    finally:
+        con.close()
+    ok, said = hr.apply("broken")
+    check("hr apply: a proposal that cannot be read says so instead of raising",
+          not ok and "cannot be read" in said, said)
+    ok, said = hr.apply("other")
+    check("hr apply: a file that is not a proposal is said not to be one",
+          not ok and "not a proposal" in said, said)
+    for f in d.glob("*.yaml"):
+        if f.name != "good.yaml":
+            f.unlink()
+    skipped.clear()
+    check("hr listing: with the bad files gone nothing is reported",
+          [r["id"] for r in hr.listing(skipped)] == ["good"] and skipped == [])
+
+
 def test_a_name_that_yaml_would_not_read_as_text_is_refused_where_it_is_typed(home: Path) -> None:
     """A name is written unquoted into team.yaml, agent.yaml and config.yaml. `no`
     is False to PyYAML and a refusal to the bundled parser, and a refusal on a
@@ -16073,6 +16127,7 @@ def main() -> int:
         run(lambda: test_yaml_rejects_ambiguity())
         run(lambda: test_a_name_that_yaml_would_not_read_as_text_is_refused_where_it_is_typed(Path(td) / 'nameguard'))
         run(lambda: test_the_guard_against_the_real_orca_names_the_test_and_cannot_be_swallowed())
+        run(lambda: test_one_unreadable_proposal_does_not_take_the_hr_listing_down(Path(td) / 'hrlist'))
         run(lambda: test_agent_yaml_is_written_by_dump_so_what_was_typed_reads_back(Path(td) / 'agentyaml'))
         run(lambda: test_the_suite_and_the_package_name_only_what_exists())
         run(lambda: test_yaml_booleans())
