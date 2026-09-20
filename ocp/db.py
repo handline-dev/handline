@@ -471,6 +471,10 @@ def get_cursor(con, name: str) -> int:
     return int(row["row_id"]) if row else 0
 
 
+def clear_cursor(con, name: str) -> None:
+    con.execute("DELETE FROM cursors WHERE name = ?", (name,))
+
+
 def get_notified_session(con, agent: str) -> str | None:
     row = con.execute("SELECT notified_session FROM agent_state WHERE agent = ?",
                       (agent,)).fetchone()

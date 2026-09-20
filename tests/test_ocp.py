@@ -1683,6 +1683,72 @@ def test_the_other_wake_writers_also_read_the_queue(home: Path) -> None:
         con.close()
 
 
+def test_a_new_account_gets_its_first_reading_without_anyone_asking(home: Path) -> None:
+    """An account that exists, is logged in and has no status.json is probed
+    once by the daemon, with nobody waiting; asked once, it is not asked again
+    on that ground, and one that is not logged in is not asked at all."""
+    _daemon_home(home, 20)
+    con = db.connect()
+    real_login, real_popen = accounts.logged_in, subprocess.Popen
+    started: list[list[str]] = []
+    from ocp import probe
+    try:
+        (home / "accounts" / "alpha" / "status.json").unlink()
+        accounts.logged_in = lambda a: True  # noqa: E731
+        subprocess.Popen = lambda cmd, **kw: started.append(cmd)  # noqa: E731
+        st = status.read("alpha")
+        check("new account: the state under test - it exists and has no reading",
+              "alpha" in paths.list_accounts() and not st.exists)
+        dmn.probe_stale_accounts(con, lambda _m: None, [])
+        check("new account: the daemon asks it for a reading, unprompted",
+              any(c[-3:] == ["account", "probe", "alpha"] for c in started), str(started))
+        n = len(started)
+        dmn.probe_stale_accounts(con, lambda _m: None, [])
+        check("new account: and asks once, not every tick",
+              not any(c[-1] == "alpha" for c in started[n:]), str(started[n:]))
+        check("new account: probe.due still refuses an absent snapshot",
+              not probe.due(st, None))
+        # Every tick asks, so an account that has a reading, or was asked, must not
+        # cost a login check: on macOS that is a `security` subprocess apiece.
+        asked: list[str] = []
+        accounts.logged_in = lambda a: asked.append(a) or True  # noqa: E731
+        dmn.probe_stale_accounts(con, lambda _m: None, [])
+        check("new account: one already asked, or already read, is not login-checked each tick",
+              asked == [], str(asked))
+        started.clear()
+        db.set_cursor(con, "probe:alpha", 0)
+        asked = []
+        accounts.logged_in = lambda a: asked.append(a) or False  # noqa: E731
+        dmn.probe_stale_accounts(con, lambda _m: None, [])
+        check("new account: not logged in, nothing to ask", started == [], str(started))
+        # Still unread, so still eligible every tick - but a login check that
+        # came up empty must not repeat every tick for as long as it stays
+        # empty, or a never-logged-in account costs a keychain subprocess for
+        # ever.
+        dmn.probe_stale_accounts(con, lambda _m: None, [])
+        check("new account: and a login check that came up empty is not repeated next tick",
+              asked == ["alpha"], str(asked))
+        # A removed name added again is a new account, and is asked again.
+        accounts.register("epsilon")
+        db.set_cursor(con, "probe:alpha", int(time.time()))  # one probe per pass
+        accounts.logged_in = lambda a: True  # noqa: E731
+        dmn.probe_stale_accounts(con, lambda _m: None, [])
+        check("new account: epsilon was probed", db.get_cursor(con, "probe:epsilon") != 0)
+        accounts.logged_in = lambda a: False  # noqa: E731 - logout took
+        ok, msg = accounts.remove_account("epsilon", lambda: True, lambda a, e: 0, con)
+        check("new account: removing it forgets that it was probed",
+              ok and db.get_cursor(con, "probe:epsilon") == 0, msg)
+        accounts.register("epsilon")
+        accounts.logged_in = lambda a: True  # noqa: E731
+        started.clear()
+        dmn.probe_stale_accounts(con, lambda _m: None, [])
+        check("new account: the same name added again is probed again",
+              any(c[-1] == "epsilon" for c in started), str(started))
+    finally:
+        accounts.logged_in, subprocess.Popen = real_login, real_popen
+        con.close()
+
+
 def test_daemon_tick_expires_handoff(home: Path) -> None:
     """The deadline must be enforced every tick, not only at startup."""
     _daemon_home(home, 50)
@@ -16165,6 +16231,8 @@ def main() -> int:
             Path(td) / 'answerwake'))
         run(lambda: test_the_other_wake_writers_also_read_the_queue(
             Path(td) / 'otherwake'))
+        run(lambda: test_a_new_account_gets_its_first_reading_without_anyone_asking(
+            Path(td) / 'newacct'))
         run(lambda: test_daemon_tick_expires_handoff(Path(td) / 'd5d'))
         run(lambda: test_daemon_ignores_stale_status(Path(td) / 'd5e'))
         run(lambda: test_status_edge_cases(Path(td) / 'se'))
