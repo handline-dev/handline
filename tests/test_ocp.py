@@ -15070,6 +15070,7 @@ def test_a_file_added_to_shared_reaches_every_existing_account(home: Path) -> No
     # way alpha and beta did above - unlink what register() just linked, so
     # the tick has something of its own to catch up on.
     (paths.account_claude("epsilon") / "CLAUDE.md").unlink()
+    orcamod.live_terminals = lambda: None    # tick's sweep asks Orca; this is about relink
     logs: list[str] = []
     con = db.connect()
     try:
