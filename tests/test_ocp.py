@@ -10883,6 +10883,11 @@ def test_a_conversation_stays_where_the_reader_scrolled_it(home: Path) -> None:
             for _ in range(times):
                 page, _ = tui._in_detail(page, k, 100, 14)
 
+        # What the composer paints above itself, as the page draws at a
+        # shorter height: exactly that many rows, or it leaves stale ones.
+        check("scroll: the page draws to any height it is given",
+              all(len(tui._detail_frame(100, h, dict(page)).split("\n")) == h
+                  for h in (5, 9, 14, 30)))
         check("scroll: a conversation just opened is at its newest message",
               "message 13" in draw())
         for name, up in (("↑", "\033[A"), ("k", "k"), ("Page Up", "\033[5~")):
@@ -11061,6 +11066,78 @@ def test_the_messenger_tab_carries_a_conversation_both_ways(home: Path) -> None:
               and db.get_request(con, rid)["verdict"] == "call it x")
     finally:
         con.close()
+
+
+def test_a_message_being_typed_wraps_and_keeps_the_cursor_on_its_last_character(home: Path) -> None:
+    """Founder: past one line's worth of typing, what was written could not be
+    seen. The prompt shows every character on as many rows as it takes, the
+    cursor after the last one, and the screen above stays drawn."""
+    import threading
+    import tty as ttymod
+
+    def plain(rows: list[str]) -> list[str]:
+        return [tui._ANSI.sub("", r) for r in rows]
+
+    box = tui.Composer(multi=True)
+    lost = []
+    for width in (80, 20, 7):
+        for n in range(0, 90):
+            box.text = ("ab cd " * 40)[:n]
+            rows = plain(box.shown("to reviewer:", width, 100))
+            if ("".join(rows) != "to reviewer: " + box.text + "\u258f"
+                    or not rows[-1].endswith("\u258f")
+                    or any(tui.vlen(r) > width for r in rows)):
+                lost.append((width, n, rows[-2:]))
+    check("typing: at any length and width nothing is lost, the cursor is last, nothing is too wide",
+          not lost, str(lost[:2]))
+    box.text = "one two " + "three " * 30 + "trailing space "
+    rows = plain(box.shown("to x:", 30, 100))
+    check("typing: a space just typed is where the cursor is, on the row it wrapped to",
+          rows[-1].endswith(" \u258f") or rows[-1] == "\u258f", str(rows[-2:]))
+    box.text = box.text[:-1]
+    check("typing: and Backspace takes the cursor back onto the character before it",
+          plain(box.shown("to x:", 30, 100))[-1] == "space\u258f")
+    box.text = "\n".join(f"line {i}" for i in range(40))
+    rows = plain(box.shown("to x:", 30, 6))
+    check("typing: past the room it has, the newest rows show and the first says how many went",
+          len(rows) == 6 and "earlier rows" in rows[0] and rows[-1] == "line 39\u258f", str(rows))
+    box.text = "a\033[2Jb"
+    check("typing: a pasted escape is shown as a picture, never sent",
+          "\033[2J" not in "".join(box.shown("p:", 30, 5)))
+
+    master, slave = pty.openpty()
+    ttymod.setraw(slave)
+    real_in, real_out = sys.stdin, sys.stdout
+    sys.stdin, sys.stdout = os.fdopen(slave, "r", closefd=False), io.StringIO()
+    unders: list[int] = []
+    text = "the quick brown fox jumps over the lazy dog " * 4 + "end "
+    try:
+        os.write(master, text.encode())
+        threading.Timer(0.5, lambda: os.write(master, b"\r")).start()
+        got = tui._line("to reviewer:", 30, 24, multi=True,
+                        under=lambda h: unders.append(h) or f"screen at {h}")
+        out = sys.stdout.getvalue()
+    finally:
+        sys.stdin, sys.stdout = real_in, real_out
+        os.close(master)
+        os.close(slave)
+    check("typing: the whole message is what is sent", got == text, repr(got))
+    writes = [(int(r), t) for r, t in re.findall(r"\033\[(\d+);1H\033\[K([^\033]*(?:\033\[[0-9;]*m[^\033]*)*?)"
+                                                  r"(?=\033\[\d+;1H|\Z)", out)]
+    last = [writes[-1]]
+    for w in reversed(writes[:-1]):
+        if w[0] != last[0][0] - 1:
+            break
+        last.insert(0, w)
+    shown = plain([t for _, t in last])
+    check("typing: it takes several rows, ending on the bottom one",
+          len(last) >= 4 and last[-1][0] == 24, str([r for r, _ in last]))
+    check("typing: every row of it is on the screen and readable",
+          "".join(shown) == "to reviewer: " + text + "\u258f" and all(tui.vlen(t) <= 30 for t in shown),
+          str(shown))
+    check("typing: the screen above is redrawn to leave exactly the rows it needs",
+          unders and unders[-1] == last[0][0] and 12 <= unders[-1] < 24, str(unders))
+    check("typing: and it is not painted over more than half of it", last[0][0] >= 12)
 
 
 def test_a_paste_into_any_prompt_arrives_whole_and_confirms_nothing(home: Path) -> None:
@@ -13263,6 +13340,7 @@ def main() -> int:
         run(lambda: test_the_messenger_tab_carries_a_conversation_both_ways(Path(td) / 'chat'))
         run(lambda: test_a_conversation_stays_where_the_reader_scrolled_it(Path(td) / 'scroll'))
         run(lambda: test_a_conversation_reads_as_turns_at_any_width(Path(td) / 'turns'))
+        run(lambda: test_a_message_being_typed_wraps_and_keeps_the_cursor_on_its_last_character(Path(td) / 'typing'))
         run(lambda: test_bracketed_paste_is_switched_on_with_the_screen())
         run(lambda: test_the_composer_takes_a_paste_whole(Path(td) / 'composer'))
         run(lambda: test_a_paste_into_any_prompt_arrives_whole_and_confirms_nothing(Path(td) / 'pasteany'))

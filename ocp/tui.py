@@ -1446,11 +1446,53 @@ class Composer:
                     self.typed += ch
         return None
 
-    def shown(self, prompt: str, width: int) -> str:
-        n = self.text.count("\n")
-        last = self.text.rsplit("\n", 1)[-1]
-        more = f"{DIM}[{n + 1} lines]{R} " if n else ""
-        return fit(f"{BOLD}{prompt}{R} {more}{last}▏", width)
+    def shown(self, prompt: str, width: int, cap: int) -> list[str]:
+        """The prompt and everything typed, wrapped at the column edge, with the
+        cursor after the last character. At most `cap` rows: past that the
+        oldest are left off and the first row says how many."""
+        # A pasted escape is drawn as its picture, not sent to the terminal.
+        text = "".join(c if c == "\n" or c.isprintable() else
+                       chr(0x2400 + ord(c)) if c < " " else "\ufffd" for c in self.text)
+        rows = _wrap_typed(f"{prompt} {text}\u258f", width)
+        if len(rows) > cap:
+            gone = len(rows) - max(1, cap - 1)
+            rows = ([f"{DIM}… {gone} earlier rows{R}"] if cap > 1 else []) + rows[gone:]
+        left = len(prompt)         # the prompt is bold wherever it wrapped to
+        out = []
+        for row in rows:
+            k, left = min(left, len(row)), max(0, left - len(row))
+            out.append(f"{BOLD}{row[:k]}{R}{row[k:]}" if k else row)
+        return out
+
+
+def _wrap_typed(text: str, width: int) -> list[str]:
+    """Break text into rows of at most `width` columns and lose none of it.
+
+    `wrap` drops the spaces it breaks on, which is right for reading and wrong
+    for editing: the cursor is after the last character typed, and a trailing
+    space that vanished puts it on the wrong one. A row ends after the last
+    space that fits, or at the column edge when a word does not.
+    """
+    width = max(1, width)
+    out: list[str] = []
+    for line in text.split("\n"):
+        while True:
+            room = cut = 0
+            for i, ch in enumerate(line):
+                if room + cwidth(ch) > width:
+                    break
+                room += cwidth(ch)
+                cut = i + 1
+            else:
+                out.append(line)
+                break
+            cut = max(cut, 1)
+            space = line.rfind(" ", 0, cut)
+            if line[cut] != " " and line[cut - 1] != " " and space > 0:
+                cut = space + 1
+            out.append(line[:cut])
+            line = line[cut:]
+    return out
 
 
 def _composer(multi: bool = False) -> Composer:
@@ -1467,12 +1509,18 @@ def _composer(multi: bool = False) -> Composer:
     return box
 
 
-def _line(prompt: str, width: int, height: int, multi: bool = False) -> str | None:
+def _line(prompt: str, width: int, height: int, multi: bool = False,
+          under=None) -> str | None:
     """Read a message with the screen still up. None when the human backs out.
 
     Every prompt reads through here, so a paste is one paste in all of them:
     text arrives whole, and only a key the human presses sends it. `multi` is
     for prompts whose text goes to an agent; the rest take one line.
+
+    What is typed is shown whole, on as many rows as it takes (at most half the
+    screen). The rows come out of the bottom of the screen, so `under(h)` - the
+    screen as it draws at height h - is painted above them; without it they
+    cover what was there until the prompt closes.
     """
     if not sys.stdin.isatty():
         return None
@@ -1480,13 +1528,20 @@ def _line(prompt: str, width: int, height: int, multi: bool = False) -> str | No
     box = _composer(multi)
     data = "".join(_pending)           # keys already read ahead of this prompt
     _pending.clear()
+    painted = 1                        # rows the prompt has, as the screen was drawn
     while True:
         done = box.feed(data) if data else None
         if done == "cancel":
             return None
         if done == "send":
             return box.text.strip("\n") if multi else box.text.strip()
-        sys.stdout.write(f"\033[{height};1H" + CLEAR_EOL + box.shown(prompt, width))
+        rows = box.shown(prompt, width, max(1, height // 2))
+        top = height - len(rows) + 1
+        if under and len(rows) != painted:
+            sys.stdout.write(HOME + under(top))
+        painted = len(rows)
+        sys.stdout.write("".join(f"\033[{top + i};1H" + CLEAR_EOL + row
+                                 for i, row in enumerate(rows)))
         sys.stdout.flush()
         data = ""
         if not select.select([fd], [], [], 30.0)[0]:
@@ -1721,7 +1776,8 @@ def _in_detail(detail: dict, k: str, width: int, height: int,
             if not allowed:
                 return detail, why
             if label in ("message", "editor"):
-                body = _compose_message(name, label, width, height, fd, saved)
+                body = _compose_message(name, label, width, height, fd, saved,
+                                        under=lambda h: _detail_frame(width, h, dict(detail)))
                 return detail, (actions.message(con, name, body) if body is not None
                                 else _nothing_sent("e" if label == "editor" else "m"))
             if label == "terminal" and _needs_a_terminal(con, name):
@@ -1770,7 +1826,8 @@ def _write_in_thread(detail: dict, k: str, width: int, height: int,
             body = _editor(f"# a message to {name}. Lines starting with # are dropped.\n",
                            fd, saved)
         else:
-            body = _line(f"to {name}:", width, height, multi=True)
+            body = _line(f"to {name}:", width, height, multi=True,
+                         under=lambda h: _detail_frame(width, h, dict(detail)))
         if body is None:
             return detail, _nothing_sent(k)
         said = actions.chat_reply(con, name, body)
@@ -1805,7 +1862,8 @@ def _answer_key(con, detail: dict, rid: int, k: str, width: int, height: int,
                 fd, saved) -> tuple[dict | None, str]:
     if k == "x":
         return None, actions.dismiss(con, rid, me=actions.HUMAN)
-    text = _compose(rid, k, width, height, fd, saved)
+    text = _compose(rid, k, width, height, fd, saved,
+                    under=lambda h: _detail_frame(width, h, dict(detail)))
     if text is None:
         return detail, _nothing_sent(k)
     _say(f"answering #{rid}", width, height)
@@ -1813,7 +1871,7 @@ def _answer_key(con, detail: dict, rid: int, k: str, width: int, height: int,
 
 
 def _compose_message(agent: str, label: str, width: int, height: int,
-                     fd, saved) -> str | None:
+                     fd, saved, under=None) -> str | None:
     """An order, typed on the line or written in $EDITOR. None means none.
 
     The line is enough to say "rebase onto main"; it is not enough to say what
@@ -1823,15 +1881,16 @@ def _compose_message(agent: str, label: str, width: int, height: int,
     if label == "editor":
         return _editor(f"# a message to {agent}. Lines starting with # are dropped.\n",
                        fd, saved)
-    return _line(f"message to {agent}:", width, height, multi=True)
+    return _line(f"message to {agent}:", width, height, multi=True, under=under)
 
 
-def _compose(rid: int, key: str, width: int, height: int, fd, saved) -> str | None:
+def _compose(rid: int, key: str, width: int, height: int, fd, saved,
+             under=None) -> str | None:
     """An answer, typed on the line or written in $EDITOR. None means none."""
     if key == "e":
         return _editor(f"# answering #{rid}. Lines starting with # are dropped.\n",
                        fd, saved)
-    return _line(f"answer #{rid}:", width, height, multi=True)
+    return _line(f"answer #{rid}:", width, height, multi=True, under=under)
 
 
 def _nothing_sent(key: str) -> str:
@@ -2102,7 +2161,8 @@ def _act_on(panel: int, sel: dict, key: str, width: int, height: int,
                 _say(f"starting {name}", width, height)
                 return actions.terminal(con, name, repo.strip() or os.getcwd()), None
             if label in ("message", "editor"):
-                body = _compose_message(name, label, width, height, fd, saved)
+                body = _compose_message(name, label, width, height, fd, saved,
+                                        under=lambda h: frame(width, h, sel, panel))
                 return (actions.message(con, name, body) if body is not None
                         else _nothing_sent("e" if label == "editor" else "m")), None
             if label == "move":
@@ -2133,7 +2193,8 @@ def _act_on(panel: int, sel: dict, key: str, width: int, height: int,
                 title, sections = detail
                 return "", page(title, sections, MESSAGES, rid)
             if key in ("a", "e"):
-                text = _compose(rid, key, width, height, fd, saved)
+                text = _compose(rid, key, width, height, fd, saved,
+                                under=lambda h: frame(width, h, sel, panel))
                 if text is None:
                     return _nothing_sent(key), None
                 _say(f"answering #{rid}", width, height)
