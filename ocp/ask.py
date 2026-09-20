@@ -108,14 +108,28 @@ def _escalate(con, requester: str, target: str, body: str, files: str | None,
     """Raise a runaway to a human instead of dropping it silently."""
     text = (f"[escalation] {requester} -> {target} was stopped: {reason}\n\n"
             f"Original request:\n{body}")
-    rid = db.add_request(con, requester, ESCALATION_TARGET, text, files,
+    return escalate(con, requester, text, reason, files, chain_id=chain_id, depth=depth,
+                    parent_id=parent_id, event_extra={"blocked_target": target})
+
+
+def escalate(con, agent: str, text: str, reason: str, files: str | None = None, *,
+             chain_id: str | None = None, depth: int = 0, parent_id: int | None = None,
+             event_extra: dict | None = None) -> int:
+    """Put something only a human can act on in front of them.
+
+    `agent` is who it is about: the requester of a runaway, or an agent the
+    daemon found for itself that it cannot give its work. `reason` is the short
+    form kept on the event for `ocp events`. Fire and forget, so nothing is
+    typed back at `agent` when the human reads it.
+    """
+    rid = db.add_request(con, agent, ESCALATION_TARGET, text, files,
                          None, "fire_and_forget", "escalate", depth, parent_id,
                          chain_id=chain_id)
-    deliver(rid, requester, ESCALATION_TARGET, text, files,
+    deliver(rid, agent, ESCALATION_TARGET, text, files,
             team.Decision(True, reason, kind="escalate", response="fire_and_forget",
                           creates_gate=True, chain_depth=depth))
-    db.add_event(con, requester, "escalate",
-                 {"request_id": rid, "reason": reason, "blocked_target": target})
+    db.add_event(con, agent, "escalate",
+                 {"request_id": rid, "reason": reason, **(event_extra or {})})
     return rid
 
 

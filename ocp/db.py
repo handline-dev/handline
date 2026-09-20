@@ -122,6 +122,25 @@ CREATE TABLE IF NOT EXISTS handoff (
   updated     INTEGER NOT NULL
 );
 CREATE INDEX IF NOT EXISTS handoff_agent ON handoff(agent, state);
+
+-- One row per agent while ocp has work for it and cannot give it: the daemon
+-- writes it, and the bridge, `ocp ps` and `ocp doctor` - other processes - read
+-- it. Gone the tick the agent can be given its work again.
+CREATE TABLE IF NOT EXISTS delivery_blocks (
+  agent      TEXT PRIMARY KEY,
+  kind       TEXT NOT NULL,
+  detail     TEXT NOT NULL,
+  work       TEXT NOT NULL,
+  since      INTEGER NOT NULL,
+  -- When it goes on the founder's list; the escalation is raised from `since`.
+  show_at    INTEGER NOT NULL,
+  seen       INTEGER NOT NULL,
+  -- The request raised for this episode, so it is raised once and closed once.
+  request_id INTEGER,
+  -- 'tick' ends with the work; 'close' - ocp's own /exit raised the dialog -
+  -- stands for as long as the dialog does.
+  origin     TEXT NOT NULL DEFAULT 'tick'
+);
 """
 
 
@@ -674,6 +693,37 @@ def set_agent_state(con, agent: str, state: str, wake_at: int | None = None,
         "detail=excluded.detail, updated=excluded.updated",
         (agent, state, wake_at, detail, int(time.time())),
     )
+
+
+def block_get(con, agent: str):
+    return con.execute("SELECT * FROM delivery_blocks WHERE agent = ?", (agent,)).fetchone()
+
+
+def blocks(con) -> list:
+    return con.execute("SELECT * FROM delivery_blocks ORDER BY since, agent").fetchall()
+
+
+def block_open(con, agent: str, kind: str, detail: str, work: str, now: int,
+               show_at: int, origin: str = "tick") -> None:
+    con.execute(
+        "INSERT OR REPLACE INTO delivery_blocks"
+        "(agent, kind, detail, work, since, show_at, seen, request_id, origin) "
+        "VALUES(?,?,?,?,?,?,?,NULL,?)",
+        (agent, kind, detail, work, now, show_at, now, origin))
+
+
+def block_update(con, agent: str, kind: str, detail: str, work: str, now: int) -> None:
+    con.execute("UPDATE delivery_blocks SET kind = ?, detail = ?, work = ?, seen = ? "
+                "WHERE agent = ?", (kind, detail, work, now, agent))
+
+
+def block_set_request(con, agents: list[str], rid: int) -> None:
+    con.executemany("UPDATE delivery_blocks SET request_id = ? WHERE agent = ?",
+                    [(rid, a) for a in agents])
+
+
+def block_clear(con, agent: str) -> None:
+    con.execute("DELETE FROM delivery_blocks WHERE agent = ?", (agent,))
 
 
 def set_state_unless_running(con, agent: str, state: str, detail: str | None = None) -> bool:

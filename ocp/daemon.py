@@ -33,7 +33,7 @@ import uuid
 from dataclasses import dataclass
 from pathlib import Path
 
-from . import (accounts, agents, burnrate, db, events, fold as foldmod, handoff as handoffmod, launch,
+from . import (accounts, agents, blocked, burnrate, db, events, fold as foldmod, handoff as handoffmod, launch,
                load, lock, measure, observe as obs, orca, paths, probe, service, spawn as spawnmod,
                status, triggers)
 
@@ -747,6 +747,7 @@ def _end_session(con, agent: str, log, st, resume: str | None) -> tuple[bool, st
         why = (f"/exit was typed but the session is still running"
                f"{f' (pid {pid})' if pid else ''} after {END_WAIT_S}s; not marked closed")
         db.add_event(con, agent, "close_failed", {"why": why, "pid": pid})
+        blocked.note_close_failure(con, agent, log)
         return False, why
     db.set_closed(con, agent, resume)
     # RUNNING describes a session that exists. Leaving the label on a closed one
@@ -1669,6 +1670,7 @@ def _perform_handoff(con, agent: str, trigger: triggers.Trigger, log,
 # The last reason each agent could not be woken, so a reason that lasts for
 # hours is reported when it starts rather than on every tick.
 _SAID: dict[str, str] = {}
+_SAID_CLOSE: dict[str, str] = {}
 
 
 def _running_account(agent: str) -> str | None:
@@ -1871,10 +1873,15 @@ def supervise(con, agent: str, log, now: int, samples: dict,
     # nothing is cleared - and waking it resumes the same session, so the
     # only thing that changes is who has the memory.
     if not at_wall and should_close(con, agent, state, row, now, st):
-        ok, _ = close_agent(con, agent, log, st)
+        ok, why = close_agent(con, agent, log, st)
         if ok:
             actions.append(f"{agent}: session closed while idle")
             row = db.get_agent_state(con, agent)
+        elif _SAID_CLOSE.get(agent) != why:
+            # Once per reason: a refusal that leaves no `close_failed` behind, a
+            # dialog still open above all, comes round on every tick.
+            _SAID_CLOSE[agent] = why
+            log(f"  {agent}: idle but not closed - {why}")
 
     measure.settle(con, agent)
 
@@ -2066,6 +2073,7 @@ def tick(con, log, samples: dict | None = None) -> Tick:
                                    detail=f"{fresh['failed_attempts']} failed attempts: {e}")
                 log(f"  {agent}: STALLED after {fresh['failed_attempts']} failed attempts")
 
+    blocked.sweep(con, log, now)
     observe_burn(con, log)
     return Tick(now, actions)
 

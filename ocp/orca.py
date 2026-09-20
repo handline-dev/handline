@@ -16,8 +16,10 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import shutil
 import subprocess
+from dataclasses import dataclass
 
 # Sending /clear mid-turn would discard work in flight, so we never force it.
 # The daemon asks with a short timeout because this call blocks its whole tick:
@@ -209,35 +211,89 @@ def _screen(handle: str) -> dict | None:
     return term if isinstance(term, dict) else None
 
 
-def modal_open(handle: str) -> bool:
-    """Is a modal on the agent's screen, where typed text would answer it?
+# Why a line typed now would not land, named.
+MODAL, UNSENT, UNREADABLE = "modal", "unsent", "unreadable"
 
-    Fail-closed: a screen that cannot be read is a yes, because the cost of a
-    wrong no is an answer given to a question nobody asked.
+
+@dataclass(frozen=True)
+class Blocker:
+    kind: str
+    # What the screen itself says: the dialog's title and options, or the start
+    # of the text left in the input. Quoted from the screen, never classified.
+    detail: str = ""
+
+    def reason(self) -> str:
+        if self.kind == MODAL:
+            return f'a dialog is open on its screen: {self.detail}'
+        if self.kind == UNSENT:
+            return f'text is left unsent in its input: "{self.detail}"'
+        return "its screen could not be read"
+
+
+# A dialog's panel opens with a rule of these (measured on Claude Code's exit
+# confirmation); the title is the first line under it.
+_RULE = re.compile(r"^\u2594{8,}$")
+_OPTION = re.compile(r"^(?:\u276f\s*)?\d+\.\s+\S")
+DETAIL_CHARS = 200
+
+
+def describe_modal(tail: list[str], footer: int) -> str:
+    """The dialog above row `footer` in its own words: its title, then its
+    numbered options. Where no rule marks where the dialog begins, the last
+    three lines above the footer, verbatim - a quotation, so a layout this has
+    not seen still says something true."""
+    lines = [str(x).strip() for x in tail[:footer]]
+    top = next((i for i in range(len(lines) - 1, -1, -1) if _RULE.match(lines[i])), None)
+    if top is None:
+        return " / ".join([ln for ln in lines if ln][-3:])[:DETAIL_CHARS]
+    body = [ln for ln in lines[top + 1:] if ln]
+    options = [re.sub(r"^\u276f\s*", "", ln) for ln in body if _OPTION.match(ln)]
+    text = f'"{body[0]}"' if body else ""
+    if options:
+        text += " - " + " / ".join(options)
+    return text[:DETAIL_CHARS]
+
+
+def screen_blocker(handle: str) -> Blocker | None:
+    """What on the screen a typed line would answer or merge into, from one read.
+
+    A dialog draws its footer on the bottom rows; above them is the transcript,
+    which may quote those words without anything being asked. Text in the input
+    box is what Orca reports as `draft`, only while it is non-empty, and keeps
+    out of `tail`. Fail-closed: a screen that cannot be read blocks, because the
+    cost of a wrong no is an answer given to a question nobody asked, or a
+    prompt submitted with someone's half-written text in it.
     """
     term = _screen(handle)
     tail = term.get("tail") if term else None
-    # Any other source is the accumulated stream, whose history is the
-    # conversation, not the screen.
+    # Any source but the screen is the accumulated stream, whose history is the
+    # conversation, not what is drawn now.
     if not isinstance(tail, list) or term.get("source") != "screen":
-        return True
-    # A modal draws its footer on the bottom rows. Above them is the
-    # transcript, which may quote these words without anything being asked.
-    screen = "\n".join(str(x) for x in tail[-MODAL_ROWS:])
-    return any(m in screen for m in MODAL_MARKERS)
+        return Blocker(UNREADABLE)
+    rows = tail[-MODAL_ROWS:]
+    for i, row in enumerate(rows):
+        if any(m in str(row) for m in MODAL_MARKERS):
+            return Blocker(MODAL, describe_modal(tail, len(tail) - len(rows) + i))
+    draft = term.get("draft")
+    if draft:
+        return Blocker(UNSENT, " ".join(str(draft).split())[:DETAIL_CHARS])
+    return None
+
+
+def modal_open(handle: str) -> bool:
+    """Is a modal on the agent's screen, where typed text would answer it?"""
+    blocked = screen_blocker(handle)
+    return bool(blocked and blocked.kind in (MODAL, UNREADABLE))
 
 
 def unsent_text(handle: str) -> bool:
     """Is there text in the input box that nobody has submitted?
 
-    Orca reports it as `draft` on a screen read, only while it is non-empty, and
-    keeps it out of `tail`. Anything typed now lands in the middle of it and the
-    Enter submits the two as one prompt. Fail-closed like `modal_open`.
+    Anything typed now lands in the middle of it and the Enter submits the two
+    as one prompt.
     """
-    term = _screen(handle)
-    if term is None or term.get("source") != "screen":
-        return True
-    return bool(term.get("draft"))
+    blocked = screen_blocker(handle)
+    return bool(blocked and blocked.kind in (UNSENT, UNREADABLE))
 
 
 def typeable_now(handle: str) -> bool:

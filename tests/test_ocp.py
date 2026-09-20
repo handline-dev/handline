@@ -24,7 +24,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
-from ocp import (accounts, actions, agents, ask as askmod, burnrate, cli as climod, daemon as dmn, db, hr,
+from ocp import (accounts, actions, agents, ask as askmod, blocked as blockedmod, burnrate, cli as climod, daemon as dmn, db, hr,
                  digest,
                  doctor, drift, events as evmod, fold as foldmod,
                  handoff as handoffmod, launch, load as loadmod, lock, measure,
@@ -43,7 +43,7 @@ dmn.END_WAIT_S, dmn.END_POLL_S = 0.3, 0.05
 REAL_ORCA = {n: getattr(orcamod, n) for n in (
     "available", "alive", "live_terminals", "wait_idle", "idle_now", "send",
     "clear_context", "close_session", "relaunch", "resume_with", "modal_open",
-    "unsent_text")}
+    "unsent_text", "screen_blocker")}
 REAL_OBSERVE = {n: getattr(obsmod, n) for n in ("live_sessions", "live_terminals")
                 if hasattr(obsmod, n)}
 
@@ -54,6 +54,8 @@ def restore_world() -> None:
     # No screen to read in a fixture; a test about a modal says so itself.
     orcamod.modal_open = lambda handle: False
     orcamod.unsent_text = lambda handle: False
+    orcamod.screen_blocker = lambda handle: None
+    blockedmod._checked.clear()
     for n, f in REAL_OBSERVE.items():
         setattr(obsmod, n, f)
     # Readings that outlive the tick or the frame by design, so one test's
@@ -2045,6 +2047,484 @@ def test_init_keeps_the_lock_file_out_of_the_home_repo(home: Path) -> None:
           "daemon.pid" not in lines, str(lines))
 
 
+# ---------------------------------------------------------------- blocked delivery
+# The dialog Claude Code put up when /exit met background shells, and the
+# founder's own half-written text with a paste in it, both copied from live
+# screens: the fixtures are what the screen said, not what a test would invent.
+EXIT_DIALOG = """  Two things remain open and I've flagged both rather than deciding them myself.
+✻ Sautéed for 5m 52s · done 12:41 PM · 1 shell still running
+▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔
+   Background work is running
+   The following will stop when you exit:
+   shell · until grep -qE "BUILD (SUCCEEDED|FAILED)|error:" …
+   ❯ 1. Exit and stop tasks
+     2. Move to background and exit
+     3. Stay
+   Enter to confirm · Esc to cancel""".split("\n")
+PASTED_DRAFT = "ㅇㅇeck[Pasted text #1 +4 lines]"
+
+
+def _screen_of(tail, draft=None, source="screen"):
+    term = {"handle": "term_x", "status": "running", "tail": list(tail), "source": source}
+    if draft is not None:
+        term["draft"] = draft
+    return term
+
+
+def test_the_screen_names_what_is_in_the_way(home: Path) -> None:
+    """A dialog is quoted from the screen - title and options - never matched
+    against a list of the dialogs somebody has seen."""
+    restore_world()
+    real = orcamod._screen
+    orcamod.screen_blocker = REAL_ORCA["screen_blocker"]
+    try:
+        orcamod._screen = lambda h: _screen_of(EXIT_DIALOG)
+        b = orcamod.screen_blocker("term_x")
+        check("screen: the exit confirmation is a dialog", b and b.kind == orcamod.MODAL, str(b))
+        check("screen: it is named by its own title",
+              b and b.detail.startswith('"Background work is running"'), str(b))
+        check("screen: with the options that answer it",
+              b and "1. Exit and stop tasks / 2. Move to background and exit / 3. Stay" in b.detail
+              and "❯" not in b.detail, str(b))
+
+        orcamod._screen = lambda h: _screen_of(["a", "b", "c", "d", "Enter to confirm · Esc to cancel"])
+        check("screen: a layout with no rule is quoted, last three lines above the footer",
+              orcamod.screen_blocker("term_x").detail == "b / c / d")
+
+        # A transcript that quotes the footer, well above the bottom rows, is not a dialog.
+        quoted = ["the footer says Enter to confirm and Esc to cancel"] + ["x"] * 10
+        orcamod._screen = lambda h: _screen_of(quoted)
+        check("screen: the footer words in the transcript are not a dialog",
+              orcamod.screen_blocker("term_x") is None)
+
+        orcamod._screen = lambda h: _screen_of(["prompt"], draft=PASTED_DRAFT)
+        b = orcamod.screen_blocker("term_x")
+        check("screen: text left in the input is unsent, quoted",
+              b and b.kind == orcamod.UNSENT and b.detail == PASTED_DRAFT, str(b))
+        orcamod._screen = lambda h: _screen_of(["prompt"], draft="")
+        check("screen: an empty draft is an empty input", orcamod.screen_blocker("term_x") is None)
+        orcamod._screen = lambda h: _screen_of(EXIT_DIALOG, source="stream")
+        check("screen: a stream is not a screen - fail closed",
+              orcamod.screen_blocker("term_x").kind == orcamod.UNREADABLE)
+        orcamod._screen = lambda h: None
+        check("screen: nothing read is fail closed too",
+              orcamod.screen_blocker("term_x").kind == orcamod.UNREADABLE)
+    finally:
+        orcamod._screen = real
+
+
+def _blocked_world(home: Path):
+    """backend has a terminal and a session, and something waiting it has not been told."""
+    _daemon_home(home, 20)
+    orcamod.available = lambda: True
+    orcamod.alive = lambda h: True
+    sessions_are("backend")
+    con = db.connect()
+    db.set_agent_state(con, "backend", dmn.IDLE)
+    db.add_request(con, "marina", "backend", "carry on", None, "peer", "async", None, 0, None)
+    return con
+
+
+def _escalations(con) -> list:
+    return con.execute("SELECT id, state, verdict FROM requests WHERE target = 'human' "
+                       "AND kind = 'escalate' ORDER BY id").fetchall()
+
+
+def test_a_dialog_in_the_way_of_work_is_said_once_and_clears_itself(home: Path) -> None:
+    """The property: work ocp cannot give, because of what is on the agent's
+    screen, reaches the founder - on the list at T1, as one request at T2, once,
+    across ticks and a restart - and both go the tick it can be given."""
+    con = _blocked_world(home)
+    lines: list[str] = []
+    seen = {"screen": orcamod.Blocker(orcamod.MODAL, orcamod.describe_modal(EXIT_DIALOG, len(EXIT_DIALOG) - 1))}
+    reads = []
+    orcamod.screen_blocker = lambda h: (reads.append(h), seen["screen"])[1]
+    # In the past by more than the longest wait, so the synthetic times below
+    # are all no later than the clock the list itself reads.
+    t0 = int(time.time()) - 2 * blockedmod.ESCALATE_AFTER_S - 3000
+    try:
+        blockedmod.sweep(con, lines.append, t0)
+        rec = db.block_get(con, "backend")
+        check("blocked: work waiting and a dialog open is recorded", rec and rec["kind"] == "modal",
+              str(dict(rec) if rec else None))
+        check("blocked: it names the work", rec and "request #1" in rec["work"], str(rec and rec["work"]))
+        check("blocked: the first sighting says so in the log, once", len(lines) == 1, str(lines))
+        check("blocked: not on the founder's list yet", not blockedmod.founder_rows(con, t0))
+
+        blockedmod.sweep(con, lines.append, t0 + 5)
+        check("blocked: a check inside the recheck window does not read the screen again",
+              len(reads) == 1, str(reads))
+        blockedmod.sweep(con, lines.append, t0 + blockedmod.SHOW_AFTER_S - 1)
+        check("blocked: nor one second short of T1",
+              not blockedmod.founder_rows(con, t0 + blockedmod.SHOW_AFTER_S - 1))
+
+        at = t0 + blockedmod.SHOW_AFTER_S
+        rows = [w for w in blockedmod.founder_rows(con, at)]
+        check("blocked: on the list at T1, red, with the dialog's title",
+              len(rows) == 1 and rows[0]["red"] and "Background work is running" in rows[0]["what"]
+              and rows[0]["who"] == "backend" and rows[0]["since"] == t0, str(rows))
+        check("blocked: ps and the bridge read that list",
+              any(w["kind"] == "blocked" and w["who"] == "backend" for w in actions.founder_waits(con)),
+              str(actions.founder_waits(con)))
+        check("blocked: no request before T2", not _escalations(con), str(_escalations(con)))
+
+        at = t0 + blockedmod.ESCALATE_AFTER_S - 1
+        blockedmod.sweep(con, lines.append, at)
+        check("blocked: nor one second short of T2", not _escalations(con))
+        blockedmod.sweep(con, lines.append, t0 + blockedmod.ESCALATE_AFTER_S)
+        esc = _escalations(con)
+        check("blocked: one request at T2", len(esc) == 1, str(esc))
+        body = db.get_request(con, esc[0]["id"])["body"]
+        check("blocked: it says what is in the way, what waits, and what to do",
+              "Background work is running" in body and "request #1" in body
+              and "t on the agents panel" in body and "ocp will not" in body, body)
+        check("blocked: the record holds its number", db.block_get(con, "backend")["request_id"] == esc[0]["id"])
+
+        for extra in (30, 200, 900):
+            blockedmod.sweep(con, lines.append, t0 + blockedmod.ESCALATE_AFTER_S + extra)
+        blockedmod._checked.clear()      # a restart forgets when it last looked
+        blockedmod.sweep(con, lines.append, t0 + blockedmod.ESCALATE_AFTER_S + 1000)
+        check("blocked: however long it lasts, across ticks and a restart, still one",
+              len(_escalations(con)) == 1, str(_escalations(con)))
+        check("blocked: the request is not listed a second time beside its own row",
+              sum(1 for w in actions.founder_waits(con) if w["kind"] in ("blocked", "escalation")) == 1,
+              str([w["kind"] for w in actions.founder_waits(con)]))
+        check("blocked: STUCK gives the dialog, not the state's guess",
+              any("cannot be given its work" in r["what"] and "Background work is running" in r["why"]
+                  for r in actions.stuck(con))
+              and not any("mid-turn" in r["why"] for r in actions.stuck(con)),
+              str(actions.stuck(con)))
+        check("blocked: and one row for the agent, not one per request",
+              sum(1 for r in actions.stuck(con) if r["agent"] == "backend") == 1,
+              str(actions.stuck(con)))
+
+        seen["screen"] = None                 # the founder answered it
+        blockedmod._checked.clear()
+        blockedmod.sweep(con, lines.append, t0 + blockedmod.ESCALATE_AFTER_S + 1100)
+        check("blocked: the record goes the tick it can be given its work", db.block_get(con, "backend") is None)
+        check("blocked: the request closes itself",
+              _escalations(con)[0]["state"] == "done" and "cleared" in _escalations(con)[0]["verdict"],
+              str([dict(r) for r in _escalations(con)]))
+        check("blocked: nothing is left on the list",
+              not any(w["kind"] in ("blocked", "escalation") for w in actions.founder_waits(con)))
+
+        seen["screen"] = orcamod.Blocker(orcamod.MODAL, '"Another"')
+        blockedmod._checked.clear()
+        blockedmod.sweep(con, lines.append, t0 + 2000)
+        blockedmod.sweep(con, lines.append, t0 + 2000 + blockedmod.ESCALATE_AFTER_S)
+        check("blocked: a second episode is a second request",
+              len(_escalations(con)) == 2, str(_escalations(con)))
+    finally:
+        con.close()
+
+
+def test_what_is_not_a_block(home: Path) -> None:
+    """Both directions: nothing is said for what is normal, and an agent that
+    really cannot be given its work is said for however the row labels it."""
+    con = _blocked_world(home)
+    modal = orcamod.Blocker(orcamod.MODAL, '"Dialog"')
+    unsent = orcamod.Blocker(orcamod.UNSENT, PASTED_DRAFT)
+    screen = {"b": modal}
+    orcamod.screen_blocker = lambda h: screen["b"]
+    now = int(time.time())
+
+    def verdict(state=dmn.IDLE, b=modal, closed=False):
+        db.block_clear(con, "backend")
+        blockedmod._checked.clear()
+        db.set_agent_state(con, "backend", state)
+        con.execute("UPDATE agent_state SET closed_at = ? WHERE agent = 'backend'",
+                    (now if closed else None,))
+        screen["b"] = b
+        blockedmod.sweep(con, lambda _m: None, now)
+        rec = db.block_get(con, "backend")
+        return rec["kind"] if rec else None
+    try:
+        check("not blocked: an idle agent with nothing on its screen", verdict(b=None) is None)
+        check("blocked: an idle agent behind a dialog", verdict() == "modal")
+        check("blocked: an idle agent with unsent text", verdict(b=unsent) == "unsent")
+        check("blocked: a RUNNING row behind a dialog - the row is not evidence", verdict(dmn.RUNNING) == "modal")
+        check("not blocked: a RUNNING agent's input is its user's typing",
+              verdict(dmn.RUNNING, unsent) is None)
+        check("not blocked: a closed agent is the wake path's", verdict(closed=True) is None)
+        con.execute("UPDATE agent_state SET closed_at = NULL WHERE agent = 'backend'")
+
+        check("blocked: STALLED, which the daemon will not touch, with work waiting",
+              verdict(dmn.STALLED, None) == "stalled")
+        db.set_agent_state(con, "backend", dmn.IDLE)
+
+        db.set_terminal(con, "backend", None, "wt")
+        con.execute("UPDATE agent_state SET terminal = NULL WHERE agent = 'backend'")
+        db.block_clear(con, "backend")
+        blockedmod._checked.clear()
+        blockedmod.sweep(con, lambda _m: None, now)
+        check("blocked: no terminal at all", (db.block_get(con, "backend") or {"kind": None})["kind"] == "no terminal")
+        db.set_terminal(con, "backend", "term_x", "wt")
+
+        orcamod.alive = lambda h: False
+        check("blocked: a terminal Orca no longer has", verdict() == "no terminal")
+        orcamod.alive = lambda h: True
+
+        obsmod.live_sessions = lambda: {}
+        check("blocked: no session in a terminal the row says is open", verdict() == "no session")
+        sessions_are("backend")
+
+        # No work, no block: a dialog on an agent nobody wants anything from is its own business.
+        con.execute("UPDATE requests SET state = 'done', announced_at = 1 WHERE target = 'backend'")
+        check("not blocked: a dialog with nothing waiting", verdict() is None)
+
+        # An answer it asked for is work, the same as a request.
+        rid = db.add_request(con, "backend", "marina", "how", None, "peer", "async", None, 0, None)
+        db.close_if_queued(con, rid, "done", "like so", announced=False)
+        check("blocked: an unannounced answer is work waiting", verdict() == "modal"
+              and "answer #%d" % rid in db.block_get(con, "backend")["work"])
+
+        # A permission prompt is already the hooks' row; it is not said twice.
+        waitmod = blockedmod.waiting
+        real = waitmod.of
+        waitmod.of = lambda row: {"tool": "Bash", "command": "ls", "since": now}
+        try:
+            check("not blocked: an agent at a permission prompt is already on the list",
+                  verdict(dmn.RUNNING) is None)
+        finally:
+            waitmod.of = real
+    finally:
+        con.close()
+
+
+def test_a_reminder_the_founders_own_text_blocks_is_said(home: Path) -> None:
+    """Harbor in the wild: IDLE with its head told and open for hours, and the
+    reminder to resolve it never typed because the input holds a person's
+    half-written text with a paste in it. Nothing was undelivered - the reminder
+    is the work - and it is the same silence."""
+    _daemon_home(home, 20)
+    orcamod.available = lambda: True
+    orcamod.alive = lambda h: True
+    sessions_are("backend")
+    con = db.connect()
+    now = int(time.time())
+    try:
+        db.set_agent_state(con, "backend", dmn.IDLE, detail="finished its turn")
+        head = db.add_request(con, "marina", "backend", "the first thing", None,
+                              "peer", "async", None, 0, None)
+        db.mark_delivered(con, head)
+        db.set_cursor(con, "notify:backend", head)
+        db.add_event(con, "backend", "Stop", {})
+        con.execute("UPDATE events SET ts = ? WHERE agent = 'backend'", (now - 3600,))
+        con.execute("UPDATE requests SET delivered_at = ? WHERE id = ?", (now - 3600, head))
+        orcamod.screen_blocker = lambda h: orcamod.Blocker(orcamod.UNSENT, PASTED_DRAFT)
+        blockedmod.sweep(con, lambda _m: None, now)
+        rec = db.block_get(con, "backend")
+        check("reminder: the founder's paste in the input blocks the reminder, and it is recorded",
+              rec and rec["kind"] == "unsent" and rec["detail"] == PASTED_DRAFT
+              and f"reminder to resolve #{head}" in rec["work"], str(rec and dict(rec)))
+        check("reminder: the text is quoted so the founder knows it is theirs",
+              "ㅇㅇeck" in blockedmod.reason(rec["kind"], rec["detail"]))
+
+        # Not yet due: nothing to type, so nothing is in the way.
+        db.block_clear(con, "backend")
+        con.execute("UPDATE events SET ts = ?", (now - 60,))
+        con.execute("UPDATE requests SET delivered_at = ? WHERE id = ?", (now - 60, head))
+        blockedmod._checked.clear()
+        blockedmod.sweep(con, lambda _m: None, now)
+        check("reminder: one that is not due yet is not work", db.block_get(con, "backend") is None)
+
+        # Already sent: nothing left to type.
+        con.execute("UPDATE events SET ts = ?", (now - 3600,))
+        con.execute("UPDATE requests SET delivered_at = ? WHERE id = ?", (now - 3600, head))
+        db.set_cursor(con, "nudge:backend", head)
+        blockedmod._checked.clear()
+        blockedmod.sweep(con, lambda _m: None, now)
+        check("reminder: one already sent is not work", db.block_get(con, "backend") is None)
+    finally:
+        con.close()
+
+
+def test_the_human_and_strangers_are_not_blocked_agents(home: Path) -> None:
+    """The human is never typed at, and a state row left by an agent that is no
+    longer on the team has nobody to be given anything."""
+    con = _blocked_world(home)
+    orcamod.screen_blocker = lambda h: orcamod.Blocker(orcamod.MODAL, '"A"')
+    try:
+        for name in ("human", "gone"):
+            db.set_agent_state(con, name, dmn.QUEUED)
+            db.add_request(con, "marina", name, "hello", None, "peer", "async", None, 0, None)
+        blockedmod.sweep(con, lambda _m: None, int(time.time()))
+        check("blocked: only a registered agent has a block",
+              [b["agent"] for b in db.blocks(con)] == ["backend"], str([b["agent"] for b in db.blocks(con)]))
+    finally:
+        con.close()
+
+
+def test_the_tick_looks_for_blocks(home: Path) -> None:
+    """Nothing here works unless the loop the daemon actually runs calls it."""
+    con = _blocked_world(home)
+    orcamod.live_terminals = lambda: {"term_x"}
+    orcamod.screen_blocker = lambda h: orcamod.Blocker(orcamod.MODAL, '"A dialog"')
+    try:
+        dmn.tick(con, lambda _m: None)
+        rec = db.block_get(con, "backend")
+        check("tick: a tick opens the block for an agent behind a dialog",
+              rec is not None and rec["kind"] == "modal", str(rec and dict(rec)))
+    finally:
+        con.close()
+
+
+def test_blocked_agents_come_due_in_one_request(home: Path) -> None:
+    """Three at once - what the first tick after this ships would find - are one
+    request, and it closes when the last of them clears, not the first."""
+    con = _blocked_world(home)
+    for name in ("worker", "reviewer"):
+        agents.register(name, "alpha")
+        db.set_terminal(con, name, f"term_{name}", "wt")
+        db.set_agent_state(con, name, dmn.IDLE)
+        db.add_request(con, "marina", name, "carry on", None, "peer", "async", None, 0, None)
+    sessions_are("backend", "worker", "reviewer")
+    screens = {"backend": orcamod.Blocker(orcamod.MODAL, '"A"'),
+               "worker": orcamod.Blocker(orcamod.MODAL, '"B"'),
+               "reviewer": orcamod.Blocker(orcamod.UNSENT, "half a thought")}
+    handles = {"term_x": "backend", "term_worker": "worker", "term_reviewer": "reviewer"}
+    orcamod.screen_blocker = lambda h: screens[handles[h]]
+    t0 = int(time.time())
+    try:
+        blockedmod.sweep(con, lambda _m: None, t0)
+        blockedmod.sweep(con, lambda _m: None, t0 + blockedmod.ESCALATE_AFTER_S)
+        esc = _escalations(con)
+        check("blocked: three due in the same pass are one request", len(esc) == 1, str(esc))
+        body = db.get_request(con, esc[0]["id"])["body"]
+        check("blocked: naming each", all(n in body for n in ("backend", "worker", "reviewer")), body)
+
+        screens["backend"] = None
+        blockedmod._checked.clear()
+        blockedmod.sweep(con, lambda _m: None, t0 + blockedmod.ESCALATE_AFTER_S + 20)
+        check("blocked: one clearing leaves the request open for the others",
+              _escalations(con)[0]["state"] == "queued", str([dict(r) for r in _escalations(con)]))
+        screens["worker"] = screens["reviewer"] = None
+        blockedmod._checked.clear()
+        blockedmod.sweep(con, lambda _m: None, t0 + blockedmod.ESCALATE_AFTER_S + 40)
+        check("blocked: the last one closes it", _escalations(con)[0]["state"] == "done")
+    finally:
+        con.close()
+
+
+def test_a_dialog_ocps_own_exit_raised_is_said_at_once(home: Path) -> None:
+    """`/exit` met background shells and the dialog is ocp's doing: it does not
+    wait for T1, it stands with nothing waiting, and ocp does not answer it."""
+    con = _blocked_world(home)
+    con.execute("UPDATE requests SET state = 'done', announced_at = 1")
+    typed: list = []
+    orcamod.send = lambda h, text, enter=True: (typed.append(text), (True, ""))[1]
+    screen = {"b": orcamod.Blocker(orcamod.MODAL, '"Background work is running"')}
+    orcamod.screen_blocker = lambda h: screen["b"]
+    lines: list[str] = []
+    now = int(time.time())
+    try:
+        blockedmod.note_close_failure(con, "backend", lines.append)
+        rec = db.block_get(con, "backend")
+        check("close: the dialog it raised is recorded", rec and rec["origin"] == "close", str(rec and dict(rec)))
+        check("close: on the list at once, not at T1", rec and rec["show_at"] <= int(time.time()))
+        check("close: and said in the log", any("ocp's own /exit" in m for m in lines), str(lines))
+        blockedmod.sweep(con, lambda _m: None, now)
+        check("close: it stands with nothing waiting, while the dialog does",
+              db.block_get(con, "backend") is not None)
+        check("close: ocp typed nothing at it", typed == [], str(typed))
+        check("close: the seam for an exception exists and does nothing",
+              blockedmod.dismiss_own_dialog("backend", "term_x") is False and typed == [])
+        screen["b"] = None
+        blockedmod._checked.clear()
+        blockedmod.sweep(con, lambda _m: None, now + 60)
+        check("close: it goes when the dialog does", db.block_get(con, "backend") is None)
+
+        screen["b"] = orcamod.Blocker(orcamod.UNSENT, "text")
+        blockedmod.note_close_failure(con, "backend", lines.append)
+        check("close: text in the input is not the dialog's doing", db.block_get(con, "backend") is None)
+    finally:
+        con.close()
+
+
+def test_a_failed_close_says_why_and_records_the_dialog(home: Path) -> None:
+    """The reason a close did not happen used to be dropped where it was made."""
+    con = _blocked_world(home)
+    con.execute("UPDATE requests SET state = 'done', announced_at = 1")
+    now = int(time.time())
+    orcamod.wait_idle = lambda h, timeout_ms=0: True
+    orcamod.send = lambda h, text, enter=True: (True, "")
+    orcamod.close_session = lambda h, *a, **k: (True, "/exit typed")
+    orcamod.screen_blocker = lambda h: orcamod.Blocker(orcamod.MODAL, '"Background work is running"')
+    real = dmn._wait_session_gone
+    dmn._wait_session_gone = lambda agent: False
+    lines: list[str] = []
+    try:
+        write_status(home, "alpha", pct_5h=20, pct_7d=10, ctx_pct=8, reset_5h=now + 1800)
+        agent_dir = home / "agents" / "backend"
+        agent_dir.mkdir(parents=True, exist_ok=True)
+        (agent_dir / "status.json").write_text(json.dumps({
+            "account": "alpha", "collected_at": now, "session_id": "sess-1", "pct_5h": 20, "ctx_pct": 8}))
+        db.add_event(con, "backend", "Stop", {})
+        con.execute("UPDATE events SET ts = ? WHERE agent = 'backend'", (now - dmn.IDLE_CLOSE_S - 60,))
+        for _ in range(3):
+            dmn.supervise(con, "backend", lines.append, int(time.time()), {}, [])
+        check("close failed: the daemon says why, once per attempt",
+              sum("idle but not closed" in m for m in lines) == 1, str(lines))
+        rec = db.block_get(con, "backend")
+        check("close failed: and the dialog it raised is on the record",
+              rec and rec["origin"] == "close" and rec["kind"] == "modal", str(rec and dict(rec)))
+    finally:
+        dmn._wait_session_gone = real
+        con.close()
+
+
+def test_a_close_refused_by_a_dialog_is_said_once_not_every_tick(home: Path) -> None:
+    """A dialog left open refuses the next close on every tick, and leaves no
+    close_failed event to stop them: the reason is said when it starts."""
+    con = _blocked_world(home)
+    con.execute("UPDATE requests SET state = 'done', announced_at = 1")
+    now = int(time.time())
+    orcamod.close_session = lambda h, *a, **k: (False, "a modal is open on its screen; not typing /exit at it")
+    lines: list[str] = []
+    try:
+        write_status(home, "alpha", pct_5h=20, pct_7d=10, ctx_pct=8, reset_5h=now + 1800)
+        agent_dir = home / "agents" / "backend"
+        agent_dir.mkdir(parents=True, exist_ok=True)
+        (agent_dir / "status.json").write_text(json.dumps({
+            "account": "alpha", "collected_at": now, "session_id": "sess-1", "pct_5h": 20, "ctx_pct": 8}))
+        db.add_event(con, "backend", "Stop", {})
+        con.execute("UPDATE events SET ts = ? WHERE agent = 'backend'", (now - dmn.IDLE_CLOSE_S - 60,))
+        for _ in range(4):
+            dmn.supervise(con, "backend", lines.append, int(time.time()), {}, [])
+        said = [m for m in lines if "idle but not closed" in m]
+        check("close refused: said once over four ticks, with the reason",
+              len(said) == 1 and "a modal is open" in said[0], str(lines))
+    finally:
+        con.close()
+
+
+def test_the_panel_says_the_true_thing_about_a_queue(home: Path) -> None:
+    """Only the head of a queue is told; what waits behind it is waiting its
+    turn, not failing to be told."""
+    con = _blocked_world(home)
+    orcamod.live_terminals = lambda: {"term_x"}
+    for _ in range(2):
+        db.add_request(con, "marina", "backend", "and this", None, "peer", "async", None, 0, None)
+    now = int(time.time())
+    con.execute("UPDATE requests SET ts = ?", (now - actions.STUCK_AFTER_S - 60,))
+    # The head has been told and has not answered; the two behind it were never told.
+    head = db.head_of_queue(con, "backend")
+    con.execute("INSERT OR REPLACE INTO cursors(name, row_id, updated) VALUES(?,?,?)",
+                ("notify:backend", int(head["id"]), now))
+    try:
+        rows = [r for r in actions.stuck(con) if r["agent"] == "backend"]
+        why = {r["what"].split()[0]: r["why"] for r in rows}
+        check("panel: the head is told and has not answered", "was told" in why.get(f"#{head['id']}", ""), str(rows))
+        behind = [r for r in rows if r["what"].split()[0] != f"#{head['id']}"]
+        check("panel: what is behind it says so, and names the head",
+              behind and all(r["why"] == f"waiting behind #{head['id']}" for r in behind), str(rows))
+        check("panel: nothing says 'has not been told yet' of a request that is not the head",
+              not any("has not been told yet" in r["why"] for r in behind), str(rows))
+    finally:
+        con.close()
+
+
+
 def test_one_daemon_is_counted_in_the_process_table(home: Path) -> None:
     """A supervisor nobody recorded exists only there. The words `ocp daemon`
     on a command line do not make one: a grep for them carries both, and so
@@ -3781,6 +4261,7 @@ def test_nothing_is_typed_at_a_modal(home: Path) -> None:
         # The reader itself, against what Orca returns.
         orcamod.modal_open = REAL_ORCA["modal_open"]
         orcamod.unsent_text = REAL_ORCA["unsent_text"]
+        orcamod.screen_blocker = REAL_ORCA["screen_blocker"]
         screen = {"ok": True}
         def fake_run(args, timeout=180):
             term = {"tail": screen["tail"], "source": screen.get("source", "screen")}
@@ -14967,6 +15448,17 @@ def main() -> int:
         run(lambda: test_shared_account_context_isolation(Path(td) / 'shared'))
         run(lambda: test_db_dedup_only_swallows_dedup(Path(td) / 'strict'))
         run(lambda: test_agent_rewrite_uses_parser(Path(td) / 'rw'))
+        run(lambda: test_the_screen_names_what_is_in_the_way(Path(td) / 'blk1'))
+        run(lambda: test_a_dialog_in_the_way_of_work_is_said_once_and_clears_itself(Path(td) / 'blk2'))
+        run(lambda: test_what_is_not_a_block(Path(td) / 'blk3'))
+        run(lambda: test_a_reminder_the_founders_own_text_blocks_is_said(Path(td) / 'blk9'))
+        run(lambda: test_the_human_and_strangers_are_not_blocked_agents(Path(td) / 'blk10'))
+        run(lambda: test_the_tick_looks_for_blocks(Path(td) / 'blk8'))
+        run(lambda: test_blocked_agents_come_due_in_one_request(Path(td) / 'blk4'))
+        run(lambda: test_a_dialog_ocps_own_exit_raised_is_said_at_once(Path(td) / 'blk5'))
+        run(lambda: test_a_failed_close_says_why_and_records_the_dialog(Path(td) / 'blk6'))
+        run(lambda: test_a_close_refused_by_a_dialog_is_said_once_not_every_tick(Path(td) / 'blk11'))
+        run(lambda: test_the_panel_says_the_true_thing_about_a_queue(Path(td) / 'blk7'))
         run(lambda: test_a_running_daemon_is_reported_whatever_daemon_pid_says(Path(td) / 'd6'))
         run(lambda: test_a_daemon_that_never_wrote_its_name_is_still_reported(Path(td) / 'd6b'))
         run(lambda: test_the_lock_names_only_its_current_holder(Path(td) / 'd6c'))

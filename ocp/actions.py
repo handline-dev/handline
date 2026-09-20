@@ -23,7 +23,7 @@ import os
 import time
 from pathlib import Path
 
-from . import (accounts, agents, ask as askmod, daemon, db, events as evmod,
+from . import (accounts, agents, ask as askmod, blocked, daemon, db, events as evmod,
                fold as foldmod, hr, load as loadmod, observe as obs, orca, paths,
                spawn as spawnmod, status, team, triggers, waiting)
 
@@ -351,7 +351,10 @@ def founder_waits(con) -> list[dict]:
                                                       w.get("command")) if x),
                         "since": int(w["since"])})
 
-    proposed: set[int] = set()
+    out += blocked.founder_rows(con, int(time.time()))
+    # Its request is the same fact a second time, said where the founder is not
+    # looking; the row above already is.
+    proposed: set[int] = {int(b["request_id"]) for b in db.blocks(con) if b["request_id"]}
     for prop in hr.listing():
         if prop.get("state") != "proposed":
             continue
@@ -627,6 +630,10 @@ def stuck(con) -> list[dict]:
         "AND target != ? ORDER BY ts", (HUMAN,),
     ).fetchall()
     sessions, handles = _world() if queued else (None, None)
+    # An agent ocp has work for and cannot give it, with what is in the way read
+    # off its screen: one row for it says so, where a row per request would each
+    # give the state's guess ("mid-turn") and none of them the dialog.
+    blks = {b["agent"]: b for b in db.blocks(con)}
     # An agent that has been asked to resolve its head request and has not: one
     # row for it says which request and what waits behind it, where the rows
     # below would each say that a request "was told and has not answered" - true
@@ -646,7 +653,7 @@ def stuck(con) -> list[dict]:
             add(f"{who} idle on #{found['head']['id']}", found["idle_s"],
                 f"delivered, nudged, still open and it asked nothing{behind}", who)
     for r in queued:
-        if r["target"] in forgotten:
+        if r["target"] in forgotten or r["target"] in blks:
             continue
         age, what = now - int(r["ts"]), f"#{r['id']} {r['requester']} → {r['target']}"
         why, self_clearing = _delivery_block(con, r["target"], sessions, handles, alive)
@@ -656,9 +663,13 @@ def stuck(con) -> list[dict]:
             # until it has gone on too long.
             if age < STUCK_AFTER_S and alive:
                 continue
+            head = db.head_of_queue(con, r["target"])
             told = db.get_cursor(con, f"notify:{r['target']}") >= int(r["id"])
             if told:
                 add(what, age, f"{r['target']} was told and has not answered", r["target"])
+            elif head is not None and int(head["id"]) != int(r["id"]):
+                # Only the head of a queue is told; the rest wait their turn.
+                add(what, age, f"waiting behind #{head['id']}", r["target"])
             else:
                 # Nothing structural is in the way and it still has not been
                 # told, which the checks above cannot explain: the idle probe
@@ -679,8 +690,14 @@ def stuck(con) -> list[dict]:
                 continue
         add(what, age, why, r["target"])
 
+    for b in blks.values():
+        add(f"{b['agent']} cannot be given its work", now - int(b["since"]),
+            f"{blocked.reason(b['kind'], b['detail'])} - waiting: {b['work'] or 'nothing yet'}",
+            b["agent"])
+
     for row in db.all_agent_states(con):
-        if row["state"] in (daemon.STALLED, daemon.DEGRADED):
+        if row["state"] in (daemon.STALLED, daemon.DEGRADED) \
+                and not (row["agent"] in blks and blks[row["agent"]]["kind"] == blocked.STALLED):
             add(f"{row['agent']} is {row['state']}", now - int(row["updated"]),
                 row["detail"] or "", row["agent"])
     loads = loadmod.read_all(con)
