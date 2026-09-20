@@ -11295,24 +11295,48 @@ def test_nothing_a_terminal_would_obey_gets_through_what_someone_else_wrote(home
         db.set_agent_state(con, "reviewer", dmn.IDLE, detail=shout)
         db.add_event(con, "reviewer", "wake", {"why": shout})
         askmod.ask(actions.HUMAN, shout, requester="reviewer")
+        # Fields the agent's own file and its state set, drawn on the main screen.
+        poison = "\033]0;PWNED\007\033[31mx\x9b1m"
+        db.add_event(con, "reviewer", f"kind{poison}", {})
+        db.add_event(con, "reviewer", "wake", {})
+        db.set_agent_state(con, "reviewer", "STALLED", detail=f"stuck {poison} " * 8)
+        cfg = Path(paths.agent_dir("reviewer")) / "agent.yaml"
+        cfg.write_text(cfg.read_text().replace("model: sonnet", 'model: "\\x1b]0;PWNED\\x07\\x1b[31mmodel"')
+                       .replace("effort: medium", 'effort: "\\x1b]0;PWNED\\x07effort"'))
         page = tui._agent_page(con, "reviewer", tui.AGENTS)
-        allowed = re.compile(r"\033\[[0-9;]*m|\033\[K")
+        # What is ours is exactly the escape constants the module draws with.
+        # Anything else that is an escape, a control, DEL or C1 is a hit, so
+        # nothing an attacker writes can look like ours and be let through.
+        own = sorted({v for v in vars(tui).values() if isinstance(v, str) and v.startswith("\033")
+                      and len(v) <= 12} | set(tui.STATE_COLOR.values()), key=len, reverse=True)
+
+        def hits(text: str) -> list[str]:
+            for c in own:
+                text = text.replace(c, "")
+            return sorted({hex(ord(c)) for c in re.findall(r"[\x00-\x08\x0b-\x1f\x7f-\x9f]", text)})
         for name in tui._tab_stems(page):
             for width in (100, 30):
                 tui._go_to_tab(page, tui._tab_stems(page).index(name))
                 page["top"], page["end"] = 0, False
                 frame = tui._detail_frame(width, 400, page)
-                left = allowed.sub("", frame)
-                bad = sorted({hex(ord(c)) for c in re.findall(r"[\x00-\x08\x0b-\x1f\x7f-\x9f]", left)})
+                bad = hits(frame)
                 check(f"escape: nothing a terminal would obey is in {name} at {width}", not bad, str(bad))
                 check(f"escape: and what surrounded it is still read in {name} at {width}",
                       "before" in frame.replace("\n", "") or "befor" in frame, frame[:120])
+        real_kind, real_acct = agents.kind, agents.current_account
+        agents.kind = lambda cfg: f"kind{poison}"        # agent.yaml's fields, whatever parses them
+        agents.current_account = lambda name, con=None: f"acct{poison}"
+        try:
+            mains = {w: tui.frame(w, 50) for w in (100, 30)}
+        finally:
+            agents.kind, agents.current_account = real_kind, real_acct
         for width in (100, 30):
-            left = allowed.sub("", tui.frame(width, 40))
-            bad = sorted({hex(ord(c)) for c in re.findall(r"[\x00-\x08\x0b-\x1f\x7f-\x9f]", left)
-                          if c != "\n"})
-            check(f"escape: nor is the main screen's FOR YOU row at {width}",
-                  not bad and (width < 100 or "before" in left), str(bad))
+            main = mains[width]
+            check(f"escape: nor is the main screen - FOR YOU, the state detail, the kind column at {width}",
+                  not hits(main) and "PWNED" not in main and (width < 100 or "before" in main),
+                  str(hits(main)))
+            check(f"escape: and what surrounded it on the main screen is still read at {width}",
+                  width < 100 or "stuck" in main, tui._ANSI.sub("", main)[:300])
         check("escape: the head block's detail is a body too",
               "\033]" not in "".join(tui.lines_of(tui._agent_page(con, "reviewer", tui.AGENTS), 100)))
         check("escape: wrap alone, for anything else that goes through it",
@@ -11333,15 +11357,17 @@ def test_every_prompt_leaves_the_screen_above_it_drawn_through_tui_run(home: Pat
     import termios
     _daemon_home(home, 20)
     agents.register("reviewer", "alpha")
+    write_status(home, "spare", pct_5h=5, pct_7d=5, ctx_pct=1)     # an account nobody is on
     con = db.connect()
     try:
         askmod.ask(actions.HUMAN, "\n".join(f"line {i} of a long report" for i in range(60)),
                    requester="reviewer")
         for i in range(8):             # the FOR YOU panel fills the main screen
             askmod.ask(actions.HUMAN, f"question {i}?", requester="reviewer")
-        for i in range(9):
-            db.add_request(con, "marina", "reviewer", f"queued {i}\nsecond line\nthird line",
-                           None, "peer", "async", None, 0, None)
+        for who in ("reviewer", "backend"):
+            for i in range(9):
+                db.add_request(con, "marina", who, f"queued {i}\nsecond line\nthird line",
+                               None, "peer", "async", None, 0, None)
     finally:
         con.close()
     rows, cols = 26, 60
@@ -11399,6 +11425,15 @@ def test_every_prompt_leaves_the_screen_above_it_drawn_through_tui_run(home: Pat
     run_case("main screen, answer a message", [right, b"a"], "answer #", "boxes")
     run_case("agent page, message", [down, enter, b"m"], "message to reviewer:", "page")
     run_case("message page, answer", [right, enter, b"a"], "answer #", "page")
+    # The prompts that take one line still take a paste, and it wraps.
+    left = b"\x1b[D"
+    run_case("main screen, repo to start an agent in", [down, b"t"], "reviewer has nowhere", "boxes")
+    run_case("agent page, repo to start an agent in", [down, enter, b"t"], "reviewer has nowhere", "page")
+    run_case("main screen, move an agent", [b"v"], "move backend to which", "boxes")
+    run_case("agent page, move an agent", [enter, b"v"], "move backend to which", "page")
+    run_case("accounts, a new account's name", [left, b"a"], "new account name:", "boxes")
+    run_case("accounts, the cap", [left, b"c"], "most agents mid-turn", "boxes")
+    run_case("accounts, remove by typing its name", [left, down, b"x"], "remove 'spare'", "boxes")
 
 
 def test_the_messenger_tab_carries_a_conversation_both_ways(home: Path) -> None:
@@ -13347,7 +13382,7 @@ def test_each_account_guard_fails_under_its_own_mutation(home: Path) -> None:
         try:
             # Logged out, but claude said it failed: the exit code alone refuses.
             tui._suspend = lambda argv, env, fd, saved: (logged.__setitem__("beta", False), (1, "claude exited 1"))[1]
-            tui._line = lambda prompt, w, h: "beta"
+            tui._line = lambda prompt, w, h, **k: "beta"
             line = tui._remove_account("beta", 80, 24, None, None)
         finally:
             tui._suspend, tui._line = real_suspend, real_line

@@ -577,13 +577,13 @@ def _needs_you(row) -> str:
     """
     if not row or row["state"] not in NEEDS_A_HUMAN:
         return ""
-    return f"{RED}{row['state'].lower()}{R} {DIM}{(row['detail'] or '')[:60]}{R}"
+    return f"{RED}{row['state'].lower()}{R} {DIM}{_plain(row['detail'] or '')[:60]}{R}"
 
 
 def _plain(text: str) -> str:
-    """What someone else wrote, made safe to draw: an escape is invisible to the
-    width count and `esc [ 2J` clears the screen it is drawn on."""
-    return "".join(c if c.isprintable() else " " for c in _ANSI.sub("", text))
+    """What someone else wrote, as one line of text safe to draw: nothing a
+    terminal would obey (see `drawable`), and a newline is a space."""
+    return "".join(c if c.isprintable() else " " for c in " ".join(drawable(text)))
 
 
 def wait_lines(waits: list[dict], width: int, budget: int | None = None) -> list[str]:
@@ -809,8 +809,8 @@ def build(width: int, sel: dict | None = None,
                 # every column after it right - the same drift the "·closed"
                 # suffix caused.
                 pad(fold_marker(twig + f"{BOLD}{shown[name]}{R}", under, urgency), NAME_W)
-                + pad(acct, ACCT_COL)
-                + (pad(f"{DIM}{fit(agents.kind(cfg), KIND_W - 1)}{R}", KIND_W)
+                + pad(_plain(acct), ACCT_COL)
+                + (pad(f"{DIM}{fit(_plain(agents.kind(cfg)), KIND_W - 1)}{R}", KIND_W)
                    if kinds else "")
                 + pad(state_cell, state_w)
                 + pad(ctxs, CTX_COL)
@@ -909,7 +909,7 @@ def build(width: int, sel: dict | None = None,
         for b in blocked:
             fl.add(pad(f"{YEL}{b['what']}{R}", 34)
                    + pad(f"{DIM}{age(b['age']) if b['age'] else ''}{R}", 7)
-                   + f"{DIM}{b['why']}{R}", key=b["agent"])
+                   + f"{DIM}{_plain(b['why'])}{R}", key=b["agent"])
 
         footer_agent = sel.get(AGENTS) if panel == AGENTS else \
             sel.get(STUCK) if panel == STUCK else None
@@ -1089,22 +1089,23 @@ def _fact_lines(f, width: int) -> list[str]:
 def _event_lines(events: list, width: int) -> list[str]:
     """What was done, in columns while there is room for them and stacked when
     there is not. A payload is wrapped under its own column, never cut."""
+    kinds = [_plain(e.kind) for e in events]
     tw = max(vlen(_clock(e.ts, True)) for e in events)
-    kw = min(18, max(vlen(e.kind) for e in events))
+    kw = min(18, max(vlen(k) for k in kinds))
     cols = tw + 2 + kw + 2
     out: list[str] = []
-    for e in events:
+    for e, kind in zip(events, kinds):
         when = f"{DIM}{pad(_clock(e.ts, True), tw)}{R}"
-        if cols > width // 2 or vlen(e.kind) > kw:
+        if cols > width // 2 or vlen(kind) > kw:
             clock = _clock(e.ts, True)
-            head = wrap([f"{clock}  {e.kind}"], width)
+            head = wrap([f"{clock}  {kind}"], width)
             out.append(f"{DIM}{clock}{R}{BOLD}{head[0][len(clock):]}{R}" if head[0].startswith(clock)
                        else head[0])
             out += head[1:]
             out += _body(e.payload, width) if e.payload.strip() else []
             continue
         rows = wrap(e.payload.splitlines() or [""], max(1, width - cols))
-        out.append(f"{when}  {BOLD}{pad(e.kind, kw)}{R}  {rows[0]}".rstrip())
+        out.append(f"{when}  {BOLD}{pad(kind, kw)}{R}  {rows[0]}".rstrip())
         out += [" " * cols + ln if ln else "" for ln in rows[1:]]
     return out
 
@@ -1948,13 +1949,15 @@ def _in_detail(detail: dict, k: str, width: int, height: int,
                                 else _nothing_sent("e" if label == "editor" else "m"))
             if label == "terminal" and _needs_a_terminal(con, name):
                 repo = _line(f"{name} has nowhere to run - repo to start it in "
-                             f"[{os.getcwd()}]:", width, height)
+                             f"[{os.getcwd()}]:", width, height,
+                             under=lambda h: _detail_frame(width, h, dict(detail)))
                 if repo is None:
                     return detail, "not started"
                 _say(f"starting {name}", width, height)
                 return detail, actions.terminal(con, name, repo.strip() or os.getcwd())
             if label == "move":
-                return detail, _move_agent(con, name, width, height)
+                return detail, _move_agent(con, name, width, height,
+                                           under=lambda h: _detail_frame(width, h, dict(detail)))
             if label in CONFIRM and not _confirm(f"{label} {name}", width, height):
                 return detail, "left alone"
             _say(f"{label} {name}", width, height)
@@ -2199,9 +2202,9 @@ def _keys_of(panel: int) -> list:
         con.close()
 
 
-def _move_agent(con, name: str, width: int, height: int) -> str:
+def _move_agent(con, name: str, width: int, height: int, under=None) -> str:
     """Ask where, confirm (it ends a session), then the daemon's own move."""
-    dest = _line(f"move {name} to which account:", width, height)
+    dest = _line(f"move {name} to which account:", width, height, under=under)
     if not dest:
         return "not moved"
     dest = dest.strip()
@@ -2216,9 +2219,9 @@ def _move_agent(con, name: str, width: int, height: int) -> str:
     return actions.move(con, name, dest)
 
 
-def _add_account(width: int, height: int, fd, saved) -> str:
+def _add_account(width: int, height: int, fd, saved, under=None) -> str:
     """Name it, then the same sequence as `ocp account add`."""
-    name = _line("new account name:", width, height)
+    name = _line("new account name:", width, height, under=under)
     if not name:
         return "not added"
     ok, msg = accounts.add_account(
@@ -2226,10 +2229,10 @@ def _add_account(width: int, height: int, fd, saved) -> str:
     return msg
 
 
-def _set_cap(name: str, width: int, height: int) -> str:
+def _set_cap(name: str, width: int, height: int, under=None) -> str:
     """The most agents that may be mid-turn on this account at once."""
     text = _line(f"most agents mid-turn on {name} at once [{loadmod.cap_of(name)}]:",
-                 width, height)
+                 width, height, under=under)
     if not text or not text.strip():
         return "cap unchanged"
     try:
@@ -2239,13 +2242,13 @@ def _set_cap(name: str, width: int, height: int) -> str:
     return f"{name}: at most {text.strip()} agents mid-turn"
 
 
-def _remove_account(name: str, width: int, height: int, fd, saved) -> str:
+def _remove_account(name: str, width: int, height: int, fd, saved, under=None) -> str:
     """The same sequence as `ocp account remove`, confirmed by typing its name."""
     con = db.connect()
     try:
         ok, msg = accounts.remove_account(
             name, lambda: _line(f"remove '{name}'? type its name to confirm:",
-                                width, height) == name,
+                                width, height, under=under) == name,
             lambda argv, env: _suspend(argv, env, fd, saved)[0], con)
     finally:
         con.close()
@@ -2270,7 +2273,8 @@ def _act_on(panel: int, sel: dict, key: str, width: int, height: int,
     # Adding needs no row under the cursor: the first account is added to an
     # empty panel.
     if panel == ACCOUNTS and key == "a":
-        return _add_account(width, height, fd, saved), None
+        return _add_account(width, height, fd, saved,
+                            under=lambda h: frame(width, h, sel, panel)), None
     if not keys:
         return "nothing to act on", None
     if target not in keys:
@@ -2295,9 +2299,11 @@ def _act_on(panel: int, sel: dict, key: str, width: int, height: int,
             return line, None
         return _suspend(argv, env, fd, saved)[1], None
     if panel == ACCOUNTS and key == "x":
-        return _remove_account(str(target), width, height, fd, saved), None
+        return _remove_account(str(target), width, height, fd, saved,
+                               under=lambda h: frame(width, h, sel, panel)), None
     if panel == ACCOUNTS and key == "c":
-        return _set_cap(str(target), width, height), None
+        return _set_cap(str(target), width, height,
+                        under=lambda h: frame(width, h, sel, panel)), None
 
     con = db.connect()
     try:
@@ -2321,7 +2327,8 @@ def _act_on(panel: int, sel: dict, key: str, width: int, height: int,
                 # somewhere first, and the only thing that cannot be worked out
                 # from here is which repo.
                 repo = _line(f"{name} has nowhere to run - repo to start it in "
-                             f"[{os.getcwd()}]:", width, height)
+                             f"[{os.getcwd()}]:", width, height,
+                             under=lambda h: frame(width, h, sel, panel))
                 if repo is None:
                     return "not started", None
                 _say(f"starting {name}", width, height)
@@ -2332,7 +2339,8 @@ def _act_on(panel: int, sel: dict, key: str, width: int, height: int,
                 return (actions.message(con, name, body) if body is not None
                         else _nothing_sent("e" if label == "editor" else "m")), None
             if label == "move":
-                return _move_agent(con, name, width, height), None
+                return _move_agent(con, name, width, height,
+                                   under=lambda h: frame(width, h, sel, panel)), None
             if label in CONFIRM:
                 if not _confirm(f"{label} {name}", width, height):
                     return "left alone", None
