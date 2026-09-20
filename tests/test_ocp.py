@@ -12553,52 +12553,146 @@ def test_no_command_prints_what_a_terminal_would_obey(home: Path) -> None:
         journal.write_text(f"## 완료\n- done {p}\n")
         service.out_log().parent.mkdir(parents=True, exist_ok=True)
         service.out_log().write_text(f"[12:00:00] reviewer: {p}\n")
-        commands = [
-            ["ps"], ["events", "--limit", "50", "--all"], ["events", "--agent", "reviewer"],
-            ["inbox", "reviewer"], ["inbox", "reviewer", "--all"], ["inbox", "human", "--all"],
-            ["read", str(q)], ["read", str(h)], ["read", str(d)],
-            ["digest", "reviewer"], ["handoff", "reviewer"],
-            ["agent", "list"], ["agent", "show", "reviewer"], ["agent", "show", "reviewer", "--json"],
-            ["status"], ["status", "--json"], ["doctor", "--no-color"], ["team", "check"],
-            ["triggers"], ["account", "list"], ["account", "list", "--json"], ["hr", "list"],
-            ["service", "logs"], ["resume", "reviewer"], ["fold", "reviewer", "--no-model"],
-        ]
+        repo = where / "repo"                  # for `drift`: a file name is text someone chose
+        repo.mkdir()
+        name = "a" + p + "b.txt"
+
+        def git(*args: str) -> None:
+            subprocess.run(["git", *args], cwd=repo, check=True, capture_output=True)
+        git("init", "-q", "-b", "main")
+        git("config", "user.email", "t@example.com")
+        git("config", "user.name", "t")
+        (repo / "base.txt").write_text("x")
+        git("add", ".")
+        git("commit", "-qm", "base")
+        git("checkout", "-q", "-b", "work")
+        (repo / name).write_text("y")
+        git("add", ".")
+        git("commit", "-qm", "work")
+        git("checkout", "-q", "main")
+        (repo / name).write_text("z")
+        git("add", ".")
+        git("commit", "-qm", "main moves")
+        git("update-ref", "refs/remotes/origin/main", "HEAD")
+        git("checkout", "-q", "work")
+        (repo / name).write_text("w")
+
+        # Every leaf of the CLI is one of these two, so a subcommand that is added
+        # is noticed: it is driven here, or it is skipped with a reason.
+        driven = {
+            "status": [["status"], ["status", "--json"]], "doctor": [["doctor", "--no-color"]],
+            "team check": [["team", "check"]], "ps": [["ps"]], "triggers": [["triggers"]],
+            "events": [["events", "--limit", "50", "--all"], ["events", "--agent", "reviewer"]],
+            "inbox": [["inbox", "reviewer"], ["inbox", "reviewer", "--all"],
+                      ["inbox", "human", "--all"]],
+            "read": [["read", str(q)], ["read", str(h)], ["read", str(d)]],
+            "resolve": [(["resolve", str(d), "again"], {"OCP_AGENT": "backend"})],
+            "digest": [["digest", "reviewer"]], "handoff": [["handoff", "reviewer"]],
+            "agent list": [["agent", "list"]],
+            "agent show": [["agent", "show", "reviewer"], ["agent", "show", "reviewer", "--json"]],
+            "account list": [["account", "list"], ["account", "list", "--json"]],
+            "hr list": [["hr", "list"]], "service logs": [["service", "logs"]],
+            "resume": [["resume", "reviewer"]], "fold": [["fold", "reviewer", "--no-model"]],
+            "command": [["command", "reviewer"]], "org": [["org"]], "rollover": [["rollover", "reviewer"]],
+            "spawn": [(["spawn", "reviewer", "--repo", str(repo), "--prompt", f"p {p}", "--dry-run"],
+                       None, "spawn --dry-run")],
+            "drift": [(["drift", str(repo), "--no-fetch"], None, "drift --no-fetch")],
+            "guide": [["guide"]],
+            "top": [["top", "--once"]], "watch": [["watch", "--once"]], "bridge": [["bridge", "--once"]],
+            "write-handoff": [["write-handoff", "reviewer"]],
+            "ask": [(["ask", "reviewer", f"a new one {p}", "--of", "marina"], None, "ask")],
+            "withdraw": [["withdraw", str(d + 1), "--of", "marina"]],
+            "unstall": [["unstall", "reviewer"]],
+        }
         out = {}
+
+        def run_it(argv: list[str], env: dict | None = None, key: str | None = None) -> None:
+            buf, err = io.StringIO(), io.StringIO()
+            saved = {k: os.environ.get(k) for k in (env or {})}
+            os.environ.update(env or {})
+            try:
+                with contextlib.redirect_stdout(buf), contextlib.redirect_stderr(err):
+                    try:
+                        climod.main(argv)
+                    except SystemExit:
+                        pass
+            finally:
+                for k, v in saved.items():
+                    if v is None:
+                        os.environ.pop(k, None)
+                    else:
+                        os.environ[k] = v
+            out[key or " ".join(argv)] = buf.getvalue() + err.getvalue()
         # A fold whose model returns a digest that lost what was done: the refusal
         # names the lost items, which the agent wrote.
-        real_model = foldmod.run_model
+        real_model, real_record = foldmod.run_model, handoffmod.record
         foldmod.run_model = lambda *a, **k: (True, "# 2026-01-01 · reviewer\n\n## 완료\n")
-        try:
-            buf = io.StringIO()
-            with contextlib.redirect_stdout(buf):
-                climod.main(["fold", "reviewer", "--account", "alpha"])
-            out["fold reviewer (model lost a done item)"] = buf.getvalue()
-        finally:
-            foldmod.run_model = real_model
-        for argv in commands:
-            buf, err = io.StringIO(), io.StringIO()
-            with contextlib.redirect_stdout(buf), contextlib.redirect_stderr(err):
-                try:
-                    climod.main(argv)
-                except SystemExit:
-                    pass
-            out[" ".join(argv)] = buf.getvalue() + err.getvalue()
         # `write-handoff` reads the agent's own terminal for the handoff, which
         # there is none of here: stand in for that step and print what it stored.
-        real_record = handoffmod.record
         handoffmod.record = lambda con, agent: []
         try:
-            buf = io.StringIO()
-            with contextlib.redirect_stdout(buf):
-                climod.main(["write-handoff", "reviewer"])
-            out["write-handoff reviewer (recorded)"] = buf.getvalue()
+            run_it(["fold", "reviewer", "--account", "alpha"], key="fold reviewer (model lost a done item)")
+            for leaf, runs in driven.items():
+                if leaf in ("ask", "withdraw", "unstall"):
+                    continue                      # they change what the others show: last
+                for one in runs:
+                    argv, env, key = (one + (None, None))[:3] if isinstance(one, tuple) else (one, None, None)
+                    run_it(argv, env, key=key or " ".join(argv) + (" (as backend)" if env else ""))
+            run_it(*driven["ask"][0][:2], key=driven["ask"][0][2])
+            run_it(driven["withdraw"][0])
+            run_it(driven["unstall"][0])
         finally:
-            handoffmod.record = real_record
+            foldmod.run_model, handoffmod.record = real_model, real_record
+        scene.driven = driven
         return out
 
     dirty = scene(home / "dirty", True)
     clean = scene(home / "clean", False)
-    found = _leaks(dirty, clean)
+
+    def leaves() -> list[str]:
+        """Every command the CLI has, read from its own parser."""
+        found_, parser = [], climod.build_parser()
+
+        def walk(prefix: str, p_) -> None:
+            subs = [a for a in p_._actions if isinstance(a, argparse._SubParsersAction)]
+            if not subs:
+                found_.append(prefix)
+                return
+            for n, sp in subs[0].choices.items():
+                walk((prefix + " " + n).strip(), sp)
+        walk("", parser)
+        return found_
+
+    # The ones not driven, and why. This is the list a later hand has to justify:
+    # a new command is neither here nor driven until someone decides which.
+    skipped = {
+        "init": "creates the home and the shared settings",
+        "login": "interactive: hands the terminal to claude",
+        "account add": "interactive login", "account remove": "interactive logout and a confirm",
+        "account register": "creates an account directory; prints its path",
+        "account cap": "writes a cap; prints numbers",
+        "account probe": "runs the probe against a real login",
+        "agent move": "a confirm, and Orca", "agent register": "writes agent.yaml; a name with a control byte is refused before it prints",
+        "launch": "execs claude",
+        "hooks sync": "rewrites the shared settings", "hooks status": "reads the shared settings; prints paths",
+        "install-hooks": "writes the shared settings",
+        "hr add": "writes a proposal; prints its id", "hr retire": "writes a proposal; prints its id",
+        "hr rename": "writes a proposal; prints its id", "hr move": "writes a proposal; prints its id",
+        "hr apply": "needs the founder's approval to have happened; prints ids and names",
+        "team init": "writes team.yaml",
+        "cancel": "founder-only; its return strings hold ids and names (read in actions.cancel, ask.cancel)",
+        "dismiss": "needs a human identity; returns ids (read in actions.dismiss)",
+        "hook": "reads a hook payload on stdin and prints nothing",
+        "daemon": "runs forever", "service install": "launchd", "service uninstall": "launchd",
+        "service status": "launchd; prints a pid",
+        "close": "types into a terminal through Orca", "base promote": "writes base.md; prints sizes and a path",
+    }
+    have = set(driven_now := scene.driven) | set(skipped)
+    every = set(leaves())
+    check("cli: every command the CLI has is driven here or skipped with a reason",
+          every == have and not (set(driven_now) & set(skipped)),
+          f"new: {sorted(every - have)}; gone: {sorted(have - every)}; both: {sorted(set(driven_now) & set(skipped))}")
+    found = _leaks(dirty, clean, skip_counts=("top --once", "watch --once", "bridge --once"))
     for label in dirty:
         check(f"cli: `ocp {label}` prints nothing of a terminal's, and no code of ours a plain text would not",
               not [f for f in found if f.startswith(label + ":")],
@@ -12606,15 +12700,17 @@ def test_no_command_prints_what_a_terminal_would_obey(home: Path) -> None:
     shows = {k for k, v in clean.items() if "MARKED" in v}
     must = {"ps", "events --limit 50 --all", "events --agent reviewer", "inbox reviewer",
             "inbox reviewer --all", "inbox human --all", "read 1", "read 2", "read 3",
-            "digest reviewer", "handoff reviewer", "write-handoff reviewer (recorded)",
-            "agent show reviewer",
+            "digest reviewer", "handoff reviewer", "write-handoff reviewer",
+            "resolve 3 again (as backend)", "drift --no-fetch", "agent show reviewer",
             "agent show reviewer --json", "service logs", "fold reviewer (model lost a done item)"}
     check("cli: the poison is really on screen for every command this test claims to grade",
           must <= shows, str(sorted(must - shows)))
-    # (JSON stores a control byte as the text \\u001b, which is safe to show.)
+    # (JSON writes a control byte as the text \\u001b, and git quotes one in a path as
+    # \\033: both are text, not a byte, and are safe to show.)
+    quoted = re.compile(r"\\+(?:u001b|033)\]0;PWNED\\+(?:u0007|a|007)")
     check("cli: the payload of a title is not printed either",
-          not [k for k, v in dirty.items() if "PWNED" in v.replace("\\u001b]0;PWNED\\u0007", "")],
-          str([k for k, v in dirty.items() if "PWNED" in v.replace("\\u001b]0;PWNED\\u0007", "")]))
+          not [k for k, v in dirty.items() if "PWNED" in quoted.sub("", v)],
+          str([k for k, v in dirty.items() if "PWNED" in quoted.sub("", v)]))
     check("cli: and the rest are the ones that do not show these fields at all",
           all(v == "" or "MARKED" not in v for k, v in clean.items() if k not in shows))
     check("cli: what it keeps of a body is its text - a tab stays a tab, so a patch reads as written",

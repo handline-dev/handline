@@ -9,8 +9,10 @@ a CSI sequence (cursor moves, erase, colour), a lone ESC, any other C0 control
 OSC). This module is the one rule for taking those out, and it imports nothing
 of any front end, so a new one reaches it without reaching a screen.
 
-What it does not do is style, lay out or truncate: those belong to the front
-end that owns the terminal it draws on.
+It does not style, truncate or draw: those belong to the front end that owns the
+terminal. `wrap` is here although it breaks lines to a width, because it cannot
+be done apart from the rule: text is sanitised before it is measured, and a
+wrap that measured first would count a control as a column.
 """
 
 from __future__ import annotations
