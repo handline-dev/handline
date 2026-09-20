@@ -2785,6 +2785,20 @@ def test_agent_yaml_is_written_by_dump_so_what_was_typed_reads_back(home: Path) 
     except yamlcompat.ConfigError:
         check("agent.yaml: a control character is refused, and leaves no folder behind",
               not paths.agent_dir("ctrl").exists())
+    # A refusal leaves nothing behind: the effort is checked before the folder is made.
+    try:
+        agents.register("badeffort", "alpha", effort="bogus")
+        check("agent.yaml: an effort that is not one of ours is refused", False)
+    except ValueError:
+        check("agent.yaml: an effort that is not one of ours is refused, and leaves no folder",
+              not paths.agent_dir("badeffort").exists())
+    # The account needs no guard of its own: dump quotes it, so an account called
+    # no or 1 is the text it was typed as.
+    agents.register("acctno", "no")
+    agents.register("acct1", "1")
+    check("agent.yaml: an account called no or 1 reads back as that text",
+          agents.read("acctno")["account"] == "no" and agents.read("acct1")["account"] == "1",
+          str((agents.read("acctno")["account"], agents.read("acct1")["account"])))
     agents.register("plain", "beta", model="4.5")
     check("agent.yaml: registering again updates through the same writer",
           agents.read("plain")["account"] == "beta" and agents.read("plain")["model"] == "4.5")
