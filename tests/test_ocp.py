@@ -8496,9 +8496,69 @@ def test_an_agent_is_priced_by_the_nearest_kind_with_samples(home: Path) -> None
     db.set_meta(con, burnrate._SAMPLES, "not json")
     check("cost: unreadable samples are the starting value", per_min("op") == start)
     line = burnrate.costs(con).by_kind(["op", "so"])
-    check("cost: `account list` says what each kind is priced at and on what",
+    check("cost: each kind is priced, and says what it rests on",
           len(line) == 2 and "starting value" in line[0], str(line))
     con.close()
+
+
+def test_account_list_is_the_present_state_and_status_is_the_pick(home: Path) -> None:
+    """`account list` is how the accounts stand now: the windows with their
+    marks, the roster in the bridge's own words, no record of earlier turns.
+    `status` is why the pick chose what it chose, and it carries the price of
+    an agent that pick rests on."""
+    from ocp import daemon as dmn
+    _daemon_home(home, 20)
+    _with_accounts("alpha", "beta")
+    agents.register("frontend", "alpha", model="opus", effort="high")
+    con = db.connect()
+    try:
+        db.set_agent_state(con, "backend", dmn.RUNNING, detail="working")
+        db.set_agent_state(con, "frontend", dmn.IDLE)
+        found, unplaced = loadmod.roster(con)
+        cell = lambda a: tui._plain(tui.agents_cell(found.get(a, (0, 0)), unplaced))  # noqa: E731
+    finally:
+        con.close()
+    out = _capture(lambda: climod.main(["account", "list"]))
+    head, alpha = out.splitlines()[0], next(l for l in out.splitlines() if l.startswith("alpha"))
+    check("account list: the roster is a column, in the bridge's own words",
+          "AGENTS ▶" in head and cell("alpha") == "2 ▶1" and f" {cell('alpha')} " in alpha,
+          alpha)
+    check("account list: an account with no agents reads 0",
+          cell("beta") == "0" and " 0 " in next(l for l in out.splitlines() if l.startswith("beta")))
+    # The column is the bridge's own width, so a cell the bridge fits fits here.
+    ACCT_W = tui.ACCT_W
+    real_w = ACCT_W["agents"]
+    ACCT_W["agents"] = real_w + 4
+    try:
+        wider = _capture(lambda: climod.main(["account", "list"])).splitlines()[0]
+    finally:
+        ACCT_W["agents"] = real_w
+    check("account list: the agents column takes its width from the bridge's ACCT_W",
+          wider.index("5h") == head.index("5h") + 4, (head, wider))
+    check("account list: no record of what earlier turns cost",
+          "one more agent costs" not in out and "samples" not in out, out)
+    check("account list: the windows, their marks and the legend stay",
+          "7d resets" in head and "AGE" in head and status.SOURCE_LEGEND in out, head)
+    rows = json.loads(_capture(lambda: climod.main(["account", "list", "--json"])))
+    by = {r["account"]: r for r in rows}
+    check("account list --json: the same roster",
+          (by["alpha"]["agents_assigned"], by["alpha"]["agents_running"]) == (2, 1)
+          and by["beta"]["agents_assigned"] == 0, by["alpha"])
+    text = _capture(lambda: climod.main(["status"]))
+    check("status: the pick's reasons, the price they rest on, and the verdict",
+          "one more agent costs" in text and "\npicked:" in text
+          and text.index("one more agent costs") < text.index("\npicked:"), text)
+    check("status --json: carries the same price",
+          json.loads(_capture(lambda: climod.main(["status", "--json"])))["agent_costs"]
+          == loadmod.costs().by_kind(paths.list_agents()))
+    try:
+        with contextlib.redirect_stderr(io.StringIO()):
+            climod.main(["status", "--table"])
+        refused = False
+    except SystemExit:
+        refused = True
+    check("status: it has one job, so the dashboard flag is gone (`ocp bridge --once`)",
+          refused)
 
 
 def test_the_price_of_an_agent_holds_still_across_ticks(home: Path) -> None:
@@ -13360,6 +13420,7 @@ def main() -> int:
         run(lambda: test_a_cold_start_is_not_priced_as_steady_work(Path(td) / 'burncold'))
         run(lambda: test_the_panels_bounded_cells_fit_their_own_columns(Path(td) / 'panelwidths'))
         run(lambda: test_the_accounts_panel_says_how_many_agents_are_assigned_and_running(Path(td) / 'panelagents'))
+        run(lambda: test_account_list_is_the_present_state_and_status_is_the_pick(Path(td) / 'acctlist'))
         run(lambda: test_ask_and_resolve_do_not_type_at_an_agent_at_the_wall(Path(td) / 'askwall'))
         run(lambda: test_choose_account_does_not_bounce_back_to_a_stale_preferred_account(
             Path(td) / 'nobounce'))

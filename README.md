@@ -89,7 +89,8 @@ two.
 |---|---|
 | `ocp close <agent>` | end an idle session, keep its terminal (`ocp resume` brings it back) |
 | `ocp doctor` | verify the preconditions of every phase |
-| `ocp status` / `ocp account list` | usage, and which account may take work |
+| `ocp account list` | how the accounts stand now: usage windows, the agents assigned to each and how many are running, and whether it may take work |
+| `ocp status` | why the daemon picked the account it picked, and the price of one more agent it rests on |
 | `ocp ask <target> "<req>"` | queue work for an agent; the daemon delivers it |
 | `ocp inbox` / `ocp resolve <id> "<verdict>"` / `ocp dismiss <id>` / `ocp cancel <id>` (founder) | request queue |
 | `ocp fold [agent]` | fold events into the digest (the one model call) |
