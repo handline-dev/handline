@@ -11107,6 +11107,165 @@ def test_the_founders_messages_sit_on_a_background_that_fills_the_whole_block(ho
         con.close()
 
 
+class _Term:
+    """The part of a terminal the bridge draws with: cursor moves, erase to the
+    end of the line, and the background. Enough to read back what a real screen
+    would show, which no unit check of a frame's text can."""
+
+    def __init__(self, rows: int, cols: int) -> None:
+        self.rows, self.cols = rows, cols
+        self.cells = [[(" ", False)] * cols for _ in range(rows)]
+        self.r = self.c = 0
+        self.bg = False
+        self.carry = ""
+
+    def feed(self, data: str) -> None:
+        data = self.carry + data
+        cut = re.search(r"\033(\[[0-9;?]*)?$", data)
+        self.carry, data = (data[cut.start():], data[:cut.start()]) if cut else ("", data)
+        for tok in re.split(r"(\033\[[0-9;?]*[A-Za-z])", data):
+            m = re.fullmatch(r"\033\[([0-9;?]*)([A-Za-z])", tok)
+            if not m:
+                for ch in tok:
+                    self.put(ch)
+                continue
+            args, op = m.group(1), m.group(2)
+            if op == "H":
+                r, _, c = args.partition(";")
+                self.r, self.c = int(r or 1) - 1, int(c or 1) - 1
+            elif op == "K":
+                for i in range(self.c, self.cols):
+                    self.cells[self.r][i] = (" ", self.bg)
+            elif op == "J":
+                self.cells = [[(" ", False)] * self.cols for _ in range(self.rows)]
+            elif op == "m":
+                for code in (args or "0").split(";"):
+                    self.bg = True if code == "100" else False if code in ("0", "", "49") else self.bg
+
+    def put(self, ch: str) -> None:
+        if ch == "\r":
+            self.c = 0
+        elif ch == "\n":
+            self.r = min(self.r + 1, self.rows - 1)
+        elif tui.cwidth(ch) and self.r < self.rows and self.c + tui.cwidth(ch) <= self.cols:
+            self.cells[self.r][self.c] = (ch, self.bg)
+            if tui.cwidth(ch) == 2:
+                self.cells[self.r][self.c + 1] = ("", self.bg)
+            self.c += tui.cwidth(ch)
+
+    def row(self, r: int) -> str:
+        return "".join(ch for ch, _ in self.cells[r]).rstrip()
+
+    def text(self) -> str:
+        return "\n".join(self.row(r) for r in range(self.rows))
+
+
+def test_the_composer_and_the_fill_on_a_real_screen_through_tui_run(home: Path) -> None:
+    """The unit checks read a frame's text. This runs `tui.run` in a pty and
+    reads back the screen it drew: the composer opened on the CONVERSATION tab
+    grows to several rows without scribbling over the page above it, and the
+    founder's messages are on their background from border to border."""
+    import struct
+    import fcntl
+    import termios
+    _daemon_home(home, 20)
+    agents.register("reviewer", "alpha")
+    con = db.connect()
+    try:
+        actions.chat_reply(con, "reviewer", "first from me\n\nwith a gap " + "and some words " * 4)
+        first = actions.chat_parent(con, "reviewer")
+        for i in range(10):            # enough to fill the screen, so the newest is at the bottom
+            actions.chat_reply(con, "reviewer", f"message number {i} from me")
+        askmod.resolve(first, "the agent answers here")
+    finally:
+        con.close()
+    rows, cols = 30, 60
+    code = (f"import sys; sys.path.insert(0, {str(ROOT)!r});"
+            "from ocp import tui; tui.run(0.2)")
+    pid, fd = pty.fork()
+    if pid == 0:
+        os.execvpe("python3", ["python3", "-c", code], dict(os.environ))
+    fcntl.ioctl(fd, termios.TIOCSWINSZ, struct.pack("HHHH", rows, cols, 0, 0))
+    term = _Term(rows, cols)
+
+    def until(has: str, gone: bool = False) -> str:
+        """Feed the terminal what the bridge writes until the screen says `has`."""
+        deadline = time.time() + 6
+        while time.time() < deadline:
+            if (has in term.text()) != gone:
+                break
+            r, _, _ = select.select([fd], [], [], 0.1)
+            if r:
+                try:
+                    term.feed(os.read(fd, 65536).decode(errors="replace"))
+                except OSError:
+                    break
+        return term.text()
+
+    def press(key: bytes, has: str, gone: bool = False) -> str:
+        os.write(fd, key)
+        return until(has, gone)
+
+    typed = "the quick brown fox jumps over the lazy dog " * 4 + "ENDMARK"
+    try:
+        until("agent")
+        press(b"\x1b[B", "agent")            # backend is first; the page wanted is reviewer's
+        press(b"\r", "WAITING FOR IT")
+        check("run: the page opened is the reviewer's", term.row(0).startswith("agent reviewer"),
+              term.text())
+        for _ in range(3):
+            press(b"\x1b[C", "CONVERSATION")
+        page = until("message number 9")
+        check("run: the conversation is on the screen, its newest message at the bottom",
+              "message number 9" in page, page)
+        mine = [r for r in range(rows) if "\u258c" in term.row(r)]
+        check("run: the founder's lines are on the background from border to border",
+              bool(mine) and all(term.cells[r][0][0] == "│" and not term.cells[r][0][1]
+                                 and all(b for _, b in term.cells[r][1:cols - 1])
+                                 and not term.cells[r][cols - 1][1] for r in mine),
+              str([term.row(r) for r in mine]))
+        check("run: and nothing else on it",
+              not any(b for r in range(rows) if r not in mine for _, b in term.cells[r]),
+              str([term.row(r) for r in range(rows) if r not in mine
+                   and any(b for _, b in term.cells[r])]))
+
+        press(b"\r", "to reviewer:")
+        os.write(fd, typed.encode())
+        screen = until("ENDMARK")
+        top = next(r for r in range(rows) if term.row(r).startswith("to reviewer:"))
+        composer = [term.row(r) for r in range(top, rows)]
+        check("run: the composer grows to several rows and no more than half the screen",
+              3 <= len(composer) <= rows // 2, str(composer))
+        check("run: everything typed is on it, the cursor last",
+              "".join(c.replace(" ", "") for c in composer)
+              == ("to reviewer: " + typed + "\u258f").replace(" ", ""), str(composer))
+        check("run: the page above is still drawn, title and all",
+              term.row(0).startswith("agent reviewer") and "message number" in screen, screen)
+        check("run: and its rows were not scribbled over by the composer's",
+              all("ENDMARK" not in term.row(r) and "quick brown" not in term.row(r)
+                  for r in range(top)), screen)
+        check("run: the page is drawn shorter to make room - its hint and closing border are above the composer",
+              any(term.row(r).startswith("└") for r in range(top))
+              and any("write to reviewer" in term.row(r) for r in range(top)), screen)
+        check("run: the composer is not on the founder's background",
+              not any(b for r in range(top, rows) for _, b in term.cells[r]))
+        check("run: the page above it still has the founder's messages, whole",
+              any("message number 9" in term.row(r) for r in range(top)), screen)
+
+        after = press(b"\x1b", "quit", )
+        after = until("ENDMARK", gone=True)
+        check("run: Esc cancels the composer and the whole page comes back",
+              "ENDMARK" not in after and "esc back" in term.row(rows - 1)
+              and "message number 9" in after, after)
+        check("run: with no composer row left behind",
+              not any(b for r in range(rows) if "\u258c" not in term.row(r)
+                      for _, b in term.cells[r]))
+    finally:
+        os.write(fd, b"q")
+        os.close(fd)
+        os.waitpid(pid, 0)
+
+
 def test_the_messenger_tab_carries_a_conversation_both_ways(home: Path) -> None:
     """The founder writes in the tab, the agent answers, and the answer is in
     the tab on the next redraw - with the message sent whole and under its
@@ -13579,6 +13738,7 @@ def main() -> int:
         run(lambda: test_a_conversation_reads_as_turns_at_any_width(Path(td) / 'turns'))
         run(lambda: test_a_conversation_shows_whose_message_is_whose_without_colour(Path(td) / 'whose'))
         run(lambda: test_the_founders_messages_sit_on_a_background_that_fills_the_whole_block(Path(td) / 'fill'))
+        run(lambda: test_the_composer_and_the_fill_on_a_real_screen_through_tui_run(Path(td) / 'realscreen'))
         run(lambda: test_the_agent_pages_tabs_show_everything_and_read_as_blocks(Path(td) / 'tabs'))
         run(lambda: test_a_message_being_typed_wraps_and_keeps_the_cursor_on_its_last_character(Path(td) / 'typing'))
         run(lambda: test_bracketed_paste_is_switched_on_with_the_screen())
