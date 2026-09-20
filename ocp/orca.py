@@ -421,10 +421,19 @@ def decline_dialog(handle: str) -> tuple[str, str, str]:
         return NOT_PRESSED, dialog.title, f"the key could not be sent: {out[:120]}"
     for _ in range(PRESS_SETTLE_READS):
         time.sleep(PRESS_SETTLE_S)
-        after = screen_blocker(handle)
-        if after is not None and after.kind == UNREADABLE:
+        after_term = _screen(handle)
+        after_tail = after_term.get("tail") if after_term else None
+        if not isinstance(after_tail, list) or after_term.get("source") != "screen":
             continue  # not evidence either way - the same screen fails closed everywhere else
-        if after is None or after.kind != MODAL:
+        after_footer = _footer_row(after_tail)
+        if after_footer is None:
+            return CLEARED, dialog.title, ""
+        after_dialog = parse_dialog(after_tail, after_footer)
+        if after_dialog is not None and after_dialog.title != dialog.title:
+            # Not the dialog Esc was pressed on - that one is gone, whatever
+            # this new one is; still-open must never be counted against a
+            # title that is not what is actually still on screen, since that
+            # is what a loop is measured by.
             return CLEARED, dialog.title, ""
     return STILL_OPEN, dialog.title, "the dialog is still on screen after Esc"
 

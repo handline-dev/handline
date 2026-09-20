@@ -54,7 +54,7 @@ PRESS_WINDOW_S = 6 * 3600
 # Esc that leaves the dialog standing is not pressed again and again.
 MAX_IGNORED = 2
 
-NO_TERMINAL, NO_SESSION, STALLED = "no terminal", "no session", "stalled"
+NO_TERMINAL, NO_SESSION, STALLED, ORCA_DOWN = "no terminal", "no session", "stalled", "orca down"
 
 # What to do about each, in the words of the bridge's own keys.
 ADVICE = {
@@ -64,8 +64,10 @@ ADVICE = {
     NO_TERMINAL: "t on the agents panel starts one",
     NO_SESSION: "w on the agents panel wakes it",
     STALLED: "u on the agents panel clears it",
+    ORCA_DOWN: "check Orca and PATH; ocp cannot reach it at all",
 }
 LABEL = {orca.MODAL: "dialog open", orca.UNSENT: "unsent text", orca.UNREADABLE: "screen unreadable",
+         ORCA_DOWN: "orca unreachable",
          NO_TERMINAL: "no terminal", NO_SESSION: "no session", STALLED: "stalled"}
 
 _checked: dict[str, int] = {}
@@ -128,7 +130,10 @@ def classify(con, agent: str, row) -> tuple[str, str] | None:
     if not handle:
         return NO_TERMINAL, ""
     if not orca.available():
-        return None
+        # The sibling of UNREADABLE below: silently skipping this starves
+        # every agent with queued work the same way, with nobody told, for as
+        # long as Orca stays off PATH.
+        return ORCA_DOWN, ""
     if not orca.alive(handle):
         return NO_TERMINAL, "its terminal is gone - Orca no longer has it"
     if daemon.wall_reason(con, agent, row):

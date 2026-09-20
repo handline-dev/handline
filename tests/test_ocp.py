@@ -2289,6 +2289,11 @@ def test_what_is_not_a_block(home: Path) -> None:
         check("blocked: a terminal Orca no longer has", verdict() == "no terminal")
         orcamod.alive = lambda h: True
 
+        orcamod.available = lambda: False
+        check("blocked: orca itself unreachable - the sibling of unreadable, not left silent either",
+              verdict() == "orca down")
+        orcamod.available = lambda: True
+
         obsmod.live_sessions = lambda: {}
         check("blocked: no session in a terminal the row says is open", verdict() == "no session")
         sessions_are("backend")
@@ -2680,6 +2685,15 @@ def test_ocp_presses_only_the_key_that_declines(home: Path) -> None:
     out = orcamod.decline_dialog("term_x")
     check("press: a screen that stays unreadable is still open, never a false clear",
           out[0] == orcamod.STILL_OPEN, out)
+
+    # A DIFFERENT dialog showing up right after the key is not the one Esc
+    # was pressed on still standing - that one is gone, whatever this new one
+    # is, and still-open must never be counted against its title instead.
+    term = _Terminal(EXIT_DIALOG, after=YES_NO_DIALOG)
+    term.install()
+    out = orcamod.decline_dialog("term_x")
+    check("press: a different dialog appearing after Esc is not the same one still open",
+          out[0] == orcamod.CLEARED and out[1] == "Background work is running", out)
 
 
 def _decline_world(home: Path, tail=EXIT_DIALOG, **kw):
