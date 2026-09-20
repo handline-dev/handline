@@ -1303,6 +1303,21 @@ def _layout(want: list[int], room: int) -> tuple[list[int | None], int]:
             for i in range(len(want))], len(want) - keep
 
 
+# What a terminal acts on rather than draws: OSC (title, clipboard, links) up to
+# its terminator, CSI with any parameter and intermediate bytes, and then every
+# byte that is left of a control - a lone ESC, C0, DEL and C1 (0x9b is CSI).
+_OSC = re.compile(r"\033\][^\a\033]*(?:\a|\033\\)?")
+_UNTRUSTED_CSI = re.compile(r"\033\[[0-?]*[ -/]*[@-~]")
+_CONTROL = re.compile(r"[\x00-\x08\x0b-\x1f\x7f-\x9f]")
+
+
+def drawable(text: str) -> list[str]:
+    """What someone else wrote, as lines of text and nothing a terminal would
+    obey. A tab becomes spaces: it is the one control whose width is not one."""
+    text = _UNTRUSTED_CSI.sub("", _OSC.sub("", text))
+    return [_CONTROL.sub("", ln.expandtabs(4)) for ln in text.splitlines() or [""]]
+
+
 def wrap(lines: list[str], width: int) -> list[str]:
     """Break long lines to the terminal's width, at spaces where there are any.
 
@@ -1313,31 +1328,28 @@ def wrap(lines: list[str], width: int) -> list[str]:
     """
     width = max(1, width)
     out: list[str] = []
-    for line in lines:
-        # A body is whatever the sender typed. Escapes in it are invisible to
-        # vlen, so they are never counted and never truncated: a pasted colour
-        # runs past its line, and a pasted `esc [ 2J` clears the screen this is
-        # drawing. What a message says is its text.
-        line = _ANSI.sub("", line).rstrip()
-        if not line:
-            out.append("")
-            continue
-        while vlen(line) > width:
-            # Cut on width, not on characters: with wide glyphs the two are not
-            # the same number, and cutting on the second wraps a line that is
-            # already too long back onto itself.
-            room, cut = 0, 0
-            for i, ch in enumerate(line):
-                if room + cwidth(ch) > width:
-                    break
-                room += cwidth(ch)
-                cut = i + 1
-            space = line.rfind(" ", 0, cut + 1)
-            if space > 0:
-                cut = space
-            out.append(line[:cut].rstrip())
-            line = line[cut:].lstrip()
-        out.append(line)
+    for raw in lines:
+        for line in drawable(raw):
+            line = line.rstrip()
+            if not line:
+                out.append("")
+                continue
+            while vlen(line) > width:
+                # Cut on width, not on characters: with wide glyphs the two are
+                # not the same number, and cutting on the second wraps a line
+                # that is already too long back onto itself.
+                room, cut = 0, 0
+                for i, ch in enumerate(line):
+                    if room + cwidth(ch) > width:
+                        break
+                    room += cwidth(ch)
+                    cut = i + 1
+                space = line.rfind(" ", 0, cut + 1)
+                if space > 0:
+                    cut = space
+                out.append(line[:cut].rstrip())
+                line = line[cut:].lstrip()
+            out.append(line)
     return out
 
 
