@@ -208,11 +208,29 @@ def bar(pct: int | None, width: int = 10, last_seen: bool = False) -> str:
 # The ACCOUNTS panel's columns, in the order they are drawn: the heading, every
 # row and the overflow test read these, so a width or a position changed here
 # moves all three and one written anywhere else is a bug. Each bounded cell
-# must stay strictly narrower than its column.
-ACCT_W = {"name": 10, "five": 17, "reset5": 7, "seven": 12, "reset7": 7, "runway": 15}
-ACCT_HEAD = {"name": "account", "five": "5h usage", "reset5": "reset", "seven": "7d",
-             "reset7": "7d rst", "runway": "runway (est.)"}
+# must stay strictly narrower than its column. Order is also priority: see
+# `acct_cols`.
+ACCT_W = {"name": 10, "five": 17, "reset5": 7, "agents": 11, "seven": 12, "reset7": 7,
+          "runway": 15}
+ACCT_HEAD = {"name": "account", "five": "5h usage", "reset5": "reset", "agents": "agents ▶",
+             "seven": "7d", "reset7": "7d rst", "runway": "runway (est.)"}
 ACCT_BAR_W = {"five": 10, "seven": 5}
+ACCT_INDENT = 2   # before the name, on the heading and every row
+ACCT_TAIL = 6     # after the last column: the tick, and " next" on one row
+
+
+def acct_cols(width: int) -> list[str]:
+    """The ACCOUNTS columns drawn at `width`: ACCT_W's order, cut from the end,
+    a whole column at a time, until the row fits with the indent and the tick
+    and "next" after it inside the panel's borders. What is last in ACCT_W is
+    what matters least, so where a column sits is also when it goes. The name
+    stays. Heading and rows both draw what this returns, and a row pushed past
+    the panel would be cut at its end, which is where the tick and "next" are."""
+    cols = list(ACCT_W)
+    while len(cols) > 1 and (ACCT_INDENT + sum(ACCT_W[k] for k in cols) + ACCT_TAIL
+                             > width - PANEL_BORDERS):
+        cols.pop()
+    return cols
 
 
 def _gauge(value: int | None, width: int, src: str) -> str:
@@ -222,9 +240,37 @@ def _gauge(value: int | None, width: int, src: str) -> str:
     return f"{bar(value, width)} {pct(value)}%{src}"
 
 
-def account_cells(name: str, st, now: float | None = None) -> dict[str, str]:
+def agents_cell(counts: tuple[int, int] | None, unplaced: int = 0,
+                at_cap: bool = False) -> str:
+    """Agents assigned to an account and how many of them are running: "3 ▶1".
+    The figures are `load.roster`'s. None is a roster not read, which is not
+    the same as none: "?" against a dim "0". With agents that could not be
+    placed anywhere each figure is a floor and says so with a "?". The running
+    figure is yellow while the account has no slot left under its cap, which is
+    one reason the tick beside the account is red, said without a column.
+
+    The colour and the digits are two counts: at_cap is `Load.active >= cap`,
+    which counts an agent that has just moved and not yet run, while ▶ is
+    `roster`'s running and unclosed. A cap of 2 with one running and one moved
+    agent draws "2 ▶1" with the ▶1 yellow; the account's page says why."""
+    if counts is None:
+        return f"{DIM}?{R}"
+    assigned, running = counts
+    q = "?" if unplaced else ""
+    if not assigned and not unplaced:
+        return f"{DIM}0{R}"
+    colour = YEL if at_cap else (STATE_COLOR["RUNNING"] if running else DIM)
+    run = f"{colour}▶{running}{q}{R}"
+    return f"{assigned}{q} {run}"
+
+
+def account_cells(name: str, st, now: float | None = None,
+                  counts: tuple[int, int] | None = None,
+                  unplaced: int = 0, at_cap: bool = False) -> dict[str, str]:
     """The bounded cells of an ACCOUNTS row, unpadded and keyed like ACCT_W.
-    The name is free text and is cut to fit where it is drawn."""
+    The name is free text and is cut to fit where it is drawn. `counts` is the
+    account's (assigned, running) from `load.roster`, None where it was not read;
+    `at_cap` whether the pick has no slot left on it (`load.Load.at_cap`)."""
     runway_text = status.describe_runway(status.runway(st, status.read_burn(name), now))
     # One definition of the figure and its mark, shared with `ocp account list`.
     # A last-seen figure is drawn at its value, dimmed and uncoloured, with its
@@ -233,6 +279,7 @@ def account_cells(name: str, st, now: float | None = None) -> dict[str, str]:
     shown, src = st.shown_pct_5h()
     five = _gauge(shown, ACCT_BAR_W["five"], src)
     return {
+        "agents": agents_cell(counts, unplaced, at_cap),
         "five": five,
         "reset5": countdown(st.reset_5h),
         # The weekly figure carries its provenance like the 5h one. Drawn
@@ -284,7 +331,7 @@ def hidden_urgency(con, names: list[str]) -> tuple[str, int, str] | None:
             found.setdefault(1, []).append(STATE_COLOR[state])
         elif daemon.wall_reason(con, name, row):
             found.setdefault(1, []).append(YEL)
-        elif state == "RUNNING" and not (row and row["closed_at"]):
+        elif loadmod.is_running(row):
             found.setdefault(2, []).append(STATE_COLOR["RUNNING"])
     if not found:
         return None
@@ -695,12 +742,14 @@ def build(width: int, sel: dict | None = None,
         acc = Panel("ACCOUNTS", width, focused=panel == ACCOUNTS)
         acc.selected = sel.get(ACCOUNTS)
         w = ACCT_W
-        acc.add(f"{DIM}{'':<2}" + "".join(f"{ACCT_HEAD[k]:<{w[k]}}" for k in w)
+        cols = acct_cols(width)
+        acc.add(f"{DIM}{'':<{ACCT_INDENT}}" + "".join(f"{ACCT_HEAD[k]:<{w[k]}}" for k in cols)
                 + R, heading=True)
         # The account with the most headroom: where work goes when an agent's
         # own account is full. Only accounts that can start a session count.
         # The reason each one sits where it does is on its own page (Enter).
         loads = loadmod.read_all()
+        roster, unplaced = loadmod.roster(con)
         first, ranked = status.pick_account(
             [a for a in paths.list_accounts() if _logged_in(a)], load=loads)
         for name in paths.list_accounts():
@@ -719,11 +768,13 @@ def build(width: int, sel: dict | None = None,
             # decisions are made on, with a mark saying where it came from -
             # a quiet window drawn as "?" while the daemon acts on 0% is the
             # dashboard and the daemon disagreeing.
-            cells = account_cells(name, st)
+            cells = account_cells(name, st, counts=roster.get(name, (0, 0)),
+                                  unplaced=unplaced,
+                                  at_cap=bool(loads.get(name) and loads[name].at_cap))
             acc.add(
-                "  "
+                " " * ACCT_INDENT
                 + padfit(f"{BOLD}{name}{R}", w["name"])
-                + "".join(pad(cells[k], w[k]) for k in w if k != "name")
+                + "".join(pad(cells[k], w[k]) for k in cols if k != "name")
                 + mark + nxt,
                 key=name,
             )
@@ -767,8 +818,7 @@ def build(width: int, sel: dict | None = None,
             # sign a team is hidden disappears.
             urgency = hidden_urgency(con, hidden) if under else None
             try:
-                acct = agents.current_account(name, con)
-                cfg = agents.read(name)
+                acct, cfg = agents.placed(name, con)
             except Exception as e:  # noqa: BLE001
                 ag.add(pad(fit(twig + shown[name], NAME_W), NAME_W)
                        + f"{RED}config error: {e}{R}", key=name)
