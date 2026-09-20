@@ -74,7 +74,7 @@ def cmd_init(args) -> int:
 
     gitignore = h / ".gitignore"
     if not gitignore.exists():
-        gitignore.write_text("accounts/\ndb.sqlite\ndaemon.pid\nlogs/\n*.tmp\n")
+        gitignore.write_text("accounts/\ndb.sqlite\nlocks/\nlogs/\n*.tmp\n")
     cfg = paths.config_file()
     if not cfg.exists():
         cfg.write_text("version: 1\n")
@@ -489,7 +489,7 @@ def cmd_daemon_status(args) -> int:
               f"{', '.join(str(x) for x in live)}). Two supervisors notify, park and wake "
               f"the same agent twice - end all but one.")
     elif live and not pid:
-        print(f"  (running as pid {live[0]}, which no pidfile names)")
+        print(f"  (pid {live[0]} is an `ocp daemon` process that does not hold the lock)")
     con = db.connect()
     try:
         rows = db.all_agent_states(con)

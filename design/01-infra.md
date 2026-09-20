@@ -180,7 +180,7 @@ Run       (Orca) ── 목표 단위
   config.yaml
   team.yaml
   db.sqlite                     # 리스 · 이벤트 · handoff 진행상태 · wake_at   (gitignore)
-  daemon.pid                    # PID + 부팅시각
+  locks/daemon.lock             # 데몬이 flock 을 쥐고 자기 PID 를 기록
   shared/.claude/               # 계정 공통 설정. 각 계정이 심볼릭으로 참조
     settings.json CLAUDE.md skills/ agents/ commands/ hooks/
   accounts/                     ← gitignore 전체
@@ -453,7 +453,6 @@ agent.wake_at 을 SQLite에 영속 (리셋 시각 · 리스 만료 중 이른 �
 데몬 기동 시 reconciliation 1회 무조건:
   - wake_at <= now 전수 스캔
   - 리스 테이블 ↔ 실제 실행 중 워커 대조
-  - stale pidfile 자동 회수 (PID + 부팅시각)
 ```
 
 인메모리 타이머는 최적화일 뿐 정확성의 근거가 될 수 없다. 이 reconciliation 하나가 "데몬 사망 중 지나간 트리거", "리스 좀비", "타이머 소실"을 **동시에** 막는다.
@@ -550,7 +549,7 @@ ocp status [--json|--table]
 ocp doctor
 ```
 
-`ocp doctor`: statusLine 설치 · `rate_limits` 존재 · Claude Code 버전 · `disableAllHooks` · `autoContinueAtUsageLimit` · 계정별 로그인 상태 · 심볼릭 링크 무결성 · stale pidfile · `base.md` 크기 초과.
+`ocp doctor`: statusLine 설치 · `rate_limits` 존재 · Claude Code 버전 · `disableAllHooks` · `autoContinueAtUsageLimit` · 계정별 로그인 상태 · 심볼릭 링크 무결성 · `base.md` 크기 초과.
 
 ---
 

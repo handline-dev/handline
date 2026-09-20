@@ -379,42 +379,29 @@ def _check_rate_limits_present(r: Report) -> None:
         r.add(WARN, "no snapshot has rate_limits yet", "no session has run")
 
 
-def _check_pidfile(r: Report) -> None:
-    from . import daemon
-
-    p = paths.daemon_pid()
-    if not p.exists():
-        r.add(OK, "no daemon pidfile", "daemon is not running")
-        return
-    pid = daemon.running_elsewhere()
-    if pid:
-        r.add(OK, f"daemon running (pid {pid})")
-    else:
-        r.add(WARN, "pidfile names a dead process or a previous boot",
-              "stale - the next daemon to start overwrites it; nothing else clears it")
-
-
 def _check_one_daemon(r: Report) -> None:
     """Exactly one supervisor, counted in the process table.
 
     Two on one database wake, park and notify every agent twice, and the older
-    one runs whatever code it was started with. Its own check, not part of the
-    pidfile's: the case that matters is a live daemon the pidfile does not
-    name, and there the file is missing entirely.
+    one runs whatever code it was started with. The lock names only the one
+    holding it, so a duplicate that predates it shows up only here.
     """
     from . import daemon
 
     live = daemon.processes()
-    named = daemon.running_elsewhere()
     if len(live) > 1:
         r.add(WARN, f"{len(live)} daemons are running: pid "
                     f"{', '.join(str(x) for x in live)}",
               "end all but one - the others supervise unrecorded")
-    elif live and not named:
-        r.add(WARN, f"the daemon (pid {live[0]}) is in no pidfile",
-              "it supervises unrecorded - every screen reads it as not running")
-    elif live:
-        r.add(OK, "one daemon")
+    else:
+        pid = daemon.running_elsewhere()
+        if pid:
+            r.add(OK, f"daemon running (pid {pid})")
+        elif live:
+            r.add(WARN, f"a daemon process (pid {live[0]}) does not hold the lock",
+                  "it is not supervising - starting up, or a copy the lock refused")
+        else:
+            r.add(OK, "no daemon running")
 
 
 def _check_service(r: Report) -> None:
@@ -484,7 +471,6 @@ def run() -> Report:
     _check_stuck_running(r)
     _check_launch_drift(r)
     _check_session_matches_the_record(r)
-    _check_pidfile(r)
     _check_one_daemon(r)
     _check_service(r)
     _check_autocontinue(r)

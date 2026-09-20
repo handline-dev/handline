@@ -1551,44 +1551,97 @@ def test_daemon_evaluates_parked(home: Path) -> None:
     check("daemon: STALLED is not auto-evaluated", dmn.STALLED not in dmn.EVALUATED)
 
 
-def test_the_daemon_writes_its_own_pidfile_back(home: Path) -> None:
-    """Whoever deletes the file, a supervisor that is running has to say so."""
+def _hold_daemon_lock_in_another_process(env: dict, write_name: bool = True):
+    """A separate process holding the daemon lock, as launchd's daemon does.
+    An in-process hold would pass on a lock that never leaves the process."""
+    take = "lock.singleton('daemon')" if write_name else "lock._hold('daemon', lock.SINGLETON)"
+    holder = subprocess.Popen(
+        [sys.executable, "-c",
+         f"import os, sys, time; sys.path.insert(0, {str(ROOT)!r})\n"
+         "from ocp import lock\n"
+         f"held = {take}\n"
+         "held.__enter__()\n"
+         "print(os.getpid(), flush=True)\n"
+         "time.sleep(120)\n"],
+        env=env, stdout=subprocess.PIPE, text=True)
+    return holder, int(holder.stdout.readline())
+
+
+def test_a_running_daemon_is_reported_whatever_daemon_pid_says(home: Path) -> None:
+    """The recurring bug: a daemon alive under the service, and a pidfile from
+    earlier naming a dead pid and a boot time that has since drifted (macOS
+    moves kern.boottime by a second when the clock steps). Every screen read
+    the file and said the daemon was not running; the start path asked the lock
+    and said it was. Both now ask the lock."""
     home.mkdir(parents=True, exist_ok=True)
     os.environ["OCP_HOME"] = str(home)
-    dmn._pidfile_logged["at"] = 0.0
-    lines: list[str] = []
-    dmn.write_pidfile()
-    check("pidfile: one that names this process is left alone",
-          dmn.keep_pidfile(lines.append) is False and not lines)
-    paths.daemon_pid().unlink()
-    check("pidfile: a missing one is written back",
-          dmn.keep_pidfile(lines.append) is True and dmn.read_pidfile()["pid"] == os.getpid())
-    paths.daemon_pid().write_text(json.dumps({"pid": os.getpid() + 1, "boot": 1}))
-    check("pidfile: one naming another process is taken back - the lock decides who holds it",
-          dmn.keep_pidfile(lines.append) is True and dmn.read_pidfile()["pid"] == os.getpid())
-    check("pidfile: it says so once, not every tick", len(lines) == 1, str(lines))
-    check("pidfile: no half-written file is left beside it",
-          not paths.daemon_pid().with_name("daemon.pid.tmp").exists())
+    env = {**os.environ, "OCP_HOME": str(home)}
+    (home / "daemon.pid").write_text(json.dumps({"pid": 999999, "boot": 1}))
+
+    check("daemon: nobody holding the lock reads as not running, whatever any file says",
+          dmn.running_elsewhere() is None)
+    holder, pid = _hold_daemon_lock_in_another_process(env)
+    try:
+        check("daemon: the process holding the lock is the one reported",
+              dmn.running_elsewhere() == pid, str(dmn.running_elsewhere()))
+        check("daemon: a probe leaves the hold with its holder",
+              lock.holder(dmn.DAEMON_LOCK) == pid)
+        with lock.singleton(dmn.DAEMON_LOCK) as free:
+            check("daemon: and a second daemon is refused, by the same fact", not free)
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            climod.cmd_daemon_status(None)
+        check("ps: says running, and names the pid",
+              f"daemon: running, pid {pid}" in buf.getvalue(), buf.getvalue())
+        r = doctor.Report()
+        doctor._check_one_daemon(r)
+        check("doctor: says running, with no stale-pidfile warning",
+              r.rows[-1][0] == doctor.OK and str(pid) in r.rows[-1][1]
+              and not any(lv != doctor.OK for lv, _, _ in r.rows), str(r.rows))
+    finally:
+        holder.kill()
+        holder.wait(timeout=30)
+
+    check("daemon: the name a dead holder left behind is not a running daemon",
+          dmn.running_elsewhere() is None, str(dmn.running_elsewhere()))
+    check("daemon: ...and needs no clearing by anything", lock.holder(dmn.DAEMON_LOCK) is None)
 
 
-def test_daemon_pidfile(home: Path) -> None:
+def test_a_daemon_that_never_wrote_its_name_is_still_reported(home: Path) -> None:
+    """A daemon started before the lock recorded its holder, still running under
+    the service, holds the lock and names nobody. It is named from the process
+    table, not read as not running."""
     home.mkdir(parents=True, exist_ok=True)
     os.environ["OCP_HOME"] = str(home)
-    dmn.write_pidfile()
-    check("daemon: pidfile records this process", dmn.running_elsewhere() == os.getpid())
+    env = {**os.environ, "OCP_HOME": str(home)}
+    holder, pid = _hold_daemon_lock_in_another_process(env, write_name=False)
+    orig = dmn.processes
+    try:
+        check("lock: held without a name reads as held, not as free",
+              lock.holder(dmn.DAEMON_LOCK) == 0)
+        dmn.processes = lambda: [pid]
+        check("daemon: named from the process table", dmn.running_elsewhere() == pid)
+    finally:
+        dmn.processes = orig
+        holder.kill()
+        holder.wait(timeout=30)
 
-    # A pidfile from before the last boot cannot describe a live process - and
-    # reading that is not the reader's business to fix: only the daemon that
-    # eventually writes over it, under the lock, ever touches the file again.
-    paths.daemon_pid().write_text(json.dumps({"pid": 99999, "boot": 1}))
-    check("daemon: a pre-boot pidfile reads as stale", dmn.running_elsewhere() is None)
-    check("daemon: ...but a reader leaves the file itself alone",
-          paths.daemon_pid().exists())
 
-    # A dead PID from this boot reads as stale the same way.
-    paths.daemon_pid().write_text(json.dumps({"pid": 999999, "boot": dmn.boot_time()}))
-    check("daemon: a dead pid reads as stale", dmn.running_elsewhere() is None)
-    check("daemon: ...and is left standing too", paths.daemon_pid().exists())
+def test_the_lock_names_only_its_current_holder(home: Path) -> None:
+    home.mkdir(parents=True, exist_ok=True)
+    os.environ["OCP_HOME"] = str(home)
+    check("lock: no file yet, no holder", lock.holder(dmn.DAEMON_LOCK) is None)
+    with lock.singleton(dmn.DAEMON_LOCK) as mine:
+        check("lock: taken", mine)
+        check("lock: the holder writes its own pid", lock.holder(dmn.DAEMON_LOCK) == os.getpid())
+        with lock.singleton(dmn.DAEMON_LOCK) as second:
+            check("lock: a refused second taker does not overwrite the name", not second)
+        check("lock: ...the holder is still named", lock.holder(dmn.DAEMON_LOCK) == os.getpid())
+    check("lock: released, nobody is named although the file still holds the pid",
+          lock.holder(dmn.DAEMON_LOCK) is None)
+    with lock.terminal("agent-x") as t:
+        check("lock: a terminal hold takes no pid", t)
+    check("lock: and is not a daemon", lock.holder(dmn.DAEMON_LOCK) is None)
 
 
 # ---------------------------------------------------------------- service
@@ -1812,23 +1865,20 @@ def test_daemon_refusal_logs_through_the_same_path(home: Path) -> None:
           "daemon starting - already running" in out, out)
 
 
-def test_a_second_daemon_is_refused_with_no_pidfile_at_all(home: Path) -> None:
-    """The pidfile names whoever wrote it last, so it cannot see a daemon that
-    never wrote one - and an exiting daemon used to delete the live one's name
-    on its way out, leaving nothing to check. The lock is what refuses."""
+def test_a_second_daemon_is_refused_by_the_lock_alone(home: Path) -> None:
+    """Nothing but the lock decides who supervises."""
     import contextlib
     import io
 
     home.mkdir(parents=True, exist_ok=True)
     os.environ["OCP_HOME"] = str(home)
-    paths.daemon_pid().unlink(missing_ok=True)
     buf = io.StringIO()
     with lock.singleton(dmn.DAEMON_LOCK):
         with contextlib.redirect_stdout(buf):
             rc = dmn.run(once=True)
-    check("daemon: a second one is refused even with no pidfile", rc == 1)
-    check("daemon: and the refusal does not invent a pid",
-          "already running," in buf.getvalue(), buf.getvalue())
+    check("daemon: a second one is refused", rc == 1)
+    check("daemon: and the refusal names the holder",
+          f"already running (pid {os.getpid()})" in buf.getvalue(), buf.getvalue())
 
     # And the lock is not left behind by the process that held it.
     with lock.singleton(dmn.DAEMON_LOCK) as held:
@@ -1836,31 +1886,61 @@ def test_a_second_daemon_is_refused_with_no_pidfile_at_all(home: Path) -> None:
 
 
 def test_an_exiting_daemon_leaves_the_live_ones_name(home: Path) -> None:
-    """Removing the pidfile unconditionally is how this installation ended up
-    with two supervisors: the second daemon's exit erased the first one's
-    name, and the startup check then read an empty file."""
+    """A second daemon's refusal and exit must not disturb the live one's name."""
     home.mkdir(parents=True, exist_ok=True)
     os.environ["OCP_HOME"] = str(home)
+    env = {**os.environ, "OCP_HOME": str(home)}
+    holder, pid = _hold_daemon_lock_in_another_process(env)
+    try:
+        with contextlib.redirect_stdout(io.StringIO()):
+            rc = dmn.run(once=True)
+        check("daemon: the second one is refused", rc == 1)
+        check("daemon: and the live one is still the one named",
+              dmn.running_elsewhere() == pid, str(dmn.running_elsewhere()))
+    finally:
+        holder.kill()
+        holder.wait(timeout=30)
 
-    paths.daemon_pid().write_text(json.dumps({"pid": os.getpid() + 1,
-                                              "boot": dmn.boot_time()}))
-    dmn.clear_pidfile()
-    check("pidfile: an exit does not clear a name that is not its own",
-          paths.daemon_pid().exists())
 
-    dmn.write_pidfile()
-    dmn.clear_pidfile()
-    check("pidfile: and does clear its own", not paths.daemon_pid().exists())
+def test_a_daemon_process_that_does_not_hold_the_lock_is_not_called_absent(home: Path) -> None:
+    """The process table and the lock disagreeing is said, not settled in
+    silence: a daemon that is starting reads that way for an instant, and a
+    screen that answers "no daemon" over a list it just computed contradicts
+    itself."""
+    home.mkdir(parents=True, exist_ok=True)
+    os.environ["OCP_HOME"] = str(home)
+    orig = dmn.processes
+    try:
+        dmn.processes = lambda: [4242]
+        r = doctor.Report()
+        doctor._check_one_daemon(r)
+        check("doctor: a daemon process holding no lock warns, naming it",
+              r.rows[-1][0] == doctor.WARN and "4242" in r.rows[-1][1], str(r.rows))
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            climod.cmd_daemon_status(None)
+        check("ps: says the same, beside 'not running'",
+              "daemon: not running" in buf.getvalue() and "pid 4242" in buf.getvalue(),
+              buf.getvalue())
+        dmn.processes = lambda: []
+        r = doctor.Report()
+        doctor._check_one_daemon(r)
+        check("doctor: no process and no lock is plainly no daemon",
+              r.rows[-1][0] == doctor.OK and "no daemon" in r.rows[-1][1], str(r.rows))
+    finally:
+        dmn.processes = orig
 
-    # The same guard protects `_reclaim`'s one remaining caller too: a daemon
-    # that starts between the read and the unlink must keep its own name.
-    dead = os.getpid() + 1
-    paths.daemon_pid().write_text(json.dumps({"pid": dead, "boot": dmn.boot_time()}))
-    dmn.write_pidfile()          # the new daemon, inside the window
-    dmn._reclaim(dead)
-    check("pidfile: a reclaim does not delete the name written since it read",
-          paths.daemon_pid().exists() and dmn.read_pidfile()["pid"] == os.getpid(),
-          str(dmn.read_pidfile()))
+
+def test_init_keeps_the_lock_file_out_of_the_home_repo(home: Path) -> None:
+    """The lock file's pid changes on every daemon start; tracked, it is a
+    change `git status` shows forever."""
+    os.environ["OCP_HOME"] = str(home)
+    with contextlib.redirect_stdout(io.StringIO()):
+        climod.cmd_init(argparse.Namespace())
+    lines = (home / ".gitignore").read_text().split()
+    check("init: locks/ is ignored", "locks/" in lines, str(lines))
+    check("init: and nothing names the pidfile that no longer exists",
+          "daemon.pid" not in lines, str(lines))
 
 
 def test_one_daemon_is_counted_in_the_process_table(home: Path) -> None:
@@ -2021,15 +2101,6 @@ def test_the_screen_says_when_two_daemons_are_running(home: Path) -> None:
             climod.cmd_daemon_status(None)
         check("ps: the screen says it too", "WARNING" in buf.getvalue(), buf.getvalue())
 
-        # One daemon that no pidfile names is what a wrongly cleared pidfile
-        # leaves behind: running, and reported as not running.
-        dmn.processes = lambda: [111]
-        paths.daemon_pid().unlink(missing_ok=True)
-        r = doctor.Report()
-        doctor._check_one_daemon(r)
-        check("doctor: a daemon in no pidfile is said out loud",
-              any(lv == doctor.WARN and "no pidfile" in name for lv, name, _ in r.rows),
-              str(r.rows))
     finally:
         dmn.processes = orig
 
@@ -2081,12 +2152,11 @@ def test_doctor_service_check(home: Path) -> None:
         # A human deliberately running it by hand is a working setup, not a
         # defect - doctor's warnings are what we read to know something is
         # actually wrong, so this must not be one of them.
-        dmn.write_pidfile()
-        r = doctor.Report()
-        doctor._check_service(r)
-        check("doctor: not-installed is fine when a daemon is running by hand",
-              r.rows[-1][0] == doctor.OK, str(r.rows[-1]))
-        paths.daemon_pid().unlink(missing_ok=True)
+        with lock.singleton(dmn.DAEMON_LOCK):
+            r = doctor.Report()
+            doctor._check_service(r)
+            check("doctor: not-installed is fine when a daemon is running by hand",
+                  r.rows[-1][0] == doctor.OK, str(r.rows[-1]))
 
         service.status = lambda: {"installed": True, "loaded": False, "pid": None,
                                   "last_exit_code": None}
@@ -12991,8 +13061,11 @@ def main() -> int:
         run(lambda: test_shared_account_context_isolation(Path(td) / 'shared'))
         run(lambda: test_db_dedup_only_swallows_dedup(Path(td) / 'strict'))
         run(lambda: test_agent_rewrite_uses_parser(Path(td) / 'rw'))
-        run(lambda: test_the_daemon_writes_its_own_pidfile_back(Path(td) / 'd6b'))
-        run(lambda: test_daemon_pidfile(Path(td) / 'd6'))
+        run(lambda: test_a_running_daemon_is_reported_whatever_daemon_pid_says(Path(td) / 'd6'))
+        run(lambda: test_a_daemon_that_never_wrote_its_name_is_still_reported(Path(td) / 'd6b'))
+        run(lambda: test_the_lock_names_only_its_current_holder(Path(td) / 'd6c'))
+        run(lambda: test_a_daemon_process_that_does_not_hold_the_lock_is_not_called_absent(Path(td) / 'd6d'))
+        run(lambda: test_init_keeps_the_lock_file_out_of_the_home_repo(Path(td) / 'd6e'))
         run(lambda: test_service_plist(Path(td) / 'svc1'))
         run(lambda: test_service_launchctl_gated(Path(td) / 'svc2'))
         run(lambda: test_service_status_when_not_installed(Path(td) / 'svc3'))
@@ -13191,7 +13264,7 @@ def main() -> int:
         run(lambda: test_each_account_guard_fails_under_its_own_mutation(Path(td) / 'guards'))
         run(lambda: test_a_second_name_for_one_login_is_caught(Path(td) / 'acctsame'))
         run(lambda: test_the_accounts_panel_adds_and_removes(Path(td) / 'acctpanel'))
-        run(lambda: test_a_second_daemon_is_refused_with_no_pidfile_at_all(Path(td) / 'onedmn'))
+        run(lambda: test_a_second_daemon_is_refused_by_the_lock_alone(Path(td) / 'onedmn'))
         run(lambda: test_an_exiting_daemon_leaves_the_live_ones_name(Path(td) / 'pidname'))
         run(lambda: test_one_daemon_is_counted_in_the_process_table(Path(td) / 'dmnps'))
         run(lambda: test_process_env_reads_a_gone_pid_as_unreadable(Path(td) / 'procenv'))

@@ -26,10 +26,6 @@ def db_file() -> Path:
     return home() / "db.sqlite"
 
 
-def daemon_pid() -> Path:
-    return home() / "daemon.pid"
-
-
 def shared_claude() -> Path:
     return home() / "shared" / ".claude"
 

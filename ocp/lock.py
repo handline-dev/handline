@@ -11,8 +11,10 @@ can spoil: everything else is written to the database, where sqlite settles the
 order.
 
 Two daemons spoil more. They wake, park and notify every agent twice, and the
-older one runs whatever code it was started with. Only the lock can see one:
-the pidfile names whoever wrote it last.
+older one runs whatever code it was started with. The lock is also the only
+record of whether one is running: the holder writes its pid into the lock file,
+and `holder` reads it only while the lock is really held, so what a screen
+reports and what refuses a second daemon are one fact.
 
 The kernel releases an flock when its holder dies, so neither hold survives the
 process that took it - there is nothing stale to reclaim.
@@ -40,11 +42,13 @@ from . import paths
 # The two kinds of hold. The suffix is what keeps them apart on disk, so an
 # agent named `daemon` cannot take the daemon's lock by being typed at.
 TERMINAL, SINGLETON = "terminal", "lock"
+_PID_WIDTH = 16
 
 
 @contextlib.contextmanager
-def _hold(name: str, kind: str):
+def _hold(name: str, kind: str, record_pid: bool = False):
     """Yield True while this process holds `name`, False if someone else does.
+    With `record_pid`, the holder's pid is written into the file once held.
 
     An flock we cannot even attempt is not the same as one another process
     holds, and saying so is the difference between a daemon that exits because
@@ -68,6 +72,10 @@ def _hold(name: str, kind: str):
                 raise
             yield False
             return
+        if record_pid:
+            # Over the old bytes, at a fixed width and without truncating, so a
+            # reader never sees an empty file where a name was.
+            os.pwrite(fd, f"{os.getpid():<{_PID_WIDTH}d}\n".encode(), 0)
         yield True
     finally:
         os.close(fd)
@@ -83,4 +91,38 @@ def terminal(agent: str):
 
 def singleton(name: str):
     """The right to be the only `name` running against this OCP_HOME."""
-    return _hold(name, SINGLETON)
+    return _hold(name, SINGLETON, record_pid=True)
+
+
+def holder(name: str) -> int | None:
+    """PID of whoever holds singleton `name`; None when nobody does.
+
+    0 when it is held by a process that has not written its name: the first
+    instant of a file's life, or a holder from before names were recorded.
+
+    Asked of the lock itself, so the answer cannot outlive the holder - a name
+    left in the file by a dead process is never read as a live one, and no boot
+    time or pid check has to guess. The probe's shared hold is momentary, and
+    a daemon starting in that instant is refused as if it had a rival, which
+    the supervisor's next start undoes.
+    """
+    try:
+        fd = os.open(paths.home() / "locks" / f"{name}.{SINGLETON}", os.O_RDONLY)
+    except OSError:
+        return None
+    try:
+        try:
+            fcntl.flock(fd, fcntl.LOCK_SH | fcntl.LOCK_NB)
+        except OSError as e:
+            if e.errno not in (errno.EACCES, errno.EAGAIN, errno.EWOULDBLOCK):
+                return None
+        else:
+            return None
+        try:
+            pid = int(os.pread(fd, _PID_WIDTH + 1, 0).split()[0])
+            os.kill(pid, 0)  # a name written by the previous holder, read before this one wrote
+        except (OSError, ValueError, IndexError):
+            return 0
+        return pid
+    finally:
+        os.close(fd)
