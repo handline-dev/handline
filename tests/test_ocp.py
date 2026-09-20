@@ -58,11 +58,24 @@ CURRENT_TEST: dict[str, str] = {"name": "<setup>"}
 # reaches it. The four that run the real `ocp` as a child process do, and are
 # named below; any other test that reaches it is a test that has not stood in
 # for something, and the run ends on it.
+#
+# Two layers, not one, and neither is redundant. _guarded_popen_init below
+# catches a call in THIS process the moment it is made, naming the test before
+# anything is spent - but it patches subprocess.Popen.__init__, so a test that
+# replaces subprocess.run wholesale (two do, for reasons unrelated to Orca)
+# goes blind to that layer for as long as the replacement stands: nothing
+# calls Popen, so nothing is caught. This PATH stand-in is what still would,
+# for anything that actually execs `orca`, however it got there: PATH is set
+# once here at import, nothing in the suite clears or replaces it, and no
+# env-building site in ocp/ drops it from a child's environment either.
 FAKE_ORCA_DIR = Path(tempfile.mkdtemp(prefix="ocp-fake-orca-"))
 FAKE_ORCA_LOG = FAKE_ORCA_DIR / "calls.log"
 (FAKE_ORCA_DIR / "orca").write_text(
     "#!/bin/sh\n"
-    "printf '%s\\t%s\\n' \"${OCP_TEST:-<none>}\" \"$*\" >> LOGFILE\n"
+    # tr keeps one call to one line: an argument carrying a newline would
+    # otherwise split into a phantom log entry and redden the run on nothing.
+    "args=$(printf '%s' \"$*\" | tr '\\n\\t' '  ')\n"
+    "printf '%s\\t%s\\n' \"${OCP_TEST:-<none>}\" \"$args\" >> LOGFILE\n"
     "exit 1\n".replace("LOGFILE", f'"{FAKE_ORCA_LOG}"'))
 (FAKE_ORCA_DIR / "orca").chmod(0o755)
 os.environ["PATH"] = str(FAKE_ORCA_DIR) + os.pathsep + os.environ.get("PATH", "")
@@ -107,7 +120,8 @@ def _guarded_popen_init(self, args, *a, **kw):
         ORCA_ATTEMPTS.append((CURRENT_TEST["name"], argv))
         ours = [f for f in traceback.extract_stack() if "/ocp/" in f.filename or "/tests/" in f.filename]
         via = " (via " + " > ".join(f"{Path(f.filename).name}:{f.lineno} {f.name}" for f in ours[-6:-1]) + ")" if ours else ""
-        raise AssertionError(f"{CURRENT_TEST['name']} reached the real Orca: {argv}{via}")
+        raise AssertionError(f"{CURRENT_TEST['name']} would have reached the real Orca: "
+                            f"{argv}{via}")
     _REAL_POPEN_INIT(self, args, *a, **kw)
 
 
