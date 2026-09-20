@@ -11823,8 +11823,10 @@ def test_nothing_a_terminal_would_obey_gets_through_what_someone_else_wrote(home
             keep_handoff("reviewer", shout + "\n" + shout)
             db.set_agent_state(con, "reviewer", dmn.IDLE, detail=shout)
             askmod.ask(actions.HUMAN, shout, requester="reviewer")
-            # (An event's payload is stored as JSON, so its control bytes are
-            # already text there: it is not a way in, and its length would differ.)
+            # (An event's payload is stored as JSON, which escapes C0 bytes into
+            # text; C1 stays a byte there, and `drawable` takes it out on the way
+            # to the screen. The escaped form is longer than its reading, so the
+            # twin could not match it.)
             # Fields the agent's own file and its state set, drawn on the main screen.
             db.add_event(con, "reviewer", f"kind{pois}", {})
             db.add_event(con, "reviewer", "wake", {})
@@ -11864,6 +11866,9 @@ def test_nothing_a_terminal_would_obey_gets_through_what_someone_else_wrote(home
               and not k.startswith(("WHAT IT HAS", "main"))) and "stuck" in dirty["main at 200"])
     check("escape: the payload of a title is not drawn", not any("PWNED" in t for t in dirty.values()),
           str([k for k, t in dirty.items() if "PWNED" in t]))
+    check("escape: drawable splits on every line break a terminal would obey",
+          all(tui.drawable(f"a{c}b") == ["a", "b"] for c in "\x0b\x0c\x1c\x1d\x1e\x85\u2028\u2029"),
+          str([(hex(ord(c)), tui.drawable(f"a{c}b")) for c in "\x0b\x0c\x1c\x1d\x1e\x85\u2028\u2029"]))
     check("escape: wrap alone, for anything else that goes through it",
           tui.wrap(["a\033]0;t\007b\x9bc\td\nnext"], 20) == ["ab" + "c" + "    d", "next"],
           str(tui.wrap(["a\033]0;t\007b\x9bc\td\nnext"], 20)))
