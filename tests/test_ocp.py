@@ -2428,18 +2428,84 @@ def test_the_digest_facts_do_not_repeat_one_event_kind(home: Path) -> None:
 
 
 
-def test_yaml_differential() -> None:
-    """The fallback must never disagree with PyYAML silently.
+# ---------------------------------------------------------------- yaml differential
+DIFFERENTIAL_CASES = [
+    "reason: go#1\n",
+    "url: http://x/#frag\n",
+    "a: b # real comment\n",
+    "d:\n  - a:b\n",
+    "d:\n  - http://example.com\n",
+    "enabled: yes\nother: no\n",
+    "on_flag: on\noff_flag: off\n",
+    '"a:b": c\n',
+    "n: 0x10\n",
+    "n: 0o17\n",
+    "f: 1.5\ng: -2\nh: 1e3\n",
+    "q: 'single'\nr: \"double\"\n",
+    "empty:\n",
+    "nested:\n  a:\n    b: 1\n",
+    "lst:\n  - 1\n  - two\n  - true\n",
+    'flow: { a: 1, b: "x, y" }\n',
+    "flowlist: [1, 2, three]\n",
+    "edges:\n  - { from: \"*\", to: reviewer, creates_gate: no }\n",
+    "edges:\n  - { from: \"*\", to: reviewer, creates_gate: yes }\n",
+    # What PyYAML reads as something other than the text, which the fallback
+    # must refuse or read the same way: dates, inf and nan in every spelling,
+    # numbers written with underscores (signed, float, hex, binary, octal).
+    "d: 2026-09-20\n",
+    "d: 2026-09-20 10:00:00\n",
+    "d: 2026-09-20T10:00:00Z\n",
+    "n: +.inf\nm: -.inf\no: .INF\n",
+    "n: .nan\nm: .NaN\n",
+    "n: 1_000\nm: -1_000\n",
+    "n: -1_000.5\nm: +1_0.5e+3\n",
+    "n: 0x_1F\nm: 0b1_0\no: 0_7\n",
+    "n: 1__0\nm: 1_\n",
+    # Sexagesimals with a sign, an underscore, or a fraction.
+    "n: +12:30\nm: -12:30\n",
+    "n: 1_0:30\nm: +1_0:30\n",
+    "n: +12:30.5\nm: 1:30:00\n",
+    # inf and nan only in the spellings PyYAML takes: the rest are strings.
+    "n: .iNf\nm: -.nan\no: +.nan\n",
+    # Characters the fallback refuses when bare are text inside quotes.
+    "a: \"handoff -> resolve, then merge\"\nb: 'a & b'\nc: \"x | y\"\nd: '*x'\n",
+    # A sign belongs to a float only before digits, and y, n and mixed-case
+    # spellings are strings to PyYAML.
+    "n: .5\nm: -.5\no: +.5\np: 1.\n",
+    "a: y\nb: n\nc: yEs\nd: tRUE\ne: Null\nf: NULL\ng: nULL\n",
+    # Quoting: a doubled single quote, and the two escapes that are supported.
+    "q: 'it''s'\n",
+    'q: "a\\"b"\nr: "a\\\\b"\n',
+    '"k\\"x": 1\n',
+    "q: 'x # not a comment'\nr: \"x # \\\" # still not\"\n",
+    # A quote that is not closed at the end of the scalar is an error, not text.
+    'a: "x & y\n', "a: 'x\n", 'a: "x" y\n',
+]
 
-    Two parsers reading the same routing policy differently is worse than
-    having no fallback: `creates_gate: no` was True under one and False under
-    the other, which decides whether an escalation needs a human.
+
+# Strings `yamlcompat.dump` writes that a reader could take for something else.
+DUMP_STRINGS = [
+    'x"y', "a\\b", "it's", "y", "n", "yEs", "Null", "2026-09-20", "2026-09-20 10:00:00",
+    "+.inf", "-.inf", ".nan", "-1_000.5", "1_000", "0x_1", ".5", "-.5", "1e3", "0o7", "08",
+    "-5", "+7", "1.5", "0", "", "~", " lead", "trail ", "a: b", "#c", "a b", "é",
+    "-", "- a", "?", "!x", "%x", "@x", "`x", "=", "a\"b\\c\"d",
+    # What the read path refuses when it is bare, and so must be quoted to be read.
+    "handoff -> resolve, then merge", "a & b", "*x", "x | y", "!!x", "a << b", "<<", ">", "|",
+    "+12:30", "1_0:30", "+1_0:30", "+12:30.5", ".iNf", "-.nan", ".inf", ".NaN",
+]
+# Values that are not strings, which the same write must also read back as themselves.
+DUMP_VALUES = [0.1, -0.0, 2.5, 1e16, -1e16, 1e-7, 1.5e300, 5e-324, 0, -3, 10 ** 30,
+               True, False, None]
+
+
+def _check_yaml_differential() -> None:
+    """Compare the bundled parser with PyYAML, which must be importable here.
+
+    A source is a mismatch only when ours returns a different value; raising
+    where PyYAML succeeds is loud, not silent. Every string `dump` writes must
+    also be read back as itself by both.
     """
-    try:
-        import yaml as pyyaml
-    except ImportError:
-        check("yaml differential: skipped (no PyYAML on this interpreter)", True)
-        return
+    import yaml as pyyaml
 
     mismatches = []
     for src in DIFFERENTIAL_CASES + [team.STARTER, DESIGN_TEAM]:
@@ -2451,13 +2517,212 @@ def test_yaml_differential() -> None:
             got = yamlcompat.parse(src)
         except yamlcompat.ConfigError:
             got = "<error>"
-        # Raising where PyYAML succeeds is acceptable (loud, not silent);
-        # returning a different value is not.
-        if got != expected and got != "<error>":
+        # A value that agrees in ==, such as 1 and True, is still a different
+        # value here; a NaN never equals itself.
+        if got != "<error>" and (got != expected or repr(got) != repr(expected)):
             mismatches.append((src, expected, got))
     check("yaml differential: no silent disagreement with PyYAML",
           not mismatches,
           "; ".join(f"{s!r}: pyyaml={e!r} ours={g!r}" for s, e, g in mismatches[:3]))
+    check("yaml differential: the list still covers what it was built for",
+          len(DIFFERENTIAL_CASES) >= 30, str(len(DIFFERENTIAL_CASES)))
+
+    unread = []
+    for value in DUMP_STRINGS:
+        text = yamlcompat.dump({"k": value})
+        try:
+            ours = yamlcompat.parse(text)
+        except yamlcompat.ConfigError:
+            ours = "<error>"
+        try:
+            theirs = pyyaml.safe_load(text)
+        except pyyaml.YAMLError:
+            theirs = "<error>"
+        if ours != {"k": value} or theirs != {"k": value}:
+            unread.append((value, text, ours, theirs))
+    for value in DUMP_VALUES:
+        text = yamlcompat.dump({"k": value})
+        ours, theirs = yamlcompat.parse(text), pyyaml.safe_load(text)
+        if repr(ours.get("k")) != repr(value) or repr(theirs["k"]) != repr(value):
+            unread.append((value, text, ours, theirs))
+    check("yaml differential: what dump writes, both parsers read back as the value",
+          not unread, "; ".join(f"{v!r} -> {t!r}: ours={o!r} pyyaml={p!r}"
+                                for v, t, o, p in unread[:3]))
+
+
+def _python_with_pyyaml() -> str | None:
+    """A python3 that can import yaml: the interpreter running the suite when
+    it can, else /usr/bin/python3 (which ships it on macOS), else python3 on PATH."""
+    import shutil
+    for py in (sys.executable, "/usr/bin/python3", shutil.which("python3")):
+        if py and subprocess.run([py, "-c", "import yaml"],
+                                 capture_output=True).returncode == 0:
+            return py
+    return None
+
+
+def test_yaml_differential() -> None:
+    """The fallback must never disagree with PyYAML silently.
+
+    Two parsers reading the same routing policy differently is worse than
+    having no fallback: `creates_gate: no` was True under one and False under
+    the other, which decides whether an escalation needs a human.
+
+    Without PyYAML on the interpreter running the suite the comparison runs
+    under one that has it, and with none anywhere the test fails: a skip was
+    how it went a day unexercised on the default python and then, when its
+    cases were deleted, unnoticed.
+    """
+    try:
+        import yaml  # noqa: F401
+    except ImportError:
+        py = _python_with_pyyaml()
+        if py is None:
+            check("yaml differential: a python3 with PyYAML to compare against", False,
+                  "none found; pip install pyyaml, or use /usr/bin/python3")
+            return
+        r = subprocess.run(
+            [py, "-c", "import sys; sys.path[:0] = [sys.argv[1], sys.argv[2]]; "
+             "import test_ocp as t; t._check_yaml_differential(); "
+             "sys.exit(1 if t.FAIL else 0)",
+             str(Path(__file__).resolve().parent), str(Path(__file__).resolve().parent.parent)],
+            capture_output=True, text=True, env={k: v for k, v in os.environ.items()
+                                                 if k != "OCP_AGENT"})
+        check(f"yaml differential: under {py}, no silent disagreement with PyYAML",
+              r.returncode == 0 and "PASS  yaml differential" in r.stdout,
+              (r.stdout + r.stderr)[-600:])
+        return
+    _check_yaml_differential()
+
+
+def _parsed(src: str):
+    """What the bundled parser reads, or "<refused>" where it raises."""
+    try:
+        return yamlcompat.parse(src)
+    except yamlcompat.ConfigError:
+        return "<refused>"
+
+
+def _refused(src: str) -> bool:
+    try:
+        yamlcompat.parse(src)
+    except yamlcompat.ConfigError:
+        return True
+    return False
+
+
+def test_the_bundled_parser_reads_what_pyyaml_reads_as_strings_and_refuses_the_rest() -> None:
+    """Under any interpreter: what PyYAML reads as a non-string is refused, not
+    returned as text, and what it reads as a string is one here."""
+    for src, label in [
+        ("d: 2026-09-20\n", "a date"), ("d: 2026-09-20 10:00:00\n", "a datetime"),
+        ("d: 2026-9-2t1:02:03.5 +09:00\n", "a datetime with a zone"),
+        ("n: +.inf\n", "+.inf"), ("n: -.inf\n", "-.inf"), ("n: .INF\n", ".INF"),
+        ("n: .nan\n", ".nan"), ("n: 1_000\n", "an underscored int"),
+        ("n: -1_000.5\n", "a signed underscored float"), ("n: +1_0.5e+3\n", "a signed exponent"),
+        ("n: 0x_1F\n", "an underscored hex"), ("n: 0b1_0\n", "an underscored binary"),
+        ('q: "a\\nb"\n', "an escape other than \\\\ and \\\""),
+    ]:
+        try:
+            got = yamlcompat.parse(src)
+            check(f"yaml: refuses {label}", False, f"parsed as {got!r}")
+        except yamlcompat.ConfigError:
+            check(f"yaml: refuses {label}", True)
+    got = yamlcompat.parse("a: y\nb: n\nc: yEs\nd: tRUE\ne: nULL\nf: -.5\ng: 08\nh: 1e3\n")
+    check("yaml: y, n, mixed case, a signed .5, 08 and 1e3 are strings, as in PyYAML",
+          got == {"a": "y", "b": "n", "c": "yEs", "d": "tRUE", "e": "nULL", "f": "-.5",
+                  "g": "08", "h": "1e3"}, str(got))
+    check("yaml: the spellings PyYAML takes are still booleans and null",
+          yamlcompat.parse("a: Yes\nb: OFF\nc: True\nd: ~\ne: NULL\n")
+          == {"a": True, "b": False, "c": True, "d": None, "e": None})
+    check("yaml: a doubled single quote, and the two escapes, read as one character",
+          yamlcompat.parse("a: 'it''s'\nb: \"x\\\"y\"\nc: \"p\\\\q\"\n")
+          == {"a": "it's", "b": 'x"y', "c": "p\\q"})
+    unread = [(v, yamlcompat.dump({"k": v})) for v in DUMP_STRINGS
+              if yamlcompat.parse(yamlcompat.dump({"k": v})) != {"k": v}]
+    check("yaml: everything dump writes is read back as the same string", not unread,
+          str(unread[:3]))
+    check("yaml: every non-string dump writes is read back as the same value",
+          all(repr(yamlcompat.parse(yamlcompat.dump({"k": v}))["k"]) == repr(v)
+              for v in DUMP_VALUES))
+    check("yaml: a why with an arrow is written quoted and read back",
+          yamlcompat.parse(yamlcompat.dump({"why": "handoff -> resolve, then merge"}))
+          == {"why": "handoff -> resolve, then merge"})
+    # _outside_quotes decides what _check may refuse, and breaking it only makes
+    # _check refuse more, which the differential tolerates - so these two say
+    # what must be read, not merely not misread.
+    check("yaml: an indicator inside single quotes is text",
+          _parsed("a: 'a & b'\n") == {"a": "a & b"}, str(_parsed("a: 'a & b'\n")))
+    check("yaml: an escaped quote does not end the quoted text",
+          _parsed('a: "x\\" & y"\n') == {"a": 'x" & y'}, str(_parsed('a: "x\\" & y"\n')))
+    check("yaml: a quote opened and never closed is refused, not read with its quote",
+          all(_refused(src) for src in ('a: "x & y\n', "a: 'x & y\n", 'a: "x" y\n',
+                                        "a: 'x' 'y'\n", 'a: "x\\"\n', 'a: "\n')))
+    check("yaml: bare, the same arrow is still refused, not read as anything else",
+          _refused("why: handoff -> resolve\n"))
+    for src, label in [("n: +12:30\n", "a signed sexagesimal"), ("n: 1_0:30\n", "an underscored one"),
+                       ("n: +12:30.5\n", "a signed fractional one")]:
+        check(f"yaml: refuses {label}", _refused(src))
+    check("yaml: .iNf and -.nan are strings, as in PyYAML",
+          yamlcompat.parse("a: .iNf\nb: -.nan\n") == {"a": ".iNf", "b": "-.nan"})
+    for value in (float("inf"), float("-inf"), float("nan")):
+        try:
+            yamlcompat.dump({"k": value})
+            check(f"yaml: dump refuses {value!r}, which no parser reads back", False)
+        except yamlcompat.ConfigError:
+            check(f"yaml: dump refuses {value!r}, which no parser reads back", True)
+    try:
+        yamlcompat.dump({"k": "a\nb"})
+        check("yaml: dump refuses a control character rather than write a broken line", False)
+    except yamlcompat.ConfigError:
+        check("yaml: dump refuses a control character rather than write a broken line", True)
+
+
+def _undefined_globals(path: Path) -> set[tuple[str, str]]:
+    """(scope, name) for every name a function reads as a global that its module
+    never defines and Python does not provide."""
+    import builtins
+    import symtable
+    top = symtable.symtable(path.read_text(), str(path), "exec")
+    known = {sym.get_name() for sym in top.get_symbols()
+             if sym.is_assigned() or sym.is_imported() or sym.is_namespace()}
+    found: set[tuple[str, str]] = set()
+
+    def walk(table) -> None:
+        for sym in table.get_symbols():
+            name = sym.get_name()
+            if (table is not top and sym.is_global() and sym.is_referenced()
+                    and name not in known and not hasattr(builtins, name)
+                    and not name.startswith("__")):
+                found.add((table.get_name(), name))
+        for child in table.get_children():
+            walk(child)
+    walk(top)
+    return found
+
+
+def test_the_suite_and_the_package_name_only_what_exists() -> None:
+    """A test that reads a name nothing defines raises when it runs, and a
+    failure everyone has learned to read past is not a failure: this suite ended
+    each run on `NameError: DIFFERENTIAL_CASES` for a day because the cases had
+    been deleted and their loop had not. A function is only read for the names
+    it uses when it runs, so this reads them all, and it reads the registration
+    list too, since a test that is never called never fails."""
+    here = Path(__file__).resolve()
+    root = here.parent.parent
+    for path in ([here] + sorted((root / "ocp").glob("*.py"))
+                 + [root / "bin" / "ocp", root / "libexec" / "ptyrun.py"]):
+        bad = sorted(_undefined_globals(path))
+        check(f"names: {path.relative_to(root)} reads no name that is not defined",
+              not bad, str(bad[:5]))
+    text = here.read_text()
+    defined = re.findall(r"^def (test_\w+)\(", text, re.M)
+    registered = set(re.findall(r"(test_\w+)\(", text[text.index("\ndef main()"):]))
+    check("suite: every test function is in main()'s run list",
+          all(d in registered for d in defined),
+          str([d for d in defined if d not in registered][:5]))
+    check("suite: no test function is defined twice, the later one hiding the first",
+          len(defined) == len(set(defined)))
 
 
 def test_yaml_rejects_ambiguity() -> None:
@@ -7014,6 +7279,14 @@ edges:
                               "waiting on one developer", account="beta", team_name="dev",
                               repo=str(home / "harbor"))
         pid = said.split()[1]
+        # A why the record cannot hold is refused before anything is raised.
+        before = len(actions.messages(con))
+        ok2, said2 = hr.propose("add", "twoline", requester="hr", why="one\ntwo",
+                                account="beta", team_name="dev", repo=str(home / "harbor"))
+        check("hr: a why with a line break is refused, and nothing reaches the founder",
+              not ok2 and "nothing was raised" in said2
+              and len(actions.messages(con)) == before
+              and not any("twoline" in (m["body"] or "") for m in actions.messages(con)), said2)
         check("hr: proposing raises it to the founder and changes nothing",
               ok and "dohyun" not in paths.list_agents(), said)
         rid = [m["id"] for m in actions.messages(con) if "dohyun" in (m["body"] or "")]
@@ -14307,7 +14580,9 @@ def main() -> int:
         run(lambda: test_doctor_checks_shared_mcp_config(home))
         run(lambda: test_team_routing())
         run(lambda: test_yaml_differential())
+        run(lambda: test_the_bundled_parser_reads_what_pyyaml_reads_as_strings_and_refuses_the_rest())
         run(lambda: test_yaml_rejects_ambiguity())
+        run(lambda: test_the_suite_and_the_package_name_only_what_exists())
         run(lambda: test_yaml_booleans())
         run(lambda: test_team_validation())
         run(lambda: test_db_dedup(home))

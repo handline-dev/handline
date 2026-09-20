@@ -133,6 +133,12 @@ def propose(kind: str, name: str, requester: str, why: str, account: str | None 
                        to, effort)
     if err:
         return False, err
+    # Written down before it is raised: a proposal that cannot be recorded must
+    # not leave a request in front of the founder that names one.
+    try:
+        dump(prop)
+    except ConfigError as e:
+        return False, f"could not write the proposal down, so nothing was raised: {e}"
     ok, said, rid = askmod.ask(askmod.HUMAN, _escalation(prop), requester=requester)
     if not ok:
         return False, f"could not raise it: {said}"
