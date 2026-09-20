@@ -877,7 +877,7 @@ def build(width: int, sel: dict | None = None,
             # truncated, and `esc [ 2J` clears the screen drawing it. The first
             # line is the first one with something on it, as it is everywhere
             # else - a body that starts with a blank line drew an empty row.
-            first = _ANSI.sub("", actions.first_line(m["body"]))
+            first = drawable(actions.first_line(m["body"]))[0]
             # An agent parked until this is answered is the only thing on the
             # screen that no one else will ever clear; it is not drawn like a
             # report that happens to be addressed here.

@@ -11294,6 +11294,7 @@ def test_nothing_a_terminal_would_obey_gets_through_what_someone_else_wrote(home
         keep_handoff("reviewer", shout + "\n" + shout)
         db.set_agent_state(con, "reviewer", dmn.IDLE, detail=shout)
         db.add_event(con, "reviewer", "wake", {"why": shout})
+        askmod.ask(actions.HUMAN, shout, requester="reviewer")
         page = tui._agent_page(con, "reviewer", tui.AGENTS)
         allowed = re.compile(r"\033\[[0-9;]*m|\033\[K")
         for name in tui._tab_stems(page):
@@ -11306,6 +11307,12 @@ def test_nothing_a_terminal_would_obey_gets_through_what_someone_else_wrote(home
                 check(f"escape: nothing a terminal would obey is in {name} at {width}", not bad, str(bad))
                 check(f"escape: and what surrounded it is still read in {name} at {width}",
                       "before" in frame.replace("\n", "") or "befor" in frame, frame[:120])
+        for width in (100, 30):
+            left = allowed.sub("", tui.frame(width, 40))
+            bad = sorted({hex(ord(c)) for c in re.findall(r"[\x00-\x08\x0b-\x1f\x7f-\x9f]", left)
+                          if c != "\n"})
+            check(f"escape: nor is the main screen's FOR YOU row at {width}",
+                  not bad and (width < 100 or "before" in left), str(bad))
         check("escape: the head block's detail is a body too",
               "\033]" not in "".join(tui.lines_of(tui._agent_page(con, "reviewer", tui.AGENTS), 100)))
         check("escape: wrap alone, for anything else that goes through it",
