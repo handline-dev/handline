@@ -288,10 +288,15 @@ def _footer_row(tail: list) -> int | None:
 
 @dataclass(frozen=True)
 class Dialog:
-    """A confirmation dialog read whole: its title, its numbered options, its footer."""
+    """A confirmation dialog read whole: its title, its numbered options, its
+    footer - and `body`, every non-empty line of the panel verbatim (the
+    title, the raw numbered-option lines, and anything else - free text, a
+    sub-detail under an option), so a caller deciding what Esc does can look
+    at the whole panel, not only the part this parse already turned into data."""
     title: str
     options: tuple[tuple[int, str], ...]
     footer: str
+    body: tuple[str, ...] = ()
 
 
 _OPTION_LABEL = re.compile(r"^(?:\u276f\s*)?(\d+)\.\s+(\S.*)$")
@@ -311,7 +316,7 @@ def parse_dialog(tail: list[str], footer: int) -> Dialog | None:
     options = [(int(m[1]), m[2].strip()) for m in map(_OPTION_LABEL.match, body[1:]) if m]
     if len(options) < 2 or [n for n, _ in options] != list(range(1, len(options) + 1)):
         return None
-    return Dialog(body[0], tuple(options), _visible(str(tail[footer]).strip()))
+    return Dialog(body[0], tuple(options), _visible(str(tail[footer]).strip()), tuple(body))
 
 
 # The whole label of an option that leaves the world as it is, and nothing wider:
@@ -335,6 +340,15 @@ def _inert(label: str) -> bool:
     return re.sub(r"\s*\(esc\)$", "", label.strip().lower()).rstrip(".!") in INERT_LABELS
 
 
+# _ESC_MARK (case-insensitive, a trailing space allowed) and the strip inside
+# _inert (case-sensitive after its own .lower(), no trailing space allowed)
+# are deliberately different patterns, not a drifted duplicate: _ESC_MARK only
+# ever has to notice the mark is there at all, on raw screen text; _inert only
+# ever sees a mark it has already found, on text it has already lowercased and
+# stripped itself. They agree because each does the normalising its own job
+# needs, not because they are meant to be the same regex.
+
+
 def declining_key(dialog: Dialog) -> tuple[str | None, str]:
     """(key, why not) - Escape, when the dialog itself says Esc cancels it and
     offers an option that only declines; otherwise no key and the reason.
@@ -350,12 +364,19 @@ def declining_key(dialog: Dialog) -> tuple[str | None, str]:
     does, read off the screen rather than inferred from a different line: the
     trust dialog's 'No, exit (esc)' is not inert, and no other option's
     wording, however harmless, excuses pressing over what the screen already
-    said. Only a dialog with no such mark falls back to "some option is only
-    a decline", which is the evidence available when nothing names Esc
-    directly.
+    said. The mark is looked for across the WHOLE panel, not only the option
+    labels this parse turned into data: a title reading 'Exiting will stop
+    tasks (esc)', or a free-text line like 'Press Esc to exit (esc)' between
+    the options, is not an option this can evaluate, so a mark found there
+    refuses too, the same as one on an option that turns out not to be inert.
+    Only a dialog with no mark anywhere falls back to "some option is only a
+    decline", which is the evidence available when nothing names Esc directly.
     """
     if "Enter to confirm" not in dialog.footer or "Esc to cancel" not in dialog.footer:
         return None, "its footer does not say Enter confirms and Esc cancels"
+    stray = [ln for ln in dialog.body if _ESC_MARK.search(ln) and not _OPTION_LABEL.match(ln)]
+    if stray:
+        return None, f"the (esc) mark appears where it cannot be evaluated: {stray[0]!r}"
     marked = [label for _, label in dialog.options if _ESC_MARK.search(label)]
     if marked:
         if len(marked) > 1:

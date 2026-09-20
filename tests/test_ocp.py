@@ -2615,6 +2615,19 @@ TRUST_DIALOG_WITH_A_DECOY_CANCEL = [
     "  where the work is", _RULE_ROW, "   Do you trust the files in this folder?",
     "   ❯ 1. Yes, proceed", "     2. No, exit (esc)", "     3. Cancel",
     "   Enter to confirm · Esc to cancel"]
+# auditor's #1057 repro, both shapes: the mark on a free-text line between the
+# options (not a numbered line parse_dialog turns into an option at all), and
+# the mark on the title itself. Neither is something declining_key can
+# evaluate, so both must refuse - "read, never infer" has to mean the whole
+# panel, not only the lines this parse happened to turn into data.
+TRUST_DIALOG_WITH_FREE_TEXT_ESC_LINE = [
+    "  where the work is", _RULE_ROW, "   Do you trust the files in this folder?",
+    "   ❯ 1. Yes, proceed", "     2. No, exit", "     Press Esc to exit (esc)", "     3. Cancel",
+    "   Enter to confirm · Esc to cancel"]
+TRUST_DIALOG_WITH_ESC_MARK_ON_THE_TITLE = [
+    "  where the work is", _RULE_ROW, "   Exiting will stop tasks (esc)",
+    "   ❯ 1. Exit", "     2. Cancel",
+    "   Enter to confirm · Esc to cancel"]
 CLEARED_SCREEN = ["  back at the prompt", "  > "]
 
 
@@ -2662,6 +2675,10 @@ def test_ocp_presses_only_the_key_that_declines(home: Path) -> None:
         ("the (esc) mark itself on the inert option is enough, on its own",
          [ln.replace("2. Move to background and exit", "2. Stay (esc)")
           .replace("3. Stay", "3. Move to background and exit") for ln in EXIT_DIALOG], True),
+        ("(esc) on a free-text line between options is not an option - refuse",
+         TRUST_DIALOG_WITH_FREE_TEXT_ESC_LINE, False),
+        ("(esc) on the title itself is not an option - refuse",
+         TRUST_DIALOG_WITH_ESC_MARK_ON_THE_TITLE, False),
         ("footer without the Enter-confirms half", EXIT_DIALOG[:-1] + ["   Esc to cancel"], False),
         ("footer without the Esc-cancels half", EXIT_DIALOG[:-1] + ["   Enter to confirm"], False),
         ("no rule opening the panel", [ln for ln in EXIT_DIALOG if "▔" not in ln], False),
