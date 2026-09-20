@@ -395,7 +395,13 @@ def _check_one_daemon(r: Report) -> None:
               "end all but one - the others supervise unrecorded")
     else:
         pid = daemon.running_elsewhere()
-        r.add(OK, f"daemon running (pid {pid})" if pid else "no daemon running")
+        if pid:
+            r.add(OK, f"daemon running (pid {pid})")
+        elif live:
+            r.add(WARN, f"a daemon process (pid {live[0]}) does not hold the lock",
+                  "it is not supervising - starting up, or a copy the lock refused")
+        else:
+            r.add(OK, "no daemon running")
 
 
 def _check_service(r: Report) -> None:

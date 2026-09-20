@@ -1902,6 +1902,47 @@ def test_an_exiting_daemon_leaves_the_live_ones_name(home: Path) -> None:
         holder.wait(timeout=30)
 
 
+def test_a_daemon_process_that_does_not_hold_the_lock_is_not_called_absent(home: Path) -> None:
+    """The process table and the lock disagreeing is said, not settled in
+    silence: a daemon that is starting reads that way for an instant, and a
+    screen that answers "no daemon" over a list it just computed contradicts
+    itself."""
+    home.mkdir(parents=True, exist_ok=True)
+    os.environ["OCP_HOME"] = str(home)
+    orig = dmn.processes
+    try:
+        dmn.processes = lambda: [4242]
+        r = doctor.Report()
+        doctor._check_one_daemon(r)
+        check("doctor: a daemon process holding no lock warns, naming it",
+              r.rows[-1][0] == doctor.WARN and "4242" in r.rows[-1][1], str(r.rows))
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            climod.cmd_daemon_status(None)
+        check("ps: says the same, beside 'not running'",
+              "daemon: not running" in buf.getvalue() and "pid 4242" in buf.getvalue(),
+              buf.getvalue())
+        dmn.processes = lambda: []
+        r = doctor.Report()
+        doctor._check_one_daemon(r)
+        check("doctor: no process and no lock is plainly no daemon",
+              r.rows[-1][0] == doctor.OK and "no daemon" in r.rows[-1][1], str(r.rows))
+    finally:
+        dmn.processes = orig
+
+
+def test_init_keeps_the_lock_file_out_of_the_home_repo(home: Path) -> None:
+    """The lock file's pid changes on every daemon start; tracked, it is a
+    change `git status` shows forever."""
+    os.environ["OCP_HOME"] = str(home)
+    with contextlib.redirect_stdout(io.StringIO()):
+        climod.cmd_init(argparse.Namespace())
+    lines = (home / ".gitignore").read_text().split()
+    check("init: locks/ is ignored", "locks/" in lines, str(lines))
+    check("init: and nothing names the pidfile that no longer exists",
+          "daemon.pid" not in lines, str(lines))
+
+
 def test_one_daemon_is_counted_in_the_process_table(home: Path) -> None:
     """A supervisor nobody recorded exists only there. The words `ocp daemon`
     on a command line do not make one: a grep for them carries both, and so
@@ -12947,6 +12988,8 @@ def main() -> int:
         run(lambda: test_a_running_daemon_is_reported_whatever_daemon_pid_says(Path(td) / 'd6'))
         run(lambda: test_a_daemon_that_never_wrote_its_name_is_still_reported(Path(td) / 'd6b'))
         run(lambda: test_the_lock_names_only_its_current_holder(Path(td) / 'd6c'))
+        run(lambda: test_a_daemon_process_that_does_not_hold_the_lock_is_not_called_absent(Path(td) / 'd6d'))
+        run(lambda: test_init_keeps_the_lock_file_out_of_the_home_repo(Path(td) / 'd6e'))
         run(lambda: test_service_plist(Path(td) / 'svc1'))
         run(lambda: test_service_launchctl_gated(Path(td) / 'svc2'))
         run(lambda: test_service_status_when_not_installed(Path(td) / 'svc3'))

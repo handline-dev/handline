@@ -12,8 +12,8 @@ evaluate, and the event that would have resumed them can never fire. The system
 would sit still with empty accounts forever.
 
 Reconciliation runs unconditionally at startup (8.4). One pass covers triggers
-missed while down and lost timers at the same time. In-memory
-timers are an optimization and never the source of truth.
+missed while down and lost timers at the same time. In-memory timers are an
+optimization and never the source of truth.
 
 Handoff progress is committed per step (8.9), so a restart resumes from the
 step it reached. An agent with an in-flight handoff is excluded from trigger
