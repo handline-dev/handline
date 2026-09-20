@@ -16,8 +16,9 @@ Supported: nested maps, lists (including lists of maps), comments, quoted
 strings, flow collections, and YAML 1.1 booleans (yes/no/on/off/true/false in
 the spellings PyYAML takes). Rejected loudly: anchors, block scalars, merge
 keys, tabs, multiple documents, unbalanced flow collections, sexagesimals like
-12:30, dates, inf and nan, numbers written with underscores, and escapes in
-double quotes other than \\ and \".
+12:30, dates, inf and nan, numbers written with underscores, escapes in
+double quotes other than \\ and \", and a plain key PyYAML would not read as
+text (1, on, null, a date).
 """
 from __future__ import annotations
 
@@ -127,6 +128,27 @@ def _unquote(t: str, line: int = 0) -> str:
     return "".join(out)
 
 
+def _key(raw: str, line: int = 0) -> str:
+    """A map key, which is always text here. A quoted key is its text. A plain
+    one is refused unless the value rules would return it unchanged: PyYAML
+    reads `1:`, `on:`, `null:` and a date as an int, a bool, None and a date,
+    and a config key that is one of those is a mistake to quote, not a key to
+    hand on as something else."""
+    k = raw.strip()
+    if k[:1] in ("\"", "'"):
+        if not _closes_at_end(k):
+            raise ConfigError(f"line {line}: quoted key is not closed at its end: {k!r}")
+        return _unquote(k, line)
+    # An anchor, alias, tag, block indicator or merge key is syntax only where
+    # the key starts.
+    _check(line, k[:2])
+    got = _scalar(k, line)
+    if not isinstance(got, str) or got != k:
+        raise ConfigError(f"line {line}: key {k!r} is read as {got!r} by PyYAML; "
+                          "quote it if you mean the text")
+    return k
+
+
 def _scalar(tok: str, line: int = 0):
     t = tok.strip()
     if not t:
@@ -227,10 +249,7 @@ def _flow(t: str, line: int = 0):
         if not split:
             raise ConfigError(f"line {line}: flow map entry is not 'key: value': {item!r}")
         k, v = split
-        k = k.strip()
-        if len(k) > 1 and k[0] == k[-1] and k[0] in "\"'":
-            k = _unquote(k, line)
-        out[k] = _scalar(v.strip(), line)
+        out[_key(k, line)] = _scalar(v.strip(), line)
     return out
 
 
@@ -407,9 +426,7 @@ def _map(rows, i: int, indent: int):
         if not split:
             raise ConfigError(f"line {n}: expected 'key: value' but found {body!r}")
         key, rest = split
-        key = key.strip()
-        if len(key) > 1 and key[0] == key[-1] and key[0] in "\"'":
-            key = _unquote(key, n)
+        key = _key(key, n)
         rest = rest.strip()
         if rest:
             _check(n, rest)

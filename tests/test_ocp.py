@@ -2478,6 +2478,13 @@ DIFFERENTIAL_CASES = [
     'q: "a\\"b"\nr: "a\\\\b"\n',
     '"k\\"x": 1\n',
     "q: 'x # not a comment'\nr: \"x # \\\" # still not\"\n",
+    # Keys: PyYAML reads a plain 1, on, null or date as an int, a bool, None or a
+    # date, so those are refused here; text and quoted keys agree.
+    "1: x\n", "on: x\nyes: y\n", "null: x\n", "~: x\n", "2026-09-20: x\n", "0x10: x\n",
+    "1.5: x\n", "1_000: x\n", "x:\n  1: a\n  b: c\n", "- 1: a\n", "- on: a\n",
+    "{ a: 1, 1: x }\n", "{ a: 1, on: y }\n",
+    "y: 1\n1e3: 2\n08: 3\na b: 4\n-: 5\n", "'1': a\n\"on\": b\n'2026-09-20': c\n",
+    "&a k: v\n", "*a: v\n", '"a" b: 1\n', "'a' b: 1\n",
     # A quote that is not closed at the end of the scalar is an error, not text.
     'a: "x & y\n', "a: 'x\n", 'a: "x" y\n',
 ]
@@ -2603,6 +2610,15 @@ def _parsed(src: str):
         return "<refused>"
 
 
+def _roundtrip(value, key: str = "k"):
+    """What the bundled parser reads back from what dump writes for one value,
+    or "<refused>" where either raises."""
+    try:
+        return yamlcompat.parse(yamlcompat.dump({key: value}))
+    except yamlcompat.ConfigError:
+        return "<refused>"
+
+
 def _refused(src: str) -> bool:
     try:
         yamlcompat.parse(src)
@@ -2628,25 +2644,23 @@ def test_the_bundled_parser_reads_what_pyyaml_reads_as_strings_and_refuses_the_r
             check(f"yaml: refuses {label}", False, f"parsed as {got!r}")
         except yamlcompat.ConfigError:
             check(f"yaml: refuses {label}", True)
-    got = yamlcompat.parse("a: y\nb: n\nc: yEs\nd: tRUE\ne: nULL\nf: -.5\ng: 08\nh: 1e3\n")
+    got = _parsed("a: y\nb: n\nc: yEs\nd: tRUE\ne: nULL\nf: -.5\ng: 08\nh: 1e3\n")
     check("yaml: y, n, mixed case, a signed .5, 08 and 1e3 are strings, as in PyYAML",
           got == {"a": "y", "b": "n", "c": "yEs", "d": "tRUE", "e": "nULL", "f": "-.5",
                   "g": "08", "h": "1e3"}, str(got))
     check("yaml: the spellings PyYAML takes are still booleans and null",
-          yamlcompat.parse("a: Yes\nb: OFF\nc: True\nd: ~\ne: NULL\n")
+          _parsed("a: Yes\nb: OFF\nc: True\nd: ~\ne: NULL\n")
           == {"a": True, "b": False, "c": True, "d": None, "e": None})
     check("yaml: a doubled single quote, and the two escapes, read as one character",
-          yamlcompat.parse("a: 'it''s'\nb: \"x\\\"y\"\nc: \"p\\\\q\"\n")
+          _parsed("a: 'it''s'\nb: \"x\\\"y\"\nc: \"p\\\\q\"\n")
           == {"a": "it's", "b": 'x"y', "c": "p\\q"})
-    unread = [(v, yamlcompat.dump({"k": v})) for v in DUMP_STRINGS
-              if yamlcompat.parse(yamlcompat.dump({"k": v})) != {"k": v}]
+    unread = [(v, _roundtrip(v)) for v in DUMP_STRINGS if _roundtrip(v) != {"k": v}]
     check("yaml: everything dump writes is read back as the same string", not unread,
           str(unread[:3]))
     check("yaml: every non-string dump writes is read back as the same value",
-          all(repr(yamlcompat.parse(yamlcompat.dump({"k": v}))["k"]) == repr(v)
-              for v in DUMP_VALUES))
+          all(repr(_roundtrip(v)) == repr({"k": v}) for v in DUMP_VALUES))
     check("yaml: a why with an arrow is written quoted and read back",
-          yamlcompat.parse(yamlcompat.dump({"why": "handoff -> resolve, then merge"}))
+          _roundtrip("handoff -> resolve, then merge", "why")
           == {"why": "handoff -> resolve, then merge"})
     # _outside_quotes decides what _check may refuse, and breaking it only makes
     # _check refuse more, which the differential tolerates - so these two say
@@ -2655,6 +2669,22 @@ def test_the_bundled_parser_reads_what_pyyaml_reads_as_strings_and_refuses_the_r
           _parsed("a: 'a & b'\n") == {"a": "a & b"}, str(_parsed("a: 'a & b'\n")))
     check("yaml: an escaped quote does not end the quoted text",
           _parsed('a: "x\\" & y"\n') == {"a": 'x" & y'}, str(_parsed('a: "x\\" & y"\n')))
+    check("yaml: a quoted key is its text, whatever it looks like",
+          _parsed("'1': a\n\"on\": b\n'2026-09-20': c\n") == {"1": "a", "on": "b", "2026-09-20": "c"})
+    check("yaml: a plain key that is text to PyYAML too is read unchanged",
+          _parsed("y: 1\n1e3: 2\n08: 3\na b: 4\n-: 5\n")
+          == {"y": 1, "1e3": 2, "08": 3, "a b": 4, "-": 5})
+    check("yaml: a plain key PyYAML reads as a number, bool, null or date is refused",
+          all(_refused(f"{k}: x\n") for k in ("1", "on", "Yes", "true", "null", "~", "1.5", "0x10",
+                                             "1_000", "2026-09-20", "+.inf", "12:30", "")),
+          str([k for k in ("1", "on", "null", "~", "") if not _refused(f"{k}: x\n")]))
+    check("yaml: in a list item, a flow map and a nested map too",
+          all(_refused(src) for src in ("- on: a\n", "{a: 1, 1: x}\n", "x:\n  1: a\n",
+                                        "x:\n  - { true: a }\n")))
+    check("yaml: text after a quoted key's closing quote is refused, not read as the key",
+          all(_refused(src) for src in ('"a" b: 1\n', "'a' b: 1\n", '{ "a" b: 1 }\n')))
+    check("yaml: an anchor or an alias where a key starts is refused",
+          _refused("&a k: v\n") and _refused("*a: v\n"))
     check("yaml: a quote opened and never closed is refused, not read with its quote",
           all(_refused(src) for src in ('a: "x & y\n', "a: 'x & y\n", 'a: "x" y\n',
                                         "a: 'x' 'y'\n", 'a: "x\\"\n', 'a: "\n')))
@@ -2664,7 +2694,7 @@ def test_the_bundled_parser_reads_what_pyyaml_reads_as_strings_and_refuses_the_r
                        ("n: +12:30.5\n", "a signed fractional one")]:
         check(f"yaml: refuses {label}", _refused(src))
     check("yaml: .iNf and -.nan are strings, as in PyYAML",
-          yamlcompat.parse("a: .iNf\nb: -.nan\n") == {"a": ".iNf", "b": "-.nan"})
+          _parsed("a: .iNf\nb: -.nan\n") == {"a": ".iNf", "b": "-.nan"})
     for value in (float("inf"), float("-inf"), float("nan")):
         try:
             yamlcompat.dump({"k": value})
