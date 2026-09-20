@@ -8753,6 +8753,160 @@ def test_the_panels_bounded_cells_fit_their_own_columns(home: Path) -> None:
           tui.vlen(status.describe_runway(None)) < tui.ACCT_W["runway"])
 
 
+def test_the_accounts_panel_says_how_many_agents_are_assigned_and_running(home: Path) -> None:
+    """The figure is `load.roster`'s: agents living on the account (where the
+    AGENTS panel's acct column puts them) and how many of those are running,
+    drawn "3 ▶1". None on an account is a dim 0, a roster not read is "?", and
+    when the row would not fit whole the last columns go, a whole column at a
+    time, heading and rows together, leaving the tick and "next" alone."""
+    from ocp import load as loadmod
+    from ocp import daemon as dmn
+    _daemon_home(home, 20)
+    accounts.register("beta")
+    accounts.register("gamma")
+    agents.register("frontend", "alpha")
+    agents.register("worker", "beta")
+    agents.register("mover", "beta")
+    con = db.connect()
+    try:
+        db.set_agent_state(con, "backend", dmn.RUNNING, detail="working")
+        db.set_agent_state(con, "frontend", dmn.IDLE)
+        # RUNNING but closed: a session that is not there is not running.
+        db.set_agent_state(con, "worker", dmn.RUNNING)
+        db.set_closed(con, "worker", None)
+        # Preferred beta, but its session is on alpha: it lives on alpha.
+        db.set_agent_state(con, "mover", dmn.IDLE)
+        db.set_account(con, "mover", "alpha")
+        found, unplaced = loadmod.roster(con)
+    finally:
+        con.close()
+    check("roster: assigned by where the agent is, running only if unclosed",
+          found == {"alpha": (3, 1), "beta": (1, 0)} and unplaced == 0, (found, unplaced))
+    check("roster: an account nobody lives on is absent, not a guess",
+          "gamma" not in found)
+    # An agent with no readable account cannot be counted under any: it is
+    # returned on its own, so the panel can call every figure a floor.
+    agents.register("ghost", "alpha")
+    (paths.agent_dir("ghost") / "agent.yaml").write_text("model: sonnet\n")
+    con = db.connect()
+    try:
+        after, unplaced = loadmod.roster(con)
+    finally:
+        con.close()
+    check("roster: an agent with no account is unplaced, and counted nowhere",
+          after == found and unplaced == 1, (after, unplaced))
+    (paths.agent_dir("ghost") / "agent.yaml").unlink()
+    # The database recorded where it is, but its config cannot be read: the
+    # AGENTS panel draws it as a config error, so it is placed nowhere either.
+    agents.register("broken", "alpha")
+    con = db.connect()
+    try:
+        db.set_account(con, "broken", "alpha")
+        (paths.agent_dir("broken") / "agent.yaml").write_text("model: [unclosed\n")
+        after, unplaced = loadmod.roster(con)
+    finally:
+        con.close()
+    check("roster: a recorded account does not place an agent the panel cannot read",
+          after == found and unplaced == 1, (after, unplaced))
+    check("roster: the panel draws that same agent as a config error",
+          any("broken" in ln and "config error" in ln
+              for ln in tui._ANSI.sub("", tui.frame(200, 40)).splitlines()))
+    (paths.agent_dir("broken") / "agent.yaml").unlink()
+
+    plain = lambda t: tui._ANSI.sub("", t)  # noqa: E731
+    cell = lambda *a: plain(tui.agents_cell(*a))  # noqa: E731
+    check("agents cell: assigned then running", cell((3, 2)) == "3 ▶2", cell((3, 2)))
+    check("agents cell: none is a figure, unread is not",
+          cell((0, 0)) == "0" and cell(None) == "?")
+    check("agents cell: assigned and none running still says so, and dimly",
+          cell((3, 0)) == "3 ▶0" and tui.agents_cell((3, 0)).count(tui.DIM) == 1
+          and tui.STATE_COLOR["RUNNING"] in tui.agents_cell((3, 1)))
+    check("agents cell: agents that could not be placed make every figure a floor",
+          cell((3, 2), 1) == "3? ▶2?" and cell((0, 0), 1) == "0? ▶0?",
+          (cell((3, 2), 1), cell((0, 0), 1)))
+    widest = cell((100, 100), 1)
+    check("agents cell: three digits and a floor mark fit the column",
+          tui.vlen(widest) < tui.ACCT_W["agents"], widest)
+
+    # The cap costs no column: the running figure is yellow while it binds.
+    check("agents cell: yellow while the account is at its cap, and not otherwise",
+          tui.YEL in tui.agents_cell((3, 2), 0, True)
+          and tui.YEL in tui.agents_cell((3, 0), 0, True)
+          and tui.YEL not in tui.agents_cell((3, 2)))
+    check("agents cell: at its cap it says the same words",
+          plain(tui.agents_cell((3, 2), 0, True)) == "3 ▶2")
+
+    # The same figures on the bridge, for the account with agents, the one
+    # with one closed agent, and the one with none.
+    def need(cols: list[str]) -> int:
+        return (tui.PANEL_BORDERS + tui.ACCT_INDENT + tui.ACCT_TAIL
+                + sum(tui.ACCT_W[k] for k in cols))
+    order = list(tui.ACCT_W)
+    check("agents column: it sits in the middle of the row, with the runway last",
+          0 < order.index("agents") < order.index("runway") == len(order) - 1
+          and "cap" not in order, order)
+    # "next" is drawn on the account the pick chooses among the logged-in ones.
+    real_login = tui._logged_in
+    tui._logged_in = lambda acct: True
+    try:
+        frames = {w: plain(tui.frame(w, 40, panel=tui.ACCOUNTS))
+                  for w in (200, need(order), need(order) - 1, 80,
+                            need(order[:order.index("agents") + 1]),
+                            need(order[:order.index("agents") + 1]) - 1, need(order[:1]))}
+        sizes = {w: plain(tui.frame(w, 40)).splitlines() for w in range(40, 100, 3)}
+    finally:
+        tui._logged_in = real_login
+    row = lambda text, n: next(ln for ln in text.splitlines() if f" {n} " in ln)  # noqa: E731
+    wide = frames[200]
+    check("agents column: alpha reads 3 ▶1",
+          " 3 ▶1 " in row(wide, "alpha"), row(wide, "alpha"))
+    check("agents column: beta reads 1 ▶0", " 1 ▶0 " in row(wide, "beta"), row(wide, "beta"))
+    check("agents column: gamma, with none, reads 0",
+          " 0 " in row(wide, "gamma") and "▶" not in row(wide, "gamma"), row(wide, "gamma"))
+
+    # Where the width is not there, the last column is what goes: a prefix of
+    # the columns at every width, shrinking one whole column at a time, and the
+    # width at which each one goes is the width of the row without it.
+    prefixes = [tui.acct_cols(w) for w in range(40, 200)]
+    check("agents column: at every width the columns are a prefix of the row",
+          all(c == order[:len(c)] for c in prefixes))
+    check("agents column: narrower never draws more",
+          all(len(a) <= len(b) for a, b in zip(prefixes, prefixes[1:])))
+    check("agents column: the name is what is left when nothing else fits",
+          tui.acct_cols(0) == ["name"] and tui.acct_cols(need(order[:1])) == ["name"])
+    check("agents column: a row that is drawn fits, with its tick and next",
+          all(len(c) == 1 or need(c) <= w
+              for w, c in zip(range(40, 200), prefixes)))
+    check("agents column: all columns exactly at their width, the runway first to go",
+          tui.acct_cols(need(order)) == order
+          and tui.acct_cols(need(order) - 1) == order[:-1], need(order))
+    check("agents column: an 80-wide bridge keeps the roster and loses the runway",
+          tui.acct_cols(80) == order[:-1] and "runway" not in frames[80]
+          and "▶" in frames[80].split("account")[1].splitlines()[0], tui.acct_cols(80))
+    keep = need(order[:order.index("agents") + 1])
+    check("agents column: the roster is the last of the middle to go, and the row "
+          "before it is what is left",
+          tui.acct_cols(keep) == order[:order.index("agents") + 1]
+          and "agents" not in tui.acct_cols(keep - 1))
+    check("agents column: whatever is cut, the row keeps the tick and next",
+          all(sum("next" in ln for ln in f.splitlines()) == 1 for f in frames.values()),
+          row(frames[80], "alpha"))
+    # The cap on the real row: alpha at 2 mid-turn of a cap of 2.
+    con = db.connect()
+    try:
+        db.set_agent_state(con, "frontend", dmn.RUNNING)
+    finally:
+        con.close()
+    raw = next(ln for ln in tui.frame(200, 40, panel=tui.ACCOUNTS).splitlines()
+               if "▶2" in tui._ANSI.sub("", ln) and "alpha" in ln)
+    check("agents column: the running figure is yellow on an account at its cap",
+          f"{tui.YEL}▶2" in raw, raw)
+    for w, lines in sizes.items():
+        check(f"agents column: nothing overflows a {w}-wide bridge",
+              all(tui.vlen(ln) <= w for ln in lines),
+              [tui.vlen(ln) for ln in lines if tui.vlen(ln) > w])
+
+
 def test_choose_account_does_not_bounce_back_to_a_stale_preferred_account(home: Path) -> None:
     """Founder's priority #241: harbor-manager moved alpha -> gamma at 85%,
     then gamma -> alpha 12 minutes later - back to the account it had just
@@ -13205,6 +13359,7 @@ def main() -> int:
         run(lambda: test_the_daemon_feeds_the_estimate_each_tick(Path(td) / 'burntick'))
         run(lambda: test_a_cold_start_is_not_priced_as_steady_work(Path(td) / 'burncold'))
         run(lambda: test_the_panels_bounded_cells_fit_their_own_columns(Path(td) / 'panelwidths'))
+        run(lambda: test_the_accounts_panel_says_how_many_agents_are_assigned_and_running(Path(td) / 'panelagents'))
         run(lambda: test_ask_and_resolve_do_not_type_at_an_agent_at_the_wall(Path(td) / 'askwall'))
         run(lambda: test_choose_account_does_not_bounce_back_to_a_stale_preferred_account(
             Path(td) / 'nobounce'))

@@ -81,6 +81,36 @@ def active_by_account(con) -> dict[str, list[str]]:
     return found
 
 
+def is_running(row) -> bool:
+    """Whether an agent's state row says it is running: the AGENTS panel's
+    RUNNING, and not a closed session that still carries the state."""
+    return bool(row) and row["state"] == "RUNNING" and not row["closed_at"]
+
+
+def roster(con) -> tuple[dict[str, tuple[int, int]], int]:
+    """(assigned, running) per account, and how many agents could not be placed.
+
+    An agent belongs to the account the AGENTS panel's acct column names, where
+    it actually is, not the one it would prefer, and only if the panel can draw
+    it: `agents.placed` is the panel's own test, so an agent it draws as a
+    config error is not counted on any account. Assigned is every agent placed
+    there, running or not; running is those of them `is_running`. An agent that
+    is not placed is returned as a count of its own: every figure is then a
+    floor, and the caller says so."""
+    found: dict[str, list[int]] = {}
+    unplaced = 0
+    for name in paths.list_agents():
+        try:
+            acct, _ = agents.placed(name, con)
+        except Exception:  # noqa: BLE001 - the AGENTS panel draws it as a config error
+            unplaced += 1
+            continue
+        counts = found.setdefault(acct, [0, 0])
+        counts[0] += 1
+        counts[1] += is_running(db.get_agent_state(con, name))
+    return {a: (c[0], c[1]) for a, c in found.items()}, unplaced
+
+
 def first_turn_agents(con) -> set[str]:
     """Agents whose current mid-turn stretch is their very first since the
     SessionStart or moved_account that began it - the turn `measure.py` already

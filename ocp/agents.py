@@ -205,6 +205,14 @@ def repo_of(name: str) -> str | None:
     return str(repo) if repo else None
 
 
+def placed(name: str, con=None) -> tuple[str, dict]:
+    """(the account the agent is on, its config), or the error that stops
+    either. The AGENTS panel draws an agent's row only if this holds (else "config
+    error") and `load.roster` counts one only if it does, so the two cannot
+    place an agent differently."""
+    return current_account(name, con), read(name)
+
+
 def account_of(name: str) -> str:
     acct = read(name).get("account")
     if not acct:
