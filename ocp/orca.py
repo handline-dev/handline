@@ -222,6 +222,11 @@ class Blocker:
     # What the screen itself says: the dialog's title and options, or the start
     # of the text left in the input. Quoted from the screen, never classified.
     detail: str = ""
+    # The dialog's own title, raw from parse_dialog - not reconstructed from
+    # `detail`, which is a rendering (quoted, joined, truncated) that a title
+    # with a quote in it or over DETAIL_CHARS long does not round-trip through.
+    # Empty for anything but MODAL, or a MODAL parse_dialog itself refuses.
+    title: str = ""
 
     def reason(self) -> str:
         if self.kind == MODAL:
@@ -375,7 +380,8 @@ def screen_blocker(handle: str) -> Blocker | None:
         return Blocker(UNREADABLE)
     footer = _footer_row(tail)
     if footer is not None:
-        return Blocker(MODAL, describe_modal(tail, footer))
+        dialog = parse_dialog(tail, footer)
+        return Blocker(MODAL, describe_modal(tail, footer), title=dialog.title if dialog else "")
     draft = term.get("draft")
     if draft:
         return Blocker(UNSENT, " ".join(str(draft).split())[:DETAIL_CHARS])

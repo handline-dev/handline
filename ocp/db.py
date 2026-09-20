@@ -139,7 +139,12 @@ CREATE TABLE IF NOT EXISTS delivery_blocks (
   request_id INTEGER,
   -- 'tick' ends with the work; 'close' - ocp's own /exit raised the dialog -
   -- stands for as long as the dialog does.
-  origin     TEXT NOT NULL DEFAULT 'tick'
+  origin     TEXT NOT NULL DEFAULT 'tick',
+  -- The dialog's own title, raw from orca.Blocker (parse_dialog), for a MODAL
+  -- block - never reconstructed from `detail`, which is a rendering a title
+  -- with a quote in it or over DETAIL_CHARS long does not round-trip through.
+  -- Empty for anything but MODAL.
+  title      TEXT NOT NULL DEFAULT ''
 );
 
 -- What ocp did about a dialog on an agent's screen, one row per attempt or per
@@ -718,17 +723,18 @@ def blocks(con) -> list:
 
 
 def block_open(con, agent: str, kind: str, detail: str, work: str, now: int,
-               show_at: int, origin: str = "tick") -> None:
+               show_at: int, origin: str = "tick", title: str = "") -> None:
     con.execute(
         "INSERT OR REPLACE INTO delivery_blocks"
-        "(agent, kind, detail, work, since, show_at, seen, request_id, origin) "
-        "VALUES(?,?,?,?,?,?,?,NULL,?)",
-        (agent, kind, detail, work, now, show_at, now, origin))
+        "(agent, kind, detail, work, since, show_at, seen, request_id, origin, title) "
+        "VALUES(?,?,?,?,?,?,?,NULL,?,?)",
+        (agent, kind, detail, work, now, show_at, now, origin, title))
 
 
-def block_update(con, agent: str, kind: str, detail: str, work: str, now: int) -> None:
-    con.execute("UPDATE delivery_blocks SET kind = ?, detail = ?, work = ?, seen = ? "
-                "WHERE agent = ?", (kind, detail, work, now, agent))
+def block_update(con, agent: str, kind: str, detail: str, work: str, now: int,
+                 title: str = "") -> None:
+    con.execute("UPDATE delivery_blocks SET kind = ?, detail = ?, work = ?, seen = ?, title = ? "
+                "WHERE agent = ?", (kind, detail, work, now, title, agent))
 
 
 def block_set_request(con, agents: list[str], rid: int) -> None:

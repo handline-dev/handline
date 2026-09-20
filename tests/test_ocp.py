@@ -2946,20 +2946,38 @@ def test_press_history_is_scoped_to_one_dialog_not_the_whole_agent(home: Path) -
     """Auditor's #1026 blocking finding, driven end to end: three different
     dialogs, each cleared once over five hours, must never read as one dialog
     looping - and a brand-new, unrelated block must never escalate on sight
-    because of that history."""
+    because of that history. Scoped by the block's own `title` column (raw,
+    from parse_dialog), never reconstructed from `detail` - auditor's second
+    finding on the first fix: a title with a quote in it, or one over
+    DETAIL_CHARS, does not round-trip through describe_modal's rendering."""
     con = _blocked_world(home)
     now = int(time.time())
     for i, title in enumerate(("Background work is running",
                                "Do you trust the files in this folder?",
                                "Overwrite the file?")):
         db.press_add(con, "backend", now - (5 - i) * 3600, title, "cleared")
-    fourth = {"kind": orcamod.MODAL, "detail": '"A fourth, unrelated dialog" - 1. yes / 2. Stay'}
+    fourth = {"kind": orcamod.MODAL, "detail": '"A fourth, unrelated dialog" - 1. yes / 2. Stay',
+              "title": "A fourth, unrelated dialog"}
     check("press history: three unrelated dialogs, each cleared once, is not a loop",
           blockedmod.stopped_pressing(con, "backend", fourth, now) == "",
           blockedmod.stopped_pressing(con, "backend", fourth, now))
-    same = {"kind": orcamod.MODAL, "detail": '"Background work is running" - 1. yes / 2. Stay'}
+    same = {"kind": orcamod.MODAL, "detail": '"Background work is running" - 1. yes / 2. Stay',
+            "title": "Background work is running"}
     check("press history: but the SAME dialog's own history still counts against it",
           "cleared it 1 times" not in blockedmod.stopped_pressing(con, "backend", same, now))
+
+    # Auditor's #1050 regression on the first fix: a title with a quote in it,
+    # or over DETAIL_CHARS, did not round-trip through a reconstruction from
+    # `detail` - five real clears of the SAME dialog went uncounted, silently.
+    # `title` is the raw value now, compared to the raw value, never rendered.
+    for kind, title in (("quote", 'Delete "build" and stop tasks?'),
+                        ("long", "Q" * (orcamod.DETAIL_CHARS + 50))):
+        for i in range(5):
+            db.press_add(con, "quirky", now - i * 60, title, "cleared")
+        rec = {"kind": orcamod.MODAL, "detail": f'"{title}" - 1. yes / 2. Stay', "title": title}
+        stopped = blockedmod.stopped_pressing(con, "quirky", rec, now)
+        check(f"press history: a {kind} title's own five clears are still counted",
+              "cleared it 5 times" in stopped, stopped)
 
     # The escalation gate: a brand-new UNSENT block on the same agent must not
     # jump SHOW_AFTER_S/ESCALATE_AFTER_S because of that stale MODAL history.

@@ -21,7 +21,6 @@ is a loop the founder is told about, not one it keeps pressing.
 """
 from __future__ import annotations
 
-import re
 import time
 
 from . import ask as askmod, db, orca, paths, status, waiting
@@ -110,9 +109,10 @@ def work_waiting(con, agent: str, row, now: int) -> str:
     return "; ".join(parts)
 
 
-def classify(con, agent: str, row) -> tuple[str, str] | None:
-    """(kind, detail) of what is in the way of giving this agent its work, or
-    None when nothing is. One screen read at most.
+def classify(con, agent: str, row) -> tuple[str, str, str] | None:
+    """(kind, detail, title) of what is in the way of giving this agent its
+    work, or None when nothing is. One screen read at most. `title` is the
+    dialog's own title, raw - empty for every kind but MODAL.
 
     Left out on purpose: busy, which is what an agent working is and which
     `STUCK_RUNNING_S` already judges; a usage wall, which resolves when the
@@ -125,21 +125,21 @@ def classify(con, agent: str, row) -> tuple[str, str] | None:
     if not row or row["closed_at"] or waiting.of(row):
         return None
     if row["state"] == daemon.STALLED:
-        return STALLED, row["detail"] or ""
+        return STALLED, row["detail"] or "", ""
     handle = row["terminal"]
     if not handle:
-        return NO_TERMINAL, ""
+        return NO_TERMINAL, "", ""
     if not orca.available():
         # The sibling of UNREADABLE below: silently skipping this starves
         # every agent with queued work the same way, with nobody told, for as
         # long as Orca stays off PATH.
-        return ORCA_DOWN, ""
+        return ORCA_DOWN, "", ""
     if not orca.alive(handle):
-        return NO_TERMINAL, "its terminal is gone - Orca no longer has it"
+        return NO_TERMINAL, "its terminal is gone - Orca no longer has it", ""
     if daemon.wall_reason(con, agent, row):
         return None
     if row["state"] not in (daemon.RUNNING, daemon.HANDOFF) and not daemon.session_present(agent):
-        return NO_SESSION, ""
+        return NO_SESSION, "", ""
     seen = orca.screen_blocker(handle)
     if seen is None:
         return None
@@ -151,7 +151,7 @@ def classify(con, agent: str, row) -> tuple[str, str] | None:
     # named here too, not carved out the way UNSENT is above.
     if seen.kind == orca.UNSENT and row["state"] in (daemon.RUNNING, daemon.HANDOFF):
         return None
-    return seen.kind, seen.detail
+    return seen.kind, seen.detail, seen.title
 
 
 def note_close_failure(con, agent: str, log) -> None:
@@ -166,27 +166,18 @@ def note_close_failure(con, agent: str, log) -> None:
     if db.block_get(con, agent) is None:
         db.block_open(con, agent, seen.kind, seen.detail,
                       work_waiting(con, agent, db.get_agent_state(con, agent), now), now,
-                      show_at=now, origin="close")
+                      show_at=now, origin="close", title=seen.title)
         log(f"  {agent}: {reason(seen.kind, seen.detail)} - ocp's own /exit raised it")
-
-
-_QUOTED_TITLE = re.compile(r'^"([^"]*)"')
-
-
-def _title_of(detail: str) -> str:
-    """The dialog's own title, pulled out of describe_modal's quoted form, so
-    a loop is counted against one dialog and never against everything an
-    agent's screen has shown in the window - two unrelated dialogs, each
-    cleared once, are two events, not one that looks like a loop."""
-    m = _QUOTED_TITLE.match(detail)
-    return m.group(1) if m else detail
 
 
 def stopped_pressing(con, agent: str, rec, now: int) -> str:
     """Why ocp will not press this agent's dialog again, or '' when it may.
     `rec` is the block it is asked about - the history is this one dialog's,
-    by title, not the agent's whole 6-hour past."""
-    title = _title_of(rec["detail"])
+    by its own raw title (rec['title'], from parse_dialog - never
+    reconstructed from `detail`, a rendering that a title with a quote in it
+    or over DETAIL_CHARS long does not round-trip through), not the agent's
+    whole 6-hour past."""
+    title = rec["title"]
     history = [p for p in db.presses_since(con, agent, now - PRESS_WINDOW_S) if p["title"] == title]
     cleared = sum(1 for p in history if p["outcome"] == "cleared")
     if cleared >= MAX_PRESSES:
@@ -283,14 +274,14 @@ def _track(con, agent: str, row, now: int, log):
         if rec:
             _end(con, agent, rec, "it can be given its work again", log)
         return None
-    kind, detail = found
+    kind, detail, title = found
     if rec is None:
-        db.block_open(con, agent, kind, detail, work, now, show_at=now + SHOW_AFTER_S)
+        db.block_open(con, agent, kind, detail, work, now, show_at=now + SHOW_AFTER_S, title=title)
         log(f"  {agent}: work is waiting and cannot be given - {reason(kind, detail)}")
     else:
         if rec["kind"] != kind:
             log(f"  {agent}: still cannot be given its work - {reason(kind, detail)}")
-        db.block_update(con, agent, kind, detail, work or rec["work"], now)
+        db.block_update(con, agent, kind, detail, work or rec["work"], now, title=title)
     rec = db.block_get(con, agent)
     # An agent that is working may be waiting on a person for that very dialog;
     # only an idle one's is pressed.
