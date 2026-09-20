@@ -185,6 +185,14 @@ unrelated request repeating what they had already answered.
   agents/<name>/             agent.yaml ROLE.md base.md inbox/ journal/
 ```
 
+Each account's `.claude/` links to the items of `shared/.claude/` that exist
+(settings.json, CLAUDE.md, skills, agents, commands, plugins). An item added
+there later is linked into every account that lacks it, by the daemon, on its
+next tick - it fills an *absent* slot, so a link deleted on purpose comes back.
+To opt an account out of a shared item, put a real file or a link of its own at
+that path: the daemon leaves it alone, and `ocp doctor` names it as a shared
+file that does not reach that account.
+
 ## Tests
 
 ```bash
