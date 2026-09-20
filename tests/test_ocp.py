@@ -2478,6 +2478,8 @@ DIFFERENTIAL_CASES = [
     'q: "a\\"b"\nr: "a\\\\b"\n',
     '"k\\"x": 1\n',
     "q: 'x # not a comment'\nr: \"x # \\\" # still not\"\n",
+    # A quote that is not closed at the end of the scalar is an error, not text.
+    'a: "x & y\n', "a: 'x\n", 'a: "x" y\n',
 ]
 
 
@@ -2593,6 +2595,14 @@ def test_yaml_differential() -> None:
     _check_yaml_differential()
 
 
+def _parsed(src: str):
+    """What the bundled parser reads, or "<refused>" where it raises."""
+    try:
+        return yamlcompat.parse(src)
+    except yamlcompat.ConfigError:
+        return "<refused>"
+
+
 def _refused(src: str) -> bool:
     try:
         yamlcompat.parse(src)
@@ -2638,6 +2648,16 @@ def test_the_bundled_parser_reads_what_pyyaml_reads_as_strings_and_refuses_the_r
     check("yaml: a why with an arrow is written quoted and read back",
           yamlcompat.parse(yamlcompat.dump({"why": "handoff -> resolve, then merge"}))
           == {"why": "handoff -> resolve, then merge"})
+    # _outside_quotes decides what _check may refuse, and breaking it only makes
+    # _check refuse more, which the differential tolerates - so these two say
+    # what must be read, not merely not misread.
+    check("yaml: an indicator inside single quotes is text",
+          _parsed("a: 'a & b'\n") == {"a": "a & b"}, str(_parsed("a: 'a & b'\n")))
+    check("yaml: an escaped quote does not end the quoted text",
+          _parsed('a: "x\\" & y"\n') == {"a": 'x" & y'}, str(_parsed('a: "x\\" & y"\n')))
+    check("yaml: a quote opened and never closed is refused, not read with its quote",
+          all(_refused(src) for src in ('a: "x & y\n', "a: 'x & y\n", 'a: "x" y\n',
+                                        "a: 'x' 'y'\n", 'a: "x\\"\n', 'a: "\n')))
     check("yaml: bare, the same arrow is still refused, not read as anything else",
           _refused("why: handoff -> resolve\n"))
     for src, label in [("n: +12:30\n", "a signed sexagesimal"), ("n: 1_0:30\n", "an underscored one"),

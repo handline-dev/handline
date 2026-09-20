@@ -89,6 +89,23 @@ _TIMESTAMP = re.compile(
     r"(?:\.[0-9]*)?(?:[ \t]*(?:Z|[-+][0-9]{1,2}(?::[0-9]{2})?))?)$")
 
 
+def _closes_at_end(t: str) -> bool:
+    """Whether the quote `t` opens with is first closed by its last character."""
+    quote, i = t[0], 1
+    while i < len(t):
+        ch = t[i]
+        if quote == '"' and ch == "\\":
+            i += 2
+            continue
+        if ch == quote:
+            if quote == "'" and t[i + 1:i + 2] == "'":
+                i += 2
+                continue
+            return i == len(t) - 1
+        i += 1
+    return False
+
+
 def _unquote(t: str, line: int = 0) -> str:
     """The text of a quoted scalar. Single quotes double a quote to write one;
     double quotes here know only the two escapes `dump` writes, since any other
@@ -118,7 +135,11 @@ def _scalar(tok: str, line: int = 0):
         return _flow(t, line)
     if t.startswith(("[", "{")) or t.endswith(("]", "}")):
         raise ConfigError(f"line {line}: unbalanced flow collection: {t!r}")
-    if len(t) > 1 and t[0] == t[-1] and t[0] in "\"'":
+    if t[0] in "\"'":
+        # A scalar that opens a quote is that quoted scalar and nothing else:
+        # PyYAML refuses an unterminated one and text after the closing quote.
+        if not _closes_at_end(t):
+            raise ConfigError(f"line {line}: quoted scalar is not closed at its end: {t!r}")
         return _unquote(t, line)
 
     low = t.lower()
