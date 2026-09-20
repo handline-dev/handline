@@ -2537,6 +2537,14 @@ PERMISSION_PROMPT = ["  earlier output", _RULE_ROW, "   Bash command", "     rm 
                      "   Esc to cancel · Tab to amend"]
 YES_NO_DIALOG = ["  earlier output", _RULE_ROW, "   Overwrite the file?", "   ❯ 1. Yes", "     2. No",
                  "   Enter to confirm · Esc to cancel"]
+# auditor's #1026 repro: the trust dialog with a third, inert-looking option
+# added, and the SAME screen naming Esc's real target with '(esc)' on the
+# choice that exits. A label elsewhere reading 'Cancel' must not override what
+# the screen already said Esc does.
+TRUST_DIALOG_WITH_A_DECOY_CANCEL = [
+    "  where the work is", _RULE_ROW, "   Do you trust the files in this folder?",
+    "   ❯ 1. Yes, proceed", "     2. No, exit (esc)", "     3. Cancel",
+    "   Enter to confirm · Esc to cancel"]
 CLEARED_SCREEN = ["  back at the prompt", "  > "]
 
 
@@ -2579,6 +2587,11 @@ def test_ocp_presses_only_the_key_that_declines(home: Path) -> None:
         ("the trust dialog: its declining option is 'No, exit'", TRUST_DIALOG, False),
         ("a tool permission prompt: 'No, and tell Claude...' is a choice, Esc there rejects a call",
          PERMISSION_PROMPT, False),
+        ("a decoy 'Cancel' elsewhere does not excuse what the screen's own "
+         "(esc) mark says Esc does ('No, exit')", TRUST_DIALOG_WITH_A_DECOY_CANCEL, False),
+        ("the (esc) mark itself on the inert option is enough, on its own",
+         [ln.replace("2. Move to background and exit", "2. Stay (esc)")
+          .replace("3. Stay", "3. Move to background and exit") for ln in EXIT_DIALOG], True),
         ("footer without the Enter-confirms half", EXIT_DIALOG[:-1] + ["   Esc to cancel"], False),
         ("footer without the Esc-cancels half", EXIT_DIALOG[:-1] + ["   Enter to confirm"], False),
         ("no rule opening the panel", [ln for ln in EXIT_DIALOG if "▔" not in ln], False),

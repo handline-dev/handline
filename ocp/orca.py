@@ -317,6 +317,9 @@ INERT_LABELS = frozenset({"stay", "cancel", "no", "back", "keep", "do nothing",
 ESCAPE = "\x1b"
 
 
+_ESC_MARK = re.compile(r"\(esc\)\s*$", re.IGNORECASE)
+
+
 def _inert(label: str) -> bool:
     return re.sub(r"\s*\(esc\)$", "", label.strip().lower()).rstrip(".!") in INERT_LABELS
 
@@ -330,9 +333,25 @@ def declining_key(dialog: Dialog) -> tuple[str | None, str]:
     one that is only 'stay' or 'no' - the evidence that cancelling leaves things
     as they are. A dialog whose declining option is 'No, exit' has none: there
     Esc leaves the session, which is a choice.
+
+    When an option itself is marked '(esc)' - Claude Code does this on some
+    dialogs (the permission prompt's own fixture below) - that IS what Esc
+    does, read off the screen rather than inferred from a different line: the
+    trust dialog's 'No, exit (esc)' is not inert, and no other option's
+    wording, however harmless, excuses pressing over what the screen already
+    said. Only a dialog with no such mark falls back to "some option is only
+    a decline", which is the evidence available when nothing names Esc
+    directly.
     """
     if "Enter to confirm" not in dialog.footer or "Esc to cancel" not in dialog.footer:
         return None, "its footer does not say Enter confirms and Esc cancels"
+    marked = [label for _, label in dialog.options if _ESC_MARK.search(label)]
+    if marked:
+        if len(marked) > 1:
+            return None, "more than one option is marked (esc)"
+        if not _inert(marked[0]):
+            return None, f"the option marked (esc) is not one that only declines: {marked[0]!r}"
+        return ESCAPE, ""
     if not any(_inert(label) for _, label in dialog.options):
         return None, "none of its options only declines"
     return ESCAPE, ""
