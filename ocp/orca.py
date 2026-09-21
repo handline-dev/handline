@@ -213,14 +213,14 @@ def _screen(handle: str) -> dict | None:
 
 
 # Why a line typed now would not land, named.
-MODAL, UNSENT, UNREADABLE = "modal", "unsent", "unreadable"
+MODAL, UNREADABLE = "modal", "unreadable"
 
 
 @dataclass(frozen=True)
 class Blocker:
     kind: str
-    # What the screen itself says: the dialog's title and options, or the start
-    # of the text left in the input. Quoted from the screen, never classified.
+    # What the screen itself says: the dialog's title and options. Quoted
+    # from the screen, never classified. Empty for anything but MODAL.
     detail: str = ""
     # The dialog's own title, raw from parse_dialog - not reconstructed from
     # `detail`, which is a rendering (quoted, joined, truncated) that a title
@@ -231,8 +231,6 @@ class Blocker:
     def reason(self) -> str:
         if self.kind == MODAL:
             return f'a dialog is open on its screen: {self.detail}'
-        if self.kind == UNSENT:
-            return f'text is left unsent in its input: "{self.detail}"'
         return "its screen could not be read"
 
 
@@ -390,28 +388,23 @@ def declining_key(dialog: Dialog) -> tuple[str | None, str]:
 
 
 
-# The composer's own box, measured live on four idle agents 2026-09-21
-# (keeper, purser, chat, auditor) after an 8-hour deadlock this shape exists
-# to close: two full-width '─' rules sandwich its one content line, an empty
-# one rendering as the bare marker alone - '❯', no trailing space, nothing
-# else, not '> ' or '❯ ' - with a status line and a hint line under it.
+# The composer's own box: two full-width '─' rules around one content row.
+# How many rows sit below it varies by agent (auditor's #1144 fleet read), so
+# the triple is searched for rather than assumed to sit a fixed distance from
+# the end.
 _COMPOSER_RULE = re.compile(r"^[─]{8,}$")
-_COMPOSER_MARKER = ("❯", ">")
 
 
-def _composer_line(tail: list) -> str | None:
-    """The composer's own content line, or None when nothing in the tail is
-    that shape at all - a screen mid-scroll, a different layout, a read that
-    landed somewhere else. How many rows sit below the box (a status line, a
-    hint line, both, neither) varies by agent, so the triple is searched for
-    rather than assumed to sit a fixed distance from the end."""
+def _composer_shape(tail: list) -> bool:
+    """Whether the tail holds a recognized composer box - never what is in
+    it; see screen_blocker for why."""
     for k in range(3, 9):
         if len(tail) < k:
             break
-        top, content, bottom = (str(x).strip() for x in (tail[-k], tail[-k + 1], tail[-k + 2]))
+        top, bottom = (str(x).strip() for x in (tail[-k], tail[-k + 2]))
         if _COMPOSER_RULE.match(top) and _COMPOSER_RULE.match(bottom):
-            return content
-    return None
+            return True
+    return False
 
 
 def screen_blocker(handle: str) -> Blocker | None:
@@ -420,29 +413,24 @@ def screen_blocker(handle: str) -> Blocker | None:
     A dialog draws its footer on the bottom rows; above them is the transcript,
     which may quote those words without anything being asked. Fail-closed: a
     screen that cannot be read blocks, because the cost of a wrong no is an
-    answer given to a question nobody asked, or a prompt submitted with
-    someone's half-written text in it.
+    answer given to a question nobody asked.
 
-    Text in the input box used to be read from `draft`, which Orca reports
-    independently of the screen - and keeps remembering after a send that did
-    not complete, with no way back but the exact send it was refusing to make.
-    Measured the night that stuck three agents for 8 hours: a stale draft with
-    real text in it rendered as the same bare, empty marker a genuinely empty
-    box does. The box itself decides now - `draft` is not consulted at all -
-    so a stale one can never block again, and the block is exactly as long as
-    the screen keeps saying something is there.
-
-    Settled since, on a scratch terminal left genuinely idle: real, freshly-
-    typed text sent with no Enter never rendered on the content line either -
-    `draft` grew with each character sent while the row stayed the bare
-    marker throughout, checked seconds apart. A stale draft (auditor's #1144
-    fleet read: harbor.deck, harbor.reviewer, harbor.shore, orcapipe.chat, all
-    with real-looking drafts and all showing the bare marker) and genuinely
-    unsent text are indistinguishable from outside because neither ever
-    draws - so the screen cannot see an unsent message, and this guard does
-    not withhold work for one. UNSENT stays as a kind, and the composer-shape
-    tests still drive it, because a future render that does show typed text
-    should still block on it; today it just never fires from real input.
+    The composer's own content is never read, and used to be: an unsent-text
+    guard was built and then removed the same night, because the input box
+    cannot answer the question it would be asked. `draft` is Orca's UI
+    composer, excluded from `tail` by Orca's own design; a person's typing and
+    ocp's own sends land there identically - measured 2026-09-21 with a human
+    at the keyboard: 'hi' typed at an agent's terminal gave `draft` 'hi' and a
+    rendered input line of the bare marker, with the text on no row. So the
+    screen cannot answer this at all, and the only source that can - `draft` -
+    is polluted by ocp's own sends echoing back into it: it kept remembering
+    after a send that did not complete, with no way back but the exact send
+    it was refusing to make, which stuck three agents for 8 hours on
+    2026-09-21. The founder accepted the consequence of removing the guard
+    rather than keep one that deadlocks the fleet: typing directly at an
+    agent's terminal is the person's own exception to running everything
+    through ocp, and their text can land inside ocp's own next instruction as
+    one submitted prompt - not lost, but not separate either.
     """
     term = _screen(handle)
     tail = term.get("tail") if term else None
@@ -454,17 +442,12 @@ def screen_blocker(handle: str) -> Blocker | None:
     if footer is not None:
         dialog = parse_dialog(tail, footer)
         return Blocker(MODAL, describe_modal(tail, footer), title=dialog.title if dialog else "")
-    composer = _composer_line(tail)
-    if composer is not None:
-        if composer in _COMPOSER_MARKER:
-            return None
-        typed = composer.lstrip("".join(_COMPOSER_MARKER)).strip()
-        return Blocker(UNSENT, typed[:DETAIL_CHARS]) if typed else None
-    # The composer was not where it is measured to be. Failing closed here,
-    # rather than falling back to `draft`, is the fix: `draft` alone is what
-    # blocked delivery forever with nothing to clear it but the send it
-    # refused. UNREADABLE goes through the same escalation as any other
-    # block and clears the moment a read recognises the shape again.
+    if _composer_shape(tail):
+        return None
+    # Not the composer's shape either - a screen mid-scroll, a different
+    # layout, a read that landed somewhere else. UNREADABLE goes through the
+    # same escalation as any other block and clears the moment a read
+    # recognises the shape again.
     return Blocker(UNREADABLE)
 
 
@@ -490,12 +473,6 @@ def decline_dialog(handle: str) -> tuple[str, str, str]:
     footer = _footer_row(tail)
     if footer is None:
         return NOT_PRESSED, "", "no dialog is open"
-    if term.get("draft"):
-        # Esc is not inert at a Claude Code prompt - it clears the input box.
-        # "The worst a press does is change nothing" only holds where landing
-        # anywhere but the dialog is impossible; a person's own unsent text
-        # sitting in the same read is the one case it is not.
-        return NOT_PRESSED, "", "text is left unsent in its input; not pressing over it"
     dialog = parse_dialog(tail, footer)
     if dialog is None:
         return NOT_PRESSED, "", "its title or options could not be parsed"
@@ -530,23 +507,12 @@ def modal_open(handle: str) -> bool:
     return bool(blocked and blocked.kind in (MODAL, UNREADABLE))
 
 
-def unsent_text(handle: str) -> bool:
-    """Is there text in the input box that nobody has submitted?
-
-    Anything typed now lands in the middle of it and the Enter submits the two
-    as one prompt.
-    """
-    blocked = screen_blocker(handle)
-    return bool(blocked and blocked.kind in (UNSENT, UNREADABLE))
-
-
 def typeable_now(handle: str) -> bool:
-    """Idle, nothing on screen that a typed line would answer, and nothing
-    already typed that it would merge into."""
-    # screen_blocker's own kinds are exactly MODAL, UNSENT and UNREADABLE, so
-    # not-modal-and-not-unsent (each fail-closed on UNREADABLE too) is the
-    # same question as "nothing at all" - asked with one read, not two, so a
-    # dialog that opens between two separate reads cannot be read as neither.
+    """Idle and nothing on screen that a typed line would answer."""
+    # screen_blocker's own kinds are exactly MODAL and UNREADABLE, so
+    # not-modal (fail-closed on UNREADABLE too) is the same question as
+    # "nothing at all" - asked with one read, not two, so a dialog that opens
+    # between two separate reads cannot be read as neither.
     return idle_now(handle) and screen_blocker(handle) is None
 
 
@@ -561,11 +527,8 @@ def clear_context(handle: str, wait: bool = True,
         return False, f"terminal {handle} is not alive"
     if wait and not wait_idle(handle, timeout_ms):
         return False, "agent is mid-turn; not clearing"
-    blocked = screen_blocker(handle)          # one read, not modal_open() then unsent_text()
-    if blocked and blocked.kind in (MODAL, UNREADABLE):
+    if screen_blocker(handle):                # one read, not modal_open() twice
         return False, "a modal is open on its screen; not typing /clear at it"
-    if blocked and blocked.kind == UNSENT:
-        return False, "text is left unsent in its input; not typing /clear into it"
     ok, out = send(handle, "/clear")
     return ok, "context cleared" if ok else f"could not send /clear: {out[:200]}"
 
@@ -590,11 +553,8 @@ def close_session(handle: str, wait: bool = True,
         return False, f"terminal {handle} is not alive"
     if wait and not wait_idle(handle, timeout_ms):
         return False, "agent is mid-turn; not closing"
-    blocked = screen_blocker(handle)          # one read, not modal_open() then unsent_text()
-    if blocked and blocked.kind in (MODAL, UNREADABLE):
+    if screen_blocker(handle):                # one read, not modal_open() twice
         return False, "a modal is open on its screen; not typing /exit at it"
-    if blocked and blocked.kind == UNSENT:
-        return False, "text is left unsent in its input; not typing /exit into it"
     ok, out = send(handle, "/exit")
     return ok, "/exit typed" if ok else f"could not send /exit: {out[:200]}"
 
