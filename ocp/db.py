@@ -187,7 +187,10 @@ CREATE TABLE IF NOT EXISTS usage_samples (
   rl7_lost         INTEGER NOT NULL DEFAULT 0,
   collected_at     INTEGER
 );
+-- (account, ts) serves a read of one account; the prune and a `since` read
+-- filter on ts alone, which that index cannot serve (account leads it).
 CREATE INDEX IF NOT EXISTS usage_samples_account_ts ON usage_samples(account, ts);
+CREATE INDEX IF NOT EXISTS usage_samples_ts ON usage_samples(ts);
 """
 
 
@@ -1019,7 +1022,8 @@ def record_usage_sample(con, account: str, st, ts: int | None = None) -> None:
 
 def prune_usage_samples(con, before_ts: int | None = None) -> int:
     """Delete samples older than the retention window (or `before_ts`
-    directly, for a test). Returns the number of rows removed."""
+    directly, for a test). Returns the number of rows removed. Filters on
+    `ts` alone, so it rides `usage_samples_ts`, not the (account, ts) index."""
     cutoff = before_ts if before_ts is not None else (
         int(time.time()) - USAGE_SAMPLE_RETENTION_DAYS * 86400)
     cur = con.execute("DELETE FROM usage_samples WHERE ts < ?", (cutoff,))

@@ -721,6 +721,21 @@ def test_usage_samples_round_trip_without_coercing_a_gap_to_zero(home: Path) -> 
         con.close()
 
 
+def test_the_usage_sample_prune_and_since_read_use_an_index(home: Path) -> None:
+    """Both filter on ts alone, which the (account, ts) index cannot serve
+    because account leads it: without an index on ts each tick full-scans."""
+    os.environ["OCP_HOME"] = str(home)
+    con = db.connect()
+    try:
+        for q in ("DELETE FROM usage_samples WHERE ts < ?",
+                  "SELECT * FROM usage_samples WHERE ts >= ?"):
+            plan = " ".join(r[3] for r in con.execute("EXPLAIN QUERY PLAN " + q, (0,)))
+            check(f"usage_samples: '{q}' is searched by an index, not scanned",
+                  "USING INDEX" in plan or "USING COVERING INDEX" in plan, plan)
+    finally:
+        con.close()
+
+
 def test_a_tick_samples_every_account_and_a_down_daemon_leaves_a_gap(home: Path) -> None:
     """observe_burn logs one row per account per tick, on the same read
     burnrate already makes - no extra call to any account - and a tick that
@@ -17081,6 +17096,8 @@ def main() -> int:
         run(lambda: test_pick_account_stale_and_unknown_pace(Path(td) / 'staleknown'))
         run(lambda: test_usage_samples_round_trip_without_coercing_a_gap_to_zero(
             Path(td) / 'usagesamples'))
+        run(lambda: test_the_usage_sample_prune_and_since_read_use_an_index(
+            Path(td) / 'sampleindex'))
         run(lambda: test_a_tick_samples_every_account_and_a_down_daemon_leaves_a_gap(
             Path(td) / 'tickgap'))
         run(lambda: test_replay_finds_where_the_new_rule_and_the_old_one_disagree(
