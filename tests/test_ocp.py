@@ -2607,11 +2607,19 @@ PICKER_HINT_WITH_NO_BANNER = [
     "  ⏵⏵ auto mode · enter to open · space to reply · ctrl+x to "]
 
 # auditor's #1285 S2: the banner alone, above an ordinary composer whose own
-# hint never says the picker's words - pins the position guard as load-
-# bearing on its own, not just the banner.
+# hint never says the picker's words - pins the banner as load-bearing on
+# its own.
 BANNER_ABOVE_ORDINARY_COMPOSER = [
     "Your conversation moved to the background - enter opens it · esc returns to it · ctrl+c twice quits",
     " ✻ ocp inbox management             Processed both orcapipe inbox corrections...",
+] + COMPOSER_EMPTY
+
+# auditor's #1309 A: the banner and the picker's words both quoted in the
+# transcript above the box, with an ordinary hint below it - only the hint's
+# position (at or below the composer box) tells this from the picker.
+BANNER_AND_HINT_QUOTED_ABOVE_BOX = [
+    "Your conversation moved to the background - enter opens it · esc returns to it · ctrl+c twice quits",
+    "  the hint reads enter to open on the picker",
 ] + COMPOSER_EMPTY
 
 
@@ -2724,13 +2732,17 @@ def test_the_screen_names_what_is_in_the_way(home: Path) -> None:
         # alignment guess about the session row (dropped for this reason)
         # would have read this as a clean composer and typed into it.
         orcamod._screen = lambda h: _screen_of(PICKER_HINT_WITH_NO_BANNER)
+        b = orcamod.screen_blocker("term_x")
         check("screen: an unconfirmed picker-shaped hint fails closed, never a clean send",
-              orcamod.screen_blocker("term_x").kind == orcamod.UNREADABLE)
+              b is not None and b.kind == orcamod.UNREADABLE)
         # #1285 S2: the banner alone, with no "enter to open" below the box,
         # is not the picker either - the position guard is load-bearing on
         # its own, not merely redundant with the banner.
         orcamod._screen = lambda h: _screen_of(BANNER_ABOVE_ORDINARY_COMPOSER)
         check("screen: the banner above an ordinary composer's own hint is not the picker",
+              orcamod.screen_blocker("term_x") is None)
+        orcamod._screen = lambda h: _screen_of(BANNER_AND_HINT_QUOTED_ABOVE_BOX)
+        check("screen: the picker's words quoted above the composer box are not the picker",
               orcamod.screen_blocker("term_x") is None)
         # An empty detail must not render a dangling colon - what the founder
         # saw on the #1252 false positive, where tail[:hint] was empty.
