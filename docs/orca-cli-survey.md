@@ -191,8 +191,10 @@ Four fields here answer questions that otherwise cost a screen read each:
 - **`stage.activity`** - `working` / idle. Derived from agent status hooks, not
   from parsing a TUI.
 - **`liveness.verdict` + `.source`** - is the agent alive, and *how Orca knows*
-  (`agent_status` here). `evidence.liveStatus` says whether that observation is
-  `fresh` or stale, so "I could not look" is distinguishable from "it is gone".
+  (`agent_status` here). Three verdicts, `live` / `unverifiable` / `exited`, so
+  "I could not look" is distinguishable from "it is gone";
+  `evidence.liveStatus` says whether the observation is `fresh` or stale. This
+  is the **agent** verdict - see §5.4 for the layering against PTY liveness.
 - **`attention.requiresAction` / `.categories`** - the agent needs a human.
   `worker-show`'s note names the richer form: `observation.agentWait`
   "names a worker parked on a prompt only a human can answer, with the evidence
@@ -246,9 +248,128 @@ Only those two conditions exist.
 
 ---
 
-## 5. Mail, tasks and gates
+## 5. What `orchestration` actually is
 
-Orca has a whole inter-agent messaging system, independent of terminals.
+The 30 `orchestration` verbs are not a grab bag. They are one contract, and
+Orca ships its own specification of it: `orca skills get orchestration`
+(with seven bundled references, `--reference <name>`). Everything quoted in
+this section is from that guide.
+
+> Orchestration is Orca's structured coordination layer. It records **who owns
+> work, which attempt is authoritative, and when supervised work has settled.**
+
+### 5.1 Three nouns
+
+| noun | what it is | what it is not |
+|---|---|---|
+| **Run** | "a durable namespace and coordinator inbox" | "it does not schedule or place workers" |
+| **Task** | the work | not an attempt |
+| **Dispatch** | **one authoritative Task attempt** | not a terminal |
+
+> Lifecycle authority comes from the active Dispatch, not a terminal title,
+> copied ID, old database row, provider transcript, or visible pane.
+
+That sentence is the whole point of the layer. A Dispatch id is the capability:
+it says which attempt may speak for a Task, so a stale pane or a second try
+cannot settle work it no longer owns.
+
+### 5.2 Four roles, and only one of them is orchestration
+
+The guide opens by telling the caller **not** to use orchestration:
+
+| context | role | route |
+|---|---|---|
+| user asks to supervise, monitor, wait for results, coordinate a DAG, use a gate | **Coordinator** | the supervised loop |
+| the prompt carries a live injected preamble with Task and Dispatch IDs | **Dispatched worker** | obey the preamble |
+| user asks to **hand off ownership** or start another agent/worktree **without supervision** | **Handoff owner** | use `orca-cli`; **"create no Run, Task, or Dispatch and do not monitor completion"** |
+| no live preamble, no explicit supervision | ordinary terminal agent | "do not emit lifecycle messages" |
+
+> Model or effort selection does not make a handoff supervised.
+
+So the Run/Task/Dispatch objects are meant to be created **only** by something
+that will then run the supervised loop and settle them. Creating them and not
+settling them is outside the contract, not a lighter use of it.
+
+### 5.3 The supervised loop
+
+```text
+orca status --json
+orca orchestration run-create --objective "<objective>" --json
+orca orchestration worker-start --spec "<worker A task>" --worktree current --agent codex  --json
+orca orchestration worker-start --spec "<worker B task>" --worktree current --agent claude --json
+orca orchestration check --wait --types "worker_done,escalation,question" --timeout-ms 900000 --json
+```
+
+Start the whole independent wave first, then wait once. `check` returns the
+bound Run's oldest FIFO Delivery and **replays that batch until `--ack`**, so
+every message must be processed before acknowledging. Per settled worker the
+coordinator must then do exactly one of: reuse the terminal for a follow-up
+Dispatch, `worker-retain`, or `worker-release`. The turn does not end while
+`worker-list --terminal-state reclaimable` still returns rows.
+
+A worker's obligations are equally explicit: do only the current Task, use the
+preamble's `ask` for a blocking question (never a local TUI the coordinator
+cannot answer), heartbeat only at the given cadence, `check` for follow-ups at
+each checkpoint **and once more immediately before finishing**, and send
+`worker_done` exactly once with both ids and an explicit
+`--outcome succeeded|failed` - "never encode failure only in prose".
+
+> A valid `worker_done` settles the Task and Dispatch automatically; do not
+> follow it with `task-update --status completed`.
+
+`task-update` is therefore for callers outside the supervised loop; inside it,
+settlement is the worker's own report.
+
+### 5.4 The safety floor
+
+The doctrine is fail-closed, and it is stated in the same terms ocp uses:
+
+> **Safe failure:** preserve work and authority and report the state as unknown
+> or `unverifiable`. Only positive proof of exit authorizes stop, abandon, or
+> retry, and only an accepted settlement authorizes release. Every other
+> observation, absence included, is a checkpoint.
+
+Three liveness verdicts, `live` / `unverifiable` / `exited`, and
+**"contact loss is not process death"**. `unverifiable` is absence, and
+"absence never authorizes stop, abandon, retry, or release."
+
+Liveness is also **layered**, which the CLI help does not say:
+
+> `worker-list`'s `projection.liveness` is the fleet verdict for the *agent*;
+> `worker-show`'s `observation.status` is **PTY liveness only**. A live
+> terminal can still hold a dead or stuck agent.
+
+Each row also carries `projection.nextAction` as **literal argv** to run, and
+a `none` nextAction has no argv: read `liveness.reason` and keep waiting.
+
+### 5.5 The documented escape hatch
+
+`dispatch --inject` against a terminal you made yourself is a named, supported
+pattern - and the guide is blunt about its price:
+
+> `dispatch --inject` creates authoritative Task/Dispatch context but
+> deliberately keeps an operator-created process **unsupervised**: it creates no
+> supervised worker resource row. `worker-show`, `worker-read`, and
+> `worker-list` report the lane as `unsupervised`; `worker-stop` and
+> `worker-abandon` do not close that process, and settled retain/release take no
+> process action.
+>
+> `worker-start` is the normal path […] `dispatch --inject` […] is only for an
+> expressiveness gap.
+
+And the bridge between the two, which matters to anyone with its own launcher:
+
+> Use `worker-start --terminal <handle>` when lifecycle ownership of an existing
+> agent terminal is required.
+
+That is the one call that turns a terminal you started - with your own argv,
+your own environment, your own account - into a **supervised** worker.
+`--model` / `--effort` are refused with `--terminal`, which costs nothing when
+the launcher already set them. Orca also reports `launch.requested` vs
+`launch.effective`: "never claim a model or effort from requested arguments
+alone."
+
+### 5.6 Mail, tasks and gates in detail
 
 **Mail.** `send` / `check` / `reply` / `ask` / `inbox`.
 
@@ -342,24 +463,33 @@ in practice. What they imply for ocp belongs to part 2.
   `context_only` / `terminalState: retained`, `provider.id: "claude"`,
   `activity: working`, `liveness: live` from `agent_status`.
 
+Read these against §5.2 (who is supposed to create Run/Task/Dispatch at all)
+and §5.5 (what `dispatch --inject` deliberately does not buy) in part 2.
+
 ---
 
 ## 9. Questions to answer before part 2
 
-1. **Can a `worker-start` agent be given a chosen account?** `worker-start`
-   takes `--agent`, `--model`, `--effort` but no environment or config-dir
-   flag. If the account a session spends is not selectable there, layer 3
-   cannot replace a launcher that picks an account per session - the two would
-   have to be combined (`--terminal <handle>` with a terminal we made
-   ourselves). Worth testing directly.
+1. ~~**Can a `worker-start` agent be given a chosen account?**~~ **Answered by
+   Orca's own guide (§5.5).** `worker-start` has no environment or config-dir
+   flag, but it does not need one: `worker-start --task <id> --terminal
+   <handle>` takes lifecycle ownership of a terminal the caller started with
+   its own argv, environment and account. `--model` / `--effort` are refused
+   with `--terminal`, which costs nothing when the launcher set them. So a
+   custom launcher and a supervised lifecycle are **not** an either/or.
+   What remains to test: whether an adopted worker reports `resource` and
+   accepts `worker-stop` / `worker-release` the way a `worker-start --agent`
+   one does.
 2. **What does `orca account list` know that a caller could use?** It returns
    `email`, `organizationName`, `authMethod`, `lastAuthenticatedAt` per
    account, under `claude` and `codex` keys. Does registering an account there
    let Orca *place* a session on it, or is it only a record?
 3. **Is `observation.agentWait` populated for unsupervised dispatches?** The
-   live row showed `attention.requiresAction: false` and no `observation` key.
-   If `agentWait` only fills for supervised workers, that changes what a
-   terminal-owning caller can rely on.
+   live row showed `attention.requiresAction: false` and no `observation` key
+   at all. If `agentWait` only fills for supervised workers, that changes what
+   a terminal-owning caller can rely on - and it is one more thing
+   `worker-start --terminal` might buy. Note the guide's warning either way:
+   an `agentWait` of null is absence, not proof of anything.
 4. **Does any CLI verb expose `agent-session.status-feed.v1`?** The runtime
    advertises a structured agent-session family (`status-feed`, `structured`,
    `resume-history`, `rewind`, `prompt-cancel`, `session-boundary`) that the
@@ -380,6 +510,13 @@ provenance, attention, resource accounting, typed mail, a task DAG and decision
 gates - and that model was built multi-vendor: Claude and Codex are equals in
 account management and hooks, Cursor is a peer in model selection, and the
 runtime already names Kimi. opencode is a command string and nothing more.
+
+`orchestration` is not a set of conveniences either. It is a written contract
+about ownership and settlement (§5), it names the four roles a caller can be in
+and tells three of them not to create its objects at all, and it supports a
+caller with its own launcher two ways: `dispatch --inject` for context without
+supervision, or `worker-start --terminal` to hand Orca lifecycle ownership of a
+terminal the caller started itself.
 
 The one thing conspicuously absent across all 234 commands is **usage and rate
 limits**. Orca will tell you what an agent is, where it is, whether it is
