@@ -313,7 +313,7 @@ def _sha_on_main(repo: Path, sha: str) -> tuple[str | None, str]:
 
 
 def close_task(con, tid: int, sha: str | None = None, reason: str | None = None,
-               repo: Path | None = None) -> tuple[bool, str]:
+               repo: Path | None = None, retires: int | None = None) -> tuple[bool, str]:
     """Close a task on the board.
 
     Exactly one of `sha` (checked against `main`) or `reason` (for work
@@ -321,6 +321,10 @@ def close_task(con, tid: int, sha: str | None = None, reason: str | None = None,
     task is open - a five-part ask closed as one row hid that parts 4 and 5
     were not done (#1008). Nothing here looks at the linked requests' state:
     a task is open until someone closes it.
+
+    `retires` (#1349) names an older request this close makes moot - checked
+    before anything is written, same as a bad `--task` id on resolve. It sets
+    that row's `moot_by` to this task's id once the close itself succeeds.
     """
     row = db.get_task(con, tid)
     if row is None:
@@ -333,6 +337,12 @@ def close_task(con, tid: int, sha: str | None = None, reason: str | None = None,
         return False, f"task #{tid} still has open child tasks ({ids}) - close them first"
     if bool(sha) == bool(reason):
         return False, "close needs exactly one of a sha or a reason"
+    if retires is not None:
+        old = db.get_request(con, retires)
+        if old is None:
+            return False, f"no request #{retires} to retire"
+        if old["moot_by"] is not None:
+            return False, f"#{retires} is already moot (by #{old['moot_by']})"
     if sha:
         full, why = _sha_on_main(repo or Path.cwd(), sha)
         if full is None:
@@ -344,7 +354,36 @@ def close_task(con, tid: int, sha: str | None = None, reason: str | None = None,
         return False, f"task #{tid} was closed by someone else just now"
     db.add_event(con, askmod.asking_agent() or row["owner"], "close_task",
                  {"task_id": tid, "closed_by": mark})
-    return True, f"task #{tid} closed ({mark})"
+    if retires is not None:
+        db.set_moot_by(con, retires, tid)
+    return True, f"task #{tid} closed ({mark})" + (f", retiring #{retires}" if retires else "")
+
+
+def reason_gaps(con) -> dict:
+    """#1349: how many retirements and closures carry no reason, counted from
+    the exact shapes those verbs write - not a grep over free text, which is
+    the measurement orcapipe refused (today's evidence: purser could not size
+    duplicated work this way with any confidence). A withdraw with none stores
+    a NULL verdict; a dismiss or a replace with none stores the fixed phrase
+    with no ": " suffix; a task closed by merge sha carries no free-text
+    reason at all.
+    """
+    def one(where: str) -> int:
+        return con.execute(f"SELECT COUNT(*) FROM requests WHERE {where}").fetchone()[0]
+    withdrawn_total = one("state = 'withdrawn'")
+    withdrawn_blank = one("state = 'withdrawn' AND verdict IS NULL")
+    dismissed_total = one("verdict = 'read - no reply' OR verdict LIKE 'read - no reply: %'")
+    dismissed_blank = one("verdict = 'read - no reply'")
+    replaced_total = one("state = 'replaced'")
+    replaced_blank = one("state = 'replaced' AND verdict NOT LIKE '%: %'")
+    closed = con.execute("SELECT closed_by FROM tasks WHERE closed_by IS NOT NULL").fetchall()
+    closed_blank = sum(1 for r in closed if looks_like_sha(r["closed_by"]))
+    return {
+        "retirements": withdrawn_total + dismissed_total + replaced_total,
+        "retirements_blank": withdrawn_blank + dismissed_blank + replaced_blank,
+        "closures": len(closed),
+        "closures_blank": closed_blank,
+    }
 
 
 def check_human_resolve(con, row, tasks: list[int] | None, no_task: str | None,

@@ -60,7 +60,13 @@ CREATE TABLE IF NOT EXISTS requests (
   delivered_at INTEGER,
   -- A report to the human that asks nothing of them: shown, never counted as
   -- waiting on them, and closed once read or superseded by the sender's next.
-  fyi INTEGER NOT NULL DEFAULT 0
+  fyi INTEGER NOT NULL DEFAULT 0,
+  -- #1349: the id (a request or a task) that retired this row as moot - a
+  -- record, not a relation. Read from the row that went moot; nothing in
+  -- routing, chain depth, the cycle guard or any limit may read it, the same
+  -- reason parent_id does not fit that job. Set once, by the verb that
+  -- already knows both ids (a replace, or --retires on resolve/close).
+  moot_by     INTEGER
 );
 CREATE INDEX IF NOT EXISTS requests_target ON requests(target, state);
 CREATE INDEX IF NOT EXISTS requests_requester ON requests(requester, ts);
@@ -292,6 +298,12 @@ def _pre_schema_migrate(con) -> None:
                 SELECT MIN(id) FROM requests WHERE state = 'queued' GROUP BY target
             )
         """)
+    if request_cols and "moot_by" not in request_cols:
+        con.execute("ALTER TABLE requests ADD COLUMN moot_by INTEGER")
+        # No backfill: which existing "replaced by #N" row retired which is
+        # already named in the verdict text, and re-parsing that text to fill
+        # a column meant to replace parsing it is the mistake this exists to
+        # end, not repeat.
 
 
 def _unhide_the_humans_answers(con) -> None:
@@ -699,6 +711,17 @@ def retire_if_undelivered(con, rid: int, state: str, verdict: str | None = None)
         "resolved_at = COALESCE(resolved_at, ?) "
         "WHERE id = ? AND state = 'queued' AND delivered_at IS NULL",
         (state, verdict, int(time.time()), rid))
+    return cur.rowcount > 0
+
+
+def set_moot_by(con, rid: int, by: int) -> bool:
+    """Point a retired row at the id (request or task) that retired it.
+
+    Set once: True only the first time, so a later call naming a different id
+    cannot quietly overwrite an earlier record of why this row is moot.
+    """
+    cur = con.execute("UPDATE requests SET moot_by = ? WHERE id = ? AND moot_by IS NULL",
+                      (by, rid))
     return cur.rowcount > 0
 
 

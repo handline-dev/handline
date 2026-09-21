@@ -18226,6 +18226,105 @@ def test_replace_withdraw_and_dismiss_store_the_reason_typed(home: Path) -> None
     check("reason: --reason without --replaces is refused", rc == 1 and "--replaces" in out, out)
 
 
+def test_moot_by_records_who_retired_a_row(home: Path) -> None:
+    """#1349: moot_by is a record, not a relation - set once, from the row
+    that went moot, by whichever verb already knows both ids."""
+    _board_world(home)
+    con = db.connect()
+    try:
+        ok, _, a = askmod.ask("worker", "first", requester="manager")
+        ok, _, b = askmod.ask("worker", "corrected", requester="manager", replaces=a)
+        check("moot: a replace points the old row at the new one",
+              db.get_request(con, a)["moot_by"] == b, str(dict(db.get_request(con, a))))
+
+        c = db.add_request(con, "manager", "worker", "dup", None, "supervisor",
+                           "fire_and_forget", None, 0, None)
+        d = db.add_request(con, "manager", "worker", "the real one", None, "supervisor",
+                           "fire_and_forget", None, 0, None)
+        d2 = db.add_request(con, "manager", "worker", "another", None, "supervisor",
+                            "fire_and_forget", None, 0, None)
+        d3 = db.add_request(con, "manager", "worker", "a third", None, "supervisor",
+                            "fire_and_forget", None, 0, None)
+    finally:
+        con.close()
+    rc, out = _cli(["resolve", str(d), "done", "--retires", str(c)], as_agent="worker")
+    check("moot: resolve --retires succeeds and says so", rc == 0 and f"#{c}" in out, out)
+    con = db.connect()
+    try:
+        check("moot: resolve --retires points the old row at the resolving one",
+              db.get_request(con, c)["moot_by"] == d)
+    finally:
+        con.close()
+    rc, out = _cli(["resolve", str(d2), "done", "--retires", str(c)], as_agent="worker")
+    check("moot: retiring an already-moot row is refused, not overwritten",
+          rc == 1 and "already moot" in out, out)
+    rc, out = _cli(["resolve", str(d3), "done", "--retires", "999999"], as_agent="worker")
+    check("moot: --retires naming nothing is refused before any answer is written",
+          rc == 1 and "no request" in out, out)
+    con = db.connect()
+    try:
+        check("moot: neither refused resolve wrote an answer",
+              db.get_request(con, d2)["state"] == "queued"
+              and db.get_request(con, d3)["state"] == "queued")
+    finally:
+        con.close()
+
+    con = db.connect()
+    try:
+        t = db.new_task(con, "one", "worker", "manager")
+        e = db.add_request(con, "manager", "worker", "dup ask", None, "supervisor",
+                           "fire_and_forget", None, 0, None)
+    finally:
+        con.close()
+    rc, out = _cli(["close", str(t), "closed as duplicate", "--retires", str(e)])
+    check("close: --retires makes the named request moot too", rc == 0 and f"#{e}" in out, out)
+    con = db.connect()
+    try:
+        check("close: the task's own id is what the retired row now names",
+              db.get_request(con, e)["moot_by"] == t)
+    finally:
+        con.close()
+    rc, out = _cli(["close", "worker", "a reason", "--retires", str(e)])
+    check("close: --retires on an agent's name is refused like evidence is",
+          rc == 1 and "Nothing was closed" in out, out)
+
+
+def test_reason_gaps_count_from_the_shapes_the_verbs_write(home: Path) -> None:
+    """#1349: a blank reason must be visible, counted from the exact strings
+    `--reason` writes (or omits) rather than a grep over free text - the
+    measurement orcapipe refused."""
+    _board_world(home)
+    con = db.connect()
+    try:
+        before = actions.reason_gaps(con)
+        ok, _, a = askmod.ask("worker", "x", requester="manager")
+        askmod.withdraw(a, requester="manager")
+        ok, _, b = askmod.ask("worker", "y", requester="manager")
+        askmod.withdraw(b, requester="manager", reason="stale")
+        gaps = actions.reason_gaps(con)
+        check("reason gaps: two more retirements, one more blank",
+              gaps["retirements"] == before["retirements"] + 2
+              and gaps["retirements_blank"] == before["retirements_blank"] + 1,
+              str(gaps))
+
+        t1 = db.new_task(con, "merged", "worker", "manager")
+        # db.close_task directly: a real merge close needs a git repo, and
+        # the count only cares about the shape closed_by ends up holding.
+        db.close_task(con, t1, "f" * 40)
+        t2 = db.new_task(con, "worded", "worker", "manager")
+        ok, msg = actions.close_task(con, t2, reason="a decision, nothing to merge")
+        check("close: worded close succeeds", ok, msg)
+        gaps2 = actions.reason_gaps(con)
+        check("reason gaps: a sha close is blank, a worded one is not",
+              gaps2["closures"] == gaps["closures"] + 2
+              and gaps2["closures_blank"] == gaps["closures_blank"] + 1,
+              str(gaps2))
+    finally:
+        con.close()
+    rc, out = _cli(["task", "list", "--all"])
+    check("board: the reason-gap line is shown", rc == 0 and "carry no reason" in out, out)
+
+
 def test_no_other_path_closes_the_founders_request_unguarded(home: Path) -> None:
     """#1341: dismiss is the second way an agent closes a request the founder
     made, so it takes the same guard; the founder's own hands do not."""
@@ -18719,6 +18818,8 @@ def main() -> int:
         run(lambda: test_close_says_what_it_read_and_never_guesses(Path(td) / 'taskcloseread'))
         run(lambda: test_task_ids_are_checked_before_any_answer_and_short_shas_are_resolved(Path(td) / 'taskshas'))
         run(lambda: test_replace_withdraw_and_dismiss_store_the_reason_typed(Path(td) / 'taskreason'))
+        run(lambda: test_moot_by_records_who_retired_a_row(Path(td) / 'mootby'))
+        run(lambda: test_reason_gaps_count_from_the_shapes_the_verbs_write(Path(td) / 'reasongaps'))
         run(lambda: test_run_recovers_from_an_uncaught_error())
     # The whole run's dealings with Orca: none of its tests may have reached even
     # the stand-in, except the four that run a child `ocp`. (A test's own

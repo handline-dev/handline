@@ -375,6 +375,7 @@ def ask(target: str, body: str, files: str | None = None, requester: str | None 
         if old is not None:
             con.execute("UPDATE requests SET verdict = ? WHERE id = ?",
                        (f"replaced by #{rid}" + (f": {reason}" if reason else ""), replaces))
+            db.set_moot_by(con, replaces, rid)
             p = _inbox(old["target"]) / f"{replaces:06d}.json"
             if p.exists():
                 p.unlink()

@@ -361,15 +361,16 @@ def cmd_close(args) -> int:
             sha = None if args.reason or not actions.looks_like_sha(ev) else ev
             ok, msg = actions.close_task(con, int(raw), sha=sha,
                                          reason=None if sha else ev,
-                                         repo=Path(args.repo) if args.repo else None)
+                                         repo=Path(args.repo) if args.repo else None,
+                                         retires=args.retires)
             print(msg)
         finally:
             con.close()
         return 0 if ok else 1
-    if args.evidence:
+    if args.evidence or args.retires:
         print(f"read '{raw}' as an agent's name, so this would end its session - but a "
-              "sha or reason closes a task, by its number, and says nothing about a "
-              "session. Nothing was closed.")
+              "sha, reason or --retires closes a task, by its number, and says nothing "
+              "about a session. Nothing was closed.")
         return 1
     args.agent = raw
     con = db.connect()
@@ -449,6 +450,9 @@ def cmd_task_list(args) -> int:
     con = db.connect()
     try:
         _print_board(con, db.all_tasks(con) if args.all else db.open_tasks(con))
+        gaps = actions.reason_gaps(con)
+        print(f"reason: {gaps['retirements_blank']}/{gaps['retirements']} retirements, "
+              f"{gaps['closures_blank']}/{gaps['closures']} closures carry no reason")
     finally:
         con.close()
     return 0
@@ -1459,6 +1463,14 @@ def cmd_resolve(args) -> int:
         if refusal:
             print(refusal)
             return 1
+        if args.retires is not None:
+            old = db.get_request(con, args.retires)
+            if old is None:
+                print(f"no request #{args.retires} to retire")
+                return 1
+            if old["moot_by"] is not None:
+                print(f"#{args.retires} is already moot (by #{old['moot_by']})")
+                return 1
     finally:
         con.close()
     if args.task or args.no_task:
@@ -1468,6 +1480,13 @@ def cmd_resolve(args) -> int:
         finally:
             con.close()
     ok, msg = askmod.resolve(args.id, args.verdict, state=args.state)
+    if ok and args.retires is not None:
+        con = db.connect()
+        try:
+            db.set_moot_by(con, args.retires, args.id)
+        finally:
+            con.close()
+        msg += f", retiring #{args.retires}"
     print(msg)
     return 0 if ok else 1
 
@@ -1667,6 +1686,8 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--no-task", metavar="REASON",
                    help="answered, nothing to build; required on the founder's requests "
                         "unless --task is given")
+    p.add_argument("--retires", type=int, default=None, metavar="ID",
+                   help="an older request this answer makes moot")
     p.set_defaults(fn=cmd_resolve)
 
     p = sub.add_parser("dismiss", help="take one row off your mailbox without replying")
@@ -1784,6 +1805,9 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--repo", default=None, help="the repo whose main a sha is checked against")
     p.add_argument("--reason", action="store_true",
                    help="record the evidence as words even if it looks like hex")
+    p.add_argument("--retires", type=int, default=None, metavar="ID",
+                   help="an older request this close makes moot; only a task number "
+                        "closing takes it")
     p.set_defaults(fn=cmd_close)
 
     tk = sub.add_parser("task", help="the task board").add_subparsers(dest="sub", required=True)
