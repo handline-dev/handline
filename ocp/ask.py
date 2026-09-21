@@ -522,14 +522,18 @@ def withdraw(rid: int, requester: str | None = None,
         if row["delivered_at"]:
             return False, too_late
         # Atomic: the write itself is the gate against a delivery landing
-        # between the check above and here.
-        if not db.retire_if_undelivered(con, rid, "withdrawn", reason):
+        # between the check above and here. Labelled "withdrawn: ", the same
+        # as "replaced by #N" and "read - no reply" are already read as
+        # machine text - a bare typed reason here was drawn as the target's
+        # own answer, in the founder's name on their own screen (#1348).
+        verdict = f"withdrawn: {reason}" if reason else None
+        if not db.retire_if_undelivered(con, rid, "withdrawn", verdict):
             return False, too_late
         p = _inbox(row["target"]) / f"{rid:06d}.json"
         if p.exists():
             p.unlink()
         db.add_event(con, requester, "withdraw", {"request_id": rid, "target": row["target"],
-                                              "reason": reason})
+                                                   "reason": reason})
         return True, f"request #{rid} to {row['target']} withdrawn"
     finally:
         con.close()

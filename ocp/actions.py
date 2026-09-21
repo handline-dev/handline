@@ -202,7 +202,7 @@ def record_human_resolve(con, rid: int, tasks: list[int] | None, no_task: str | 
 
 
 def dismiss(con, rid: int, me: str | None = None, reason: str | None = None,
-            tasks: list[int] | None = None, no_task: str | None = None) -> str:
+            tasks: list[int] | None = None, no_task: str | None = None) -> tuple[bool, str]:
     """Take one row off the mailbox without replying to it. A `reason` is
     stored, as typed, after "read - no reply" in the verdict of a still-queued
     row; a row that already carries a real verdict keeps it.
@@ -215,22 +215,26 @@ def dismiss(con, rid: int, me: str | None = None, reason: str | None = None,
     target dismissing its own answered request), there is nothing left to
     do: stamping it told would announce it on the real requester's behalf,
     and the requester would never actually be told.
+
+    Returns (ok, message): a guard refusal is the only `False` here, so a
+    caller reading it as an exit code does not conclude a founder's row was
+    handled when it is still sitting in the queue.
     """
     row = db.get_request(con, rid)
     if row is None:
-        return f"#{rid} is gone"
+        return True, f"#{rid} is gone"
     guarded = row["state"] == "queued" and row["requester"] == HUMAN
     if guarded or tasks:
         refusal = check_human_resolve(con, row, tasks, no_task, me)
         if refusal:
-            return refusal
+            return False, refusal
     if row["state"] != "queued":
         if me is not None and me == row["target"]:
-            return f"#{rid} was already answered - nothing more for you to do"
+            return True, f"#{rid} was already answered - nothing more for you to do"
         db.mark_announced(con, [rid])
-        return f"#{rid} marked read"
+        return True, f"#{rid} marked read"
     verdict = "read - no reply" + (f": {reason}" if reason else "")
-    if guarded or tasks:
+    if guarded or tasks or no_task:
         # Linked before the row is closed: a failure between the two leaves a
         # link on a still-queued row, never an answered row attached to nothing.
         record_human_resolve(con, rid, tasks, no_task, me)
@@ -241,11 +245,11 @@ def dismiss(con, rid: int, me: str | None = None, reason: str | None = None,
         # when a dismissal arrived as "#60 from human: read". resolve() itself
         # stamps announced_at, in the same write as the state change.
         ok, msg = askmod.resolve(rid, verdict, state="done", notify=False)
-        return f"{msg} (dismissed; {row['requester']} is not waiting on it)"
+        return ok, f"{msg} (dismissed; {row['requester']} is not waiting on it)"
     # An `async` sender parked on a reply and nothing else will ever unpark it,
     # so it is told - and what it is told says it was read, not answered.
     ok, msg = askmod.resolve(rid, verdict, state="done")
-    return msg
+    return ok, msg
 
 
 def waiting_ids(con, agent: str) -> list[int]:

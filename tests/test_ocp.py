@@ -17650,9 +17650,9 @@ def test_dismissing_your_own_answer_does_not_announce_it_for_the_requester(
     try:
         check("dismiss: unannounced to start",
               rid in [r["id"] for r in db.unannounced_answers(con, "a")])
-        out = actions.dismiss(con, rid, me="b")
+        ok, out = actions.dismiss(con, rid, me="b")
         check("dismiss: the target is told there is nothing more to do",
-              "nothing more" in out, out)
+              ok and "nothing more" in out, out)
         check("dismiss: the verdict is untouched",
               db.get_request(con, rid)["verdict"] == "yes, ship it")
         check("dismiss: ...and the requester is still owed the answer",
@@ -18207,8 +18207,9 @@ def test_replace_withdraw_and_dismiss_store_the_reason_typed(home: Path) -> None
         ok, _, e = askmod.ask("worker", "third", requester="manager", mergeable=False)
         ok, msg = askmod.withdraw(e, requester="manager", reason="not needed after all")
         row = db.get_request(con, e)
-        check("reason: a withdraw stores it", ok and row["state"] == "withdrawn"
-              and row["verdict"] == "not needed after all", str(dict(row)))
+        check("reason: a withdraw stores it, labelled like the other two", ok
+              and row["state"] == "withdrawn"
+              and row["verdict"] == "withdrawn: not needed after all", str(dict(row)))
         ok, _, f = askmod.ask("worker", "fourth", requester="manager")
         askmod.withdraw(f, requester="manager")
         check("reason: a withdraw with none stores none", db.get_request(con, f)["verdict"] is None)
@@ -18222,8 +18223,30 @@ def test_replace_withdraw_and_dismiss_store_the_reason_typed(home: Path) -> None
               db.get_request(con, h)["verdict"] == "read - no reply")
     finally:
         con.close()
+    # #1348 should-fix: pin how a withdrawn row READS, not only what it
+    # stores - `ocp read` draws it under "answered by <target>" the same as
+    # any other verdict, so a bare typed reason there would look like the
+    # target's own words rather than a record that it never received it.
+    rc, out = _cli(["read", str(e)])
+    check("reason: a withdrawn row's reason reads as a label, not the target's answer",
+          rc == 0 and "withdrawn: not needed after all" in out, out)
     rc, out = _cli(["ask", "worker", "x", "--reason", "why"])
     check("reason: --reason without --replaces is refused", rc == 1 and "--replaces" in out, out)
+    # #1348 note 1: a typed empty --reason is not "no reason" - taking it as
+    # one would silently drop what was typed.
+    ok, _, i = askmod.ask("worker", "fifth", requester="manager")
+    rc, out = _cli(["ask", "worker", "x", "--replaces", str(i), "--reason", ""])
+    check("reason: an empty --reason on ask is refused, not silently dropped",
+          rc == 1 and "empty" in out, out)
+    rc, out = _cli(["withdraw", str(i), "--reason", ""])
+    check("reason: an empty --reason on withdraw is refused", rc == 1 and "empty" in out, out)
+    con = db.connect()
+    try:
+        j = db.add_request(con, "worker", "manager", "q", None, "peer", "async", None, 0, None)
+    finally:
+        con.close()
+    rc, out = _cli(["dismiss", str(j), "--reason", ""])
+    check("reason: an empty --reason on dismiss is refused", rc == 1 and "empty" in out, out)
 
 
 def test_moot_by_records_who_retired_a_row(home: Path) -> None:
@@ -18333,28 +18356,60 @@ def test_no_other_path_closes_the_founders_request_unguarded(home: Path) -> None
     r = _human_request()
     rc, out = _cli(["dismiss", str(r)])
     check("dismiss: a founder request is refused without --task or --no-task",
-          "--task" in out, out)
+          rc == 1 and "--task" in out, out)
     con = db.connect()
     try:
         check("dismiss: refused, still queued", db.get_request(con, r)["state"] == "queued")
     finally:
         con.close()
     rc, out = _cli(["dismiss", str(r), "--task", "1"])
+    check("dismiss: --task on the founder's row succeeds", rc == 0, out)
     con = db.connect()
     try:
         check("dismiss: --task closes it and links it",
               db.get_request(con, r)["state"] == "done"
               and [x["id"] for x in db.task_requests(con, 1)] == [r], out)
         r2 = _human_request()
-        _cli(["dismiss", str(r2), "--no-task", "duplicate", "--reason", "dup of #9"])
+        rc, out = _cli(["dismiss", str(r2), "--no-task", "duplicate", "--reason", "dup of #9"])
+        check("dismiss: --no-task on the founder's row succeeds", rc == 0, out)
         row = db.get_request(con, r2)
         check("dismiss: --no-task closes it, reason stored as typed",
               row["state"] == "done" and row["verdict"] == "read - no reply: dup of #9",
               str(dict(row)))
         r3 = _human_request()
-        out = actions.dismiss(con, r3, me=askmod.HUMAN)
+        ok, out = actions.dismiss(con, r3, me=askmod.HUMAN)
         check("dismiss: the founder's own dismiss is not guarded",
-              db.get_request(con, r3)["state"] == "done", out)
+              ok and db.get_request(con, r3)["state"] == "done", out)
+    finally:
+        con.close()
+    # #1350 should-fix 1: a refused dismiss must not report success.
+    r4 = _human_request()
+    rc, out = _cli(["dismiss", str(r4)])
+    check("dismiss: a guard refusal is exit 1, not the exit 0 every other outcome uses",
+          rc == 1, out)
+    con = db.connect()
+    try:
+        check("dismiss: and the row it refused on is still queued",
+              db.get_request(con, r4)["state"] == "queued")
+    finally:
+        con.close()
+    # #1350 should-fix 2: --no-task on an ordinary (non-founder) row must
+    # record the same way --task does, not only close it silently.
+    con = db.connect()
+    try:
+        peer = db.add_request(con, "manager", "worker", "q", None, "peer",
+                              "fire_and_forget", None, 0, None)
+    finally:
+        con.close()
+    rc, out = _cli(["dismiss", str(peer), "--no-task", "nothing to build"], as_agent="worker")
+    check("dismiss: --no-task on a peer row succeeds", rc == 0, out)
+    con = db.connect()
+    try:
+        rows = con.execute(
+            "SELECT payload FROM events WHERE kind = 'no_task'").fetchall()
+        ids = [json.loads(r["payload"])["request_id"] for r in rows]
+        check("dismiss: --no-task on a peer row is recorded too, same as resolve",
+              peer in ids, str(ids))
     finally:
         con.close()
 

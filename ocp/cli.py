@@ -1132,7 +1132,16 @@ def cmd_team_check(args) -> int:
     return 0
 
 
+# A `--reason` given as an empty string is typed, not omitted: taking it as
+# "no reason" would silently drop what was typed, on ask, withdraw and dismiss
+# alike (#1348 note 1).
+_EMPTY_REASON = "--reason was given empty; type one or leave the flag off"
+
+
 def cmd_ask(args) -> int:
+    if args.reason == "":
+        print(_EMPTY_REASON)
+        return 1
     if args.reason and args.replaces is None:
         print("--reason says why a request was replaced: it needs --replaces ID")
         return 1
@@ -1146,6 +1155,9 @@ def cmd_ask(args) -> int:
 
 
 def cmd_withdraw(args) -> int:
+    if args.reason == "":
+        print(_EMPTY_REASON)
+        return 1
     ok, msg = askmod.withdraw(args.id, requester=args.of, reason=args.reason)
     print(msg)
     return 0 if ok else 1
@@ -1335,6 +1347,9 @@ def cmd_dismiss(args) -> int:
     knowing which. Somebody else's row is neither: dismissing it would resolve
     a request they are still waiting on, with a verdict they never wrote.
     """
+    if args.reason == "":
+        print(_EMPTY_REASON)
+        return 1
     con = db.connect()
     try:
         row = db.get_request(con, args.id)
@@ -1350,9 +1365,10 @@ def cmd_dismiss(args) -> int:
             print(f"#{args.id} is {row['requester']} → {row['target']}, not yours to "
                   f"dismiss. `ocp read {args.id}` shows it.")
             return 1
-        print(actions.dismiss(con, args.id, me=me, reason=args.reason,
-                              tasks=args.task, no_task=args.no_task))
-        return 0
+        ok, msg = actions.dismiss(con, args.id, me=me, reason=args.reason,
+                                  tasks=args.task, no_task=args.no_task)
+        print(msg)
+        return 0 if ok else 1
     finally:
         con.close()
 

@@ -2279,7 +2279,8 @@ def _cancel_command(con, detail: dict, name: str, arg: str, width: int, height: 
 def _answer_key(con, detail: dict, rid: int, k: str, width: int, height: int,
                 fd, saved) -> tuple[dict | None, str]:
     if k == "x":
-        return None, actions.dismiss(con, rid, me=actions.HUMAN)
+        _, said = actions.dismiss(con, rid, me=actions.HUMAN)
+        return None, said
     text = _compose(rid, k, width, height, fd, saved,
                     under=lambda h: _detail_frame(width, h, dict(detail)))
     if text is None:
@@ -2623,7 +2624,8 @@ def _act_on(panel: int, sel: dict, key: str, width: int, height: int,
                 _say(f"answering #{rid}", width, height)
                 return actions.answer(con, rid, text), None
             if key == "x":
-                return actions.dismiss(con, rid, me=actions.HUMAN), None
+                _, said = actions.dismiss(con, rid, me=actions.HUMAN)
+                return said, None
         return "", None
     finally:
         con.close()
