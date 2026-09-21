@@ -22,6 +22,7 @@ reason rather than starting a competing handoff.
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import shlex
@@ -321,17 +322,22 @@ def wait_for_session(agent: str, timeout_s: int) -> bool:
         time.sleep(1)
 
 
-def _past_dialog(con, agent: str, log) -> str:
+def _past_dialog(con, agent: str, log, only_limit: bool = False) -> str:
     """Get past a dialog before typing an exit or a clear at this agent: '' when
     nothing stands in the way, else why. The caller holds the agent's terminal.
-    When the reason is standing, the moment it began is kept, so a caller that
-    can wait no longer has something to measure the wait against."""
-    why = blocked.past_dialog(con, agent, log)
-    key = f"dialog_since:{agent}"
+    While a reason stands, when this dialog first proved unpassable is kept, by
+    its title: a different dialog starts its own clock, so a caller that can
+    wait measures the wait of the dialog that is there."""
+    why, title = blocked.past_dialog(con, agent, log, only_limit=only_limit)
+    since_key, title_key = f"dialog_since:{agent}", f"dialog_title:{agent}"
     if not why:
-        db.clear_cursor(con, key)
-    elif not db.get_cursor(con, key):
-        db.set_cursor(con, key, int(time.time()))
+        db.clear_cursor(con, since_key)
+        db.clear_cursor(con, title_key)
+        return ""
+    mark = int(hashlib.sha1(title.encode()).hexdigest()[:8], 16)
+    if db.get_cursor(con, title_key) != mark or not db.get_cursor(con, since_key):
+        db.set_cursor(con, title_key, mark)
+        db.set_cursor(con, since_key, int(time.time()))
     return why
 
 
@@ -1406,10 +1412,12 @@ def perform_handoff(con, agent: str, trigger: triggers.Trigger, log,
         stopped = events.at_limit(con, agent)
         settled = stopped and int(time.time()) - stopped["at"] >= LIMIT_SETTLE_S
         if not settled and not orca.typeable_now(handle):
-            # A dialog is not a turn: it does not end by waiting, so it is
-            # got past here rather than deferred to, tick after tick.
+            # The usage-limit dialog is not a turn: it does not end by waiting,
+            # so it is got past here rather than deferred to, tick after tick.
+            # Any other dialog may be a person's to answer, and this is only the
+            # decision whether to begin - the session is not yet ending.
             with lock.terminal(agent) as mine:
-                in_the_way = _past_dialog(con, agent, log) if mine else ""
+                in_the_way = _past_dialog(con, agent, log, only_limit=True) if mine else ""
             if in_the_way and _stalled_on_dialog(con, agent, in_the_way, log):
                 return False
             if in_the_way or not orca.typeable_now(handle):

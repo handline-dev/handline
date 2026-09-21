@@ -351,6 +351,12 @@ def _inert(label: str) -> bool:
 # stayed at its prompt, nothing was chosen. Named by the two options that make
 # it this dialog rather than by its title, which is generic, and by their start
 # only, since the second carries the reset time.
+#
+# The claim has an expiry: it is one observation of what Esc does. If Claude
+# Code ever lets Esc pick the highlighted option, decline_dialog's re-read would
+# report CLEARED just the same while ocp had chosen 'Stop and wait' - so when
+# its behaviour changes, re-measure on a live one that Esc leaves the session at
+# its prompt with the limit still standing and that nothing else was chosen.
 def _usage_limit_dialog(dialog: Dialog) -> bool:
     labels = [label for _, label in dialog.options]
     return (any(lb.startswith("Stop and wait for limit to reset") for lb in labels)
@@ -531,6 +537,18 @@ def decline_dialog(handle: str) -> tuple[str, str, str]:
             # is what a loop is measured by.
             return CLEARED, dialog.title, ""
     return STILL_OPEN, dialog.title, "the dialog is still on screen after Esc"
+
+
+def usage_limit_open(handle: str) -> bool:
+    """Is the dialog on this terminal's screen the usage-limit one, the only
+    dialog that waiting does not clear and a person is not answering?"""
+    term = _screen(handle)
+    tail = term.get("tail") if term else None
+    if not isinstance(tail, list) or term.get("source") != "screen":
+        return False
+    footer = _footer_row(tail)
+    dialog = parse_dialog(tail, footer) if footer is not None else None
+    return bool(dialog and _usage_limit_dialog(dialog))
 
 
 def modal_open(handle: str) -> bool:

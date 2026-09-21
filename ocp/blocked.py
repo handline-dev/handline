@@ -177,9 +177,11 @@ def note_close_failure(con, agent: str, log) -> None:
         log(f"  {agent}: {reason(seen.kind, seen.detail)} - ocp's own /exit raised it")
 
 
-def past_dialog(con, agent: str, log, now: int | None = None) -> str:
-    """Get past a dialog standing between ocp and an exit it is about to type,
-    or say why not: '' when none is open or the one that was is now declined.
+def past_dialog(con, agent: str, log, now: int | None = None,
+                only_limit: bool = False) -> tuple[str, str]:
+    """(why not, the dialog's title): get past a dialog standing between ocp and
+    an exit or clear it is about to type. `why not` is '' when none is open or
+    the one that was is now declined.
 
     The key and the rules are `_decline`'s - Esc, only where `declining_key`
     admits it, never for a dialog that has stopped being pressed - and the
@@ -187,25 +189,32 @@ def past_dialog(con, agent: str, log, now: int | None = None) -> str:
     still the loop `stopped_pressing` counts. The caller holds the agent's
     terminal; unlike the sweep this does not wait out PRESS_AFTER_S, since
     the exit is ocp's own and no person is answering a dialog it is about to
-    dismiss. It does not care whether the agent is working: the caller is
-    ending the session either way."""
+    dismiss.
+
+    That warrant holds where the caller is committed to ending the session. A
+    caller that is only deciding whether to begin passes `only_limit`: then
+    nothing is pressed for a dialog that waiting may clear because a person is
+    answering it (a permission prompt on a working agent), and it reads as no
+    obstacle at all."""
     handle = db.get_terminal(con, agent)
     seen = orca.screen_blocker(handle) if handle else None
     if seen is None or seen.kind != orca.MODAL:
-        return ""
+        return "", ""
+    if only_limit and not orca.usage_limit_open(handle):
+        return "", ""
     now = int(time.time()) if now is None else now
     stopped = stopped_pressing(con, agent, {"title": seen.title}, now)
     if stopped:
-        return f"{reason(seen.kind, seen.detail)}; {stopped}"
+        return f"{reason(seen.kind, seen.detail)}; {stopped}", seen.title
     outcome, title, why = orca.decline_dialog(handle)
     if outcome == orca.NOT_PRESSED:
-        return f"{reason(seen.kind, seen.detail)}; ocp did not press it: {why}"
+        return f"{reason(seen.kind, seen.detail)}; ocp did not press it: {why}", seen.title
     db.press_add(con, agent, now, title, outcome, why)
     if outcome == orca.STILL_OPEN:
-        return f'{reason(seen.kind, seen.detail)}; Esc did not close it'
+        return f'{reason(seen.kind, seen.detail)}; Esc did not close it', seen.title
     db.add_event(con, agent, "dialog_declined", {"title": title, "key": "Esc", "work": "exit"})
     log(f'  {agent}: pressed Esc on "{title}" to get to its exit')
-    return ""
+    return "", ""
 
 
 def dialog_note(con, agent: str) -> str:
