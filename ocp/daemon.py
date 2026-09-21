@@ -35,7 +35,7 @@ from pathlib import Path
 
 from . import (accounts, agents, blocked, burnrate, db, events, fold as foldmod, handoff as handoffmod, launch,
                load, lock, measure, observe as obs, orca, paths, probe, service, spawn as spawnmod,
-               status, triggers)
+               status, textsafe, triggers)
 
 # Section 8.2 states.
 IDLE, QUEUED, RUNNING, DONE = "IDLE", "QUEUED", "RUNNING", "DONE"
@@ -2174,7 +2174,7 @@ def run(once: bool = False, verbose: bool = True, max_ticks: int | None = None) 
         # watches the daemon log; the same hole auditor found in a request
         # body, at the sink it reaches most often.
         if verbose:
-            print(f"[{time.strftime('%H:%M:%S')}] {orca._visible(msg)}", flush=True)
+            print(f"[{time.strftime('%H:%M:%S')}] {textsafe.oneline(msg)}", flush=True)
 
     # The lock decides who supervises, and records who: a daemon started by
     # hand, or orphaned when launchd reloaded the job under it, is still a

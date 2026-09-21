@@ -25,7 +25,7 @@ import time
 from datetime import datetime
 from pathlib import Path
 
-from . import accounts, agents, db, digest, events as evmod, paths, status
+from . import accounts, agents, db, digest, events as evmod, paths, status, textsafe
 
 FOLD_TIMEOUT_S = 180
 
@@ -148,7 +148,10 @@ def run_model(prompt: str, account: str, model: str = "haiku") -> tuple[bool, st
     except OSError as e:
         return False, f"could not run claude: {e}"
     if r.returncode != 0:
-        return False, (r.stderr or r.stdout or "claude exited non-zero").strip()[:500]
+        # claude's own stderr, not anything of ours - clean it here rather
+        # than trust every future reader of a fold refusal to remember to.
+        return False, textsafe.oneline((r.stderr or r.stdout
+                                        or "claude exited non-zero").strip())[:500]
     return True, r.stdout.strip()
 
 
