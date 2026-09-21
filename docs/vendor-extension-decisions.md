@@ -93,6 +93,26 @@ managed accounts (tier 3). The gap is filed as Orca issue
 opencode's exclusion from it costs us **nothing**. It is as viable a vendor for
 ocp as codex.
 
+### D8. `spawn.ensure_run` must own the Run; agents' terminals must not.
+
+Measured, read-only: **25 Runs named "orcapipe team"**, ~9,000 tasks all
+`ready`, the team's 18 current tasks spread over **8** of them, and **9 of 15
+agents with a supervisor have no parent link** - harbor's six reports draw
+entirely flat. Nine Runs were created inside 33 seconds during one cold start.
+
+Cause is ours, not Orca's: `run-create` binds the calling terminal, and
+`ensure_run` runs inside each agent's own terminal, taking whatever that
+terminal is bound to and writing it back as the team's Run. The key follows the
+most recent launch.
+
+**Decided:** one owner binds the Run once; agents' own terminals never call
+`run-create`. **And this is a prerequisite**, not a cleanup - adopting
+terminals into a Run whose identity changes daily (O1) would inherit the mess.
+
+**Note for whoever fixes it:** the flat-task fallback in
+`spawn.register_worker` is not a bug and should stay. It is firing 60% of the
+time because of the above, and it is the only reason the team is drawn at all.
+
 ---
 
 ## Open, with what would settle it
@@ -102,7 +122,7 @@ ocp as codex.
 | **O1** | Supervised lane or handoff lane? We create Run + Task + Dispatch and settle none (65 tasks all `ready`, five Runs named "orcapipe team"). Either adopt terminals with `worker-start --terminal`, or stop creating Tasks. | measuring what adoption actually grants |
 | **O2** | Do ~150 lines of screen regex in `orca.py` go away? Orca reports the same fact as `attention.requiresAction` / `observation.agentWait` "with the evidence that proved it". On an unsupervised dispatch, both were empty. | the same measurement as O1 |
 | **O3** | How does a codex agent get ROLE.md + base.md + handoff? Claude uses `--append-system-prompt`; codex has no argv equivalent. Candidates: `AGENTS.md` under a per-account `CODEX_HOME`, or the first prompt. | a live codex launch, not reading |
-| **O4** | Is the five-Run split a bug in `spawn.ensure_run`? | reading it against part 1 §5.6 |
+| ~~O4~~ | *settled 2026-09-21 - see D8.* | |
 
 **Rule for this list:** nothing below the line is designed on. O3 in particular
 is load-bearing for the whole team model and must not be guessed at.

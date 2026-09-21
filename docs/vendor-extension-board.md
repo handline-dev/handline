@@ -206,10 +206,57 @@ Part 1 §5.2 is blunt: a caller handing off work **without supervision** should
 |---|---|---|---|
 | which lane are we in | `spawn.register_worker` creates Run + Task + Dispatch; nothing ever sends `worker_done` or calls `worker-release` | **DECIDE** ⚠ | two honest options. **(a) Supervised:** adopt each agent's terminal with `worker-start --terminal <handle>` after we launch it - we keep our launcher, our account choice, our argv, and Orca takes lifecycle ownership, which is also what may unlock `agentWait` in §3. **(b) Handoff lane:** stop creating Tasks, keep only what draws the team. Measured evidence for why this matters: **65 tasks in the bound Run, every one still `status: ready`**, and **five Runs all named "orcapipe team"**. |
 | advance a task's status | never called | **ORCA** | `task-update --id --status`. Only needed in lane (b); a valid `worker_done` settles it automatically in lane (a). |
-| Run binding | `spawn.ensure_run` - "a terminal that is already bound to a Run wins", and it overwrites our stored key with whatever that terminal was bound to | **ORCA** ⚠ | five Runs is the symptom. Binding is per terminal and `run-create` binds the caller, so this needs re-reading against part 1 §5.6 before it is called a bug. **TBD - first thing to survey next.** |
+| Run binding | `spawn.ensure_run` | **DRIVER** ⚠⚠ | **Measured 2026-09-21: this is our bug, and it is bigger than five Runs.** See §7.1. |
 | tab titles | not set; Orca falls back to cwd | **ORCA** | `terminal rename --title` exists and is unused. |
 | escalate a block to the founder | `blocked.ESCALATE_AFTER_S` → `ocp ask human` | **ORCA** | `gate-create --task --question --options` is a first-class "blocked on a decision" object Orca draws and anyone can resolve from outside. Ours is a row only we can see. |
 | memory / resource accounting | measured by hand once, in comments | **ORCA** | `diagnostics memory` is the sweep behind Orca's own Resource Usage popover; `worker-list --terminal-state reclaimable` names terminals owing a decision. |
+
+### 7.1 `spawn.ensure_run` leaks a Run per terminal (settles O4)
+
+Measured on this machine, read-only:
+
+    25 Runs named "orcapipe team"      (28 total; the other 3 are agents' own work)
+    ~9,000 tasks, effectively all `ready`, none ever settled
+    18 agents' current tasks spread across 8 different Runs
+    24 dispatches, every one `unsupervised` - no supervised worker exists anywhere
+
+**Mechanism.** `run-create` binds the calling terminal (part 1 §5.6), and
+`ensure_run` runs inside each agent's own terminal at launch:
+
+```python
+run   = db.get_meta(con, RUN_KEY)
+bound = orca.run_current()          # THIS terminal's binding
+if bound:
+    if bound != run:
+        db.set_meta(con, RUN_KEY, bound)   # <-- team key follows one terminal
+    return bound
+```
+
+Once a terminal is bound it stays bound, so every relaunch of agent A drags the
+team key to A's Run, the next relaunch of B drags it to B's, and any newly
+registered agent joins whichever Run won last. Nine of the 25 Runs were created
+inside 33 seconds (09-18 09:37:11 → 09:37:44) - a cold start where several
+agents raced with `RUN_KEY` unset and each created its own.
+
+**What it costs.** The tree is the whole point of `register_worker` - "without
+it an agent is one more tab". It is not being drawn:
+
+| | |
+|---|---|
+| agents with a supervisor | 15 |
+| ...whose task has **no parent link** | **9 (60%)** |
+| harbor's six reports | all orphaned - that sub-team draws entirely flat |
+
+`task-create --parent` refuses across Runs, and `spawn.register_worker`'s
+fallback then creates the task flat *by design* ("a reason to draw the agent
+flat, not a reason not to draw it"). The fallback works; it is firing 60% of
+the time, silently.
+
+**Verdict DRIVER, not ORCA:** Orca behaves as documented here. Binding is per
+terminal and we are using it as if it were global. The fix is ours - one owner
+of the Run, bound once, with the agents' own terminals never calling
+`run-create`. This is a prerequisite for either lane in the row above: adopting
+terminals into a Run that changes identity daily would inherit the same mess.
 
 ## 8. Untouched by any of this
 
