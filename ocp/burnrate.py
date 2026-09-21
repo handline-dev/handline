@@ -271,7 +271,10 @@ class Costs:
         return out
 
 
-def costs(con) -> Costs:
+def costs(con, plan_of=None) -> Costs:
+    """`plan_of` says which plan an account is on; the default reads what is
+    recorded on disk now, and a caller replaying history passes its own."""
     from . import accounts
 
-    return Costs(_load_samples(con), _load_week_ratios(con), accounts.recorded_subscription_type)
+    return Costs(_load_samples(con), _load_week_ratios(con),
+                 plan_of or accounts.recorded_subscription_type)

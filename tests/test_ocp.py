@@ -1108,6 +1108,152 @@ def test_replay_finds_where_the_new_rule_and_the_old_one_disagree(home: Path) ->
         con.close()
 
 
+def test_replay_reconstructs_burn_and_lets_the_week_gate_fire(home: Path) -> None:
+    """#1400: `load={}` cannot ask `_no_week_room` anything (it needs
+    `ld.costs`), so a replay under it agrees with the old deadline rule on
+    every tick the week gate would have closed. `tight` (88% of its week, an hour left) is
+    first on pace; one more agent alone lasts it 1920s, over the 1800s a start
+    is worth, so only the burn (0.5%/min of the 5h window, 1152s with it) closes
+    it, and only with the plan's ratio. Dropping either the burn or the ratio
+    from the replayed load leaves the pick agreeing with the old rule."""
+    os.environ["OCP_HOME"] = str(home)
+    con = db.connect()
+    try:
+        ts0, ts1 = 500_000_000, 500_000_600
+        reset_5h = ts1 + 3 * 3600
+        for ts, pct_5h in ((ts0, 20), (ts1, 25)):
+            tight = status.AccountStatus("tight", exists=True, pct_5h=pct_5h, pct_7d=88,
+                                         reset_5h=reset_5h, reset_7d=ts1 + 3600,
+                                         rl_at=ts, rl7_at=ts, collected_at=ts)
+            roomy = status.AccountStatus("roomy", exists=True, pct_5h=pct_5h, pct_7d=70,
+                                         reset_5h=reset_5h, reset_7d=ts1 + 3 * 86400,
+                                         rl_at=ts, rl7_at=ts, collected_at=ts)
+            db.record_usage_sample(con, "tight", tight, ts=ts)
+            db.record_usage_sample(con, "roomy", roomy, ts=ts)
+        db.set_meta(con, "weekratio", json.dumps({"at": ts1, "r": {"*": 0.5}}))
+
+        burns = replaymod.reconstruct_burn(db.usage_samples(con))
+        check("replay: burn is the rise over the span between the account's own samples",
+              abs(burns[("tight", ts1)] - 5 / 600) < 1e-9
+              and abs(burns[("roomy", ts1)] - 5 / 600) < 1e-9, burns)
+        check("replay: a first sample has no span to measure, so burn 0.0 as live",
+              burns[("tight", ts0)] == 0.0 and burns[("roomy", ts0)] == 0.0, burns)
+
+        blind: list = []
+        diffs = {d["ts"]: d for d in replaymod.replay(con, unasked=blind)}
+        check("replay: a tick where the ratio exists lists nobody as unasked",
+              blind == [] and diffs.get(ts1, {}).get("unasked") == [], (blind, diffs.get(ts1)))
+        check("replay: the week gate that load={} cannot ask fires here and moves the pick",
+              ts1 in diffs, diffs)
+        check("replay: the old rule's earliest-deadline still picks the account "
+              "closing this week", diffs.get(ts1, {}).get("old") == "tight", diffs.get(ts1))
+        check("replay: the new rule, with burn and the week's ratio reconstructed, "
+              "passes it over for the one with real runway",
+              diffs.get(ts1, {}).get("new") == "roomy", diffs.get(ts1))
+
+        # The control this guards against: under load={} (the pre-#1400
+        # replay), the week gate cannot fire at all, so pace alone picks
+        # "tight" on both sides and this tick is not a divergence.
+        real_time = time.time
+        time.time = lambda: ts1
+        try:
+            bare_pick, _ = status.pick_account(
+                ["tight", "roomy"], load={},
+                read_status={n: s for n, s in replaymod.by_tick(
+                    db.usage_samples(con))[ts1].items()}.get)
+        finally:
+            time.time = real_time
+        check("replay: load={} cannot see the week gate - the control this guards against",
+              bare_pick == "tight", bare_pick)
+
+        db.set_meta(con, "weekratio", json.dumps({"at": ts1, "r": {}}))
+        none: list = []
+        replaymod.replay(con, unasked=none)
+        check("replay: with no week ratio the gate could not ask, and says so",
+              none == [(ts0, ["roomy", "tight"]), (ts1, ["roomy", "tight"])], none)
+
+        # A plan pooled ratio is chosen by the plan an account had at the tick,
+        # which no row kept; today's subscription.json on disk must not stand in.
+        sub = paths.account_dir("tight") / "subscription.json"
+        sub.parent.mkdir(parents=True, exist_ok=True)
+        sub.write_text(json.dumps({"subscriptionType": "max"}))
+        db.set_meta(con, "weekratio", json.dumps({"at": ts1, "r": {"*max": 0.5}}))
+        none = []
+        replaymod.replay(con, unasked=none)
+        check("replay: today's plan on disk does not pick the week ratio of a past tick",
+              none == [(ts0, ["roomy", "tight"]), (ts1, ["roomy", "tight"])], none)
+    finally:
+        con.close()
+
+
+def test_replay_burn_is_the_daemons_burn(home: Path) -> None:
+    """The replayed burn is `triggers.burn_rate_per_s` over the same rolling
+    window of live samples the daemon keeps, so a one-step rise across one
+    poll is 0.0 (span under the floor), and a row the status calls unreadable,
+    carried or lost never enters the window."""
+    os.environ["OCP_HOME"] = str(home)
+    con = db.connect()
+    try:
+        def put(acct, ts, pct, **kw):
+            st = status.AccountStatus(acct, exists=kw.pop("exists", True), pct_5h=pct,
+                                      reset_5h=ts + 3600, rl_at=kw.pop("rl_at", ts),
+                                      collected_at=ts, **kw)
+            db.record_usage_sample(con, acct, st, ts=ts)
+
+        put("a", 1000, 50)
+        put("a", 1030, 51)
+        put("b", 1000, 50)
+        put("b", 1600, 56)
+        put("c", 1000, 50)
+        put("c", 1600, 56, error="boom")
+        put("d", 1000, 50)
+        put("d", 1600, 56, rl_carried=True)
+        put("e", 1000, 50)
+        put("e", 1600, 56, rl_lost=True)
+        put("f", 1000, 50)
+        put("f", 1600, 40)
+        put("g", 1000, 50)
+        put("g", 1030, 51)
+        put("g", 1600, 52)
+        put("h", 1000, 50)
+        for i in range(12):
+            put("h", 1600 + 10 * i, 56, rl_at=1600)
+        put("m", 1000, 50)
+        for i in range(1, 12):
+            put("m", 1000 + 100 * i, 50 + i * i // 3)
+        put("i", 1000, 50, exists=False)
+        put("i", 1600, 56, exists=False)
+        put("j", 1000, 50)
+        put("j", 1600, 56, pct_5h_readable=False)
+        st = status.AccountStatus("k", exists=True, pct_5h=50, reset_5h=9999, rl_at=1000,
+                                  collected_at=1000)
+        db.record_usage_sample(con, "k", st, ts=1000)
+        st = status.AccountStatus("k", exists=True, pct_5h=56, reset_5h=9999, rl_at=1600,
+                                  collected_at=1600 - status.STALE_AFTER_S - 1)
+        db.record_usage_sample(con, "k", st, ts=1600)
+        burns = replaymod.reconstruct_burn(db.usage_samples(con))
+        check("replay burn: one quantized step across one poll is 0.0, as live",
+              burns[("a", 1030)] == 0.0, burns[("a", 1030)])
+        check("replay burn: a measurable rise is the daemon's rate",
+              abs(burns[("b", 1600)] - 6 / 600) < 1e-9, burns[("b", 1600)])
+        check("replay burn: the window is end to end over its samples, not the last pair",
+              abs(burns[("g", 1600)] - 2 / 600) < 1e-9, burns[("g", 1600)])
+        m = {i: (1000 + 100 * i, 50 + i * i // 3) for i in range(1, 12)}
+        check("replay burn: the window is the daemon's BURN_WINDOW, not one more or fewer",
+              abs(burns[("m", 2100)] - (m[11][1] - m[2][1]) / (m[11][0] - m[2][0])) < 1e-9
+              and triggers.BURN_WINDOW == 10, burns[("m", 2100)])
+        check("replay burn: a repeated rl_at is one sample, not a slot each",
+              abs(burns[("h", 1710)] - 6 / 600) < 1e-9, burns[("h", 1710)])
+        for acct, why in (("i", "a row of an account that does not exist"),
+                          ("j", "an unreadable row"), ("k", "a row stale at its own tick"),
+                          ("c", "an errored row"), ("d", "a carried row"),
+                          ("e", "a lost row"), ("f", "a rewound reading")):
+            check(f"replay burn: {why} is not a burn", burns[(acct, 1600)] == 0.0,
+                  burns[(acct, 1600)])
+    finally:
+        con.close()
+
+
 # ---------------------------------------------------------------- collector
 def test_collector(home: Path) -> None:
     """Feed the real statusLine payload shape through the real collector."""
@@ -18834,6 +18980,9 @@ def main() -> int:
             Path(td) / 'tickgap'))
         run(lambda: test_replay_finds_where_the_new_rule_and_the_old_one_disagree(
             Path(td) / 'replaydiff'))
+        run(lambda: test_replay_reconstructs_burn_and_lets_the_week_gate_fire(
+            Path(td) / 'replayweek'))
+        run(lambda: test_replay_burn_is_the_daemons_burn(Path(td) / 'replayburn'))
         run(lambda: test_collector(home))
         run(lambda: test_yaml())
         run(lambda: test_agents(home))

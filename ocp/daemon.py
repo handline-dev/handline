@@ -2056,7 +2056,7 @@ def supervise(con, agent: str, log, now: int, samples: dict,
     if st.is_live_reading:
         if not hist or hist[-1][0] != st.rl_at:
             hist.append((st.rl_at, st.pct_5h))
-            del hist[:-10]
+            del hist[:-triggers.BURN_WINDOW]
     burn = triggers.burn_rate_per_s(hist)
     # Stamped with the newest sample's time, so a pace nobody is keeping ages out.
     if hist:

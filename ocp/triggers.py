@@ -76,6 +76,9 @@ class Trigger:
 # is long enough that one point of resolution is a small part of it.
 MIN_BURN_SPAN_S = 120
 
+# How many live samples an account's burn window keeps; the daemon and replay both read it.
+BURN_WINDOW = 10
+
 
 def burn_rate_per_s(samples: list[tuple[int, int]]) -> float:
     """Percent per second, measured across the whole sample window.
