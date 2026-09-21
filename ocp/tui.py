@@ -134,6 +134,30 @@ def agent_footer_keys(con, agent: str | None) -> list[tuple[str, str]]:
             if label == "open" or actions.can(con, agent, label)[0]]
 
 
+# The read-only slash commands: nothing to decide, so not gated by `can` the
+# way an AGENT_KEYS verb is - the terminal handle and worktree path the head
+# used to show, one keystroke away instead of on screen unasked (#1008).
+# `terminal` itself names an AGENT_KEYS action (go to one) - naming the info
+# getter the same thing would have one clobber the other in the command dict,
+# so this reads the handle, not the terminal, and is named for that.
+INFO_COMMANDS = ("where", "worktree")
+
+
+def agent_commands(con, agent: str) -> list[tuple[str, str]]:
+    """Every slash command `agent`'s conversation offers right now, and its
+    kind: 'action' (an AGENT_KEYS verb, gated by the same `can` the keybinding
+    itself checks) or 'info' (always offered, nothing to decide).
+
+    Derived from AGENT_KEYS and INFO_COMMANDS, not a third, hand-kept table -
+    the same reason `agent_footer_keys` reads AGENT_KEYS instead of keeping
+    its own list. `open` is excluded: typing a command to open the page
+    already open is not a thing, the same way the footer never offers it."""
+    out = [(label, "action") for _, label in AGENT_KEYS
+           if label != "open" and actions.can(con, agent, label)[0]]
+    out += [(name, "info") for name in INFO_COMMANDS]
+    return out
+
+
 def agent_help_line() -> str:
     """The full AGENT_KEYS legend, for `?`: what the footer never shows at
     all (fold, move) and whatever a row's own state hid from it. One place
@@ -1791,8 +1815,11 @@ def _composer(multi: bool = False) -> Composer:
     return box
 
 
+_UP_DOWN = re.compile(r"\033(?:\[[AB]|O[AB])")
+
+
 def _line(prompt: str, width: int, height: int, multi: bool = False,
-          under=None) -> str | None:
+          under=None, commands: list[tuple[str, str]] | None = None) -> str | None:
     """Read a message with the screen still up. None when the human backs out.
 
     Every prompt reads through here, so a paste is one paste in all of them:
@@ -1803,7 +1830,14 @@ def _line(prompt: str, width: int, height: int, multi: bool = False,
     screen). The rows come out of the bottom of the screen, so `under(h)` - the
     screen as it draws at height h - is painted above them; without it they
     cover what was there until the prompt closes.
-    """
+
+    `commands`, when given, turns a leading '/' into autocomplete: the names
+    that match what follows it are listed under the composer, ↑↓ (otherwise
+    unbound here - Composer has no vertical move) changes which is
+    highlighted, and Enter sends the highlighted one - as '/name' whole, not
+    whatever prefix was actually typed - rather than the typed text. Text
+    starting with '/' that matches nothing is sent as typed: a real message
+    is still allowed to start with a slash."""
     if not sys.stdin.isatty():
         return None
     fd = sys.stdin.fileno()
@@ -1811,13 +1845,31 @@ def _line(prompt: str, width: int, height: int, multi: bool = False,
     data = "".join(_pending)           # keys already read ahead of this prompt
     _pending.clear()
     painted = 1                        # rows the prompt has, as the screen was drawn
+    sel = 0                            # highlighted row in the command list, if one is shown
+    matches: list[str] = []            # what is currently displayed, from the last render
     while True:
+        if matches and data:
+            m = _UP_DOWN.match(data)
+            if m:
+                sel = max(0, min(len(matches) - 1,
+                                 sel + (1 if m.group() in ("\033[B", "\033OB") else -1)))
+                data = data[m.end():]
         done = box.feed(data) if data else None
         if done == "cancel":
             return None
         if done == "send":
+            if matches:
+                return f"/{matches[sel]}"
             return box.text.strip("\n") if multi else box.text.strip()
+        # Recomputed from the text as it now stands, after this keystroke -
+        # matched against on the NEXT iteration, once it is what is on screen.
+        matches = ([n for n, _ in commands if n.startswith(box.text[1:])]
+                   if commands is not None and box.text.startswith("/") else [])
+        sel = max(0, min(sel, len(matches) - 1)) if matches else 0
         rows = box.shown(prompt, width, max(1, height // 2))
+        if matches:
+            rows = rows + [f"{DIM}  " + "  ".join(
+                (f"{R}▸{DIM}" if i == sel else " ") + n for i, n in enumerate(matches)) + R]
         top = height - len(rows) + 1
         if under and len(rows) != painted:
             sys.stdout.write(HOME + under(top))
@@ -2067,31 +2119,7 @@ def _in_detail(detail: dict, k: str, width: int, height: int,
         name = str(detail["key"])
         con = db.connect()
         try:
-            allowed, why = actions.can(con, name, label)
-            if not allowed:
-                return detail, why
-            if label in ("message", "editor"):
-                body = _compose_message(name, label, width, height, fd, saved,
-                                        under=lambda h: _detail_frame(width, h, dict(detail)))
-                return detail, (actions.message(con, name, body) if body is not None
-                                else _nothing_sent("e" if label == "editor" else "m"))
-            if label == "terminal" and _needs_a_terminal(con, name):
-                repo = _line(f"{name} has nowhere to run - repo to start it in "
-                             f"[{os.getcwd()}]:", width, height,
-                             under=lambda h: _detail_frame(width, h, dict(detail)))
-                if repo is None:
-                    return detail, "not started"
-                _say(f"starting {name}", width, height)
-                return detail, actions.terminal(con, name, repo.strip() or os.getcwd())
-            if label == "move":
-                return detail, _move_agent(con, name, width, height,
-                                           under=lambda h: _detail_frame(width, h, dict(detail)))
-            if label in CONFIRM and not _confirm(f"{label} {name}", width, height):
-                return detail, "left alone"
-            _say(f"{label} {name}", width, height)
-            said = getattr(actions, label)(con, name)
-            # What it says about itself has just changed.
-            return _agent_page(con, name, detail["panel"], detail["title"], detail), said
+            return _dispatch_agent_verb(con, detail, name, label, width, height, fd, saved)
         finally:
             con.close()
     if detail.get("panel") != MESSAGES or k not in ("a", "e", "x"):
@@ -2110,9 +2138,66 @@ def _in_detail(detail: dict, k: str, width: int, height: int,
         con.close()
 
 
+def _dispatch_agent_verb(con, detail: dict, name: str, label: str, width: int, height: int,
+                         fd, saved) -> tuple[dict, str]:
+    """Run one AGENT_KEYS verb against `name` - the body both a keypress and a
+    slash command funnel through, so a command cannot drift from what its
+    keybinding does. `can` has already been asked by neither caller; it is
+    asked here, once, so there is exactly one place that can say no."""
+    allowed, why = actions.can(con, name, label)
+    if not allowed:
+        return detail, why
+    if label in ("message", "editor"):
+        body = _compose_message(name, label, width, height, fd, saved,
+                                under=lambda h: _detail_frame(width, h, dict(detail)))
+        return detail, (actions.message(con, name, body) if body is not None
+                        else _nothing_sent("e" if label == "editor" else "m"))
+    if label == "terminal" and _needs_a_terminal(con, name):
+        repo = _line(f"{name} has nowhere to run - repo to start it in "
+                     f"[{os.getcwd()}]:", width, height,
+                     under=lambda h: _detail_frame(width, h, dict(detail)))
+        if repo is None:
+            return detail, "not started"
+        _say(f"starting {name}", width, height)
+        return detail, actions.terminal(con, name, repo.strip() or os.getcwd())
+    if label == "move":
+        return detail, _move_agent(con, name, width, height,
+                                   under=lambda h: _detail_frame(width, h, dict(detail)))
+    if label in CONFIRM and not _confirm(f"{label} {name}", width, height):
+        return detail, "left alone"
+    _say(f"{label} {name}", width, height)
+    said = getattr(actions, label)(con, name)
+    # What it says about itself has just changed.
+    return _agent_page(con, name, detail["panel"], detail["title"], detail), said
+
+
+def _run_info_command(con, detail: dict, name: str, cmd: str) -> tuple[dict, str]:
+    """The read-only slash commands: nothing to decide, so no `can` gate - the
+    terminal handle and worktree path the head used to show."""
+    if cmd == "where":
+        return detail, actions.agent_where(con, name)
+    if cmd == "worktree":
+        return detail, actions.agent_worktree(con, name)
+    return detail, f"/{cmd}: not wired"        # unreachable while INFO_COMMANDS names all of it
+
+
+def _run_command(con, detail: dict, name: str, cmd: str, width: int, height: int,
+                 fd, saved) -> tuple[dict, str]:
+    """A slash command typed in the composer, already resolved to a canonical
+    name by `_line`'s own autocomplete - never raw text a person half-typed."""
+    kind = dict(agent_commands(con, name)).get(cmd)
+    if kind is None:
+        return detail, f"/{cmd}: not a command here"
+    if kind == "info":
+        return _run_info_command(con, detail, name, cmd)
+    return _dispatch_agent_verb(con, detail, name, cmd, width, height, fd, saved)
+
+
 def _write_in_thread(detail: dict, k: str, width: int, height: int,
                      fd, saved) -> tuple[dict, str]:
-    """The composer under a conversation: what is typed goes under its thread."""
+    """The composer under a conversation: what is typed goes under its thread,
+    unless it is a slash command - the same conversation, the same composer,
+    a second kind of thing it can send."""
     name = str(detail["key"])
     con = db.connect()
     try:
@@ -2124,9 +2209,12 @@ def _write_in_thread(detail: dict, k: str, width: int, height: int,
                            fd, saved)
         else:
             body = _line(f"to {name}:", width, height, multi=True,
-                         under=lambda h: _detail_frame(width, h, dict(detail)))
+                         under=lambda h: _detail_frame(width, h, dict(detail)),
+                         commands=agent_commands(con, name))
         if body is None:
             return detail, _nothing_sent(k)
+        if k != "e" and body.startswith("/"):
+            return _run_command(con, detail, name, body[1:], width, height, fd, saved)
         said = actions.chat_reply(con, name, body)
         detail["end"] = True
         return _agent_page(con, name, detail["panel"], detail["title"], detail), said

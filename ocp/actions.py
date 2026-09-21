@@ -1140,11 +1140,6 @@ def agent_detail(con, agent: str) -> list[tuple[str, list[str]]]:
                            if row["wake_at"] else [])))
         if row["detail"]:
             head.append(row["detail"])
-        head.append(Fact(("terminal", row["terminal"] or "none")))
-        if row["worktree"]:
-            head.append(Fact(("worktree", worktree_path(row["worktree"]) or row["worktree"])))
-        if row["closed_at"]:
-            head.append(Fact(("resumes session", row["resume_session"] or "unknown")))
     sections = [("", head)]
 
     waiting = db.queued_for(con, agent)
@@ -1172,6 +1167,30 @@ def agent_detail(con, agent: str) -> list[tuple[str, list[str]]]:
     sections.append((CHAT_TAB + (f" ({n if n < 100 else '99+'} new)" if n else ""),
                      conversation(con, agent)))
     return sections
+
+
+def agent_where(con, agent: str) -> str:
+    """The terminal handle, and the session it would resume if closed - a
+    technical id, never on the head where a person reads at a glance, but
+    still one keystroke away for the one thing it is for: an agent stuck on
+    a screen only the handle can reach."""
+    row = db.get_agent_state(con, agent)
+    if not row:
+        return f"{agent} has never been started"
+    said = f"terminal {row['terminal'] or 'none'}"
+    if row["closed_at"]:
+        said += f"  ·  resumes session {row['resume_session'] or 'unknown'}"
+    return said
+
+
+def agent_worktree(con, agent: str) -> str:
+    """Where this agent's repo lives on disk - off the head for the same
+    reason as the terminal handle: nothing a person types, only reads when
+    they need to go there themselves."""
+    row = db.get_agent_state(con, agent)
+    if not row or not row["worktree"]:
+        return f"{agent} has no worktree"
+    return worktree_path(row["worktree"]) or row["worktree"]
 
 
 def account_detail(con, acct: str, logged_in=None) -> list[tuple[str, list[str]]]:

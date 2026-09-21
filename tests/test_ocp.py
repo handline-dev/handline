@@ -14846,6 +14846,52 @@ def test_the_messenger_tab_carries_a_conversation_both_ways(home: Path) -> None:
         con.close()
 
 
+def test_the_agent_head_is_trimmed_and_slash_commands_are_derived_not_kept(home: Path) -> None:
+    """Founder (#1007, via #1008): the terminal handle and the worktree path
+    are not a person's business on the head - a technical id nobody types.
+    Off the head, still reachable, one slash command each - not lost.
+
+    And the command set itself must not become a second hand-kept table next
+    to the footer's: every AGENT_KEYS verb `can` allows, plus the read-only
+    getters, or the day one drifts from the other a command offers what the
+    keybinding refuses, or hides what it allows."""
+    _daemon_home(home, 20)
+    agents.register("backend", "alpha")
+    con = db.connect()
+    try:
+        head = "\n".join(ln for h, rows in actions.agent_detail(con, "backend") if not h
+                         for ln in rows)
+        check("head: the terminal handle is off it", "terminal" not in head, head)
+        check("head: the worktree path is off it", "worktree" not in head, head)
+        check("head: what the founder asked to keep at a glance is still there",
+              all(w in head for w in ("account", "model", "effort", "ctx")), head)
+
+        check("info: /where says the terminal the fixture set",
+              actions.agent_where(con, "backend") == "terminal term_x",
+              actions.agent_where(con, "backend"))
+        check("info: /worktree says so when there is none",
+              actions.agent_worktree(con, "nobody") == "nobody has no worktree",
+              actions.agent_worktree(con, "nobody"))
+
+        cmds = dict(tui.agent_commands(con, "backend"))
+        # Every AGENT_KEYS verb `can` allows right now, `open` aside (the panel
+        # handles it before ever consulting AGENT_KEYS, same as the footer).
+        allowed = {label for _, label in tui.AGENT_KEYS
+                  if label != "open" and actions.can(con, "backend", label)[0]}
+        check("commands: every allowed verb is offered, no more and no fewer",
+              {c for c, k in cmds.items() if k == "action"} == allowed, str(cmds))
+        check("commands: the info getters are always offered, not gated by can",
+              {c for c, k in cmds.items() if k == "info"} == set(tui.INFO_COMMANDS), str(cmds))
+        # The honesty property: nothing in AGENT_KEYS or INFO_COMMANDS is
+        # missing from one list or the other - a new entry in either source
+        # shows up here on its own, or this fails.
+        check("commands: every source name appears in exactly one place",
+              set(cmds) == allowed | set(tui.INFO_COMMANDS)
+              and len(cmds) == len(allowed) + len(tui.INFO_COMMANDS), str(cmds))
+    finally:
+        con.close()
+
+
 def test_a_message_being_typed_wraps_and_keeps_the_cursor_on_its_last_character(home: Path) -> None:
     """Founder: past one line's worth of typing, what was written could not be
     seen. The prompt shows every character on as many rows as it takes, the
@@ -14921,6 +14967,52 @@ def test_a_message_being_typed_wraps_and_keeps_the_cursor_on_its_last_character(
     check("typing: the screen above is redrawn to leave exactly the rows it needs",
           unders and unders[-1] == last[0][0] and 12 <= unders[-1] < 24, str(unders))
     check("typing: and it is not painted over more than half of it", last[0][0] >= 12)
+
+
+def test_slash_commands_autocomplete_and_run_the_highlighted_one(home: Path) -> None:
+    """Founder (#1007, via #1008): '/~~~ 를 자동완성하는 기능' - typing '/'
+    in the message composer lists what it could mean, ↑↓ changes which is
+    highlighted, and Enter runs that one - never whatever partial text was
+    actually typed, so a person who presses Enter after 'cl' runs `close`,
+    not a literal message reading '/cl'."""
+    import threading
+    import tty as ttymod
+
+    def plain(rows: list[str]) -> list[str]:
+        return [tui._ANSI.sub("", r) for r in rows]
+
+    master, slave = pty.openpty()
+    ttymod.setraw(slave)
+    real_in, real_out = sys.stdin, sys.stdout
+    sys.stdin, sys.stdout = os.fdopen(slave, "r", closefd=False), io.StringIO()
+    cmds = [("close", "action"), ("clock", "info"), ("wake", "action")]
+    try:
+        os.write(master, b"/cl")
+        threading.Timer(0.3, lambda: os.write(master, b"\033[B\r")).start()
+        got = tui._line("to x:", 40, 24, multi=True, commands=cmds)
+        out = plain(sys.stdout.getvalue().split("\033[24;1H"))
+    finally:
+        sys.stdin, sys.stdout = real_in, real_out
+        os.close(master)
+        os.close(slave)
+    check("autocomplete: both matches for the typed prefix are listed",
+          any("close" in r and "clock" in r for r in out), str(out))
+    check("autocomplete: ↓ then Enter runs the one it moved to, not the typed text",
+          got == "/clock", repr(got))
+
+    # No match: a real message starting with '/' is still just a message.
+    master, slave = pty.openpty()
+    ttymod.setraw(slave)
+    sys.stdin, sys.stdout = os.fdopen(slave, "r", closefd=False), io.StringIO()
+    try:
+        os.write(master, b"/nope not a command\r")
+        got = tui._line("to x:", 40, 24, multi=True, commands=cmds)
+    finally:
+        sys.stdin, sys.stdout = real_in, real_out
+        os.close(master)
+        os.close(slave)
+    check("autocomplete: text starting with / that matches nothing sends as typed",
+          got == "/nope not a command", repr(got))
 
 
 def test_the_agent_pages_tabs_show_everything_and_read_as_blocks(home: Path) -> None:
@@ -17500,6 +17592,7 @@ def main() -> int:
         run(lambda: test_a_message_is_read_whole_and_answered_where_it_is_read(Path(td) / 'topread'))
         run(lambda: test_the_arrows_change_tabs_on_an_agent_page_in_a_real_terminal(Path(td) / 'arrows'))
         run(lambda: test_the_messenger_tab_carries_a_conversation_both_ways(Path(td) / 'chat'))
+        run(lambda: test_the_agent_head_is_trimmed_and_slash_commands_are_derived_not_kept(Path(td) / 'headtrim'))
         run(lambda: test_a_conversation_stays_where_the_reader_scrolled_it(Path(td) / 'scroll'))
         run(lambda: test_a_conversation_reads_as_turns_at_any_width(Path(td) / 'turns'))
         run(lambda: test_a_conversation_shows_whose_message_is_whose_without_colour(Path(td) / 'whose'))
@@ -17513,6 +17606,7 @@ def main() -> int:
         run(lambda: test_every_prompt_leaves_the_screen_above_it_drawn_through_tui_run(Path(td) / 'prompts'))
         run(lambda: test_the_agent_pages_tabs_show_everything_and_read_as_blocks(Path(td) / 'tabs'))
         run(lambda: test_a_message_being_typed_wraps_and_keeps_the_cursor_on_its_last_character(Path(td) / 'typing'))
+        run(lambda: test_slash_commands_autocomplete_and_run_the_highlighted_one(Path(td) / 'slash'))
         run(lambda: test_bracketed_paste_is_switched_on_with_the_screen())
         run(lambda: test_the_composer_takes_a_paste_whole(Path(td) / 'composer'))
         run(lambda: test_the_composer_cursor_moves_and_edits_in_place(Path(td) / 'composer-cursor'))
