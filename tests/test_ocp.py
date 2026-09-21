@@ -1014,7 +1014,13 @@ def test_replay_reconstructs_burn_and_lets_the_week_gate_fire(home: Path) -> Non
         check("replay: a first sample has no prior to difference against",
               ("tight", ts0) not in burns and ("roomy", ts0) not in burns, burns)
 
-        diffs = {d["ts"]: d for d in replaymod.replay(con)}
+        blind: list = []
+        diffs = {d["ts"]: d for d in replaymod.replay(con, unasked=blind)}
+        check("replay: a tick with no burn is reported as one the week gate could not ask, "
+              "not silently as agreement",
+              blind == [(ts0, ["roomy", "tight"])], blind)
+        check("replay: the tick where burn was reconstructed lists nobody as unasked",
+              diffs.get(ts1, {}).get("unasked") == [], diffs.get(ts1))
         check("replay: the week gate that load={} cannot ask fires here and moves the pick",
               ts1 in diffs, diffs)
         check("replay: the old rule's earliest-deadline still picks the account "

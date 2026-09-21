@@ -35,6 +35,14 @@ honest about not knowing, not a guessed count dressed as data. A tick the cap
 or a rival agent's presence would have decided cannot be replayed correctly,
 and no amount of history fixes that; this only reconstructs what the samples
 actually kept.
+
+A tick whose account has no reconstructed burn (its first sample, a carried
+reading, a rolled window, or the first inside `since`) or no week ratio is one
+the week gate could not properly ask: with no burn it judged the week at zero
+fill, with no ratio not at all. Such a tick reads on screen the same as one
+where the gate ran and allowed the pick, so every divergence lists those
+accounts under "unasked", and `unasked=` collects every compared tick that had
+any, divergent or not.
 """
 from __future__ import annotations
 
@@ -118,14 +126,18 @@ def by_tick(rows) -> dict[int, dict[str, status.AccountStatus]]:
     return {ts: accts for ts, accts in grouped.items() if len(accts) > 1}
 
 
-def replay(con, account_filter=None, since: int | None = None) -> list[dict]:
+def replay(con, account_filter=None, since: int | None = None,
+           unasked: list | None = None) -> list[dict]:
     """Every recorded tick where the current rule and the old one would have
     picked differently, in order. `account_filter` narrows which accounts a
     tick's comparison considers, when only some are of interest.
 
     Returns one dict per divergence: ts, old, new, and each candidate
     account's pct_5h/pct_7d at that moment, for a human to read without
-    reopening the table.
+    reopening the table, and "unasked": the accounts whose week the gate could
+    not properly judge at that tick (no burn or no week ratio). When `unasked`
+    is a list, every compared tick with any such account is appended to it as
+    (ts, accounts), whether or not the pick diverged.
     """
     rows = db.usage_samples(con, since=since)
     ticks = by_tick(rows)
@@ -150,9 +162,13 @@ def replay(con, account_filter=None, since: int | None = None) -> list[dict]:
             new_picked, _ = status.pick_account(list(statuses.keys()), load=tick_load,
                                                 read_status=statuses.get)
             old_picked = old_pick(statuses)
+            blind = sorted(n for n, ld in tick_load.items()
+                           if ld.burn is None or shared_costs.week_per_5h(n) is None)
+            if blind and unasked is not None:
+                unasked.append((ts, blind))
             if new_picked != old_picked:
                 diffs.append({
-                    "ts": ts, "old": old_picked, "new": new_picked,
+                    "ts": ts, "old": old_picked, "new": new_picked, "unasked": blind,
                     "accounts": {n: (s.pct_5h, s.pct_7d, s.reset_7d) for n, s in statuses.items()},
                 })
     finally:
