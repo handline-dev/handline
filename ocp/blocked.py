@@ -190,12 +190,17 @@ def stopped_pressing(con, agent: str, rec, now: int) -> str:
     # The absolute stop, checked first and independent of any title matching:
     # a title an agent varies (a counter, an elapsed time - no malice needed)
     # would otherwise never trip the per-dialog count below, since it never
-    # repeats. This one never claims a single dialog came back; it says only
-    # that ocp stopped, on this agent, however many different dialogs.
+    # repeats. Checking this first must not hand a single looping dialog the
+    # per-agent wording - the count alone does not say whether it was one
+    # dialog or several, so the titles actually seen decide what is said.
     all_cleared = sum(1 for p in all_history if p["outcome"] == "cleared")
     if all_cleared >= MAX_PRESSES_AGENT:
+        titles = {p["title"] for p in all_history if p["outcome"] == "cleared"}
+        if len(titles) == 1:
+            return (f"ocp cleared it {all_cleared} times in {status.ago(PRESS_WINDOW_S)} and it "
+                    f"came back each time, so it has stopped pressing")
         return (f"ocp cleared {all_cleared} dialogs on this agent in {status.ago(PRESS_WINDOW_S)} "
-                f"(titles varied), so it has stopped pressing")
+                f"({len(titles)} different titles), so it has stopped pressing")
     history = [p for p in all_history if p["title"] == title]
     cleared = sum(1 for p in history if p["outcome"] == "cleared")
     if cleared >= MAX_PRESSES:

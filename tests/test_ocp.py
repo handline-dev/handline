@@ -3306,6 +3306,18 @@ def test_press_history_is_scoped_to_one_dialog_not_the_whole_agent(home: Path) -
           blockedmod.stopped_pressing(con, "no-history-agent",
                                       {"kind": orcamod.MODAL, "detail": "x", "title": "new"}, now) == "")
 
+    # Auditor's #1087: checking the per-agent cap first must not hand a
+    # single looping dialog the per-agent wording - one dialog, cleared past
+    # the cap, is still described as one dialog that came back, never as
+    # several dialogs with titles that varied (neither is true of it).
+    for i in range(blockedmod.MAX_PRESSES_AGENT):
+        db.press_add(con, "looper", now - i * 60, "Background work is running", "cleared")
+    same_title = {"kind": orcamod.MODAL, "detail": "irrelevant", "title": "Background work is running"}
+    stopped = blockedmod.stopped_pressing(con, "looper", same_title, now)
+    check("press history: past the per-agent cap, one dialog is still said as one dialog",
+          f"cleared it {blockedmod.MAX_PRESSES_AGENT} times" in stopped and "came back each time" in stopped
+          and "different titles" not in stopped, stopped)
+
     # The escalation gate: a brand-new UNSENT block on the same agent must not
     # jump SHOW_AFTER_S/ESCALATE_AFTER_S because of that stale MODAL history.
     orcamod.screen_blocker = lambda h: orcamod.Blocker(orcamod.UNSENT, "typed")
