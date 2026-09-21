@@ -10407,6 +10407,23 @@ def test_each_dialog_that_cannot_be_passed_starts_its_own_clock(home: Path) -> N
         con.close()
 
 
+def test_dialogs_whose_titles_did_not_parse_do_not_share_a_clock(home: Path) -> None:
+    """Two unparseable dialogs cannot be told apart, so the second is never
+    counted as the first: it starts its own clock rather than stalling at once."""
+    con, _term = _park_behind(home, LIMIT_DIALOG, ends_at_limit=False)
+    real = blockedmod.past_dialog
+    blockedmod.past_dialog = lambda *_a, **_k: ("its title or options could not be parsed", "")
+    try:
+        dmn._past_dialog(con, "keeper", lambda _m: None)
+        db.set_cursor(con, "dialog_since:keeper", int(time.time()) - blockedmod.ESCALATE_AFTER_S - 1)
+        dmn._past_dialog(con, "keeper", lambda _m: None)
+        check("clock: an unparsed dialog never inherits the last one's clock",
+              not dmn._stalled_on_dialog(con, "keeper", "z", lambda _m: None))
+    finally:
+        blockedmod.past_dialog = real
+        con.close()
+
+
 def test_a_dialog_on_its_last_try_says_which_dialog_in_the_stall(home: Path) -> None:
     """The stall that repeated failed handoffs end in named a count and nothing
     else, so the person who found it did not know a dialog was the cause."""
@@ -17599,6 +17616,7 @@ def main() -> int:
         run(lambda: test_a_working_agents_dialog_is_not_pressed_by_a_handoff_that_has_not_begun(
             Path(td) / 'workingdialog'))
         run(lambda: test_each_dialog_that_cannot_be_passed_starts_its_own_clock(Path(td) / 'dialogclock'))
+        run(lambda: test_dialogs_whose_titles_did_not_parse_do_not_share_a_clock(Path(td) / 'dialogblank'))
         run(lambda: test_a_dialog_on_its_last_try_says_which_dialog_in_the_stall(
             Path(td) / 'stallnote'))
         run(lambda: test_a_pinned_closed_agent_moves_instead_of_waiting_out_its_window(

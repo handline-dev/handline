@@ -334,8 +334,11 @@ def _past_dialog(con, agent: str, log, only_limit: bool = False) -> str:
         db.clear_cursor(con, since_key)
         db.clear_cursor(con, title_key)
         return ""
-    mark = int(hashlib.sha1(title.encode()).hexdigest()[:8], 16)
-    if db.get_cursor(con, title_key) != mark or not db.get_cursor(con, since_key):
+    # A dialog whose title did not parse cannot be told from another one, so it
+    # is never the same as the last: its clock restarts, which errs toward
+    # not stalling.
+    mark = int(hashlib.sha1(title.encode()).hexdigest()[:8], 16) if title else 0
+    if not mark or db.get_cursor(con, title_key) != mark or not db.get_cursor(con, since_key):
         db.set_cursor(con, title_key, mark)
         db.set_cursor(con, since_key, int(time.time()))
     return why
@@ -1416,6 +1419,8 @@ def perform_handoff(con, agent: str, trigger: triggers.Trigger, log,
             # so it is got past here rather than deferred to, tick after tick.
             # Any other dialog may be a person's to answer, and this is only the
             # decision whether to begin - the session is not yet ending.
+            # Only a modal dialog is got past: a blocker that is not one, such
+            # as the backgrounded picker, still reads as a turn and defers.
             with lock.terminal(agent) as mine:
                 in_the_way = _past_dialog(con, agent, log, only_limit=True) if mine else ""
             if in_the_way and _stalled_on_dialog(con, agent, in_the_way, log):
