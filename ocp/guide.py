@@ -88,8 +88,8 @@ On `ocp bridge`: ↑↓ walks the whole screen and crosses into the next panel a
 the end of one, ←→ jumps panel to panel, and the panel your keys act on is the
 one drawn in colour. Open a message with ↵ and answer it with `a` (or `e` for
 $EDITOR) - from the list or from inside it, whichever you are looking at. An
-agent's page is the conversation with it, and what is waiting on it from other
-agents sits under the conversation. ↵ writes to it; a message starting with /
+agent's page is the conversation with it, and whatever else is queued for it
+sits under the conversation. ↵ writes to it; a message starting with /
 is a command, and typing / lists them - among them /cancel <id>, which takes a
 queued request out after saying who will be told, and /knows and /done, which
 open what it knows and what it has done. `m` sends an order

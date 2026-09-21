@@ -15287,9 +15287,9 @@ def test_the_agent_page_shows_everything_and_reads_as_blocks(home: Path) -> None
                       "account alpha   model sonnet   effort medium   ctx ?" in whole)
             check(f"page: the head block keeps its whole detail at {width}",
                   words(whole)["TAILHEAD"] == 1)
-            others = under(whole, "WAITING FOR IT")
+            others = under(whole, "ALSO QUEUED")
             others = others[:next(i for i, ln in enumerate(others) if ln.startswith("└")) + 1]
-            check(f"page: a request from another agent is drawn under a heading that says whose at {width}",
+            check(f"page: a request from another agent is under the queued heading and says whose it is at {width}",
                   any("from marina" in ln for ln in others)
                   and not any("from marina" in ln for ln in whole[:whole.index(others[0])]),
                   str(others))
@@ -15429,8 +15429,8 @@ def test_the_composer_takes_a_paste_whole(home: Path) -> None:
 
 def test_the_one_column_agent_page(home: Path) -> None:
     """Part 4 of #1008: an agent's page is its head and its conversation, what
-    is waiting on it from other agents sits under the conversation with its
-    origin, and what it knows and has done are read on request."""
+    else is queued for it sits under the conversation, each row saying whose
+    it is, and what it knows and has done are read on request."""
     _daemon_home(home, 20)
     agents.register("reviewer", "alpha")
     con = db.connect()
@@ -15449,7 +15449,7 @@ def test_the_one_column_agent_page(home: Path) -> None:
         check("page: opened at its end, the newest message is on screen, not what is under it",
               "message number 17" in shown and "please look at the diff" not in shown, shown)
         check("page: where the reader is left it says what is below, and how to reach it",
-              "1 waiting for it from other agents" in shown and "press G" in shown, shown)
+              "1 also queued for it" in shown and "press G" in shown, shown)
         d, _ = tui._in_detail(d, "j", 80, 40)
         shown = tui._ANSI.sub("", tui._detail_frame(80, 40, d))
         check("page: scrolling down from the end is not snapped back to it",
@@ -15457,7 +15457,7 @@ def test_the_one_column_agent_page(home: Path) -> None:
         d, _ = tui._in_detail(d, "G", 80, 40)
         shown = tui._ANSI.sub("", tui._detail_frame(80, 40, d))
         check("page: G reaches the section under the conversation, headed with whose it is",
-              "FROM OTHER AGENTS" in shown and f"#{other} from marina" in shown, shown)
+              "ALSO QUEUED FOR IT" in shown and f"#{other} from marina" in shown, shown)
         check("page: no tab strip and no closing of sections into tabs",
               "WHAT IT KNOWS" not in shown and "WHAT IT HAS DONE" not in shown)
 
@@ -15483,8 +15483,10 @@ def test_the_one_column_agent_page(home: Path) -> None:
                            "async", None, 0, None)
         pg = tui._agent_page(con, "elder")
         text = "\n".join(tui._ANSI.sub("", ln) for w in (80, 30) for ln in tui.lines_of(pg, w))
-        check("page: a queued request past the conversation's newest chains is still on the page",
-              "the oldest question, still queued" in text and f"#{old}" in text, text[:300])
+        check("page: a queued request past the conversation's newest chains is still on the page, "
+              "under a heading that describes it",
+              f"#{old} from human" in text and "ALSO QUEUED FOR IT" in text
+              and text.index("ALSO QUEUED FOR IT") < text.index(f"#{old} from human"), text[:300])
     finally:
         sys.stdin, sys.stdout = real_in, real_out
         con.close()

@@ -909,7 +909,7 @@ def can(con, agent: str, key: str) -> tuple[bool, str]:
 # been at work for a week has more of them than a page can hold.
 CHAT_CHAINS = 8
 CHAT_TAB = "CONVERSATION"
-OTHERS_TAB = "WAITING FOR IT, FROM OTHER AGENTS"
+OTHERS_TAB = "ALSO QUEUED FOR IT"
 UNTOLD_TAB = "ANSWERS IT HAS NOT BEEN TOLD"
 
 
@@ -987,11 +987,6 @@ class Said(Row):
         self.kind, self.who, self.side, self.text = kind, who, side, text
         self.ts, self.tail, self.waiting = ts, tail, waiting
         return self
-
-
-def conversation(con, agent: str) -> list[str]:
-    """The human's conversation with `agent`, as its rows."""
-    return conversation_and_drawn(con, agent)[0]
 
 
 def conversation_and_drawn(con, agent: str) -> tuple[list[str], set[int]]:
@@ -1163,7 +1158,7 @@ def agent_detail(con, agent: str) -> list[tuple[str, list[str]]]:
               for r in db.unannounced_answers(con, agent) if r["id"] not in drawn]
     if others or untold:
         # Where the reader is left, at the end of the conversation.
-        chat += [f"below: {len(others)} waiting for it from other agents, {len(untold)} "
+        chat += [f"below: {len(others)} also queued for it, {len(untold)} "
                  "answers it has not been told - press G to read them"]
     sections = [("", head)]
     n = chat_unread(con, agent)
