@@ -188,6 +188,38 @@ Below the line, worth doing but not for code reduction: `gate-create` for the
 blocked escalation (a block the founder can see **outside** ocp, instead of a
 row only we can read) and `terminal rename --title` for tab titles.
 
+#### #1's preconditions: it rides on hooks, not on any statusLine (#1347)
+
+Asked whether #1 works without Orca's statusLine. **There is no Orca
+statusLine** - measured at three levels, and the two systems never touch:
+
+- Orca installs **13 hook events** into `settings.json`. The `statusLine` entry
+  in `~/.claude/settings.json` is `ccstatusline`, the founder's own third-party
+  tool, nothing to do with Orca.
+- Our `shared/.claude/settings.json` carries the mirrored Orca hooks **and**
+  our `statusline-collect.sh`, side by side. D9's "the statusLine stays
+  permanently" is about the **context window**, which Orca has no equivalent
+  for - it is not in tension with this.
+- All **8 live sessions** carry the 13 `ORCA_AGENT_HOOK_*` variables, so the
+  mirrored hooks can actually reach the runtime.
+
+**So yes - #1 needs no statusLine.** Two preconditions, both measured, and
+neither is a blocker:
+
+1. **Coverage is 7 of 24.** `stage.activity`: `unknown` on **17**, `working` 4,
+   `done` 3. `liveness`: `unverifiable` **13**, `live` 7 (source
+   `agent_status`), `exited` 4. The 7 that answer are the live agents; the rest
+   are stale dispatches from the Run leak (D8). So the swap is safe **per
+   agent**, and `unknown` must fall back to the probe - never be read as idle.
+   Fixing D8 raises the denominator, not the numerator.
+2. **The mirror is drifting right now.** `hooks.plan()` returns
+   `drifted=True`: Orca's source has 13 events, ours has 12 - `SessionEnd` is
+   missing. `hooks.sync()` runs only at `ocp init` or by hand; the watcher is
+   opt-in and is not running; `ocp doctor` reports the drift without fixing it.
+   Retiring the probe makes this unattended mirror load-bearing, so **item #4
+   comes first**. (A plausible fit, not yet proven: a missing `SessionEnd` is
+   why dead dispatches linger at `unverifiable` rather than `exited`.)
+
 **What actually shrinks ocp is not on this list**: the 208-line window model
 (D2), `run_exists` (Q1) and the Run leak (D8). If the goal is less code, that
 is the target - it is ~3× everything Orca offers, and it is entirely ours.

@@ -341,6 +341,27 @@ Runs. Those wait for the observation move, and cleanup is the founder's call -
 there is no `run-delete` verb, and `orchestration reset` is global and would
 destroy the agents' own orchestration state.
 
+### Q3. The hook mirror runs once and is never re-run (#1347)
+
+**Measured 2026-09-21:** `hooks.plan()` returns `drifted=True` on this machine.
+Orca's `~/.claude/settings.json` carries **13** hook events; our
+`shared/.claude/settings.json` carries **12** - `SessionEnd` is missing.
+
+`hooks.sync()` is called from exactly one place, `cli.py`'s `ocp init`, plus
+the explicit `ocp hooks sync`. The watcher (`--watch`) is opt-in and is not
+running. `doctor.py` *reports* the drift and does not repair it. So the mirror
+is correct only until Orca ships a hook event, and then it silently is not.
+
+**Why it is now worth doing:** it was cosmetic while the mirror only fed a
+dashboard. If `stage.activity` replaces `orca.idle_now` (board §"Claude only",
+item 1), an unattended mirror becomes load-bearing for a decision the daemon
+makes every tick. **Do this before that swap, not after.**
+
+Smallest fix: have the daemon call `hooks.sync()` on the same tick it already
+does its other housekeeping, and let `hooks.py` take its source path from
+`orca agent hooks status --json`'s `configPath` rather than hard-coding
+`~/.claude/settings.json` (board item 4 - the same ten lines).
+
 ### Q2. Build the vendor driver, steps 1-4
 
 Drafted in `design/03-vendor-driver.md` §7. Steps 1-4 are **vendor-neutral
