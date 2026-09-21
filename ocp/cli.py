@@ -1174,8 +1174,6 @@ def _human_inbox(show_all: bool = False) -> int:
             return 0
         # A count of messages, not of lines: read the same unfolded rows a
         # fold draws from, not the fold's own line count.
-        # A count of messages, not of lines: read the same unfolded rows a
-        # fold draws from, not the fold's own line count.
         print(f"{len(actions.mailbox_rows(con))} waiting. "
               f"`ocp read <id>` shows one whole.")
         for m in rows:
