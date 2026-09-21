@@ -1856,13 +1856,18 @@ def _line(prompt: str, width: int, height: int, multi: bool = False,
     matches: list[str] = []            # what is currently displayed, from the last render
     picked = False                     # the human moved the highlight, deliberately
     while True:
-        if matches and data:
+        # Every leading arrow, not just the first - one read can hold several
+        # (key repeat, a paste, a script), and Composer silently swallows an
+        # arrow it does not itself map, so a second one left in `data` would
+        # otherwise move the highlight by one row instead of two.
+        while matches and data:
             m = _UP_DOWN.match(data)
-            if m:
-                sel = max(0, min(len(matches) - 1,
-                                 sel + (1 if m.group() in ("\033[B", "\033OB") else -1)))
-                picked = True
-                data = data[m.end():]
+            if not m:
+                break
+            sel = max(0, min(len(matches) - 1,
+                             sel + (1 if m.group() in ("\033[B", "\033OB") else -1)))
+            picked = True
+            data = data[m.end():]
         done = box.feed(data) if data else None
         if done == "cancel":
             return None

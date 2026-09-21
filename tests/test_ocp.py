@@ -15032,6 +15032,24 @@ def test_slash_commands_autocomplete_and_run_the_highlighted_one(home: Path) -> 
     check("autocomplete: ↓ then Enter runs the one it moved to, not the typed text",
           got == "/clock", repr(got))
 
+    # code-review: two ↓ in the same read must move the highlight twice, not
+    # once - a single read can hold several (key repeat, a paste, a script),
+    # and Composer silently swallows any it does not itself map.
+    master, slave = pty.openpty()
+    ttymod.setraw(slave)
+    sys.stdin, sys.stdout = os.fdopen(slave, "r", closefd=False), io.StringIO()
+    cmds3x = [("ask", "action"), ("close", "action"), ("clock", "info")]
+    try:
+        os.write(master, b"/")                   # all three match "" - rendered once
+        threading.Timer(0.2, lambda: os.write(master, b"\033[B\033[B\r")).start()
+        got = tui._line("to x:", 40, 24, multi=True, commands=cmds3x)
+    finally:
+        sys.stdin, sys.stdout = real_in, real_out
+        os.close(master)
+        os.close(slave)
+    check("autocomplete: two ↓ in one read move the highlight by two",
+          got == "/clock", repr(got))
+
     # No match: a real message starting with '/' is still just a message.
     master, slave = pty.openpty()
     ttymod.setraw(slave)
