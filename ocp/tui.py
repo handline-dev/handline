@@ -583,12 +583,6 @@ class Panel:
             here = self.focused and key is not None and key == self.selected
             gutter = f"{CYA}▸{R} " if here else "  "
             line = pad(fit(gutter + row, inner), inner)
-            fill = getattr(row, "fill", "")
-            if fill:
-                # The fill runs from border to border. Every reset inside the
-                # row ends it, so it is switched on again after each, and the
-                # last reset is the line's own: nothing carries to the next line.
-                line = fill + line.replace(R, R + fill) + R
             out.append(f"{DIM}│{R}" + line + f"{DIM}│{R}")
         if held_back and limit is not None and limit >= 2:
             more = f"{DIM}  … {held_back} more{R}"
@@ -1088,21 +1082,36 @@ def lines_of(detail: dict, width: int) -> list[str]:
     return lines + box.draw()
 
 
+def _painted(line: str, width: int) -> str:
+    """A row on its background, edge to edge. Every reset inside it ends the
+    background, so it is switched on again after each; the last reset is the
+    line's own and nothing carries to the next line."""
+    fill = getattr(line, "fill", "")
+    if not fill:
+        return line
+    return fill + pad(fit(line, width), width).replace(R, R + fill) + R
+
+
+def _section_rule(title: str, width: int) -> str:
+    """A section's heading: its name on a rule the width of the screen."""
+    head = fit(f"── {oneline(title)} ", width)
+    return f"{DIM}{head}{'─' * max(0, width - vlen(head))}{R}"
+
+
 def _stacked_lines(detail: dict, tabs: list[tuple[str, list]], width: int) -> list[str]:
-    """Every section of an agent's page, one under the other, each its own box.
-    The first is the conversation; the ones below it are what is not part of
-    it, and each names whose they are. `conv_end` is the line the conversation
-    ends on, which is where a page kept at its end stays."""
-    room = max(1, width - 5)
+    """Every section of an agent's page, one under the other, each under a rule
+    with its name - no boxes, so the conversation reads as the Claude Code
+    screen does. The first is the conversation; the ones below it are what is
+    not part of it, and each row names whose it is. `conv_end` is the line the
+    conversation ends on, which is where a page kept at its end stays."""
     out: list[str] = []
     for i, (heading, rows) in enumerate(tabs):
-        box = Panel(oneline(heading), width)
-        for ln in _rows_lines(rows, room, dim_plain=i == 0):
-            box.add(ln)
-        out += box.draw()
+        out.append(_section_rule(heading, width))
+        out += [_painted(ln, width) for ln in _rows_lines(rows, width, dim_plain=i == 0)]
         if i == 0:
             detail["conv_end"] = len(out)
-    return out
+        out.append("")
+    return out[:-1] if out else out
 
 
 def _clock(ts: float, seconds: bool = False) -> str:
@@ -1188,32 +1197,32 @@ def _note_lines(rows: list[str], width: int) -> list[str]:
     return out
 
 
-def _header(bar: str, marker: str, who: str, when: str, tail: str, waiting: bool,
-            width: int) -> list[str]:
-    """A message's first line: the marker and who, then when and its state. What
-    does not fit goes on a line of its own under it - the name is never cut, and
-    neither is the state."""
-    names = wrap([who], max(1, width - 4)) if who else [""]
-    lines = [f"{bar} {marker} {names[0]}{R}"]
-    lines += [f"{bar}   {n}" for n in names[1:]]
-    used = vlen(lines[-1])
-    for plain, styled in ((when, f"{DIM}{when}{R}"),
-                          (f"· {tail}" if tail else "",
-                           f"{YEL if waiting else DIM}\u00b7 {tail}{R}")):
-        if not plain:
-            continue
-        if used + 2 + vlen(plain) <= width:
-            lines[-1] += f"  {styled}"
-            used += 2 + vlen(plain)
-        else:
-            lines.append(f"{bar}   {styled}")
-            used = 4 + vlen(plain)
-    return lines
+def _message_lines(r, width: int) -> list[str]:
+    """One message as the Claude Code screen draws its own: a marker and the
+    text, the rest of the text indented under the marker, and a dim line under
+    it saying when and in what state. Who said it is the marker - the human's
+    on a background, the agent this page is about with a dot - and only a
+    message between two other agents names its speakers."""
+    marker, text_dim = _MARKERS[r.side]
+    body = wrap(r.text.splitlines() or [""], max(1, width - 2))
+    lines: list[str] = []
+    if r.side == "other":
+        lines.append(f"{DIM}\u00b7 {oneline(r.who)}{R}")
+        lines += [f"  {text_dim}{ln}{R}" if ln else "" for ln in body]
+    else:
+        first, *rest = body
+        lines.append(f"{marker} {first}")
+        lines += [f"  {ln}" if ln else "" for ln in rest]
+        if r.side == "you":
+            lines = [Filled(ln, FILL_YOU) for ln in lines]
+    meta = f"  {DIM}{_clock(r.ts)}{R}" + (f"  {YEL if r.waiting else DIM}\u00b7 {r.tail}{R}"
+                                          if r.tail else "")
+    return lines + [fit(meta, width)]
 
 
 class Filled(str):
-    """A row of a panel drawn on a background: `fill` is the colour, and the
-    panel paints it across the whole row."""
+    """A row of the conversation drawn on a background: `fill` is the colour,
+    and `_painted` paints it across the whole row."""
     fill: str
 
     def __new__(cls, text: str, fill: str):
@@ -1226,12 +1235,11 @@ class Filled(str):
 # does not depend on the terminal's own foreground; 16-colour codes only.
 FILL_YOU = "\033[97;100m"
 
-# Who said it, three ways that do not depend on colour: the bar down the side
-# of the message (heavy for the human, thin for the agent this page is about,
-# dotted for anyone else), the marker on its header, and the name.
-_SIDES = {"you": (f"{CYA}{BOLD}\u258c{R}", f"{CYA}{BOLD}\u276f", ""),
-          "agent": (f"{GRN}\u2502{R}", f"{GRN}{BOLD}\u25cf", ""),
-          "other": (f"{DIM}\u2506{R}", f"{DIM}\u00b7", DIM)}
+# Who said it, three ways that do not depend on colour: the marker, the
+# background the human's lines are on, and - for anyone else - the dim.
+_MARKERS = {"you": (f"{CYA}{BOLD}\u276f{R}", ""),
+            "agent": (f"{GRN}{BOLD}\u23fa{R}", ""),
+            "other": ("", DIM)}
 
 
 def _rows_lines(rows: list, width: int, dim_plain: bool = False) -> list[str]:
@@ -1242,7 +1250,6 @@ def _rows_lines(rows: list, width: int, dim_plain: bool = False) -> list[str]:
     not a count. Plain rows are wrapped.
     """
     out: list[str] = []
-    prev: tuple | None = None          # the speaker of the message above
     block = False                      # the row above was a block
     if rows and all(isinstance(r, actions.Event) for r in rows):
         return _event_lines(rows, width)   # columns are the section's, not a row's
@@ -1264,19 +1271,12 @@ def _rows_lines(rows: list, width: int, dim_plain: bool = False) -> list[str]:
             if out:
                 out.append("")
             out.append(f"{DIM}{fit(r + ' ', width)}{'─' * max(0, width - vlen(r) - 1)}{R}")
-            prev, block = None, False
+            block = False
             continue
         if block:
             out.append("")
-        bar, head, dim = _SIDES[r.side]
-        who = "" if prev == (r.side, r.who) else r.who
-        prev, block = (r.side, r.who), True
-        # The bar is on every line of the message, blank ones included, so a
-        # long or multi-line message is still one side's from top to bottom.
-        lines = _header(bar, head, who, _clock(r.ts), r.tail, r.waiting, width) + [
-            f"{bar}{dim}   {ln}{R}" if ln else bar
-            for ln in wrap(r.text.splitlines() or [""], max(1, width - 4))]
-        out += [Filled(ln, FILL_YOU) for ln in lines] if r.side == "you" else lines
+        out += _message_lines(r, width)
+        block = True
     return out
 
 
@@ -1363,6 +1363,16 @@ def _layout(want: list[int], room: int) -> tuple[list[int | None], int]:
             for i in range(len(want))], len(want) - keep
 
 
+def _has_input_box(detail: dict) -> bool:
+    return bool(detail.get("stacked")) and not detail.get("composing")
+
+
+def _page_room(detail: dict, height: int) -> int:
+    """How many rows of the page a screen of `height` shows: what the title,
+    the flash and the keys leave, less the input box when the page has one."""
+    return max(1, height - 4 - (3 if _has_input_box(detail) else 0))
+
+
 def _detail_frame(width: int, height: int, detail: dict, flash: str = "") -> str:
     """One thing, opened, with what is off the bottom said rather than cut.
 
@@ -1374,7 +1384,11 @@ def _detail_frame(width: int, height: int, detail: dict, flash: str = "") -> str
     if detail.get("refresh_error") and not flash:
         flash = f"{RED}page not refreshed - {detail['refresh_error']}{R}"
     body = lines_of(detail, width)
-    room = max(1, height - 4)
+    # An agent's page ends in the input the Claude Code screen has: a rule, the
+    # prompt line, a rule. It is where the composer opens, so while one is open
+    # the composer is that box and this one is not drawn.
+    boxed = _has_input_box(detail)
+    room = _page_room(detail, height)
     last = max(0, len(body) - room)
     top = max(0, min(detail.get("top", 0), last))
     # A conversation read at its end stays there: the page's end, or - when
@@ -1411,8 +1425,12 @@ def _detail_frame(width: int, height: int, detail: dict, flash: str = "") -> str
             con.close()
         keys += " · " + " · ".join(f"{k} {label}" for k, label in agent_keys
                                    if label != "open") + " · ? help"
+    rule = f"{DIM}{'─' * width}{R}"
+    prompt = fit(f"{CYA}{BOLD}\u276f{R} {DIM}write to {oneline(str(detail.get('agent')))}"
+                 f" · / for commands{R}", width)
     lines = ([fit(f"{BOLD}{oneline(detail['title'])}{R}{where}", width), ""]
              + [fit(ln, width) for ln in shown]
+             + ([rule, prompt, rule] if boxed else [])
              + [fit(flash, width) if flash else "", fit(f"{DIM}{keys} · q quit{R}", width)])
     return "\n".join(line + CLEAR_EOL for line in lines[:height])
 
@@ -2073,7 +2091,7 @@ def _in_detail(detail: dict, k: str, width: int, height: int,
     they have just read is the one they are about to answer, and making them
     back out to the panel to do it is how an answer gets put off.
     """
-    room = max(1, height - 4)
+    room = _page_room(detail, height)
     if k in ("\033", "\x1b"):
         if detail.get("stacked"):
             con = db.connect()
@@ -2158,20 +2176,20 @@ def _dispatch_agent_verb(con, detail: dict, name: str, label: str, width: int, h
         return detail, why
     if label in ("message", "editor"):
         body = _compose_message(name, label, width, height, fd, saved,
-                                under=lambda h: _detail_frame(width, h, dict(detail)))
+                                under=lambda h: _detail_frame(width, h, dict(detail, composing=True)))
         return detail, (actions.message(con, name, body) if body is not None
                         else _nothing_sent("e" if label == "editor" else "m"))
     if label == "terminal" and _needs_a_terminal(con, name):
         repo = _line(f"{name} has nowhere to run - repo to start it in "
                      f"[{os.getcwd()}]:", width, height,
-                     under=lambda h: _detail_frame(width, h, dict(detail)))
+                     under=lambda h: _detail_frame(width, h, dict(detail, composing=True)))
         if repo is None:
             return detail, "not started"
         _say(f"starting {name}", width, height)
         return detail, actions.terminal(con, name, repo.strip() or os.getcwd())
     if label == "move":
         return detail, _move_agent(con, name, width, height,
-                                   under=lambda h: _detail_frame(width, h, dict(detail)))
+                                   under=lambda h: _detail_frame(width, h, dict(detail, composing=True)))
     if label in CONFIRM and not _confirm(f"{label} {name}", width, height):
         return detail, "left alone"
     _say(f"{label} {name}", width, height)
@@ -2235,7 +2253,7 @@ def _write_in_thread(detail: dict, k: str, width: int, height: int,
                            fd, saved)
         else:
             body = _line(f"to {name}:", width, height, multi=True,
-                         under=lambda h: _detail_frame(width, h, dict(detail)),
+                         under=lambda h: _detail_frame(width, h, dict(detail, composing=True)),
                          commands=cmds)
         if body is None:
             return detail, _nothing_sent(k)
@@ -2286,7 +2304,7 @@ def _answer_key(con, detail: dict, rid: int, k: str, width: int, height: int,
     if k == "x":
         return None, actions.dismiss(con, rid, me=actions.HUMAN)
     text = _compose(rid, k, width, height, fd, saved,
-                    under=lambda h: _detail_frame(width, h, dict(detail)))
+                    under=lambda h: _detail_frame(width, h, dict(detail, composing=True)))
     if text is None:
         return detail, _nothing_sent(k)
     _say(f"answering #{rid}", width, height)
