@@ -910,6 +910,9 @@ def can(con, agent: str, key: str) -> tuple[bool, str]:
 CHAT_CHAINS = 8
 CHAT_TAB = "CONVERSATION"
 KNOWS_TAB = "WHAT IT KNOWS"
+DONE_TAB = "WHAT IT HAS DONE"
+OTHERS_TAB = "WAITING FOR IT, FROM OTHER AGENTS"
+UNTOLD_TAB = "ANSWERS IT HAS NOT BEEN TOLD"
 
 
 def _chat_rows(con, agent: str) -> list:
@@ -1019,6 +1022,8 @@ def conversation(con, agent: str) -> list[str]:
                 tail = ("waiting for you" if r["target"] == HUMAN else
                         f"delivered {time.strftime('%H:%M', time.localtime(r['delivered_at']))}"
                         if r["delivered_at"] else "queued")
+                if r["target"] == agent:
+                    tail += f" · #{r['id']}"       # what /cancel names
             msgs.append((r["ts"], r["id"], 0,
                          said(r["requester"], r["target"], r["body"], r["ts"], tail,
                               r["state"] == "queued" and r["target"] == HUMAN)))
@@ -1112,10 +1117,10 @@ def chat_seen(con, agent: str) -> None:
 def agent_detail(con, agent: str) -> list[tuple[str, list[str]]]:
     """What is behind an agent's row, in sections a screen can draw.
 
-    Sections rather than lines: a page of run-together text is the thing a
-    reader skips, and the four questions asked here - what is it, what is
-    waiting for it, what does it know, what has it done - are four different
-    questions.
+    The head, then the conversation the human has with it, then whatever is
+    waiting on it or owed to it that is not part of that conversation - a
+    request from another agent is not something the human said to it. What it
+    knows and what it has done are read on request (`agent_knows`, `agent_done`).
     """
     row = db.get_agent_state(con, agent)
     try:
@@ -1140,33 +1145,41 @@ def agent_detail(con, agent: str) -> list[tuple[str, list[str]]]:
                            if row["wake_at"] else [])))
         if row["detail"]:
             head.append(row["detail"])
+
+    # The conversation shows every request between the human and the agent, so
+    # a queued one of theirs is already there; these are the rest.
+    chat_ids = {r["id"] for r in _chat_rows(con, agent)}
+    others = [Entry(r["id"], r["requester"], r["body"] or "", r["ts"])
+              for r in db.queued_for(con, agent) if r["id"] not in chat_ids]
+    untold = [Entry(r["id"], r["target"], r["verdict"] or r["state"], r["resolved_at"] or r["ts"])
+              for r in db.unannounced_answers(con, agent) if r["id"] not in chat_ids]
+    if others or untold:
+        head.append(f"also below the conversation: {len(others)} waiting for it from other "
+                    f"agents, {len(untold)} answers it has not been told (G)")
     sections = [("", head)]
+    n = chat_unread(con, agent)
+    sections.append((CHAT_TAB + (f" ({n if n < 100 else '99+'} new)" if n else ""),
+                     conversation(con, agent)))
+    if others:
+        sections.append((f"{OTHERS_TAB} ({len(others)})", others))
+    if untold:
+        sections.append((f"{UNTOLD_TAB} ({len(untold)})", untold))
+    return sections
 
-    waiting = db.queued_for(con, agent)
-    sections.append((f"WAITING FOR IT ({len(waiting)})", [
-        Entry(r["id"], r["requester"], r["body"] or "", r["ts"]) for r in waiting
-    ] or ["nothing queued for it"]))
 
-    mine = db.unannounced_answers(con, agent)
-    if mine:
-        sections.append((f"ANSWERS IT HAS NOT BEEN TOLD ({len(mine)})", [
-            Entry(r["id"], r["target"], r["verdict"] or r["state"], r["resolved_at"] or r["ts"])
-            for r in mine]))
-
+def agent_knows(con, agent: str) -> list[str]:
+    """The handoff an agent would be resumed with."""
     kept = db.get_handoff(con, agent)
-    sections.append((KNOWS_TAB,
-                     kept.splitlines() if kept
-                     else ["no handoff waiting - it has not been parked"]))
+    return kept.splitlines() if kept else ["no handoff waiting - it has not been parked"]
 
+
+def agent_done(con, agent: str) -> list:
+    """The last events recorded for an agent, newest first."""
     recent = [Event(e["ts"], e["kind"], e["payload"] or "")
               for e in con.execute(
                   "SELECT ts, kind, payload FROM events WHERE agent = ? "
                   "ORDER BY id DESC LIMIT 12", (agent,)).fetchall()]
-    sections.append(("WHAT IT HAS DONE", recent or ["nothing recorded yet"]))
-    n = chat_unread(con, agent)
-    sections.append((CHAT_TAB + (f" ({n if n < 100 else '99+'} new)" if n else ""),
-                     conversation(con, agent)))
-    return sections
+    return recent or ["nothing recorded yet"]
 
 
 def agent_where(con, agent: str) -> str:

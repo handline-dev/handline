@@ -141,12 +141,17 @@ def agent_footer_keys(con, agent: str | None) -> list[tuple[str, str]]:
 # getter the same thing would have one clobber the other in the command dict,
 # so this reads the handle, not the terminal, and is named for that.
 INFO_COMMANDS = ("where", "worktree")
+# Read-only too, but too long for the flash line: each opens a page over the
+# conversation, and esc comes back to it.
+PAGE_COMMANDS = ("knows", "done")
 
 
 def agent_commands(con, agent: str) -> list[tuple[str, str]]:
     """Every slash command `agent`'s conversation offers right now, and its
     kind: 'action' (an AGENT_KEYS verb, gated by the same `can` the keybinding
-    itself checks) or 'info' (always offered, nothing to decide).
+    itself checks), 'info' (always offered, nothing to decide), 'page' (a
+    read-only page over the conversation) or 'cancel' (takes a queued request
+    out of the queue).
 
     Derived from AGENT_KEYS and INFO_COMMANDS, not a third, hand-kept table -
     the same reason `agent_footer_keys` reads AGENT_KEYS instead of keeping
@@ -155,6 +160,13 @@ def agent_commands(con, agent: str) -> list[tuple[str, str]]:
     out = [(label, "action") for _, label in AGENT_KEYS
            if label != "open" and actions.can(con, agent, label)[0]]
     out += [(name, "info") for name in INFO_COMMANDS]
+    out += [(name, "page") for name in PAGE_COMMANDS]
+    # Cancelling names what dies: the bare form is for the one request there is
+    # to cancel, and each id is offered so autocomplete can say which.
+    waiting = actions.waiting_ids(con, agent)
+    if waiting:
+        out.append(("cancel", "cancel"))
+        out += [(f"cancel {rid}", "cancel") for rid in waiting]
     return out
 
 
@@ -990,8 +1002,7 @@ def build(width: int, sel: dict | None = None,
 
 
 def page(title: str, sections: list[tuple[str, list[str]]],
-         panel: int = AGENTS, key: object = None,
-         picks: dict[str, list[int]] | None = None) -> dict:
+         panel: int = AGENTS, key: object = None) -> dict:
     """A detail page laid out as the screen's own panels, not as a wall of text.
 
     It keeps its sections rather than the lines they make, because the width
@@ -1001,32 +1012,20 @@ def page(title: str, sections: list[tuple[str, list[str]]],
     """
     d = opened(title, [], panel, key)
     d["sections"] = sections
-    # Sections whose rows can be selected: the start of the heading, and the id
-    # each row stands for. The cursor is `at`, an index into that list.
-    d["picks"] = picks or {}
     return d
 
 
 def _agent_page(con, name: str, panel: int = AGENTS, title: str | None = None,
                 old: dict | None = None) -> dict:
-    """An agent's page, with its WAITING FOR IT rows selectable. `old` is the
-    page it replaces, so a redraw after an action keeps the section, the row
-    and the scroll the reader was at."""
-    if old and old.get("stem") == actions.CHAT_TAB:
-        actions.chat_seen(con, name)   # before it is counted: it is being read
-    d = page(title or f"agent {name}", actions.agent_detail(con, name), panel, name,
-             picks={"WAITING FOR IT": actions.waiting_ids(con, name)})
+    """An agent's page: its head, and the conversation under it. `old` is the
+    page it replaces, so a redraw keeps the scroll the reader was at."""
+    actions.chat_seen(con, name)       # before it is counted: it is being read
+    d = page(title or f"agent {name}", actions.agent_detail(con, name), panel, name)
     d["agent"] = name
+    d["stacked"], d["stem"], d["end"] = True, actions.CHAT_TAB, True
     if old:
-        for k in ("tab", "at", "top", "end", "stem"):
+        for k in ("top", "end"):
             d[k] = old.get(k, 0)
-        # A tab that appears or goes (ANSWERS IT HAS NOT BEEN TOLD) moves the
-        # others; the reader stays on the section they were reading.
-        stems = _tab_stems(d)
-        if old.get("stem") in stems:
-            d["tab"] = stems.index(old["stem"])
-        # The row it was on may be the one that just left.
-        d["at"] = max(0, min(d["at"], len(d["picks"]["WAITING FOR IT"]) - 1))
     return d
 
 
@@ -1042,22 +1041,6 @@ def _go_to_tab(detail: dict, at: int) -> None:
     at = max(0, min(at, len(stems) - 1))
     detail["tab"], detail["stem"] = at, stems[at] if stems else ""
     detail["top"], detail["end"] = 0, True
-
-
-def _picks_of(detail: dict, heading: str) -> list[int]:
-    for prefix, ids in (detail.get("picks") or {}).items():
-        if heading.startswith(prefix):
-            return ids
-    return []
-
-
-def _open_picks(detail: dict) -> list[int]:
-    """The requests the open section lets the cursor land on, or none."""
-    tabs = [h for h, _ in (detail.get("sections") or []) if h]
-    if not tabs:
-        return []
-    at = max(0, min(detail.get("tab", 0), len(tabs) - 1))
-    return _picks_of(detail, tabs[at])
 
 
 def lines_of(detail: dict, width: int) -> list[str]:
@@ -1077,9 +1060,14 @@ def lines_of(detail: dict, width: int) -> list[str]:
     # page is *about*, so it stays; the rest is ←→.
     intro = [r for h, rows in sections if not h for r in rows]
     tabs = [(h, rows) for h, rows in sections if h]
-    lines: list[str] = _rows_lines(intro, width) + [""] if intro else []
+    lines: list[str] = ((_note_lines(intro, width) if detail.get("notes")
+                         else _rows_lines(intro, width)) + [""] if intro else [])
     if not tabs:
         return lines
+    if detail.get("stacked"):
+        stacked = _stacked_lines(detail, tabs, width)
+        detail["conv_end"] += len(lines)       # counted from the top of the page
+        return lines + stacked
     at = max(0, min(detail.get("tab", 0), len(tabs) - 1))
     detail["tab"] = at
     # The tabs are the box's own top edge. Drawn as a strip above a box that
@@ -1092,26 +1080,27 @@ def lines_of(detail: dict, width: int) -> list[str]:
     # someone wrote, and a box that ends every line in "…" is not a section
     # anyone can read. A panel on the main screen cuts a row because the row
     # underneath needs the line; a page scrolls.
-    picks = _picks_of(detail, heading)
-    if picks and len(picks) == len(rows):
-        # One line a request, so the cursor is on a row and not on part of one.
-        at = max(0, min(detail.get("at", 0), len(picks) - 1))
-        detail["at"] = at
-        box.focused, box.selected = True, picks[at]
-        for i, (r, rid) in enumerate(zip(rows, picks)):
-            if i:
-                box.add("")
-            head, *rest = (_entry_lines(r, max(1, width - 5)) if isinstance(r, actions.Entry)
-                           else wrap([r], max(1, width - 5)))
-            box.add(head, key=rid)         # the cursor is in the gutter of its first line
-            for ln in rest:
-                box.add(ln)
-        return lines + box.draw()
     room = max(1, width - 5)
-    for ln in (_note_lines(rows, room) if detail["stem"] == actions.KNOWS_TAB
-               else _rows_lines(rows, room, dim_plain=detail["stem"] == actions.CHAT_TAB)):
+    for ln in _rows_lines(rows, room):
         box.add(ln)
     return lines + box.draw()
+
+
+def _stacked_lines(detail: dict, tabs: list[tuple[str, list]], width: int) -> list[str]:
+    """Every section of an agent's page, one under the other, each its own box.
+    The first is the conversation; the ones below it are what is not part of
+    it, and each names whose they are. `conv_end` is the line the conversation
+    ends on, which is where a page kept at its end stays."""
+    room = max(1, width - 5)
+    out: list[str] = []
+    for i, (heading, rows) in enumerate(tabs):
+        box = Panel(oneline(heading), width)
+        for ln in _rows_lines(rows, room, dim_plain=i == 0):
+            box.add(ln)
+        out += box.draw()
+        if i == 0:
+            detail["conv_end"] = len(out)
+    return out
 
 
 def _clock(ts: float, seconds: bool = False) -> str:
@@ -1386,21 +1375,24 @@ def _detail_frame(width: int, height: int, detail: dict, flash: str = "") -> str
     room = max(1, height - 4)
     last = max(0, len(body) - room)
     top = max(0, min(detail.get("top", 0), last))
+    # A conversation read at its end stays there: the page's end, or - when
+    # sections sit under it - the end of the conversation, which is the newest
+    # line and not whatever is listed below it.
+    pin = min(last, max(0, detail.get("conv_end", len(body)) - room))
     if detail.get("stem") == actions.CHAT_TAB and detail.get("end"):
-        top = last                     # a conversation read at its end stays there
+        top = pin
     detail["top"] = top
-    detail["end"] = top >= last
+    detail["end"] = top == pin
     shown = body[top:top + room]
     while len(shown) < room:
         shown.append("")
     where = (f"{DIM}  line {top + 1}-{min(len(body), top + room)} of {len(body)}{R}"
              if len(body) > room else "")
-    keys = ("esc back · ←→ section · ↑↓ pick · x cancel" if _open_picks(detail)
-            else "esc back · ←→ section · ↑↓ scroll")
+    keys = "esc back · ←→ section · ↑↓ scroll"
     if detail.get("sections") is None or not [h for h, _ in detail["sections"] if h]:
         keys = "esc back · ↑↓ scroll · space page"
     if detail.get("stem") == actions.CHAT_TAB:
-        keys = "esc back · ←→ section · ↑↓ scroll · ↵ write · e in $EDITOR"
+        keys = "esc back · ↑↓ scroll · ↵ write (/ for commands) · e in $EDITOR"
     if detail.get("panel") == MESSAGES:
         keys += " · a answer · e answer in $EDITOR · x dismiss"
     elif detail.get("panel") in (AGENTS, STUCK):
@@ -1605,7 +1597,9 @@ _CSI_CUT = re.compile(r"\033(?:\[[0-?]*[ -/]*|O)")
 def _word_left(pos: int, text: str) -> int:
     while pos and text[pos - 1] == " ":
         pos -= 1
-    while pos and text[pos - 1] != " ":
+    if pos and text[pos - 1] == "\n":
+        return pos - 1                 # a line's start is a boundary: stop at the one above
+    while pos and text[pos - 1] not in " \n":
         pos -= 1
     return pos
 
@@ -1614,7 +1608,9 @@ def _word_right(pos: int, text: str) -> int:
     n = len(text)
     while pos < n and text[pos] == " ":
         pos += 1
-    while pos < n and text[pos] != " ":
+    if pos < n and text[pos] == "\n":
+        return pos + 1
+    while pos < n and text[pos] not in " \n":
         pos += 1
     return pos
 
@@ -2074,37 +2070,16 @@ def _in_detail(detail: dict, k: str, width: int, height: int,
     """
     room = max(1, height - 4)
     if k in ("\033", "\x1b"):
-        return None, ""
-    if k in ("\033[C", "\033OC", "\t"):
-        _go_to_tab(detail, detail.get("tab", 0) + 1)
-        return detail, ""
-    if k in ("\033[D", "\033OD", "\033[Z"):
-        _go_to_tab(detail, detail.get("tab", 0) - 1)
+        return detail.get("parent"), ""
+    if k in ("\033[C", "\033OC", "\t", "\033[D", "\033OD", "\033[Z"):
+        if not detail.get("stacked"):
+            fwd = k in ("\033[C", "\033OC", "\t")
+            _go_to_tab(detail, detail.get("tab", 0) + (1 if fwd else -1))
         return detail, ""
     if detail.get("stem") == actions.CHAT_TAB and k in ("\r", "\n", "e", "m"):
         return _write_in_thread(detail, k, width, height, fd, saved)
-    picks = _open_picks(detail)
-    if picks and k in ("j", "\033[B", "\033OB", "k", "\033[A", "\033OA"):
-        down = k in ("j", "\033[B", "\033OB")
-        detail["at"] = max(0, min(len(picks) - 1, detail.get("at", 0) + (1 if down else -1)))
-        # Scrolled only as far as keeps the whole request in view - or its
-        # first line, when it is taller than the page.
-        plain = [_ANSI.sub("", ln) for ln in lines_of(detail, width)]
-        row = next((i for i, ln in enumerate(plain) if ln.startswith("│▸")), None)
-        if row is not None:
-            end = next((i for i in range(row + 1, len(plain))
-                        if not plain[i][1:-1].strip() or plain[i].startswith("└")), len(plain)) - 1
-            top = detail.get("top", 0)
-            if row < top:
-                top = row
-            elif end >= top + room:
-                top = min(row, end - room + 1)
-            detail["top"] = max(0, top)
-        return detail, ""
-    if k == "x" and detail.get("panel") in (AGENTS, STUCK):
-        if not picks:
-            return detail, "x cancels a request: open WAITING FOR IT (←→) and pick one (↑↓)"
-        return _cancel_key(detail, picks, width, height)
+    if k == "x" and detail.get("agent"):
+        return detail, "cancelling is /cancel <id>: press ↵ and type / for the commands"
     if k in SCROLL_KEYS:
         # The frame pins a conversation to its end while `end` is set, so a
         # reader who scrolls has to clear it; the frame sets it again when
@@ -2202,13 +2177,31 @@ def _run_info_command(con, detail: dict, name: str, cmd: str) -> tuple[dict, str
     return detail, f"/{cmd}: not wired"        # unreachable while INFO_COMMANDS names all of it
 
 
+def _open_read_page(con, detail: dict, name: str, cmd: str) -> dict:
+    """/knows and /done: a read-only page over the conversation, which esc returns to."""
+    if cmd == "knows":
+        d = page(f"what {name} knows", [("", actions.agent_knows(con, name))],
+                 detail["panel"], name)
+        d["notes"] = True
+    else:
+        d = page(f"what {name} has done", [("", actions.agent_done(con, name))],
+                 detail["panel"], name)
+    d["parent"] = detail
+    return d
+
+
 def _run_command(con, detail: dict, name: str, cmd: str, cmds: dict[str, str],
                  width: int, height: int, fd, saved) -> tuple[dict, str]:
     """A slash command typed in the composer, already resolved to a canonical
     name by `_line`'s own autocomplete - never raw text a person half-typed.
     `cmds` is the caller's own `agent_commands` read, not asked again here."""
-    if cmds.get(cmd) == "info":
+    kind = cmds.get(cmd)
+    if kind == "info":
         return _run_info_command(con, detail, name, cmd)
+    if kind == "page":
+        return _open_read_page(con, detail, name, cmd), ""
+    if kind == "cancel":
+        return _cancel_command(con, detail, name, cmd.partition(" ")[2], width, height)
     return _dispatch_agent_verb(con, detail, name, cmd, width, height, fd, saved)
 
 
@@ -2248,25 +2241,31 @@ def _write_in_thread(detail: dict, k: str, width: int, height: int,
         con.close()
 
 
-def _cancel_key(detail: dict, picks: list[int], width: int, height: int
-                ) -> tuple[dict, str]:
-    """x on a request in WAITING FOR IT: say what it will do and to whom, ask,
-    then take it out of the queue. One key for a request not yet delivered
-    (withdrawn) and for one an agent is sitting on (closed as rejected)."""
-    rid = picks[max(0, min(detail.get("at", 0), len(picks) - 1))]
-    name = str(detail["key"])
-    con = db.connect()
-    try:
-        ok, plan = actions.cancel_plan(con, rid)
-        if not ok:
-            return detail, plan
-        if not _confirm(plan, width, height):
-            return detail, "left alone"
-        _say(f"cancelling #{rid}", width, height)
-        said = actions.cancel(con, rid)
-        return _agent_page(con, name, detail["panel"], detail["title"], detail), said
-    finally:
-        con.close()
+def _cancel_command(con, detail: dict, name: str, arg: str, width: int, height: int
+                    ) -> tuple[dict, str]:
+    """/cancel [id]: say what it will do and to whom, ask, then take the request
+    out of the queue - withdrawn if it was not delivered, closed as rejected if
+    the agent is sitting on it. Bare, it acts only when exactly one request is
+    waiting; with several it lists them and stops, since the id is what says
+    what dies."""
+    waiting = actions.waiting_ids(con, name)
+    if not arg:
+        if len(waiting) != 1:
+            return detail, ("nothing is waiting for it" if not waiting else
+                            "several are waiting - " + " · ".join(f"/cancel {r}" for r in waiting))
+        rid = waiting[0]
+    else:
+        rid = int(arg)
+        if rid not in waiting:
+            return detail, f"#{rid} is not waiting for {name}"
+    ok, plan = actions.cancel_plan(con, rid)
+    if not ok:
+        return detail, plan
+    if not _confirm(plan, width, height):
+        return detail, "left alone"
+    _say(f"cancelling #{rid}", width, height)
+    said = actions.cancel(con, rid)
+    return _agent_page(con, name, detail["panel"], detail["title"], detail), said
 
 
 def _answer_key(con, detail: dict, rid: int, k: str, width: int, height: int,

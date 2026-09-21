@@ -13028,9 +13028,9 @@ def test_the_founder_can_cancel_a_request_in_an_agents_queue(home: Path) -> None
         con.close()
 
 
-def test_the_agent_page_picks_a_waiting_request_and_cancels_it(home: Path) -> None:
-    """The cursor the founder already knows, on the one section that lists
-    requests, and one key behind a confirm that says what it will do."""
+def test_the_agent_page_cancels_a_waiting_request_by_command(home: Path) -> None:
+    """Cancelling names the request it closes: an id, or the only one waiting,
+    behind a confirm that says what it will do and to whom."""
     _daemon_home(home, 20)
     con = db.connect()
     sent: list[tuple[str, str]] = []
@@ -13061,25 +13061,27 @@ def test_the_agent_page_picks_a_waiting_request_and_cancels_it(home: Path) -> No
         db.set_cursor(con, "notify:backend", first)
 
         d = tui._agent_page(con, "backend")
-        d["tab"] = [h for h, _ in d["sections"] if h].index(
-            next(h for h, _ in d["sections"] if h.startswith("WAITING FOR IT")))
-        plain = lambda: [tui._ANSI.sub("", ln) for ln in tui.lines_of(d, 100)]  # noqa: E731
-        check("page: the waiting requests are selectable rows",
-              d["picks"]["WAITING FOR IT"] == [first, second, third, fourth], str(d["picks"]))
-        check("page: the cursor starts on the first, in the gutter the panels use",
-              any("▸" in ln and f"#{first}" in ln for ln in plain()), "\n".join(plain()))
-        d, _ = tui._in_detail(d, "j", 100, 40)
-        check("page: down moves it", any("▸" in ln and f"#{second}" in ln for ln in plain()),
-              "\n".join(plain()))
-        d, _ = tui._in_detail(d, "k", 100, 40)
-        d, _ = tui._in_detail(d, "k", 100, 40)
-        check("page: and up stops at the first", d["at"] == 0)
-        check("page: the keys line says x cancels here",
-              "x cancel" in tui._ANSI.sub("", tui._detail_frame(140, 40, d)))
+        cmds = dict(tui.agent_commands(con, "backend"))
+        check("page: /cancel is offered bare and once for each waiting request",
+              cmds.get("cancel") == "cancel" and all(
+                  cmds.get(f"cancel {r}") == "cancel" for r in (first, second, third, fourth)),
+              str(sorted(cmds)))
+        check("page: a founder request in the conversation carries the id /cancel names",
+              any(f"#{second}" in tui._ANSI.sub("", ln) and "queued" in ln
+                  for ln in tui.lines_of(d, 100)), "\n".join(tui.lines_of(d, 100)))
+        run = lambda d, cmd: tui._run_command(con, d, "backend", cmd, cmds, 100, 40, None, None)  # noqa: E731
+
+        # Bare with several waiting: it lists them and closes nothing.
+        tui._confirm = lambda what, w, h: (asked.append(what), False)[1]
+        _d, msg = run(d, "cancel")
+        check("page: bare /cancel with several waiting lists them and stops",
+              all(f"/cancel {r}" in msg for r in (first, second, third, fourth)) and not asked
+              and db.get_request(con, first)["state"] == "queued", msg)
+        _d, msg = tui._cancel_command(con, d, "backend", "999", 100, 40)
+        check("page: an id that is not waiting for it is refused", "not waiting" in msg, msg)
 
         # Declined: nothing changes.
-        tui._confirm = lambda what, w, h: (asked.append(what), False)[1]
-        d2, msg = tui._in_detail(d, "x", 100, 40)
+        d2, msg = run(d, f"cancel {first}")
         check("page: the confirm says what will happen and who is told",
               asked and "cancel" in asked[0] and "closed as rejected" in asked[0]
               and "backend is told to stop" in asked[0] and "marina is told" in asked[0],
@@ -13089,12 +13091,11 @@ def test_the_agent_page_picks_a_waiting_request_and_cancels_it(home: Path) -> No
 
         # Accepted on the delivered head: the item behind it is delivered.
         tui._confirm = lambda what, w, h: (asked.append(what), True)[1]
-        d, msg = tui._in_detail(d, "x", 100, 40)
+        d, msg = run(d, f"cancel {first}")
         check("page: confirmed, the delivered head is closed as rejected",
               db.get_request(con, first)["state"] == "rejected", msg)
-        check("page: the item behind it is delivered and is now first",
-              d["picks"]["WAITING FOR IT"] == [second, third, fourth]
-              and any(h == "term_b" and f"#{second} from human" in t for h, t in sent), str(sent))
+        check("page: the item behind it is delivered",
+              any(h == "term_b" and f"#{second} from human" in t for h, t in sent), str(sent))
         check("page: both ends were told",
               any(h == "term_b" and "cancelled" in t for h, t in sent)
               and any(h == "term_m" and f"#{first} from backend" in t for h, t in sent),
@@ -13103,22 +13104,28 @@ def test_the_agent_page_picks_a_waiting_request_and_cancels_it(home: Path) -> No
         # An undelivered request of the founder's, further down: withdrawn,
         # nothing typed anywhere.
         sent.clear()
-        for _ in range(2):
-            d, _m = tui._in_detail(d, "j", 100, 40)
-        d, msg = tui._in_detail(d, "x", 100, 40)
+        cmds = dict(tui.agent_commands(con, "backend"))
+        d, msg = run(d, f"cancel {fourth}")
         check("page: the founder's own undelivered request is withdrawn with nothing typed",
               db.get_request(con, fourth)["state"] == "withdrawn" and not sent,
               f"{msg} {sent}")
-        check("page: and the page has dropped it, the cursor kept on a row",
-              d["picks"]["WAITING FOR IT"] == [second, third] and d["at"] == 1,
-              str((d["picks"], d["at"])))
+        check("page: and it is no longer offered",
+              f"cancel {fourth}" not in dict(tui.agent_commands(con, "backend")))
 
-        # x with no row to act on says where to go.
-        d0 = tui._agent_page(con, "backend")
-        tabs = [h for h, _ in d0["sections"] if h]
-        d0["tab"] = next(i for i, h in enumerate(tabs) if h.startswith("WHAT IT KNOWS"))
-        _d, msg = tui._in_detail(d0, "x", 100, 40)
-        check("page: x elsewhere on the page says how to use it", "WAITING FOR IT" in msg, msg)
+        # Exactly one left: bare /cancel is that one.
+        cmds = dict(tui.agent_commands(con, "backend"))
+        d, _m = run(d, f"cancel {third}")
+        cmds = dict(tui.agent_commands(con, "backend"))
+        asked.clear()
+        d, msg = run(d, "cancel")
+        check("page: bare /cancel with exactly one waiting acts on it, after the confirm",
+              asked and f"#{second}" in asked[0] and db.get_request(con, second)["state"] != "queued",
+              f"{asked} {msg}")
+        cmds = dict(tui.agent_commands(con, "backend"))
+        check("page: with nothing waiting /cancel is not offered", "cancel" not in cmds)
+
+        _d, msg = tui._in_detail(d, "x", 100, 40)
+        check("page: x says where cancelling went", "/cancel" in msg, msg)
     finally:
         (orcamod.alive, orcamod.send, orcamod.available, orcamod.typeable_now,
          tui._confirm, tui._say) = real
@@ -13755,23 +13762,16 @@ def test_the_arrows_change_tabs_on_an_agent_page_in_a_real_terminal(home: Path) 
         return screen(has)
     try:
         screen("agent")
-        page = press(b"\r", "nothing queued for it")
-        check("arrows: Enter opens the agent's page on WAITING FOR IT",
-              "nothing queued for it" in page, page[-300:])
-        for name, key in (("→", b"\x1b[C"), ("application-mode →", b"\x1bOC"), ("Tab", b"\t")):
-            press(b"\x1b[D" * 3, "nothing queued for it")     # back to the first tab
-            moved = press(key, "no handoff waiting")
+        page = press(b"\r", "nothing yet between you and backend")
+        check("arrows: Enter opens the agent's page on its conversation",
+              "nothing yet between you and backend" in page, page[-300:])
+        for name, key in (("→", b"\x1b[C"), ("application-mode →", b"\x1bOC"),
+                          ("Tab", b"\t"), ("←", b"\x1b[D")):
+            after = press(key, "nothing yet between you and backend")
             time.sleep(0.6)                  # several redraws later
-            check(f"arrows: {name} moves to the next tab and stays there",
-                  "no handoff waiting" in moved and "no handoff waiting" in screen("no handoff waiting"))
-        press(b"\x1b[D", "nothing queued for it")
-        seen = [press(b"\x1b[C", "no handoff waiting"),
-                press(b"\x1b[C", "nothing recorded yet"),
-                press(b"\x1b[C", "nothing yet between you and backend")]
-        check("arrows: → three times reaches CONVERSATION",
-              "nothing yet between you and backend" in seen[2], seen[2][-300:])
-        check("arrows: → past the last tab stays on it",
-              "nothing yet between you and backend" in press(b"\x1b[C", "nothing yet between"))
+            check(f"arrows: {name} on the one-column page leaves it where it is",
+                  "nothing yet between you and backend" in after
+                  and "nothing yet between you and backend" in screen("nothing yet"))
         # The screen loop swallows an exception into a red flash and stays on
         # the tab, so only a direct call tells "stayed" from "crashed".
         d = {"sections": [(f"{stem} (0)", []) for stem in "ABCD"], "tab": 3}
@@ -13782,10 +13782,8 @@ def test_the_arrows_change_tabs_on_an_agent_page_in_a_real_terminal(home: Path) 
             past = repr(e)
         check("arrows: going past the last tab lands on it without raising",
               past == (3, "D"), str(past))
-        check("arrows: ← goes back a tab",
-              "nothing recorded yet" in press(b"\x1b[D", "nothing recorded yet"))
         check("arrows: Esc leaves the page",
-              "nothing recorded yet" not in press(b"\x1b", "AGENTS"))
+              "nothing yet between you and backend" not in press(b"\x1b", "AGENTS"))
     finally:
         os.write(fd, b"q")
         os.close(fd)
@@ -14143,11 +14141,9 @@ def test_the_composer_and_the_fill_on_a_real_screen_through_tui_run(home: Path) 
     try:
         until("agent")
         press(b"\x1b[B", "agent")            # backend is first; the page wanted is reviewer's
-        press(b"\r", "WAITING FOR IT")
+        press(b"\r", "CONVERSATION")
         check("run: the page opened is the reviewer's", term.row(0).startswith("agent reviewer"),
               term.text())
-        for _ in range(3):
-            press(b"\x1b[C", "CONVERSATION")
         page = until("message number 9")
         check("run: the conversation is on the screen, its newest message at the bottom",
               "message number 9" in page, page)
@@ -14843,7 +14839,7 @@ def test_every_prompt_leaves_the_screen_above_it_drawn_through_tui_run(home: Pat
     down, right, enter = b"\x1b[B", b"\x1b[C", b"\r"
     run_case("main screen, message to an agent", [down, b"m"], "message to reviewer:", "boxes")
     run_case("main screen, answer a message", [right, b"a"], "answer #", "boxes")
-    run_case("agent page, message", [down, enter, b"m"], "message to reviewer:", "page")
+    run_case("agent page, message", [down, enter, b"m"], "to reviewer:", "page")
     run_case("message page, answer", [right, enter, b"a"], "answer #", "page")
     # The prompts that take one line still take a paste, and it wraps.
     left = b"\x1b[D"
@@ -14994,9 +14990,12 @@ def test_the_agent_head_is_trimmed_and_slash_commands_are_derived_not_kept(home:
         # The honesty property: nothing in AGENT_KEYS or INFO_COMMANDS is
         # missing from one list or the other - a new entry in either source
         # shows up here on its own, or this fails.
+        check("commands: the page commands are always offered too",
+              {c for c, k in cmds.items() if k == "page"} == set(tui.PAGE_COMMANDS), str(cmds))
         check("commands: every source name appears in exactly one place",
-              set(cmds) == allowed | set(tui.INFO_COMMANDS)
-              and len(cmds) == len(allowed) + len(tui.INFO_COMMANDS), str(cmds))
+              set(cmds) == allowed | set(tui.INFO_COMMANDS) | set(tui.PAGE_COMMANDS)
+              and len(cmds) == len(allowed) + len(tui.INFO_COMMANDS) + len(tui.PAGE_COMMANDS),
+              str(cmds))
 
         # A recognized command runs, through the composer that also sends
         # plain messages - and a message that merely starts with '/' but
@@ -15225,9 +15224,9 @@ def test_slash_commands_autocomplete_and_run_the_highlighted_one(home: Path) -> 
           "runs nothing", got == "/cl", repr(got))
 
 
-def test_the_agent_pages_tabs_show_everything_and_read_as_blocks(home: Path) -> None:
-    """Founder: the other tabs of an agent's page were cut to one line, cut at
-    60 characters, or not wrapped. A request, an event and a handoff are shown
+def test_the_agent_page_shows_everything_and_reads_as_blocks(home: Path) -> None:
+    """Founder: an agent's page cut a request to one line, cut it at 60
+    characters, or did not wrap it. A request, an event and a handoff are shown
     whole at any width, and a row is a block you can tell from the next."""
     from collections import Counter
     _daemon_home(home, 20)
@@ -15253,73 +15252,61 @@ def test_the_agent_pages_tabs_show_everything_and_read_as_blocks(home: Path) -> 
         def page_at() -> dict:
             return tui._agent_page(con, "reviewer", tui.AGENTS)
 
-        def tab(page: dict, name: str, width: int) -> list[str]:
-            tui._go_to_tab(page, tui._tab_stems(page).index(name))
+        def plain(page: dict, width: int) -> list[str]:
             return [tui._ANSI.sub("", ln) for ln in tui.lines_of(page, width)]
+
+        def read_page(cmd: str, width: int) -> list[str]:
+            return plain(tui._open_read_page(con, page_at(), "reviewer", cmd), width)
+
+        def under(lines: list[str], heading: str) -> list[str]:
+            """The lines of the box titled `heading`, to the end of the page."""
+            at = next(i for i, ln in enumerate(lines) if heading in ln)
+            return lines[at:]
 
         def words(lines: list[str]) -> Counter:
             return Counter(w for ln in lines for w in ln.strip("│┌└┐┘─ ").split())
 
         for width in (100, 40, 22):
-            pg = page_at()
-            everything = []
-            for name in ("WAITING FOR IT", "ANSWERS IT HAS NOT BEEN TOLD", "WHAT IT KNOWS",
-                         "WHAT IT HAS DONE"):
-                lines = tab(pg, name, width)
-                everything.append(lines)
-                check(f"tabs: {name} is not wider than the terminal at {width}",
+            whole = plain(page_at(), width)
+            knows, done = read_page("knows", width), read_page("done", width)
+            for name, lines in (("the page", whole), ("/knows", knows), ("/done", done)):
+                check(f"page: {name} is not wider than the terminal at {width}",
                       all(tui.vlen(ln) <= width for ln in lines),
                       str([ln for ln in lines if tui.vlen(ln) > width][:2]))
-            waiting, told, knows, done = everything
             want = words(body.split("\n") + ["second"] + [f"line {i}" for i in range(5)]
                          + ["TAILTWO"])
-            check(f"tabs: every word of a request is there, not its first line at {width}",
-                  not want - words(waiting), str(want - words(waiting)))
+            check(f"page: every word of a request is there, not its first line at {width}",
+                  not want - words(whole), str(want - words(whole)))
             if width == 100:
-                check("tabs: the head block puts what fits on one line, labels apart from values",
-                      "account alpha   model sonnet   effort medium   ctx ?"
-                      in tab(pg, "WAITING FOR IT", width))
-            head = [ln for ln in tab(pg, "WAITING FOR IT", width)
-                    if "TAILHEAD" in ln or "waiting on" in ln]
-            check(f"tabs: the head block keeps its whole detail at {width}",
-                  words(tab(pg, "WAITING FOR IT", width))["TAILHEAD"] == 1 and head)
-            inner = [ln[1:-1].rstrip() for ln in waiting if ln.startswith("│")]
-            heads = [i for i, ln in enumerate(inner) if "from marina" in ln or "from human" in ln]
-            check(f"tabs: a request is a header, its text under it, a blank line between at {width}",
-                  len(heads) == 2 and inner[heads[1] - 1] == ""
-                  and all(ln.startswith("    ") or not ln for ln in inner[heads[0] + 1:heads[1]])
-                  and all(ln.startswith("    ") or not ln for ln in inner[heads[1] + 1:]),
-                  str(inner))
+                check("page: the head block puts what fits on one line, labels apart from values",
+                      "account alpha   model sonnet   effort medium   ctx ?" in whole)
+            check(f"page: the head block keeps its whole detail at {width}",
+                  words(whole)["TAILHEAD"] == 1)
+            others = under(whole, "WAITING FOR IT")
+            others = others[:next(i for i, ln in enumerate(others) if ln.startswith("└")) + 1]
+            check(f"page: a request from another agent is drawn under a heading that says whose at {width}",
+                  any("from marina" in ln for ln in others)
+                  and not any("from marina" in ln for ln in whole[:whole.index(others[0])]),
+                  str(others))
+            told = under(whole, "ANSWERS IT HAS")
             told_in = [ln[1:-1].rstrip() for ln in told if ln.startswith("│")]
-            check(f"tabs: the answers it was not told are whole, a blank line apart at {width}",
+            check(f"page: the answers it was not told are whole, a blank line apart at {width}",
                   not words(["yes, green", "since the rebase TAILANS", "no", "not yet TAILANS2"])
                   - words(told) and "" in told_in[1:-1], str(told))
-            check(f"tabs: an event's payload is whole, not cut at 60 at {width}",
-                  "x" * 90 + "TAILEV" in "".join(ln.strip("│ ") for ln in done),
-                  str(done))
-            check(f"tabs: an event kind too wide for its column is shown whole at {width}",
+            check(f"page: an event's payload is whole, not cut at 60 at {width}",
+                  "x" * 90 + "TAILEV" in "".join(ln.strip("│ ") for ln in done), str(done))
+            check(f"page: an event kind too wide for its column is shown whole at {width}",
                   "a_rather_long_event_kind_name" in "".join(ln.strip("│ ") for ln in done)
                   or width == 22, str(done))
-            check(f"tabs: a handoff is whole and a wrapped item goes under its words at {width}",
+            check(f"page: a handoff is whole and a wrapped item goes under its words at {width}",
                   words(knows)["TAILKEEP"] == 1 and all(
-                      ln.startswith("│    ") for ln in knows
-                      if ln.startswith("│") and "more" in ln and "- first" not in ln),
+                      ln.startswith("  ") for ln in knows
+                      if "more" in ln and "- first" not in ln),
                   str(knows))
-        check("tabs: the columns line up under a wide terminal",
-              len({ln.index("wake") for ln in tab(page_at(), "WHAT IT HAS DONE", 100)
-                   if " wake " in ln}) == 1)
-
-        # ↓ keeps the whole of the request the cursor is on in view.
-        pg = page_at()
-        tui._go_to_tab(pg, tui._tab_stems(pg).index("WAITING FOR IT"))
-        pg, _ = tui._in_detail(pg, "j", 60, 24)
-        frame = tui._ANSI.sub("", tui._detail_frame(60, 24, pg))
-        check("tabs: moving to a long request shows all of it, not its first line",
-              "TAILTWO" in frame and f"#{b}" in frame, frame)
-        pg, _ = tui._in_detail(pg, "k", 60, 24)
-        frame = tui._ANSI.sub("", tui._detail_frame(60, 24, pg))
-        check("tabs: and back up shows the first one from its header",
-              f"#{a} from marina" in frame, frame)
+        check("page: the columns line up under a wide terminal",
+              len({ln.index("wake") for ln in read_page("done", 100) if " wake " in ln}) == 1)
+        check("page: a request from the human is in the conversation, not repeated under it",
+              sum("TAILTWO" in ln for ln in plain(page_at(), 100)) == 1)
     finally:
         con.close()
 
@@ -15433,6 +15420,68 @@ def test_the_composer_takes_a_paste_whole(home: Path) -> None:
     c = tui.Composer()
     c.feed("a\033[3~b\033[1;5Cc")
     check("composer: longer escape sequences are skipped whole", c.text == "abc", repr(c.text))
+
+
+def test_the_one_column_agent_page(home: Path) -> None:
+    """Part 4 of #1008: an agent's page is its head and its conversation, what
+    is waiting on it from other agents sits under the conversation with its
+    origin, and what it knows and has done are read on request."""
+    _daemon_home(home, 20)
+    agents.register("reviewer", "alpha")
+    con = db.connect()
+    real_in, real_out = sys.stdin, sys.stdout
+    try:
+        for i in range(18):
+            actions.chat_reply(con, "reviewer", f"message number {i} from me")
+        other = db.add_request(con, "marina", "reviewer", "please look at the diff", None,
+                               "peer", "async", None, 0, None)
+        keep_handoff("reviewer", "the handoff\nsecond line")
+        db.add_event(con, "reviewer", "wake", {"why": "because"})
+        d = tui._agent_page(con, "reviewer")
+        room = 40 - 4
+
+        shown = tui._ANSI.sub("", tui._detail_frame(80, 40, d))
+        check("page: opened at its end, the newest message is on screen, not what is under it",
+              "message number 17" in shown and "please look at the diff" not in shown, shown)
+        check("page: the head says what is below and how to get there",
+              any("1 waiting for it from other agents" in ln
+                  for ln in tui.lines_of(d, 80)) or "1 waiting for it" in "\n".join(
+                      tui._ANSI.sub("", ln) for ln in tui.lines_of(d, 80)))
+        d, _ = tui._in_detail(d, "j", 80, 40)
+        shown = tui._ANSI.sub("", tui._detail_frame(80, 40, d))
+        check("page: scrolling down from the end is not snapped back to it",
+              d["top"] > 0 and not d["end"], str((d["top"], d["end"])))
+        d, _ = tui._in_detail(d, "G", 80, 40)
+        shown = tui._ANSI.sub("", tui._detail_frame(80, 40, d))
+        check("page: G reaches the section under the conversation, headed with whose it is",
+              "FROM OTHER AGENTS" in shown and f"#{other} from marina" in shown, shown)
+        check("page: no tab strip and no closing of sections into tabs",
+              "WHAT IT KNOWS" not in shown and "WHAT IT HAS DONE" not in shown)
+
+        # /knows and /done open over the conversation, and esc comes back to it.
+        cmds = dict(tui.agent_commands(con, "reviewer"))
+        for cmd, text in (("knows", "the handoff"), ("done", "because")):
+            sub, msg = tui._run_command(con, d, "reviewer", cmd, cmds, 80, 40, None, None)
+            check(f"page: /{cmd} opens a page with what it read",
+                  text in tui._ANSI.sub("", "\n".join(tui.lines_of(sub, 80))), msg)
+            back, _m = tui._in_detail(sub, "\033", 80, 40)
+            check(f"page: esc from /{cmd} returns to the conversation, not the list",
+                  back is d and back.get("stacked"))
+        check("page: esc from the conversation itself leaves the page",
+              tui._in_detail(d, "\033", 80, 40)[0] is None)
+    finally:
+        sys.stdin, sys.stdout = real_in, real_out
+        con.close()
+
+    # Ctrl-Left and Ctrl-Right stop at a line's edge instead of running through it.
+    text = "one two\nthree four"
+    check("cursor: word left from the start of a line stops at the end of the line above",
+          tui._word_left(8, text) == 7, str(tui._word_left(8, text)))
+    check("cursor: word right from the end of a line stops at the start of the next",
+          tui._word_right(7, text) == 8, str(tui._word_right(7, text)))
+    check("cursor: within a line it still moves a word at a time",
+          tui._word_left(18, text) == 14 and tui._word_right(8, text) == 13
+          and tui._word_left(7, text) == 4)
 
 
 def test_the_composer_cursor_moves_and_edits_in_place(home: Path) -> None:
@@ -15692,7 +15741,7 @@ def test_a_message_is_read_whole_and_answered_where_it_is_read(home: Path) -> No
               str([t for t, _ in actions.agent_detail(con, "backend")]))
         check("read: an opened agent shows its whole inbox",
               all(f"request {i}" in shown for i in range(9)), shown[:120])
-        check("read: and its whole handoff", "- line 29" in shown, shown[-80:])
+        check("read: and its whole handoff", "- line 29" in "\n".join(actions.agent_knows(con, "backend")))
 
         check("read: dismissing closes the message being read, not the selected row",
               db.get_request(con, first)["state"] == "done"
@@ -15933,16 +15982,13 @@ def test_the_cursor_walks_the_whole_screen(home: Path) -> None:
 
         # An open page asks several questions and used to stack every answer,
         # so reading the fourth meant scrolling past three.
-        page = tui.page("agent backend", actions.agent_detail(con, "backend"),
-                        tui.AGENTS, "backend")
+        page = tui._agent_page(con, "backend")
         first = tui._ANSI.sub("", tui._detail_frame(110, 20, page))
         page, _said = tui._in_detail(page, "\033[C", 110, 20)
         second = tui._ANSI.sub("", tui._detail_frame(110, 20, page))
-        check("top: an open page has its sections as tabs",
-              "WAITING FOR IT" in first and "WHAT IT KNOWS" in first, first[:200])
-        check("top: and ←→ reads a different one, from its top",
-              first != second and page["tab"] == 1 and page["top"] == 0,
-              str(page["tab"]))
+        check("top: an agent's page is one column, the conversation, with no tab strip",
+              "CONVERSATION" in first and "WHAT IT KNOWS" not in first, first[:200])
+        check("top: and ←→ leave it as it was", first == second)
     finally:
         con.close()
 
@@ -17796,7 +17842,8 @@ def main() -> int:
         run(lambda: test_the_team_is_drawn_the_way_it_is_routed(Path(td) / 'tree'))
         run(lambda: test_the_wake_time_is_in_the_state_cell_not_a_column(Path(td) / 'waketime'))
         run(lambda: test_the_founder_can_cancel_a_request_in_an_agents_queue(Path(td) / 'cancel'))
-        run(lambda: test_the_agent_page_picks_a_waiting_request_and_cancels_it(Path(td) / 'cancelpage'))
+        run(lambda: test_the_agent_page_cancels_a_waiting_request_by_command(Path(td) / 'cancelpage'))
+        run(lambda: test_the_one_column_agent_page(Path(td) / 'onecolumn'))
         run(lambda: test_a_folded_row_says_what_its_reports_are_doing(Path(td) / 'foldmark'))
         run(lambda: test_the_panel_and_the_daemon_agree_about_what_is_in_the_way(Path(td) / 'topagree'))
         run(lambda: test_the_screen_says_what_is_stuck_and_what_was_decided(Path(td) / 'topstuck'))
@@ -17815,7 +17862,7 @@ def main() -> int:
         run(lambda: test_a_module_that_returns_subprocess_text_as_a_message_imports_textsafe(
             Path(td) / 'boundary'))
         run(lambda: test_every_prompt_leaves_the_screen_above_it_drawn_through_tui_run(Path(td) / 'prompts'))
-        run(lambda: test_the_agent_pages_tabs_show_everything_and_read_as_blocks(Path(td) / 'tabs'))
+        run(lambda: test_the_agent_page_shows_everything_and_reads_as_blocks(Path(td) / 'tabs'))
         run(lambda: test_a_message_being_typed_wraps_and_keeps_the_cursor_on_its_last_character(Path(td) / 'typing'))
         run(lambda: test_slash_commands_autocomplete_and_run_the_highlighted_one(Path(td) / 'slash'))
         run(lambda: test_bracketed_paste_is_switched_on_with_the_screen())
