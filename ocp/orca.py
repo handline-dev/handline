@@ -624,6 +624,60 @@ def decline_dialog(handle: str) -> tuple[str, str, str]:
     return STILL_OPEN, dialog.title, "the dialog is still on screen after Esc"
 
 
+# The option that ends the session AND stops its background work, found by its
+# whole label. "Move to background and exit" also exits but leaves the work
+# running, so it is not this one, and no position stands in for the label.
+EXIT_AND_STOP_LABEL = "exit and stop tasks"
+
+
+def exit_key(dialog: Dialog) -> tuple[str | None, str]:
+    """(key, why not) - the number the dialog itself draws beside its one
+    'Exit and stop tasks' option, for a caller that is ending the session.
+
+    Only where the footer says Enter confirms a choice, and only for one
+    option whose whole label is that; a missing, repeated or reworded option
+    gives no key, and nothing else in the panel is pressed instead."""
+    if "Enter to confirm" not in dialog.footer:
+        return None, "its footer does not say Enter confirms"
+    found = [n for n, label in dialog.options
+             if re.sub(r"\s*\(esc\)$", "", label.strip().lower()).rstrip(".!") == EXIT_AND_STOP_LABEL]
+    if not found:
+        return None, "it offers no 'Exit and stop tasks' option"
+    if len(found) > 1:
+        return None, "more than one option reads 'Exit and stop tasks'"
+    return str(found[0]), ""
+
+
+CHOSEN = "chosen"
+
+
+def choose_exit(handle: str) -> tuple[str, str, str]:
+    """Choose 'Exit and stop tasks' on the dialog on this terminal's screen, for
+    a caller that has decided to end the session. (outcome, dialog title, why).
+
+    The screen is read here, immediately before the key. Nothing is pressed on
+    a screen that cannot be read, is not a dialog, does not parse, or offers no
+    such option. CHOSEN means the key was sent, not that the session ended: that
+    is the process table's to say."""
+    term = _screen(handle)
+    tail = term.get("tail") if term else None
+    if not isinstance(tail, list) or term.get("source") != "screen":
+        return NOT_PRESSED, "", "its screen could not be read"
+    footer = _footer_row(tail)
+    if footer is None:
+        return NOT_PRESSED, "", "no dialog is open"
+    dialog = parse_dialog(tail, footer)
+    if dialog is None:
+        return NOT_PRESSED, "", "its title or options could not be parsed"
+    key, why = exit_key(dialog)
+    if key is None:
+        return NOT_PRESSED, dialog.title, why
+    ok, out = send(handle, key, enter=False)
+    if not ok:
+        return NOT_PRESSED, dialog.title, f"the key could not be sent: {out[:120]}"
+    return CHOSEN, dialog.title, ""
+
+
 def usage_limit_open(handle: str) -> bool:
     """Is the dialog on this terminal's screen the usage-limit one, the only
     dialog that waiting does not clear and a person is not answering?"""
