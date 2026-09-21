@@ -445,22 +445,10 @@ def screen_blocker(handle: str) -> Blocker | None:
     screen that cannot be read blocks, because the cost of a wrong no is an
     answer given to a question nobody asked.
 
-    The composer's own content is never read, and used to be: an unsent-text
-    guard was built and then removed the same night, because the input box
-    cannot answer the question it would be asked. `draft` is Orca's UI
-    composer, excluded from `tail` by Orca's own design; a person's typing and
-    ocp's own sends land there identically - measured 2026-09-21 with a human
-    at the keyboard: 'hi' typed at an agent's terminal gave `draft` 'hi' and a
-    rendered input line of the bare marker, with the text on no row. So the
-    screen cannot answer this at all, and the only source that can - `draft` -
-    is polluted by ocp's own sends echoing back into it: it kept remembering
-    after a send that did not complete, with no way back but the exact send
-    it was refusing to make, which stuck three agents for 8 hours on
-    2026-09-21. The founder accepted the consequence of removing the guard
-    rather than keep one that deadlocks the fleet: typing directly at an
-    agent's terminal is the person's own exception to running everything
-    through ocp, and their text can land inside ocp's own next instruction as
-    one submitted prompt - not lost, but not separate either.
+    The composer's own content is never read: `draft` is Orca's UI composer, and
+    a person's typing and ocp's own echoed sends land there identically, with
+    the text on no screen row. Text a person types at an agent's terminal can
+    therefore land inside ocp's next instruction as one submitted prompt.
     """
     term = _screen(handle)
     tail = term.get("tail") if term else None
@@ -506,6 +494,12 @@ def decline_dialog(handle: str) -> tuple[str, str, str]:
     footer = _footer_row(tail)
     if footer is None:
         return NOT_PRESSED, "", "no dialog is open"
+    if term.get("draft"):
+        # Esc clears the input box at a Claude Code prompt, so "the worst a
+        # press does is change nothing" holds only with nothing in it. `draft`
+        # can be stale (see screen_blocker), and that costs one key not
+        # pressed: the block stays and reaches a person, never a silent stall.
+        return NOT_PRESSED, "", "text is left unsent in its input; not pressing over it"
     dialog = parse_dialog(tail, footer)
     if dialog is None:
         return NOT_PRESSED, "", "its title or options could not be parsed"

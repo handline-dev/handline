@@ -3132,16 +3132,15 @@ def test_ocp_presses_only_the_key_that_declines(home: Path) -> None:
     check("press: the only key that is ever named is Esc",
           orcamod.ESCAPE == "\x1b" and "Enter" not in repr(orcamod.declining_key))
 
-    # `draft` is not consulted here either (#1157): a dialog's footer on the
-    # same read as a non-empty `draft` is pressed the same as any other
-    # decline-only dialog.
-    pressed = []
+    # Esc is not inert at a Claude Code prompt - it clears typed text. A
+    # dialog's footer and a non-empty `draft` on the same read is never
+    # pressed over, even though the dialog itself would decline clean.
+    unsent = []
     orcamod._screen = lambda h: dict(_screen_of(EXIT_DIALOG), draft="a person's half-typed reply")
-    orcamod.send = lambda h, text, enter=True: (pressed.append((text, enter)),
-                                                (True, ""))[1]
+    orcamod.send = lambda h, text, enter=True: (unsent.append((text, enter)), (True, ""))[1]
     out = orcamod.decline_dialog("term_x")
-    check("press: a non-empty draft on the same read as the dialog does not stop the press",
-          out[0] != orcamod.NOT_PRESSED and pressed == [("\x1b", False)], f"{out} sent={pressed}")
+    check("press: a draft on the same read as the dialog is not pressed over",
+          out[0] == orcamod.NOT_PRESSED and unsent == [], f"{out} sent={unsent}")
 
     # A read that fails right after the key is not evidence the dialog went -
     # the same screen fails closed everywhere else in this module.
@@ -10036,7 +10035,7 @@ def test_a_move_blocked_by_a_dialog_retries_soon_not_at_the_old_accounts_wall(ho
     is exactly what #996 presses.
 
     The property: a move that fails because a destination was found but the
-    close could not happen (a dialog, unsent text, a session that would not
+    close could not happen (a dialog, a session that would not
     end) parks for a short recheck, the same shape as an assumed account -
     never against the account being LEFT, which has nothing to do with why
     the move failed."""
