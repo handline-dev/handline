@@ -192,8 +192,8 @@ def past_dialog(con, agent: str, log, now: int | None = None,
     dismiss.
 
     That warrant holds where the caller is committed to ending the session -
-    and one ending it has already tried `choose_exit`, so Esc here is never
-    pressed over a dialog that offers to exit. A
+    and one ending it has already tried `choose_exit`, so Esc here is only what
+    is left when no 'Exit and stop tasks' option was there. A
     caller that is only deciding whether to begin passes `only_limit`: then
     nothing is pressed for a dialog that waiting may clear because a person is
     answering it (a permission prompt on a working agent), and it reads as no
