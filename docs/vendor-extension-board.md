@@ -170,19 +170,52 @@ Claude reads `CLAUDE.md` the same way. **The seam stops being per-vendor and
 becomes one file writer with a different filename per vendor** - which is
 RESHAPE, not DRIVER, and removes one of the two ⚠ risks from the 16-item bill.
 
-**Three adjustments the naive version needs:**
+**Measured against a live codex, 2026-09-21, at zero token cost** (#1306). A
+scratch dir held `AGENTS.md` (marker `MARKER-PLAIN-7Q`) and
+`AGENTS.override.md` (marker `MARKER-OVERRIDE-3Z`); `codex exec` was run there
+and rejected at the API with a 400 (the configured `gpt-5.6-sol` is not allowed
+on a ChatGPT account) - **but codex had already assembled and written the
+rollout**, so the prompt it built is on disk for free.
 
-1. **Write `AGENTS.override.md`, not `AGENTS.md`.** The binary carries both
-   names. A repo may have its own `AGENTS.md` (this one does not, but harbor
-   might), and overwriting it would be destructive. *Semantics read from
-   strings only - verify against a live codex before relying on it.*
-2. **Write it at launch, not at worktree creation.** Three payloads change
+What it contains:
+
+```json
+{"type":"response_item","payload":{"type":"message","role":"user","content":[
+  … , {"text": "# AGENTS.md instructions for <cwd>\n\n<INSTRUCTIONS>\n# Override guide\nMarker token for this file: MARKER-OVERRIDE-3Z\n</INSTRUCTIONS>"}, … ]}}
+```
+
+- The file **is** loaded, with no flag, as its own content block.
+- `MARKER-OVERRIDE-3Z` appears twice; **`MARKER-PLAIN-7Q` appears zero times.**
+  `AGENTS.override.md` does not sit beside `AGENTS.md` - it **replaces it
+  entirely**.
+- It arrives as `role: user`, explicitly labelled *"AGENTS.md instructions"* -
+  the category codex's own spec ranks **below** direct system/developer/user
+  instructions.
+
+**So the adjustment I proposed was wrong in an important way.** I suggested
+`AGENTS.override.md` so ocp would not collide with a repo's own `AGENTS.md`.
+It does not avoid the collision, it **wins** it: the repo's conventions, test
+commands and boundaries would be silently switched off for that agent.
+
+**Three options, and none is free:**
+
+| | keeps repo's AGENTS.md | untracked by git | survives a new thread | precedence |
+|---|---|---|---|---|
+| **A** write `AGENTS.md` | no - must merge into a **tracked** file, polluting every diff | no | yes | AGENTS-level |
+| **B** write `AGENTS.override.md` | **no - suppresses it** | yes (`.git/info/exclude`) | yes | AGENTS-level |
+| **C** first prompt (already done by `exec_agent`) | yes | n/a | **no** | highest |
+
+**Recommended: B plus a merge.** ocp rewrites the file every launch anyway
+(adjustment 2 below), so it can concatenate the repo's own `AGENTS.md` after
+its preamble and keep both. That is the only option that loses nothing,
+and it costs one file read per launch.
+1. **Write it at launch, not at worktree creation.** Three payloads change
    between launches: the team line is *generated* from `team.yaml` precisely
    because hand-written colleague lists went stale; `hr` can edit ROLE.md and
    base.md; and the handoff is per-launch and must be **consumed**, since a
    stale "where you left off" is worse than none. `launch.fingerprint` exists
    to catch exactly this drift. Same moment `build()` already runs.
-3. **Keep it out of git** via `.git/info/exclude` - per-worktree, local, never
+2. **Keep it out of git** via `.git/info/exclude` - per-worktree, local, never
    committed - rather than `.gitignore`, which is tracked.
 
 **Two costs, named rather than waved past:**
@@ -196,9 +229,19 @@ RESHAPE, not DRIVER, and removes one of the two ⚠ risks from the 16-item bill.
   instructions take precedence over AGENTS.md instructions". For *who you are,
   who you report to, stay in your worktree* that is likely fine; for anything
   meant as a hard rule it is a demotion, and should be checked.
-- Unverified: whether a codex `/new` (its `/clear`) re-reads the file. With the
-  flag it survives a park because it is process-level. A file probably survives
-  it better, but that is a guess until measured.
+- **Precedence is now measured, not guessed, and it is genuinely lower.** The
+  block arrives as `role: user` labelled "AGENTS.md instructions", which
+  codex's spec ranks below direct instructions. Anything ocp means as a hard
+  rule - do not schedule your own wakeup, stay in your worktree - is advisory
+  at this level in a way it was not under `--append-system-prompt`.
+- Still unverified: whether a codex `/new` re-reads the file. It is assembled
+  at session start into the first user message, so a fresh thread almost
+  certainly re-assembles it - but that is an inference.
+
+**Bonus confirmation from the same run:** codex printed `hook: SessionStart` and
+`hook: UserPromptSubmit`, so Orca's codex hook integration is live and firing.
+And the models this account may use are `gpt-5.6-terra`, `gpt-5.6-luna`,
+`gpt-5.5`; the configured `gpt-5.6-sol` is not one of them.
 
 ---
 
