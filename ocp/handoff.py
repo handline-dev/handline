@@ -22,6 +22,7 @@ has been handed.
 """
 from __future__ import annotations
 
+import re
 import subprocess
 import time
 from pathlib import Path
@@ -57,8 +58,10 @@ def find_transcript(session: str, account: str) -> Path | None:
     snapshot: nothing refreshes a closed agent's snapshot, so by the time a
     closed session is looked at the snapshot no longer names it. The account it
     ran under is searched first."""
-    if not session or "/" in session or session.startswith("."):
+    if not session or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_-]*", session):
         return None
+    # One directory level under projects/ is where Claude Code writes a
+    # transcript, so the search is that deep and no deeper.
     for acct in [account, *(a for a in paths.list_accounts() if a != account)]:
         for f in (paths.account_claude(acct) / "projects").glob(f"*/{session}.jsonl"):
             return f

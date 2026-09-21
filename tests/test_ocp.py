@@ -7579,6 +7579,49 @@ def test_the_cache_clock_decides_a_resume_not_whether_a_handoff_exists(home: Pat
         con.close()
 
 
+def test_find_transcript_walks_accounts_and_takes_only_a_plain_id(home: Path) -> None:
+    _daemon_home(home, 20)
+    for acct, proj, sid in (("alpha", "-wt", "sess-7"), ("beta", "-other", "sess-9")):
+        f = paths.account_claude(acct) / "projects" / proj / f"{sid}.jsonl"
+        f.parent.mkdir(parents=True, exist_ok=True)
+        f.write_text("{}\n")
+    found = handoffmod.find_transcript("sess-9", "alpha")
+    check("transcript: found under another account when not under its own",
+          found is not None and "beta" in str(found), str(found))
+    for bad in ("*", "sess-?", "[a-z]ess-7", "../x", ".hidden", "a/b", ""):
+        check(f"transcript: {bad!r} names nothing", handoffmod.find_transcript(bad, "alpha") is None)
+
+
+def test_a_cold_wake_that_fails_leaves_no_handoff_behind(home: Path) -> None:
+    """A record no session was handed would be typed at the next live session."""
+    _daemon_home(home, 20)
+    con = db.connect()
+    real = (orcamod.alive, orcamod.wait_idle, orcamod.idle_now, orcamod.send,
+            orcamod.available, orcamod.clear_context, orcamod.relaunch)
+    logs: list[str] = []
+    try:
+        orcamod.available = lambda: True
+        orcamod.live_terminals = lambda: {"term_x"}
+        orcamod.alive = lambda h: True
+        orcamod.relaunch = lambda handle, cmd, started=None: (False, "no session started")
+        con.execute("DELETE FROM events WHERE agent = 'backend'")
+        db.set_closed(con, "backend", "sess-7")
+        db.set_handoff(con, "backend", None)
+        ok, _ = dmn.wake_agent(con, "backend", logs.append)
+        check("cold wake: a failed launch is reported", not ok)
+        check("cold wake: it leaves no handoff on the row", db.get_handoff(con, "backend") is None)
+        check("cold wake: the closed mark and resume id survive",
+              (db.get_agent_state(con, "backend") or {})["resume_session"] == "sess-7")
+        check("cold wake: a transcript it could not find is logged and on the record",
+              any("degraded" in m for m in logs)
+              and con.execute("SELECT 1 FROM events WHERE kind = 'handoff' AND payload LIKE '%degraded%'").fetchone(),
+              str(logs))
+    finally:
+        (orcamod.alive, orcamod.wait_idle, orcamod.idle_now, orcamod.send,
+         orcamod.available, orcamod.clear_context, orcamod.relaunch) = real
+        con.close()
+
+
 def test_a_cold_wake_with_no_handoff_still_tells_the_agent_its_transcript_and_request(home: Path) -> None:
     """The handoff was never taken (the close failed), the snapshot is stale, and
     the cache is gone: the fresh session is still handed the request in hand and
@@ -19348,6 +19391,8 @@ def main() -> int:
         run(lambda: test_a_woken_agent_is_not_judged_on_the_snapshot_it_left(Path(td) / 'wakejudge'))
         run(lambda: test_an_agent_idle_past_its_prompt_cache_comes_back_fresh_with_its_work(Path(td) / 'coldwake'))
         run(lambda: test_the_cache_clock_decides_a_resume_not_whether_a_handoff_exists(Path(td) / 'coldnone'))
+        run(lambda: test_find_transcript_walks_accounts_and_takes_only_a_plain_id(Path(td) / 'find_trans'))
+        run(lambda: test_a_cold_wake_that_fails_leaves_no_handoff_behind(Path(td) / 'a_cold_wak'))
         run(lambda: test_a_cold_wake_with_no_handoff_still_tells_the_agent_its_transcript_and_request(Path(td) / 'coldnone2'))
         run(lambda: test_a_park_that_was_also_closed_is_woken_without_being_judged(Path(td) / 'pclosed'))
         run(lambda: test_reconcile_wakes_a_park_that_was_also_closed(Path(td) / 'pclosed2'))

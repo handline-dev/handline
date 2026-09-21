@@ -1121,10 +1121,16 @@ def _wake_agent(con, agent: str, log, moved_to: str | None = None) -> tuple[bool
         # fresh start costs the handoff; the record stays on the row for the
         # launch to inject.
         cold = moved_to is None and cache_expired(con, agent, session, int(time.time()))
+        took = False
         if cold and not db.get_handoff(con, agent):
             # The close that would have taken it failed, and the snapshot no
             # longer names the session; the id on the row still does.
-            handoffmod.record(con, agent, closed_session=session)
+            gaps = handoffmod.record(con, agent, closed_session=session)
+            took = True
+            if gaps:
+                why = "could not read " + ", ".join(gaps)
+                db.add_event(con, agent, "handoff", {"degraded": True, "session": session, "why": why})
+                log(f"  {agent}: cold wake handoff degraded ({why})")
         for resume in ([True, False] if session and not cold else [False]):
             pf = _write_wake_prompt(
                 agent, wake_prompt(agent, resume, was_closed=closed,
@@ -1137,6 +1143,10 @@ def _wake_agent(con, agent: str, log, moved_to: str | None = None) -> tuple[bool
                 break
             pf.unlink(missing_ok=True)
         if not ok:
+            if took:
+                # A record no session was handed would be typed at whichever
+                # live session the next wake finds, as if it had been parked.
+                db.set_handoff(con, agent, None)
             # The closed mark and resume_session are the whole way back. A wake
             # that started nothing leaves both alone: the next attempt - work
             # arriving, or the next restart - has nothing else to use.
