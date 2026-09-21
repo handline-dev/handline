@@ -982,6 +982,65 @@ def test_replay_finds_where_the_new_rule_and_the_old_one_disagree(home: Path) ->
         con.close()
 
 
+def test_replay_reconstructs_burn_and_lets_the_week_gate_fire(home: Path) -> None:
+    """#1400: `load={}` cannot ask `_no_week_room` anything (it needs
+    `ld.costs`), so a replay under it agrees with the old deadline rule on
+    every tick the week gate would have closed - 130 of 734 real ticks,
+    measured on production history. `tight` (88% of its week, an hour left) is
+    first on pace; one more agent alone lasts it 1920s, over the 1800s a start
+    is worth, so only the burn (0.5%/min of the 5h window, 1152s with it) closes
+    it, and only with the plan's ratio. Dropping either the burn or the ratio
+    from the replayed load leaves the pick agreeing with the old rule."""
+    os.environ["OCP_HOME"] = str(home)
+    con = db.connect()
+    try:
+        ts0, ts1 = 500_000_000, 500_000_600
+        reset_5h = ts1 + 3 * 3600
+        for ts, pct_5h in ((ts0, 20), (ts1, 25)):
+            tight = status.AccountStatus("tight", exists=True, pct_5h=pct_5h, pct_7d=88,
+                                         reset_5h=reset_5h, reset_7d=ts1 + 3600,
+                                         rl_at=ts, rl7_at=ts, collected_at=ts)
+            roomy = status.AccountStatus("roomy", exists=True, pct_5h=pct_5h, pct_7d=70,
+                                         reset_5h=reset_5h, reset_7d=ts1 + 3 * 86400,
+                                         rl_at=ts, rl7_at=ts, collected_at=ts)
+            db.record_usage_sample(con, "tight", tight, ts=ts)
+            db.record_usage_sample(con, "roomy", roomy, ts=ts)
+        db.set_meta(con, "weekratio", json.dumps({"at": ts1, "r": {"*": 0.5}}))
+
+        burns = replaymod.reconstruct_burn(db.usage_samples(con))
+        check("replay: burn is the finite difference to the account's own prior sample",
+              abs(burns[("tight", ts1)] - 5 / 600) < 1e-9
+              and abs(burns[("roomy", ts1)] - 5 / 600) < 1e-9, burns)
+        check("replay: a first sample has no prior to difference against",
+              ("tight", ts0) not in burns and ("roomy", ts0) not in burns, burns)
+
+        diffs = {d["ts"]: d for d in replaymod.replay(con)}
+        check("replay: the week gate that load={} cannot ask fires here and moves the pick",
+              ts1 in diffs, diffs)
+        check("replay: the old rule's earliest-deadline still picks the account "
+              "closing this week", diffs.get(ts1, {}).get("old") == "tight", diffs.get(ts1))
+        check("replay: the new rule, with burn and the week's ratio reconstructed, "
+              "passes it over for the one with real runway",
+              diffs.get(ts1, {}).get("new") == "roomy", diffs.get(ts1))
+
+        # The control this guards against: under load={} (the pre-#1400
+        # replay), the week gate cannot fire at all, so pace alone picks
+        # "tight" on both sides and this tick is not a divergence.
+        real_time = time.time
+        time.time = lambda: ts1
+        try:
+            bare_pick, _ = status.pick_account(
+                ["tight", "roomy"], load={},
+                read_status={n: s for n, s in replaymod.by_tick(
+                    db.usage_samples(con))[ts1].items()}.get)
+        finally:
+            time.time = real_time
+        check("replay: load={} cannot see the week gate - the control this guards against",
+              bare_pick == "tight", bare_pick)
+    finally:
+        con.close()
+
+
 # ---------------------------------------------------------------- collector
 def test_collector(home: Path) -> None:
     """Feed the real statusLine payload shape through the real collector."""
@@ -18212,6 +18271,8 @@ def main() -> int:
             Path(td) / 'tickgap'))
         run(lambda: test_replay_finds_where_the_new_rule_and_the_old_one_disagree(
             Path(td) / 'replaydiff'))
+        run(lambda: test_replay_reconstructs_burn_and_lets_the_week_gate_fire(
+            Path(td) / 'replayweek'))
         run(lambda: test_collector(home))
         run(lambda: test_yaml())
         run(lambda: test_agents(home))

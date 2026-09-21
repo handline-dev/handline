@@ -19,16 +19,29 @@ a fixed clock through `pick_account`. That patch is process-global: it moves
 the clock for everything else in the process, so call `replay` from the CLI,
 never from inside a daemon tick.
 
-What is reconstructed is the account's status, not its load: the recorded
-rows carry no per-account cap or agent cost, so both rules are asked with
-`load={}`, the defaults. "What it would have picked" means under the default
-cap and burn, not the ones each account actually had at that tick.
+What is reconstructed is not only the account's status but enough of its
+load to let the week-runway gate run at all (#1400): burn, as the finite
+difference between an account's own neighbouring samples inside one 5h
+window (`reconstruct_burn`, the same reasoning `burnrate.observe` applies
+live), and the week-per-5h cost ratio, from `burnrate.costs` run on this same
+db - both already sit in `usage_samples` and its meta tables, so neither is a
+fresh measurement or a read of today's state. Passing `load={}` here was
+tried first and thrown out: `_no_week_room` needs `ld.costs` to ask anything,
+so under `load={}` the week gate cannot fire and every row it would have
+moved reads as agreement instead. What stays permanently unreconstructable
+is concurrency: nothing recorded who else was mid-turn on an account at a
+past tick, so every replayed `Load` carries `active=0` and `cap=math.inf` -
+honest about not knowing, not a guessed count dressed as data. A tick the cap
+or a rival agent's presence would have decided cannot be replayed correctly,
+and no amount of history fixes that; this only reconstructs what the samples
+actually kept.
 """
 from __future__ import annotations
 
+import math
 import time
 
-from . import db, status
+from . import burnrate, db, load as loadmod, status
 
 
 def status_from_row(row) -> status.AccountStatus:
@@ -62,6 +75,39 @@ def old_pick(statuses: dict[str, status.AccountStatus]) -> str | None:
     return usable[0][0]
 
 
+def _live_5h(row) -> bool:
+    """Whether a row's 5h figure is worth differencing: `AccountStatus.
+    is_live_reading`'s test, reapplied to a raw row since `status_from_row`
+    builds the object but this runs before that, over every row at once."""
+    return (row["pct_5h"] is not None and row["pct_5h_readable"]
+            and not row["rl_carried"] and not row["rl_lost"] and row["rl_at"] is not None)
+
+
+def reconstruct_burn(rows) -> dict[tuple[str, int], float]:
+    """Percent of the 5h window per second, per account per recorded tick - a
+    finite difference to that account's own previous live sample inside the
+    same window, over rows already kept rather than a fresh measurement.
+    Keyed by (account, ts) so `replay` can look a tick's burn up without
+    rescanning. Absent for an account's first sample, a stale or carried
+    reading on either end, or a reset between the two - a burn is a claim
+    about a fill, and a fill it cannot see it does not guess at."""
+    burns: dict[tuple[str, int], float] = {}
+    last: dict[str, object] = {}
+    for row in sorted(rows, key=lambda r: (r["account"], r["ts"])):
+        acct = row["account"]
+        prev = last.get(acct)
+        last[acct] = row
+        if prev is None or not (_live_5h(prev) and _live_5h(row)):
+            continue
+        if row["reset_5h"] != prev["reset_5h"] or row["rl_at"] <= prev["rl_at"]:
+            continue
+        rise = row["pct_5h"] - prev["pct_5h"]
+        if rise < 0:
+            continue
+        burns[(acct, row["ts"])] = rise / (row["rl_at"] - prev["rl_at"])
+    return burns
+
+
 def by_tick(rows) -> dict[int, dict[str, status.AccountStatus]]:
     """Every sampled tick's accounts, keyed by ts - a tick where only one
     account was sampled decides nothing, since neither rule chooses between
@@ -83,6 +129,8 @@ def replay(con, account_filter=None, since: int | None = None) -> list[dict]:
     """
     rows = db.usage_samples(con, since=since)
     ticks = by_tick(rows)
+    burns = reconstruct_burn(rows)
+    shared_costs = burnrate.costs(con)
     real_time = time.time
     diffs = []
     try:
@@ -93,7 +141,13 @@ def replay(con, account_filter=None, since: int | None = None) -> list[dict]:
             if len(statuses) < 2:
                 continue
             time.time = lambda ts=ts: ts  # noqa: E731 - judged as of the sample's own moment
-            new_picked, _ = status.pick_account(list(statuses.keys()), load={},
+            # active=0, cap=inf: honest about the one thing no row ever recorded
+            # (#1400) - who else was mid-turn on the account at this tick - rather
+            # than a load={} that structurally cannot ask the week gate anything.
+            tick_load = {n: loadmod.Load(account=n, active=0, cap=math.inf,
+                                         burn=burns.get((n, ts)), costs=shared_costs)
+                        for n in statuses}
+            new_picked, _ = status.pick_account(list(statuses.keys()), load=tick_load,
                                                 read_status=statuses.get)
             old_picked = old_pick(statuses)
             if new_picked != old_picked:
