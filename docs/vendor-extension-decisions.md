@@ -247,8 +247,9 @@ Orca restart forever. Do the `run_exists` tri-state whenever `orca.py` is next
 open; schedule the rest only if the observation move (D9) makes the Run
 identity something we depend on.
 
-### D9. Detection moves to Orca; reading the panel stays ours. And the
-statusLine stays, permanently.
+### D9. Detection moves to Orca; reading the panel stays ours. The statusLine
+stays - **for rate limits only** (revised #1357; it first said "permanently",
+for the wrong payload).
 
 Two measurements, both read-only, both correcting an earlier claim of mine.
 
@@ -289,6 +290,44 @@ mentions a context window or a token count** (`contextWindow`, `context_window`,
 `tokenCount`, `token_count`: 0 occurrences each). So the injection stays whole
 even in the best case for quota, and dropping usage from it would delete about
 eight lines of jq.
+
+**Correction (#1357): D9 had this exactly backwards.** Asked whether the
+context window is really needed, and what codex would do for session identity,
+I measured both - and the answer inverts the claim above. **The statusLine is
+not the architecture; it is Claude's convenience.** The vendor-neutral
+mechanism is to *pull from the session file*, and it already works on both
+vendors:
+
+| payload | Claude statusLine (push) | Claude transcript (pull) | codex rollout (pull) |
+|---|---|---|---|
+| context used | `ctx_pct` | **yes** - sum of `usage` on the last assistant message; measured **170,893 tokens** on a live transcript | **yes** - `info.total_token_usage.total_tokens` |
+| context size | `ctx_size` | from the model id | **yes** - `info.model_context_window` = 258,400 |
+| session identity | `session_id`, `transcript_path` | **the file is both** | **yes** - `session_meta.id` / `session_id`, and `~/.codex/session_index.jsonl` indexes every one |
+| rate limits | `pct_5h` / `pct_7d` / `pct_opus_7d` | **no** - only a `429` error record when the wall is already hit | **yes** - `rate_limits.primary{used_percent, window_minutes, resets_at}` |
+
+Measured on 1,869 codex rollouts: **1,868 carry the `token_count` record** (the
+one that does not is a single-turn `codex exec`). So codex needs **nothing
+injected at all** - it writes its own identity, its own context window and its
+own rate limits, the last already in D2's `window_minutes` shape.
+
+**So the one payload that only the statusLine can give is rate limits** - the
+opposite of what this decision said. Context and session identity both have a
+pull source on both vendors.
+
+**And the context trigger is weaker than stated.** Measured over the fleet's
+whole history: **271 parks - 244 `usage`, 22 `usage_7d`, 5 `context` (1.8%)**.
+`ctx_pct` is currently `None` on **5 of 19** agents, so it already fails
+silently a quarter of the time, and every agent is on a **1M** window, which
+puts `CONTEXT_PCT = 60` at 600k tokens - the usage wall nearly always arrives
+first. The five that did fire were `auditor` x3, `chat` and `orcapipe`: agents
+that read large diffs, where the fallback is Claude's own auto-compaction -
+unmanaged, lossy, and with no handoff written. So it earns its place, but as a
+rare backstop, not as "the feature that keeps the fleet running unattended".
+
+**Revised decision.** Keep the injection while it is the only source of rate
+limits per account. Move context and session identity to a pull from the
+session file, because that is the form codex needs anyway - one mechanism for
+both vendors instead of a push we can only build for one.
 
 **The prize the question is reaching for is real, though - it is just behind
 D2's precondition.** Our readings are opportunistic: a session learns its rate
