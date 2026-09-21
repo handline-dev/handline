@@ -1857,12 +1857,12 @@ def _line(prompt: str, width: int, height: int, multi: bool = False,
         done = box.feed(data) if data else None
         if done == "cancel":
             return None
-        if done == "send":
-            if matches:
-                return f"/{matches[sel]}"
-            return box.text.strip("\n") if multi else box.text.strip()
-        # Recomputed from the text as it now stands, after this keystroke -
-        # matched against on the NEXT iteration, once it is what is on screen.
+        # Recomputed from the text as it now stands - a burst that types a
+        # prefix and presses Enter in the same read (a paste, a fast typist,
+        # a script) reaches `done == "send"` in this same call, and `matches`
+        # from before the feed would still be the empty list from before
+        # anything was typed, sending the raw prefix as a literal message
+        # instead of resolving it.
         new_matches = ([n for n, _ in commands if n.startswith(box.text[1:])]
                        if commands is not None and box.text.startswith("/") else [])
         # The highlight only survives typing that leaves the same list in the
@@ -1870,6 +1870,10 @@ def _line(prompt: str, width: int, height: int, multi: bool = False,
         # is now there, silently retargeting it to a different command.
         sel = sel if new_matches == matches else 0
         matches = new_matches
+        if done == "send":
+            if matches:
+                return f"/{matches[sel]}"
+            return box.text.strip("\n") if multi else box.text.strip()
         rows = box.shown(prompt, width, max(1, height // 2))
         if matches:
             rows = rows + [f"{DIM}  " + "  ".join(

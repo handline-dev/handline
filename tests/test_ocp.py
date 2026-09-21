@@ -15072,6 +15072,22 @@ def test_slash_commands_autocomplete_and_run_the_highlighted_one(home: Path) -> 
           "not just clamps its index into range",
           got == "/ask", repr(got))
 
+    # code-review: a prefix and Enter arriving in the same read (a paste, a
+    # fast typist, a script) reach box.feed in one call - `matches` from
+    # before that call must not be what Enter is judged against.
+    master, slave = pty.openpty()
+    ttymod.setraw(slave)
+    sys.stdin, sys.stdout = os.fdopen(slave, "r", closefd=False), io.StringIO()
+    try:
+        os.write(master, b"/close\r")           # whole thing, one read
+        got = tui._line("to x:", 40, 24, multi=True, commands=cmds)
+    finally:
+        sys.stdin, sys.stdout = real_in, real_out
+        os.close(master)
+        os.close(slave)
+    check("autocomplete: a prefix and Enter in the same read still resolves",
+          got == "/close", repr(got))
+
 
 def test_the_agent_pages_tabs_show_everything_and_read_as_blocks(home: Path) -> None:
     """Founder: the other tabs of an agent's page were cut to one line, cut at
