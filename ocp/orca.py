@@ -22,6 +22,9 @@ import subprocess
 import time
 from dataclasses import dataclass
 
+from . import textsafe
+
+
 # Sending /clear mid-turn would discard work in flight, so we never force it.
 # The daemon asks with a short timeout because this call blocks its whole tick:
 # waiting two minutes on one busy agent stops supervision of every other agent.
@@ -55,11 +58,17 @@ def terminal_handle() -> str | None:
 
 
 def _run(args: list[str], timeout: int = 180) -> tuple[bool, str]:
+    """Every caller's `out` is Orca's own text - clean at the source, so a
+    message built from it (an error embedded in what a caller returns) is
+    clean by construction and nothing downstream has to remember to sanitise
+    it. `--json` output survives this: JSON is whitespace-insensitive outside
+    its strings, and a conformant writer already escapes a control byte
+    inside one rather than emitting it raw."""
     try:
         r = subprocess.run(["orca", *args], capture_output=True, text=True, timeout=timeout)
     except (OSError, subprocess.SubprocessError) as e:
-        return False, str(e)
-    return r.returncode == 0, (r.stdout or r.stderr).strip()
+        return False, textsafe.oneline(str(e))
+    return r.returncode == 0, textsafe.oneline((r.stdout or r.stderr).strip())
 
 
 def wait_idle(handle: str, timeout_ms: int = IDLE_TIMEOUT_MS) -> bool:
@@ -242,31 +251,16 @@ _RULE = re.compile(r"^\u2594{8,}$")
 _OPTION = re.compile(r"^(?:\u276f\s*)?\d+\.\s+\S")
 DETAIL_CHARS = 200
 
-# What a terminal would obey in text quoted off a screen: an OSC or CSI
-# sequence, a lone ESC, C0, DEL, C1. An agent can paint its own screen, so a
-# dialog's title and options are exactly the hostile-text case
-# buddyron/shared-sanitiser's textsafe.oneline() exists for - this IS a second
-# copy of its rule, not merged yet only because that branch is not on main.
-# Applied at the source - the earliest point this text leaves a screen, before
-# it reaches a log line or a request body neither of us sees the sink of.
-# Nothing here fails if the two drift before shared-sanitiser lands; once it
-# does, this becomes a call to textsafe.oneline() and these two regexes go.
-_OSC = re.compile(r"\033\][^\a\033]*(?:\a|\033\\)?")
-_CSI = re.compile(r"\033\[[0-?]*[ -/]*[@-~]")
-
-
-def _visible(s: str) -> str:
-    """`s` as one line with nothing a terminal would obey."""
-    s = _CSI.sub("", _OSC.sub("", s))
-    return "".join(c if c.isprintable() else " " for c in " ".join(s.splitlines()))
-
-
+# An agent can paint its own screen, so a dialog's title and options are
+# exactly the hostile-text case textsafe.oneline() exists for - applied at the
+# source, the earliest point this text leaves a screen, before it reaches a
+# log line or a request body neither of us sees the sink of.
 def describe_modal(tail: list[str], footer: int) -> str:
     """The dialog above row `footer` in its own words: its title, then its
     numbered options. Where no rule marks where the dialog begins, the last
     three lines above the footer, verbatim - a quotation, so a layout this has
     not seen still says something true."""
-    lines = [_visible(str(x).strip()) for x in tail[:footer]]
+    lines = [textsafe.oneline(str(x).strip()) for x in tail[:footer]]
     top = next((i for i in range(len(lines) - 1, -1, -1) if _RULE.match(lines[i])), None)
     if top is None:
         return " / ".join([ln for ln in lines if ln][-3:])[:DETAIL_CHARS]
@@ -306,7 +300,7 @@ def parse_dialog(tail: list[str], footer: int) -> Dialog | None:
     """The dialog above row `footer` as data, or None when any part of it is
     not there to read: no rule opening the panel, no title, or fewer than two
     options numbered 1, 2, ... in order. What cannot be parsed is not guessed."""
-    lines = [_visible(str(x).strip()) for x in tail[:footer]]
+    lines = [textsafe.oneline(str(x).strip()) for x in tail[:footer]]
     top = next((i for i in range(len(lines) - 1, -1, -1) if _RULE.match(lines[i])), None)
     if top is None:
         return None
@@ -316,7 +310,7 @@ def parse_dialog(tail: list[str], footer: int) -> Dialog | None:
     options = [(int(m[1]), m[2].strip()) for m in map(_OPTION_LABEL.match, body[1:]) if m]
     if len(options) < 2 or [n for n, _ in options] != list(range(1, len(options) + 1)):
         return None
-    return Dialog(body[0], tuple(options), _visible(str(tail[footer]).strip()), tuple(body))
+    return Dialog(body[0], tuple(options), textsafe.oneline(str(tail[footer]).strip()), tuple(body))
 
 
 # The whole label of an option that leaves the world as it is, and nothing wider:

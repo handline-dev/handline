@@ -14400,6 +14400,137 @@ def test_no_command_prints_what_a_terminal_would_obey(home: Path) -> None:
           json.loads(said) == odd and not re.search(r"[\x7f-\x9f]", said), said)
 
 
+# ------------------------------------------------------------- the boundary
+def _touches_subprocess_text(tree) -> bool:
+    """Calls `subprocess.run`/`Popen` and reads `.stdout` or `.stderr` off the
+    result - somewhere in the module, not necessarily the same function: the
+    two together are what makes foreign bytes reachable at all."""
+    import ast
+    calls = any(isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute)
+               and n.func.attr in ("run", "Popen")
+               and isinstance(n.func.value, ast.Name) and n.func.value.id == "subprocess"
+               for n in ast.walk(tree))
+    reads = any(isinstance(n, ast.Attribute) and n.attr in ("stdout", "stderr")
+               for n in ast.walk(tree))
+    return calls and reads
+
+
+def _builds_a_returned_message(tree) -> bool:
+    """A `return` (a bare value, or one element of a tuple/list, the shape
+    every `_run`-like helper here uses) built as an f-string, a `.format()`
+    call, or an `a or b or "default"` chain - the shape a captured-text
+    fallback takes when there is no f-string to see it in at all."""
+    import ast
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Return) and node.value is not None:
+            v = node.value
+            for val in (v.elts if isinstance(v, (ast.Tuple, ast.List)) else [v]):
+                if isinstance(val, ast.JoinedStr):
+                    return True
+                if (isinstance(val, ast.Call) and isinstance(val.func, ast.Attribute)
+                      and val.func.attr == "format"):
+                    return True
+                if isinstance(val, ast.BoolOp) and isinstance(val.op, ast.Or):
+                    return True
+    return False
+
+
+def _imports_textsafe(tree) -> bool:
+    import ast
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ImportFrom) and node.module == "textsafe":
+            return True
+        if isinstance(node, ast.ImportFrom) and node.module is None:
+            if any(a.name == "textsafe" for a in node.names):
+                return True
+        if isinstance(node, ast.Import) and any(a.name.endswith("textsafe") for a in node.names):
+            return True
+    return False
+
+
+def test_a_module_that_returns_subprocess_text_as_a_message_imports_textsafe(home: Path) -> None:
+    """orcapipe #1091: sanitising at each sink is a game the project loses -
+    157 unsanitised `print(` calls in ocp/, and hand-triaging them one review
+    at a time IS that game. The boundary foreign bytes actually enter through
+    is small: orca._run, spawn._run, drift._git, a file read, the database.
+    This is the subprocess third of it, found by the suite from here on
+    instead of by a reviewer reading the diff: a module that reads what a
+    subprocess said (`.stdout`/`.stderr`) and hands it back as part of a
+    returned message must import textsafe.
+
+    auditor's first attempt at this (flag any module with its own escape
+    regex) false-positived on tui.py, which parses incoming keystrokes and
+    measures its own codes - a check that cries wolf gets ignored. This one is
+    keyed on the sink, not the pattern that happens to sit near one."""
+    import ast
+
+    # Modules the check would otherwise name, and why each one is not the
+    # sink the property is about - the list a later hand has to justify, the
+    # same shape as the CLI's driven-or-skipped table.
+    exempt = {
+        "accounts.py": "parses one known JSON field (subscriptionType, email) "
+                       "out of `claude auth status`; never returns the raw text",
+        "service.py": "launchctl's own error text - a macOS tool's output, not "
+                      "anything an agent chose, and the least reachable of these",
+    }
+    named, clean = [], []
+    for f in sorted((ROOT / "ocp").glob("*.py")):
+        if f.name == "textsafe.py":
+            continue
+        tree = ast.parse(f.read_text())
+        if not (_touches_subprocess_text(tree) and _builds_a_returned_message(tree)):
+            continue
+        (clean if _imports_textsafe(tree) else named).append(f.name)
+    check("boundary: every module returning subprocess text as a message imports "
+          "textsafe, or is exempt with a reason",
+          not (set(named) - set(exempt)), str(sorted(set(named) - set(exempt))))
+    check("boundary: an exempt module is not also one that already imports it - "
+          "the reason would be a lie", not (set(exempt) & set(clean)), str(exempt.keys() & set(clean)))
+    # Real files today, both directions: cli/hr/tui/textsafe pass on the merits
+    # (hr never touches a subprocess at all; the other three do and are clean),
+    # and orca.py/spawn.py/drift.py/fold.py/handoff.py are exactly the ones
+    # this branch touched.
+    check("boundary: the modules this branch closed are the ones found dirty",
+          {"orca.py", "spawn.py", "drift.py", "fold.py", "handoff.py"} <= set(clean),
+          str(clean))
+
+    # Proof by mutation: the same two functions, run on synthetic source, so
+    # the check is shown to fire on the shape and not on a filename it knows.
+    dirty_src = (
+        "import subprocess\n"
+        "def _run(args):\n"
+        "    r = subprocess.run(args, capture_output=True)\n"
+        "    if r.returncode:\n"
+        "        return False, f'failed: {r.stderr}'\n"
+        "    return True, r.stdout\n")
+    clean_src = "from . import textsafe\n" + dirty_src
+    fallback_src = (
+        "import subprocess\n"
+        "def _run(args):\n"
+        "    r = subprocess.run(args, capture_output=True)\n"
+        "    if r.returncode:\n"
+        "        return False, (r.stderr or r.stdout or 'failed')\n"
+        "    return True, r.stdout\n")
+    check("boundary: the check fires on the exact shape orca._run/spawn._run had",
+          _touches_subprocess_text(ast.parse(dirty_src))
+          and _builds_a_returned_message(ast.parse(dirty_src))
+          and not _imports_textsafe(ast.parse(dirty_src)))
+    check("boundary: and is silent once the same module imports textsafe",
+          _imports_textsafe(ast.parse(clean_src)))
+    check("boundary: the fold.py shape (`a or b or default`, no f-string) is caught too",
+          _builds_a_returned_message(ast.parse(fallback_src)))
+    check("boundary: a module with no subprocess call at all is not named, whatever it returns",
+          not _touches_subprocess_text(ast.parse('def f():\n    return f"{x}"\n')))
+    check("boundary: reading .stdout with nothing returned as a message is not named either "
+          "(tui.py's own shape: it reads a subprocess result to steer a suspend, not to quote it)",
+          not _builds_a_returned_message(ast.parse(
+              "import subprocess\n"
+              "def f():\n"
+              "    r = subprocess.run(['x'], capture_output=True)\n"
+              "    ok = r.returncode == 0 and bool(r.stdout)\n"
+              "    return ok\n")))
+
+
 def test_every_prompt_leaves_the_screen_above_it_drawn_through_tui_run(home: Path) -> None:
     """Auditor #899: the composer's `under` was proven with the test's own
     callback, and there are five real call sites. Each is opened by its own
@@ -17113,6 +17244,8 @@ def main() -> int:
         run(lambda: test_nothing_a_terminal_would_obey_gets_through_what_someone_else_wrote(Path(td) / 'esc'))
         run(lambda: test_an_agent_name_is_text_and_no_screen_can_be_made_to_obey_it(Path(td) / 'names'))
         run(lambda: test_no_command_prints_what_a_terminal_would_obey(Path(td) / 'cli'))
+        run(lambda: test_a_module_that_returns_subprocess_text_as_a_message_imports_textsafe(
+            Path(td) / 'boundary'))
         run(lambda: test_every_prompt_leaves_the_screen_above_it_drawn_through_tui_run(Path(td) / 'prompts'))
         run(lambda: test_the_agent_pages_tabs_show_everything_and_read_as_blocks(Path(td) / 'tabs'))
         run(lambda: test_a_message_being_typed_wraps_and_keeps_the_cursor_on_its_last_character(Path(td) / 'typing'))
