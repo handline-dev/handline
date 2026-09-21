@@ -476,6 +476,45 @@ move the preamble to a file (D10).
 
 Not started. Step 3 is the one with real risk and should be its own branch.
 
+### Q4. Pull rate limits over OAuth ourselves, for all five accounts (#1358)
+
+**Not started, and it needs the founder's go-ahead** - it means our code
+handling an OAuth token, which `accounts.logged_in` deliberately avoids today
+(it calls `security find-generic-password` **without** `-w` for exactly that
+reason).
+
+**What makes it possible:** Orca already does it, and says so -
+`usageMetadata = {source: "oauth", credentialSource: "scoped-keychain"}`. It
+reads an account's OAuth credential out of the Keychain and calls the endpoint
+**with no session running**. Our five accounts sit in the same Keychain, one
+entry each (`accounts.keychain_service`: `Claude Code-credentials-<8 hex of the
+config dir's sha256>`, verified against a live login). So the thing Orca does
+for one account, we could do for five - which is D2's whole objection.
+
+**Why it is the largest reduction on any list here.** Rate limits ride on API
+**responses**: a session learns them only by making a request, which is why
+`probe.py` must type a real prompt ("a session that has asked nothing has
+learned no rate limits ... which reads as a quiet window") and why an idle
+account goes silent at all. Remove that constraint and two things go:
+
+| | lines | why it exists |
+|---|---|---|
+| `probe.py` | 172 | forces a reading out of a quiet account: a pty, a session boot, one Haiku turn, up to 90s, 30-min cooldown - and it spends quota to learn a number |
+| most of `status.py`'s trust model | of 1,023 | `carried` / `carried_old` / `quiet` / `unknown`, `idle_floor`, the high-water mark - all of it copes with readings we can only take opportunistically |
+
+**Measure before building any of it**, in this order: (1) that the endpoint
+answers for an account with nothing running, using that account's own
+credential; (2) that it answers for an account Orca does **not** consider
+active - this is the whole point, and `inactiveClaudeAccounts[]` being empty
+(D2) is a hint it may be exactly what Orca cannot do either; (3) what it costs,
+since it must be safe to call every tick.
+
+**Standing risk:** it is an undocumented endpoint. `claude auth status --json`
+returns identity only (`loggedIn`, `email`, `orgId`, `subscriptionType` - no
+usage), and the CLI has no usage verb, so there is no supported alternative to
+fall back on. Whatever is built must fail closed to today's snapshot rather
+than block a launch.
+
 ### Candidates, not queued
 
 Identified and priced, but **not approved and not to be started**:
