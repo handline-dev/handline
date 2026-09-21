@@ -28,7 +28,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
-from ocp import (accounts, actions, agents, ask as askmod, blocked as blockedmod, burnrate, cli as climod, daemon as dmn, db, hr,
+from ocp import (accounts, actions, agents, ask as askmod, blocked as blockedmod, burnrate, cli as climod, collect, daemon as dmn, db, hr,
                  digest,
                  doctor, drift, events as evmod, fold as foldmod,
                  handoff as handoffmod, launch, load as loadmod, lock, measure,
@@ -1336,6 +1336,364 @@ def test_collector(home: Path) -> None:
     check("and keeps when it was observed, not when it was copied",
           st.rl_at == observed_at, f"rl_at={st.rl_at} observed_at={observed_at}")
     check("a carried reading still assigns", st.assignable()[0], st.assignable()[1])
+
+
+
+# ---------------------------------------------------------------- pull collector
+# The same payload, taken from the transcript instead of pushed by the status
+# line (D11). Every figure here is one measured off the live fleet: the numbers
+# are `orcapipe`'s own snapshot on 2026-09-21, where the pull and the push
+# agreed to the token.
+LIVE_USAGE = {"input_tokens": 2, "output_tokens": 382,
+              "cache_creation_input_tokens": 924, "cache_read_input_tokens": 84777}
+
+
+def write_transcript(home: Path, acct: str, cwd, session: str, turns=(),
+                     extra=(), at: int | None = None) -> Path:
+    """A transcript where Claude Code would write one, with `turns` in order."""
+    d = home / "accounts" / acct / ".claude" / "projects" / collect.encode_cwd(cwd)
+    d.mkdir(parents=True, exist_ok=True)
+    p = d / f"{session}.jsonl"
+    rows = [{"type": "assistant", "message": {"model": m, "usage": u}} for m, u in turns]
+    rows += list(extra)
+    p.write_text("".join(json.dumps(r) + "\n" for r in rows))
+    if at is not None:
+        os.utime(p, (at, at))
+    return p
+
+
+def test_the_pull_reads_the_context_the_statusline_used_to_push(home: Path) -> None:
+    """One transcript, and the figure the collector would have pushed for it.
+
+    The live check is in the report for #1402: on every agent that had a figure,
+    this arithmetic reproduced the statusLine's `current_usage` to the token.
+    Here it is pinned, along with the two records that must not be mistaken for
+    the last turn - a synthetic message and a cost-state.
+    """
+    home.mkdir(parents=True, exist_ok=True)
+    os.environ["OCP_HOME"] = str(home)
+    accounts.register("alpha")
+    cwd = home / "wt-backend"
+    cwd.mkdir(parents=True, exist_ok=True)
+    write_transcript(
+        home, "alpha", cwd, "d548338d-0000-4000-8000-000000000001",
+        turns=[("claude-opus-5", {"input_tokens": 1, "output_tokens": 1,
+                                  "cache_read_input_tokens": 10_000}),
+               # The real last turn, with the nested fields the transcript
+               # carries and the statusLine's payload did not.
+               ("claude-opus-5", dict(LIVE_USAGE, service_tier="standard",
+                                      iterations=[{"input_tokens": 2}],
+                                      cache_creation={"ephemeral_1h_input_tokens": 924}))],
+        extra=[{"type": "assistant",
+                "message": {"model": "<synthetic>",
+                            "usage": {"input_tokens": 0, "output_tokens": 0}}},
+               {"type": "cost-state", "totalCostUSD": 0.078,
+                "totalLinesAdded": 3, "totalLinesRemoved": 1}])
+
+    snap = collect.snapshot("backend", cwd)
+    check("pull: finds the session", snap is not None)
+    check("pull: the file name is the session id",
+          snap["session_id"] == "d548338d-0000-4000-8000-000000000001", snap["session_id"])
+    check("pull: the account is read off the path the session writes to",
+          snap["account"] == "alpha", snap["account"])
+    check("pull: tokens are the last turn's four counts, summed",
+          collect.tokens(snap["ctx_used"]) == 86085, snap["ctx_used"])
+    check("pull: and the nested fields beside them are not counted",
+          set(snap["ctx_used"]) == set(LIVE_USAGE), snap["ctx_used"])
+    check("pull: ctx_pct is what the statusLine reported for the same tokens",
+          snap["ctx_pct"] == 9, snap["ctx_pct"])
+    check("pull: the model comes from the same turn",
+          snap["model_id"] == "claude-opus-5", snap["model_id"])
+    check("pull: a synthetic message is not the last turn",
+          snap["ctx_pct"] == 9 and snap["ctx_used"]["cache_read_input_tokens"] == 84777)
+    check("pull: cost comes from the session's own cost-state",
+          snap["cost_usd"] == 0.078 and snap["lines_added"] == 3, snap["cost_usd"])
+    check("pull: collected_at is when the session wrote, not when we looked",
+          snap["collected_at"] == int(Path(snap["transcript_path"]).stat().st_mtime),
+          snap["collected_at"])
+
+    # And it lands where every reader already looks, so nothing downstream has
+    # to learn that the mechanism changed.
+    check("pull: writes the agent's snapshot", collect.collect("backend", cwd) is not None)
+    st = status.read("alpha", paths.agent_status_file("backend"))
+    check("pull: status.read sees the context", st.ctx_pct == 9, st.ctx_pct)
+    check("pull: status.read sees the session",
+          st.session_id == "d548338d-0000-4000-8000-000000000001", st.session_id)
+
+
+def test_a_cleared_session_reads_zero_and_an_unsearchable_one_reads_unknown(home: Path) -> None:
+    """The two ways a transcript has no turn, which have opposite answers.
+
+    A `/clear` starts a new transcript file. Measured on `orcapipe.chat`
+    (#1402): eleven lines, no assistant turn, while the statusLine was still
+    reporting the 20% the session had before the clear. Its context is 0 - that
+    is what the clear was for - and reading it as unknown throws away the fact.
+
+    A file we could not search to the end is the other case and must stay
+    unknown: reading it as 0 would tell the daemon an agent near its window's
+    end had an empty context, and nothing would ever park it.
+    """
+    home.mkdir(parents=True, exist_ok=True)
+    os.environ["OCP_HOME"] = str(home)
+    accounts.register("alpha")
+    cwd = home / "wt-chat"
+    cwd.mkdir(parents=True, exist_ok=True)
+    write_transcript(home, "alpha", cwd, "b4be3c1a-0000-4000-8000-000000000002",
+                     turns=[("claude-sonnet-5", {"cache_read_input_tokens": 203_226})],
+                     at=int(time.time()) - 120)
+    cleared = [{"type": "user", "message": {"role": "user", "content":
+                                            "<command-name>/clear</command-name>"}},
+               {"type": "cost-state", "totalCostUSD": 0}]
+    write_transcript(home, "alpha", cwd, "caaaab5a-0000-4000-8000-000000000003",
+                     extra=cleared, at=int(time.time()))
+
+    snap = collect.snapshot("chat", cwd)
+    check("cleared: the new transcript is the session",
+          snap["session_id"].startswith("caaaab5a"), snap["session_id"])
+    check("cleared: its context is 0, not the 20% of the session before it",
+          snap["ctx_pct"] == 0, snap["ctx_pct"])
+
+    # The same file, with the search cut short before it can see the whole of
+    # it. Nothing about the session changed; what changed is what we can know.
+    tail, ceiling = collect.TAIL_BYTES, collect.TAIL_MAX_BYTES
+    try:
+        collect.TAIL_BYTES = collect.TAIL_MAX_BYTES = 8
+        snap = collect.snapshot("chat", cwd)
+        check("unsearchable: a file we could not read to the end is unknown",
+              snap["ctx_pct"] is None, snap["ctx_pct"])
+        # And a turn further back than the first tail is still found, by
+        # doubling - the case a fixed tail would have missed.
+        collect.TAIL_BYTES, collect.TAIL_MAX_BYTES = 8, 1 << 20
+        snap = collect.snapshot("chat", cwd)
+        check("doubling: the turn behind a short tail is still found",
+              snap["ctx_pct"] == 0, snap["ctx_pct"])
+    finally:
+        collect.TAIL_BYTES, collect.TAIL_MAX_BYTES = tail, ceiling
+
+
+def test_the_newest_transcript_across_accounts_is_the_session(home: Path) -> None:
+    """Which account an agent is on, read off the file the session is writing.
+
+    The statusLine took it from `CLAUDE_CONFIG_DIR`, first-hand. The pull takes
+    it from the path of the transcript, which is the same fact - and it follows
+    an `ocp agent move` for nothing, because the file left behind under the old
+    account is simply older. Measured live: `orcapipe.chat` moved alpha -> sigma
+    and the pull reported sigma on the next read.
+    """
+    home.mkdir(parents=True, exist_ok=True)
+    os.environ["OCP_HOME"] = str(home)
+    accounts.register("alpha")
+    accounts.register("sigma")
+    cwd = home / "wt-chat"
+    cwd.mkdir(parents=True, exist_ok=True)
+    now = int(time.time())
+    write_transcript(home, "alpha", cwd, "aaaaaaaa-0000-4000-8000-000000000004",
+                     turns=[("claude-opus-5", {"cache_read_input_tokens": 100_000})],
+                     at=now - 600)
+    check("move: before the move, the older account is the only one",
+          collect.snapshot("chat", cwd)["account"] == "alpha")
+    write_transcript(home, "sigma", cwd, "bbbbbbbb-0000-4000-8000-000000000005",
+                     turns=[("claude-opus-5", {"cache_read_input_tokens": 20_000})],
+                     at=now)
+    snap = collect.snapshot("chat", cwd)
+    check("move: the newest transcript wins, whichever account holds it",
+          snap["account"] == "sigma" and snap["session_id"].startswith("bbbbbbbb"),
+          f"{snap['account']} {snap['session_id']}")
+    check("move: and the context is the new session's, not the old one's",
+          snap["ctx_pct"] == 2, snap["ctx_pct"])
+
+
+def test_an_unknown_model_gets_no_context_figure(home: Path) -> None:
+    """A window size is a table, so an unfamiliar model has no percentage.
+
+    Guessing small parks every agent on the context trigger at a fifth of its
+    real window; guessing large is the silence we already live with. The figure
+    goes unknown and the session's identity still comes back, because that part
+    was never a guess.
+    """
+    home.mkdir(parents=True, exist_ok=True)
+    os.environ["OCP_HOME"] = str(home)
+    accounts.register("alpha")
+    cwd = home / "wt-next"
+    cwd.mkdir(parents=True, exist_ok=True)
+    write_transcript(home, "alpha", cwd, "cccccccc-0000-4000-8000-000000000006",
+                     turns=[("some-model-nobody-has-measured",
+                             {"cache_read_input_tokens": 500_000})])
+    snap = collect.snapshot("next", cwd)
+    check("unknown model: no context percentage", snap["ctx_pct"] is None, snap["ctx_pct"])
+    check("unknown model: no invented window size", snap["ctx_size"] is None, snap["ctx_size"])
+    check("unknown model: the session is still identified",
+          snap["session_id"].startswith("cccccccc") and snap["account"] == "alpha")
+    check("unknown model: and the tokens are still reported",
+          collect.tokens(snap["ctx_used"]) == 500_000)
+
+
+def test_the_daemon_pulls_only_for_an_open_session(home: Path) -> None:
+    """The one thing a pull cannot reproduce is a heartbeat.
+
+    `collected_at` fresh means "a session is alive here" to every reader in
+    `status.py`, so collecting for an agent whose session the daemon has closed
+    would report a dead session as live for ever. A closed agent's snapshot is
+    left to age into stale, exactly as it does under the statusLine.
+    """
+    _daemon_home(home, 40)
+    cwd = home / "wt-backend"
+    cwd.mkdir(parents=True, exist_ok=True)
+    write_transcript(home, "alpha", cwd, "dddddddd-0000-4000-8000-000000000007",
+                     turns=[("claude-opus-5", {"cache_read_input_tokens": 300_000})])
+    con = db.connect()
+    try:
+        db.set_terminal(con, "backend", "term_x", str(cwd))
+        dmn.collect_snapshots(con, lambda _m: None)
+        st = status.read("alpha", paths.agent_status_file("backend"))
+        check("tick: an open session's context is pulled every tick",
+              st.ctx_pct == 30, st.ctx_pct)
+
+        paths.agent_status_file("backend").unlink()
+        db.set_closed(con, "backend", "dddddddd-0000-4000-8000-000000000007")
+        dmn.collect_snapshots(con, lambda _m: None)
+        check("tick: a closed agent's snapshot is not refreshed",
+              not paths.agent_status_file("backend").exists())
+    finally:
+        con.close()
+
+
+def test_the_usage_poll_asks_one_account_per_tick_and_renews_only_on_failure(home: Path) -> None:
+    """Rate limits are the half no transcript carries, so they are polled.
+
+    One account per tick, because five HTTPS GETs in the path of a 30s loop is
+    five timeouts. And `refresh=True` starts the Claude CLI to renew the
+    account's token, so it is only tried when the request actually failed, and
+    then no more often than its own cooldown - otherwise a logged-out account
+    pays a CLI start every two minutes for ever.
+    """
+    _daemon_home(home, 40)
+    accounts.register("beta")
+    asked: list[tuple[str, bool]] = []
+    answers: list[bool] = [True]
+
+    def fake_read(acct, refresh=True):
+        asked.append((acct, refresh))
+        if not answers[0]:
+            return None
+        return usage_api.Reading(acct, 7, None, 11, None, int(time.time()))
+
+    real_read, real_login = usage_api.read, accounts.logged_in
+    try:
+        accounts.logged_in = lambda acct: True
+        usage_api.read = fake_read
+        con = db.connect()
+        try:
+            dmn.poll_usage(con, lambda _m: None)
+            check("poll: one account per tick", len(asked) == 1, asked)
+            check("poll: and no renewal on the common path", asked[0][1] is False, asked)
+            dmn.poll_usage(con, lambda _m: None)
+            check("poll: the next tick takes the next account",
+                  [a for a, _ in asked] == ["alpha", "beta"], asked)
+            dmn.poll_usage(con, lambda _m: None)
+            check("poll: an account just read is not read again this minute",
+                  len(asked) == 2, asked)
+            check("poll: the reading lands where every reader looks",
+                  status.read("alpha").pct_5h == 7, status.read("alpha").pct_5h)
+
+            # Nothing has happened on either account since those readings, so
+            # there is nothing to ask about - the cursors being clear is not a
+            # reason on its own.
+            asked.clear()
+            db.set_cursor(con, "usage-poll:alpha", 0)
+            db.set_cursor(con, "usage-poll:beta", 0)
+            dmn.poll_usage(con, lambda _m: None)
+            check("poll: an idle account is not asked at all", asked == [], asked)
+
+            # A turn is what moves the figures, and our own hooks record one.
+            db.add_event(con, "backend", "Stop", {}, account="alpha")
+            dmn.poll_usage(con, lambda _m: None)
+            check("poll: a turn since the last reading makes it due",
+                  [a for a, _ in asked] == ["alpha"], asked)
+
+            # And the spending nothing records - a fold's `claude -p`, a human
+            # at a terminal - is why quiet is not trusted for ever. Beta's
+            # reading is aged past the cadence with no event of any kind.
+            asked.clear()
+            write_status(home, "beta", pct_5h=3, pct_7d=4,
+                         rl_at=int(time.time()) - dmn.USAGE_MAX_AGE_S - 1)
+            db.set_cursor(con, "usage-poll:beta", 0)
+            dmn.poll_usage(con, lambda _m: None)
+            check("poll: a reading older than the cadence is asked about anyway",
+                  [a for a, _ in asked] == ["beta"], asked)
+
+            # Now the endpoint cannot be reached: the token is the usual reason,
+            # and renewing it is one CLI start, once per cooldown.
+            asked.clear()
+            answers[0] = False
+            db.add_event(con, "backend", "Stop", {}, account="alpha")
+            db.set_cursor(con, "usage-poll:alpha", 0)
+            db.set_cursor(con, "usage-poll:beta", 0)
+            dmn.poll_usage(con, lambda _m: None)
+            check("poll: a failure is retried once, with a renewal",
+                  [r for _a, r in asked] == [False, True], asked)
+            asked.clear()
+            db.add_event(con, "backend", "Stop", {}, account="alpha")
+            db.set_cursor(con, "usage-poll:alpha", 0)
+            dmn.poll_usage(con, lambda _m: None)
+            check("poll: and the renewal is not tried again inside its cooldown",
+                  [r for _a, r in asked] == [False], asked)
+        finally:
+            con.close()
+    finally:
+        usage_api.read, accounts.logged_in = real_read, real_login
+
+
+def test_a_turn_ending_refreshes_the_snapshot_through_the_hook(home: Path) -> None:
+    """The statusLine's per-turn push, done by a hook that was already there.
+
+    `Stop` fires when the agent has finished a turn, already runs `ocp hook`,
+    and already carries the `cwd` the transcript lives under - so the snapshot
+    is refreshed at the moment the status line used to render one, with no
+    status line installed. A `Stop` arriving is also the heartbeat: the session
+    is alive and has just finished a turn.
+
+    An event that is not a turn boundary must not do it. `PermissionRequest`
+    fires while the agent waits on a human, and treating that as a turn would
+    keep rewriting the snapshot of a session that is doing nothing.
+    """
+    home.mkdir(parents=True, exist_ok=True)
+    os.environ["OCP_HOME"] = str(home)
+    accounts.register("alpha")
+    agents.register("backend", "alpha")
+    cwd = home / "wt-backend"
+    cwd.mkdir(parents=True, exist_ok=True)
+    write_transcript(home, "alpha", cwd, "eeeeeeee-0000-4000-8000-000000000008",
+                     turns=[("claude-opus-5", {"cache_read_input_tokens": 450_000})])
+    real_agent = os.environ.get("OCP_AGENT")
+
+    def hook(event: str, **fields) -> None:
+        real_in = sys.stdin
+        sys.stdin = io.StringIO(json.dumps({"hook_event_name": event, "session_id": "s",
+                                            "cwd": str(cwd), **fields}))
+        try:
+            evmod.record_from_stdin([event])
+        finally:
+            sys.stdin = real_in
+
+    try:
+        os.environ["OCP_AGENT"], os.environ["OCP_ACCOUNT"] = "backend", "alpha"
+        hook("Stop")
+        st = status.read("alpha", paths.agent_status_file("backend"))
+        check("hook: a turn ending refreshes this session's snapshot",
+              st.ctx_pct == 45, st.ctx_pct)
+        check("hook: with the session it was written by",
+              st.session_id == "eeeeeeee-0000-4000-8000-000000000008", st.session_id)
+
+        paths.agent_status_file("backend").unlink()
+        hook("PermissionRequest", tool_name="Bash")
+        check("hook: an event that is not a turn boundary does not collect",
+              not paths.agent_status_file("backend").exists())
+    finally:
+        if real_agent is None:
+            os.environ.pop("OCP_AGENT", None)
+        else:
+            os.environ["OCP_AGENT"] = real_agent
 
 
 # ---------------------------------------------------------------- yaml
@@ -16394,6 +16752,7 @@ def test_no_command_prints_what_a_terminal_would_obey(home: Path) -> None:
             "read": [["read", str(q)], ["read", str(h)], ["read", str(d)]],
             "resolve": [(["resolve", str(d), "again"], {"OCP_AGENT": "backend"})],
             "digest": [["digest", "reviewer"]], "handoff": [["handoff", "reviewer"]],
+            "collect": [["collect"], ["collect", "reviewer"]],
             "agent list": [["agent", "list"]],
             "agent show": [["agent", "show", "reviewer"], ["agent", "show", "reviewer", "--json"]],
             "account list": [["account", "list"], ["account", "list", "--json"]],
@@ -20017,6 +20376,18 @@ def main() -> int:
         run(lambda: test_the_probe_asks_the_endpoint_before_it_spends_the_account(Path(td) / 'usageseam'))
         run(lambda: test_the_daemon_still_starts_the_probe_detached(Path(td) / 'usagedetach'))
         run(lambda: test_collector(home))
+        run(lambda: test_the_pull_reads_the_context_the_statusline_used_to_push(
+            Path(td) / 'pull'))
+        run(lambda: test_a_cleared_session_reads_zero_and_an_unsearchable_one_reads_unknown(
+            Path(td) / 'pullclear'))
+        run(lambda: test_the_newest_transcript_across_accounts_is_the_session(
+            Path(td) / 'pullmove'))
+        run(lambda: test_an_unknown_model_gets_no_context_figure(Path(td) / 'pullmodel'))
+        run(lambda: test_the_daemon_pulls_only_for_an_open_session(Path(td) / 'pulltick'))
+        run(lambda: test_a_turn_ending_refreshes_the_snapshot_through_the_hook(
+            Path(td) / 'pullhook'))
+        run(lambda: test_the_usage_poll_asks_one_account_per_tick_and_renews_only_on_failure(
+            Path(td) / 'pullpoll'))
         run(lambda: test_yaml())
         run(lambda: test_agents(home))
         run(lambda: test_launch(home))
