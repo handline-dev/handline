@@ -389,15 +389,51 @@ def declining_key(dialog: Dialog) -> tuple[str | None, str]:
     return ESCAPE, ""
 
 
+
+# The composer's own box, measured live on four idle agents 2026-09-21
+# (keeper, purser, chat, auditor) after an 8-hour deadlock this shape exists
+# to close: two full-width '─' rules sandwich its one content line, an empty
+# one rendering as the bare marker alone - '❯', no trailing space, nothing
+# else, not '> ' or '❯ ' - with a status line and a hint line under it.
+_COMPOSER_RULE = re.compile(r"^[─]{8,}$")
+_COMPOSER_MARKER = ("❯", ">")
+
+
+def _composer_line(tail: list) -> str | None:
+    """The composer's own content line, or None when the last few rows are
+    not that shape at all - a screen mid-scroll, a different layout, a read
+    that landed somewhere else. Never guessed from fewer rows than the shape
+    needs."""
+    if len(tail) < 5:
+        return None
+    top, content, bottom = (str(x).strip() for x in tail[-5:-2])
+    if _COMPOSER_RULE.match(top) and _COMPOSER_RULE.match(bottom):
+        return content
+    return None
+
+
 def screen_blocker(handle: str) -> Blocker | None:
     """What on the screen a typed line would answer or merge into, from one read.
 
     A dialog draws its footer on the bottom rows; above them is the transcript,
-    which may quote those words without anything being asked. Text in the input
-    box is what Orca reports as `draft`, only while it is non-empty, and keeps
-    out of `tail`. Fail-closed: a screen that cannot be read blocks, because the
-    cost of a wrong no is an answer given to a question nobody asked, or a
-    prompt submitted with someone's half-written text in it.
+    which may quote those words without anything being asked. Fail-closed: a
+    screen that cannot be read blocks, because the cost of a wrong no is an
+    answer given to a question nobody asked, or a prompt submitted with
+    someone's half-written text in it.
+
+    Text in the input box used to be read from `draft`, which Orca reports
+    independently of the screen - and keeps remembering after a send that did
+    not complete, with no way back but the exact send it was refusing to make.
+    Measured the night that stuck three agents for 8 hours: a stale draft with
+    real text in it rendered as the same bare, empty marker a genuinely empty
+    box does. The box itself decides now - `draft` is not consulted at all -
+    so a stale one can never block again, and the block is exactly as long as
+    the screen keeps saying something is there. Not settled by the same
+    measurement: whether real, freshly-typed unsent text on an otherwise idle
+    screen renders any differently from empty - the test that would confirm it
+    was confounded by being taken mid-turn. If it turns out text never
+    renders there either, UNSENT stops firing, which is the safer of the two
+    ways this could be wrong to find out about later.
     """
     term = _screen(handle)
     tail = term.get("tail") if term else None
@@ -409,10 +445,18 @@ def screen_blocker(handle: str) -> Blocker | None:
     if footer is not None:
         dialog = parse_dialog(tail, footer)
         return Blocker(MODAL, describe_modal(tail, footer), title=dialog.title if dialog else "")
-    draft = term.get("draft")
-    if draft:
-        return Blocker(UNSENT, " ".join(str(draft).split())[:DETAIL_CHARS])
-    return None
+    composer = _composer_line(tail)
+    if composer is not None:
+        if composer in _COMPOSER_MARKER:
+            return None
+        typed = composer.lstrip("".join(_COMPOSER_MARKER)).strip()
+        return Blocker(UNSENT, typed[:DETAIL_CHARS]) if typed else None
+    # The composer was not where it is measured to be. Failing closed here,
+    # rather than falling back to `draft`, is the fix: `draft` alone is what
+    # blocked delivery forever with nothing to clear it but the send it
+    # refused. UNREADABLE goes through the same escalation as any other
+    # block and clears the moment a read recognises the shape again.
+    return Blocker(UNREADABLE)
 
 
 CLEARED, STILL_OPEN, NOT_PRESSED = "cleared", "still-open", "not-pressed"

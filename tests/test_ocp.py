@@ -2425,6 +2425,20 @@ EXIT_DIALOG = """  Two things remain open and I've flagged both rather than deci
      3. Stay
    Enter to confirm · Esc to cancel""".split("\n")
 PASTED_DRAFT = "ㅇㅇeck[Pasted text #1 +4 lines]"
+# Measured live 2026-09-21 on four idle agents (keeper, purser, chat, auditor)
+# after the draft-based UNSENT deadlock: two full-width rules around the
+# composer's one content line, a status line and a hint line under it. Empty
+# renders as the bare marker alone - no trailing space.
+_COMPOSER_RULE_ROW = "─" * 60
+COMPOSER_EMPTY = [_COMPOSER_RULE_ROW, "❯", _COMPOSER_RULE_ROW,
+                 "  delta · 5h 68% · 7d 67%",
+                 "  ⏵⏵ auto mode on (shift+tab to cycle) · ← for agents"]
+
+
+def _composer_typed(text: str) -> list:
+    return [_COMPOSER_RULE_ROW, f"❯ {text}", _COMPOSER_RULE_ROW,
+            "  delta · 5h 68% · 7d 67%",
+            "  ⏵⏵ auto mode on (shift+tab to cycle) · ← for agents"]
 
 
 def _screen_of(tail, draft=None, source="screen"):
@@ -2454,18 +2468,38 @@ def test_the_screen_names_what_is_in_the_way(home: Path) -> None:
         check("screen: a layout with no rule is quoted, last three lines above the footer",
               orcamod.screen_blocker("term_x").detail == "b / c / d")
 
-        # A transcript that quotes the footer, well above the bottom rows, is not a dialog.
-        quoted = ["the footer says Enter to confirm and Esc to cancel"] + ["x"] * 10
+        # A transcript that quotes the footer, well above the bottom rows, is not
+        # a dialog - and with a real, empty composer under it, nothing is in the way.
+        quoted = ["the footer says Enter to confirm and Esc to cancel"] + ["x"] * 10 + COMPOSER_EMPTY
         orcamod._screen = lambda h: _screen_of(quoted)
         check("screen: the footer words in the transcript are not a dialog",
               orcamod.screen_blocker("term_x") is None)
 
-        orcamod._screen = lambda h: _screen_of(["prompt"], draft=PASTED_DRAFT)
+        # A stale draft with real content in it - the incident itself - renders
+        # as the same bare, empty marker a genuinely empty box does. The box on
+        # screen decides now, not `draft`, so it is not read as unsent at all.
+        orcamod._screen = lambda h: _screen_of(COMPOSER_EMPTY, draft=PASTED_DRAFT)
+        check("screen: a stale draft the screen does not show is not unsent - "
+              "the deadlock's own shape", orcamod.screen_blocker("term_x") is None)
+
+        # What the screen itself shows typed is unsent, quoted from the screen,
+        # whatever `draft` says or does not say - orcapipe's three-row matrix:
+        # draft absent, text really on the line -> blocked;
+        orcamod._screen = lambda h: _screen_of(_composer_typed("half-typed reply"))
         b = orcamod.screen_blocker("term_x")
-        check("screen: text left in the input is unsent, quoted",
-              b and b.kind == orcamod.UNSENT and b.detail == PASTED_DRAFT, str(b))
-        orcamod._screen = lambda h: _screen_of(["prompt"], draft="")
-        check("screen: an empty draft is an empty input", orcamod.screen_blocker("term_x") is None)
+        check("screen: text the composer box itself shows is unsent, quoted",
+              b and b.kind == orcamod.UNSENT and b.detail == "half-typed reply", str(b))
+        # and draft set to the very same text that really is on the line -> still blocked.
+        orcamod._screen = lambda h: _screen_of(_composer_typed("half-typed reply"),
+                                               draft="half-typed reply")
+        b = orcamod.screen_blocker("term_x")
+        check("screen: text on the line is unsent whether or not draft agrees with it",
+              b and b.kind == orcamod.UNSENT and b.detail == "half-typed reply", str(b))
+        orcamod._screen = lambda h: _screen_of(COMPOSER_EMPTY, draft="")
+        check("screen: an empty composer is an empty input", orcamod.screen_blocker("term_x") is None)
+        orcamod._screen = lambda h: _screen_of(["prompt"])
+        check("screen: a screen with no composer box at all fails closed, not blank forever",
+              orcamod.screen_blocker("term_x").kind == orcamod.UNREADABLE)
         orcamod._screen = lambda h: _screen_of(EXIT_DIALOG, source="stream")
         check("screen: a stream is not a screen - fail closed",
               orcamod.screen_blocker("term_x").kind == orcamod.UNREADABLE)
@@ -2726,6 +2760,42 @@ def test_a_reminder_the_founders_own_text_blocks_is_said(home: Path) -> None:
         blockedmod.sweep(con, lambda _m: None, now)
         check("reminder: one already sent is not work", db.block_get(con, "backend") is None)
     finally:
+        con.close()
+
+
+def test_a_stale_draft_never_blocks_delivery_again(home: Path) -> None:
+    """#1106: keeper, purser and chat sat IDLE for 8 hours, each reported as
+    'text is left unsent in its input' while every real input box was empty -
+    Orca's own remembered `draft` outliving a send that did not complete, with
+    nothing to clear it but the exact send it was refusing to make. Driven
+    through the real reader against a screen that never changes and a `draft`
+    that never clears: delivery must go through anyway, on the first tick,
+    because the deadlock is closed at the source, not worked around."""
+    con = _blocked_world(home)
+    orcamod.live_terminals = lambda: {"term_x"}
+    real = (orcamod._screen, orcamod.screen_blocker, orcamod.modal_open, orcamod.unsent_text)
+    try:
+        orcamod.screen_blocker = REAL_ORCA["screen_blocker"]
+        orcamod.modal_open = REAL_ORCA["modal_open"]
+        orcamod.unsent_text = REAL_ORCA["unsent_text"]
+        # A draft that never changes, tick after tick - the incident's own
+        # shape - over a composer that reads as empty on every read.
+        orcamod._screen = lambda h: {"handle": h, "status": "running", "source": "screen",
+                                     "tail": list(COMPOSER_EMPTY), "draft": "check ocp inbox"}
+        now = int(time.time())
+        for step in (0, blockedmod.RECHECK_S + 1, blockedmod.SHOW_AFTER_S + 1):
+            blockedmod._checked.clear()
+            blockedmod.sweep(con, lambda _m: None, now + step)
+        check("stale draft: never opens a block at all - the render says empty, every time",
+              db.block_get(con, "backend") is None)
+
+        sent: list[str] = []
+        orcamod.idle_now = lambda h: True
+        orcamod.send = lambda h, text, enter=True: (sent.append(text), (True, ""))[1]
+        check("stale draft: and delivery actually goes through, draft or no draft",
+              dmn.deliver_queued(con, "backend", lambda _m: None) and sent, str(sent))
+    finally:
+        (orcamod._screen, orcamod.screen_blocker, orcamod.modal_open, orcamod.unsent_text) = real
         con.close()
 
 
@@ -5230,8 +5300,8 @@ def test_nothing_is_typed_at_a_modal(home: Path) -> None:
         try:
             screen["tail"] = ["Teach auto mode about your environment?", "Enter to confirm · Esc to cancel"]
             check("modal: the auto-mode prompt is read as a modal", orcamod.modal_open("h"))
-            screen["tail"] = ["quoted: Esc to cancel", "old output", "more", "❯ ", "────",
-                              "? for shortcuts"]
+            screen["tail"] = (["quoted: Esc to cancel", "old output", "more", "❯ ", "────",
+                              "? for shortcuts"] + COMPOSER_EMPTY)
             check("modal: the words higher up in the transcript are not a modal",
                   not orcamod.modal_open("h"))
             screen["tail"] = ["❯ "]
@@ -5239,25 +5309,25 @@ def test_nothing_is_typed_at_a_modal(home: Path) -> None:
             check("modal: anything but a rendered screen counts as a modal",
                   orcamod.modal_open("h"))
             screen["source"] = "screen"
-            screen["tail"] = ["> "]
+            screen["tail"] = COMPOSER_EMPTY
             check("modal: an empty prompt is not", not orcamod.modal_open("h"))
             screen["tail"] = None
             check("modal: a screen that cannot be read counts as a modal", orcamod.modal_open("h"))
-            # Measured on a live Claude Code terminal: `draft` is present only
-            # while the input box holds text, and `tail` does not show it.
+            # `draft` is not consulted at all any more (2026-09-21: a stale one
+            # rendered identically to an empty box and blocked delivery for 8
+            # hours with nothing to clear it but the send it was refusing).
+            # What the composer box itself shows is what decides.
+            screen["tail"] = _composer_typed("orca half-typed")
+            check("unsent: text the composer box shows is read as unsent", orcamod.unsent_text("h"))
+            screen["tail"] = COMPOSER_EMPTY
+            check("unsent: an empty composer is an empty input", not orcamod.unsent_text("h"))
             screen["tail"] = ["> "]
-            screen["draft"] = "orca half-typed"
-            check("unsent: text left in the input is read as unsent", orcamod.unsent_text("h"))
-            del screen["draft"]
-            check("unsent: no draft key is an empty input", not orcamod.unsent_text("h"))
-            screen["draft"] = ""
-            check("unsent: an empty draft is an empty input", not orcamod.unsent_text("h"))
-            del screen["draft"]
+            check("unsent: no composer box at all counts as unsent - fails closed",
+                  orcamod.unsent_text("h"))
             screen["source"] = "screen-unavailable"
             check("unsent: a screen that is not rendered counts as unsent", orcamod.unsent_text("h"))
             screen["source"] = "screen"
-            screen["draft"] = "typed"
-            screen["tail"] = ["> "]
+            screen["tail"] = _composer_typed("typed")
             orcamod.idle_now = lambda h: True
             check("unsent: an idle agent with text in the input is not typeable",
                   not orcamod.typeable_now("h"))
@@ -5269,11 +5339,10 @@ def test_nothing_is_typed_at_a_modal(home: Path) -> None:
             check("unsent: /exit is refused, not typed into it", not ok_c and not sent_, why_c)
             ok_c, why_c = REAL_ORCA["clear_context"]("h")
             check("unsent: /clear is refused, not typed into it", not ok_c and not sent_, why_c)
-            del screen["draft"]
             screen["tail"] = ["Confirm?", "Enter to confirm · Esc to cancel"]
             ok_c, why_c = REAL_ORCA["clear_context"]("h")
             check("modal: /clear is refused at an open modal", not ok_c and not sent_, why_c)
-            screen["tail"] = ["> "]
+            screen["tail"] = COMPOSER_EMPTY
             ok_c, why_c = REAL_ORCA["clear_context"]("h")
             check("unsent: with the input empty /clear is typed", ok_c and sent_ == ["/clear"], why_c)
         finally:
@@ -16913,6 +16982,7 @@ def main() -> int:
         run(lambda: test_a_dialog_in_the_way_of_work_is_said_once_and_clears_itself(Path(td) / 'blk2'))
         run(lambda: test_what_is_not_a_block(Path(td) / 'blk3'))
         run(lambda: test_a_reminder_the_founders_own_text_blocks_is_said(Path(td) / 'blk9'))
+        run(lambda: test_a_stale_draft_never_blocks_delivery_again(Path(td) / 'blk9b'))
         run(lambda: test_the_human_and_strangers_are_not_blocked_agents(Path(td) / 'blk10'))
         run(lambda: test_the_tick_looks_for_blocks(Path(td) / 'blk8'))
         run(lambda: test_blocked_agents_come_due_in_one_request(Path(td) / 'blk4'))
