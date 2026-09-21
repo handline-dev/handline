@@ -658,9 +658,46 @@ requirement entirely**, since ocp never writes a credential. What it puts in
 reach is `probe.py` (172 lines and a session per quiet account) and most of
 `status.py`'s carried/quiet/unknown model.
 
-**Still to check before building:** whether `claude auth status` refreshes only
-near expiry (Orca's own threshold is 5 minutes, so probably), and what it does
-when a session is live on that account.
+#### Both checks answered, and the read path is built (#1369)
+
+**Does `auth status` refresh only near expiry?** Yes. On `gamma`'s token, then
+valid another 7.9h, it changed `expiresAt` by nothing. So calling it is
+idempotent and free; ocp never has to judge expiry itself.
+
+**What does it do while a session is live?** With the token not near expiry,
+nothing - run against `omega` while this very session was on it, `expiresAt`
+was unchanged and the session was unaffected. The risky pair (live session
+*and* near expiry) is avoided by design rather than tested: an account with a
+session running is asked with `refresh=False`, because Claude Code is renewing
+its token anyway and two writers would race. That is Orca's own
+`deferredByLiveClaudeSession`, for the same reason.
+
+**Built:** `ocp/usage_api.py` (the read path) and `ocp usage [account]`, which
+prints the endpoint beside the snapshot and decides nothing. **Not wired into
+the daemon** - no placement decision reads it yet.
+
+**What it looks like on the live fleet.** Run across all five accounts, the two
+sources agree wherever ocp has a current reading, and the API fills in where it
+does not:
+
+| account | ocp | endpoint | |
+|---|---|---|---|
+| `alpha`, `gamma`, `omega` | current | identical | the figures and the reset instant both |
+| `delta` | 7d 93%, snapshot 2h11m old | 7d **94%** | ours had drifted |
+| `beta` | **no 5h reading at all**, 4h37m old | 5h **0%** | the gap `probe.py` exists for |
+
+**And one moment worth keeping**, caught by accident mid-measurement: at
+21:00:18, eighteen seconds after `alpha`'s 5h window reset, `ocp status` read
+`picked: none - no account may take work (fail-closed)` while `alpha` carried
+`100~` from the window that had just ended. The endpoint said `utilization:
+0.0, resets_at: null, is_active: false`. `alpha`'s 7d was 99%, below the wall,
+so it was assignable and ocp was refusing it. The snapshot caught up only once
+a session on it made its next call. **That lag is the cost this closes**, and
+it recurs at every window rollover.
+
+**Next, and it is the part that changes behaviour:** prefer the endpoint ahead
+of `probe.py` at `daemon._start_probe`'s two call sites, and let the carry /
+quiet / unknown rules retire as the readings stop being opportunistic.
 
 **Standing risk:** it is an undocumented endpoint. `claude auth status --json`
 returns identity only (`loggedIn`, `email`, `orgId`, `subscriptionType` - no
