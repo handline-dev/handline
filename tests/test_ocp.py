@@ -30,7 +30,8 @@ from ocp import (accounts, actions, agents, ask as askmod, blocked as blockedmod
                  digest,
                  doctor, drift, events as evmod, fold as foldmod,
                  handoff as handoffmod, launch, load as loadmod, lock, measure,
-                 observe as obsmod, orca as orcamod, paths, service, spawn as spawnmod,
+                 observe as obsmod, orca as orcamod, paths, replay as replaymod, service,
+                 spawn as spawnmod,
                  status, team, textsafe, triggers, tui, yamlcompat)  # noqa: E402
 
 PASS, FAIL = [], []
@@ -679,6 +680,127 @@ def test_pick_account_stale_and_unknown_pace(home: Path) -> None:
     allowed, why = status.read("stale_full").assignable()
     check("stale/unknown: a stale reading too close to the wall still "
           "refuses", not allowed, why)
+
+
+# ---------------------------------------------------------------- usage_samples
+def test_usage_samples_round_trip_without_coercing_a_gap_to_zero(home: Path) -> None:
+    """#1113: a recorded sample is read back exactly, unknown figures stay
+    unknown - never 0 - and pruning removes only what is older than the
+    window it names."""
+    os.environ["OCP_HOME"] = str(home)
+    con = db.connect()
+    try:
+        known = status.AccountStatus("alpha", exists=True, pct_5h=40, pct_7d=60,
+                                     reset_5h=1000, reset_7d=2000, rl_at=900, rl7_at=900,
+                                     collected_at=900)
+        unknown = status.AccountStatus("beta", exists=True, pct_5h=None, pct_7d=None,
+                                       rl_lost=True, collected_at=900)
+        db.record_usage_sample(con, "alpha", known, ts=1000)
+        db.record_usage_sample(con, "beta", unknown, ts=1000)
+        rows = {r["account"]: r for r in db.usage_samples(con)}
+        check("usage_samples: a known figure reads back exactly",
+              rows["alpha"]["pct_5h"] == 40 and rows["alpha"]["pct_7d"] == 60, dict(rows["alpha"]))
+        check("usage_samples: an unknown figure is NULL, not 0 - a gap is never a zero",
+              rows["beta"]["pct_5h"] is None and rows["beta"]["pct_7d"] is None
+              and bool(rows["beta"]["rl_lost"]), dict(rows["beta"]))
+
+        st_back = replaymod.status_from_row(rows["alpha"])
+        check("usage_samples: the row reconstructs the same AccountStatus "
+              "pick_account would have seen",
+              st_back.pct_5h == 40 and st_back.reset_7d == 2000 and st_back.rl_at == 900,
+              st_back)
+
+        removed = db.prune_usage_samples(con, before_ts=500)
+        check("usage_samples: a cutoff earlier than the samples removes nothing",
+              removed == 0 and len(db.usage_samples(con)) == 2)
+        removed = db.prune_usage_samples(con, before_ts=1500)
+        check("usage_samples: a cutoff past them removes exactly the old rows",
+              removed == 2 and db.usage_samples(con) == [])
+    finally:
+        con.close()
+
+
+def test_the_usage_sample_prune_and_since_read_use_an_index(home: Path) -> None:
+    """Both filter on ts alone, which the (account, ts) index cannot serve
+    because account leads it: without an index on ts each tick full-scans.
+    The statements checked are the ones db actually runs, captured as they
+    execute, and the plan must SEARCH - a full scan of an index still scans."""
+    os.environ["OCP_HOME"] = str(home)
+    con = db.connect()
+    try:
+        ran: list[str] = []
+        con.set_trace_callback(ran.append)
+        db.usage_samples(con, since=1)
+        db.prune_usage_samples(con, before_ts=1)
+        con.set_trace_callback(None)
+        for q in ran:
+            plan = " ".join(r[3] for r in con.execute("EXPLAIN QUERY PLAN " + q))
+            check(f"usage_samples: {q!r} is searched by an index, not scanned",
+                  "SEARCH usage_samples USING" in plan, plan)
+        check("usage_samples: the since read and the prune were both captured",
+              len(ran) == 2, ran)
+    finally:
+        con.close()
+
+
+def test_a_tick_samples_every_account_and_a_down_daemon_leaves_a_gap(home: Path) -> None:
+    """observe_burn logs one row per account per tick, on the same read
+    burnrate already makes - no extra call to any account - and a tick that
+    never ran (the daemon down) leaves no row, which IS the gap: nothing
+    backfills it."""
+    _daemon_home(home, 40)
+    accounts.register("beta")
+    write_status(home, "beta", pct_5h=10, pct_7d=20, reset_5h=int(time.time()) + 1800)
+    con = db.connect()
+    try:
+        before = len(db.usage_samples(con))
+        dmn.observe_burn(con, lambda _m: None)
+        rows = db.usage_samples(con)
+        check("samples: one row per account, one tick",
+              len(rows) - before == 2, len(rows) - before)
+        check("samples: both accounts are in it",
+              {r["account"] for r in rows} == {"alpha", "beta"}, {r["account"] for r in rows})
+        # Nothing runs between here and the next call - no tick, no row: a
+        # daemon that was down leaves an actual gap in `ts`, not a filled one.
+        dmn.observe_burn(con, lambda _m: None)
+        check("samples: a second tick adds exactly one row per account, no more",
+              len(db.usage_samples(con)) - before == 4)
+    finally:
+        con.close()
+
+
+def test_replay_finds_where_the_new_rule_and_the_old_one_disagree(home: Path) -> None:
+    """#1113's own acceptance case: replay the same disagreement
+    test_pick_account_orders_by_weekly_pace already proves live - a
+    near-wall account resetting soon vs a real-headroom one resetting later -
+    from recorded samples instead of from a fixture built for the purpose."""
+    os.environ["OCP_HOME"] = str(home)
+    con = db.connect()
+    try:
+        ts = 500_000_000
+        close_to_wall = status.AccountStatus("close_to_wall", exists=True, pct_5h=5, pct_7d=92,
+                                             reset_5h=ts + 1800, reset_7d=ts + 3600,
+                                             rl_at=ts, rl7_at=ts, collected_at=ts)
+        safe = status.AccountStatus("safe", exists=True, pct_5h=5, pct_7d=50,
+                                    reset_5h=ts + 1800, reset_7d=ts + 90000,
+                                    rl_at=ts, rl7_at=ts, collected_at=ts)
+        db.record_usage_sample(con, "close_to_wall", close_to_wall, ts=ts)
+        db.record_usage_sample(con, "safe", safe, ts=ts)
+        diffs = replaymod.replay(con)
+        check("replay: finds the recorded tick where the rules disagree",
+              len(diffs) == 1 and diffs[0]["ts"] == ts, diffs)
+        check("replay: the old rule would have picked the near-wall, "
+              "sooner-reset account", diffs[0]["old"] == "close_to_wall", diffs[0])
+        check("replay: the new rule picks the one with real headroom instead",
+              diffs[0]["new"] == "safe", diffs[0])
+
+        # A single-account tick decides nothing for either rule - not counted
+        # as a divergence just because old_pick(...) != None.
+        db.record_usage_sample(con, "alone", close_to_wall, ts=ts + 100)
+        check("replay: a tick with only one candidate is not a divergence",
+              len(replaymod.replay(con)) == 1, replaymod.replay(con))
+    finally:
+        con.close()
 
 
 # ---------------------------------------------------------------- collector
@@ -14509,6 +14631,137 @@ def test_no_command_prints_what_a_terminal_would_obey(home: Path) -> None:
           json.loads(said) == odd and not re.search(r"[\x7f-\x9f]", said), said)
 
 
+# ------------------------------------------------------------- the boundary
+def _touches_subprocess_text(tree) -> bool:
+    """Calls `subprocess.run`/`Popen` and reads `.stdout` or `.stderr` off the
+    result - somewhere in the module, not necessarily the same function: the
+    two together are what makes foreign bytes reachable at all."""
+    import ast
+    calls = any(isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute)
+               and n.func.attr in ("run", "Popen")
+               and isinstance(n.func.value, ast.Name) and n.func.value.id == "subprocess"
+               for n in ast.walk(tree))
+    reads = any(isinstance(n, ast.Attribute) and n.attr in ("stdout", "stderr")
+               for n in ast.walk(tree))
+    return calls and reads
+
+
+def _builds_a_returned_message(tree) -> bool:
+    """A `return` (a bare value, or one element of a tuple/list, the shape
+    every `_run`-like helper here uses) built as an f-string, a `.format()`
+    call, or an `a or b or "default"` chain - the shape a captured-text
+    fallback takes when there is no f-string to see it in at all."""
+    import ast
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Return) and node.value is not None:
+            v = node.value
+            for val in (v.elts if isinstance(v, (ast.Tuple, ast.List)) else [v]):
+                if isinstance(val, ast.JoinedStr):
+                    return True
+                if (isinstance(val, ast.Call) and isinstance(val.func, ast.Attribute)
+                      and val.func.attr == "format"):
+                    return True
+                if isinstance(val, ast.BoolOp) and isinstance(val.op, ast.Or):
+                    return True
+    return False
+
+
+def _imports_textsafe(tree) -> bool:
+    import ast
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ImportFrom) and node.module == "textsafe":
+            return True
+        if isinstance(node, ast.ImportFrom) and node.module is None:
+            if any(a.name == "textsafe" for a in node.names):
+                return True
+        if isinstance(node, ast.Import) and any(a.name.endswith("textsafe") for a in node.names):
+            return True
+    return False
+
+
+def test_a_module_that_returns_subprocess_text_as_a_message_imports_textsafe(home: Path) -> None:
+    """orcapipe #1091: sanitising at each sink is a game the project loses -
+    157 unsanitised `print(` calls in ocp/, and hand-triaging them one review
+    at a time IS that game. The boundary foreign bytes actually enter through
+    is small: orca._run, spawn._run, drift._git, a file read, the database.
+    This is the subprocess third of it, found by the suite from here on
+    instead of by a reviewer reading the diff: a module that reads what a
+    subprocess said (`.stdout`/`.stderr`) and hands it back as part of a
+    returned message must import textsafe.
+
+    auditor's first attempt at this (flag any module with its own escape
+    regex) false-positived on tui.py, which parses incoming keystrokes and
+    measures its own codes - a check that cries wolf gets ignored. This one is
+    keyed on the sink, not the pattern that happens to sit near one."""
+    import ast
+
+    # Modules the check would otherwise name, and why each one is not the
+    # sink the property is about - the list a later hand has to justify, the
+    # same shape as the CLI's driven-or-skipped table.
+    exempt = {
+        "accounts.py": "parses one known JSON field (subscriptionType, email) "
+                       "out of `claude auth status`; never returns the raw text",
+        "service.py": "launchctl's own error text - a macOS tool's output, not "
+                      "anything an agent chose, and the least reachable of these",
+    }
+    named, clean = [], []
+    for f in sorted((ROOT / "ocp").glob("*.py")):
+        if f.name == "textsafe.py":
+            continue
+        tree = ast.parse(f.read_text())
+        if not (_touches_subprocess_text(tree) and _builds_a_returned_message(tree)):
+            continue
+        (clean if _imports_textsafe(tree) else named).append(f.name)
+    check("boundary: every module returning subprocess text as a message imports "
+          "textsafe, or is exempt with a reason",
+          not (set(named) - set(exempt)), str(sorted(set(named) - set(exempt))))
+    check("boundary: an exempt module is not also one that already imports it - "
+          "the reason would be a lie", not (set(exempt) & set(clean)), str(exempt.keys() & set(clean)))
+    # Real files today, both directions: cli/hr/tui/textsafe pass on the merits
+    # (hr never touches a subprocess at all; the other three do and are clean),
+    # and orca.py/spawn.py/drift.py/fold.py/handoff.py are exactly the ones
+    # this branch touched.
+    check("boundary: the modules this branch closed are the ones found dirty",
+          {"orca.py", "spawn.py", "drift.py", "fold.py", "handoff.py"} <= set(clean),
+          str(clean))
+
+    # Proof by mutation: the same two functions, run on synthetic source, so
+    # the check is shown to fire on the shape and not on a filename it knows.
+    dirty_src = (
+        "import subprocess\n"
+        "def _run(args):\n"
+        "    r = subprocess.run(args, capture_output=True)\n"
+        "    if r.returncode:\n"
+        "        return False, f'failed: {r.stderr}'\n"
+        "    return True, r.stdout\n")
+    clean_src = "from . import textsafe\n" + dirty_src
+    fallback_src = (
+        "import subprocess\n"
+        "def _run(args):\n"
+        "    r = subprocess.run(args, capture_output=True)\n"
+        "    if r.returncode:\n"
+        "        return False, (r.stderr or r.stdout or 'failed')\n"
+        "    return True, r.stdout\n")
+    check("boundary: the check fires on the exact shape orca._run/spawn._run had",
+          _touches_subprocess_text(ast.parse(dirty_src))
+          and _builds_a_returned_message(ast.parse(dirty_src))
+          and not _imports_textsafe(ast.parse(dirty_src)))
+    check("boundary: and is silent once the same module imports textsafe",
+          _imports_textsafe(ast.parse(clean_src)))
+    check("boundary: the fold.py shape (`a or b or default`, no f-string) is caught too",
+          _builds_a_returned_message(ast.parse(fallback_src)))
+    check("boundary: a module with no subprocess call at all is not named, whatever it returns",
+          not _touches_subprocess_text(ast.parse('def f():\n    return f"{x}"\n')))
+    check("boundary: reading .stdout with nothing returned as a message is not named either "
+          "(tui.py's own shape: it reads a subprocess result to steer a suspend, not to quote it)",
+          not _builds_a_returned_message(ast.parse(
+              "import subprocess\n"
+              "def f():\n"
+              "    r = subprocess.run(['x'], capture_output=True)\n"
+              "    ok = r.returncode == 0 and bool(r.stdout)\n"
+              "    return ok\n")))
+
+
 def test_every_prompt_leaves_the_screen_above_it_drawn_through_tui_run(home: Path) -> None:
     """Auditor #899: the composer's `under` was proven with the test's own
     callback, and there are five real call sites. Each is opened by its own
@@ -16958,6 +17211,14 @@ def main() -> int:
         run(lambda: test_pick_account_degrades_when_every_account_would_hit_the_wall(
             Path(td) / 'allwall'))
         run(lambda: test_pick_account_stale_and_unknown_pace(Path(td) / 'staleknown'))
+        run(lambda: test_usage_samples_round_trip_without_coercing_a_gap_to_zero(
+            Path(td) / 'usagesamples'))
+        run(lambda: test_the_usage_sample_prune_and_since_read_use_an_index(
+            Path(td) / 'sampleindex'))
+        run(lambda: test_a_tick_samples_every_account_and_a_down_daemon_leaves_a_gap(
+            Path(td) / 'tickgap'))
+        run(lambda: test_replay_finds_where_the_new_rule_and_the_old_one_disagree(
+            Path(td) / 'replaydiff'))
         run(lambda: test_collector(home))
         run(lambda: test_yaml())
         run(lambda: test_agents(home))
@@ -17223,6 +17484,8 @@ def main() -> int:
         run(lambda: test_nothing_a_terminal_would_obey_gets_through_what_someone_else_wrote(Path(td) / 'esc'))
         run(lambda: test_an_agent_name_is_text_and_no_screen_can_be_made_to_obey_it(Path(td) / 'names'))
         run(lambda: test_no_command_prints_what_a_terminal_would_obey(Path(td) / 'cli'))
+        run(lambda: test_a_module_that_returns_subprocess_text_as_a_message_imports_textsafe(
+            Path(td) / 'boundary'))
         run(lambda: test_every_prompt_leaves_the_screen_above_it_drawn_through_tui_run(Path(td) / 'prompts'))
         run(lambda: test_the_agent_pages_tabs_show_everything_and_read_as_blocks(Path(td) / 'tabs'))
         run(lambda: test_a_message_being_typed_wraps_and_keeps_the_cursor_on_its_last_character(Path(td) / 'typing'))

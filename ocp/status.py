@@ -885,7 +885,8 @@ def pick_account(candidates: list[str] | None = None, bootstrap: bool = False,
                  exclude: dict[str, str] | None = None,
                  load: dict | None = None,
                  agent: str | None = None,
-                 prefer: str | None = None) -> tuple[str | None, list[tuple[str, str]]]:
+                 prefer: str | None = None,
+                 read_status=None) -> tuple[str | None, list[tuple[str, str]]]:
     """Pick among the accounts that can take one more agent - any account that
     will not hit its own wall, the same test `unfit` already answers - the one
     furthest behind its own weekly pace (`pace_7d`) goes first, since headroom
@@ -932,7 +933,13 @@ def pick_account(candidates: list[str] | None = None, bootstrap: bool = False,
     qualifies. Every other refusal (stale, at the wall, unreadable) still
     refuses; a stale account that has run once and gone quiet is not
     "unread", and needs its own explicit preference to be picked again.
+
+    `read_status` replaces `read` as the source of each candidate's
+    AccountStatus - what `replay.py` passes, to ask this same function about
+    an account as a recorded sample had it, not as its live status.json
+    reads today.
     """
+    read_one = read_status or read
     names = candidates if candidates is not None else paths.list_accounts()
     if load is None:
         from . import load as loadmod
@@ -947,7 +954,7 @@ def pick_account(candidates: list[str] | None = None, bootstrap: bool = False,
         if exclude and n in exclude:
             reasons.append((n, exclude[n]))
             continue
-        st = read(n)
+        st = read_one(n)
         ld = load.get(n)
         active = ld.active if ld else 0
         allowed, why = st.takes_work(active)
@@ -995,8 +1002,13 @@ def pick_account(candidates: list[str] | None = None, bootstrap: bool = False,
         # candidate - most tests, and any account nobody has tracked a week on
         # yet - so headroom is still the tiebreak under it, not dropped: the
         # old "maximizes headroom" rule survives exactly where pace has nothing
-        # to say. `prefer` breaks a bucket tie before headroom does, though -
-        # the head start above can land exactly on a challenger's bucket, and
+        # to say. The same fallback also settles two known, finite paces that
+        # land in the same bucket without being equal - a real if narrow case
+        # (auditor's sweep found it in 15 of 2774 two-account picks) - and
+        # that is deliberate too: PACE_HYSTERESIS says a gap this small is
+        # noise, so headroom, not an arbitrary order, breaks what pace no
+        # longer distinguishes. `prefer` breaks a bucket tie before headroom
+        # does, though - the head start above can land exactly on a challenger's bucket, and
         # that tie must still go to the incumbent, not to whichever of them
         # happens to have a hair more headroom this tick.
         return (bucket, 0 if n == prefer else 1,

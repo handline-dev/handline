@@ -14,7 +14,7 @@ import time
 from pathlib import Path
 
 from . import (accounts, agents, daemon, db, hooks, launch, load as loadmod, observe as obs,
-               orca, paths, service, status)
+               orca, paths, service, status, textsafe)
 
 OK, WARN, FAIL = "ok", "warn", "fail"
 
@@ -328,7 +328,7 @@ def _check_claude_version(r: Report) -> None:
         return
     m = re.search(r"(\d+)\.(\d+)\.(\d+)", out)
     if not m:
-        r.add(WARN, "could not parse the Claude Code version", out[:80])
+        r.add(WARN, "could not parse the Claude Code version", textsafe.oneline(out[:80]))
         return
     version = tuple(int(x) for x in m.groups())
     shown = ".".join(str(v) for v in version)
