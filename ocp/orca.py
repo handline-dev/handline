@@ -333,16 +333,21 @@ ESCAPE = "\x1b"
 _ESC_MARK = re.compile(r"\(esc\)\s*$", re.IGNORECASE)
 
 
+def _norm_label(label: str) -> str:
+    return re.sub(r"\s*\(esc\)$", "", label.strip().lower()).rstrip(".!")
+
+
 def _inert(label: str) -> bool:
-    return re.sub(r"\s*\(esc\)$", "", label.strip().lower()).rstrip(".!") in INERT_LABELS
+    return _norm_label(label) in INERT_LABELS
 
 
 # _ESC_MARK (case-insensitive, a trailing space allowed) and the strip inside
-# _inert (case-sensitive after its own .lower(), no trailing space allowed)
+# _norm_label (case-sensitive after its own .lower(), no trailing space allowed)
 # are deliberately different patterns, not a drifted duplicate: _ESC_MARK only
-# ever has to notice the mark is there at all, on raw screen text; _inert only
-# ever sees a mark it has already found, on text it has already lowercased and
-# stripped itself. They agree because each does the normalising its own job
+# ever has to notice the mark is there at all, on raw screen text; _norm_label
+# runs on text it has already lowercased and stripped itself. _inert reaches it
+# only after _ESC_MARK has looked; exit_key uses it with no such check because
+# it never presses Esc. They agree because each does the normalising its own job
 # needs, not because they are meant to be the same regex.
 
 
@@ -622,6 +627,60 @@ def decline_dialog(handle: str) -> tuple[str, str, str]:
             # is what a loop is measured by.
             return CLEARED, dialog.title, ""
     return STILL_OPEN, dialog.title, "the dialog is still on screen after Esc"
+
+
+# The option that ends the session AND stops its background work, found by its
+# whole label. "Move to background and exit" also exits but leaves the work
+# running, so it is not this one, and no position stands in for the label.
+EXIT_AND_STOP_LABEL = "exit and stop tasks"
+
+
+def exit_key(dialog: Dialog) -> tuple[str | None, str]:
+    """(key, why not) - the number the dialog itself draws beside its one
+    'Exit and stop tasks' option, for a caller that is ending the session.
+
+    Only where the footer says Enter confirms a choice, and only for one
+    option whose whole label is that; a missing, repeated or reworded option
+    gives no key, and nothing else in the panel is pressed instead."""
+    if "Enter to confirm" not in dialog.footer:
+        return None, "its footer does not say Enter confirms"
+    found = [n for n, label in dialog.options if _norm_label(label) == EXIT_AND_STOP_LABEL]
+    if not found:
+        return None, "it offers no 'Exit and stop tasks' option"
+    if len(found) > 1:
+        return None, "more than one option reads 'Exit and stop tasks'"
+    return str(found[0]), ""
+
+
+CHOSEN, NO_OPTION = "chosen", "no-option"
+
+
+def choose_exit(handle: str) -> tuple[str, str, str]:
+    """Choose 'Exit and stop tasks' on the dialog on this terminal's screen, for
+    a caller that has decided to end the session. (outcome, dialog title, why).
+
+    The screen is read here, immediately before the key. Nothing is pressed on
+    a screen that cannot be read, is not a dialog or does not parse (NOT_PRESSED:
+    read again), or is a dialog that offers no such option (NO_OPTION). CHOSEN means the key was sent, not that the session ended: that
+    is the process table's to say, so unlike `decline_dialog` there is no re-read
+    after the key and a dialog that stays is not pressed twice within one close."""
+    term = _screen(handle)
+    tail = term.get("tail") if term else None
+    if not isinstance(tail, list) or term.get("source") != "screen":
+        return NOT_PRESSED, "", "its screen could not be read"
+    footer = _footer_row(tail)
+    if footer is None:
+        return NOT_PRESSED, "", "no dialog is open"
+    dialog = parse_dialog(tail, footer)
+    if dialog is None:
+        return NOT_PRESSED, "", "its title or options could not be parsed"
+    key, why = exit_key(dialog)
+    if key is None:
+        return NO_OPTION, dialog.title, why
+    ok, out = send(handle, key, enter=False)
+    if not ok:
+        return NOT_PRESSED, dialog.title, f"the key could not be sent: {out[:120]}"
+    return CHOSEN, dialog.title, ""
 
 
 def usage_limit_open(handle: str) -> bool:

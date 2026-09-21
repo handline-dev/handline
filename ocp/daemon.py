@@ -307,6 +307,8 @@ def session_present(agent: str) -> bool:
 # next sweep, 31s later, in the one case measured), and the sweep reads a closed
 # row over a live process as "running again" and clears the mark.
 END_WAIT_S = 60
+# How long after typing `/exit` to look for the dialog it may raise.
+EXIT_DIALOG_WAIT_S = 6
 END_POLL_S = 1
 
 
@@ -786,6 +788,24 @@ def _close_agent(con, agent: str, log, st) -> tuple[bool, str]:
     return ok, why
 
 
+def _answer_exit_dialog(con, agent: str, log) -> None:
+    """The `/exit` just typed can raise a dialog (background work is running)
+    that offers to exit: choose it, once. Stops when the session is gone, when
+    the choice is made, or when a dialog with no such option is up - that one is
+    left to the failed-close path - and gives up after EXIT_DIALOG_WAIT_S."""
+    # END_WAIT_S bounds it too, which is what lets the suite run it in tenths of a second.
+    deadline = time.time() + min(EXIT_DIALOG_WAIT_S, END_WAIT_S)
+    while time.time() < deadline:
+        sessions = obs.live_sessions()
+        if sessions is not None and not sessions.get(agent):
+            return
+        # One read decides: a footer with nothing readable above it is a torn
+        # read and is read again, not given up on.
+        if blocked.choose_exit(con, agent, log) in (orca.CHOSEN, orca.NO_OPTION):
+            return
+        time.sleep(END_POLL_S)
+
+
 def _end_session(con, agent: str, log, st, resume: str | None) -> tuple[bool, str]:
     """Type `/exit` at this agent, and record what may bring it back.
 
@@ -809,8 +829,12 @@ def _end_session(con, agent: str, log, st, resume: str | None) -> tuple[bool, st
     # A dialog on screen is what `/exit` would answer instead of ending anything.
     # Past it first, so the close is one act and not a refusal the next tick
     # meets again; when it cannot be, the refusal says why.
-    stuck = _past_dialog(con, agent, log)
-    ok, why = orca.close_session(handle)
+    # A dialog that offers to end the session is answered by ending it: declining
+    # it would keep the session ocp has decided to end. The exit is then already
+    # under way, and typing `/exit` at it would reach the shell.
+    chosen = blocked.choose_exit(con, agent, log) == orca.CHOSEN
+    stuck = "" if chosen else _past_dialog(con, agent, log)
+    ok, why = (True, "exit chosen at its dialog") if chosen else orca.close_session(handle)
     if not ok and stuck:
         why = f"{why} ({stuck})"
     if not ok:
@@ -827,9 +851,12 @@ def _end_session(con, agent: str, log, st, resume: str | None) -> tuple[bool, st
     # not end is reported, neither retried (a second `/exit` goes to whatever
     # ate the first) nor killed (that skips its own shutdown); the sweep
     # records the close if it does end later.
+    if not chosen:
+        _answer_exit_dialog(con, agent, log)
     if not _wait_session_gone(agent):
         pid = (obs.live_sessions() or {}).get(agent)
-        why = (f"/exit was typed but the session is still running"
+        did = "'Exit and stop tasks' was chosen" if chosen else "/exit was typed"
+        why = (f"{did} but the session is still running"
                f"{f' (pid {pid})' if pid else ''} after {END_WAIT_S}s; not marked closed")
         db.add_event(con, agent, "close_failed", {"why": why, "pid": pid})
         blocked.note_close_failure(con, agent, log)
