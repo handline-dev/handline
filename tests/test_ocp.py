@@ -985,8 +985,7 @@ def test_replay_finds_where_the_new_rule_and_the_old_one_disagree(home: Path) ->
 def test_replay_reconstructs_burn_and_lets_the_week_gate_fire(home: Path) -> None:
     """#1400: `load={}` cannot ask `_no_week_room` anything (it needs
     `ld.costs`), so a replay under it agrees with the old deadline rule on
-    every tick the week gate would have closed - 130 of 734 real ticks,
-    measured on production history. `tight` (88% of its week, an hour left) is
+    every tick the week gate would have closed. `tight` (88% of its week, an hour left) is
     first on pace; one more agent alone lasts it 1920s, over the 1800s a start
     is worth, so only the burn (0.5%/min of the 5h window, 1152s with it) closes
     it, and only with the plan's ratio. Dropping either the burn or the ratio
@@ -1011,16 +1010,13 @@ def test_replay_reconstructs_burn_and_lets_the_week_gate_fire(home: Path) -> Non
         check("replay: burn is the finite difference to the account's own prior sample",
               abs(burns[("tight", ts1)] - 5 / 600) < 1e-9
               and abs(burns[("roomy", ts1)] - 5 / 600) < 1e-9, burns)
-        check("replay: a first sample has no prior to difference against",
-              ("tight", ts0) not in burns and ("roomy", ts0) not in burns, burns)
+        check("replay: a first sample has no span to measure, so burn 0.0 as live",
+              burns[("tight", ts0)] == 0.0 and burns[("roomy", ts0)] == 0.0, burns)
 
         blind: list = []
         diffs = {d["ts"]: d for d in replaymod.replay(con, unasked=blind)}
-        check("replay: a tick with no burn is reported as one the week gate could not ask, "
-              "not silently as agreement",
-              blind == [(ts0, ["roomy", "tight"])], blind)
-        check("replay: the tick where burn was reconstructed lists nobody as unasked",
-              diffs.get(ts1, {}).get("unasked") == [], diffs.get(ts1))
+        check("replay: a tick where the ratio exists lists nobody as unasked",
+              blind == [] and diffs.get(ts1, {}).get("unasked") == [], (blind, diffs.get(ts1)))
         check("replay: the week gate that load={} cannot ask fires here and moves the pick",
               ts1 in diffs, diffs)
         check("replay: the old rule's earliest-deadline still picks the account "
@@ -1043,6 +1039,62 @@ def test_replay_reconstructs_burn_and_lets_the_week_gate_fire(home: Path) -> Non
             time.time = real_time
         check("replay: load={} cannot see the week gate - the control this guards against",
               bare_pick == "tight", bare_pick)
+
+        db.set_meta(con, "weekratio", json.dumps({"at": ts1, "r": {}}))
+        none: list = []
+        replaymod.replay(con, unasked=none)
+        check("replay: with no week ratio the gate could not ask, and says so",
+              none == [(ts0, ["roomy", "tight"]), (ts1, ["roomy", "tight"])], none)
+
+        # A plan pooled ratio is chosen by the plan an account had at the tick,
+        # which no row kept; today's subscription.json on disk must not stand in.
+        sub = paths.account_dir("tight") / "subscription.json"
+        sub.parent.mkdir(parents=True, exist_ok=True)
+        sub.write_text(json.dumps({"subscriptionType": "max"}))
+        db.set_meta(con, "weekratio", json.dumps({"at": ts1, "r": {"*max": 0.5}}))
+        none = []
+        replaymod.replay(con, unasked=none)
+        check("replay: today's plan on disk does not pick the week ratio of a past tick",
+              none == [(ts0, ["roomy", "tight"]), (ts1, ["roomy", "tight"])], none)
+    finally:
+        con.close()
+
+
+def test_replay_burn_is_the_daemons_burn(home: Path) -> None:
+    """The replayed burn is `triggers.burn_rate_per_s` over the same rolling
+    window of live samples the daemon keeps, so a one-step rise across one
+    poll is 0.0 (span under the floor), and a row the status calls unreadable,
+    carried or lost never enters the window."""
+    os.environ["OCP_HOME"] = str(home)
+    con = db.connect()
+    try:
+        def put(acct, ts, pct, **kw):
+            st = status.AccountStatus(acct, exists=kw.pop("exists", True), pct_5h=pct,
+                                      reset_5h=ts + 3600, rl_at=kw.pop("rl_at", ts),
+                                      collected_at=ts, **kw)
+            db.record_usage_sample(con, acct, st, ts=ts)
+
+        put("a", 1000, 50)
+        put("a", 1030, 51)
+        put("b", 1000, 50)
+        put("b", 1600, 56)
+        put("c", 1000, 50)
+        put("c", 1600, 56, error="boom")
+        put("d", 1000, 50)
+        put("d", 1600, 56, rl_carried=True)
+        put("e", 1000, 50)
+        put("e", 1600, 56, rl_lost=True)
+        put("f", 1000, 50)
+        put("f", 1600, 40)
+        burns = replaymod.reconstruct_burn(db.usage_samples(con))
+        check("replay burn: one quantized step across one poll is 0.0, as live",
+              burns[("a", 1030)] == 0.0, burns[("a", 1030)])
+        check("replay burn: a measurable rise is the daemon's rate",
+              abs(burns[("b", 1600)] - 6 / 600) < 1e-9, burns[("b", 1600)])
+        for acct, why in (("c", "an errored row"), ("d", "a carried row"),
+                          ("e", "a lost row"), ("f", "a rewound reading")):
+            check(f"replay burn: {why} is not a burn", burns[(acct, 1600)] == 0.0,
+                  burns[(acct, 1600)])
     finally:
         con.close()
 
@@ -18279,6 +18331,7 @@ def main() -> int:
             Path(td) / 'replaydiff'))
         run(lambda: test_replay_reconstructs_burn_and_lets_the_week_gate_fire(
             Path(td) / 'replayweek'))
+        run(lambda: test_replay_burn_is_the_daemons_burn(Path(td) / 'replayburn'))
         run(lambda: test_collector(home))
         run(lambda: test_yaml())
         run(lambda: test_agents(home))
