@@ -695,9 +695,45 @@ so it was assignable and ocp was refusing it. The snapshot caught up only once
 a session on it made its next call. **That lag is the cost this closes**, and
 it recurs at every window rollover.
 
-**Next, and it is the part that changes behaviour:** prefer the endpoint ahead
-of `probe.py` at `daemon._start_probe`'s two call sites, and let the carry /
-quiet / unknown rules retire as the readings stop being opportunistic.
+#### Wired in (#1381)
+
+`probe.run` now tries the endpoint first and spends the account only when it
+cannot answer. `usage_api.record` leaves the snapshot the next tick reads, so
+nothing downstream learns about any of this.
+
+**The seam moved during the work, and the first placement was wrong.** I put
+the preference at `daemon._start_probe` - the daemon's call site - where it
+would have blocked a tick for up to 55s on a hung auth check. The existing
+comment there says why that is wrong: the probe is started **detached** because
+a tick may not stop for a session's startup, and a network call is no
+different. It belongs in `probe.run`, where the cost is. A test now pins that
+the daemon still spawns and returns.
+
+**What `record` must not do**, each learned from the model it writes into:
+
+| rule | why |
+|---|---|
+| merge, never overwrite | `session_id`, `transcript_path` and the context figures are the collector's; a wholesale write takes the handoff's transcript pointer with it |
+| never lower a figure inside its own window | the collector's rule - usage only rises while a window is open |
+| **drop the high-water across a rollover** | the case that matters: that stale high-water is what made `alpha` unassignable eighteen seconds after its window reset |
+| move `collected_at` | this replaces a probe, and a probe moves it by running a real session. Without it `AccountStatus.stale` fails the account closed before it reads any figure |
+
+**Measured end to end on `gamma`, on the real path:** **1.07s**, against a
+session boot and a Haiku turn. `rl_source: api`, the earlier probe's
+`session_id` and `model_id` still in the file, verdict unchanged and correct.
+
+**Applied to copies of all five live snapshots, `takes_work` changes on none of
+them today.** What changes is the grounds - `beta`'s "nothing has run on it for
+4h (fail-closed)" and `delta`'s "too close to 100% on a stale reading" both
+become measured figures. (An earlier version of this check compared
+`assignable()` alone, which omits the weekly gate, and appeared to flip
+`gamma`. Against `takes_work()` it does not.)
+
+**Still open, and deliberately not taken here:** retiring the carry / quiet /
+unknown rules. They are what a *failed* reading falls back on, and the
+endpoint can still fail - the fallback has to stay until there is evidence
+about how often it is reached. The reduction `probe.py` represents is real but
+it is not collected yet: the probe remains, as the fallback.
 
 **Standing risk:** it is an undocumented endpoint. `claude auth status --json`
 returns identity only (`loggedIn`, `email`, `orgId`, `subscriptionType` - no
