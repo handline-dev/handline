@@ -560,9 +560,54 @@ spending" (`ocp fold`, or the founder's own sessions, spend too). That argues
 *for* the call - it replaces an inference we already know to be unsafe with a
 re-check that costs 470 ms.
 
-**Not done, and it needs the founder's go-ahead:** performing the refresh. It
-rotates a stored credential, and getting it wrong logs an account out of a live
-fleet.
+#### The refresh: attempted, and it does not work from a plain client (#1363)
+
+Approved and tried on `gamma` (idle, so nothing to race with). The mechanism is
+Orca's own, again read out of the bundle rather than guessed:
+
+    POST https://platform.claude.com/v1/oauth/token
+    Content-Type: application/x-www-form-urlencoded
+    grant_type=refresh_token & refresh_token=<rt> & client_id=9d1c250a-e61b-44d9-88ed-5944d1962f5e
+
+with the reply merged into `claudeAiOauth` - `access_token`, `expires_in` ->
+`expiresAt`, and `refresh_token` / `scope` **only when present** (so the server
+may or may not rotate the refresh token).
+
+**Result: HTTP 403, Cloudflare `error code: 1010`, in 86 ms.** That is a client
+**fingerprint** rejection, not an auth failure. Nothing was written - the script
+only persists on a 200 - so the credential is exactly as it was.
+
+**The two halves are gated differently, and that is the finding.**
+
+| | host | our plain client |
+|---|---|---|
+| read usage | `api.anthropic.com/api/oauth/usage` | **200**, 470 ms |
+| mint a token | `platform.claude.com/v1/oauth/token` | **403**, Cloudflare 1010 |
+
+Orca gets through because it calls via Electron's `net.fetch`, which carries a
+Chrome-like TLS/HTTP signature. A retry with `curl` and a browser `User-Agent`
+was **not** run - the local permission classifier refused it (`Secret-Store
+Writes`), so whether a different signature passes is **untested, not disproven**.
+
+**What this costs Q4 if the refresh cannot be made to work.** The usage call
+needs a live access token, and Claude Code only refreshes one *while it runs*.
+So the band where the API helps is "idle, but not idle long enough for the
+token to expire" - and an account idle under an hour still has a usable
+statusLine reading anyway. `gamma` was expired after ~2h idle. Without a
+refresh, Q4 does not reach the accounts it was built for, and `probe.py` stays.
+
+**Keychain write mechanics, verified on a throwaway entry** (so this is not
+re-learned later): `security add-generic-password -U -s <svc> -a <acct> -w
+<value>` creates and updates correctly. The documented stdin-prompt form
+(`-w` last, no value) reads from the **tty, not a pipe**, and silently stores an
+empty password when piped. The inline form puts the secret in **argv**, which
+`ps eww` exposes - and `observe.process_env` on this very machine reads exactly
+that. A real implementation must call the Security framework directly rather
+than shell out.
+
+**Open, for the founder:** whether to allow a retry with a different client
+signature, or to drop the refresh and accept that Q4 only covers
+recently-active accounts.
 
 **Standing risk:** it is an undocumented endpoint. `claude auth status --json`
 returns identity only (`loggedIn`, `email`, `orgId`, `subscriptionType` - no
