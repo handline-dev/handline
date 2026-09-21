@@ -317,6 +317,31 @@ own rate limits, the last already in D2's `window_minutes` shape.
 opposite of what this decision said. Context and session identity both have a
 pull source on both vendors.
 
+**And that last claim expired within the day (#1397).** Q4 gave rate limits a
+pull source too, so *nothing* the statusLine carries is now without an
+alternative. It stays anyway, and the reason is the direction of the cost, not
+the absence of a substitute: the statusLine is **pushed** - free, on every
+turn, for any session that is running - where every alternative is **pulled**,
+a call or a file scan per check. For an account with work on it the statusLine
+is strictly better, and replacing it would be more machinery and more calls for
+a worse answer.
+
+What actually changed is its standing: from *load-bearing, no alternative* to
+*the cheapest path where it works*. The two now cover disjoint cases, measured
+on the live fleet:
+
+| account | last write | age | why |
+|---|---|---|---|
+| `alpha`, `omega` | statusLine | **0m** | a session is running; the collector writes every turn |
+| `beta`, `delta` | statusLine | 308m / 162m | quiet - the collector **cannot** speak, and this is the gap |
+| `gamma` | **api** | 10m | asked, because it was quiet |
+
+**The marker is self-healing**, checked by driving the real collector script
+rather than reasoning about it: the collector rebuilds `status.json` from its
+own fixed field list, so a collector write **drops `rl_source`**. It therefore
+means "the last write was the API", and a live session reclaims the account on
+its next turn with no cleanup anywhere.
+
 **And the context trigger is weaker than stated.** Measured over the fleet's
 whole history: **271 parks - 244 `usage`, 22 `usage_7d`, 5 `context` (1.8%)**.
 `ctx_pct` is currently `None` on **5 of 19** agents, so it already fails
