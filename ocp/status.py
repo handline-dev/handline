@@ -1002,8 +1002,13 @@ def pick_account(candidates: list[str] | None = None, bootstrap: bool = False,
         # candidate - most tests, and any account nobody has tracked a week on
         # yet - so headroom is still the tiebreak under it, not dropped: the
         # old "maximizes headroom" rule survives exactly where pace has nothing
-        # to say. `prefer` breaks a bucket tie before headroom does, though -
-        # the head start above can land exactly on a challenger's bucket, and
+        # to say. The same fallback also settles two known, finite paces that
+        # land in the same bucket without being equal - a real if narrow case
+        # (auditor's sweep found it in 15 of 2774 two-account picks) - and
+        # that is deliberate too: PACE_HYSTERESIS says a gap this small is
+        # noise, so headroom, not an arbitrary order, breaks what pace no
+        # longer distinguishes. `prefer` breaks a bucket tie before headroom
+        # does, though - the head start above can land exactly on a challenger's bucket, and
         # that tie must still go to the incumbent, not to whichever of them
         # happens to have a hair more headroom this tick.
         return (bucket, 0 if n == prefer else 1,
