@@ -190,7 +190,18 @@ def answer(con, rid: int, verdict: str) -> str:
     return msg
 
 
-def dismiss(con, rid: int, me: str | None = None, reason: str | None = None) -> str:
+def record_human_resolve(con, rid: int, tasks: list[int] | None, no_task: str | None,
+                         me: str | None) -> None:
+    """What a guarded close leaves behind: the links (--task), or the
+    reason nothing was built (--no-task)."""
+    for tid in tasks or []:
+        db.link_request(con, tid, rid)
+    if no_task:
+        db.add_event(con, me or "", "no_task", {"request_id": rid, "reason": no_task})
+
+
+def dismiss(con, rid: int, me: str | None = None, reason: str | None = None,
+            tasks: list[int] | None = None, no_task: str | None = None) -> str:
     """Take one row off the mailbox without replying to it. A `reason` is
     stored, as typed, after "read - no reply" in the verdict of a still-queued
     row; a row that already carries a real verdict keeps it.
@@ -207,6 +218,11 @@ def dismiss(con, rid: int, me: str | None = None, reason: str | None = None) -> 
     row = db.get_request(con, rid)
     if row is None:
         return f"#{rid} is gone"
+    guarded = row["state"] == "queued" and row["requester"] == HUMAN
+    if guarded:
+        refusal = check_human_resolve(con, row, tasks, no_task, me)
+        if refusal:
+            return refusal
     if row["state"] != "queued":
         if me is not None and me == row["target"]:
             return f"#{rid} was already answered - nothing more for you to do"
@@ -220,10 +236,14 @@ def dismiss(con, rid: int, me: str | None = None, reason: str | None = None) -> 
         # when a dismissal arrived as "#60 from human: read". resolve() itself
         # stamps announced_at, in the same write as the state change.
         ok, msg = askmod.resolve(rid, verdict, state="done", notify=False)
+        if ok and guarded:
+            record_human_resolve(con, rid, tasks, no_task, me)
         return f"{msg} (dismissed; {row['requester']} is not waiting on it)"
     # An `async` sender parked on a reply and nothing else will ever unpark it,
     # so it is told - and what it is told says it was read, not answered.
     ok, msg = askmod.resolve(rid, verdict, state="done")
+    if ok and guarded:
+        record_human_resolve(con, rid, tasks, no_task, me)
     return msg
 
 
@@ -311,17 +331,20 @@ def close_task(con, tid: int, sha: str | None = None, reason: str | None = None,
     return True, f"task #{tid} closed ({mark})"
 
 
-def check_human_resolve(con, row, tasks: list[int] | None,
-                        no_task: str | None) -> str | None:
+def check_human_resolve(con, row, tasks: list[int] | None, no_task: str | None,
+                        me: str | None = None) -> str | None:
     """The refusal for resolving a request the human made without saying what
     it becomes; None when it may go ahead.
 
     The guard is on the answer, not on the ask: agent-to-agent and
     manager-to-agent rows are conversation and never reach it, and it covers
     replies inside a running thread, because that is how the founder attaches
-    the next piece of work to a report.
+    the next piece of work to a report. Every path that closes such a row on
+    an agent's behalf goes through here (`ocp resolve`, `ocp dismiss`); the
+    founder's own hands - the bridge answer key, cancel, withdraw - are the
+    person the guard exists to serve, so `me == HUMAN` passes.
     """
-    if row["requester"] != HUMAN:
+    if row["requester"] != HUMAN or me == HUMAN:
         return None
     if bool(tasks) == bool(no_task):
         return (f"#{row['id']} is the founder's: say what it becomes. --task N [N ...] "

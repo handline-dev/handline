@@ -18226,6 +18226,56 @@ def test_replace_withdraw_and_dismiss_store_the_reason_typed(home: Path) -> None
     check("reason: --reason without --replaces is refused", rc == 1 and "--replaces" in out, out)
 
 
+def test_no_other_path_closes_the_founders_request_unguarded(home: Path) -> None:
+    """#1341: dismiss is the second way an agent closes a request the founder
+    made, so it takes the same guard; the founder's own hands do not."""
+    _board_world(home)
+    _cli(["task", "new", "--owner", "worker", "the work"])
+    r = _human_request()
+    rc, out = _cli(["dismiss", str(r)])
+    check("dismiss: a founder request is refused without --task or --no-task",
+          "--task" in out, out)
+    con = db.connect()
+    try:
+        check("dismiss: refused, still queued", db.get_request(con, r)["state"] == "queued")
+    finally:
+        con.close()
+    rc, out = _cli(["dismiss", str(r), "--task", "1"])
+    con = db.connect()
+    try:
+        check("dismiss: --task closes it and links it",
+              db.get_request(con, r)["state"] == "done"
+              and [x["id"] for x in db.task_requests(con, 1)] == [r], out)
+        r2 = _human_request()
+        _cli(["dismiss", str(r2), "--no-task", "duplicate", "--reason", "dup of #9"])
+        row = db.get_request(con, r2)
+        check("dismiss: --no-task closes it, reason stored as typed",
+              row["state"] == "done" and row["verdict"] == "read - no reply: dup of #9",
+              str(dict(row)))
+        r3 = _human_request()
+        out = actions.dismiss(con, r3, me=askmod.HUMAN)
+        check("dismiss: the founder's own dismiss is not guarded",
+              db.get_request(con, r3)["state"] == "done", out)
+    finally:
+        con.close()
+
+
+def test_close_says_what_it_read_and_never_guesses(home: Path) -> None:
+    _board_world(home)
+    rc, out = _cli(["close", "42", "fine"])
+    check("close: a number that is no task says no such task, and closes no session",
+          rc == 1 and "no task #42" in out, out)
+    rc, out = _cli(["close", "42"])
+    check("close: and the same with no evidence", rc == 1 and "no task #42" in out, out)
+    _cli(["task", "new", "--owner", "worker", "t"])
+    rc, out = _cli(["close", "1"])
+    check("close: a real task with no evidence says it read a task and why it refused",
+          rc == 1 and "as task #1" in out and "none was given" in out, out)
+    rc, out = _cli(["close", "worker", "abc1234"])
+    check("close: evidence on a name says it read an agent, and closed nothing",
+          rc == 1 and "as an agent's name" in out and "Nothing was closed" in out, out)
+
+
 def main() -> int:
     # An agent session that runs this suite already has both set for itself,
     # and every test here that wants one sets it explicitly - so an ambient
@@ -18601,6 +18651,8 @@ def main() -> int:
         run(lambda: test_resolving_the_founders_request_says_what_it_becomes(Path(td) / 'taskguard'))
         run(lambda: test_closing_a_task_needs_evidence_and_no_open_child(Path(td) / 'taskclose'))
         run(lambda: test_a_second_close_loses_the_race(Path(td) / 'taskrace'))
+        run(lambda: test_no_other_path_closes_the_founders_request_unguarded(Path(td) / 'taskdismiss'))
+        run(lambda: test_close_says_what_it_read_and_never_guesses(Path(td) / 'taskcloseread'))
         run(lambda: test_replace_withdraw_and_dismiss_store_the_reason_typed(Path(td) / 'taskreason'))
         run(lambda: test_run_recovers_from_an_uncaught_error())
     # The whole run's dealings with Orca: none of its tests may have reached even

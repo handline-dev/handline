@@ -344,11 +344,16 @@ def cmd_close(args) -> int:
     """
     raw = args.target
     if raw.isdigit():
-        if not args.evidence:
-            print(f"task #{raw} needs a merge sha or a reason to close it")
-            return 1
         con = db.connect()
         try:
+            if db.get_task(con, int(raw)) is None:
+                print(f"no task #{raw}. A number is read as a task, never as an agent "
+                      "(agents are named); `ocp task list` shows the open ones.")
+                return 1
+            if not args.evidence:
+                print(f"read {raw} as task #{raw} (a number is a task): closing it needs "
+                      "a merge sha or a reason, and none was given.")
+                return 1
             ev = args.evidence
             sha = ev if re.fullmatch(r"[0-9a-fA-F]{7,40}", ev) else None
             ok, msg = actions.close_task(con, int(raw), sha=sha,
@@ -359,7 +364,9 @@ def cmd_close(args) -> int:
             con.close()
         return 0 if ok else 1
     if args.evidence:
-        print("a sha or reason closes a task, by its number - not an agent's session")
+        print(f"read '{raw}' as an agent's name, so this would end its session - but a "
+              "sha or reason closes a task, by its number, and says nothing about a "
+              "session. Nothing was closed.")
         return 1
     args.agent = raw
     con = db.connect()
@@ -1335,7 +1342,8 @@ def cmd_dismiss(args) -> int:
             print(f"#{args.id} is {row['requester']} → {row['target']}, not yours to "
                   f"dismiss. `ocp read {args.id}` shows it.")
             return 1
-        print(actions.dismiss(con, args.id, me=me, reason=args.reason))
+        print(actions.dismiss(con, args.id, me=me, reason=args.reason,
+                              tasks=args.task, no_task=args.no_task))
         return 0
     finally:
         con.close()
@@ -1443,7 +1451,7 @@ def cmd_resolve(args) -> int:
                   + (f" ({textsafe.oneline(row['verdict'])[:120]})" if row["verdict"] else "")
                   + " - nothing to resolve.")
             return 1
-        refusal = actions.check_human_resolve(con, row, args.task, args.no_task)
+        refusal = actions.check_human_resolve(con, row, args.task, args.no_task, me)
         if refusal:
             print(refusal)
             return 1
@@ -1454,11 +1462,7 @@ def cmd_resolve(args) -> int:
     if ok and (args.task or args.no_task):
         con = db.connect()
         try:
-            for tid in args.task or []:
-                db.link_request(con, tid, args.id)
-            if args.no_task:
-                db.add_event(con, me, "no_task", {"request_id": args.id,
-                                                  "reason": args.no_task})
+            actions.record_human_resolve(con, args.id, args.task, args.no_task, me)
         finally:
             con.close()
     return 0 if ok else 1
@@ -1664,6 +1668,10 @@ def build_parser() -> argparse.ArgumentParser:
     p = sub.add_parser("dismiss", help="take one row off your mailbox without replying")
     p.add_argument("id", type=int)
     p.add_argument("--reason", default=None, help="why; stored as typed")
+    p.add_argument("--task", type=int, nargs="+", metavar="N",
+                   help="the task(s) this belongs to; required to dismiss a request the founder made")
+    p.add_argument("--no-task", metavar="REASON",
+                   help="nothing to build; required to dismiss a founder request unless --task is given")
     p.set_defaults(fn=cmd_dismiss)
 
     p = sub.add_parser("fold", help="fold events into the digest (the one model call)")
