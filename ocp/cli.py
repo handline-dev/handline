@@ -214,7 +214,7 @@ def cmd_account_list(args) -> int:
         agents_ = textsafe.oneline(tui.agents_cell(roster.get(a, (0, 0)), unplaced))
         print(f"{a:<14}{'yes' if accounts.logged_in(a) else 'no':<8}{plan:<6}{agents_:<{aw}}"
               f"{five:>5}{cell(st.pct_7d):>5}  {resets:<12}{cell(st.ctx_pct):>6}{age:>8}  "
-              f"{status.describe_runway(status.runway(st, status.read_burn(a))):<16}"
+              f"{status.describe_runway(status.runway(st, status.read_burn(a), None, loads.get(a))):<16}"
               f"{'yes' if allowed else 'NO':<4} {why}")
     outlook = status.team_outlook()
     if outlook:

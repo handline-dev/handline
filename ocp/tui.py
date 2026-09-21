@@ -255,12 +255,14 @@ def agents_cell(counts: tuple[int, int] | None, unplaced: int = 0,
 
 def account_cells(name: str, st, now: float | None = None,
                   counts: tuple[int, int] | None = None,
-                  unplaced: int = 0, at_cap: bool = False) -> dict[str, str]:
+                  unplaced: int = 0, at_cap: bool = False, ld=None) -> dict[str, str]:
     """The bounded cells of an ACCOUNTS row, unpadded and keyed like ACCT_W.
     The name is free text and is cut to fit where it is drawn. `counts` is the
     account's (assigned, running) from `load.roster`, None where it was not read;
-    `at_cap` whether the pick has no slot left on it (`load.Load.at_cap`)."""
-    runway_text = status.describe_runway(status.runway(st, status.read_burn(name), now))
+    `at_cap` whether the pick has no slot left on it (`load.Load.at_cap`); `ld`
+    the account's `load.Load`, which the runway needs to judge the week by the
+    pick's own figure."""
+    runway_text = status.describe_runway(status.runway(st, status.read_burn(name), now, ld))
     # One definition of the figure and its mark, shared with `ocp account list`.
     # A last-seen figure is drawn at its value, dimmed and uncoloured, with its
     # "?", so it cannot be read as a live gauge at the same number and is not
@@ -770,7 +772,8 @@ def build(width: int, sel: dict | None = None,
             # dashboard and the daemon disagreeing.
             cells = account_cells(name, st, counts=roster.get(name, (0, 0)),
                                   unplaced=unplaced,
-                                  at_cap=bool(loads.get(name) and loads[name].at_cap))
+                                  at_cap=bool(loads.get(name) and loads[name].at_cap),
+                                  ld=loads.get(name))
             acc.add(
                 " " * ACCT_INDENT
                 + padfit(f"{BOLD}{name}{R}", w["name"])
