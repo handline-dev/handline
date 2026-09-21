@@ -905,7 +905,7 @@ def last_activity(con, agent: str) -> int | None:
     row = con.execute(
         "SELECT MAX(ts) AS t FROM events WHERE agent = ? AND kind NOT IN "
         "('fold', 'fold_failed', 'handoff', 'park', 'close', 'close_failed', 'wake', 'wake_failed', "
-        "'notified', 'nudged', 'answered', 'dialog_declined', 'account_mismatch', "
+        "'notified', 'nudged', 'answered', 'dialog_declined', 'dialog_exit_chosen', 'account_mismatch', "
         "'cold_start', 'forced_move', 'memory_migrated', 'moved_account', 'session_gone', "
         "'started_for_work', 'terminal_gone', 'unstuck')", (agent,)
     ).fetchone()

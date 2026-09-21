@@ -7599,7 +7599,7 @@ def test_only_the_agents_own_events_move_its_activity_clock(home: Path) -> None:
     agent a clock and it was resumed."""
     agent_kinds = {"ask", "cancel", "commit", "escalate", "report", "resolve", "withdraw"}
     daemon_kinds = {"account_mismatch", "answered", "close", "close_failed", "cold_start",
-                    "dialog_declined", "fold", "fold_failed", "forced_move", "handoff",
+                    "dialog_declined", "dialog_exit_chosen", "fold", "fold_failed", "forced_move", "handoff",
                     "memory_migrated", "moved_account", "nudged", "notified", "park",
                     "session_gone", "started_for_work", "terminal_gone", "unstuck",
                     "wake", "wake_failed"}
