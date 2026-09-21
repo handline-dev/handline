@@ -194,6 +194,11 @@ unrelated request repeating what they had already answered.
   agents/<name>/             agent.yaml ROLE.md base.md inbox/ journal/
 ```
 
+The daemon also records each API call's tokens from an account's transcripts
+(`projects/**/*.jsonl` only, never the credentials beside them) into
+`token_calls`, kept 60 days; no rule that decides anything reads them.
+`tools/usage/` measures where the usage goes from them (see its README).
+
 Each account's `.claude/` links to the items of `shared/.claude/` that exist
 (settings.json, CLAUDE.md, skills, agents, commands, plugins). An item added
 there later is linked into every account that lacks it, by the daemon, on its

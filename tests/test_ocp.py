@@ -641,6 +641,131 @@ def _seed_week_history(con, account: str, now: int, five=(10, 90), seven=(50, 60
         db.record_usage_sample(con, account, st, ts=now - (n - i) * 60)
 
 
+def _call_line(req: str, out: int, at: str = "2026-09-20T10:00:00.000Z", **extra) -> str:
+    usage = {"input_tokens": 2, "cache_creation_input_tokens": 1000, "cache_read_input_tokens": 50000,
+             "output_tokens": out, "output_tokens_details": {"thinking_tokens": out // 2}}
+    return json.dumps({"type": "assistant", "requestId": req, "sessionId": "s1", "timestamp": at,
+                       "cwd": "/w/purser", "message": {"model": "claude-sonnet-5", "usage": usage,
+                                                       "content": []}, **extra}) + "\n"
+
+
+def test_each_calls_tokens_are_recorded_per_account_from_the_transcripts(home: Path) -> None:
+    """The plan charges for tokens of four classes; usage_samples only has the
+    percentages. The transcripts' usage is recorded one row per API call, a
+    call streamed over several lines counts once, and nothing else in the
+    account directory is read."""
+    from ocp import tokenlog
+    _daemon_home(home, 20)
+    now = int(time.time())
+    proj = paths.account_claude("alpha") / "projects" / "-w-purser"
+    proj.mkdir(parents=True)
+    log = proj / "s1.jsonl"
+    torn = _call_line("req_torn", 4)
+    secret = paths.account_claude("alpha") / ".credentials.json"
+    secret.write_text(_call_line("req_secret", 999))
+    # The same two decoys placed INSIDE projects/, so this fails for real if
+    # the glob ever widens past *.jsonl or the root ever widens past projects.
+    (proj / ".credentials.json").write_text(_call_line("req_secret_inproj", 999))
+    (proj / "s1.json").write_text(_call_line("req_plainjson", 999))
+    log.write_text(_call_line("req_a", 10) + _call_line("req_a", 30) + _call_line("req_b", 5)
+                   + json.dumps({"type": "user", "message": {"content": "hi"}}) + "\n"
+                   + torn[:40])
+    con = db.connect()
+    try:
+        got = tokenlog.ingest(con, "alpha", now=now)
+        rows = {r["req"]: dict(r) for r in con.execute("SELECT * FROM token_calls")}
+        check("tokens: a call streamed over two lines is one row, with the larger output",
+              set(rows) == {"req_a", "req_b"} and rows["req_a"]["out"] == 30, str(rows))
+        check("tokens: every class is kept, thinking included",
+              (rows["req_a"]["inp"], rows["req_a"]["cc"], rows["req_a"]["cr"], rows["req_a"]["thinking"])
+              == (2, 1000, 50000, 15), str(rows["req_a"]))
+        check("tokens: nothing but the conversation logs is read",
+              not {"req_secret", "req_secret_inproj", "req_plainjson"} & set(rows), str(rows))
+        again = tokenlog.ingest(con, "alpha", now=now)
+        check("tokens: a second read of an unchanged file adds nothing", got == 3 and again == 0, str((got, again)))
+        with open(log, "a") as fh:
+            fh.write(torn[40:] + _call_line("req_c", 7))
+        check("tokens: a file is read on from where it stopped, and a torn line once it is whole",
+              tokenlog.ingest(con, "alpha", now=now) == 2
+              and con.execute("SELECT COUNT(*) FROM token_calls").fetchone()[0] == 4)
+        tot = tokenlog.totals(con, "alpha", 0, 2 ** 40)
+        check("tokens: totals per class over an interval", tot["cc"] == 4000 and tot["out"] == 30 + 5 + 4 + 7,
+              str(tot))
+        con.execute("DELETE FROM token_calls")
+        db.set_meta(con, "tokenoffsets:alpha", None)
+        from ocp import daemon as dmn
+        dmn.observe_burn(con, lambda _m: None)
+        check("tokens: the daemon tick records them beside the samples",
+              con.execute("SELECT COUNT(*) FROM token_calls").fetchone()[0] == 4)
+        small = tokenlog.ingest(con, "beta", now=now)
+        check("tokens: an account with no transcripts records nothing", small == 0)
+        old = int(time.mktime((2026, 1, 1, 0, 0, 0, 0, 0, 0)))
+        con.execute("UPDATE token_calls SET ts = ?", (old,))
+        check("tokens: rows outlive the samples, and are pruned only past their own retention",
+              tokenlog.prune(con, now=old + 30 * 86400) == 0
+              and tokenlog.RETENTION_DAYS > db.USAGE_SAMPLE_RETENTION_DAYS
+              and tokenlog.prune(con, now=old + 61 * 86400) == 4)
+    finally:
+        con.close()
+
+
+def test_a_first_backfill_reads_a_slice_per_tick_not_the_whole_history(home: Path) -> None:
+    from ocp import tokenlog
+    _daemon_home(home, 20)
+    proj = paths.account_claude("alpha") / "projects" / "-w-purser"
+    proj.mkdir(parents=True)
+    line = _call_line("r", 1)
+    for name in ("s1", "s2"):
+        (proj / f"{name}.jsonl").write_text("".join(_call_line(f"req_{name}{i}", 1) for i in range(50)))
+    con = db.connect()
+    try:
+        first = tokenlog.ingest(con, "alpha", budget=len(line) * 10)
+        rest = tokenlog.ingest(con, "alpha", budget=len(line) * 1000)
+        check("tokens: a byte budget bounds a tick, and the next tick carries on",
+              0 < first <= 10 and first + rest == 100, str((first, rest)))
+    finally:
+        con.close()
+
+
+def test_a_record_bigger_than_the_budget_is_read_whole_not_stalled_forever(home: Path) -> None:
+    from ocp import tokenlog
+    _daemon_home(home, 20)
+    proj = paths.account_claude("alpha") / "projects" / "-w-purser"
+    proj.mkdir(parents=True)
+    log = proj / "s1.jsonl"
+    huge = _call_line("req_huge", 1, cwd="x" * 5000)
+    small = _call_line("req_small", 2)
+    log.write_text(huge + small)
+    con = db.connect()
+    try:
+        now = int(time.time())
+        got = tokenlog.ingest(con, "alpha", budget=200, now=now)
+        check("tokens: a record past the tick's budget is read whole, not stalled",
+              got == 1 and con.execute("SELECT COUNT(*) FROM token_calls").fetchone()[0] == 1)
+        again = tokenlog.ingest(con, "alpha", budget=200, now=now)
+        check("tokens: the record behind it is reached on the next tick", again == 1)
+    finally:
+        con.close()
+
+
+def test_a_unicode_line_separator_inside_a_record_does_not_split_it(home: Path) -> None:
+    from ocp import tokenlog
+    _daemon_home(home, 20)
+    proj = paths.account_claude("alpha") / "projects" / "-w-purser"
+    proj.mkdir(parents=True)
+    log = proj / "s1.jsonl"
+    obj = json.loads(_call_line("req_sep", 8).rstrip("\n"))
+    obj["cwd"] = "/w/purser weird"
+    log.write_text(json.dumps(obj, ensure_ascii=False) + "\n")
+    con = db.connect()
+    try:
+        got = tokenlog.ingest(con, "alpha", now=int(time.time()))
+        check("tokens: a record carrying U+2028 is kept whole, str.splitlines is not the separator",
+              got == 1)
+    finally:
+        con.close()
+
+
 def test_the_weeks_ratio_to_the_5h_window_is_measured_from_the_samples(home: Path) -> None:
     """The 5h cost of an agent means nothing for the week until the plan's
     ratio converts it, and nothing written down knows the plan: it is the
@@ -18042,6 +18167,14 @@ def main() -> int:
         run(lambda: test_pick_account_degrades_when_every_account_would_hit_the_wall(
             Path(td) / 'allwall'))
         run(lambda: test_pick_account_stale_and_unknown_pace(Path(td) / 'staleknown'))
+        run(lambda: test_each_calls_tokens_are_recorded_per_account_from_the_transcripts(
+            Path(td) / 'tokencalls'))
+        run(lambda: test_a_first_backfill_reads_a_slice_per_tick_not_the_whole_history(
+            Path(td) / 'tokenslice'))
+        run(lambda: test_a_record_bigger_than_the_budget_is_read_whole_not_stalled_forever(
+            Path(td) / 'tokenhuge'))
+        run(lambda: test_a_unicode_line_separator_inside_a_record_does_not_split_it(
+            Path(td) / 'tokensep'))
         run(lambda: test_the_weeks_ratio_to_the_5h_window_is_measured_from_the_samples(Path(td) / 'weekratio'))
         run(lambda: test_an_account_the_week_is_about_to_close_is_not_usable_and_not_picked(
             Path(td) / 'weekwall'))

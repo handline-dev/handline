@@ -36,7 +36,7 @@ from pathlib import Path
 
 from . import (accounts, agents, blocked, burnrate, db, events, fold as foldmod, handoff as handoffmod, launch,
                load, lock, measure, observe as obs, orca, paths, probe, service, spawn as spawnmod,
-               status, textsafe, triggers)
+               status, textsafe, tokenlog, triggers)
 
 # Section 8.2 states.
 IDLE, QUEUED, RUNNING, DONE = "IDLE", "QUEUED", "RUNNING", "DONE"
@@ -2232,6 +2232,15 @@ def observe_burn(con, log) -> None:
         db.prune_usage_samples(con)
     except Exception as e:  # noqa: BLE001
         log(f"  sample: prune failed: {e}")
+    for acct in paths.list_accounts():
+        try:
+            tokenlog.ingest(con, acct)
+        except Exception as e:  # noqa: BLE001 - a record that misses a slice is not the tick's failure
+            log(f"  tokens: {acct}: {e}")
+    try:
+        tokenlog.prune(con)
+    except Exception as e:  # noqa: BLE001
+        log(f"  tokens: prune failed: {e}")
     try:
         burnrate.refresh_week_ratios(con)
     except Exception as e:  # noqa: BLE001 - no ratio only means the week is judged at its wall

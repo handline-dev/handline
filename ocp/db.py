@@ -191,6 +191,25 @@ CREATE TABLE IF NOT EXISTS usage_samples (
 -- filter on ts alone, which that index cannot serve (account leads it).
 CREATE INDEX IF NOT EXISTS usage_samples_account_ts ON usage_samples(account, ts);
 CREATE INDEX IF NOT EXISTS usage_samples_ts ON usage_samples(ts);
+-- One row per API call, from the transcripts (tokenlog.py): what the plan
+-- charges for, beside what usage_samples says it charged. Not read by any pick.
+CREATE TABLE IF NOT EXISTS token_calls (
+  account   TEXT    NOT NULL,
+  session   TEXT    NOT NULL,
+  req       TEXT    NOT NULL,
+  ts        INTEGER NOT NULL,
+  model     TEXT    NOT NULL,
+  cwd       TEXT    NOT NULL,
+  side      INTEGER NOT NULL DEFAULT 0,
+  inp       INTEGER NOT NULL,
+  cc        INTEGER NOT NULL,
+  cr        INTEGER NOT NULL,
+  out       INTEGER NOT NULL,
+  thinking  INTEGER NOT NULL,
+  PRIMARY KEY (account, session, req)
+);
+CREATE INDEX IF NOT EXISTS token_calls_account_ts ON token_calls(account, ts);
+CREATE INDEX IF NOT EXISTS token_calls_ts ON token_calls(ts);
 """
 
 
