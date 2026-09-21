@@ -1022,6 +1022,9 @@ def _agent_page(con, name: str, panel: int = AGENTS, title: str | None = None,
     if old:
         for k in ("top", "end"):
             d[k] = old.get(k, 0)
+        for k in ("focus", "focus_pending"):
+            if k in old:
+                d[k] = old[k]
     return d
 
 
@@ -1063,6 +1066,8 @@ def lines_of(detail: dict, width: int) -> list[str]:
     if detail.get("stacked"):
         stacked = _stacked_lines(detail, tabs, width)
         detail["conv_end"] += len(lines)       # counted from the top of the page
+        if "focus_span" in detail:
+            detail["focus_span"] = tuple(n + len(lines) for n in detail["focus_span"])
         return lines + stacked
     at = max(0, min(detail.get("tab", 0), len(tabs) - 1))
     detail["tab"] = at
@@ -1105,9 +1110,15 @@ def _stacked_lines(detail: dict, tabs: list[tuple[str, list]], width: int) -> li
     not part of it, and each row names whose it is. `conv_end` is the line the
     conversation ends on, which is where a page kept at its end stays."""
     out: list[str] = []
+    detail.pop("focus_span", None)
     for i, (heading, rows) in enumerate(tabs):
         out.append(_section_rule(heading, width))
-        out += _rows_lines(rows, width, dim_plain=i == 0)
+        found: dict = {}
+        base = len(out)
+        out += _rows_lines(rows, width, dim_plain=i == 0,
+                           focus=detail.get("focus") if i == 0 else None, found=found)
+        if found:
+            detail["focus_span"] = (base + found["span"][0], base + found["span"][1])
         if i == 0:
             detail["conv_end"] = len(out)
         out.append("")
@@ -1197,13 +1208,15 @@ def _note_lines(rows: list[str], width: int) -> list[str]:
     return out
 
 
-def _message_lines(r, width: int) -> list[str]:
+def _message_lines(r, width: int, focus: bool = False) -> list[str]:
     """One message as the Claude Code screen draws its own: a marker and the
     text, the rest of the text indented under the marker, and a dim line under
     it saying when and in what state. Who said it is the marker - the human's
     on a background, the agent this page is about with a dot - and only a
     message between two other agents names its speakers."""
     marker, text_dim = _MARKERS[r.side]
+    if focus:
+        marker = f"{YEL}{BOLD}\u25b6{R}"
     body = wrap(r.text.splitlines() or [""], max(1, width - 2))
     lines: list[str] = []
     if r.side == "other":
@@ -1218,7 +1231,8 @@ def _message_lines(r, width: int) -> list[str]:
     # The state is never cut - it can carry the id /cancel names - so what does
     # not fit beside the time goes on lines of its own.
     when = f"  {DIM}{_clock(r.ts)}{R}"
-    tail = wrap([f"\u00b7 {r.tail}"], max(1, width - 2)) if r.tail else []
+    shown = " \u00b7 ".join(x for x in (r.tail, "the one you opened" if focus else "") if x)
+    tail = wrap([f"\u00b7 {shown}"], max(1, width - 2)) if shown else []
     paint = YEL if r.waiting else DIM
     if tail and vlen(when) + 2 + vlen(tail[0]) <= width and len(tail) == 1:
         return lines + [f"{when}  {paint}{tail[0]}{R}"]
@@ -1247,7 +1261,8 @@ _MARKERS = {"you": (f"{CYA}{BOLD}\u276f{R}", ""),
             "other": ("", DIM)}
 
 
-def _rows_lines(rows: list, width: int, dim_plain: bool = False) -> list[str]:
+def _rows_lines(rows: list, width: int, dim_plain: bool = False,
+                focus: tuple | None = None, found: dict | None = None) -> list[str]:
     """The rows of a tab as the screen shows them, each kind laid out its own way.
 
     A message or a request is a block - a marker or header line and its text
@@ -1255,10 +1270,11 @@ def _rows_lines(rows: list, width: int, dim_plain: bool = False) -> list[str]:
     not a count. Plain rows are wrapped. A row on a background is painted here,
     to the width it is laid out at, whoever draws the rows.
     """
-    return [_painted(ln, width) for ln in _rows_unpainted(rows, width, dim_plain)]
+    return [_painted(ln, width) for ln in _rows_unpainted(rows, width, dim_plain, focus, found)]
 
 
-def _rows_unpainted(rows: list, width: int, dim_plain: bool) -> list[str]:
+def _rows_unpainted(rows: list, width: int, dim_plain: bool, focus: tuple | None = None,
+                    found: dict | None = None) -> list[str]:
     out: list[str] = []
     block = False                      # the row above was a block
     if rows and all(isinstance(r, actions.Event) for r in rows):
@@ -1285,7 +1301,11 @@ def _rows_unpainted(rows: list, width: int, dim_plain: bool) -> list[str]:
             continue
         if block:
             out.append("")
-        out += _message_lines(r, width)
+        here = focus is not None and (r.rid, r.part) == focus
+        start = len(out)
+        out += _message_lines(r, width, here)
+        if here and found is not None:
+            found["span"] = (start, len(out))
         block = True
     return out
 
@@ -1407,6 +1427,13 @@ def _detail_frame(width: int, height: int, detail: dict, flash: str = "") -> str
     boxed = _has_input_box(detail, height)
     room = _page_room(detail, height)
     last = max(0, len(body) - room)
+    if detail.pop("focus_pending", None) and "focus_span" in detail:
+        # Opened at a message: it goes on screen with what is around it, and
+        # the page is not held to its end, which is where the frame would
+        # otherwise put a conversation.
+        a, b = detail["focus_span"]
+        detail["top"] = max(0, a - max(0, room - (b - a)) // 2)
+        detail["end"] = False
     top = max(0, min(detail.get("top", 0), last))
     # A conversation read at its end stays there: the page's end, or - when
     # sections sit under it - the end of the conversation, which is the newest
@@ -2654,11 +2681,18 @@ def _act_on(panel: int, sel: dict, key: str, width: int, height: int,
                 return f"#{rid} is gone", None
             if key in ("\r", "\n"):
                 actions.opened_by_human(con, rid)
+                place = actions.message_place(con, rid)
+                if place is not None:
+                    d = _agent_page(con, place[0], AGENTS)
+                    if actions.CHAT_TAB in _tab_stems(d):     # not a page that could not be built
+                        d["focus"], d["focus_pending"] = (rid, place[1]), True
+                        return "", d
                 detail = actions.message_detail(con, rid)
                 if detail is None:
                     return f"#{rid} is gone", None
                 title, sections = detail
-                return "", page(title, sections, MESSAGES, rid)
+                return (f"#{rid} is not in a conversation that can be drawn - read alone",
+                        page(title, sections, MESSAGES, rid))
             if key in ("a", "e"):
                 text = _compose(rid, key, width, height, fd, saved,
                                 under=lambda h: frame(width, h, sel, panel))

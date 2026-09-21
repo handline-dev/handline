@@ -16076,6 +16076,88 @@ def test_the_wheel_is_the_arrow_keys() -> None:
     check("wheel: it does not answer a yes/no dialog", ask.typed == "")
 
 
+def test_a_message_in_for_you_opens_at_its_place_in_the_conversation(home: Path) -> None:
+    """Founder #1372: opening a FOR YOU row lands in that agent's conversation,
+    with that message on screen and marked, not on a copy of it drawn alone."""
+    _daemon_home(home, 20)
+    agents.register("reviewer", "alpha")
+    con = db.connect()
+    try:
+        def say(text: str, chain: str | None, who: str = "reviewer", fyi: bool = False) -> int:
+            return db.add_request(con, who, actions.HUMAN, text, None, "peer", "async",
+                                  None, 0, None, chain_id=chain, fyi=fyi)
+
+        target = say("TARGET the merge gate", "c1")
+        for i in range(40):
+            say(f"later {i}", "c1")
+        sel = {tui.MESSAGES: target}
+
+        def open_it(rid: int):
+            return tui._act(tui.MESSAGES, {tui.MESSAGES: rid}, "\r", 100, 24, None, None)
+
+        line, page = open_it(target)
+        check("for-you: Enter opens the agent's page, on that message",
+              page is not None and page.get("agent") == "reviewer"
+              and page.get("focus") == (target, 0), str(page)[:100])
+
+        def draw() -> str:
+            nonlocal page
+            shown, page = tui._redraw(100, 24, sel, tui.AGENTS, "", page)
+            return tui._ANSI.sub("", shown)
+
+        first = draw()
+        check("for-you: the message is on screen and marked, far from the end",
+              "TARGET the merge gate" in first and "\u25b6" in first
+              and "later 39" not in first, first[:200])
+        check("for-you: what follows it is readable around it", "later 0" in first)
+        top = page["top"]
+        for _ in range(3):
+            again = draw()
+        check("for-you: it stays there over the next frames",
+              page["top"] == top and "TARGET the merge gate" in again
+              and not page["end"], f"top {page['top']} was {top}")
+        page, _ = tui._in_detail(page, "G", 100, 24)
+        check("for-you: the reader can still go to the end", "later 39" in draw())
+
+        page, _ = tui._in_detail(page, "\033", 100, 24)
+        check("for-you: leaving marks the conversation seen",
+              actions.chat_unread(con, "reviewer") == 0)
+        check("for-you: and the unanswered row is still in FOR YOU",
+              target in [m["id"] for m in actions.messages(con)])
+
+        # An answer the human was given: the verdict is the message.
+        asked = db.add_request(con, actions.HUMAN, "reviewer", "did it merge?", None, "peer",
+                               "async", None, 0, None, chain_id="c2")
+        con.execute("UPDATE requests SET state='done', verdict='ANSWER yes', resolved_at=? "
+                    "WHERE id=?", (int(time.time()), asked))
+        con.commit()
+        _, page = open_it(asked)
+        check("for-you: an answer opens on its verdict",
+              page is not None and page["focus"] == (asked, 1) and "ANSWER yes" in draw())
+
+        # Undefined targets: each is a line and a page, never a blank one.
+        con.execute("DELETE FROM requests WHERE id = ?", (target,))
+        con.commit()
+        line, page = open_it(target)
+        check("for-you: a message that is gone opens nothing and says so",
+              page is None and line and actions.message_place(con, target) is None, line)
+
+        stray = say("from nobody registered", "c3", who="ghost")
+        line, page = open_it(stray)
+        check("for-you: an agent that cannot be opened reads the message alone, and says so",
+              page is not None and "focus" not in page and "read alone" in line
+              and "from nobody registered" in tui.lines_of(page, 100)[0:6].__str__(),
+              line)
+        old = say("OLDEST chain", "old")
+        for i in range(tui.actions.CHAT_CHAINS + 1):
+            say(f"newer chain {i}", f"n{i}")
+        line, page = open_it(old)
+        check("for-you: a message in a chain the conversation no longer draws is read alone",
+              page is not None and "focus" not in page and "read alone" in line, line)
+    finally:
+        con.close()
+
+
 def test_the_composer_takes_a_paste_whole(home: Path) -> None:
     """Enter sends, so a pasted newline must not: the old one-line prompt sent
     the first pasted line and dropped the rest (#193)."""
@@ -18668,6 +18750,7 @@ def main() -> int:
         run(lambda: test_the_agent_head_is_trimmed_and_slash_commands_are_derived_not_kept(Path(td) / 'headtrim'))
         run(lambda: test_a_conversation_stays_where_the_reader_scrolled_it(Path(td) / 'scroll'))
         run(lambda: test_the_wheel_is_the_arrow_keys())
+        run(lambda: test_a_message_in_for_you_opens_at_its_place_in_the_conversation(Path(td) / 'foryou'))
         run(lambda: test_a_conversation_reads_as_turns_at_any_width(Path(td) / 'turns'))
         run(lambda: test_a_conversation_shows_whose_message_is_whose_without_colour(Path(td) / 'whose'))
         run(lambda: test_the_founders_messages_sit_on_a_background_that_fills_the_whole_block(Path(td) / 'fill'))

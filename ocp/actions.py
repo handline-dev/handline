@@ -982,12 +982,15 @@ class Said(Row):
     ts: int
     tail: str          # its delivery state, or the request an answer closes
     waiting: bool      # the agent is waiting on the human for it
+    rid: int | None    # the request it is the ask of (part 0) or the verdict of (part 1)
+    part: int
 
     def __new__(cls, kind: str, who: str, text: str = "", side: str = "", ts: int = 0,
-                tail: str = "", waiting: bool = False):
+                tail: str = "", waiting: bool = False, rid: int | None = None, part: int = 0):
         self = super().__new__(cls, f"{who}  {text}" if kind == "msg" else who)
         self.kind, self.who, self.side, self.text = kind, who, side, text
         self.ts, self.tail, self.waiting = ts, tail, waiting
+        self.rid, self.part = rid, part
         return self
 
 
@@ -1005,7 +1008,8 @@ def conversation_and_drawn(con, agent: str) -> tuple[list[str], set[int]]:
     for r in _chat_rows(con, agent):
         chains.setdefault(str(r["chain_id"]), []).append(r)
 
-    def said(speaker: str, to: str, text, ts, tail: str = "", waiting: bool = False) -> Said:
+    def said(speaker: str, to: str, text, ts, tail: str = "", waiting: bool = False,
+             rid: int | None = None, part: int = 0) -> Said:
         # What is not between the human and this agent is neither's: the agent
         # asking a third agent is drawn as that, not as the agent speaking to them.
         between = HUMAN in (speaker, to)
@@ -1013,7 +1017,7 @@ def conversation_and_drawn(con, agent: str) -> tuple[list[str], set[int]]:
         who = "you" if speaker == HUMAN else speaker if between else f"{speaker} → {to}"
         body = (text or "").strip("\n")
         return Said("msg", who, body if body.strip() else "(empty)", side, ts or 0, tail,
-                    waiting)
+                    waiting, rid, part)
 
     threads = []
     for cid, rows in chains.items():
@@ -1028,11 +1032,12 @@ def conversation_and_drawn(con, agent: str) -> tuple[list[str], set[int]]:
                     tail += f" · #{r['id']}"       # what /cancel names
             msgs.append((r["ts"], r["id"], 0,
                          said(r["requester"], r["target"], r["body"], r["ts"], tail,
-                              r["state"] == "queued" and r["target"] == HUMAN)))
+                              r["state"] == "queued" and r["target"] == HUMAN, r["id"], 0)))
             if r["verdict"]:
                 at = r["resolved_at"] or r["ts"]
                 msgs.append((at, r["id"], 1, said(r["target"], r["requester"], r["verdict"],
-                                                  at, f"answers #{r['id']}")))
+                                                  at, f"answers #{r['id']}",
+                                                  rid=r["id"], part=1)))
         msgs.sort(key=lambda m: m[:3])
         threads.append((max(m[0] for m in msgs), cid, msgs))
     threads.sort(key=lambda t: t[0])
@@ -1049,6 +1054,23 @@ def conversation_and_drawn(con, agent: str) -> tuple[list[str], set[int]]:
             "new": " · starts a new thread"}[how]
     out += ["", f"↵ write to {agent}{goes} · e in $EDITOR"]
     return out, drawn
+
+
+def message_place(con, rid: int) -> tuple[str, int] | None:
+    """Where a message of the mailbox sits in a conversation: the agent it is
+    with, and whether it is the ask (0) or the verdict (1) of its row. None when
+    the row is gone or the conversation does not draw it - it is in a chain older
+    than the ones drawn, or it says nothing to draw."""
+    row = db.get_request(con, rid)
+    if row is None:
+        return None
+    answer = _is_answer_to_human(row)
+    agent = row["target"] if answer else row["requester"]
+    part = 1 if answer else 0
+    rows, _ = conversation_and_drawn(con, agent)
+    if any(getattr(r, "rid", None) == rid and r.part == part for r in rows):
+        return agent, part
+    return None
 
 
 def chat_parent(con, agent: str) -> int | None:
