@@ -158,13 +158,42 @@ rebuild - in Orca's shape.
 | is a session running, and is it ours | `observe.is_session` (`"claude" in command`), `live_sessions` (ps + `OCP_AGENT`) | **ORCA** | a ps-table scan that pattern-matches the binary name is exactly what `agentIdentity` and `projection.liveness` answer, for 18 vendor families, with provenance and a three-valued verdict (`live`/`unverifiable`/`exited`). Ours cannot tell "I could not look" from "it is gone" as cleanly. |
 | which account is this process spending | `observe.account_of_process` (reads `CLAUDE_CONFIG_DIR` off `ps eww`) | **DRIVER** | Orca has no idea which of *our* accounts a process is on. This one stays ours whatever else moves. |
 | is it idle | `orca.wait_idle` → `terminal wait --for tui-idle` | **KEEP** | already Orca, and explicitly vendor-generic - the guide names Claude Code, Gemini, Codex, OMP, Pi and Grok. Idleness is the one thing a second vendor need not re-teach. |
-| is a dialog blocking a typed line | `orca.screen_blocker`, `MODAL_MARKERS`, `_RULE`, `_OPTION`, `_composer_shape`, `_BACKGROUNDED_HINT` | **KEEP** (for now) | ~150 lines of regex against Claude Code's *rendering*. Orca reports a related fact vendor-neutrally - but **not this one**, unsupervised. See §3.1. |
+| **detect** that an agent needs a human | `orca.screen_blocker` | **ORCA** ✅ | `terminal show --json` → `terminal.agentWait`, present on **32/32** terminals, non-null exactly when one is waiting, carrying the evidence that proved it. No adoption needed. §3.1. |
+| **name** the dialog, and decide Esc is safe | `parse_dialog`, `declining_key`, `describe_modal`, `_describe_backgrounded` | **DRIVER** | `agentWait` said `{"source": "title"}` and nothing more. We need the title and the numbered options - to report *which* dialog, and because `decline_dialog` must never press a key on a panel it could not parse. §3.1. |
 | is it working, idle or gone | `observe.live_sessions` + `orca.idle_now` (a `tui-idle` probe that costs its whole timeout to say "no") | **ORCA** ✅ | `projection.stage.activity` is a live three-state signal - `working` / `done` / `unknown` - already present on the dispatches we create, alongside `liveness.verdict` (`live` / `exited` / `unverifiable`) and its `source` (`agent_status`, `execution_host`). Measured across all 24: see §3.1. |
 | press Esc to decline a dialog | `orca.decline_dialog`, `declining_key` | **DRIVER** | Orca *reports* a wait; it has no verb that answers one. Whoever presses a key must read the screen it is pressing on. This stays ours, per vendor - and it is the residue that keeps some screen parsing alive even if the line above moves. |
 
-### 3.1 What an unsupervised dispatch already reports (measured, read-only)
+### 3.1 What Orca already reports, unsupervised (measured, read-only)
 
-All 24 dispatches on this machine, every Run, no mutation:
+**`agentWait` lives on the terminal, not on the dispatch.** An earlier pass
+looked only at `worker-show`/`worker-list`, found no `observation` key on any
+of 24 dispatches, and concluded Orca never looks. Wrong place. `orca terminal
+show --terminal <h> --json` carries `terminal.agentWait` on **32 of 32**
+terminals, and it was **non-null on exactly the one that was waiting**:
+
+```json
+{ "title": "1 awaiting input · claude agents", "agentIdentity": "claude",
+  "worktreePath": "…/harbor-app/manager", "agentWait": { "source": "title" } }
+```
+
+That is our own `harbor` agent, and its preview shows
+`❯ describe a task for a new session` - the case `orca.py` calls BACKGROUNDED.
+So Orca catches it, unsupervised, vendor-neutrally, in one field, **and
+adoption is not required for any of it.**
+
+What it does **not** give is the content: `{"source": "title"}` and nothing
+else. ocp needs the panel's title and its numbered options, both to name the
+block ("ocp names the dialog and never answers it") and because
+`declining_key` must refuse to press Esc on a panel it could not parse. Only
+one sample was available, all three documented sources being `hook`,
+`prompt-text` or `title`; whether a `hook`-sourced wait carries more is
+unmeasured.
+
+So the seam splits: **detection moves to Orca, the reading of the panel stays
+ours** - and what stays is much smaller than 150 lines, because `screen_blocker`
+no longer has to be the thing that decides, only the thing that describes.
+
+And on the dispatch side, all 24, every Run, no mutation:
 
 | field | populated? | values seen |
 |---|---|---|
@@ -188,9 +217,9 @@ unsupervised dispatch, which by Orca's own guide means **"it never looked"** -
 not that there is nothing to find. So `agentWait` is not something an
 unsupervised caller gets, anywhere on this machine.
 
-That narrows O1/O2 to one question: **does adoption turn `observation` on?**
-Nothing passive can answer it - there is no supervised worker on this machine
-to compare against (all 24 are `unsupervised`).
+**So what is adoption still for?** Not `agentWait` - that arrives without it.
+Only for the lifecycle: a `resource` row, and `worker-stop` / `worker-release`
+acting on the process. That is O1, and it is now a much smaller question.
 
 ---
 
@@ -211,6 +240,33 @@ keyed by `windowMinutes`, covering inactive accounts, over OAuth. It is simply
 40+ hours stale for the accounts ocp runs on, with no verb to refresh it
 (§0.1). So the subsystem stays ours for every vendor, and the reshape below
 should copy Orca's shape rather than invent one.
+
+**The statusLine carries three payloads, not one**, and they have different
+answers. `libexec/statusline-collect.sh` takes from Claude Code's statusLine
+JSON: (a) account-wide **rate limits**, (b) per-session **context window**, and
+(c) session identity (`session_id`, `transcript_path`, `model_id`, `cwd`).
+
+| payload | who else has it | verdict |
+|---|---|---|
+| rate limits | Orca, per account, 8 providers - **40h stale, no refresh verb** | ours, fresh |
+| **context window** | **nobody** | **ours, and there is no alternative** |
+| session id / transcript | ours only | ours |
+
+**(b) is the finding.** Not one of Orca's 234 commands mentions a context
+window or a token count; `terminal show` has no such field; the only trace
+anywhere is the `preview` string rendering Claude Code's own status line
+(`· Ebbing… (20s · ↓ 1.3k tokens)`), which is a picture, not data. Context
+drives ocp's handoff-and-park trigger, which is the feature that keeps a fleet
+running unattended. **So the statusLine injection is not a convenience that
+Orca might absorb one day - it is the only source of a number ocp cannot
+operate without.**
+
+For a second vendor that matters twice over, because codex has no statusLine
+command hook at all. Its equivalent is in the rollout JSONL, verified on this
+machine - `token_count.info.model_context_window` with `total_token_usage`,
+beside the same `rate_limits` block - so a codex collector **pulls** where ours
+is **pushed**. Same output file, different mechanism, and the context number is
+there.
 
 | seam | ours | verdict | note |
 |---|---|---|---|

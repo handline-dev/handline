@@ -8,7 +8,7 @@ This file does not move. A line leaves the OPEN list only when a measurement
 settles it, and then it moves up with its evidence.
 
 Asked by the founder in #1255 (withdrawn, superseded live) and #1277.
-Decisions D1-D8 taken 2026-09-21.
+Decisions D1-D9 taken 2026-09-21.
 
 ---
 
@@ -113,14 +113,48 @@ terminals into a Run whose identity changes daily (O1) would inherit the mess.
 `spawn.register_worker` is not a bug and should stay. It is firing 60% of the
 time because of the above, and it is the only reason the team is drawn at all.
 
+### D9. Detection moves to Orca; reading the panel stays ours. And the
+statusLine stays, permanently.
+
+Two measurements, both read-only, both correcting an earlier claim of mine.
+
+**`agentWait` is on the terminal, not the dispatch.** I first looked only at
+`worker-show` and `worker-list`, found no `observation` on any of 24
+dispatches, and said Orca never looks. Wrong object. `orca terminal show --json`
+carries `terminal.agentWait` on **32 of 32** terminals and it was non-null on
+exactly the one that was waiting - our own `harbor`, sitting on Claude Code's
+new-session box, which `orca.py` calls BACKGROUNDED. Orca caught it
+vendor-neutrally, with its evidence (`{"source": "title"}`), **with no adoption
+at all**.
+
+**Decided:** `screen_blocker`'s *decision* becomes one `terminal show` field.
+What stays ours is *describing* the panel - `parse_dialog`, `declining_key`,
+`describe_modal` - because `agentWait` gave a source and nothing else, and
+`decline_dialog` must never press Esc on a panel it could not read. Much
+smaller than 150 lines, and no longer the thing that decides.
+
+**The statusLine injection is permanent.** It carries three payloads, not one:
+rate limits (Orca has them, 40h stale), session identity (ours), and the
+**per-session context window** - which **nothing else on this machine has**.
+Not one of Orca's 234 commands mentions a context window or a token count.
+Context drives the handoff-and-park trigger, the feature that keeps the fleet
+running unattended, so this is not a convenience Orca might absorb later.
+
+**Implication for vendor two:** codex has no statusLine command hook, so its
+collector **pulls** from the rollout JSONL
+(`token_count.info.model_context_window` + `total_token_usage`, beside the same
+`rate_limits`) where ours is **pushed**. Verified present on this machine. Same
+output file, different mechanism - and it is the first thing to build for any
+new vendor, because without context ocp cannot park.
+
 ---
 
 ## Open, with what would settle it
 
 | id | question | settled by |
 |---|---|---|
-| **O1** | Supervised lane or handoff lane? We create Run + Task + Dispatch and settle none (D8). Either adopt terminals with `worker-start --terminal`, or stop creating Tasks and keep only what draws the team. | measuring what adoption grants - **needs the founder's go-ahead: it mutates a live fleet** |
-| **O2** | Do ~150 lines of screen regex in `orca.py` go away? **Narrowed 2026-09-21:** measured all 24 dispatches - `attention.categories` carries only lifecycle states (`unverifiable`, `failure`, `interrupted`, `stale`), never "a human is needed", and `observation` is **absent on 24 of 24**, which Orca's guide defines as "it never looked". So today the answer is no. The remaining question is only whether **adoption** turns `observation` on. | the O1 mutation, and nothing else - no supervised worker exists here to observe |
+| **O1** | Supervised lane or handoff lane? **Narrowed by D9:** adoption is no longer needed for `agentWait`, so all it would still buy is the lifecycle - a `resource` row and `worker-stop`/`worker-release` acting on the process. We create Run + Task + Dispatch and settle none (D8). Either adopt terminals with `worker-start --terminal`, or stop creating Tasks and keep only what draws the team. | measuring what adoption grants - **needs the founder's go-ahead: it mutates a live fleet** |
+| ~~O2~~ | *settled 2026-09-21 - see D9.* | |
 | **O3** | How does a codex agent get ROLE.md + base.md + handoff? Claude uses `--append-system-prompt`; codex has no argv equivalent. Candidates: `AGENTS.md` under a per-account `CODEX_HOME`, or the first prompt. | a live codex launch, not reading |
 | ~~O4~~ | *settled 2026-09-21 - see D8.* | |
 
