@@ -321,8 +321,10 @@ Measured on this machine, read-only:
     18 agents' current tasks spread across 8 different Runs
     24 dispatches, every one `unsupervised` - no supervised worker exists anywhere
 
-**Mechanism.** `run-create` binds the calling terminal (part 1 §5.6), and
-`ensure_run` runs inside each agent's own terminal at launch:
+**Mechanism (revised - see D8 for the full account).** The primary defect is
+that `orca.run_exists` returns `False` when it merely *could not ask*, so any
+Orca restart makes `ensure_run` create a fresh Run and overwrite the key. The
+overwrite below is real but secondary:
 
 ```python
 run   = db.get_meta(con, RUN_KEY)

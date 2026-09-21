@@ -93,25 +93,78 @@ managed accounts (tier 3). The gap is filed as Orca issue
 opencode's exclusion from it costs us **nothing**. It is as viable a vendor for
 ocp as codex.
 
-### D8. `spawn.ensure_run` must own the Run; agents' terminals must not.
+### D8. The Run leak: `run_exists` reads "could not ask" as "gone".
 
-Measured, read-only: **25 Runs named "orcapipe team"**, ~9,000 tasks all
-`ready`, the team's 18 current tasks spread over **8** of them, and **9 of 15
-agents with a supervisor have no parent link** - harbor's six reports draw
-entirely flat. Nine Runs were created inside 33 seconds during one cold start.
+**Revised 2026-09-21 after investigation (#1292). The first diagnosis named
+the wrong culprit** - it blamed the `bound != run` overwrite, which is real but
+secondary. The primary defect is four lines away:
 
-Cause is ours, not Orca's: `run-create` binds the calling terminal, and
-`ensure_run` runs inside each agent's own terminal, taking whatever that
-terminal is bound to and writing it back as the team's Run. The key follows the
-most recent launch.
+```python
+def run_exists(run: str) -> bool:
+    """...reading the wrong one as "gone" made a new Run for every agent."""
+    ok, out = _run(["orchestration", "run-show", "--id", run, "--json"])
+    return ok and bool(_result(out, "run", "id"))       # <-- ok=False -> "gone"
+```
 
-**Decided:** one owner binds the Run once; agents' own terminals never call
-`run-create`. **And this is a prerequisite**, not a cleanup - adopting
-terminals into a Run whose identity changes daily (O1) would inherit the mess.
+Any failure - Orca restarting, the runtime not up yet, a timeout, a non-zero
+exit - returns `False`. `ensure_run` reads that as "the team's Run is gone",
+calls `run_create`, and overwrites `RUN_KEY` with the new one. **One Orca
+restart during a wave of launches is N new Runs.** Nine of ours were created
+inside 33 seconds.
 
-**Note for whoever fixes it:** the flat-task fallback in
-`spawn.register_worker` is not a bug and should stay. It is firing 60% of the
-time because of the above, and it is the only reason the team is drawn at all.
+ocp already knows this rule and applies it correctly two functions above:
+
+```python
+def live_terminals() -> set[str] | None:
+    """...None is not an empty set. Reading "I could not ask" as "there are
+    none" would tear down a healthy team the first time Orca was slow."""
+```
+
+Terminals get the tri-state. Runs do not. And `run_exists`'s own docstring
+records that this exact symptom already happened once, was diagnosed as a wrong
+flag, and the fail-open shape was left in place.
+
+**Measured (read-only).** 25 Runs named "orcapipe team" of 28 on the machine;
+~9,000 tasks, effectively all `ready`; the 18 agents' current tasks across 8
+Runs; **12 of the 25 coordinated by 12 different agent terminals**; the current
+Run at `consumer_generation` 21, i.e. 21 takeovers. And live during this
+session, with no human action, `RUN_KEY` moved `run_5f5c6f452853` →
+`run_1dd4c9a72be3`.
+
+**Cost.** `task-create --parent` refuses across Runs, so **9 of the 15 agents
+with a supervisor have no parent link** and all six of harbor's reports draw
+flat. The org chart `register_worker` exists to draw fails 60% of the time,
+silently. Work delivery is *not* affected - 16 of 18 agents still have a
+dispatch on their current terminal - so this is a drawing and accumulation
+bug, not an outage.
+
+**Decided - the fix, in three parts:**
+
+1. `run_exists` becomes tri-state (`True` / `False` / `None` for "could not
+   ask"), and `ensure_run` creates a Run **only on a definite `False`**.
+2. Drop the `bound != run` overwrite. The stored key is authoritative; a
+   terminal's incidental binding never rewrites it. `run_use` brings this
+   terminal to the team's Run instead of taking its word for where it is.
+3. One creator. `ocp org` already exists for exactly this job and runs once,
+   deliberately, in order (supervisors first). Launch should join, never create.
+
+**Keep:** the flat-task fallback in `register_worker`. It is not a bug; it is
+firing 60% of the time and is the only reason anything is drawn at all.
+
+**Test gap:** the one test that touches this stubs `run_current` and
+`run_create` to `None`, so neither the create-on-failure path nor the overwrite
+is covered. The fix needs a test that drives `run_exists` returning `None`.
+
+**Cleanup is a separate decision, not ours to take.** There is no `run-delete`
+in the 234 commands - only `orchestration reset --all | --tasks | --messages`,
+which is global and would also destroy orchestration state belonging to the
+agents' own work (the "Art direction" and "Harbor scene fixes" Runs are
+theirs, not ocp's). Re-pointing `RUN_KEY` at one Run and re-running `ocp org`
+rebuilds the tree without deleting anything; the old Runs then sit there, inert
+and noisy.
+
+**Still a prerequisite** for O1: adopting terminals into a Run whose identity
+changes on every Orca restart would inherit all of this.
 
 ### D9. Detection moves to Orca; reading the panel stays ours. And the
 statusLine stays, permanently.
