@@ -8,7 +8,7 @@ This file does not move. A line leaves the OPEN list only when a measurement
 settles it, and then it moves up with its evidence.
 
 Asked by the founder in #1255 (withdrawn, superseded live) and #1277.
-Decisions D1-D7 taken 2026-09-21.
+Decisions D1-D8 taken 2026-09-21.
 
 ---
 
@@ -119,7 +119,7 @@ time because of the above, and it is the only reason the team is drawn at all.
 
 | id | question | settled by |
 |---|---|---|
-| **O1** | Supervised lane or handoff lane? We create Run + Task + Dispatch and settle none (65 tasks all `ready`, five Runs named "orcapipe team"). Either adopt terminals with `worker-start --terminal`, or stop creating Tasks. | measuring what adoption actually grants |
+| **O1** | Supervised lane or handoff lane? We create Run + Task + Dispatch and settle none (D8). Either adopt terminals with `worker-start --terminal`, or stop creating Tasks and keep only what draws the team. | measuring what adoption grants - **needs the founder's go-ahead: it mutates a live fleet** |
 | **O2** | Do ~150 lines of screen regex in `orca.py` go away? Orca reports the same fact as `attention.requiresAction` / `observation.agentWait` "with the evidence that proved it". On an unsupervised dispatch, both were empty. | the same measurement as O1 |
 | **O3** | How does a codex agent get ROLE.md + base.md + handoff? Claude uses `--append-system-prompt`; codex has no argv equivalent. Candidates: `AGENTS.md` under a per-account `CODEX_HOME`, or the first prompt. | a live codex launch, not reading |
 | ~~O4~~ | *settled 2026-09-21 - see D8.* | |
