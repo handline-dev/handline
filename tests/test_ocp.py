@@ -2441,6 +2441,13 @@ def _composer_typed(text: str) -> list:
             "  ⏵⏵ auto mode on (shift+tab to cycle) · ← for agents"]
 
 
+# harbor's real tail, auditor's #1144 fleet check: one hint line under the
+# box and no account status line, so the box sits one row later than an
+# ocp-launched agent's.
+HARBOR_COMPOSER_EMPTY = [_COMPOSER_RULE_ROW, "❯", _COMPOSER_RULE_ROW,
+                          "  ⏵⏵ auto mode · enter to return · space to reply · ctrl+x to "]
+
+
 def _screen_of(tail, draft=None, source="screen"):
     term = {"handle": "term_x", "status": "running", "tail": list(tail), "source": source}
     if draft is not None:
@@ -2500,6 +2507,14 @@ def test_the_screen_names_what_is_in_the_way(home: Path) -> None:
         orcamod._screen = lambda h: _screen_of(["prompt"])
         check("screen: a screen with no composer box at all fails closed, not blank forever",
               orcamod.screen_blocker("term_x").kind == orcamod.UNREADABLE)
+
+        # A layout with one row under the box, not two, is still found - the
+        # triple is searched for, not assumed to sit a fixed distance from
+        # the end.
+        orcamod._screen = lambda h: _screen_of(HARBOR_COMPOSER_EMPTY)
+        check("screen: a composer with a different number of rows under it "
+              "is still read, not UNREADABLE",
+              orcamod.screen_blocker("term_x") is None)
         orcamod._screen = lambda h: _screen_of(EXIT_DIALOG, source="stream")
         check("screen: a stream is not a screen - fail closed",
               orcamod.screen_blocker("term_x").kind == orcamod.UNREADABLE)

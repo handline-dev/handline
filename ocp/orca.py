@@ -400,15 +400,17 @@ _COMPOSER_MARKER = ("❯", ">")
 
 
 def _composer_line(tail: list) -> str | None:
-    """The composer's own content line, or None when the last few rows are
-    not that shape at all - a screen mid-scroll, a different layout, a read
-    that landed somewhere else. Never guessed from fewer rows than the shape
-    needs."""
-    if len(tail) < 5:
-        return None
-    top, content, bottom = (str(x).strip() for x in tail[-5:-2])
-    if _COMPOSER_RULE.match(top) and _COMPOSER_RULE.match(bottom):
-        return content
+    """The composer's own content line, or None when nothing in the tail is
+    that shape at all - a screen mid-scroll, a different layout, a read that
+    landed somewhere else. How many rows sit below the box (a status line, a
+    hint line, both, neither) varies by agent, so the triple is searched for
+    rather than assumed to sit a fixed distance from the end."""
+    for k in range(3, 9):
+        if len(tail) < k:
+            break
+        top, content, bottom = (str(x).strip() for x in (tail[-k], tail[-k + 1], tail[-k + 2]))
+        if _COMPOSER_RULE.match(top) and _COMPOSER_RULE.match(bottom):
+            return content
     return None
 
 
