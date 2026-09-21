@@ -1107,7 +1107,7 @@ def _stacked_lines(detail: dict, tabs: list[tuple[str, list]], width: int) -> li
     out: list[str] = []
     for i, (heading, rows) in enumerate(tabs):
         out.append(_section_rule(heading, width))
-        out += [_painted(ln, width) for ln in _rows_lines(rows, width, dim_plain=i == 0)]
+        out += _rows_lines(rows, width, dim_plain=i == 0)
         if i == 0:
             detail["conv_end"] = len(out)
         out.append("")
@@ -1215,9 +1215,14 @@ def _message_lines(r, width: int) -> list[str]:
         lines += [f"  {ln}" if ln else "" for ln in rest]
         if r.side == "you":
             lines = [Filled(ln, FILL_YOU) for ln in lines]
-    meta = f"  {DIM}{_clock(r.ts)}{R}" + (f"  {YEL if r.waiting else DIM}\u00b7 {r.tail}{R}"
-                                          if r.tail else "")
-    return lines + [fit(meta, width)]
+    # The state is never cut - it can carry the id /cancel names - so what does
+    # not fit beside the time goes on lines of its own.
+    when = f"  {DIM}{_clock(r.ts)}{R}"
+    tail = wrap([f"\u00b7 {r.tail}"], max(1, width - 2)) if r.tail else []
+    paint = YEL if r.waiting else DIM
+    if tail and vlen(when) + 2 + vlen(tail[0]) <= width and len(tail) == 1:
+        return lines + [f"{when}  {paint}{tail[0]}{R}"]
+    return lines + [fit(when, width)] + [f"  {paint}{ln}{R}" for ln in tail]
 
 
 class Filled(str):
@@ -1245,10 +1250,15 @@ _MARKERS = {"you": (f"{CYA}{BOLD}\u276f{R}", ""),
 def _rows_lines(rows: list, width: int, dim_plain: bool = False) -> list[str]:
     """The rows of a tab as the screen shows them, each kind laid out its own way.
 
-    A message or a request is a block: a header line and its text indented
-    under it, with a blank line between blocks, so where one ends is a gap and
-    not a count. Plain rows are wrapped.
+    A message or a request is a block - a marker or header line and its text
+    under it - with a blank line between blocks, so where one ends is a gap and
+    not a count. Plain rows are wrapped. A row on a background is painted here,
+    to the width it is laid out at, whoever draws the rows.
     """
+    return [_painted(ln, width) for ln in _rows_unpainted(rows, width, dim_plain)]
+
+
+def _rows_unpainted(rows: list, width: int, dim_plain: bool) -> list[str]:
     out: list[str] = []
     block = False                      # the row above was a block
     if rows and all(isinstance(r, actions.Event) for r in rows):
@@ -1363,14 +1373,21 @@ def _layout(want: list[int], room: int) -> tuple[list[int | None], int]:
             for i in range(len(want))], len(want) - keep
 
 
-def _has_input_box(detail: dict) -> bool:
-    return bool(detail.get("stacked")) and not detail.get("composing")
+# The smallest screen that still shows a few rows of the page above the box.
+INPUT_BOX_MIN = 12
+
+
+def _has_input_box(detail: dict, height: int) -> bool:
+    """An agent page ends in an input box unless the composer is open or the
+    screen is too short to spare it: below that the page shows less body, and
+    the keys line stays."""
+    return bool(detail.get("stacked")) and not detail.get("composing") and height >= INPUT_BOX_MIN
 
 
 def _page_room(detail: dict, height: int) -> int:
     """How many rows of the page a screen of `height` shows: what the title,
     the flash and the keys leave, less the input box when the page has one."""
-    return max(1, height - 4 - (3 if _has_input_box(detail) else 0))
+    return max(1, height - 4 - (3 if _has_input_box(detail, height) else 0))
 
 
 def _detail_frame(width: int, height: int, detail: dict, flash: str = "") -> str:
@@ -1387,7 +1404,7 @@ def _detail_frame(width: int, height: int, detail: dict, flash: str = "") -> str
     # An agent's page ends in the input the Claude Code screen has: a rule, the
     # prompt line, a rule. It is where the composer opens, so while one is open
     # the composer is that box and this one is not drawn.
-    boxed = _has_input_box(detail)
+    boxed = _has_input_box(detail, height)
     room = _page_room(detail, height)
     last = max(0, len(body) - room)
     top = max(0, min(detail.get("top", 0), last))

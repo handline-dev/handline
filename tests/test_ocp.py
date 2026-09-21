@@ -14250,6 +14250,27 @@ def test_a_conversation_reads_as_turns_at_any_width(home: Path) -> None:
         con.close()
 
 
+def test_a_messages_state_is_never_cut_at_a_narrow_width(home: Path) -> None:
+    """The state line can carry the id /cancel names; a narrow pane wraps it
+    instead of cutting it."""
+    _daemon_home(home, 20)
+    agents.register("reviewer", "alpha")
+    con = db.connect()
+    try:
+        rid = db.add_request(con, askmod.HUMAN, "reviewer", "hello", None, "peer", "async",
+                             None, 0, None)
+        page = tui._agent_page(con, "reviewer", tui.AGENTS)
+        for width in (40, 32, 24, 16):
+            lines = [tui._ANSI.sub("", ln) for ln in tui.lines_of(page, width)]
+            text = " ".join(ln.strip() for ln in lines)
+            check(f"state: 'queued' and the id are whole at {width}",
+                  "queued" in text and f"#{rid}" in text and "\u2026" not in "".join(
+                      ln for ln in lines if "queued" in ln or f"#{rid}" in ln), str(lines))
+            check(f"state: nothing is wider than {width}", all(tui.vlen(ln) <= width for ln in lines))
+    finally:
+        con.close()
+
+
 def test_a_conversation_shows_whose_message_is_whose_without_colour(home: Path) -> None:
     """Founder: at the very least what I said must look different from what the
     agent said. The marker says it without colour, the colour says it again,
@@ -14284,6 +14305,9 @@ def test_a_conversation_shows_whose_message_is_whose_without_colour(home: Path) 
                 if groups and not plain.startswith("──"):
                     groups[-1][1].append(r)
             sides = [sd for sd, _ in groups]
+            said = [r for r in page["sections"][1][1] if getattr(r, "kind", "") == "msg"]
+            check(f"whose: every message starts on a marker at {width}",
+                  len(groups) == len(said) > 0, f"{len(groups)} groups, {len(said)} messages")
             check(f"whose: the human's, the agent's and a third party's are all there at {width}",
                   set(sides) == {"you", "agent", "other"}, str(sides))
             check(f"whose: in colour too, on the marker line, in a different one at {width}",
@@ -14359,6 +14383,8 @@ def test_the_founders_messages_sit_on_a_background_that_fills_the_whole_block(ho
 
         for width in (100, 40, 24):
             judge(tui.lines_of(page, width), width, f"at {width}")
+        check("fill: the background is painted where the rows are laid out, whatever draws them",
+              any(tui.FILL_YOU in ln for ln in tui.lines_of(dict(page, stacked=False), 60)))
         # Scrolled, so a message is cut by the top and bottom of the screen.
         for top in (0, 3, 6, 9):
             page["top"], page["end"] = top, False
@@ -15901,7 +15927,7 @@ def test_the_agent_page_ends_in_the_input_box_and_the_composer_takes_its_place(h
     con = db.connect()
     try:
         d = tui._agent_page(con, "reviewer")
-        for width, height in ((100, 30), (40, 12), (24, 9)):
+        for width, height in ((100, 30), (40, 12), (24, 12)):
             rows = [tui._ANSI.sub("", ln.replace("\033[K", ""))
                     for ln in tui._detail_frame(width, height, d).split("\n")]
             check(f"box: the frame is exactly {height} rows at {width}", len(rows) == height)
@@ -15910,6 +15936,11 @@ def test_the_agent_page_ends_in_the_input_box_and_the_composer_takes_its_place(h
                   and rows[-3] == "─" * width, str(rows[-6:]))
             check(f"box: nothing is wider than the terminal at {width}",
                   all(tui.vlen(r) <= width for r in rows))
+        short = [tui._ANSI.sub("", ln.replace("\033[K", ""))
+                 for ln in tui._detail_frame(60, 8, d).split("\n")]
+        check("box: a screen too short to spare it shows less page and keeps the keys line",
+              len(short) == 8 and short[-1].startswith("esc back")
+              and not any(ln.startswith("\u276f write") for ln in short), str(short))
         rows = tui._ANSI.sub("", tui._detail_frame(100, 30, dict(d, composing=True)))
         check("box: with the composer open the idle box is not drawn",
               "\u276f write to reviewer" not in rows and "─" * 100 not in rows)
@@ -18299,6 +18330,7 @@ def main() -> int:
         run(lambda: test_the_agent_page_cancels_a_waiting_request_by_command(Path(td) / 'cancelpage'))
         run(lambda: test_the_one_column_agent_page(Path(td) / 'onecolumn'))
         run(lambda: test_the_agent_page_ends_in_the_input_box_and_the_composer_takes_its_place(Path(td) / 'inputbox'))
+        run(lambda: test_a_messages_state_is_never_cut_at_a_narrow_width(Path(td) / 'narrowstate'))
         run(lambda: test_a_read_only_page_does_not_act_on_the_agent_and_the_note_row_is_whole(Path(td) / 'readonly'))
         run(lambda: test_a_folded_row_says_what_its_reports_are_doing(Path(td) / 'foldmark'))
         run(lambda: test_the_panel_and_the_daemon_agree_about_what_is_in_the_way(Path(td) / 'topagree'))
