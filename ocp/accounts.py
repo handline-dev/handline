@@ -226,15 +226,9 @@ def subscription_type(acct: str, refresh: bool = False) -> str | None:
     refresh=True to ask again after a human changes a plan.
     """
     f = _subscription_file(acct)
-    cached = None
-    if f.exists():
-        try:
-            data = json.loads(f.read_text())
-            cached = data.get("subscriptionType") if isinstance(data, dict) else None
-        except (OSError, json.JSONDecodeError):
-            cached = None
+    cached = recorded_subscription_type(acct)
     if not refresh and cached:
-        return str(cached)
+        return cached
     # A live reading could not be taken - not logged in, or the call itself
     # failed - and that must not erase what was already recorded: this account
     # is still that plan, whatever went wrong just now asking again.

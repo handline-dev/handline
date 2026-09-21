@@ -730,6 +730,12 @@ def test_an_account_the_week_is_about_to_close_is_not_usable_and_not_picked(home
         check("week: gamma alone, #1233's shape, is refused for the week's runway",
               alone is None and "one more agent lasts" in dict(why)["gamma"], str((alone, why)))
         alpha = status.read("alpha")
+        filling = types.SimpleNamespace(account="alpha", burn=5e-3, at_cap=False, costs=loads["alpha"].costs)
+        ratio = filling.costs.week_per_5h("alpha")
+        got = status.week_runway_s(alpha := status.read("alpha"), filling)
+        check("week: a filling account's figure is its week's headroom at its own fill, not the pick's",
+              ratio is not None and got is not None
+              and abs(got - (100 - alpha.trusted_pct_7d) / (5e-3 * ratio)) < 1e-6, str((got, ratio)))
         check("week: an idle account the week does not close still says no recent burn",
               status.describe_runway(status.runway(alpha, None, None, loads["alpha"])) == "no recent burn")
         check("week: at the week's wall it says so",

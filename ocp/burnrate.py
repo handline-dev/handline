@@ -217,12 +217,19 @@ class Costs:
         self._samples = samples
         self._week_ratios = week_ratios or {}
         self._plan_of = plan_of
+        self._plans: dict[str, str | None] = {}
+
+    def _plan(self, account: str) -> str | None:
+        """The plan, looked up once per account: a redraw asks several times."""
+        if account not in self._plans:
+            self._plans[account] = self._plan_of(account)
+        return self._plans[account]
 
     def week_per_5h(self, account: str) -> float | None:
         """Points of the week one point of the 5h window costs on this account:
         its own measured ratio, else its plan's pooled one, else None - nothing has
         measured it, and no 5h figure can be turned into the week's."""
-        return self._week_ratios.get(account, self._week_ratios.get(_pool(self._plan_of(account))))
+        return self._week_ratios.get(account, self._week_ratios.get(_pool(self._plan(account))))
 
     def _median(self, pick) -> tuple[float, int] | None:
         vals = [s["r"] for s in reversed(self._samples) if pick(s)][:KEEP]
