@@ -605,9 +605,62 @@ empty password when piped. The inline form puts the secret in **argv**, which
 that. A real implementation must call the Security framework directly rather
 than shell out.
 
-**Open, for the founder:** whether to allow a retry with a different client
-signature, or to drop the refresh and accept that Q4 only covers
-recently-active accounts.
+#### Settled (#1364): the CLI refreshes the token, so the raw POST is not needed
+
+The retry was approved, and it made the question moot. Two results.
+
+**1. The raw token endpoint stays shut, and it does not matter.** `curl` with a
+browser `User-Agent` gets **past** Cloudflare where `urllib` did not - the 403
+`1010` becomes a **429 `rate_limit_error`** from the API itself. Still 429 two
+minutes later, no `Retry-After`, 55 ms (edge-cached). Not pursued further,
+because:
+
+**2. `claude auth status` refreshes the token itself.** Run against an account's
+own config dir, it renewed `gamma`'s credential from **expired -1.9h** to
+**valid +7.9h**. So the access-token lifetime is **~8 hours**, and the refresh
+needs **no raw OAuth call, no fingerprint spoofing, and no Keychain write of
+ours** - Claude Code performs the write. It spends no quota: there is no model
+call in an auth check.
+
+**The whole chain, end to end on an idle account:**
+
+    CLAUDE_CONFIG_DIR=<account>/.claude claude auth status --json   # refreshes
+    GET https://api.anthropic.com/api/oauth/usage                   # 200, 467 ms
+
+`gamma` returned `five_hour.utilization` **0.0** (`resets_at: null` - nothing
+spent in the window) and `seven_day` **100.0**, resetting
+`2026-09-22T22:00Z`.
+
+**3. Validated against `probe.py`, by accident and perfectly.** Six minutes
+before this call, `probe.py` had run on `gamma` on its own - its snapshot is
+unmistakable (`model_id: claude-haiku-4-5-20251001`, `agent: None`). The two
+mechanisms agree exactly:
+
+| | `probe.py` | the usage endpoint |
+|---|---|---|
+| how | pty, session boot, one Haiku turn | one HTTPS GET |
+| cost | a session and its quota, up to 90 s, 30-min cooldown | **467 ms, no quota** |
+| 5h | 0% | 0.0% |
+| 7d | 100% | 100.0% |
+| 7d reset | 09-23 07:00 local | `2026-09-22T22:00Z` - the same instant |
+
+Same answers. One spends quota to get them.
+
+**4. Nothing was harmed.** `claude auth status` on `gamma` reports
+`loggedIn: true`; the 403 and 429 attempts wrote nothing, because the script
+persists only on a 200.
+
+**So Q4 is viable, and simpler than drafted.** The design is: for an account
+whose token is near or past expiry, run `claude auth status --json` against its
+config dir, then one GET - scheduled off `resets_at`, per the founder's point
+in #1360. **This retires the argv-leak problem and the Security-framework
+requirement entirely**, since ocp never writes a credential. What it puts in
+reach is `probe.py` (172 lines and a session per quiet account) and most of
+`status.py`'s carried/quiet/unknown model.
+
+**Still to check before building:** whether `claude auth status` refreshes only
+near expiry (Orca's own threshold is 5 minutes, so probably), and what it does
+when a session is live on that account.
 
 **Standing risk:** it is an undocumented endpoint. `claude auth status --json`
 returns identity only (`loggedIn`, `email`, `orgId`, `subscriptionType` - no
