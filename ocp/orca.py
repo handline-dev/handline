@@ -426,7 +426,7 @@ def _describe_backgrounded(tail: list, hint: int) -> str:
     same hostile-text care as describe_modal, since the agent paints this
     screen too. The new-session box is left out: its rules and placeholder
     say nothing about the conversation."""
-    lines = [_visible(str(x).strip()) for x in tail[:hint]]
+    lines = [textsafe.oneline(str(x).strip()) for x in tail[:hint]]
     shown = [ln for ln in lines if ln and not _COMPOSER_RULE.match(ln) and ln != "\u276f"]
     return " / ".join(shown[:3])[:DETAIL_CHARS]
 
