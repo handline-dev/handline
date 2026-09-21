@@ -11587,8 +11587,12 @@ def test_for_you_folds_to_one_line_per_agent(home: Path) -> None:
         check("fold: and counting all three", rev["unread"] == 3, str(rev))
 
         # A gate never folds, even when the same agent has said something newer.
-        db.add_request(con, "backend", actions.HUMAN, "which branch do we cut?", None,
-                       "peer", "async", "escalate", 0, None)
+        # Built via ask.escalate() - the production shape, fire_and_forget with
+        # creates_gate=True, so `waiting` is false on it and `gate` is the only
+        # thing pinning it. A hand-made async row would pin on `waiting` alone
+        # and leave `gate` untested: dropping it from messages() stayed green
+        # against that shape (auditor's #1500).
+        askmod.escalate(con, "backend", "which branch do we cut?", "test escalation")
         ok, _m, r4 = askmod.ask(actions.HUMAN, "even later", requester="backend", fyi=True)
         backend_rows = [m for m in actions.messages(con) if m["from"] == "backend"]
         check("fold: the gate keeps its own line beside the folded report",
