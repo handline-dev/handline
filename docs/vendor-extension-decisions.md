@@ -78,10 +78,13 @@ plus per-provider `status` / `error`, replacing the hard-coded `pct_5h` /
 **Why it matters most:** this is the deepest coupling in ocp and the one that
 does not look like coupling - five of those sixteen files never mention
 `claude`. **Forecloses:** a runtime dependency on Orca for any number that
-gates a decision. **Revisit if:** `inactiveClaudeAccounts[]` is
-observed populated **and** fresh across a few readings. (The old trigger - "a
-usage-refresh verb" - is retired: the channel exists, it is the filling of it
-that cannot be relied on.)
+gates a decision. **Superseded in part by Q4 (#1360):** the
+per-account ceiling turned out to be Orca's, not the API's - the same endpoint
+Orca calls answered for an account Orca does not consider active, with numbers
+identical to our statusLine's. So the question is no longer whether to wait for
+Orca to report per account; it is whether we call the endpoint ourselves. D2's
+conclusion (our own quota layer, in Orca's shape) is unchanged and now rests on
+a firmer floor.
 
 ### D3. The request queue is not replaced by Orca's mail.
 
@@ -478,10 +481,11 @@ Not started. Step 3 is the one with real risk and should be its own branch.
 
 ### Q4. Pull rate limits over OAuth ourselves, for all five accounts (#1358)
 
-**Not started, and it needs the founder's go-ahead** - it means our code
-handling an OAuth token, which `accounts.logged_in` deliberately avoids today
-(it calls `security find-generic-password` **without** `-w` for exactly that
-reason).
+**Measured, not built.** The read half is proven (below). The write half - the
+token refresh - is **not started and needs the founder's go-ahead**, because it
+rotates a live credential. Note this crosses a line `accounts.logged_in`
+deliberately holds today: it calls `security find-generic-password` **without**
+`-w` so it never touches the secret.
 
 **What makes it possible:** Orca already does it, and says so -
 `usageMetadata = {source: "oauth", credentialSource: "scoped-keychain"}`. It
@@ -502,12 +506,63 @@ account goes silent at all. Remove that constraint and two things go:
 | `probe.py` | 172 | forces a reading out of a quiet account: a pty, a session boot, one Haiku turn, up to 90s, 30-min cooldown - and it spends quota to learn a number |
 | most of `status.py`'s trust model | of 1,023 | `carried` / `carried_old` / `quiet` / `unknown`, `idle_floor`, the high-water mark - all of it copes with readings we can only take opportunistically |
 
-**Measure before building any of it**, in this order: (1) that the endpoint
-answers for an account with nothing running, using that account's own
-credential; (2) that it answers for an account Orca does **not** consider
-active - this is the whole point, and `inactiveClaudeAccounts[]` being empty
-(D2) is a hint it may be exactly what Orca cannot do either; (3) what it costs,
-since it must be safe to call every tick.
+#### Measured 2026-09-21 (#1360). It works, and the obstacle is not the one I expected.
+
+The call is not guessed - it is Orca's own, read out of its bundle:
+
+    GET https://api.anthropic.com/api/oauth/usage
+    Authorization: Bearer <claudeAiOauth.accessToken>
+    anthropic-beta: oauth-2025-04-20
+    User-Agent: claude-code/2.1.0
+
+**1. It answers, and it agrees with us.** On `omega`: HTTP 200 in 470 ms,
+`five_hour.utilization` **36.0** with `resets_at`, `seven_day` **17.0**, plus a
+`limits[]` array (`kind`, `percent`, `severity`, `resets_at`, `scope`) that
+already carries the per-model weekly D2 wants. ocp's own statusLine for `omega`
+at the same moment: `pct_5h` **36**, `reset_5h` **identical to the second**,
+`pct_7d` 16. Same numbers, from a source that needs no session.
+
+**2. It answers for an account Orca does not consider active.** Orca's active
+account is `delta`; this ran on `omega`. So the one-account limit in D2 is
+**Orca's, not the API's** - the ceiling was never in the endpoint.
+
+**3. The obstacle is the token, and it lands exactly where we need it not to.**
+The access token expires on its own short clock, unrelated to any rate-limit
+window. Measured:
+
+| account | state | access token | result |
+|---|---|---|---|
+| `omega` | live session | valid **+1.1h** | **HTTP 200** |
+| `delta` | idle | valid +0.8h | not called |
+| `gamma` | idle 2h+ | **expired -1.9h** | **HTTP 401** "OAuth access token has expired" |
+
+Claude Code refreshes the token **while it runs**. So an account with nothing
+running is exactly the account whose token has gone stale - and that is
+precisely the account the statusLine cannot report and that `probe.py` exists
+for. The gap the API was meant to fill is the gap where its credential is dead.
+
+**4. Solvable, and the hazard is complementary to the need.** Every Keychain
+entry carries `refreshToken` and `refreshTokenExpiresAt` beside the access
+token, so a refresh is ordinary OAuth. Orca does it (`shouldAttemptDelegated
+Refresh`, `hasRefreshableCredentials`) and **defers it while a live Claude
+session is running** (`managedRefreshDeferredByLivePty`,
+`deferredByLiveClaudeSession`) because both would rotate the same credential.
+For us that conflict cannot arise: we only ever need to refresh an account with
+**nothing running**, which is exactly when refreshing is safe.
+
+**5. The polling question is settled, and in the founder's favour.** Q4 first
+said the call "must be safe to call every tick". Wrong requirement. Every
+reading carries `resets_at` for both windows, and an idle account's usage
+cannot rise on its own - so the schedule is **one call per account per window,
+plus one when a window turns over**, not a tick. The one caveat is already on
+record in `status.py`: "nothing of ours is running" is not "nothing is
+spending" (`ocp fold`, or the founder's own sessions, spend too). That argues
+*for* the call - it replaces an inference we already know to be unsafe with a
+re-check that costs 470 ms.
+
+**Not done, and it needs the founder's go-ahead:** performing the refresh. It
+rotates a stored credential, and getting it wrong logs an account out of a live
+fleet.
 
 **Standing risk:** it is an undocumented endpoint. `claude auth status --json`
 returns identity only (`loggedIn`, `email`, `orgId`, `subscriptionType` - no
