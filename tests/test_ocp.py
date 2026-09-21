@@ -2581,6 +2581,23 @@ BACKGROUND_PICKER = [
     "  ⏵⏵ auto mode · enter to open · space to reply · ctrl+x to delete · ? for shortcuts"]
 
 
+# #1252: ordinary English an idle agent writes about this very feature,
+# measured as the shape every one of 8 live agents actually has - one row of
+# its own transcript sitting just above a real, empty composer.
+FLEET_HINT_QUOTE = ("blocking: an idle agent whose transcript merely says "
+                     "enter to open gets treated as backgrounded")
+
+# A picker shaped differently from BACKGROUND_PICKER - one session row
+# instead of two, no "Completed" banner line, harbor's one-hint-row composer
+# (#1144) instead of the four-row one - so a fix cannot pass by fitting this
+# fixture's exact offsets.
+BACKGROUND_PICKER_SHORT = [
+    "Your conversation moved to the background - enter opens it · esc returns to it · ctrl+c twice quits",
+    " ✻ ocp inbox management             Processed both orcapipe inbox corrections...",
+    _COMPOSER_RULE_ROW, "❯", _COMPOSER_RULE_ROW,
+    "  ⏵⏵ auto mode · enter to open · space to reply · ctrl+x to "]
+
+
 def _screen_of(tail, draft=None, source="screen"):
     term = {"handle": "term_x", "status": "running", "tail": list(tail), "source": source}
     if draft is not None:
@@ -2660,6 +2677,35 @@ def test_the_screen_names_what_is_in_the_way(home: Path) -> None:
         orcamod._screen = lambda h: _screen_of(quoted)
         check("screen: the hint quoted in the transcript, above the bottom rows, is not the picker",
               orcamod.screen_blocker("term_x") is None)
+        # #1252: on every one of 8 live agents, the old fixed window reached
+        # 1-2 rows of the agent's own transcript - and "enter to open" is
+        # ordinary English an agent reporting on this very feature writes
+        # (auditor's own #1229 review contains it). This is that shape: the
+        # phrase sits one row above a real, ordinary composer.
+        fleet_false_positive = [FLEET_HINT_QUOTE] + COMPOSER_EMPTY
+        orcamod._screen = lambda h: _screen_of(fleet_false_positive)
+        check("screen: a transcript row quoting the hint, one row above a "
+              "real composer, is not the picker - it is idle, not blocked",
+              orcamod.screen_blocker("term_x") is None)
+        # A real picker still has to be found when it is a different shape
+        # than the fixture above - fewer session rows, harbor's one-hint-row
+        # composer layout - never by shrinking the window (7f01f52 exists to
+        # fail open, not to fail closed on a picker nobody has measured yet).
+        orcamod._screen = lambda h: _screen_of(BACKGROUND_PICKER_SHORT)
+        b = orcamod.screen_blocker("term_x")
+        check("screen: a shorter, differently-shaped picker is still found",
+              b is not None and b.kind == orcamod.BACKGROUNDED, str(b))
+        check("screen: quoted from its own banner and session, not the composer",
+              b and b.detail.startswith("Your conversation moved to the background")
+              and "ocp inbox management" in b.detail
+              and "❯" not in b.detail and "─" not in b.detail, str(b))
+        # An empty detail must not render a dangling colon - what the founder
+        # saw on the #1252 false positive, where tail[:hint] was empty.
+        check("screen: an empty BACKGROUNDED detail has no dangling colon",
+              orcamod.Blocker(orcamod.BACKGROUNDED, "").reason()
+              == "its conversation moved to the background")
+        check("screen: an empty MODAL detail has no dangling colon",
+              orcamod.Blocker(orcamod.MODAL, "").reason() == "a dialog is open on its screen")
         orcamod._screen = lambda h: _screen_of(EXIT_DIALOG, source="stream")
         check("screen: a stream is not a screen - fail closed",
               orcamod.screen_blocker("term_x").kind == orcamod.UNREADABLE)

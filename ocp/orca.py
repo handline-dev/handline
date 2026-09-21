@@ -240,10 +240,12 @@ class Blocker:
 
     def reason(self) -> str:
         if self.kind == MODAL:
-            return f'a dialog is open on its screen: {self.detail}'
-        if self.kind == BACKGROUNDED:
-            return f'its conversation moved to the background: {self.detail}'
-        return "its screen could not be read"
+            base = "a dialog is open on its screen"
+        elif self.kind == BACKGROUNDED:
+            base = "its conversation moved to the background"
+        else:
+            return "its screen could not be read"
+        return f"{base}: {self.detail}" if self.detail else base
 
 
 # A dialog's panel opens with a rule of these (measured on Claude Code's exit
@@ -415,16 +417,24 @@ def declining_key(dialog: Dialog) -> tuple[str | None, str]:
 _COMPOSER_RULE = re.compile(r"^[─]{8,}$")
 
 
-def _composer_shape(tail: list) -> bool:
-    """Whether the tail holds a recognized composer box - never what is in
-    it; see screen_blocker for why."""
+def _composer_box(tail: list) -> tuple[int, int] | None:
+    """(top, bottom) row indices of the composer's rule/content/rule triple,
+    or None. The triple is searched for, not assumed a fixed distance from
+    the end (auditor's #1144 fleet read)."""
     for k in range(3, 9):
         if len(tail) < k:
             break
-        top, bottom = (str(x).strip() for x in (tail[-k], tail[-k + 2]))
-        if _COMPOSER_RULE.match(top) and _COMPOSER_RULE.match(bottom):
-            return True
-    return False
+        top, bottom = len(tail) - k, len(tail) - k + 2
+        if (_COMPOSER_RULE.match(str(tail[top]).strip())
+                and _COMPOSER_RULE.match(str(tail[bottom]).strip())):
+            return top, bottom
+    return None
+
+
+def _composer_shape(tail: list) -> bool:
+    """Whether the tail holds a recognized composer box - never what is in
+    it; see screen_blocker for why."""
+    return _composer_box(tail) is not None
 
 
 # Claude Code's backgrounded-session picker: the conversation moved to the
@@ -433,24 +443,45 @@ def _composer_shape(tail: list) -> bool:
 # from the agent's own prompt, and text typed there goes to a new session, not
 # the conversation. Its hint line does: "enter to open" where the conversation's
 # own says "enter to return" or "shift+tab to cycle".
+#
+# That phrase alone is not enough: it is ordinary English, and any agent that
+# reports on this feature (this docstring, a review of it) writes it in its
+# own transcript, which sits in the same rows the naive search covered - #1252,
+# measured on all 8 live agents where the window reached 1-2 rows of the
+# agent's own output. So the hint is required at or below the composer's own
+# box, never above it in the transcript, and the box is required to have a
+# session list above it - a bullet, its title, then a wide gap before a
+# summary, which is column alignment a transcript line is not shaped like.
 _BACKGROUNDED_HINT = "enter to open"
-_HINT_ROWS = 6
+_SESSION_ROW = re.compile(r"^[\u273b\u2219]\s+\S.*\s{2,}\S")
 
 
-def _hint_row(tail: list) -> int | None:
-    for i in range(max(0, len(tail) - _HINT_ROWS), len(tail)):
-        if _BACKGROUNDED_HINT in str(tail[i]):
-            return i
-    return None
+def _picker_box(tail: list) -> tuple[int, int] | None:
+    """(banner_top, hint) if the tail is shaped like the backgrounded picker:
+    a composer box, its hint at or below it, and a session row above it.
+    None otherwise - including for an ordinary composer whose own transcript
+    happens to quote the hint's words higher up the screen."""
+    box = _composer_box(tail)
+    if box is None:
+        return None
+    top, bottom = box
+    hint = next((i for i in range(bottom, len(tail))
+                 if _BACKGROUNDED_HINT in str(tail[i])), None)
+    if hint is None:
+        return None
+    if not any(_SESSION_ROW.match(str(x).strip()) for x in tail[:top]):
+        return None
+    return top, hint
 
 
-def _describe_backgrounded(tail: list, hint: int) -> str:
-    """The picker's banner and session list above its hint line, quoted - the
+def _describe_backgrounded(tail: list, top: int) -> str:
+    """The picker's banner and session list above its own box, quoted - the
     same hostile-text care as describe_modal, since the agent paints this
-    screen too. The new-session box is left out: its rules and placeholder
-    say nothing about the conversation."""
-    lines = [textsafe.oneline(str(x).strip()) for x in tail[:hint]]
-    shown = [ln for ln in lines if ln and not _COMPOSER_RULE.match(ln) and ln != "\u276f"]
+    screen too. Never the box or the hint themselves, which say nothing
+    about the conversation - and never anything below `top`, so a false
+    match cannot quote the transcript it was found next to."""
+    lines = [textsafe.oneline(str(x).strip()) for x in tail[:top]]
+    shown = [ln for ln in lines if ln and not _COMPOSER_RULE.match(ln) and ln != "❯"]
     return " / ".join(shown[:3])[:DETAIL_CHARS]
 
 
@@ -477,9 +508,10 @@ def screen_blocker(handle: str) -> Blocker | None:
     if footer is not None:
         dialog = parse_dialog(tail, footer)
         return Blocker(MODAL, describe_modal(tail, footer), title=dialog.title if dialog else "")
-    hint = _hint_row(tail)
-    if hint is not None:
-        return Blocker(BACKGROUNDED, _describe_backgrounded(tail, hint))
+    picker = _picker_box(tail)
+    if picker is not None:
+        top, _hint = picker
+        return Blocker(BACKGROUNDED, _describe_backgrounded(tail, top))
     if _composer_shape(tail):
         return None
     # Not the composer's shape either - a screen mid-scroll, a different
