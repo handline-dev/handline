@@ -524,7 +524,7 @@ JSON: (a) account-wide **rate limits**, (b) per-session **context window**, and
 | **context window** | **nobody** | **ours, and there is no alternative** |
 | session id / transcript | ours only | ours |
 
-**(b) is the finding.** Not one of Orca's 234 commands mentions a context
+**(b) is the finding.** Not one of Orca's commands mentions a context
 window or a token count; `terminal show` has no such field; the only trace
 anywhere is the `preview` string rendering Claude Code's own status line
 (`· Ebbing… (20s · ↓ 1.3k tokens)`), which is a picture, not data. Context

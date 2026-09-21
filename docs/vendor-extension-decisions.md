@@ -267,12 +267,41 @@ What stays ours is *describing* the panel - `parse_dialog`, `declining_key`,
 `decline_dialog` must never press Esc on a panel it could not read. Much
 smaller than 150 lines, and no longer the thing that decides.
 
-**The statusLine injection is permanent.** It carries three payloads, not one:
-rate limits (Orca has them, 40h stale), session identity (ours), and the
-**per-session context window** - which **nothing else on this machine has**.
-Not one of Orca's 234 commands mentions a context window or a token count.
-Context drives the handoff-and-park trigger, the feature that keeps the fleet
-running unattended, so this is not a convenience Orca might absorb later.
+**The statusLine injection is permanent, and this does not depend on the quota
+question** (re-measured for #1356). Asked whether taking usage from Orca would
+let us drop the injection: no, and the two are independent. The collector's
+payload is **five groups, only one of which is rate limits**, and the other
+readers do not care where quota comes from:
+
+| payload | readers | other source? |
+|---|---|---|
+| rate limits (5h / 7d / opus_7d + resets) | `status.py`, and everything downstream | Orca, for **1 of our 5** accounts (D2) |
+| **context window** (`ctx_pct`) | `triggers.py`, `daemon.py`, `actions.py`, `status.py`, `cli.py`, `tui.py` | **none** |
+| **session identity** (`session_id`, `transcript_path`) | `db.py`, `events.py`, `handoff.py`, `status.py`, `actions.py`, `daemon.py` | **none** |
+| `model_id`, `cost_usd` | `status.py` | none |
+| `ctx_size`, `ctx_used`, `lines_added`, `exceeds_200k` | **no reader** - collected, never used | n/a |
+
+`triggers.evaluate(pct_5h, ctx_pct, pct_7d)` parks an agent on `ctx_pct`, and
+`handoff.py` writes "previous session: `<session_id>`, recorded at
+`<transcript_path>`" - the line a resumed agent reads to find its own history.
+Re-checked for #1356: **`agent-context --json` lists 236 commands and not one
+mentions a context window or a token count** (`contextWindow`, `context_window`,
+`tokenCount`, `token_count`: 0 occurrences each). So the injection stays whole
+even in the best case for quota, and dropping usage from it would delete about
+eight lines of jq.
+
+**The prize the question is reaching for is real, though - it is just behind
+D2's precondition.** Our readings are opportunistic: a session learns its rate
+limits only when it makes an API call, so an idle account goes quiet and we
+built a five-case trust model to cope (`carried` / `carried_old` / `quiet` /
+`unknown` / live, plus `idle_floor` and the high-water mark, in
+`status.py`'s 1,023 lines) and `probe.py` (172 lines) to spend quota forcing a
+number out of a quiet account. Orca's OAuth pull has neither problem - it can
+ask about any account at any time with nothing running. **If
+`inactiveClaudeAccounts[]` were ever populated and fresh, that whole apparatus
+could go**, and it is far larger than anything on the Claude-only list. It is
+the single best reason to keep re-checking that field. What it would *not* buy
+is the statusLine.
 
 **Implication for vendor two:** codex has no statusLine command hook, so its
 collector **pulls** from the rollout JSONL

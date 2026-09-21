@@ -5,7 +5,8 @@ offers, what it already knows about a running agent, and where "which agent
 vendor" is a parameter it takes. What ocp does with any of it is part 2; the
 facts here are stated without a verdict on our code.
 
-Method: `orca agent-context --json` (schema v1, 234 commands) read whole, then
+Method: `orca agent-context --json` (schema v1; 234 commands when first read,
+**236** on 2026-09-21) read whole, then
 Orca's own bundled guides (`orca skills get orchestration` and `orca-cli`),
 then live probes against this machine, then - where the CLI turned out to
 understate the product (§3.1) - the installed app bundle and Orca's public
