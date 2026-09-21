@@ -2096,6 +2096,10 @@ def _refreshed(detail: dict | None) -> dict | None:
         con.close()
 
 
+# A wheel notch on the alternate screen reaches us as ↑/↓ (Orca's terminal sends
+# it with no mode set), so the wheel is these keys. On a page with nothing to
+# move it changes nothing that outlasts the frame: _detail_frame clamps `top`
+# and recomputes `end` every draw, which is not visible from the handler.
 SCROLL_KEYS = ("j", "\033[B", "\033OB", "k", "\033[A", "\033OA",
                " ", "\033[6~", "b", "\033[5~", "g", "G")
 

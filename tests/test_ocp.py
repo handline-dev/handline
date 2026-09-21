@@ -15753,6 +15753,51 @@ def test_bracketed_paste_is_switched_on_with_the_screen() -> None:
               for f in (tui.run, tui._suspend)))
 
 
+def test_the_wheel_is_the_arrow_keys() -> None:
+    """The terminal sends a wheel notch on the alternate screen as ↑/↓ (Orca's
+    xterm.js does so with no mode set), so the wheel moves a page exactly as
+    the arrows do. Nothing here can tell the two apart - what keeps a wheel on
+    a page with nothing to move from changing anything is the frame."""
+    up, down = ("\033[A", "\033OA"), ("\033[B", "\033OB")
+
+    def page(n: int) -> dict:
+        return {"stem": actions.CHAT_TAB, "end": True, "top": 0, "conv_end": n,
+                "title": "t", "panel": 0, "key": "x", "lines": [f"l{i}" for i in range(n)]}
+
+    d = page(2)
+    base, state = tui._detail_frame(80, 24, d), dict(d)
+    same = True
+    for k in (up + down) * 3:
+        d, _ = tui._in_detail(d, k, 80, 24)
+        same = same and tui._detail_frame(80, 24, d) == base
+    check("wheel: a page with nothing to move draws the same after every notch", same)
+    check("wheel: and its state is what it was, end-pinning included", d == state)
+
+    d = page(60)
+    tui._detail_frame(80, 24, d)
+    room, last = tui._page_room(d, 24), 60 - tui._page_room(d, 24)
+    check("wheel: a conversation opens pinned to its end", d["top"] == last and d["end"])
+    d, _ = tui._in_detail(d, up[0], 80, 24)
+    tui._detail_frame(80, 24, d)
+    check("wheel: one notch up is one line, and leaves the end", d["top"] == last - 1 and not d["end"])
+    for _ in range(3):
+        d, _ = tui._in_detail(d, down[1], 80, 24)
+        tui._detail_frame(80, 24, d)
+    check("wheel: down past the end stops at the end and pins again", d["top"] == last and d["end"])
+    for _ in range(last + 5):
+        d, _ = tui._in_detail(d, up[1], 80, 24)
+        tui._detail_frame(80, 24, d)
+    check("wheel: up past the top stops at the top", d["top"] == 0)
+
+    box = tui.Composer(multi=True)
+    box.feed("half a mess")
+    box.feed("".join(up + down) * 4)
+    check("wheel: a draft under composition is untouched", box.text == "half a mess")
+    ask = tui._composer()
+    ask.feed("".join(up + down) * 4)
+    check("wheel: it does not answer a yes/no dialog", ask.typed == "")
+
+
 def test_the_composer_takes_a_paste_whole(home: Path) -> None:
     """Enter sends, so a pasted newline must not: the old one-line prompt sent
     the first pasted line and dropped the rest (#193)."""
@@ -18340,6 +18385,7 @@ def main() -> int:
         run(lambda: test_the_messenger_tab_carries_a_conversation_both_ways(Path(td) / 'chat'))
         run(lambda: test_the_agent_head_is_trimmed_and_slash_commands_are_derived_not_kept(Path(td) / 'headtrim'))
         run(lambda: test_a_conversation_stays_where_the_reader_scrolled_it(Path(td) / 'scroll'))
+        run(lambda: test_the_wheel_is_the_arrow_keys())
         run(lambda: test_a_conversation_reads_as_turns_at_any_width(Path(td) / 'turns'))
         run(lambda: test_a_conversation_shows_whose_message_is_whose_without_colour(Path(td) / 'whose'))
         run(lambda: test_the_founders_messages_sit_on_a_background_that_fills_the_whole_block(Path(td) / 'fill'))
