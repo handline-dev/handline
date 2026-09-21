@@ -22,7 +22,8 @@ from . import (accounts, actions, agents, ask as askmod, daemon as daemonmod, db
                digest, doctor,
                drift, events, fold as foldmod, guide, handoff as handoffmod, hooks, launch,
                load, observe as obs, paths, probe as probemod, service,
-               hr, orca, status, spawn as spawnmod, team, textsafe, triggers, waiting)
+               hr, orca, status, spawn as spawnmod, team, textsafe, triggers,
+               usage_api, waiting)
 
 
 # ---------------------------------------------------------------- login
@@ -392,6 +393,54 @@ def cmd_launch(args) -> int:
 def cmd_command(args) -> int:
     print(launch.command_for(args.agent))
     return 0
+
+
+# ---------------------------------------------------------------- usage
+
+def cmd_usage(args) -> int:
+    """What the usage endpoint says, beside what the snapshot says.
+
+    Read-only, and it decides nothing: this exists so the two can be compared
+    before anything is wired to prefer one. An account with a session running
+    is asked without a renewal - Claude Code is already renewing its token, and
+    two writers would race.
+    """
+    live = set()
+    for _agent, pid in (obs.live_sessions() or {}).items():
+        acct = obs.account_of_process(pid)
+        if acct:
+            live.add(acct)
+    known = paths.list_accounts()
+    if args.account and args.account not in known:
+        print(f"no such account: {args.account} (have: {', '.join(known) or 'none'})")
+        return 1
+    accts = [args.account] if args.account else known
+    print(f"{'account':10} {'':4} {'5h':>5} {'7d':>5}  {'7d resets':16}  note")
+    for acct in accts:
+        st = status.read(acct)
+        age = status.span(time.time() - st.collected_at) if st.collected_at else "never"
+        print(f"{acct:10} {'ocp':>4} {str(st.pct_5h):>5} {str(st.pct_7d):>5}  "
+              f"{_when(st.reset_7d):16}  snapshot {age} old")
+        t0 = time.time()
+        r = usage_api.read(acct, refresh=acct not in live)
+        if r is None:
+            print(f"{'':10} {'api':>4} {'could not ask':>11}")
+            continue
+        flags = []
+        if r.pct_5h != st.pct_5h:
+            flags.append(f"5h differs ({st.pct_5h} -> {r.pct_5h})")
+        if r.pct_7d != st.pct_7d:
+            flags.append(f"7d differs ({st.pct_7d} -> {r.pct_7d})")
+        if acct in live:
+            flags.append("no renewal - session live")
+        print(f"{'':10} {'api':>4} {str(r.pct_5h):>5} {str(r.pct_7d):>5}  "
+              f"{_when(r.reset_7d):16}  {(time.time()-t0)*1000:.0f}ms"
+              + ("  " + "; ".join(flags) if flags else ""))
+    return 0
+
+
+def _when(ts: int | None) -> str:
+    return time.strftime("%m-%d %H:%M", time.localtime(ts)) if ts else "-"
 
 
 # ---------------------------------------------------------------- hooks
@@ -1482,6 +1531,10 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--interval", type=float, default=5.0)
     p.set_defaults(fn=cmd_hooks_sync)
     hk.add_parser("status", help="show drift").set_defaults(fn=cmd_hooks_status)
+
+    p = sub.add_parser("usage", help="the usage endpoint beside the snapshot (read-only)")
+    p.add_argument("account", nargs="?", help="one account, or every account")
+    p.set_defaults(fn=cmd_usage)
 
     p = sub.add_parser("doctor", help="verify preconditions")
     p.add_argument("--no-color", action="store_true")

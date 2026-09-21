@@ -34,7 +34,7 @@ from ocp import (accounts, actions, agents, ask as askmod, blocked as blockedmod
                  handoff as handoffmod, launch, load as loadmod, lock, measure,
                  observe as obsmod, orca as orcamod, paths, replay as replaymod, service,
                  spawn as spawnmod,
-                 status, team, textsafe, triggers, tui, yamlcompat)  # noqa: E402
+                 status, team, textsafe, triggers, tui, usage_api, yamlcompat)  # noqa: E402
 
 PASS, FAIL = [], []
 
@@ -16470,6 +16470,8 @@ def test_no_command_prints_what_a_terminal_would_obey(home: Path) -> None:
         "account register": "creates an account directory; prints its path",
         "account cap": "writes a cap; prints numbers",
         "account probe": "runs the probe against a real login",
+        "usage": "calls the usage endpoint and the Keychain against a real login "
+                 "(usage_api's own parsing is driven above, without either)",
         "agent move": "a confirm, and Orca", "agent register": "writes agent.yaml; a name with a control byte is refused before it prints",
         "launch": "execs claude",
         "hooks sync": "rewrites the shared settings", "hooks status": "reads the shared settings; prints paths",
@@ -19679,6 +19681,90 @@ def test_a_file_added_to_shared_reaches_every_existing_account(home: Path) -> No
           and any("relinked epsilon" in ln for ln in logs), str(logs))
 
 
+def test_usage_api_reads_a_window_nothing_has_been_spent_in() -> None:
+    """The endpoint's answer, and the distinction the whole module turns on.
+
+    A window with `utilization: 0.0` and `resets_at: null` is not an absent
+    reading - it is the endpoint saying the window has rolled over and nothing
+    has been spent since. Measured on `alpha` (#1369) at the moment its 5h
+    window reset: ocp was carrying 100% from the window that had just ended and
+    refused the whole fleet, while this said 0%.
+
+    Nothing here touches the network or the Keychain; both are stood in for.
+    """
+    calls = {"refresh": 0}
+
+    def fake_refresh(acct, timeout=None):
+        calls["refresh"] += 1
+        return True
+
+    payloads = {
+        "rolled": {"five_hour": {"utilization": 0.0, "resets_at": None},
+                   "seven_day": {"utilization": 99.0,
+                                 "resets_at": "2026-09-26T02:00:00.941775+00:00"}},
+        "mid": {"five_hour": {"utilization": 36.4,
+                              "resets_at": "2026-09-21T14:50:00.789690Z"},
+                "seven_day": {"utilization": 17.0, "resets_at": None}},
+        "absent": {"five_hour": None, "seven_day": None},
+        "notadict": [1, 2, 3],
+    }
+    state = {"which": "rolled", "token": "t", "status": 200}
+
+    def fake_fetch(req, timeout=None):
+        class R:
+            status = state["status"]
+            def read(self): return json.dumps(payloads[state["which"]]).encode()
+            def __enter__(self): return self
+            def __exit__(self, *a): return False
+        if state["status"] != 200:
+            raise usage_api.urllib.error.HTTPError(
+                usage_api.USAGE_URL, state["status"], "no", {}, None)
+        return R()
+
+    real = (usage_api.refresh_credential, usage_api._access_token,
+            usage_api.urllib.request.urlopen, usage_api.json.load)
+    usage_api.refresh_credential = fake_refresh
+    usage_api._access_token = lambda acct: state["token"]
+    usage_api.urllib.request.urlopen = fake_fetch
+    usage_api.json.load = lambda r: json.loads(r.read())
+    try:
+        r = usage_api.read("alpha")
+        check("usage_api: a rolled-over window reads 0%, not None",
+              r is not None and r.pct_5h == 0, repr(r))
+        check("usage_api: a rolled-over window reports no reset",
+              r is not None and r.reset_5h is None, repr(r))
+        check("usage_api: the other window is still read",
+              r is not None and r.pct_7d == 99 and r.reset_7d == 1790388000, repr(r))
+        check("usage_api: a refresh is asked for by default", calls["refresh"] == 1,
+              str(calls))
+
+        state["which"] = "mid"
+        r = usage_api.read("alpha", refresh=False)
+        check("usage_api: utilisation rounds to a whole percent", r.pct_5h == 36, repr(r))
+        check("usage_api: a Z-suffixed reset parses", r.reset_5h == 1790002200, repr(r))
+        check("usage_api: refresh=False does not renew", calls["refresh"] == 1, str(calls))
+
+        state["which"] = "absent"
+        r = usage_api.read("alpha", refresh=False)
+        check("usage_api: an absent window is None, not 0",
+              r is not None and r.pct_5h is None and r.pct_7d is None, repr(r))
+
+        state["which"] = "notadict"
+        check("usage_api: a payload that is not an object is not a reading",
+              usage_api.read("alpha", refresh=False) is None, "expected None")
+
+        state["which"], state["status"] = "rolled", 500
+        check("usage_api: a non-200 is 'could not look', not a reading",
+              usage_api.read("alpha", refresh=False) is None, "expected None")
+
+        state["status"], state["token"] = 200, None
+        check("usage_api: no credential is 'could not look', not 0%",
+              usage_api.read("alpha", refresh=False) is None, "expected None")
+    finally:
+        (usage_api.refresh_credential, usage_api._access_token,
+         usage_api.urllib.request.urlopen, usage_api.json.load) = real
+
+
 def run(one) -> None:
     """Every test starts from the real world.
 
@@ -19793,6 +19879,7 @@ def main() -> int:
         run(lambda: test_replay_reconstructs_burn_and_lets_the_week_gate_fire(
             Path(td) / 'replayweek'))
         run(lambda: test_replay_burn_is_the_daemons_burn(Path(td) / 'replayburn'))
+        run(lambda: test_usage_api_reads_a_window_nothing_has_been_spent_in())
         run(lambda: test_collector(home))
         run(lambda: test_yaml())
         run(lambda: test_agents(home))
