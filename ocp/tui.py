@@ -1863,9 +1863,13 @@ def _line(prompt: str, width: int, height: int, multi: bool = False,
             return box.text.strip("\n") if multi else box.text.strip()
         # Recomputed from the text as it now stands, after this keystroke -
         # matched against on the NEXT iteration, once it is what is on screen.
-        matches = ([n for n, _ in commands if n.startswith(box.text[1:])]
-                   if commands is not None and box.text.startswith("/") else [])
-        sel = max(0, min(sel, len(matches) - 1)) if matches else 0
+        new_matches = ([n for n, _ in commands if n.startswith(box.text[1:])]
+                       if commands is not None and box.text.startswith("/") else [])
+        # The highlight only survives typing that leaves the same list in the
+        # same order - clamping alone would keep index 1 pointed at whatever
+        # is now there, silently retargeting it to a different command.
+        sel = sel if new_matches == matches else 0
+        matches = new_matches
         rows = box.shown(prompt, width, max(1, height // 2))
         if matches:
             rows = rows + [f"{DIM}  " + "  ".join(
@@ -2181,14 +2185,12 @@ def _run_info_command(con, detail: dict, name: str, cmd: str) -> tuple[dict, str
     return detail, f"/{cmd}: not wired"        # unreachable while INFO_COMMANDS names all of it
 
 
-def _run_command(con, detail: dict, name: str, cmd: str, width: int, height: int,
-                 fd, saved) -> tuple[dict, str]:
+def _run_command(con, detail: dict, name: str, cmd: str, cmds: dict[str, str],
+                 width: int, height: int, fd, saved) -> tuple[dict, str]:
     """A slash command typed in the composer, already resolved to a canonical
-    name by `_line`'s own autocomplete - never raw text a person half-typed."""
-    kind = dict(agent_commands(con, name)).get(cmd)
-    if kind is None:
-        return detail, f"/{cmd}: not a command here"
-    if kind == "info":
+    name by `_line`'s own autocomplete - never raw text a person half-typed.
+    `cmds` is the caller's own `agent_commands` read, not asked again here."""
+    if cmds.get(cmd) == "info":
         return _run_info_command(con, detail, name, cmd)
     return _dispatch_agent_verb(con, detail, name, cmd, width, height, fd, saved)
 
@@ -2214,13 +2216,14 @@ def _write_in_thread(detail: dict, k: str, width: int, height: int,
                          commands=cmds)
         if body is None:
             return detail, _nothing_sent(k)
+        cmds = dict(cmds)
         # `_line`'s own contract: text starting with '/' that matched nothing
         # comes back exactly as typed, so it is not necessarily a resolved
         # command - only a body that names one of `cmds` is. A literal
         # message that happens to type a real command's name runs it, the
         # same tradeoff any chat command syntax makes.
-        if k != "e" and body.startswith("/") and body[1:] in dict(cmds):
-            return _run_command(con, detail, name, body[1:], width, height, fd, saved)
+        if k != "e" and body.startswith("/") and body[1:] in cmds:
+            return _run_command(con, detail, name, body[1:], cmds, width, height, fd, saved)
         said = actions.chat_reply(con, name, body)
         detail["end"] = True
         return _agent_page(con, name, detail["panel"], detail["title"], detail), said

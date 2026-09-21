@@ -15046,6 +15046,32 @@ def test_slash_commands_autocomplete_and_run_the_highlighted_one(home: Path) -> 
     check("autocomplete: text starting with / that matches nothing sends as typed",
           got == "/nope not a command", repr(got))
 
+    # code-review: highlighting index 1 in a two-item list, then widening the
+    # list to three by deleting a character, clamped the index into range but
+    # left it pointed at whatever was now there - not what was highlighted.
+    master, slave = pty.openpty()
+    ttymod.setraw(slave)
+    sys.stdin, sys.stdout = os.fdopen(slave, "r", closefd=False), io.StringIO()
+    cmds3 = [("ask", "action"), ("close", "action"), ("clock", "info")]
+    try:
+        os.write(master, b"/cl")                 # two matches: close, clock
+        def feed() -> None:
+            time.sleep(0.2)
+            os.write(master, b"\033[B")           # ↓ to "clock" (index 1)
+            time.sleep(0.2)
+            os.write(master, b"\x7f\x7f")         # widen to three: ask, close, clock
+            time.sleep(0.2)
+            os.write(master, b"\r")
+        threading.Thread(target=feed).start()
+        got = tui._line("to x:", 40, 24, multi=True, commands=cmds3)
+    finally:
+        sys.stdin, sys.stdout = real_in, real_out
+        os.close(master)
+        os.close(slave)
+    check("autocomplete: widening the match list resets the highlight, "
+          "not just clamps its index into range",
+          got == "/ask", repr(got))
+
 
 def test_the_agent_pages_tabs_show_everything_and_read_as_blocks(home: Path) -> None:
     """Founder: the other tabs of an agent's page were cut to one line, cut at
