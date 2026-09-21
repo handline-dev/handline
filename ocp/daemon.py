@@ -87,7 +87,16 @@ IDLE_CLOSE_S = 600
 # A subscription's main-conversation requests keep their prompt cache for one
 # hour, and every read restarts that clock; on API-key or cloud billing it is
 # five minutes (Anthropic's prompt-caching table, #1065). Every account here is
-# a subscription login.
+# a subscription login - checked, not assumed (auditor's #1223):
+#   claude -p "hi" --output-format json | jq .usage.cache_creation
+#   -> ephemeral_1h_input_tokens: 15819, ephemeral_5m_input_tokens: 0
+# One condition this does not cover: once an account is over its plan's usage
+# limit and Claude Code is drawing on usage credits, the main conversation
+# drops to the same five-minute TTL as API billing. ocp mostly avoids this by
+# refusing at the wall before spending credits (the 5h and 7d-at-100% checks),
+# so the window is an account that is over its limit but not yet walled - rare
+# rather than absent, and RESUME_WARM_S below is wrong by a factor of twelve
+# for exactly that window.
 PROMPT_CACHE_S = 3600
 
 # A closed session resumes only while its cache can still serve it. The clock is
@@ -838,12 +847,13 @@ def wake_prompt(agent: str, resumed: bool, was_closed: bool = False,
         # path: nothing more is appended for it below.
         record = db.get_handoff(con, agent)
         parts.append(f"Your session was closed while you were idle for over "
-                     f"{PROMPT_CACHE_S // 60 - 5} minutes, long enough for its prompt "
-                     f"cache to expire, so this is a fresh conversation: resuming would "
-                     f"re-read the whole transcript at full price. Your handoff is in "
-                     f"your system prompt above - the request you had in hand, your "
-                     f"previous transcript's path and your worktree. Pick the task back "
-                     f"up from it.")
+                     f"{RESUME_WARM_S // 60} minutes - within {PROMPT_CACHE_S // 60} "
+                     f"minutes of its prompt cache's life, the margin a resume needs to "
+                     f"reach its first request before that cache is gone - so this is a "
+                     f"fresh conversation: resuming risks re-reading the whole transcript "
+                     f"at full price. Your handoff is in your system prompt above - the "
+                     f"request you had in hand, your previous transcript's path and your "
+                     f"worktree. Pick the task back up from it.")
     elif was_closed:
         # Taking the parked branch here would tell an agent that was never
         # parked that its context was cleared. What the close recorded is in

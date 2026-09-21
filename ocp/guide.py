@@ -133,9 +133,11 @@ closed. The terminal, its worktree and its account stay, because Orca runs our
 launch command inside a shell and claude is that shell's child. Waking types
 the launch command back into the same shell with `--resume <session>` and the wake prompt as the session's first prompt, so the
 account comes back with it and the conversation is the one it had. If the agent
-last worked more than 55 minutes ago its prompt cache (one hour) has expired
-and a resume would re-read the whole transcript at full price, so it starts a
-fresh conversation instead: the handoff taken when it was closed - the request
+last worked more than 55 minutes ago it is within 5 minutes of its prompt
+cache's one-hour life - the margin a resume needs to reach its first request
+before that cache is gone - so a resume risks re-reading the whole transcript
+at full price and it starts a fresh conversation instead: the handoff taken
+when it was closed - the request
 in hand, the transcript's path, the worktree's state - is in that session's
 system prompt, and the wake prompt says why.
 
