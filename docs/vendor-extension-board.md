@@ -209,6 +209,52 @@ commands and boundaries would be silently switched off for that agent.
 (adjustment 2 below), so it can concatenate the repo's own `AGENTS.md` after
 its preamble and keep both. That is the only option that loses nothing,
 and it costs one file read per launch.
+
+#### How far does the per-vendor split actually go? (#1307)
+
+Asked whether splitting by vendor is unavoidable. Measured against the
+installed binaries - **it is, but only as a two-row table.**
+
+Claude Code 2.1.278 already reads `AGENTS.md`. Its own setting text:
+
+> `"claude-md"`: CLAUDE.md only. **`"claude-md-or-agents-md"` (default): a
+> project with no CLAUDE.md of its own gets its AGENTS.md files instead, loaded
+> exactly where and how CLAUDE.md would be.** `"claude-md-and-agents-md"`:
+> AGENTS.md files are loaded beside CLAUDE.md.
+
+So a single shared `AGENTS.md` would in fact be read by both. It is still the
+worse option: that file is **git-tracked**, and it collides with the repo's own.
+
+The local-override names are the right ones, and each vendor has one. Claude
+Code reads `CLAUDE.local.md` at runtime as "the local file" beside `./CLAUDE.md`
+and `./.claude/CLAUDE.md`, and its own guidance calls out that `CLAUDE.md` is
+checked in while `CLAUDE.local.md` is not. Claude's *codex importer* even maps
+one to the other - `{id: "codex:project:override", src: "AGENTS.override.md",
+target: "CLAUDE.local.md"}` - which is Anthropic stating the equivalence.
+
+| vendor | file ocp writes | how it combines with the repo's own |
+|---|---|---|
+| claude | `CLAUDE.local.md` | **additive** - read *beside* `CLAUDE.md` |
+| codex | `AGENTS.override.md` | **substitutive** - *replaces* `AGENTS.md` |
+| opencode | TBD | TBD |
+
+**That asymmetry is the only real per-vendor behaviour**, and it is one flag:
+on codex ocp must append the repo's `AGENTS.md` to its own preamble, on claude
+it must not, or the content is loaded twice. Everything else is shared - the
+content, the moment it is written, the `.git/info/exclude` entry, the
+fingerprint. The whole driver for this seam is:
+
+```python
+PREAMBLE_FILE = {
+    "claude": ("CLAUDE.local.md",    ADDITIVE),
+    "codex":  ("AGENTS.override.md", SUBSTITUTIVE),
+}
+```
+
+`AGENTS.override.md` is **codex-only at runtime**: Claude's five mentions of it
+are all in the importer, not in the loader. So the split cannot be collapsed to
+one filename without giving up the untracked local-override property, which is
+what makes the whole approach clean.
 1. **Write it at launch, not at worktree creation.** Three payloads change
    between launches: the team line is *generated* from `team.yaml` precisely
    because hand-written colleague lists went stale; `hr` can edit ROLE.md and
