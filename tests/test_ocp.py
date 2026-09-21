@@ -2563,11 +2563,25 @@ def _composer_typed(text: str) -> list:
             "  ⏵⏵ auto mode on (shift+tab to cycle) · ← for agents"]
 
 
-# harbor's real tail, auditor's #1144 fleet check: one hint line under the
-# box and no account status line, so the box sits one row later than an
-# ocp-launched agent's.
-HARBOR_COMPOSER_EMPTY = [_COMPOSER_RULE_ROW, "❯", _COMPOSER_RULE_ROW,
-                          "  ⏵⏵ auto mode · enter to return · space to reply · ctrl+x to "]
+# One hint line under the box and no account status line, so the box sits one
+# row later than an ocp-launched agent's (auditor's #1144 fleet check).
+ONE_HINT_ROW_COMPOSER = [_COMPOSER_RULE_ROW, "❯", _COMPOSER_RULE_ROW,
+                         "  ⏵⏵ auto mode on (shift+tab to cycle)"]
+
+# What #1144 recorded as harbor's ordinary composer: its hint is the
+# picker's ("space to reply"), which no ordinary composer carries, so it was
+# the picker with its banner out of the window (purser's #1294) - never a
+# clean composer.
+PICKER_HINT_ONLY_ENTER_TO_RETURN = [_COMPOSER_RULE_ROW, "❯", _COMPOSER_RULE_ROW,
+                                    "  ⏵⏵ auto mode · enter to return · space to reply · ctrl+x to "]
+
+# purser's #1294: the picker with the current session selected - the form Left
+# gives - whose hint says "enter to return", not "enter to open".
+PICKER_CURRENT_SESSION_SELECTED = [
+    "Your conversation moved to the background - enter opens it · esc returns to it · ctrl+c twice quits",
+    " ✻ ocp inbox management             Processed both orcapipe inbox corrections...",
+    _COMPOSER_RULE_ROW, "❯", _COMPOSER_RULE_ROW,
+    "  ⏵⏵ auto mode · enter to return · space to reply · ctrl+x to delete · ? for shortcuts"]
 
 
 # orcapipe's #1161 read of harbor: the backgrounded-session picker. Its
@@ -2606,9 +2620,9 @@ PICKER_HINT_WITH_NO_BANNER = [
     _COMPOSER_RULE_ROW, "❯", _COMPOSER_RULE_ROW,
     "  ⏵⏵ auto mode · enter to open · space to reply · ctrl+x to "]
 
-# auditor's #1285 S2: the banner alone, above an ordinary composer whose own
-# hint never says the picker's words - pins the banner as load-bearing on
-# its own.
+# The banner quoted in the transcript above an ordinary composer: the real
+# picker's hint always carries a picker phrase, so a banner with none below
+# the box is text somebody wrote, not the picker.
 BANNER_ABOVE_ORDINARY_COMPOSER = [
     "Your conversation moved to the background - enter opens it · esc returns to it · ctrl+c twice quits",
     " ✻ ocp inbox management             Processed both orcapipe inbox corrections...",
@@ -2675,7 +2689,7 @@ def test_the_screen_names_what_is_in_the_way(home: Path) -> None:
         # A layout with one row under the box, not two, is still found - the
         # triple is searched for, not assumed to sit a fixed distance from
         # the end.
-        orcamod._screen = lambda h: _screen_of(HARBOR_COMPOSER_EMPTY)
+        orcamod._screen = lambda h: _screen_of(ONE_HINT_ROW_COMPOSER)
         check("screen: a composer with a different number of rows under it "
               "is still read, not UNREADABLE",
               orcamod.screen_blocker("term_x") is None)
@@ -2744,6 +2758,15 @@ def test_the_screen_names_what_is_in_the_way(home: Path) -> None:
         orcamod._screen = lambda h: _screen_of(BANNER_AND_HINT_QUOTED_ABOVE_BOX)
         check("screen: the picker's words quoted above the composer box are not the picker",
               orcamod.screen_blocker("term_x") is None)
+        # purser's #1294, measured: the common form of the picker.
+        orcamod._screen = lambda h: _screen_of(PICKER_CURRENT_SESSION_SELECTED)
+        b = orcamod.screen_blocker("term_x")
+        check("screen: the picker with the current session selected is BACKGROUNDED",
+              b is not None and b.kind == orcamod.BACKGROUNDED, str(b))
+        orcamod._screen = lambda h: _screen_of(PICKER_HINT_ONLY_ENTER_TO_RETURN)
+        b = orcamod.screen_blocker("term_x")
+        check("screen: the picker's hint with no banner fails closed, not a clean composer",
+              b is not None and b.kind == orcamod.UNREADABLE, str(b))
         # An empty detail must not render a dangling colon - what the founder
         # saw on the #1252 false positive, where tail[:hint] was empty.
         check("screen: an empty BACKGROUNDED detail has no dangling colon",
