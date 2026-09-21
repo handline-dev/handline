@@ -146,10 +146,61 @@ rebuild - in Orca's shape.
 | find the binary | `shutil.which("claude")` ×7 (`launch`, `probe`, `fold`, `accounts`, `doctor`, `cli` ×2) | **DRIVER** | one lookup per vendor, in one place instead of seven. |
 | account env | `accounts.env_for` → `CLAUDE_CONFIG_DIR` | **DRIVER** | codex is `CODEX_HOME`; opencode TBD. |
 | is this launch a resume | `launch._is_resume` (`--resume`/`-r`/`--resume=`) | **DRIVER** | codex spells it differently. |
-| system-prompt injection | `--append-system-prompt` in `launch.build` | **DRIVER** ⚠ | **the hardest one.** ROLE.md + base.md + handoff ride on this flag. Codex has no equivalent CLI flag (its `base-instructions` / `developer-instructions` are app-server tool-call params, not argv); the candidates are `AGENTS.md` under a per-account `CODEX_HOME`, or the first prompt. Both have costs. Needs a measured test before anything is designed on it. |
+| system-prompt injection | `--append-system-prompt` in `launch.build` | **RESHAPE** ✅ | **No longer the hard one - the founder's #1305 challenge was right and it collapses the seam.** Not a flag per vendor: one per-agent file written into the agent's own worktree, which both vendors already read. See §1.1. |
 | launch fingerprint / drift | `launch.fingerprint`, `drifted` | **RESHAPE** | the mechanism (hash what a running session cannot pick up) is neutral; the *material list* is Claude's flags. Driver supplies the material, this keeps the logic. |
 | make the terminal | `spawn.py` → `orca terminal create --command` | **KEEP** | already Orca, already vendor-blind (part 1 layer 1). |
 | record the terminal handle | `launch._record_terminal` | **KEEP** | |
+
+### 1.1 The preamble does not need a flag (settles the ⚠ on the row above)
+
+I had framed `--append-system-prompt` as a constraint, and codex's lack of an
+equivalent as the hardest item on the bill. Challenged on it (#1305), the
+premise does not hold: **both vendors already read a per-agent file from the
+worktree**, and ocp creates that worktree itself.
+
+Codex's own prompt template, read from the binary, spells out the contract:
+
+> The scope of an `AGENTS.md` file is the entire directory tree rooted at the
+> folder that contains it. […] The contents of the AGENTS.md file at the root
+> of the repo and any directories from the CWD up to the root **are included
+> with the developer message** and don't need to be re-read.
+
+So a file at the worktree root is loaded at session start, without a flag.
+Claude reads `CLAUDE.md` the same way. **The seam stops being per-vendor and
+becomes one file writer with a different filename per vendor** - which is
+RESHAPE, not DRIVER, and removes one of the two ⚠ risks from the 16-item bill.
+
+**Three adjustments the naive version needs:**
+
+1. **Write `AGENTS.override.md`, not `AGENTS.md`.** The binary carries both
+   names. A repo may have its own `AGENTS.md` (this one does not, but harbor
+   might), and overwriting it would be destructive. *Semantics read from
+   strings only - verify against a live codex before relying on it.*
+2. **Write it at launch, not at worktree creation.** Three payloads change
+   between launches: the team line is *generated* from `team.yaml` precisely
+   because hand-written colleague lists went stale; `hr` can edit ROLE.md and
+   base.md; and the handoff is per-launch and must be **consumed**, since a
+   stale "where you left off" is worse than none. `launch.fingerprint` exists
+   to catch exactly this drift. Same moment `build()` already runs.
+3. **Keep it out of git** via `.git/info/exclude` - per-worktree, local, never
+   committed - rather than `.gitignore`, which is tracked.
+
+**Two costs, named rather than waved past:**
+
+- **A file is agent-visible and agent-writable; a system prompt is neither.**
+  ROLE.md and base.md are already on disk and the agent is told its role, so
+  visibility is not new - but an agent editing its own preamble is. Rewriting
+  per launch (adjustment 2) means any edit is reverted at the next launch,
+  and `fingerprint` already notices.
+- **Lower precedence.** Codex states that "direct system/developer/user
+  instructions take precedence over AGENTS.md instructions". For *who you are,
+  who you report to, stay in your worktree* that is likely fine; for anything
+  meant as a hard rule it is a demotion, and should be checked.
+- Unverified: whether a codex `/new` (its `/clear`) re-reads the file. With the
+  flag it survives a park because it is process-level. A file probably survives
+  it better, but that is a guess until measured.
+
+---
 
 ## 2. Accounts and credentials
 
