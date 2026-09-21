@@ -5,9 +5,10 @@ offers, what it already knows about a running agent, and where "which agent
 vendor" is a parameter it takes. What ocp does with any of it is part 2; the
 facts here are stated without a verdict on our code.
 
-Method: `orca agent-context --json` (schema v1, 234 commands) read whole, plus
-live probes against this machine. Everything below that is quoted was read from
-a running system, not from documentation.
+Method: `orca agent-context --json` (schema v1, 234 commands) read whole, then
+Orca's own bundled guides (`orca skills get orchestration` and `orca-cli`),
+then live probes against this machine. Everything quoted below was read from a
+running system, not from third-party documentation.
 
     orca 1.4.205, runtime ef70a57f, app running, runtime ready
     read on 2026-09-21 from /Users/ron/orca/workspaces/orcapipe/orcapipe.expender
@@ -16,15 +17,13 @@ a running system, not from documentation.
 
 ## 1. The shape of the surface
 
-234 commands. They divide into two piles that have nothing to do with each
-other, and only the first is about running agents:
-
-| pile | groups | count |
-|---|---|---|
-| **running and watching agents** | `orchestration` (30), `terminal` (11), `worktree` (7), `automations` (7), `skills` (6), `project` (7), `repo` (5), `environment` (4), `agent` (4), `account` (2), `host`, `diagnostics`, `claude-teams`, `status`, `open`, `serve` | ~110 |
-| **things an agent can drive** | browser (`tab`, `snapshot`, `click`, `storage`, … ~60), `computer` (14), `emulator` (16), `linear` (27), `artifacts` (5) | ~124 |
-
-The second pile is capability for an agent to *use* and is out of scope here.
+234 commands, in two piles that have nothing to do with each other. About 110
+are for **running and watching agents**: `orchestration` (30), `terminal` (11),
+`worktree` (7), `automations` (7), `skills` (6), `project` (7), `repo` (5),
+`environment` (4), `agent` (4), `account` (2), plus `host`, `diagnostics`,
+`claude-teams`, `status`, `open`, `serve`. The other ~124 are capability for an
+agent to *use* - browser (~60), `computer`, `emulator`, `linear`, `artifacts` -
+and are out of scope here.
 
 Every command takes `--json`, and every reply is the same envelope:
 
@@ -68,6 +67,10 @@ orca worktree create --name agent-task --agent codex --prompt "hi" --json
 `--agent <id>` launches "a known TUI agent"; `--prompt` delivers the first
 instruction to it. `result.agentTerminalHandle` carries the handle. This is the
 first level where Orca knows *which agent* is running, because it started it.
+
+Its limit is argv: it "uses Orca's configured launcher; it has no per-call
+model/effort flags or arbitrary Codex argument forwarding". Anything that needs
+its own command line drops back to layer 1.
 
 ### Layer 3 - a supervised worker under a Run
 
@@ -243,8 +246,12 @@ So "typed" and "landed" are two different facts Orca will report separately,
 and the wait never causes a resend. `--interrupt` is a first-class flag rather
 than a control byte in `--text`.
 
-`terminal wait --for exit|tui-idle --timeout-ms` is the blocking condition.
-Only those two conditions exist.
+`terminal wait --for exit|tui-idle --timeout-ms` is the blocking condition -
+only those two exist - and read `wait.satisfied`, not the fact that something
+printed, because a timeout still prints a normal result. It is explicitly
+vendor-generic: the guide names it for "agent CLIs such as **Claude Code,
+Gemini, Codex, OMP, Pi, and Grok**". Idleness is one of the few things a second
+vendor would not have to re-teach.
 
 ---
 
@@ -384,23 +391,23 @@ alone."
 - `ask` blocks until answered and survives timeout: the question stays pending
   and is resumed by its message id.
 - `worker_done` requires `--outcome succeeded|failed` and cannot target a group.
+- delivery is honest about its own limits: "a successful `orchestration send`
+  proves durable enqueue; its wake or nudge is best-effort attention only and
+  does not prove the recipient read or accepted it."
 
 **Tasks.** `task-create` (with `--parent` and `--deps <json_array>` - a real
 DAG), `task-list --status --ready`, `task-update --id --status <pending | ready
 | dispatched | completed | failed | blocked> [--result <json>]`, and
 `dispatch --task --to <handle> [--inject] [--return-preamble] [--dry-run]`.
 
-`--inject` is what makes Orca deliver the task spec into the terminal itself;
-omitting it leaves the spec as card metadata only.
-
 **Gates.** `gate-create --task --question [--options <json_array>]`,
 `gate-list`, `gate-resolve --id --resolution`. A first-class "this task is
 blocked on a decision" object, drawn by Orca, resolvable from outside.
 
-**Runs.** A Run is "a namespace and home inbox. It never schedules or places
-workers." `run-create` both creates **and binds the calling terminal**;
-`run-use --id` binds an existing one; `run-current` reports this terminal's
-binding. Binding is per terminal, and it is what `--run` defaults to.
+**Run binding.** `run-create` both creates a Run **and binds the calling
+terminal** to it; `run-use --id` binds an existing one; `run-current` reports
+this terminal's binding. Binding is per terminal, and it is what `--run`
+defaults to everywhere.
 
 ---
 
@@ -435,13 +442,11 @@ into each agent's own config so its panes report to the runtime - this is the
 extra `prepare-codex` step because codex stores a per-entry `trusted_hash` and
 refuses an untrusted hook.
 
-`skills install --skill <name> --agent claude-code,codex` resolves to the
-community `npx skills add …` command with non-interactive flags, installs
-globally by default, and offers `--agent universal` for the shared
-`.agents/skills` directory alone. `skills list` / `get <topic>` print Orca's
-own bundled guides locally - `orca-cli` and `orchestration` are the two that
-describe this surface from Orca's side, and `skills installed` / `share`
-handle publishing.
+`skills install --skill <name> --agent claude-code,codex` installs a skill into
+each named agent's own config, with `--agent universal` for the shared
+`.agents/skills` directory alone - one command that keeps two vendors' skill
+sets in step. `skills get <topic>` prints Orca's own bundled guides locally;
+`orca-cli` and `orchestration` are the two that specify this surface.
 
 ---
 
@@ -468,37 +473,31 @@ and §5.5 (what `dispatch --inject` deliberately does not buy) in part 2.
 
 ---
 
-## 9. Questions to answer before part 2
+## 9. What is left, and it needs measuring rather than reading
 
-1. ~~**Can a `worker-start` agent be given a chosen account?**~~ **Answered by
-   Orca's own guide (§5.5).** `worker-start` has no environment or config-dir
-   flag, but it does not need one: `worker-start --task <id> --terminal
-   <handle>` takes lifecycle ownership of a terminal the caller started with
-   its own argv, environment and account. `--model` / `--effort` are refused
-   with `--terminal`, which costs nothing when the launcher set them. So a
-   custom launcher and a supervised lifecycle are **not** an either/or.
-   What remains to test: whether an adopted worker reports `resource` and
-   accepts `worker-stop` / `worker-release` the way a `worker-start --agent`
-   one does.
-2. **What does `orca account list` know that a caller could use?** It returns
-   `email`, `organizationName`, `authMethod`, `lastAuthenticatedAt` per
-   account, under `claude` and `codex` keys. Does registering an account there
-   let Orca *place* a session on it, or is it only a record?
-3. **Is `observation.agentWait` populated for unsupervised dispatches?** The
-   live row showed `attention.requiresAction: false` and no `observation` key
-   at all. If `agentWait` only fills for supervised workers, that changes what
-   a terminal-owning caller can rely on - and it is one more thing
-   `worker-start --terminal` might buy. Note the guide's warning either way:
-   an `agentWait` of null is absence, not proof of anything.
-4. **Does any CLI verb expose `agent-session.status-feed.v1`?** The runtime
-   advertises a structured agent-session family (`status-feed`, `structured`,
-   `resume-history`, `rewind`, `prompt-cancel`, `session-boundary`) that the
-   CLI does not obviously surface. If some of it is reachable, it is a better
-   source than reading screens.
-5. **Does Orca report usage or rate limits anywhere?** Nothing in the 234
-   commands mentions rate limits, quota or usage percentages. Confirm the
-   absence: it decides whether quota accounting stays a caller's problem for
-   every vendor.
+The CLI schema and Orca's own two guides are now read whole. Three things
+remain, and none can be settled by reading - each needs a live agent:
+
+1. **What does adoption actually buy?** `worker-start --terminal <handle>`
+   (§5.5) is documented, but not what an adopted worker then reports. Does it
+   get a `resource` row, does `worker-stop` / `worker-release` act on its
+   process, and does `observation.agentWait` fill for it? On the unsupervised
+   dispatch read here, `resource` was `absent` and there was no `observation`
+   key at all. This is the single measurement that decides how much a caller
+   with its own launcher can hand to Orca.
+2. **Is `orca account list` a placement tool or only a record?** It holds
+   `email`, `organizationName`, `authMethod` and `lastAuthenticatedAt` per
+   account under `claude` and `codex` keys. Whether registering an account
+   there lets Orca *start a session on it* is the difference between Orca
+   owning multi-account placement and a caller owning it.
+3. **Is the `agent-session.*` capability family reachable?** The runtime
+   advertises `status-feed`, `structured`, `resume-history`, `rewind`,
+   `prompt-cancel`, `session-boundary`. The CLI does not obviously surface
+   any of it. If part of it is reachable, it is a better source than any
+   screen read.
+
+Questions 1 and 3 are best answered while doing part 2, against an agent we are
+already running, rather than by standing up a probe for their own sake.
 
 ---
 
