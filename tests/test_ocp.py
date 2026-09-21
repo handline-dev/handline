@@ -626,6 +626,120 @@ def test_pick_account_tonights_shape(home: Path) -> None:
           "left to be worth a start", "gamma" != picked and said["gamma"] != "", said["gamma"])
 
 
+def _seed_week_history(con, account: str, now: int, five=(10, 90), seven=(50, 60)) -> None:
+    """Live readings of one account across one 5h window and one week, climbing
+    from `five[0]` to `five[1]` and from `seven[0]` to `seven[1]`, one a minute."""
+    n = 40
+    for i in range(n):
+        st = status.AccountStatus(
+            account, exists=True,
+            pct_5h=five[0] + (five[1] - five[0]) * i // (n - 1),
+            pct_7d=seven[0] + (seven[1] - seven[0]) * i // (n - 1),
+            reset_5h=now + 3 * 3600, reset_7d=now + 3 * 86400,
+            rl_at=now - (n - i) * 60, rl7_at=now - (n - i) * 60, collected_at=now - (n - i) * 60)
+        db.record_usage_sample(con, account, st, ts=now - (n - i) * 60)
+
+
+def test_the_weeks_ratio_to_the_5h_window_is_measured_from_the_samples(home: Path) -> None:
+    """The 5h cost of an agent means nothing for the week until the plan's
+    ratio converts it, and nothing written down knows the plan: it is the
+    week's rise over the 5h window's, over live pairs inside one window and
+    one week, and it needs enough rise to be worth dividing."""
+    os.environ["OCP_HOME"] = str(home)
+    con = db.connect()
+    now = int(time.time())
+    try:
+        _seed_week_history(con, "alpha", now, five=(10, 90), seven=(50, 60))
+        got = burnrate.week_ratios(db.usage_samples(con))
+        check("ratio: 10 points of week over 80 of 5h is about an eighth",
+              abs(got.get("alpha", 0) - 10 / 80) < 0.01 and abs(got.get("*", 0) - 10 / 80) < 0.01, str(got))
+        _seed_week_history(con, "beta", now + 1, five=(10, 90), seven=(50, 53))
+        got = burnrate.week_ratios(db.usage_samples(con))
+        check("ratio: an account whose week rose too little to divide takes the pooled ratio",
+              "beta" not in got and "*" in got
+              and burnrate.Costs([], got).week_per_5h("beta") == got["*"]
+              and burnrate.Costs([], got).week_per_5h("alpha") == got["alpha"], str(got))
+        check("ratio: nothing measured is None, not a guess",
+              burnrate.Costs([], {}).week_per_5h("alpha") is None)
+        # A rolled window, a fall and a carried figure are not a rate.
+        con.execute("DELETE FROM usage_samples")
+        for i, (p5, p7, r5, carried) in enumerate([(10, 50, 1, 0), (90, 60, 1, 1), (95, 62, 1, 0),
+                                                   (5, 63, 2, 0), (60, 80, 2, 0)]):
+            st = status.AccountStatus("alpha", exists=True, pct_5h=p5, pct_7d=p7, reset_5h=r5,
+                                      reset_7d=99, rl_carried=bool(carried))
+            db.record_usage_sample(con, "alpha", st, ts=now - 1000 + i)
+        got = burnrate.week_ratios(db.usage_samples(con))
+        check("ratio: a carried reading, a new window and a fall add nothing; only the last pair counts",
+              got == {} or abs(got.get("alpha", 0) - 17 / 55) < 0.01, str(got))
+    finally:
+        con.close()
+
+
+def _gamma_world(home: Path, gamma_week: int = 99, gamma_reset_in: int = 39 * 3600):
+    """#1233's shape: gamma at `gamma_week`% of its 7-day window with
+    `gamma_reset_in` seconds to go, alpha with plenty, and a week of samples
+    behind the plan's ratio."""
+    _daemon_home(home, 20)
+    now = int(time.time())
+    write_status(home, "gamma", pct_5h=20, pct_7d=gamma_week, reset_5h=now + 3 * 3600,
+                 reset_7d=now + gamma_reset_in)
+    write_status(home, "alpha", pct_5h=20, pct_7d=50, reset_5h=now + 3 * 3600,
+                 reset_7d=now + 3 * 86400)
+    con = db.connect()
+    _seed_week_history(con, "delta", now)
+    burnrate.refresh_week_ratios(con, now, force=True)
+    return con, loadmod.read_all(con)
+
+
+def test_an_account_the_week_is_about_to_close_is_not_usable_and_not_picked(home: Path) -> None:
+    """#1233: gamma at 99% of its week with 1d15h left was drawn usable, with
+    'no recent burn', and work kept going to it - minutes of work, then a day
+    and a half parked. The week is judged by its runway at the plan's measured
+    ratio, on the one function the panel and the pick share."""
+    con, loads = _gamma_world(home)
+    try:
+        st = status.read("gamma")
+        picked, reasons = status.pick_account(["gamma", "alpha"], load=loads)
+        said = dict(reasons)
+        check("week: gamma is not picked", picked == "alpha", str((picked, reasons)))
+        check("week: and the reason is the week's runway, not a percent line",
+              "7d 99%" in said["gamma"] and "one more agent lasts" in said["gamma"], said["gamma"])
+        check("week: unfit says the same", status.unfit(st, loads["gamma"]) == said["gamma"],
+              str(status.unfit(st, loads["gamma"])))
+        allowed, why = status.account_verdict("gamma", st, loads["gamma"], reasons, True)
+        check("week: the panel's tick is off, with the picker's own words",
+              not allowed and why == said["gamma"], str((allowed, why)))
+        rw = status.describe_runway(status.runway(st, status.read_burn("gamma"), None, loads["gamma"]))
+        check("week: the runway column names the week, from the same stretch the pick judged",
+              rw == f"~{status.span(status.week_stretch_s(st, loads['gamma']))} to 7d wall", rw)
+        alpha = status.read("alpha")
+        check("week: an account with room is untouched",
+              status.unfit(alpha, loads["alpha"]) is None
+              and status.describe_runway(status.runway(alpha, None, None, loads["alpha"])) != "")
+    finally:
+        con.close()
+
+
+def test_a_week_that_rolls_over_first_is_not_closed_by_its_runway(home: Path) -> None:
+    """The same 99% with minutes to go is not a wall: the reset arrives before
+    one more agent could spend what is left. And with no ratio measured the
+    week is judged at its wall alone, as before - no guess about the plan."""
+    con, loads = _gamma_world(home, gamma_reset_in=300)
+    try:
+        st = status.read("gamma")
+        check("rollover: 99% with five minutes to the reset is usable",
+              status.unfit(st, loads["gamma"]) is None, str(status.unfit(st, loads["gamma"])))
+        db.set_meta(con, "weekratio", None)
+        con.execute("UPDATE agent_state SET agent = agent")
+        bare = loadmod.read_all(con)
+        write_status(home, "gamma", pct_5h=20, pct_7d=99, reset_5h=int(time.time()) + 3 * 3600,
+                     reset_7d=int(time.time()) + 39 * 3600)
+        check("no ratio: nothing is guessed, the week is judged at its wall alone",
+              status.unfit(status.read("gamma"), bare["gamma"]) is None)
+    finally:
+        con.close()
+
+
 def test_pick_account_degrades_when_every_account_would_hit_the_wall(home: Path) -> None:
     """No account qualifies: pick_account returns None and a reason for each,
     not an exception - and a boundary account whose one more agent would still
@@ -17211,6 +17325,10 @@ def main() -> int:
         run(lambda: test_pick_account_degrades_when_every_account_would_hit_the_wall(
             Path(td) / 'allwall'))
         run(lambda: test_pick_account_stale_and_unknown_pace(Path(td) / 'staleknown'))
+        run(lambda: test_the_weeks_ratio_to_the_5h_window_is_measured_from_the_samples(Path(td) / 'weekratio'))
+        run(lambda: test_an_account_the_week_is_about_to_close_is_not_usable_and_not_picked(
+            Path(td) / 'weekwall'))
+        run(lambda: test_a_week_that_rolls_over_first_is_not_closed_by_its_runway(Path(td) / 'weekroll'))
         run(lambda: test_usage_samples_round_trip_without_coercing_a_gap_to_zero(
             Path(td) / 'usagesamples'))
         run(lambda: test_the_usage_sample_prune_and_since_read_use_an_index(

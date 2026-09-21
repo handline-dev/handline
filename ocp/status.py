@@ -666,12 +666,20 @@ class Runway:
     eta_s: float | None       # seconds to the wall at the current burn
     burning: bool             # False: no burn reading, or an idle account
     past_reset: bool          # the 5h window rolls over before the line is reached
+    # How long the week lasts with one more agent on it (`week_stretch_s`, the
+    # figure the pick judges by) when that is known and the week does not roll
+    # over first; None otherwise, and then the week is not what runs out first.
+    week_s: float | None = None
 
 
-def runway(st: "AccountStatus", burn: float | None, now: float | None = None) -> Runway | None:
-    """An estimate of how long this account's 5h headroom lasts at the current
-    burn. None when its reading is stale or unknown: no figure is better than
-    one drawn from a reading that stopped describing the account."""
+def runway(st: "AccountStatus", burn: float | None, now: float | None = None,
+           ld=None) -> Runway | None:
+    """An estimate of how long this account's headroom lasts, whichever window
+    runs out first: the 5h one at the current burn, the week at the pick's own
+    figure for it (`ld` is the account's load, which carries the plan's ratio;
+    without it the week is not estimated). None when its reading is stale or
+    unknown: no figure is better than one drawn from a reading that stopped
+    describing the account."""
     pct = st.trusted_pct_5h
     if pct is None:
         return None
@@ -679,8 +687,11 @@ def runway(st: "AccountStatus", burn: float | None, now: float | None = None) ->
     week = st.trusted_pct_7d
     left = max(0, PCT_5H_BLOCK - pct)
     left7 = None if week is None else max(0, PCT_7D_BLOCK - week)
+    week_s = week_stretch_s(st, ld)
+    if week_s is not None and st.reset_7d and st.reset_7d - now <= week_s:
+        week_s = None
     if not burn or burn <= 0:
-        return Runway(left, left7, None, False, False)
+        return Runway(left, left7, None, False, False, week_s)
     eta = left / burn
     # A 5h window resets within 5h whether or not the collector told us when -
     # an eta beyond that is not a long wait, it is the reset arriving first.
@@ -688,7 +699,7 @@ def runway(st: "AccountStatus", burn: float | None, now: float | None = None) ->
         past_reset = now + eta > st.reset_5h
     else:
         past_reset = eta > 5 * 3600
-    return Runway(left, left7, eta, True, past_reset)
+    return Runway(left, left7, eta, True, past_reset, week_s)
 
 
 def describe_runway(r: Runway | None) -> str:
@@ -696,6 +707,13 @@ def describe_runway(r: Runway | None) -> str:
         return ""
     if r.left_5h == 0:
         return "at the wall"
+    if r.left_7d == 0:
+        return "at the 7d wall"
+    # The window that runs out first is the one shown; a 5h window whose reset
+    # comes first does not run out at all.
+    five = r.eta_s if r.burning and not r.past_reset else None
+    if r.week_s is not None and (five is None or r.week_s < five):
+        return f"~{span(r.week_s)} to 7d wall"
     if not r.burning:
         return "no recent burn"
     return "outlasts reset" if r.past_reset else f"~{span(r.eta_s)} to wall"
@@ -829,13 +847,49 @@ def agent_burn(ld, agent: str | None) -> float:
     return ld.costs.per_s(agent) if ld and ld.costs else triggers.TYPICAL_AGENT_BURN_PER_S
 
 
+def week_stretch_s(st: "AccountStatus", ld, agent: str | None = None) -> float | None:
+    """How long the week's headroom lasts with one more agent on this account,
+    the 5h stretch's own arithmetic on the weekly window: its fill and the
+    newcomer's cost, both measured in the 5h window's points, converted by the
+    plan's measured ratio (`burnrate.Costs.week_per_5h`). With no recent fill it
+    is the newcomer's cost alone. None where the week or the ratio is unknown:
+    no figure is better than one that guesses the plan."""
+    week = st.trusted_pct_7d
+    ratio = ld.costs.week_per_5h(ld.account) if ld and ld.costs else None
+    if week is None or ratio is None:
+        return None
+    fill = (ld.burn or 0.0) * ratio
+    return triggers.stretch_s(PCT_7D_BLOCK - week, fill, agent_burn(ld, agent) * ratio)
+
+
+def _no_week_room(st: "AccountStatus", ld, agent: str | None = None) -> str | None:
+    """Why the week cannot carry one more agent: it would run out in less than
+    a start is worth (`MIN_STRETCH_S`, the same line the 5h window is held to)
+    and before the week rolls over. 99% of a week with a day and a half to go is
+    one; so is 99% with minutes to go, which is not, because the reset arrives
+    first."""
+    lasts = week_stretch_s(st, ld, agent)
+    if lasts is None or lasts >= triggers.MIN_STRETCH_S:
+        return None
+    left = (st.reset_7d - time.time()) if st.reset_7d else None
+    if left is not None and left <= lasts:
+        return None
+    reset = f", resets in {span(left)}" if left and left > 0 else ""
+    return (f"7d {st.trusted_pct_7d}%{reset}: one more agent lasts ~{span(lasts)} of it - "
+            f"under the {span(triggers.MIN_STRETCH_S)} a start is worth")
+
+
 def _no_room(st: "AccountStatus", ld, pct: int | None,
              agent: str | None = None) -> tuple[str | None, float | None]:
     """(why it cannot take one more agent, how long it would last). The cap,
-    then the stretch when the fill `pct` is known; the one test `unfit` and
-    `pick_account` share. `agent` prices the newcomer by its own kind."""
+    the week's stretch, then the 5h stretch when the fill `pct` is known; the
+    one test `unfit` and `pick_account` share. `agent` prices the newcomer by
+    its own kind."""
     if ld and ld.at_cap:
         return f"at its cap: {ld.active} of {ld.cap} agents mid-turn", None
+    weekly = _no_week_room(st, ld, agent)
+    if weekly:
+        return weekly, None
     if pct is None:
         return None, None
     lasts = triggers.stretch_s(PCT_5H_BLOCK - pct, ld.burn if ld and ld.burn else 0.0,

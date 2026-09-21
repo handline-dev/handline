@@ -2175,6 +2175,10 @@ def observe_burn(con, log) -> None:
         db.prune_usage_samples(con)
     except Exception as e:  # noqa: BLE001
         log(f"  sample: prune failed: {e}")
+    try:
+        burnrate.refresh_week_ratios(con)
+    except Exception as e:  # noqa: BLE001 - no ratio only means the week is judged at its wall
+        log(f"  sample: week ratio failed: {e}")
 
 
 # ---------------------------------------------------------------- loop

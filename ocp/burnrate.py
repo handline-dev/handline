@@ -27,6 +27,7 @@ from __future__ import annotations
 
 import json
 import statistics
+import time
 
 from . import agents, db, triggers
 
@@ -47,6 +48,24 @@ FLOOR_PER_S = 0.1 / 60
 CEILING_PER_S = 2.0 / 60
 
 _SAMPLES = "burnsamples"
+
+# The weekly window against the 5h one: how many points of the week a point of
+# the 5h window costs. Both are percentages of different-sized budgets, so the
+# 5h cost of an agent says nothing about the week until this converts it, and
+# no plan's ratio is written down anywhere ocp reads - it is measured, from the
+# `usage_samples` the daemon keeps: the week's rise over the 5h window's rise,
+# across consecutive live readings of one account inside one pair of windows.
+# It is a property of the plan, so it is read over days, not hours.
+WEEK_RATIO_WINDOW_S = 3 * 86400
+# The week moves in whole points, so a ratio is only as good as the rise it
+# was divided from: at ten points one point of resolution is a tenth of it.
+# An account with less takes the pooled ratio of all accounts, and where that
+# is under it too there is no ratio and the week is judged at its wall alone.
+WEEK_RATIO_MIN_POINTS = 10
+# The daemon recomputes it this often; a plan's ratio does not move by the tick.
+WEEK_RATIO_EVERY_S = 600
+_WEEK_RATIO = "weekratio"
+POOLED = "*"
 
 
 def _seg_key(acct: str) -> str:
@@ -126,12 +145,74 @@ def observe(con, acct: str, active: list[str], st, firsts: "set[str]" = frozense
     db.set_meta(con, _seg_key(acct), json.dumps(seg) if seg else None)
 
 
+def week_ratios(rows) -> dict[str, float]:
+    """Points of the week per point of the 5h window, by account and pooled
+    under POOLED, from `usage_samples` rows in time order. Only a pair of
+    consecutive rows of one account that are both live readings of both windows,
+    inside the same 5h window and the same week, and in which neither figure
+    fell, says anything: a rolled window, a carried figure or a gap does not."""
+    totals: dict[str, list[int]] = {}
+    last: dict[str, object] = {}
+
+    def live(r) -> bool:
+        return (r["pct_5h"] is not None and r["pct_7d"] is not None and r["pct_5h_readable"]
+                and not (r["rl_carried"] or r["rl_lost"] or r["rl7_carried"] or r["rl7_lost"]))
+
+    for r in rows:
+        a = r["account"]
+        prev = last.get(a)
+        last[a] = r
+        if prev is None or not (live(prev) and live(r)):
+            continue
+        if r["reset_5h"] != prev["reset_5h"] or r["reset_7d"] != prev["reset_7d"]:
+            continue
+        d5, d7 = r["pct_5h"] - prev["pct_5h"], r["pct_7d"] - prev["pct_7d"]
+        if d5 < 0 or d7 < 0:
+            continue
+        for key in (a, POOLED):
+            t = totals.setdefault(key, [0, 0])
+            t[0] += d5
+            t[1] += d7
+    return {k: d7 / d5 for k, (d5, d7) in totals.items()
+            if d5 > 0 and d7 >= WEEK_RATIO_MIN_POINTS}
+
+
+def refresh_week_ratios(con, now: int | None = None, force: bool = False) -> None:
+    """Recompute the ratios from the last WEEK_RATIO_WINDOW_S of samples and keep
+    them, at most every WEEK_RATIO_EVERY_S: readers take them from here, so a
+    screen redrawing every couple of seconds never scans the samples."""
+    now = int(time.time()) if now is None else now
+    try:
+        kept = json.loads(db.get_meta(con, _WEEK_RATIO) or "{}")
+    except ValueError:
+        kept = {}
+    if not force and isinstance(kept, dict) and now - int(kept.get("at", 0)) < WEEK_RATIO_EVERY_S:
+        return
+    ratios = week_ratios(db.usage_samples(con, since=now - WEEK_RATIO_WINDOW_S))
+    db.set_meta(con, _WEEK_RATIO, json.dumps({"at": now, "r": ratios}))
+
+
+def _load_week_ratios(con) -> dict[str, float]:
+    try:
+        kept = json.loads(db.get_meta(con, _WEEK_RATIO) or "{}")
+        return {k: float(v) for k, v in kept.get("r", {}).items()}
+    except (ValueError, AttributeError, TypeError):
+        return {}
+
+
 class Costs:
     """The estimate, read once from the samples and shared by every account's
     load, so a screen and the daemon price an agent the same."""
 
-    def __init__(self, samples: list[dict]):
+    def __init__(self, samples: list[dict], week_ratios: dict[str, float] | None = None):
         self._samples = samples
+        self._week_ratios = week_ratios or {}
+
+    def week_per_5h(self, account: str) -> float | None:
+        """Points of the week one point of the 5h window costs on this account:
+        its own measured ratio, else all accounts', else None - nothing has
+        measured it, and no 5h figure can be turned into the week's."""
+        return self._week_ratios.get(account, self._week_ratios.get(POOLED))
 
     def _median(self, pick) -> tuple[float, int] | None:
         vals = [s["r"] for s in reversed(self._samples) if pick(s)][:KEEP]
@@ -174,4 +255,4 @@ class Costs:
 
 
 def costs(con) -> Costs:
-    return Costs(_load_samples(con))
+    return Costs(_load_samples(con), _load_week_ratios(con))
