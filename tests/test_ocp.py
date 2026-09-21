@@ -723,15 +723,23 @@ def test_usage_samples_round_trip_without_coercing_a_gap_to_zero(home: Path) -> 
 
 def test_the_usage_sample_prune_and_since_read_use_an_index(home: Path) -> None:
     """Both filter on ts alone, which the (account, ts) index cannot serve
-    because account leads it: without an index on ts each tick full-scans."""
+    because account leads it: without an index on ts each tick full-scans.
+    The statements checked are the ones db actually runs, captured as they
+    execute, and the plan must SEARCH - a full scan of an index still scans."""
     os.environ["OCP_HOME"] = str(home)
     con = db.connect()
     try:
-        for q in ("DELETE FROM usage_samples WHERE ts < ?",
-                  "SELECT * FROM usage_samples WHERE ts >= ?"):
-            plan = " ".join(r[3] for r in con.execute("EXPLAIN QUERY PLAN " + q, (0,)))
-            check(f"usage_samples: '{q}' is searched by an index, not scanned",
-                  "USING INDEX" in plan or "USING COVERING INDEX" in plan, plan)
+        ran: list[str] = []
+        con.set_trace_callback(ran.append)
+        db.usage_samples(con, since=1)
+        db.prune_usage_samples(con, before_ts=1)
+        con.set_trace_callback(None)
+        for q in ran:
+            plan = " ".join(r[3] for r in con.execute("EXPLAIN QUERY PLAN " + q))
+            check(f"usage_samples: {q!r} is searched by an index, not scanned",
+                  "SEARCH usage_samples USING" in plan, plan)
+        check("usage_samples: the since read and the prune were both captured",
+              len(ran) == 2, ran)
     finally:
         con.close()
 
