@@ -7592,13 +7592,46 @@ def test_find_transcript_walks_accounts_and_takes_only_a_plain_id(home: Path) ->
         check(f"transcript: {bad!r} names nothing", handoffmod.find_transcript(bad, "alpha") is None)
 
 
+def test_only_the_agents_own_events_move_its_activity_clock(home: Path) -> None:
+    """Every kind ocp writes is either the agent acting (a hook, or a command the
+    agent ran) or the daemon's bookkeeping about it. A new kind must be sorted
+    here, and the daemon's must not move the clock: one that did gave a dead-cache
+    agent a clock and it was resumed."""
+    agent_kinds = {"ask", "cancel", "commit", "escalate", "report", "resolve", "withdraw"}
+    daemon_kinds = {"account_mismatch", "answered", "close", "close_failed", "cold_start",
+                    "dialog_declined", "fold", "fold_failed", "forced_move", "handoff",
+                    "memory_migrated", "moved_account", "nudged", "notified", "park",
+                    "session_gone", "started_for_work", "terminal_gone", "unstuck",
+                    "wake", "wake_failed"}
+    written = set()
+    for f in Path(dmn.__file__).parent.glob("*.py"):
+        written |= set(re.findall(r'add_event\([^,()]+,[^,()]+,\s*"([a-z_]+)"', f.read_text()))
+    check("activity: every kind ocp writes is sorted here",
+          written <= agent_kinds | daemon_kinds, str(sorted(written - agent_kinds - daemon_kinds)))
+    _daemon_home(home, 20)
+    con = db.connect()
+    try:
+        con.execute("DELETE FROM events WHERE agent = 'backend'")
+        for kind in sorted(daemon_kinds):
+            db.add_event(con, "backend", kind, {})
+        check("activity: none of the daemon's own kinds is activity",
+              db.last_activity(con, "backend") is None, str(db.last_activity(con, "backend")))
+        for kind in sorted(agent_kinds | {"Stop", "PostToolUse"}):
+            con.execute("DELETE FROM events WHERE agent = 'backend'")
+            db.add_event(con, "backend", kind, {})
+            check(f"activity: {kind} is the agent's own and moves the clock",
+                  db.last_activity(con, "backend") is not None)
+    finally:
+        con.close()
+
+
 def test_a_cold_wake_that_fails_leaves_no_handoff_behind(home: Path) -> None:
     """A record no session was handed would be typed at the next live session."""
     _daemon_home(home, 20)
     con = db.connect()
     real = (orcamod.alive, orcamod.wait_idle, orcamod.idle_now, orcamod.send,
             orcamod.available, orcamod.clear_context, orcamod.relaunch,
-            orcamod.typeable_now, orcamod.resume_with, orcamod.idle_now, orcamod.send)
+            orcamod.typeable_now, orcamod.resume_with)
     logs: list[str] = []
     try:
         orcamod.available = lambda: True
@@ -7636,7 +7669,7 @@ def test_a_cold_wake_that_fails_leaves_no_handoff_behind(home: Path) -> None:
     finally:
         (orcamod.alive, orcamod.wait_idle, orcamod.idle_now, orcamod.send,
          orcamod.available, orcamod.clear_context, orcamod.relaunch,
-         orcamod.typeable_now, orcamod.resume_with, orcamod.idle_now, orcamod.send) = real
+         orcamod.typeable_now, orcamod.resume_with) = real
         con.close()
 
 
@@ -19410,6 +19443,7 @@ def main() -> int:
         run(lambda: test_an_agent_idle_past_its_prompt_cache_comes_back_fresh_with_its_work(Path(td) / 'coldwake'))
         run(lambda: test_the_cache_clock_decides_a_resume_not_whether_a_handoff_exists(Path(td) / 'coldnone'))
         run(lambda: test_find_transcript_walks_accounts_and_takes_only_a_plain_id(Path(td) / 'find_trans'))
+        run(lambda: test_only_the_agents_own_events_move_its_activity_clock(Path(td) / 'actclock'))
         run(lambda: test_a_cold_wake_that_fails_leaves_no_handoff_behind(Path(td) / 'a_cold_wak'))
         run(lambda: test_a_cold_wake_with_no_handoff_still_tells_the_agent_its_transcript_and_request(Path(td) / 'coldnone2'))
         run(lambda: test_a_park_that_was_also_closed_is_woken_without_being_judged(Path(td) / 'pclosed'))
