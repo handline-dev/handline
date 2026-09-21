@@ -190,8 +190,10 @@ def answer(con, rid: int, verdict: str) -> str:
     return msg
 
 
-def dismiss(con, rid: int, me: str | None = None) -> str:
-    """Take one row off the mailbox without replying to it.
+def dismiss(con, rid: int, me: str | None = None, reason: str | None = None) -> str:
+    """Take one row off the mailbox without replying to it. A `reason` is
+    stored, as typed, after "read - no reply" in the verdict of a still-queued
+    row; a row that already carries a real verdict keeps it.
 
     A row that has already left 'queued' carries somebody's real verdict.
     Read by whoever asked for it (`me`, when known), it is marked told - the
@@ -210,17 +212,18 @@ def dismiss(con, rid: int, me: str | None = None) -> str:
             return f"#{rid} was already answered - nothing more for you to do"
         db.mark_announced(con, [rid])
         return f"#{rid} marked read"
+    verdict = "read - no reply" + (f": {reason}" if reason else "")
     if row["response"] != "async":
         # Nobody is waiting on this one, so nobody is told: no push_answer, no
         # wake. Typing "read" at an agent as though it were an answer costs it
         # a turn to discover that it is not one - manager was mid-sentence
         # when a dismissal arrived as "#60 from human: read". resolve() itself
         # stamps announced_at, in the same write as the state change.
-        ok, msg = askmod.resolve(rid, "read - no reply", state="done", notify=False)
+        ok, msg = askmod.resolve(rid, verdict, state="done", notify=False)
         return f"{msg} (dismissed; {row['requester']} is not waiting on it)"
     # An `async` sender parked on a reply and nothing else will ever unpark it,
     # so it is told - and what it is told says it was read, not answered.
-    ok, msg = askmod.resolve(rid, "read - no reply", state="done")
+    ok, msg = askmod.resolve(rid, verdict, state="done")
     return msg
 
 

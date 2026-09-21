@@ -1118,17 +1118,20 @@ def cmd_team_check(args) -> int:
 
 
 def cmd_ask(args) -> int:
+    if args.reason and args.replaces is None:
+        print("--reason says why a request was replaced: it needs --replaces ID")
+        return 1
     ok, msg, _ = askmod.ask(args.target, args.body, files=args.files,
                             requester=args.of, parent_id=args.parent,
                             mergeable=args.mergeable, first=args.first,
-                            replaces=args.replaces, fyi=args.fyi)
+                            replaces=args.replaces, fyi=args.fyi, reason=args.reason)
     # ask() already phrases its own refusals; do not prefix them again.
     print(msg)
     return 0 if ok else 1
 
 
 def cmd_withdraw(args) -> int:
-    ok, msg = askmod.withdraw(args.id, requester=args.of)
+    ok, msg = askmod.withdraw(args.id, requester=args.of, reason=args.reason)
     print(msg)
     return 0 if ok else 1
 
@@ -1332,7 +1335,7 @@ def cmd_dismiss(args) -> int:
             print(f"#{args.id} is {row['requester']} → {row['target']}, not yours to "
                   f"dismiss. `ocp read {args.id}` shows it.")
             return 1
-        print(actions.dismiss(con, args.id, me=me))
+        print(actions.dismiss(con, args.id, me=me, reason=args.reason))
         return 0
     finally:
         con.close()
@@ -1613,6 +1616,8 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--replaces", type=int, default=None, metavar="ID",
                    help="correct your own request ID before it has been delivered; "
                         "ID is retired and this takes its place in line")
+    p.add_argument("--reason", default=None,
+                   help="why --replaces retires the old request; stored as typed")
     p.add_argument("--fyi", action="store_true",
                    help="a report to the human that asks nothing of them: not red, not "
                         "counted as waiting on them, gone once read or when your next "
@@ -1622,6 +1627,7 @@ def build_parser() -> argparse.ArgumentParser:
     p = sub.add_parser("withdraw", help="take back your own request before it is delivered")
     p.add_argument("id", type=int)
     p.add_argument("--of", default=None, help="requester (defaults to $OCP_AGENT)")
+    p.add_argument("--reason", default=None, help="why; stored as typed")
     p.set_defaults(fn=cmd_withdraw)
 
     p = sub.add_parser("cancel", help="the founder takes a request out of an agent's queue")
@@ -1657,6 +1663,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     p = sub.add_parser("dismiss", help="take one row off your mailbox without replying")
     p.add_argument("id", type=int)
+    p.add_argument("--reason", default=None, help="why; stored as typed")
     p.set_defaults(fn=cmd_dismiss)
 
     p = sub.add_parser("fold", help="fold events into the digest (the one model call)")

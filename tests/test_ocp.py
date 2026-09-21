@@ -18188,6 +18188,44 @@ def test_a_second_close_loses_the_race(home: Path) -> None:
         con.close()
 
 
+def test_replace_withdraw_and_dismiss_store_the_reason_typed(home: Path) -> None:
+    """#1337: what was typed is what the record holds, and without a reason the
+    old verdicts are unchanged."""
+    _board_world(home)
+    con = db.connect()
+    try:
+        ok, _, a = askmod.ask("worker", "first", requester="manager")
+        ok, _, b = askmod.ask("worker", "first, corrected", requester="manager",
+                              replaces=a, reason="wrong repo")
+        check("reason: a replace stores the reason after the id that replaced it",
+              db.get_request(con, a)["verdict"] == f"replaced by #{b}: wrong repo",
+              str(dict(db.get_request(con, a))))
+        ok, _, c = askmod.ask("worker", "second", requester="manager")
+        ok, _, d = askmod.ask("worker", "second again", requester="manager", replaces=c)
+        check("reason: a replace with none keeps the old verdict",
+              db.get_request(con, c)["verdict"] == f"replaced by #{d}")
+        ok, _, e = askmod.ask("worker", "third", requester="manager", mergeable=False)
+        ok, msg = askmod.withdraw(e, requester="manager", reason="not needed after all")
+        row = db.get_request(con, e)
+        check("reason: a withdraw stores it", ok and row["state"] == "withdrawn"
+              and row["verdict"] == "not needed after all", str(dict(row)))
+        ok, _, f = askmod.ask("worker", "fourth", requester="manager")
+        askmod.withdraw(f, requester="manager")
+        check("reason: a withdraw with none stores none", db.get_request(con, f)["verdict"] is None)
+        g = db.add_request(con, "worker", "manager", "q", None, "peer", "async", None, 0, None)
+        actions.dismiss(con, g, me="manager", reason="duplicate of #1")
+        check("reason: a dismiss stores it",
+              db.get_request(con, g)["verdict"] == "read - no reply: duplicate of #1")
+        h = db.add_request(con, "worker", "manager", "q", None, "peer", "async", None, 0, None)
+        actions.dismiss(con, h, me="manager")
+        check("reason: a dismiss with none keeps the old verdict",
+              db.get_request(con, h)["verdict"] == "read - no reply")
+    finally:
+        con.close()
+    rc, out = _cli(["ask", "worker", "x", "--reason", "why"])
+    check("reason: --reason without --replaces is refused", rc == 1 and "--replaces" in out, out)
+
+
 def main() -> int:
     # An agent session that runs this suite already has both set for itself,
     # and every test here that wants one sets it explicitly - so an ambient
@@ -18563,6 +18601,7 @@ def main() -> int:
         run(lambda: test_resolving_the_founders_request_says_what_it_becomes(Path(td) / 'taskguard'))
         run(lambda: test_closing_a_task_needs_evidence_and_no_open_child(Path(td) / 'taskclose'))
         run(lambda: test_a_second_close_loses_the_race(Path(td) / 'taskrace'))
+        run(lambda: test_replace_withdraw_and_dismiss_store_the_reason_typed(Path(td) / 'taskreason'))
         run(lambda: test_run_recovers_from_an_uncaught_error())
     # The whole run's dealings with Orca: none of its tests may have reached even
     # the stand-in, except the four that run a child `ocp`. (A test's own

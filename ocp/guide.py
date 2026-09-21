@@ -58,7 +58,9 @@ its session lives on.""",
   ocp ask <agent> "..." --replaces <id>   correct a task you sent, before it is delivered
   ocp ask human "..." --fyi       a report that asks nothing: not red, not counted as
                                   waiting on the founder, gone once read or superseded
-  ocp withdraw <id>               take back your own request, before it is delivered
+  ocp withdraw <id> [--reason R]  take back your own request, before it is delivered;
+                                   --reason (also on dismiss, and on ask --replaces)
+                                   is stored as typed
   ocp cancel <id>                 the founder's: take any request out of an agent's queue
   ocp inbox                       the one thing currently waiting for you, and a count
   ocp inbox --all                 the whole queue and its history
