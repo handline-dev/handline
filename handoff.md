@@ -4,7 +4,7 @@ Stopped at the founder's request (#1447) with usage needed elsewhere. Nothing
 is half-written: both commits are whole, the suite is green, and the branch is
 not merged.
 
-    6a273af  refactor: delete probe.py - the endpoint answers without spending
+    47761ac  refactor: delete probe.py - the endpoint answers without spending
     56a4e6e  feat: the statusLine shows the agent instead of collecting from it
     0b6b81a  feat: read a session's own file instead of its status line
 
