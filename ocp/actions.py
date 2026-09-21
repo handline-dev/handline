@@ -909,8 +909,6 @@ def can(con, agent: str, key: str) -> tuple[bool, str]:
 # been at work for a week has more of them than a page can hold.
 CHAT_CHAINS = 8
 CHAT_TAB = "CONVERSATION"
-KNOWS_TAB = "WHAT IT KNOWS"
-DONE_TAB = "WHAT IT HAS DONE"
 OTHERS_TAB = "WAITING FOR IT, FROM OTHER AGENTS"
 UNTOLD_TAB = "ANSWERS IT HAS NOT BEEN TOLD"
 
