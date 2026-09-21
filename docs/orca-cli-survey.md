@@ -7,8 +7,10 @@ facts here are stated without a verdict on our code.
 
 Method: `orca agent-context --json` (schema v1, 234 commands) read whole, then
 Orca's own bundled guides (`orca skills get orchestration` and `orca-cli`),
-then live probes against this machine. Everything quoted below was read from a
-running system, not from third-party documentation.
+then live probes against this machine, then - where the CLI turned out to
+understate the product (§3.1) - the installed app bundle and Orca's public
+issue tracker. Everything quoted below was read from a running system or from
+Orca's own repository, not from third-party write-ups.
 
     orca 1.4.205, runtime ef70a57f, app running, runtime ready
     read on 2026-09-21 from /Users/ron/orca/workspaces/orcapipe/orcapipe.expender
@@ -133,14 +135,55 @@ something a caller has to carry alone.
 | worker projections | every worker row carries `provider: {id, model}` | live JSON |
 | `terminal list` rows | every terminal carries `agentIdentity` | live JSON |
 
-Runtime capabilities name vendors the CLI does not: `agent-session.kimi-resume.v1`,
-`accounts.codex-reset-credit.v1`, `skills.install-providers.v1`. The runtime
-model is plainly multi-vendor and older than the CLI's exposure of it.
+### 3.1 The CLI is the narrowest view of it
 
-**opencode** appears only as a `--command` string in two examples. It is
-launchable as a terminal command and nothing more: no `--agent opencode`, no
-account management, no hooks verb. Treat it as layer 1 only until proven
-otherwise.
+Reading the CLI alone understates Orca badly, and it is worth knowing by how
+much before concluding anything about a second vendor.
+
+Orca's app bundle carries the real registry of agent families it understands
+(`/Applications/Orca.app/Contents/Resources/app.asar`) - **18 of them**:
+
+    claude  codex  gemini  antigravity  amp  opencode  mimo-code  cursor  pi
+    omp  prime-agent  droid  command-code  grok  copilot  hermes  devin  kimi
+
+and it knows each one specifically, not generically. Per family it carries the
+hook event name that means "a turn started" (`claude` → `UserPromptSubmit`,
+`opencode` → `SessionStart`, `gemini` → `BeforeAgent`, `antigravity` →
+`PreInvocation`, `amp` → `agent.start`, `cursor` → `beforeSubmitPrompt`,
+`mimo-code` → none), plus per-family session scanners
+(`session-scanner-opencode-sqlite`), event parsers
+(`opencode-family-events.js`), terminal-title derivation
+(`opencode-terminal-title.js`) and an icon. That is the machinery behind
+`agentIdentity`, `stage.activity` and `liveness.source: agent_status` in §4 -
+and it is vendor-plural by construction.
+
+So support is **three tiers, not two**:
+
+| tier | what it covers | who is in it |
+|---|---|---|
+| 1. any terminal command | it runs, you drive it with `send`/`read`/`wait` | anything at all |
+| 2. **known agent family** | identity, activity, liveness, hooks, session scan, title, icon | the 18 above, **opencode included** |
+| 3. **orchestration launcher** | `--agent`, `--model`/`--effort`, managed accounts | **Claude, Codex, Cursor only** |
+
+The gap between tiers 2 and 3 is not an accident of documentation; it is a
+known, filed limitation. Orca issue
+[#19823](https://github.com/stablyai/orca/issues/19823) (open, 2026-09-10) asks
+for exactly it: no `--agent opencode` launch path, `--model` rejects
+non-Claude/Codex/Cursor provider ids, `account list` surfaces no opencode
+accounts, and `agent-context --json` "reflects the same three-agent world".
+Its consequence is stated plainly - teams on opencode "cannot use Orca
+supervised orchestration (Run/Task/Dispatch, worker_done settlement)" and fall
+back to coordinator subagents, losing the durability and audit properties.
+
+**So: opencode is well supported as an agent and unsupported as a supervised
+worker.** It gets everything in §4 for free; it does not get layer 3. Two of
+the three things a caller might want from Orca are already there for it.
+
+Runtime capabilities name vendors the CLI does not either -
+`agent-session.kimi-resume.v1`, `accounts.codex-reset-credit.v1`,
+`skills.install-providers.v1`. The runtime model is multi-vendor and older than
+the CLI's exposure of it, which is the single most important thing to carry
+into part 2: **do not size a vendor's support by what `--help` prints.**
 
 ---
 
@@ -506,9 +549,16 @@ already running, rather than by standing up a probe for their own sake.
 Orca is not a terminal multiplexer that happens to run agents. It has a
 first-class agent model - provider, account, worker lifecycle, liveness with
 provenance, attention, resource accounting, typed mail, a task DAG and decision
-gates - and that model was built multi-vendor: Claude and Codex are equals in
-account management and hooks, Cursor is a peer in model selection, and the
-runtime already names Kimi. opencode is a command string and nothing more.
+gates - and that model was built multi-vendor from the bottom: **18 agent
+families** it understands specifically, each with its own hook event, session
+scanner and title derivation.
+
+Support is three tiers and they do not line up (§3.1). Anything runs as a
+terminal command. Eighteen families, opencode among them, get identity,
+activity, liveness and hooks. Only **Claude, Codex and Cursor** get the
+orchestration launcher and managed accounts - a known gap, filed as Orca issue
+[#19823](https://github.com/stablyai/orca/issues/19823), whose stated cost is
+that an opencode team "cannot use Orca supervised orchestration".
 
 `orchestration` is not a set of conveniences either. It is a written contract
 about ownership and settlement (§5), it names the four roles a caller can be in
