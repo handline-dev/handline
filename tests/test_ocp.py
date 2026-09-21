@@ -15032,9 +15032,8 @@ def test_slash_commands_autocomplete_and_run_the_highlighted_one(home: Path) -> 
     check("autocomplete: ↓ then Enter runs the one it moved to, not the typed text",
           got == "/clock", repr(got))
 
-    # code-review: two ↓ in the same read must move the highlight twice, not
-    # once - a single read can hold several (key repeat, a paste, a script),
-    # and Composer silently swallows any it does not itself map.
+    # A single read can hold several ↓ (key repeat, a paste, a script), and
+    # Composer silently swallows any it does not itself map.
     master, slave = pty.openpty()
     ttymod.setraw(slave)
     sys.stdin, sys.stdout = os.fdopen(slave, "r", closefd=False), io.StringIO()
@@ -15064,9 +15063,6 @@ def test_slash_commands_autocomplete_and_run_the_highlighted_one(home: Path) -> 
     check("autocomplete: text starting with / that matches nothing sends as typed",
           got == "/nope not a command", repr(got))
 
-    # code-review: highlighting index 1 in a two-item list, then widening the
-    # list to three by deleting a character, clamped the index into range but
-    # left it pointed at whatever was now there - not what was highlighted.
     master, slave = pty.openpty()
     ttymod.setraw(slave)
     sys.stdin, sys.stdout = os.fdopen(slave, "r", closefd=False), io.StringIO()
@@ -15093,9 +15089,6 @@ def test_slash_commands_autocomplete_and_run_the_highlighted_one(home: Path) -> 
           "not just clamps its index into range",
           got == "/close", repr(got))
 
-    # code-review: a prefix and Enter arriving in the same read (a paste, a
-    # fast typist, a script) reach box.feed in one call - `matches` from
-    # before that call must not be what Enter is judged against.
     master, slave = pty.openpty()
     ttymod.setraw(slave)
     sys.stdin, sys.stdout = os.fdopen(slave, "r", closefd=False), io.StringIO()
@@ -15109,10 +15102,6 @@ def test_slash_commands_autocomplete_and_run_the_highlighted_one(home: Path) -> 
     check("autocomplete: a prefix and Enter in the same read still resolves",
           got == "/close", repr(got))
 
-    # code-review: an ambiguous prefix must not run whichever command sorts
-    # first just because Enter was pressed without a pick - one of the
-    # matches may be a mutating action, and a typo left ambiguous is not a
-    # human choosing it.
     master, slave = pty.openpty()
     ttymod.setraw(slave)
     sys.stdin, sys.stdout = os.fdopen(slave, "r", closefd=False), io.StringIO()

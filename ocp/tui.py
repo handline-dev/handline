@@ -1831,20 +1831,14 @@ def _line(prompt: str, width: int, height: int, multi: bool = False,
     screen as it draws at height h - is painted above them; without it they
     cover what was there until the prompt closes.
 
-    `commands`, when given, turns a leading '/' into autocomplete: the names
-    that match what follows it are listed under the composer, ↑↓ (otherwise
-    unbound here - Composer has no vertical move) changes which is
-    highlighted, and Enter sends the highlighted one - as '/name' whole, not
-    whatever prefix was actually typed - rather than the typed text. Text
-    starting with '/' that matches nothing is sent as typed: a real message
-    is still allowed to start with a slash.
-
-    Enter resolves to a command only when exactly one matches, or the human
-    pressed ↑↓ to say which - never by defaulting to whichever sorts first
-    among several. A command name is a verb, one of them possibly a mutating
-    one, and picking one for someone who typed an ambiguous prefix and only
-    meant to send it is the wrong direction to guess in; sent as plain text,
-    a wrong guess is merely a strange message, still visible and undoable."""
+    `commands`, when given, turns a leading '/' into autocomplete: matching
+    names are listed under the composer, ↑↓ (otherwise unbound here -
+    Composer has no vertical move) changes which is highlighted, and Enter
+    sends the highlighted name whole, as '/name'. It resolves that way only
+    when exactly one name matches or the human picked one with ↑↓ - never by
+    defaulting to whichever sorts first among several, since one may be a
+    mutating verb. Anything else - no match, or several with no pick - sends
+    the typed text as a plain message; a real message may start with '/'."""
     if not sys.stdin.isatty():
         return None
     fd = sys.stdin.fileno()
