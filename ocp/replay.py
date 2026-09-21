@@ -15,7 +15,14 @@ week had elapsed - all of that has to be answered by the clock the sample
 was under, or every old sample reads as though it were taken just now.
 `time.time` is patched for the span of one tick's comparison and restored
 immediately after, the same technique the test suite already uses to drive
-a fixed clock through `pick_account`.
+a fixed clock through `pick_account`. That patch is process-global: it moves
+the clock for everything else in the process, so call `replay` from the CLI,
+never from inside a daemon tick.
+
+What is reconstructed is the account's status, not its load: the recorded
+rows carry no per-account cap or agent cost, so both rules are asked with
+`load={}`, the defaults. "What it would have picked" means under the default
+cap and burn, not the ones each account actually had at that tick.
 """
 from __future__ import annotations
 
