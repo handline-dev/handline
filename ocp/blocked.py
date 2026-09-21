@@ -66,13 +66,15 @@ NO_TERMINAL, NO_SESSION, STALLED, ORCA_DOWN = "no terminal", "no session", "stal
 # What to do about each, in the words of the bridge's own keys.
 ADVICE = {
     orca.MODAL: "answer it in its terminal (t on the agents panel)",
+    orca.BACKGROUNDED: "open its terminal (t on the agents panel) and press Esc to return to the conversation",
     orca.UNREADABLE: "check its terminal (t on the agents panel); ocp cannot read its screen",
     NO_TERMINAL: "t on the agents panel starts one",
     NO_SESSION: "w on the agents panel wakes it",
     STALLED: "u on the agents panel clears it",
     ORCA_DOWN: "check Orca and PATH; ocp cannot reach it at all",
 }
-LABEL = {orca.MODAL: "dialog open", orca.UNREADABLE: "screen unreadable",
+LABEL = {orca.MODAL: "dialog open", orca.BACKGROUNDED: "conversation in the background",
+         orca.UNREADABLE: "screen unreadable",
          ORCA_DOWN: "orca unreachable",
          NO_TERMINAL: "no terminal", NO_SESSION: "no session", STALLED: "stalled"}
 
@@ -81,7 +83,7 @@ _checked: dict[str, int] = {}
 
 def reason(kind: str, detail: str) -> str:
     """What is in the way, as a sentence."""
-    if kind in (orca.MODAL, orca.UNREADABLE):
+    if kind in (orca.MODAL, orca.BACKGROUNDED, orca.UNREADABLE):
         return orca.Blocker(kind, detail).reason()
     return f"{LABEL.get(kind, kind)}: {detail}" if detail else LABEL.get(kind, kind)
 

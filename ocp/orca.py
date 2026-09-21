@@ -213,14 +213,15 @@ def _screen(handle: str) -> dict | None:
 
 
 # Why a line typed now would not land, named.
-MODAL, UNREADABLE = "modal", "unreadable"
+MODAL, BACKGROUNDED, UNREADABLE = "modal", "backgrounded", "unreadable"
 
 
 @dataclass(frozen=True)
 class Blocker:
     kind: str
-    # What the screen itself says: the dialog's title and options. Quoted
-    # from the screen, never classified. Empty for anything but MODAL.
+    # What the screen itself says: a dialog's title and options, or the
+    # background picker's banner and sessions. Quoted from the screen, never
+    # classified. Empty for UNREADABLE.
     detail: str = ""
     # The dialog's own title, raw from parse_dialog - not reconstructed from
     # `detail`, which is a rendering (quoted, joined, truncated) that a title
@@ -231,6 +232,8 @@ class Blocker:
     def reason(self) -> str:
         if self.kind == MODAL:
             return f'a dialog is open on its screen: {self.detail}'
+        if self.kind == BACKGROUNDED:
+            return f'its conversation moved to the background: {self.detail}'
         return "its screen could not be read"
 
 
@@ -407,6 +410,33 @@ def _composer_shape(tail: list) -> bool:
     return False
 
 
+# Claude Code's backgrounded-session picker: the conversation moved to the
+# background and the screen is a list of sessions. Its new-session box has the
+# ordinary composer shape - rule/marker/rule - so the shape alone cannot tell it
+# from the agent's own prompt, and text typed there goes to a new session, not
+# the conversation. Its hint line does: "enter to open" where the conversation's
+# own says "enter to return" or "shift+tab to cycle".
+_BACKGROUNDED_HINT = "enter to open"
+_HINT_ROWS = 6
+
+
+def _hint_row(tail: list) -> int | None:
+    for i in range(max(0, len(tail) - _HINT_ROWS), len(tail)):
+        if _BACKGROUNDED_HINT in str(tail[i]):
+            return i
+    return None
+
+
+def _describe_backgrounded(tail: list, hint: int) -> str:
+    """The picker's banner and session list above its hint line, quoted - the
+    same hostile-text care as describe_modal, since the agent paints this
+    screen too. The new-session box is left out: its rules and placeholder
+    say nothing about the conversation."""
+    lines = [_visible(str(x).strip()) for x in tail[:hint]]
+    shown = [ln for ln in lines if ln and not _COMPOSER_RULE.match(ln) and ln != "\u276f"]
+    return " / ".join(shown[:3])[:DETAIL_CHARS]
+
+
 def screen_blocker(handle: str) -> Blocker | None:
     """What on the screen a typed line would answer or merge into, from one read.
 
@@ -442,6 +472,9 @@ def screen_blocker(handle: str) -> Blocker | None:
     if footer is not None:
         dialog = parse_dialog(tail, footer)
         return Blocker(MODAL, describe_modal(tail, footer), title=dialog.title if dialog else "")
+    hint = _hint_row(tail)
+    if hint is not None:
+        return Blocker(BACKGROUNDED, _describe_backgrounded(tail, hint))
     if _composer_shape(tail):
         return None
     # Not the composer's shape either - a screen mid-scroll, a different
@@ -504,15 +537,13 @@ def decline_dialog(handle: str) -> tuple[str, str, str]:
 def modal_open(handle: str) -> bool:
     """Is a modal on the agent's screen, where typed text would answer it?"""
     blocked = screen_blocker(handle)
-    return bool(blocked and blocked.kind in (MODAL, UNREADABLE))
+    return bool(blocked and blocked.kind in (MODAL, BACKGROUNDED, UNREADABLE))
 
 
 def typeable_now(handle: str) -> bool:
     """Idle and nothing on screen that a typed line would answer."""
-    # screen_blocker's own kinds are exactly MODAL and UNREADABLE, so
-    # not-modal (fail-closed on UNREADABLE too) is the same question as
-    # "nothing at all" - asked with one read, not two, so a dialog that opens
-    # between two separate reads cannot be read as neither.
+    # Nothing at all is asked with one read, not one per kind, so a dialog
+    # that opens between two separate reads cannot be read as neither.
     return idle_now(handle) and screen_blocker(handle) is None
 
 
@@ -527,8 +558,9 @@ def clear_context(handle: str, wait: bool = True,
         return False, f"terminal {handle} is not alive"
     if wait and not wait_idle(handle, timeout_ms):
         return False, "agent is mid-turn; not clearing"
-    if screen_blocker(handle):                # one read, not modal_open() twice
-        return False, "a modal is open on its screen; not typing /clear at it"
+    blocked = screen_blocker(handle)          # one read, not modal_open() twice
+    if blocked:
+        return False, f"{blocked.reason()}; not typing /clear at it"
     ok, out = send(handle, "/clear")
     return ok, "context cleared" if ok else f"could not send /clear: {out[:200]}"
 
@@ -553,8 +585,9 @@ def close_session(handle: str, wait: bool = True,
         return False, f"terminal {handle} is not alive"
     if wait and not wait_idle(handle, timeout_ms):
         return False, "agent is mid-turn; not closing"
-    if screen_blocker(handle):                # one read, not modal_open() twice
-        return False, "a modal is open on its screen; not typing /exit at it"
+    blocked = screen_blocker(handle)          # one read, not modal_open() twice
+    if blocked:
+        return False, f"{blocked.reason()}; not typing /exit at it"
     ok, out = send(handle, "/exit")
     return ok, "/exit typed" if ok else f"could not send /exit: {out[:200]}"
 

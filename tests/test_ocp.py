@@ -2448,6 +2448,17 @@ HARBOR_COMPOSER_EMPTY = [_COMPOSER_RULE_ROW, "❯", _COMPOSER_RULE_ROW,
                           "  ⏵⏵ auto mode · enter to return · space to reply · ctrl+x to "]
 
 
+# orcapipe's #1161 read of harbor: the backgrounded-session picker. Its
+# new-session box is rule/marker/rule like any composer.
+BACKGROUND_PICKER = [
+    "Your conversation moved to the background - enter opens it · esc returns to it · ctrl+c twice quits",
+    "Completed",
+    " ✻ ocp inbox management             Processed both orcapipe inbox corrections...",
+    " ∙ Harbor app manager continuation  main merged at b42550f3...",
+    _COMPOSER_RULE_ROW, "❯", _COMPOSER_RULE_ROW,
+    "  ⏵⏵ auto mode · enter to open · space to reply · ctrl+x to delete · ? for shortcuts"]
+
+
 def _screen_of(tail, draft=None, source="screen"):
     term = {"handle": "term_x", "status": "running", "tail": list(tail), "source": source}
     if draft is not None:
@@ -2503,6 +2514,29 @@ def test_the_screen_names_what_is_in_the_way(home: Path) -> None:
         orcamod._screen = lambda h: _screen_of(HARBOR_COMPOSER_EMPTY)
         check("screen: a composer with a different number of rows under it "
               "is still read, not UNREADABLE",
+              orcamod.screen_blocker("term_x") is None)
+        # The background picker has a composer's shape and typed text goes to
+        # a new session, so it is a block of its own - never a clean send.
+        orcamod._screen = lambda h: _screen_of(BACKGROUND_PICKER)
+        b = orcamod.screen_blocker("term_x")
+        check("screen: the background picker is not a clean composer",
+              b is not None and b.kind == orcamod.BACKGROUNDED, str(b))
+        check("screen: it is quoted from its own banner and sessions",
+              b and b.detail.startswith("Your conversation moved to the background")
+              and "Completed" in b.detail and "ocp inbox management" in b.detail
+              and "❯" not in b.detail and "─" not in b.detail, str(b))
+        check("screen: and says why in a sentence",
+              b and blockedmod.reason(b.kind, b.detail).startswith("its conversation moved to the background"))
+        check("screen: modal_open refuses it", REAL_ORCA["modal_open"]("term_x"))
+        hostile_picker = ["\033]0;PWNED\x07\033[31mYour conversation moved"] + BACKGROUND_PICKER[1:]
+        orcamod._screen = lambda h: _screen_of(hostile_picker)
+        b = orcamod.screen_blocker("term_x")
+        check("screen: the picker's own text is sanitised like a dialog's",
+              b and "\033" not in b.detail and "PWNED" not in b.detail and "Your conversation" in b.detail,
+              str(b))
+        quoted = ["the hint says enter to open"] + ["x"] * 10 + COMPOSER_EMPTY
+        orcamod._screen = lambda h: _screen_of(quoted)
+        check("screen: the hint quoted in the transcript, above the bottom rows, is not the picker",
               orcamod.screen_blocker("term_x") is None)
         orcamod._screen = lambda h: _screen_of(EXIT_DIALOG, source="stream")
         check("screen: a stream is not a screen - fail closed",
@@ -5025,7 +5059,7 @@ def test_a_close_is_recorded_only_once_the_process_has_ended(home: Path) -> None
         typed.clear()
         state.update(exiting=False, reads=0, leaves_after=3, modal=True)
         ok, why = dmn._close_agent(con, "backend", lambda _m: None, st)
-        check("close: nothing is typed at a modal", not typed and not ok and "modal" in why,
+        check("close: nothing is typed at a modal", not typed and not ok and "dialog is open" in why,
               f"{typed} {why}")
     finally:
         (orcamod.alive, orcamod.wait_idle, orcamod.send, orcamod.available,

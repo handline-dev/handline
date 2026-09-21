@@ -103,10 +103,11 @@ terminal, and an agent is told once per request rather than reminded.
 
 An agent that is mid-turn is left alone until it is free - typing at a busy TUI
 leaves the text sitting in its input box, unsent. So is one whose screen holds a
-dialog, or text nobody has sent: a line typed there would answer the dialog or
-join the text. Work waiting behind either is on the founder's WAITING ON YOU
-list after a few minutes and a request to them after a few more, naming the
-dialog, and both end when the dialog does. ocp never answers a dialog; a person does.
+dialog, or whose conversation was moved to the background: a line typed there
+would answer the dialog, or start a new session instead of reaching the agent.
+Work waiting behind either is on the founder's WAITING ON YOU list after a few
+minutes and a request to them after a few more, naming what is on the screen,
+and both end when it does. ocp never answers a dialog; a person does.
 
 An agent with no terminal is started rather than waited on, when its agent.yaml
 says `repo:` - the daemon can make a worktree and a terminal but cannot choose
