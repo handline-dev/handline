@@ -2155,15 +2155,26 @@ def tick(con, log, samples: dict | None = None) -> Tick:
 
 def observe_burn(con, log) -> None:
     """Feed each account's reading and who is working on it to the estimate of
-    what one more agent costs (`burnrate`). After the agents, so it sees the
-    states this tick left."""
+    what one more agent costs (`burnrate`), and log it (`db.record_usage_sample`,
+    #1113) for a replay nobody has thought to ask for yet - the same read,
+    spent twice, so neither costs an account anything the other did not
+    already. After the agents, so it sees the states this tick left."""
     working = load.active_by_account(con)
     firsts = load.first_turn_agents(con)
     for acct in paths.list_accounts():
+        st = status.read(acct)
         try:
-            burnrate.observe(con, acct, working.get(acct, []), status.read(acct), firsts)
+            burnrate.observe(con, acct, working.get(acct, []), st, firsts)
         except Exception as e:  # noqa: BLE001 - a bad reading on one account is not the tick's failure
             log(f"  burn: {acct}: {e}")
+        try:
+            db.record_usage_sample(con, acct, st)
+        except Exception as e:  # noqa: BLE001 - same: one account's row is not the tick's failure
+            log(f"  sample: {acct}: {e}")
+    try:
+        db.prune_usage_samples(con)
+    except Exception as e:  # noqa: BLE001
+        log(f"  sample: prune failed: {e}")
 
 
 # ---------------------------------------------------------------- loop

@@ -30,7 +30,8 @@ from ocp import (accounts, actions, agents, ask as askmod, blocked as blockedmod
                  digest,
                  doctor, drift, events as evmod, fold as foldmod,
                  handoff as handoffmod, launch, load as loadmod, lock, measure,
-                 observe as obsmod, orca as orcamod, paths, service, spawn as spawnmod,
+                 observe as obsmod, orca as orcamod, paths, replay as replaymod, service,
+                 spawn as spawnmod,
                  status, team, textsafe, triggers, tui, yamlcompat)  # noqa: E402
 
 PASS, FAIL = [], []
@@ -680,6 +681,104 @@ def test_pick_account_stale_and_unknown_pace(home: Path) -> None:
     allowed, why = status.read("stale_full").assignable()
     check("stale/unknown: a stale reading too close to the wall still "
           "refuses", not allowed, why)
+
+
+# ---------------------------------------------------------------- usage_samples
+def test_usage_samples_round_trip_without_coercing_a_gap_to_zero(home: Path) -> None:
+    """#1113: a recorded sample is read back exactly, unknown figures stay
+    unknown - never 0 - and pruning removes only what is older than the
+    window it names."""
+    os.environ["OCP_HOME"] = str(home)
+    con = db.connect()
+    try:
+        known = status.AccountStatus("alpha", exists=True, pct_5h=40, pct_7d=60,
+                                     reset_5h=1000, reset_7d=2000, rl_at=900, rl7_at=900,
+                                     collected_at=900)
+        unknown = status.AccountStatus("beta", exists=True, pct_5h=None, pct_7d=None,
+                                       rl_lost=True, collected_at=900)
+        db.record_usage_sample(con, "alpha", known, ts=1000)
+        db.record_usage_sample(con, "beta", unknown, ts=1000)
+        rows = {r["account"]: r for r in db.usage_samples(con)}
+        check("usage_samples: a known figure reads back exactly",
+              rows["alpha"]["pct_5h"] == 40 and rows["alpha"]["pct_7d"] == 60, dict(rows["alpha"]))
+        check("usage_samples: an unknown figure is NULL, not 0 - a gap is never a zero",
+              rows["beta"]["pct_5h"] is None and rows["beta"]["pct_7d"] is None
+              and bool(rows["beta"]["rl_lost"]), dict(rows["beta"]))
+
+        st_back = replaymod.status_from_row(rows["alpha"])
+        check("usage_samples: the row reconstructs the same AccountStatus "
+              "pick_account would have seen",
+              st_back.pct_5h == 40 and st_back.reset_7d == 2000 and st_back.rl_at == 900,
+              st_back)
+
+        removed = db.prune_usage_samples(con, before_ts=500)
+        check("usage_samples: a cutoff earlier than the samples removes nothing",
+              removed == 0 and len(db.usage_samples(con)) == 2)
+        removed = db.prune_usage_samples(con, before_ts=1500)
+        check("usage_samples: a cutoff past them removes exactly the old rows",
+              removed == 2 and db.usage_samples(con) == [])
+    finally:
+        con.close()
+
+
+def test_a_tick_samples_every_account_and_a_down_daemon_leaves_a_gap(home: Path) -> None:
+    """observe_burn logs one row per account per tick, on the same read
+    burnrate already makes - no extra call to any account - and a tick that
+    never ran (the daemon down) leaves no row, which IS the gap: nothing
+    backfills it."""
+    _daemon_home(home, 40)
+    accounts.register("beta")
+    write_status(home, "beta", pct_5h=10, pct_7d=20, reset_5h=int(time.time()) + 1800)
+    con = db.connect()
+    try:
+        before = len(db.usage_samples(con))
+        dmn.observe_burn(con, lambda _m: None)
+        rows = db.usage_samples(con)
+        check("samples: one row per account, one tick",
+              len(rows) - before == 2, len(rows) - before)
+        check("samples: both accounts are in it",
+              {r["account"] for r in rows} == {"alpha", "beta"}, {r["account"] for r in rows})
+        # Nothing runs between here and the next call - no tick, no row: a
+        # daemon that was down leaves an actual gap in `ts`, not a filled one.
+        dmn.observe_burn(con, lambda _m: None)
+        check("samples: a second tick adds exactly one row per account, no more",
+              len(db.usage_samples(con)) - before == 4)
+    finally:
+        con.close()
+
+
+def test_replay_finds_where_the_new_rule_and_the_old_one_disagree(home: Path) -> None:
+    """#1113's own acceptance case: replay the same disagreement
+    test_pick_account_orders_by_weekly_pace already proves live - a
+    near-wall account resetting soon vs a real-headroom one resetting later -
+    from recorded samples instead of from a fixture built for the purpose."""
+    os.environ["OCP_HOME"] = str(home)
+    con = db.connect()
+    try:
+        ts = 500_000_000
+        close_to_wall = status.AccountStatus("close_to_wall", exists=True, pct_5h=5, pct_7d=92,
+                                             reset_5h=ts + 1800, reset_7d=ts + 3600,
+                                             rl_at=ts, rl7_at=ts, collected_at=ts)
+        safe = status.AccountStatus("safe", exists=True, pct_5h=5, pct_7d=50,
+                                    reset_5h=ts + 1800, reset_7d=ts + 90000,
+                                    rl_at=ts, rl7_at=ts, collected_at=ts)
+        db.record_usage_sample(con, "close_to_wall", close_to_wall, ts=ts)
+        db.record_usage_sample(con, "safe", safe, ts=ts)
+        diffs = replaymod.replay(con)
+        check("replay: finds the recorded tick where the rules disagree",
+              len(diffs) == 1 and diffs[0]["ts"] == ts, diffs)
+        check("replay: the old rule would have picked the near-wall, "
+              "sooner-reset account", diffs[0]["old"] == "close_to_wall", diffs[0])
+        check("replay: the new rule picks the one with real headroom instead",
+              diffs[0]["new"] == "safe", diffs[0])
+
+        # A single-account tick decides nothing for either rule - not counted
+        # as a divergence just because old_pick(...) != None.
+        db.record_usage_sample(con, "alone", close_to_wall, ts=ts + 100)
+        check("replay: a tick with only one candidate is not a divergence",
+              len(replaymod.replay(con)) == 1, replaymod.replay(con))
+    finally:
+        con.close()
 
 
 # ---------------------------------------------------------------- collector
@@ -16849,6 +16948,12 @@ def main() -> int:
         run(lambda: test_pick_account_degrades_when_every_account_would_hit_the_wall(
             Path(td) / 'allwall'))
         run(lambda: test_pick_account_stale_and_unknown_pace(Path(td) / 'staleknown'))
+        run(lambda: test_usage_samples_round_trip_without_coercing_a_gap_to_zero(
+            Path(td) / 'usagesamples'))
+        run(lambda: test_a_tick_samples_every_account_and_a_down_daemon_leaves_a_gap(
+            Path(td) / 'tickgap'))
+        run(lambda: test_replay_finds_where_the_new_rule_and_the_old_one_disagree(
+            Path(td) / 'replaydiff'))
         run(lambda: test_collector(home))
         run(lambda: test_yaml())
         run(lambda: test_agents(home))
