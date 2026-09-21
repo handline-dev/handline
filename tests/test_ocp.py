@@ -2597,6 +2597,23 @@ BACKGROUND_PICKER_SHORT = [
     _COMPOSER_RULE_ROW, "❯", _COMPOSER_RULE_ROW,
     "  ⏵⏵ auto mode · enter to open · space to reply · ctrl+x to "]
 
+# auditor's #1285 B1: a picker whose session rows do not match a column-
+# alignment guess (no "Completed" section, no banner reaching this window) -
+# the composer's own hint still says the picker's words, so this must never
+# read as a clean composer.
+PICKER_HINT_WITH_NO_BANNER = [
+    " ✻ ocp inbox management             Processed both orcapipe inbox corrections...",
+    _COMPOSER_RULE_ROW, "❯", _COMPOSER_RULE_ROW,
+    "  ⏵⏵ auto mode · enter to open · space to reply · ctrl+x to "]
+
+# auditor's #1285 S2: the banner alone, above an ordinary composer whose own
+# hint never says the picker's words - pins the position guard as load-
+# bearing on its own, not just the banner.
+BANNER_ABOVE_ORDINARY_COMPOSER = [
+    "Your conversation moved to the background - enter opens it · esc returns to it · ctrl+c twice quits",
+    " ✻ ocp inbox management             Processed both orcapipe inbox corrections...",
+] + COMPOSER_EMPTY
+
 
 def _screen_of(tail, draft=None, source="screen"):
     term = {"handle": "term_x", "status": "running", "tail": list(tail), "source": source}
@@ -2667,7 +2684,8 @@ def test_the_screen_names_what_is_in_the_way(home: Path) -> None:
         check("screen: and says why in a sentence",
               b and blockedmod.reason(b.kind, b.detail).startswith("its conversation moved to the background"))
         check("screen: modal_open refuses it", REAL_ORCA["modal_open"]("term_x"))
-        hostile_picker = ["\033]0;PWNED\x07\033[31mYour conversation moved"] + BACKGROUND_PICKER[1:]
+        hostile_picker = ["\033]0;PWNED\x07\033[31mYour conversation moved to the background"] \
+            + BACKGROUND_PICKER[1:]
         orcamod._screen = lambda h: _screen_of(hostile_picker)
         b = orcamod.screen_blocker("term_x")
         check("screen: the picker's own text is sanitised like a dialog's",
@@ -2690,7 +2708,8 @@ def test_the_screen_names_what_is_in_the_way(home: Path) -> None:
         # A real picker still has to be found when it is a different shape
         # than the fixture above - fewer session rows, harbor's one-hint-row
         # composer layout - never by shrinking the window (7f01f52 exists to
-        # fail open, not to fail closed on a picker nobody has measured yet).
+        # fail closed on a picker nobody has measured yet, not to fail open
+        # by guessing a number that happens to fit one fixture).
         orcamod._screen = lambda h: _screen_of(BACKGROUND_PICKER_SHORT)
         b = orcamod.screen_blocker("term_x")
         check("screen: a shorter, differently-shaped picker is still found",
@@ -2699,6 +2718,20 @@ def test_the_screen_names_what_is_in_the_way(home: Path) -> None:
               b and b.detail.startswith("Your conversation moved to the background")
               and "ocp inbox management" in b.detail
               and "❯" not in b.detail and "─" not in b.detail, str(b))
+        # auditor's #1285 B1: the composer's own hint says the picker's words
+        # but the banner that would confirm it is not there - a picker this
+        # code does not recognise, never nothing-in-the-way. A column-
+        # alignment guess about the session row (dropped for this reason)
+        # would have read this as a clean composer and typed into it.
+        orcamod._screen = lambda h: _screen_of(PICKER_HINT_WITH_NO_BANNER)
+        check("screen: an unconfirmed picker-shaped hint fails closed, never a clean send",
+              orcamod.screen_blocker("term_x").kind == orcamod.UNREADABLE)
+        # #1285 S2: the banner alone, with no "enter to open" below the box,
+        # is not the picker either - the position guard is load-bearing on
+        # its own, not merely redundant with the banner.
+        orcamod._screen = lambda h: _screen_of(BANNER_ABOVE_ORDINARY_COMPOSER)
+        check("screen: the banner above an ordinary composer's own hint is not the picker",
+              orcamod.screen_blocker("term_x") is None)
         # An empty detail must not render a dangling colon - what the founder
         # saw on the #1252 false positive, where tail[:hint] was empty.
         check("screen: an empty BACKGROUNDED detail has no dangling colon",

@@ -449,18 +449,36 @@ def _composer_shape(tail: list) -> bool:
 # own transcript, which sits in the same rows the naive search covered - #1252,
 # measured on all 8 live agents where the window reached 1-2 rows of the
 # agent's own output. So the hint is required at or below the composer's own
-# box, never above it in the transcript, and the box is required to have a
-# session list above it - a bullet, its title, then a wide gap before a
-# summary, which is column alignment a transcript line is not shaped like.
+# box, never above it in the transcript.
+#
+# That alone still under-determines it (auditor's #1285 B1): a screen where
+# the box's own hint happens to say "enter to open" for some other reason
+# would pass a position check alone, and reading nothing there as "in the
+# way" is exactly the bug 7f01f52 exists to fix. So the picker's own banner -
+# "...conversation moved to the background...", specific text neither an
+# ordinary composer's hint nor a session's own summary line would produce -
+# is required above the box too. A session list's own shape (a bullet, a
+# gap, a summary column) was tried first and dropped: auditor measured three
+# real-picker variants - a short title with no summary gap, a bullet outside
+# the two guessed at, a cursor glyph ahead of the selected row - that the
+# column-alignment guess missed, while the banner is the one thing all of
+# them, and both fixtures here, say word for word.
 _BACKGROUNDED_HINT = "enter to open"
-_SESSION_ROW = re.compile(r"^[\u273b\u2219]\s+\S.*\s{2,}\S")
+_BACKGROUND_BANNER = "moved to the background"
 
 
 def _picker_box(tail: list) -> tuple[int, int] | None:
-    """(banner_top, hint) if the tail is shaped like the backgrounded picker:
-    a composer box, its hint at or below it, and a session row above it.
-    None otherwise - including for an ordinary composer whose own transcript
-    happens to quote the hint's words higher up the screen."""
+    """(banner_top, hint) when the composer's own hint says "enter to open"
+    and the picker's own banner is above it - the picker, unambiguously.
+    None when neither is there - an ordinary composer, whose own hint never
+    says this and whose transcript quoting the words is above the box, not
+    below it (auditor's #1285 S2/S3).
+
+    A third case - the hint is there but the banner is not - is not this
+    function's to decide: it is a screen shaped like the picker that this
+    code does not otherwise recognise, and `screen_blocker` fails closed on
+    it rather than reading it as nothing in the way (#1285 B1).
+    """
     box = _composer_box(tail)
     if box is None:
         return None
@@ -469,17 +487,32 @@ def _picker_box(tail: list) -> tuple[int, int] | None:
                  if _BACKGROUNDED_HINT in str(tail[i])), None)
     if hint is None:
         return None
-    if not any(_SESSION_ROW.match(str(x).strip()) for x in tail[:top]):
+    if not any(_BACKGROUND_BANNER in str(x) for x in tail[:top]):
         return None
     return top, hint
+
+
+def _hint_below_box(tail: list) -> bool:
+    """Whether the composer's own hint says the picker's words ("enter to
+    open"), whether or not its banner confirms it. Used only to tell an
+    unconfirmed match from a clean composer: the hint alone is the one thing
+    an ordinary conversation's composer never says (auditor's #1285 B1)."""
+    box = _composer_box(tail)
+    if box is None:
+        return False
+    _top, bottom = box
+    return any(_BACKGROUNDED_HINT in str(tail[i]) for i in range(bottom, len(tail)))
 
 
 def _describe_backgrounded(tail: list, top: int) -> str:
     """The picker's banner and session list above its own box, quoted - the
     same hostile-text care as describe_modal, since the agent paints this
     screen too. Never the box or the hint themselves, which say nothing
-    about the conversation - and never anything below `top`, so a false
-    match cannot quote the transcript it was found next to."""
+    about the conversation. Called only once `_picker_box` has confirmed the
+    banner is there - not a guarantee against every false match (auditor's
+    #1285 N4: an agent's own transcript can quote this exact fixture, banner
+    and all), but that case clears itself on the next read, unlike a false
+    BACKGROUNDED that never scrolls."""
     lines = [textsafe.oneline(str(x).strip()) for x in tail[:top]]
     shown = [ln for ln in lines if ln and not _COMPOSER_RULE.match(ln) and ln != "❯"]
     return " / ".join(shown[:3])[:DETAIL_CHARS]
@@ -512,6 +545,14 @@ def screen_blocker(handle: str) -> Blocker | None:
     if picker is not None:
         top, _hint = picker
         return Blocker(BACKGROUNDED, _describe_backgrounded(tail, top))
+    if _hint_below_box(tail):
+        # The composer's own hint says the picker's words but its banner is
+        # not above the box: a picker shaped differently than the two we
+        # have measured, not a clean composer. Fail closed rather than read
+        # it as nothing in the way and type into what might be its
+        # new-session box (auditor's #1285 B1) - the same failure 7f01f52
+        # exists to fix, reopened by trusting a guess about session-row shape.
+        return Blocker(UNREADABLE)
     if _composer_shape(tail):
         return None
     # Not the composer's shape either - a screen mid-scroll, a different
