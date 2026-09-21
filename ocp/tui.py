@@ -164,9 +164,8 @@ def agent_commands(con, agent: str) -> list[tuple[str, str]]:
     # Cancelling names what dies: the bare form is for the one request there is
     # to cancel, and each id is offered so autocomplete can say which.
     waiting = actions.waiting_ids(con, agent)
-    if waiting:
-        out.append(("cancel", "cancel"))
-        out += [(f"cancel {rid}", "cancel") for rid in waiting]
+    out.append(("cancel", "cancel"))
+    out += [(f"cancel {rid}", "cancel") for rid in waiting]
     return out
 
 
@@ -1018,8 +1017,8 @@ def page(title: str, sections: list[tuple[str, list[str]]],
 def _agent_page(con, name: str, panel: int = AGENTS, title: str | None = None,
                 old: dict | None = None) -> dict:
     """An agent's page: its head, and the conversation under it. `old` is the
-    page it replaces, so a redraw keeps the scroll the reader was at."""
-    actions.chat_seen(con, name)       # before it is counted: it is being read
+    page it replaces, so a redraw keeps the scroll the reader was at. What is
+    new in the conversation stays counted until the reader leaves the page."""
     d = page(title or f"agent {name}", actions.agent_detail(con, name), panel, name)
     d["agent"] = name
     d["stacked"], d["stem"], d["end"] = True, actions.CHAT_TAB, True
@@ -2070,6 +2069,12 @@ def _in_detail(detail: dict, k: str, width: int, height: int,
     """
     room = max(1, height - 4)
     if k in ("\033", "\x1b"):
+        if detail.get("stacked"):
+            con = db.connect()
+            try:
+                actions.chat_seen(con, str(detail["agent"]))
+            finally:
+                con.close()
         return detail.get("parent"), ""
     if k in ("\033[C", "\033OC", "\t", "\033[D", "\033OD", "\033[Z"):
         if not detail.get("stacked"):

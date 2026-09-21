@@ -222,7 +222,7 @@ def dismiss(con, rid: int, me: str | None = None) -> str:
 
 
 def waiting_ids(con, agent: str) -> list[int]:
-    """The requests in an agent's WAITING FOR IT list, in the order it is drawn."""
+    """Every request queued for an agent, which is what /cancel can name."""
     return [int(r["id"]) for r in db.queued_for(con, agent)]
 
 
@@ -990,7 +990,14 @@ class Said(Row):
 
 
 def conversation(con, agent: str) -> list[str]:
-    """The human's conversation with `agent`, in time order, a thread at a time.
+    """The human's conversation with `agent`, as its rows."""
+    return conversation_and_drawn(con, agent)[0]
+
+
+def conversation_and_drawn(con, agent: str) -> tuple[list[str], set[int]]:
+    """The human's conversation with `agent`, in time order, a thread at a time,
+    and the ids of the requests it drew - only the newest CHAT_CHAINS chains
+    are drawn, so a request in an older one is not in it.
 
     A thread is a chain_id. Every row of a chain is drawn, not only the rows
     between the two of them, so what the agent asked a third agent on the way to
@@ -1033,16 +1040,18 @@ def conversation(con, agent: str) -> list[str]:
         threads.append((max(m[0] for m in msgs), cid, msgs))
     threads.sort(key=lambda t: t[0])
     out: list[str] = []
+    drawn: set[int] = set()
     for _, cid, msgs in threads[-CHAT_CHAINS:]:
         out.append(Said("thread", f"── chain {cid}"))
         out += [m[3] for m in msgs]
+        drawn |= {m[1] for m in msgs}
     if not out:
         out.append(f"nothing yet between you and {agent}")
     how, rid = chat_target(con, agent)
     goes = {"answers": f" · answers #{rid}", "under": f" · goes under #{rid}",
             "new": " · starts a new thread"}[how]
     out += ["", f"↵ write to {agent}{goes} · e in $EDITOR"]
-    return out
+    return out, drawn
 
 
 def chat_parent(con, agent: str) -> int | None:
@@ -1144,20 +1153,21 @@ def agent_detail(con, agent: str) -> list[tuple[str, list[str]]]:
         if row["detail"]:
             head.append(row["detail"])
 
-    # The conversation shows every request between the human and the agent, so
-    # a queued one of theirs is already there; these are the rest.
-    chat_ids = {r["id"] for r in _chat_rows(con, agent)}
+    # What the conversation drew is not repeated; every other queued request
+    # and untold answer is listed under it, including one in a chain too old
+    # for the conversation to draw.
+    chat, drawn = conversation_and_drawn(con, agent)
     others = [Entry(r["id"], r["requester"], r["body"] or "", r["ts"])
-              for r in db.queued_for(con, agent) if r["id"] not in chat_ids]
+              for r in db.queued_for(con, agent) if r["id"] not in drawn]
     untold = [Entry(r["id"], r["target"], r["verdict"] or r["state"], r["resolved_at"] or r["ts"])
-              for r in db.unannounced_answers(con, agent) if r["id"] not in chat_ids]
+              for r in db.unannounced_answers(con, agent) if r["id"] not in drawn]
     if others or untold:
-        head.append(f"also below the conversation: {len(others)} waiting for it from other "
-                    f"agents, {len(untold)} answers it has not been told (G)")
+        # Where the reader is left, at the end of the conversation.
+        chat += [f"below: {len(others)} waiting for it from other agents, {len(untold)} "
+                 "answers it has not been told - press G to read them"]
     sections = [("", head)]
     n = chat_unread(con, agent)
-    sections.append((CHAT_TAB + (f" ({n if n < 100 else '99+'} new)" if n else ""),
-                     conversation(con, agent)))
+    sections.append((CHAT_TAB + (f" ({n if n < 100 else '99+'} new)" if n else ""), chat))
     if others:
         sections.append((f"{OTHERS_TAB} ({len(others)})", others))
     if untold:

@@ -13122,7 +13122,9 @@ def test_the_agent_page_cancels_a_waiting_request_by_command(home: Path) -> None
               asked and f"#{second}" in asked[0] and db.get_request(con, second)["state"] != "queued",
               f"{asked} {msg}")
         cmds = dict(tui.agent_commands(con, "backend"))
-        check("page: with nothing waiting /cancel is not offered", "cancel" not in cmds)
+        check("page: with nothing waiting, /cancel is still a command and says so",
+              "cancel" in cmds
+              and "nothing is waiting" in run(d, "cancel")[1])
 
         _d, msg = tui._in_detail(d, "x", 100, 40)
         check("page: x says where cancelling went", "/cancel" in msg, msg)
@@ -14899,7 +14901,10 @@ def test_the_messenger_tab_carries_a_conversation_both_ways(home: Path) -> None:
         plain = tui._ANSI.sub("", shown)
         check("chat: an open page shows an answer on its next redraw",
               "landing while it is open" in plain, plain[-300:])
-        check("chat: and being open on it marks it read", actions.chat_unread(con, "reviewer") == 0)
+        check("chat: being open on it keeps the count until the reader leaves",
+              actions.chat_unread(con, "reviewer") == 2)
+        tui._in_detail(page, "\033", 100, 12)
+        check("chat: leaving the page marks it read", actions.chat_unread(con, "reviewer") == 0)
         for i in range(9):
             actions.chat_reply(con, "reviewer", f"filler {i}")
         _, page = tui._redraw(100, 12, sel, tui.AGENTS, "", page)
@@ -14993,8 +14998,8 @@ def test_the_agent_head_is_trimmed_and_slash_commands_are_derived_not_kept(home:
         check("commands: the page commands are always offered too",
               {c for c, k in cmds.items() if k == "page"} == set(tui.PAGE_COMMANDS), str(cmds))
         check("commands: every source name appears in exactly one place",
-              set(cmds) == allowed | set(tui.INFO_COMMANDS) | set(tui.PAGE_COMMANDS)
-              and len(cmds) == len(allowed) + len(tui.INFO_COMMANDS) + len(tui.PAGE_COMMANDS),
+              set(cmds) == allowed | set(tui.INFO_COMMANDS) | set(tui.PAGE_COMMANDS) | {"cancel"}
+              and len(cmds) == len(allowed) + len(tui.INFO_COMMANDS) + len(tui.PAGE_COMMANDS) + 1,
               str(cmds))
 
         # A recognized command runs, through the composer that also sends
@@ -15443,10 +15448,8 @@ def test_the_one_column_agent_page(home: Path) -> None:
         shown = tui._ANSI.sub("", tui._detail_frame(80, 40, d))
         check("page: opened at its end, the newest message is on screen, not what is under it",
               "message number 17" in shown and "please look at the diff" not in shown, shown)
-        check("page: the head says what is below and how to get there",
-              any("1 waiting for it from other agents" in ln
-                  for ln in tui.lines_of(d, 80)) or "1 waiting for it" in "\n".join(
-                      tui._ANSI.sub("", ln) for ln in tui.lines_of(d, 80)))
+        check("page: where the reader is left it says what is below, and how to reach it",
+              "1 waiting for it from other agents" in shown and "press G" in shown, shown)
         d, _ = tui._in_detail(d, "j", 80, 40)
         shown = tui._ANSI.sub("", tui._detail_frame(80, 40, d))
         check("page: scrolling down from the end is not snapped back to it",
@@ -15469,6 +15472,19 @@ def test_the_one_column_agent_page(home: Path) -> None:
                   back is d and back.get("stacked"))
         check("page: esc from the conversation itself leaves the page",
               tui._in_detail(d, "\033", 80, 40)[0] is None)
+
+        # A queued request in a chain older than the ones the conversation
+        # draws is not lost: it is listed under it.
+        agents.register("elder", "alpha")
+        old = db.add_request(con, askmod.HUMAN, "elder", "the oldest question, still queued",
+                             None, "peer", "async", None, 0, None)
+        for i in range(actions.CHAT_CHAINS + 1):
+            db.add_request(con, askmod.HUMAN, "elder", f"newer chain {i}", None, "peer",
+                           "async", None, 0, None)
+        pg = tui._agent_page(con, "elder")
+        text = "\n".join(tui._ANSI.sub("", ln) for w in (80, 30) for ln in tui.lines_of(pg, w))
+        check("page: a queued request past the conversation's newest chains is still on the page",
+              "the oldest question, still queued" in text and f"#{old}" in text, text[:300])
     finally:
         sys.stdin, sys.stdout = real_in, real_out
         con.close()
