@@ -317,7 +317,7 @@ def _sha_on_main(repo: Path, sha: str) -> tuple[str | None, str]:
 
 
 def close_task(con, tid: int, sha: str | None = None, reason: str | None = None,
-               repo: Path | None = None, retires: int | None = None) -> tuple[bool, str]:
+               repo: Path | None = None) -> tuple[bool, str]:
     """Close a task on the board.
 
     Exactly one of `sha` (checked against `main`) or `reason` (for work
@@ -326,9 +326,11 @@ def close_task(con, tid: int, sha: str | None = None, reason: str | None = None,
     were not done (#1008). Nothing here looks at the linked requests' state:
     a task is open until someone closes it.
 
-    `retires` (#1349) names an older request this close makes moot - checked
-    before anything is written, same as a bad `--task` id on resolve. It sets
-    that row's `moot_by` to this task's id once the close itself succeeds.
+    No `--retires` here (#1349/#1366): task ids and request ids are separate
+    AUTOINCREMENT sequences that both start at 1, so a single moot_by column
+    fed by either reads as one namespace when it is two - "#1 is already moot
+    (by #1)" cannot say whether that second #1 is a task or a request.
+    `ocp resolve --retires` stays, where the id is always a request's.
     """
     row = db.get_task(con, tid)
     if row is None:
@@ -341,12 +343,6 @@ def close_task(con, tid: int, sha: str | None = None, reason: str | None = None,
         return False, f"task #{tid} still has open child tasks ({ids}) - close them first"
     if bool(sha) == bool(reason):
         return False, "close needs exactly one of a sha or a reason"
-    if retires is not None:
-        old = db.get_request(con, retires)
-        if old is None:
-            return False, f"no request #{retires} to retire"
-        if old["moot_by"] is not None:
-            return False, f"#{retires} is already moot (by #{old['moot_by']})"
     if sha:
         full, why = _sha_on_main(repo or Path.cwd(), sha)
         if full is None:
@@ -354,39 +350,58 @@ def close_task(con, tid: int, sha: str | None = None, reason: str | None = None,
         mark = full
     else:
         mark = reason
-    if not db.close_task(con, tid, mark):
+    if not db.close_task(con, tid, mark, via="sha" if sha else "reason"):
         return False, f"task #{tid} was closed by someone else just now"
     db.add_event(con, askmod.asking_agent() or row["owner"], "close_task",
                  {"task_id": tid, "closed_by": mark})
-    if retires is not None:
-        db.set_moot_by(con, retires, tid)
-    return True, f"task #{tid} closed ({mark})" + (f", retiring #{retires}" if retires else "")
+    return True, f"task #{tid} closed ({mark})"
 
 
-def reason_gaps(con) -> dict:
-    """#1349: how many retirements and closures carry no reason, counted from
-    the exact shapes those verbs write - not a grep over free text, which is
-    the measurement orcapipe refused (today's evidence: purser could not size
-    duplicated work this way with any confidence). A withdraw with none stores
-    a NULL verdict; a dismiss or a replace with none stores the fixed phrase
-    with no ": " suffix; a task closed by merge sha carries no free-text
-    reason at all.
+def reason_gaps(con, window_days: int = 30) -> dict:
+    """#1349/#1366: how many retirements carry no reason, counted from the
+    exact shapes those verbs write - not a grep over free text, which is the
+    measurement orcapipe refused (today's evidence: purser could not size
+    duplicated work this way with any confidence). A withdraw with none
+    stores a NULL verdict; a dismiss or a replace with none stores the fixed
+    phrase with no ": " suffix.
+
+    Two corrections from auditor #1366's should-fix 2, measured against the
+    live board: `fyi=0` excludes the rows ask.py's own supersede loop
+    replaces - nobody was ever asked for a reason there, so counting them as
+    a human omission overstated the gap (20% of one bucket, that day). And
+    `resolved_at >= cutoff` bounds the count to the last `window_days`: with
+    no window the line reports history forever, dominated by rows that
+    predate `--reason` existing rather than current practice.
+
+    Closures are reported as their own two counts, not folded into a "gap":
+    `close` requires exactly one of a sha or a reason, so a closed task is
+    never blank, and counting a sha close as a missing reason (the previous
+    shape here) pointed a reader at the wrong thing to fix. Which one a row
+    was is read from `closed_via`, set at close time from the argument the
+    caller actually gave - not guessed back from the text, which a --reason
+    forced past looks_like_sha (hex-looking words, still a reason) would
+    misread as a sha.
     """
+    cutoff = int(time.time()) - window_days * 86400
     def one(where: str) -> int:
-        return con.execute(f"SELECT COUNT(*) FROM requests WHERE {where}").fetchone()[0]
+        return con.execute(
+            f"SELECT COUNT(*) FROM requests WHERE fyi = 0 AND resolved_at >= ? AND {where}",
+            (cutoff,)).fetchone()[0]
     withdrawn_total = one("state = 'withdrawn'")
     withdrawn_blank = one("state = 'withdrawn' AND verdict IS NULL")
-    dismissed_total = one("verdict = 'read - no reply' OR verdict LIKE 'read - no reply: %'")
+    dismissed_total = one("(verdict = 'read - no reply' OR verdict LIKE 'read - no reply: %')")
     dismissed_blank = one("verdict = 'read - no reply'")
     replaced_total = one("state = 'replaced'")
     replaced_blank = one("state = 'replaced' AND verdict NOT LIKE '%: %'")
-    closed = con.execute("SELECT closed_by FROM tasks WHERE closed_by IS NOT NULL").fetchall()
-    closed_blank = sum(1 for r in closed if looks_like_sha(r["closed_by"]))
+    def closures(via: str) -> int:
+        return con.execute(
+            "SELECT COUNT(*) FROM tasks WHERE closed_via = ? AND closed_at >= ?",
+            (via, cutoff)).fetchone()[0]
     return {
         "retirements": withdrawn_total + dismissed_total + replaced_total,
         "retirements_blank": withdrawn_blank + dismissed_blank + replaced_blank,
-        "closures": len(closed),
-        "closures_blank": closed_blank,
+        "closures_sha": closures("sha"),
+        "closures_reason": closures("reason"),
     }
 
 

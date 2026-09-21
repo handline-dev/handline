@@ -67,8 +67,8 @@ its session lives on.""",
   ocp read <id>                   one of them whole
   ocp resolve <id> "<verdict>"    answer one (the founder's requests also need
                                    --task N [N ...] or --no-task "reason")
-  ocp resolve <id> "..." --retires <old id>   this answer also makes an older
-                                   request moot; same on `ocp close <task> ... --retires <id>`
+  ocp resolve <id> "..." --retires <old id>   also takes that older, still-queued
+                                   request out of its queue as superseded (a duplicate ask)
   ocp dismiss <id>                take one off your list without replying
 
 An agent is given one request at a time - the head of its queue - not the

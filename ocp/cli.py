@@ -361,16 +361,15 @@ def cmd_close(args) -> int:
             sha = None if args.reason or not actions.looks_like_sha(ev) else ev
             ok, msg = actions.close_task(con, int(raw), sha=sha,
                                          reason=None if sha else ev,
-                                         repo=Path(args.repo) if args.repo else None,
-                                         retires=args.retires)
+                                         repo=Path(args.repo) if args.repo else None)
             print(msg)
         finally:
             con.close()
         return 0 if ok else 1
-    if args.evidence or args.retires:
+    if args.evidence:
         print(f"read '{raw}' as an agent's name, so this would end its session - but a "
-              "sha, reason or --retires closes a task, by its number, and says nothing "
-              "about a session. Nothing was closed.")
+              "sha or reason closes a task, by its number, and says nothing about a "
+              "session. Nothing was closed.")
         return 1
     args.agent = raw
     con = db.connect()
@@ -451,8 +450,9 @@ def cmd_task_list(args) -> int:
     try:
         _print_board(con, db.all_tasks(con) if args.all else db.open_tasks(con))
         gaps = actions.reason_gaps(con)
-        print(f"reason: {gaps['retirements_blank']}/{gaps['retirements']} retirements, "
-              f"{gaps['closures_blank']}/{gaps['closures']} closures carry no reason")
+        print(f"reason (last 30d): {gaps['retirements_blank']}/{gaps['retirements']} "
+              f"retirements carry no reason, {gaps['closures_sha']} closures by sha, "
+              f"{gaps['closures_reason']} by reason")
     finally:
         con.close()
     return 0
@@ -1487,6 +1487,15 @@ def cmd_resolve(args) -> int:
             if old["moot_by"] is not None:
                 print(f"#{args.retires} is already moot (by #{old['moot_by']})")
                 return 1
+            if old["state"] != "queued":
+                # Caught here, not left for db.retire_queued's WHERE to fail
+                # on: that failure is worded for a race ("left 'queued'
+                # before it could be retired"), which is the wrong story for
+                # a row that was never queued to begin with - already
+                # answered, its own way, with no moot_by set (a real answer,
+                # not a retirement).
+                print(f"#{args.retires} is already {old['state']} - nothing to retire")
+                return 1
     finally:
         con.close()
     if args.task or args.no_task:
@@ -1499,10 +1508,23 @@ def cmd_resolve(args) -> int:
     if ok and args.retires is not None:
         con = db.connect()
         try:
-            db.set_moot_by(con, args.retires, args.id)
+            # Actually take the named row out of its queue - moot_by said
+            # "retiring #N" while leaving it queued, live and about to be
+            # worked on, which is worse than not recording anything (#1366
+            # BLOCKING). db.retire_queued is the same close the human
+            # mailbox and the fyi supersede loop already use for a row a
+            # newer one has superseded, delivered or not; its own WHERE
+            # state='queued' is the atomic check against a race with
+            # whatever else might close it between here and the check above.
+            retired = db.retire_queued(con, args.retires, "replaced",
+                                       f"replaced by #{args.id}")
+            if retired:
+                db.set_moot_by(con, args.retires, args.id)
+                msg += f", retiring #{args.retires}"
+            else:
+                msg += f" (#{args.retires} left 'queued' before it could be retired)"
         finally:
             con.close()
-        msg += f", retiring #{args.retires}"
     print(msg)
     return 0 if ok else 1
 
@@ -1821,9 +1843,6 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--repo", default=None, help="the repo whose main a sha is checked against")
     p.add_argument("--reason", action="store_true",
                    help="record the evidence as words even if it looks like hex")
-    p.add_argument("--retires", type=int, default=None, metavar="ID",
-                   help="an older request this close makes moot; only a task number "
-                        "closing takes it")
     p.set_defaults(fn=cmd_close)
 
     tk = sub.add_parser("task", help="the task board").add_subparsers(dest="sub", required=True)

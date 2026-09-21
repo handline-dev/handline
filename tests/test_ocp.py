@@ -18292,24 +18292,40 @@ def test_moot_by_records_who_retired_a_row(home: Path) -> None:
     finally:
         con.close()
 
+    # code review of #1366: --retires on a row that is already answered its
+    # own way (never queued when this resolve runs, moot_by still NULL) must
+    # be refused up front, not left to read as a race that did not happen.
+    con = db.connect()
+    try:
+        e2 = db.add_request(con, "manager", "worker", "already answered", None,
+                            "supervisor", "fire_and_forget", None, 0, None)
+    finally:
+        con.close()
+    ok, msg = askmod.resolve(e2, "some real answer")
+    check("moot: setup - the row to retire is already done", ok, msg)
+    rc, out = _cli(["resolve", str(d3), "done", "--retires", str(e2)], as_agent="worker")
+    check("moot: --retires on an already-answered (never queued) row is refused",
+          rc == 1 and "already done" in out and "left 'queued'" not in out, out)
+    con = db.connect()
+    try:
+        check("moot: the refused resolve did not touch either row",
+              db.get_request(con, d3)["state"] == "queued"
+              and db.get_request(con, e2)["verdict"] == "some real answer")
+    finally:
+        con.close()
+
     con = db.connect()
     try:
         t = db.new_task(con, "one", "worker", "manager")
-        e = db.add_request(con, "manager", "worker", "dup ask", None, "supervisor",
-                           "fire_and_forget", None, 0, None)
     finally:
         con.close()
-    rc, out = _cli(["close", str(t), "closed as duplicate", "--retires", str(e)])
-    check("close: --retires makes the named request moot too", rc == 0 and f"#{e}" in out, out)
-    con = db.connect()
     try:
-        check("close: the task's own id is what the retired row now names",
-              db.get_request(con, e)["moot_by"] == t)
-    finally:
-        con.close()
-    rc, out = _cli(["close", "worker", "a reason", "--retires", str(e)])
-    check("close: --retires on an agent's name is refused like evidence is",
-          rc == 1 and "Nothing was closed" in out, out)
+        _cli(["close", str(t), "closed as duplicate", "--retires", "999999"])
+        check("close: --retires is gone (#1366) - task and request ids share no namespace",
+              False, "argparse accepted it")
+    except SystemExit as e:
+        check("close: --retires is gone (#1366) - task and request ids share no namespace",
+              e.code == 2, str(e.code))
 
 
 def test_reason_gaps_count_from_the_shapes_the_verbs_write(home: Path) -> None:
@@ -18333,15 +18349,43 @@ def test_reason_gaps_count_from_the_shapes_the_verbs_write(home: Path) -> None:
         t1 = db.new_task(con, "merged", "worker", "manager")
         # db.close_task directly: a real merge close needs a git repo, and
         # the count only cares about the shape closed_by ends up holding.
-        db.close_task(con, t1, "f" * 40)
+        db.close_task(con, t1, "f" * 40, via="sha")
         t2 = db.new_task(con, "worded", "worker", "manager")
         ok, msg = actions.close_task(con, t2, reason="a decision, nothing to merge")
         check("close: worded close succeeds", ok, msg)
+
+        # code review of #1366: a --reason forced past looks_like_sha (hex-
+        # looking words, still a reason) must count as a reason close, not a
+        # sha close - closed_via records the caller's own choice, not a
+        # guess made later from the text.
+        t3 = db.new_task(con, "hex-looking reason", "worker", "manager")
+        ok, msg = actions.close_task(con, t3, reason="deadbeef")
+        check("close: a hex-looking --reason still succeeds as a reason close", ok, msg)
+
         gaps2 = actions.reason_gaps(con)
-        check("reason gaps: a sha close is blank, a worded one is not",
-              gaps2["closures"] == gaps["closures"] + 2
-              and gaps2["closures_blank"] == gaps["closures_blank"] + 1,
+        check("reason gaps: a sha close and two worded closes (one hex-looking) land in "
+              "their own counts, neither read as blank (#1366 should-fix 2c)",
+              gaps2["closures_sha"] == gaps["closures_sha"] + 1
+              and gaps2["closures_reason"] == gaps["closures_reason"] + 2,
               str(gaps2))
+
+        # #1366 should-fix 2a: the fyi supersede loop retires a row without
+        # ever asking anyone for a reason, so it must not count as one.
+        ok, _, f1 = askmod.ask(askmod.HUMAN, "fyi one", requester="manager", fyi=True)
+        ok, _, f2 = askmod.ask(askmod.HUMAN, "fyi two", requester="manager", fyi=True)
+        gaps3 = actions.reason_gaps(con)
+        check("reason gaps: an fyi superseding an fyi is not counted as a retirement",
+              gaps3["retirements"] == gaps2["retirements"], str(gaps3))
+
+        # #1366 should-fix 2b: a retirement outside the window does not count.
+        old = db.add_request(con, "manager", "worker", "ancient", None, "peer",
+                             "fire_and_forget", None, 0, None)
+        db.set_request_state(con, old, "withdrawn", None)
+        con.execute("UPDATE requests SET resolved_at = ? WHERE id = ?",
+                    (int(time.time()) - 31 * 86400, old))
+        gaps4 = actions.reason_gaps(con)
+        check("reason gaps: a retirement older than the window does not count",
+              gaps4["retirements"] == gaps3["retirements"], str(gaps4))
     finally:
         con.close()
     rc, out = _cli(["task", "list", "--all"])
