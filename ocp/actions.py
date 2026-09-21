@@ -54,6 +54,8 @@ def unstall(con, agent: str) -> str:
     db.set_agent_state(con, agent, daemon.QUEUED, detail="cleared by a human")
     for counter in ("failed_attempts", "throttle_count", "wake_failures"):
         db.reset_counter(con, agent, counter)
+    db.clear_cursor(con, f"dialog_since:{agent}")
+    db.clear_cursor(con, f"dialog_title:{agent}")
     return f"{agent}: STALLED -> QUEUED"
 
 

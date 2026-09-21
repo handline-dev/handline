@@ -3155,6 +3155,11 @@ TRUST_DIALOG_WITH_ESC_MARK_ON_THE_TITLE = [
     "   ❯ 1. Exit", "     2. Cancel",
     "   Enter to confirm · Esc to cancel"]
 CLEARED_SCREEN = ["  back at the prompt", "  > "]
+# The screen a session is really at once a dialog is gone: the composer's box
+# between its two rules, which screen_blocker must see to call the screen typeable.
+_COMPOSER_RULE_ROW = "─" * 60
+AT_THE_PROMPT = ["  back at the prompt", _COMPOSER_RULE_ROW, "❯", _COMPOSER_RULE_ROW,
+                 "  ⏵⏵ auto mode on (shift+tab to cycle)"]
 
 
 class _Terminal:
@@ -10241,6 +10246,197 @@ def test_a_move_blocked_by_a_dialog_retries_soon_not_at_the_old_accounts_wall(ho
     finally:
         (orcamod.available, orcamod.alive, orcamod.close_session, orcamod.clear_context,
          orcamod.idle_now, orcamod.screen_blocker) = real
+        con.close()
+
+
+# Claude Code's session-limit dialog, copied from orcapipe.chat's live screen on
+# 2026-09-21 (its reset time is the only part that varies).
+LIMIT_DIALOG = """  ⎿  You've hit your session limit · resets 3:30pm (Asia/Seoul)
+✻ Cooked for 0s · done 12:10 PM
+▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔
+   What do you want to do?
+   ❯ 1. Stop and wait for limit to reset
+     2. Wait here, then continue automatically at 3:30pm
+     3. Upgrade your plan
+   Enter to confirm · Esc to cancel""".split("\n")
+
+
+def _park_behind(home: Path, tail, ends_at_limit: bool = True, **term_kw):
+    """keeper is at its 5h wall with no account to go to, behind `tail`."""
+    _daemon_home(home, 20)
+    con = db.connect()
+    agents.register("keeper", "alpha")
+    db.set_account(con, "keeper", "alpha")
+    write_status(home, "alpha", pct_5h=100, pct_7d=20, ctx_pct=5, reset_5h=int(time.time()) + 3 * 3600)
+    keep_handoff("keeper", "# handoff · keeper\n## next\n- carry on\n")
+    db.add_request(con, "marina", "keeper", "carry on", None, "peer", "async", None, 0, None)
+    if ends_at_limit:
+        db.add_event(con, "keeper", "StopFailure", {"limit": "5h"})
+        con.execute("UPDATE events SET ts = ? WHERE agent = 'keeper' AND kind = 'StopFailure'",
+                    (int(time.time()) - dmn.LIMIT_SETTLE_S - 60,))
+    orcamod.available = lambda: True
+    orcamod.alive = lambda h: True
+    orcamod.wait_idle = lambda h, timeout_ms=0: True
+    orcamod.idle_now = lambda h: True
+    orcamod.live_terminals = lambda: {"term_x"}
+    term = _Terminal(tail, after=AT_THE_PROMPT, **term_kw)
+    term.install()
+    sessions_are("keeper")
+    db.set_terminal(con, "keeper", "term_x", "wt")
+    return con, term
+
+
+def test_the_usage_limit_dialog_is_declined_with_the_key_that_was_measured(home: Path) -> None:
+    """No option of it only declines, so the inert-option rule cannot admit
+    it; Esc is named for it because Esc was pressed on a live one and closed
+    it with the session left at its prompt. Anything that only resembles it
+    is not pressed."""
+    restore_world()
+    for name, tail, want in (
+        ("the measured dialog", LIMIT_DIALOG, "\x1b"),
+        ("another reset time", [ln.replace("3:30pm", "11:05am") for ln in LIMIT_DIALOG], "\x1b"),
+        ("without the option that waits here", [ln for ln in LIMIT_DIALOG if "Wait here" not in ln], None),
+        ("without the option that stops", [ln for ln in LIMIT_DIALOG if "Stop and wait" not in ln], None),
+        ("the same title over other options",
+         [ln.replace("Stop and wait for limit to reset", "Delete everything") for ln in LIMIT_DIALOG], None),
+    ):
+        footer = orcamod._footer_row(tail)
+        dialog = orcamod.parse_dialog(tail, footer)
+        key = orcamod.declining_key(dialog)[0] if dialog else None
+        check(f"limit dialog: {name}", key == want, str((key, want)))
+
+
+def test_an_agent_parks_through_the_usage_limit_dialog(home: Path) -> None:
+    """The stuck shape from the night of 2026-09-21: the turn ended on the
+    limit, Claude Code put up its dialog, and every attempt to park met it -
+    /clear refused at a modal, so the agent never parked and never moved.
+    The property: it is parked, having been sent Esc and then /clear, in that order."""
+    con, term = _park_behind(home, LIMIT_DIALOG)
+    orcamod.clear_context = REAL_ORCA["clear_context"]
+    orcamod.close_session = REAL_ORCA["close_session"]
+    try:
+        dmn.perform_handoff(con, "keeper", triggers.evaluate(100, 10), lambda _m: None)
+        row = db.get_agent_state(con, "keeper")
+        check("park through: it ended parked", row["state"] == dmn.PARKED, row["state"])
+        check("park through: Esc first, then /clear, nothing else",
+              term.sent[:1] == [("\x1b", False)] and [t for t, _ in term.sent[1:]] == ["/clear"], str(term.sent))
+        ev = con.execute("SELECT payload FROM events WHERE agent = 'keeper' AND kind = 'dialog_declined'").fetchall()
+        check("park through: what was pressed is on the record", len(ev) == 1, str([dict(e) for e in ev]))
+    finally:
+        con.close()
+
+
+def test_a_close_gets_past_the_dialog_before_it_types_exit(home: Path) -> None:
+    """Every path that ends a session - idle close, move, relaunch - goes
+    through the one function, so the dialog is got past there and not only
+    on a park."""
+    con, term = _park_behind(home, LIMIT_DIALOG)
+    orcamod.close_session = REAL_ORCA["close_session"]
+    real = dmn._wait_session_gone
+    dmn._wait_session_gone = lambda agent: True
+    try:
+        st = status.read_for_agent("keeper", "alpha")
+        ok, why = dmn._end_session(con, "keeper", lambda _m: None, st, resume=None)
+        check("close through: it ended", ok, why)
+        check("close through: Esc, then /exit", [t for t, _ in term.sent] == ["\x1b", "/exit"], str(term.sent))
+    finally:
+        dmn._wait_session_gone = real
+        con.close()
+
+
+def test_a_dialog_ocp_cannot_get_past_stalls_the_agent_with_the_reason(home: Path) -> None:
+    """Not deferred as 'mid-turn' tick after tick: the first sighting waits, and
+    one that has stood as long as a block takes to reach the founder stops the
+    agent with the dialog's own words. The usage-limit dialog with an Esc that
+    does nothing is the one a handoff presses, so it is the one that can stand."""
+    con, term = _park_behind(home, LIMIT_DIALOG, ends_at_limit=False, ignores_esc=True)
+    lines: list[str] = []
+    try:
+        dmn.perform_handoff(con, "keeper", triggers.evaluate(100, 10), lines.append)
+        row = db.get_agent_state(con, "keeper")
+        check("unpassable: at first it waits, and says a dialog is why, not a turn",
+              row["state"] != dmn.STALLED and any("a dialog is in the way" in m for m in lines)
+              and not any("mid-turn" in m for m in lines), str(lines))
+        db.set_cursor(con, "dialog_since:keeper", int(time.time()) - blockedmod.ESCALATE_AFTER_S - 1)
+        dmn.perform_handoff(con, "keeper", triggers.evaluate(100, 10), lines.append)
+        row = db.get_agent_state(con, "keeper")
+        check("unpassable: past the wait it is STALLED, with the dialog in the reason",
+              row["state"] == dmn.STALLED and "What do you want to do?" in row["detail"], str(dict(row)))
+        check("unpassable: only Esc was ever typed at it", {t for t, _ in term.sent} == {"\x1b"}, str(term.sent))
+    finally:
+        con.close()
+
+
+def test_a_working_agents_dialog_is_not_pressed_by_a_handoff_that_has_not_begun(home: Path) -> None:
+    """A permission prompt on a working agent is a person's to answer, and
+    perform_handoff deciding whether to begin is not ending anything. Esc is
+    admitted for that dialog (it names Esc itself), so what keeps it unpressed
+    is the caller."""
+    con, term = _park_behind(home, EXIT_DIALOG, ends_at_limit=False)
+    lines: list[str] = []
+    try:
+        dmn.perform_handoff(con, "keeper", triggers.evaluate(100, 10), lines.append)
+        check("working: nothing is pressed", term.sent == [], str(term.sent))
+        check("working: it is deferred as a turn, and is not stalled however long it stands",
+              any("mid-turn" in m for m in lines)
+              and db.get_agent_state(con, "keeper")["state"] != dmn.STALLED, str(lines))
+    finally:
+        con.close()
+
+
+def test_each_dialog_that_cannot_be_passed_starts_its_own_clock(home: Path) -> None:
+    """The stall measures how long THIS dialog has stood: one that stood for
+    ten minutes and was answered does not stall the agent the moment a
+    different one appears."""
+    con, term = _park_behind(home, LIMIT_DIALOG, ends_at_limit=False)
+    first = [_RULE_ROW, "   Apply the migration?", "   ❯ 1. Yes, apply it",
+             "     2. Yes, and never ask again", YES_NO_DIALOG[-1]]
+    second = [ln.replace("Apply the migration?", "Delete the branch?") for ln in first]
+    try:
+        term.tail = list(first)
+        check("clock: an unpassable dialog is a reason", dmn._past_dialog(con, "keeper", lambda _m: None))
+        db.set_cursor(con, "dialog_since:keeper", int(time.time()) - blockedmod.ESCALATE_AFTER_S - 1)
+        check("clock: standing that long, it stalls",
+              dmn._stalled_on_dialog(con, "keeper", "x", lambda _m: None))
+        db.set_agent_state(con, "keeper", dmn.IDLE)
+        term.tail = list(second)
+        check("clock: a different dialog is still a reason", dmn._past_dialog(con, "keeper", lambda _m: None))
+        check("clock: but has stood for seconds, so it does not stall",
+              not dmn._stalled_on_dialog(con, "keeper", "y", lambda _m: None))
+    finally:
+        con.close()
+
+
+def test_dialogs_whose_titles_did_not_parse_do_not_share_a_clock(home: Path) -> None:
+    """Two unparseable dialogs cannot be told apart, so the second is never
+    counted as the first: it starts its own clock rather than stalling at once."""
+    con, _term = _park_behind(home, LIMIT_DIALOG, ends_at_limit=False)
+    real = blockedmod.past_dialog
+    blockedmod.past_dialog = lambda *_a, **_k: ("its title or options could not be parsed", "")
+    try:
+        dmn._past_dialog(con, "keeper", lambda _m: None)
+        db.set_cursor(con, "dialog_since:keeper", int(time.time()) - blockedmod.ESCALATE_AFTER_S - 1)
+        dmn._past_dialog(con, "keeper", lambda _m: None)
+        check("clock: an unparsed dialog never inherits the last one's clock",
+              not dmn._stalled_on_dialog(con, "keeper", "z", lambda _m: None))
+    finally:
+        blockedmod.past_dialog = real
+        con.close()
+
+
+def test_a_dialog_on_its_last_try_says_which_dialog_in_the_stall(home: Path) -> None:
+    """The stall that repeated failed handoffs end in named a count and nothing
+    else, so the person who found it did not know a dialog was the cause."""
+    con = _blocked_world(home)
+    try:
+        db.block_open(con, "backend", orcamod.MODAL, '"Overwrite the file?" - 1. Yes / 2. No',
+                      "request #1", int(time.time()), show_at=0, origin="close", title="Overwrite the file?")
+        note = blockedmod.dialog_note(con, "backend")
+        check("stall note: names the dialog", "Overwrite the file?" in note, note)
+        db.block_clear(con, "backend")
+        check("stall note: nothing to add when no dialog is the reason",
+              blockedmod.dialog_note(con, "backend") == "")
+    finally:
         con.close()
 
 
@@ -17411,6 +17607,18 @@ def main() -> int:
         run(lambda: test_an_agent_at_the_wall_moves_to_an_account_with_room(Path(td) / 'moveacct'))
         run(lambda: test_a_move_blocked_by_a_dialog_retries_soon_not_at_the_old_accounts_wall(
             Path(td) / 'movedialog'))
+        run(lambda: test_the_usage_limit_dialog_is_declined_with_the_key_that_was_measured(
+            Path(td) / 'limitkey'))
+        run(lambda: test_an_agent_parks_through_the_usage_limit_dialog(Path(td) / 'limitpark'))
+        run(lambda: test_a_close_gets_past_the_dialog_before_it_types_exit(Path(td) / 'limitclose'))
+        run(lambda: test_a_dialog_ocp_cannot_get_past_stalls_the_agent_with_the_reason(
+            Path(td) / 'dialogstall'))
+        run(lambda: test_a_working_agents_dialog_is_not_pressed_by_a_handoff_that_has_not_begun(
+            Path(td) / 'workingdialog'))
+        run(lambda: test_each_dialog_that_cannot_be_passed_starts_its_own_clock(Path(td) / 'dialogclock'))
+        run(lambda: test_dialogs_whose_titles_did_not_parse_do_not_share_a_clock(Path(td) / 'dialogblank'))
+        run(lambda: test_a_dialog_on_its_last_try_says_which_dialog_in_the_stall(
+            Path(td) / 'stallnote'))
         run(lambda: test_a_pinned_closed_agent_moves_instead_of_waiting_out_its_window(
             Path(td) / 'pinned'))
         run(lambda: test_a_pinned_agent_stays_pinned_when_nothing_else_has_clear_room(

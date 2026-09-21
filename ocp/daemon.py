@@ -22,6 +22,7 @@ reason rather than starting a competing handoff.
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import shlex
@@ -321,6 +322,40 @@ def wait_for_session(agent: str, timeout_s: int) -> bool:
         time.sleep(1)
 
 
+def _past_dialog(con, agent: str, log, only_limit: bool = False) -> str:
+    """Get past a dialog before typing an exit or a clear at this agent: '' when
+    nothing stands in the way, else why. The caller holds the agent's terminal.
+    While a reason stands, when this dialog first proved unpassable is kept, by
+    its title: a different dialog starts its own clock, so a caller that can
+    wait measures the wait of the dialog that is there."""
+    why, title = blocked.past_dialog(con, agent, log, only_limit=only_limit)
+    since_key, title_key = f"dialog_since:{agent}", f"dialog_title:{agent}"
+    if not why:
+        db.clear_cursor(con, since_key)
+        db.clear_cursor(con, title_key)
+        return ""
+    # A dialog whose title did not parse cannot be told from another one, so it
+    # is never the same as the last: its clock restarts, which errs toward
+    # not stalling.
+    mark = int(hashlib.sha1(title.encode()).hexdigest()[:8], 16) if title else 0
+    if not mark or db.get_cursor(con, title_key) != mark or not db.get_cursor(con, since_key):
+        db.set_cursor(con, title_key, mark)
+        db.set_cursor(con, since_key, int(time.time()))
+    return why
+
+
+def _stalled_on_dialog(con, agent: str, why: str, log) -> bool:
+    """A dialog ocp cannot get past, standing as long as a block takes to be
+    raised with the founder, stops the agent: it is reported with the reason
+    and left alone until a person clears it, not retried every tick."""
+    since = db.get_cursor(con, f"dialog_since:{agent}")
+    if not since or int(time.time()) - since < blocked.ESCALATE_AFTER_S:
+        return False
+    db.set_agent_state(con, agent, STALLED, detail=f"cannot get past a dialog: {why}")
+    log(f"  {agent}: STALLED - cannot get past a dialog: {why}")
+    return True
+
+
 def _reclaim_context(con, agent: str, log) -> tuple[bool, str]:
     """Clear the agent's session so the handoff actually costs it its context.
 
@@ -335,6 +370,8 @@ def _reclaim_context(con, agent: str, log) -> tuple[bool, str]:
         return False, "orca is not on PATH"
     if not session_present(agent):
         return False, "no session process; not typing /clear at a shell prompt"
+    if _past_dialog(con, agent, log):
+        return False, "a dialog is open on its screen that ocp cannot get past; not typing /clear at it"
     ok, why = orca.clear_context(handle, timeout_ms=orca.IDLE_PROBE_MS)
     log(f"  {agent}: {why}")
     return ok, why
@@ -739,7 +776,13 @@ def _end_session(con, agent: str, log, st, resume: str | None) -> tuple[bool, st
         # There is nothing to reclaim either; the memory came back when the
         # session did whatever it did.
         return False, "no session process; nothing to close"
+    # A dialog on screen is what `/exit` would answer instead of ending anything.
+    # Past it first, so the close is one act and not a refusal the next tick
+    # meets again; when it cannot be, the refusal says why.
+    stuck = _past_dialog(con, agent, log)
     ok, why = orca.close_session(handle)
+    if not ok and stuck:
+        why = f"{why} ({stuck})"
     if not ok:
         # Refused outright - most often a dialog already on screen (ocp's own
         # earlier `/exit`, or Claude Code's own start-up modal) - is ocp's own
@@ -1372,8 +1415,21 @@ def perform_handoff(con, agent: str, trigger: triggers.Trigger, log,
         stopped = events.at_limit(con, agent)
         settled = stopped and int(time.time()) - stopped["at"] >= LIMIT_SETTLE_S
         if not settled and not orca.typeable_now(handle):
-            log(f"  {agent}: {trigger.kind} fired but the agent is mid-turn - deferring")
-            return True
+            # The usage-limit dialog is not a turn: it does not end by waiting,
+            # so it is got past here rather than deferred to, tick after tick.
+            # Any other dialog may be a person's to answer, and this is only the
+            # decision whether to begin - the session is not yet ending.
+            # Only a modal dialog is got past: a blocker that is not one, such
+            # as the backgrounded picker, still reads as a turn and defers.
+            with lock.terminal(agent) as mine:
+                in_the_way = _past_dialog(con, agent, log, only_limit=True) if mine else ""
+            if in_the_way and _stalled_on_dialog(con, agent, in_the_way, log):
+                return False
+            if in_the_way or not orca.typeable_now(handle):
+                log(f"  {agent}: {trigger.kind} fired but "
+                    + (f"a dialog is in the way ({in_the_way})" if in_the_way else "the agent is mid-turn")
+                    + " - deferring")
+                return True
         if not session_present(agent):
             # A handoff for a session that is not there types its own text at
             # a shell prompt. The context it wants to reclaim went with the
@@ -2012,7 +2068,8 @@ def supervise(con, agent: str, log, now: int, samples: dict,
         if fresh and fresh["throttle_count"] >= MAX_THROTTLE_STREAK:
             # 8.6: escalate only after repeated automatic recovery failed.
             db.set_agent_state(con, agent, STALLED,
-                               detail=f"{fresh['throttle_count']} consecutive degraded handoffs")
+                               detail=f"{fresh['throttle_count']} consecutive degraded handoffs"
+                               + blocked.dialog_note(con, agent))
             actions.append(f"{agent}: STALLED after {fresh['throttle_count']} degraded handoffs")
             log(f"  {agent}: STALLED - needs a human")
         elif fresh and fresh["failed_attempts"] >= MAX_FAILED_ATTEMPTS:
