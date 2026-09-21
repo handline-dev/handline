@@ -16236,6 +16236,8 @@ def test_a_message_in_for_you_opens_at_its_place_in_the_conversation(home: Path)
             return db.add_request(con, who, actions.HUMAN, text, None, "peer", "async",
                                   None, 0, None, chain_id=chain, fyi=fyi)
 
+        for i in range(10):
+            say(f"earlier {i}", "c1")
         target = say("TARGET the merge gate", "c1")
         for i in range(40):
             say(f"later {i}", "c1")
@@ -16258,7 +16260,19 @@ def test_a_message_in_for_you_opens_at_its_place_in_the_conversation(home: Path)
         check("for-you: the message is on screen and marked, far from the end",
               "TARGET the merge gate" in first and "\u25b6" in first
               and "later 39" not in first, first[:200])
+        rows = first.split("\n")
+        at = next(i for i, r in enumerate(rows) if "TARGET the merge gate" in r)
+        body = [tui._ANSI.sub("", ln) for ln in tui.lines_of(page, 100)]
+        line_of = next(i for i, r in enumerate(body) if "TARGET the merge gate" in r)
+        room = tui._page_room(page, 24)
+        check("for-you: the message sits in the middle of the room the page has (its two lines centred)",
+              line_of - page["top"] == (room - 2) // 2, str((line_of, page["top"], room)))
         check("for-you: what follows it is readable around it", "later 0" in first)
+        check("for-you: and what came before it is drawn above it",
+              any("earlier" in r for r in rows[:at]), first[:300])
+        check("for-you: the marker is on the message's own line and says it is the one opened",
+              "\u25b6" in rows[at] or "\u25b6" in rows[at - 1], repr(rows[at - 1:at + 1]))
+        check("for-you: the opened message's tail says so", "the one you opened" in first)
         top = page["top"]
         for _ in range(3):
             again = draw()
@@ -16269,6 +16283,14 @@ def test_a_message_in_for_you_opens_at_its_place_in_the_conversation(home: Path)
         check("for-you: the reader can still go to the end", "later 39" in draw())
 
         page, _ = tui._in_detail(page, "\033", 100, 24)
+        report = say("FYI the gate is green", "c9", fyi=True)
+        line, rpage = open_it(report)
+        _, rpage = tui._redraw(100, 24, sel, tui.AGENTS, "", rpage)
+        shown = "\n".join(tui._ANSI.sub("", ln) for ln in tui.lines_of(rpage, 100))
+        check("for-you: opening a report does not draw its receipt as a reply",
+              "FYI the gate is green" in shown and not any(
+                  r.strip() in ("\u276f read", "> read") for r in shown.split("\n")),
+              shown[-300:])
         check("for-you: leaving marks the conversation seen",
               actions.chat_unread(con, "reviewer") == 0)
         check("for-you: and the unanswered row is still in FOR YOU",

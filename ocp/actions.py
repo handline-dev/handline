@@ -1039,7 +1039,7 @@ def conversation_and_drawn(con, agent: str) -> tuple[list[str], set[int]]:
             msgs.append((r["ts"], r["id"], 0,
                          said(r["requester"], r["target"], r["body"], r["ts"], tail,
                               r["state"] == "queued" and r["target"] == HUMAN, r["id"], 0)))
-            if r["verdict"]:
+            if r["verdict"] and not r["fyi"]:      # a report's "read" is a receipt, not a reply
                 at = r["resolved_at"] or r["ts"]
                 msgs.append((at, r["id"], 1, said(r["target"], r["requester"], r["verdict"],
                                                   at, f"answers #{r['id']}",

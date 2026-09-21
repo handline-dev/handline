@@ -104,7 +104,7 @@ AGENT_KEYS = [
     ("v", "move"),
 ]
 ACCOUNT_KEYS = [("↵", "open"), ("l", "login"), ("a", "add"), ("c", "cap"), ("x", "remove")]
-MESSAGE_KEYS = [("↵", "read"), ("a", "answer"), ("e", "answer in $EDITOR"),
+MESSAGE_KEYS = [("↵", "open"), ("a", "answer"), ("e", "answer in $EDITOR"),
                 ("x", "dismiss")]
 # A stuck row is about an agent, so it answers to the agent keys.
 STUCK_KEYS = AGENT_KEYS
