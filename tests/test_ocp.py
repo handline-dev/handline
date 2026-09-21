@@ -11374,6 +11374,11 @@ def test_the_cursor_follows_a_row_that_leaves_the_list(home: Path) -> None:
         tui.settle(sel, known)
         check("cursor: a report closing on open hands it to the next",
               sel[tui.MESSAGES] == f2, str(sel))
+        row = db.get_request(con, f1)
+        check("opened: it leaves the mailbox", row["state"] != "queued", row["state"])
+        check("opened: it carries no verdict", row["verdict"] is None, row["verdict"])
+        check("opened: the sender is not told - nothing to announce",
+              f1 not in [r["id"] for r in db.unannounced_answers(con, "backend")])
     finally:
         con.close()
 
@@ -11416,11 +11421,17 @@ def test_a_report_to_the_founder_is_not_a_wait(home: Path) -> None:
             _capture(lambda: climod.cmd_read(argparse.Namespace(id=f2, wait=False)))
             check("fyi: the founder's `ocp read` closes it",
                   db.get_request(con, f2)["state"] == "done")
+            check("fyi: `ocp read` closing it leaves no verdict either",
+                  db.get_request(con, f2)["verdict"] is None)
         finally:
             askmod.asking_agent = real_who
         db.set_request_state(con, f2, "queued")
         actions.opened_by_human(con, f2)
-        check("fyi: opening it closes it", db.get_request(con, f2)["state"] == "done")
+        row = db.get_request(con, f2)
+        check("fyi: opening it closes it", row["state"] == "done")
+        check("fyi: opening it leaves no verdict", row["verdict"] is None, row["verdict"])
+        check("fyi: opening it does not read back to the sender",
+              f2 not in [r["id"] for r in db.unannounced_answers(con, "backend")])
         actions.opened_by_human(con, q)
         check("fyi: opening a question does not answer it",
               db.get_request(con, q)["state"] == "queued")
