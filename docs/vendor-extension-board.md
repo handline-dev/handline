@@ -586,6 +586,10 @@ call sites, and may move: `daemon.py` (2242) · `tui.py` (2419) ·
 
 ## 11. The bill for vendor #2, enumerated
 
+> The interface that answers these fifteen is drafted in
+> `design/03-vendor-driver.md`, with claude's current code mapped onto it and
+> codex's answers marked measured or not.
+
 Everything marked **DRIVER**: behaviour that is genuinely per-vendor, that Orca
 cannot supply (part 1), and that therefore needs one implementation per vendor.
 **This list is the cost of adding codex or opencode.** Nothing else on the

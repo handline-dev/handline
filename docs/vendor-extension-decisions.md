@@ -337,6 +337,17 @@ Runs. Those wait for the observation move, and cleanup is the founder's call -
 there is no `run-delete` verb, and `orchestration reset` is global and would
 destroy the agents' own orchestration state.
 
+### Q2. Build the vendor driver, steps 1-4
+
+Drafted in `design/03-vendor-driver.md` §7. Steps 1-4 are **vendor-neutral
+refactors that need codex to exist for nothing**: move today's behaviour into
+`ocp/vendors/claude.py` unchanged; make `observe.account_of_process` read the
+config-dir variable from the driver; reshape the window model (D2 - the 208
+lines across 16 files, writing both old and new keys for one release); and
+move the preamble to a file (D10).
+
+Not started. Step 3 is the one with real risk and should be its own branch.
+
 ### Candidates, not queued
 
 Identified and priced, but **not approved and not to be started**:
