@@ -12,7 +12,9 @@ handoff is most needed. This one cannot fail on that: a fact that could not be
 read is named in the record, and the handoff is degraded only for that reason.
 
 The record is taken while the session is still live, because the agent's own
-status snapshot goes stale once it is closed and its transcript path with it.
+status snapshot goes stale once it is closed and its transcript path with it. A
+close that failed to take one leaves none; the wake then takes it from the
+closed session's id, finding the transcript by name.
 It is stored on the agent's row (`db.get_handoff`). A wake that types it to the
 agent clears it (`db.set_handoff(con, agent, None)`), and so does a launch,
 which injects it into the system prompt: a record on the row is one no session
@@ -24,7 +26,7 @@ import subprocess
 import time
 from pathlib import Path
 
-from . import agents, db, spawn as spawnmod, status, textsafe
+from . import agents, db, paths, spawn as spawnmod, status, textsafe
 
 # Enough to see what is in flight; the rest is `git status` away.
 _STATUS_LINES = 20
@@ -50,11 +52,30 @@ def _request_line(con, agent: str) -> str:
     return f"request: #{head['id']} from {head['requester']} - {first}"
 
 
-def _session_lines(agent: str, account: str) -> tuple[list[str], str | None]:
-    st = status.read_for_agent(agent, account)
-    if not st.transcript_path:
+def find_transcript(session: str, account: str) -> Path | None:
+    """Where a session's transcript is, found by its id rather than by a status
+    snapshot: nothing refreshes a closed agent's snapshot, so by the time a
+    closed session is looked at the snapshot no longer names it. The account it
+    ran under is searched first."""
+    if not session or "/" in session or session.startswith("."):
+        return None
+    for acct in [account, *(a for a in paths.list_accounts() if a != account)]:
+        for f in (paths.account_claude(acct) / "projects").glob(f"*/{session}.jsonl"):
+            return f
+    return None
+
+
+def _session_lines(agent: str, account: str,
+                   closed_session: str | None = None) -> tuple[list[str], str | None]:
+    if closed_session:
+        found = find_transcript(closed_session, account)
+        session, path = closed_session, str(found) if found else None
+    else:
+        st = status.read_for_agent(agent, account)
+        session, path = st.session_id, st.transcript_path
+    if not path:
         return [], "the session's transcript path"
-    return [f"previous session: {st.session_id}, recorded at {st.transcript_path}",
+    return [f"previous session: {session}, recorded at {path}",
             "Grep it for what you need - do not read it whole, it is a JSONL "
             "transcript with every tool result in it."], None
 
@@ -81,14 +102,17 @@ def _worktree_lines(worktree: str | None) -> tuple[list[str], str | None]:
     return lines, None
 
 
-def capture(con, agent: str) -> tuple[str, list[str]]:
-    """The record, and what could not be read for it (empty when it is whole)."""
+def capture(con, agent: str, closed_session: str | None = None) -> tuple[str, list[str]]:
+    """The record, and what could not be read for it (empty when it is whole).
+
+    `closed_session` is the id of a session that has already ended: its
+    transcript is then looked up by id instead of read from the live snapshot."""
     row = db.get_agent_state(con, agent)
     worktree = spawnmod.worktree_path(row["worktree"] if row else None)
     lines = [f"# handoff · {agent}", f"captured: {time.strftime('%Y-%m-%d %H:%M:%S')}",
              _request_line(con, agent)]
     missing: list[str] = []
-    for got, gap in (_session_lines(agent, agents.current_account(agent, con)),
+    for got, gap in (_session_lines(agent, agents.current_account(agent, con), closed_session),
                      _worktree_lines(worktree)):
         lines += got
         if gap:
@@ -97,8 +121,8 @@ def capture(con, agent: str) -> tuple[str, list[str]]:
     return "\n".join(lines), missing
 
 
-def record(con, agent: str) -> list[str]:
+def record(con, agent: str, closed_session: str | None = None) -> list[str]:
     """Capture and keep it for the agent's next start. Returns what was missing."""
-    text, missing = capture(con, agent)
+    text, missing = capture(con, agent, closed_session)
     db.set_handoff(con, agent, text)
     return missing

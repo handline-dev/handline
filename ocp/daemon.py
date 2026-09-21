@@ -105,7 +105,8 @@ PROMPT_CACHE_S = 3600
 # itself reaching its first request. Past it a resume re-reads the whole
 # transcript uncached (~330k measured) while a fresh conversation reads only
 # the handoff, which carries the request in hand, the transcript's path and the
-# worktree's state - see `cache_expired`.
+# worktree's state - taken at the wake when the close did not take one; see
+# `cache_expired`.
 RESUME_WARM_S = PROMPT_CACHE_S - 300
 
 # How long an agent may read as RUNNING with nothing heard from it before the
@@ -878,16 +879,15 @@ def _end_session(con, agent: str, log, st, resume: str | None) -> tuple[bool, st
 def cache_expired(con, agent: str, session: str | None, now: int) -> bool:
     """Should this closed agent start a fresh conversation rather than resume?
 
-    Only when its prompt cache can no longer serve the resume (RESUME_WARM_S
-    since it last did anything) and a whole handoff is waiting to carry the work
-    over. The transcript is the only complete copy of a context whose handoff
-    could not be taken, and an agent that never reported has no clock, so
-    neither is ever started over.
+    Only when its prompt cache can no longer serve the resume: RESUME_WARM_S
+    since it last did anything, or no clock at all, where a wrong "warm" costs
+    the whole transcript and a wrong "cold" costs a handoff. Whether a handoff
+    exists does not decide it; the wake takes one when it is missing.
     """
-    if not session or not db.get_handoff(con, agent):
+    if not session:
         return False
     last = db.last_activity(con, agent)
-    return last is not None and now - last >= RESUME_WARM_S
+    return last is None or now - last >= RESUME_WARM_S
 
 
 def wake_prompt(agent: str, resumed: bool, was_closed: bool = False,
@@ -1121,6 +1121,10 @@ def _wake_agent(con, agent: str, log, moved_to: str | None = None) -> tuple[bool
         # fresh start costs the handoff; the record stays on the row for the
         # launch to inject.
         cold = moved_to is None and cache_expired(con, agent, session, int(time.time()))
+        if cold and not db.get_handoff(con, agent):
+            # The close that would have taken it failed, and the snapshot no
+            # longer names the session; the id on the row still does.
+            handoffmod.record(con, agent, closed_session=session)
         for resume in ([True, False] if session and not cold else [False]):
             pf = _write_wake_prompt(
                 agent, wake_prompt(agent, resume, was_closed=closed,
