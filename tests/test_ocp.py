@@ -2584,6 +2584,17 @@ PICKER_CURRENT_SESSION_SELECTED = [
     "  ⏵⏵ auto mode · enter to return · space to reply · ctrl+x to delete · ? for shortcuts"]
 
 
+# auditor's #1352 should-fix: the one shape only "enter to open" catches -
+# another session selected, and (unlike every real fleet reading in purser's
+# #1294) no "space to reply" in the hint. Without this, deleting the older
+# marker leaves the suite entirely green, because every other picker fixture
+# carries both phrases.
+PICKER_HINT_ONLY_ENTER_TO_OPEN = [
+    "Your conversation moved to the background - enter opens it · esc returns to it · ctrl+c twice quits",
+    " ✻ ocp inbox management             Processed both orcapipe inbox corrections...",
+    _COMPOSER_RULE_ROW, "❯", _COMPOSER_RULE_ROW,
+    "  ⏵⏵ auto mode · enter to open · ctrl+x to delete · ? for shortcuts"]
+
 # orcapipe's #1161 read of harbor: the backgrounded-session picker. Its
 # new-session box is rule/marker/rule like any composer.
 BACKGROUND_PICKER = [
@@ -2767,6 +2778,14 @@ def test_the_screen_names_what_is_in_the_way(home: Path) -> None:
         b = orcamod.screen_blocker("term_x")
         check("screen: the picker's hint with no banner fails closed, not a clean composer",
               b is not None and b.kind == orcamod.UNREADABLE, str(b))
+        # auditor's #1352 should-fix: "space to reply" alone proved the whole
+        # change (every other picker fixture carries it too), so nothing
+        # pinned "enter to open" - the marker #1252 and this branch were
+        # built on. Cutting _BACKGROUNDED_HINTS in half left the suite green.
+        orcamod._screen = lambda h: _screen_of(PICKER_HINT_ONLY_ENTER_TO_OPEN)
+        b = orcamod.screen_blocker("term_x")
+        check("screen: 'enter to open' alone, with no 'space to reply', is still BACKGROUNDED",
+              b is not None and b.kind == orcamod.BACKGROUNDED, str(b))
         # An empty detail must not render a dangling colon - what the founder
         # saw on the #1252 false positive, where tail[:hint] was empty.
         check("screen: an empty BACKGROUNDED detail has no dangling colon",

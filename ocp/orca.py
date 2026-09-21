@@ -445,8 +445,11 @@ def _composer_shape(tail: list) -> bool:
 # "shift+tab to cycle". The picker's hint has two forms (purser's #1294, measured
 # on Claude Code 2.1.278): "enter to open" when another session is selected,
 # "enter to return" when the current one is - which is what Left gives - so
-# "enter to return" is not a marker. "space to reply" is in both, and on the
-# live fleet appears on no screen without the banner.
+# "enter to return" is not a marker. "space to reply" is in both, and purser's
+# #1294 fleet read (Claude Code 2.1.278, 31 live terminals, 2026-09-21) found
+# it on no screen without the banner - if that ever stops holding, the miss
+# fails closed to UNREADABLE, never to a false BACKGROUNDED (see
+# _hint_below_box: the position guard is the same code path for both markers).
 #
 # "enter to open" alone is not enough: it is ordinary English, and any agent that
 # reports on this feature (this docstring, a review of it) writes it in its
@@ -456,7 +459,7 @@ def _composer_shape(tail: list) -> bool:
 # box, never above it in the transcript.
 #
 # That alone still under-determines it (auditor's #1285 B1): a screen where
-# the box's own hint happens to say "enter to open" for some other reason
+# the box's own hint happens to say a picker phrase for some other reason
 # would pass a position check alone, and reading nothing there as "in the
 # way" is exactly the bug 7f01f52 exists to fix. So the picker's own banner -
 # "...conversation moved to the background...", specific text neither an
