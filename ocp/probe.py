@@ -25,7 +25,7 @@ import shutil
 import signal
 import time
 
-from . import accounts, status
+from . import accounts, status, usage_api
 
 # Rate limits are an account's, not a model's, so the cheapest model answers
 # the question as well as any other. What takes the time is the session booting
@@ -156,14 +156,29 @@ def unread(st: "status.AccountStatus", last_probe: int | None) -> bool:
 
 
 def run(account: str, timeout: int = PROBE_TIMEOUT_S) -> "status.AccountStatus":
-    """Probe this account and return what it says afterwards.
+    """Ask this account where it stands, and return what it says afterwards.
 
-    The reading is whatever the status line wrote; a probe that failed to write
-    one leaves the old snapshot in place and the caller still sees it as stale,
+    Two mechanisms answer the same question, and the cheap one is tried first:
+    `usage_api` asks the endpoint over the account's own credential - one HTTPS
+    call, no session, no quota - and only when that cannot answer does this
+    spend the account to make its status line write. A `None` from the endpoint
+    is "could not ask", never "nothing spent", so it falls through rather than
+    standing in for an answer.
+
+    The preference lives here rather than at the daemon's call site because
+    this is where the cost is, and because the daemon starts this detached on
+    purpose: a tick may not stop for a session's startup, and it must not stop
+    for a network call either.
+
+    The reading is whatever was written; a probe that failed to write one
+    leaves the old snapshot in place and the caller still sees it as stale,
     which is the same refusal it had before. Failing is therefore safe, and
     that is why nothing here raises on a bad turn: an account at the wall ends
     its turn on a limit error, and the status line has written by then.
     """
+    reading = usage_api.read(account)
+    if reading is not None and usage_api.record(reading):
+        return status.read(account)
     before = status.read(account).rl_at
     try:
         _spend(account, accounts.env_for(account, None), timeout, before)

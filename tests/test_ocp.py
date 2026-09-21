@@ -2622,12 +2622,20 @@ def test_a_new_account_gets_its_first_reading_without_anyone_asking(home: Path) 
     _daemon_home(home, 20)
     con = db.connect()
     real_login, real_popen = accounts.logged_in, subprocess.Popen
+    real_read = usage_api.read
     started: list[list[str]] = []
     from ocp import probe
     try:
         (home / "accounts" / "alpha" / "status.json").unlink()
         accounts.logged_in = lambda a: True  # noqa: E731
         subprocess.Popen = lambda cmd, **kw: started.append(cmd)  # noqa: E731
+        # What this test is about is the cadence - asked once, not every tick,
+        # and not at the cost of a login check apiece - which is the same
+        # whichever mechanism answers. The endpoint stands in as "could not
+        # ask" so the probe path is the one exercised here; that the endpoint
+        # is preferred when it *can* answer is its own test. Without this the
+        # daemon would reach the real network and Keychain from the suite.
+        usage_api.read = lambda acct, refresh=True: None  # noqa: E731
         st = status.read("alpha")
         check("new account: the state under test - it exists and has no reading",
               "alpha" in paths.list_accounts() and not st.exists)
@@ -2678,6 +2686,7 @@ def test_a_new_account_gets_its_first_reading_without_anyone_asking(home: Path) 
               any(c[-1] == "epsilon" for c in started), str(started))
     finally:
         accounts.logged_in, subprocess.Popen = real_login, real_popen
+        usage_api.read = real_read
         con.close()
 
 
@@ -19765,6 +19774,130 @@ def test_usage_api_reads_a_window_nothing_has_been_spent_in() -> None:
          usage_api.urllib.request.urlopen, usage_api.json.load) = real
 
 
+def test_usage_api_record_stands_in_for_a_probe(home: Path) -> None:
+    """What the endpoint leaves behind, and the one rule it must not break.
+
+    `record` replaces what `probe.py` leaves - a snapshot the next tick reads -
+    so it has to merge rather than overwrite, and it has to keep the
+    collector's rule that usage never falls inside one window while still
+    letting a rollover through. The rollover case is the one that matters: it
+    is what made `alpha` unassignable eighteen seconds after its 5h window
+    reset (#1369).
+    """
+    restore_world()
+    home.mkdir(parents=True, exist_ok=True)
+    os.environ["OCP_HOME"] = str(home)
+    p_ = home / "status.json"
+    now = int(time.time())
+
+    # A live session's own fields. These are the collector's and must survive.
+    p_.write_text(json.dumps({
+        "account": "alpha", "session_id": "sess-1", "transcript_path": "/t/x.jsonl",
+        "ctx_pct": 42, "model_id": "claude-opus-5", "cost_usd": 1.5,
+        "pct_5h": 80, "reset_5h": now + 600, "rl_at": now - 300, "rl_carried": True,
+        "pct_7d": 50, "reset_7d": now + 99999, "collected_at": now - 4000,
+    }))
+
+    ok = usage_api.record(usage_api.Reading(
+        account="alpha", pct_5h=90, reset_5h=now + 600,
+        pct_7d=51, reset_7d=now + 99999, at=now), path=p_)
+    got = json.loads(p_.read_text())
+    check("record: it writes", ok, "record returned False")
+    check("record: the session's own fields survive",
+          got.get("session_id") == "sess-1" and got.get("transcript_path") == "/t/x.jsonl"
+          and got.get("ctx_pct") == 42 and got.get("cost_usd") == 1.5, json.dumps(got))
+    check("record: a higher figure in the same window is taken", got["pct_5h"] == 90,
+          json.dumps(got))
+    check("record: the reading is marked observed, not carried",
+          got["rl_at"] == now and got["rl_carried"] is False and got["rl_lost"] is False,
+          json.dumps(got))
+    check("record: collected_at moves, so staleness does not fail the account closed",
+          got["collected_at"] == now, json.dumps(got))
+    check("record: the source is named", got.get("rl_source") == "api", json.dumps(got))
+
+    # Lower, same window: the collector's rule says usage only rises.
+    usage_api.record(usage_api.Reading(
+        account="alpha", pct_5h=70, reset_5h=now + 600,
+        pct_7d=51, reset_7d=now + 99999, at=now), path=p_)
+    check("record: a lower figure inside the same window is refused",
+          json.loads(p_.read_text())["pct_5h"] == 90, p_.read_text())
+
+    # Lower, new window: alpha's case. The high-water must not survive it.
+    usage_api.record(usage_api.Reading(
+        account="alpha", pct_5h=0, reset_5h=None,
+        pct_7d=51, reset_7d=now + 99999, at=now), path=p_)
+    rolled = json.loads(p_.read_text())
+    check("record: a rollover replaces the high-water outright",
+          rolled["pct_5h"] == 0 and rolled["reset_5h"] is None, json.dumps(rolled))
+    check("record: and the account reads assignable again",
+          status.read("alpha", path=p_).assignable()[0],
+          str(status.read("alpha", path=p_).assignable()))
+
+
+def test_the_probe_asks_the_endpoint_before_it_spends_the_account(home: Path) -> None:
+    """The cheap mechanism is tried first; spending the account is the
+    fallback. A `None` reading is 'could not look', so it must fall through
+    rather than stand in for an answer.
+
+    The preference is in `probe.run`, not at the daemon's call site: the daemon
+    starts this detached because a tick may not stop for a session's startup,
+    and a network call is no different.
+    """
+    _daemon_home(home, 10)
+    from ocp import probe as probemod
+    spent: list[str] = []
+    real = (usage_api.read, usage_api.record, probemod._spend)
+    probemod._spend = lambda acct, env, timeout, since: spent.append(acct)
+    usage_api.record = lambda reading, path=None: True
+    try:
+        usage_api.read = lambda acct, refresh=True: usage_api.Reading(
+            account=acct, pct_5h=7, reset_5h=None, pct_7d=3, reset_7d=None,
+            at=int(time.time()))
+        probemod.run("alpha")
+        check("probe: the endpoint answered, so the account was not spent",
+              spent == [], str(spent))
+
+        usage_api.read = lambda acct, refresh=True: None
+        probemod.run("alpha")
+        check("probe: 'could not ask' falls through to spending the account",
+              spent == ["alpha"], str(spent))
+
+        # A reading that arrives but cannot be written is not an answer either:
+        # the next tick would read the old snapshot and decide on it.
+        usage_api.read = lambda acct, refresh=True: usage_api.Reading(
+            account=acct, pct_5h=7, reset_5h=None, pct_7d=3, reset_7d=None,
+            at=int(time.time()))
+        usage_api.record = lambda reading, path=None: False
+        probemod.run("alpha")
+        check("probe: a reading that could not be recorded also falls through",
+              spent == ["alpha", "alpha"], str(spent))
+    finally:
+        (usage_api.read, usage_api.record, probemod._spend) = real
+
+
+def test_the_daemon_still_starts_the_probe_detached(home: Path) -> None:
+    """The daemon's own call site is unchanged, and that is the point: it
+    spawns and returns. Whatever the probe then chooses to do, the tick does
+    not wait for it - not for a session's startup and not for a network call.
+    """
+    _daemon_home(home, 10)
+    spawned, logged = [], []
+    real_popen = dmn.subprocess.Popen
+    dmn.subprocess.Popen = lambda argv, **kw: spawned.append(argv)
+    con = db.connect()
+    try:
+        acted: list[str] = []
+        ok = dmn._start_probe(con, "alpha", "why", logged.append, acted)
+        check("probe seam: the daemon spawns and does not block",
+              ok and len(spawned) == 1
+              and spawned[0][-3:] == ["account", "probe", "alpha"], str(spawned))
+        check("probe seam: the cooldown cursor is set",
+              db.get_cursor(con, "probe:alpha") > 0, "cursor not set")
+    finally:
+        dmn.subprocess.Popen = real_popen
+        con.close()
+
+
 def run(one) -> None:
     """Every test starts from the real world.
 
@@ -19880,6 +20013,9 @@ def main() -> int:
             Path(td) / 'replayweek'))
         run(lambda: test_replay_burn_is_the_daemons_burn(Path(td) / 'replayburn'))
         run(lambda: test_usage_api_reads_a_window_nothing_has_been_spent_in())
+        run(lambda: test_usage_api_record_stands_in_for_a_probe(Path(td) / 'usagerec'))
+        run(lambda: test_the_probe_asks_the_endpoint_before_it_spends_the_account(Path(td) / 'usageseam'))
+        run(lambda: test_the_daemon_still_starts_the_probe_detached(Path(td) / 'usagedetach'))
         run(lambda: test_collector(home))
         run(lambda: test_yaml())
         run(lambda: test_agents(home))

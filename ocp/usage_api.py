@@ -53,6 +53,11 @@ HTTP_TIMEOUT_S = 15
 # `claude auth status` has to start the CLI, so it is not instant.
 REFRESH_TIMEOUT_S = 40
 
+# The collector allows the same slack before a reset in the past is treated as
+# a window that has ended; the two rules have to agree or a figure would be
+# carried by one and dropped by the other.
+CLOCK_SKEW_S = 60
+
 # The two windows ocp gates on, by the duration the endpoint keys them under.
 FIVE_HOUR = "five_hour"
 SEVEN_DAY = "seven_day"
@@ -198,3 +203,69 @@ def read(acct: str, refresh: bool = True) -> Reading | None:
         pct_7d=_pct(seven), reset_7d=_reset(seven),
         at=int(time.time()),
     )
+
+
+def record(reading: Reading, path=None) -> bool:
+    """Leave the reading where every existing reader already looks.
+
+    This stands in for what `probe.py` leaves behind - a fresh snapshot the
+    next tick reads like any other - so nothing downstream has to learn about
+    this module. It **merges**: a live session's `session_id`,
+    `transcript_path` and context figures are written by the collector and are
+    none of our business, and a reading that replaced the file wholesale would
+    take the handoff's transcript pointer with it.
+
+    `collected_at` is set because this replaces a probe, and a probe sets it by
+    running a real session. Without it `AccountStatus.stale` fails the account
+    closed before it ever reads the figures, which is the very refusal being
+    lifted - `beta` sat at "nothing has run on it for 4h37m" while its 5h
+    window was empty.
+
+    The one rule carried over verbatim from the collector: inside one window
+    usage only rises, so a figure is never lowered while its own window is
+    still open. Across a rollover it is replaced outright - which is the case
+    that matters, because the stale high-water is exactly what made `alpha`
+    unassignable eighteen seconds after its window reset.
+    """
+    p = path or paths.status_file(reading.account)
+    if not p.parent.is_dir():
+        return False
+    try:
+        prev = json.loads(p.read_text()) if p.exists() else {}
+    except (OSError, json.JSONDecodeError):
+        prev = {}
+    if not isinstance(prev, dict):
+        prev = {}
+
+    snap = dict(prev)
+    now = reading.at
+    for pct, reset, pk, rk, at_key, carried_key, lost_key in (
+            (reading.pct_5h, reading.reset_5h, "pct_5h", "reset_5h",
+             "rl_at", "rl_carried", "rl_lost"),
+            (reading.pct_7d, reading.reset_7d, "pct_7d", "reset_7d",
+             "rl7_at", "rl7_carried", "rl7_lost")):
+        value = pct
+        if pct is not None:
+            old, old_reset = prev.get(pk), prev.get(rk)
+            same_window = (isinstance(old_reset, int) and old_reset == reset
+                           and old_reset > now - CLOCK_SKEW_S)
+            if isinstance(old, int) and same_window and old > pct:
+                value = old
+        snap[pk] = value
+        snap[rk] = reset
+        # Observed, now, first-hand: not carried, and not lost.
+        snap[at_key] = now
+        snap[carried_key] = False
+        snap[lost_key] = False
+    snap["collected_at"] = now
+    # So a reader can tell where a figure came from without guessing at the
+    # absence of a session_id.
+    snap["rl_source"] = "api"
+
+    tmp = p.with_suffix(".json.tmp")
+    try:
+        tmp.write_text(json.dumps(snap, indent=2, ensure_ascii=False) + "\n")
+        tmp.replace(p)
+    except OSError:
+        return False
+    return True
