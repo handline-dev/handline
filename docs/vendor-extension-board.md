@@ -18,7 +18,8 @@ call rather than code of ours?*
 |---|---|
 | **KEEP** | 변경 불필요. Already vendor-neutral; a second vendor does not touch it. |
 | **RESHAPE** | 변경필요 · 직접. Ours to keep, but the *shape* is Claude's and must be generalized. No new per-vendor code, no Orca call. |
-| **DRIVER** | 변경필요 · 직접구현. Genuinely per-vendor behaviour. Needs a driver with one implementation per vendor. Orca cannot do it for us. |
+| **DRIVER** | 변경필요 · 직접구현. Genuinely **per-vendor** behaviour: one implementation per vendor. Orca cannot do it for us. This column is the bill for vendor #2. |
+| **FIX** | 변경필요 · 우리 버그, 벤더 무관. Ours to repair, and a second vendor neither helps nor hurts. |
 | **ORCA** | 변경필요 · Orca CLI 로 대체. Orca already does this, better and vendor-neutrally. We should delete ours and call it. |
 | **HYBRID** | Orca covers part of it; the rest is a driver. |
 | **DECIDE** | Not a code question yet - a choice has to be made first. |
@@ -105,14 +106,25 @@ without `-w` for exactly this reason.
 
 Seams classified so far: **38**.
 
-| verdict | count | weight |
-|---|---|---|
-| KEEP | 15 | the whole team/work layer, and the quota arithmetic |
-| DRIVER | 12 | launch argv, credentials, quota extraction, slash commands |
-| ORCA | 6 | observation, and the Orca objects we already half-create |
-| RESHAPE | 3 | the quota window model, events, the screens |
-| HYBRID | 1 | hook installation |
-| DECIDE | 1 | what lane we are in (§6) |
+| verdict | first pass | now | |
+|---|---|---|---|
+| **ORCA** | 6 | **11** | grew. Observation keeps confirming. |
+| HYBRID | 1 | 2 | |
+| **DRIVER** | 12 | **16** | per-vendor only - **this column is the bill for vendor #2** |
+| RESHAPE | 3 | 5 | |
+| KEEP | 15 | 7 | shrank because seams were split finer, not re-judged |
+| FIX / DECIDE | 0 / 1 | 1 / 1 | |
+
+**The trend, since it is easy to misread.** One verdict was demoted away from
+Orca (Run binding, once a speculative ORCA, turned out to be our own bug - D8).
+One was split rather than moved (dialog handling: detection to Orca, describing
+the panel stays ours - D9). Two were *gained* (`stage.activity` + `liveness`
+replacing an idle probe that costs its full timeout to say "no"; and `agentWait`
+turning out to need no adoption at all).
+
+So the Orca column is not closing. What keeps shrinking is the **scope of each
+win** and the **preconditions** attached to it - which is what a boundary looks
+like while it is being found.
 
 **The headline.** ocp is ~17.5k lines. The vendor-specific part is small and
 concentrated - but it is not where the `claude` string is. Counting mentions of
@@ -295,7 +307,7 @@ Part 1 §5.2 is blunt: a caller handing off work **without supervision** should
 |---|---|---|---|
 | which lane are we in | `spawn.register_worker` creates Run + Task + Dispatch; nothing ever sends `worker_done` or calls `worker-release` | **DECIDE** ⚠ | two honest options. **(a) Supervised:** adopt each agent's terminal with `worker-start --terminal <handle>` after we launch it - we keep our launcher, our account choice, our argv, and Orca takes lifecycle ownership, which is also what may unlock `agentWait` in §3. **(b) Handoff lane:** stop creating Tasks, keep only what draws the team. Measured evidence for why this matters: **65 tasks in the bound Run, every one still `status: ready`**, and **five Runs all named "orcapipe team"**. |
 | advance a task's status | never called | **ORCA** | `task-update --id --status`. Only needed in lane (b); a valid `worker_done` settles it automatically in lane (a). |
-| Run binding | `spawn.ensure_run` | **DRIVER** ⚠⚠ | **Measured 2026-09-21: this is our bug, and it is bigger than five Runs.** See §7.1. |
+| Run binding | `spawn.ensure_run` | **FIX** ⚠⚠ | **Measured 2026-09-21: this is our bug, and it is bigger than five Runs.** See §7.1. |
 | tab titles | not set; Orca falls back to cwd | **ORCA** | `terminal rename --title` exists and is unused. |
 | escalate a block to the founder | `blocked.ESCALATE_AFTER_S` → `ocp ask human` | **ORCA** | `gate-create --task --question --options` is a first-class "blocked on a decision" object Orca draws and anyone can resolve from outside. Ours is a row only we can see. |
 | memory / resource accounting | measured by hand once, in comments | **ORCA** | `diagnostics memory` is the sweep behind Orca's own Resource Usage popover; `worker-list --terminal-state reclaimable` names terminals owing a decision. |
