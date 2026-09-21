@@ -7597,7 +7597,8 @@ def test_a_cold_wake_that_fails_leaves_no_handoff_behind(home: Path) -> None:
     _daemon_home(home, 20)
     con = db.connect()
     real = (orcamod.alive, orcamod.wait_idle, orcamod.idle_now, orcamod.send,
-            orcamod.available, orcamod.clear_context, orcamod.relaunch)
+            orcamod.available, orcamod.clear_context, orcamod.relaunch,
+            orcamod.typeable_now, orcamod.resume_with, orcamod.idle_now, orcamod.send)
     logs: list[str] = []
     try:
         orcamod.available = lambda: True
@@ -7613,6 +7614,19 @@ def test_a_cold_wake_that_fails_leaves_no_handoff_behind(home: Path) -> None:
               db.last_activity(con, "backend") is None
               and dmn.cache_expired(con, "backend", "sess-7", int(time.time())))
         check("cold wake: it leaves no handoff on the row", db.get_handoff(con, "backend") is None)
+        # The session turned up after all and the sweep cleared the closed mark:
+        # the next wake must not type a parked-and-cleared prompt at it.
+        db.clear_closed(con, "backend")
+        typed: list[str] = []
+        sessions_are("backend")
+        orcamod.idle_now = lambda h: True
+        orcamod.typeable_now = lambda h: True
+        orcamod.send = lambda h, text, enter=True: (typed.append(text), (True, ""))[1]
+        orcamod.resume_with = lambda h, text: (typed.append(text), (True, ""))[1]
+        ok2, _ = dmn.wake_agent(con, "backend", logs.append)
+        check("cold wake: the next wake at a live session types nothing", not ok2 and not typed,
+              str(typed))
+        db.set_closed(con, "backend", "sess-7")
         check("cold wake: the closed mark and resume id survive",
               (db.get_agent_state(con, "backend") or {})["resume_session"] == "sess-7")
         check("cold wake: a transcript it could not find is logged and on the record",
@@ -7621,7 +7635,8 @@ def test_a_cold_wake_that_fails_leaves_no_handoff_behind(home: Path) -> None:
               str(logs))
     finally:
         (orcamod.alive, orcamod.wait_idle, orcamod.idle_now, orcamod.send,
-         orcamod.available, orcamod.clear_context, orcamod.relaunch) = real
+         orcamod.available, orcamod.clear_context, orcamod.relaunch,
+         orcamod.typeable_now, orcamod.resume_with, orcamod.idle_now, orcamod.send) = real
         con.close()
 
 
