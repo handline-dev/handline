@@ -110,10 +110,12 @@ Seams classified so far: **38**.
 |---|---|---|---|
 | **ORCA** | 6 | **11** | grew. Observation keeps confirming. |
 | HYBRID | 1 | 2 | |
-| **DRIVER** | 12 | **16** | per-vendor only - **this column is the bill for vendor #2** |
-| RESHAPE | 3 | 5 | |
+| **DRIVER** | 12 | **15** | per-vendor only - **this column is the bill for vendor #2**, and it is enumerated in §11 |
+| RESHAPE | 3 | 6 | |
 | KEEP | 15 | 7 | shrank because seams were split finer, not re-judged |
 | FIX / DECIDE | 0 / 1 | 1 / 1 | |
+
+43 seams classified in total.
 
 ### What Orca actually replaces, in lines (#1310)
 
@@ -174,7 +176,7 @@ rebuild - in Orca's shape.
 
 | seam | ours | verdict | note |
 |---|---|---|---|
-| build the argv (model, effort, tool denial, mcp, system prompt) | `launch.build` | **DRIVER** | every flag is Claude's spelling. Orca layer 3 cannot take this over: `worker-start` has no env/config-dir flag, so it cannot place a session on a chosen account. |
+| build the argv (model, effort, tool denial, mcp) | `launch.build` | **DRIVER** | every flag is Claude's spelling. Orca layer 3 cannot take this over: `worker-start` has no env/config-dir flag, so it cannot place a session on a chosen account. |
 | find the binary | `shutil.which("claude")` ×7 (`launch`, `probe`, `fold`, `accounts`, `doctor`, `cli` ×2) | **DRIVER** | one lookup per vendor, in one place instead of seven. |
 | account env | `accounts.env_for` → `CLAUDE_CONFIG_DIR` | **DRIVER** | codex is `CODEX_HOME`; opencode TBD. |
 | is this launch a resume | `launch._is_resume` (`--resume`/`-r`/`--resume=`) | **DRIVER** | codex spells it differently. |
@@ -579,3 +581,43 @@ call sites, and may move: `daemon.py` (2242) · `tui.py` (2419) ·
    guess about `AGENTS.md` versus a first prompt.
 5. Then the window-model reshape (§5, shape settled by §0.1), the big one, not
    started until 1-4 are known.
+
+---
+
+## 11. The bill for vendor #2, enumerated
+
+Everything marked **DRIVER**: behaviour that is genuinely per-vendor, that Orca
+cannot supply (part 1), and that therefore needs one implementation per vendor.
+**This list is the cost of adding codex or opencode.** Nothing else on the
+board has to be written twice.
+
+| # | what it must answer | claude today | note |
+|---|---|---|---|
+| 1 | what argv starts a session | `--model --effort --disallowedTools --mcp-config` | tool denial has no codex equivalent; its analogue is approval policy + a `PreToolUse` hook |
+| 2 | where is the binary | `which("claude")` ×7 | one lookup instead of seven |
+| 3 | how is an account selected | `CLAUDE_CONFIG_DIR` | codex: `CODEX_HOME` |
+| 4 | is this launch a resume | `--resume` / `-r` / `--resume=` | |
+| 5 | who is this account | `claude auth status --json` | |
+| 6 | where does the credential live | macOS Keychain, per-config-dir digest | codex: a plain `auth.json` - simpler |
+| 7 | which shared config items link in | settings.json, CLAUDE.md, skills, agents, commands, plugins | per-vendor layout |
+| 8 | how does memory move with an account | `projects/<encoded>/memory/` | |
+| 9 | which account is a live process spending | `CLAUDE_CONFIG_DIR` off `ps eww` | Orca cannot answer this for us at all |
+| 10 | what is on the screen, in words | `parse_dialog`, `declining_key` | detection moved to Orca (D9); describing did not |
+| 11 | which key declines a dialog | Esc, under `declining_key`'s rules | must read the panel it presses on |
+| 12 | how is context reclaimed | `/clear` | codex: `/new` |
+| 13 | how is a session ended | `/exit` | codex: `/quit` |
+| 14 | how is a usage reading collected | statusLine → our collector | **codex has no statusLine hook: pull from the rollout JSONL, not push** |
+| 15 | how is a quiet account made to report | `probe.py`, a pty session | unnecessary for a vendor that writes usage to a file |
+
+Two carry risk. **14** inverts the mechanism (push → pull) and is the first
+thing to build for any new vendor, because without context ocp cannot park
+(D9). **1**'s tool denial has no direct equivalent and the invariant - no
+self-scheduled wakeups, no subagents, no direct agent-to-agent messaging -
+has to be re-expressed rather than translated.
+
+**What this list is not.** It is complete for the code that has been read
+closely. `daemon.py`, `tui.py`, `actions.py`, `cli.py`, `ask.py` and
+`blocked.py` have not been read line by line (§9); they are mostly
+vendor-neutral state machines and their known vendor coupling is the `/clear`
+and `/exit` call sites already counted as 12 and 13 - but a new DRIVER row
+appearing from them is possible, not ruled out.
