@@ -663,8 +663,9 @@ def test_each_calls_tokens_are_recorded_per_account_from_the_transcripts(home: P
     torn = _call_line("req_torn", 4)
     secret = paths.account_claude("alpha") / ".credentials.json"
     secret.write_text(_call_line("req_secret", 999))
-    # The same two decoys placed INSIDE projects/, so this fails for real if
-    # the glob ever widens past *.jsonl or the root ever widens past projects.
+    # Decoys inside projects/ (a non-.jsonl name) catch the glob widening; a
+    # .jsonl outside projects/ catches the root widening.
+    (paths.account_claude("alpha") / "history.jsonl").write_text(_call_line("req_outside", 999))
     (proj / ".credentials.json").write_text(_call_line("req_secret_inproj", 999))
     (proj / "s1.json").write_text(_call_line("req_plainjson", 999))
     log.write_text(_call_line("req_a", 10) + _call_line("req_a", 30) + _call_line("req_b", 5)
@@ -680,7 +681,7 @@ def test_each_calls_tokens_are_recorded_per_account_from_the_transcripts(home: P
               (rows["req_a"]["inp"], rows["req_a"]["cc"], rows["req_a"]["cr"], rows["req_a"]["thinking"])
               == (2, 1000, 50000, 15), str(rows["req_a"]))
         check("tokens: nothing but the conversation logs is read",
-              not {"req_secret", "req_secret_inproj", "req_plainjson"} & set(rows), str(rows))
+              not {"req_secret", "req_secret_inproj", "req_plainjson", "req_outside"} & set(rows), str(rows))
         again = tokenlog.ingest(con, "alpha", now=now)
         check("tokens: a second read of an unchanged file adds nothing", got == 3 and again == 0, str((got, again)))
         with open(log, "a") as fh:
