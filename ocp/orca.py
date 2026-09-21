@@ -442,14 +442,17 @@ def _composer_shape(tail: list) -> bool:
 # ordinary composer shape - rule/marker/rule - so the shape alone cannot tell it
 # from the agent's own prompt, and text typed there goes to a new session, not
 # the conversation. Its hint line does, where the conversation's own says
-# "shift+tab to cycle". The picker's hint has two forms (purser's #1294, measured
-# on Claude Code 2.1.278): "enter to open" when another session is selected,
+# "shift+tab to cycle". The picker's hint has two forms, found in a scratch
+# tmux session on Claude Code 2.1.278 (purser's #1294, three runs, one
+# session in the list): "enter to open" when another session is selected,
 # "enter to return" when the current one is - which is what Left gives - so
-# "enter to return" is not a marker. "space to reply" is in both, and purser's
-# #1294 fleet read (Claude Code 2.1.278, 31 live terminals, 2026-09-21) found
-# it on no screen without the banner - if that ever stops holding, the miss
-# fails closed to UNREADABLE, never to a false BACKGROUNDED (see
-# _hint_below_box: the position guard is the same code path for both markers).
+# "enter to return" is not a marker. "space to reply" is in both, and a
+# separate #1294 fleet read (31 live terminals, 2026-09-21) found it on 1 of
+# them, with the banner. The one earlier case where it appeared with no
+# banner (#1144, harbor) is not a hole in that: it is the picker with its
+# banner scrolled out of the window, and the miss fails closed to UNREADABLE
+# there, never to a false BACKGROUNDED (see _hint_below_box: the position
+# guard is the same code path for both markers).
 #
 # "enter to open" alone is not enough: it is ordinary English, and any agent that
 # reports on this feature (this docstring, a review of it) writes it in its
@@ -505,10 +508,11 @@ def _picker_box(tail: list) -> tuple[int, int] | None:
 
 
 def _hint_below_box(tail: list) -> bool:
-    """Whether the composer's own hint says the picker's words ("enter to
-    open"), whether or not its banner confirms it. Used only to tell an
-    unconfirmed match from a clean composer: the hint alone is the one thing
-    an ordinary conversation's composer never says (auditor's #1285 B1)."""
+    """Whether the composer's own hint says a picker phrase ("enter to
+    open" or "space to reply"), whether or not its banner confirms it. Used
+    only to tell an unconfirmed match from a clean composer: the hint alone
+    is the one thing an ordinary conversation's composer never says
+    (auditor's #1285 B1)."""
     box = _composer_box(tail)
     if box is None:
         return False
