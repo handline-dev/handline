@@ -262,6 +262,59 @@ is load-bearing for the whole team model and must not be guessed at.
 
 ---
 
+## Queued work
+
+Recorded so it is not lost. **Nothing here is started.** An item leaves this
+list by being done, or by being cancelled with a reason.
+
+### Q1. `orca.run_exists` - stop reading "could not ask" as "gone"
+
+**Trigger:** next time `ocp/orca.py` is opened for anything. Not worth a branch
+of its own (see D8: the org chart it would fix is drawn in a view nobody here
+opens).
+
+**Why it still stands on its own:** every failure of the call - Orca
+restarting, runtime not up, timeout, non-zero exit - currently returns `False`,
+and `spawn.ensure_run` reads that as "the team's Run is gone" and creates a new
+one. A Run per Orca restart, forever; 25 so far. This is the exact shape
+`orca.live_terminals` forbids four lines above, in a docstring that explains
+why.
+
+```python
+# ocp/orca.py
+def run_exists(run: str) -> bool | None:      # None = could not ask
+    ok, out = _run(["orchestration", "run-show", "--id", run, "--json"])
+    if not ok:
+        return None
+    return bool(_result(out, "run", "id"))
+```
+
+and in `spawn.ensure_run`, create **only on a definite `False`**. A `None`
+means leave `RUN_KEY` alone and skip registration this launch.
+
+**Test it needs:** the one existing test stubs `run_current` and `run_create`
+to `None`, so neither the create-on-failure path nor the overwrite is covered.
+Add a case that drives `run_exists` returning `None` and asserts no Run is
+created and `RUN_KEY` is unchanged.
+
+**Do not bundle:** the other two parts of D8 (dropping the `bound != run`
+overwrite, single-creator via `ocp org`) and any cleanup of the 25 existing
+Runs. Those wait for the observation move, and cleanup is the founder's call -
+there is no `run-delete` verb, and `orchestration reset` is global and would
+destroy the agents' own orchestration state.
+
+### Candidates, not queued
+
+Identified and priced, but **not approved and not to be started**:
+
+- the idle/busy probe → `stage.activity` + `liveness` (board §3, marked ORCA;
+  replaces a probe that pays its full timeout to say "no")
+- `hooks.py`'s hand-rolled mirror → `orca agent hooks on|off|status`
+- `screen_blocker`'s decision → `terminal show`'s `agentWait` (D9)
+- the window-model reshape (D2) - the big one
+
+---
+
 ## Method notes worth keeping
 
 - Orca's own specification is on the machine: `orca skills get orchestration`
