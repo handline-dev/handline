@@ -1395,7 +1395,9 @@ def _detail_frame(width: int, height: int, detail: dict, flash: str = "") -> str
         keys = "esc back · ↑↓ scroll · space page"
     if detail.get("stem") == actions.CHAT_TAB:
         keys = "esc back · ↑↓ scroll · ↵ write (/ for commands) · e in $EDITOR"
-    if detail.get("panel") == MESSAGES:
+    if detail.get("read_only"):
+        pass                           # nothing here acts on the agent
+    elif detail.get("panel") == MESSAGES:
         keys += " · a answer · e answer in $EDITOR · x dismiss"
     elif detail.get("panel") in (AGENTS, STUCK):
         # A connection per render, unlike `build`'s one-per-frame: this page
@@ -1743,13 +1745,14 @@ class Composer:
         marked = f"{text[:pos]}\u258f{text[pos:]}"
         rows = _wrap_typed(f"{prompt} {marked}", width)
         cur = next(i for i, r in enumerate(rows) if "\u258f" in r)
-        rows = _window_rows(rows, cur, cap)
         left = len(prompt)         # the prompt is bold wherever it wrapped to
-        out = []
+        styled = []
         for row in rows:
             k, left = min(left, len(row)), max(0, left - len(row))
-            out.append(f"{BOLD}{row[:k]}{R}{row[k:]}" if k else row)
-        return out
+            styled.append(f"{BOLD}{row[:k]}{R}{row[k:]}" if k else row)
+        # Windowed after styling: the note row it adds is not typed text, so the
+        # prompt's length must not be counted off it.
+        return _window_rows(styled, cur, cap)
 
 
 def _window_rows(rows: list[str], cur: int, cap: int) -> list[str]:
@@ -2080,7 +2083,7 @@ def _in_detail(detail: dict, k: str, width: int, height: int,
                 con.close()
         return detail.get("parent"), ""
     if k in ("\033[C", "\033OC", "\t", "\033[D", "\033OD", "\033[Z"):
-        if not detail.get("stacked"):
+        if not detail.get("stacked") and _tab_stems(detail):
             fwd = k in ("\033[C", "\033OC", "\t")
             _go_to_tab(detail, detail.get("tab", 0) + (1 if fwd else -1))
         return detail, ""
@@ -2111,6 +2114,8 @@ def _in_detail(detail: dict, k: str, width: int, height: int,
     if k == "G":
         detail["top"] = max(0, len(lines_of(detail, width)) - room)
         return detail, ""
+    if detail.get("read_only"):
+        return detail, "read-only - esc goes back to the conversation"
     if detail.get("panel") in (AGENTS, STUCK):
         # An agent's page is opened to decide something about that agent, and
         # making the reader back out to the list to press the key is how a
@@ -2194,7 +2199,7 @@ def _open_read_page(con, detail: dict, name: str, cmd: str) -> dict:
     else:
         d = page(f"what {name} has done", [("", actions.agent_done(con, name))],
                  detail["panel"], name)
-    d["parent"] = detail
+    d["parent"], d["read_only"] = detail, True
     return d
 
 
