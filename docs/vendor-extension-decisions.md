@@ -32,11 +32,43 @@ terminal. Whether to go through that door is **O1**.
 
 ### D2. Quota stays ours. Its shape becomes Orca's.
 
-Orca does report usage (eight providers, `inactiveClaudeAccounts[]` included,
-fetched over OAuth so no session is needed) - but measured on 2026-09-21 the
-figures for the accounts we run on were **40.3h, 42.9h and 40.3h old**,
-`isFetching: false`, with **no CLI verb to force a refresh**. Ours are seconds
-old and disagree sharply.
+**How Orca gets usage without any statusLine** (#1353): it asks the provider's
+API directly. `account list --json` labels its own method -
+`rateLimits.claude.usageMetadata = {source: "oauth", attemptedSources:
+["oauth", "cli"], credentialSource: "scoped-keychain", lastSuccessfulSource:
+"oauth"}`. It reads the account's OAuth credential out of the keychain and
+calls the endpoint, with a `cli` fallback. No TUI is read, no session need be
+running - which is exactly why it can report on an account nothing is using.
+Nothing about this touches `statusLine`; Orca's agent integration is hooks
+(D9), and usage is a separate OAuth path.
+
+**Why ours stays - restated 2026-09-21 after a second measurement.** The first
+reading found Orca's figures 40.3h, 42.9h and 40.3h old, and this decision
+rested on "too stale to act on". That is not a standing property: re-measured
+during #1353 the **active** account's figure was **0.8h old** and accurate
+(Orca session 100% / weekly 94%; ocp for delta 5h 100% / 7d 93%, 44m old - the
+same account, in agreement). So the staleness argument is withdrawn as stated.
+
+What survives is the **per-account** channel, and it is D1 again. Orca does
+have one - `rateLimits.inactiveClaudeAccounts[]` - and across two measurements
+it has never been usable:
+
+| measured | `inactiveClaudeAccounts[]` | the active account |
+|---|---|---|
+| first pass | 3 entries, **40.3-42.9h old**, `isFetching: false`, disagreeing sharply (ehalim111: ocp 5h 15% / 7d 87% vs Orca 100% / 31%) | 3.4h old |
+| #1353 | **empty - 0 entries** | 0.8h old, agrees with ours |
+
+So the invariant is not "Orca's numbers are old". It is that **the number is
+fresh for exactly the one account Orca calls active, and absent or stale for
+every other** - while ocp is balancing five at once and needs all five
+continuously. Right now ocp reads alpha 5h 98%, beta 7d 100%, delta 5h 100%,
+gamma 7d 100%, omega 5h 7%, with five different 7d reset dates (09-23 to
+09-27); omega, the account every agent is running on, is the one Orca has
+nothing for.
+
+A third window is named differently again - Orca has `session` / `weekly` /
+`fableWeekly` where we hard-code `pct_opus_7d` - which is the shape argument
+below, intact.
 
 So: **adopt Orca's data shape, not Orca's data.** The window model becomes a
 list keyed by duration - Orca's `windowMinutes`, codex's `window_minutes` -
@@ -46,7 +78,10 @@ plus per-provider `status` / `error`, replacing the hard-coded `pct_5h` /
 **Why it matters most:** this is the deepest coupling in ocp and the one that
 does not look like coupling - five of those sixteen files never mention
 `claude`. **Forecloses:** a runtime dependency on Orca for any number that
-gates a decision. **Revisit if:** Orca ships a usage-refresh verb.
+gates a decision. **Revisit if:** `inactiveClaudeAccounts[]` is
+observed populated **and** fresh across a few readings. (The old trigger - "a
+usage-refresh verb" - is retired: the channel exists, it is the filling of it
+that cannot be relied on.)
 
 ### D3. The request queue is not replaced by Orca's mail.
 

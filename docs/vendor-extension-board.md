@@ -70,6 +70,12 @@ pty trick is needed) - and **too stale to act on**. Measured now:
     inactive ehalim111@gmail.com      session=100%  weekly=31%   age=42.9h  isFetching=false
     inactive ronpark.dev@gmail.com    session=  0%  weekly=55%   age=40.3h  isFetching=false
 
+**Read again during #1353, and it had changed shape:** the active account was
+**0.8h** old and agreed with ours, while `inactiveClaudeAccounts[]` was
+**empty**. Two readings, two different failures, one constant - the per-account
+figures are never both present and current. Corrected in D2: the objection is
+coverage over time, not staleness as such.
+
 ocp's own readings for the same logins are seconds old, and they disagree
 sharply with Orca's (ocp has `ehalim111` at 5h 15% / 7d 87% against Orca's
 100% / 31%) - which is what a 43-hour-old number looks like. There is no CLI
@@ -514,7 +520,7 @@ JSON: (a) account-wide **rate limits**, (b) per-session **context window**, and
 
 | payload | who else has it | verdict |
 |---|---|---|
-| rate limits | Orca, per account, 8 providers - **40h stale, no refresh verb** | ours, fresh |
+| rate limits | Orca, over OAuth (`usageMetadata.source: "oauth"`, keychain credential, `cli` fallback) - no session and no statusLine needed | ours, all five. **Corrected #1353:** "40h stale" was a snapshot, not a property - the *active* account re-measured at 0.8h and agrees with us. The real gap is the per-account channel: `inactiveClaudeAccounts[]` was 40h stale on the first reading and **empty** on the second. |
 | **context window** | **nobody** | **ours, and there is no alternative** |
 | session id / transcript | ours only | ours |
 

@@ -606,9 +606,15 @@ Four things matter about it:
   **40.3h, 42.9h and 40.3h old**, all `isFetching: false`. No CLI verb forces a
   refresh.
 
-So the accurate statement is: Orca knows what every registered account has
-spent, across eight providers, in the right shape - **but not freshly enough to
-drive a decision**, and only for accounts registered with Orca.
+**Re-measured 2026-09-21 (#1353), and it had changed:** the active account was
+**0.8h** old and agreed with ocp's own reading for the same login, while
+`inactiveClaudeAccounts[]` came back **empty**. So "not fresh enough" was one
+reading's symptom, not the rule.
+
+The accurate statement is narrower: Orca reliably knows what **the account it
+calls active** has spent, over OAuth, in the right shape. The per-account
+channel exists and is not dependable - 40h old on one reading, absent on the
+next - and ocp needs all five of its accounts at once, continuously.
 
 Part 2 (`vendor-extension-board.md`) takes this list seam by seam and asks
 what ocp uses, what it rebuilt, and what a second vendor would cost. What has
