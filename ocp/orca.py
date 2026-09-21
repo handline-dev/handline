@@ -441,10 +441,14 @@ def _composer_shape(tail: list) -> bool:
 # background and the screen is a list of sessions. Its new-session box has the
 # ordinary composer shape - rule/marker/rule - so the shape alone cannot tell it
 # from the agent's own prompt, and text typed there goes to a new session, not
-# the conversation. Its hint line does: "enter to open" where the conversation's
-# own says "enter to return" or "shift+tab to cycle".
+# the conversation. Its hint line does, where the conversation's own says
+# "shift+tab to cycle". The picker's hint has two forms (purser's #1294, measured
+# on Claude Code 2.1.278): "enter to open" when another session is selected,
+# "enter to return" when the current one is - which is what Left gives - so
+# "enter to return" is not a marker. "space to reply" is in both, and on the
+# live fleet appears on no screen without the banner.
 #
-# That phrase alone is not enough: it is ordinary English, and any agent that
+# "enter to open" alone is not enough: it is ordinary English, and any agent that
 # reports on this feature (this docstring, a review of it) writes it in its
 # own transcript, which sits in the same rows the naive search covered - #1252,
 # measured on all 8 live agents where the window reached 1-2 rows of the
@@ -463,13 +467,18 @@ def _composer_shape(tail: list) -> bool:
 # the two guessed at, a cursor glyph ahead of the selected row - that the
 # column-alignment guess missed, while the banner is the one thing all of
 # them, and both fixtures here, say word for word.
-_BACKGROUNDED_HINT = "enter to open"
+_BACKGROUNDED_HINTS = ("enter to open", "space to reply")
 _BACKGROUND_BANNER = "moved to the background"
 
 
+def _has_picker_hint(row: str) -> bool:
+    return any(h in row for h in _BACKGROUNDED_HINTS)
+
+
 def _picker_box(tail: list) -> tuple[int, int] | None:
-    """(banner_top, hint) when the composer's own hint says "enter to open"
-    and the picker's own banner is above it - the picker, unambiguously.
+    """(banner_top, hint) when the composer's own hint carries a picker
+    phrase ("enter to open" or "space to reply") and the picker's own banner
+    is above it - the picker, unambiguously.
     None when neither is there - an ordinary composer, whose own hint never
     says this and whose transcript quoting the words is above the box, not
     below it (auditor's #1285 S2/S3).
@@ -484,7 +493,7 @@ def _picker_box(tail: list) -> tuple[int, int] | None:
         return None
     top, bottom = box
     hint = next((i for i in range(bottom, len(tail))
-                 if _BACKGROUNDED_HINT in str(tail[i])), None)
+                 if _has_picker_hint(str(tail[i]))), None)
     if hint is None:
         return None
     if not any(_BACKGROUND_BANNER in str(x) for x in tail[:top]):
@@ -501,7 +510,7 @@ def _hint_below_box(tail: list) -> bool:
     if box is None:
         return False
     _top, bottom = box
-    return any(_BACKGROUNDED_HINT in str(tail[i]) for i in range(bottom, len(tail)))
+    return any(_has_picker_hint(str(tail[i])) for i in range(bottom, len(tail)))
 
 
 def _describe_backgrounded(tail: list, top: int) -> str:
