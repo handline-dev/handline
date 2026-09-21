@@ -7603,11 +7603,16 @@ def test_only_the_agents_own_events_move_its_activity_clock(home: Path) -> None:
                     "memory_migrated", "moved_account", "nudged", "notified", "park",
                     "session_gone", "started_for_work", "terminal_gone", "unstuck",
                     "wake", "wake_failed"}
-    written = set()
+    found, calls = [], 0
     for f in Path(dmn.__file__).parent.glob("*.py"):
-        written |= set(re.findall(r'add_event\([^,()]+,[^,()]+,\s*"([a-z_]+)"', f.read_text()))
+        text = f.read_text()
+        found += re.findall(r'add_event\([^,()]+,[^,()]+,\s*"([a-z_]+)"', text)
+        calls += len(re.findall(r'add_event\(', text))
     check("activity: every kind ocp writes is sorted here",
-          written <= agent_kinds | daemon_kinds, str(sorted(written - agent_kinds - daemon_kinds)))
+          set(found) <= agent_kinds | daemon_kinds, str(sorted(set(found) - agent_kinds - daemon_kinds)))
+    check("activity: the scan reads every call site, not just the ones its regex can parse",
+          len(found) == calls - 2, f"{len(found)} literal kinds found, {calls} add_event( sites "
+          "(expected 2 unmatched: the def in db.py, the kind-as-variable forwarder in events.py)")
     _daemon_home(home, 20)
     con = db.connect()
     try:
