@@ -87,9 +87,12 @@ own that was never delivered is simply withdrawn.
 On `ocp bridge`: ↑↓ walks the whole screen and crosses into the next panel at
 the end of one, ←→ jumps panel to panel, and the panel your keys act on is the
 one drawn in colour. Open a message with ↵ and answer it with `a` (or `e` for
-$EDITOR) - from the list or from inside it, whichever you are looking at. On an
-agent's page ←→ moves between its sections, and in WAITING FOR IT ↑↓ picks a
-request and `x` cancels it, after saying who will be told. `m` sends an order
+$EDITOR) - from the list or from inside it, whichever you are looking at. An
+agent's page is the conversation with it, and whatever else is queued for it
+sits under the conversation. ↵ writes to it; a message starting with /
+is a command, and typing / lists them - among them /cancel <id>, which takes a
+queued request out after saying who will be told, and /knows and /done, which
+open what it knows and what it has done. `m` sends an order
 to the agent under the cursor and `e` writes a longer one in $EDITOR; `t` takes
 you to that agent's own terminal, starting one if it has none.
 

@@ -224,7 +224,7 @@ def dismiss(con, rid: int, me: str | None = None) -> str:
 
 
 def waiting_ids(con, agent: str) -> list[int]:
-    """The requests in an agent's WAITING FOR IT list, in the order it is drawn."""
+    """Every request queued for an agent, which is what /cancel can name."""
     return [int(r["id"]) for r in db.queued_for(con, agent)]
 
 
@@ -911,7 +911,8 @@ def can(con, agent: str, key: str) -> tuple[bool, str]:
 # been at work for a week has more of them than a page can hold.
 CHAT_CHAINS = 8
 CHAT_TAB = "CONVERSATION"
-KNOWS_TAB = "WHAT IT KNOWS"
+OTHERS_TAB = "ALSO QUEUED FOR IT"
+UNTOLD_TAB = "ANSWERS IT HAS NOT BEEN TOLD"
 
 
 def _chat_rows(con, agent: str) -> list:
@@ -990,8 +991,10 @@ class Said(Row):
         return self
 
 
-def conversation(con, agent: str) -> list[str]:
-    """The human's conversation with `agent`, in time order, a thread at a time.
+def conversation_and_drawn(con, agent: str) -> tuple[list[str], set[int]]:
+    """The human's conversation with `agent`, in time order, a thread at a time,
+    and the ids of the requests it drew - only the newest CHAT_CHAINS chains
+    are drawn, so a request in an older one is not in it.
 
     A thread is a chain_id. Every row of a chain is drawn, not only the rows
     between the two of them, so what the agent asked a third agent on the way to
@@ -1021,6 +1024,8 @@ def conversation(con, agent: str) -> list[str]:
                 tail = ("waiting for you" if r["target"] == HUMAN else
                         f"delivered {time.strftime('%H:%M', time.localtime(r['delivered_at']))}"
                         if r["delivered_at"] else "queued")
+                if r["target"] == agent:
+                    tail += f" · #{r['id']}"       # what /cancel names
             msgs.append((r["ts"], r["id"], 0,
                          said(r["requester"], r["target"], r["body"], r["ts"], tail,
                               r["state"] == "queued" and r["target"] == HUMAN)))
@@ -1032,16 +1037,18 @@ def conversation(con, agent: str) -> list[str]:
         threads.append((max(m[0] for m in msgs), cid, msgs))
     threads.sort(key=lambda t: t[0])
     out: list[str] = []
+    drawn: set[int] = set()
     for _, cid, msgs in threads[-CHAT_CHAINS:]:
         out.append(Said("thread", f"── chain {cid}"))
         out += [m[3] for m in msgs]
+        drawn |= {m[1] for m in msgs}
     if not out:
         out.append(f"nothing yet between you and {agent}")
     how, rid = chat_target(con, agent)
     goes = {"answers": f" · answers #{rid}", "under": f" · goes under #{rid}",
             "new": " · starts a new thread"}[how]
     out += ["", f"↵ write to {agent}{goes} · e in $EDITOR"]
-    return out
+    return out, drawn
 
 
 def chat_parent(con, agent: str) -> int | None:
@@ -1114,10 +1121,10 @@ def chat_seen(con, agent: str) -> None:
 def agent_detail(con, agent: str) -> list[tuple[str, list[str]]]:
     """What is behind an agent's row, in sections a screen can draw.
 
-    Sections rather than lines: a page of run-together text is the thing a
-    reader skips, and the four questions asked here - what is it, what is
-    waiting for it, what does it know, what has it done - are four different
-    questions.
+    The head, then the conversation the human has with it, then whatever is
+    waiting on it or owed to it that is not part of that conversation - a
+    request from another agent is not something the human said to it. What it
+    knows and what it has done are read on request (`agent_knows`, `agent_done`).
     """
     row = db.get_agent_state(con, agent)
     try:
@@ -1142,38 +1149,66 @@ def agent_detail(con, agent: str) -> list[tuple[str, list[str]]]:
                            if row["wake_at"] else [])))
         if row["detail"]:
             head.append(row["detail"])
-        head.append(Fact(("terminal", row["terminal"] or "none")))
-        if row["worktree"]:
-            head.append(Fact(("worktree", worktree_path(row["worktree"]) or row["worktree"])))
-        if row["closed_at"]:
-            head.append(Fact(("resumes session", row["resume_session"] or "unknown")))
+
+    # What the conversation drew is not repeated; every other queued request
+    # and untold answer is listed under it, including one in a chain too old
+    # for the conversation to draw.
+    chat, drawn = conversation_and_drawn(con, agent)
+    others = [Entry(r["id"], r["requester"], r["body"] or "", r["ts"])
+              for r in db.queued_for(con, agent) if r["id"] not in drawn]
+    untold = [Entry(r["id"], r["target"], r["verdict"] or r["state"], r["resolved_at"] or r["ts"])
+              for r in db.unannounced_answers(con, agent) if r["id"] not in drawn]
+    if others or untold:
+        # Where the reader is left, at the end of the conversation.
+        chat += [f"below: {len(others)} also queued for it, {len(untold)} "
+                 "answers it has not been told - press G to read them"]
     sections = [("", head)]
+    n = chat_unread(con, agent)
+    sections.append((CHAT_TAB + (f" ({n if n < 100 else '99+'} new)" if n else ""), chat))
+    if others:
+        sections.append((f"{OTHERS_TAB} ({len(others)})", others))
+    if untold:
+        sections.append((f"{UNTOLD_TAB} ({len(untold)})", untold))
+    return sections
 
-    waiting = db.queued_for(con, agent)
-    sections.append((f"WAITING FOR IT ({len(waiting)})", [
-        Entry(r["id"], r["requester"], r["body"] or "", r["ts"]) for r in waiting
-    ] or ["nothing queued for it"]))
 
-    mine = db.unannounced_answers(con, agent)
-    if mine:
-        sections.append((f"ANSWERS IT HAS NOT BEEN TOLD ({len(mine)})", [
-            Entry(r["id"], r["target"], r["verdict"] or r["state"], r["resolved_at"] or r["ts"])
-            for r in mine]))
-
+def agent_knows(con, agent: str) -> list[str]:
+    """The handoff an agent would be resumed with."""
     kept = db.get_handoff(con, agent)
-    sections.append((KNOWS_TAB,
-                     kept.splitlines() if kept
-                     else ["no handoff waiting - it has not been parked"]))
+    return kept.splitlines() if kept else ["no handoff waiting - it has not been parked"]
 
+
+def agent_done(con, agent: str) -> list:
+    """The last events recorded for an agent, newest first."""
     recent = [Event(e["ts"], e["kind"], e["payload"] or "")
               for e in con.execute(
                   "SELECT ts, kind, payload FROM events WHERE agent = ? "
                   "ORDER BY id DESC LIMIT 12", (agent,)).fetchall()]
-    sections.append(("WHAT IT HAS DONE", recent or ["nothing recorded yet"]))
-    n = chat_unread(con, agent)
-    sections.append((CHAT_TAB + (f" ({n if n < 100 else '99+'} new)" if n else ""),
-                     conversation(con, agent)))
-    return sections
+    return recent or ["nothing recorded yet"]
+
+
+def agent_where(con, agent: str) -> str:
+    """The terminal handle, and the session it would resume if closed - a
+    technical id, never on the head where a person reads at a glance, but
+    still one keystroke away for the one thing it is for: an agent stuck on
+    a screen only the handle can reach."""
+    row = db.get_agent_state(con, agent)
+    if not row:
+        return f"{agent} has never been started"
+    said = f"terminal {row['terminal'] or 'none'}"
+    if row["closed_at"]:
+        said += f"  ·  resumes session {row['resume_session'] or 'unknown'}"
+    return said
+
+
+def agent_worktree(con, agent: str) -> str:
+    """Where this agent's repo lives on disk - off the head for the same
+    reason as the terminal handle: nothing a person types, only reads when
+    they need to go there themselves."""
+    row = db.get_agent_state(con, agent)
+    if not row or not row["worktree"]:
+        return f"{agent} has no worktree"
+    return worktree_path(row["worktree"]) or row["worktree"]
 
 
 def account_detail(con, acct: str, logged_in=None) -> list[tuple[str, list[str]]]:
