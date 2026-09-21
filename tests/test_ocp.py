@@ -752,6 +752,39 @@ def test_an_account_the_week_is_about_to_close_is_not_usable_and_not_picked(home
         con.close()
 
 
+def test_the_week_check_moves_the_pick_where_pace_alone_would_not(home: Path) -> None:
+    """The pick's order is pace, so a test where pace already puts the closed
+    account last proves nothing about the week's runway. Here it is the other
+    way round: "tight" is the one furthest behind its weekly pace (95% of a
+    week with an hour left) and would be picked first on pace, but one more
+    agent spends its last 5 points in minutes; "roomy" is worse on pace and has
+    the runway. Only the week's runway can choose roomy."""
+    _daemon_home(home, 20)
+    now = int(time.time())
+    write_status(home, "tight", pct_5h=20, pct_7d=95, reset_5h=now + 3 * 3600, reset_7d=now + 3600)
+    write_status(home, "roomy", pct_5h=20, pct_7d=70, reset_5h=now + 3 * 3600, reset_7d=now + 3 * 86400)
+    con = db.connect()
+    try:
+        db.set_meta(con, "weekratio", json.dumps({"at": now, "r": {"*": 0.5}}))
+        loads = loadmod.read_all(con)
+    finally:
+        con.close()
+    tight, roomy = status.read("tight"), status.read("roomy")
+    check("order: tight is further behind its pace, so pace alone would pick it",
+          status.pace_7d(tight) < status.pace_7d(roomy), str((status.pace_7d(tight), status.pace_7d(roomy))))
+    picked, reasons = status.pick_account(["tight", "roomy"], load=loads)
+    check("order: with the week's runway, the account it closes is passed over",
+          picked == "roomy" and "one more agent lasts" in dict(reasons)["tight"], str((picked, reasons)))
+    real = status._no_week_room
+    status._no_week_room = lambda *a, **k: None
+    try:
+        without, _ = status.pick_account(["tight", "roomy"], load=loads)
+    finally:
+        status._no_week_room = real
+    check("order: with the week check removed the pick goes to tight - the control",
+          without == "tight", str(without))
+
+
 def test_a_week_that_rolls_over_first_is_not_closed_by_its_runway(home: Path) -> None:
     """The same 99% with minutes to go is not a wall: the reset arrives before
     one more agent could spend what is left. And with no ratio measured the
@@ -18012,6 +18045,8 @@ def main() -> int:
         run(lambda: test_the_weeks_ratio_to_the_5h_window_is_measured_from_the_samples(Path(td) / 'weekratio'))
         run(lambda: test_an_account_the_week_is_about_to_close_is_not_usable_and_not_picked(
             Path(td) / 'weekwall'))
+        run(lambda: test_the_week_check_moves_the_pick_where_pace_alone_would_not(
+            Path(td) / 'weekorder'))
         run(lambda: test_a_week_that_rolls_over_first_is_not_closed_by_its_runway(Path(td) / 'weekroll'))
         run(lambda: test_usage_samples_round_trip_without_coercing_a_gap_to_zero(
             Path(td) / 'usagesamples'))
