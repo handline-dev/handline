@@ -36,6 +36,9 @@ reads on screen the same as a gate that ran and allowed the pick. Every
 divergence lists such accounts under "unasked", and `unasked=` collects every
 compared tick that had any, divergent or not. A tick with no measurable burn
 is not unasked: the daemon gives it burn 0.0 and so does the replay.
+
+One read of today's state remains: `pick_account` drops an account that is
+being removed now from every past tick.
 """
 from __future__ import annotations
 
@@ -76,13 +79,16 @@ def old_pick(statuses: dict[str, status.AccountStatus]) -> str | None:
     return usable[0][0]
 
 
-def _live_5h(row) -> bool:
-    """A row's 5h figure the daemon would have kept in its burn window:
-    `AccountStatus.is_live_reading` over a raw row. Staleness is not tested,
-    for the daemon judged it as of that tick, when the row was fresh."""
-    return (row["exists_"] and not row["error"] and row["pct_5h_readable"]
-            and not row["rl_carried"] and not row["rl_lost"]
-            and row["pct_5h"] is not None and bool(row["rl_at"]))
+def _live_at_its_tick(row) -> bool:
+    """`AccountStatus.is_live_reading` for a recorded row, judged by the clock
+    the row was taken under - the test the daemon applied before letting the
+    figure into its burn window."""
+    real_time = time.time
+    time.time = lambda: row["ts"]
+    try:
+        return status_from_row(row).is_live_reading
+    finally:
+        time.time = real_time
 
 
 def reconstruct_burn(rows) -> dict[tuple[str, int], float]:
@@ -90,12 +96,13 @@ def reconstruct_burn(rows) -> dict[tuple[str, int], float]:
     keyed by (account, ts). Each account keeps the window the daemon keeps -
     its last ten live samples - and reads it with `triggers.burn_rate_per_s`,
     so the replayed burn is the function the replayed tick ran, 0.0 where it
-    could not measure."""
+    could not measure. Under `since` the window starts empty, so an account's
+    first ticks read 0.0 where the daemon had a rate."""
     burns: dict[tuple[str, int], float] = {}
     hist: dict[str, list[tuple[int, int]]] = {}
     for row in sorted(rows, key=lambda r: (r["account"], r["ts"])):
         h = hist.setdefault(row["account"], [])
-        if _live_5h(row) and (not h or h[-1][0] != row["rl_at"]):
+        if _live_at_its_tick(row) and (not h or h[-1][0] != row["rl_at"]):
             h.append((row["rl_at"], row["pct_5h"]))
             del h[:-10]
         burns[(row["account"], row["ts"])] = triggers.burn_rate_per_s(h)

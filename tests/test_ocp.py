@@ -1007,7 +1007,7 @@ def test_replay_reconstructs_burn_and_lets_the_week_gate_fire(home: Path) -> Non
         db.set_meta(con, "weekratio", json.dumps({"at": ts1, "r": {"*": 0.5}}))
 
         burns = replaymod.reconstruct_burn(db.usage_samples(con))
-        check("replay: burn is the finite difference to the account's own prior sample",
+        check("replay: burn is the rise over the span between the account's own samples",
               abs(burns[("tight", ts1)] - 5 / 600) < 1e-9
               and abs(burns[("roomy", ts1)] - 5 / 600) < 1e-9, burns)
         check("replay: a first sample has no span to measure, so burn 0.0 as live",
@@ -1086,12 +1086,39 @@ def test_replay_burn_is_the_daemons_burn(home: Path) -> None:
         put("e", 1600, 56, rl_lost=True)
         put("f", 1000, 50)
         put("f", 1600, 40)
+        put("g", 1000, 50)
+        put("g", 1030, 51)
+        put("g", 1600, 52)
+        put("h", 1000, 50)
+        for i in range(12):
+            put("h", 1600 + 10 * i, 56, rl_at=1600)
+        put("m", 1000, 50)
+        for i in range(1, 12):
+            put("m", 1000 + 100 * i, 60)
+        put("i", 1000, 50, exists=False)
+        put("i", 1600, 56, exists=False)
+        put("j", 1000, 50)
+        put("j", 1600, 56, pct_5h_readable=False)
+        st = status.AccountStatus("k", exists=True, pct_5h=50, reset_5h=9999, rl_at=1000,
+                                  collected_at=1000)
+        db.record_usage_sample(con, "k", st, ts=1000)
+        st = status.AccountStatus("k", exists=True, pct_5h=56, reset_5h=9999, rl_at=1600,
+                                  collected_at=1600 - status.STALE_AFTER_S - 1)
+        db.record_usage_sample(con, "k", st, ts=1600)
         burns = replaymod.reconstruct_burn(db.usage_samples(con))
         check("replay burn: one quantized step across one poll is 0.0, as live",
               burns[("a", 1030)] == 0.0, burns[("a", 1030)])
         check("replay burn: a measurable rise is the daemon's rate",
               abs(burns[("b", 1600)] - 6 / 600) < 1e-9, burns[("b", 1600)])
-        for acct, why in (("c", "an errored row"), ("d", "a carried row"),
+        check("replay burn: the window is end to end over its samples, not the last pair",
+              abs(burns[("g", 1600)] - 2 / 600) < 1e-9, burns[("g", 1600)])
+        check("replay burn: the window holds the last ten samples, no more",
+              burns[("m", 2100)] == 0.0, burns[("m", 2100)])
+        check("replay burn: a repeated rl_at is one sample, not a slot each",
+              abs(burns[("h", 1710)] - 6 / 600) < 1e-9, burns[("h", 1710)])
+        for acct, why in (("i", "a row of an account that does not exist"),
+                          ("j", "an unreadable row"), ("k", "a row stale at its own tick"),
+                          ("c", "an errored row"), ("d", "a carried row"),
                           ("e", "a lost row"), ("f", "a rewound reading")):
             check(f"replay burn: {why} is not a burn", burns[(acct, 1600)] == 0.0,
                   burns[(acct, 1600)])
