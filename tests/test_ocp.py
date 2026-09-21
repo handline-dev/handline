@@ -15249,13 +15249,27 @@ def test_the_composer_alt_keys_and_a_pasted_cursor_glyph(home: Path) -> None:
     # auditor #1083: cur computed from the prefix's own wrap, rather than by
     # finding the glyph in the marked wrap, lost the cursor on ordinary text
     # (no glyph anywhere) whenever the prefix exactly filled its last row -
-    # 303 of 4000 random cases. This is that shape, minimised.
+    # 303 of 4000 random cases. This is one of those 303, and stays a real
+    # guard on the cursor-position half: False on the prefix-wrap mechanism,
+    # True both before that fix and after it. The case it replaced was also
+    # a real guard on this half - the swap is for the check below, the
+    # uniqueness half of the same fix, which no earlier case here pinned.
     c = tui.Composer()
-    c.feed("c  aadaca  b")
-    c.pos = 7
-    rows = plain(c.shown("", 9, 2))
+    c.feed("dbdc bd aca a \n d\nc\n\n\nd\n dca  c d aaa")
+    c.pos = 9
+    rows = plain(c.shown("", 6, 1))
     check("shown: the cursor is on screen on ordinary text with no glyph in it",
           any("▏" in r for r in rows), str(rows))
+
+    # The actual mechanism: a pasted U+258F is substituted before the real
+    # cursor's is inserted, so shown()'s output holds exactly one - never
+    # more, whatever the pasted glyph's own position ends up being.
+    c = tui.Composer()
+    c.feed("a▏b")
+    c.pos = 2
+    rows = plain(c.shown("", 40, 10))
+    check("shown: exactly one cursor glyph, even with one pasted into the text",
+          sum(r.count("▏") for r in rows) == 1, str(rows))
 
 
 def test_a_message_is_read_whole_and_answered_where_it_is_read(home: Path) -> None:
