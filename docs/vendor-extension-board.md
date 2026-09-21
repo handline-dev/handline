@@ -26,6 +26,77 @@ not enough - that is **HYBRID** at best.
 
 ---
 
+## 0. The premise check: multi-account
+
+ocp exists to run a fleet across **several accounts at once**. Before any seam
+is classified, that premise has to be tested against Orca, because if Orca
+covered it the rest of this board would be much shorter. Measured on this
+machine:
+
+**Orca's execution model is one active account.** `orca account list --json`
+returns `claude.activeAccountId` - singular - plus
+`activeAccountIdsByRuntime: {"host": "<one id>", "wsl": {}}`, and files the
+rest under `inactiveClaudeAccounts`. It is an account **switcher**, not
+concurrency. Nothing in `worker-start`, `worktree create --agent` or
+`terminal create` selects an account.
+
+**So the account concern splits in two, and the halves have opposite answers:**
+
+| half | question | Orca | verdict |
+|---|---|---|---|
+| **placement / execution** | which account does *this session* spend? | 1 active, switched | **ours forever, every vendor** |
+| **accounting** | what has each account spent? | all registered accounts, 8 providers, OAuth-sourced | **shape yes, freshness no** (below) |
+
+This is the single most important structural fact in the study. It means layer
+3 (`worker-start --agent`) can never replace `ocp launch`, and the only way to
+combine ours with Orca's supervision is adoption -
+`worker-start --terminal <handle>` (part 1 §5.5).
+
+### 0.1 What Orca's accounting does and does not give us
+
+Part 1's correction section has the payload. The part that decides this board:
+Orca's per-account figures are **real, multi-provider and correctly shaped**
+(`windowMinutes`-keyed, `status`/`error` per provider, `inactiveClaudeAccounts[]`
+covering accounts with no session running, fetched over OAuth so no `probe.py`
+pty trick is needed) - and **too stale to act on**. Measured now:
+
+    active   hellopiotee@gmail.com    session=100%  weekly=74%   age= 3.4h
+    inactive funccoder@gmail.com      session=100%  weekly=70%   age=40.3h  isFetching=false
+    inactive ehalim111@gmail.com      session=100%  weekly=31%   age=42.9h  isFetching=false
+    inactive ronpark.dev@gmail.com    session=  0%  weekly=55%   age=40.3h  isFetching=false
+
+ocp's own readings for the same logins are seconds old, and they disagree
+sharply with Orca's (ocp has `ehalim111` at 5h 15% / 7d 87% against Orca's
+100% / 31%) - which is what a 43-hour-old number looks like. There is no CLI
+verb to force a refresh.
+
+**Verdict: adopt Orca's data *shape*, not Orca's data.** The window model
+reshape in §5 should copy `windowMinutes` + `status`/`error` exactly. That
+future-proofs multi-vendor quota without taking a runtime dependency on
+figures we cannot refresh.
+
+### 0.2 Credentials: disjoint, and safely so
+
+ocp keys credentials per config dir through Claude Code's scoped Keychain
+entries (`accounts.keychain_service`): `alpha → …-c4b0821c`, `beta → …-30018abd`,
+`delta → …-8c9240cb`, `gamma → …-deb6f5e4`, `omega → …-23408a86`. Orca's
+managed accounts use the same mechanism (`credentialSource: "scoped-keychain"`)
+under **different** entries.
+
+Measured: **four of ocp's five accounts are the same Anthropic logins Orca has
+registered** - `ehalim111`, `funccoder`, `hellopiotee`, `ronpark.dev` - logged
+in twice, in two scopes, coexisting right now. So two independent logins of one
+Anthropic account do **not** invalidate each other; the KICKOFF warning is
+about *copying* a credential between two places, which is a different thing.
+Useful to know, and it means registering ocp's accounts with Orca is possible -
+but §0.1 says there would be little point until a refresh verb exists.
+
+⚠ Do not re-run `security find-generic-password -g` while surveying. It prints
+the secret. Presence is what `accounts.logged_in` checks, and it is checked
+without `-w` for exactly this reason.
+
+---
+
 ## Scoreboard
 
 Seams classified so far: **38**.
@@ -45,8 +116,9 @@ concentrated - but it is not where the `claude` string is. Counting mentions of
 window model** (`pct_5h`, `pct_7d`, `opus_7d`, `reset_*`, `rl_at`, `rl7_*`)
 finds **208 lines across 16 files**, including five with no mention of `claude`
 at all (`db.py`, `triggers.py`, `burnrate.py`, `measure.py`, `replay.py`).
-That is the real coupling, it is schema-deep, and **Orca offers nothing for it**
-(part 1 §10).
+That is the real coupling and it is schema-deep. Orca has the right shape for
+it and cannot supply the values fresh enough to use (§0.1), so this is ours to
+rebuild - in Orca's shape.
 
 ---
 
@@ -95,17 +167,20 @@ That is the real coupling, it is schema-deep, and **Orca offers nothing for it**
 | relaunch in the surviving shell | `orca.relaunch` | **KEEP** | the command is ours, so the account comes back with it. |
 | slash commands, all sites | 16 lines in `daemon.py`, 9 in `orca.py`, 3 in `blocked.py` | **RESHAPE** | they belong on the driver, not inline at 28 call sites. |
 
-## 5. Quota and telemetry ← the part Orca will never help with
+## 5. Quota and telemetry ← ours, but its shape should be Orca's
 
-Part 1 §10: nothing in Orca's 234 commands mentions usage, quota or rate
-limits. This subsystem is ours for every vendor, forever.
+Orca *does* report usage (part 1, correction section) - for eight providers,
+keyed by `windowMinutes`, covering inactive accounts, over OAuth. It is simply
+40+ hours stale for the accounts ocp runs on, with no verb to refresh it
+(§0.1). So the subsystem stays ours for every vendor, and the reshape below
+should copy Orca's shape rather than invent one.
 
 | seam | ours | verdict | note |
 |---|---|---|---|
 | collect a usage reading | `libexec/statusline-collect.sh` (statusLine JSON on stdin) | **DRIVER** ⚠ | Claude pushes this to a command we install. **Codex has no equivalent**: its `/statusline` configures which built-in items show, not a command hook. Codex's numbers are in its rollout JSONL instead - `token_count.rate_limits = {primary, secondary, credits}`, each window `{used_percent, window_minutes, resets_at}` - so a codex collector *pulls* (tails the rollout file, or runs off a `stop` hook) where ours is *pushed*. Different collector, same output file. |
-| the snapshot schema | `pct_5h` / `pct_7d` / `pct_opus_7d` + resets, in `status.py` (96 lines), the collector (16), `db.py` (15), and 12 more files - **208 lines, 16 files** | **RESHAPE** ⚠⚠ | **the deepest coupling in ocp.** Claude's window *names* are hard-coded as fields. Codex reports `primary`/`secondary` with a `window_minutes`, which does not fit three fixed names. This has to become a list of windows keyed by duration, and every reader follows. Five of the sixteen files never mention `claude`, so this will not be found by looking for the vendor. |
+| the snapshot schema | `pct_5h` / `pct_7d` / `pct_opus_7d` + resets, in `status.py` (96 lines), the collector (16), `db.py` (15), and 12 more files - **208 lines, 16 files** | **RESHAPE** ⚠⚠ | **the deepest coupling in ocp.** Claude's window *names* are hard-coded as fields. Codex reports `primary`/`secondary` keyed by `window_minutes`; Orca reports every provider that way too (`windowMinutes: 300 / 10080`). Three fixed names cannot hold any of it. Target shape is settled by §0.1: **copy Orca's** - a list of windows keyed by minutes, plus per-provider `status`/`error`. Five of the sixteen files never mention `claude`, so this will not be found by looking for the vendor. |
 | carry / floor / quiet / unknown rules | `status.py` five-case model, `idle_floor`, high-water mark | **KEEP** | the arithmetic is about *trusting a reading*, not about whose reading it is. It survives the reshape above untouched, which is why the reshape is worth doing properly. |
-| force a reading out of a quiet account | `probe.py` (pty, type a prompt, wait for the status line to write) | **DRIVER** | the whole technique exists because the status line is a TUI feature. A vendor that writes usage to a file needs no pty at all. |
+| force a reading out of a quiet account | `probe.py` (pty, type a prompt, wait for the status line to write) | **DRIVER** | the whole technique exists because the status line is a TUI feature, and it spends quota to learn a number. Orca gets the same number over OAuth with no session at all - so this is the one seam that would simply *vanish* if Orca gained a refresh verb. Until then it stays, and a vendor that writes usage to a file (codex's rollout JSONL) needs no pty for it either. |
 | price an agent, measure burn | `burnrate.py`, `measure.py`, `load.py` | **KEEP** | already vendor-aware: `burnrate` keys cost by `vendor/model` when vendor ≠ default. Written for this. |
 | account choice, wall, unfit, pick | `status.pick_account`, `triggers.py` | **KEEP** | pure arithmetic over the snapshot. |
 
@@ -176,5 +251,5 @@ call sites, and may move: `daemon.py` (2242) · `tui.py` (2419) ·
    of every `/clear` and `/exit` call site.
 4. **Prove the codex system prompt** (§1 ⚠). Nothing should be designed on a
    guess about `AGENTS.md` versus a first prompt.
-5. Then the window-model reshape (§5), which is the big one and should not be
+5. Then the window-model reshape (§5, shape settled by §0.1), the big one, not
    started until 1-4 are known.

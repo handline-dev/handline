@@ -567,10 +567,48 @@ caller with its own launcher two ways: `dispatch --inject` for context without
 supervision, or `worker-start --terminal` to hand Orca lifecycle ownership of a
 terminal the caller started itself.
 
-The one thing conspicuously absent across all 234 commands is **usage and rate
-limits**. Orca will tell you what an agent is, where it is, whether it is
-alive, whether it is working and whether it needs a human. It will not tell you
-what it has spent.
+### Correction: Orca does report usage
+
+An earlier version of this document said nothing in the 234 commands reports
+usage or rate limits. **That was wrong.** No command *summary* mentions it, but
+`orca account list --json` carries a whole `rateLimits` block, and it is
+substantial:
+
+```json
+"rateLimits": {
+  "claude": { "provider": "claude",
+    "session": { "usedPercent": 100, "windowMinutes":   300, "resetsAt": …, "resetDescription": "3:30 PM" },
+    "weekly":  { "usedPercent":  74, "windowMinutes": 10080, "resetsAt": …, "resetDescription": "Thu 4:00 PM" },
+    "fableWeekly": null, "status": "ok", "error": null,
+    "usageMetadata": { "source": "oauth", "attemptedSources": ["oauth","cli"],
+                       "credentialSource": "scoped-keychain",
+                       "authProvenance": "managed:<accountId>" } },
+  "codex": { …, "rateLimitResetCredits": { "availableCount": 2, … } },
+  "gemini" | "opencodeGo" | "kimi" | "antigravity" | "minimax" | "grok":
+    { "session": null, "status": "unavailable", "error": "<why>" },
+  "inactiveClaudeAccounts": [ { "accountId": …, "rateLimits": {…},
+                               "updatedAt": …, "isFetching": false } ]
+}
+```
+
+Four things matter about it:
+
+- **Eight providers**, not one. Each reports the same shape or says `status:
+  "unavailable"` with the reason, so an absence is explained rather than blank.
+- **Windows are keyed by `windowMinutes`** (300, 10080), not by fixed names.
+  This is the generalized shape a multi-vendor quota model needs, already
+  built.
+- **It covers inactive accounts too** - `inactiveClaudeAccounts[]` carries a
+  full reading per registered account - and it is sourced over **OAuth**
+  (`usageMetadata.source`), so it needs no running session.
+- **But it is only as fresh as Orca's own schedule.** Measured on this machine:
+  the active account's figure was 3.4h old; the three inactive ones were
+  **40.3h, 42.9h and 40.3h old**, all `isFetching: false`. No CLI verb forces a
+  refresh.
+
+So the accurate statement is: Orca knows what every registered account has
+spent, across eight providers, in the right shape - **but not freshly enough to
+drive a decision**, and only for accounts registered with Orca.
 
 Part 2 takes this list and asks what ocp uses, what it rebuilt, and what a
 second vendor would cost.
