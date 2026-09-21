@@ -109,6 +109,7 @@ work again. ocp names the dialog and never answers it.
 | `ocp hooks sync --watch` | keep Orca's agent hooks mirrored |
 | `ocp service install/uninstall/status/logs` | run the daemon as a launchd LaunchAgent |
 | `ocp bridge` | the screen the team is run from (`top` and `watch` still work) |
+| `ocp collect [agent]` | what each session's own transcript says about it, beside the snapshot on disk |
 | `ocp guide [topic]` | detail, loaded on demand |
 
 ## How it decides things
@@ -117,12 +118,11 @@ work again. ocp names the dialog and never answers it.
 - is not a full tank, it is a refusal to assign. Reading it as 0 makes the 90%
 trigger false forever: the feature is dead while the dashboard stays green.
 
-**But quiet is not unknown.** Claude Code sends no `five_hour` block for a
-session that has made no request since the window rolled over, so a live
-collector reporting nothing means nothing has been *reported* spent in this
-window. That reads as 0% and assigns, marked `*`. Refusing here parked five idle
-agents. The exception is ours: `ocp fold` runs headless,
-which has no status line, so its own small spend is never observed.
+**But quiet is not unknown.** An account nobody has spent on reports no
+`five_hour` window at all, which means nothing has been spent in this one - not
+that we cannot see. That reads as 0% and assigns, marked `*`. Refusing here
+parked five idle agents. The exception is ours: `ocp fold` runs headless and
+leaves no event, so its own small spend is never observed.
 
 **A figure has a provenance, and it is drawn.** `~` is carried - an earlier
 reading whose window is still open, since a payload that does not mention a
@@ -186,7 +186,7 @@ unrelated request repeating what they had already answered.
 ~/.orcapipe/                 git repo; accounts/ and logs/ are ignored
   config.yaml team.yaml db.sqlite locks/
   logs/daemon.out.log logs/daemon.err.log   # launchd's StandardOut/ErrorPath
-  shared/.claude/            settings + collector, symlinked into each account
+  shared/.claude/            settings + status line, symlinked into each account
   shared/mcp.json            MCP servers every launch passes via --mcp-config;
                              founder-filled, optional, never generated from ~/.claude.json
   accounts/<acct>/.claude/   CLAUDE_CONFIG_DIR; credentials stay here, untouched

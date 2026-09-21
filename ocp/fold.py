@@ -273,10 +273,10 @@ def fold(agent: str, use_model: bool = True, model: str = "haiku",
 def _cheapest_account() -> str | None:
     # Only an account with a genuinely current reading, never one pick_account
     # admitted on a stale floor (`status.idle_floor`, `rolled_over`): those are
-    # safe for a launch, which writes a fresh reading within seconds and
-    # self-corrects, but a fold never writes one - it is the one spend no
-    # collector ever sees, and sending it to an account we already cannot read
-    # only deepens the blindness. Same rule the fallback below applies.
+    # safe for a launch, which the daemon asks the endpoint about on its next
+    # tick and self-corrects, but a fold is the one spend nothing observes -
+    # sending it to an account we already cannot read only deepens the
+    # blindness. Same rule the fallback below applies.
     readable = [a for a in paths.list_accounts()
                if accounts.logged_in(a) and not status.read(a).stale]
     picked, _ = status.pick_account(readable)
@@ -286,9 +286,11 @@ def _cheapest_account() -> str | None:
     # recording the day beats skipping it, but two accounts are off limits: one
     # already at the wall, and one whose usage we cannot read at all.
     #
-    # The second matters more than it looks. A fold runs `claude -p`, which is
-    # headless and has no status line, so it is the one spender no collector
-    # ever sees. Letting it fall back to the accounts we cannot read would send
+    # The second matters more than it looks. A fold runs `claude -p` from the
+    # daemon's own directory: it fires no hook of ours and its transcript is
+    # not under any agent's worktree, so it is the one spender nothing sees -
+    # not the usage poll either, which asks an account about a turn only when
+    # an event says one happened. Letting it fall back to the accounts we cannot read would send
     # the unobservable spend precisely where the usage is already unobserved.
     # Reading the raw figure did exactly that: None passed the test.
     # Roomiest first: on this path nothing was assignable, so the difference

@@ -227,13 +227,14 @@ class AccountStatus:
     def trusted_pct_5h(self) -> int | None:
         """What we may act on, or None when we genuinely do not know.
 
-        A frozen status.json (collector died, jq removed, session exited) keeps
-        reporting its last value forever. Reading that as the truth is the same
-        failure as reading a null as 0, so a stale snapshot reads as unknown.
+        A frozen status.json (the poll cannot reach the endpoint, the account's
+        token is dead, the daemon is down) keeps reporting its last value
+        forever. Reading that as the truth is the same failure as reading a null
+        as 0, so a stale snapshot reads as unknown.
 
-        A quiet window reads as 0 instead, because a live collector reporting no
-        five_hour block is a positive observation: no session on this account
-        has spent inside the current window. The hole in that - usage from
+        A quiet window reads as 0 instead, because a reading that reports no
+        five_hour window is a positive observation: nothing has been spent on
+        this account inside the current window. The hole in that - usage from
         outside ocp, on a config dir we do not collect from - is the same hole
         every other reading has.
         """

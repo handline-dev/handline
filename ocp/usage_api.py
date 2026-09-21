@@ -53,9 +53,9 @@ HTTP_TIMEOUT_S = 15
 # `claude auth status` has to start the CLI, so it is not instant.
 REFRESH_TIMEOUT_S = 40
 
-# The collector allows the same slack before a reset in the past is treated as
-# a window that has ended; the two rules have to agree or a figure would be
-# carried by one and dropped by the other.
+# How far a `resets_at` may be in the past before the window counts as ended.
+# `resets_at` is the server's and the comparison is against a local clock, so
+# the slack is for ordinary skew, not for a judgement call.
 CLOCK_SKEW_S = 60
 
 # The two windows ocp gates on, by the duration the endpoint keys them under.
@@ -68,8 +68,8 @@ class Reading:
     """One account's usage as the endpoint reported it.
 
     `pct_*` is None when the endpoint returned no such window, which is a
-    reading and not an absence - it means nothing has been spent in it. The
-    collector's snapshot draws the same distinction, so the two agree.
+    reading and not an absence - it means nothing has been spent in it.
+    `status.py` draws the same distinction when it reads the file back.
     """
     account: str
     pct_5h: int | None
@@ -210,10 +210,10 @@ def record(reading: Reading, path=None) -> bool:
 
     This stands in for what `probe.py` leaves behind - a fresh snapshot the
     next tick reads like any other - so nothing downstream has to learn about
-    this module. It **merges**: a live session's `session_id`,
-    `transcript_path` and context figures are written by the collector and are
-    none of our business, and a reading that replaced the file wholesale would
-    take the handoff's transcript pointer with it.
+    this module. It **merges**: a session's `session_id`, `transcript_path` and
+    context figures are `collect`'s and are none of our business, and a reading
+    that replaced the file wholesale would take the handoff's transcript
+    pointer with it.
 
     `collected_at` is set because this replaces a probe, and a probe sets it by
     running a real session. Without it `AccountStatus.stale` fails the account
@@ -221,9 +221,9 @@ def record(reading: Reading, path=None) -> bool:
     lifted - `beta` sat at "nothing has run on it for 4h37m" while its 5h
     window was empty.
 
-    The one rule carried over verbatim from the collector: inside one window
-    usage only rises, so a figure is never lowered while its own window is
-    still open. Across a rollover it is replaced outright - which is the case
+    The one rule carried over verbatim from the collector this replaced: inside
+    one window usage only rises, so a figure is never lowered while its own
+    window is still open. Across a rollover it is replaced outright - which is the case
     that matters, because the stale high-water is exactly what made `alpha`
     unassignable eighteen seconds after its window reset.
     """

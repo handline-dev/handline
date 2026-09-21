@@ -18,8 +18,9 @@ from . import (accounts, agents, daemon, db, hooks, launch, load as loadmod, obs
 
 OK, WARN, FAIL = "ok", "warn", "fail"
 
-# If managed settings set either of these, the collector dies silently
-# (section 4 constraint).
+# If managed settings set either of these, our hooks never run - and since
+# D11 they are what keeps every agent's context and session identity current
+# between daemon ticks, as well as what records every event.
 HOOK_KILLERS = ("disableAllHooks", "allowManagedHooksOnly")
 MANAGED_PATHS = [
     Path("/Library/Application Support/ClaudeCode/managed-settings.json"),
@@ -56,7 +57,6 @@ class Report:
 def _check_tools(r: Report) -> None:
     for tool, why, hard in (
         ("claude", "needed to run agents", True),
-        ("jq", "the collector uses it", True),
         ("orca", "terminal and worktree control", False),
     ):
         found = shutil.which(tool)
@@ -93,19 +93,22 @@ def _check_home(r: Report) -> None:
         return
     r.add(OK, f"OCP_HOME {h}")
 
-    c = paths.collector()
-    src = paths.repo_root() / "libexec" / "statusline-collect.sh"
+    c = paths.statusline()
+    src = paths.repo_root() / "libexec" / "statusline.sh"
+    # Nothing ocp decides depends on this file any more (D11): it prints a line
+    # for a human and collects nothing. It is still checked, because a status
+    # line that errors is in front of the agent's face all day.
     if not c.exists():
-        r.add(FAIL, "collector not installed", str(c))
+        r.add(FAIL, "status line not installed", str(c))
     elif not os.access(c, os.X_OK):
-        r.add(FAIL, "collector is not executable", str(c))
+        r.add(FAIL, "status line is not executable", str(c))
     elif src.exists() and src.read_bytes() != c.read_bytes():
         # The installed copy is what actually runs. Editing the repo copy and
         # forgetting to reinstall means fixes silently never take effect.
-        r.add(FAIL, "installed collector differs from the repo copy",
+        r.add(FAIL, "installed status line differs from the repo copy",
               f"{c} is stale - run `ocp init` to reinstall")
     else:
-        r.add(OK, "collector installed and current", str(c))
+        r.add(OK, "status line installed and current", str(c))
 
     s = paths.shared_claude() / "settings.json"
     if not s.exists():
@@ -116,9 +119,11 @@ def _check_home(r: Report) -> None:
     except json.JSONDecodeError:
         line = {}
     if line.get("command") == str(c):
-        r.add(OK, "shared settings.json points at our collector")
+        r.add(OK, "shared settings.json points at our status line")
     else:
-        r.add(FAIL, "shared statusLine is not our collector", f"currently {line.get('command')!r}")
+        # A warning, not a failure: nothing ocp decides reads this, so someone
+        # using the slot for something else of their own is their call (D11).
+        r.add(WARN, "shared statusLine is not ours", f"currently {line.get('command')!r}")
 
 
 def _check_mcp_config(r: Report) -> None:
@@ -260,13 +265,13 @@ def _check_launch_drift(r: Report) -> None:
         con.close()
 
 
-# A status line written this long after we recorded the close is not the one
-# that session left behind on its way out.
+# A transcript written this long after we recorded the close is not the last
+# thing that session wrote on its way out.
 WRITTEN_AFTER_CLOSE_S = 60
 
 
 def _check_session_matches_the_record(r: Report) -> None:
-    """An agent that is writing a status line the process table cannot account for.
+    """An agent whose session is still writing where the process table has none.
 
     Every path that types into a terminal asks `observe.live_sessions()` first,
     and that answer rests on one string: a session is a process whose command
@@ -276,10 +281,12 @@ def _check_session_matches_the_record(r: Report) -> None:
     delivered, and every screen agrees with itself.
 
     A closed mark is therefore not the disagreement; closing is how a session
-    ends here. The disagreement is a status line still being written after we
-    recorded the close, because nothing but a live session writes one. A
-    terminal Orca no longer lists is left to the sweep, which drops the handle
-    and says so.
+    ends here. The disagreement is a snapshot still moving after we recorded
+    the close. That still holds now the snapshot is pulled rather than pushed
+    (D11): `collected_at` is the transcript's own last write, so only a session
+    that is writing keeps it fresh, and the daemon reading a dead session's
+    file does not make it look alive. A terminal Orca no longer lists is left
+    to the sweep, which drops the handle and says so.
     """
     sessions = obs.live_sessions()
     if sessions is None:
@@ -302,8 +309,8 @@ def _check_session_matches_the_record(r: Report) -> None:
             closed = row["closed_at"]
             if closed and own.collected_at <= closed + WRITTEN_AFTER_CLOSE_S:
                 continue
-            r.add(WARN, f"agent {agent}: its status line is being written with no session running",
-                  "nothing but a live session writes that snapshot, and the "
+            r.add(WARN, f"agent {agent}: its transcript is still being written with no session running",
+                  "only a live session writes that transcript, and the "
                   "process-table search finds no claude for this agent - check "
                   "observe.is_session; while it does not match, nothing is "
                   "delivered to anyone")
@@ -311,8 +318,11 @@ def _check_session_matches_the_record(r: Report) -> None:
         con.close()
 
 
-# statusLine's rate_limits arrived in this version; below it there is no usage
-# to read and the whole data source is missing.
+# Nothing is read from the status line any more (D11), so this is no longer
+# about its payload. It stays because it is the floor everything here was
+# measured against: the usage endpoint answers the `claude-code/2.1.0` client
+# `usage_api` presents itself as, and the transcript shape `collect` reads was
+# measured on this version.
 MIN_CLAUDE_VERSION = (2, 1, 0)
 
 
@@ -334,15 +344,16 @@ def _check_claude_version(r: Report) -> None:
     shown = ".".join(str(v) for v in version)
     if version < MIN_CLAUDE_VERSION:
         r.add(FAIL, f"Claude Code {shown} is too old",
-              f"statusLine rate_limits needs >= "
-              f"{'.'.join(str(v) for v in MIN_CLAUDE_VERSION)}")
+              f"the usage endpoint and the transcript fields ocp reads were "
+              f"measured on >= {'.'.join(str(v) for v in MIN_CLAUDE_VERSION)}")
     else:
         r.add(OK, f"Claude Code {shown}")
 
 
 def _check_rate_limits_present(r: Report) -> None:
-    """The collector can run fine and still deliver no usage, which is the
-    fail-open shape section 4 exists to prevent. Check the field, not the file."""
+    """The poll can run fine and still deliver no usage - a dead token, an
+    endpoint that will not answer - which is the fail-open shape section 4
+    exists to prevent. Check the field, not the file."""
     seen = False
     for acct in paths.list_accounts():
         st = status.read(acct)

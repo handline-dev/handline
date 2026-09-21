@@ -8,7 +8,7 @@ This file does not move. A line leaves the OPEN list only when a measurement
 settles it, and then it moves up with its evidence.
 
 Asked by the founder in #1255 (withdrawn, superseded live) and #1277.
-Decisions D1-D10 taken 2026-09-21.
+Decisions D1-D11 taken 2026-09-21.
 
 ---
 
@@ -370,6 +370,12 @@ could go**, and it is far larger than anything on the Claude-only list. It is
 the single best reason to keep re-checking that field. What it would *not* buy
 is the statusLine.
 
+**Superseded by D11 (#1402).** "Keep the injection while it is the only source
+of rate limits per account" did not survive the question being asked again: the
+poll is that source now, and the statusLine collects nothing. What this decision
+got right is the sentence above - the pull is the architecture, the push was
+Claude's convenience.
+
 **Implication for vendor two:** codex has no statusLine command hook, so its
 collector **pulls** from the rollout JSONL
 (`token_count.info.model_context_window` + `total_token_usage`, beside the same
@@ -410,6 +416,106 @@ flag. Taken deliberately - cheap and working beats authoritative and
 per-vendor. **Unverified:** whether codex's `/new` re-reads it.
 
 **This retires the ⚠ on the hardest DRIVER row** and moves it to RESHAPE.
+
+### D11. The statusLine collects nothing. It shows the human what the agent is
+doing, and every figure it used to carry is pulled.
+
+Asked by the founder in #1402: the status line should do something more
+valuable, what it carries can be had from polling and the transcript, and the
+slot is wanted for something else. With the codex objection stated plainly - a
+mechanism that cannot exist on vendor two should not be load-bearing on vendor
+one.
+
+**Done.** The collector (`libexec/statusline-collect.sh`, 179 lines, half of it
+a carry rule written in jq) is deleted. `ocp/collect.py` reads the same fields
+out of the file the session is writing anyway, and `libexec/statusline.sh`
+prints a line for the human.
+
+| payload | before | now |
+|---|---|---|
+| context window | `context_window.used_percentage` | the last assistant turn's `usage`, over the model's window |
+| session identity | `session_id`, `transcript_path` | the transcript file **is** both |
+| which account | `CLAUDE_CONFIG_DIR` | the transcript's own path, `accounts/<acct>/.claude/...` |
+| cost, lines | `cost.*` | the session's `cost-state` record |
+| rate limits | `rate_limits.*` | `usage_api`, polled per account (D2, Q4) |
+| `ctx_size`, `exceeds_200k`, … | collected, no reader | not collected |
+
+**Checked against the collector on the live fleet before anything was
+switched.** On all 14 agents that had a figure the pull reproduced the
+statusLine's `current_usage` **to the token** (86,085 / 151,976 / 469,196 …) and
+its percentage exactly, in 1-2ms each. On three more it read **0%** where the
+push was still reporting the context of a session that had been cleared - a
+`/clear` starts a new transcript, and `orcapipe.chat`'s was eleven lines with no
+turn while its snapshot said 20%. On `harbor` it found a **live session the push
+had missed for five hours**: that session runs without `OCP_AGENT`, so the
+collector could not tell whose it was, and the pull does not need to be told.
+
+**Three mechanisms, because they fail differently:**
+
+- **the hooks we already install** - `Stop` fires at the end of every turn,
+  carries the `cwd`, and already runs `ocp hook`. This is the same per-turn
+  freshness the statusLine gave, and a `Stop` arriving is also the **heartbeat**,
+  which is the one thing no pull can reproduce. `SessionStart` is included for
+  the `/clear` case; `SessionEnd` is not, or a dead session would look fresh.
+- **the daemon tick**, for the sessions no hook spoke for - `harbor`'s case is
+  why this net exists rather than trusting the push.
+- **the usage endpoint**, for the one group no transcript carries. Asked for one
+  account per tick, and only when something could have changed: a turn on it
+  since the last reading (`db.last_account_activity`), a window that has ended,
+  or a cadence kept anyway for the spending nothing records (`ocp fold`'s
+  `claude -p`, a human at a terminal). An idle fleet therefore costs no requests
+  at all, instead of a round-robin every two minutes.
+
+**`collected_at` is the transcript's own mtime, not when we read it.** That one
+choice is what let every reader in `status.py` stay exactly as it was: staleness
+still means "the session stopped writing", `read_for_agent` still refuses a dead
+session's context, and `doctor`'s "a snapshot moving with no process" check still
+holds. A pull that stamped its own clock would have reported every dead session
+as live for ever.
+
+**What the line says now.** It printed `alpha · 5h 41% · 7d 12%` - an account,
+in a terminal whose whole screen belongs to one agent. It now says what that
+agent is doing, rendered from ocp's state rather than the session's, because the
+useful facts are the ones the session cannot see:
+
+```
+orcapipe.expender · RUNNING 27m · #1402 from human · sigma 5h 63% · ctx 27%
+orcapipe.auditor · PARKED 6m · #1399 from orcapipe.chat · +6 queued · delta 5h 35%
+harbor · STALLED 1h · #1177 from harbor.deck · +3 queued · beta 5h ?
+backend · NEEDS YOU: Bash · #12 from human · alpha 5h 41%
+```
+
+A permission prompt comes first, because it is the only thing on the line a
+human has to act on, and it appears on the `PermissionRequest` hook rather than
+waiting for a tick.
+
+**The line is composed elsewhere and the command only prints it.** Measured: the
+command is re-run on a refresh interval for every live session, about a hundred
+times a minute at nineteen agents. A Python start is ~70ms of CPU apiece - 13%
+of a core, for ever - so the daemon and the hooks write `agents/<agent>/line.txt`
+and the shell reads it (~5ms). Nothing parses stdin any more, which also retires
+**jq as a dependency of ocp** - it was the collector's alone.
+
+**What this deleted, honestly.** 179 lines of bash, the statusLine install and
+its chain variable, three doctor checks, jq, and `test_collector`. And the carry
+apparatus's *reason*: the endpoint states both windows or answers nothing, so
+there is no payload that quietly omits one and nothing writes `rl_lost` any
+more. The **reading** rules in `status.py` stay whole - `quiet`, `unknown`,
+`carried_old` and the floor are what a failed poll or a dead token still needs -
+so this is a smaller cut than D9's "that whole apparatus could go" implied.
+`probe.py` is also still here: its conditions are now nearly unreachable, but it
+is the only way to learn usage when the endpoint cannot be asked at all.
+Deleting it is a separate decision with the founder.
+
+**Upgrade note:** the installed copy in `shared/.claude` is only replaced when
+`ensure_shared` next runs (`ocp init`, or registering an account). Until then
+the old collector keeps running and `ocp doctor` says the status line is not
+installed.
+
+**Implication for vendor two:** `collector_kind` is now `pull` for both vendors.
+codex needs nothing installed, writes its own context, identity and rate limits
+into its rollout JSONL, and the driver's per-vendor surface shrinks to "where
+are this vendor's session files, and how is a turn read out of one".
 
 ---
 
@@ -505,6 +611,12 @@ move the preamble to a file (D10).
 Not started. Step 3 is the one with real risk and should be its own branch.
 
 ### Q4. Pull rate limits over OAuth ourselves, for all five accounts (#1358)
+
+**Done 2026-09-21 - built in #1369/#1381, and polled for every account in
+D11.** The daemon asks one account per tick, on evidence that something could
+have changed. What was *not* collected: the carry/quiet/unknown fallback stays
+(the endpoint can still fail) and so does `probe.py`, for when it cannot be
+asked at all. The record below is what settled it.
 
 **Measured, not built.** The read half is proven (below). The write half - the
 token refresh - is **not started and needs the founder's go-ahead**, because it

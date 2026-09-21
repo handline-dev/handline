@@ -196,6 +196,12 @@ def last_turn(path: Path) -> Turn:
     Scans backwards from the end. A record that will not parse is skipped
     rather than trusted: the tail begins mid-line, and the line at the end may
     be half-written by a session that is mid-turn right now.
+
+    One record, never a sum, which is what keeps this clear of the trap design
+    01-infra.md section 4 warns about: one API response's content blocks each
+    become a line and each **copies the same usage object**, so anything that
+    adds them up overcounts (measured at 2.4x, in `burnrate`). Reading the last
+    copy gives the same figure as reading any other.
     """
     size = TAIL_BYTES
     while True:

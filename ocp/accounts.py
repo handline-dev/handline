@@ -1,4 +1,4 @@
-"""Account registration: directories, shared links, collector install.
+"""Account registration: directories, shared links, status line install.
 
 Credentials are never touched (KICKOFF rule 1). A refresh token rotates on
 single use, so two copies of one credential invalidate each other. Logging in
@@ -7,7 +7,7 @@ is a one-time human action:
     CLAUDE_CONFIG_DIR=~/.orcapipe/accounts/<acct>/.claude claude /login
 
 All we do is create the directory, symlink the shared settings, and install
-the collector.
+the status line command.
 """
 from __future__ import annotations
 
@@ -33,17 +33,22 @@ NEVER_TOUCH = {".credentials.json", ".claude.json", "statsig", "backups"}
 
 
 def ensure_shared() -> Path:
-    """Create shared/.claude and install the collector into it."""
+    """Create shared/.claude and install the status line command into it."""
     shared = paths.shared_claude()
     shared.mkdir(parents=True, exist_ok=True)
     for sub in ("skills", "agents", "commands"):
         (shared / sub).mkdir(exist_ok=True)
 
-    src = paths.repo_root() / "libexec" / "statusline-collect.sh"
-    dst = paths.collector()
+    src = paths.repo_root() / "libexec" / "statusline.sh"
+    dst = paths.statusline()
     if src.exists():
         shutil.copyfile(src, dst)
         dst.chmod(0o755)
+    # The collector this replaced (D11): ocp installed it under that name, so
+    # leaving it is leaving an executable here that nothing calls.
+    old = shared / "statusline-collect.sh"
+    if old.exists():
+        old.unlink()
 
     settings = shared / "settings.json"
     current = {}
@@ -55,7 +60,8 @@ def ensure_shared() -> Path:
     if not isinstance(current, dict):
         current = {}
 
-    # statusLine is our data source (section 4), so it always points at us.
+    # statusLine is ours, and it is a display now rather than the data source
+    # section 4 made it (D11).
     current["statusLine"] = {
         "type": "command",
         "command": str(dst),

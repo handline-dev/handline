@@ -34,11 +34,10 @@ A pct_5h we cannot trust - no snapshot, unreadable, or too old - is not a full
 tank, it is a refusal. Reading it as 0 makes a walled account look open forever: the
 feature is dead while the dashboard stays green.
 
-A window nobody has spent in is different. Claude Code sends no five_hour block
-for a session that has made no request since the window rolled over, so a live
-collector reporting nothing is the account telling us it is quiet: 0%, marked
-`*`. `~` is a figure carried from an earlier payload, `!` one carried past the
-age we will assign on - still a floor for triggers, no new work.
+A window nobody has spent in is different: a reading that reports no five_hour
+window is the account telling us it is quiet, not that we cannot see - 0%,
+marked `*`. `~` is a figure carried from an earlier reading, `!` one carried
+past the age we will assign on - still a floor for triggers, no new work.
 
 Design section 4 has the five cases and why only one of them is fail-closed.
 

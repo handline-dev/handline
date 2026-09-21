@@ -227,14 +227,15 @@ def build(agent: str, extra: list[str] | None = None, force: bool = False) -> tu
     # reading only lets the daemon assign there when no agent of ours is
     # already mid-turn on it, its window has not rolled over, and it is a
     # floor clear of the wall by a margin (status.idle_floor) - anything else
-    # still refuses. And an account that really is full self-corrects in
-    # seconds - the status line refreshes as soon as the session starts, and
-    # the daemon's trigger then hands off on fresh data.
+    # still refuses. And an account that really is full self-corrects within a
+    # tick - the daemon asks the endpoint about an account a turn has just
+    # happened on, and its trigger then hands off on fresh data.
     st = status.read(acct)
     if st.exists and st.stale:
         age = "unknown age" if st.age_s is None else f"{int(st.age_s)}s"
         print(f"warning: account '{acct}' usage is {age} old and may be out of date; "
-              f"the status line will refresh it on start.", file=sys.stderr)
+              f"the daemon will ask the endpoint about it on its next tick.",
+              file=sys.stderr)
     elif not force and st.exists and st.trusted_pct_5h is not None \
             and st.trusted_pct_5h >= status.PCT_5H_BLOCK:
         # The carried figure counts here: inside a window usage only rises, so

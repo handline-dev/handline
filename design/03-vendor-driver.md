@@ -34,8 +34,8 @@ ocp/vendors/
     base.py         the Protocol below, and the shared dataclasses
     claude.py       today's behaviour, moved rather than rewritten
     codex.py        new
-    collect-claude.sh   (today's libexec/statusline-collect.sh)
-    collect-codex.py    new - a puller, not a pushed status line
+    collect_claude.py   (today's ocp/collect.py - a puller already, D11)
+    collect_codex.py    new - the same shape, over the rollout JSONL
 ```
 
 Selection is already possible: `agents.parts()` returns `(vendor, model,
@@ -124,12 +124,19 @@ class Driver(Protocol):
 
     # -- telemetry (§11.14, §11.15) ---------------------------------------
     def install_collector(self, shared_dir: Path) -> None:
-        """Put this vendor's collector where its sessions will run it."""
+        """Put this vendor's collector where its sessions will run it.
+
+        Nothing to do for either vendor we have: since D11 both are read, not
+        run. It stays in the Protocol for a vendor that will only push."""
 
     def collector_kind(self) -> Literal["push", "pull"]:
-        """push: the vendor calls our script (claude's statusLine).
-        pull: nobody calls us, so something must read the vendor's own
-        files on a schedule (codex's rollout JSONL)."""
+        """push: the vendor calls our script. pull: we read the vendor's own
+        session files.
+
+        Both answers are `pull` today, which is the point of D11: one
+        mechanism for both vendors instead of a push we could only build for
+        Claude. What differs per vendor is where the files are and how a turn
+        is read out of one, not whether we are called."""
 
     def probe(self, account: str, timeout: int) -> "AccountStatus":
         """Spend the minimum needed to make a quiet account report. A vendor
@@ -167,8 +174,8 @@ class Driver(Protocol):
 | `clear/exit_command` | the literals in `orca.clear_context` / `close_session` |
 | `read_dialog` | `orca.parse_dialog` |
 | `declining_key` | `orca.declining_key` |
-| `install_collector` | `libexec/statusline-collect.sh` |
-| `collector_kind` | `push` |
+| `install_collector` | nothing to install - `ocp/collect.py` reads the transcript (D11) |
+| `collector_kind` | `pull` (it was `push`; the statusLine no longer collects) |
 | `probe` | `probe.py` |
 | `hook_events` | `events.CAPTURED`, identity map |
 
