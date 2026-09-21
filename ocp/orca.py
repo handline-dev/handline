@@ -430,12 +430,19 @@ def screen_blocker(handle: str) -> Blocker | None:
     real text in it rendered as the same bare, empty marker a genuinely empty
     box does. The box itself decides now - `draft` is not consulted at all -
     so a stale one can never block again, and the block is exactly as long as
-    the screen keeps saying something is there. Not settled by the same
-    measurement: whether real, freshly-typed unsent text on an otherwise idle
-    screen renders any differently from empty - the test that would confirm it
-    was confounded by being taken mid-turn. If it turns out text never
-    renders there either, UNSENT stops firing, which is the safer of the two
-    ways this could be wrong to find out about later.
+    the screen keeps saying something is there.
+
+    Settled since, on a scratch terminal left genuinely idle: real, freshly-
+    typed text sent with no Enter never rendered on the content line either -
+    `draft` grew with each character sent while the row stayed the bare
+    marker throughout, checked seconds apart. A stale draft (auditor's #1144
+    fleet read: harbor.deck, harbor.reviewer, harbor.shore, orcapipe.chat, all
+    with real-looking drafts and all showing the bare marker) and genuinely
+    unsent text are indistinguishable from outside because neither ever
+    draws - so the screen cannot see an unsent message, and this guard does
+    not withhold work for one. UNSENT stays as a kind, and the composer-shape
+    tests still drive it, because a future render that does show typed text
+    should still block on it; today it just never fires from real input.
     """
     term = _screen(handle)
     tail = term.get("tail") if term else None
