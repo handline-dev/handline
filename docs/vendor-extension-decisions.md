@@ -148,7 +148,7 @@ the fleet works today, scattering and all.
 
 | consequence | kind |
 |---|---|
-| `task-create --parent` refuses across Runs, so **9 of 15** agents with a supervisor have no parent link; harbor's six reports all draw flat | **visual** |
+| `task-create --parent` refuses across Runs, so **9 of 15** agents with a supervisor have no parent link; harbor's six reports all draw flat | **visual, in a view nobody here uses - see below** |
 | **2 of 18** agents (`harbor.marina`, `personal`) have no dispatch at all, so `worker-list` cannot report their `activity` or `liveness` | **functional, but only if we build on those signals** |
 | a new Run per Orca restart, ~8/day at the observed rate | clutter, and unbounded |
 
@@ -191,9 +191,26 @@ theirs, not ocp's). Re-pointing `RUN_KEY` at one Run and re-running `ocp org`
 rebuilds the tree without deleting anything; the old Runs then sit there, inert
 and noisy.
 
-**Priority: not on its own.** Do the `run_exists` tri-state whenever code is
-next opened in `orca.py`; schedule the rest with the observation move, not
-before it.
+**Where is that org chart actually drawn? Measured (#1301) - there are three
+trees, and D8 touches the one nobody looks at.**
+
+| tree | built from | who sees it | D8? |
+|---|---|---|---|
+| **`ocp bridge` / `ocp ps`** | `team.yaml` via `actions.agent_tree()` | **this is the one we use** | **no effect** - `tui.py` never reads an Orca Run or Task |
+| **Orca's worktree lineage** | `parentWorktreeId`, set by Orca from the spawning context | the Orca sidebar | **no effect** - and it is **already correct**: `expender→orcapipe`, `auditor→orcapipe`, `keeper→orcapipe`, `purser→orcapipe`, `foam→harbor` |
+| **Orca's Run/Task tree** | `task-create --parent` | the desktop app's orchestration view only | **this is the one D8 fixes** |
+
+`orca worktree ps` shows a flat per-worktree list, not the Task tree, so the
+Task tree has no CLI surface at all. Neither ocp nor anything in the founder's
+terminal workflow reads it.
+
+**Priority: no.** The visible benefit of fixing D8 is a tree in a view nobody
+here opens, and the two trees people do look at are unaffected and one of them
+is already right. What remains is that `run_exists` is a correctness bug of a
+class this codebase forbids four lines above it, and that it makes a Run per
+Orca restart forever. Do the `run_exists` tri-state whenever `orca.py` is next
+open; schedule the rest only if the observation move (D9) makes the Run
+identity something we depend on.
 
 ### D9. Detection moves to Orca; reading the panel stays ours. And the
 statusLine stays, permanently.
