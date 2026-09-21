@@ -125,18 +125,46 @@ records that this exact symptom already happened once, was diagnosed as a wrong
 flag, and the fail-open shape was left in place.
 
 **Measured (read-only).** 25 Runs named "orcapipe team" of 28 on the machine;
-~9,000 tasks, effectively all `ready`; the 18 agents' current tasks across 8
-Runs; **12 of the 25 coordinated by 12 different agent terminals**; the current
-Run at `consumer_generation` 21, i.e. 21 takeovers. And live during this
-session, with no human action, `RUN_KEY` moved `run_5f5c6f452853` →
-`run_1dd4c9a72be3`.
+**12 of them coordinated by 12 different agent terminals**; the current Run at
+`consumer_generation` 21, i.e. 21 takeovers. And live during this session, with
+no human action, `RUN_KEY` moved `run_5f5c6f452853` → `run_1dd4c9a72be3`.
 
-**Cost.** `task-create --parent` refuses across Runs, so **9 of the 15 agents
-with a supervisor have no parent link** and all six of harbor's reports draw
-flat. The org chart `register_worker` exists to draw fails 60% of the time,
-silently. Work delivery is *not* affected - 16 of 18 agents still have a
-dispatch on their current terminal - so this is a drawing and accumulation
-bug, not an outage.
+**Two earlier claims of mine were wrong; both are withdrawn.**
+
+*The ~9,000 tasks are not this bug, and not production.* 1,601 of the 1,770 in
+the largest Run are test fixtures - `launchtest`, `st`, `spawny` - so the suite
+was creating real Tasks against the live Orca runtime. **That is already
+fixed**: the guard merged at 606e304 on 2026-09-21 01:01, and the newest
+fixture task is 2026-09-20 16:26. Historical residue, not an ongoing leak. ocp
+creates one Task per agent and reuses it.
+
+*It is not a prerequisite for reading the fleet.* I claimed scattered Runs
+block the one-call fleet view. They do not: an **unbound** caller gets every
+Run's workers at once - measured, `scope: {"source": "all"}`, 24 workers in one
+call - and ocp's own callers are unbound. Reading `activity` and `liveness` for
+the fleet works today, scattering and all.
+
+**Cost, stated honestly - it is smaller than it first looked.**
+
+| consequence | kind |
+|---|---|
+| `task-create --parent` refuses across Runs, so **9 of 15** agents with a supervisor have no parent link; harbor's six reports all draw flat | **visual** |
+| **2 of 18** agents (`harbor.marina`, `personal`) have no dispatch at all, so `worker-list` cannot report their `activity` or `liveness` | **functional, but only if we build on those signals** |
+| a new Run per Orca restart, ~8/day at the observed rate | clutter, and unbounded |
+
+Work delivery is unaffected: 16 of 18 agents still have a dispatch on their
+current terminal. Nothing is down.
+
+**So fixing this does not shrink ocp.** The fix adds a tri-state and removes a
+branch - about ten lines, deleting no feature. The case for it is that
+`run_exists` is a correctness bug of a class this codebase explicitly rules
+against four lines away, and that it keeps making Runs forever. The case
+against doing it *now* is that its visible benefit is a correct org chart.
+
+**It becomes a real prerequisite only if we commit to moving observation onto
+Orca (D9),** because then the two dispatch-less agents are blind spots and a
+Run identity that changes on every Orca restart is something we would be
+depending on.
 
 **Decided - the fix, in three parts:**
 
@@ -163,8 +191,9 @@ theirs, not ocp's). Re-pointing `RUN_KEY` at one Run and re-running `ocp org`
 rebuilds the tree without deleting anything; the old Runs then sit there, inert
 and noisy.
 
-**Still a prerequisite** for O1: adopting terminals into a Run whose identity
-changes on every Orca restart would inherit all of this.
+**Priority: not on its own.** Do the `run_exists` tri-state whenever code is
+next opened in `orca.py`; schedule the rest with the observation move, not
+before it.
 
 ### D9. Detection moves to Orca; reading the panel stays ours. And the
 statusLine stays, permanently.
