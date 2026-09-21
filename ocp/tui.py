@@ -1837,7 +1837,14 @@ def _line(prompt: str, width: int, height: int, multi: bool = False,
     highlighted, and Enter sends the highlighted one - as '/name' whole, not
     whatever prefix was actually typed - rather than the typed text. Text
     starting with '/' that matches nothing is sent as typed: a real message
-    is still allowed to start with a slash."""
+    is still allowed to start with a slash.
+
+    Enter resolves to a command only when exactly one matches, or the human
+    pressed ↑↓ to say which - never by defaulting to whichever sorts first
+    among several. A command name is a verb, one of them possibly a mutating
+    one, and picking one for someone who typed an ambiguous prefix and only
+    meant to send it is the wrong direction to guess in; sent as plain text,
+    a wrong guess is merely a strange message, still visible and undoable."""
     if not sys.stdin.isatty():
         return None
     fd = sys.stdin.fileno()
@@ -1847,12 +1854,14 @@ def _line(prompt: str, width: int, height: int, multi: bool = False,
     painted = 1                        # rows the prompt has, as the screen was drawn
     sel = 0                            # highlighted row in the command list, if one is shown
     matches: list[str] = []            # what is currently displayed, from the last render
+    picked = False                     # the human moved the highlight, deliberately
     while True:
         if matches and data:
             m = _UP_DOWN.match(data)
             if m:
                 sel = max(0, min(len(matches) - 1,
                                  sel + (1 if m.group() in ("\033[B", "\033OB") else -1)))
+                picked = True
                 data = data[m.end():]
         done = box.feed(data) if data else None
         if done == "cancel":
@@ -1868,10 +1877,15 @@ def _line(prompt: str, width: int, height: int, multi: bool = False,
         # The highlight only survives typing that leaves the same list in the
         # same order - clamping alone would keep index 1 pointed at whatever
         # is now there, silently retargeting it to a different command.
-        sel = sel if new_matches == matches else 0
+        if new_matches != matches:
+            sel, picked = 0, False
         matches = new_matches
         if done == "send":
-            if matches:
+            # Several matches and no explicit pick is not "run the one that
+            # happens to sort first" - a command name is a verb, one of them
+            # possibly a mutating one, and a typo left ambiguous is not a
+            # human choosing it.
+            if len(matches) == 1 or (matches and picked):
                 return f"/{matches[sel]}"
             return box.text.strip("\n") if multi else box.text.strip()
         rows = box.shown(prompt, width, max(1, height // 2))

@@ -15061,7 +15061,10 @@ def test_slash_commands_autocomplete_and_run_the_highlighted_one(home: Path) -> 
             time.sleep(0.2)
             os.write(master, b"\x7f\x7f")         # widen to three: ask, close, clock
             time.sleep(0.2)
-            os.write(master, b"\r")
+            # If the highlight had merely been clamped (not reset) it would
+            # still be sitting at index 1 - one more ↓ from there lands on
+            # "clock" (index 2). Reset to 0, one ↓ lands on "close" (index 1).
+            os.write(master, b"\033[B\r")
         threading.Thread(target=feed).start()
         got = tui._line("to x:", 40, 24, multi=True, commands=cmds3)
     finally:
@@ -15070,7 +15073,7 @@ def test_slash_commands_autocomplete_and_run_the_highlighted_one(home: Path) -> 
         os.close(slave)
     check("autocomplete: widening the match list resets the highlight, "
           "not just clamps its index into range",
-          got == "/ask", repr(got))
+          got == "/close", repr(got))
 
     # code-review: a prefix and Enter arriving in the same read (a paste, a
     # fast typist, a script) reach box.feed in one call - `matches` from
@@ -15087,6 +15090,23 @@ def test_slash_commands_autocomplete_and_run_the_highlighted_one(home: Path) -> 
         os.close(slave)
     check("autocomplete: a prefix and Enter in the same read still resolves",
           got == "/close", repr(got))
+
+    # code-review: an ambiguous prefix must not run whichever command sorts
+    # first just because Enter was pressed without a pick - one of the
+    # matches may be a mutating action, and a typo left ambiguous is not a
+    # human choosing it.
+    master, slave = pty.openpty()
+    ttymod.setraw(slave)
+    sys.stdin, sys.stdout = os.fdopen(slave, "r", closefd=False), io.StringIO()
+    try:
+        os.write(master, b"/cl\r")               # "close" and "clock" both match
+        got = tui._line("to x:", 40, 24, multi=True, commands=cmds)
+    finally:
+        sys.stdin, sys.stdout = real_in, real_out
+        os.close(master)
+        os.close(slave)
+    check("autocomplete: several matches with no explicit pick sends as typed, "
+          "runs nothing", got == "/cl", repr(got))
 
 
 def test_the_agent_pages_tabs_show_everything_and_read_as_blocks(home: Path) -> None:
