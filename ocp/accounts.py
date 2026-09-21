@@ -203,6 +203,17 @@ def _subscription_file(acct: str) -> Path:
     return paths.account_dir(acct) / "subscription.json"
 
 
+def recorded_subscription_type(acct: str) -> str | None:
+    """The plan already recorded for this account, read from disk alone: no
+    login check and no `claude` call, so a screen redraw may ask it."""
+    try:
+        data = json.loads(_subscription_file(acct).read_text())
+        cached = data.get("subscriptionType") if isinstance(data, dict) else None
+    except (OSError, json.JSONDecodeError):
+        return None
+    return str(cached) if cached else None
+
+
 def subscription_type(acct: str, refresh: bool = False) -> str | None:
     """This account's plan, as `claude auth status` reports it. Recorded, not
     weighted in any pick.

@@ -21,6 +21,7 @@ import sys
 import tempfile
 import time
 import traceback
+import types
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -659,6 +660,19 @@ def test_the_weeks_ratio_to_the_5h_window_is_measured_from_the_samples(home: Pat
               "beta" not in got and "*" in got
               and burnrate.Costs([], got).week_per_5h("beta") == got["*"]
               and burnrate.Costs([], got).week_per_5h("alpha") == got["alpha"], str(got))
+        plan = {"alpha": "max", "beta": "pro"}.get
+        by_plan = burnrate.week_ratios(db.usage_samples(con), plan)
+        check("ratio: a thin account takes its own plan's pool, never another plan's",
+              burnrate.Costs([], by_plan, plan).week_per_5h("beta") is None
+              and burnrate.Costs([], by_plan, plan).week_per_5h("alpha") == by_plan["alpha"], str(by_plan))
+        burnrate.refresh_week_ratios(con, now, force=True)
+        db.set_meta(con, "weekratio", json.dumps({"at": now, "r": {"alpha": 9.0}}))
+        burnrate.refresh_week_ratios(con, now + 1)
+        check("ratio: a refresh inside the throttle leaves the kept ratios alone",
+              burnrate._load_week_ratios(con) == {"alpha": 9.0})
+        burnrate.refresh_week_ratios(con, now + burnrate.WEEK_RATIO_EVERY_S + 1)
+        check("ratio: and one after it recomputes them",
+              abs(burnrate._load_week_ratios(con).get("alpha", 0) - 10 / 80) < 0.01)
         check("ratio: nothing measured is None, not a guess",
               burnrate.Costs([], {}).week_per_5h("alpha") is None)
         # A rolled window, a fall and a carried figure are not a rate.
@@ -670,7 +684,7 @@ def test_the_weeks_ratio_to_the_5h_window_is_measured_from_the_samples(home: Pat
             db.record_usage_sample(con, "alpha", st, ts=now - 1000 + i)
         got = burnrate.week_ratios(db.usage_samples(con))
         check("ratio: a carried reading, a new window and a fall add nothing; only the last pair counts",
-              got == {} or abs(got.get("alpha", 0) - 17 / 55) < 0.01, str(got))
+              abs(got.get("alpha", 0) - 17 / 55) < 0.01, str(got))
     finally:
         con.close()
 
@@ -711,8 +725,20 @@ def test_an_account_the_week_is_about_to_close_is_not_usable_and_not_picked(home
               not allowed and why == said["gamma"], str((allowed, why)))
         rw = status.describe_runway(status.runway(st, status.read_burn("gamma"), None, loads["gamma"]))
         check("week: the runway column names the week, from the same stretch the pick judged",
-              rw == f"~{status.span(status.week_stretch_s(st, loads['gamma']))} to 7d wall", rw)
+              rw == f"~{status.span(status.week_stretch_s(st, loads['gamma']))} to 7d", rw)
+        alone, why = status.pick_account(["gamma"], load=loads)
+        check("week: gamma alone, #1233's shape, is refused for the week's runway",
+              alone is None and "one more agent lasts" in dict(why)["gamma"], str((alone, why)))
         alpha = status.read("alpha")
+        check("week: an idle account the week does not close still says no recent burn",
+              status.describe_runway(status.runway(alpha, None, None, loads["alpha"])) == "no recent burn")
+        check("week: at the week's wall it says so",
+              status.describe_runway(status.Runway(50, 0, None, False, False)) == "at the 7d wall")
+        five_first = status.Runway(50, 10, 600.0, True, False, week_s=3600.0)
+        week_first = status.Runway(50, 10, 3600.0, True, False, week_s=600.0)
+        check("week: whichever window runs out first is the one shown",
+              status.describe_runway(five_first) == "~10m to wall"
+              and status.describe_runway(week_first) == "~10m to 7d")
         check("week: an account with room is untouched",
               status.unfit(alpha, loads["alpha"]) is None
               and status.describe_runway(status.runway(alpha, None, None, loads["alpha"])) != "")
@@ -11557,9 +11583,12 @@ def test_the_panels_bounded_cells_fit_their_own_columns(home: Path) -> None:
                 write_status(home, "alpha", pct_5h=p, pct_7d=p,
                              reset_5h=reset, reset_7d=reset)
                 status.write_burn("alpha", burn, now)
-                cells = tui.account_cells("alpha", status.read("alpha"), now)
-                for k, c in cells.items():
-                    drawn[k].append(c)
+                for ld in (None, types.SimpleNamespace(
+                        account="alpha", burn=burn, at_cap=False,
+                        costs=burnrate.Costs([], {"alpha": 0.9}))):
+                    cells = tui.account_cells("alpha", status.read("alpha"), now, ld=ld)
+                    for k, c in cells.items():
+                        drawn[k].append(c)
     check("panel: the cells cover every bounded column",
           set(tui.ACCT_W) - {"name"} == set(drawn), sorted(drawn))
     check("panel: every column has a heading, and the heading names no other",
@@ -12510,10 +12539,11 @@ def test_a_span_ends_in_its_unit_and_fits_its_columns(home: Path) -> None:
           widest <= tui.COUNTDOWN_W, f"{widest}")
     check("span: the widest fits the reset columns",
           widest < tui.ACCT_W["reset5"] and widest < tui.ACCT_W["reset7"], str(widest))
-    # A runway is shown only while the wall comes before the 5h window resets,
-    # so its eta is under five hours.
-    widest_runway = max(len(f"~{status.span(s)} to wall") for s in (
-        5 * 3600 - 1, 3600, 59 * 60))
+    # A 5h runway is shown only while the wall comes before the 5h window
+    # resets, so its eta is under five hours; a week's runs to the week's reset.
+    widest_runway = max(max(len(f"~{status.span(s)} to wall") for s in (5 * 3600 - 1, 3600, 59 * 60)),
+                        max(len(f"~{status.span(s)} to 7d") for s in (7 * 86400 - 1, 86400, 59 * 60)),
+                        len("at the 7d wall"))
     check("span: the widest runway fits its column in the bridge and in `account list`",
           widest_runway < tui.ACCT_W["runway"] and widest_runway < 16, str(widest_runway))
 

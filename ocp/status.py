@@ -666,18 +666,18 @@ class Runway:
     eta_s: float | None       # seconds to the wall at the current burn
     burning: bool             # False: no burn reading, or an idle account
     past_reset: bool          # the 5h window rolls over before the line is reached
-    # How long the week lasts with one more agent on it (`week_stretch_s`, the
-    # figure the pick judges by) when that is known and the week does not roll
-    # over first; None otherwise, and then the week is not what runs out first.
+    # How long the week lasts (`week_runway_s`) when that is known and the week
+    # does not roll over first; None otherwise, and then the week is not what
+    # runs out first.
     week_s: float | None = None
 
 
 def runway(st: "AccountStatus", burn: float | None, now: float | None = None,
            ld=None) -> Runway | None:
     """An estimate of how long this account's headroom lasts, whichever window
-    runs out first: the 5h one at the current burn, the week at the pick's own
-    figure for it (`ld` is the account's load, which carries the plan's ratio;
-    without it the week is not estimated). None when its reading is stale or
+    runs out first: the 5h one at the current burn, the week by `week_runway_s`
+    (`ld` is the account's load, which carries the plan's ratio; without it the
+    week is not estimated). None when its reading is stale or
     unknown: no figure is better than one drawn from a reading that stopped
     describing the account."""
     pct = st.trusted_pct_5h
@@ -687,9 +687,7 @@ def runway(st: "AccountStatus", burn: float | None, now: float | None = None,
     week = st.trusted_pct_7d
     left = max(0, PCT_5H_BLOCK - pct)
     left7 = None if week is None else max(0, PCT_7D_BLOCK - week)
-    week_s = week_stretch_s(st, ld)
-    if week_s is not None and st.reset_7d and st.reset_7d - now <= week_s:
-        week_s = None
+    week_s = week_runway_s(st, ld, now)
     if not burn or burn <= 0:
         return Runway(left, left7, None, False, False, week_s)
     eta = left / burn
@@ -713,7 +711,7 @@ def describe_runway(r: Runway | None) -> str:
     # comes first does not run out at all.
     five = r.eta_s if r.burning and not r.past_reset else None
     if r.week_s is not None and (five is None or r.week_s < five):
-        return f"~{span(r.week_s)} to 7d wall"
+        return f"~{span(r.week_s)} to 7d"
     if not r.burning:
         return "no recent burn"
     return "outlasts reset" if r.past_reset else f"~{span(r.eta_s)} to wall"
@@ -750,10 +748,12 @@ def team_outlook(names: list[str] | None = None, now: float | None = None) -> st
 
 # A tier for "cannot realistically be exhausted" was tried here and dropped
 # (#1085): telling an abundant account from a thrifty one needs to know plan
-# size, and nothing this module reads carries it. headroom is a percent of a
-# window, capped at 100 whatever the plan; agent_burn comes from load.py's
-# Costs, which is one estimate shared by every account (load.py: "shared by
-# every account, built once at load.py:154"), not a per-account figure. So the
+# size, and nothing this module reads carries it: headroom is a percent of a
+# window, capped at 100 whatever the plan, and agent_burn is one estimate
+# shared by every account (load.py: "shared by every account, built once at
+# load.py:154"). The only per-account figure is the week-per-5h ratio
+# (`week_stretch_s`), which converts one window's points into the other's and
+# says nothing of how many agents a plan can carry. So the
 # only thing that varied between accounts in that computation was the cap,
 # and "cap running flat out would not spend the headroom before reset" reduces
 # to "both windows reset soon" - the earliest-deadline rule this change exists
@@ -862,12 +862,36 @@ def week_stretch_s(st: "AccountStatus", ld, agent: str | None = None) -> float |
     return triggers.stretch_s(PCT_7D_BLOCK - week, fill, agent_burn(ld, agent) * ratio)
 
 
+def week_runway_s(st: "AccountStatus", ld, now: float | None = None) -> float | None:
+    """How long the week lasts, for the runway column: at the current fill when
+    the account is filling, the question the 5h side answers. An idle account
+    has no fill to run out at, so it shows the week only where the pick shut it
+    out on the week (`_no_week_room`, one more agent's cost). None where the
+    week or the ratio is unknown, or the week rolls over first."""
+    now = now or time.time()
+    week = st.trusted_pct_7d
+    ratio = ld.costs.week_per_5h(ld.account) if ld and ld.costs else None
+    if week is None or ratio is None:
+        return None
+    fill = (ld.burn or 0.0) * ratio
+    if fill > 0:
+        lasts = (PCT_7D_BLOCK - week) / fill
+    elif _no_week_room(st, ld):
+        lasts = week_stretch_s(st, ld)
+    else:
+        return None
+    # A week resets within 7 days whether or not the collector told us when.
+    reset_in = (st.reset_7d - now) if st.reset_7d else 7 * 86400
+    return None if reset_in <= lasts else lasts
+
+
 def _no_week_room(st: "AccountStatus", ld, agent: str | None = None) -> str | None:
     """Why the week cannot carry one more agent: it would run out in less than
     a start is worth (`MIN_STRETCH_S`, the same line the 5h window is held to)
-    and before the week rolls over. 99% of a week with a day and a half to go is
-    one; so is 99% with minutes to go, which is not, because the reset arrives
-    first."""
+    and before the week rolls over. 99% of a week with a day and a half to go
+    is such a week; 99% with minutes to go is not, because the reset arrives
+    first. A stale week reading is unknown here (`trusted_pct_7d`), so the week
+    is not judged and only the 5h window is: no figure over a stale one."""
     lasts = week_stretch_s(st, ld, agent)
     if lasts is None or lasts >= triggers.MIN_STRETCH_S:
         return None
@@ -952,7 +976,8 @@ def pick_account(candidates: list[str] | None = None, bootstrap: bool = False,
     an abundant account from a thrifty one needs to know plan size, and
     nothing here reads it - headroom is a percent of a window, capped at 100
     whatever the plan, and the per-agent cost this module has is one estimate
-    shared by every account, not a per-account figure. What that tier actually
+    shared by every account (the week-per-5h ratio is per account but only
+    converts one window's points into the other's). What that tier actually
     computed was "does this account's window reset before its cap could
     plausibly spend the headroom", which - at the one burn rate available -
     reduces to "resets soon", the earliest-deadline rule this change exists to
@@ -974,7 +999,8 @@ def pick_account(candidates: list[str] | None = None, bootstrap: bool = False,
     An account can take one more agent when it is not at the wall, is under its
     cap of agents mid-turn (`load`), and lasts at least `MIN_STRETCH_S` before
     its wall at its current fill plus one more agent of the kind `agent` names (a
-    typical one when it names none). How fast it is filling,
+    typical one when it names none), and the same holds of its week (`_no_week_room`,
+    at the plan's measured week-per-5h ratio) unless the week rolls over first. How fast it is filling,
     not a fixed line, is what says it has room: an account at 60% and idle has
     more than one at 30% with three agents on it.
 

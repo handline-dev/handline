@@ -26,7 +26,7 @@ class Load:
     active: int              # agents mid-turn on it
     cap: int
     burn: float | None       # percent of the 5h window per second, None unmeasured
-    costs: "burnrate.Costs | None" = None   # what one more agent costs, shared by every account
+    costs: "burnrate.Costs | None" = None   # what one more agent costs (one estimate for every account) and the week ratios
 
     @property
     def at_cap(self) -> bool:
@@ -135,8 +135,8 @@ def active_agents(con, exclude: str | None = None) -> dict[str, int]:
 
 
 def costs(con=None) -> "burnrate.Costs":
-    """What one more agent costs, shared by every account - the same estimate
-    `read_all` puts on each `Load`."""
+    """What one more agent costs, the same estimate for every account, and the
+    plan's week-per-5h ratios; `read_all` puts one object on each `Load`."""
     own = con is None
     con = db.connect() if own else con
     try:

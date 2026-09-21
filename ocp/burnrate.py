@@ -59,8 +59,9 @@ _SAMPLES = "burnsamples"
 WEEK_RATIO_WINDOW_S = 3 * 86400
 # The week moves in whole points, so a ratio is only as good as the rise it
 # was divided from: at ten points one point of resolution is a tenth of it.
-# An account with less takes the pooled ratio of all accounts, and where that
-# is under it too there is no ratio and the week is judged at its wall alone.
+# An account with less takes the pooled ratio of the accounts on its plan (the
+# ratio is the plan's), and where that is under it too there is no ratio and
+# the week is judged at its wall alone.
 WEEK_RATIO_MIN_POINTS = 10
 # The daemon recomputes it this often; a plan's ratio does not move by the tick.
 WEEK_RATIO_EVERY_S = 600
@@ -145,9 +146,13 @@ def observe(con, acct: str, active: list[str], st, firsts: "set[str]" = frozense
     db.set_meta(con, _seg_key(acct), json.dumps(seg) if seg else None)
 
 
-def week_ratios(rows) -> dict[str, float]:
+def _pool(plan: str | None) -> str:
+    return POOLED + (plan or "")
+
+
+def week_ratios(rows, plan_of=lambda _a: None) -> dict[str, float]:
     """Points of the week per point of the 5h window, by account and pooled
-    under POOLED, from `usage_samples` rows in time order. Only a pair of
+    per plan under `_pool(plan)`, from `usage_samples` rows in time order. Only a pair of
     consecutive rows of one account that are both live readings of both windows,
     inside the same 5h window and the same week, and in which neither figure
     fell, says anything: a rolled window, a carried figure or a gap does not."""
@@ -169,7 +174,7 @@ def week_ratios(rows) -> dict[str, float]:
         d5, d7 = r["pct_5h"] - prev["pct_5h"], r["pct_7d"] - prev["pct_7d"]
         if d5 < 0 or d7 < 0:
             continue
-        for key in (a, POOLED):
+        for key in (a, _pool(plan_of(a))):
             t = totals.setdefault(key, [0, 0])
             t[0] += d5
             t[1] += d7
@@ -188,7 +193,10 @@ def refresh_week_ratios(con, now: int | None = None, force: bool = False) -> Non
         kept = {}
     if not force and isinstance(kept, dict) and now - int(kept.get("at", 0)) < WEEK_RATIO_EVERY_S:
         return
-    ratios = week_ratios(db.usage_samples(con, since=now - WEEK_RATIO_WINDOW_S))
+    from . import accounts
+
+    ratios = week_ratios(db.usage_samples(con, since=now - WEEK_RATIO_WINDOW_S),
+                         accounts.recorded_subscription_type)
     db.set_meta(con, _WEEK_RATIO, json.dumps({"at": now, "r": ratios}))
 
 
@@ -204,15 +212,17 @@ class Costs:
     """The estimate, read once from the samples and shared by every account's
     load, so a screen and the daemon price an agent the same."""
 
-    def __init__(self, samples: list[dict], week_ratios: dict[str, float] | None = None):
+    def __init__(self, samples: list[dict], week_ratios: dict[str, float] | None = None,
+                 plan_of=lambda _a: None):
         self._samples = samples
         self._week_ratios = week_ratios or {}
+        self._plan_of = plan_of
 
     def week_per_5h(self, account: str) -> float | None:
         """Points of the week one point of the 5h window costs on this account:
-        its own measured ratio, else all accounts', else None - nothing has
+        its own measured ratio, else its plan's pooled one, else None - nothing has
         measured it, and no 5h figure can be turned into the week's."""
-        return self._week_ratios.get(account, self._week_ratios.get(POOLED))
+        return self._week_ratios.get(account, self._week_ratios.get(_pool(self._plan_of(account))))
 
     def _median(self, pick) -> tuple[float, int] | None:
         vals = [s["r"] for s in reversed(self._samples) if pick(s)][:KEEP]
@@ -255,4 +265,6 @@ class Costs:
 
 
 def costs(con) -> Costs:
-    return Costs(_load_samples(con), _load_week_ratios(con))
+    from . import accounts
+
+    return Costs(_load_samples(con), _load_week_ratios(con), accounts.recorded_subscription_type)
