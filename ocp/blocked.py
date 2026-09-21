@@ -15,8 +15,9 @@ ESCALATE_AFTER_S. It is written by the daemon and read by the bridge and
 
 ocp names what is in the way, and presses at most one key at a dialog: Esc, and
 only where the dialog itself says Esc cancels and offers an option that just
-declines (`orca.declining_key`). It never chooses, so the worst a press does is
-change nothing. What it cleared it reports, and a dialog that keeps coming back
+declines (`orca.declining_key`). It never chooses: a press lands on the dialog or
+changes nothing, except where a person has typed into that agent's input box,
+which Esc can clear. What it cleared it reports, and a dialog that keeps coming back
 is a loop the founder is told about, not one it keeps pressing.
 """
 from __future__ import annotations
@@ -66,14 +67,15 @@ NO_TERMINAL, NO_SESSION, STALLED, ORCA_DOWN = "no terminal", "no session", "stal
 # What to do about each, in the words of the bridge's own keys.
 ADVICE = {
     orca.MODAL: "answer it in its terminal (t on the agents panel)",
-    orca.UNSENT: "send or clear the text in its terminal (t); ocp will not type into it",
+    orca.BACKGROUNDED: "open its terminal (t on the agents panel) and press Esc to return to the conversation",
     orca.UNREADABLE: "check its terminal (t on the agents panel); ocp cannot read its screen",
     NO_TERMINAL: "t on the agents panel starts one",
     NO_SESSION: "w on the agents panel wakes it",
     STALLED: "u on the agents panel clears it",
     ORCA_DOWN: "check Orca and PATH; ocp cannot reach it at all",
 }
-LABEL = {orca.MODAL: "dialog open", orca.UNSENT: "unsent text", orca.UNREADABLE: "screen unreadable",
+LABEL = {orca.MODAL: "dialog open", orca.BACKGROUNDED: "conversation in the background",
+         orca.UNREADABLE: "screen unreadable",
          ORCA_DOWN: "orca unreachable",
          NO_TERMINAL: "no terminal", NO_SESSION: "no session", STALLED: "stalled"}
 
@@ -82,7 +84,7 @@ _checked: dict[str, int] = {}
 
 def reason(kind: str, detail: str) -> str:
     """What is in the way, as a sentence."""
-    if kind in (orca.MODAL, orca.UNSENT, orca.UNREADABLE):
+    if kind in (orca.MODAL, orca.BACKGROUNDED, orca.UNREADABLE):
         return orca.Blocker(kind, detail).reason()
     return f"{LABEL.get(kind, kind)}: {detail}" if detail else LABEL.get(kind, kind)
 
@@ -150,14 +152,6 @@ def classify(con, agent: str, row) -> tuple[str, str, str] | None:
         return NO_SESSION, "", ""
     seen = orca.screen_blocker(handle)
     if seen is None:
-        return None
-    # A working agent's input box has whatever its user is typing into it; only
-    # a dialog is in the way there. An unreadable screen is not that box - it
-    # is not something the agent's own user is legitimately mid-way through -
-    # and it blocks delivery the same way for a RUNNING agent as an idle one
-    # (screen_blocker's callers fail closed on it regardless of state), so
-    # named here too, not carved out the way UNSENT is above.
-    if seen.kind == orca.UNSENT and row["state"] in (daemon.RUNNING, daemon.HANDOFF):
         return None
     return seen.kind, seen.detail, seen.title
 
