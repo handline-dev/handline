@@ -6927,6 +6927,118 @@ def test_a_woken_agent_is_not_judged_on_the_snapshot_it_left(home: Path) -> None
         con.close()
 
 
+def test_an_agent_idle_past_its_prompt_cache_comes_back_fresh_with_its_work(home: Path) -> None:
+    """A resume after the cache expired re-reads the whole transcript uncached;
+    a fresh conversation reads the handoff. The agent that comes back fresh must
+    still be able to carry on: the handoff taken when it was closed names the
+    request it had in hand and its transcript, is in the new session's system
+    prompt, and the request is still its own."""
+    _daemon_home(home, 20)
+    con = db.connect()
+    sent: list[str] = []
+    seen: list[str] = []
+    real = (orcamod.alive, orcamod.wait_idle, orcamod.idle_now, orcamod.send,
+            orcamod.available, orcamod.clear_context)
+    try:
+        orcamod.available = lambda: True
+        orcamod.live_terminals = lambda: {"term_x"}
+        orcamod.alive = lambda h: True
+        orcamod.wait_idle = lambda h, timeout_ms=0: True
+        orcamod.idle_now = lambda h: True
+        table = sessions_are("backend")
+        relaunch = relaunching_send(sent, table)
+
+        def send(handle, text, enter=True):
+            if " launch " in text:
+                # What the new session is handed as its system prompt.
+                seen.append(launch.context_for("backend"))
+            return relaunch(handle, text, enter)
+        orcamod.send = send
+
+        wt = home / "wt"
+        wt.mkdir()
+        subprocess.run(["git", "init", "-q", str(wt)], check=True)
+        subprocess.run(["git", "-C", str(wt), "-c", "user.email=t@t", "-c", "user.name=t",
+                        "commit", "-q", "--allow-empty", "-m", "init"], check=True)
+        db.set_terminal(con, "backend", "term_x", str(wt))
+        db.set_agent_state(con, "backend", dmn.IDLE)
+        (home / "agents" / "backend").mkdir(parents=True, exist_ok=True)
+        (home / "agents" / "backend" / "status.json").write_text(json.dumps({
+            "account": "alpha", "collected_at": int(time.time()), "session_id": "sess-7",
+            "transcript_path": "/tmp/sess-7.jsonl", "pct_5h": 20}))
+        rid = db.add_request(con, "reviewer", "backend", "review the picker branch", None,
+                             "peer", "async", None, 0, None)
+        db.mark_delivered(con, rid)
+        dmn.close_agent(con, "backend", lambda _m: None,
+                        status.read_for_agent("backend", "alpha"))
+        record = db.get_handoff(con, "backend") or ""
+        check("cache: closing mid-task recorded the request in hand and the transcript",
+              f"request: #{rid}" in record and "/tmp/sess-7.jsonl" in record, record)
+
+        def wake_after(idle_s: int) -> tuple[list[str], list[str]]:
+            con.execute("DELETE FROM events WHERE agent = 'backend' AND kind = 'Stop'")
+            db.add_event(con, "backend", "Stop", {})
+            con.execute("UPDATE events SET ts = ? WHERE agent = 'backend' AND kind = 'Stop'",
+                        (int(time.time()) - idle_s,))
+            sent.clear()
+            seen.clear()
+            db.set_handoff(con, "backend", record)
+            ok, why = dmn.wake_agent(con, "backend", lambda _m: None)
+            check(f"cache: the wake after {idle_s}s goes through", ok, why)
+            table["backend"] = 4242
+            return list(sent), list(seen)
+
+        # Still inside the cache's life: resumed, as before.
+        warm_sent, _ = wake_after(dmn.RESUME_WARM_S - 120)
+        check("cache: an agent idle inside the cache's life is resumed",
+              any("--resume sess-7" in t for t in warm_sent), str(warm_sent))
+
+        # Past it: a fresh conversation that is handed the handoff.
+        db.set_closed(con, "backend", "sess-7")
+        table.clear()
+        cold_sent, cold_ctx = wake_after(dmn.RESUME_WARM_S + 60)
+        check("cache: an agent idle past the cache's life is not resumed",
+              cold_sent and not any("--resume" in t for t in cold_sent), str(cold_sent))
+        check("cache: it is told why, and where its handoff is",
+              any("fresh conversation" in t and "system prompt" in t for t in cold_sent), str(cold_sent))
+        check("cache: the new session's system prompt carries the request in hand and the transcript",
+              cold_ctx and f"request: #{rid}" in cold_ctx[0] and "/tmp/sess-7.jsonl" in cold_ctx[0],
+              str(cold_ctx))
+        head = db.head_of_queue(con, "backend")
+        check("cache: the request is still its own, delivered and open",
+              head is not None and head["id"] == rid and head["delivered_at"], str(head and dict(head)))
+        check("cache: the wake is recorded as a fresh start for that reason",
+              con.execute("SELECT 1 FROM events WHERE kind = 'wake' AND payload LIKE '%cache_expired%'").fetchone())
+    finally:
+        (orcamod.alive, orcamod.wait_idle, orcamod.idle_now, orcamod.send,
+         orcamod.available, orcamod.clear_context) = real
+        con.close()
+
+
+def test_an_agent_with_no_whole_handoff_is_resumed_however_long_it_idled(home: Path) -> None:
+    """The transcript is the only complete copy of a context whose handoff could
+    not be taken, so the cache's age does not send it fresh."""
+    _daemon_home(home, 20)
+    con = db.connect()
+    try:
+        db.set_handoff(con, "backend", None)
+        db.add_event(con, "backend", "Stop", {})
+        con.execute("UPDATE events SET ts = ? WHERE agent = 'backend'",
+                    (int(time.time()) - 10 * dmn.RESUME_WARM_S,))
+        check("cache: no handoff, so a long idle still resumes",
+              not dmn.cache_expired(con, "backend", "sess-7", int(time.time())))
+        db.set_handoff(con, "backend", "# handoff")
+        check("cache: with one, the same idle starts fresh",
+              dmn.cache_expired(con, "backend", "sess-7", int(time.time())))
+        check("cache: with no session id there is nothing to skip",
+              not dmn.cache_expired(con, "backend", None, int(time.time())))
+        con.execute("DELETE FROM events WHERE agent = 'backend'")
+        check("cache: an agent that never reported has no clock and is resumed",
+              not dmn.cache_expired(con, "backend", "sess-7", int(time.time())))
+    finally:
+        con.close()
+
+
 def test_a_park_that_was_also_closed_is_woken_without_being_judged(home: Path) -> None:
     """An agent can be parked and closed at once, and then the wake_at branch is
     what restores its session - so the same rule has to hold there. It held only
@@ -18231,6 +18343,8 @@ def main() -> int:
         run(lambda: test_a_closed_agent_is_not_handed_off(Path(td) / 'closedtrig'))
         run(lambda: test_a_woken_agent_is_told_on_the_following_tick(Path(td) / 'woketick'))
         run(lambda: test_a_woken_agent_is_not_judged_on_the_snapshot_it_left(Path(td) / 'wakejudge'))
+        run(lambda: test_an_agent_idle_past_its_prompt_cache_comes_back_fresh_with_its_work(Path(td) / 'coldwake'))
+        run(lambda: test_an_agent_with_no_whole_handoff_is_resumed_however_long_it_idled(Path(td) / 'coldnone'))
         run(lambda: test_a_park_that_was_also_closed_is_woken_without_being_judged(Path(td) / 'pclosed'))
         run(lambda: test_reconcile_wakes_a_park_that_was_also_closed(Path(td) / 'pclosed2'))
         run(lambda: test_a_wake_does_not_call_a_fresh_start_a_park(Path(td) / 'freshstart'))
