@@ -1395,9 +1395,11 @@ def _detail_frame(width: int, height: int, detail: dict, flash: str = "") -> str
         keys = "esc back · ↑↓ scroll · space page"
     if detail.get("stem") == actions.CHAT_TAB:
         keys = "esc back · ↑↓ scroll · ↵ write (/ for commands) · e in $EDITOR"
-    if detail.get("panel") == MESSAGES:
+    if detail.get("read_only"):
+        pass                           # nothing here acts on the agent
+    elif detail.get("panel") == MESSAGES:
         keys += " · a answer · e answer in $EDITOR · x dismiss"
-    elif detail.get("panel") in (AGENTS, STUCK) and not detail.get("parent"):
+    elif detail.get("panel") in (AGENTS, STUCK):
         # A connection per render, unlike `build`'s one-per-frame: this page
         # is already reopening the agent's own rows on every redraw
         # (`_refreshed`), so a second connection here costs nothing this
@@ -2081,7 +2083,7 @@ def _in_detail(detail: dict, k: str, width: int, height: int,
                 con.close()
         return detail.get("parent"), ""
     if k in ("\033[C", "\033OC", "\t", "\033[D", "\033OD", "\033[Z"):
-        if not detail.get("stacked"):
+        if not detail.get("stacked") and _tab_stems(detail):
             fwd = k in ("\033[C", "\033OC", "\t")
             _go_to_tab(detail, detail.get("tab", 0) + (1 if fwd else -1))
         return detail, ""
@@ -2112,7 +2114,7 @@ def _in_detail(detail: dict, k: str, width: int, height: int,
     if k == "G":
         detail["top"] = max(0, len(lines_of(detail, width)) - room)
         return detail, ""
-    if detail.get("parent"):
+    if detail.get("read_only"):
         return detail, "read-only - esc goes back to the conversation"
     if detail.get("panel") in (AGENTS, STUCK):
         # An agent's page is opened to decide something about that agent, and
@@ -2197,7 +2199,7 @@ def _open_read_page(con, detail: dict, name: str, cmd: str) -> dict:
     else:
         d = page(f"what {name} has done", [("", actions.agent_done(con, name))],
                  detail["panel"], name)
-    d["parent"] = detail
+    d["parent"], d["read_only"] = detail, True
     return d
 
 

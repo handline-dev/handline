@@ -15863,7 +15863,7 @@ def test_a_read_only_page_does_not_act_on_the_agent_and_the_note_row_is_whole(ho
         cmds = dict(tui.agent_commands(con, "reviewer"))
         sub, _ = tui._run_command(con, d, "reviewer", "knows", cmds, 80, 40, None, None)
         tui._dispatch_agent_verb = lambda *a, **k: (called.append(a[3]), (a[1], "ran"))[1]
-        for key in ("m", "t", "c", "p", "w", "u", "v", "e", "\r"):
+        for key in [k for k, label in tui.AGENT_KEYS if label != "open"] + ["\r", "x"]:
             out, msg = tui._in_detail(sub, key, 80, 40)
             check(f"read page: {key!r} does not reach the agent", out is sub and not called,
                   f"{called} {msg}")
@@ -15875,26 +15875,37 @@ def test_a_read_only_page_does_not_act_on_the_agent_and_the_note_row_is_whole(ho
               frame.split("\n")[-1])
         check("read page: esc returns to the conversation", tui._in_detail(sub, "\033", 80, 40)[0] is d)
         check("read page: scrolling still works", tui._in_detail(sub, "j", 80, 40)[0] is sub)
+        sub["top"], sub["end"] = 3, False
+        for arrow in ("\033[C", "\033[D", "\t"):
+            tui._in_detail(sub, arrow, 80, 40)
+        check("read page: an arrow key does not throw the reader back to the top",
+              sub["top"] == 3 and not sub["end"], str((sub["top"], sub["end"])))
     finally:
         tui._dispatch_agent_verb = real
         con.close()
 
+    # A two-column prompt is the one a miscounted note tears: its escape is
+    # cut after "ESC[".
     box = tui._composer(True)
     box.feed("word " * 60)
-    rows = box.shown("to x:", 20, 4)
+    rows = box.shown("x:", 20, 4)
     note = next(r for r in rows if "earlier" in r)
     check("composer: the window note is whole, its escape uncut",
           note == f"{tui.DIM}{tui._ANSI.sub('', note)}{tui.R}"
           and _ANSI_TEXT_OK(note), repr(note))
     check("composer: the prompt is not bolded on the note row", tui.BOLD not in note)
     box.feed("\033[1;5D" * 60)                    # word-left to the start: the prompt row is in view
-    rows = box.shown("to x:", 20, 4)
+    rows = box.shown("x:", 20, 4)
     check("composer: with the prompt in view its row carries the bold",
-          any(r.startswith(f"{tui.BOLD}to x:") for r in rows), repr(rows))
+          any(r.startswith(f"{tui.BOLD}x:") for r in rows), repr(rows))
+    tail = tui._composer(True)
+    tail.feed("word " * 60)
+    check("composer: scrolled past the prompt, no row is bolded",
+          not any(tui.BOLD in r for r in tail.shown("x:", 20, 4)))
 
 
 def _ANSI_TEXT_OK(s: str) -> bool:
-    """Every escape in `s` is a whole sequence: removing them leaves no ESC or stray '[' pair."""
+    """Once the whole escape sequences are removed, no ESC is left."""
     return "\033" not in tui._ANSI.sub("", s)
 
 
