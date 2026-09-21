@@ -2767,10 +2767,16 @@ def test_a_stale_draft_never_blocks_delivery_again(home: Path) -> None:
     """#1106: keeper, purser and chat sat IDLE for 8 hours, each reported as
     'text is left unsent in its input' while every real input box was empty -
     Orca's own remembered `draft` outliving a send that did not complete, with
-    nothing to clear it but the exact send it was refusing to make. Driven
-    through the real reader against a screen that never changes and a `draft`
-    that never clears: delivery must go through anyway, on the first tick,
-    because the deadlock is closed at the source, not worked around."""
+    nothing to clear it but the exact send it was refusing to make. #1130:
+    the remedy did not hold - purser stalled again an hour later with the
+    draft set to 'ocp inbox', the exact text that had just unblocked it. A
+    draft equal to the last thing ocp itself sent is the ordinary steady
+    state of every agent given work, not a one-off failure, so this is not
+    an edge case: it is what happens to every agent, every time, on the path
+    that matters most. Driven through the real reader against a screen that
+    never changes and a `draft` that never clears: delivery must go through
+    anyway, on the first tick, because the deadlock is closed at the source
+    - draft is not read at all any more - not worked around."""
     con = _blocked_world(home)
     orcamod.live_terminals = lambda: {"term_x"}
     real = (orcamod._screen, orcamod.screen_blocker, orcamod.modal_open, orcamod.unsent_text)
@@ -2778,10 +2784,10 @@ def test_a_stale_draft_never_blocks_delivery_again(home: Path) -> None:
         orcamod.screen_blocker = REAL_ORCA["screen_blocker"]
         orcamod.modal_open = REAL_ORCA["modal_open"]
         orcamod.unsent_text = REAL_ORCA["unsent_text"]
-        # A draft that never changes, tick after tick - the incident's own
-        # shape - over a composer that reads as empty on every read.
+        # draft = the literal text ocp last sent this agent ('ocp inbox',
+        # #1130's own case) - not stale garbage, the ordinary steady state.
         orcamod._screen = lambda h: {"handle": h, "status": "running", "source": "screen",
-                                     "tail": list(COMPOSER_EMPTY), "draft": "check ocp inbox"}
+                                     "tail": list(COMPOSER_EMPTY), "draft": "ocp inbox"}
         now = int(time.time())
         for step in (0, blockedmod.RECHECK_S + 1, blockedmod.SHOW_AFTER_S + 1):
             blockedmod._checked.clear()
