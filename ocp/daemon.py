@@ -36,7 +36,7 @@ from pathlib import Path
 
 from . import (accounts, agents, blocked, burnrate, collect, db, events, fold as foldmod,
                handoff as handoffmod, launch, load, lock, measure, observe as obs, orca, paths,
-               probe, service, spawn as spawnmod, status, statusline, textsafe, tokenlog, triggers,
+               service, spawn as spawnmod, status, statusline, textsafe, tokenlog, triggers,
                usage_api)
 from .yamlcompat import ConfigError
 
@@ -52,7 +52,7 @@ THROTTLED, STALLED = "THROTTLED", "STALLED"
 # as parked and never woken mid-task.
 EVALUATED = {RUNNING, HANDOFF, PARKED, QUEUED, THROTTLED, IDLE, DEGRADED}
 
-# How long after a limit StopFailure the agent counts as settled, probe or not.
+# How long after a limit StopFailure the agent counts as settled.
 LIMIT_SETTLE_S = 30
 
 # How long a DEGRADED agent waits before the daemon retries it.
@@ -65,9 +65,8 @@ DEGRADED_RETRY_S = 600
 ASSUMED_ACCOUNT_RECHECK_S = 300
 
 # An account with no reading and no credentials asks `logged_in` every tick
-# for ever otherwise - on macOS a keychain subprocess apiece. This is a
-# cooldown of its own, never the probe cursor: that one must stay untouched so
-# the account's first real reading is not suppressed once it does log in.
+# for ever otherwise - on macOS a keychain subprocess apiece. A cooldown of its
+# own, so that an account which does log in is not left waiting on it.
 LOGIN_CHECK_COOLDOWN_S = 300
 
 # The shortest gap between two asks about one account (`usage_api`, D11). One
@@ -2245,78 +2244,6 @@ def supervise(con, agent: str, log, now: int, samples: dict,
 _last_rollover_day = {"day": ""}
 
 
-def _start_probe(con, acct: str, why: str, log, actions: list[str]) -> bool:
-    try:
-        subprocess.Popen([sys.executable, str(paths.repo_root() / "bin" / "ocp"),
-                          "account", "probe", acct],
-                         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-                         start_new_session=True)
-    except OSError as e:
-        # No cooldown on a probe that never ran: what it guards is the
-        # quota a probe spends, and this one spent nothing.
-        log(f"  probe {acct}: could not start - {e}")
-        return False
-    db.set_cursor(con, f"probe:{acct}", int(time.time()))
-    actions.append(f"probe {acct}: {why}")
-    log(f"  probe {acct}: {why}")
-    return True
-
-
-def probe_stale_accounts(con, log, actions: list[str]) -> None:
-    """Read an account nothing has read, and find out whether one whose 5h
-    window has passed is free again.
-
-    An account only writes a reading while a session runs on it, so one that
-    nobody is using cannot say that its window rolled over - and agents wait
-    out a full account beside an empty one. Before the window ends the last
-    reading is a floor it keeps (`AccountStatus.assignable`); after it,
-    nothing does but asking.
-
-    The second only when nowhere already has room for a waiting agent: a probe
-    spends a little of the very quota it is asking about, and a team with
-    somewhere to go needs no answer. The probe runs detached, because it takes a session's
-    startup to answer and a tick may not stop for that. What it leaves behind
-    is a fresh snapshot, which the next tick reads like any other.
-    """
-    now = int(time.time())
-    # A new account gets its first reading whoever is waiting: it is what makes
-    # it rankable at all, and it is asked once (`probe.unread`). Asked of the
-    # cheap file and cursor first: `logged_in` can be a keychain subprocess, and
-    # this runs every tick for every account. An account that comes up not
-    # logged in stays `unread` forever - nothing else would write its cursor -
-    # so a cooldown of its own (never the probe cursor, or the first real
-    # reading would be suppressed once it does log in) keeps that account from
-    # paying a login check every tick for as long as it never logs in.
-    for acct in paths.list_accounts():
-        if not probe.unread(status.read(acct), db.get_cursor(con, f"probe:{acct}") or None):
-            continue
-        if now < db.get_cursor(con, f"login-check:{acct}"):
-            continue
-        if accounts.logged_in(acct):
-            if _start_probe(con, acct, "no reading yet, asking where it stands",
-                            log, actions):
-                return  # one at a time; the next tick takes the next account
-        else:
-            db.set_cursor(con, f"login-check:{acct}", now + LOGIN_CHECK_COOLDOWN_S)
-    waiting = [r["agent"] for r in db.all_agent_states(con)
-               if r["state"] in (PARKED, THROTTLED, DEGRADED) and not r["closed_at"]]
-    if not waiting:
-        return
-    dest, _ = status.pick_account(
-        [a for a in paths.list_accounts() if accounts.logged_in(a)],
-        bootstrap=True, load=load.read_all(con))
-    if dest is not None:
-        return  # somewhere already has room; no need to spend a probe
-    for acct in paths.list_accounts():
-        st = status.read(acct)
-        if not accounts.logged_in(acct) or \
-                not probe.due(st, db.get_cursor(con, f"probe:{acct}") or None):
-            continue
-        if _start_probe(con, acct, "its 5h window has passed, asking where it stands",
-                        log, actions):
-            return  # one at a time; the next tick takes the next account
-
-
 def collect_snapshots(con, log) -> None:
     """Pull each live agent's context and session identity from its transcript.
 
@@ -2371,9 +2298,10 @@ def poll_usage(con, log) -> None:
 
     This is the half of the collector's payload the transcript cannot give
     (D11): a session learns its rate limits only from its own API responses, so
-    a quiet account went silent and `probe_stale_accounts` had to spend a real
-    turn to break the silence. The endpoint answers for any account with nothing
-    running at all, which is what makes asking cheap enough to do on a schedule.
+    a quiet account went silent, and until #1447 the answer was `probe.py` -
+    boot a session on it and spend a real turn to force a number out. The
+    endpoint answers for any account with nothing running at all, which is what
+    makes asking cheap enough to do on a schedule, and what retired the probe.
 
     One account per tick: five HTTPS GETs in one tick would put five timeouts in
     the path of a 30s loop.
@@ -2427,8 +2355,6 @@ def tick(con, log, samples: dict | None = None) -> Tick:
 
     # A handoff past its deadline must fail here, not only at startup.
     actions += expire_handoffs(con, log)
-
-    probe_stale_accounts(con, log, actions)
 
     # Midnight rollover (section 5). Nothing else calls it, and without it
     # yesterday's "in progress" stays in progress forever - and every fold

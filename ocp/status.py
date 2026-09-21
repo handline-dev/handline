@@ -31,8 +31,8 @@ unbounded invisible spender even on an idle account - a human running
 `claude -p` by hand, or anything else no collector sees - so the floor is
 judged against a line clear of the wall, not the wall itself, to cover spend
 we cannot see. Once the window rolls over the floor stops holding at all,
-because what happened since is unaccounted for; only a probe answers for it
-then.
+because what happened since is unaccounted for; only asking the endpoint
+answers for it then (`usage_api`).
 
 A carried figure is a floor, not a measurement: usage inside a window only
 rises, so the true number is at least that. The same is true, unmarked, of a
@@ -397,8 +397,8 @@ class AccountStatus:
           `pick_account`, `doctor`, the bridge - not because the case it
           guards has been seen.
         - `reset_5h` has not passed. Past it the figure describes a window
-          that no longer exists - `rolled_over` and the probe answer for that
-          case, not this one.
+          that no longer exists - `rolled_over` and the usage poll answer for
+          that case, not this one.
         - The floor is a lower bound, not a measurement - there is an
           unbounded invisible spender even with no agent of ours running (a
           human running `claude -p` by hand; `ocp fold`'s own risk is closed

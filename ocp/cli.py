@@ -21,7 +21,7 @@ from . import (accounts, actions, agents, ask as askmod, collect, daemon as daem
                tui,
                digest, doctor,
                drift, events, fold as foldmod, guide, handoff as handoffmod, hooks, launch,
-               load, observe as obs, paths, probe as probemod, service,
+               load, observe as obs, paths, service,
                hr, orca, status, spawn as spawnmod, team, textsafe, triggers,
                usage_api, waiting)
 
@@ -226,31 +226,6 @@ def cmd_account_list(args) -> int:
     return 0
 
 
-def cmd_account_probe(args) -> int:
-    """`ocp account probe <acct>` - the manual form of what the daemon does
-    when an account's window has passed and nothing has run on it since."""
-    if args.account not in paths.list_accounts():
-        print(f"no such account: {args.account}")
-        return 1
-    # Which mechanism answers is decided inside `probe.run`, so the line that
-    # used to promise "one small turn" is written after the fact instead of
-    # before it: the endpoint usually answers and no turn is spent at all.
-    print(f"asking {args.account} where it stands "
-          f"(the endpoint first, then a turn of up to {probemod.PROBE_TIMEOUT_S}s)...")
-    st = probemod.run(args.account)
-    how = ("asked over the API - no session, no quota"
-           if (st.raw or {}).get("rl_source") == "api" else "spent a turn on the account")
-    ld = load.read_all().get(args.account)
-    allowed, why = st.takes_work(ld.active if ld else 0)
-    age = status.ago(st.age_s)
-    print(f"{args.account}: 5h {st.trusted_pct_5h}% ({st.pct_5h_source}), "
-          f"7d {st.trusted_pct_7d}%, reading {age} old")
-    print(f"takes work: {'yes' if allowed else 'NO'} - {why}")
-    print(f"how: {how}")
-    return 0
-
-
-# ---------------------------------------------------------------- agent
 def cmd_agent_move(args) -> int:
     """Move an agent's live session to another account now (a human's call)."""
     if os.environ.get("OCP_AGENT"):
@@ -1531,9 +1506,6 @@ def build_parser() -> argparse.ArgumentParser:
     p = acc.add_parser("list", help="accounts with usage")
     p.add_argument("--json", action="store_true")
     p.set_defaults(fn=cmd_account_list)
-    p = acc.add_parser("probe", help="spend one small turn to learn where an account stands")
-    p.add_argument("account")
-    p.set_defaults(fn=cmd_account_probe)
 
     ag = sub.add_parser("agent", help="agents").add_subparsers(dest="sub", required=True)
     p = ag.add_parser("move", help="move a live session to another account now")

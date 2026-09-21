@@ -1,16 +1,16 @@
 """Ask an account where it stands without spending any of it.
 
-`probe.py` explains why a quiet account has no reading: the status line only
-runs while a session runs, so an account nobody is using goes silent, and the
-fail-closed rule then refuses to start the one session that would break the
-silence. Its answer is to spend a little of the account - a pty, a session
-boot, one Haiku turn, up to 90s.
+Rate limits ride on API responses, so an account nobody is using cannot say
+where it stands, and the fail-closed rule then refuses to start the one session
+that would have told us. ocp used to answer that with `probe.py`: a pty, a
+session boot and one Haiku turn, up to 90 seconds, spending the very quota it
+was asking about. That module is deleted (#1447); this is what replaced it.
 
-This module asks the same question the way Orca does: the account's own OAuth
-credential against Anthropic's usage endpoint. A quiet account costs one HTTPS
-GET, no session and no quota. Measured against a `probe.py` run on the same
-account six minutes apart (#1364), the two agreed on every figure including the
-reset instant.
+It asks the question the way Orca does: the account's own OAuth credential
+against Anthropic's usage endpoint. A quiet account costs one HTTPS GET, no
+session and no quota. Measured against a probe run on the same account six
+minutes apart (#1364), the two agreed on every figure including the reset
+instant.
 
 Two measurements make it work, and both are worth stating because neither is
 obvious (#1360, #1364):
@@ -208,15 +208,14 @@ def read(acct: str, refresh: bool = True) -> Reading | None:
 def record(reading: Reading, path=None) -> bool:
     """Leave the reading where every existing reader already looks.
 
-    This stands in for what `probe.py` leaves behind - a fresh snapshot the
-    next tick reads like any other - so nothing downstream has to learn about
-    this module. It **merges**: a session's `session_id`, `transcript_path` and
+    A fresh snapshot the next tick reads like any other, so nothing downstream
+    has to learn about this module. It **merges**: a session's `session_id`, `transcript_path` and
     context figures are `collect`'s and are none of our business, and a reading
     that replaced the file wholesale would take the handoff's transcript
     pointer with it.
 
-    `collected_at` is set because this replaces a probe, and a probe sets it by
-    running a real session. Without it `AccountStatus.stale` fails the account
+    `collected_at` is set because the probe this replaced set it by running a
+    real session. Without it `AccountStatus.stale` fails the account
     closed before it ever reads the figures, which is the very refusal being
     lifted - `beta` sat at "nothing has run on it for 4h37m" while its 5h
     window was empty.

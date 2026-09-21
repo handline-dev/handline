@@ -512,14 +512,14 @@ def remove_account(name: str, confirm, run, con=None) -> tuple[bool, str]:
                                f"{paths.account_claude(name)} and try again.")
         marker.unlink(missing_ok=True)
         dest = retire(name)
-        # The name can be added again: a probe remembered against the old
-        # account would keep the new one from ever being read.
+        # The name can be added again, and a poll remembered against the old
+        # account would hold the new one in its cooldown.
         from . import db
         own = con is None
         c = con or db.connect()
         try:
-            db.clear_cursor(c, f"probe:{name}")
-            db.clear_cursor(c, f"login-check:{name}")
+            for kind in ("usage-poll", "usage-refresh", "login-check"):
+                db.clear_cursor(c, f"{kind}:{name}")
         finally:
             if own:
                 c.close()

@@ -4,11 +4,12 @@ Stopped at the founder's request (#1447) with usage needed elsewhere. Nothing
 is half-written: both commits are whole, the suite is green, and the branch is
 not merged.
 
+    6a273af  refactor: delete probe.py - the endpoint answers without spending
     56a4e6e  feat: the statusLine shows the agent instead of collecting from it
     0b6b81a  feat: read a session's own file instead of its status line
 
-`tests/test_ocp.py`: **2588 passed, 0 failed** (`/usr/bin/python3`, 100s).
-11 mutation controls, one per new condition, each caught by a different check.
+`tests/test_ocp.py`: **2581 passed, 0 failed** (`/usr/bin/python3`, 100s).
+13 mutation controls, one per new condition, each caught by a check of its own.
 
 ## Done
 
@@ -51,12 +52,19 @@ not merged.
    and it is one function (`statusline.render`). They asked for the slot back
    for "somewhere else" and may want it spent differently.
 
-## Deferred deliberately, each needing a decision rather than work
+## Decided, and no longer open
 
-- **`probe.py` (187 lines) and `probe_stale_accounts` (~55).** Their conditions
-  are now nearly unreachable, but they are the only way to learn usage when the
-  endpoint cannot be asked at all. Deleting them is the founder's call, and I
-  told them so rather than counting the lines as saved.
+- ~~`probe.py`~~ **decided and done.** The founder's answer was "collect.py +
+  api 로 하면 되지". Deleted with its daemon wiring and its CLI command (`ocp
+  account probe`), 242 lines. What settled the risk I had raised: the wall
+  itself is still caught without the endpoint - the transcript carries
+  `quotaLimits {status: rejected, resetsAt, rateLimitType}` on the rejection
+  record, and `StopFailure` fires with `error: rate_limit`. What is lost is
+  only the percentage *below* the wall while the endpoint cannot be reached,
+  and there ocp refuses to assign rather than guessing. The two behaviours that
+  outlived the module are tested under their old names
+  (`test_a_new_account_gets_its_first_reading_without_anyone_asking`,
+  `test_a_passed_window_is_asked_about_rather_than_guessed`).
 - **`status.py`'s `idle_floor` (~40 lines).** Same shape: it exists because a
   quiet account's reading aged, which the poll fixes - but only while the poll
   answers.

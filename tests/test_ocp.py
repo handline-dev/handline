@@ -2983,77 +2983,68 @@ def test_the_other_wake_writers_also_read_the_queue(home: Path) -> None:
 
 
 def test_a_new_account_gets_its_first_reading_without_anyone_asking(home: Path) -> None:
-    """An account that exists, is logged in and has no status.json is probed
-    once by the daemon, with nobody waiting; asked once, it is not asked again
-    on that ground, and one that is not logged in is not asked at all."""
+    """An account that exists, is logged in and has no status.json is asked
+    about once by the daemon, with nobody waiting; asked once, it is not asked
+    again on that ground, and one that is not logged in is not asked at all.
+
+    The cadence is what this is about, and it outlived the mechanism: it used to
+    start `probe.py` - a session and a real turn - and now it is one HTTPS GET
+    (#1447). A never-logged-in account must still not cost a keychain
+    subprocess every tick.
+    """
     _daemon_home(home, 20)
     con = db.connect()
-    real_login, real_popen = accounts.logged_in, subprocess.Popen
-    real_read = usage_api.read
-    started: list[list[str]] = []
-    from ocp import probe
+    real_login, real_read = accounts.logged_in, usage_api.read
+    asked: list[str] = []
     try:
         (home / "accounts" / "alpha" / "status.json").unlink()
         accounts.logged_in = lambda a: True  # noqa: E731
-        subprocess.Popen = lambda cmd, **kw: started.append(cmd)  # noqa: E731
-        # What this test is about is the cadence - asked once, not every tick,
-        # and not at the cost of a login check apiece - which is the same
-        # whichever mechanism answers. The endpoint stands in as "could not
-        # ask" so the probe path is the one exercised here; that the endpoint
-        # is preferred when it *can* answer is its own test. Without this the
-        # daemon would reach the real network and Keychain from the suite.
-        usage_api.read = lambda acct, refresh=True: None  # noqa: E731
+        usage_api.read = lambda acct, refresh=True: (  # noqa: E731
+            asked.append(acct)
+            or usage_api.Reading(acct, 3, int(time.time()) + 1800, 4, None, int(time.time())))
         st = status.read("alpha")
         check("new account: the state under test - it exists and has no reading",
               "alpha" in paths.list_accounts() and not st.exists)
-        dmn.probe_stale_accounts(con, lambda _m: None, [])
-        check("new account: the daemon asks it for a reading, unprompted",
-              any(c[-3:] == ["account", "probe", "alpha"] for c in started), str(started))
-        n = len(started)
-        dmn.probe_stale_accounts(con, lambda _m: None, [])
-        check("new account: and asks once, not every tick",
-              not any(c[-1] == "alpha" for c in started[n:]), str(started[n:]))
-        check("new account: probe.due still refuses an absent snapshot",
-              not probe.due(st, None))
-        # Every tick asks, so an account that has a reading, or was asked, must not
-        # cost a login check: on macOS that is a `security` subprocess apiece.
-        asked: list[str] = []
-        accounts.logged_in = lambda a: asked.append(a) or True  # noqa: E731
-        dmn.probe_stale_accounts(con, lambda _m: None, [])
-        check("new account: one already asked, or already read, is not login-checked each tick",
-              asked == [], str(asked))
-        started.clear()
-        db.set_cursor(con, "probe:alpha", 0)
-        asked = []
-        accounts.logged_in = lambda a: asked.append(a) or False  # noqa: E731
-        dmn.probe_stale_accounts(con, lambda _m: None, [])
-        check("new account: not logged in, nothing to ask", started == [], str(started))
-        # Still unread, so still eligible every tick - but a login check that
-        # came up empty must not repeat every tick for as long as it stays
-        # empty, or a never-logged-in account costs a keychain subprocess for
-        # ever.
-        dmn.probe_stale_accounts(con, lambda _m: None, [])
+        check("new account: and that is a reason to ask",
+              dmn.usage_due(con, "alpha", st, int(time.time())) == "no reading yet")
+        dmn.poll_usage(con, lambda _m: None)
+        check("new account: the daemon asks it, unprompted", asked == ["alpha"], str(asked))
+        asked.clear()
+        dmn.poll_usage(con, lambda _m: None)
+        check("new account: and asks once, not every tick", asked == [], str(asked))
+        check("new account: because it has a reading now",
+              dmn.usage_due(con, "alpha", status.read("alpha"), int(time.time())) is None)
+
+        # An account nobody is logged in to costs a `security` subprocess per
+        # check on macOS, so a check that came up empty is not repeated at once.
+        checked: list[str] = []
+        accounts.logged_in = lambda a: checked.append(a) or False  # noqa: E731
+        (home / "accounts" / "alpha" / "status.json").unlink()
+        db.set_cursor(con, "usage-poll:alpha", 0)
+        dmn.poll_usage(con, lambda _m: None)
+        check("new account: not logged in, nothing to ask", asked == [], str(asked))
+        dmn.poll_usage(con, lambda _m: None)
         check("new account: and a login check that came up empty is not repeated next tick",
-              asked == ["alpha"], str(asked))
+              checked == ["alpha"], str(checked))
+
         # A removed name added again is a new account, and is asked again.
         accounts.register("epsilon")
-        db.set_cursor(con, "probe:alpha", int(time.time()))  # one probe per pass
         accounts.logged_in = lambda a: True  # noqa: E731
-        dmn.probe_stale_accounts(con, lambda _m: None, [])
-        check("new account: epsilon was probed", db.get_cursor(con, "probe:epsilon") != 0)
+        db.set_cursor(con, "usage-poll:alpha", int(time.time()) + 600)  # one per pass
+        dmn.poll_usage(con, lambda _m: None)
+        check("new account: epsilon was asked about", asked == ["epsilon"], str(asked))
         accounts.logged_in = lambda a: False  # noqa: E731 - logout took
         ok, msg = accounts.remove_account("epsilon", lambda: True, lambda a, e: 0, con)
-        check("new account: removing it forgets that it was probed",
-              ok and db.get_cursor(con, "probe:epsilon") == 0, msg)
+        check("new account: removing it forgets its poll cooldown",
+              ok and db.get_cursor(con, "usage-poll:epsilon") == 0, msg)
         accounts.register("epsilon")
         accounts.logged_in = lambda a: True  # noqa: E731
-        started.clear()
-        dmn.probe_stale_accounts(con, lambda _m: None, [])
-        check("new account: the same name added again is probed again",
-              any(c[-1] == "epsilon" for c in started), str(started))
+        asked.clear()
+        dmn.poll_usage(con, lambda _m: None)
+        check("new account: the same name added again is asked again",
+              asked == ["epsilon"], str(asked))
     finally:
-        accounts.logged_in, subprocess.Popen = real_login, real_popen
-        usage_api.read = real_read
+        accounts.logged_in, usage_api.read = real_login, real_read
         con.close()
 
 
@@ -12316,27 +12307,36 @@ def test_a_stale_account_whose_window_rolled_over_can_take_work(home: Path) -> N
           status.pick_account(["beta"])[0] is None)
 
 
-def test_a_passed_window_is_probed_rather_than_guessed(home: Path) -> None:
+def test_a_passed_window_is_asked_about_rather_than_guessed(home: Path) -> None:
     """After its window ends, an idle account's last figure describes a window
-    that no longer exists, so the only way to learn the truth is to ask."""
-    from ocp import probe
+    that no longer exists, so the only way to learn the truth is to ask.
+
+    This was `probe.due` - spend a turn on the account to find out. Since #1447
+    it is `usage_due`, and the endpoint answers without spending anything, so
+    the question is only *whether* to ask.
+    """
     _daemon_home(home, 20)
     accounts.register("beta")
     now = int(time.time())
-    write_status(home, "beta", pct_5h=95, pct_7d=34, reset_5h=now + 1800,
-                 reset_7d=now + 86400 * 2, collected_at=now - 3600)
-    check("probe: an open window is answered by the last figure, not by spending",
-          not probe.due(status.read("beta"), None))
-    write_status(home, "beta", pct_5h=95, pct_7d=34, reset_5h=now - 60,
-                 reset_7d=now + 86400 * 2, collected_at=now - 3600)
-    check("probe: a passed window with no fresh reading is due",
-          probe.due(status.read("beta"), None))
-    check("probe: not twice inside the cooldown - a probe spends the quota it asks about",
-          not probe.due(status.read("beta"), now - 60))
-    write_status(home, "beta", pct_5h=95, pct_7d=34, reset_5h=now - 60,
-                 reset_7d=now + 86400 * 2, collected_at=now)
-    check("probe: a fresh reading answers it already",
-          not probe.due(status.read("beta"), None))
+    con = db.connect()
+    try:
+        write_status(home, "beta", pct_5h=95, pct_7d=34, reset_5h=now + 1800,
+                     reset_7d=now + 86400 * 2, rl_at=now, collected_at=now)
+        check("window: an open window with a current reading is not asked about",
+              dmn.usage_due(con, "beta", status.read("beta"), now) is None)
+        write_status(home, "beta", pct_5h=95, pct_7d=34, reset_5h=now - 60,
+                     reset_7d=now + 86400 * 2, rl_at=now, collected_at=now)
+        check("window: a passed window is",
+              dmn.usage_due(con, "beta", status.read("beta"), now)
+              == "its 5h window has ended")
+        write_status(home, "beta", pct_5h=95, pct_7d=34, reset_5h=now + 1800,
+                     reset_7d=now + 86400 * 2, rl_at=now - dmn.USAGE_MAX_AGE_S - 1,
+                     collected_at=now)
+        check("window: and so is a figure older than the cadence, whatever its window",
+              (dmn.usage_due(con, "beta", status.read("beta"), now) or "").startswith(
+                  "last read"))
+    finally:
+        con.close()
 
 
 def test_one_verdict_for_the_panel_and_the_page(home: Path) -> None:
@@ -16767,7 +16767,6 @@ def test_no_command_prints_what_a_terminal_would_obey(home: Path) -> None:
         "account add": "interactive login", "account remove": "interactive logout and a confirm",
         "account register": "creates an account directory; prints its path",
         "account cap": "writes a cap; prints numbers",
-        "account probe": "runs the probe against a real login",
         "usage": "calls the usage endpoint and the Keychain against a real login "
                  "(usage_api's own parsing is driven above, without either)",
         "agent move": "a confirm, and Orca", "agent register": "writes agent.yaml; a name with a control byte is refused before it prints",
@@ -20066,7 +20065,7 @@ def test_usage_api_reads_a_window_nothing_has_been_spent_in() -> None:
 def test_usage_api_record_stands_in_for_a_probe(home: Path) -> None:
     """What the endpoint leaves behind, and the one rule it must not break.
 
-    `record` replaces what `probe.py` leaves - a snapshot the next tick reads -
+    `record` leaves a snapshot the next tick reads like any other -
     so it has to merge rather than overwrite, and it has to keep the
     collector's rule that usage never falls inside one window while still
     letting a rollover through. The rollover case is the one that matters: it
@@ -20121,70 +20120,6 @@ def test_usage_api_record_stands_in_for_a_probe(home: Path) -> None:
     check("record: and the account reads assignable again",
           status.read("alpha", path=p_).assignable()[0],
           str(status.read("alpha", path=p_).assignable()))
-
-
-def test_the_probe_asks_the_endpoint_before_it_spends_the_account(home: Path) -> None:
-    """The cheap mechanism is tried first; spending the account is the
-    fallback. A `None` reading is 'could not look', so it must fall through
-    rather than stand in for an answer.
-
-    The preference is in `probe.run`, not at the daemon's call site: the daemon
-    starts this detached because a tick may not stop for a session's startup,
-    and a network call is no different.
-    """
-    _daemon_home(home, 10)
-    from ocp import probe as probemod
-    spent: list[str] = []
-    real = (usage_api.read, usage_api.record, probemod._spend)
-    probemod._spend = lambda acct, env, timeout, since: spent.append(acct)
-    usage_api.record = lambda reading, path=None: True
-    try:
-        usage_api.read = lambda acct, refresh=True: usage_api.Reading(
-            account=acct, pct_5h=7, reset_5h=None, pct_7d=3, reset_7d=None,
-            at=int(time.time()))
-        probemod.run("alpha")
-        check("probe: the endpoint answered, so the account was not spent",
-              spent == [], str(spent))
-
-        usage_api.read = lambda acct, refresh=True: None
-        probemod.run("alpha")
-        check("probe: 'could not ask' falls through to spending the account",
-              spent == ["alpha"], str(spent))
-
-        # A reading that arrives but cannot be written is not an answer either:
-        # the next tick would read the old snapshot and decide on it.
-        usage_api.read = lambda acct, refresh=True: usage_api.Reading(
-            account=acct, pct_5h=7, reset_5h=None, pct_7d=3, reset_7d=None,
-            at=int(time.time()))
-        usage_api.record = lambda reading, path=None: False
-        probemod.run("alpha")
-        check("probe: a reading that could not be recorded also falls through",
-              spent == ["alpha", "alpha"], str(spent))
-    finally:
-        (usage_api.read, usage_api.record, probemod._spend) = real
-
-
-def test_the_daemon_still_starts_the_probe_detached(home: Path) -> None:
-    """The daemon's own call site is unchanged, and that is the point: it
-    spawns and returns. Whatever the probe then chooses to do, the tick does
-    not wait for it - not for a session's startup and not for a network call.
-    """
-    _daemon_home(home, 10)
-    spawned, logged = [], []
-    real_popen = dmn.subprocess.Popen
-    dmn.subprocess.Popen = lambda argv, **kw: spawned.append(argv)
-    con = db.connect()
-    try:
-        acted: list[str] = []
-        ok = dmn._start_probe(con, "alpha", "why", logged.append, acted)
-        check("probe seam: the daemon spawns and does not block",
-              ok and len(spawned) == 1
-              and spawned[0][-3:] == ["account", "probe", "alpha"], str(spawned))
-        check("probe seam: the cooldown cursor is set",
-              db.get_cursor(con, "probe:alpha") > 0, "cursor not set")
-    finally:
-        dmn.subprocess.Popen = real_popen
-        con.close()
 
 
 def run(one) -> None:
@@ -20303,8 +20238,6 @@ def main() -> int:
         run(lambda: test_replay_burn_is_the_daemons_burn(Path(td) / 'replayburn'))
         run(lambda: test_usage_api_reads_a_window_nothing_has_been_spent_in())
         run(lambda: test_usage_api_record_stands_in_for_a_probe(Path(td) / 'usagerec'))
-        run(lambda: test_the_probe_asks_the_endpoint_before_it_spends_the_account(Path(td) / 'usageseam'))
-        run(lambda: test_the_daemon_still_starts_the_probe_detached(Path(td) / 'usagedetach'))
         run(lambda: test_the_pull_reads_the_context_the_statusline_used_to_push(
             Path(td) / 'pull'))
         run(lambda: test_a_cleared_session_reads_zero_and_an_unsearchable_one_reads_unknown(
@@ -20544,7 +20477,7 @@ def main() -> int:
         run(lambda: test_a_pinned_agent_stays_pinned_when_nothing_else_has_clear_room(
             Path(td) / 'pinnedstuck'))
         run(lambda: test_a_stale_account_whose_window_rolled_over_can_take_work(Path(td) / 'stalebeta'))
-        run(lambda: test_a_passed_window_is_probed_rather_than_guessed(Path(td) / 'probedue'))
+        run(lambda: test_a_passed_window_is_asked_about_rather_than_guessed(Path(td) / 'probedue'))
         run(lambda: test_one_verdict_for_the_panel_and_the_page(Path(td) / 'verdict'))
         run(lambda: test_room_is_filtered_before_the_ranking_not_after(Path(td) / 'roomfirst'))
         run(lambda: test_the_runway_is_an_estimate_from_the_daemons_burn(Path(td) / 'runway'))
