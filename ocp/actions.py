@@ -1000,7 +1000,7 @@ class Said(Row):
         return self
 
 
-def conversation_and_drawn(con, agent: str) -> tuple[list[Said], set[int]]:
+def conversation_and_drawn(con, agent: str) -> tuple[list[str], set[int]]:
     """The human's conversation with `agent`, in time order, a thread at a time,
     and the ids of the requests it drew - only the newest CHAT_CHAINS chains
     are drawn, so a request in an older one is not in it.
