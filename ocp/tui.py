@@ -1397,7 +1397,7 @@ def _detail_frame(width: int, height: int, detail: dict, flash: str = "") -> str
         keys = "esc back · ↑↓ scroll · ↵ write (/ for commands) · e in $EDITOR"
     if detail.get("panel") == MESSAGES:
         keys += " · a answer · e answer in $EDITOR · x dismiss"
-    elif detail.get("panel") in (AGENTS, STUCK):
+    elif detail.get("panel") in (AGENTS, STUCK) and not detail.get("parent"):
         # A connection per render, unlike `build`'s one-per-frame: this page
         # is already reopening the agent's own rows on every redraw
         # (`_refreshed`), so a second connection here costs nothing this
@@ -1743,13 +1743,14 @@ class Composer:
         marked = f"{text[:pos]}\u258f{text[pos:]}"
         rows = _wrap_typed(f"{prompt} {marked}", width)
         cur = next(i for i, r in enumerate(rows) if "\u258f" in r)
-        rows = _window_rows(rows, cur, cap)
         left = len(prompt)         # the prompt is bold wherever it wrapped to
-        out = []
+        styled = []
         for row in rows:
             k, left = min(left, len(row)), max(0, left - len(row))
-            out.append(f"{BOLD}{row[:k]}{R}{row[k:]}" if k else row)
-        return out
+            styled.append(f"{BOLD}{row[:k]}{R}{row[k:]}" if k else row)
+        # Windowed after styling: the note row it adds is not typed text, so the
+        # prompt's length must not be counted off it.
+        return _window_rows(styled, cur, cap)
 
 
 def _window_rows(rows: list[str], cur: int, cap: int) -> list[str]:
@@ -2111,6 +2112,8 @@ def _in_detail(detail: dict, k: str, width: int, height: int,
     if k == "G":
         detail["top"] = max(0, len(lines_of(detail, width)) - room)
         return detail, ""
+    if detail.get("parent"):
+        return detail, "read-only - esc goes back to the conversation"
     if detail.get("panel") in (AGENTS, STUCK):
         # An agent's page is opened to decide something about that agent, and
         # making the reader back out to the list to press the key is how a

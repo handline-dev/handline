@@ -15848,6 +15848,56 @@ def test_the_one_column_agent_page(home: Path) -> None:
           and tui._word_left(7, text) == 4)
 
 
+def test_a_read_only_page_does_not_act_on_the_agent_and_the_note_row_is_whole(home: Path) -> None:
+    """/knows and /done are pages to read: a verb key on one must not reach
+    the agent, and esc still comes back. The composer's window note is drawn
+    whole, and the prompt is bold on the row that carries it."""
+    _daemon_home(home, 20)
+    agents.register("reviewer", "alpha")
+    con = db.connect()
+    called: list[str] = []
+    real = tui._dispatch_agent_verb
+    try:
+        keep_handoff("reviewer", "the handoff")
+        d = tui._agent_page(con, "reviewer")
+        cmds = dict(tui.agent_commands(con, "reviewer"))
+        sub, _ = tui._run_command(con, d, "reviewer", "knows", cmds, 80, 40, None, None)
+        tui._dispatch_agent_verb = lambda *a, **k: (called.append(a[3]), (a[1], "ran"))[1]
+        for key in ("m", "t", "c", "p", "w", "u", "v", "e", "\r"):
+            out, msg = tui._in_detail(sub, key, 80, 40)
+            check(f"read page: {key!r} does not reach the agent", out is sub and not called,
+                  f"{called} {msg}")
+        check("read page: it says why",
+              "read-only" in tui._in_detail(sub, "c", 80, 40)[1])
+        frame = tui._ANSI.sub("", tui._detail_frame(140, 40, sub))
+        check("read page: the footer does not advertise verbs it will not run",
+              "t terminal" not in frame.split("\n")[-1] and "esc back" in frame.split("\n")[-1],
+              frame.split("\n")[-1])
+        check("read page: esc returns to the conversation", tui._in_detail(sub, "\033", 80, 40)[0] is d)
+        check("read page: scrolling still works", tui._in_detail(sub, "j", 80, 40)[0] is sub)
+    finally:
+        tui._dispatch_agent_verb = real
+        con.close()
+
+    box = tui._composer(True)
+    box.feed("word " * 60)
+    rows = box.shown("to x:", 20, 4)
+    note = next(r for r in rows if "earlier" in r)
+    check("composer: the window note is whole, its escape uncut",
+          note == f"{tui.DIM}{tui._ANSI.sub('', note)}{tui.R}"
+          and _ANSI_TEXT_OK(note), repr(note))
+    check("composer: the prompt is not bolded on the note row", tui.BOLD not in note)
+    box.feed("\033[1;5D" * 60)                    # word-left to the start: the prompt row is in view
+    rows = box.shown("to x:", 20, 4)
+    check("composer: with the prompt in view its row carries the bold",
+          any(r.startswith(f"{tui.BOLD}to x:") for r in rows), repr(rows))
+
+
+def _ANSI_TEXT_OK(s: str) -> bool:
+    """Every escape in `s` is a whole sequence: removing them leaves no ESC or stray '[' pair."""
+    return "\033" not in tui._ANSI.sub("", s)
+
+
 def test_the_composer_cursor_moves_and_edits_in_place(home: Path) -> None:
     """Founder: they could not put the cursor back into what they had typed -
     Left/Right were read and then discarded by the generic escape branch, so
@@ -18224,6 +18274,7 @@ def main() -> int:
         run(lambda: test_the_founder_can_cancel_a_request_in_an_agents_queue(Path(td) / 'cancel'))
         run(lambda: test_the_agent_page_cancels_a_waiting_request_by_command(Path(td) / 'cancelpage'))
         run(lambda: test_the_one_column_agent_page(Path(td) / 'onecolumn'))
+        run(lambda: test_a_read_only_page_does_not_act_on_the_agent_and_the_note_row_is_whole(Path(td) / 'readonly'))
         run(lambda: test_a_folded_row_says_what_its_reports_are_doing(Path(td) / 'foldmark'))
         run(lambda: test_the_panel_and_the_daemon_agree_about_what_is_in_the_way(Path(td) / 'topagree'))
         run(lambda: test_the_screen_says_what_is_stuck_and_what_was_decided(Path(td) / 'topstuck'))
