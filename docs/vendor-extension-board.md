@@ -108,11 +108,11 @@ Seams classified so far: **38**.
 
 | verdict | first pass | now | |
 |---|---|---|---|
-| **ORCA** | 6 | **11** | grew. Observation keeps confirming. |
-| HYBRID | 1 | 2 | |
+| **ORCA** | 6 | **9** | grew to 11, then **two were demoted on measurement** (#1328): `hooks.py` → KEEP, `live_sessions` → HYBRID. |
+| HYBRID | 1 | 3 | |
 | **DRIVER** | 12 | **15** | per-vendor only - **this column is the bill for vendor #2**, and it is enumerated in §11 |
 | RESHAPE | 3 | 6 | |
-| KEEP | 15 | 7 | shrank because seams were split finer, not re-judged |
+| KEEP | 15 | 8 | shrank because seams were split finer, not re-judged |
 | FIX / DECIDE | 0 / 1 | 1 / 1 | |
 
 43 seams classified in total.
@@ -122,27 +122,75 @@ Seams classified so far: **38**.
 The scoreboard counts **seams**, not code, and that overstates the
 simplification. Counted properly, the most Orca could delete:
 
-| | lines |
-|---|---|
-| `hooks.py` - hand-mirroring a file Orca owns | 169 |
-| `observe.py`'s ps-table machinery (`is_session` … `live_sessions`) | 120 |
-| `orca.py`'s screen parsing (`MODAL_MARKERS` … `decline_dialog`) | 309 |
-| **optimistic total** | **598 of 17,852 = 3.3%** |
+| | claimed | measured (#1328) |
+|---|---|---|
+| `hooks.py` - hand-mirroring a file Orca owns | 169 | **0** |
+| `observe.py`'s ps-table machinery (`is_session` … `live_sessions`) | 120 | **~12** |
+| `orca.py`'s screen parsing (`MODAL_MARKERS` … `decline_dialog`) | 309 | ~60 (D9) |
+| total | 598 = 3.3% | **~72 of 17,852 = 0.4%** |
 
-And 598 is the *optimistic* figure: D9 settled that only the **detection** half
-of the screen parsing moves - `parse_dialog`, `declining_key` and
-`decline_dialog` stay, because `agentWait` reports a source and nothing else.
-Realistically it is nearer **370 lines, about 2%**.
+**Two of the three rows collapsed when measured** (#1328, all read-only). Both
+failures share one cause: Orca addresses the machine's *default* agent install,
+and ocp's whole premise is N config dirs that are not it (D1).
 
-**So: Orca is not a way to make ocp smaller.** Several ORCA verdicts are not
-deletions at all - `task-update`, `terminal rename`, `gate-create`,
-`diagnostics memory` are calls we would *add*; `terminal list` and
-`terminal send` are calls we already make and would simply read more of.
+- **`hooks.py` cannot be deleted, and it is load-bearing.**
+  `orca agent hooks on|off|status` writes to a **fixed path per family** -
+  `status --json` returns `configPath: ~/.claude/settings.json` for claude -
+  and takes no target-dir option. Our accounts are per-account
+  `CLAUDE_CONFIG_DIR`s symlinked onto `shared/.claude/settings.json`, which
+  Orca knows nothing about. The mirror is the **bridge**, not duplication of
+  something Orca does. Measured downstream of it: `agentIdentity` is non-null
+  on exactly **7 of 31** terminals - the ones carrying the mirrored hooks. So
+  every ORCA verdict in §3 is *downstream of the file this table proposed to
+  delete*.
+- **`observe.py`'s ps machinery cannot go.** `terminal list --json` carries
+  **no pid** (31 rows, 15 keys, none pid-ish), and `account_of_process` - ours
+  forever under D1 - reads `CLAUDE_CONFIG_DIR` off a pid. `process_table`,
+  `_ps_command`, `process_env` and `env_of` all stay to serve it. Only
+  `is_session` (~12 lines) is genuinely replaceable.
+
+**Correction to §3.** `agentIdentity` is **not** on `terminal list`'s rows. It
+is a `terminal show` field - one call per terminal - and it was null on 24 of
+31. `agentWait` likewise: `terminal show` only, and non-null on 0 of 31 with
+nobody currently waiting (consistent with D9, which caught it non-null on
+exactly the one agent that was).
+
+**So: Orca is not a way to make ocp smaller** - and after #1328 that is no
+longer a matter of degree. Several ORCA verdicts are not deletions at all -
+`task-update`, `terminal rename`, `gate-create`, `diagnostics memory` are calls
+we would *add*; `terminal list` and `terminal send` are calls we already make
+and would simply read more of.
+
+**Where ocp's code does shrink** - all of it ours, none of it Orca's: the
+208-line rate-limit window model (D2), the `run_exists` fix (Q1) and the Run
+leak behind it (D8). Those three outweigh everything in the table above.
 
 **What Orca is actually for, then.** Every one of those seams is vendor-neutral
 across 18 agent families. Moving them does not shrink ocp today; it means they
 **do not have to be written again for codex or opencode**. That is the whole
 value, and it is a bill avoided rather than a codebase reduced.
+
+### Claude only: is Orca worth calling today? (#1328)
+
+The founder's question with codex set aside entirely. Short answer: **as a way
+to delete code, no - under 100 lines, and the two biggest candidates failed
+measurement (above). As a way to make four behaviours more correct or faster,
+yes.** Ranked by value, and none of them needs a second vendor to exist.
+
+| # | change | what it buys | cost |
+|---|---|---|---|
+| 1 | `orca.idle_now`'s probe → `stage.activity` + `liveness.verdict`, read | the probe **spends its full `IDLE_PROBE_MS` (3s) to answer "no"** - per busy agent, per daemon tick. The projection is already there and does not block. | small; §3.1 measured it populated on 24/24 |
+| 2 | `screen_blocker`'s *decision* → `terminal show`'s `agentWait` | vendor-neutral, and it already caught a case `orca.py` mislabelled BACKGROUNDED (D9). Keeps `parse_dialog` / `decline_dialog`. | medium; ~60 lines out |
+| 3 | `terminal send --wait-submit` / `--retry-request` | Orca separates *accepted* from *observed submission*; `daemon.py` re-solves that by hand. `--retry-request` makes a resend after an ambiguous failure idempotent. | small; flags on a call we already make |
+| 4 | `hooks.py` reads `configPath` from `agent hooks status --json` | kills a hard-coded path and a third "could not look = it is off" bug (D8's shape) | ~10 lines |
+
+Below the line, worth doing but not for code reduction: `gate-create` for the
+blocked escalation (a block the founder can see **outside** ocp, instead of a
+row only we can read) and `terminal rename --title` for tab titles.
+
+**What actually shrinks ocp is not on this list**: the 208-line window model
+(D2), `run_exists` (Q1) and the Run leak (D8). If the goal is less code, that
+is the target - it is ~3× everything Orca offers, and it is entirely ours.
 
 The reason the ceiling is this low is structural and already recorded: Orca
 owns *observation*, ocp owns *economics* - accounts (D1), quota (D2), context
@@ -340,8 +388,8 @@ And the models this account may use are `gpt-5.6-terra`, `gpt-5.6-luna`,
 
 | seam | ours | verdict | note |
 |---|---|---|---|
-| does the terminal exist | `orca.live_terminals` → `terminal list --json` | **ORCA** | we already make this call and **throw away all but `handle`**. The same 31 rows carry `agentIdentity` (the vendor - `"claude"` on 9 rows here, `null` on 22), `title` with a live activity glyph, `lastOutputAt`, `preview`, `branch`. |
-| is a session running, and is it ours | `observe.is_session` (`"claude" in command`), `live_sessions` (ps + `OCP_AGENT`) | **ORCA** | a ps-table scan that pattern-matches the binary name is exactly what `agentIdentity` and `projection.liveness` answer, for 18 vendor families, with provenance and a three-valued verdict (`live`/`unverifiable`/`exited`). Ours cannot tell "I could not look" from "it is gone" as cleanly. |
+| does the terminal exist | `orca.live_terminals` → `terminal list --json` | **ORCA** | we already make this call and **throw away all but `handle`**. The same 31 rows carry `title` with a live activity glyph, `lastOutputAt`, `preview`, `branch`, `worktreePath`, `orphaned`. **Corrected #1328:** `agentIdentity` is *not* among them - it is a `terminal show` field, one call per terminal, non-null on 7 of 31 (all `"claude"`), and only on terminals carrying our mirrored hooks. |
+| is a session running, and is it ours | `observe.is_session` (`"claude" in command`), `live_sessions` (ps + `OCP_AGENT`) | **HYBRID** (was ORCA, demoted #1328) | a ps-table scan that pattern-matches the binary name is exactly what `agentIdentity` and `projection.liveness` answer, for 18 vendor families, with provenance and a three-valued verdict (`live`/`unverifiable`/`exited`). Ours cannot tell "I could not look" from "it is gone" as cleanly. **But no Orca row carries a pid**, and `account_of_process` reads `CLAUDE_CONFIG_DIR` off one - so the ps table stays whatever else moves. Orca supplies the *verdict*, ps still supplies the *pid*. |
 | which account is this process spending | `observe.account_of_process` (reads `CLAUDE_CONFIG_DIR` off `ps eww`) | **DRIVER** | Orca has no idea which of *our* accounts a process is on. This one stays ours whatever else moves. |
 | is it idle | `orca.wait_idle` → `terminal wait --for tui-idle` | **KEEP** | already Orca, and explicitly vendor-generic - the guide names Claude Code, Gemini, Codex, OMP, Pi and Grok. Idleness is the one thing a second vendor need not re-teach. |
 | **detect** that an agent needs a human | `orca.screen_blocker` | **ORCA** ✅ | `terminal show --json` → `terminal.agentWait`, present on **32/32** terminals, non-null exactly when one is waiting, carrying the evidence that proved it. No adoption needed. §3.1. |
@@ -467,7 +515,7 @@ there.
 
 | seam | ours | verdict | note |
 |---|---|---|---|
-| mirror Orca's own hooks into our config dirs | `hooks.py` (169 lines: read `~/.claude/settings.json`, match `ORCA_MARKERS`, splice into shared settings) | **ORCA** | `orca agent hooks on \| off \| status` exists. We are hand-mirroring a file Orca owns, and matching its hook commands by substring to do it. |
+| mirror Orca's own hooks into our config dirs | `hooks.py` (169 lines: read `~/.claude/settings.json`, match `ORCA_MARKERS`, splice into shared settings) | **KEEP** (was ORCA, demoted #1328) | `orca agent hooks on \| off \| status` exists but writes to **one fixed path per family** (`status --json` → `configPath: ~/.claude/settings.json`), with no target-dir option. It cannot reach a per-account `CLAUDE_CONFIG_DIR`, so it cannot replace the mirror - the mirror is what puts our agents on Orca's dashboard at all (`agentIdentity` non-null on 7/31). **What does move:** read `configPath` from `status --json` instead of hard-coding `source_settings()`, and use `enabled` / `managedHooksPresent` to tell "Orca's hooks are off" from "I could not read the file" - the D8 three-valued bug, same shape. ~10 lines. |
 | install our own event hooks | `cli.cmd_hook_install` → `settings.json` `hooks` block | **HYBRID** | codex takes the **same JSON shape** (`{"hooks":{"SessionStart":[{"hooks":[{"type":"command","command":…,"timeout":10}]}]}}`) in `CODEX_HOME/hooks.json` - verified on this machine. But codex also requires a per-entry `trusted_hash` registered in `config.toml`, and Orca ships `orca agent hooks prepare-codex` for exactly that. So: our writer, generalized, plus an Orca call per vendor that needs one. |
 | which events we capture | `events.CAPTURED` (SessionStart, UserPromptSubmit, Stop, PermissionRequest, …) | **RESHAPE** | good news: codex uses the same PascalCase names for most of them. A per-vendor name map, not a per-vendor implementation. Note Orca's own per-family mapping differs again (`opencode` → `SessionStart`, `gemini` → `BeforeAgent`, `amp` → `agent.start`). |
 | payload fields we keep | `events.ALLOWLIST` | **RESHAPE** | |

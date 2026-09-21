@@ -310,7 +310,11 @@ opens).
 **Why it still stands on its own:** every failure of the call - Orca
 restarting, runtime not up, timeout, non-zero exit - currently returns `False`,
 and `spawn.ensure_run` reads that as "the team's Run is gone" and creates a new
-one. A Run per Orca restart, forever; 25 so far. This is the exact shape
+one. A Run per Orca restart, forever. **Re-counted 2026-09-21 during #1328: 28
+Runs**, up from 25, and the fleet's 24 workers are scattered over 11 of them -
+**17 Runs hold nothing at all**. One was created in front of me: this session
+moved to another account, got a new terminal, and `worker-list` with no `--run`
+resolved to `run_3b06fdd6d8e7`, bound and empty. This is the exact shape
 `orca.live_terminals` forbids four lines above, in a docstring that explains
 why.
 
