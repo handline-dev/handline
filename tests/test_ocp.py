@@ -14785,6 +14785,8 @@ def test_no_command_prints_what_a_terminal_would_obey(home: Path) -> None:
                                  None, "peer", "async", None, 0, None)
             con.execute("UPDATE requests SET state = 'done', verdict = ? WHERE id = ?",
                         (f"reject {c1p}", hrq))
+            # For `task list`: a title is text somebody typed.
+            db.link_request(con, db.new_task(con, f"title {p}", "reviewer", "orcapipe"), q)
         finally:
             con.close()
         hr.save({"id": "poisontest", "kind": "retire", "agent": "reviewer",
@@ -14847,7 +14849,7 @@ def test_no_command_prints_what_a_terminal_would_obey(home: Path) -> None:
                        None, "spawn --dry-run")],
             "drift": [(["drift", str(repo), "--no-fetch"], None, "drift --no-fetch")],
             "hr apply": [(["hr", "apply", "poisontest"], None, "hr apply")],
-            "guide": [["guide"]],
+            "guide": [["guide"]], "task list": [["task", "list"]],
             "top": [["top", "--once"]], "watch": [["watch", "--once"]], "bridge": [["bridge", "--once"]],
             "write-handoff": [["write-handoff", "reviewer"]],
             "ask": [(["ask", "reviewer", f"a new one {p}", "--of", "marina"], None, "ask")],
@@ -14934,7 +14936,9 @@ def test_no_command_prints_what_a_terminal_would_obey(home: Path) -> None:
         "hook": "reads a hook payload on stdin and prints nothing",
         "daemon": "runs forever", "service install": "launchd", "service uninstall": "launchd",
         "service status": "launchd; prints a pid",
-        "close": "types into a terminal through Orca", "base promote": "writes base.md; prints sizes and a path",
+        "close": "types into a terminal through Orca",
+        "task new": "writes a row; prints its id and an owner already checked against the registry",
+        "task link": "writes a row; prints two ids", "base promote": "writes base.md; prints sizes and a path",
     }
     have = set(driven_now := scene.driven) | set(skipped)
     every = set(leaves())
@@ -17926,6 +17930,264 @@ def test_run_recovers_from_an_uncaught_error() -> None:
           (1 if caught else 0) == 1)
 
 
+def _board_world(home: Path) -> None:
+    home.mkdir(parents=True, exist_ok=True)
+    os.environ["OCP_HOME"] = str(home)
+    (home / "team.yaml").write_text("""
+agents:
+  manager: { intake: dedicated }
+  worker:  { intake: dedicated }
+
+edges:
+  - { from: "manager", to: "worker", relation: supervisor, response: fire_and_forget }
+  - { from: "worker", to: "manager", relation: subordinate, response: fire_and_forget }
+
+limits:
+  max_chain_depth: 4
+  ask_rate_per_hour: 50
+""")
+    for n in ("manager", "worker"):
+        agents.register(n, "alpha")
+
+
+def _cli(argv: list[str], as_agent: str | None = "manager") -> tuple[int, str]:
+    buf = io.StringIO()
+    saved = os.environ.get("OCP_AGENT")
+    if as_agent is None:
+        os.environ.pop("OCP_AGENT", None)
+    else:
+        os.environ["OCP_AGENT"] = as_agent
+    try:
+        with contextlib.redirect_stdout(buf):
+            rc = climod.main(argv)
+    finally:
+        if saved is None:
+            os.environ.pop("OCP_AGENT", None)
+        else:
+            os.environ["OCP_AGENT"] = saved
+    return rc, buf.getvalue()
+
+
+def _human_request(target: str = "manager", parent: int | None = None) -> int:
+    con = db.connect()
+    try:
+        return db.add_request(con, askmod.HUMAN, target, "the founder's words", None,
+                              "supervisor", "fire_and_forget", None, 0, parent)
+    finally:
+        con.close()
+
+
+def test_a_task_row_holds_its_fields_and_nothing_else(home: Path) -> None:
+    """The invariant (#1259): the tasks table is exactly db.TASK_FIELDS, and the
+    board reads a linked request's state live - the task row never changes when
+    the request does."""
+    _board_world(home)
+    con = db.connect()
+    try:
+        cols = tuple(r["name"] for r in con.execute("PRAGMA table_info(tasks)"))
+        check("task row: the table holds TASK_FIELDS and nothing else",
+              cols == db.TASK_FIELDS, str(cols))
+        reqcols = {r["name"] for r in con.execute("PRAGMA table_info(requests)")}
+        check("task row: requests gained no title or closed_by column",
+              not ({"title", "closed_by"} & reqcols), str(reqcols))
+        rid = _human_request()
+        tid = db.new_task(con, "build it", "worker", "manager")
+        db.link_request(con, tid, rid)
+        before = dict(db.get_task(con, tid))
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            climod._print_board(con, db.open_tasks(con))
+        check("task row: the board shows the request's state as it is now",
+              "queued" in buf.getvalue(), buf.getvalue())
+        con.execute("UPDATE requests SET state = 'done', verdict = 'x' WHERE id = ?", (rid,))
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            climod._print_board(con, db.open_tasks(con))
+        check("task row: it reads the new state, from the request",
+              "done" in buf.getvalue() and "queued" not in buf.getvalue(), buf.getvalue())
+        check("task row: and the task row itself did not change",
+              dict(db.get_task(con, tid)) == before, str(dict(db.get_task(con, tid))))
+        check("task row: a resolved request does not close its task",
+              db.get_task(con, tid)["closed_by"] is None)
+        out = buf.getvalue().lower()
+        check("task row: no derived status is drawn",
+              "awaiting" not in out and "merge" not in out and "pending" not in out, out)
+    finally:
+        con.close()
+
+
+def test_task_new_list_and_link(home: Path) -> None:
+    _board_world(home)
+    rc, out = _cli(["task", "new", "--owner", "worker", "build the board"])
+    check("task new: opens a task", rc == 0 and "task #1" in out, out)
+    rc, out = _cli(["task", "new", "--owner", "nobody", "x"])
+    check("task new: an owner that is not an agent is refused", rc == 1, out)
+    rc, out = _cli(["task", "new", "--owner", "worker", "x"], as_agent=askmod.HUMAN)
+    check("task new: never in the founder's name", rc == 1, out)
+    rc, out = _cli(["task", "new", "--owner", "worker", "part", "--parent", "9"])
+    check("task new: a parent that does not exist is refused", rc == 1, out)
+    rc, out = _cli(["task", "new", "--owner", "worker", "part one", "--parent", "1"])
+    check("task new: a child task", rc == 0, out)
+    rid = _human_request()
+    rc, out = _cli(["task", "link", "1", str(rid)])
+    check("task link: attaches a further request", rc == 0, out)
+    rc, out = _cli(["task", "list"])
+    check("task list: the board shows title, owner, child and linked request",
+          "build the board" in out and "[worker]" in out and "under #1" in out
+          and f"request #{rid}" in out, out)
+
+
+def test_resolving_the_founders_request_says_what_it_becomes(home: Path) -> None:
+    """The guard (#1259): every human-requester resolve, including a reply in a
+    running thread, needs --task or --no-task; nothing else is guarded."""
+    _board_world(home)
+    _cli(["task", "new", "--owner", "worker", "deliverable one"])
+    _cli(["task", "new", "--owner", "worker", "deliverable two"])
+    r1 = _human_request()
+    rc, out = _cli(["resolve", str(r1), "ok"])
+    check("guard: a bare resolve of the founder's request is refused", rc == 1 and "--task" in out, out)
+    con = db.connect()
+    try:
+        check("guard: refused, the request is still queued",
+              db.get_request(con, r1)["state"] == "queued")
+    finally:
+        con.close()
+    rc, out = _cli(["resolve", str(r1), "ok", "--task", "1", "--no-task", "why"])
+    check("guard: both --task and --no-task is refused", rc == 1, out)
+    rc, out = _cli(["resolve", str(r1), "ok", "--task", "7"])
+    check("guard: a task that does not exist is refused", rc == 1 and "no task #7" in out, out)
+    rc, out = _cli(["resolve", str(r1), "ok", "--task", "1", "2"])
+    check("guard: --task takes a list and resolves", rc == 0, out)
+    con = db.connect()
+    try:
+        linked = {(t, r["id"]) for t in (1, 2) for r in db.task_requests(con, t)}
+        check("guard: --task linked the request to every task it names",
+              linked == {(1, r1), (2, r1)}, str(linked))
+    finally:
+        con.close()
+
+    r2 = _human_request()
+    rc, out = _cli(["resolve", str(r2), "nothing to build", "--no-task", "a question"])
+    check("guard: --no-task resolves without a link", rc == 0, out)
+    con = db.connect()
+    try:
+        check("guard: and links nothing",
+              not con.execute("SELECT 1 FROM task_requests WHERE request_id = ?", (r2,)).fetchone())
+    finally:
+        con.close()
+
+    # A reply inside a running thread is guarded too (#1059, #1183, #1215).
+    r3 = _human_request(parent=r1)
+    rc, out = _cli(["resolve", str(r3), "ok"])
+    check("guard: a reply inside a running thread is guarded", rc == 1, out)
+
+    # Conversation is never guarded.
+    ok, _, a2a = askmod.ask("worker", "peer chat", requester="manager")
+    rc, out = _cli(["resolve", str(a2a), "fine"], as_agent="worker")
+    check("guard: a manager-to-agent ask resolves with no flag", rc == 0, out)
+    con = db.connect()
+    try:
+        rid = db.add_request(con, "worker", "manager", "a question", None, "peer", "async",
+                             None, 0, None)
+    finally:
+        con.close()
+    rc, out = _cli(["resolve", str(rid), "answer"])
+    check("guard: an agent-to-agent ask resolves with no flag", rc == 0, out)
+    con = db.connect()
+    try:
+        check("guard: neither made a task link",
+              not con.execute("SELECT 1 FROM task_requests WHERE request_id IN (?, ?)",
+                              (a2a, rid)).fetchone())
+    finally:
+        con.close()
+
+    _cli(["close", "1", "done by hand"])
+    r4 = _human_request()
+    rc, out = _cli(["resolve", str(r4), "ok", "--task", "1"])
+    check("guard: a closed task cannot be attached to", rc == 1 and "closed" in out, out)
+
+
+def test_closing_a_task_needs_evidence_and_no_open_child(home: Path) -> None:
+    _board_world(home)
+    repo = home / "repo"
+    repo.mkdir()
+
+    def git(*args: str) -> str:
+        return subprocess.run(["git", *args], cwd=repo, check=True, capture_output=True,
+                              text=True).stdout.strip()
+    git("init", "-q", "-b", "main")
+    git("config", "user.email", "t@example.com")
+    git("config", "user.name", "t")
+    (repo / "a.txt").write_text("1")
+    git("add", ".")
+    git("commit", "-q", "-m", "on main")
+    main_sha = git("rev-parse", "HEAD")
+    git("checkout", "-q", "-b", "feature")
+    (repo / "a.txt").write_text("2")
+    git("commit", "-q", "-am", "never merged")
+    feature_sha = git("rev-parse", "HEAD")
+
+    con = db.connect()
+    try:
+        t1 = db.new_task(con, "one", "worker", "manager")
+        t2 = db.new_task(con, "two", "worker", "manager")
+        ok, msg = actions.close_task(con, t1, sha=feature_sha, repo=repo)
+        check("close: a sha not on main is refused", not ok and "ancestor" in msg, msg)
+        check("close: refused, still open", db.get_task(con, t1)["closed_by"] is None)
+        ok, msg = actions.close_task(con, t1)
+        check("close: neither sha nor reason is refused", not ok, msg)
+        ok, msg = actions.close_task(con, t1, sha=main_sha, reason="both")
+        check("close: both is refused", not ok, msg)
+        ok, msg = actions.close_task(con, t1, sha=main_sha, repo=repo)
+        check("close: a sha that is an ancestor of main closes it", ok, msg)
+        check("close: closed_by records the sha", db.get_task(con, t1)["closed_by"] == main_sha)
+        ok, msg = actions.close_task(con, 99, reason="x")
+        check("close: no such task", not ok, msg)
+
+        parent = db.new_task(con, "parent", "worker", "manager")
+        child = db.new_task(con, "child", "worker", "manager", parent)
+        ok, msg = actions.close_task(con, parent, reason="looks done")
+        check("close: refused while a child task is open", not ok and f"#{child}" in msg, msg)
+        ok, msg = actions.close_task(con, child, reason="part done")
+        check("close: the child closes on its own", ok, msg)
+        ok, msg = actions.close_task(con, parent, reason="all parts")
+        check("close: the parent then closes", ok, msg)
+    finally:
+        con.close()
+    rc, out = _cli(["close", str(t2), "fine, a reason"])
+    check("close: the verb takes a reason", rc == 0 and "closed" in out, out)
+    rc, out = _cli(["close", "worker", "a reason"])
+    check("close: evidence on an agent's name is refused, not an agent close", rc == 1, out)
+    rc, out = _cli(["close", str(parent)])
+    check("close: a task number with no evidence is refused", rc == 1, out)
+
+
+def test_a_second_close_loses_the_race(home: Path) -> None:
+    """closed_by is evidence: a close that lost the race must not overwrite it."""
+    _board_world(home)
+    con = db.connect()
+    try:
+        t = db.new_task(con, "raced", "worker", "manager")
+        check("race: the first close wins", db.close_task(con, t, "first"))
+        check("race: the second reports it lost", not db.close_task(con, t, "second"))
+        check("race: the first evidence stands", db.get_task(con, t)["closed_by"] == "first")
+        # The loser that passed the "already closed" read before the winner wrote.
+        real = db.get_task
+        t2 = db.new_task(con, "raced two", "worker", "manager")
+        stale = dict(real(con, t2))
+        db.close_task(con, t2, "winner")
+        db.get_task = lambda c, i: stale
+        try:
+            ok, msg = actions.close_task(con, t2, reason="loser")
+        finally:
+            db.get_task = real
+        check("race: a close that read the row before the winner wrote is refused",
+              not ok and "someone else" in msg, msg)
+        check("race: and the winner's evidence stands", real(con, t2)["closed_by"] == "winner")
+    finally:
+        con.close()
+
+
 def main() -> int:
     # An agent session that runs this suite already has both set for itself,
     # and every test here that wants one sets it explicitly - so an ambient
@@ -18296,6 +18558,11 @@ def main() -> int:
             Path(td) / 'dismissownanswer'))
         run(lambda: test_two_processes_cannot_both_supervise_one_home(Path(td) / 'twoproc'))
         run(lambda: test_the_screen_says_when_two_daemons_are_running(Path(td) / 'dmnwarn'))
+        run(lambda: test_a_task_row_holds_its_fields_and_nothing_else(Path(td) / 'taskinv'))
+        run(lambda: test_task_new_list_and_link(Path(td) / 'tasknew'))
+        run(lambda: test_resolving_the_founders_request_says_what_it_becomes(Path(td) / 'taskguard'))
+        run(lambda: test_closing_a_task_needs_evidence_and_no_open_child(Path(td) / 'taskclose'))
+        run(lambda: test_a_second_close_loses_the_race(Path(td) / 'taskrace'))
         run(lambda: test_run_recovers_from_an_uncaught_error())
     # The whole run's dealings with Orca: none of its tests may have reached even
     # the stand-in, except the four that run a child `ocp`. (A test's own

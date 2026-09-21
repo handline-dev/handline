@@ -20,12 +20,13 @@ over.
 from __future__ import annotations
 
 import os
+import subprocess
 import time
 from pathlib import Path
 
 from . import (accounts, agents, ask as askmod, blocked, daemon, db, events as evmod,
                fold as foldmod, hr, load as loadmod, observe as obs, orca, paths,
-               spawn as spawnmod, status, team, triggers, waiting)
+               spawn as spawnmod, status, team, textsafe, triggers, waiting)
 
 # The name a human's own requests are sent under, and the inbox `ocp bridge`
 # shows. Taken from `ask`, which is where escalations are addressed: a second
@@ -254,6 +255,83 @@ def cancel(con, rid: int) -> str:
     """Take a request out of an agent's queue as the founder. See `ask.cancel`."""
     ok, msg = askmod.cancel(rid)
     return msg if ok else f"not cancelled - {msg}"
+
+
+def _sha_is_ancestor_of_main(repo: Path, sha: str) -> tuple[bool, str]:
+    """Whether `sha` is reachable from `main` in `repo`.
+
+    `closed_by` is evidence, not a claim: a sha typed by hand that never
+    merged must not close a task, so this runs before anything is written.
+    """
+    try:
+        r = subprocess.run(["git", "merge-base", "--is-ancestor", sha, "main"],
+                           cwd=repo, capture_output=True, text=True, timeout=15)
+    except (OSError, subprocess.SubprocessError) as e:
+        return False, str(e)
+    if r.returncode == 0:
+        return True, ""
+    return False, textsafe.oneline((r.stderr or r.stdout).strip())
+
+
+def close_task(con, tid: int, sha: str | None = None, reason: str | None = None,
+               repo: Path | None = None) -> tuple[bool, str]:
+    """Close a task on the board.
+
+    Exactly one of `sha` (checked against `main`) or `reason` (for work
+    nothing merges: a plan, a decision, a duplicate). Refused while a child
+    task is open - a five-part ask closed as one row hid that parts 4 and 5
+    were not done (#1008). Nothing here looks at the linked requests' state:
+    a task is open until someone closes it.
+    """
+    row = db.get_task(con, tid)
+    if row is None:
+        return False, f"no task #{tid}"
+    if row["closed_by"]:
+        return False, f"task #{tid} is already closed ({row['closed_by']})"
+    kids = db.open_child_tasks(con, tid)
+    if kids:
+        ids = ", ".join(f"#{k['id']}" for k in kids)
+        return False, f"task #{tid} still has open child tasks ({ids}) - close them first"
+    if bool(sha) == bool(reason):
+        return False, "close needs exactly one of a sha or a reason"
+    if sha:
+        ok, why = _sha_is_ancestor_of_main(repo or Path.cwd(), sha)
+        if not ok:
+            return False, f"{sha} is not an ancestor of main" + (f" ({why})" if why else "")
+        mark = sha
+    else:
+        mark = reason
+    if not db.close_task(con, tid, mark):
+        return False, f"task #{tid} was closed by someone else just now"
+    db.add_event(con, askmod.asking_agent() or row["owner"], "close_task",
+                 {"task_id": tid, "closed_by": mark})
+    return True, f"task #{tid} closed ({mark})"
+
+
+def check_human_resolve(con, row, tasks: list[int] | None,
+                        no_task: str | None) -> str | None:
+    """The refusal for resolving a request the human made without saying what
+    it becomes; None when it may go ahead.
+
+    The guard is on the answer, not on the ask: agent-to-agent and
+    manager-to-agent rows are conversation and never reach it, and it covers
+    replies inside a running thread, because that is how the founder attaches
+    the next piece of work to a report.
+    """
+    if row["requester"] != HUMAN:
+        return None
+    if bool(tasks) == bool(no_task):
+        return (f"#{row['id']} is the founder's: say what it becomes. --task N [N ...] "
+                "names the tasks this answer belongs to (one per deliverable "
+                "promised), --no-task 'reason' says nothing needs building. "
+                "`ocp task new --owner NAME 'title'` makes a task.")
+    for tid in tasks or []:
+        t = db.get_task(con, tid)
+        if t is None:
+            return f"no task #{tid}"
+        if t["closed_by"]:
+            return f"task #{tid} is already closed ({t['closed_by']})"
+    return None
 
 
 def _is_answer_to_human(row) -> bool:

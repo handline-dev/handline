@@ -66,6 +66,28 @@ CREATE INDEX IF NOT EXISTS requests_target ON requests(target, state);
 CREATE INDEX IF NOT EXISTS requests_requester ON requests(requester, ts);
 CREATE INDEX IF NOT EXISTS requests_chain ON requests(chain_id, id);
 
+-- The task board (request #1259). A task is never a message: it is its own
+-- row, named and owned by whoever opened it. The columns below are the whole
+-- of it - see TASK_FIELDS. Everything else the board shows (a request's body,
+-- state, date, verdict) is read live from `requests` through task_requests.
+CREATE TABLE IF NOT EXISTS tasks (
+  id           INTEGER PRIMARY KEY AUTOINCREMENT,
+  title        TEXT NOT NULL,
+  owner        TEXT NOT NULL,
+  parent_task  INTEGER REFERENCES tasks(id),
+  opened_by    TEXT NOT NULL,
+  -- Evidence the work is done, not a claim: a merge sha (checked against
+  -- main) or a free-text reason. NULL is "open"; written once, by `ocp close`.
+  closed_by    TEXT,
+  created_at   INTEGER NOT NULL
+);
+CREATE TABLE IF NOT EXISTS task_requests (
+  task_id     INTEGER NOT NULL REFERENCES tasks(id),
+  request_id  INTEGER NOT NULL,
+  PRIMARY KEY (task_id, request_id)
+);
+CREATE INDEX IF NOT EXISTS task_requests_request ON task_requests(request_id);
+
 -- Advanced only after the fold output validates.
 -- Small named values that are not counters: the orchestration Run this team's
 -- work hangs under, and anything else that is one string per installation.
@@ -678,6 +700,59 @@ def retire_if_undelivered(con, rid: int, state: str, verdict: str | None = None)
         "WHERE id = ? AND state = 'queued' AND delivered_at IS NULL",
         (state, verdict, int(time.time()), rid))
     return cur.rowcount > 0
+
+
+# RULE: a task row holds these fields and nothing else. Never a copy of a
+# request's body, a state, a date a request already carries, or a summary of
+# an answer - the board reads those from `requests` each time it draws, so
+# there is one place each fact lives and nothing to drift. Adding a column to
+# `tasks` means adding it here, and a test fails until both agree.
+TASK_FIELDS = ("id", "title", "owner", "parent_task", "opened_by", "closed_by", "created_at")
+
+
+def new_task(con, title: str, owner: str, opened_by: str,
+             parent_task: int | None = None) -> int:
+    cur = con.execute(
+        "INSERT INTO tasks(title, owner, parent_task, opened_by, created_at) "
+        "VALUES (?, ?, ?, ?, ?)", (title, owner, parent_task, opened_by, int(time.time())))
+    return int(cur.lastrowid)
+
+
+def get_task(con, tid: int):
+    return con.execute("SELECT * FROM tasks WHERE id = ?", (tid,)).fetchone()
+
+
+def open_tasks(con) -> list:
+    return con.execute(
+        "SELECT * FROM tasks WHERE closed_by IS NULL ORDER BY id").fetchall()
+
+
+def open_child_tasks(con, tid: int) -> list:
+    return con.execute(
+        "SELECT * FROM tasks WHERE parent_task = ? AND closed_by IS NULL ORDER BY id",
+        (tid,)).fetchall()
+
+
+def close_task(con, tid: int, closed_by: str) -> bool:
+    """Close a task, atomically. True only if this call was the one that
+    closed it, so a second close racing this one loses instead of overwriting
+    the first evidence."""
+    cur = con.execute(
+        "UPDATE tasks SET closed_by = ? WHERE id = ? AND closed_by IS NULL",
+        (closed_by, tid))
+    return cur.rowcount > 0
+
+
+def link_request(con, tid: int, rid: int) -> None:
+    con.execute("INSERT OR IGNORE INTO task_requests(task_id, request_id) VALUES (?, ?)",
+                (tid, rid))
+
+
+def task_requests(con, tid: int) -> list:
+    """The requests linked to a task, as they are now."""
+    return con.execute(
+        "SELECT r.* FROM requests r JOIN task_requests l ON l.request_id = r.id "
+        "WHERE l.task_id = ? ORDER BY r.id", (tid,)).fetchall()
 
 
 def get_request(con, rid: int):

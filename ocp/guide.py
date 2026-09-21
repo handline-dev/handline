@@ -63,7 +63,8 @@ its session lives on.""",
   ocp inbox                       the one thing currently waiting for you, and a count
   ocp inbox --all                 the whole queue and its history
   ocp read <id>                   one of them whole
-  ocp resolve <id> "<verdict>"    answer one
+  ocp resolve <id> "<verdict>"    answer one (the founder's requests also need
+                                   --task N [N ...] or --no-task "reason")
   ocp dismiss <id>                take one off your list without replying
 
 An agent is given one request at a time - the head of its queue - not the
@@ -128,6 +129,7 @@ exchange as one thread; the screen's answer key does it for you.""",
 
     "memory": """closing an idle session
   ocp close <agent>                end the session, keep the terminal
+  (`ocp close <task number> <sha or reason>` closes a task on the board instead)
   ocp resume <agent>               put it back, resuming the same session
 
 A session that is not being used holds 250-500MB and spends no tokens at all.

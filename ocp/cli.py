@@ -11,6 +11,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -335,7 +336,32 @@ def cmd_handoff_write(args) -> int:
 
 
 def cmd_close(args) -> int:
-    """Close an agent's session by hand, keeping its terminal."""
+    """One verb, two things it can close: a task by its number (`ocp close 7
+    <sha or reason>`), or an agent's session by its name, keeping its
+    terminal. An agent is never named with a number, so the argument decides;
+    evidence given to a name, or none given to a number, is refused rather
+    than guessed at.
+    """
+    raw = args.target
+    if raw.isdigit():
+        if not args.evidence:
+            print(f"task #{raw} needs a merge sha or a reason to close it")
+            return 1
+        con = db.connect()
+        try:
+            ev = args.evidence
+            sha = ev if re.fullmatch(r"[0-9a-fA-F]{7,40}", ev) else None
+            ok, msg = actions.close_task(con, int(raw), sha=sha,
+                                         reason=None if sha else ev,
+                                         repo=Path(args.repo) if args.repo else None)
+            print(msg)
+        finally:
+            con.close()
+        return 0 if ok else 1
+    if args.evidence:
+        print("a sha or reason closes a task, by its number - not an agent's session")
+        return 1
+    args.agent = raw
     con = db.connect()
     try:
         st = status.read_for_agent(args.agent, agents.current_account(args.agent, con))
@@ -344,6 +370,77 @@ def cmd_close(args) -> int:
     finally:
         con.close()
     return 0 if ok else 1
+
+
+def _task_owner_ok(name: str) -> bool:
+    return name in paths.list_agents()
+
+
+def cmd_task_new(args) -> int:
+    me = askmod.asking_agent()
+    if me is None:
+        print(_who_refusal("open a task"))
+        return 1
+    if me == askmod.HUMAN:
+        print("a task is opened by the manager, never in the founder's name")
+        return 1
+    if not _task_owner_ok(args.owner):
+        print(f"no agent named {args.owner}")
+        return 1
+    title = textsafe.oneline(args.title).strip()
+    if not title:
+        print("a task needs a title")
+        return 1
+    con = db.connect()
+    try:
+        if args.parent is not None and db.get_task(con, args.parent) is None:
+            print(f"no task #{args.parent}")
+            return 1
+        tid = db.new_task(con, title, args.owner, me, args.parent)
+    finally:
+        con.close()
+    print(f"task #{tid} opened for {args.owner}")
+    return 0
+
+
+def cmd_task_link(args) -> int:
+    con = db.connect()
+    try:
+        if db.get_task(con, args.task) is None:
+            print(f"no task #{args.task}")
+            return 1
+        if db.get_request(con, args.request) is None:
+            print(f"no request #{args.request}")
+            return 1
+        db.link_request(con, args.task, args.request)
+    finally:
+        con.close()
+    print(f"request #{args.request} linked to task #{args.task}")
+    return 0
+
+
+def _print_board(con, tasks: list) -> None:
+    """Each task, then the requests linked to it as they stand now: state and
+    date are read from the request, never held on the task."""
+    if not tasks:
+        print("no open tasks.")
+        return
+    for t in tasks:
+        parent = f" (under #{t['parent_task']})" if t["parent_task"] else ""
+        print(f"#{t['id']:<4} {textsafe.oneline(t['title'])}  [{t['owner']}]{parent}")
+        for r in db.task_requests(con, t["id"]):
+            when = time.strftime("%Y-%m-%d %H:%M", time.localtime(r["ts"]))
+            print(f"        request #{r['id']} {r['requester']} → {r['target']} "
+                  f"{r['state']} {when}")
+
+
+def cmd_task_list(args) -> int:
+    con = db.connect()
+    try:
+        _print_board(con, db.open_tasks(con))
+    finally:
+        con.close()
+    return 0
 
 
 def cmd_resume(args) -> int:
@@ -1343,10 +1440,24 @@ def cmd_resolve(args) -> int:
                   + (f" ({textsafe.oneline(row['verdict'])[:120]})" if row["verdict"] else "")
                   + " - nothing to resolve.")
             return 1
+        refusal = actions.check_human_resolve(con, row, args.task, args.no_task)
+        if refusal:
+            print(refusal)
+            return 1
     finally:
         con.close()
     ok, msg = askmod.resolve(args.id, args.verdict, state=args.state)
     print(msg)
+    if ok and (args.task or args.no_task):
+        con = db.connect()
+        try:
+            for tid in args.task or []:
+                db.link_request(con, tid, args.id)
+            if args.no_task:
+                db.add_event(con, me, "no_task", {"request_id": args.id,
+                                                  "reason": args.no_task})
+        finally:
+            con.close()
     return 0 if ok else 1
 
 
@@ -1537,6 +1648,11 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("id", type=int)
     p.add_argument("verdict")
     p.add_argument("--state", default="done", choices=["done", "rejected"])
+    p.add_argument("--task", type=int, nargs="+", metavar="N",
+                   help="the task(s) this answer belongs to; required on the founder's requests")
+    p.add_argument("--no-task", metavar="REASON",
+                   help="answered, nothing to build; required on the founder's requests "
+                        "unless --task is given")
     p.set_defaults(fn=cmd_resolve)
 
     p = sub.add_parser("dismiss", help="take one row off your mailbox without replying")
@@ -1642,9 +1758,25 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("agent")
     p.set_defaults(fn=cmd_handoff_write)
 
-    p = sub.add_parser("close", help="end an idle agent's session, keeping its terminal")
-    p.add_argument("agent")
+    p = sub.add_parser("close", help="close a task (ocp close 7 <sha or reason>), or "
+                                     "end an idle agent's session, keeping its terminal")
+    p.add_argument("target", help="a task number, or an agent's name")
+    p.add_argument("evidence", nargs="?", help="a merge sha on main, or a reason")
+    p.add_argument("--repo", default=None, help="the repo whose main a sha is checked against")
     p.set_defaults(fn=cmd_close)
+
+    tk = sub.add_parser("task", help="the task board").add_subparsers(dest="sub", required=True)
+    p = tk.add_parser("new", help="open a task")
+    p.add_argument("title")
+    p.add_argument("--owner", required=True)
+    p.add_argument("--parent", type=int, default=None, help="the task this is a part of")
+    p.set_defaults(fn=cmd_task_new)
+    p = tk.add_parser("list", help="the open tasks and their requests")
+    p.set_defaults(fn=cmd_task_list)
+    p = tk.add_parser("link", help="attach a further request to a task")
+    p.add_argument("task", type=int)
+    p.add_argument("request", type=int)
+    p.set_defaults(fn=cmd_task_link)
 
     p = sub.add_parser("resume", help="hand a parked agent back its handoff")
     p.add_argument("agent")
