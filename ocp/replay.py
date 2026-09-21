@@ -16,8 +16,8 @@ was under, or every old sample reads as though it were taken just now.
 `time.time` is patched for the span of one tick's comparison and restored
 immediately after, the same technique the test suite already uses to drive
 a fixed clock through `pick_account`. That patch is process-global: it moves
-the clock for everything else in the process, so call `replay` from the CLI,
-never from inside a daemon tick.
+the clock for everything else in the process, so call `replay` and `reconstruct_burn`
+from the CLI, never from inside a daemon tick.
 
 What is reconstructed is not only the account's status but enough of its
 load to let the week-runway gate run at all (#1400): burn, from the same
@@ -82,7 +82,8 @@ def old_pick(statuses: dict[str, status.AccountStatus]) -> str | None:
 def _live_at_its_tick(row) -> bool:
     """`AccountStatus.is_live_reading` for a recorded row, judged by the clock
     the row was taken under - the test the daemon applied before letting the
-    figure into its burn window."""
+    figure into its burn window. Moves the process-global `time.time` while it
+    runs, so never call it from inside a daemon tick."""
     real_time = time.time
     time.time = lambda: row["ts"]
     try:
@@ -94,7 +95,7 @@ def _live_at_its_tick(row) -> bool:
 def reconstruct_burn(rows) -> dict[tuple[str, int], float]:
     """Percent of the 5h window per second, per account per recorded tick,
     keyed by (account, ts). Each account keeps the window the daemon keeps -
-    its last ten live samples - and reads it with `triggers.burn_rate_per_s`,
+    its last `triggers.BURN_WINDOW` live samples - and reads it with `triggers.burn_rate_per_s`,
     so the replayed burn is the function the replayed tick ran, 0.0 where it
     could not measure. Under `since` the window starts empty, so an account's
     first ticks read 0.0 where the daemon had a rate."""
@@ -104,7 +105,7 @@ def reconstruct_burn(rows) -> dict[tuple[str, int], float]:
         h = hist.setdefault(row["account"], [])
         if _live_at_its_tick(row) and (not h or h[-1][0] != row["rl_at"]):
             h.append((row["rl_at"], row["pct_5h"]))
-            del h[:-10]
+            del h[:-triggers.BURN_WINDOW]
         burns[(row["account"], row["ts"])] = triggers.burn_rate_per_s(h)
     return burns
 

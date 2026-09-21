@@ -1094,7 +1094,7 @@ def test_replay_burn_is_the_daemons_burn(home: Path) -> None:
             put("h", 1600 + 10 * i, 56, rl_at=1600)
         put("m", 1000, 50)
         for i in range(1, 12):
-            put("m", 1000 + 100 * i, 60)
+            put("m", 1000 + 100 * i, 50 + i * i // 3)
         put("i", 1000, 50, exists=False)
         put("i", 1600, 56, exists=False)
         put("j", 1000, 50)
@@ -1112,8 +1112,10 @@ def test_replay_burn_is_the_daemons_burn(home: Path) -> None:
               abs(burns[("b", 1600)] - 6 / 600) < 1e-9, burns[("b", 1600)])
         check("replay burn: the window is end to end over its samples, not the last pair",
               abs(burns[("g", 1600)] - 2 / 600) < 1e-9, burns[("g", 1600)])
-        check("replay burn: the window holds the last ten samples, no more",
-              burns[("m", 2100)] == 0.0, burns[("m", 2100)])
+        m = {i: (1000 + 100 * i, 50 + i * i // 3) for i in range(1, 12)}
+        check("replay burn: the window is the daemon's BURN_WINDOW, not one more or fewer",
+              abs(burns[("m", 2100)] - (m[11][1] - m[2][1]) / (m[11][0] - m[2][0])) < 1e-9
+              and triggers.BURN_WINDOW == 10, burns[("m", 2100)])
         check("replay burn: a repeated rl_at is one sample, not a slot each",
               abs(burns[("h", 1710)] - 6 / 600) < 1e-9, burns[("h", 1710)])
         for acct, why in (("i", "a row of an account that does not exist"),
