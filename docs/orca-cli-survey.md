@@ -610,5 +610,6 @@ So the accurate statement is: Orca knows what every registered account has
 spent, across eight providers, in the right shape - **but not freshly enough to
 drive a decision**, and only for accounts registered with Orca.
 
-Part 2 takes this list and asks what ocp uses, what it rebuilt, and what a
-second vendor would cost.
+Part 2 (`vendor-extension-board.md`) takes this list seam by seam and asks
+what ocp uses, what it rebuilt, and what a second vendor would cost. What has
+been settled out of both is in `vendor-extension-decisions.md`.

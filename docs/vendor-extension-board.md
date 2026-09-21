@@ -4,6 +4,10 @@ Part 2 of the #1255 study, and a **living document** - it is updated as each
 area is surveyed, not written once. Part 1 is `orca-cli-survey.md`; this board
 assumes its findings, especially the three support tiers (§3.1 there).
 
+**What is already settled is in `vendor-extension-decisions.md` (D1-D7), and
+this board does not re-argue it.** Verdicts here that rest on a decision say
+so.
+
 The question it answers, seam by seam: *to run codex or opencode agents beside
 claude ones, what has to change - and of that, what should become an Orca CLI
 call rather than code of ours?*
