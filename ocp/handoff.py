@@ -24,7 +24,7 @@ import subprocess
 import time
 from pathlib import Path
 
-from . import agents, db, spawn as spawnmod, status
+from . import agents, db, spawn as spawnmod, status, textsafe
 
 # Enough to see what is in flight; the rest is `git status` away.
 _STATUS_LINES = 20
@@ -67,10 +67,15 @@ def _worktree_lines(worktree: str | None) -> tuple[list[str], str | None]:
     dirty = _git(worktree, "status", "--porcelain")
     if branch is None or head is None or dirty is None:
         return [], "the worktree's branch, HEAD or git status"
-    lines = [f"worktree: {worktree}", f"branch: {branch} @ {head}"]
+    lines = [f"worktree: {worktree}",
+            f"branch: {textsafe.oneline(branch)} @ {textsafe.oneline(head)}"]
+    # A status line names a path the agent's own worktree chose - the same
+    # class of text a filename in `ocp drift` is, and not one git quotes for
+    # us here (`status --porcelain` is meant for scripts to parse, not shown
+    # to a terminal, so it never has git's own quoting to lean on).
     changed = dirty.splitlines()
     lines.append("git status: clean" if not changed else "git status:")
-    lines += [f"  {c}" for c in changed[:_STATUS_LINES]]
+    lines += [f"  {textsafe.oneline(c)}" for c in changed[:_STATUS_LINES]]
     if len(changed) > _STATUS_LINES:
         lines.append(f"  ... and {len(changed) - _STATUS_LINES} more")
     return lines, None

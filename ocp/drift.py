@@ -17,6 +17,8 @@ import subprocess
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from . import textsafe
+
 NO_OVERLAP_HEADER = (
     "아래 \"완료\" 항목은 이미 끝났습니다. 재수행하지 마십시오."
 )
@@ -69,12 +71,20 @@ class Drift:
 
 
 def _git(args: list[str], cwd: Path, timeout: int = 30) -> tuple[bool, str]:
+    """On success, `out` is data a caller below still splits on its own
+    newlines (a file a line) - untouched, since a filename is sanitised where
+    it is drawn, at the sink `cmd_drift` already owns. On failure it is git's
+    own error text, which `check` embeds straight into `d.error` for that same
+    sink to print - sanitised here, so that embedding is clean by construction
+    the way orca._run and spawn._run's callers are."""
     try:
         r = subprocess.run(["git", *args], cwd=cwd, capture_output=True,
                            text=True, timeout=timeout)
     except (OSError, subprocess.SubprocessError) as e:
-        return False, str(e)
-    return r.returncode == 0, (r.stdout if r.returncode == 0 else r.stderr).strip()
+        return False, textsafe.oneline(str(e))
+    if r.returncode != 0:
+        return False, textsafe.oneline(r.stderr.strip())
+    return True, r.stdout.strip()
 
 
 def touched_files(repo: Path, base: str) -> list[str]:

@@ -26,12 +26,13 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
-from ocp import (accounts, actions, agents, ask as askmod, burnrate, cli as climod, daemon as dmn, db, hr,
+from ocp import (accounts, actions, agents, ask as askmod, blocked as blockedmod, burnrate, cli as climod, daemon as dmn, db, hr,
                  digest,
                  doctor, drift, events as evmod, fold as foldmod,
                  handoff as handoffmod, launch, load as loadmod, lock, measure,
-                 observe as obsmod, orca as orcamod, paths, service, spawn as spawnmod,
-                 status, team, triggers, tui, yamlcompat)  # noqa: E402
+                 observe as obsmod, orca as orcamod, paths, replay as replaymod, service,
+                 spawn as spawnmod,
+                 status, team, textsafe, triggers, tui, yamlcompat)  # noqa: E402
 
 PASS, FAIL = [], []
 
@@ -44,7 +45,8 @@ dmn.END_WAIT_S, dmn.END_POLL_S = 0.3, 0.05
 # once, put back by _daemon_home, so no test inherits another's world.
 REAL_ORCA = {n: getattr(orcamod, n) for n in (
     "available", "alive", "live_terminals", "wait_idle", "idle_now", "send",
-    "clear_context", "close_session", "relaunch", "resume_with", "modal_open")}
+    "clear_context", "close_session", "relaunch", "resume_with", "modal_open",
+    "unsent_text", "screen_blocker", "_screen", "decline_dialog")}
 REAL_OBSERVE = {n: getattr(obsmod, n) for n in ("live_sessions", "live_terminals")
                 if hasattr(obsmod, n)}
 
@@ -57,11 +59,24 @@ CURRENT_TEST: dict[str, str] = {"name": "<setup>"}
 # reaches it. The four that run the real `ocp` as a child process do, and are
 # named below; any other test that reaches it is a test that has not stood in
 # for something, and the run ends on it.
+#
+# Two layers, not one, and neither is redundant. _guarded_popen_init below
+# catches a call in THIS process the moment it is made, naming the test before
+# anything is spent - but it patches subprocess.Popen.__init__, so a test that
+# replaces subprocess.run wholesale (two do, for reasons unrelated to Orca)
+# goes blind to that layer for as long as the replacement stands: nothing
+# calls Popen, so nothing is caught. This PATH stand-in is what still would,
+# for anything that actually execs `orca`, however it got there: PATH is set
+# once here at import, nothing in the suite clears or replaces it, and no
+# env-building site in ocp/ drops it from a child's environment either.
 FAKE_ORCA_DIR = Path(tempfile.mkdtemp(prefix="ocp-fake-orca-"))
 FAKE_ORCA_LOG = FAKE_ORCA_DIR / "calls.log"
 (FAKE_ORCA_DIR / "orca").write_text(
     "#!/bin/sh\n"
-    "printf '%s\\t%s\\n' \"${OCP_TEST:-<none>}\" \"$*\" >> LOGFILE\n"
+    # tr keeps one call to one line: an argument carrying a newline would
+    # otherwise split into a phantom log entry and redden the run on nothing.
+    "args=$(printf '%s' \"$*\" | tr '\\n\\t' '  ')\n"
+    "printf '%s\\t%s\\n' \"${OCP_TEST:-<none>}\" \"$args\" >> LOGFILE\n"
     "exit 1\n".replace("LOGFILE", f'"{FAKE_ORCA_LOG}"'))
 (FAKE_ORCA_DIR / "orca").chmod(0o755)
 os.environ["PATH"] = str(FAKE_ORCA_DIR) + os.pathsep + os.environ.get("PATH", "")
@@ -106,7 +121,8 @@ def _guarded_popen_init(self, args, *a, **kw):
         ORCA_ATTEMPTS.append((CURRENT_TEST["name"], argv))
         ours = [f for f in traceback.extract_stack() if "/ocp/" in f.filename or "/tests/" in f.filename]
         via = " (via " + " > ".join(f"{Path(f.filename).name}:{f.lineno} {f.name}" for f in ours[-6:-1]) + ")" if ours else ""
-        raise AssertionError(f"{CURRENT_TEST['name']} reached the real Orca: {argv}{via}")
+        raise AssertionError(f"{CURRENT_TEST['name']} would have reached the real Orca: "
+                            f"{argv}{via}")
     _REAL_POPEN_INIT(self, args, *a, **kw)
 
 
@@ -116,6 +132,12 @@ def restore_world() -> None:
         setattr(orcamod, n, f)
     # No screen to read in a fixture; a test about a modal says so itself.
     orcamod.modal_open = lambda handle: False
+    orcamod.unsent_text = lambda handle: False
+    orcamod.screen_blocker = lambda handle: None
+    # And no screen to read for a key either: a test that presses one says so.
+    orcamod._screen = lambda handle: None
+    orcamod.PRESS_SETTLE_S = 0
+    blockedmod._checked.clear()
     for n, f in REAL_OBSERVE.items():
         setattr(obsmod, n, f)
     # Readings that outlive the tick or the frame by design, so one test's
@@ -401,49 +423,385 @@ def test_failclosed(home: Path) -> None:
           picked is None, str(picked))
 
 
-def test_pick_account_orders_by_weekly_deadline(home: Path) -> None:
-    """Request #166/#167, amended by #169/#170/#254: spend first the weekly
-    headroom that expires soonest unused - not simply the account with the
-    most 5h room right now, and right up to its own wall rather than holding
-    back at a lower line (the margin/tier rule #254 dropped)."""
+def test_pick_account_orders_by_weekly_pace(home: Path) -> None:
+    """#1001, replacing the earliest-weekly-deadline rule (#166/#167/#169/
+    #170/#254) this same function used to test: among accounts admitted by
+    `takes_work`/`unfit`, the one furthest BEHIND its own weekly pace
+    (`status.pace_7d`) is picked - not simply the one with the most 5h room
+    right now, and not the one whose reset_7d timestamp happens to be soonest
+    regardless of what its pct_7d actually is."""
     os.environ["OCP_HOME"] = str(home)
     now = int(time.time())
 
-    # "later" has more 5h headroom than "soon" - the old rule would pick it -
-    # but "soon" loses its weekly window first.
+    # "later" has more 5h headroom than "soon" - the old rule would pick it on
+    # that alone - but "soon" is further behind its own pace: 10% used with an
+    # hour left (almost the whole week already elapsed) is further behind than
+    # 10% used with a day left (much less elapsed).
     write_status(home, "soon", pct_5h=50, pct_7d=10, reset_7d=now + 3600)
     write_status(home, "later", pct_5h=5, pct_7d=10, reset_7d=now + 90000)
     picked, reasons = status.pick_account(["soon", "later"])
-    check("pick_account: the earlier weekly deadline wins over more headroom",
+    check("pick_account: further behind its own pace wins over more headroom",
           picked == "soon", str(picked))
     said = dict(reasons)
     check("pick_account: the winner's reason says it was picked",
           "picked" in said["soon"], said["soon"])
 
-    # "close_to_wall" resets sooner than "safe" and is near its own 7d wall -
-    # under the old margin rule it would have been deprioritized behind
-    # "safe"; #254 drops that, so the sooner deadline still wins.
+    # "close_to_wall" resets sooner than "safe" and sits near its own 7d wall,
+    # but at 92% with its week almost entirely elapsed it is close to ON pace;
+    # "safe" at 50% with most of the week still to run is well behind its own -
+    # so "safe" is picked, not the one closer to its wall or to its reset.
     write_status(home, "close_to_wall", pct_5h=5, pct_7d=92, reset_7d=now + 3600)
     write_status(home, "safe", pct_5h=5, pct_7d=50, reset_7d=now + 90000)
     picked, _ = status.pick_account(["close_to_wall", "safe"])
-    check("pick_account: the soonest deadline wins right up to its own wall, "
-          "not just within a margin of it",
-          picked == "close_to_wall", str(picked))
+    check("pick_account: further behind its own pace wins even when the "
+          "nearer-wall account resets sooner",
+          picked == "safe", str(picked))
 
-    # Even both near their own walls, the sooner deadline still wins - there
-    # is no second tier to fall back into any more.
+    # Both near their own 7d wall, but not equally near their own pace:
+    # wall_a (91% with 1000s left) is fractionally further behind than
+    # wall_b (93% with 50s left, its week essentially fully elapsed).
     write_status(home, "wall_a", pct_5h=5, pct_7d=91, reset_7d=now + 1000)
     write_status(home, "wall_b", pct_5h=5, pct_7d=93, reset_7d=now + 50)
     picked, _ = status.pick_account(["wall_a", "wall_b"])
-    check("pick_account: orders by deadline even when both are near the wall",
-          picked == "wall_b", str(picked))
+    check("pick_account: orders by pace even when both are near the wall",
+          picked == "wall_a", str(picked))
 
-    # An account whose 7d window has never been observed sorts behind a known,
-    # sooner deadline rather than jumping the queue.
+    # An account whose 7d window has never been observed sorts behind a known
+    # pace rather than jumping the queue - a '?' is not low usage.
     write_status(home, "never_seen_7d", pct_5h=5, pct_7d=None)
     picked, _ = status.pick_account(["never_seen_7d", "soon"])
-    check("pick_account: a known, sooner deadline beats an unknown one",
+    check("pick_account: a known pace beats an unknown one",
           picked == "soon", str(picked))
+
+    # The old rule's real benefit, not given up: two accounts with the SAME
+    # usage but different resets are not a tie under pace, because the one
+    # closer to its reset has more of its week already elapsed - same
+    # numerator, smaller denominator, lower pace. So "spend the one that
+    # resets soonest" still holds in the ordinary case pace was built to
+    # improve on, not just the disagreeing case pace was built to fix.
+    write_status(home, "resets_soon", pct_5h=5, pct_7d=30, reset_7d=now + 7200)
+    write_status(home, "resets_later", pct_5h=5, pct_7d=30, reset_7d=now + 3 * 86400)
+    picked, _ = status.pick_account(["resets_soon", "resets_later"])
+    check("pick_account: at equal usage, the sooner reset still wins - pace "
+          "does not give up the old rule's real case, only its bad one",
+          picked == "resets_soon", str(picked))
+
+
+def test_pace_matches_the_worked_examples_that_were_written_backwards(home: Path) -> None:
+    """#1001/#1036: the two worked examples of "ahead" and "behind" its own
+    pace came from orcapipe, not from the founder, and orcapipe had the words
+    backwards on both - three times, the last of them in the review request
+    that asked for this check. Pinned as fixtures so nobody reads the words
+    and implements them backwards again.
+    Pin the NUMBERS the corrected reading settled on, not the words: 85% with
+    one day elapsed (six left) is pace ~5.95 - the worst of the two, because
+    burning 85% in a seventh of the week is far ahead of a uniform pace, not
+    behind it - and 60% with the week 97.6% elapsed (four hours left) is pace
+    ~0.615, comfortably behind, which is what "ahead" was meant to mean."""
+    os.environ["OCP_HOME"] = str(home)
+    now = int(time.time())
+    write_status(home, "burns_fast", pct_5h=5, pct_7d=85, reset_7d=now + 6 * 86400)
+    write_status(home, "comfortable", pct_5h=5, pct_7d=60, reset_7d=now + 4 * 3600)
+    fast_pace = status.pace_7d(status.read("burns_fast"))
+    comfortable_pace = status.pace_7d(status.read("comfortable"))
+    check("founder's examples: 85% with six days left is far ahead of a "
+          "uniform pace (~5.95), not behind it",
+          5.9 < fast_pace < 6.0, fast_pace)
+    check("founder's examples: 60% with four hours left is comfortably "
+          "behind (~0.615), which is the one that reads as 'ahead' in the "
+          "sense that matters - it is not going to run out on its own",
+          0.6 < comfortable_pace < 0.63, comfortable_pace)
+    check("founder's examples: the lower number - comfortable, not fast - is "
+          "the one pace spends first", comfortable_pace < fast_pace)
+
+
+def test_a_near_wall_7d_account_is_not_specially_excluded(home: Path) -> None:
+    """Finding, from #1036: an account at 7d 99% with an hour left passes
+    `takes_work` and `unfit` exactly like one at 7d 10% with a day left - only
+    pace decides between them. There is no weekly analogue of MIN_STRETCH_S;
+    decision #254 deliberately dropped the margin that would have been one
+    ('spent to its own wall, not held back'), and #256 accepted the fallout by
+    name: 'if it runs out mid-session, the agent moves.' So a 99% account is
+    not refused for being a hair from its wall - it can still be PICKED, if
+    nothing better is on offer - and this pins that as the accepted shape
+    rather than an oversight the ranking should close."""
+    os.environ["OCP_HOME"] = str(home)
+    now = int(time.time())
+    write_status(home, "sliver", pct_5h=9, pct_7d=99, reset_5h=now + 1800, reset_7d=now + 3600)
+    st = status.read("sliver")
+    ld = loadmod.Load("sliver", 0, 2, 0.0)
+    check("near-wall: 99% with an hour left still takes_work",
+          st.takes_work(0)[0], st.takes_work(0))
+    check("near-wall: and unfit finds nothing wrong with it",
+          status.unfit(st, ld) is None)
+    # With nothing better available, it is still the pick - #254's spend-to-
+    # the-wall guarantee, which pace must not quietly take back.
+    picked, _ = status.pick_account(["sliver"])
+    check("near-wall: with no alternative, it is still picked, not skipped",
+          picked == "sliver", picked)
+
+
+def test_pick_account_does_not_bounce_between_two_close_accounts(home: Path) -> None:
+    """Many consecutive picks, with two accounts close in pace and usage
+    rising on both: the choice must cross from one to the other at most once,
+    never alternate back and forth as rounding moves the raw pace a hair to
+    either side of the tie."""
+    os.environ["OCP_HOME"] = str(home)
+    base = int(time.time())
+    reset_7d = base + 3 * 86400
+    clock = {"s": 0}
+    real_time = time.time
+    time.time = lambda: base + clock["s"]  # noqa: E731
+    try:
+        pct = {"a": 40.0, "b": 42.0}
+        picks = []
+        last = None
+        for _ in range(400):
+            for acct in ("a", "b"):
+                write_status(home, acct, pct_5h=10, pct_7d=pct[acct],
+                             reset_5h=base + clock["s"] + 7200, reset_7d=reset_7d)
+            # `prefer=last`, as a repeated caller (the accounts panel, a
+            # tick's own re-check) would pass what it picked last time - that
+            # is the memory the dead zone alone does not have.
+            picked, _ = status.pick_account(["a", "b"], prefer=last)
+            picks.append(picked)
+            last = picked
+            pct["a"] += 0.02
+            pct["b"] += 0.01
+            clock["s"] += 300
+        switches = sum(1 for x, y in zip(picks, picks[1:]) if x != y)
+        check("no-bounce: usage rising on both, the pick crosses at most once",
+              switches <= 1, f"{switches} switches: {picks}")
+        check("no-bounce: and it does cross, since 'a' starts and ends behind "
+              "'b' becomes ahead of it", picks[0] != picks[-1], picks)
+    finally:
+        time.time = real_time
+
+
+def test_pick_account_prefer_breaks_an_exact_bucket_tie(home: Path) -> None:
+    """The head start `prefer` gives an incumbent can land it exactly on a
+    challenger's bucket, not past it - and that tie must still go to the
+    incumbent, not to whichever of the two a later tiebreak (headroom,
+    confidence, name) happens to favor. Same pct_7d and reset_7d for both, so
+    the bucket tie is exact, not a floating-point accident; `y` has more 5h
+    headroom, which would win the headroom tiebreak if `prefer` did not
+    settle it first."""
+    os.environ["OCP_HOME"] = str(home)
+    now = int(time.time())
+    reset_7d = now + 3 * 86400
+    # x's raw pace bucket, minus prefer's one-step head start, lands exactly
+    # on y's raw bucket (44% and 42% of this week, both checked against
+    # PACE_HYSTERESIS = 0.02 above).
+    write_status(home, "x", pct_5h=50, pct_7d=44, reset_5h=now + 1800, reset_7d=reset_7d)
+    write_status(home, "y", pct_5h=10, pct_7d=42, reset_5h=now + 1800, reset_7d=reset_7d)
+    picked, reasons = status.pick_account(["x", "y"], prefer="x")
+    check("prefer: an exact bucket tie stays with the incumbent, not with "
+          "the account that has more headroom", picked == "x", str((picked, reasons)))
+
+
+def test_pick_account_tonights_shape(home: Path) -> None:
+    """#1001's own regression case: alpha 5h49/7d58 at cap, beta 5h19/7d85 at
+    cap, delta 5h8/7d30, gamma 5h88/7d89 - delta is picked. alpha and beta are
+    excluded outright by their cap, before pace ever runs on them;
+    gamma's 12 points of 5h headroom do not last `MIN_STRETCH_S` at the
+    typical agent's cost, so it is excluded too - delta is the only candidate
+    left, which this still checks end to end rather than assuming."""
+    os.environ["OCP_HOME"] = str(home)
+    now = int(time.time())
+    for acct, pct5, pct7 in (("alpha", 49, 58), ("beta", 19, 85),
+                             ("delta", 8, 30), ("gamma", 88, 89)):
+        write_status(home, acct, pct_5h=pct5, pct_7d=pct7,
+                     reset_5h=now + 1800, reset_7d=now + 3 * 86400)
+    ld = {
+        "alpha": loadmod.Load("alpha", 1, 1, 0.0),
+        "beta": loadmod.Load("beta", 1, 1, 0.0),
+        "delta": loadmod.Load("delta", 0, 2, 0.0),
+        "gamma": loadmod.Load("gamma", 0, 2, 0.0),
+    }
+    picked, reasons = status.pick_account(["alpha", "beta", "delta", "gamma"], load=ld)
+    said = dict(reasons)
+    check("tonight's shape: delta is picked", picked == "delta", str((picked, reasons)))
+    check("tonight's shape: alpha is excluded by its cap", "cap" in said["alpha"], said["alpha"])
+    check("tonight's shape: beta is excluded by its cap", "cap" in said["beta"], said["beta"])
+    check("tonight's shape: gamma is excluded - not enough of its 5h window "
+          "left to be worth a start", "gamma" != picked and said["gamma"] != "", said["gamma"])
+
+
+def test_pick_account_degrades_when_every_account_would_hit_the_wall(home: Path) -> None:
+    """No account qualifies: pick_account returns None and a reason for each,
+    not an exception - and a boundary account whose one more agent would still
+    last `MIN_STRETCH_S` is not swept into that refusal by mistake."""
+    os.environ["OCP_HOME"] = str(home)
+    now = int(time.time())
+    write_status(home, "full", pct_5h=100, pct_7d=10, reset_5h=now + 1800)
+    write_status(home, "near_wall", pct_5h=99, pct_7d=10, reset_5h=now + 1800)
+    picked, reasons = status.pick_account(["full", "near_wall"])
+    check("all-wall: nothing qualifies, so the pick refuses rather than "
+          "guessing", picked is None, str((picked, reasons)))
+    check("all-wall: every refusal says why",
+          all(why for _, why in reasons), reasons)
+
+    # 22 points of headroom at the typical cost (0.75%/min) lasts 1760s, just
+    # under MIN_STRETCH_S (1800s); 23 lasts 1840s, just over it.
+    write_status(home, "just_under", pct_5h=78, pct_7d=10, reset_5h=now + 1800)
+    write_status(home, "just_over", pct_5h=77, pct_7d=10, reset_5h=now + 1800)
+    check("all-wall: just under the stretch floor still refuses",
+          status.pick_account(["just_under"])[0] is None)
+    check("all-wall: one more point of headroom crosses it and is picked",
+          status.pick_account(["just_over"])[0] == "just_over")
+
+
+def test_pick_account_stale_and_unknown_pace(home: Path) -> None:
+    """A stale or missing figure must never read as low usage: `pace_7d`
+    returns infinity rather than 0 or a guess."""
+    os.environ["OCP_HOME"] = str(home)
+    now = int(time.time())
+
+    # Stale but idle - admitted on its floor, but the floor is not knowledge:
+    # a missing pct_7d - not merely a stale one, which still carries forward
+    # as a floor of its own - keeps pace unknown rather than inferring one.
+    write_status(home, "stale_idle", pct_5h=5, pct_7d=None, reset_5h=now + 1800,
+                 collected_at=now - 3600)
+    st = status.read("stale_idle")
+    check("stale/unknown: a missing 7d figure is unknown pace, not 0",
+          status.pace_7d(st) == float("inf"), status.pace_7d(st))
+
+    # A rolled-over 7d window (reset already past) is not a low pace either -
+    # trusted_pct_7d is None for it, same as never having read one at all.
+    write_status(home, "rolled_over", pct_5h=5, pct_7d=5, reset_5h=now + 1800,
+                 reset_7d=now - 10)
+    check("stale/unknown: a rolled-over week reads as unknown pace, not 0",
+          status.pace_7d(status.read("rolled_over")) == float("inf"))
+
+    # Unknown headroom_5h (stale, and past the idle-floor margin) still
+    # refuses outright, the same as any other unfit account - pace is never
+    # asked about an account that was refused.
+    write_status(home, "stale_full", pct_5h=95, reset_5h=now + 1800,
+                 collected_at=now - 3600)
+    allowed, why = status.read("stale_full").assignable()
+    check("stale/unknown: a stale reading too close to the wall still "
+          "refuses", not allowed, why)
+
+
+# ---------------------------------------------------------------- usage_samples
+def test_usage_samples_round_trip_without_coercing_a_gap_to_zero(home: Path) -> None:
+    """#1113: a recorded sample is read back exactly, unknown figures stay
+    unknown - never 0 - and pruning removes only what is older than the
+    window it names."""
+    os.environ["OCP_HOME"] = str(home)
+    con = db.connect()
+    try:
+        known = status.AccountStatus("alpha", exists=True, pct_5h=40, pct_7d=60,
+                                     reset_5h=1000, reset_7d=2000, rl_at=900, rl7_at=900,
+                                     collected_at=900)
+        unknown = status.AccountStatus("beta", exists=True, pct_5h=None, pct_7d=None,
+                                       rl_lost=True, collected_at=900)
+        db.record_usage_sample(con, "alpha", known, ts=1000)
+        db.record_usage_sample(con, "beta", unknown, ts=1000)
+        rows = {r["account"]: r for r in db.usage_samples(con)}
+        check("usage_samples: a known figure reads back exactly",
+              rows["alpha"]["pct_5h"] == 40 and rows["alpha"]["pct_7d"] == 60, dict(rows["alpha"]))
+        check("usage_samples: an unknown figure is NULL, not 0 - a gap is never a zero",
+              rows["beta"]["pct_5h"] is None and rows["beta"]["pct_7d"] is None
+              and bool(rows["beta"]["rl_lost"]), dict(rows["beta"]))
+
+        st_back = replaymod.status_from_row(rows["alpha"])
+        check("usage_samples: the row reconstructs the same AccountStatus "
+              "pick_account would have seen",
+              st_back.pct_5h == 40 and st_back.reset_7d == 2000 and st_back.rl_at == 900,
+              st_back)
+
+        removed = db.prune_usage_samples(con, before_ts=500)
+        check("usage_samples: a cutoff earlier than the samples removes nothing",
+              removed == 0 and len(db.usage_samples(con)) == 2)
+        removed = db.prune_usage_samples(con, before_ts=1500)
+        check("usage_samples: a cutoff past them removes exactly the old rows",
+              removed == 2 and db.usage_samples(con) == [])
+    finally:
+        con.close()
+
+
+def test_the_usage_sample_prune_and_since_read_use_an_index(home: Path) -> None:
+    """Both filter on ts alone, which the (account, ts) index cannot serve
+    because account leads it: without an index on ts each tick full-scans.
+    The statements checked are the ones db actually runs, captured as they
+    execute, and the plan must SEARCH - a full scan of an index still scans."""
+    os.environ["OCP_HOME"] = str(home)
+    con = db.connect()
+    try:
+        ran: list[str] = []
+        con.set_trace_callback(ran.append)
+        db.usage_samples(con, since=1)
+        db.prune_usage_samples(con, before_ts=1)
+        con.set_trace_callback(None)
+        for q in ran:
+            plan = " ".join(r[3] for r in con.execute("EXPLAIN QUERY PLAN " + q))
+            check(f"usage_samples: {q!r} is searched by an index, not scanned",
+                  "SEARCH usage_samples USING" in plan, plan)
+        check("usage_samples: the since read and the prune were both captured",
+              len(ran) == 2, ran)
+    finally:
+        con.close()
+
+
+def test_a_tick_samples_every_account_and_a_down_daemon_leaves_a_gap(home: Path) -> None:
+    """observe_burn logs one row per account per tick, on the same read
+    burnrate already makes - no extra call to any account - and a tick that
+    never ran (the daemon down) leaves no row, which IS the gap: nothing
+    backfills it."""
+    _daemon_home(home, 40)
+    accounts.register("beta")
+    write_status(home, "beta", pct_5h=10, pct_7d=20, reset_5h=int(time.time()) + 1800)
+    con = db.connect()
+    try:
+        before = len(db.usage_samples(con))
+        dmn.observe_burn(con, lambda _m: None)
+        rows = db.usage_samples(con)
+        check("samples: one row per account, one tick",
+              len(rows) - before == 2, len(rows) - before)
+        check("samples: both accounts are in it",
+              {r["account"] for r in rows} == {"alpha", "beta"}, {r["account"] for r in rows})
+        # Nothing runs between here and the next call - no tick, no row: a
+        # daemon that was down leaves an actual gap in `ts`, not a filled one.
+        dmn.observe_burn(con, lambda _m: None)
+        check("samples: a second tick adds exactly one row per account, no more",
+              len(db.usage_samples(con)) - before == 4)
+    finally:
+        con.close()
+
+
+def test_replay_finds_where_the_new_rule_and_the_old_one_disagree(home: Path) -> None:
+    """#1113's own acceptance case: replay the same disagreement
+    test_pick_account_orders_by_weekly_pace already proves live - a
+    near-wall account resetting soon vs a real-headroom one resetting later -
+    from recorded samples instead of from a fixture built for the purpose."""
+    os.environ["OCP_HOME"] = str(home)
+    con = db.connect()
+    try:
+        ts = 500_000_000
+        close_to_wall = status.AccountStatus("close_to_wall", exists=True, pct_5h=5, pct_7d=92,
+                                             reset_5h=ts + 1800, reset_7d=ts + 3600,
+                                             rl_at=ts, rl7_at=ts, collected_at=ts)
+        safe = status.AccountStatus("safe", exists=True, pct_5h=5, pct_7d=50,
+                                    reset_5h=ts + 1800, reset_7d=ts + 90000,
+                                    rl_at=ts, rl7_at=ts, collected_at=ts)
+        db.record_usage_sample(con, "close_to_wall", close_to_wall, ts=ts)
+        db.record_usage_sample(con, "safe", safe, ts=ts)
+        diffs = replaymod.replay(con)
+        check("replay: finds the recorded tick where the rules disagree",
+              len(diffs) == 1 and diffs[0]["ts"] == ts, diffs)
+        check("replay: the old rule would have picked the near-wall, "
+              "sooner-reset account", diffs[0]["old"] == "close_to_wall", diffs[0])
+        check("replay: the new rule picks the one with real headroom instead",
+              diffs[0]["new"] == "safe", diffs[0])
+
+        # A single-account tick decides nothing for either rule - not counted
+        # as a divergence just because old_pick(...) != None.
+        db.record_usage_sample(con, "alone", close_to_wall, ts=ts + 100)
+        check("replay: a tick with only one candidate is not a divergence",
+              len(replaymod.replay(con)) == 1, replaymod.replay(con))
+    finally:
+        con.close()
 
 
 # ---------------------------------------------------------------- collector
@@ -1676,6 +2034,72 @@ def test_the_other_wake_writers_also_read_the_queue(home: Path) -> None:
         con.close()
 
 
+def test_a_new_account_gets_its_first_reading_without_anyone_asking(home: Path) -> None:
+    """An account that exists, is logged in and has no status.json is probed
+    once by the daemon, with nobody waiting; asked once, it is not asked again
+    on that ground, and one that is not logged in is not asked at all."""
+    _daemon_home(home, 20)
+    con = db.connect()
+    real_login, real_popen = accounts.logged_in, subprocess.Popen
+    started: list[list[str]] = []
+    from ocp import probe
+    try:
+        (home / "accounts" / "alpha" / "status.json").unlink()
+        accounts.logged_in = lambda a: True  # noqa: E731
+        subprocess.Popen = lambda cmd, **kw: started.append(cmd)  # noqa: E731
+        st = status.read("alpha")
+        check("new account: the state under test - it exists and has no reading",
+              "alpha" in paths.list_accounts() and not st.exists)
+        dmn.probe_stale_accounts(con, lambda _m: None, [])
+        check("new account: the daemon asks it for a reading, unprompted",
+              any(c[-3:] == ["account", "probe", "alpha"] for c in started), str(started))
+        n = len(started)
+        dmn.probe_stale_accounts(con, lambda _m: None, [])
+        check("new account: and asks once, not every tick",
+              not any(c[-1] == "alpha" for c in started[n:]), str(started[n:]))
+        check("new account: probe.due still refuses an absent snapshot",
+              not probe.due(st, None))
+        # Every tick asks, so an account that has a reading, or was asked, must not
+        # cost a login check: on macOS that is a `security` subprocess apiece.
+        asked: list[str] = []
+        accounts.logged_in = lambda a: asked.append(a) or True  # noqa: E731
+        dmn.probe_stale_accounts(con, lambda _m: None, [])
+        check("new account: one already asked, or already read, is not login-checked each tick",
+              asked == [], str(asked))
+        started.clear()
+        db.set_cursor(con, "probe:alpha", 0)
+        asked = []
+        accounts.logged_in = lambda a: asked.append(a) or False  # noqa: E731
+        dmn.probe_stale_accounts(con, lambda _m: None, [])
+        check("new account: not logged in, nothing to ask", started == [], str(started))
+        # Still unread, so still eligible every tick - but a login check that
+        # came up empty must not repeat every tick for as long as it stays
+        # empty, or a never-logged-in account costs a keychain subprocess for
+        # ever.
+        dmn.probe_stale_accounts(con, lambda _m: None, [])
+        check("new account: and a login check that came up empty is not repeated next tick",
+              asked == ["alpha"], str(asked))
+        # A removed name added again is a new account, and is asked again.
+        accounts.register("epsilon")
+        db.set_cursor(con, "probe:alpha", int(time.time()))  # one probe per pass
+        accounts.logged_in = lambda a: True  # noqa: E731
+        dmn.probe_stale_accounts(con, lambda _m: None, [])
+        check("new account: epsilon was probed", db.get_cursor(con, "probe:epsilon") != 0)
+        accounts.logged_in = lambda a: False  # noqa: E731 - logout took
+        ok, msg = accounts.remove_account("epsilon", lambda: True, lambda a, e: 0, con)
+        check("new account: removing it forgets that it was probed",
+              ok and db.get_cursor(con, "probe:epsilon") == 0, msg)
+        accounts.register("epsilon")
+        accounts.logged_in = lambda a: True  # noqa: E731
+        started.clear()
+        dmn.probe_stale_accounts(con, lambda _m: None, [])
+        check("new account: the same name added again is probed again",
+              any(c[-1] == "epsilon" for c in started), str(started))
+    finally:
+        accounts.logged_in, subprocess.Popen = real_login, real_popen
+        con.close()
+
+
 def test_daemon_tick_expires_handoff(home: Path) -> None:
     """The deadline must be enforced every tick, not only at startup."""
     _daemon_home(home, 50)
@@ -2106,6 +2530,958 @@ def test_init_keeps_the_lock_file_out_of_the_home_repo(home: Path) -> None:
     check("init: locks/ is ignored", "locks/" in lines, str(lines))
     check("init: and nothing names the pidfile that no longer exists",
           "daemon.pid" not in lines, str(lines))
+
+
+# ---------------------------------------------------------------- blocked delivery
+# The dialog Claude Code put up when /exit met background shells, and the
+# founder's own half-written text with a paste in it, both copied from live
+# screens: the fixtures are what the screen said, not what a test would invent.
+EXIT_DIALOG = """  Two things remain open and I've flagged both rather than deciding them myself.
+✻ Sautéed for 5m 52s · done 12:41 PM · 1 shell still running
+▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔
+   Background work is running
+   The following will stop when you exit:
+   shell · until grep -qE "BUILD (SUCCEEDED|FAILED)|error:" …
+   ❯ 1. Exit and stop tasks
+     2. Move to background and exit
+     3. Stay
+   Enter to confirm · Esc to cancel""".split("\n")
+PASTED_DRAFT = "ㅇㅇeck[Pasted text #1 +4 lines]"
+
+
+def _screen_of(tail, draft=None, source="screen"):
+    term = {"handle": "term_x", "status": "running", "tail": list(tail), "source": source}
+    if draft is not None:
+        term["draft"] = draft
+    return term
+
+
+def test_the_screen_names_what_is_in_the_way(home: Path) -> None:
+    """A dialog is quoted from the screen - title and options - never matched
+    against a list of the dialogs somebody has seen."""
+    restore_world()
+    real = orcamod._screen
+    orcamod.screen_blocker = REAL_ORCA["screen_blocker"]
+    try:
+        orcamod._screen = lambda h: _screen_of(EXIT_DIALOG)
+        b = orcamod.screen_blocker("term_x")
+        check("screen: the exit confirmation is a dialog", b and b.kind == orcamod.MODAL, str(b))
+        check("screen: it is named by its own title",
+              b and b.detail.startswith('"Background work is running"'), str(b))
+        check("screen: with the options that answer it",
+              b and "1. Exit and stop tasks / 2. Move to background and exit / 3. Stay" in b.detail
+              and "❯" not in b.detail, str(b))
+
+        orcamod._screen = lambda h: _screen_of(["a", "b", "c", "d", "Enter to confirm · Esc to cancel"])
+        check("screen: a layout with no rule is quoted, last three lines above the footer",
+              orcamod.screen_blocker("term_x").detail == "b / c / d")
+
+        # A transcript that quotes the footer, well above the bottom rows, is not a dialog.
+        quoted = ["the footer says Enter to confirm and Esc to cancel"] + ["x"] * 10
+        orcamod._screen = lambda h: _screen_of(quoted)
+        check("screen: the footer words in the transcript are not a dialog",
+              orcamod.screen_blocker("term_x") is None)
+
+        orcamod._screen = lambda h: _screen_of(["prompt"], draft=PASTED_DRAFT)
+        b = orcamod.screen_blocker("term_x")
+        check("screen: text left in the input is unsent, quoted",
+              b and b.kind == orcamod.UNSENT and b.detail == PASTED_DRAFT, str(b))
+        orcamod._screen = lambda h: _screen_of(["prompt"], draft="")
+        check("screen: an empty draft is an empty input", orcamod.screen_blocker("term_x") is None)
+        orcamod._screen = lambda h: _screen_of(EXIT_DIALOG, source="stream")
+        check("screen: a stream is not a screen - fail closed",
+              orcamod.screen_blocker("term_x").kind == orcamod.UNREADABLE)
+        orcamod._screen = lambda h: None
+        check("screen: nothing read is fail closed too",
+              orcamod.screen_blocker("term_x").kind == orcamod.UNREADABLE)
+
+        # An agent paints its own screen: a dialog's title and options are
+        # exactly the hostile-text case auditor measured against describe_modal
+        # (blocked-delivery #981/#987's should-fix) - checked here too, since
+        # this module builds the same text from the same screen.
+        hostile = EXIT_DIALOG[:3] + ["   \033]0;PWNED\x07\033[31mTitle\033[0m", "   ❯ 1. yes",
+                                     "     2. Stay", EXIT_DIALOG[-1]]
+        orcamod._screen = lambda h: _screen_of(hostile)
+        b = orcamod.screen_blocker("term_x")
+        check("screen: an OSC/CSI sequence in the dialog's own text does not reach the quote",
+              b and "\033" not in b.detail and "PWNED" not in b.detail and "Title" in b.detail,
+              str(b))
+        footer = len(hostile) - 1
+        d = orcamod.parse_dialog(hostile, footer)
+        check("screen: nor the parsed title used to decide what is safe to press",
+              d and "\033" not in d.title and "PWNED" not in d.title, str(d))
+    finally:
+        orcamod._screen = real
+
+
+def _blocked_world(home: Path):
+    """backend has a terminal and a session, and something waiting it has not been told."""
+    _daemon_home(home, 20)
+    orcamod.available = lambda: True
+    orcamod.alive = lambda h: True
+    sessions_are("backend")
+    con = db.connect()
+    db.set_agent_state(con, "backend", dmn.IDLE)
+    db.add_request(con, "marina", "backend", "carry on", None, "peer", "async", None, 0, None)
+    return con
+
+
+def _escalations(con) -> list:
+    return con.execute("SELECT id, state, verdict FROM requests WHERE target = 'human' "
+                       "AND kind = 'escalate' ORDER BY id").fetchall()
+
+
+def test_a_dialog_in_the_way_of_work_is_said_once_and_clears_itself(home: Path) -> None:
+    """The property: work ocp cannot give, because of what is on the agent's
+    screen, reaches the founder - on the list at T1, as one request at T2, once,
+    across ticks and a restart - and both go the tick it can be given."""
+    con = _blocked_world(home)
+    lines: list[str] = []
+    orcamod.live_terminals = lambda: {"term_x"}
+    seen = {"screen": orcamod.Blocker(orcamod.MODAL, orcamod.describe_modal(EXIT_DIALOG, len(EXIT_DIALOG) - 1))}
+    reads = []
+    orcamod.screen_blocker = lambda h: (reads.append(h), seen["screen"])[1]
+    # In the past by more than the longest wait, so the synthetic times below
+    # are all no later than the clock the list itself reads.
+    t0 = int(time.time()) - 2 * blockedmod.ESCALATE_AFTER_S - 3000
+    try:
+        blockedmod.sweep(con, lines.append, t0)
+        rec = db.block_get(con, "backend")
+        check("blocked: work waiting and a dialog open is recorded", rec and rec["kind"] == "modal",
+              str(dict(rec) if rec else None))
+        check("blocked: it names the work", rec and "request #1" in rec["work"], str(rec and rec["work"]))
+        check("blocked: the first sighting says so in the log, once", len(lines) == 1, str(lines))
+        check("blocked: not on the founder's list yet", not blockedmod.founder_rows(con, t0))
+
+        blockedmod.sweep(con, lines.append, t0 + 5)
+        check("blocked: a check inside the recheck window does not read the screen again",
+              len(reads) == 1, str(reads))
+        blockedmod.sweep(con, lines.append, t0 + blockedmod.SHOW_AFTER_S - 1)
+        check("blocked: nor one second short of T1",
+              not blockedmod.founder_rows(con, t0 + blockedmod.SHOW_AFTER_S - 1))
+
+        at = t0 + blockedmod.SHOW_AFTER_S
+        rows = [w for w in blockedmod.founder_rows(con, at)]
+        check("blocked: on the list at T1, red, with the dialog's title",
+              len(rows) == 1 and rows[0]["red"] and "Background work is running" in rows[0]["what"]
+              and rows[0]["who"] == "backend" and rows[0]["since"] == t0, str(rows))
+        check("blocked: ps and the bridge read that list",
+              any(w["kind"] == "blocked" and w["who"] == "backend" for w in actions.founder_waits(con)),
+              str(actions.founder_waits(con)))
+        check("blocked: no request before T2", not _escalations(con), str(_escalations(con)))
+
+        at = t0 + blockedmod.ESCALATE_AFTER_S - 1
+        blockedmod.sweep(con, lines.append, at)
+        check("blocked: nor one second short of T2", not _escalations(con))
+        blockedmod.sweep(con, lines.append, t0 + blockedmod.ESCALATE_AFTER_S)
+        esc = _escalations(con)
+        check("blocked: one request at T2", len(esc) == 1, str(esc))
+        body = db.get_request(con, esc[0]["id"])["body"]
+        check("blocked: it says what is in the way, what waits, and what to do",
+              "Background work is running" in body and "request #1" in body
+              and "t on the agents panel" in body, body)
+        check("blocked: the record holds its number", db.block_get(con, "backend")["request_id"] == esc[0]["id"])
+
+        for extra in (30, 200, 900):
+            blockedmod.sweep(con, lines.append, t0 + blockedmod.ESCALATE_AFTER_S + extra)
+        blockedmod._checked.clear()      # a restart forgets when it last looked
+        blockedmod.sweep(con, lines.append, t0 + blockedmod.ESCALATE_AFTER_S + 1000)
+        check("blocked: however long it lasts, across ticks and a restart, still one",
+              len(_escalations(con)) == 1, str(_escalations(con)))
+        check("blocked: the request is not listed a second time beside its own row",
+              sum(1 for w in actions.founder_waits(con) if w["kind"] in ("blocked", "escalation")) == 1,
+              str([w["kind"] for w in actions.founder_waits(con)]))
+        check("blocked: STUCK gives the dialog, not the state's guess",
+              any("cannot be given its work" in r["what"] and "Background work is running" in r["why"]
+                  for r in actions.stuck(con))
+              and not any("mid-turn" in r["why"] for r in actions.stuck(con)),
+              str(actions.stuck(con)))
+        check("blocked: and one row for the agent, not one per request",
+              sum(1 for r in actions.stuck(con) if r["agent"] == "backend") == 1,
+              str(actions.stuck(con)))
+
+        seen["screen"] = None                 # the founder answered it
+        blockedmod._checked.clear()
+        blockedmod.sweep(con, lines.append, t0 + blockedmod.ESCALATE_AFTER_S + 1100)
+        check("blocked: the record goes the tick it can be given its work", db.block_get(con, "backend") is None)
+        check("blocked: the request closes itself",
+              _escalations(con)[0]["state"] == "done" and "cleared" in _escalations(con)[0]["verdict"],
+              str([dict(r) for r in _escalations(con)]))
+        check("blocked: nothing is left on the list",
+              not any(w["kind"] in ("blocked", "escalation") for w in actions.founder_waits(con)))
+
+        seen["screen"] = orcamod.Blocker(orcamod.MODAL, '"Another"')
+        blockedmod._checked.clear()
+        blockedmod.sweep(con, lines.append, t0 + 2000)
+        blockedmod.sweep(con, lines.append, t0 + 2000 + blockedmod.ESCALATE_AFTER_S)
+        check("blocked: a second episode is a second request",
+              len(_escalations(con)) == 2, str(_escalations(con)))
+    finally:
+        con.close()
+
+
+def test_what_is_not_a_block(home: Path) -> None:
+    """Both directions: nothing is said for what is normal, and an agent that
+    really cannot be given its work is said for however the row labels it."""
+    con = _blocked_world(home)
+    modal = orcamod.Blocker(orcamod.MODAL, '"Dialog"')
+    unsent = orcamod.Blocker(orcamod.UNSENT, PASTED_DRAFT)
+    screen = {"b": modal}
+    orcamod.screen_blocker = lambda h: screen["b"]
+    now = int(time.time())
+
+    def verdict(state=dmn.IDLE, b=modal, closed=False):
+        db.block_clear(con, "backend")
+        blockedmod._checked.clear()
+        db.set_agent_state(con, "backend", state)
+        con.execute("UPDATE agent_state SET closed_at = ? WHERE agent = 'backend'",
+                    (now if closed else None,))
+        screen["b"] = b
+        blockedmod.sweep(con, lambda _m: None, now)
+        rec = db.block_get(con, "backend")
+        return rec["kind"] if rec else None
+    try:
+        check("not blocked: an idle agent with nothing on its screen", verdict(b=None) is None)
+        check("blocked: an idle agent behind a dialog", verdict() == "modal")
+        check("blocked: an idle agent with unsent text", verdict(b=unsent) == "unsent")
+        check("blocked: a RUNNING row behind a dialog - the row is not evidence", verdict(dmn.RUNNING) == "modal")
+        check("not blocked: a RUNNING agent's input is its user's typing",
+              verdict(dmn.RUNNING, unsent) is None)
+        unreadable = orcamod.Blocker(orcamod.UNREADABLE)
+        check("blocked: a screen that cannot be read - the callers that fail closed on it are not alone",
+              verdict(b=unreadable) == "unreadable")
+        check("blocked: unreadable blocks a RUNNING agent too - unlike unsent, it is not its user's typing",
+              verdict(dmn.RUNNING, unreadable) == "unreadable")
+        check("not blocked: a closed agent is the wake path's", verdict(closed=True) is None)
+        con.execute("UPDATE agent_state SET closed_at = NULL WHERE agent = 'backend'")
+
+        check("blocked: STALLED, which the daemon will not touch, with work waiting",
+              verdict(dmn.STALLED, None) == "stalled")
+        db.set_agent_state(con, "backend", dmn.IDLE)
+
+        db.set_terminal(con, "backend", None, "wt")
+        con.execute("UPDATE agent_state SET terminal = NULL WHERE agent = 'backend'")
+        db.block_clear(con, "backend")
+        blockedmod._checked.clear()
+        blockedmod.sweep(con, lambda _m: None, now)
+        check("blocked: no terminal at all", (db.block_get(con, "backend") or {"kind": None})["kind"] == "no terminal")
+        db.set_terminal(con, "backend", "term_x", "wt")
+
+        orcamod.alive = lambda h: False
+        check("blocked: a terminal Orca no longer has", verdict() == "no terminal")
+        orcamod.alive = lambda h: True
+
+        orcamod.available = lambda: False
+        check("blocked: orca itself unreachable - the sibling of unreadable, not left silent either",
+              verdict() == "orca down")
+        orcamod.available = lambda: True
+
+        obsmod.live_sessions = lambda: {}
+        check("blocked: no session in a terminal the row says is open", verdict() == "no session")
+        sessions_are("backend")
+
+        # No work, no block: a dialog on an agent nobody wants anything from is its own business.
+        con.execute("UPDATE requests SET state = 'done', announced_at = 1 WHERE target = 'backend'")
+        check("not blocked: a dialog with nothing waiting", verdict() is None)
+
+        # An answer it asked for is work, the same as a request.
+        rid = db.add_request(con, "backend", "marina", "how", None, "peer", "async", None, 0, None)
+        db.close_if_queued(con, rid, "done", "like so", announced=False)
+        check("blocked: an unannounced answer is work waiting", verdict() == "modal"
+              and "answer #%d" % rid in db.block_get(con, "backend")["work"])
+
+        # A permission prompt is already the hooks' row; it is not said twice.
+        waitmod = blockedmod.waiting
+        real = waitmod.of
+        waitmod.of = lambda row: {"tool": "Bash", "command": "ls", "since": now}
+        try:
+            check("not blocked: an agent at a permission prompt is already on the list",
+                  verdict(dmn.RUNNING) is None)
+        finally:
+            waitmod.of = real
+    finally:
+        con.close()
+
+
+def test_a_reminder_the_founders_own_text_blocks_is_said(home: Path) -> None:
+    """Harbor in the wild: IDLE with its head told and open for hours, and the
+    reminder to resolve it never typed because the input holds a person's
+    half-written text with a paste in it. Nothing was undelivered - the reminder
+    is the work - and it is the same silence."""
+    _daemon_home(home, 20)
+    orcamod.available = lambda: True
+    orcamod.alive = lambda h: True
+    sessions_are("backend")
+    con = db.connect()
+    now = int(time.time())
+    try:
+        db.set_agent_state(con, "backend", dmn.IDLE, detail="finished its turn")
+        head = db.add_request(con, "marina", "backend", "the first thing", None,
+                              "peer", "async", None, 0, None)
+        db.mark_delivered(con, head)
+        db.set_cursor(con, "notify:backend", head)
+        db.add_event(con, "backend", "Stop", {})
+        con.execute("UPDATE events SET ts = ? WHERE agent = 'backend'", (now - 3600,))
+        con.execute("UPDATE requests SET delivered_at = ? WHERE id = ?", (now - 3600, head))
+        orcamod.screen_blocker = lambda h: orcamod.Blocker(orcamod.UNSENT, PASTED_DRAFT)
+        blockedmod.sweep(con, lambda _m: None, now)
+        rec = db.block_get(con, "backend")
+        check("reminder: the founder's paste in the input blocks the reminder, and it is recorded",
+              rec and rec["kind"] == "unsent" and rec["detail"] == PASTED_DRAFT
+              and f"reminder to resolve #{head}" in rec["work"], str(rec and dict(rec)))
+        check("reminder: the text is quoted so the founder knows it is theirs",
+              "ㅇㅇeck" in blockedmod.reason(rec["kind"], rec["detail"]))
+
+        # Not yet due: nothing to type, so nothing is in the way.
+        db.block_clear(con, "backend")
+        con.execute("UPDATE events SET ts = ?", (now - 60,))
+        con.execute("UPDATE requests SET delivered_at = ? WHERE id = ?", (now - 60, head))
+        blockedmod._checked.clear()
+        blockedmod.sweep(con, lambda _m: None, now)
+        check("reminder: one that is not due yet is not work", db.block_get(con, "backend") is None)
+
+        # Already sent: nothing left to type.
+        con.execute("UPDATE events SET ts = ?", (now - 3600,))
+        con.execute("UPDATE requests SET delivered_at = ? WHERE id = ?", (now - 3600, head))
+        db.set_cursor(con, "nudge:backend", head)
+        blockedmod._checked.clear()
+        blockedmod.sweep(con, lambda _m: None, now)
+        check("reminder: one already sent is not work", db.block_get(con, "backend") is None)
+    finally:
+        con.close()
+
+
+def test_the_human_and_strangers_are_not_blocked_agents(home: Path) -> None:
+    """The human is never typed at, and a state row left by an agent that is no
+    longer on the team has nobody to be given anything."""
+    con = _blocked_world(home)
+    orcamod.screen_blocker = lambda h: orcamod.Blocker(orcamod.MODAL, '"A"')
+    try:
+        for name in ("human", "gone"):
+            db.set_agent_state(con, name, dmn.QUEUED)
+            db.add_request(con, "marina", name, "hello", None, "peer", "async", None, 0, None)
+        blockedmod.sweep(con, lambda _m: None, int(time.time()))
+        check("blocked: only a registered agent has a block",
+              [b["agent"] for b in db.blocks(con)] == ["backend"], str([b["agent"] for b in db.blocks(con)]))
+    finally:
+        con.close()
+
+
+def test_the_tick_looks_for_blocks(home: Path) -> None:
+    """Nothing here works unless the loop the daemon actually runs calls it."""
+    con = _blocked_world(home)
+    orcamod.live_terminals = lambda: {"term_x"}
+    orcamod.idle_now = lambda h: True
+    orcamod.send = lambda h, text, enter=True: (False, "refused")
+    orcamod.screen_blocker = lambda h: orcamod.Blocker(orcamod.MODAL, '"A dialog"')
+    try:
+        dmn.tick(con, lambda _m: None)
+        rec = db.block_get(con, "backend")
+        check("tick: a tick opens the block for an agent behind a dialog",
+              rec is not None and rec["kind"] == "modal", str(rec and dict(rec)))
+    finally:
+        con.close()
+
+
+def test_blocked_agents_come_due_in_one_request(home: Path) -> None:
+    """Three at once - what the first tick after this ships would find - are one
+    request, and it closes when the last of them clears, not the first."""
+    con = _blocked_world(home)
+    for name in ("worker", "reviewer"):
+        agents.register(name, "alpha")
+        db.set_terminal(con, name, f"term_{name}", "wt")
+        db.set_agent_state(con, name, dmn.IDLE)
+        db.add_request(con, "marina", name, "carry on", None, "peer", "async", None, 0, None)
+    sessions_are("backend", "worker", "reviewer")
+    screens = {"backend": orcamod.Blocker(orcamod.MODAL, '"A"'),
+               "worker": orcamod.Blocker(orcamod.MODAL, '"B"'),
+               "reviewer": orcamod.Blocker(orcamod.UNSENT, "half a thought")}
+    handles = {"term_x": "backend", "term_worker": "worker", "term_reviewer": "reviewer"}
+    orcamod.screen_blocker = lambda h: screens[handles[h]]
+    t0 = int(time.time())
+    try:
+        blockedmod.sweep(con, lambda _m: None, t0)
+        blockedmod.sweep(con, lambda _m: None, t0 + blockedmod.ESCALATE_AFTER_S)
+        esc = _escalations(con)
+        check("blocked: three due in the same pass are one request", len(esc) == 1, str(esc))
+        body = db.get_request(con, esc[0]["id"])["body"]
+        check("blocked: naming each", all(n in body for n in ("backend", "worker", "reviewer")), body)
+
+        screens["backend"] = None
+        blockedmod._checked.clear()
+        blockedmod.sweep(con, lambda _m: None, t0 + blockedmod.ESCALATE_AFTER_S + 20)
+        check("blocked: one clearing leaves the request open for the others",
+              _escalations(con)[0]["state"] == "queued", str([dict(r) for r in _escalations(con)]))
+        screens["worker"] = screens["reviewer"] = None
+        blockedmod._checked.clear()
+        blockedmod.sweep(con, lambda _m: None, t0 + blockedmod.ESCALATE_AFTER_S + 40)
+        check("blocked: the last one closes it", _escalations(con)[0]["state"] == "done")
+    finally:
+        con.close()
+
+
+def test_a_dialog_ocps_own_exit_raised_is_said_at_once(home: Path) -> None:
+    """`/exit` met background shells and the dialog is ocp's doing: it does not
+    wait for T1, it stands with nothing waiting, and ocp does not answer it."""
+    con = _blocked_world(home)
+    con.execute("UPDATE requests SET state = 'done', announced_at = 1")
+    typed: list = []
+    orcamod.send = lambda h, text, enter=True: (typed.append(text), (True, ""))[1]
+    screen = {"b": orcamod.Blocker(orcamod.MODAL, '"Background work is running"')}
+    orcamod.screen_blocker = lambda h: screen["b"]
+    lines: list[str] = []
+    now = int(time.time())
+    try:
+        blockedmod.note_close_failure(con, "backend", lines.append)
+        rec = db.block_get(con, "backend")
+        check("close: the dialog it raised is recorded", rec and rec["origin"] == "close", str(rec and dict(rec)))
+        check("close: on the list at once, not at T1", rec and rec["show_at"] <= int(time.time()))
+        check("close: and said in the log", any("ocp's own /exit" in m for m in lines), str(lines))
+        blockedmod.sweep(con, lambda _m: None, now)
+        check("close: it stands with nothing waiting, while the dialog does",
+              db.block_get(con, "backend") is not None)
+        check("close: ocp typed nothing at it", typed == [], str(typed))
+        screen["b"] = None
+        blockedmod._checked.clear()
+        blockedmod.sweep(con, lambda _m: None, now + 60)
+        check("close: it goes when the dialog does", db.block_get(con, "backend") is None)
+
+        screen["b"] = orcamod.Blocker(orcamod.UNSENT, "text")
+        blockedmod.note_close_failure(con, "backend", lines.append)
+        check("close: text in the input is not the dialog's doing", db.block_get(con, "backend") is None)
+    finally:
+        con.close()
+
+
+def test_a_failed_close_says_why_and_records_the_dialog(home: Path) -> None:
+    """The reason a close did not happen used to be dropped where it was made."""
+    con = _blocked_world(home)
+    con.execute("UPDATE requests SET state = 'done', announced_at = 1")
+    now = int(time.time())
+    orcamod.wait_idle = lambda h, timeout_ms=0: True
+    orcamod.send = lambda h, text, enter=True: (True, "")
+    orcamod.close_session = lambda h, *a, **k: (True, "/exit typed")
+    orcamod.screen_blocker = lambda h: orcamod.Blocker(orcamod.MODAL, '"Background work is running"')
+    real = dmn._wait_session_gone
+    dmn._wait_session_gone = lambda agent: False
+    lines: list[str] = []
+    try:
+        write_status(home, "alpha", pct_5h=20, pct_7d=10, ctx_pct=8, reset_5h=now + 1800)
+        agent_dir = home / "agents" / "backend"
+        agent_dir.mkdir(parents=True, exist_ok=True)
+        (agent_dir / "status.json").write_text(json.dumps({
+            "account": "alpha", "collected_at": now, "session_id": "sess-1", "pct_5h": 20, "ctx_pct": 8}))
+        db.add_event(con, "backend", "Stop", {})
+        con.execute("UPDATE events SET ts = ? WHERE agent = 'backend'", (now - dmn.IDLE_CLOSE_S - 60,))
+        for _ in range(3):
+            dmn.supervise(con, "backend", lines.append, int(time.time()), {}, [])
+        check("close failed: the daemon says why, once per attempt",
+              sum("idle but not closed" in m for m in lines) == 1, str(lines))
+        rec = db.block_get(con, "backend")
+        check("close failed: and the dialog it raised is on the record",
+              rec and rec["origin"] == "close" and rec["kind"] == "modal", str(rec and dict(rec)))
+    finally:
+        dmn._wait_session_gone = real
+        con.close()
+
+
+def test_a_close_refused_by_a_dialog_is_said_once_not_every_tick(home: Path) -> None:
+    """A dialog left open refuses the next close on every tick, and leaves no
+    close_failed event to stop them: the reason is said when it starts."""
+    con = _blocked_world(home)
+    con.execute("UPDATE requests SET state = 'done', announced_at = 1")
+    now = int(time.time())
+    orcamod.close_session = lambda h, *a, **k: (False, "a modal is open on its screen; not typing /exit at it")
+    lines: list[str] = []
+    try:
+        write_status(home, "alpha", pct_5h=20, pct_7d=10, ctx_pct=8, reset_5h=now + 1800)
+        agent_dir = home / "agents" / "backend"
+        agent_dir.mkdir(parents=True, exist_ok=True)
+        (agent_dir / "status.json").write_text(json.dumps({
+            "account": "alpha", "collected_at": now, "session_id": "sess-1", "pct_5h": 20, "ctx_pct": 8}))
+        db.add_event(con, "backend", "Stop", {})
+        con.execute("UPDATE events SET ts = ? WHERE agent = 'backend'", (now - dmn.IDLE_CLOSE_S - 60,))
+        for _ in range(4):
+            dmn.supervise(con, "backend", lines.append, int(time.time()), {}, [])
+        said = [m for m in lines if "idle but not closed" in m]
+        check("close refused: said once over four ticks, with the reason",
+              len(said) == 1 and "a modal is open" in said[0], str(lines))
+    finally:
+        con.close()
+
+
+# Shapes reconstructed from Claude Code's wording, NOT measured on a live screen:
+# only EXIT_DIALOG above is. They stand for the trust dialog, a tool permission
+# prompt and a question with a plain No, to prove what ocp presses for each.
+_RULE_ROW = "▔" * 60
+TRUST_DIALOG = ["  where the work is", _RULE_ROW, "   Do you trust the files in this folder?",
+                "   /Users/ron/somewhere", "   ❯ 1. Yes, proceed", "     2. No, exit",
+                "   Enter to confirm · Esc to cancel"]
+PERMISSION_PROMPT = ["  earlier output", _RULE_ROW, "   Bash command", "     rm -rf build",
+                     "   Do you want to proceed?", "   ❯ 1. Yes",
+                     "     2. Yes, and don't ask again for rm commands",
+                     "     3. No, and tell Claude what to do differently (esc)",
+                     "   Esc to cancel · Tab to amend"]
+YES_NO_DIALOG = ["  earlier output", _RULE_ROW, "   Overwrite the file?", "   ❯ 1. Yes", "     2. No",
+                 "   Enter to confirm · Esc to cancel"]
+# auditor's #1026 repro: the trust dialog with a third, inert-looking option
+# added, and the SAME screen naming Esc's real target with '(esc)' on the
+# choice that exits. A label elsewhere reading 'Cancel' must not override what
+# the screen already said Esc does.
+TRUST_DIALOG_WITH_A_DECOY_CANCEL = [
+    "  where the work is", _RULE_ROW, "   Do you trust the files in this folder?",
+    "   ❯ 1. Yes, proceed", "     2. No, exit (esc)", "     3. Cancel",
+    "   Enter to confirm · Esc to cancel"]
+# auditor's #1057 repro, both shapes: the mark on a free-text line between the
+# options (not a numbered line parse_dialog turns into an option at all), and
+# the mark on the title itself. Neither is something declining_key can
+# evaluate, so both must refuse - "read, never infer" has to mean the whole
+# panel, not only the lines this parse happened to turn into data.
+TRUST_DIALOG_WITH_FREE_TEXT_ESC_LINE = [
+    "  where the work is", _RULE_ROW, "   Do you trust the files in this folder?",
+    "   ❯ 1. Yes, proceed", "     2. No, exit", "     Press Esc to exit (esc)", "     3. Cancel",
+    "   Enter to confirm · Esc to cancel"]
+TRUST_DIALOG_WITH_ESC_MARK_ON_THE_TITLE = [
+    "  where the work is", _RULE_ROW, "   Exiting will stop tasks (esc)",
+    "   ❯ 1. Exit", "     2. Cancel",
+    "   Enter to confirm · Esc to cancel"]
+CLEARED_SCREEN = ["  back at the prompt", "  > "]
+
+
+class _Terminal:
+    """A terminal for a test: shows `tail` until Esc arrives, then `after`, and
+    remembers every key it was sent - the only place a press can go."""
+
+    def __init__(self, tail, after=CLEARED_SCREEN, ignores_esc=False, source="screen"):
+        self.tail, self.after, self.ignores_esc, self.source = list(tail), list(after), ignores_esc, source
+        self.sent: list = []
+        self.reads = 0
+
+    def install(self):
+        orcamod._screen = self.read
+        orcamod.send = self.send
+        orcamod.screen_blocker = REAL_ORCA["screen_blocker"]
+
+    def read(self, handle):
+        self.reads += 1
+        return _screen_of(self.tail, source=self.source)
+
+    def send(self, handle, text, enter=True):
+        self.sent.append((text, enter))
+        if text == "\x1b" and not self.ignores_esc:
+            self.tail = list(self.after)
+        return True, ""
+
+    def bring_back(self, tail):
+        self.tail = list(tail)
+
+
+def test_ocp_presses_only_the_key_that_declines(home: Path) -> None:
+    """Safe by construction, not by a list of dialogs: Esc, and only where the
+    dialog itself says Esc cancels and offers an option that just declines. What
+    cannot be decided is not pressed."""
+    restore_world()
+    cases = [
+        ("the /exit confirmation (measured)", EXIT_DIALOG, True),
+        ("any confirm dialog with a plain No", YES_NO_DIALOG, True),
+        ("the trust dialog: its declining option is 'No, exit'", TRUST_DIALOG, False),
+        ("a tool permission prompt: 'No, and tell Claude...' is a choice, Esc there rejects a call",
+         PERMISSION_PROMPT, False),
+        ("a decoy 'Cancel' elsewhere does not excuse what the screen's own "
+         "(esc) mark says Esc does ('No, exit')", TRUST_DIALOG_WITH_A_DECOY_CANCEL, False),
+        ("the (esc) mark itself on the inert option is enough, on its own",
+         [ln.replace("2. Move to background and exit", "2. Stay (esc)")
+          .replace("3. Stay", "3. Move to background and exit") for ln in EXIT_DIALOG], True),
+        ("(esc) on a free-text line between options is not an option - refuse",
+         TRUST_DIALOG_WITH_FREE_TEXT_ESC_LINE, False),
+        ("(esc) on the title itself is not an option - refuse",
+         TRUST_DIALOG_WITH_ESC_MARK_ON_THE_TITLE, False),
+        ("footer without the Enter-confirms half", EXIT_DIALOG[:-1] + ["   Esc to cancel"], False),
+        ("footer without the Esc-cancels half", EXIT_DIALOG[:-1] + ["   Enter to confirm"], False),
+        ("no rule opening the panel", [ln for ln in EXIT_DIALOG if "▔" not in ln], False),
+        ("no title under the rule", EXIT_DIALOG[:3] + EXIT_DIALOG[6:], False),
+        ("one option only", EXIT_DIALOG[:2] + [EXIT_DIALOG[3], "   ❯ 1. Stay", EXIT_DIALOG[-1]], False),
+        ("options not numbered from 1 in order",
+         [ln.replace("2. Move", "5. Move") for ln in EXIT_DIALOG], False),
+        ("an option 'Stay' hidden in a longer label",
+         [ln.replace("3. Stay", "3. Stay and lose the work") for ln in EXIT_DIALOG], False),
+        ("no option that declines, though Esc cancels",
+         [ln.replace("3. Stay", "3. Continue") for ln in EXIT_DIALOG], False),
+    ]
+    for name, tail, presses in cases:
+        term = _Terminal(tail)
+        term.install()
+        outcome, title, why = orcamod.decline_dialog("term_x")
+        check(f"press: {name} - {'Esc' if presses else 'nothing'}",
+              (term.sent == [("\x1b", False)]) if presses else term.sent == [],
+              f"{outcome} {why} sent={term.sent}")
+        if presses:
+            check(f"press: {name} - the dialog goes, and it says so", outcome == orcamod.CLEARED, outcome)
+        else:
+            check(f"press: {name} - and says why", outcome == orcamod.NOT_PRESSED and why, f"{outcome} {why}")
+
+    # What is on screen NOW decides: a screen read as a dialog by the block, and
+    # gone by the time of the key, gets nothing.
+    term = _Terminal(CLEARED_SCREEN)
+    term.install()
+    check("press: no dialog now, no key", orcamod.decline_dialog("term_x")[0] == orcamod.NOT_PRESSED
+          and term.sent == [])
+    for name, term in (("a stream, not a screen", _Terminal(EXIT_DIALOG, source="stream")),
+                       ("a screen that cannot be read", None)):
+        if term:
+            term.install()
+        else:
+            orcamod._screen = lambda h: None
+            orcamod.send = lambda h, text, enter=True: (_ for _ in ()).throw(AssertionError("typed"))
+        check(f"press: {name} - nothing", orcamod.decline_dialog("term_x")[0] == orcamod.NOT_PRESSED
+              and (term.sent == [] if term else True))
+
+    term = _Terminal(EXIT_DIALOG, ignores_esc=True)
+    term.install()
+    out = orcamod.decline_dialog("term_x")
+    check("press: Esc that leaves the dialog standing is reported once, not repeated",
+          out[0] == orcamod.STILL_OPEN and term.sent == [("\x1b", False)], f"{out} {term.sent}")
+    check("press: the screen is read before the key and again after it", term.reads >= 3, str(term.reads))
+    check("press: the only key that is ever named is Esc",
+          orcamod.ESCAPE == "\x1b" and "Enter" not in repr(orcamod.declining_key))
+
+    # Esc is not inert at a Claude Code prompt - it clears typed text. A
+    # dialog's footer and a person's own unsent draft on the same read must
+    # never be pressed over, even though the dialog itself would decline clean.
+    unsent = []
+    orcamod._screen = lambda h: dict(_screen_of(EXIT_DIALOG), draft="a person's half-typed reply")
+    orcamod.send = lambda h, text, enter=True: (unsent.append((text, enter)), (True, ""))[1]
+    out = orcamod.decline_dialog("term_x")
+    check("press: unsent text on the same read as the dialog is not pressed over",
+          out[0] == orcamod.NOT_PRESSED and unsent == [], f"{out} sent={unsent}")
+
+    # A read that fails right after the key is not evidence the dialog went -
+    # the same screen fails closed everywhere else in this module.
+    calls = {"n": 0}
+
+    def flaky_then_gone(h):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            return _screen_of(EXIT_DIALOG)                       # read before the key
+        if calls["n"] == 2:
+            return _screen_of(EXIT_DIALOG, source="stream")      # one bad read right after
+        return _screen_of(CLEARED_SCREEN)                        # then it really is gone
+    sent: list = []
+    orcamod._screen = flaky_then_gone
+    orcamod.send = lambda h, text, enter=True: (sent.append((text, enter)), (True, ""))[1]
+    out = orcamod.decline_dialog("term_x")
+    check("press: an unreadable screen right after Esc is not read as cleared",
+          out[0] == orcamod.CLEARED and calls["n"] >= 3, f"{out} reads={calls['n']}")
+
+    # And if it never comes back readable, that is reported as still open, not
+    # as a clear nobody can stand behind.
+    reads = {"n": 0}
+
+    def never_readable_after(h):
+        reads["n"] += 1
+        return _screen_of(EXIT_DIALOG) if reads["n"] == 1 else _screen_of(EXIT_DIALOG, source="stream")
+    orcamod._screen = never_readable_after
+    out = orcamod.decline_dialog("term_x")
+    check("press: a screen that stays unreadable is still open, never a false clear",
+          out[0] == orcamod.STILL_OPEN, out)
+
+    # A DIFFERENT dialog showing up right after the key is not the one Esc
+    # was pressed on still standing - that one is gone, whatever this new one
+    # is, and still-open must never be counted against its title instead.
+    term = _Terminal(EXIT_DIALOG, after=YES_NO_DIALOG)
+    term.install()
+    out = orcamod.decline_dialog("term_x")
+    check("press: a different dialog appearing after Esc is not the same one still open",
+          out[0] == orcamod.CLEARED and out[1] == "Background work is running", out)
+
+
+def _decline_world(home: Path, tail=EXIT_DIALOG, **kw):
+    """backend is idle with work it cannot be given, behind `tail`."""
+    con = _blocked_world(home)
+    term = _Terminal(tail, **kw)
+    term.install()
+    orcamod.live_terminals = lambda: {"term_x"}
+    return con, term
+
+
+def _reports(con) -> list:
+    return con.execute("SELECT id, kind, fyi, state, body FROM requests WHERE target = 'human' "
+                       "AND kind = 'report' ORDER BY id").fetchall()
+
+
+def test_a_dialog_ocp_can_decline_is_cleared_and_reported(home: Path) -> None:
+    con, term = _decline_world(home)
+    lines: list[str] = []
+    t0 = int(time.time()) - 5000
+    try:
+        blockedmod.sweep(con, lines.append, t0)
+        check("clear: the first sighting presses nothing - a person may be answering it",
+              term.sent == [] and db.block_get(con, "backend") is not None, str(term.sent))
+        blockedmod._checked.clear()
+        blockedmod.sweep(con, lines.append, t0 + blockedmod.PRESS_AFTER_S - 1)
+        check("clear: nor a second short of the wait", term.sent == [], str(term.sent))
+        blockedmod._checked.clear()
+        blockedmod.sweep(con, lines.append, t0 + blockedmod.PRESS_AFTER_S)
+        check("clear: after it, exactly one key, Esc", term.sent == [("\x1b", False)], str(term.sent))
+        check("clear: the block is gone and never reached the founder's list",
+              db.block_get(con, "backend") is None
+              and not any(w["kind"] == "blocked" for w in actions.founder_waits(con)))
+        check("clear: the log says how", any('cleared by ocp: pressed Esc on "Background work is running"' in m
+                                              for m in lines), str(lines))
+        rep = _reports(con)
+        check("clear: the founder is told, as a report that asks nothing",
+              len(rep) == 1 and rep[0]["fyi"] == 1 and rep[0]["state"] == "queued"
+              and 'cleared by ocp: pressed Esc on "Background work is running"' in rep[0]["body"]
+              and "nothing was chosen" in rep[0]["body"] and "request #1" in rep[0]["body"],
+              str([dict(r) for r in rep]))
+        ev = con.execute("SELECT payload FROM events WHERE kind = 'dialog_declined'").fetchall()
+        check("clear: and it is an event on the record", len(ev) == 1, str(ev))
+        check("clear: the work is deliverable now - nothing else typed at the dialog",
+              term.sent == [("\x1b", False)])
+        blockedmod._checked.clear()
+        blockedmod.sweep(con, lines.append, t0 + 200)
+        check("clear: an agent whose screen is clear is left alone", term.sent == [("\x1b", False)])
+    finally:
+        con.close()
+
+
+def test_ocps_own_exit_dialog_is_pressed_at_once_and_a_working_agent_never(home: Path) -> None:
+    con, term = _decline_world(home)
+    con.execute("UPDATE requests SET state = 'done', announced_at = 1")
+    now = int(time.time())
+    try:
+        blockedmod.note_close_failure(con, "backend", lambda _m: None)
+        blockedmod.sweep(con, lambda _m: None, now)
+        check("own exit: its own dialog is pressed on the first sweep, no person being in it",
+              term.sent == [("\x1b", False)] and db.block_get(con, "backend") is None, str(term.sent))
+
+        # An agent that is working may be waiting on a person for that dialog.
+        for state in (dmn.RUNNING, dmn.HANDOFF):
+            db.block_clear(con, "backend")
+            blockedmod._checked.clear()
+            term.sent.clear()
+            term.bring_back(EXIT_DIALOG)
+            db.set_agent_state(con, "backend", state)
+            db.add_request(con, "marina", "backend", "more", None, "peer", "async", None, 0, None)
+            blockedmod.sweep(con, lambda _m: None, now + 5000)
+            blockedmod.sweep(con, lambda _m: None, now + 6000)
+            check(f"working: nothing is pressed at a {state} agent's dialog", term.sent == [], str(term.sent))
+    finally:
+        con.close()
+
+
+def test_a_dialog_ocp_cannot_decline_is_reported_not_pressed(home: Path) -> None:
+    """The trust dialog's Esc would leave the session ('No, exit'), the relaunch
+    would meet it again, and ocp would be pressing a loop of its own making: so
+    it presses nothing and the founder is told which choice they have."""
+    con, term = _decline_world(home, TRUST_DIALOG)
+    lines: list[str] = []
+    t0 = int(time.time()) - 5000
+    try:
+        for step in (0, 60, 120, 400, 700):
+            blockedmod._checked.clear()
+            blockedmod.sweep(con, lines.append, t0 + step)
+        check("cannot: nothing is pressed, however long it stands", term.sent == [], str(term.sent))
+        check("cannot: the block stands", db.block_get(con, "backend") is not None)
+        check("cannot: the reason is logged once, not every sweep",
+              sum("did not press" in m for m in lines) == 1, str(lines))
+        esc = _escalations(con)
+        check("cannot: it reaches the founder at T2 saying why ocp did not press",
+              len(esc) == 1 and "did not press it: none of its options only declines"
+              in db.get_request(con, esc[0]["id"])["body"], str([dict(r) for r in esc]))
+        row = [w for w in blockedmod.founder_rows(con, t0 + 700) if w["who"] == "backend"]
+        check("cannot: and on the list, with the same reason",
+              row and "ocp did not press it" in row[0]["what"], str(row))
+    finally:
+        con.close()
+
+
+def test_a_dialog_that_keeps_coming_back_stops_being_pressed_and_is_escalated(home: Path) -> None:
+    """A dialog that returns after ocp cleared it is a loop: pressed
+    MAX_PRESSES times, then the founder is told at once, not at T2."""
+    con, term = _decline_world(home)
+    t0 = int(time.time()) - 20000
+    try:
+        for cycle in range(blockedmod.MAX_PRESSES):
+            term.bring_back(EXIT_DIALOG)
+            blockedmod._checked.clear()
+            at = t0 + cycle * 1800
+            blockedmod.sweep(con, lambda _m: None, at)
+            blockedmod._checked.clear()
+            blockedmod.sweep(con, lambda _m: None, at + blockedmod.PRESS_AFTER_S)
+            check(f"loop: press {cycle + 1} clears it", db.block_get(con, "backend") is None)
+        check("loop: pressed exactly MAX_PRESSES times", len(term.sent) == blockedmod.MAX_PRESSES, str(term.sent))
+        check("loop: each was reported as done", len(_reports(con)) == blockedmod.MAX_PRESSES)
+
+        term.bring_back(EXIT_DIALOG)
+        at = t0 + blockedmod.MAX_PRESSES * 1800
+        for step in (0, 60, 130):
+            blockedmod._checked.clear()
+            blockedmod.sweep(con, lambda _m: None, at + step)
+        check("loop: the dialog that comes back again is NOT pressed", len(term.sent) == blockedmod.MAX_PRESSES,
+              str(term.sent))
+        esc = _escalations(con)
+        body = db.get_request(con, esc[0]["id"])["body"] if esc else ""
+        check("loop: the founder is told at once, well before T2, and why",
+              len(esc) == 1 and "has stopped pressing" in body and "came back each time" in body,
+              body or str([dict(r) for r in esc]))
+        check("loop: and it is on the list saying so",
+              any("stopped pressing" in w["what"]
+                  for w in blockedmod.founder_rows(con, at + blockedmod.SHOW_AFTER_S)))
+
+        # The window is finite: a dialog after it is a new event.
+        term.sent.clear()
+        blockedmod._checked.clear()
+        later = at + blockedmod.PRESS_WINDOW_S + 100
+        db.block_clear(con, "backend")
+        term.bring_back(EXIT_DIALOG)
+        blockedmod.sweep(con, lambda _m: None, later)
+        blockedmod._checked.clear()
+        blockedmod.sweep(con, lambda _m: None, later + blockedmod.PRESS_AFTER_S)
+        check("loop: outside the window it is pressed again", term.sent == [("\x1b", False)], str(term.sent))
+    finally:
+        con.close()
+
+
+def test_esc_that_does_not_close_a_dialog_is_not_pressed_again_and_again(home: Path) -> None:
+    con, term = _decline_world(home, ignores_esc=True)
+    t0 = int(time.time()) - 5000
+    try:
+        for step in range(0, 400, 30):
+            blockedmod._checked.clear()
+            blockedmod.sweep(con, lambda _m: None, t0 + step)
+        check("ignored: pressed MAX_IGNORED times and no more", len(term.sent) == blockedmod.MAX_IGNORED, str(term.sent))
+        check("ignored: the founder is told at once", len(_escalations(con)) == 1
+              and "Esc did not close it" in db.get_request(con, _escalations(con)[0]["id"])["body"])
+    finally:
+        con.close()
+
+
+def test_nothing_is_pressed_for_what_is_not_a_dialog(home: Path) -> None:
+    """A person's half-typed text and a screen ocp cannot read are blocks, and
+    are never keys."""
+    for name, term in (("unsent text", _Terminal(["prompt"])), ("a stream", _Terminal(EXIT_DIALOG, source="stream"))):
+        con, _ = _decline_world(home / name.replace(" ", ""))
+        real_read = term.read
+        if name == "unsent text":
+            term.read = lambda h: _screen_of(["prompt"], draft=PASTED_DRAFT)
+        term.install()
+        t0 = int(time.time()) - 5000
+        try:
+            for step in (0, 60, 300, 700):
+                blockedmod._checked.clear()
+                blockedmod.sweep(con, lambda _m: None, t0 + step)
+            check(f"never: {name} - no key at all", term.sent == [], str(term.sent))
+        finally:
+            con.close()
+
+
+def test_press_history_is_scoped_to_one_dialog_not_the_whole_agent(home: Path) -> None:
+    """Auditor's #1026 blocking finding, driven end to end: three different
+    dialogs, each cleared once over five hours, must never read as one dialog
+    looping - and a brand-new, unrelated block must never escalate on sight
+    because of that history. Scoped by the block's own `title` column (raw,
+    from parse_dialog), never reconstructed from `detail` - auditor's second
+    finding on the first fix: a title with a quote in it, or one over
+    DETAIL_CHARS, does not round-trip through describe_modal's rendering."""
+    con = _blocked_world(home)
+    now = int(time.time())
+    for i, title in enumerate(("Background work is running",
+                               "Do you trust the files in this folder?",
+                               "Overwrite the file?")):
+        db.press_add(con, "backend", now - (5 - i) * 3600, title, "cleared")
+    fourth = {"kind": orcamod.MODAL, "detail": '"A fourth, unrelated dialog" - 1. yes / 2. Stay',
+              "title": "A fourth, unrelated dialog"}
+    check("press history: three unrelated dialogs, each cleared once, is not a loop",
+          blockedmod.stopped_pressing(con, "backend", fourth, now) == "",
+          blockedmod.stopped_pressing(con, "backend", fourth, now))
+    same = {"kind": orcamod.MODAL, "detail": '"Background work is running" - 1. yes / 2. Stay',
+            "title": "Background work is running"}
+    check("press history: but the SAME dialog's own history still counts against it",
+          "cleared it 1 times" not in blockedmod.stopped_pressing(con, "backend", same, now))
+
+    # Auditor's #1050 regression on the first fix: a title with a quote in it,
+    # or over DETAIL_CHARS, did not round-trip through a reconstruction from
+    # `detail` - five real clears of the SAME dialog went uncounted, silently.
+    # `title` is the raw value now, compared to the raw value, never rendered.
+    for kind, title in (("quote", 'Delete "build" and stop tasks?'),
+                        ("long", "Q" * (orcamod.DETAIL_CHARS + 50))):
+        agent = f"quirky-{kind}"        # separate agents: five clears must stay under MAX_PRESSES_AGENT
+        for i in range(5):
+            db.press_add(con, agent, now - i * 60, title, "cleared")
+        rec = {"kind": orcamod.MODAL, "detail": f'"{title}" - 1. yes / 2. Stay', "title": title}
+        stopped = blockedmod.stopped_pressing(con, agent, rec, now)
+        check(f"press history: a {kind} title's own five clears are still counted",
+              "cleared it 5 times" in stopped, stopped)
+
+    # Auditor's #1071 should-fix: the per-dialog key is itself agent-painted
+    # text, so a title that varies (a counter, no malice required) never
+    # repeats and never trips MAX_PRESSES. A plain per-agent cap, across every
+    # title, is the absolute stop that does not depend on the key.
+    for i in range(blockedmod.MAX_PRESSES_AGENT):
+        db.press_add(con, "gamer", now - i * 60, f"Background work is running ({i})", "cleared")
+    varying = {"kind": orcamod.MODAL, "detail": "irrelevant", "title": "Background work is running (never seen before)"}
+    stopped = blockedmod.stopped_pressing(con, "gamer", varying, now)
+    check("press history: a varying title cannot outrun the per-agent cap",
+          f"cleared {blockedmod.MAX_PRESSES_AGENT} dialogs" in stopped, stopped)
+    check("press history: an agent with no history at all still presses freely",
+          blockedmod.stopped_pressing(con, "no-history-agent",
+                                      {"kind": orcamod.MODAL, "detail": "x", "title": "new"}, now) == "")
+
+    # Auditor's #1087: checking the per-agent cap first must not hand a
+    # single looping dialog the per-agent wording - one dialog, cleared past
+    # the cap, is still described as one dialog that came back, never as
+    # several dialogs with titles that varied (neither is true of it).
+    for i in range(blockedmod.MAX_PRESSES_AGENT):
+        db.press_add(con, "looper", now - i * 60, "Background work is running", "cleared")
+    same_title = {"kind": orcamod.MODAL, "detail": "irrelevant", "title": "Background work is running"}
+    stopped = blockedmod.stopped_pressing(con, "looper", same_title, now)
+    check("press history: past the per-agent cap, one dialog is still said as one dialog",
+          f"cleared it {blockedmod.MAX_PRESSES_AGENT} times" in stopped and "came back each time" in stopped
+          and "different titles" not in stopped, stopped)
+
+    # The escalation gate: a brand-new UNSENT block on the same agent must not
+    # jump SHOW_AFTER_S/ESCALATE_AFTER_S because of that stale MODAL history.
+    orcamod.screen_blocker = lambda h: orcamod.Blocker(orcamod.UNSENT, "typed")
+    lines: list[str] = []
+    try:
+        blockedmod.sweep(con, lines.append, now)
+        esc = con.execute("SELECT id FROM requests WHERE target = 'human' "
+                          "AND kind = 'escalate'").fetchall()
+        check("press history: a fresh, unrelated block is not escalated on sight",
+              not esc, str(esc))
+        rec = db.block_get(con, "backend")
+        check("press history: it is only tracked, not yet raised",
+              rec and rec["kind"] == "unsent" and rec["request_id"] is None, str(dict(rec) if rec else None))
+    finally:
+        con.close()
+
+
+def test_the_panel_says_the_true_thing_about_a_queue(home: Path) -> None:
+    """Only the head of a queue is told; what waits behind it is waiting its
+    turn, not failing to be told."""
+    con = _blocked_world(home)
+    orcamod.live_terminals = lambda: {"term_x"}
+    for _ in range(2):
+        db.add_request(con, "marina", "backend", "and this", None, "peer", "async", None, 0, None)
+    now = int(time.time())
+    con.execute("UPDATE requests SET ts = ?", (now - actions.STUCK_AFTER_S - 60,))
+    # The head has been told and has not answered; the two behind it were never told.
+    head = db.head_of_queue(con, "backend")
+    con.execute("INSERT OR REPLACE INTO cursors(name, row_id, updated) VALUES(?,?,?)",
+                ("notify:backend", int(head["id"]), now))
+    try:
+        rows = [r for r in actions.stuck(con) if r["agent"] == "backend"]
+        why = {r["what"].split()[0]: r["why"] for r in rows}
+        check("panel: the head is told and has not answered", "was told" in why.get(f"#{head['id']}", ""), str(rows))
+        behind = [r for r in rows if r["what"].split()[0] != f"#{head['id']}"]
+        check("panel: what is behind it says so, and names the head",
+              behind and all(r["why"] == f"waiting behind #{head['id']}" for r in behind), str(rows))
+        check("panel: nothing says 'has not been told yet' of a request that is not the head",
+              not any("has not been told yet" in r["why"] for r in behind), str(rows))
+    finally:
+        con.close()
+
 
 
 def test_one_daemon_is_counted_in_the_process_table(home: Path) -> None:
@@ -2997,6 +4373,100 @@ def test_the_guard_against_the_real_orca_names_the_test_and_cannot_be_swallowed(
           shutil.which("orca") == str(FAKE_ORCA_DIR / "orca"), str(shutil.which("orca")))
 
 
+def test_one_unreadable_proposal_does_not_take_the_hr_listing_down(home: Path) -> None:
+    """`hr.listing()` feeds `ocp hr list` and the bridge's waiting list. A file
+    that does not parse used to raise out of both, and the parser refuses more
+    than it did, so the same one file would have hidden every proposal. It is
+    left out and named, and a file that parses to something that is not a
+    proposal is treated the same way."""
+    restore_world()
+    home.mkdir(parents=True, exist_ok=True)
+    os.environ["OCP_HOME"] = str(home)
+    d = hr.dir_()
+    (d / "good.yaml").write_text("id: good\nkind: add\nagent: newone\nstate: proposed\n"
+                                 "requested_by: x\n")
+    (d / "broken.yaml").write_text("id: broken\nkind: add\nagent: [unclosed\n")
+    (d / "alist.yaml").write_text("- just\n- a list\n")
+    (d / "other.yaml").write_text("colour: blue\n")
+    (d / "kindless.yaml").write_text("id: k\nagent: a\n")
+    (d / "binary.yaml").write_bytes(b"id: \xff\xfe\n")
+    skipped: list[str] = []
+    rows = hr.listing(skipped)
+    check("hr listing: the one good proposal is listed",
+          [r["id"] for r in rows] == ["good"], str(rows))
+    check("hr listing: each file left out is named, with the reason",
+          sorted(x.split(":")[0] for x in skipped)
+          == ["alist.yaml", "binary.yaml", "broken.yaml", "kindless.yaml", "other.yaml"]
+          and sum("not a proposal" in x for x in skipped) == 3, str(skipped))
+    check("hr listing: asked for no report, it still returns the good ones",
+          [r["id"] for r in hr.listing()] == ["good"])
+    out, err = io.StringIO(), io.StringIO()
+    with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+        code = climod.main(["hr", "list"])
+    check("hr list: prints the good proposal and says what it skipped, and succeeds",
+          code == 0 and "good" in out.getvalue() and "skipped, cannot be read - broken.yaml" in err.getvalue()
+          and "Traceback" not in err.getvalue(), out.getvalue() + err.getvalue())
+    con = db.connect()
+    try:
+        waits = actions.founder_waits(con)
+        check("the bridge's waiting list is built with the bad files present",
+              isinstance(waits, list))
+    finally:
+        con.close()
+    ok, said = hr.apply("broken")
+    check("hr apply: a proposal that cannot be read says so instead of raising",
+          not ok and "cannot be read" in said, said)
+    ok, said = hr.apply("other")
+    check("hr apply: a file that is not a proposal is said not to be one",
+          not ok and "not a proposal" in said, said)
+    ok, said = hr.apply("binary")
+    check("hr apply: one that is not text says so too", not ok and "cannot be read" in said, said)
+    for f in d.glob("*.yaml"):
+        if f.name != "good.yaml":
+            f.unlink()
+    skipped.clear()
+    check("hr listing: with the bad files gone nothing is reported",
+          [r["id"] for r in hr.listing(skipped)] == ["good"] and skipped == [])
+
+
+def test_a_walled_wake_is_said_once_not_every_tick(home: Path) -> None:
+    """A closed agent with work waiting is retried every tick for as long as its
+    account sits at the wall, and the wall is one reason that lasts for hours.
+    `_wake_agent` returns it and the tick says it once; `_wake_agent` used to log
+    it as well, on every retry, which is a line per tick for the same sentence."""
+    _daemon_home(home, 100)
+    con = db.connect()
+    real_avail, real_alive, real_run = orcamod.available, orcamod.alive, orcamod._run
+
+    def no_orca(args, timeout=180):
+        raise AssertionError(f"reached the real orca: {args}")
+    try:
+        orcamod.available, orcamod.alive, orcamod._run = (lambda: True), (lambda h: True), no_orca
+        db.set_closed(con, "backend", "sess-1")
+        db.add_request(con, "marina", "backend", "please look", None, "peer", "async",
+                       None, 0, None)
+        dmn._SAID.clear()
+        logged: list[str] = []
+        for _ in range(4):
+            dmn.supervise(con, "backend", logged.append, int(time.time()), {}, [])
+        wall = [m for m in logged if "5h window" in m]
+        check("wall wake: the account really is the reason, so the fixture reaches the wall",
+              wall, str(logged))
+        check("wall wake: it is said once across four ticks, not once per tick",
+              len(wall) == 1, str(logged))
+        ok, why = dmn.wake_agent(con, "backend", logged.append)
+        check("wall wake: and the wake itself still refuses and returns the reason",
+              not ok and "5h window" in why, why)
+        logged.clear()
+        dmn.wake_agent(con, "backend", logged.append)
+        check("wall wake: a direct wake does not log it either - its caller has the reason",
+              not [m for m in logged if "5h window" in m], str(logged))
+    finally:
+        orcamod.available, orcamod.alive, orcamod._run = real_avail, real_alive, real_run
+        dmn._SAID.clear()
+        con.close()
+
+
 def test_a_name_that_yaml_would_not_read_as_text_is_refused_where_it_is_typed(home: Path) -> None:
     """A name is written unquoted into team.yaml, agent.yaml and config.yaml. `no`
     is False to PyYAML and a refusal to the bundled parser, and a refusal on a
@@ -3541,7 +5011,7 @@ def test_a_close_is_recorded_only_once_the_process_has_ended(home: Path) -> None
     con = db.connect()
     typed: list[str] = []
     real = (orcamod.alive, orcamod.wait_idle, orcamod.send, orcamod.available,
-            orcamod.modal_open, db.set_closed)
+            orcamod.screen_blocker, db.set_closed)
     state = {"exiting": False, "reads": 0, "leaves_after": 3, "modal": False}
     seen_at_mark: list[dict] = []
     try:
@@ -3549,7 +5019,7 @@ def test_a_close_is_recorded_only_once_the_process_has_ended(home: Path) -> None
         orcamod.live_terminals = lambda: {"term_x"}
         orcamod.alive = lambda h: True
         orcamod.wait_idle = lambda h, timeout_ms=0: True
-        orcamod.modal_open = lambda h: state["modal"]
+        orcamod.screen_blocker = lambda h: orcamod.Blocker(orcamod.MODAL, "dialog") if state["modal"] else None
         sessions_are("backend")
 
         def live() -> dict:
@@ -3609,7 +5079,7 @@ def test_a_close_is_recorded_only_once_the_process_has_ended(home: Path) -> None
               f"{typed} {why}")
     finally:
         (orcamod.alive, orcamod.wait_idle, orcamod.send, orcamod.available,
-         orcamod.modal_open, db.set_closed) = real
+         orcamod.screen_blocker, db.set_closed) = real
         con.close()
 
 
@@ -3852,19 +5322,31 @@ def test_nothing_is_typed_at_a_modal(home: Path) -> None:
         db.set_agent_state(con, "backend", dmn.IDLE)
         db.add_request(con, "reviewer", "backend", "look at this", None,
                        "peer", "async", None, 0, None)
-        orcamod.modal_open = lambda h: True
+        orcamod.screen_blocker = lambda h: orcamod.Blocker(orcamod.MODAL, "dialog")
         check("modal: a waiting request is not typed at an open modal",
               not dmn.deliver_queued(con, "backend", lambda _m: None) and not sent, str(sent))
-        orcamod.modal_open = lambda h: False
+        # Isolate the cause: no modal, nothing else in the way, only unsent text.
+        orcamod.screen_blocker = lambda h: orcamod.Blocker(orcamod.UNSENT, "typed")
+        rid = db.queued_for(con, "backend")[0]["id"]
+        check("unsent: a waiting request is not typed into text a human left in the input",
+              not dmn.deliver_queued(con, "backend", lambda _m: None) and not sent, str(sent))
+        check("unsent: and it stays queued to be retried, not dropped",
+              [r["id"] for r in db.queued_for(con, "backend")] == [rid])
+        orcamod.screen_blocker = lambda h: None
         check("modal: it is told once the modal is gone",
               dmn.deliver_queued(con, "backend", lambda _m: None))
 
         # The reader itself, against what Orca returns.
         orcamod.modal_open = REAL_ORCA["modal_open"]
+        orcamod.unsent_text = REAL_ORCA["unsent_text"]
+        orcamod.screen_blocker = REAL_ORCA["screen_blocker"]
+        orcamod._screen = REAL_ORCA["_screen"]
         screen = {"ok": True}
         def fake_run(args, timeout=180):
-            return screen["ok"], json.dumps({"result": {"terminal": {
-                "tail": screen["tail"], "source": screen.get("source", "screen")}}})
+            term = {"tail": screen["tail"], "source": screen.get("source", "screen")}
+            if "draft" in screen:
+                term["draft"] = screen["draft"]
+            return screen["ok"], json.dumps({"result": {"terminal": term}})
         real_run = orcamod._run
         orcamod._run = fake_run
         try:
@@ -3883,6 +5365,39 @@ def test_nothing_is_typed_at_a_modal(home: Path) -> None:
             check("modal: an empty prompt is not", not orcamod.modal_open("h"))
             screen["tail"] = None
             check("modal: a screen that cannot be read counts as a modal", orcamod.modal_open("h"))
+            # Measured on a live Claude Code terminal: `draft` is present only
+            # while the input box holds text, and `tail` does not show it.
+            screen["tail"] = ["> "]
+            screen["draft"] = "orca half-typed"
+            check("unsent: text left in the input is read as unsent", orcamod.unsent_text("h"))
+            del screen["draft"]
+            check("unsent: no draft key is an empty input", not orcamod.unsent_text("h"))
+            screen["draft"] = ""
+            check("unsent: an empty draft is an empty input", not orcamod.unsent_text("h"))
+            del screen["draft"]
+            screen["source"] = "screen-unavailable"
+            check("unsent: a screen that is not rendered counts as unsent", orcamod.unsent_text("h"))
+            screen["source"] = "screen"
+            screen["draft"] = "typed"
+            screen["tail"] = ["> "]
+            orcamod.idle_now = lambda h: True
+            check("unsent: an idle agent with text in the input is not typeable",
+                  not orcamod.typeable_now("h"))
+            sent_: list[str] = []
+            orcamod.wait_idle = lambda h, t=0: True
+            orcamod.alive = lambda h: True
+            orcamod.send = lambda h, text, enter=True: (sent_.append(text), (True, ""))[1]
+            ok_c, why_c = REAL_ORCA["close_session"]("h")
+            check("unsent: /exit is refused, not typed into it", not ok_c and not sent_, why_c)
+            ok_c, why_c = REAL_ORCA["clear_context"]("h")
+            check("unsent: /clear is refused, not typed into it", not ok_c and not sent_, why_c)
+            del screen["draft"]
+            screen["tail"] = ["Confirm?", "Enter to confirm · Esc to cancel"]
+            ok_c, why_c = REAL_ORCA["clear_context"]("h")
+            check("modal: /clear is refused at an open modal", not ok_c and not sent_, why_c)
+            screen["tail"] = ["> "]
+            ok_c, why_c = REAL_ORCA["clear_context"]("h")
+            check("unsent: with the input empty /clear is typed", ok_c and sent_ == ["/clear"], why_c)
         finally:
             orcamod._run = real_run
     finally:
@@ -4472,19 +5987,19 @@ def test_unobserved_spend_stays_off_unreadable_accounts(home: Path) -> None:
         check("fold: even though it takes no new agents",
               not st.assignable()[0] and st.pct_5h_source == "carried_old")
 
-        # A stale reading pick_account would hand back on its idle floor is
-        # still an account this daemon cannot currently read - the fold must
-        # not prefer it over one with a genuinely current reading, even when
-        # the stale account would otherwise win the ranking (here, by far
-        # the earliest 7d deadline).
+        # A stale reading is still an account this daemon cannot currently
+        # read, and the fold must not prefer it over one with a genuinely
+        # current reading. Neither account here has an actual pct_7d, so pace
+        # ties at "unknown" for both and headroom decides - already in favor
+        # of the readable one, before the fold's own exclusion even applies.
         write_status(home, "fresh", pct_5h=50, reset_5h=now + 1800,
                      reset_7d=now + 86400 * 2)
         write_status(home, "stale_idle", pct_5h=5, reset_5h=now + 1800,
                      reset_7d=now + 1800, collected_at=now - 3600)
-        check("fold: without the exclusion, pick_account would hand back "
-              "the stale account (earliest 7d deadline wins)",
-              status.pick_account(["fresh", "stale_idle"])[0] == "stale_idle")
-        check("fold: with it, the fold goes to the one it can actually read",
+        check("fold: pick_account already prefers the readable account "
+              "on headroom, with no pct_7d behind either reset",
+              status.pick_account(["fresh", "stale_idle"])[0] == "fresh")
+        check("fold: and the fold's own exclusion agrees",
               foldmod._cheapest_account() == "fresh",
               str(foldmod._cheapest_account()))
     finally:
@@ -6580,6 +8095,51 @@ def test_the_screen_says_which_account_to_spend_next(home: Path) -> None:
         accounts.logged_in = real_login
 
 
+def test_the_next_mark_does_not_flicker_between_close_accounts(home: Path) -> None:
+    """The panel's own memory (`tui._LAST_NEXT`) is what closes the gap
+    `test_pick_account_does_not_bounce_between_two_close_accounts` opens
+    without it: redraw twice with alpha and beta a hair apart in weekly pace,
+    and the mark must stay put rather than trade places on rounding alone."""
+    _daemon_home(home, 40)
+    write_status(home, "beta", pct_5h=8, pct_7d=13, ctx_pct=5,
+                 reset_5h=int(time.time()) + 1800)
+    accounts.register("beta")
+    real_login = accounts.logged_in
+    now = int(time.time())
+    reset_7d = now + 3 * 86400
+    try:
+        accounts.logged_in = lambda a: True  # noqa: E731
+        tui._LOGIN.clear()
+        tui._LAST_NEXT = None
+
+        def next_mark() -> str | None:
+            plain = [tui._ANSI.sub("", ln) for ln in tui.frame(120, 60).split(chr(10))]
+            for ln in plain:
+                if ("alpha" in ln or "beta" in ln) and ln.rstrip("│ ").endswith(" next"):
+                    return "alpha" if "alpha" in ln else "beta"
+            return None
+
+        write_status(home, "alpha", pct_5h=40, pct_7d=41, ctx_pct=5,
+                     reset_5h=now + 1800, reset_7d=reset_7d)
+        write_status(home, "beta", pct_5h=8, pct_7d=44, ctx_pct=5,
+                     reset_5h=now + 1800, reset_7d=reset_7d)
+        first = next_mark()
+        check("next mark: alpha is picked, clearly ahead on pace",
+              first == "alpha", first)
+        check("next mark: the panel remembers it", tui._LAST_NEXT == "alpha")
+
+        # beta closes to exactly one pace bucket ahead of alpha's raw figure -
+        # without the panel's memory this overtakes outright; the memory's
+        # own head start lands the two in the same bucket, and the mark stays.
+        write_status(home, "beta", pct_5h=8, pct_7d=40, ctx_pct=5,
+                     reset_5h=now + 1800, reset_7d=reset_7d)
+        check("next mark: stays on alpha rather than trading places with a "
+              "one-bucket move", next_mark() == "alpha", next_mark())
+    finally:
+        accounts.logged_in = real_login
+        tui._LAST_NEXT = None
+
+
 def test_the_founder_does_not_approve_their_own_request(home: Path) -> None:
     """HR gates *agents*, and the founder is the thing on the other side of the
     gate. Asked to propose, they got "an agent cannot ask itself" - the one
@@ -8065,7 +9625,7 @@ def test_a_move_is_not_recorded_while_the_process_is_still_on_the_old_account(
 
         _process_on("alpha")
         check("move: a process that came back on the old account is not a move",
-              not dmn._move_to_room(con, "keeper", t, lambda _m: None))
+              not dmn._move_to_room(con, "keeper", t, lambda _m: None)[0])
         check("move: and the column still names the account it is on",
               agents.current_account("keeper", con) == "alpha",
               agents.current_account("keeper", con))
@@ -8080,7 +9640,7 @@ def test_a_move_is_not_recorded_while_the_process_is_still_on_the_old_account(
         _process_on("beta")
         con.execute("DELETE FROM events WHERE agent = 'keeper' AND kind = 'moved_account'")
         check("move: on the new account it is one",
-              dmn._move_to_room(con, "keeper", t, lambda _m: None)
+              dmn._move_to_room(con, "keeper", t, lambda _m: None)[0]
               and agents.current_account("keeper", con) == "beta")
         check("move: and the move is on the record",
               sum(e["kind"] == "moved_account"
@@ -8229,10 +9789,17 @@ def test_an_agent_cannot_force_a_move(home: Path) -> None:
             os.environ["OCP_AGENT"] = real
 
 
-def test_weekly_headroom_is_spent_to_its_own_wall(home: Path) -> None:
-    """Founder's decision #254: an account at 5h 9% / 7d 99% is spent to the
-    weekly wall, not stopped short of it - it must still be picked, and an
-    agent working on it moves only once 7d actually reaches its own wall."""
+def test_a_near_wall_7d_account_is_still_a_candidate_but_not_guaranteed_the_pick(
+        home: Path) -> None:
+    """Founder's decision #254: an account at 5h 9% / 7d 99% is spendable to
+    the weekly wall, not held back short of it - it must still be a candidate,
+    and an agent working on it moves only once 7d actually reaches its own
+    wall. Which of two candidates the *pick* prefers is now pace (#1001), not
+    #254's concern; alpha at 99% with an hour left is close to on
+    pace (elapsed is almost the whole week already), while beta at 10% with a
+    day left is well behind its own - so beta is picked here, and alpha's
+    place in this test is to prove it is not refused for being this close to
+    its wall, not that it wins the pick."""
     _daemon_home(home, 20)
     accounts.register("beta")
     agents.register("keeper", "alpha")
@@ -8248,9 +9815,13 @@ def test_weekly_headroom_is_spent_to_its_own_wall(home: Path) -> None:
     write_status(home, "beta", pct_5h=9, pct_7d=10,
                  reset_7d=now + 90000, reset_5h=now + 1800)
     alpha(9, 99)
+    allowed, why = status.read("alpha").assignable()
+    check("7d wall: 99% is still assignable, not held back short of the wall",
+          allowed, why)
     picked, reasons = status.pick_account(["alpha", "beta"], load={})
-    check("7d wall: the soon-to-reset account is picked at 7d 99%",
-          picked == "alpha", str((picked, reasons)))
+    check("7d wall: at 99%, pace picks the account further behind its own "
+          "weekly pace instead (beta, 10% with a day left)",
+          picked == "beta", str((picked, reasons)))
     alpha(9, 100)
     check("7d wall: at the wall it is not picked",
           status.pick_account(["alpha", "beta"], load={})[0] == "beta")
@@ -8290,7 +9861,7 @@ def test_weekly_headroom_is_spent_to_its_own_wall(home: Path) -> None:
             dmn.wait_for_session = lambda agent, timeout=0: True
             keep_handoff("keeper", "# handoff · keeper\n## 다음\n- carry on\n")
             check("7d wall: the agent moves off an account that hit its 7d wall",
-                  dmn._move_to_room(con, "keeper", t, lambda _m: None))
+                  dmn._move_to_room(con, "keeper", t, lambda _m: None)[0])
             check("7d wall: it landed on the account with weekly room",
                   agents.current_account("keeper", con) == "beta",
                   agents.current_account("keeper", con))
@@ -8424,7 +9995,7 @@ def test_an_agent_at_the_wall_moves_to_an_account_with_room(home: Path) -> None:
             orcamod.close_session = lambda h, **kw: (typed.append("/exit"), (True, "ended"))[1]
             sessions_are()                      # it went away while we folded
             check("move: a session that is already gone is not moved",
-                  not dmn._move_to_room(con, "keeper", t, lambda _m: None))
+                  not dmn._move_to_room(con, "keeper", t, lambda _m: None)[0])
             check("move: and nothing is typed at the shell it left behind", not typed,
                   str(typed))
         finally:
@@ -8454,7 +10025,7 @@ def test_an_agent_at_the_wall_moves_to_an_account_with_room(home: Path) -> None:
         unknown = triggers.evaluate(None, 10)
         check("move: an unreadable account is not a trigger", not unknown.fired, unknown.kind)
         check("move: and nothing moves on it",
-              not dmn._move_to_room(con, "keeper", unknown, lambda _m: None))
+              not dmn._move_to_room(con, "keeper", unknown, lambda _m: None)[0])
 
         # What it is told when it lands. A move is not a close: its handoff was
         # taken a moment ago and `launch.context_for` put it in the new
@@ -8470,6 +10041,101 @@ def test_an_agent_at_the_wall_moves_to_an_account_with_room(home: Path) -> None:
         (orcamod.available, orcamod.alive, orcamod.close_session, orcamod.relaunch,
          orcamod.clear_context, orcamod.resume_with, orcamod.idle_now,
          dmn.wait_for_session) = real
+        con.close()
+
+
+def test_a_move_blocked_by_a_dialog_retries_soon_not_at_the_old_accounts_wall(home: Path) -> None:
+    """#1013, from the real log: chat hit its wall with beta and delta free,
+    could not close because a modal (ocp's own earlier /exit) was open, and
+    the fallback parked it 2h21m against the walled account's own reset - the
+    worst of both, since a destination existed the whole time and the modal
+    is exactly what #996 presses.
+
+    The property: a move that fails because a destination was found but the
+    close could not happen (a dialog, unsent text, a session that would not
+    end) parks for a short recheck, the same shape as an assumed account -
+    never against the account being LEFT, which has nothing to do with why
+    the move failed."""
+    _daemon_home(home, 20)
+    con = db.connect()
+    agents.register("keeper", "alpha")
+    db.set_account(con, "keeper", "alpha")      # a recorded account, not merely assumed
+    write_status(home, "beta", pct_5h=10, pct_7d=5, ctx_pct=5,
+                 reset_5h=int(time.time()) + 1800)
+    write_status(home, "alpha", pct_5h=100, pct_7d=20, ctx_pct=5,
+                 reset_5h=int(time.time()) + 3 * 3600)
+    for acct in ("alpha", "beta"):
+        (home / "accounts" / acct / ".claude").mkdir(parents=True, exist_ok=True)
+        (home / "accounts" / acct / ".claude" / ".credentials.json").write_text("{}")
+    keep_handoff("keeper", "# handoff · keeper\n## 다음\n- carry on\n")
+    db.add_request(con, "marina", "keeper", "carry on", None, "peer", "async", None, 0, None)
+    # The turn ended on the usage limit and has long since settled, so
+    # perform_handoff does not gate on typeable_now at all - it is
+    # `screen_blocker`'s job below to say a dialog is what stops the close,
+    # not this earlier probe.
+    db.add_event(con, "keeper", "StopFailure", {"limit": "5h"})
+    con.execute("UPDATE events SET ts = ? WHERE agent = 'keeper' AND kind = 'StopFailure'",
+                (int(time.time()) - dmn.LIMIT_SETTLE_S - 60,))
+    real = (orcamod.available, orcamod.alive, orcamod.close_session, orcamod.clear_context,
+            orcamod.idle_now, orcamod.screen_blocker)
+    try:
+        orcamod.available = lambda: True
+        orcamod.alive = lambda h: True
+        orcamod.idle_now = lambda h: True
+        orcamod.clear_context = lambda h, **kw: (False, "a modal is open on its screen; not typing /clear at it")
+        orcamod.close_session = lambda h, **kw: (False, "a modal is open on its screen; not typing /exit at it")
+        orcamod.screen_blocker = lambda h: orcamod.Blocker(orcamod.MODAL, '"Stay in this session?"')
+        sessions_are("keeper")
+        db.set_terminal(con, "keeper", "term_x", "wt")
+
+        t = triggers.evaluate(100, 10)
+        before = int(time.time())
+        dmn.perform_handoff(con, "keeper", t, lambda _m: None)
+
+        row = db.get_agent_state(con, "keeper")
+        check("dialog move: it parks - the close never happened",
+              row["state"] == dmn.PARKED and row["wake_at"], f"{row['state']} {row['wake_at']}")
+        check("dialog move: not moved - the account is still the one it started on",
+              agents.current_account("keeper", con) == "alpha", agents.current_account("keeper", con))
+        check("dialog move: but the recheck is short, not the walled account's own 3h reset",
+              row["wake_at"] < before + dmn.ASSUMED_ACCOUNT_RECHECK_S + 30,
+              f"wake_at={row['wake_at']} before={before}")
+        check("dialog move: the dialog itself is tracked, for #996 to press",
+              db.block_get(con, "keeper") is not None and
+              db.block_get(con, "keeper")["kind"] == orcamod.MODAL)
+
+        # Contrast: no destination at all still parks against the wall it hit.
+        db.block_clear(con, "keeper")
+        write_status(home, "beta", pct_5h=100, pct_7d=20, ctx_pct=5,
+                     reset_5h=int(time.time()) + 3 * 3600)
+        db.set_agent_state(con, "keeper", dmn.IDLE)
+        db.clear_closed(con, "keeper")
+        con.execute("DELETE FROM handoff")
+        before2 = int(time.time())
+        dmn.perform_handoff(con, "keeper", triggers.evaluate(100, 10), lambda _m: None)
+        row2 = db.get_agent_state(con, "keeper")
+        check("dialog move: with nowhere to go, still the long wait - the two are not confused",
+              row2["wake_at"] > before2 + dmn.ASSUMED_ACCOUNT_RECHECK_S + 30,
+              f"wake_at={row2['wake_at']} before={before2}")
+
+        # Contrast again: a destination exists, but Orca itself is down - that
+        # is nobody's terminal in particular, so it is the long wait too, not
+        # the short recheck the dialog got.
+        write_status(home, "beta", pct_5h=10, pct_7d=5, ctx_pct=5,
+                     reset_5h=int(time.time()) + 1800)
+        db.set_agent_state(con, "keeper", dmn.IDLE)
+        db.clear_closed(con, "keeper")
+        con.execute("DELETE FROM handoff")
+        orcamod.available = lambda: False
+        before3 = int(time.time())
+        dmn.perform_handoff(con, "keeper", triggers.evaluate(100, 10), lambda _m: None)
+        row3 = db.get_agent_state(con, "keeper")
+        check("dialog move: orca itself down is not 'about this terminal' either",
+              row3["wake_at"] > before3 + dmn.ASSUMED_ACCOUNT_RECHECK_S + 30,
+              f"wake_at={row3['wake_at']} before={before3}")
+    finally:
+        (orcamod.available, orcamod.alive, orcamod.close_session, orcamod.clear_context,
+         orcamod.idle_now, orcamod.screen_blocker) = real
         con.close()
 
 
@@ -9121,7 +10787,7 @@ def test_a_turn_that_ends_on_the_usage_limit_is_at_the_wall(home: Path) -> None:
             orcamod.idle_now = lambda h, **kw: False   # the probe would say mid-turn
             orcamod.clear_context = lambda h, **kw: (True, "cleared")
             dmn.session_present = lambda a: True
-            dmn._move_to_room = lambda con_, a, t, log, dest=None: (seen.append(t), True)[1]
+            dmn._move_to_room = lambda con_, a, t, log, dest=None: (seen.append(t), (True, False))[1]
             # Idle, so delivery would go through if nothing held it back.
             orcamod.idle_now = lambda h, **kw: True
             dmn.supervise(con, "backend", lambda _m: None, now, {}, [])
@@ -9389,7 +11055,7 @@ def test_account_list_is_the_present_state_and_status_is_the_pick(home: Path) ->
         db.set_agent_state(con, "backend", dmn.RUNNING, detail="working")
         db.set_agent_state(con, "frontend", dmn.IDLE)
         found, unplaced = loadmod.roster(con)
-        cell = lambda a: tui._plain(tui.agents_cell(found.get(a, (0, 0)), unplaced))  # noqa: E731
+        cell = lambda a: textsafe.oneline(tui.agents_cell(found.get(a, (0, 0)), unplaced))  # noqa: E731
     finally:
         con.close()
     out = _capture(lambda: climod.main(["account", "list"]))
@@ -9914,7 +11580,7 @@ def test_move_requires_clear_headroom_not_bare_assignability(home: Path) -> None
         t = triggers.evaluate(100, 10)
         logged: list[str] = []
         check("move headroom: a marginal destination is refused, agent stays put",
-              not dmn._move_to_room(con, "keeper", t, logged.append))
+              not dmn._move_to_room(con, "keeper", t, logged.append)[0])
         check("move headroom: the account on record has not changed",
               agents.current_account("keeper", con) == "alpha",
               agents.current_account("keeper", con))
@@ -9936,7 +11602,7 @@ def test_move_requires_clear_headroom_not_bare_assignability(home: Path) -> None
             keep_handoff("keeper", "# handoff · keeper\n## 다음\n- carry on\n")
             logged.clear()
             check("move headroom: clear headroom lets the move through",
-                  dmn._move_to_room(con, "keeper", t, logged.append))
+                  dmn._move_to_room(con, "keeper", t, logged.append)[0])
             check("move headroom: it actually landed on beta",
                   agents.current_account("keeper", con) == "beta",
                   agents.current_account("keeper", con))
@@ -9986,7 +11652,7 @@ def test_move_to_room_reaches_a_bootstrap_account(home: Path) -> None:
               launch.choose_account("keeper") == "gamma")
         t = triggers.evaluate(100, 10)
         check("move (bootstrap): the move actually completes",
-              dmn._move_to_room(con, "keeper", t, lambda _m: None))
+              dmn._move_to_room(con, "keeper", t, lambda _m: None)[0])
         check("move (bootstrap): and lands on the bootstrapped account",
               agents.current_account("keeper", con) == "gamma",
               agents.current_account("keeper", con))
@@ -10105,7 +11771,7 @@ def test_a_move_still_records_a_session_the_wait_missed_but_a_hook_saw(home: Pat
         dmn.wait_for_session = lambda agent, timeout=0: False
 
         t = triggers.evaluate(100, 10)
-        moved = dmn._move_to_room(con, "mover", t, lambda _m: None, dest="beta")
+        moved = dmn._move_to_room(con, "mover", t, lambda _m: None, dest="beta")[0]
         check("clobber: a hook's RUNNING outweighs a wake the wait missed - "
               "the move is recorded, not discarded", moved)
         row = db.get_agent_state(con, "mover")
@@ -10161,7 +11827,7 @@ def test_stalled_survives_a_hook_that_fires_after_the_third_failed_wake(home: Pa
         orcamod.relaunch = relaunch_fails_but_late
 
         t = triggers.evaluate(100, 10)
-        moved = dmn._move_to_room(con, "mover", t, lambda _m: None, dest="beta")
+        moved = dmn._move_to_room(con, "mover", t, lambda _m: None, dest="beta")[0]
         check("stalled: the third failure is not recorded as a move", not moved)
         row = db.get_agent_state(con, "mover")
         check("stalled: it lands on STALLED, not clobbered by the late hook",
@@ -12622,6 +14288,375 @@ def test_an_agent_name_is_text_and_no_screen_can_be_made_to_obey_it(home: Path) 
                   dirty[label][:200])
 
 
+def test_no_command_prints_what_a_terminal_would_obey(home: Path) -> None:
+    """The bridge's screen was made safe first; the CLI writes the same text into
+    the founder's shell. Every stored field an agent can write - a request's
+    body and verdict, a state detail, an event kind and payload, a handoff, a
+    digest, a terminal handle, the daemon's log - is
+    poisoned, every command that shows any of it is run, and each output is
+    graded as the screen is: our own codes counted against a twin drawn from the
+    reading of the same text (a stray-only check would pass what the screen's
+    once did). The ones that do not show it are listed, so a command that never
+    displays a field cannot be mistaken for one that displays it safely."""
+    from ocp import fold as foldmod, service
+    poison = "\033]0;PWNED\007\033[31mMARKED\033[0m\x9b1m\033[2m"
+
+    def scene(where: Path, hostile: bool) -> dict[str, str]:
+        p = poison if hostile else _reference_text(poison)
+        # A verdict is written through yamlcompat.dump, which already refuses a
+        # C0 control or DEL - the full poison above would never reach print(),
+        # so this fixture would prove nothing about the print. C1 alone (the
+        # class textsafe exists for, and what drift's own leak turned out to
+        # be) is not something dump refuses, so this is what actually exercises
+        # the fix rather than dump's unrelated guard.
+        c1p = "\x9b1mMARKED\x9b0m" if hostile else _reference_text("\x9b1mMARKED\x9b0m")
+        _daemon_home(where, 20)
+        agents.register("reviewer", "alpha")
+        con = db.connect()
+        try:
+            q = db.add_request(con, "marina", "reviewer", f"body {p} end\n\tsecond {p}", None,
+                               "peer", "async", None, 0, None)
+            h = db.add_request(con, "reviewer", "human", f"escalation {p}", None, "peer", "async",
+                               "escalate", 0, None)
+            d = db.add_request(con, "reviewer", "backend", f"asked {p}", None, "peer", "async",
+                               None, 0, None)
+            con.execute("UPDATE requests SET state = 'done', verdict = ?, resolved_at = ? WHERE id = ?",
+                        (f"verdict {p}\nmore {p}", int(time.time()), d))
+            db.set_agent_state(con, "reviewer", "STALLED", detail=f"detail {p}")
+            db.add_event(con, "reviewer", f"kind{p}", {"x": p})
+            db.set_terminal(con, "reviewer", f"term{p}", f"wt{p}")
+            # For `hr apply`: a proposal rejected with a poisoned verdict. Built
+            # by hand rather than through hr.propose(), so the fixture does not
+            # depend on anything else the scene registers or retires.
+            hrq = db.add_request(con, "reviewer", askmod.HUMAN, "roster: retire reviewer?",
+                                 None, "peer", "async", None, 0, None)
+            con.execute("UPDATE requests SET state = 'done', verdict = ? WHERE id = ?",
+                        (f"reject {c1p}", hrq))
+        finally:
+            con.close()
+        hr.save({"id": "poisontest", "kind": "retire", "agent": "reviewer",
+                "requested_by": "reviewer", "why": "test", "request": hrq, "state": "pending"})
+        keep_handoff("reviewer", f"handoff {p}\n- item {p}")
+        journal = foldmod.journal_path("reviewer", foldmod.today())
+        journal.parent.mkdir(parents=True, exist_ok=True)
+        journal.write_text(f"## 완료\n- done {p}\n")
+        service.out_log().parent.mkdir(parents=True, exist_ok=True)
+        service.out_log().write_text(f"[12:00:00] reviewer: {p}\n")
+        repo = where / "repo"                  # for `drift`: a file name is text someone chose
+        repo.mkdir()
+        name = "a" + p + "b.txt"
+
+        def git(*args: str) -> None:
+            subprocess.run(["git", *args], cwd=repo, check=True, capture_output=True)
+        git("init", "-q", "-b", "main")
+        git("config", "user.email", "t@example.com")
+        git("config", "user.name", "t")
+        # The standard advice for readable Korean/Japanese filenames, which this
+        # project is full of - and it also stops git quoting a control byte in a
+        # path, so the fixture is driven where that actually bites (auditor,
+        # #1003/#1048): with the default left on, git's own quoting of the C1
+        # byte in `name` would pass this test whether or not cmd_drift sanitised
+        # a thing.
+        git("config", "core.quotePath", "false")
+        (repo / "base.txt").write_text("x")
+        git("add", ".")
+        git("commit", "-qm", "base")
+        git("checkout", "-q", "-b", "work")
+        (repo / name).write_text("y")
+        git("add", ".")
+        git("commit", "-qm", "work")
+        git("checkout", "-q", "main")
+        (repo / name).write_text("z")
+        git("add", ".")
+        git("commit", "-qm", "main moves")
+        git("update-ref", "refs/remotes/origin/main", "HEAD")
+        git("checkout", "-q", "work")
+        (repo / name).write_text("w")
+
+        # Every leaf of the CLI is one of these two, so a subcommand that is added
+        # is noticed: it is driven here, or it is skipped with a reason.
+        driven = {
+            "status": [["status"], ["status", "--json"]], "doctor": [["doctor", "--no-color"]],
+            "team check": [["team", "check"]], "ps": [["ps"]], "triggers": [["triggers"]],
+            "events": [["events", "--limit", "50", "--all"], ["events", "--agent", "reviewer"]],
+            "inbox": [["inbox", "reviewer"], ["inbox", "reviewer", "--all"],
+                      ["inbox", "human", "--all"]],
+            "read": [["read", str(q)], ["read", str(h)], ["read", str(d)]],
+            "resolve": [(["resolve", str(d), "again"], {"OCP_AGENT": "backend"})],
+            "digest": [["digest", "reviewer"]], "handoff": [["handoff", "reviewer"]],
+            "agent list": [["agent", "list"]],
+            "agent show": [["agent", "show", "reviewer"], ["agent", "show", "reviewer", "--json"]],
+            "account list": [["account", "list"], ["account", "list", "--json"]],
+            "hr list": [["hr", "list"]], "service logs": [["service", "logs"]],
+            "resume": [["resume", "reviewer"]], "fold": [["fold", "reviewer", "--no-model"]],
+            "command": [["command", "reviewer"]], "org": [["org"]], "rollover": [["rollover", "reviewer"]],
+            "spawn": [(["spawn", "reviewer", "--repo", str(repo), "--prompt", f"p {p}", "--dry-run"],
+                       None, "spawn --dry-run")],
+            "drift": [(["drift", str(repo), "--no-fetch"], None, "drift --no-fetch")],
+            "hr apply": [(["hr", "apply", "poisontest"], None, "hr apply")],
+            "guide": [["guide"]],
+            "top": [["top", "--once"]], "watch": [["watch", "--once"]], "bridge": [["bridge", "--once"]],
+            "write-handoff": [["write-handoff", "reviewer"]],
+            "ask": [(["ask", "reviewer", f"a new one {p}", "--of", "marina"], None, "ask")],
+            "withdraw": [["withdraw", str(d + 1), "--of", "marina"]],
+            "unstall": [["unstall", "reviewer"]],
+        }
+        out = {}
+
+        def run_it(argv: list[str], env: dict | None = None, key: str | None = None) -> None:
+            buf, err = io.StringIO(), io.StringIO()
+            saved = {k: os.environ.get(k) for k in (env or {})}
+            os.environ.update(env or {})
+            try:
+                with contextlib.redirect_stdout(buf), contextlib.redirect_stderr(err):
+                    try:
+                        climod.main(argv)
+                    except SystemExit:
+                        pass
+            finally:
+                for k, v in saved.items():
+                    if v is None:
+                        os.environ.pop(k, None)
+                    else:
+                        os.environ[k] = v
+            out[key or " ".join(argv)] = buf.getvalue() + err.getvalue()
+        # A fold whose model returns a digest that lost what was done: the refusal
+        # names the lost items, which the agent wrote.
+        real_model, real_record = foldmod.run_model, handoffmod.record
+        foldmod.run_model = lambda *a, **k: (True, "# 2026-01-01 · reviewer\n\n## 완료\n")
+        # `write-handoff` reads the agent's own terminal for the handoff, which
+        # there is none of here: stand in for that step and print what it stored.
+        handoffmod.record = lambda con, agent: []
+        try:
+            run_it(["fold", "reviewer", "--account", "alpha"], key="fold reviewer (model lost a done item)")
+            for leaf, runs in driven.items():
+                if leaf in ("ask", "withdraw", "unstall"):
+                    continue                      # they change what the others show: last
+                for one in runs:
+                    argv, env, key = (one + (None, None))[:3] if isinstance(one, tuple) else (one, None, None)
+                    run_it(argv, env, key=key or " ".join(argv) + (" (as backend)" if env else ""))
+            run_it(*driven["ask"][0][:2], key=driven["ask"][0][2])
+            run_it(driven["withdraw"][0])
+            run_it(driven["unstall"][0])
+        finally:
+            foldmod.run_model, handoffmod.record = real_model, real_record
+        scene.driven = driven
+        return out
+
+    dirty = scene(home / "dirty", True)
+    clean = scene(home / "clean", False)
+
+    def leaves() -> list[str]:
+        """Every command the CLI has, read from its own parser."""
+        found_, parser = [], climod.build_parser()
+
+        def walk(prefix: str, p_) -> None:
+            subs = [a for a in p_._actions if isinstance(a, argparse._SubParsersAction)]
+            if not subs:
+                found_.append(prefix)
+                return
+            for n, sp in subs[0].choices.items():
+                walk((prefix + " " + n).strip(), sp)
+        walk("", parser)
+        return found_
+
+    # The ones not driven, and why. This is the list a later hand has to justify:
+    # a new command is neither here nor driven until someone decides which.
+    skipped = {
+        "init": "creates the home and the shared settings",
+        "login": "interactive: hands the terminal to claude",
+        "account add": "interactive login", "account remove": "interactive logout and a confirm",
+        "account register": "creates an account directory; prints its path",
+        "account cap": "writes a cap; prints numbers",
+        "account probe": "runs the probe against a real login",
+        "agent move": "a confirm, and Orca", "agent register": "writes agent.yaml; a name with a control byte is refused before it prints",
+        "launch": "execs claude",
+        "hooks sync": "rewrites the shared settings", "hooks status": "reads the shared settings; prints paths",
+        "install-hooks": "writes the shared settings",
+        "hr add": "writes a proposal; prints its id", "hr retire": "writes a proposal; prints its id",
+        "hr rename": "writes a proposal; prints its id", "hr move": "writes a proposal; prints its id",
+        "team init": "writes team.yaml",
+        "cancel": "founder-only; its return strings hold ids and names (read in actions.cancel, ask.cancel)",
+        "dismiss": "needs a human identity; returns ids (read in actions.dismiss)",
+        "hook": "reads a hook payload on stdin and prints nothing",
+        "daemon": "runs forever", "service install": "launchd", "service uninstall": "launchd",
+        "service status": "launchd; prints a pid",
+        "close": "types into a terminal through Orca", "base promote": "writes base.md; prints sizes and a path",
+    }
+    have = set(driven_now := scene.driven) | set(skipped)
+    every = set(leaves())
+    check("cli: every command the CLI has is driven here or skipped with a reason",
+          every == have and not (set(driven_now) & set(skipped)),
+          f"new: {sorted(every - have)}; gone: {sorted(have - every)}; both: {sorted(set(driven_now) & set(skipped))}")
+    found = _leaks(dirty, clean, skip_counts=("top --once", "watch --once", "bridge --once"))
+    for label in dirty:
+        check(f"cli: `ocp {label}` prints nothing of a terminal's, and no code of ours a plain text would not",
+              not [f for f in found if f.startswith(label + ":")],
+              str([f for f in found if f.startswith(label + ":")])[:300])
+    shows = {k for k, v in clean.items() if "MARKED" in v}
+    must = {"ps", "events --limit 50 --all", "events --agent reviewer", "inbox reviewer",
+            "inbox reviewer --all", "inbox human --all", "read 1", "read 2", "read 3",
+            "digest reviewer", "handoff reviewer", "write-handoff reviewer",
+            "resolve 3 again (as backend)", "drift --no-fetch", "agent show reviewer",
+            "agent show reviewer --json", "service logs", "fold reviewer (model lost a done item)"}
+    check("cli: the poison is really on screen for every command this test claims to grade",
+          must <= shows, str(sorted(must - shows)))
+    # (JSON writes a control byte as the text \\u001b, and git quotes one in a path as
+    # \\033: both are text, not a byte, and are safe to show.)
+    quoted = re.compile(r"\\+(?:u001b|033)\]0;PWNED\\+(?:u0007|a|007)")
+    check("cli: the payload of a title is not printed either",
+          not [k for k, v in dirty.items() if "PWNED" in quoted.sub("", v)],
+          str([k for k, v in dirty.items() if "PWNED" in quoted.sub("", v)]))
+    check("cli: and the rest are the ones that do not show these fields at all",
+          all(v == "" or "MARKED" not in v for k, v in clean.items() if k not in shows))
+    check("cli: what it keeps of a body is its text - a tab stays a tab, so a patch reads as written",
+          "\tsecond" in dirty["read 1"] and "\tsecond" in dirty["inbox reviewer"], repr(dirty["read 1"])[:200])
+    dumped = dirty["agent show reviewer --json"]
+    seen = subprocess.run([sys.executable, "-c",
+                           f"import sys; sys.path.insert(0, {str(ROOT)!r}); import ocp.textsafe; "
+                           "print(sorted(m for m in sys.modules if m.startswith('ocp.')))"],
+                          capture_output=True, text=True).stdout
+    check("cli: the rule about what a terminal would obey imports no front end - only itself",
+          seen.strip() == "['ocp.textsafe']", seen.strip())
+    check("cli: a command's json still parses, and holds no DEL or C1 byte",
+          isinstance(json.loads(dumped), dict) and not re.search(r"[\x7f-\x9f]", dumped), dumped[:200])
+    odd = {"k": "a\x9b31m\x7f\x85b \u2028 \u00e9 한"}
+    said = textsafe.json_dumps(odd)
+    check("cli: json_dumps writes DEL and C1 as escapes - the same json, no such bytes",
+          json.loads(said) == odd and not re.search(r"[\x7f-\x9f]", said), said)
+
+
+# ------------------------------------------------------------- the boundary
+def _touches_subprocess_text(tree) -> bool:
+    """Calls `subprocess.run`/`Popen` and reads `.stdout` or `.stderr` off the
+    result - somewhere in the module, not necessarily the same function: the
+    two together are what makes foreign bytes reachable at all."""
+    import ast
+    calls = any(isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute)
+               and n.func.attr in ("run", "Popen")
+               and isinstance(n.func.value, ast.Name) and n.func.value.id == "subprocess"
+               for n in ast.walk(tree))
+    reads = any(isinstance(n, ast.Attribute) and n.attr in ("stdout", "stderr")
+               for n in ast.walk(tree))
+    return calls and reads
+
+
+def _builds_a_returned_message(tree) -> bool:
+    """A `return` (a bare value, or one element of a tuple/list, the shape
+    every `_run`-like helper here uses) built as an f-string, a `.format()`
+    call, or an `a or b or "default"` chain - the shape a captured-text
+    fallback takes when there is no f-string to see it in at all."""
+    import ast
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Return) and node.value is not None:
+            v = node.value
+            for val in (v.elts if isinstance(v, (ast.Tuple, ast.List)) else [v]):
+                if isinstance(val, ast.JoinedStr):
+                    return True
+                if (isinstance(val, ast.Call) and isinstance(val.func, ast.Attribute)
+                      and val.func.attr == "format"):
+                    return True
+                if isinstance(val, ast.BoolOp) and isinstance(val.op, ast.Or):
+                    return True
+    return False
+
+
+def _imports_textsafe(tree) -> bool:
+    import ast
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ImportFrom) and node.module == "textsafe":
+            return True
+        if isinstance(node, ast.ImportFrom) and node.module is None:
+            if any(a.name == "textsafe" for a in node.names):
+                return True
+        if isinstance(node, ast.Import) and any(a.name.endswith("textsafe") for a in node.names):
+            return True
+    return False
+
+
+def test_a_module_that_returns_subprocess_text_as_a_message_imports_textsafe(home: Path) -> None:
+    """orcapipe #1091: sanitising at each sink is a game the project loses -
+    157 unsanitised `print(` calls in ocp/, and hand-triaging them one review
+    at a time IS that game. The boundary foreign bytes actually enter through
+    is small: orca._run, spawn._run, drift._git, a file read, the database.
+    This is the subprocess third of it, found by the suite from here on
+    instead of by a reviewer reading the diff: a module that reads what a
+    subprocess said (`.stdout`/`.stderr`) and hands it back as part of a
+    returned message must import textsafe.
+
+    auditor's first attempt at this (flag any module with its own escape
+    regex) false-positived on tui.py, which parses incoming keystrokes and
+    measures its own codes - a check that cries wolf gets ignored. This one is
+    keyed on the sink, not the pattern that happens to sit near one."""
+    import ast
+
+    # Modules the check would otherwise name, and why each one is not the
+    # sink the property is about - the list a later hand has to justify, the
+    # same shape as the CLI's driven-or-skipped table.
+    exempt = {
+        "accounts.py": "parses one known JSON field (subscriptionType, email) "
+                       "out of `claude auth status`; never returns the raw text",
+        "service.py": "launchctl's own error text - a macOS tool's output, not "
+                      "anything an agent chose, and the least reachable of these",
+    }
+    named, clean = [], []
+    for f in sorted((ROOT / "ocp").glob("*.py")):
+        if f.name == "textsafe.py":
+            continue
+        tree = ast.parse(f.read_text())
+        if not (_touches_subprocess_text(tree) and _builds_a_returned_message(tree)):
+            continue
+        (clean if _imports_textsafe(tree) else named).append(f.name)
+    check("boundary: every module returning subprocess text as a message imports "
+          "textsafe, or is exempt with a reason",
+          not (set(named) - set(exempt)), str(sorted(set(named) - set(exempt))))
+    check("boundary: an exempt module is not also one that already imports it - "
+          "the reason would be a lie", not (set(exempt) & set(clean)), str(exempt.keys() & set(clean)))
+    # Real files today, both directions: cli/hr/tui/textsafe pass on the merits
+    # (hr never touches a subprocess at all; the other three do and are clean),
+    # and orca.py/spawn.py/drift.py/fold.py/handoff.py are exactly the ones
+    # this branch touched.
+    check("boundary: the modules this branch closed are the ones found dirty",
+          {"orca.py", "spawn.py", "drift.py", "fold.py", "handoff.py"} <= set(clean),
+          str(clean))
+
+    # Proof by mutation: the same two functions, run on synthetic source, so
+    # the check is shown to fire on the shape and not on a filename it knows.
+    dirty_src = (
+        "import subprocess\n"
+        "def _run(args):\n"
+        "    r = subprocess.run(args, capture_output=True)\n"
+        "    if r.returncode:\n"
+        "        return False, f'failed: {r.stderr}'\n"
+        "    return True, r.stdout\n")
+    clean_src = "from . import textsafe\n" + dirty_src
+    fallback_src = (
+        "import subprocess\n"
+        "def _run(args):\n"
+        "    r = subprocess.run(args, capture_output=True)\n"
+        "    if r.returncode:\n"
+        "        return False, (r.stderr or r.stdout or 'failed')\n"
+        "    return True, r.stdout\n")
+    check("boundary: the check fires on the exact shape orca._run/spawn._run had",
+          _touches_subprocess_text(ast.parse(dirty_src))
+          and _builds_a_returned_message(ast.parse(dirty_src))
+          and not _imports_textsafe(ast.parse(dirty_src)))
+    check("boundary: and is silent once the same module imports textsafe",
+          _imports_textsafe(ast.parse(clean_src)))
+    check("boundary: the fold.py shape (`a or b or default`, no f-string) is caught too",
+          _builds_a_returned_message(ast.parse(fallback_src)))
+    check("boundary: a module with no subprocess call at all is not named, whatever it returns",
+          not _touches_subprocess_text(ast.parse('def f():\n    return f"{x}"\n')))
+    check("boundary: reading .stdout with nothing returned as a message is not named either "
+          "(tui.py's own shape: it reads a subprocess result to steer a suspend, not to quote it)",
+          not _builds_a_returned_message(ast.parse(
+              "import subprocess\n"
+              "def f():\n"
+              "    r = subprocess.run(['x'], capture_output=True)\n"
+              "    ok = r.returncode == 0 and bool(r.stdout)\n"
+              "    return ok\n")))
+
+
 def test_every_prompt_leaves_the_screen_above_it_drawn_through_tui_run(home: Path) -> None:
     """Auditor #899: the composer's `under` was proven with the test's own
     callback, and there are five real call sites. Each is opened by its own
@@ -15030,6 +17065,88 @@ def test_handoff_rate_limited(home: Path) -> None:
         con.close()
 
 
+def test_a_file_added_to_shared_reaches_every_existing_account(home: Path) -> None:
+    """The actual gap (founder #596, orcapipe-manager #668): `register()` skips
+    a LINKED item whose shared target did not exist yet, and it only runs when
+    an account is created or re-registered by hand - so alpha, beta and gamma
+    had no CLAUDE.md link at all, silently, because the file did not exist
+    when they were made. A fixture that creates the accounts after the file
+    exists would pass on the broken code; this creates them before it, the way
+    they actually are today."""
+    home.mkdir(parents=True, exist_ok=True)
+    os.environ["OCP_HOME"] = str(home)
+    accounts.register("alpha")
+    accounts.register("beta")
+    accounts.register("gamma")
+    alpha_claude = paths.account_claude("alpha") / "CLAUDE.md"
+    beta_claude = paths.account_claude("beta") / "CLAUDE.md"
+    gamma_claude = paths.account_claude("gamma") / "CLAUDE.md"
+    check("relink: matches today - no CLAUDE.md link exists yet",
+          not alpha_claude.exists() and not beta_claude.exists() and not gamma_claude.exists())
+
+    # A deliberate override: a real file, not a link - what a human's own fix
+    # or customization looks like on disk.
+    gamma_claude.write_text("gamma's own")
+
+    # The file is added the way the founder actually will: dropped straight
+    # into shared/.claude, no `ocp` command run at all afterward.
+    shared_target = paths.shared_claude() / "CLAUDE.md"
+    shared_target.write_text("policy text")
+
+    done = accounts.relink_all()
+    check("relink: it reaches every account that existed before it did",
+          alpha_claude.is_symlink() and beta_claude.is_symlink()
+          and os.readlink(alpha_claude) == str(shared_target)
+          and os.readlink(beta_claude) == str(shared_target), str(done))
+    check("relink: and says what it did, by account",
+          done.get("alpha") == ["CLAUDE.md"] and done.get("beta") == ["CLAUDE.md"], str(done))
+    check("relink: an account's own override is left alone, not overwritten",
+          "gamma" not in done and gamma_claude.read_text() == "gamma's own", str(done))
+    check("relink: the override is what doctor reports, and nothing else",
+          accounts.unlinked() == [("gamma", "CLAUDE.md")], str(accounts.unlinked()))
+    rr = doctor.Report()
+    doctor._check_shared_links(rr)
+    check("relink: doctor warns naming the account and item",
+          any(lv == doctor.WARN and "gamma: CLAUDE.md" in d for lv, _, d in rr.rows))
+    check("relink: idempotent - nothing left to do once everyone is caught up",
+          accounts.relink_all() == {})
+
+    # A link pointing elsewhere: the timed pass leaves it, a human's register replaces it.
+    beta_claude.unlink()
+    beta_claude.symlink_to(home / "elsewhere")
+    accounts.relink_all()
+    check("relink: a link pointing elsewhere is not replaced by the timed pass",
+          os.readlink(beta_claude) == str(home / "elsewhere"))
+    accounts.register("beta")
+    check("relink: register() still replaces it, as before",
+          os.readlink(beta_claude) == str(shared_target))
+
+    # The ordinary path still works: a freshly registered account gets it
+    # straight from `register()`, with no relink pass needed.
+    accounts.register("delta")
+    check("relink: a freshly registered account is linked by register() itself",
+          (paths.account_claude("delta") / "CLAUDE.md").is_symlink())
+
+    # And the daemon does this without being told to, every tick - the actual
+    # fix for "a human has to remember a command per account": nobody has to
+    # remember anything, because the daemon is already running.
+    accounts.register("epsilon")
+    # Simulate epsilon predating CLAUDE.md ever landing in shared, the same
+    # way alpha and beta did above - unlink what register() just linked, so
+    # the tick has something of its own to catch up on.
+    (paths.account_claude("epsilon") / "CLAUDE.md").unlink()
+    orcamod.live_terminals = lambda: None    # tick's sweep asks Orca; this is about relink
+    logs: list[str] = []
+    con = db.connect()
+    try:
+        dmn.tick(con, logs.append)
+    finally:
+        con.close()
+    check("relink: the daemon's own tick catches up an account with nothing to run for it",
+          (paths.account_claude("epsilon") / "CLAUDE.md").is_symlink()
+          and any("relinked epsilon" in ln for ln in logs), str(logs))
+
+
 def run(one) -> None:
     """Every test starts from the real world.
 
@@ -15108,7 +17225,25 @@ def main() -> int:
         home = Path(td) / "orcapipe"
         home.mkdir()
         run(lambda: test_failclosed(home))
-        run(lambda: test_pick_account_orders_by_weekly_deadline(Path(td) / 'deadline'))
+        run(lambda: test_pick_account_orders_by_weekly_pace(Path(td) / 'deadline'))
+        run(lambda: test_pace_matches_the_worked_examples_that_were_written_backwards(Path(td) / 'foundersex'))
+        run(lambda: test_a_near_wall_7d_account_is_not_specially_excluded(
+            Path(td) / 'nearwall'))
+        run(lambda: test_pick_account_does_not_bounce_between_two_close_accounts(
+            Path(td) / 'nobounce'))
+        run(lambda: test_pick_account_prefer_breaks_an_exact_bucket_tie(Path(td) / 'prefertie'))
+        run(lambda: test_pick_account_tonights_shape(Path(td) / 'tonight'))
+        run(lambda: test_pick_account_degrades_when_every_account_would_hit_the_wall(
+            Path(td) / 'allwall'))
+        run(lambda: test_pick_account_stale_and_unknown_pace(Path(td) / 'staleknown'))
+        run(lambda: test_usage_samples_round_trip_without_coercing_a_gap_to_zero(
+            Path(td) / 'usagesamples'))
+        run(lambda: test_the_usage_sample_prune_and_since_read_use_an_index(
+            Path(td) / 'sampleindex'))
+        run(lambda: test_a_tick_samples_every_account_and_a_down_daemon_leaves_a_gap(
+            Path(td) / 'tickgap'))
+        run(lambda: test_replay_finds_where_the_new_rule_and_the_old_one_disagree(
+            Path(td) / 'replaydiff'))
         run(lambda: test_collector(home))
         run(lambda: test_yaml())
         run(lambda: test_agents(home))
@@ -15120,6 +17255,8 @@ def main() -> int:
         run(lambda: test_yaml_rejects_ambiguity())
         run(lambda: test_a_name_that_yaml_would_not_read_as_text_is_refused_where_it_is_typed(Path(td) / 'nameguard'))
         run(lambda: test_the_guard_against_the_real_orca_names_the_test_and_cannot_be_swallowed())
+        run(lambda: test_one_unreadable_proposal_does_not_take_the_hr_listing_down(Path(td) / 'hrlist'))
+        run(lambda: test_a_walled_wake_is_said_once_not_every_tick(Path(td) / 'wallonce'))
         run(lambda: test_agent_yaml_is_written_by_dump_so_what_was_typed_reads_back(Path(td) / 'agentyaml'))
         run(lambda: test_the_suite_and_the_package_name_only_what_exists())
         run(lambda: test_yaml_booleans())
@@ -15155,6 +17292,8 @@ def main() -> int:
             Path(td) / 'answerwake'))
         run(lambda: test_the_other_wake_writers_also_read_the_queue(
             Path(td) / 'otherwake'))
+        run(lambda: test_a_new_account_gets_its_first_reading_without_anyone_asking(
+            Path(td) / 'newacct'))
         run(lambda: test_daemon_tick_expires_handoff(Path(td) / 'd5d'))
         run(lambda: test_daemon_ignores_stale_status(Path(td) / 'd5e'))
         run(lambda: test_status_edge_cases(Path(td) / 'se'))
@@ -15165,6 +17304,25 @@ def main() -> int:
         run(lambda: test_shared_account_context_isolation(Path(td) / 'shared'))
         run(lambda: test_db_dedup_only_swallows_dedup(Path(td) / 'strict'))
         run(lambda: test_agent_rewrite_uses_parser(Path(td) / 'rw'))
+        run(lambda: test_the_screen_names_what_is_in_the_way(Path(td) / 'blk1'))
+        run(lambda: test_a_dialog_in_the_way_of_work_is_said_once_and_clears_itself(Path(td) / 'blk2'))
+        run(lambda: test_what_is_not_a_block(Path(td) / 'blk3'))
+        run(lambda: test_a_reminder_the_founders_own_text_blocks_is_said(Path(td) / 'blk9'))
+        run(lambda: test_the_human_and_strangers_are_not_blocked_agents(Path(td) / 'blk10'))
+        run(lambda: test_the_tick_looks_for_blocks(Path(td) / 'blk8'))
+        run(lambda: test_blocked_agents_come_due_in_one_request(Path(td) / 'blk4'))
+        run(lambda: test_a_dialog_ocps_own_exit_raised_is_said_at_once(Path(td) / 'blk5'))
+        run(lambda: test_a_failed_close_says_why_and_records_the_dialog(Path(td) / 'blk6'))
+        run(lambda: test_a_close_refused_by_a_dialog_is_said_once_not_every_tick(Path(td) / 'blk11'))
+        run(lambda: test_ocp_presses_only_the_key_that_declines(Path(td) / 'dcl0'))
+        run(lambda: test_a_dialog_ocp_can_decline_is_cleared_and_reported(Path(td) / 'dcl1'))
+        run(lambda: test_ocps_own_exit_dialog_is_pressed_at_once_and_a_working_agent_never(Path(td) / 'dcl2'))
+        run(lambda: test_a_dialog_ocp_cannot_decline_is_reported_not_pressed(Path(td) / 'dcl3'))
+        run(lambda: test_a_dialog_that_keeps_coming_back_stops_being_pressed_and_is_escalated(Path(td) / 'dcl4'))
+        run(lambda: test_esc_that_does_not_close_a_dialog_is_not_pressed_again_and_again(Path(td) / 'dcl5'))
+        run(lambda: test_nothing_is_pressed_for_what_is_not_a_dialog(Path(td) / 'dcl6'))
+        run(lambda: test_press_history_is_scoped_to_one_dialog_not_the_whole_agent(Path(td) / 'dcl7'))
+        run(lambda: test_the_panel_says_the_true_thing_about_a_queue(Path(td) / 'blk7'))
         run(lambda: test_a_running_daemon_is_reported_whatever_daemon_pid_says(Path(td) / 'd6'))
         run(lambda: test_a_daemon_that_never_wrote_its_name_is_still_reported(Path(td) / 'd6b'))
         run(lambda: test_the_lock_names_only_its_current_holder(Path(td) / 'd6c'))
@@ -15263,15 +17421,20 @@ def main() -> int:
         run(lambda: test_hr_move_does_not_touch_a_live_sessions_own_record(Path(td) / 'hrmovelive'))
         run(lambda: test_hr_move_leaves_account_alone_when_liveness_cannot_be_read(Path(td) / 'hrmoveunknown'))
         run(lambda: test_the_screen_says_which_account_to_spend_next(Path(td) / 'nextacct'))
+        run(lambda: test_the_next_mark_does_not_flicker_between_close_accounts(
+            Path(td) / 'nextflicker'))
         run(lambda: test_a_long_name_does_not_run_into_the_column_beside_it(Path(td) / 'cols'))
         run(lambda: test_the_whole_loop_runs_on_our_own_commands(Path(td) / 'loop'))
         run(lambda: test_an_agent_can_put_another_one_to_work(Path(td) / 'dispatch'))
-        run(lambda: test_weekly_headroom_is_spent_to_its_own_wall(Path(td) / 'sevendaywall'))
+        run(lambda: test_a_near_wall_7d_account_is_still_a_candidate_but_not_guaranteed_the_pick(
+            Path(td) / 'sevendaywall'))
         run(lambda: test_an_agent_is_judged_on_the_account_its_process_is_on(Path(td) / 'procacct'))
         run(lambda: test_a_move_is_not_recorded_while_the_process_is_still_on_the_old_account(Path(td) / 'movever'))
         run(lambda: test_a_forced_move_goes_through_the_verified_move_or_not_at_all(Path(td) / 'forced'))
         run(lambda: test_an_agent_cannot_force_a_move(Path(td) / 'forcedagent'))
         run(lambda: test_an_agent_at_the_wall_moves_to_an_account_with_room(Path(td) / 'moveacct'))
+        run(lambda: test_a_move_blocked_by_a_dialog_retries_soon_not_at_the_old_accounts_wall(
+            Path(td) / 'movedialog'))
         run(lambda: test_a_pinned_closed_agent_moves_instead_of_waiting_out_its_window(
             Path(td) / 'pinned'))
         run(lambda: test_a_pinned_agent_stays_pinned_when_nothing_else_has_clear_room(
@@ -15344,6 +17507,9 @@ def main() -> int:
         run(lambda: test_the_composer_and_the_fill_on_a_real_screen_through_tui_run(Path(td) / 'realscreen'))
         run(lambda: test_nothing_a_terminal_would_obey_gets_through_what_someone_else_wrote(Path(td) / 'esc'))
         run(lambda: test_an_agent_name_is_text_and_no_screen_can_be_made_to_obey_it(Path(td) / 'names'))
+        run(lambda: test_no_command_prints_what_a_terminal_would_obey(Path(td) / 'cli'))
+        run(lambda: test_a_module_that_returns_subprocess_text_as_a_message_imports_textsafe(
+            Path(td) / 'boundary'))
         run(lambda: test_every_prompt_leaves_the_screen_above_it_drawn_through_tui_run(Path(td) / 'prompts'))
         run(lambda: test_the_agent_pages_tabs_show_everything_and_read_as_blocks(Path(td) / 'tabs'))
         run(lambda: test_a_message_being_typed_wraps_and_keeps_the_cursor_on_its_last_character(Path(td) / 'typing'))
@@ -15384,6 +17550,7 @@ def main() -> int:
         run(lambda: test_each_account_guard_fails_under_its_own_mutation(Path(td) / 'guards'))
         run(lambda: test_a_second_name_for_one_login_is_caught(Path(td) / 'acctsame'))
         run(lambda: test_the_accounts_panel_adds_and_removes(Path(td) / 'acctpanel'))
+        run(lambda: test_a_file_added_to_shared_reaches_every_existing_account(Path(td) / 'relink'))
         run(lambda: test_a_second_daemon_is_refused_by_the_lock_alone(Path(td) / 'onedmn'))
         run(lambda: test_an_exiting_daemon_leaves_the_live_ones_name(Path(td) / 'pidname'))
         run(lambda: test_one_daemon_is_counted_in_the_process_table(Path(td) / 'dmnps'))

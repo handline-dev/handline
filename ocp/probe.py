@@ -142,6 +142,19 @@ def due(st: "status.AccountStatus", last_probe: int | None) -> bool:
     return not (last_probe and time.time() - last_probe < PROBE_COOLDOWN_S)
 
 
+def unread(st: "status.AccountStatus", last_probe: int | None) -> bool:
+    """Has this logged-in account never been read, and never been asked?
+
+    A new account has no status.json until a session runs on it, and nothing
+    ranks it until it has one, so it would wait for a use it never gets. One
+    probe gives it its first reading. Once asked (`last_probe` is set) it is
+    not asked again on this ground, whether or not a reading came back:
+    `due` keeps refusing an absent snapshot so that an account which cannot
+    answer is not probed every half hour forever.
+    """
+    return not st.exists and not last_probe
+
+
 def run(account: str, timeout: int = PROBE_TIMEOUT_S) -> "status.AccountStatus":
     """Probe this account and return what it says afterwards.
 

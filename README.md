@@ -83,6 +83,14 @@ reported are one fact and there is no pidfile to go stale. `ocp ps` and
 `ocp doctor` also count daemons in the process table and say so when there are
 two.
 
+An agent ocp has work for and cannot give it - a dialog open on its screen (such
+as `/exit` meeting background shells), text left unsent in its input, no terminal
+or session - is written to `delivery_blocks` and is not silent: `ocp ps` and the
+bridge list it under WAITING ON YOU after `blocked.SHOW_AFTER_S`, naming the
+dialog from the screen, and it becomes one request to `human` after
+`blocked.ESCALATE_AFTER_S`, closed by the daemon when the agent can be given its
+work again. ocp names the dialog and never answers it.
+
 ## Commands
 
 | | |
@@ -184,6 +192,14 @@ unrelated request repeating what they had already answered.
   accounts/<acct>/status.json
   agents/<name>/             agent.yaml ROLE.md base.md inbox/ journal/
 ```
+
+Each account's `.claude/` links to the items of `shared/.claude/` that exist
+(settings.json, CLAUDE.md, skills, agents, commands, plugins). An item added
+there later is linked into every account that lacks it, by the daemon, on its
+next tick - it fills an *absent* slot, so a link deleted on purpose comes back.
+To opt an account out of a shared item, put a real file or a link of its own at
+that path: the daemon leaves it alone, and `ocp doctor` names it as a shared
+file that does not reach that account.
 
 ## Tests
 

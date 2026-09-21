@@ -30,7 +30,7 @@ import time
 import uuid
 from pathlib import Path
 
-from . import agents, ask as askmod, db, paths, team
+from . import agents, ask as askmod, db, paths, team, textsafe
 from .yamlcompat import ConfigError, dump, is_plain_text, load
 
 # What the founder types to decide. Printed in the escalation, so the words are
@@ -67,12 +67,31 @@ def save(prop: dict) -> Path:
     return p
 
 
-def listing() -> list[dict]:
+def is_proposal(data) -> bool:
+    """Whether a parsed file is a proposal at all: what every reader of the
+    listing takes for granted, so a map that is something else is not one."""
+    return (isinstance(data, dict) and "id" in data and data.get("kind") in KINDS
+            and bool(data.get("agent")))
+
+
+def listing(unreadable: list[str] | None = None) -> list[dict]:
+    """Every proposal that can be read. A file that cannot be - it does not
+    parse, it is not text, or it parses to something that is not a proposal -
+    is left out and, when `unreadable` is given, named there with why: the
+    bridge's waiting list and `ocp hr list` both read this, and one bad file
+    must not take either down."""
     out = []
     for f in sorted(dir_().glob("*.yaml")):
-        data = load(f.read_text())
-        if isinstance(data, dict):
+        try:
+            data = load(f.read_text())
+        except (ConfigError, UnicodeDecodeError, OSError) as e:
+            if unreadable is not None:
+                unreadable.append(f"{f.name}: {e}")
+            continue
+        if is_proposal(data):
             out.append(data)
+        elif unreadable is not None:
+            unreadable.append(f"{f.name}: not a proposal")
     return out
 
 
@@ -246,9 +265,14 @@ def decision(verdict: str | None) -> str:
 
 def apply(pid: str, con=None) -> tuple[bool, str]:
     """Carry out a proposal the founder approved. Refuses anything else."""
-    prop = load_proposal(pid)
+    try:
+        prop = load_proposal(pid)
+    except (ConfigError, UnicodeDecodeError, OSError) as e:
+        return False, f"proposal {pid} cannot be read: {e}"
     if not prop:
         return False, f"no proposal {pid}"
+    if not is_proposal(prop):
+        return False, f"{pid} is not a proposal"
     if prop.get("state") == "applied":
         return False, f"proposal {pid} was already applied on {_when(prop.get('applied'))}"
     own = con is None
@@ -266,7 +290,11 @@ def apply(pid: str, con=None) -> tuple[bool, str]:
             prop["state"] = "rejected"
             prop["verdict"] = verdict
             save(prop)
-            return False, f"proposal {pid} was rejected: {(verdict or '').strip()[:120]}"
+            # The founder's own text, printed raw by cmd_hr - sanitised here
+            # rather than trusted to save()'s control-character refusal above,
+            # which does not cover the C1 range (auditor, #1048).
+            return False, (f"proposal {pid} was rejected: "
+                           f"{textsafe.oneline((verdict or '').strip())[:120]}")
         if call != "approved":
             return False, (f"#{row['id']} was answered {(verdict or '').strip()[:60]!r}, "
                            f"which is not a decision. Ask the founder to answer "

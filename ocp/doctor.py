@@ -14,7 +14,7 @@ import time
 from pathlib import Path
 
 from . import (accounts, agents, daemon, db, hooks, launch, load as loadmod, observe as obs,
-               orca, paths, service, status)
+               orca, paths, service, status, textsafe)
 
 OK, WARN, FAIL = "ok", "warn", "fail"
 
@@ -328,7 +328,7 @@ def _check_claude_version(r: Report) -> None:
         return
     m = re.search(r"(\d+)\.(\d+)\.(\d+)", out)
     if not m:
-        r.add(WARN, "could not parse the Claude Code version", out[:80])
+        r.add(WARN, "could not parse the Claude Code version", textsafe.oneline(out[:80]))
         return
     version = tuple(int(x) for x in m.groups())
     shown = ".".join(str(v) for v in version)
@@ -377,6 +377,17 @@ def _check_rate_limits_present(r: Report) -> None:
                   "the weekly gate cannot be checked, so assignment stays refused")
     if not seen and paths.list_accounts():
         r.add(WARN, "no snapshot has rate_limits yet", "no session has run")
+
+
+def _check_shared_links(r: Report) -> None:
+    """A shared file an account holds as something else never reaches that
+    account, and `relink_all` will not fix it."""
+    bad = accounts.unlinked()
+    if not bad:
+        r.add(OK, "shared files reach every account")
+        return
+    r.add(WARN, "shared files that do not reach an account",
+          ", ".join(f"{a}: {i}" for a, i in bad))
 
 
 def _check_one_daemon(r: Report) -> None:
@@ -472,6 +483,7 @@ def run() -> Report:
     _check_launch_drift(r)
     _check_session_matches_the_record(r)
     _check_one_daemon(r)
+    _check_shared_links(r)
     _check_service(r)
     _check_autocontinue(r)
     return r

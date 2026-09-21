@@ -35,12 +35,12 @@ import termios
 import textwrap
 import time
 import tty
-import unicodedata
 from pathlib import Path
 
 from . import (accounts, actions, agents, daemon, db, launch, load as loadmod, paths, status,
                triggers)
 from . import waiting as promptwait
+from .textsafe import cwidth, drawable, oneline, wrap
 
 # Bracketed paste goes on and off with the screen: the terminal then marks
 # where a paste begins and ends everywhere in the bridge, not only in a prompt,
@@ -140,18 +140,6 @@ def agent_help_line() -> str:
     for the three spots that print it, so they cannot drift into naming
     different keys - the failure the detail-page footer already had once."""
     return " · ".join(f"{k} {label}" for k, label in AGENT_KEYS if label != "open")
-
-
-def cwidth(ch: str) -> int:
-    """How many columns one character takes.
-
-    A Korean or Japanese glyph is drawn two columns wide, and counting it as
-    one put every box border a column short per glyph: a handoff written in
-    Korean tore the panel it was drawn in. Combining marks take none.
-    """
-    if unicodedata.combining(ch):
-        return 0
-    return 2 if unicodedata.east_asian_width(ch) in ("W", "F") else 1
 
 
 def vlen(s: str) -> int:
@@ -471,6 +459,13 @@ def _fold(sel: dict, k: str) -> bool:
 LOGIN_TTL_S = 60
 _LOGIN: dict[str, tuple[float, bool]] = {}
 
+# The account the ACCOUNTS panel marked "next" last redraw. Fed back into
+# pick_account as `prefer`: the panel redraws every couple of seconds, and
+# without this the "next" mark would flicker between two close accounts as
+# usage crept past a rounding boundary, tick after tick, with nothing having
+# really changed.
+_LAST_NEXT: str | None = None
+
 
 def _logged_in(acct: str) -> bool:
     now = time.time()
@@ -625,13 +620,7 @@ def _needs_you(row) -> str:
     """
     if not row or row["state"] not in NEEDS_A_HUMAN:
         return ""
-    return f"{RED}{row['state'].lower()}{R} {DIM}{_plain(row['detail'] or '')[:60]}{R}"
-
-
-def _plain(text: str) -> str:
-    """What someone else wrote, as one line of text safe to draw: nothing a
-    terminal would obey (see `drawable`), and a newline is a space."""
-    return "".join(c if c.isprintable() else " " for c in " ".join(drawable(text)))
+    return f"{RED}{row['state'].lower()}{R} {DIM}{oneline(row['detail'] or '')[:60]}{R}"
 
 
 def wait_lines(waits: list[dict], width: int, budget: int | None = None) -> list[str]:
@@ -650,7 +639,7 @@ def wait_lines(waits: list[dict], width: int, budget: int | None = None) -> list
     shown = len(waits) if len(waits) <= room else max(0, room - 1)
     for w in waits[:shown]:
         colour = RED if w["red"] else YEL
-        out.append(fit(f"{colour}  {_plain(w['who'])} · {_plain(w['what'])} · "
+        out.append(fit(f"{colour}  {oneline(w['who'])} · {oneline(w['what'])} · "
                        f"{age(now - w['since'])}{R}", width))
     if shown < len(waits) and room:
         out.append(f"{DIM}  … {len(waits) - shown} more{R}")
@@ -758,8 +747,11 @@ def build(width: int, sel: dict | None = None,
         # The reason each one sits where it does is on its own page (Enter).
         loads = loadmod.read_all()
         roster, unplaced = loadmod.roster(con)
+        global _LAST_NEXT
         first, ranked = status.pick_account(
-            [a for a in paths.list_accounts() if _logged_in(a)], load=loads)
+            [a for a in paths.list_accounts() if _logged_in(a)], load=loads,
+            prefer=_LAST_NEXT)
+        _LAST_NEXT = first
         for name in paths.list_accounts():
             st = status.read(name)
             # The tick beside the name says the pick could use it: not only
@@ -812,7 +804,7 @@ def build(width: int, sel: dict | None = None,
         ag.add(f"{DIM}{'agent':<{NAME_W}}{'acct':<{ACCT_COL}}"
                + f"{'kind':<{KIND_W}}" * kinds
                + f"{'state':<{state_w}}{'ctx':>4}   {'in':<4}{R}", heading=True)
-        shown = {k: _plain(v) for k, v in shown_names(drawn_tree).items()}
+        shown = {k: oneline(v) for k, v in shown_names(drawn_tree).items()}
         for name, depth, hidden in drawn_tree:
             under = len(hidden)
             # Indented under whoever routes work to it. Who an agent reports to
@@ -860,8 +852,8 @@ def build(width: int, sel: dict | None = None,
                 # every column after it right - the same drift the "·closed"
                 # suffix caused.
                 pad(fold_marker(twig + f"{BOLD}{shown[name]}{R}", under, urgency), NAME_W)
-                + pad(_plain(acct), ACCT_COL)
-                + (pad(f"{DIM}{fit(_plain(agents.kind(cfg)), KIND_W - 1)}{R}", KIND_W)
+                + pad(oneline(acct), ACCT_COL)
+                + (pad(f"{DIM}{fit(oneline(agents.kind(cfg)), KIND_W - 1)}{R}", KIND_W)
                    if kinds else "")
                 + pad(state_cell, state_w)
                 + pad(ctxs, CTX_COL)
@@ -929,7 +921,7 @@ def build(width: int, sel: dict | None = None,
             # line is the first one with something on it, as it is everywhere
             # else - a body that starts with a blank line drew an empty row.
             first = drawable(actions.first_line(m["body"]))[0]
-            sender = _plain(m["from"])
+            sender = oneline(m["from"])
             # An agent parked until this is answered is the only thing on the
             # screen that no one else will ever clear; it is not drawn like a
             # report that happens to be addressed here.
@@ -945,7 +937,7 @@ def build(width: int, sel: dict | None = None,
             else:
                 mark, name = f"{DIM}·{R}", f"{DIM}{sender:<12}{R}"
             ms.add(f"{DIM}{when}{R} {mark} {CYA}#{m['id']:<5}{R}{name}"
-                   f"{pad(_plain(m['kind'] or 'ask'), 11)}{first}", key=m["id"])
+                   f"{pad(oneline(m['kind'] or 'ask'), 11)}{first}", key=m["id"])
         if not waiting:
             ms.add(f"{DIM}  nothing waiting on you{R}")
 
@@ -959,9 +951,9 @@ def build(width: int, sel: dict | None = None,
                    focused=panel == STUCK)
         fl.selected = sel.get(STUCK)
         for b in blocked:
-            fl.add(pad(f"{YEL}{_plain(b['what'])}{R}", 34)
+            fl.add(pad(f"{YEL}{oneline(b['what'])}{R}", 34)
                    + pad(f"{DIM}{age(b['age']) if b['age'] else ''}{R}", 7)
-                   + f"{DIM}{_plain(b['why'])}{R}", key=b["agent"])
+                   + f"{DIM}{oneline(b['why'])}{R}", key=b["agent"])
 
         footer_agent = sel.get(AGENTS) if panel == AGENTS else \
             sel.get(STUCK) if panel == STUCK else None
@@ -1116,7 +1108,7 @@ def _body(text: str, width: int) -> list[str]:
 
 def _entry_lines(e, width: int) -> list[str]:
     """A request: its number and who it is with on one line, all of its text under."""
-    head = f"{BOLD}#{e.id}{R} from {_plain(e.who)}  {DIM}{_clock(e.ts)}{R}"
+    head = f"{BOLD}#{e.id}{R} from {oneline(e.who)}  {DIM}{_clock(e.ts)}{R}"
     return [fit(head, width)] + _body(e.text if e.text.strip() else "", width)
 
 
@@ -1141,7 +1133,7 @@ def _fact_lines(f, width: int) -> list[str]:
 def _event_lines(events: list, width: int) -> list[str]:
     """What was done, in columns while there is room for them and stacked when
     there is not. A payload is wrapped under its own column, never cut."""
-    kinds = [_plain(e.kind) for e in events]
+    kinds = [oneline(e.kind) for e in events]
     tw = max(vlen(_clock(e.ts, True)) for e in events)
     kw = min(18, max(vlen(k) for k in kinds))
     cols = tw + 2 + kw + 2
@@ -1275,7 +1267,7 @@ def _rows_lines(rows: list, width: int, dim_plain: bool = False) -> list[str]:
 
 def _tabstrip(names: list[str], at: int) -> str:
     """The sections of an open page, with the one being read lit."""
-    parts = [f"{CYA}{BOLD}{_plain(n)}{R}" if i == at else f"{DIM}{_plain(n)}{R}"
+    parts = [f"{CYA}{BOLD}{oneline(n)}{R}" if i == at else f"{DIM}{oneline(n)}{R}"
              for i, n in enumerate(names)]
     return f" {DIM}·{R} ".join(parts)
 
@@ -1356,56 +1348,6 @@ def _layout(want: list[int], room: int) -> tuple[list[int | None], int]:
             for i in range(len(want))], len(want) - keep
 
 
-# What a terminal acts on rather than draws: OSC (title, clipboard, links) up to
-# its terminator, CSI with any parameter and intermediate bytes, and then every
-# byte that is left of a control - a lone ESC, C0, DEL and C1 (0x9b is CSI).
-_OSC = re.compile(r"\033\][^\a\033]*(?:\a|\033\\)?")
-_UNTRUSTED_CSI = re.compile(r"\033\[[0-?]*[ -/]*[@-~]")
-_CONTROL = re.compile(r"[\x00-\x08\x0b-\x1f\x7f-\x9f]")
-
-
-def drawable(text: str) -> list[str]:
-    """What someone else wrote, as lines of text and nothing a terminal would
-    obey. A tab becomes spaces: it is the one control whose width is not one."""
-    text = _UNTRUSTED_CSI.sub("", _OSC.sub("", text))
-    return [_CONTROL.sub("", ln.expandtabs(4)) for ln in text.splitlines() or [""]]
-
-
-def wrap(lines: list[str], width: int) -> list[str]:
-    """Break long lines to the terminal's width, at spaces where there are any.
-
-    A message body arrives as whatever the sender typed, and an agent's report
-    is often one paragraph with no newline in it at all. Fitting that to the
-    width shows its first sentence and drops the rest - which is not reading
-    the message.
-    """
-    width = max(1, width)
-    out: list[str] = []
-    for raw in lines:
-        for line in drawable(raw):
-            line = line.rstrip()
-            if not line:
-                out.append("")
-                continue
-            while vlen(line) > width:
-                # Cut on width, not on characters: with wide glyphs the two are
-                # not the same number, and cutting on the second wraps a line
-                # that is already too long back onto itself.
-                room, cut = 0, 0
-                for i, ch in enumerate(line):
-                    if room + cwidth(ch) > width:
-                        break
-                    room += cwidth(ch)
-                    cut = i + 1
-                space = line.rfind(" ", 0, cut + 1)
-                if space > 0:
-                    cut = space
-                out.append(line[:cut].rstrip())
-                line = line[cut:].lstrip()
-            out.append(line)
-    return out
-
-
 def _detail_frame(width: int, height: int, detail: dict, flash: str = "") -> str:
     """One thing, opened, with what is off the bottom said rather than cut.
 
@@ -1449,7 +1391,7 @@ def _detail_frame(width: int, height: int, detail: dict, flash: str = "") -> str
             con.close()
         keys += " · " + " · ".join(f"{k} {label}" for k, label in agent_keys
                                    if label != "open") + " · ? help"
-    lines = ([fit(f"{BOLD}{_plain(detail['title'])}{R}{where}", width), ""]
+    lines = ([fit(f"{BOLD}{oneline(detail['title'])}{R}{where}", width), ""]
              + [fit(ln, width) for ln in shown]
              + [fit(flash, width) if flash else "", fit(f"{DIM}{keys} · q quit{R}", width)])
     return "\n".join(line + CLEAR_EOL for line in lines[:height])

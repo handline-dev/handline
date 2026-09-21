@@ -28,6 +28,7 @@ WALL_PCT = 100
 POLL_S = 30
 
 WINDOW_5H_S = 5 * 3600
+WINDOW_7D_S = 7 * 24 * 3600
 
 # T: an agent at the wall stays parked when its own account resets within this.
 # A move costs a cold start - the destination's window pays for a new session

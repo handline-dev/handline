@@ -19,7 +19,7 @@ import subprocess
 import time
 from pathlib import Path
 
-from . import agents, db, launch, orca
+from . import agents, db, launch, orca, textsafe
 
 # How long to wait for the agent to be ready, and then for its own hook to
 # confirm it got the first task. One number: they describe the same patience,
@@ -28,8 +28,12 @@ SUBMIT_WAIT_S = 60
 
 
 def _run(args: list[str], cwd: Path | None = None) -> tuple[int, str, str]:
+    """`git`'s or Orca's own text, clean at the source - every caller below
+    embeds `out` or `err` straight into a message it returns, and none of
+    them should have to remember to sanitise it first."""
     r = subprocess.run(args, cwd=cwd, capture_output=True, text=True, timeout=120)
-    return r.returncode, r.stdout.strip(), r.stderr.strip()
+    return (r.returncode, textsafe.oneline(r.stdout.strip()),
+            textsafe.oneline(r.stderr.strip()))
 
 
 def pick_base(repo: Path, base: str) -> tuple[str | None, str]:

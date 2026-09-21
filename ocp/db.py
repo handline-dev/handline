@@ -122,6 +122,75 @@ CREATE TABLE IF NOT EXISTS handoff (
   updated     INTEGER NOT NULL
 );
 CREATE INDEX IF NOT EXISTS handoff_agent ON handoff(agent, state);
+
+-- One row per agent while ocp has work for it and cannot give it: the daemon
+-- writes it, and the bridge, `ocp ps` and `ocp doctor` - other processes - read
+-- it. Gone the tick the agent can be given its work again.
+CREATE TABLE IF NOT EXISTS delivery_blocks (
+  agent      TEXT PRIMARY KEY,
+  kind       TEXT NOT NULL,
+  detail     TEXT NOT NULL,
+  work       TEXT NOT NULL,
+  since      INTEGER NOT NULL,
+  -- When it goes on the founder's list; the escalation is raised from `since`.
+  show_at    INTEGER NOT NULL,
+  seen       INTEGER NOT NULL,
+  -- The request raised for this episode, so it is raised once and closed once.
+  request_id INTEGER,
+  -- 'tick' ends with the work; 'close' - ocp's own /exit raised the dialog -
+  -- stands for as long as the dialog does.
+  origin     TEXT NOT NULL DEFAULT 'tick',
+  -- The dialog's own title, raw from orca.Blocker (parse_dialog), for a MODAL
+  -- block - never reconstructed from `detail`, which is a rendering a title
+  -- with a quote in it or over DETAIL_CHARS long does not round-trip through.
+  -- Empty for anything but MODAL.
+  title      TEXT NOT NULL DEFAULT ''
+);
+
+-- What ocp did about a dialog on an agent's screen, one row per attempt or per
+-- decision not to: the record a returning dialog is counted from, and what a
+-- request says when it stops pressing. Never rewritten.
+CREATE TABLE IF NOT EXISTS dialog_presses (
+  id      INTEGER PRIMARY KEY AUTOINCREMENT,
+  agent   TEXT NOT NULL,
+  at      INTEGER NOT NULL,
+  title   TEXT NOT NULL,
+  -- 'cleared' | 'still-open' | 'not-pressed'
+  outcome TEXT NOT NULL,
+  note    TEXT NOT NULL DEFAULT ''
+);
+CREATE INDEX IF NOT EXISTS dialog_presses_agent ON dialog_presses(agent, at);
+
+-- One row per account per tick that observe_burn already reads a status for -
+-- no read this table exists for is ever driven on its own account (#1113).
+-- Every usage column is nullable and none is ever coerced to 0: a figure
+-- nobody could trust when the sample was taken is NULL here, same as it is
+-- on AccountStatus, so a replay reasons about it the same way pick_account
+-- does. A gap in `ts` - the daemon down, or a sleeping machine - is a gap:
+-- nothing backfills it.
+CREATE TABLE IF NOT EXISTS usage_samples (
+  id               INTEGER PRIMARY KEY AUTOINCREMENT,
+  account          TEXT    NOT NULL,
+  ts               INTEGER NOT NULL,
+  exists_          INTEGER NOT NULL,
+  error            TEXT,
+  pct_5h           INTEGER,
+  pct_5h_readable  INTEGER NOT NULL DEFAULT 1,
+  reset_5h         INTEGER,
+  rl_at            INTEGER,
+  rl_carried       INTEGER NOT NULL DEFAULT 0,
+  rl_lost          INTEGER NOT NULL DEFAULT 0,
+  pct_7d           INTEGER,
+  reset_7d         INTEGER,
+  rl7_at           INTEGER,
+  rl7_carried      INTEGER NOT NULL DEFAULT 0,
+  rl7_lost         INTEGER NOT NULL DEFAULT 0,
+  collected_at     INTEGER
+);
+-- (account, ts) serves a read of one account; the prune and a `since` read
+-- filter on ts alone, which that index cannot serve (account leads it).
+CREATE INDEX IF NOT EXISTS usage_samples_account_ts ON usage_samples(account, ts);
+CREATE INDEX IF NOT EXISTS usage_samples_ts ON usage_samples(ts);
 """
 
 
@@ -433,6 +502,10 @@ def get_cursor(con, name: str) -> int:
     return int(row["row_id"]) if row else 0
 
 
+def clear_cursor(con, name: str) -> None:
+    con.execute("DELETE FROM cursors WHERE name = ?", (name,))
+
+
 def get_notified_session(con, agent: str) -> str | None:
     row = con.execute("SELECT notified_session FROM agent_state WHERE agent = ?",
                       (agent,)).fetchone()
@@ -676,6 +749,48 @@ def set_agent_state(con, agent: str, state: str, wake_at: int | None = None,
     )
 
 
+def block_get(con, agent: str):
+    return con.execute("SELECT * FROM delivery_blocks WHERE agent = ?", (agent,)).fetchone()
+
+
+def blocks(con) -> list:
+    return con.execute("SELECT * FROM delivery_blocks ORDER BY since, agent").fetchall()
+
+
+def block_open(con, agent: str, kind: str, detail: str, work: str, now: int,
+               show_at: int, origin: str = "tick", title: str = "") -> None:
+    con.execute(
+        "INSERT OR REPLACE INTO delivery_blocks"
+        "(agent, kind, detail, work, since, show_at, seen, request_id, origin, title) "
+        "VALUES(?,?,?,?,?,?,?,NULL,?,?)",
+        (agent, kind, detail, work, now, show_at, now, origin, title))
+
+
+def block_update(con, agent: str, kind: str, detail: str, work: str, now: int,
+                 title: str = "") -> None:
+    con.execute("UPDATE delivery_blocks SET kind = ?, detail = ?, work = ?, seen = ?, title = ? "
+                "WHERE agent = ?", (kind, detail, work, now, title, agent))
+
+
+def block_set_request(con, agents: list[str], rid: int) -> None:
+    con.executemany("UPDATE delivery_blocks SET request_id = ? WHERE agent = ?",
+                    [(rid, a) for a in agents])
+
+
+def press_add(con, agent: str, now: int, title: str, outcome: str, note: str = "") -> None:
+    con.execute("INSERT INTO dialog_presses(agent, at, title, outcome, note) VALUES(?,?,?,?,?)",
+                (agent, now, title, outcome, note))
+
+
+def presses_since(con, agent: str, since: int) -> list:
+    return con.execute("SELECT * FROM dialog_presses WHERE agent = ? AND at >= ? "
+                       "ORDER BY id", (agent, since)).fetchall()
+
+
+def block_clear(con, agent: str) -> None:
+    con.execute("DELETE FROM delivery_blocks WHERE agent = ?", (agent,))
+
+
 def set_state_unless_running(con, agent: str, state: str, detail: str | None = None) -> bool:
     """Write `state`, but only if the row is not RUNNING right now - atomically,
     the same shape as `close_if_queued`. A read-then-write here (check RUNNING,
@@ -879,3 +994,56 @@ def last_handoff(con, agent: str):
         "SELECT * FROM handoff WHERE agent = ? ORDER BY updated DESC LIMIT 1",
         (agent,),
     ).fetchone()
+
+
+# ---------------------------------------------------------------- usage_samples
+
+# At least a week, per #1113, plus enough margin that a slow week - a founder
+# looking at "the last week" a few days after asking - still finds it there.
+USAGE_SAMPLE_RETENTION_DAYS = 14
+
+
+def record_usage_sample(con, account: str, st, ts: int | None = None) -> None:
+    """One row of what `st` (an `AccountStatus`) actually held, at `ts` (now,
+    by default). Every usage figure is written exactly as `st` has it -
+    `None` stays `None`, never 0 - so a reader reconstructs the same
+    AccountStatus this was taken from, not a guess at what it meant."""
+    con.execute(
+        "INSERT INTO usage_samples(account, ts, exists_, error, pct_5h, "
+        "pct_5h_readable, reset_5h, rl_at, rl_carried, rl_lost, pct_7d, "
+        "reset_7d, rl7_at, rl7_carried, rl7_lost, collected_at) "
+        "VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+        (account, ts or int(time.time()), int(bool(st.exists)), st.error,
+         st.pct_5h, int(bool(st.pct_5h_readable)), st.reset_5h, st.rl_at,
+         int(bool(st.rl_carried)), int(bool(st.rl_lost)), st.pct_7d, st.reset_7d,
+         st.rl7_at, int(bool(st.rl7_carried)), int(bool(st.rl7_lost)), st.collected_at),
+    )
+
+
+def prune_usage_samples(con, before_ts: int | None = None) -> int:
+    """Delete samples older than the retention window (or `before_ts`
+    directly, for a test). Returns the number of rows removed. Filters on
+    `ts` alone, so it rides `usage_samples_ts`, not the (account, ts) index."""
+    cutoff = before_ts if before_ts is not None else (
+        int(time.time()) - USAGE_SAMPLE_RETENTION_DAYS * 86400)
+    cur = con.execute("DELETE FROM usage_samples WHERE ts < ?", (cutoff,))
+    return cur.rowcount
+
+
+def usage_samples(con, account: str | None = None, since: int | None = None) -> list[sqlite3.Row]:
+    """Samples in `ts` order, oldest first - the shape a replay walks
+    forward through. `account` and `since` narrow it; neither is required,
+    because the replay this exists for is asked of a question nobody
+    planned for in advance."""
+    q = "SELECT * FROM usage_samples"
+    where, args = [], []
+    if account is not None:
+        where.append("account = ?")
+        args.append(account)
+    if since is not None:
+        where.append("ts >= ?")
+        args.append(since)
+    if where:
+        q += " WHERE " + " AND ".join(where)
+    q += " ORDER BY ts"
+    return con.execute(q, args).fetchall()
