@@ -1767,16 +1767,18 @@ class Composer:
         # A pasted escape is drawn as its picture, not sent to the terminal.
         # One character in, one out on every branch here - self.pos indexes
         # this escaped string directly below, and a substitution that changed
-        # length would put the cursor on the wrong character.
-        text = "".join(c if c == "\n" or c.isprintable() else
+        # length would put the cursor on the wrong character. A pasted U+258F
+        # (the cursor's own glyph, so a copied composer line pastes one) is
+        # substituted here too, to a different picture, so the one inserted
+        # below for the real cursor is the only one in the string - the
+        # search for it stays exact instead of finding whichever comes first.
+        text = "".join("\u2595" if c == "\u258f" else
+                       c if c == "\n" or c.isprintable() else
                        chr(0x2400 + ord(c)) if c < " " else "\ufffd" for c in self.text)
         pos = max(0, min(self.pos, len(text)))
         marked = f"{text[:pos]}\u258f{text[pos:]}"
         rows = _wrap_typed(f"{prompt} {marked}", width)
-        # Where the cursor's row is: not found by searching for its own glyph,
-        # which a pasted U+258F (a character ocp's own composer draws, so a
-        # copied composer line pastes one) would be mistaken for instead.
-        cur = len(_wrap_typed(f"{prompt} {text[:pos]}", width)) - 1
+        cur = next(i for i, r in enumerate(rows) if "\u258f" in r)
         rows = _window_rows(rows, cur, cap)
         left = len(prompt)         # the prompt is bold wherever it wrapped to
         out = []

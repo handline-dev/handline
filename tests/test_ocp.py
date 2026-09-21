@@ -13211,6 +13211,17 @@ def test_the_composer_alt_keys_and_a_pasted_cursor_glyph(home: Path) -> None:
     check("shown: the window follows the real cursor, not the look-alike earlier in the text",
           rows[-1].endswith("▏") and "earlier" in rows[0] and len(rows) == 2, str(rows))
 
+    # auditor #1083: cur computed from the prefix's own wrap, rather than by
+    # finding the glyph in the marked wrap, lost the cursor on ordinary text
+    # (no glyph anywhere) whenever the prefix exactly filled its last row -
+    # 303 of 4000 random cases. This is that shape, minimised.
+    c = tui.Composer()
+    c.feed("c  aadaca  b")
+    c.pos = 7
+    rows = plain(c.shown("", 9, 2))
+    check("shown: the cursor is on screen on ordinary text with no glyph in it",
+          any("▏" in r for r in rows), str(rows))
+
 
 def test_a_message_is_read_whole_and_answered_where_it_is_read(home: Path) -> None:
     """An agent's report arrives as one paragraph with no newline in it, and
