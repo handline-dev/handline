@@ -494,12 +494,6 @@ def decline_dialog(handle: str) -> tuple[str, str, str]:
     footer = _footer_row(tail)
     if footer is None:
         return NOT_PRESSED, "", "no dialog is open"
-    if term.get("draft"):
-        # Esc clears the input box at a Claude Code prompt, so "the worst a
-        # press does is change nothing" holds only with nothing in it. `draft`
-        # can be stale (see screen_blocker), and that costs one key not
-        # pressed: the block stays and reaches a person, never a silent stall.
-        return NOT_PRESSED, "", "text is left unsent in its input; not pressing over it"
     dialog = parse_dialog(tail, footer)
     if dialog is None:
         return NOT_PRESSED, "", "its title or options could not be parsed"

@@ -15,8 +15,9 @@ ESCALATE_AFTER_S. It is written by the daemon and read by the bridge and
 
 ocp names what is in the way, and presses at most one key at a dialog: Esc, and
 only where the dialog itself says Esc cancels and offers an option that just
-declines (`orca.declining_key`). It never chooses, so the worst a press does is
-change nothing. What it cleared it reports, and a dialog that keeps coming back
+declines (`orca.declining_key`). It never chooses: a press lands on the dialog or
+changes nothing, except where a person has typed into that agent's input box,
+which Esc can clear. What it cleared it reports, and a dialog that keeps coming back
 is a loop the founder is told about, not one it keeps pressing.
 """
 from __future__ import annotations

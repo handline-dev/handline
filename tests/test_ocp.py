@@ -3132,15 +3132,15 @@ def test_ocp_presses_only_the_key_that_declines(home: Path) -> None:
     check("press: the only key that is ever named is Esc",
           orcamod.ESCAPE == "\x1b" and "Enter" not in repr(orcamod.declining_key))
 
-    # Esc is not inert at a Claude Code prompt - it clears typed text. A
-    # dialog's footer and a non-empty `draft` on the same read is never
-    # pressed over, even though the dialog itself would decline clean.
-    unsent = []
+    # `draft` is not consulted here either (#1157): it is polluted by ocp's own
+    # sends, and refusing on it would leave a stale one's dialog unpressed.
+    pressed = []
     orcamod._screen = lambda h: dict(_screen_of(EXIT_DIALOG), draft="a person's half-typed reply")
-    orcamod.send = lambda h, text, enter=True: (unsent.append((text, enter)), (True, ""))[1]
+    orcamod.send = lambda h, text, enter=True: (pressed.append((text, enter)),
+                                                (True, ""))[1]
     out = orcamod.decline_dialog("term_x")
-    check("press: a draft on the same read as the dialog is not pressed over",
-          out[0] == orcamod.NOT_PRESSED and unsent == [], f"{out} sent={unsent}")
+    check("press: a non-empty draft on the same read as the dialog does not stop the press",
+          out[0] != orcamod.NOT_PRESSED and pressed == [("\x1b", False)], f"{out} sent={pressed}")
 
     # A read that fails right after the key is not evidence the dialog went -
     # the same screen fails closed everywhere else in this module.
