@@ -14936,7 +14936,7 @@ def test_no_command_prints_what_a_terminal_would_obey(home: Path) -> None:
         "hook": "reads a hook payload on stdin and prints nothing",
         "daemon": "runs forever", "service install": "launchd", "service uninstall": "launchd",
         "service status": "launchd; prints a pid",
-        "close": "types into a terminal through Orca",
+        "close": "an agent's session is ended through Orca; the task half is driven by test_closing_a_task_needs_evidence_and_no_open_child",
         "task new": "writes a row; prints its id and an owner already checked against the registry",
         "task link": "writes a row; prints two ids", "base promote": "writes base.md; prints sizes and a path",
     }
@@ -18276,6 +18276,70 @@ def test_close_says_what_it_read_and_never_guesses(home: Path) -> None:
           rc == 1 and "as an agent's name" in out and "Nothing was closed" in out, out)
 
 
+def test_task_ids_are_checked_before_any_answer_and_short_shas_are_resolved(home: Path) -> None:
+    """auditor's #1340 should-fixes, notes 1, 3."""
+    _board_world(home)
+    # A bad --task id on a row that is not the founder's is refused before the answer.
+    con = db.connect()
+    try:
+        peer = db.add_request(con, "worker", "manager", "q", None, "peer", "async", None, 0, None)
+    finally:
+        con.close()
+    rc, out = _cli(["resolve", str(peer), "answer", "--task", "999"])
+    con = db.connect()
+    try:
+        check("task ids: a bad id on a peer row is refused, and the row is not answered",
+              rc == 1 and "no task #999" in out and db.get_request(con, peer)["state"] == "queued",
+              out)
+    finally:
+        con.close()
+
+    repo = home / "repo"
+    repo.mkdir()
+
+    def git(*args: str) -> str:
+        return subprocess.run(["git", *args], cwd=repo, check=True, capture_output=True,
+                              text=True).stdout.strip()
+    git("init", "-q", "-b", "main")
+    git("config", "user.email", "t@example.com")
+    git("config", "user.name", "t")
+    (repo / "a.txt").write_text("1")
+    git("add", ".")
+    git("commit", "-q", "-m", "on main")
+    full = git("rev-parse", "HEAD")
+    _cli(["task", "new", "--owner", "worker", "one"])
+    _cli(["task", "new", "--owner", "worker", "two"])
+    _cli(["task", "new", "--owner", "worker", "three"])
+    rc, out = _cli(["close", "1", "abc123", "--repo", str(repo)])
+    check("sha: hex that names no commit is refused, not recorded as a reason",
+          rc == 1 and "not an ancestor of main" in out, out)
+    rc, out = _cli(["close", "1", full[:6], "--repo", str(repo)])
+    con = db.connect()
+    try:
+        check("sha: a short sha resolves and the full one is what is stored",
+              rc == 0 and db.get_task(con, 1)["closed_by"] == full, out)
+    finally:
+        con.close()
+    rc, out = _cli(["close", "2", "deadbeef", "--reason", "--repo", str(repo)])
+    con = db.connect()
+    try:
+        check("sha: --reason records hex-looking words as words",
+              rc == 0 and db.get_task(con, 2)["closed_by"] == "deadbeef", out)
+    finally:
+        con.close()
+    rc, out = _cli(["task", "list"])
+    check("board: closed tasks are not on the plain list", "two" not in out and "one" not in out, out)
+    rc, out = _cli(["task", "list", "--all"])
+    check("board: --all shows what closed each task",
+          f"CLOSED: {full}" in out and "CLOSED: deadbeef" in out, out)
+    try:
+        agents.register("7", "alpha")
+        refused = False
+    except Exception:
+        refused = True
+    check("close: a number is never an agent name (the dispatch rests on it)", refused)
+
+
 def main() -> int:
     # An agent session that runs this suite already has both set for itself,
     # and every test here that wants one sets it explicitly - so an ambient
@@ -18653,6 +18717,7 @@ def main() -> int:
         run(lambda: test_a_second_close_loses_the_race(Path(td) / 'taskrace'))
         run(lambda: test_no_other_path_closes_the_founders_request_unguarded(Path(td) / 'taskdismiss'))
         run(lambda: test_close_says_what_it_read_and_never_guesses(Path(td) / 'taskcloseread'))
+        run(lambda: test_task_ids_are_checked_before_any_answer_and_short_shas_are_resolved(Path(td) / 'taskshas'))
         run(lambda: test_replace_withdraw_and_dismiss_store_the_reason_typed(Path(td) / 'taskreason'))
         run(lambda: test_run_recovers_from_an_uncaught_error())
     # The whole run's dealings with Orca: none of its tests may have reached even

@@ -727,6 +727,10 @@ def open_tasks(con) -> list:
         "SELECT * FROM tasks WHERE closed_by IS NULL ORDER BY id").fetchall()
 
 
+def all_tasks(con) -> list:
+    return con.execute("SELECT * FROM tasks ORDER BY id").fetchall()
+
+
 def open_child_tasks(con, tid: int) -> list:
     return con.execute(
         "SELECT * FROM tasks WHERE parent_task = ? AND closed_by IS NULL ORDER BY id",

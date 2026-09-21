@@ -355,7 +355,10 @@ def cmd_close(args) -> int:
                       "a merge sha or a reason, and none was given.")
                 return 1
             ev = args.evidence
-            sha = ev if re.fullmatch(r"[0-9a-fA-F]{7,40}", ev) else None
+            # Words are a reason; hex is a sha and must resolve to one, or it
+            # is refused - a sha mistyped must not quietly become a reason and
+            # skip the ancestor check. --reason forces the words reading.
+            sha = None if args.reason or not actions.looks_like_sha(ev) else ev
             ok, msg = actions.close_task(con, int(raw), sha=sha,
                                          reason=None if sha else ev,
                                          repo=Path(args.repo) if args.repo else None)
@@ -389,7 +392,7 @@ def cmd_task_new(args) -> int:
         print(_who_refusal("open a task"))
         return 1
     if me == askmod.HUMAN:
-        print("a task is opened by the manager, never in the founder's name")
+        print("a task is opened by an agent, never in the founder's name")
         return 1
     if not _task_owner_ok(args.owner):
         print(f"no agent named {args.owner}")
@@ -434,7 +437,8 @@ def _print_board(con, tasks: list) -> None:
         return
     for t in tasks:
         parent = f" (under #{t['parent_task']})" if t["parent_task"] else ""
-        print(f"#{t['id']:<4} {textsafe.oneline(t['title'])}  [{t['owner']}]{parent}")
+        done = f"  CLOSED: {textsafe.oneline(t['closed_by'])}" if t["closed_by"] else ""
+        print(f"#{t['id']:<4} {textsafe.oneline(t['title'])}  [{t['owner']}]{parent}{done}")
         for r in db.task_requests(con, t["id"]):
             when = time.strftime("%Y-%m-%d %H:%M", time.localtime(r["ts"]))
             print(f"        request #{r['id']} {r['requester']} → {r['target']} "
@@ -444,7 +448,7 @@ def _print_board(con, tasks: list) -> None:
 def cmd_task_list(args) -> int:
     con = db.connect()
     try:
-        _print_board(con, db.open_tasks(con))
+        _print_board(con, db.all_tasks(con) if args.all else db.open_tasks(con))
     finally:
         con.close()
     return 0
@@ -1457,14 +1461,14 @@ def cmd_resolve(args) -> int:
             return 1
     finally:
         con.close()
-    ok, msg = askmod.resolve(args.id, args.verdict, state=args.state)
-    print(msg)
-    if ok and (args.task or args.no_task):
+    if args.task or args.no_task:
         con = db.connect()
         try:
             actions.record_human_resolve(con, args.id, args.task, args.no_task, me)
         finally:
             con.close()
+    ok, msg = askmod.resolve(args.id, args.verdict, state=args.state)
+    print(msg)
     return 0 if ok else 1
 
 
@@ -1778,6 +1782,8 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("target", help="a task number, or an agent's name")
     p.add_argument("evidence", nargs="?", help="a merge sha on main, or a reason")
     p.add_argument("--repo", default=None, help="the repo whose main a sha is checked against")
+    p.add_argument("--reason", action="store_true",
+                   help="record the evidence as words even if it looks like hex")
     p.set_defaults(fn=cmd_close)
 
     tk = sub.add_parser("task", help="the task board").add_subparsers(dest="sub", required=True)
@@ -1787,6 +1793,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--parent", type=int, default=None, help="the task this is a part of")
     p.set_defaults(fn=cmd_task_new)
     p = tk.add_parser("list", help="the open tasks and their requests")
+    p.add_argument("--all", action="store_true", help="closed tasks too, with what closed them")
     p.set_defaults(fn=cmd_task_list)
     p = tk.add_parser("link", help="attach a further request to a task")
     p.add_argument("task", type=int)

@@ -20,6 +20,7 @@ over.
 from __future__ import annotations
 
 import os
+import re
 import subprocess
 import time
 from pathlib import Path
@@ -219,7 +220,7 @@ def dismiss(con, rid: int, me: str | None = None, reason: str | None = None,
     if row is None:
         return f"#{rid} is gone"
     guarded = row["state"] == "queued" and row["requester"] == HUMAN
-    if guarded:
+    if guarded or tasks:
         refusal = check_human_resolve(con, row, tasks, no_task, me)
         if refusal:
             return refusal
@@ -229,6 +230,10 @@ def dismiss(con, rid: int, me: str | None = None, reason: str | None = None,
         db.mark_announced(con, [rid])
         return f"#{rid} marked read"
     verdict = "read - no reply" + (f": {reason}" if reason else "")
+    if guarded or tasks:
+        # Linked before the row is closed: a failure between the two leaves a
+        # link on a still-queued row, never an answered row attached to nothing.
+        record_human_resolve(con, rid, tasks, no_task, me)
     if row["response"] != "async":
         # Nobody is waiting on this one, so nobody is told: no push_answer, no
         # wake. Typing "read" at an agent as though it were an answer costs it
@@ -236,14 +241,10 @@ def dismiss(con, rid: int, me: str | None = None, reason: str | None = None,
         # when a dismissal arrived as "#60 from human: read". resolve() itself
         # stamps announced_at, in the same write as the state change.
         ok, msg = askmod.resolve(rid, verdict, state="done", notify=False)
-        if ok and guarded:
-            record_human_resolve(con, rid, tasks, no_task, me)
         return f"{msg} (dismissed; {row['requester']} is not waiting on it)"
     # An `async` sender parked on a reply and nothing else will ever unpark it,
     # so it is told - and what it is told says it was read, not answered.
     ok, msg = askmod.resolve(rid, verdict, state="done")
-    if ok and guarded:
-        record_human_resolve(con, rid, tasks, no_task, me)
     return msg
 
 
@@ -280,20 +281,35 @@ def cancel(con, rid: int) -> str:
     return msg if ok else f"not cancelled - {msg}"
 
 
-def _sha_is_ancestor_of_main(repo: Path, sha: str) -> tuple[bool, str]:
-    """Whether `sha` is reachable from `main` in `repo`.
+def _git(repo: Path, *args: str):
+    return subprocess.run(["git", *args], cwd=repo, capture_output=True, text=True, timeout=15)
+
+
+def looks_like_sha(text: str) -> bool:
+    """Hex of a length a person types a sha at - short ones included."""
+    return re.fullmatch(r"[0-9a-fA-F]{4,40}", text) is not None
+
+
+def _sha_on_main(repo: Path, sha: str) -> tuple[str | None, str]:
+    """The full sha `sha` names in `repo`, when it is reachable from `main`;
+    otherwise None and why.
 
     `closed_by` is evidence, not a claim: a sha typed by hand that never
-    merged must not close a task, so this runs before anything is written.
+    merged - or that names nothing here - must not close a task, so this runs
+    before anything is written, and what is stored is the full sha it resolved
+    to, whatever length was typed.
     """
     try:
-        r = subprocess.run(["git", "merge-base", "--is-ancestor", sha, "main"],
-                           cwd=repo, capture_output=True, text=True, timeout=15)
+        r = _git(repo, "rev-parse", "--verify", "--quiet", f"{sha}^{{commit}}")
+        if r.returncode != 0:
+            return None, "no such commit in this repo"
+        full = r.stdout.strip()
+        r = _git(repo, "merge-base", "--is-ancestor", full, "main")
     except (OSError, subprocess.SubprocessError) as e:
-        return False, str(e)
+        return None, str(e)
     if r.returncode == 0:
-        return True, ""
-    return False, textsafe.oneline((r.stderr or r.stdout).strip())
+        return full, ""
+    return None, textsafe.oneline((r.stderr or r.stdout).strip())
 
 
 def close_task(con, tid: int, sha: str | None = None, reason: str | None = None,
@@ -318,10 +334,10 @@ def close_task(con, tid: int, sha: str | None = None, reason: str | None = None,
     if bool(sha) == bool(reason):
         return False, "close needs exactly one of a sha or a reason"
     if sha:
-        ok, why = _sha_is_ancestor_of_main(repo or Path.cwd(), sha)
-        if not ok:
+        full, why = _sha_on_main(repo or Path.cwd(), sha)
+        if full is None:
             return False, f"{sha} is not an ancestor of main" + (f" ({why})" if why else "")
-        mark = sha
+        mark = full
     else:
         mark = reason
     if not db.close_task(con, tid, mark):
@@ -334,7 +350,9 @@ def close_task(con, tid: int, sha: str | None = None, reason: str | None = None,
 def check_human_resolve(con, row, tasks: list[int] | None, no_task: str | None,
                         me: str | None = None) -> str | None:
     """The refusal for resolving a request the human made without saying what
-    it becomes; None when it may go ahead.
+    it becomes; None when it may go ahead. Any --task id is checked on every
+    row, before anything is written, so a bad id never follows an answer that
+    has already gone out.
 
     The guard is on the answer, not on the ask: agent-to-agent and
     manager-to-agent rows are conversation and never reach it, and it covers
@@ -344,6 +362,12 @@ def check_human_resolve(con, row, tasks: list[int] | None, no_task: str | None,
     founder's own hands - the bridge answer key, cancel, withdraw - are the
     person the guard exists to serve, so `me == HUMAN` passes.
     """
+    for tid in tasks or []:
+        t = db.get_task(con, tid)
+        if t is None:
+            return f"no task #{tid}"
+        if t["closed_by"]:
+            return f"task #{tid} is already closed ({t['closed_by']})"
     if row["requester"] != HUMAN or me == HUMAN:
         return None
     if bool(tasks) == bool(no_task):
@@ -351,12 +375,6 @@ def check_human_resolve(con, row, tasks: list[int] | None, no_task: str | None,
                 "names the tasks this answer belongs to (one per deliverable "
                 "promised), --no-task 'reason' says nothing needs building. "
                 "`ocp task new --owner NAME 'title'` makes a task.")
-    for tid in tasks or []:
-        t = db.get_task(con, tid)
-        if t is None:
-            return f"no task #{tid}"
-        if t["closed_by"]:
-            return f"task #{tid} is already closed ({t['closed_by']})"
     return None
 
 
