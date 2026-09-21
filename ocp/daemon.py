@@ -1129,6 +1129,9 @@ def _wake_agent(con, agent: str, log, moved_to: str | None = None) -> tuple[bool
             took = True
             if gaps:
                 why = "could not read " + ", ".join(gaps)
+                # Kind "handoff" is on db.last_activity's exclusion list; any
+                # other kind would give a dead-cache agent a clock and the
+                # next wake would read it warm.
                 db.add_event(con, agent, "handoff", {"degraded": True, "session": session, "why": why})
                 log(f"  {agent}: cold wake handoff degraded ({why})")
         for resume in ([True, False] if session and not cold else [False]):

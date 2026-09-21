@@ -7609,6 +7609,9 @@ def test_a_cold_wake_that_fails_leaves_no_handoff_behind(home: Path) -> None:
         db.set_handoff(con, "backend", None)
         ok, _ = dmn.wake_agent(con, "backend", logs.append)
         check("cold wake: a failed launch is reported", not ok)
+        check("cold wake: its own note is not activity, so the next wake is still cold",
+              db.last_activity(con, "backend") is None
+              and dmn.cache_expired(con, "backend", "sess-7", int(time.time())))
         check("cold wake: it leaves no handoff on the row", db.get_handoff(con, "backend") is None)
         check("cold wake: the closed mark and resume id survive",
               (db.get_agent_state(con, "backend") or {})["resume_session"] == "sess-7")
