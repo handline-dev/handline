@@ -1373,13 +1373,16 @@ def _layout(want: list[int], room: int) -> tuple[list[int | None], int]:
             for i in range(len(want))], len(want) - keep
 
 
-# The smallest screen that still shows a few rows of the page above the box.
+# The box costs 3 rows and the page keeps 5 rows of body beside the 4 of title,
+# flash and keys: with fewer body rows than that the box is not worth its 3.
+# The page has its own floor below this - at height 4 and under the keys line
+# is gone whatever the box does.
 INPUT_BOX_MIN = 12
 
 
 def _has_input_box(detail: dict, height: int) -> bool:
     """An agent page ends in an input box unless the composer is open or the
-    screen is too short to spare it: below that the page shows less body, and
+    box would leave fewer than 5 rows of body: then the page keeps the rows and
     the keys line stays."""
     return bool(detail.get("stacked")) and not detail.get("composing") and height >= INPUT_BOX_MIN
 
