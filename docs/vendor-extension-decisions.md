@@ -8,7 +8,7 @@ This file does not move. A line leaves the OPEN list only when a measurement
 settles it, and then it moves up with its evidence.
 
 Asked by the founder in #1255 (withdrawn, superseded live) and #1277.
-Decisions D1-D9 taken 2026-09-21.
+Decisions D1-D10 taken 2026-09-21.
 
 ---
 
@@ -246,6 +246,40 @@ collector **pulls** from the rollout JSONL
 output file, different mechanism - and it is the first thing to build for any
 new vendor, because without context ocp cannot park.
 
+### D10. The agent's preamble is a file in its worktree, not a flag.
+
+`--append-system-prompt` is replaced by one file ocp writes into the agent's
+own worktree at **launch** (not at worktree creation - the team line is
+generated from `team.yaml`, `hr` can edit ROLE.md and base.md, and the handoff
+must be consumed rather than persisted), kept out of git via
+`.git/info/exclude`, and covered by `launch.fingerprint` as it is today.
+
+The entire per-vendor surface:
+
+```python
+PREAMBLE_FILE = {
+    "claude": ("CLAUDE.local.md",    ADDITIVE),      # read beside CLAUDE.md
+    "codex":  ("AGENTS.override.md", SUBSTITUTIVE),  # replaces AGENTS.md
+}
+```
+
+One string and one flag. On codex ocp appends the repo's own `AGENTS.md` after
+its preamble, because the override suppresses it; on claude it must not, or the
+content loads twice. Content, timing, git exclusion and fingerprinting are
+shared.
+
+**Measured, not assumed** (#1306, #1307): codex loads the file with no flag,
+as a `role: user` block labelled "AGENTS.md instructions"; `AGENTS.override.md`
+replaces `AGENTS.md` rather than joining it; Claude reads `CLAUDE.local.md` at
+runtime and its own codex importer maps the two names to each other.
+
+**Accepted cost:** this level is ranked *below* direct instructions by codex's
+own spec, so ocp's hard rules become advisory in a way they were not under the
+flag. Taken deliberately - cheap and working beats authoritative and
+per-vendor. **Unverified:** whether codex's `/new` re-reads it.
+
+**This retires the ⚠ on the hardest DRIVER row** and moves it to RESHAPE.
+
 ---
 
 ## Open, with what would settle it
@@ -254,7 +288,7 @@ new vendor, because without context ocp cannot park.
 |---|---|---|
 | **O1** | Supervised lane or handoff lane? **Narrowed by D9:** adoption is no longer needed for `agentWait`, so all it would still buy is the lifecycle - a `resource` row and `worker-stop`/`worker-release` acting on the process. We create Run + Task + Dispatch and settle none (D8). Either adopt terminals with `worker-start --terminal`, or stop creating Tasks and keep only what draws the team. | measuring what adoption grants - **needs the founder's go-ahead: it mutates a live fleet** |
 | ~~O2~~ | *settled 2026-09-21 - see D9.* | |
-| **O3** | How does a codex agent get ROLE.md + base.md + handoff? Claude uses `--append-system-prompt`; codex has no argv equivalent. Candidates: `AGENTS.md` under a per-account `CODEX_HOME`, or the first prompt. | a live codex launch, not reading |
+| ~~O3~~ | *settled 2026-09-21 - see D10.* One residue: does codex's `/new` re-read the file? | a live codex TUI session; costs tokens, deferred to when a codex agent is first run for real |
 | ~~O4~~ | *settled 2026-09-21 - see D8.* | |
 
 **Rule for this list:** nothing below the line is designed on. O3 in particular

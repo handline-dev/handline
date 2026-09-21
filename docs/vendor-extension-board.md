@@ -115,6 +115,38 @@ Seams classified so far: **38**.
 | KEEP | 15 | 7 | shrank because seams were split finer, not re-judged |
 | FIX / DECIDE | 0 / 1 | 1 / 1 | |
 
+### What Orca actually replaces, in lines (#1310)
+
+The scoreboard counts **seams**, not code, and that overstates the
+simplification. Counted properly, the most Orca could delete:
+
+| | lines |
+|---|---|
+| `hooks.py` - hand-mirroring a file Orca owns | 169 |
+| `observe.py`'s ps-table machinery (`is_session` … `live_sessions`) | 120 |
+| `orca.py`'s screen parsing (`MODAL_MARKERS` … `decline_dialog`) | 309 |
+| **optimistic total** | **598 of 17,852 = 3.3%** |
+
+And 598 is the *optimistic* figure: D9 settled that only the **detection** half
+of the screen parsing moves - `parse_dialog`, `declining_key` and
+`decline_dialog` stay, because `agentWait` reports a source and nothing else.
+Realistically it is nearer **370 lines, about 2%**.
+
+**So: Orca is not a way to make ocp smaller.** Several ORCA verdicts are not
+deletions at all - `task-update`, `terminal rename`, `gate-create`,
+`diagnostics memory` are calls we would *add*; `terminal list` and
+`terminal send` are calls we already make and would simply read more of.
+
+**What Orca is actually for, then.** Every one of those seams is vendor-neutral
+across 18 agent families. Moving them does not shrink ocp today; it means they
+**do not have to be written again for codex or opencode**. That is the whole
+value, and it is a bill avoided rather than a codebase reduced.
+
+The reason the ceiling is this low is structural and already recorded: Orca
+owns *observation*, ocp owns *economics* - accounts (D1), quota (D2), context
+(D9) - and economics is where ocp's code actually lives. Nothing measured so
+far has contradicted that split.
+
 **The trend, since it is easy to misread.** One verdict was demoted away from
 Orca (Run binding, once a speculative ORCA, turned out to be our own bug - D8).
 One was split rather than moved (dialog handling: detection to Orca, describing
