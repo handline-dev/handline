@@ -158,8 +158,41 @@ rebuild - in Orca's shape.
 | is a session running, and is it ours | `observe.is_session` (`"claude" in command`), `live_sessions` (ps + `OCP_AGENT`) | **ORCA** | a ps-table scan that pattern-matches the binary name is exactly what `agentIdentity` and `projection.liveness` answer, for 18 vendor families, with provenance and a three-valued verdict (`live`/`unverifiable`/`exited`). Ours cannot tell "I could not look" from "it is gone" as cleanly. |
 | which account is this process spending | `observe.account_of_process` (reads `CLAUDE_CONFIG_DIR` off `ps eww`) | **DRIVER** | Orca has no idea which of *our* accounts a process is on. This one stays ours whatever else moves. |
 | is it idle | `orca.wait_idle` → `terminal wait --for tui-idle` | **KEEP** | already Orca, and explicitly vendor-generic - the guide names Claude Code, Gemini, Codex, OMP, Pi and Grok. Idleness is the one thing a second vendor need not re-teach. |
-| is a dialog blocking a typed line | `orca.screen_blocker`, `MODAL_MARKERS`, `_RULE`, `_OPTION`, `_composer_shape`, `_BACKGROUNDED_HINT` | **ORCA** ⚠ | ~150 lines of regex against Claude Code's *rendering*. Orca reports the same fact vendor-neutrally as `projection.attention.requiresAction` and `observation.agentWait`, "with the evidence that proved it (hook, prompt-text, or title)". **Blocked on part 1 open question 1**: on the unsupervised dispatch measured here, `attention` was empty and there was no `observation` key. If adoption via `worker-start --terminal` fills it, this whole file section goes away. |
+| is a dialog blocking a typed line | `orca.screen_blocker`, `MODAL_MARKERS`, `_RULE`, `_OPTION`, `_composer_shape`, `_BACKGROUNDED_HINT` | **KEEP** (for now) | ~150 lines of regex against Claude Code's *rendering*. Orca reports a related fact vendor-neutrally - but **not this one**, unsupervised. See §3.1. |
+| is it working, idle or gone | `observe.live_sessions` + `orca.idle_now` (a `tui-idle` probe that costs its whole timeout to say "no") | **ORCA** ✅ | `projection.stage.activity` is a live three-state signal - `working` / `done` / `unknown` - already present on the dispatches we create, alongside `liveness.verdict` (`live` / `exited` / `unverifiable`) and its `source` (`agent_status`, `execution_host`). Measured across all 24: see §3.1. |
 | press Esc to decline a dialog | `orca.decline_dialog`, `declining_key` | **DRIVER** | Orca *reports* a wait; it has no verb that answers one. Whoever presses a key must read the screen it is pressing on. This stays ours, per vendor - and it is the residue that keeps some screen parsing alive even if the line above moves. |
+
+### 3.1 What an unsupervised dispatch already reports (measured, read-only)
+
+All 24 dispatches on this machine, every Run, no mutation:
+
+| field | populated? | values seen |
+|---|---|---|
+| `stage.activity` | **yes** | `working`, `done`, `unknown` |
+| `liveness.verdict` / `.source` | **yes** | `live`/`agent_status`, `exited`/`execution_host`, `unverifiable`/`None` |
+| `attention.categories` | **yes, but** | `[]`, `unverifiable`, `failure`, `interrupted`, `stale` |
+| `observation` (and so `observation.agentWait`) | **no - absent on 24 of 24** | — |
+
+Two conclusions, and they point opposite ways.
+
+**The idle/busy probe can go (ORCA).** `activity` plus `liveness` answers "is
+this agent working, finished, or gone" for every dispatch at once, from hook
+evidence, vendor-neutrally. Ours asks per agent with `terminal wait --for
+tui-idle`, which by `orca.py`'s own measured comment **costs the full timeout
+every time the answer is no**. This is a straight win and needs no adoption.
+
+**The screen parsing cannot go (KEEP, for now).** `attention.categories` only
+ever carries *lifecycle* states - nothing that means "a dialog is open and a
+typed line would answer it". And `observation` is absent on every single
+unsupervised dispatch, which by Orca's own guide means **"it never looked"** -
+not that there is nothing to find. So `agentWait` is not something an
+unsupervised caller gets, anywhere on this machine.
+
+That narrows O1/O2 to one question: **does adoption turn `observation` on?**
+Nothing passive can answer it - there is no supervised worker on this machine
+to compare against (all 24 are `unsupervised`).
+
+---
 
 ## 4. Delivering work
 
