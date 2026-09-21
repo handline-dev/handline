@@ -44,7 +44,7 @@ RECHECK_S = 10
 # all - it is reported once, as done.
 PRESS_AFTER_S = 60
 # A dialog that returns after ocp cleared it is a loop. Idle agents are closed
-# every IDLE_CLOSE_S (30 minutes), so a close that meets background shells
+# every IDLE_CLOSE_S (10 minutes), so a close that meets background shells
 # raises the same dialog on each pass: one clear is an event, two could be
 # chance, and the third within the window is the pattern. Then ocp stops
 # pressing and the founder is told at once, not at ESCALATE_AFTER_S.

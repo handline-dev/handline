@@ -76,12 +76,33 @@ MAX_THROTTLE_STREAK = 5      # 8.6: then escalate to a human gate
 # resumed session read its whole 68k prefix from cache exactly as a resident
 # one did, because the cache lives on the server and expires on time, not on
 # whether our process stayed alive.
-IDLE_CLOSE_S = 1800
+# The round trip is small: across the recorded deliveries, a request that
+# woke a closed session was told a median 13.5s after it arrived (p25 11s, p75
+# 31s), against 4s for a live one, so a request every ten minutes pays about
+# ten seconds each time. Raising this past PROMPT_CACHE_S would turn every
+# resume into a cache miss (see RESUME_WARM_S), which is a cost change, not a
+# tuning one.
+IDLE_CLOSE_S = 600
+
+# A subscription's main-conversation requests keep their prompt cache for one
+# hour, and every read restarts that clock; on API-key or cloud billing it is
+# five minutes (Anthropic's prompt-caching table, #1065). Every account here is
+# a subscription login.
+PROMPT_CACHE_S = 3600
+
+# A closed session resumes only while its cache can still serve it. The clock is
+# time since the agent's last request; the margin under the hour is the resume
+# itself reaching its first request. Past it a resume re-reads the whole
+# transcript uncached (~330k measured) while a fresh conversation reads only
+# the handoff, which carries the request in hand, the transcript's path and the
+# worktree's state - see `cache_expired`.
+RESUME_WARM_S = PROMPT_CACHE_S - 300
 
 # How long an agent may read as RUNNING with nothing heard from it before the
-# label is stuck rather than the turn being long. Same number as the idle-close
-# threshold: past it the daemon would have reclaimed the session anyway.
-STUCK_RUNNING_S = IDLE_CLOSE_S
+# label is stuck rather than the turn being long. A turn can be quiet for many
+# minutes inside one tool call, so this is not tied to how soon idle sessions
+# are closed.
+STUCK_RUNNING_S = 1800
 HANDOFF_DEADLINE_S = 90      # 8.3
 
 # 8.6: a repeatedly-degrading agent backs off rather than retrying at the same
@@ -775,8 +796,23 @@ def _end_session(con, agent: str, log, st, resume: str | None) -> tuple[bool, st
     return True, f"{agent}: session closed, terminal kept"
 
 
+def cache_expired(con, agent: str, session: str | None, now: int) -> bool:
+    """Should this closed agent start a fresh conversation rather than resume?
+
+    Only when its prompt cache can no longer serve the resume (RESUME_WARM_S
+    since it last did anything) and a whole handoff is waiting to carry the work
+    over. The transcript is the only complete copy of a context whose handoff
+    could not be taken, and an agent that never reported has no clock, so
+    neither is ever started over.
+    """
+    if not session or not db.get_handoff(con, agent):
+        return False
+    last = db.last_activity(con, agent)
+    return last is not None and now - last >= RESUME_WARM_S
+
+
 def wake_prompt(agent: str, resumed: bool, was_closed: bool = False,
-                moved_to: str | None = None, con=None) -> str:
+                moved_to: str | None = None, con=None, cold: bool = False) -> str:
     """What an agent is told when it comes back.
 
     A resumed session already holds everything it knew, so it is told where it
@@ -797,6 +833,17 @@ def wake_prompt(agent: str, resumed: bool, was_closed: bool = False,
     elif resumed:
         parts.append("Your session was closed while you were idle and has been resumed. "
                      "Nothing was lost; carry on.")
+    elif cold:
+        # The handoff is in the system prompt, and carries the transcript's
+        # path: nothing more is appended for it below.
+        record = db.get_handoff(con, agent)
+        parts.append(f"Your session was closed while you were idle for over "
+                     f"{PROMPT_CACHE_S // 60 - 5} minutes, long enough for its prompt "
+                     f"cache to expire, so this is a fresh conversation: resuming would "
+                     f"re-read the whole transcript at full price. Your handoff is in "
+                     f"your system prompt above - the request you had in hand, your "
+                     f"previous transcript's path and your worktree. Pick the task back "
+                     f"up from it.")
     elif was_closed:
         # Taking the parked branch here would tell an agent that was never
         # parked that its context was cleared. What the close recorded is in
@@ -990,10 +1037,14 @@ def _wake_agent(con, agent: str, log, moved_to: str | None = None) -> tuple[bool
         # it line by line.
         started = lambda: wait_for_session(agent, WAKE_SESSION_TIMEOUT_S)  # noqa: E731
         resumed = False
-        for resume in ([True, False] if session else [False]):
+        # Past the cache's life a resume costs the whole transcript and a
+        # fresh start costs the handoff; the record stays on the row for the
+        # launch to inject.
+        cold = moved_to is None and cache_expired(con, agent, session, int(time.time()))
+        for resume in ([True, False] if session and not cold else [False]):
             pf = _write_wake_prompt(
                 agent, wake_prompt(agent, resume, was_closed=closed,
-                                   moved_to=moved_to, con=con))
+                                   moved_to=moved_to, con=con, cold=cold))
             cmd = f"{base} --prompt-file {shlex.quote(str(pf))}" + (
                 f" -- --resume {session}" if resume else "")
             ok, why = orca.relaunch(handle, cmd, started=started)
@@ -1025,9 +1076,11 @@ def _wake_agent(con, agent: str, log, moved_to: str | None = None) -> tuple[bool
             return False, why
         db.reset_counter(con, agent, "wake_failures")
         db.clear_closed(con, agent)
-        db.add_event(con, agent, "wake", {"resumed_session": session if resumed else None})
+        db.add_event(con, agent, "wake", {"resumed_session": session if resumed else None,
+                                          **({"cache_expired": True} if cold else {})})
         db.set_handoff(con, agent, None)
-        log(f"  {agent}: relaunched with its wake prompt{' (session resumed)' if resumed else ''}")
+        log(f"  {agent}: relaunched with its wake prompt"
+            f"{' (session resumed)' if resumed else ' (fresh - its prompt cache had expired)' if cold else ''}")
         return True, "relaunched with the wake prompt"
     elif not db.get_handoff(con, agent):
         return False, "no handoff to resume from"

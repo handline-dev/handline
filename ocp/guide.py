@@ -132,11 +132,16 @@ left the process table - a session that will not end is reported, not marked
 closed. The terminal, its worktree and its account stay, because Orca runs our
 launch command inside a shell and claude is that shell's child. Waking types
 the launch command back into the same shell with `--resume <session>` and the wake prompt as the session's first prompt, so the
-account comes back with it and the conversation is the one it had.
+account comes back with it and the conversation is the one it had. If the agent
+last worked more than 55 minutes ago its prompt cache (one hour) has expired
+and a resume would re-read the whole transcript at full price, so it starts a
+fresh conversation instead: the handoff taken when it was closed - the request
+in hand, the transcript's path, the worktree's state - is in that session's
+system prompt, and the wake prompt says why.
 
 This is not a handoff. No context is reclaimed, because there is nothing
 wrong with an idle agent's context. The daemon does it by
-itself after 30 minutes of silence, unless the agent is working, mid-handoff,
+itself after 10 minutes of silence, unless the agent is working, mid-handoff,
 STALLED, or has a request waiting.""",
 
     "hooks": """Orca hooks
