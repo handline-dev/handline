@@ -344,9 +344,23 @@ def _inert(label: str) -> bool:
 # needs, not because they are meant to be the same regex.
 
 
+# What Claude Code asks when a turn ends on the session limit: none of its
+# options only declines ('Stop and wait' is a choice that stops the session), so
+# the inert-option rule cannot admit it. Esc was measured on a live one on
+# 2026-09-21 (orcapipe.chat, 'resets 3:30pm'): the dialog closed, the session
+# stayed at its prompt, nothing was chosen. Named by the two options that make
+# it this dialog rather than by its title, which is generic, and by their start
+# only, since the second carries the reset time.
+def _usage_limit_dialog(dialog: Dialog) -> bool:
+    labels = [label for _, label in dialog.options]
+    return (any(lb.startswith("Stop and wait for limit to reset") for lb in labels)
+            and any(lb.startswith("Wait here, then continue automatically") for lb in labels))
+
+
 def declining_key(dialog: Dialog) -> tuple[str | None, str]:
     """(key, why not) - Escape, when the dialog itself says Esc cancels it and
-    offers an option that only declines; otherwise no key and the reason.
+    offers an option that only declines, or is the usage-limit dialog whose Esc
+    was measured; otherwise no key and the reason.
 
     Never a key that chooses: Enter, a digit, an arrow. The one key is Esc, and
     it is pressed only where the footer says it cancels AND the options include
@@ -365,7 +379,8 @@ def declining_key(dialog: Dialog) -> tuple[str | None, str]:
     the options, is not an option this can evaluate, so a mark found there
     refuses too, the same as one on an option that turns out not to be inert.
     Only a dialog with no mark anywhere falls back to "some option is only a
-    decline", which is the evidence available when nothing names Esc directly.
+    decline", which is the evidence available when nothing names Esc directly -
+    or is the one dialog whose Esc was measured rather than inferred.
     """
     if "Enter to confirm" not in dialog.footer or "Esc to cancel" not in dialog.footer:
         return None, "its footer does not say Enter confirms and Esc cancels"
@@ -378,6 +393,8 @@ def declining_key(dialog: Dialog) -> tuple[str | None, str]:
             return None, "more than one option is marked (esc)"
         if not _inert(marked[0]):
             return None, f"the option marked (esc) is not one that only declines: {marked[0]!r}"
+        return ESCAPE, ""
+    if _usage_limit_dialog(dialog):
         return ESCAPE, ""
     if not any(_inert(label) for _, label in dialog.options):
         return None, "none of its options only declines"

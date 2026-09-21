@@ -14,11 +14,16 @@ ESCALATE_AFTER_S. It is written by the daemon and read by the bridge and
 `ocp ps`, which are other processes, so it lives in the database.
 
 ocp names what is in the way, and presses at most one key at a dialog: Esc, and
-only where the dialog itself says Esc cancels and offers an option that just
-declines (`orca.declining_key`). It never chooses: a press lands on the dialog or
-changes nothing, except where a person has typed into that agent's input box,
-which Esc can clear. What it cleared it reports, and a dialog that keeps coming back
-is a loop the founder is told about, not one it keeps pressing.
+only where `orca.declining_key` admits it - the dialog says Esc cancels and
+offers an option that just declines, or it is the one dialog whose Esc was
+measured. It never chooses: a press lands on the dialog or changes nothing,
+except where a person has typed into that agent's input box, which Esc can
+clear. What it cleared it reports, and a dialog that keeps coming back is a
+loop the founder is told about, not one it keeps pressing.
+
+A dialog is also in the way of ocp's own exit and clear, which no waiting
+outlasts: `past_dialog` gets past it by the same rules before either is typed,
+and one it cannot get past stops the agent (daemon `_stalled_on_dialog`).
 """
 from __future__ import annotations
 
@@ -172,6 +177,45 @@ def note_close_failure(con, agent: str, log) -> None:
         log(f"  {agent}: {reason(seen.kind, seen.detail)} - ocp's own /exit raised it")
 
 
+def past_dialog(con, agent: str, log, now: int | None = None) -> str:
+    """Get past a dialog standing between ocp and an exit it is about to type,
+    or say why not: '' when none is open or the one that was is now declined.
+
+    The key and the rules are `_decline`'s - Esc, only where `declining_key`
+    admits it, never for a dialog that has stopped being pressed - and the
+    press is recorded in the same history, so a dialog that keeps returning is
+    still the loop `stopped_pressing` counts. The caller holds the agent's
+    terminal; unlike the sweep this does not wait out PRESS_AFTER_S, since
+    the exit is ocp's own and no person is answering a dialog it is about to
+    dismiss. It does not care whether the agent is working: the caller is
+    ending the session either way."""
+    handle = db.get_terminal(con, agent)
+    seen = orca.screen_blocker(handle) if handle else None
+    if seen is None or seen.kind != orca.MODAL:
+        return ""
+    now = int(time.time()) if now is None else now
+    stopped = stopped_pressing(con, agent, {"title": seen.title}, now)
+    if stopped:
+        return f"{reason(seen.kind, seen.detail)}; {stopped}"
+    outcome, title, why = orca.decline_dialog(handle)
+    if outcome == orca.NOT_PRESSED:
+        return f"{reason(seen.kind, seen.detail)}; ocp did not press it: {why}"
+    db.press_add(con, agent, now, title, outcome, why)
+    if outcome == orca.STILL_OPEN:
+        return f'{reason(seen.kind, seen.detail)}; Esc did not close it'
+    db.add_event(con, agent, "dialog_declined", {"title": title, "key": "Esc", "work": "exit"})
+    log(f'  {agent}: pressed Esc on "{title}" to get to its exit')
+    return ""
+
+
+def dialog_note(con, agent: str) -> str:
+    """' - <the dialog on its screen>' when that is what ocp's own close met,
+    else '': what a stall on repeated failed handoffs adds so its reason is not
+    only a count."""
+    rec = db.block_get(con, agent)
+    return f" - {reason(rec['kind'], rec['detail'])}" if rec and rec["kind"] == orca.MODAL else ""
+
+
 def stopped_pressing(con, agent: str, rec, now: int) -> str:
     """Why ocp will not press this agent's dialog again, or '' when it may.
     `rec` is the block it is asked about - the history is this one dialog's,
@@ -240,7 +284,7 @@ def _decline(con, agent: str, rec, now: int, log):
     askmod.report(con, agent,
                   f"{how}.\n{agent} could not be given its work ({rec['work'] or 'nothing yet'}) "
                   f"while it was open: {reason(rec['kind'], rec['detail'])}.\nThe dialog's own footer "
-                  f"says Esc cancels it and it offers an option that only declines, so that was the "
+                  f"says Esc cancels it, and Esc is a key that only declines it, so that was the "
                   f"only key ocp pressed; nothing was chosen. If it comes back {MAX_PRESSES} times "
                   f"in {status.ago(PRESS_WINDOW_S)} ocp stops pressing and tells you.",
                   "dialog declined")
