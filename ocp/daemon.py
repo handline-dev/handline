@@ -799,12 +799,9 @@ def _answer_exit_dialog(con, agent: str, log) -> None:
         sessions = obs.live_sessions()
         if sessions is not None and not sessions.get(agent):
             return
-        if blocked.choose_exit(con, agent, log):
-            return
-        # A title means the panel parsed and offers no such option; a footer
-        # with nothing readable above it is a torn read, read again.
-        seen = orca.screen_blocker(db.get_terminal(con, agent) or "")
-        if seen is not None and seen.kind == orca.MODAL and seen.title:
+        # One read decides: a footer with nothing readable above it is a torn
+        # read and is read again, not given up on.
+        if blocked.choose_exit(con, agent, log) in (orca.CHOSEN, orca.NO_OPTION):
             return
         time.sleep(END_POLL_S)
 
@@ -835,7 +832,7 @@ def _end_session(con, agent: str, log, st, resume: str | None) -> tuple[bool, st
     # A dialog that offers to end the session is answered by ending it: declining
     # it would keep the session ocp has decided to end. The exit is then already
     # under way, and typing `/exit` at it would reach the shell.
-    chosen = blocked.choose_exit(con, agent, log)
+    chosen = blocked.choose_exit(con, agent, log) == orca.CHOSEN
     stuck = "" if chosen else _past_dialog(con, agent, log)
     ok, why = (True, "exit chosen at its dialog") if chosen else orca.close_session(handle)
     if not ok and stuck:

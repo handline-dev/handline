@@ -342,11 +342,12 @@ def _inert(label: str) -> bool:
 
 
 # _ESC_MARK (case-insensitive, a trailing space allowed) and the strip inside
-# _inert (case-sensitive after its own .lower(), no trailing space allowed)
+# _norm_label (case-sensitive after its own .lower(), no trailing space allowed)
 # are deliberately different patterns, not a drifted duplicate: _ESC_MARK only
-# ever has to notice the mark is there at all, on raw screen text; _inert only
-# ever sees a mark it has already found, on text it has already lowercased and
-# stripped itself. They agree because each does the normalising its own job
+# ever has to notice the mark is there at all, on raw screen text; _norm_label
+# runs on text it has already lowercased and stripped itself. _inert reaches it
+# only after _ESC_MARK has looked; exit_key uses it with no such check because
+# it never presses Esc. They agree because each does the normalising its own job
 # needs, not because they are meant to be the same regex.
 
 
@@ -651,7 +652,7 @@ def exit_key(dialog: Dialog) -> tuple[str | None, str]:
     return str(found[0]), ""
 
 
-CHOSEN = "chosen"
+CHOSEN, NO_OPTION = "chosen", "no-option"
 
 
 def choose_exit(handle: str) -> tuple[str, str, str]:
@@ -659,8 +660,8 @@ def choose_exit(handle: str) -> tuple[str, str, str]:
     a caller that has decided to end the session. (outcome, dialog title, why).
 
     The screen is read here, immediately before the key. Nothing is pressed on
-    a screen that cannot be read, is not a dialog, does not parse, or offers no
-    such option. CHOSEN means the key was sent, not that the session ended: that
+    a screen that cannot be read, is not a dialog or does not parse (NOT_PRESSED:
+    read again), or is a dialog that offers no such option (NO_OPTION). CHOSEN means the key was sent, not that the session ended: that
     is the process table's to say, so unlike `decline_dialog` there is no re-read
     after the key and a dialog that stays is not pressed twice within one close."""
     term = _screen(handle)
@@ -675,7 +676,7 @@ def choose_exit(handle: str) -> tuple[str, str, str]:
         return NOT_PRESSED, "", "its title or options could not be parsed"
     key, why = exit_key(dialog)
     if key is None:
-        return NOT_PRESSED, dialog.title, why
+        return NO_OPTION, dialog.title, why
     ok, out = send(handle, key, enter=False)
     if not ok:
         return NOT_PRESSED, dialog.title, f"the key could not be sent: {out[:120]}"

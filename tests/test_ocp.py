@@ -3853,10 +3853,11 @@ def test_a_close_answers_the_dialog_that_offers_to_exit(home: Path) -> None:
           not ok and not [t for t, _ in term.sent if t.isdigit()], f"{ok} {why} {term.sent}")
     con.close()
 
-    con, term, ok, why = _close_at(home / "h", EXIT_DIALOG, torn=2)
-    check("exit: a torn read of the dialog is read again, not given up on",
-          ok and ("1", False) in term.sent, f"{ok} {why} {term.sent}")
-    con.close()
+    for n in (1, 2, 3):
+        con, term, ok, why = _close_at(home / f"h{n}", EXIT_DIALOG, torn=n)
+        check(f"exit: {n} torn read(s) of the dialog are read again, not given up on",
+              ok and ("1", False) in term.sent, f"{ok} {why} {term.sent}")
+        con.close()
 
     no_confirm = EXIT_DIALOG[:-1] + ["   Esc to cancel"]
     con, term, ok, why = _close_at(home / "d", no_confirm)

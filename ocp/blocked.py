@@ -220,9 +220,10 @@ def past_dialog(con, agent: str, log, now: int | None = None,
     return "", ""
 
 
-def choose_exit(con, agent: str, log) -> bool:
+def choose_exit(con, agent: str, log) -> str:
     """Choose 'Exit and stop tasks' on this agent's dialog, when there is one.
-    True when the key was sent.
+    `orca.CHOSEN` when the key was sent, `orca.NO_OPTION` when a dialog that
+    parses offers none, else `orca.NOT_PRESSED` (nothing readable: read again).
 
     Only for a caller that has decided to end the session: there, declining a
     dialog that offers to end it is choosing to keep the session. Nothing else
@@ -230,13 +231,12 @@ def choose_exit(con, agent: str, log) -> bool:
     without that option is left to `past_dialog`'s rules."""
     handle = db.get_terminal(con, agent)
     if not handle:
-        return False
-    outcome, title, why = orca.choose_exit(handle)
-    if outcome != orca.CHOSEN:
-        return False
-    db.add_event(con, agent, "dialog_exit_chosen", {"title": title})
-    log(f'  {agent}: chose "Exit and stop tasks" on "{title}"')
-    return True
+        return orca.NOT_PRESSED
+    outcome, title, _why = orca.choose_exit(handle)
+    if outcome == orca.CHOSEN:
+        db.add_event(con, agent, "dialog_exit_chosen", {"title": title})
+        log(f'  {agent}: chose "Exit and stop tasks" on "{title}"')
+    return outcome
 
 
 def dialog_note(con, agent: str) -> str:
