@@ -267,8 +267,8 @@ def _is_answer_to_human(row) -> bool:
     return row["requester"] == HUMAN and row["state"] != "queued"
 
 
-def messages(con) -> list[dict]:
-    """The human's whole mailbox: what is waiting on them, and what came back.
+def mailbox_rows(con) -> list[dict]:
+    """The human's whole mailbox, one row per request or answer - unfolded.
 
     Three things arrive here and they are not the same errand. An escalation is
     a decision the routing says only a human makes, and nothing else in this
@@ -284,14 +284,10 @@ def messages(con) -> list[dict]:
     team to talk around it - with this one drawing only one direction, two
     agents had learnt to send a second, unrelated request repeating what they
     had already answered.
-
-    Decisions first, then the ones that asked for a reply, then the rest -
-    oldest first inside each, because the order things arrived in is not the
-    order they matter in.
     """
     out = []
     for r in con.execute(
-        "SELECT id, ts, requester, target, kind, response, body, parent_id "
+        "SELECT id, ts, requester, target, kind, response, body, parent_id, fyi "
         "FROM requests WHERE target = ? AND state = 'queued' ORDER BY id",
         (HUMAN,),
     ).fetchall():
@@ -304,12 +300,16 @@ def messages(con) -> list[dict]:
         # `waiting` says the sender asked for a reply and parked on it - which
         # is what it did at the time; whether it is still parked now is the
         # agent's own state, and the screen says what the row records rather
-        # than reading one as the other.
+        # than reading one as the other. A report is `fyi` by definition
+        # asking for no reply, whatever response the routing happened to pick
+        # for that sender's other traffic - `response == "async"` alone would
+        # let one hand-edited routing line pin every report from an agent and
+        # switch the fold off with nothing failing.
         out.append({
             "id": r["id"], "ts": r["ts"], "from": r["requester"],
             "kind": r["kind"], "body": r["body"], "parent_id": r["parent_id"],
             "gate": r["kind"] == "escalate",
-            "waiting": r["response"] == "async",
+            "waiting": r["response"] == "async" and not r["fyi"],
             "answer": False,
         })
 
@@ -330,9 +330,57 @@ def messages(con) -> list[dict]:
             "answer": True,
             "parent_id": r["parent_id"],
         })
-    # Oldest first inside each bucket, by when the row landed rather than by
-    # its id: an answer carries the time it came back, and a reply to an old
-    # question has a low id and is this morning's news.
+    return out
+
+
+def fold_key(agent: str) -> str:
+    """The stable key a folded line for `agent` carries - see `messages`."""
+    return f"agent:{agent}"
+
+
+def messages(con) -> list[dict]:
+    """The human's mailbox, folded to one line per agent - like a chat app,
+    not a mail client, so the list is as long as the team rather than as long
+    as the traffic.
+
+    A gate is a decision only the human makes, and a row parked waiting on a
+    reply is owed one - both stop work until he acts, so both keep their own
+    line even when the same agent has said something newer. Everything else -
+    a report that asked nothing, an answer to what he asked - is not a decision
+    pending on him the way those two are, so it folds: one line per agent,
+    carrying that agent's latest, with `unread` counting what it stands in for.
+
+    Every row also carries `key`, a string stable across a fold that its `id`
+    is not: `id` is still the latest thing in the row, since that is what
+    opening or acting on it means, but a screen that tracked a row by `id`
+    would fall off it the moment a newer message became the latest - the row
+    is still there, only its `id` changed under the cursor. `key` names the
+    row itself - the agent, for a folded line, since folding is what made an
+    agent one line in the first place - so it survives being updated in place.
+
+    Decisions first, then the ones that asked for a reply, then the rest -
+    oldest first inside each, because the order things arrived in is not the
+    order they matter in. A folded row sorts by the latest thing in it, which
+    is what a reader who has not looked in a while cares about.
+    """
+    raw = mailbox_rows(con)
+    # A pinned row is never folded, so its id is already its stable identity -
+    # the key that changes is only the one a fold can hand a new id.
+    pinned = [dict(m, unread=1, key=m["id"]) for m in raw if m["gate"] or m["waiting"]]
+    groups: dict[str, list[dict]] = {}
+    for m in raw:
+        if m["gate"] or m["waiting"]:
+            continue
+        groups.setdefault(m["from"], []).append(m)
+    folded = []
+    for agent, items in groups.items():
+        # (ts, id): ties - two rows landing in the same second - break toward
+        # the row created after, since a later id is a later fact whatever the
+        # clock's resolution says.
+        items.sort(key=lambda m: (m["ts"], m["id"]))
+        row = dict(items[-1], unread=len(items), key=fold_key(agent))
+        folded.append(row)
+    out = pinned + folded
     return sorted(out, key=lambda m: (not m["gate"], not m["waiting"], m["ts"], m["id"]))
 
 

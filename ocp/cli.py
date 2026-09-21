@@ -1172,11 +1172,17 @@ def _human_inbox(show_all: bool = False) -> int:
         if not rows and not show_all:
             print("nothing waiting on you")
             return 0
-        print(f"{len(rows)} waiting. `ocp read <id>` shows one whole.")
+        # A count of messages, not of lines: read the same unfolded rows a
+        # fold draws from, not the fold's own line count.
+        # A count of messages, not of lines: read the same unfolded rows a
+        # fold draws from, not the fold's own line count.
+        print(f"{len(actions.mailbox_rows(con))} waiting. "
+              f"`ocp read <id>` shows one whole.")
         for m in rows:
             mark = "!" if m["gate"] else ("<" if m["answer"] else ".")
+            behind = f" (+{m['unread'] - 1})" if m["unread"] > 1 else ""
             print(f"{mark} #{m['id']:<5} {m['from']:<12} {(m['kind'] or 'ask'):<9} "
-                  f"{textsafe.oneline(actions.first_line(m['body']))[:60]}")
+                  f"{textsafe.oneline(actions.first_line(m['body']))[:60]}{behind}")
         print("`ocp resolve <id> \"<text>\"` answers one - on a `<` row that goes back "
               "as a reply in its thread; `ocp dismiss <id>` takes it off the list.")
         if show_all:
@@ -1248,9 +1254,15 @@ SETTLED = ("done", "rejected", *db.NEVER_REACHED_TARGET)
 
 
 def _waiting_ids(con, agent: str) -> set:
-    """The request ids currently on this agent's list, human or not."""
+    """The request ids currently on this agent's list, human or not.
+
+    The human's own list is read unfolded (`mailbox_rows`, not `messages`):
+    a wait is for a new row landing, and a fold can leave the id set
+    unchanged - a new row ties the folded representative's time and loses the
+    tiebreak - although something real just arrived.
+    """
     if agent == actions.HUMAN:
-        return {m["id"] for m in actions.messages(con)}
+        return {r["id"] for r in actions.mailbox_rows(con)}
     return {r["id"] for r in askmod.inbox(agent, unread_only=False)
             if r["state"] not in SETTLED}
 
@@ -1270,9 +1282,10 @@ def _answered(con, request_id: int) -> bool:
 def cmd_read(args) -> int:
     """Print one request whole - what was asked, and what came back.
 
-    `ocp inbox` shows a line each, cut to fit, and the only way to see the rest
-    was to know where the raw JSON lives. An agent that cannot read the whole
-    of what it was asked answers the half it could see.
+    `ocp inbox` shows a line each - one per agent on the human's own, cut to
+    fit - and the only way to see the rest was to know where the raw JSON
+    lives. An agent that cannot read the whole of what it was asked answers
+    the half it could see.
 
     Any agent can read any request, which was already true of the database and
     of `ocp inbox`, `ocp digest` and `ocp handoff` - this makes it convenient

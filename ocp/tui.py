@@ -931,12 +931,17 @@ def build(width: int, sel: dict | None = None,
         # is answered, and it used to be visible only by running `ocp inbox`
         # with the right name.
         waiting = actions.messages(con)
-        gates = sum(1 for m in waiting if m["gate"])
-        parked = sum(1 for m in waiting if m["waiting"] and not m["gate"])
-        back = sum(1 for m in waiting if m["answer"])
+        # Counted over the unfolded rows, not `waiting`: a fold shows one
+        # agent's latest, and a title built from the folded list would drop
+        # every message its line does not happen to represent.
+        raw = actions.mailbox_rows(con)
+        gates = sum(1 for m in raw if m["gate"])
+        parked = sum(1 for m in raw if m["waiting"] and not m["gate"])
+        back = sum(1 for m in raw if m["answer"])
+        to_read = sum(1 for m in raw if not m["gate"] and not m["waiting"]
+                      and not m["answer"])
         counts = [(gates, "to decide"), (parked, "asked for a reply"),
-                  (back, "came back"),
-                  (len(waiting) - gates - parked - back, "to read")]
+                  (back, "came back"), (to_read, "to read")]
         said = ", ".join(f"{n} {what}" for n, what in counts if n)
         title = f"FOR YOU — {said}" if said else "FOR YOU"
         ms = Panel(title, width, focused=panel == MESSAGES)
@@ -968,8 +973,11 @@ def build(width: int, sel: dict | None = None,
                 mark, name = f"{GRN}↩{R}", f"{BOLD}{sender:<12}{R}"
             else:
                 mark, name = f"{DIM}·{R}", f"{DIM}{sender:<12}{R}"
+            # A folded row stands for more than one: the count is the only
+            # sign anything sits behind it.
+            behind = f" {DIM}(+{m['unread'] - 1}){R}" if m["unread"] > 1 else ""
             ms.add(f"{DIM}{when}{R} {mark} {CYA}#{m['id']:<5}{R}{name}"
-                   f"{pad(oneline(m['kind'] or 'ask'), 11)}{first}", key=m["id"])
+                   f"{pad(oneline(m['kind'] or 'ask'), 11)}{first}{behind}", key=m["key"])
         if not waiting:
             ms.add(f"{DIM}  nothing waiting on you{R}")
 
@@ -2510,7 +2518,7 @@ def _keys_of(panel: int) -> list:
     con = db.connect()
     try:
         if panel == MESSAGES:
-            return [m["id"] for m in actions.messages(con)]
+            return [m["key"] for m in actions.messages(con)]
         # The rows about an account have no agent to act on, and a name that
         # appears twice is one place to put the cursor, not two.
         seen: list = []
@@ -2675,7 +2683,13 @@ def _act_on(panel: int, sel: dict, key: str, width: int, height: int,
             return getattr(actions, label)(con, name), None
 
         if panel == MESSAGES:
-            rid = int(target)
+            # `target` is the row's stable key, not its id: a folded row's id
+            # is its latest thing, which can have changed since the row was
+            # selected, so it is looked up fresh rather than trusted from then.
+            row_m = next((m for m in actions.messages(con) if m["key"] == target), None)
+            if row_m is None:
+                return f"{target} is gone", None
+            rid = row_m["id"]
             row = con.execute("SELECT * FROM requests WHERE id = ?", (rid,)).fetchone()
             if not row:
                 return f"#{rid} is gone", None

@@ -11452,28 +11452,34 @@ def test_the_cursor_follows_a_row_that_leaves_the_list(home: Path) -> None:
     _daemon_home(home, 20)
     con = db.connect()
     try:
-        ids = [db.add_request(con, "backend", actions.HUMAN, f"note {i}", None,
+        # A different sender per row: same agent would fold to one line now
+        # (#1476), and this test is about cursor mechanics, not folding. A
+        # folded row's key is the agent, not its (changeable) latest id.
+        def key(rid: int) -> str:
+            return actions.fold_key(db.get_request(con, rid)["requester"])
+
+        ids = [db.add_request(con, f"agent{i}", actions.HUMAN, f"note {i}", None,
                               "peer", "fire_and_forget", None, 0, None) for i in range(4)]
-        sel, known = {tui.MESSAGES: ids[1]}, {}
+        sel, known = {tui.MESSAGES: key(ids[1])}, {}
         tui.settle(sel, known)
-        check("cursor: a row that exists keeps it", sel[tui.MESSAGES] == ids[1], str(sel))
+        check("cursor: a row that exists keeps it", sel[tui.MESSAGES] == key(ids[1]), str(sel))
 
         actions.dismiss(con, ids[1])
         tui.settle(sel, known)
         check("cursor: dismissing the middle row moves it to the row that took its place",
-              sel[tui.MESSAGES] == ids[2], str(sel))
+              sel[tui.MESSAGES] == key(ids[2]), str(sel))
 
-        sel[tui.MESSAGES] = ids[3]
+        sel[tui.MESSAGES] = key(ids[3])
         tui.settle(sel, known)
         actions.dismiss(con, ids[3])
         tui.settle(sel, known)
         check("cursor: dismissing the last row moves it to the one above",
-              sel[tui.MESSAGES] == ids[2], str(sel))
+              sel[tui.MESSAGES] == key(ids[2]), str(sel))
 
         actions.answer(con, ids[2], "ok")
         tui.settle(sel, known)
         check("cursor: answering the row under it moves it on too",
-              sel[tui.MESSAGES] == ids[0], str(sel))
+              sel[tui.MESSAGES] == key(ids[0]), str(sel))
 
         actions.dismiss(con, ids[0])
         tui.settle(sel, known)
@@ -11481,25 +11487,25 @@ def test_the_cursor_follows_a_row_that_leaves_the_list(home: Path) -> None:
               str(sel))
 
         # Through the key itself, which is what the screen calls.
-        ids = [db.add_request(con, "backend", actions.HUMAN, f"key {i}", None,
+        ids = [db.add_request(con, f"key-agent{i}", actions.HUMAN, f"key {i}", None,
                               "peer", "fire_and_forget", None, 0, None) for i in range(3)]
-        sel = {tui.MESSAGES: ids[1]}
+        sel = {tui.MESSAGES: key(ids[1])}
         tui._act(tui.MESSAGES, sel, "x", 100, 30, None, None)
         check("cursor: x dismisses the middle row and the cursor takes the next",
-              sel.get(tui.MESSAGES) == ids[2], str(sel))
+              sel.get(tui.MESSAGES) == key(ids[2]), str(sel))
         tui._act(tui.MESSAGES, sel, "x", 100, 30, None, None)
         check("cursor: and dismissing the last leaves it on the one above",
-              sel.get(tui.MESSAGES) == ids[0], str(sel))
+              sel.get(tui.MESSAGES) == key(ids[0]), str(sel))
 
         # A report closing itself on open.
         ok, _m, f1 = askmod.ask(actions.HUMAN, "r1", requester="backend", fyi=True)
         ok, _m, f2 = askmod.ask(actions.HUMAN, "r2", requester="frontend", fyi=True)
-        sel = {tui.MESSAGES: f1}
+        sel = {tui.MESSAGES: key(f1)}
         tui.settle(sel, known)
         actions.opened_by_human(con, f1)
         tui.settle(sel, known)
         check("cursor: a report closing on open hands it to the next",
-              sel[tui.MESSAGES] == f2, str(sel))
+              sel[tui.MESSAGES] == key(f2), str(sel))
         row = db.get_request(con, f1)
         check("opened: it leaves the mailbox", row["state"] != "queued", row["state"])
         check("opened: it carries no verdict", row["verdict"] is None, row["verdict"])
@@ -11511,6 +11517,197 @@ def test_the_cursor_follows_a_row_that_leaves_the_list(home: Path) -> None:
               not any(r.rid == f1 and r.part == 1 for r in msgs), str(chat))
         check("opened: 'read' does not appear as something said to the sender",
               not any(r.text == "read" for r in msgs), str(chat))
+    finally:
+        con.close()
+
+
+def test_for_you_folds_to_one_line_per_agent(home: Path) -> None:
+    """Founder #1458/#1460: FOR YOU reads like a chat app - one line per agent,
+    not one per message. A gate and a row parked waiting on a reply are each a
+    decision or an obligation on the human, so both keep their own line even
+    when the same agent has said something newer; everything else from one
+    agent folds to its latest, with a count of what it stands in for."""
+    _daemon_home(home, 20)
+    con = db.connect()
+    try:
+        def by(agent: str) -> dict:
+            return next(m for m in actions.messages(con) if m["from"] == agent)
+
+        # Several reports from one agent: one line, the latest, the right count.
+        # Built the way production makes them - fire_and_forget, fyi - and left
+        # all three queued at once (`ask()`'s one-live-report replace is its
+        # own mechanism, not this one, and would leave only one row to fold
+        # regardless of whether folding worked). Given ts out of arrival order,
+        # so "latest" is proven to mean the newest thing said, not merely the
+        # last one inserted.
+        base = int(time.time())
+        for body, ts in (("almost there", base), ("half done", base - 20),
+                         ("still going", base - 10)):
+            rid = db.add_request(con, "backend", actions.HUMAN, body, None, "peer",
+                                 "fire_and_forget", "report", 0, None, fyi=True)
+            con.execute("UPDATE requests SET ts=? WHERE id=?", (ts, rid))
+        con.commit()
+        rows = [m for m in actions.messages(con) if m["from"] == "backend"]
+        check("fold: several reports from one agent become one line",
+              len(rows) == 1, str(rows))
+        check("fold: it carries the latest body", rows[0]["body"] == "almost there",
+              rows[0]["body"])
+        check("fold: the count is all three, not one",
+              rows[0]["unread"] == 3, str(rows[0]))
+
+        # Two rows landing in the same second: the id, not the clock, says
+        # which one is shown. `mailbox_rows` lists every queued ask before
+        # every answer regardless of when each was created, so an answer
+        # older than a same-second report would still win a plain `ts` sort
+        # by loop order alone - id breaks that tie by creation order instead.
+        tie_ts = int(time.time())
+        answered = db.add_request(con, actions.HUMAN, "punctual", "?", None, "peer",
+                                  "async", None, 0, None)
+        con.execute("UPDATE requests SET state='done', verdict='the answer', ts=?, "
+                    "resolved_at=? WHERE id=?", (tie_ts, tie_ts, answered))
+        newer_report = db.add_request(con, "punctual", actions.HUMAN, "the report", None,
+                                      "peer", "fire_and_forget", "report", 0, None, fyi=True)
+        con.execute("UPDATE requests SET ts=? WHERE id=?", (tie_ts, newer_report))
+        con.commit()
+        check("fold: a same-second tie shows the row created after",
+              by("punctual")["body"] == "the report", str(by("punctual")))
+
+        # An agent with several unannounced answers folds the same way, and the
+        # count there is real: nothing here retires an old answer for a new one.
+        for body in ("first answer", "second answer", "third answer"):
+            rid = db.add_request(con, actions.HUMAN, "reviewer", "?", None, "peer",
+                                 "async", None, 0, None)
+            con.execute("UPDATE requests SET state='done', verdict=? WHERE id=?",
+                       (body, rid))
+        con.commit()
+        rev = by("reviewer")
+        check("fold: several answers from one agent become one line too",
+              len([m for m in actions.messages(con) if m["from"] == "reviewer"]) == 1)
+        check("fold: carrying the latest answer", rev["body"] == "third answer", rev["body"])
+        check("fold: and counting all three", rev["unread"] == 3, str(rev))
+
+        # A gate never folds, even when the same agent has said something newer.
+        db.add_request(con, "backend", actions.HUMAN, "which branch do we cut?", None,
+                       "peer", "async", "escalate", 0, None)
+        ok, _m, r4 = askmod.ask(actions.HUMAN, "even later", requester="backend", fyi=True)
+        backend_rows = [m for m in actions.messages(con) if m["from"] == "backend"]
+        check("fold: the gate keeps its own line beside the folded report",
+              len(backend_rows) == 2, str(backend_rows))
+        check("fold: the gate is not folded away", any(m["gate"] for m in backend_rows),
+              str(backend_rows))
+        check("fold: the report line still carries its own latest",
+              any(not m["gate"] and m["body"] == "even later" for m in backend_rows),
+              str(backend_rows))
+
+        # A row parked waiting on a reply keeps its own line the same way.
+        wid = db.add_request(con, "frontend", actions.HUMAN, "merge keeper-3?", None,
+                             "peer", "async", None, 0, None)
+        ok, _m, f1 = askmod.ask(actions.HUMAN, "meanwhile: status", requester="frontend",
+                                fyi=True)
+        front_rows = [m for m in actions.messages(con) if m["from"] == "frontend"]
+        check("fold: a waiting-for-reply row keeps its own line",
+              len(front_rows) == 2 and any(m["waiting"] for m in front_rows), str(front_rows))
+
+        # The fold does not reorder agents that were not folded against each other.
+        before = [m["from"] for m in actions.messages(con)]
+        ok, _m, other = askmod.ask(actions.HUMAN, "a third report", requester="other",
+                                   fyi=True)
+        after = [m["from"] for m in actions.messages(con) if m["from"] != "other"]
+        check("fold: agents untouched by folding keep their relative order",
+              before == after, f"{before} -> {after}")
+
+        # A report is fyi by definition: nobody is waiting on it, whatever
+        # response the routing table happens to give that agent's other
+        # traffic. A hand-edited team.yaml carrying response=async for a human
+        # edge must not silently pin every report from it and switch the fold
+        # off - `fyi` is what says no reply is owed, not `response`.
+        db.add_request(con, "hand-edited", actions.HUMAN, "a report", None, "peer",
+                       "async", "report", 0, None, fyi=True)
+        edited = by("hand-edited")
+        check("fold: an async-routed report still folds - fyi outranks response",
+              not edited["waiting"] and not edited["gate"], str(edited))
+
+        # messages() backs `ocp inbox --wait` on the human's own mailbox too
+        # (cli._waiting_ids); a new report from an agent that already has a
+        # folded row must still show up as a new id to wait for.
+        before_ids = climod._waiting_ids(con, actions.HUMAN)
+        ok, _m, r5 = askmod.ask(actions.HUMAN, "one more", requester="backend", fyi=True)
+        after_ids = climod._waiting_ids(con, actions.HUMAN)
+        check("fold: a new folded message is still a new id to wait for",
+              after_ids - before_ids, f"{before_ids} -> {after_ids}")
+
+        # The wait set holds every row behind a fold, not only its
+        # representative - two rows from one agent, landing in the same
+        # second so the fold's own tiebreak is not what saves this.
+        now = int(time.time())
+        m1 = db.add_request(con, "multi", actions.HUMAN, "one", None, "peer",
+                            "fire_and_forget", None, 0, None)
+        m2 = db.add_request(con, "multi", actions.HUMAN, "two", None, "peer",
+                            "fire_and_forget", None, 0, None)
+        con.execute("UPDATE requests SET ts=? WHERE id IN (?, ?)", (now, m1, m2))
+        con.commit()
+        multi_line = by("multi")
+        check("fold: two rows from one agent are still one line",
+              multi_line["unread"] == 2, str(multi_line))
+        check("fold: but the wait set holds both ids behind it, not just the shown one",
+              {m1, m2} <= climod._waiting_ids(con, actions.HUMAN),
+              str(climod._waiting_ids(con, actions.HUMAN)))
+
+        # A folded row's cursor key is the agent, so an arrival from an agent
+        # already on screen must not move the cursor to a different agent's
+        # row - even though the arrival changes what sorts where.
+        for name in ("alpha", "zeta"):
+            db.add_request(con, name, actions.HUMAN, f"{name} report", None, "peer",
+                           "fire_and_forget", None, 0, None)
+        sel, known = {}, {}
+        tui.settle(sel, known)  # seed `known` with the panel as it stands
+        sel[tui.MESSAGES] = actions.fold_key("backend")
+        later = db.add_request(con, "backend", actions.HUMAN, "a later report", None,
+                               "peer", "fire_and_forget", None, 0, None)
+        tui.settle(sel, known)
+        check("fold: an arrival from the selected agent does not move the cursor off it",
+              sel[tui.MESSAGES] == actions.fold_key("backend"), str(sel))
+        # And a keystroke on that row acts on the row now shown, not a stale one.
+        tui._act(tui.MESSAGES, sel, "x", 100, 30, None, None)
+        check("fold: the keystroke acted on the message that just arrived",
+              db.get_request(con, later)["state"] != "queued",
+              db.get_request(con, later)["state"])
+
+        # A count of messages, not of the lines a fold drew them into: one
+        # agent, two answers already back and three newer reports, folded to
+        # a single line - but five things are waiting on the founder.
+        def counts_of(title: str) -> dict[str, int]:
+            if " — " not in title:
+                return {}
+            return {what: int(n) for n, what in
+                   (part.split(" ", 1) for part in title.split(" — ", 1)[1].split(", "))}
+
+        before_title = next(p.title for p in tui.build(100, sel={}, panel=tui.MESSAGES)[1]
+                            if p.title.startswith("FOR YOU"))
+        before = counts_of(before_title)
+        for body in ("first answer", "second answer"):
+            rid = db.add_request(con, actions.HUMAN, "counted", "?", None, "peer",
+                                 "async", None, 0, None)
+            con.execute("UPDATE requests SET state='done', verdict=? WHERE id=?",
+                       (body, rid))
+        for body in ("r1", "r2", "r3"):
+            db.add_request(con, "counted", actions.HUMAN, body, None, "peer",
+                           "fire_and_forget", "report", 0, None, fyi=True)
+        con.commit()
+        counted_line = by("counted")
+        check("fold: still one line for that agent", counted_line["unread"] == 5,
+              str(counted_line))
+        after_title = next(p.title for p in tui.build(100, sel={}, panel=tui.MESSAGES)[1]
+                           if p.title.startswith("FOR YOU"))
+        after = counts_of(after_title)
+        check("fold: the title counts every message behind the fold, not the fold's lines",
+              after["came back"] - before.get("came back", 0) == 2
+              and after["to read"] - before.get("to read", 0) == 3,
+              f"{before_title!r} -> {after_title!r}")
+        want = len(actions.mailbox_rows(con))
+        out = _capture(lambda: climod.main(["inbox", actions.HUMAN]))
+        check("fold: `ocp inbox` counts every message in the mailbox, not every line",
+              int(out.splitlines()[0].split()[0]) == want, out.splitlines()[0])
     finally:
         con.close()
 
@@ -16242,7 +16439,11 @@ def test_a_message_in_for_you_opens_at_its_place_in_the_conversation(home: Path)
         sel = {tui.MESSAGES: target}
 
         def open_it(rid: int):
-            return tui._act(tui.MESSAGES, {tui.MESSAGES: rid}, "\r", 100, 24, None, None)
+            # A real cursor holds a row's `key` (its agent, once folded - #1476),
+            # not its id; look the current key up the way the screen would.
+            row = next((m for m in actions.messages(con) if m["id"] == rid), None)
+            target = row["key"] if row else rid
+            return tui._act(tui.MESSAGES, {tui.MESSAGES: target}, "\r", 100, 24, None, None)
 
         line, page = open_it(target)
         check("for-you: Enter opens the agent's page, on that message",
@@ -18733,6 +18934,7 @@ def main() -> int:
         run(lambda: test_work_arriving_wakes_a_closed_agent(Path(td) / 'wakework'))
         run(lambda: test_a_running_agent_is_told_when_work_arrives(Path(td) / 'deliver'))
         run(lambda: test_a_report_to_the_founder_is_not_a_wait(Path(td) / 'fyi'))
+        run(lambda: test_for_you_folds_to_one_line_per_agent(Path(td) / 'fold'))
         run(lambda: test_the_cursor_follows_a_row_that_leaves_the_list(Path(td) / 'cursor'))
         run(lambda: test_a_withdraw_landing_before_the_send_stops_the_send(Path(td) / 'withdrawrace'))
         run(lambda: test_a_delivery_belongs_to_the_session_it_was_typed_into(Path(td) / 'sessdeliver'))
