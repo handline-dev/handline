@@ -11505,6 +11505,12 @@ def test_the_cursor_follows_a_row_that_leaves_the_list(home: Path) -> None:
         check("opened: it carries no verdict", row["verdict"] is None, row["verdict"])
         check("opened: the sender is not told - nothing to announce",
               f1 not in [r["id"] for r in db.unannounced_answers(con, "backend")])
+        chat, _ = actions.conversation_and_drawn(con, "backend")
+        msgs = [r for r in chat if getattr(r, "kind", None) == "msg"]
+        check("opened: its verdict is never drawn in the sender's own conversation",
+              not any(r.rid == f1 and r.part == 1 for r in msgs), str(chat))
+        check("opened: 'read' does not appear as something said to the sender",
+              not any(r.text == "read" for r in msgs), str(chat))
     finally:
         con.close()
 
@@ -11558,6 +11564,12 @@ def test_a_report_to_the_founder_is_not_a_wait(home: Path) -> None:
         check("fyi: opening it leaves no verdict", row["verdict"] is None, row["verdict"])
         check("fyi: opening it does not read back to the sender",
               f2 not in [r["id"] for r in db.unannounced_answers(con, "backend")])
+        chat, _ = actions.conversation_and_drawn(con, "backend")
+        msgs = [r for r in chat if getattr(r, "kind", None) == "msg"]
+        check("fyi: its verdict is never drawn in the sender's own conversation",
+              not any(r.rid == f2 and r.part == 1 for r in msgs), str(chat))
+        check("fyi: 'read' does not appear as something said to the sender",
+              not any(r.text == "read" for r in msgs), str(chat))
         actions.opened_by_human(con, q)
         check("fyi: opening a question does not answer it",
               db.get_request(con, q)["state"] == "queued")
