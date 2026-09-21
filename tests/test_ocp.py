@@ -14888,6 +14888,38 @@ def test_the_agent_head_is_trimmed_and_slash_commands_are_derived_not_kept(home:
         check("commands: every source name appears in exactly one place",
               set(cmds) == allowed | set(tui.INFO_COMMANDS)
               and len(cmds) == len(allowed) + len(tui.INFO_COMMANDS), str(cmds))
+
+        # A recognized command runs, through the composer that also sends
+        # plain messages - and a message that merely starts with '/' but
+        # names nothing real is still sent, not dropped. `_line` itself
+        # already promises the second half; this is `_write_in_thread`
+        # trusting that promise rather than re-deciding on its own.
+        import pty
+        import tty as ttymod
+        agents.register("reviewer", "alpha")   # "*" may message reviewer; backend cannot be messaged fresh
+
+        def typed(text: bytes) -> tuple[dict, str]:
+            master, slave = pty.openpty()
+            ttymod.setraw(slave)
+            real_in, real_out = sys.stdin, sys.stdout
+            sys.stdin, sys.stdout = os.fdopen(slave, "r", closefd=False), io.StringIO()
+            detail = tui._agent_page(con, "reviewer")
+            detail["stem"] = actions.CHAT_TAB
+            try:
+                os.write(master, text)
+                return tui._write_in_thread(detail, "\r", 60, 24, None, None)
+            finally:
+                sys.stdin, sys.stdout = real_in, real_out
+                os.close(master)
+                os.close(slave)
+
+        detail, said = typed(b"/where\r")
+        check("commands: a resolved command runs and says its answer",
+              said == "reviewer has never been started", said)
+        detail, said = typed(b"/not-a-real-command hello\r")
+        chat = next(r for h, r in detail["sections"] if h.startswith(actions.CHAT_TAB))
+        check("commands: unmatched slash text is sent as a message, not dropped",
+              any("/not-a-real-command hello" in ln for ln in chat), str(chat))
     finally:
         con.close()
 

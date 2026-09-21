@@ -2204,16 +2204,22 @@ def _write_in_thread(detail: dict, k: str, width: int, height: int,
         allowed, why = actions.can(con, name, "message")
         if not allowed:
             return detail, why
+        cmds = agent_commands(con, name)
         if k == "e":
             body = _editor(f"# a message to {name}. Lines starting with # are dropped.\n",
                            fd, saved)
         else:
             body = _line(f"to {name}:", width, height, multi=True,
                          under=lambda h: _detail_frame(width, h, dict(detail)),
-                         commands=agent_commands(con, name))
+                         commands=cmds)
         if body is None:
             return detail, _nothing_sent(k)
-        if k != "e" and body.startswith("/"):
+        # `_line`'s own contract: text starting with '/' that matched nothing
+        # comes back exactly as typed, so it is not necessarily a resolved
+        # command - only a body that names one of `cmds` is. A literal
+        # message that happens to type a real command's name runs it, the
+        # same tradeoff any chat command syntax makes.
+        if k != "e" and body.startswith("/") and body[1:] in dict(cmds):
             return _run_command(con, detail, name, body[1:], width, height, fd, saved)
         said = actions.chat_reply(con, name, body)
         detail["end"] = True
