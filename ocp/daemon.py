@@ -1476,8 +1476,8 @@ def _move_to_room(con, agent: str, trigger: triggers.Trigger, log,
 
     (moved, retry_soon). `retry_soon` is only meaningful when `moved` is
     False: True once a destination account was actually found, so whatever
-    stopped the move is about this terminal right now - a modal, unsent text,
-    a session that would not end - and not about the accounts, which is the
+    stopped the move is about this terminal right now - a modal or a
+    session that would not end - and not about the accounts, which is the
     caller's cue to look again shortly rather than park until this account's
     own window rolls over. False when no destination existed (a real park) or
     the trigger never moves accounts at all.
@@ -1672,7 +1672,7 @@ def _perform_handoff(con, agent: str, trigger: triggers.Trigger, log,
         # A forced move that ended the session and did not start it is not a
         # wall: the account it left had room, so there is no window to wait out.
         # `retry_soon` is the same shape: a destination had room, so whatever
-        # stopped the move - a dialog blocking `/exit`, unsent text, a session
+        # stopped the move - a dialog blocking `/exit`, a session
         # that would not end - is about this terminal, not this account, and
         # may already be gone by the time this account's own window would
         # have rolled over. blocked.sweep() is already re-reading that screen
