@@ -793,6 +793,7 @@ def _answer_exit_dialog(con, agent: str, log) -> None:
     that offers to exit: choose it, once. Stops when the session is gone, when
     the choice is made, or when a dialog with no such option is up - that one is
     left to the failed-close path - and gives up after EXIT_DIALOG_WAIT_S."""
+    # END_WAIT_S bounds it too, which is what lets the suite run it in tenths of a second.
     deadline = time.time() + min(EXIT_DIALOG_WAIT_S, END_WAIT_S)
     while time.time() < deadline:
         sessions = obs.live_sessions()
@@ -800,8 +801,10 @@ def _answer_exit_dialog(con, agent: str, log) -> None:
             return
         if blocked.choose_exit(con, agent, log):
             return
+        # A title means the panel parsed and offers no such option; a footer
+        # with nothing readable above it is a torn read, read again.
         seen = orca.screen_blocker(db.get_terminal(con, agent) or "")
-        if seen is not None and seen.kind == orca.MODAL:
+        if seen is not None and seen.kind == orca.MODAL and seen.title:
             return
         time.sleep(END_POLL_S)
 
@@ -855,7 +858,8 @@ def _end_session(con, agent: str, log, st, resume: str | None) -> tuple[bool, st
         _answer_exit_dialog(con, agent, log)
     if not _wait_session_gone(agent):
         pid = (obs.live_sessions() or {}).get(agent)
-        why = (f"/exit was typed but the session is still running"
+        did = "'Exit and stop tasks' was chosen" if chosen else "/exit was typed"
+        why = (f"{did} but the session is still running"
                f"{f' (pid {pid})' if pid else ''} after {END_WAIT_S}s; not marked closed")
         db.add_event(con, agent, "close_failed", {"why": why, "pid": pid})
         blocked.note_close_failure(con, agent, log)

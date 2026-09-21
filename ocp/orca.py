@@ -333,8 +333,12 @@ ESCAPE = "\x1b"
 _ESC_MARK = re.compile(r"\(esc\)\s*$", re.IGNORECASE)
 
 
+def _norm_label(label: str) -> str:
+    return re.sub(r"\s*\(esc\)$", "", label.strip().lower()).rstrip(".!")
+
+
 def _inert(label: str) -> bool:
-    return re.sub(r"\s*\(esc\)$", "", label.strip().lower()).rstrip(".!") in INERT_LABELS
+    return _norm_label(label) in INERT_LABELS
 
 
 # _ESC_MARK (case-insensitive, a trailing space allowed) and the strip inside
@@ -639,8 +643,7 @@ def exit_key(dialog: Dialog) -> tuple[str | None, str]:
     gives no key, and nothing else in the panel is pressed instead."""
     if "Enter to confirm" not in dialog.footer:
         return None, "its footer does not say Enter confirms"
-    found = [n for n, label in dialog.options
-             if re.sub(r"\s*\(esc\)$", "", label.strip().lower()).rstrip(".!") == EXIT_AND_STOP_LABEL]
+    found = [n for n, label in dialog.options if _norm_label(label) == EXIT_AND_STOP_LABEL]
     if not found:
         return None, "it offers no 'Exit and stop tasks' option"
     if len(found) > 1:
@@ -658,7 +661,8 @@ def choose_exit(handle: str) -> tuple[str, str, str]:
     The screen is read here, immediately before the key. Nothing is pressed on
     a screen that cannot be read, is not a dialog, does not parse, or offers no
     such option. CHOSEN means the key was sent, not that the session ended: that
-    is the process table's to say."""
+    is the process table's to say, so unlike `decline_dialog` there is no re-read
+    after the key and a dialog that stays is not pressed twice within one close."""
     term = _screen(handle)
     tail = term.get("tail") if term else None
     if not isinstance(tail, list) or term.get("source") != "screen":

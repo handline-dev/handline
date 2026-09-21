@@ -191,9 +191,10 @@ def past_dialog(con, agent: str, log, now: int | None = None,
     the exit is ocp's own and no person is answering a dialog it is about to
     dismiss.
 
-    That warrant holds where the caller is committed to ending the session -
-    and one ending it has already tried `choose_exit`, so Esc here is only what
-    is left when no 'Exit and stop tasks' option was there. A
+    That warrant holds where the caller is committed to ending the session.
+    The close tries `choose_exit` before this, so Esc there is only what is
+    left when no 'Exit and stop tasks' option was; the /clear path does not
+    end the session and never chooses it. A
     caller that is only deciding whether to begin passes `only_limit`: then
     nothing is pressed for a dialog that waiting may clear because a person is
     answering it (a permission prompt on a working agent), and it reads as no

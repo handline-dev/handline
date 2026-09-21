@@ -3781,9 +3781,17 @@ class _ExitTerm:
     def __init__(self, dialog, exits_on, table):
         self.dialog, self.exits_on, self.table = dialog, exits_on, table
         self.screen, self.sent = list(COMPOSER_EMPTY), []
+        self.torn, self.reads = 0, 0
+
+    def _read(self, handle):
+        self.reads += 1
+        if self.torn and self.screen == list(self.dialog):
+            self.torn -= 1
+            return _screen_of(self.dialog[-1:])
+        return _screen_of(self.screen)
 
     def install(self):
-        orcamod._screen = lambda h: _screen_of(self.screen)
+        orcamod._screen = self._read
         orcamod.send = self.send
         orcamod.wait_idle = lambda h, timeout_ms=0: True
         orcamod.screen_blocker = REAL_ORCA["screen_blocker"]
@@ -3800,12 +3808,13 @@ class _ExitTerm:
         return True, ""
 
 
-def _close_at(home: Path, dialog, exits_on="1"):
+def _close_at(home: Path, dialog, exits_on="1", torn=0):
     restore_world()
     con = _blocked_world(home)
     db.set_terminal(con, "backend", "term_x", "wt")
     table = sessions_are("backend")
     term = _ExitTerm(dialog, exits_on, table)
+    term.torn = torn
     term.install()
     st = types.SimpleNamespace(session_id="sess-1", ctx_pct=8)
     ok, why = dmn._end_session(con, "backend", lambda m: None, st, resume="sess-1")
@@ -3836,6 +3845,19 @@ def test_a_close_answers_the_dialog_that_offers_to_exit(home: Path) -> None:
           not ok and not [k for k in keys if k.isdigit()], f"{ok} {why} {term.sent}")
     con.close()
 
+    check("exit: a dialog that offers no such option is given up on at once, not polled for the budget",
+          term.reads < 10, str(term.reads))
+    twice = [ln.replace("2. Move to background and exit", "2. Exit and stop tasks") for ln in EXIT_DIALOG]
+    con, term, ok, why = _close_at(home / "g", twice)
+    check("exit: two options with that label press nothing",
+          not ok and not [t for t, _ in term.sent if t.isdigit()], f"{ok} {why} {term.sent}")
+    con.close()
+
+    con, term, ok, why = _close_at(home / "h", EXIT_DIALOG, torn=2)
+    check("exit: a torn read of the dialog is read again, not given up on",
+          ok and ("1", False) in term.sent, f"{ok} {why} {term.sent}")
+    con.close()
+
     no_confirm = EXIT_DIALOG[:-1] + ["   Esc to cancel"]
     con, term, ok, why = _close_at(home / "d", no_confirm)
     check("exit: a footer that does not say Enter confirms is not pressed",
@@ -3854,6 +3876,17 @@ def test_a_close_answers_the_dialog_that_offers_to_exit(home: Path) -> None:
     ok, why = dmn._end_session(con, "backend", lambda m: None, st, resume="sess-1")
     check("exit: a dialog already up is chosen, and no /exit is typed after it",
           ok and term.sent == [("1", False)], f"{ok} {why} {term.sent}")
+    con.close()
+
+    restore_world()
+    con = _blocked_world(home / "i")
+    db.set_terminal(con, "backend", "term_x", "wt")
+    term = _ExitTerm(EXIT_DIALOG, "9", sessions_are("backend"))
+    term.screen = list(EXIT_DIALOG)
+    term.install()
+    ok, why = dmn._end_session(con, "backend", lambda m: None, st, resume="sess-1")
+    check("exit: a chosen exit the session survives says it was chosen, not that /exit was typed",
+          not ok and why.startswith("'Exit and stop tasks' was chosen") and "/exit" not in why, why)
     con.close()
 
     # Where ocp is not ending a session the dialog is still only declined.
