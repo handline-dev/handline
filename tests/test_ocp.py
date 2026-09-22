@@ -3318,8 +3318,13 @@ def test_event_allowlist() -> None:
 def test_triggers() -> None:
     T = triggers
     check("trigger: quiet agent does not fire", not T.evaluate(10, 10).fired)
-    check("trigger: context at 60 fires", T.evaluate(10, 60).kind == "context")
-    check("trigger: context below 60 does not", not T.evaluate(10, 59).fired)
+    check("trigger: context at the default fires",
+          T.evaluate(10, T.CONTEXT_TOKENS).kind == "context")
+    check("trigger: one token under the default does not",
+          not T.evaluate(10, T.CONTEXT_TOKENS - 1).fired)
+    check("trigger: an explicit ctx_limit overrides the default",
+          T.evaluate(10, 300_000, ctx_limit=300_000).kind == "context"
+          and not T.evaluate(10, 300_000 - 1, ctx_limit=300_000).fired)
 
     # A working agent runs to the wall: nothing below 100% is a usage trigger.
     for pct in (85, 90, 95, 99):
@@ -3373,6 +3378,163 @@ def test_triggers() -> None:
           not T.evaluate(9, 10, pct_7d=None).fired)
     check("trigger: a 5h wall wins when both are at theirs",
           T.evaluate(100, 10, pct_7d=100).kind == "usage")
+
+
+def test_context_tokens_override_falls_back_on_garbage() -> None:
+    """#1669 proof: absent and garbage must both read as the default, and
+    garbage must never read as 0 - that would fire the trigger on every tick,
+    which is worse than ignoring a bad config entirely."""
+    check("context_tokens: absent falls back to the default",
+          agents.context_tokens({}) == triggers.CONTEXT_TOKENS)
+    check("context_tokens: an explicit null falls back too",
+          agents.context_tokens({"context_tokens": None}) == triggers.CONTEXT_TOKENS)
+    check("context_tokens: zero is garbage here, not itself",
+          agents.context_tokens({"context_tokens": 0}) == triggers.CONTEXT_TOKENS)
+    check("context_tokens: negative falls back too",
+          agents.context_tokens({"context_tokens": -5}) == triggers.CONTEXT_TOKENS)
+    check("context_tokens: a string is garbage, not a figure to coerce",
+          agents.context_tokens({"context_tokens": "lots"}) == triggers.CONTEXT_TOKENS)
+    check("context_tokens: a bool is garbage too, not 0 or 1",
+          agents.context_tokens({"context_tokens": True}) == triggers.CONTEXT_TOKENS)
+    check("context_tokens: a real configured figure is used as-is",
+          agents.context_tokens({"context_tokens": 300_000}) == 300_000)
+
+
+def test_the_clamp_holds_a_small_window_agent_down() -> None:
+    """#1669 proof: a model collect.ctx_size recognizes clamps the effective
+    limit to CONTEXT_CLAMP_FRACTION of its own window, so a figure configured
+    (or defaulted) for a 1M-token model cannot leave a 200k one with a check
+    that never fires."""
+    haiku_clamp = int(200_000 * triggers.CONTEXT_CLAMP_FRACTION)
+    check("clamp: a figure sized for a 1M model is held down on haiku's window",
+          status.effective_context_limit({"context_tokens": 500_000},
+                                        "claude-haiku-4-5-20251001") == haiku_clamp,
+          status.effective_context_limit({"context_tokens": 500_000},
+                                        "claude-haiku-4-5-20251001"))
+    check("clamp: the flat default already sits at haiku's clamp - 120,000 is "
+          "60% of 200,000 by construction, the anchor CONTEXT_TOKENS was chosen from",
+          status.effective_context_limit({}, "claude-haiku-4-5-20251001") == haiku_clamp)
+    check("clamp: a sane figure on a 1M-window model is not touched",
+          status.effective_context_limit({"context_tokens": 300_000}, "claude-sonnet-5")
+          == 300_000)
+    check("clamp: an unrecognized model has no window to take a fraction of - "
+          "the flat figure stands alone",
+          status.effective_context_limit({"context_tokens": 900_000}, "some-future-model")
+          == 900_000)
+
+
+def test_agents_stays_a_leaf_no_cycle_through_collect_or_vendors() -> None:
+    """#1784: agents.py -> collect -> vendors -> agents was a real cycle,
+    surviving only because vendors/__init__.py happens to touch `agents.X`
+    inside function bodies rather than at module level - an accident holding
+    a door shut, not a guarantee. effective_context_limit moved to status.py
+    (whose three callers already import status) so agents.py would not have
+    to reach upward at all. This is the guard that keeps it that way: nothing
+    else needs agents to import collect or vendors, so if either import
+    reappears at module level, this is the fastest possible failure, not a
+    hang or a partial-module AttributeError three imports later.
+
+    auditor #1813: the first cut of this guard collected `n.module` off
+    every ImportFrom node - which is None for `from . import collect, ...`
+    (a relative import with no module name; the imported names live in
+    `n.names` instead), so it saw only {None, ...} and passed whatever
+    agents.py imported, the exact cycle #1784 asked removed. Also walked the
+    whole tree, which would have caught agents.py's own deliberate
+    function-body `from . import db, status` (already on main, unrelated to
+    this cycle) had it named collect or vendors. Fixed: only `tree.body`
+    (module level), and both shapes of a relative import - `from . import X`
+    (X in `n.names`) and `from .X import Y` (X is `n.module`)."""
+    import ast
+    tree = ast.parse((ROOT / "ocp" / "agents.py").read_text())
+    imported: set[str] = set()
+    for n in tree.body:
+        if not isinstance(n, ast.ImportFrom):
+            continue
+        if n.module:
+            imported.add(n.module.split(".")[0])
+        else:
+            imported.update(a.name for a in n.names)
+    check("agents.py imports neither collect nor vendors",
+          not ({"collect", "vendors"} & imported), imported)
+
+
+def test_an_unknown_model_now_hands_off_on_tokens(home: Path) -> None:
+    """#1669 proof: today, collect.ctx_size(model_id) returns None for a model
+    this box has never priced, so _pct(used, None) is None, ctx_pct is None,
+    and the context trigger never fires - silently, forever, no refusal, no
+    log line. ctx_used needs no window at all, so the same agent now hands
+    off exactly like any other."""
+    home.mkdir(parents=True, exist_ok=True)
+    os.environ["OCP_HOME"] = str(home)
+    model = "some-future-model-nobody-has-priced"
+    check("unknown model: collect genuinely does not know its window",
+          collect.ctx_size(model) is None)
+    limit = status.effective_context_limit({}, model)
+    check("unknown model: no clamp applies - the flat default stands alone",
+          limit == triggers.CONTEXT_TOKENS)
+    t = triggers.evaluate(10, 200_000, ctx_limit=limit)
+    check("unknown model: the trigger fires on the raw count anyway",
+          t.fired and t.kind == "context", t.reason)
+    quiet = triggers.evaluate(10, 50_000, ctx_limit=limit)
+    check("unknown model: and stays quiet under its own default, same as any model",
+          not quiet.fired, quiet.reason)
+
+
+def test_a_stale_ctx_used_does_not_fire(home: Path) -> None:
+    """#1669 proof: trusted_ctx_used gets the same staleness treatment
+    trusted_ctx_pct already has (status.py's stale property) - a snapshot
+    nobody has refreshed must not fire the trigger just because the number it
+    once wrote was large."""
+    home.mkdir(parents=True, exist_ok=True)
+    os.environ["OCP_HOME"] = str(home)
+    agents.register("keeper", "alpha")
+    accounts.register("alpha")
+    write_status(home, "alpha", pct_5h=10, pct_7d=10, reset_5h=int(time.time()) + 1800)
+    write_agent_status("keeper", "alpha",
+                       ctx_used={"cache_read_input_tokens": 900_000},
+                       model_id="claude-sonnet-5",
+                       collected_at=int(time.time()) - status.STALE_AFTER_S - 60)
+    st = status.read_for_agent("keeper", "alpha")
+    check("stale ctx_used: trusted_ctx_used is None while the snapshot is stale",
+          st.trusted_ctx_used is None, str(st.trusted_ctx_used))
+    limit = status.effective_context_limit(agents.read("keeper"), st.model_id)
+    t = triggers.evaluate(st.trusted_pct_5h, st.trusted_ctx_used, ctx_limit=limit)
+    check("stale ctx_used: the trigger does not fire on an untrusted figure",
+          not t.fired, t.reason)
+
+    # #1762 should-fix 2: read_for_agent's own "own.error or own.stale" branch
+    # already nulls ctx_used for every agent read before trusted_ctx_used is
+    # ever consulted, so the check above holds whether or not that property's
+    # own guard exists - it is not what it was named to prove. Pinned here
+    # through status.read() directly, on the agent's own file, which has no
+    # such branch: only trusted_ctx_used's own `None if self.stale` stands
+    # between a 900,000-token reading and a fired trigger.
+    own = status.read("", paths.agent_status_file("keeper"))
+    check("stale ctx_used: read() also carries the raw figure through unmasked",
+          own.ctx_used == 900_000, own.ctx_used)
+    check("stale ctx_used: it is trusted_ctx_used's own guard, pinned directly, "
+          "that withholds it - not a masking branch upstream",
+          own.trusted_ctx_used is None, own.trusted_ctx_used)
+
+
+def test_status_read_sums_a_raw_ctx_used_dict_the_way_collect_does(home: Path) -> None:
+    """#1762 should-fix 4: the line connecting every on-disk snapshot to the
+    context trigger - status.read's `collect.tokens(raw_ctx_used) if
+    isinstance(raw_ctx_used, dict) else _as_int(raw_ctx_used)` - was covered
+    only incidentally, inside test_shared_account_context_isolation, a test
+    named for account isolation that happens to assert a context trigger
+    fires. Pinned directly here, against the same four-key shape
+    collect.snapshot actually writes."""
+    home.mkdir(parents=True, exist_ok=True)
+    os.environ["OCP_HOME"] = str(home)
+    usage = {"input_tokens": 100, "output_tokens": 50,
+             "cache_creation_input_tokens": 2_000, "cache_read_input_tokens": 300_000}
+    write_status(home, "alpha", pct_5h=10, ctx_used=usage)
+    st = status.read("alpha")
+    check("read(): a dict ctx_used is summed the same way collect.tokens does",
+          st.ctx_used == collect.tokens(usage), (st.ctx_used, collect.tokens(usage)))
+    check("read(): and it is the real sum, not a passthrough of the dict itself",
+          st.ctx_used == 302_150, st.ctx_used)
 
 
 # ---------------------------------------------------------------- daemon
@@ -3946,7 +4108,7 @@ def test_daemon_ignores_stale_status(home: Path) -> None:
     check("stale snapshot: assignable() refuses", not st.assignable()[0])
     check("stale snapshot: pct is not trusted for triggers", st.trusted_pct_5h is None,
           str(st.trusted_pct_5h))
-    t = triggers.evaluate(st.trusted_pct_5h, st.trusted_ctx_pct)
+    t = triggers.evaluate(st.trusted_pct_5h, st.trusted_ctx_used)
     check("stale snapshot: an unreadable figure is not a wall, so nothing fires on it",
           not t.fired, t.reason)
 
@@ -7791,8 +7953,8 @@ def test_shared_account_context_isolation(home: Path) -> None:
           a.pct_5h == b.pct_5h == 30, f"a={a.pct_5h} b={b.pct_5h}")
 
     # The context trigger must fire for the full agent and not for the other.
-    ta = triggers.evaluate(a.pct_5h, a.ctx_pct)
-    tb = triggers.evaluate(b.pct_5h, b.ctx_pct)
+    ta = triggers.evaluate(a.pct_5h, a.ctx_used)
+    tb = triggers.evaluate(b.pct_5h, b.ctx_used)
     check("shared account: the full agent's context trigger fires",
           ta.fired and ta.kind == "context", ta.reason)
     check("shared account: the other agent's does not", not tb.fired, tb.reason)
@@ -8769,7 +8931,7 @@ def test_carry_bounds_and_losses(home: Path) -> None:
     check("carry: the refusal says how old it is", "ago" in st.assignable()[1])
     check("carry: but the trigger still gets the floor, not a null",
           st.trusted_pct_5h == 55, str(st.trusted_pct_5h))
-    t = triggers.evaluate(st.trusted_pct_5h, st.trusted_ctx_pct)
+    t = triggers.evaluate(st.trusted_pct_5h, st.trusted_ctx_used)
     check("carry: so an idle agent is not handed off for usage_unknown",
           t.kind != "usage_unknown", t.reason)
 
@@ -9077,22 +9239,38 @@ def test_a_session_figure_is_not_shown_as_an_accounts(home: Path) -> None:
     os.environ["OCP_HOME"] = str(home)
     agents.register("never_ran", "alpha")
     agents.register("has_session", "alpha")
-    write_status(home, "alpha", pct_5h=20, ctx_pct=77, cost_usd=9.99)
+    # #1762 should-fix 3: with no ctx_used key on either fixture there was
+    # nothing for never_ran to borrow, so "nor a raw token count either"
+    # passed whether or not the borrow-guard existed. Both now carry one, the
+    # shape collect.snapshot actually writes - a dict of counts - so the
+    # account's 770,000 is a real, sizeable figure a bug would actually leak.
+    write_status(home, "alpha", pct_5h=20, ctx_pct=77,
+                 ctx_used={"input_tokens": 770_000}, cost_usd=9.99,
+                 model_id="claude-haiku-4-5-20251001")
     (home / "agents" / "has_session").mkdir(parents=True, exist_ok=True)
     (home / "agents" / "has_session" / "status.json").write_text(json.dumps({
         "account": "alpha", "collected_at": int(time.time()), "session_id": "s1",
-        "pct_5h": 20, "ctx_pct": 12, "cost_usd": 4.0}))
+        "pct_5h": 20, "ctx_pct": 12, "ctx_used": {"input_tokens": 12_000},
+        "cost_usd": 4.0}))
 
     st = status.read_for_agent("never_ran", "alpha")
     check("an agent with no session has no context, not someone else's",
           st.ctx_pct is None, str(st.ctx_pct))
+    check("nor a raw token count either", st.ctx_used is None, str(st.ctx_used))
     check("and no session id to point at either", st.session_id is None)
+    # auditor #1813 note 4: without its own snapshot, model_id must not be
+    # borrowed either - a haiku account's last session would otherwise clamp
+    # a never-run agent's (unset) context to haiku's window, not the default.
+    check("nor the account's last-seen model either", st.model_id is None,
+          str(st.model_id))
     check("but the account's rate limits still apply to it", st.pct_5h == 20)
     check("so the trigger cannot fire on a context it does not have",
-          triggers.evaluate(st.trusted_pct_5h, st.trusted_ctx_pct).kind != "context")
+          triggers.evaluate(st.trusted_pct_5h, st.trusted_ctx_used).kind != "context")
     own = status.read_for_agent("has_session", "alpha")
     check("an agent with a session is judged on its own context", own.ctx_pct == 12,
           str(own.ctx_pct))
+    check("on its own token count too, not the account's 770,000",
+          own.ctx_used == 12_000, own.ctx_used)
 
     check("account cost is the live sessions summed, not the last writer's",
           status.live_cost("alpha") == 4.0, str(status.live_cost("alpha")))
@@ -9711,7 +9889,7 @@ def test_a_woken_agent_is_not_judged_on_the_snapshot_it_left(home: Path) -> None
                      collected_at=int(time.time()) - status.STALE_AFTER_S - 60)
         st = status.read_for_agent("backend", "alpha")
         check("wake: the reading it left behind is unknown, not a wall",
-              not triggers.evaluate(st.trusted_pct_5h, st.trusted_ctx_pct).fired)
+              not triggers.evaluate(st.trusted_pct_5h, st.trusted_ctx_used).fired)
 
         db.add_request(con, "reviewer", "backend", "look at this", None,
                        "peer", "async", None, 0, None)
@@ -11228,6 +11406,199 @@ def test_a_usage_park_is_woken_when_the_reading_clears(home: Path) -> None:
               row["state"] == dmn.QUEUED and row["wake_at"] is None, str(dict(row)))
     finally:
         orcamod.available, orcamod.alive = real
+        con.close()
+
+
+def test_a_parked_agent_is_unparked_by_its_own_context_limit(home: Path) -> None:
+    """auditor #1813 should-fix 2: the PARKED branch's own triggers.evaluate
+    call (daemon.py's un-park check, above the main evaluate a few lines
+    down) shares only the ctx_limit *variable* with that other call, not the
+    keyword argument itself - each call can drop its own ctx_limit=
+    independently, and the earlier call-site test (built to reach the main
+    evaluate) never parks an agent, so it never reaches this branch. Two
+    agents parked for 'usage', both recovered on their 5h reading (5%) but
+    both sitting on 200,000 context tokens - only a context_tokens override
+    tells them apart, and only this branch's own ctx_limit= could catch a
+    regression here."""
+    _daemon_home(home, 20)
+    agents.register("parkreal", "alpha")
+    agents.register("parkctl", "alpha")
+    agent_file = agents.agent_file("parkctl")
+    agent_file.write_text(agent_file.read_text() + "context_tokens: 10000000\n")
+    con = db.connect()
+    real = (orcamod.available, orcamod.alive)
+    try:
+        orcamod.available = lambda: True
+        orcamod.alive = lambda h: True
+        write_status(home, "alpha", pct_5h=5, pct_7d=10, reset_5h=int(time.time()) + 1800)
+        for name in ("parkreal", "parkctl"):
+            db.set_terminal(con, name, f"term_{name}", "wt")
+            db.set_account(con, name, "alpha")
+            _park_via_handoff(con, name, "usage")
+            db.set_agent_state(con, name, dmn.PARKED,
+                               wake_at=int(time.time()) + 3600, detail="usage; wakes at 23:00")
+            write_agent_status(name, "alpha", ctx_used=200_000, model_id="claude-sonnet-5")
+            db.add_request(con, "marina", name, "carry on", None, "peer", "async", None, 0, None)
+        dmn.supervise(con, "parkreal", lambda _m: None, int(time.time()), {}, [])
+        dmn.supervise(con, "parkctl", lambda _m: None, int(time.time()), {}, [])
+        real_row = db.get_agent_state(con, "parkreal")
+        ctl_row = db.get_agent_state(con, "parkctl")
+        check("park/ctx: the default-limit agent stays parked - its context, "
+              "not its usage, is now what keeps the PARKED branch's own "
+              "verdict fired", real_row["state"] == dmn.PARKED, dict(real_row))
+        check("park/ctx: the overridden agent un-parks on the same usage "
+              "reading, since its own PARKED-branch call site honoured the "
+              "per-agent limit too", ctl_row["state"] != dmn.PARKED, dict(ctl_row))
+    finally:
+        orcamod.available, orcamod.alive = real
+        con.close()
+
+
+def test_a_context_handoff_does_not_thrash_within_min_handoff_interval_s(home: Path) -> None:
+    """#1669 proof: a lower default means more folds, and the founder's own
+    warning was that too-frequent handoffs are worse than too-rare - a
+    threshold low enough to re-fire immediately after a clear would thrash,
+    and MIN_HANDOFF_INTERVAL_S must be what stops that, not a state that only
+    happens to prevent it. Driven directly and repeatedly with the same
+    still-fired trigger (the realistic worst case: nothing in this fixture
+    updates the account's own reading between calls, exactly as a status file
+    that has not refreshed yet would look in production) - skipped while
+    inside the window, allowed again once it has passed. A control alongside
+    it, same driving, an agent whose context_tokens override raises the
+    limit so the same reading never fires at all - the new figure genuinely
+    not applied - folds zero times across the same number of calls."""
+    _daemon_home(home, 20)
+    agents.register("keeper", "alpha")
+    agents.register("keeper_ctl", "alpha")
+    agent_file = agents.agent_file("keeper_ctl")
+    agent_file.write_text(agent_file.read_text() + "context_tokens: 10000000\n")
+    con = db.connect()
+    cleared = {"term_keeper": 0, "term_ctl": 0}
+    real = (orcamod.available, orcamod.alive, orcamod.idle_now, orcamod.clear_context,
+            dmn.session_present)
+    try:
+        db.set_terminal(con, "keeper", "term_keeper", "wt")
+        db.set_terminal(con, "keeper_ctl", "term_ctl", "wt")
+        db.set_account(con, "keeper", "alpha")
+        db.set_account(con, "keeper_ctl", "alpha")
+        orcamod.available = lambda: True
+        orcamod.alive = lambda h: True
+        orcamod.idle_now = lambda h, **kw: True
+
+        def clear(h, **kw):
+            cleared[h] += 1
+            return True, "cleared"
+        orcamod.clear_context = clear
+        dmn.session_present = lambda a: True
+
+        limit_real = status.effective_context_limit(agents.read("keeper"), "claude-sonnet-5")
+        limit_ctl = status.effective_context_limit(agents.read("keeper_ctl"), "claude-sonnet-5")
+        check("control: the override actually raises the limit above the reading",
+              limit_ctl > 200_000 > limit_real, (limit_real, limit_ctl))
+        t_real = triggers.evaluate(10, 200_000, ctx_limit=limit_real)
+        t_ctl = triggers.evaluate(10, 200_000, ctx_limit=limit_ctl)
+        check("real: 200,000 tokens fires at the default limit", t_real.fired, t_real.reason)
+        check("control: the same reading does not fire once the limit is raised",
+              not t_ctl.fired, t_ctl.reason)
+
+        logs: list[str] = []
+        for _ in range(4):
+            dmn.perform_handoff(con, "keeper", t_real, logs.append)
+        check("real: the first call actually folds", cleared["term_keeper"] == 1, cleared)
+        check("real: driven three more times immediately, it does not fold again",
+              cleared["term_keeper"] == 1, cleared)
+        check("real: the interval guard is what stopped it, by name",
+              sum("too soon" in ln for ln in logs) == 3, logs)
+
+        # Past the interval: the same still-fired trigger is allowed through again -
+        # a state that only happened to block it would not let this one through.
+        con.execute("UPDATE handoff SET updated = ? WHERE agent = 'keeper'",
+                    (int(time.time()) - dmn.MIN_HANDOFF_INTERVAL_S - 1,))
+        dmn.perform_handoff(con, "keeper", t_real, logs.append)
+        check("real: once the interval has passed, the same condition folds again",
+              cleared["term_keeper"] == 2, cleared)
+
+        # The control is `not t_ctl.fired` above, not a call to perform_handoff:
+        # supervise() only ever calls it behind `if t.fired`, and perform_handoff
+        # itself does not re-check .fired - passing an unfired trigger to it
+        # directly would fold anyway, which would prove the opposite of the
+        # point. The real daemon never reaches it for keeper_ctl at all; that is
+        # what "the new figure not applied" means here.
+        check("control: it never folds, because the gate the daemon actually uses "
+              "never opens for it", cleared["term_ctl"] == 0, cleared)
+    finally:
+        (orcamod.available, orcamod.alive, orcamod.idle_now,
+         orcamod.clear_context, dmn.session_present) = real
+        con.close()
+
+
+def test_every_call_site_actually_hands_supervise_the_per_agent_context_limit(
+        home: Path) -> None:
+    """should-fix 1 (#1762): the thrash test above proves triggers.evaluate
+    honours a ctx_limit it is handed - its control builds that trigger by
+    calling evaluate() directly, so supervise() is never actually reached for
+    the overridden agent. Nothing there proves the daemon, the bridge row or
+    `ocp triggers` resolve and pass a per-agent limit rather than the flat
+    default. Two agents, same account, same 200,000-token reading: only each
+    call site's own status.effective_context_limit(agents.read(agent), ...)
+    can tell them apart, so all three are driven through their real code
+    path, not a stand-in for it."""
+    _daemon_home(home, 20)
+    agents.register("ctxreal", "alpha")
+    agents.register("ctxctl", "alpha")
+    agent_file = agents.agent_file("ctxctl")
+    agent_file.write_text(agent_file.read_text() + "context_tokens: 10000000\n")
+    con = db.connect()
+    real = (orcamod.available, orcamod.alive, orcamod.idle_now, orcamod.clear_context,
+            dmn.session_present)
+    try:
+        db.set_terminal(con, "ctxreal", "term_real", "wt")
+        db.set_terminal(con, "ctxctl", "term_ctl", "wt")
+        db.set_account(con, "ctxreal", "alpha")
+        db.set_account(con, "ctxctl", "alpha")
+        orcamod.available = lambda: True
+        orcamod.alive = lambda h: True
+        orcamod.idle_now = lambda h, **kw: True
+        cleared = {"term_real": 0, "term_ctl": 0}
+
+        def clear(h, **kw):
+            cleared[h] += 1
+            return True, "cleared"
+        orcamod.clear_context = clear
+        dmn.session_present = lambda a: True
+        write_status(home, "alpha", pct_5h=10, pct_7d=10, reset_5h=int(time.time()) + 1800)
+        for name in ("ctxreal", "ctxctl"):
+            write_agent_status(name, "alpha", ctx_used=200_000, model_id="claude-sonnet-5")
+
+        # 1. daemon.supervise - the call site both #1762 evaluate() calls share.
+        dmn.supervise(con, "ctxreal", lambda _m: None, int(time.time()), {}, [])
+        dmn.supervise(con, "ctxctl", lambda _m: None, int(time.time()), {}, [])
+        check("supervise: the default-limit agent folds on 200,000 tokens",
+              cleared["term_real"] == 1, cleared)
+        check("supervise: the overridden agent, same reading, does not - "
+              "the daemon's own call site honoured agent.yaml, not just evaluate()",
+              cleared["term_ctl"] == 0, cleared)
+
+        # 2. cli.cmd_triggers.
+        trig_out = _capture(lambda: climod.main(["triggers"]))
+        real_line = next(ln for ln in trig_out.splitlines() if "ctxreal" in ln)
+        ctl_line = next(ln for ln in trig_out.splitlines() if "ctxctl" in ln)
+        check("ocp triggers: fires for the default-limit agent",
+              "YES" in real_line, real_line)
+        check("ocp triggers: does not fire for the overridden agent, same reading",
+              "YES" not in ctl_line, ctl_line)
+
+        # 3. tui's bridge row.
+        wide = tui._ANSI.sub("", tui.frame(200, 40))
+        real_row = next(ln for ln in wide.splitlines() if "ctxreal" in ln)
+        ctl_row = next(ln for ln in wide.splitlines() if "ctxctl" in ln)
+        check("bridge: shows the fired context warning for the default-limit agent",
+              "context" in real_row, real_row)
+        check("bridge: does not for the overridden agent, same reading",
+              "context" not in ctl_row, ctl_row)
+    finally:
+        (orcamod.available, orcamod.alive, orcamod.idle_now,
+         orcamod.clear_context, dmn.session_present) = real
         con.close()
 
 
@@ -20901,7 +21272,7 @@ def test_nothing_is_typed_into_a_shell_with_no_session(home: Path) -> None:
         check("shell: /clear is not typed at it, whoever asked for it",
               not ok and not cleared, f"{why} {cleared}")
 
-        t = triggers.Trigger(True, "context", "context 72% >= 60%")
+        t = triggers.Trigger(True, "context", "context 700,000 >= 120,000")
         dmn.perform_handoff(con, "backend", t, lambda _m: None)
         row = db.get_agent_state(con, "backend")
         check("shell: no handoff is run for a session that is not there",
@@ -21187,7 +21558,7 @@ def test_handoff_reclaims_context(home: Path) -> None:
               not ok and "no terminal" in why, why)
 
         db.set_terminal(con, "backend", "term_x", "wt")
-        t = triggers.Trigger(True, "context", "context 72% >= 60%")
+        t = triggers.Trigger(True, "context", "context 700,000 >= 120,000")
         dmn.perform_handoff(con, "backend", t, lambda _m: None)
         check("handoff: clears the agent's context", cleared == ["term_x"], str(cleared))
         row = db.get_agent_state(con, "backend")
@@ -24240,6 +24611,13 @@ def main() -> int:
         run(lambda: test_fold_degraded_path_also_reconciles_resolved_asks(Path(td) / 'reconderaded'))
         run(lambda: test_rollover(Path(td) / 'rollhome'))
         run(lambda: test_triggers())
+        run(lambda: test_context_tokens_override_falls_back_on_garbage())
+        run(lambda: test_the_clamp_holds_a_small_window_agent_down())
+        run(lambda: test_agents_stays_a_leaf_no_cycle_through_collect_or_vendors())
+        run(lambda: test_an_unknown_model_now_hands_off_on_tokens(Path(td) / 'ctxunknown'))
+        run(lambda: test_a_stale_ctx_used_does_not_fire(Path(td) / 'ctxstale'))
+        run(lambda: test_status_read_sums_a_raw_ctx_used_dict_the_way_collect_does(
+            Path(td) / 'ctxsum'))
         run(lambda: test_daemon_evaluates_parked(Path(td) / 'd0'))
         run(lambda: test_daemon_park(Path(td) / 'd1'))
         run(lambda: test_daemon_resume(Path(td) / 'd2'))
@@ -24385,6 +24763,11 @@ def main() -> int:
         run(lambda: test_the_bridges_wake_column_dates_a_weekly_wall(Path(td) / 'walledwkclock'))
         run(lambda: test_a_park_that_cannot_be_woken_keeps_its_deadline(Path(td) / 'parkdue'))
         run(lambda: test_a_usage_park_is_woken_when_the_reading_clears(Path(td) / 'parklevel1'))
+        run(lambda: test_a_parked_agent_is_unparked_by_its_own_context_limit(
+            Path(td) / 'parkctxlimit'))
+        run(lambda: test_a_context_handoff_does_not_thrash_within_min_handoff_interval_s(Path(td) / 'ctxthrash'))
+        run(lambda: test_every_call_site_actually_hands_supervise_the_per_agent_context_limit(
+            Path(td) / 'ctxsites'))
         run(lambda: test_a_usage_park_stays_parked_while_the_reading_is_at_the_wall(Path(td) / 'parklevel2'))
         run(lambda: test_a_weekly_park_stays_parked_while_the_week_is_full(Path(td) / 'weekpark'))
         run(lambda: test_a_degraded_park_does_not_auto_clear(Path(td) / 'parklevel3'))

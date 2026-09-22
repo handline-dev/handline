@@ -344,10 +344,11 @@ its next turn with no cleanup anywhere.
 
 **And the context trigger is weaker than stated.** Measured over the fleet's
 whole history: **271 parks - 244 `usage`, 22 `usage_7d`, 5 `context` (1.8%)**.
-`ctx_pct` is currently `None` on **5 of 19** agents, so it already fails
-silently a quarter of the time, and every agent is on a **1M** window, which
-puts `CONTEXT_PCT = 60` at 600k tokens - the usage wall nearly always arrives
-first. The five that did fire were `auditor` x3, `chat` and `orcapipe`: agents
+`ctx_pct` was `None` on **5 of 19** agents at the time, so it already failed
+silently a quarter of the time, and every agent was on a **1M** window, which
+put `CONTEXT_PCT = 60` at 600k tokens - the usage wall nearly always arrived
+first (superseded by the absolute-token `CONTEXT_TOKENS`, #1669, which closes
+the silent-`None` hole outright). The five that did fire were `auditor` x3, `chat` and `orcapipe`: agents
 that read large diffs, where the fallback is Claude's own auto-compaction -
 unmanaged, lossy, and with no handoff written. So it earns its place, but as a
 rare backstop, not as "the feature that keeps the fleet running unattended".
