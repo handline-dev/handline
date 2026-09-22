@@ -1764,6 +1764,28 @@ def test_a_reading_past_the_carry_bound_is_carried_old_even_though_the_flag_is_f
           not st.assignable()[0], st.assignable()[1])
 
 
+def test_a_carried_reading_with_no_age_at_all_reads_carried_old_not_live(
+        home: Path) -> None:
+    """auditor #1805 note 3: the rl_age_s reorder above, read the other
+    direction, quietly loosened one case - rl_carried True with rl_at None
+    used to read carried_old (nothing to bound the carry by), and after the
+    reorder read carried, one step fresher than it earned. Unreached in
+    production (usage_api's only writer always sets rl_at alongside
+    rl_carried), but a payload that omits it must still read as too old to
+    trust, not as newly live - the same test for pct_7d_source/rl7_at."""
+    home.mkdir(parents=True, exist_ok=True)
+    os.environ["OCP_HOME"] = str(home)
+    now = int(time.time())
+    write_status(home, "alpha", pct_5h=40, reset_5h=now + 9000,
+                 rl_carried=True, rl_at=None, collected_at=now,
+                 pct_7d=30, reset_7d=now + 90000, rl7_carried=True, rl7_at=None)
+    st = status.read("alpha")
+    check("no-age carry: rl_carried True with rl_at None reads carried_old, "
+          "not carried or live", st.pct_5h_source == "carried_old", st.pct_5h_source)
+    check("no-age carry: the same holds for the weekly figure",
+          st.pct_7d_source == "carried_old", st.pct_7d_source)
+
+
 def test_a_turn_ending_refreshes_the_snapshot_through_the_hook(home: Path) -> None:
     """The statusLine's per-turn push, done by a hook that was already there.
 
@@ -23852,6 +23874,8 @@ def main() -> int:
         run(lambda: test_a_failing_account_never_blocks_the_ones_behind_it(Path(td) / 'pollstarve'))
         run(lambda: test_a_reading_past_the_carry_bound_is_carried_old_even_though_the_flag_is_false(
             Path(td) / 'carriedoldpin'))
+        run(lambda: test_a_carried_reading_with_no_age_at_all_reads_carried_old_not_live(
+            Path(td) / 'carriednoage'))
         run(lambda: test_yaml())
         run(lambda: test_agents(home))
         run(lambda: test_trust_roots(Path(td) / 'trust_roots'))

@@ -233,7 +233,15 @@ class AccountStatus:
         age = self.rl_age_s
         if age is not None and age > CARRY_MAX_AGE_S:
             return "carried_old"
-        return "carried" if self.rl_carried else "live"
+        if self.rl_carried:
+            # A carried figure with no age at all cannot be judged inside the
+            # bound above - unknown age is not the same claim as a fresh one,
+            # so it reads as too old to trust rather than as live (auditor
+            # #1805 note 3; unreached today, since usage_api's only writer
+            # always sets rl_at alongside rl_carried, but a guard against a
+            # payload that does not is cheap to keep honest).
+            return "carried_old" if age is None else "carried"
+        return "live"
 
     @property
     def trusted_pct_5h(self) -> int | None:
@@ -283,9 +291,10 @@ class AccountStatus:
         age = None if self.rl7_at is None else now - self.rl7_at
         if age is not None and age > CARRY_MAX_AGE_S:
             return "carried_old"
-        if not self.stale and not self.rl7_carried:
-            return "live"
-        return "carried"
+        if self.stale or self.rl7_carried:
+            # Same unknown-age case as pct_5h_source (auditor #1805 note 3).
+            return "carried_old" if age is None else "carried"
+        return "live"
 
     @property
     def trusted_pct_7d(self) -> int | None:
