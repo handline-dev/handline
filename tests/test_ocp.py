@@ -7790,6 +7790,8 @@ def test_a_claude_agent_is_never_placed_on_another_vendors_account(home: Path) -
     asked, and only the vendor keeps it out."""
     _daemon_home(home, 99)
     now = int(time.time())
+    # Far enough from its reset that a move beats waiting for it.
+    write_status(home, "alpha", pct_5h=99, pct_7d=10, ctx_pct=5, reset_5h=now + 4 * 3600)
     real = (accounts.logged_in, orcamod.available)
     with second_vendor(metered=True):
         try:
@@ -7815,9 +7817,9 @@ def test_a_claude_agent_is_never_placed_on_another_vendors_account(home: Path) -
             try:
                 db.add_request(con, "orcapipe", "backend", "work", None, "supervisor",
                                "async", None, 0, None)
+                plan = dmn._move_plan(con, "backend", "usage_5h")
                 check("vendor pick: the daemon's move off the wall does not go there",
-                      dmn._move_plan(con, "backend", "usage_5h")[0] != "zeta",
-                      str(dmn._move_plan(con, "backend", "usage_5h")))
+                      plan[0] is None and "zeta: a zai account, not claude" in plan[1], str(plan))
                 check("vendor pick: nor does a person's forced move",
                       dmn._forced_plan(con, "backend", "zeta")[0] is None,
                       str(dmn._forced_plan(con, "backend", "zeta")))
@@ -7888,15 +7890,14 @@ def test_an_unmetered_account_is_pinned_never_picked_or_polled(home: Path) -> No
             usage_api.read = lambda acct, refresh=True: asked.append(acct)
             con = db.connect()
             try:
+                # One account per tick, each put on its cooldown once asked,
+                # so four ticks walk past every account there is.
                 for _ in range(4):
-                    for k in [r["name"] for r in con.execute(
-                            "SELECT name FROM cursors WHERE name LIKE 'usage-poll:%'")]:
-                        db.clear_cursor(con, k)
                     dmn.poll_usage(con, lambda _m: None)
             finally:
                 con.close()
             check("unmetered: the usage poll never asks about it",
-                  asked and not {"zeta", "zeta2"} & set(asked), str(asked))
+                  "alpha" in asked and not {"zeta", "zeta2"} & set(asked), str(asked))
             usage_api.read = real[0]
             renewed: list[str] = []
             usage_api.refresh_credential = lambda acct, **k: renewed.append(acct) or True
