@@ -10573,6 +10573,38 @@ def test_a_resume_is_not_woken_onto_an_account_at_its_weekly_wall(home: Path) ->
         con.close()
 
 
+def test_a_move_is_still_walled_on_7d_when_nowhere_else_has_room(home: Path) -> None:
+    """auditor #1724 should-fix: `choose_account`'s fallback is `find_room
+    (agent) or agents.account_of(agent)` - when every account is at its own
+    wall, find_room returns None and the move branch lands right back on the
+    walled preferred account, the same as a resume. The docstring's "belt and
+    braces" claim was false in exactly this case: with only one account in
+    play, this is the ONLY guard, not a second one alongside find_room's.
+    Reverting the 7d branch fails this test the same way it fails the resume
+    one, which the pre-existing move test (a second, roomy account) does not
+    catch."""
+    _daemon_home(home, 20)
+    con = db.connect()
+    try:
+        db.set_account(con, "backend", "alpha")
+        db.set_closed(con, "backend", None)   # no resume id: the move's wake
+        db.add_request(con, "reviewer", "backend", "look at this", None,
+                       "peer", "async", None, 0, None)
+        write_status(home, "alpha", pct_5h=10, pct_7d=100, ctx_pct=5,
+                     reset_5h=int(time.time()) + 1800, reset_7d=int(time.time()) + 86400)
+        row = db.get_agent_state(con, "backend")
+        check("move, nowhere else: this row has no resume id", row["resume_session"] is None, dict(row))
+        check("move, nowhere else: find_room has nothing to offer - alpha is walled and alone",
+              launch.find_room("backend") is None)
+        check("move, nowhere else: choose_account falls back to alpha anyway",
+              launch.choose_account("backend", resuming=False, con=con) == "alpha")
+        w = launch.wake_wait("backend", row, con)
+        check("move, nowhere else: still walled on 7d, landing back on the same account",
+              w is not None and w.account == "alpha" and w.window == "7d", w)
+    finally:
+        con.close()
+
+
 def test_the_bridge_says_what_an_agent_is_where_there_is_room(home: Path) -> None:
     """Which model at which effort - and one day which tool at all - is what
     separates two rows doing the same work at different prices. It is still
@@ -23509,6 +23541,7 @@ def main() -> int:
         run(lambda: test_a_walled_wake_with_no_reset_reads_unknown(Path(td) / 'walledunknown'))
         run(lambda: test_a_moved_walled_wake_names_the_new_account(Path(td) / 'walledmoved'))
         run(lambda: test_a_resume_is_not_woken_onto_an_account_at_its_weekly_wall(Path(td) / 'walled7d'))
+        run(lambda: test_a_move_is_still_walled_on_7d_when_nowhere_else_has_room(Path(td) / 'walled7dmove'))
         run(lambda: test_the_bridge_says_what_an_agent_is_where_there_is_room(Path(td) / 'agentkind'))
         run(lambda: test_the_state_column_is_as_wide_as_what_it_prints(Path(td) / 'statew'))
         run(lambda: test_a_walled_wake_names_the_account_only_with_room(Path(td) / 'walledroom'))

@@ -117,12 +117,15 @@ def wake_wait(agent: str, row, con) -> WakeWait | None:
     own.
 
     The move branch already goes through `choose_account` -> `find_room` ->
-    `status.unfit`, which refuses a walled account on both windows before
-    this is ever reached - the 7d check here is belt and braces for it. The
-    resume branch is the one this actually protects: it is pinned to the
-    account its session is tied to, cannot follow an account change, and
-    nothing upstream has refused that account on 7d - without this, a resume
-    wakes an agent straight into the weekly wall.
+    `status.unfit`, which refuses a walled account on both windows - but only
+    while some other account has room. `choose_account` falls back to the
+    agent's own preferred account when `find_room` finds nowhere (`find_room
+    (agent) or agents.account_of(agent)`), so when every account is at its
+    weekly wall the move branch reaches this 7d check too, not just the
+    resume branch: it is the only guard left, not a second one. The resume
+    branch is pinned to the account its session is tied to and cannot follow
+    an account change even when another account does have room - nothing
+    upstream ever checks 7d for it, walled or not.
 
     A computed condition, not a stored one: called again a moment later, on an
     account whose window has since rolled over, it returns None.
