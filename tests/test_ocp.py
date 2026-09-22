@@ -15375,20 +15375,29 @@ def test_a_conversation_reads_as_turns_at_any_width(home: Path) -> None:
 
 def test_a_messages_state_is_never_cut_at_a_narrow_width(home: Path) -> None:
     """The state line can carry the id /cancel names; a narrow pane wraps it
-    instead of cutting it."""
+    instead of cutting it. The longest real state is a delivered message with a
+    four-digit id, and the human's own waiting row: at 32 and 24 columns - a
+    split pane - the one-line layout cut both."""
     _daemon_home(home, 20)
     agents.register("reviewer", "alpha")
     con = db.connect()
     try:
         rid = db.add_request(con, askmod.HUMAN, "reviewer", "hello", None, "peer", "async",
                              None, 0, None)
+        con.execute("UPDATE requests SET id = 1234, chain_id = '1234', delivered_at = ? "
+                    "WHERE id = ?", (int(time.time()), rid))
+        rid = 1234
+        db.add_request(con, "reviewer", askmod.HUMAN, "question", None, "peer", "async",
+                       None, 0, None)
         page = tui._agent_page(con, "reviewer", tui.AGENTS)
         for width in (40, 32, 24, 16):
             lines = [tui._ANSI.sub("", ln) for ln in tui.lines_of(page, width)]
             text = " ".join(ln.strip() for ln in lines)
-            check(f"state: 'queued' and the id are whole at {width}",
-                  "queued" in text and f"#{rid}" in text and "\u2026" not in "".join(
-                      ln for ln in lines if "queued" in ln or f"#{rid}" in ln), str(lines))
+            check(f"state: 'delivered' and the id are whole at {width}",
+                  "delivered" in text and f"#{rid}" in text and "\u2026" not in "".join(
+                      ln for ln in lines if "delivered" in ln or f"#{rid}" in ln), str(lines))
+            check(f"state: 'waiting for you' is whole at {width}",
+                  "waiting for you" in re.sub(r"\s+", " ", text), str(lines))
             check(f"state: nothing is wider than {width}", all(tui.vlen(ln) <= width for ln in lines))
     finally:
         con.close()
@@ -17217,6 +17226,13 @@ def test_the_agent_page_ends_in_the_input_box_and_the_composer_takes_its_place(h
         check("box: a screen too short to spare it shows less page and keeps the keys line",
               len(short) == 8 and short[-1].startswith("esc back")
               and not any(ln.startswith("\u276f write") for ln in short), str(short))
+        for h, boxed in ((11, False), (12, True)):
+            rows = [tui._ANSI.sub("", ln.replace("\033[K", ""))
+                    for ln in tui._detail_frame(60, h, d).split("\n")]
+            check(f"box: at height {h} the box is {'drawn' if boxed else 'dropped'}, "
+                  f"{tui.INPUT_BOX_MIN} being the first height that has it",
+                  len(rows) == h and any(ln.startswith("\u276f write") for ln in rows) is boxed
+                  and tui._page_room(d, h) == (5 if boxed else 7), str(rows[-5:]))
         rows = tui._ANSI.sub("", tui._detail_frame(100, 30, dict(d, composing=True)))
         check("box: with the composer open the idle box is not drawn",
               "\u276f write to reviewer" not in rows and "─" * 100 not in rows)
