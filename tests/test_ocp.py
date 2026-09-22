@@ -12695,6 +12695,25 @@ def test_a_wait_does_not_outlive_the_prompt_that_raised_it(home: Path) -> None:
         _fire_hook("SubagentStop")
         check("outlive: a sibling subagent finishing does not clear it either", waiting_now())
 
+        # TeammateIdle is not this agent's own turn continuing either - it is
+        # another agent's status reaching this session (auditor #1654 NOTE 5;
+        # dropping it from MOVED_ON_KINDS was pinned by nothing until now -
+        # auditor #1667 NOTE 1).
+        _fire_hook("TeammateIdle")
+        check("outlive: another agent going idle does not clear it", waiting_now())
+
+        # PostCompact is this session's own transcript growing - nothing
+        # compacts a context that is not there to grow, so this can only
+        # follow the turn actually continuing (auditor #1667 NOTE 2: the only
+        # non-verb member of MOVED_ON_KINDS, and the only one nothing
+        # exercised).
+        _fire_hook("PostCompact")
+        check("outlive: this session's own PostCompact clears it",
+              not waiting_now())
+
+        _fire_hook("PermissionRequest", tool_name="Bash", tool_input={"command": "rm -rf /y"})
+        check("outlive: raised a third time", waiting_now())
+
         # The agent goes on working past the denial: it runs an `ocp` verb,
         # which can only happen once the tool call that ran it has itself
         # returned - unlike the two siblings above, nothing else could have
