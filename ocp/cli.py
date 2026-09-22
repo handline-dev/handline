@@ -1524,6 +1524,30 @@ def cmd_resolve(args) -> int:
             if old is None:
                 print(f"no request #{args.retires} to retire")
                 return 1
+            # #1565 BLOCKING: this pre-check tested existence, moot_by and
+            # state but never whose row it is - so any agent could retire any
+            # queued request in the system, including the founder's, with
+            # db.retire_queued stamping announced_at as though it had already
+            # been reported and check_human_resolve never running (it guards
+            # the row being resolved, not the one being retired). `old` is
+            # mine to retire the same way `--replaces` treats its own old
+            # row as the requester's: here it is the row I was asked and am
+            # now saying another answer already covers, so ownership is
+            # target, not requester - matched against `me`, already
+            # established above as the target of the row this resolve is
+            # answering. A founder row narrows further: even a legitimate
+            # target must still say what it becomes, same as answering one
+            # directly (db.retire_queued has this new caller now; #1350's
+            # enumeration did not, because this verb did not exist yet).
+            if old["target"] != me and me != askmod.HUMAN:
+                print(f"#{args.retires} is {old['requester']} -> {old['target']}, "
+                     f"not yours to retire")
+                return 1
+            if old["requester"] == askmod.HUMAN:
+                refusal = actions.check_human_resolve(con, old, args.task, args.no_task, me)
+                if refusal:
+                    print(refusal)
+                    return 1
             if old["moot_by"] is not None:
                 print(f"#{args.retires} is already moot (by #{old['moot_by']})")
                 return 1

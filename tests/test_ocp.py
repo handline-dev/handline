@@ -19814,6 +19814,98 @@ def test_moot_by_records_who_retired_a_row(home: Path) -> None:
               e.code == 2, str(e.code))
 
 
+def test_retires_is_refused_on_a_row_that_is_not_the_resolvers(home: Path) -> None:
+    """#1565 BLOCKING: --retires's pre-check tested existence, moot_by and
+    state but never whose row it is, so any agent could silently close any
+    queued request in the system, including the founder's - measured live:
+    OCP_AGENT=backend `ocp resolve 4 "answered" --retires 3` closed the
+    founder's own #3 to reviewer, with db.retire_queued stamping
+    announced_at as though it had already been reported and
+    check_human_resolve never running (it guards the row being resolved,
+    not the one being retired). Two other retirement paths already refuse
+    this - `ocp withdraw` and `ask --replaces` - and only this third one
+    did not."""
+    home.mkdir(parents=True, exist_ok=True)
+    os.environ["OCP_HOME"] = str(home)
+    (home / "team.yaml").write_text("""
+agents:
+  reviewer: { intake: dedicated }
+  backend:  { intake: dedicated }
+
+edges:
+  - { from: "*",         to: "human", kind: escalate,  creates_gate: true }
+  - { from: "human",     to: "*",     relation: supervisor, response: fire_and_forget }
+  - { from: "reviewer",  to: "backend", relation: peer, response: fire_and_forget }
+  - { from: "backend",   to: "reviewer", relation: peer, response: fire_and_forget }
+
+limits:
+  max_chain_depth: 4
+  ask_rate_per_hour: 50
+""")
+    for n in ("reviewer", "backend"):
+        agents.register(n, "alpha")
+    con = db.connect()
+    try:
+        founders = db.add_request(con, askmod.HUMAN, "reviewer", "founder's own",
+                                  None, "supervisor", "fire_and_forget", None, 0, None)
+        unrelated = db.add_request(con, "reviewer", "backend", "unrelated ask",
+                                   None, "peer", "fire_and_forget", None, 0, None)
+    finally:
+        con.close()
+
+    rc, out = _cli(["resolve", str(unrelated), "answered", "--retires", str(founders)],
+                   as_agent="backend")
+    check("retires: refused - the row is not backend's to retire",
+          rc == 1 and "not yours to retire" in out, out)
+    con = db.connect()
+    try:
+        row = db.get_request(con, founders)
+        check("retires: the founder's row is untouched - still queued, "
+              "moot_by unset, not marked as delivered/reported",
+              row["state"] == "queued" and row["moot_by"] is None
+              and not row["announced_at"], str(dict(row)))
+        check("retires: the resolve of backend's own row also did not go "
+              "through, since the whole command is refused up front",
+              db.get_request(con, unrelated)["state"] == "queued")
+    finally:
+        con.close()
+
+    # The control: backend retiring its OWN unanswered duplicate (backend is
+    # the target of both, same as the legitimate case in
+    # test_moot_by_records_who_retired_a_row) is not swept up by the guard.
+    con = db.connect()
+    try:
+        dup = db.add_request(con, "reviewer", "backend", "dup ask",
+                             None, "peer", "fire_and_forget", None, 0, None)
+    finally:
+        con.close()
+    rc, out = _cli(["resolve", str(unrelated), "answered again", "--retires", str(dup)],
+                   as_agent="backend")
+    check("retires: still allowed on a row backend is actually the target of",
+          rc == 0 and f"#{dup}" in out, out)
+
+    # And a founder row IS retireable by its own legitimate target, but only
+    # once it says what the closure becomes - the same rule answering it
+    # directly already enforces.
+    con = db.connect()
+    try:
+        founders2 = db.add_request(con, askmod.HUMAN, "reviewer", "founder's second",
+                                   None, "supervisor", "fire_and_forget", None, 0, None)
+        own = db.add_request(con, "backend", "reviewer", "reviewer's own answer target",
+                             None, "peer", "fire_and_forget", None, 0, None)
+    finally:
+        con.close()
+    rc, out = _cli(["resolve", str(own), "answered", "--retires", str(founders2)],
+                   as_agent="reviewer")
+    check("retires: a legitimate target retiring a founder row must still "
+          "say what it becomes",
+          rc == 1 and "say what it becomes" in out, out)
+    rc, out = _cli(["resolve", str(own), "answered", "--retires", str(founders2),
+                    "--no-task", "closed via the other answer"], as_agent="reviewer")
+    check("retires: ...and succeeds once it does",
+          rc == 0 and f"#{founders2}" in out, out)
+
+
 def test_reason_gaps_count_from_the_shapes_the_verbs_write(home: Path) -> None:
     """#1349: a blank reason must be visible, counted from the exact strings
     `--reason` writes (or omits) rather than a grep over free text - the
@@ -20432,6 +20524,7 @@ def main() -> int:
         run(lambda: test_task_ids_are_checked_before_any_answer_and_short_shas_are_resolved(Path(td) / 'taskshas'))
         run(lambda: test_replace_withdraw_and_dismiss_store_the_reason_typed(Path(td) / 'taskreason'))
         run(lambda: test_moot_by_records_who_retired_a_row(Path(td) / 'mootby'))
+        run(lambda: test_retires_is_refused_on_a_row_that_is_not_the_resolvers(Path(td) / 'retiresown'))
         run(lambda: test_reason_gaps_count_from_the_shapes_the_verbs_write(Path(td) / 'reasongaps'))
         run(lambda: test_run_recovers_from_an_uncaught_error())
     # The whole run's dealings with Orca: none of its tests may have reached even
