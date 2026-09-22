@@ -43,9 +43,6 @@ def ensure_shared() -> Path:
         (shared / sub).mkdir(exist_ok=True)
 
     ours = {str(shared / name) for name in OLD_STATUSLINES}
-    for cmd in ours:
-        Path(cmd).unlink(missing_ok=True)
-
     settings = shared / "settings.json"
     current = {}
     if settings.exists():
@@ -65,6 +62,10 @@ def ensure_shared() -> Path:
     # one. We pick ours, and doctor enforces that the choice stays made.
     current.setdefault("autoContinueAtUsageLimit", False)
     settings.write_text(json.dumps(current, indent=2, ensure_ascii=False) + "\n")
+    # Only once no setting points at them: deleted first, a failed write
+    # would leave every session running a script that is gone.
+    for cmd in ours:
+        Path(cmd).unlink(missing_ok=True)
     return shared
 
 

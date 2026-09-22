@@ -1649,6 +1649,37 @@ def test_init_leaves_the_status_line_slot_empty(home: Path) -> None:
           _doctor_row(doctor.run(), "shared statusLine") is None)
 
 
+def test_a_failed_settings_write_keeps_the_old_scripts(home: Path) -> None:
+    """ensure_shared deletes ocp's old status line scripts only after the
+    settings no longer point at them: a write that fails in between must leave
+    every session with a script that still exists."""
+    home.mkdir(parents=True, exist_ok=True)
+    os.environ["OCP_HOME"] = str(home)
+    shared = paths.shared_claude()
+    shared.mkdir(parents=True, exist_ok=True)
+    old = shared / accounts.OLD_STATUSLINES[0]
+    old.write_text("#!/bin/sh\n")
+    (shared / "settings.json").write_text(json.dumps(
+        {"statusLine": {"type": "command", "command": str(old)}}))
+
+    real_write = Path.write_text
+
+    def failing_write(self, *a, **kw):
+        if self.name.startswith("settings.json"):
+            raise OSError("disk full")
+        return real_write(self, *a, **kw)
+    Path.write_text = failing_write
+    try:
+        accounts.ensure_shared()
+        raised = False
+    except OSError:
+        raised = True
+    finally:
+        Path.write_text = real_write
+    check("status line: a failed settings write is not swallowed", raised)
+    check("status line: and the script the settings still point at is kept", old.exists())
+
+
 # ---------------------------------------------------------------- yaml
 def test_yaml() -> None:
     text = (
@@ -20193,6 +20224,7 @@ def main() -> int:
         run(lambda: test_a_turn_ending_refreshes_the_snapshot_through_the_hook(
             Path(td) / 'pullhook'))
         run(lambda: test_init_leaves_the_status_line_slot_empty(Path(td) / 'lineslot'))
+        run(lambda: test_a_failed_settings_write_keeps_the_old_scripts(Path(td) / 'slotorder'))
         run(lambda: test_the_usage_poll_asks_one_account_per_tick_and_renews_only_on_failure(
             Path(td) / 'pullpoll'))
         run(lambda: test_yaml())
