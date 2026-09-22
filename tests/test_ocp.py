@@ -19679,6 +19679,19 @@ def test_a_file_added_to_shared_reaches_every_existing_account(home: Path) -> No
           and any("relinked epsilon" in ln for ln in logs), str(logs))
 
 
+TEST_FILTER: str | None = None  # set by -k; substring match on the test name
+_RUN_DEPTH = {"n": 0}  # >0 inside a test's own nested run() calls, where -k does not apply
+
+
+def _test_name(one) -> str:
+    # The test that is running, by the name its lambda calls: what the guard
+    # against the real Orca says, and what a fake `orca` on PATH logs.
+    named = [getattr(one, "__name__", "")]
+    named += [n for n in one.__code__.co_names]
+    named += [getattr(c.cell_contents, "__name__", "") for c in (one.__closure__ or ())]
+    return next((n for n in named if n.startswith("test_")), "<test>")
+
+
 def run(one) -> None:
     """Every test starts from the real world.
 
@@ -19692,15 +19705,18 @@ def run(one) -> None:
     would stop `main` before it printed a final count, and a short run that
     looks like a clean pass is worse than a loud one. KeyboardInterrupt is
     left alone - that is the human stopping the suite, not a test failing.
+
+    -k only gates the outer call, from main()'s own list: a test that calls
+    run() itself on synthetic cases (test_run_recovers_from_an_uncaught_error)
+    must not have those nested calls dropped by a filter aimed at main()'s.
     """
+    name = _test_name(one)
+    if _RUN_DEPTH["n"] == 0 and TEST_FILTER is not None and TEST_FILTER not in name:
+        return
     restore_world()
-    # The test that is running, by the name its lambda calls: what the guard
-    # against the real Orca says, and what a fake `orca` on PATH logs.
-    named = [getattr(one, "__name__", "")]
-    named += [n for n in one.__code__.co_names]
-    named += [getattr(c.cell_contents, "__name__", "") for c in (one.__closure__ or ())]
-    CURRENT_TEST["name"] = next((n for n in named if n.startswith("test_")), "<test>")
+    CURRENT_TEST["name"] = name
     os.environ["OCP_TEST"] = CURRENT_TEST["name"]
+    _RUN_DEPTH["n"] += 1
     try:
         one()
     except (Exception, SystemExit) as e:
@@ -19709,6 +19725,8 @@ def run(one) -> None:
         where = tb[-1] if tb else None
         loc = f" at {where.filename}:{where.lineno}" if where else ""
         check(f"{test}: uncaught {type(e).__name__}: {e}{loc}", False)
+    finally:
+        _RUN_DEPTH["n"] -= 1
 
 
 def test_run_recovers_from_an_uncaught_error() -> None:
@@ -19744,6 +19762,49 @@ def test_run_recovers_from_an_uncaught_error() -> None:
     # test above, is what turns into the process's exit code.
     check("a failure recorded this way still drives the run's exit code to 1",
           (1 if caught else 0) == 1)
+
+
+def write_labels(path: str) -> None:
+    """Every PASS and FAIL label, one per line, as "<STATE> <name>".
+
+    Lets a mutation check diff two runs by label instead of by hand-built
+    comm pipelines: see diff_labels().
+    """
+    with open(path, "w") as f:
+        for name in PASS:
+            f.write(f"PASS {name}\n")
+        for name in FAIL:
+            f.write(f"FAIL {name}\n")
+
+
+def _read_labels(path: str) -> dict[str, str]:
+    labels: dict[str, str] = {}
+    for line in Path(path).read_text().splitlines():
+        if not line.strip():
+            continue
+        state, name = line.split(" ", 1)
+        labels[name] = state
+    return labels
+
+
+def diff_labels(path_a: str, path_b: str) -> int:
+    """Print only the labels whose PASS/FAIL state differs between two
+    write_labels() files, "<state in A> -> <state in B>  <name>" per line.
+
+    A label present in only one file reads as MISSING on the other side -
+    that means the two runs used a different -k, not that a test flipped.
+    """
+    a, b = _read_labels(path_a), _read_labels(path_b)
+    changed = False
+    for name in sorted(set(a) | set(b)):
+        sa, sb = a.get(name, "MISSING"), b.get(name, "MISSING")
+        if sa != sb:
+            changed = True
+            print(f"{sa} -> {sb}  {name}")
+    return 1 if changed else 0
+
+
+WRITE_LABELS_TO: str | None = None  # set by --write-labels
 
 
 def main() -> int:
@@ -20162,6 +20223,8 @@ def main() -> int:
           not stray, "; ".join(f"{t}: {c[0]}" for t, c in sorted(stray.items())[:4]))
     check("orca: no test started an orca process itself, whether or not it caught the error",
           not ORCA_ATTEMPTS, "; ".join(f"{t}: {c}" for t, c in ORCA_ATTEMPTS[:4]))
+    if WRITE_LABELS_TO is not None:
+        write_labels(WRITE_LABELS_TO)
     print(f"\n{len(PASS)} passed, {len(FAIL)} failed")
     for f in FAIL:
         print(f"  FAILED: {f}")
@@ -20169,4 +20232,18 @@ def main() -> int:
 
 
 if __name__ == "__main__":
+    parser = argparse.ArgumentParser()
+    parser.add_argument("-k", dest="filter", default=None,
+                         help="run only test_* functions whose name contains this substring")
+    parser.add_argument("--write-labels", dest="write_labels", default=None,
+                         help="write every PASS/FAIL label from this run to a file")
+    parser.add_argument("--diff-labels", dest="diff_labels", nargs=2, default=None,
+                         metavar=("A", "B"),
+                         help="print only the labels whose state differs between two "
+                              "--write-labels files; does not run the suite")
+    args = parser.parse_args()
+    if args.diff_labels:
+        sys.exit(diff_labels(*args.diff_labels))
+    TEST_FILTER = args.filter
+    WRITE_LABELS_TO = args.write_labels
     sys.exit(main())
