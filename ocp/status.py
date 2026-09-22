@@ -211,17 +211,29 @@ class AccountStatus:
 
     @property
     def pct_5h_source(self) -> str:
-        """Which of the five cases this reading is: see the module docstring."""
+        """Which of the five cases this reading is: see the module docstring.
+
+        `rl_carried` says a *later* write found nothing new to report; it does
+        not age on its own, and the one writer that sets it (`usage_api`)
+        always clears it back to False the moment a poll succeeds - so an
+        account whose poll then goes quiet for hours (the endpoint itself
+        421/429s at the wall, or the token is dead) keeps a False flag
+        forever. `rl_at` is what actually bounds the carry (module docstring),
+        so it is checked first: past `CARRY_MAX_AGE_S` this is carried_old
+        regardless of the flag, collected_at's own freshness included - a
+        session merely idling on the account must not keep an hours-old rate
+        limit reading dressed as `live`.
+        """
         if not self.exists or self.error or self.stale or not self.pct_5h_readable:
             return "unknown"
         if self.rl_lost:
             return "unknown"
         if self.pct_5h is None:
             return "quiet"
-        if not self.rl_carried:
-            return "live"
         age = self.rl_age_s
-        return "carried" if age is not None and age <= CARRY_MAX_AGE_S else "carried_old"
+        if age is not None and age > CARRY_MAX_AGE_S:
+            return "carried_old"
+        return "carried" if self.rl_carried else "live"
 
     @property
     def trusted_pct_5h(self) -> int | None:
@@ -257,16 +269,23 @@ class AccountStatus:
         `reset_7d` has passed it is not even that: it describes a window that no
         longer exists, and reading it as the truth is how an account reads 60%
         for a week after the week ended.
+
+        `rl7_at`, not `collected_at`, bounds the carry here too (see
+        `pct_5h_source`): checked before the `live` case, so a poll gone quiet
+        for hours cannot pass for fresh just because something else is still
+        pinging `collected_at`.
         """
         if not self.exists or self.error or self.rl7_lost or self.pct_7d is None:
             return "unknown"
         now = int(time.time())
         if self.reset_7d and self.reset_7d <= now:
             return "unknown"
+        age = None if self.rl7_at is None else now - self.rl7_at
+        if age is not None and age > CARRY_MAX_AGE_S:
+            return "carried_old"
         if not self.stale and not self.rl7_carried:
             return "live"
-        age = None if self.rl7_at is None else now - self.rl7_at
-        return "carried" if age is not None and age <= CARRY_MAX_AGE_S else "carried_old"
+        return "carried"
 
     @property
     def trusted_pct_7d(self) -> int | None:

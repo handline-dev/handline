@@ -15425,7 +15425,7 @@ def test_the_daemon_feeds_the_estimate_each_tick(home: Path) -> None:
     db.set_account(con, "worker", "alpha")
     db.set_agent_state(con, "worker", dmn.RUNNING)
     now = int(time.time())
-    base = now - 4000
+    base = now - 800
     logged: list[str] = []
     for i, pct in enumerate((10, 12, 15, 17, 19)):
         write_status(home, "alpha", pct_5h=pct, pct_7d=10, reset_5h=base + 18000,
