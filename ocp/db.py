@@ -712,6 +712,12 @@ def open_asks_of(con, requester: str) -> int:
                        "AND state = 'queued'", (requester,)).fetchone()[0]
 
 
+def open_escalations_of(con, agent: str) -> int:
+    """Escalations raised about this agent that are still waiting on the human."""
+    return con.execute("SELECT COUNT(*) FROM requests WHERE requester = ? AND kind = 'escalate' "
+                       "AND state = 'queued'", (agent,)).fetchone()[0]
+
+
 def mark_delivered(con, rid: int) -> bool:
     """Record that this request has been shown to its target. Idempotent.
 

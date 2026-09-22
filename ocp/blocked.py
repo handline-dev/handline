@@ -344,6 +344,10 @@ def sweep(con, log, now: int | None = None) -> None:
         if rec is not None and rec["request_id"] is None and (
                 now - rec["since"] >= ESCALATE_AFTER_S
                 or (rec["kind"] == orca.MODAL and stopped_pressing(con, agent, rec, now))):
+            # A stall the daemon escalated itself - a trust screen - is
+            # already in front of the founder; the block stays for the bridge.
+            if rec["kind"] == STALLED and db.open_escalations_of(con, agent):
+                continue
             due.append(rec)
     if due:
         _raise(con, due, now, log)

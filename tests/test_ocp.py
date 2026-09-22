@@ -4708,6 +4708,60 @@ def test_blocked_agents_come_due_in_one_request(home: Path) -> None:
         con.close()
 
 
+def test_a_trust_screen_is_one_founder_request(home: Path) -> None:
+    """The wake escalates the trust screen and stalls the agent; the sweep then
+    sees a STALLED block with work waiting. Past ESCALATE_AFTER_S that is still
+    one request - and the block row stays, for the bridge. Once the founder
+    closes the trust request with the agent still stuck, the block is raised."""
+    con = _blocked_world(home)
+    wt = home / "worktree"
+    wt.mkdir(parents=True, exist_ok=True)
+    db.set_terminal(con, "backend", "term_x", str(wt))
+    real = (orcamod.trust_prompt_showing, orcamod.screen_text, trustmod.is_declared)
+    orcamod.trust_prompt_showing = lambda h: True
+    orcamod.screen_text = lambda h: (f"Accessing workspace:\n{wt}\nQuick safety check: Is this "
+                                     f"a project you created or one you trust?\n")
+    trustmod.is_declared = lambda p: False
+    orcamod.screen_blocker = lambda h: orcamod.Blocker(orcamod.MODAL, '"trust"')
+    t0 = int(time.time()) - 2 * blockedmod.ESCALATE_AFTER_S - 3000
+    try:
+        keep_handoff("backend", "# handoff · backend\n## next\n- carry on\n")
+        ok, _why = dmn.wake_agent(con, "backend", lambda _m: None)
+        check("trust once: the wake escalates and stalls",
+              not ok and len(_escalations(con)) == 1
+              and db.get_agent_state(con, "backend")["state"] == dmn.STALLED,
+              str((ok, _why, [dict(r) for r in _escalations(con)])))
+        for at in (0, blockedmod.ESCALATE_AFTER_S, blockedmod.ESCALATE_AFTER_S + 900):
+            blockedmod._checked.clear()
+            blockedmod.sweep(con, lambda _m: None, t0 + at)
+        check("trust once: past ESCALATE_AFTER_S, still one founder request",
+              len(_escalations(con)) == 1, str([dict(r) for r in _escalations(con)]))
+        rec = db.block_get(con, "backend")
+        check("trust once: the block row stays, for the bridge",
+              rec is not None and rec["kind"] == blockedmod.STALLED, str(rec and dict(rec)))
+
+        askmod.resolve(_escalations(con)[0]["id"], "looked", state="done", notify=False)
+        blockedmod._checked.clear()
+        blockedmod.sweep(con, lambda _m: None, t0 + blockedmod.ESCALATE_AFTER_S + 1000)
+        check("trust once: closed while it is still stuck, the block is raised",
+              len(_escalations(con)) == 2, str([dict(r) for r in _escalations(con)]))
+
+        # Only a stall is taken as already said: a dialog is a different
+        # obstacle from whatever the agent's open escalation is about.
+        db.set_agent_state(con, "backend", dmn.IDLE)
+        db.block_clear(con, "backend")
+        con.execute("UPDATE requests SET state = 'done' WHERE kind = 'escalate'")
+        askmod.escalate(con, "backend", "something else", "unrelated")
+        blockedmod._checked.clear()
+        blockedmod.sweep(con, lambda _m: None, t0 + 5000)
+        blockedmod.sweep(con, lambda _m: None, t0 + 5000 + blockedmod.ESCALATE_AFTER_S)
+        check("trust once: a dialog is raised beside an unrelated open escalation",
+              len(_escalations(con)) == 4, str([dict(r) for r in _escalations(con)]))
+    finally:
+        (orcamod.trust_prompt_showing, orcamod.screen_text, trustmod.is_declared) = real
+        con.close()
+
+
 def test_a_dialog_ocps_own_exit_raised_is_said_at_once(home: Path) -> None:
     """`/exit` met background shells and the dialog is ocp's doing: it does not
     wait for T1, it stands with nothing waiting, and ocp does not answer it."""
@@ -22476,6 +22530,7 @@ def main() -> int:
         run(lambda: test_the_human_and_strangers_are_not_blocked_agents(Path(td) / 'blk10'))
         run(lambda: test_the_tick_looks_for_blocks(Path(td) / 'blk8'))
         run(lambda: test_blocked_agents_come_due_in_one_request(Path(td) / 'blk4'))
+        run(lambda: test_a_trust_screen_is_one_founder_request(Path(td) / 'trustonce'))
         run(lambda: test_a_dialog_ocps_own_exit_raised_is_said_at_once(Path(td) / 'blk5'))
         run(lambda: test_a_failed_close_says_why_and_records_the_dialog(Path(td) / 'blk6'))
         run(lambda: test_a_close_refused_by_a_dialog_is_said_once_not_every_tick(Path(td) / 'blk11'))
