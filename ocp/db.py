@@ -899,22 +899,25 @@ def last_event_ts(con, agent: str, kind: str) -> int | None:
     return int(row["t"]) if row and row["t"] is not None else None
 
 
-# What moves an agent's activity clock: the agent acting, on its own live
-# session, never an event ocp causes. An allow-list, not a deny-list - a kind
-# nobody has sorted yet must default to "not activity", because the other
-# direction gave a closed agent a clock stamped at close time and resumed a
-# dead cache (#1527, #1533, and the same bug again through SessionEnd, which
-# ocp's own `/exit` fires at once). ask/cancel/commit/escalate/report/resolve/
-# withdraw are commands the agent itself ran. Of the hook events ocp captures
-# (ocp/events.py CAPTURED), UserPromptSubmit, Stop and StopFailure are a live
-# turn happening or ending; SubagentStop and PostCompact only ever fire mid a
-# live session, never from anything ocp can trigger on its own; PermissionRequest
-# and TeammateIdle both mean the agent's own turn ran into something needing a
-# human, same as PermissionRequest for ACTIVE_EVENTS in events.py. SessionStart
-# and SessionEnd are the two left out: ocp's own resume fires the first and
-# ocp's own `/exit` fires the second, so both can happen with the agent having
-# done nothing - the exact reasoning events.py gives for leaving SessionStart
-# out of ACTIVE_EVENTS, applied here to the clock it never reached before.
+# What moves an agent's activity clock: the agent taking a turn, never an
+# event ocp causes without one - ocp's own wake types a prompt, and that
+# UserPromptSubmit is rightly in this list, because a real turn follows it.
+# An allow-list, not a deny-list - a kind nobody has sorted yet must default
+# to "not activity", because the other direction gave a closed agent a clock
+# stamped at close time and resumed a dead cache (#1527, #1533, and the same
+# bug again through SessionEnd, which ocp's own `/exit` fires at once).
+# ask/cancel/commit/escalate/report/resolve/withdraw are commands the agent
+# itself ran. Of the hook events ocp captures (ocp/events.py CAPTURED),
+# UserPromptSubmit, Stop and StopFailure are a live turn happening or ending;
+# SubagentStop and PostCompact only ever fire mid a live session, never from
+# anything ocp can trigger on its own; PermissionRequest and TeammateIdle both
+# mean the agent's own turn ran into something needing a human, same as
+# events.py's TURN_BOUNDARIES comment gives for leaving them out of
+# QUIET_EVENTS. SessionStart and SessionEnd are the two left out: ocp's own
+# resume fires the first and ocp's own `/exit` fires the second, so both can
+# happen with the agent having done nothing - the exact reasoning events.py
+# gives for leaving SessionStart out of ACTIVE_EVENTS, applied here to the
+# clock it never reached before.
 AGENT_ACTIVITY_KINDS = frozenset({
     "ask", "cancel", "commit", "escalate", "report", "resolve", "withdraw",
     "UserPromptSubmit", "Stop", "StopFailure", "SubagentStop", "PostCompact",

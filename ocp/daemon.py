@@ -1129,9 +1129,9 @@ def _wake_agent(con, agent: str, log, moved_to: str | None = None) -> tuple[bool
             took = True
             if gaps:
                 why = "could not read " + ", ".join(gaps)
-                # Kind "handoff" is on db.last_activity's exclusion list; any
-                # other kind would give a dead-cache agent a clock and the
-                # next wake would read it warm.
+                # "handoff" must stay out of db.AGENT_ACTIVITY_KINDS: this is
+                # ocp's own bookkeeping about a failed take, not the agent
+                # doing anything, and counting it would read a dead cache warm.
                 db.add_event(con, agent, "handoff", {"degraded": True, "session": session, "why": why})
                 log(f"  {agent}: cold wake handoff degraded ({why})")
         for resume in ([True, False] if session and not cold else [False]):
@@ -1857,8 +1857,8 @@ def _perform_handoff(con, agent: str, trigger: triggers.Trigger, log,
                        detail=f"{trigger.kind}; wakes at {time.strftime('%H:%M', time.localtime(wake))}")
     # `close` and `wake` both leave a record of when and why; a park never did,
     # so `ocp events --agent` had nothing to show for it even though the
-    # kind was already reserved for it (db.last_activity excludes 'park' by
-    # name, same as the others). The account carries its own source, so a
+    # kind was already reserved for it (kept out of db.AGENT_ACTIVITY_KINDS,
+    # same as the others). The account carries its own source, so a
     # park against an assumed one is diagnosable from the event alone rather
     # than needing the live row it was computed from, which has moved on by
     # the time anyone reads this.
