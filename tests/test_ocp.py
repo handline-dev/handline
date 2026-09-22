@@ -147,6 +147,11 @@ def restore_world() -> None:
     # No screen to read in a fixture; a test about a modal says so itself.
     orcamod.modal_open = lambda handle: False
     orcamod.screen_blocker = lambda handle: None
+    # screen_blocker_cached wraps whatever screen_blocker is at call time, but
+    # the cache itself is keyed by handle and outlives the function it wraps -
+    # most fixtures reuse "term_x", so a value cached by one test would answer
+    # the next one's read of the same handle without this.
+    orcamod._screen_cache.clear()
     # And no screen to read for a key either: a test that presses one says so.
     orcamod._screen = lambda handle: None
     orcamod.PRESS_SETTLE_S = 0
@@ -13911,6 +13916,10 @@ def test_a_permission_prompt_waits_on_the_founder_until_it_is_answered(home: Pat
     try:
         db.set_terminal(con, "backend", "term_x", "wt")
         db.set_agent_state(con, "backend", dmn.RUNNING, detail="active")
+        # This test is about the event-driven clearing paths, not the live
+        # screen - its own screen check is exercised in
+        # test_a_wait_clears_when_the_terminals_own_screen_no_longer_shows_it.
+        orcamod.screen_blocker = lambda handle: orcamod.Blocker(orcamod.MODAL, "dialog")
         cmd = "git push origin main " + "x" * 200
 
         def waits():
@@ -13999,6 +14008,10 @@ def test_a_wait_does_not_outlive_the_prompt_that_raised_it(home: Path) -> None:
     con = db.connect()
     try:
         db.set_agent_state(con, "backend", dmn.RUNNING, detail="active")
+        # This test is about the event-driven clearing paths, not the live
+        # screen - its own screen check is exercised in
+        # test_a_wait_clears_when_the_terminals_own_screen_no_longer_shows_it.
+        orcamod.screen_blocker = lambda handle: orcamod.Blocker(orcamod.MODAL, "dialog")
 
         def waiting_now() -> bool:
             return waiting.of(con, db.get_agent_state(con, "backend")) is not None
@@ -14070,6 +14083,89 @@ def test_a_wait_does_not_outlive_the_prompt_that_raised_it(home: Path) -> None:
         check("outlive: a genuinely pending wait keeps showing, however old", waiting_now())
     finally:
         os.environ.pop("OCP_AGENT", None); os.environ.pop("OCP_ACCOUNT", None)
+        con.close()
+
+
+def test_a_wait_clears_when_the_terminals_own_screen_no_longer_shows_it(home: Path) -> None:
+    """#1698: a founder incident where a dialog was answered but nothing was
+    ever recorded to say so - PostToolUse is deliberately never written while
+    an agent is mid-turn, so the two tests above's event-driven paths alone
+    left the wait showing for 26 minutes. waiting.of() also reads the
+    terminal's own screen, live, and that reading wins the moment it disagrees
+    with the event log - in either direction."""
+    _daemon_home(home, 20)
+    os.environ["OCP_AGENT"], os.environ["OCP_ACCOUNT"] = "backend", "alpha"
+    con = db.connect()
+    try:
+        db.set_agent_state(con, "backend", dmn.RUNNING, detail="active")
+
+        def stub(blocker) -> None:
+            # screen_blocker_cached (orca.SCREEN_CACHE_TTL_S) would otherwise
+            # answer from the previous stub for a few real seconds - well
+            # inside how long this test takes to run.
+            orcamod.screen_blocker = lambda handle: blocker
+            orcamod._screen_cache.clear()
+
+        def waiting_now() -> bool:
+            return waiting.of(con, db.get_agent_state(con, "backend")) is not None
+
+        stub(orcamod.Blocker(orcamod.MODAL, "dialog"))
+        _fire_hook("PermissionRequest", tool_name="Bash", tool_input={"command": "rm -rf /x"})
+        check("screen: raised, with the dialog still on screen",
+              waiting_now())
+
+        stub(None)
+        check("screen: gone - a clean composer clears it with no event at all",
+              not waiting_now())
+
+        _fire_hook("PermissionRequest", tool_name="Bash", tool_input={"command": "rm -rf /y"})
+        stub(orcamod.Blocker(orcamod.UNREADABLE))
+        check("screen: a screen that cannot be read fails closed, keeping it",
+              waiting_now())
+
+        stub(orcamod.Blocker(orcamod.BACKGROUNDED, "picker"))
+        check("screen: the session picker showing instead is not a dialog either",
+              not waiting_now())
+
+        _fire_hook("PermissionRequest", tool_name="Bash", tool_input={"command": "rm -rf /z"})
+        db.set_terminal(con, "backend", None, "wt")
+        orcamod.screen_blocker = lambda handle: (_ for _ in ()).throw(
+            AssertionError("no handle to read"))
+        orcamod._screen_cache.clear()
+        check("screen: an agent with no terminal at all is not read, and fails closed",
+              waiting_now())
+    finally:
+        os.environ.pop("OCP_AGENT", None); os.environ.pop("OCP_ACCOUNT", None)
+        con.close()
+
+
+def test_classify_reads_the_screen_again_after_waiting_of_clears_a_wait_by_it(home: Path) -> None:
+    """waiting.of()'s own screen check, just above classify()'s, answers a
+    different question - is the founder's own prompt still up - and clearing
+    a stale one there does not excuse classify()'s read: a dialog can be on
+    screen the instant after, and nothing else would catch it this tick."""
+    _daemon_home(home, 20)
+    orcamod.available = lambda: True
+    orcamod.alive = lambda h: True
+    reads: list[str] = []
+    blocker = orcamod.Blocker(orcamod.MODAL, "a different dialog")
+
+    def fake_screen_blocker(h):
+        reads.append(h)
+        return None if len(reads) == 1 else blocker
+
+    orcamod.screen_blocker = fake_screen_blocker
+    con = db.connect()
+    try:
+        db.set_agent_state(con, "backend", dmn.RUNNING, detail="active")
+        waiting.note("backend", "Bash", {"command": "rm -rf /x"})
+        row = db.get_agent_state(con, "backend")
+        found = blockedmod.classify(con, "backend", row)
+        check("classify: the permission wait cleared, but a fresh dialog still shows",
+              found == (orcamod.MODAL, "a different dialog", ""), str(found))
+        check("classify: two live reads - waiting.of()'s own and classify()'s own",
+              reads == ["term_x", "term_x"], str(reads))
+    finally:
         con.close()
 
 
@@ -23541,6 +23637,10 @@ def main() -> int:
         run(lambda: test_a_turn_that_ends_on_the_usage_limit_is_at_the_wall(Path(td) / 'limitstop'))
         run(lambda: test_a_permission_prompt_waits_on_the_founder_until_it_is_answered(Path(td) / 'promptwait'))
         run(lambda: test_a_wait_does_not_outlive_the_prompt_that_raised_it(Path(td) / 'outlive'))
+        run(lambda: test_a_wait_clears_when_the_terminals_own_screen_no_longer_shows_it(
+            Path(td) / 'waitscreen'))
+        run(lambda: test_classify_reads_the_screen_again_after_waiting_of_clears_a_wait_by_it(
+            Path(td) / 'classifyreuse'))
         run(lambda: test_a_proposal_and_an_escalation_wait_on_the_founder_too(Path(td) / 'founderwaits'))
         run(lambda: test_an_unknown_reset_does_not_make_the_runway_absurd(Path(td) / 'runwayunknown'))
         run(lambda: test_what_one_agent_costs_is_measured_from_stretches_of_work(Path(td) / 'burnobs'))

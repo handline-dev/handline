@@ -698,6 +698,27 @@ def screen_blocker(handle: str) -> Blocker | None:
     return Blocker(UNREADABLE)
 
 
+# How often a redraw or a recheck may reuse the same screen read, so a caller
+# on a short cycle - the dashboard's own redraw, a block's RECHECK_S - does
+# not reissue the read every time it asks. A `security` subprocess on that
+# same cycle once froze the dashboard for its whole TTL (tui.LOGIN_TTL_S);
+# this is that fix's shape, for this call. Callers that act on the read right
+# now - a key press, a one-off report - use screen_blocker itself instead,
+# which this wraps but never replaces.
+SCREEN_CACHE_TTL_S = 5
+_screen_cache: dict[str, tuple[float, Blocker | None]] = {}
+
+
+def screen_blocker_cached(handle: str) -> Blocker | None:
+    now = time.time()
+    seen = _screen_cache.get(handle)
+    if seen and now - seen[0] < SCREEN_CACHE_TTL_S:
+        return seen[1]
+    blocker = screen_blocker(handle)
+    _screen_cache[handle] = (now, blocker)
+    return blocker
+
+
 CLEARED, STILL_OPEN, NOT_PRESSED = "cleared", "still-open", "not-pressed"
 # How long a dialog is given to go after Esc, read again each time.
 PRESS_SETTLE_S, PRESS_SETTLE_READS = 0.5, 4

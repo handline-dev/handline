@@ -16,7 +16,7 @@ import os
 import time
 from pathlib import Path
 
-from . import db, paths
+from . import db, orca, paths
 
 # What of a tool's input is worth showing, in the order it is looked for.
 _INPUT_FIELDS = ("command", "file_path", "path", "pattern", "url", "query", "description")
@@ -104,6 +104,26 @@ def clear(agent: str, tool: str | None = None, tool_input: object = None) -> Non
         pass
 
 
+def _modal_still_there(handle: str | None) -> bool:
+    """Is the terminal's own screen still showing a dialog - the authoritative
+    check, since events can be entirely silent for as long as an agent is
+    mid-turn (PostToolUse is deliberately never recorded, #1698: a founder
+    incident where nothing at all was written for 26 minutes).
+
+    Fail-closed, the same direction screen_blocker() itself already fails in:
+    no terminal, or a screen that cannot be read right now, reads as the
+    dialog is still there. Hiding a wait that is real is worse than showing
+    one that is not - the founder's own words for the bug this answers.
+    BACKGROUNDED (the session picker showing instead) and None (a plain
+    composer) both mean no dialog is on screen; only MODAL and UNREADABLE
+    keep the wait up.
+    """
+    if not handle:
+        return True
+    blocker = orca.screen_blocker_cached(handle)
+    return bool(blocker and blocker.kind in (orca.MODAL, orca.UNREADABLE))
+
+
 def of(con, row) -> dict | None:
     """The wait to show for an agent row, or None.
 
@@ -123,6 +143,14 @@ def of(con, row) -> dict | None:
     clock ties too easily against activity a real agent produces moments
     later. A wait noted before this field existed has no id to compare and is
     left showing rather than guessed at.
+
+    A third path beside that one and the exact-match PostToolUse clear in
+    clear(): the agent's own terminal, read and only for an agent that already
+    has a wait file - almost always zero or one agent, never the whole fleet,
+    so this costs nothing on a tick nobody is waiting. Read through Orca's
+    short cache (screen_blocker_cached), since this runs on every redraw of
+    the dashboard for as long as a wait stays open. Whichever of the three
+    clears first wins; none of them undoes what another already cleared.
     """
     if not row or row["closed_at"] or row["state"] != "RUNNING":
         return None
@@ -135,4 +163,7 @@ def of(con, row) -> dict | None:
         if moved_on is not None and moved_on > eid:
             clear(row["agent"])
             return None
+    if not _modal_still_there(row["terminal"]):
+        clear(row["agent"])
+        return None
     return w
