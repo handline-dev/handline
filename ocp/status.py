@@ -917,14 +917,6 @@ def account_verdict(name: str, st: "AccountStatus", ld, ranked: list[tuple[str, 
     the sentence, so the two cannot say different things. `ranked` is
     `pick_account`'s reasons, ranked for this account's own vendor; an account
     outside the ranking falls back to what `takes_work` says.
-
-    Asked for the account's own vendor - the only vendor whose sessions can
-    ever run here, and this question arrives with no agent in hand. Answered
-    for claude alone it said of a healthy second-vendor account "no - a zai
-    account, not claude", which is true of a claude agent but is drawn as the
-    account's own ✘ and a flat "assign no". Which agent may go where is a fact
-    about the pair; every path that places one derives the vendor from the
-    agent, and none of them reads this.
     """
     if not logged_in:
         return False, "not logged in"

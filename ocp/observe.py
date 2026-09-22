@@ -40,15 +40,7 @@ class Observed:
 
 
 def is_session(command: str) -> bool:
-    """Is this process an agent's session, rather than something else of ours?
-
-    Which binary a session runs, and how a headless run is spelled, are both
-    the vendor's answers, so every known driver is asked - the same shape
-    `account_of_process` uses. Hardcoding claude's answers here made a second
-    vendor's live session invisible: nothing matched it, `live_sessions` left
-    its agent's pid None, and the daemon read that as the session having died
-    and recorded a running agent closed, on every tick.
-    """
+    """Is this process an agent's session, rather than something else of ours?"""
     return any(drv.is_session(command) for drv in vendors.known())
 
 
