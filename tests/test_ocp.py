@@ -8644,48 +8644,106 @@ def test_display_agrees_with_the_daemon(home: Path) -> None:
     check("display: and prints the legend", "inferred" in text)
 
 
-def test_spawn_sanitises_what_it_parsed_out_of_orcas_json(home: Path) -> None:
-    """auditor's #1194: _run strips a raw control byte before a parse, but one
-    sent escaped comes back real from json.loads. The worktree path and the
-    terminal handle are sanitised where spawn's messages embed them."""
+def test_a_control_byte_is_never_accepted_as_an_identifier(home: Path) -> None:
+    """auditor's #1695: sanitising the parsed worktree path and handle at the
+    four messages that embedded them left `db.set_terminal` storing them raw,
+    and `start_in` read one back into "started in {worktree}" - a fifth sink,
+    and the stored value no longer looked like a parsed one. A path or a handle
+    is stored, compared and handed back to Orca rather than drawn, so rewriting
+    one names something that does not exist. It is refused where it is read,
+    the same answer as one that could not be read at all.
+    """
     os.environ["OCP_HOME"] = str(home)
+    os.environ.pop("ORCA_TERMINAL_HANDLE", None)
+    os.environ.pop("ORCA_WORKTREE_ID", None)
     home.mkdir(parents=True, exist_ok=True)
     agents.register("spawny", "alpha")
     csi = "\u009b31m"
+    # Both exist on disk: the reported trace is start_in getting past its own
+    # "its worktree is gone" and reaching "started in {worktree}".
+    bad_wt, good_wt = str(home / f"w{csi}t"), str(home / "wt")
+    Path(bad_wt).mkdir()
+    Path(good_wt).mkdir()
 
-    def fake_run(args, cwd=None):
+    def fake_run(args, cwd=None, wt=bad_wt, handle=f"term{csi}_s"):
         if args[:3] == ["orca", "worktree", "create"]:
-            return 0, json.dumps({"result": {"worktree": {"path": f"/tmp/w{csi}t"}}}), ""
+            return 0, json.dumps({"result": {"worktree": {"path": wt}}}), ""
         if args[:3] == ["orca", "terminal", "create"]:
-            return 0, json.dumps({"result": {"terminal": {"handle": f"term{csi}_s"}}}), ""
+            return 0, json.dumps({"result": {"terminal": {"handle": handle}}}), ""
         return 0, "", ""
 
-    real = (spawnmod._run, spawnmod.shutil.which)
+    def stored():
+        row = db.get_agent_state(con, "spawny")
+        return ((row["terminal"], row["worktree"]) if row else (None, None))
+
+    real = (spawnmod._run, spawnmod.shutil.which, orcamod.run_current, orcamod.run_create)
+    con = db.connect()
     try:
         spawnmod.shutil.which = lambda _n: "/usr/bin/orca"
-        spawnmod._run = fake_run
         orcamod.run_current = lambda: None
         orcamod.run_create = lambda objective: None
-        ok, msg = spawnmod.spawn("spawny", ROOT, base="main")
-        check("spawn: the escaped byte came back real from the parse (the case is live)",
+
+        check("the escaped byte comes back real from the parse (the case is live)",
               "\x9b" in json.loads(fake_run(["orca", "worktree", "create"])[1])
               ["result"]["worktree"]["path"])
-        check("spawn: its message carries no control byte from the parsed path or handle",
-              ok and "\x9b" not in msg and "w31mt" in msg and "term31m_s" in msg, repr(msg))
 
-        wt = home / "wt"
-        wt.mkdir()
-        ok, msg = spawnmod.start_in("spawny", str(wt))
-        check("start_in: nor does its message carry one from the parsed handle",
-              ok and "\x9b" not in msg and "term31m_s" in msg, repr(msg))
-
-        spawnmod._run = lambda args, cwd=None: (
-            fake_run(args) if args[:3] == ["orca", "worktree", "create"] else (1, "", "boom"))
+        # The path, refused where it is read: it reaches no message and no row.
+        spawnmod._run = fake_run
         ok, msg = spawnmod.spawn("spawny", ROOT, base="main")
-        check("spawn: nor the failure that names the new worktree",
-              not ok and "\x9b" not in msg and "w31mt" in msg, repr(msg))
+        check("spawn: a worktree path carrying a control is not read as a path",
+              not ok and msg.startswith("could not read the new worktree path"), repr(msg))
+        check("spawn: and nothing of it is stored",
+              "\x9b" not in msg and stored() == (None, None), (repr(msg), stored()))
+
+        # A value that is not a string cannot be tested for what it carries,
+        # and it is not a path either: the same refusal, not a crash.
+        spawnmod._run = lambda args, cwd=None: fake_run(args, wt=["/tmp/x"])
+        ok, msg = spawnmod.spawn("spawny", ROOT, base="main")
+        check("spawn: nor is a worktree path that is not a string read as one",
+              not ok and msg.startswith("could not read the new worktree path"), repr(msg))
+
+        # start_in was the sink the sink-by-sink fix missed: it names in its own
+        # message the worktree it is given, and what it is given is the row
+        # spawn wrote. Drive it with exactly that row, not with a clean path.
+        check("start_in: spawn left it no stored worktree carrying one to name",
+              stored()[1] is None, stored())
+        ok, msg = spawnmod.start_in("spawny", stored()[1] or good_wt)
+        check("start_in: so no control reaches the message naming the worktree",
+              ok and "\x9b" not in msg, repr(msg))
+        check("start_in: nor does the handle it parses for itself",
+              "terminal unknown" in msg and all("\x9b" not in (v or "") for v in stored()),
+              (repr(msg), stored()))
+
+        # The handle alone. The worktree is good, so the spawn goes through -
+        # with no handle at all, exactly as an unreadable one already behaved.
+        spawnmod._run = lambda args, cwd=None: fake_run(args, wt=good_wt)
+        ok, msg = spawnmod.spawn("spawny", ROOT, base="main")
+        check("spawn: a handle carrying a control is not read as a handle",
+              ok and "\x9b" not in msg and "terminal unknown" in msg, repr(msg))
+        check("spawn: so the row holds neither it nor a rewritten version of it",
+              stored()[0] is None, stored())
+
+        # The parse is not the only door into that row: the other writer reads
+        # its handle and its worktree out of the environment, which arrive no
+        # cleaner. Each of the two on its own, since a refused handle stops the
+        # write and would hide whatever the worktree id did.
+        os.environ["ORCA_TERMINAL_HANDLE"] = f"h{csi}1"
+        os.environ["ORCA_WORKTREE_ID"] = "/tmp/plain-id"
+        launch._record_terminal("spawny", "alpha")
+        check("_record_terminal: an environment handle carrying one is refused too",
+              stored()[0] is None, stored())
+
+        os.environ["ORCA_TERMINAL_HANDLE"] = "h-plain"
+        os.environ["ORCA_WORKTREE_ID"] = f"/tmp/id{csi}2"
+        launch._record_terminal("spawny", "alpha")
+        check("_record_terminal: and the worktree id beside a good handle is too",
+              stored() == ("h-plain", None), stored())
     finally:
-        spawnmod._run, spawnmod.shutil.which = real
+        os.environ.pop("ORCA_TERMINAL_HANDLE", None)
+        os.environ.pop("ORCA_WORKTREE_ID", None)
+        (spawnmod._run, spawnmod.shutil.which,
+         orcamod.run_current, orcamod.run_create) = real
+        con.close()
 
 
 def test_spawn_confirms_the_task_landed(home: Path) -> None:
@@ -22774,7 +22832,8 @@ def main() -> int:
         run(lambda: test_spawn_confirms_the_task_landed(Path(td) / 'spawnland'))
         run(lambda: test_events_view_starts_at_the_newest(Path(td) / 'evview'))
         run(lambda: test_spawn_survives_its_own_main_path(Path(td) / 'spawnmain'))
-        run(lambda: test_spawn_sanitises_what_it_parsed_out_of_orcas_json(Path(td) / 'spawnjson'))
+        run(lambda: test_a_control_byte_is_never_accepted_as_an_identifier(
+            Path(td) / 'spawnjson'))
         run(lambda: test_an_agent_is_never_handed_another_agents_session(Path(td) / 'ident'))
         run(lambda: test_a_closed_agent_is_not_handed_off(Path(td) / 'closedtrig'))
         run(lambda: test_a_woken_agent_is_told_on_the_following_tick(Path(td) / 'woketick'))

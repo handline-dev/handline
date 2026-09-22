@@ -25,7 +25,7 @@ import time
 from pathlib import Path
 from dataclasses import dataclass
 
-from . import accounts, agents, db, paths, status, triggers, vendors
+from . import accounts, agents, db, paths, status, textsafe, triggers, vendors
 
 
 # `build` and `fingerprint` must name the same tools, or a change to one
@@ -449,13 +449,23 @@ def _record_terminal(agent: str, acct: str | None = None, fp: str | None = None)
     from . import db, orca, spawn
 
     handle = orca.terminal_handle()
+    wt = os.environ.get("ORCA_WORKTREE_ID")
+    # The other door into the same two columns `spawn` writes, and the values
+    # come in no cleaner for arriving as environment rather than as JSON. Both
+    # are identifiers, read back and named in messages long after this - so one
+    # carrying a control byte is refused here, not rewritten, and the reader is
+    # left with what it already handles: no handle, and no worktree.
+    if handle and textsafe.has_control(handle):
+        handle = None
+    if wt and textsafe.has_control(wt):
+        wt = None
     if not handle and not acct:
         return
     try:
         con = db.connect()
         try:
             if handle:
-                db.set_terminal(con, agent, handle, os.environ.get("ORCA_WORKTREE_ID"))
+                db.set_terminal(con, agent, handle, wt)
                 # However this terminal was made - by `ocp spawn`, or by a
                 # human running `ocp launch` in one they opened - the agent
                 # joins the team's Run here, so Orca draws it under whoever it

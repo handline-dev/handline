@@ -31,11 +31,32 @@ def _run(args: list[str], cwd: Path | None = None) -> tuple[int, str, str]:
     """`git`'s or Orca's own text, clean at the source, so a caller that embeds
     `out` or `err` in a message it returns need not sanitise it first. This
     does not cover a caller that `json.loads` `out`: a control byte sent
-    escaped comes back real from the parse, so a parsed value is sanitised
-    where a message embeds it."""
+    escaped comes back real from the parse, so such a caller reads the value
+    through `_parsed`."""
     r = subprocess.run(args, cwd=cwd, capture_output=True, text=True, timeout=120)
     return (r.returncode, textsafe.oneline(r.stdout.strip()),
             textsafe.oneline(r.stderr.strip()))
+
+
+def _parsed(out: str, *keys: str) -> str | None:
+    """One string out of Orca's `--json`, or None if it is not usable.
+
+    A worktree path and a terminal handle are identifiers: stored in the db,
+    handed back to Orca, and named in messages written much later by callers
+    that no longer see where the value came from. Sanitising one here would
+    keep a name for something that does not exist, and leave every sink
+    downstream to remember. So one carrying a control byte is refused instead,
+    which is what a value that could not be read at all already does.
+    """
+    try:
+        value = json.loads(out)
+        for k in keys:
+            value = value[k]
+    except (json.JSONDecodeError, KeyError, TypeError):
+        return None
+    if not isinstance(value, str) or textsafe.has_control(value):
+        return None
+    return value
 
 
 def pick_base(repo: Path, base: str) -> tuple[str | None, str]:
@@ -125,10 +146,7 @@ def start_in(agent: str, worktree: str) -> tuple[bool, str]:
     ])
     if code != 0:
         return False, f"{agent}: could not start in {worktree}: {err or out}"
-    try:
-        handle = json.loads(out)["result"]["terminal"]["handle"]
-    except (json.JSONDecodeError, KeyError, TypeError):
-        handle = None
+    handle = _parsed(out, "result", "terminal", "handle")
     if handle:
         con = db.connect()
         try:
@@ -136,8 +154,7 @@ def start_in(agent: str, worktree: str) -> tuple[bool, str]:
             register_worker(con, agent, handle)
         finally:
             con.close()
-    return True, (f"{agent}: started in {worktree} "
-                  f"(terminal {textsafe.oneline(handle) if handle else 'unknown'})")
+    return True, f"{agent}: started in {worktree} (terminal {handle or 'unknown'})"
 
 
 def spawn(agent: str, repo: Path, base: str = "main", prompt: str | None = None,
@@ -167,9 +184,8 @@ def spawn(agent: str, repo: Path, base: str = "main", prompt: str | None = None,
     ])
     if code != 0:
         return False, f"worktree create failed: {err or out}"
-    try:
-        wt = json.loads(out)["result"]["worktree"]["path"]
-    except (json.JSONDecodeError, KeyError, TypeError):
+    wt = _parsed(out, "result", "worktree", "path")
+    if wt is None:
         return False, f"could not read the new worktree path from: {out[:200]}"
 
     code, out, err = _run([
@@ -177,12 +193,8 @@ def spawn(agent: str, repo: Path, base: str = "main", prompt: str | None = None,
         "--title", agent, "--command", cmd, "--json",
     ])
     if code != 0:
-        return False, (f"worktree {textsafe.oneline(wt)} created, but starting the agent "
-                       f"failed: {err or out}")
-    try:
-        handle = json.loads(out)["result"]["terminal"]["handle"]
-    except (json.JSONDecodeError, KeyError, TypeError):
-        handle = None
+        return False, f"worktree {wt} created, but starting the agent failed: {err or out}"
+    handle = _parsed(out, "result", "terminal", "handle")
 
     if handle:
         con = db.connect()
@@ -192,8 +204,8 @@ def spawn(agent: str, repo: Path, base: str = "main", prompt: str | None = None,
         finally:
             con.close()
 
-    lines = [f"{agent}: worktree {textsafe.oneline(wt)}", f"  branched from {base_ref} ({why})",
-             f"  terminal {textsafe.oneline(handle) if handle else 'unknown'}"]
+    lines = [f"{agent}: worktree {wt}", f"  branched from {base_ref} ({why})",
+             f"  terminal {handle or 'unknown'}"]
 
     if prompt and not handle:
         # Sending to a handle we could not read means typing into nothing and

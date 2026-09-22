@@ -6,8 +6,9 @@ bridge's screen and the CLI's output alike. A terminal acts on some bytes
 instead of drawing them: an OSC sequence (window title, clipboard write, link),
 a CSI sequence (cursor moves, erase, colour), a lone ESC, any other C0 control
 (BEL, backspace, carriage return), DEL, and the C1 range (0x9b is CSI, 0x9d is
-OSC). This module is the one rule for taking those out, and it imports nothing
-of any front end, so a new one reaches it without reaching a screen.
+OSC). This module is the one rule for taking those out, and for asking whether
+text holds any, and it imports nothing of any front end, so a new one reaches it
+without reaching a screen.
 
 It does not style, truncate or draw: those belong to the front end that owns the
 terminal. `wrap` is here although it breaks lines to a width, because it cannot
@@ -66,6 +67,19 @@ def oneline(value: str) -> str:
     """`value` as a single line of printable text: `drawable`, a newline being
     a space, and anything else unprintable blanked."""
     return "".join(c if c.isprintable() else " " for c in " ".join(drawable(value)))
+
+
+def has_control(value: str) -> bool:
+    """Whether `value` holds one of `CONTROL_CHARS`.
+
+    For a value that is stored, compared and handed back rather than drawn - a
+    path, a terminal handle - where `oneline` is the wrong answer: it returns a
+    different string than the one it was given, so what is kept names nothing
+    and every later reader compares against a thing that does not exist. A
+    caller holding one of those refuses the value instead of rewriting it, the
+    way `agents.register` already refuses a name carrying one.
+    """
+    return bool(CONTROL_CHARS & set(value))
 
 
 def json_dumps(obj, **kw) -> str:
