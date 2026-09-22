@@ -1095,7 +1095,7 @@ def can(con, agent: str, key: str) -> tuple[bool, str]:
     # not touch - handing a stalled agent off would clear the stall a human was
     # meant to read.
     busy = state in (daemon.RUNNING, daemon.HANDOFF, daemon.STALLED)
-    busy_why = f"{agent} is {state}" + (" - only a human clears that (u)"
+    busy_why = f"{agent} is {state}" + (" - only a human clears that (w)"
                                         if state == daemon.STALLED else "")
     if key == "wake":
         if closed or state == daemon.STALLED:

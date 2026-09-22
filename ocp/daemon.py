@@ -320,9 +320,11 @@ def resume_handoff(con, row, log) -> None:
         reading = agents.account_reading(agent, con)
     except Exception:  # noqa: BLE001 - a missing account must not wedge the resume
         pass
-    # Same rule as a fresh park's ceiling (see _perform_handoff): never a 5h
-    # sleep against an account this agent may not be on.
-    if reading is None or reading.source == "assumed":
+    # Same rule as a fresh park's ceiling (see _perform_handoff), and the same
+    # three reasons: an unknown account, or a forced move - which never hits
+    # a usage wall, whatever account it names - is the move machinery still
+    # working, not a wall to sleep out.
+    if reading is None or reading.source == "assumed" or row["trigger_kind"] == "forced":
         wake = int(time.time()) + ASSUMED_ACCOUNT_RECHECK_S
         label = MOVING_MARK
     else:

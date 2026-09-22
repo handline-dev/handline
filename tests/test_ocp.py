@@ -23548,14 +23548,17 @@ WRITE_LABELS_TO: str | None = None  # set by --write-labels
 def _states_written_in(path) -> set[str]:
     """Every literal state name a call to `set_agent_state` writes in one
     source file, however it spells the state: a bare constant (already equal
-    to its own name in daemon.py, e.g. `PARKED = "PARKED"`) or a quoted
-    literal (ask.py's own style). Not a full parser - a regex over source
-    text - but the one property this needs is only ever a name right after
-    the two required positional arguments, and every real call site is one
-    line, so it does not need to be more than that."""
+    to its own name in daemon.py, e.g. `PARKED = "PARKED"`), a quoted literal
+    (ask.py's own style), or one qualified by its module (`daemon.QUEUED` in
+    actions.py, `daemonmod.QUEUED` in cli.py - a miss here read both of those
+    real call sites as writing nothing, which defeats the guard exactly where
+    a state without one would be silent). Not a full parser - a regex over
+    source text - but the one property this needs is only ever a name right
+    after the two required positional arguments, and every real call site is
+    one line, so it does not need to be more than that."""
     import re
     text = Path(path).read_text()
-    return set(re.findall(r'set_agent_state\(\s*con\s*,\s*[^,]+,\s*"?([A-Z_]+)"?', text))
+    return set(re.findall(r'set_agent_state\(\s*con\s*,\s*[^,]+,\s*(?:\w+\.)?"?([A-Z_]+)"?', text))
 
 
 def test_every_state_the_daemon_can_write_has_a_waker() -> None:
