@@ -1223,15 +1223,19 @@ def expire_handoffs(con, log) -> list[str]:
     return actions
 
 
-def _stall_on_unreadable_config(con, agent: str, log, actions: list[str],
-                                e: Exception, where: str) -> None:
-    """This agent's own file is bad, not reconciliation's fault: count it
-    against the agent (8.5) and stall it once the streak reaches the same
-    ceiling tick()'s per-agent guard uses, rather than let it wedge every
-    other agent behind it. Only ConfigError/UnicodeDecodeError/OSError reach
-    here - the class a bad file raises - so a database failure (a different
-    exception entirely) is not this function's to catch and keeps propagating,
-    the same distinction hr.listing already draws for a bad proposal file."""
+def _stall_agent(con, agent: str, log, actions: list[str],
+                 e: Exception, where: str) -> None:
+    """One agent's own failure, not the daemon's: count it against the agent
+    (8.5) and stall it once the streak reaches MAX_FAILED_ATTEMPTS, rather
+    than let it wedge every other agent behind it (reconcile's two callers)
+    or end the tick early (tick()'s own per-agent loop, its third caller).
+    What belongs in `e` is the caller's decision, not this function's - each
+    call site's own except clause is what draws the line between "this
+    agent's problem" and a fault the caller must keep propagating (reconcile:
+    ConfigError/UnicodeDecodeError/OSError, the class a bad agent.yaml
+    raises, the same distinction hr.listing already draws for a bad proposal
+    file; tick(): bare Exception, the wider net a live turn can fail in more
+    ways than a config read can)."""
     db.bump_counter(con, agent, "failed_attempts")
     fresh = db.get_agent_state(con, agent)
     actions.append(f"{agent}: {where}: {e}")
@@ -1264,7 +1268,7 @@ def reconcile(con, log) -> list[str]:
             # Reached through account_of when agent_state.account is not yet
             # recorded: one agent's unreadable agent.yaml must not leave every
             # other in-flight handoff - and every due wake below it - unresolved.
-            _stall_on_unreadable_config(con, agent, log, actions, e,
+            _stall_agent(con, agent, log, actions, e,
                                        f"could not resume handoff from step '{step}'")
             continue
         actions.append(f"{agent}: resumed in-flight handoff from step '{step}'")
@@ -1284,7 +1288,7 @@ def reconcile(con, log) -> list[str]:
             try:
                 ok, why = wake_agent(con, agent, log)
             except (ConfigError, UnicodeDecodeError, OSError) as e:
-                _stall_on_unreadable_config(con, agent, log, actions, e,
+                _stall_agent(con, agent, log, actions, e,
                                            "could not wake at reconciliation")
                 continue
             if not ok:
@@ -2332,18 +2336,14 @@ def tick(con, log, samples: dict | None = None) -> Tick:
             supervise(con, agent, log, now, samples, actions)
         except Exception as e:  # noqa: BLE001
             # A real failure, not a resource shortage: bad config, unreadable
-            # status, an Orca call that raised. This is what failed_attempts
-            # counts (8.5), and it is capped, unlike continuations. Catching it
-            # per agent is the point - supervising one agent is not allowed to
-            # end supervision of every agent after it in the list.
-            db.bump_counter(con, agent, "failed_attempts")
-            fresh = db.get_agent_state(con, agent)
-            actions.append(f"{agent}: error: {e}")
-            log(f"  {agent}: error: {e}")
-            if fresh and fresh["failed_attempts"] >= MAX_FAILED_ATTEMPTS:
-                db.set_agent_state(con, agent, STALLED,
-                                   detail=f"{fresh['failed_attempts']} failed attempts: {e}")
-                log(f"  {agent}: STALLED after {fresh['failed_attempts']} failed attempts")
+            # status, an Orca call that raised. Bare Exception, deliberately
+            # wider than reconcile()'s two callers of _stall_agent - a live
+            # turn can fail in more ways than a config read can, and this is
+            # still the outermost per-agent loop, so nothing after it treats
+            # this as a case to narrow. Catching it per agent is the point -
+            # supervising one agent is not allowed to end supervision of
+            # every agent after it in the list.
+            _stall_agent(con, agent, log, actions, e, "error")
 
     blocked.sweep(con, log, now)
     observe_burn(con, log)
