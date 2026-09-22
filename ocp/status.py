@@ -59,7 +59,7 @@ import time
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from . import paths, triggers
+from . import accounts, paths, triggers, usage_api
 
 # statusLine only refreshes while a session is alive, so a snapshot older than
 # this is not trusted as "current" (section 4 constraint - refreshInterval
@@ -127,6 +127,15 @@ PCT_7D_BLOCK = triggers.WALL_PCT
 # main's MOVE_LINE_5H (85) minus its MOVE_MIN_HEADROOM_PCT (15). Against the
 # wall this stack uses (100) that line is thirty points.
 IDLE_FLOOR_MARGIN_PCT = 30
+
+# How many candidates pick_account(live_refresh=True) may ask usage_api about
+# in one call. _move_plan/find_room pass every logged-in candidate, and a
+# fleet-wide outage (#1811's own scenario) can make several of them read
+# carried_old or stale-idle-floored at once; without a cap this call blocks on
+# that many sequential HTTP_TIMEOUT_S timeouts on the same 30s daemon tick
+# poll_usage's own docstring budgets for - one success per tick, mirrored here
+# as one attempt per call (auditor #1821 should-fix).
+LIVE_REFRESH_MAX_PER_CALL = 1
 
 
 @dataclass
@@ -233,7 +242,15 @@ class AccountStatus:
         age = self.rl_age_s
         if age is not None and age > CARRY_MAX_AGE_S:
             return "carried_old"
-        return "carried" if self.rl_carried else "live"
+        if self.rl_carried:
+            # A carried figure with no age at all cannot be judged inside the
+            # bound above - unknown age is not the same claim as a fresh one,
+            # so it reads as too old to trust rather than as live (auditor
+            # #1805 note 3; unreached today, since usage_api's only writer
+            # always sets rl_at alongside rl_carried, but a guard against a
+            # payload that does not is cheap to keep honest).
+            return "carried_old" if age is None else "carried"
+        return "live"
 
     @property
     def trusted_pct_5h(self) -> int | None:
@@ -283,9 +300,10 @@ class AccountStatus:
         age = None if self.rl7_at is None else now - self.rl7_at
         if age is not None and age > CARRY_MAX_AGE_S:
             return "carried_old"
-        if not self.stale and not self.rl7_carried:
-            return "live"
-        return "carried"
+        if self.stale or self.rl7_carried:
+            # Same unknown-age case as pct_5h_source (auditor #1805 note 3).
+            return "carried_old" if age is None else "carried"
+        return "live"
 
     @property
     def trusted_pct_7d(self) -> int | None:
@@ -984,7 +1002,8 @@ def pick_account(candidates: list[str] | None = None, bootstrap: bool = False,
                  load: dict | None = None,
                  agent: str | None = None,
                  prefer: str | None = None,
-                 read_status=None) -> tuple[str | None, list[tuple[str, str]]]:
+                 read_status=None,
+                 live_refresh: bool = False) -> tuple[str | None, list[tuple[str, str]]]:
     """Pick among the accounts that can take one more agent - any account that
     will not hit its own wall, the same test `unfit` already answers - the one
     furthest behind its own weekly pace (`pace_7d`) goes first, since headroom
@@ -1038,6 +1057,21 @@ def pick_account(candidates: list[str] | None = None, bootstrap: bool = False,
     AccountStatus - what `replay.py` passes, to ask this same function about
     an account as a recorded sample had it, not as its live status.json
     reads today.
+
+    `live_refresh=True` (founder #1811 part 2, #1816): before a candidate is
+    refused for being carried_old, or admitted only on an idle floor that
+    predates whatever it now stands for, ask the account's own OAuth
+    credential directly (`usage_api`, one HTTPS GET, no session) and use the
+    answer if it came back. Without this, a decision that turns on a figure
+    nobody has refreshed either parks an agent beside an account that could
+    in fact take it (a carried_old destination read as "unknown" and refused,
+    though the background poller would have found room within minutes), or
+    admits one on a floor stale enough that the account has since crossed the
+    wall in a window this call never re-checked. `replay.py` never passes
+    this - a recorded sample cannot be asked anything, live or not - and
+    every caller that is answering "what would happen" rather than "give an
+    agent somewhere to go right now" (a screen redraw, `ocp status`) leaves it
+    False: a display must not cost a network call just by being drawn.
     """
     read_one = read_status or read
     names = candidates if candidates is not None else paths.list_accounts()
@@ -1047,6 +1081,7 @@ def pick_account(candidates: list[str] | None = None, bootstrap: bool = False,
     reasons: list[tuple[str, str]] = []
     usable: list[tuple[str, AccountStatus, object, float | None]] = []
     blank: list[str] = []
+    live_refresh_left = LIVE_REFRESH_MAX_PER_CALL
     for n in names:
         if paths.removing(n):
             reasons.append((n, "being removed"))
@@ -1057,6 +1092,19 @@ def pick_account(candidates: list[str] | None = None, bootstrap: bool = False,
         st = read_one(n)
         ld = load.get(n)
         active = ld.active if ld else 0
+        if live_refresh and live_refresh_left > 0 and accounts.logged_in(n):
+            # Same two figures the rest of this function already treats
+            # specially - a carried_old reading (refused below) and a floor
+            # idle_floor would admit on (sized below) - asked fresh exactly
+            # once, in place, before either decision is made on the old one.
+            stale_here = (st.pct_5h_source == "carried_old"
+                          or (st.trusted_pct_5h is None and st.idle_floor(active)[0]))
+            if stale_here:
+                live_refresh_left -= 1
+                fresh = usage_api.read(n, refresh=False)
+                if fresh is not None:
+                    usage_api.record(fresh)
+                    st = read_one(n)
         allowed, why = st.takes_work(active)
         if not allowed:
             if bootstrap and not st.exists:

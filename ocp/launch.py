@@ -60,8 +60,12 @@ def find_room(agent: str, exclude: dict[str, str] | None = None) -> str | None:
     # bootstrap: a never-run account is a real place to go. `preferred` is out:
     # it is what was just found unfit.
     candidates = [a for a in paths.list_accounts() if accounts.logged_in(a) and a != preferred]
+    # live_refresh=True: this is the one caller actually about to move an
+    # agent, not a screen asking what would happen - the only place worth the
+    # network cost of asking a carried_old or idle-floored candidate fresh
+    # before it decides the answer (#1811 part 2, #1816).
     return status.pick_account(candidates, bootstrap=True, exclude=exclude, load=load,
-                               agent=agent)[0]
+                               agent=agent, live_refresh=True)[0]
 
 
 def choose_account(agent: str, resuming: bool = False, con=None) -> str:

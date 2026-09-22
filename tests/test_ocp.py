@@ -1028,6 +1028,146 @@ def test_pick_account_stale_and_unknown_pace(home: Path) -> None:
           "refuses", not allowed, why)
 
 
+def test_live_refresh_asks_a_carried_old_candidate_before_refusing_it(home: Path) -> None:
+    """founder #1811 part 2, #1816, production shape: an agent walled on
+    'here' is looking for room; 'alpha' last answered the endpoint over
+    CARRY_MAX_AGE_S ago (usage_api's own writer never sets rl_carried True in
+    production, so this is the real shape a stalled poll leaves), and the
+    daemon's own background poller has not caught up to it yet - but the
+    endpoint itself would say alpha has room right now. Without asking it
+    live at the moment of the decision, alpha reads as carried_old, unknown,
+    refused - a move given up on while an account could in fact answer.
+    Control: the identical setup with live_refresh=False (pick_account's
+    default, and the whole of pick_account's behaviour before this) refuses
+    it, reproducing the parked-179-minutes symptom."""
+    os.environ["OCP_HOME"] = str(home)
+    now = int(time.time())
+    accounts.register("alpha")
+    # The stale reading's own window has already passed - consistent with why
+    # nobody re-asked it: it is old because it describes a window that ended,
+    # not one still open, so a fresh, lower reading in a new window is not
+    # the "usage only rises" case record() guards.
+    write_status(home, "alpha", pct_5h=90, reset_5h=now - 60,
+                 rl_carried=False, rl_at=now - status.CARRY_MAX_AGE_S - 300,
+                 collected_at=now)
+    st = status.read("alpha")
+    check("live_refresh setup: alpha is genuinely carried_old before any ask",
+          st.pct_5h_source == "carried_old", st.pct_5h_source)
+
+    real_read, real_login = usage_api.read, accounts.logged_in
+    asked: list[str] = []
+    try:
+        def fake_read(acct, refresh=True):
+            asked.append(acct)
+            return usage_api.Reading(acct, 10, now + 9000, 20, now + 90000, now)
+        usage_api.read = fake_read
+        accounts.logged_in = lambda acct: True
+
+        picked, ranked = status.pick_account(["alpha"], live_refresh=False)
+        check("control: without live_refresh, the carried_old candidate is "
+              "still refused - the pre-fix behaviour", picked is None, ranked)
+        check("control: and nothing was asked to produce that refusal",
+              asked == [], asked)
+
+        picked, ranked = status.pick_account(["alpha"], live_refresh=True)
+        check("live_refresh: the same candidate is asked fresh before being "
+              "refused", asked == ["alpha"], asked)
+        check("live_refresh: and takes the agent, since the fresh answer has "
+              "room - the move is not given up on while it could answer",
+              picked == "alpha", ranked)
+        check("live_refresh: the fresh reading actually landed on disk, not "
+              "just in this decision", status.read("alpha").pct_5h == 10,
+              status.read("alpha").pct_5h)
+    finally:
+        usage_api.read, accounts.logged_in = real_read, real_login
+
+
+def test_live_refresh_checks_a_stale_idle_floor_before_admitting_it(home: Path) -> None:
+    """founder #1811 part 2, #1816, production shape: omega was last seen at
+    16%, 3h ago - stale, but inside its window and idle, so idle_floor admits
+    it as a floor. The endpoint would now say 100%: the account crossed the
+    wall in the 2h45m nothing re-asked it. Admitting it on the old floor
+    hands an agent to an account already at the wall. Control: the identical
+    setup with live_refresh=False admits it on the stale floor, reproducing
+    the bug."""
+    os.environ["OCP_HOME"] = str(home)
+    now = int(time.time())
+    accounts.register("omega")
+    write_status(home, "omega", pct_5h=16, reset_5h=now + 9000,
+                 collected_at=now - 3 * 3600)
+    st = status.read("omega")
+    check("live_refresh setup: omega is stale but idle-floor-admitted before "
+          "any ask", st.stale and st.idle_floor(0)[0], (st.stale, st.idle_floor(0)))
+
+    real_read, real_login = usage_api.read, accounts.logged_in
+    asked: list[str] = []
+    try:
+        def fake_read(acct, refresh=True):
+            asked.append(acct)
+            return usage_api.Reading(acct, 100, now + 60, 40, now + 90000, now)
+        usage_api.read = fake_read
+        accounts.logged_in = lambda acct: True
+
+        picked, ranked = status.pick_account(["omega"], live_refresh=False)
+        check("control: without live_refresh, the stale floor admits it - "
+              "the pre-fix behaviour", picked == "omega", ranked)
+        check("control: and nothing was asked to produce that admission",
+              asked == [], asked)
+
+        picked, ranked = status.pick_account(["omega"], live_refresh=True)
+        check("live_refresh: the stale floor is asked fresh before being "
+              "used", asked == ["omega"], asked)
+        check("live_refresh: and refuses now that the fresh answer is at "
+              "the wall - not handed to an account already full",
+              picked is None, ranked)
+        check("live_refresh: the fresh reading actually landed on disk",
+              status.read("omega").pct_5h == 100, status.read("omega").pct_5h)
+    finally:
+        usage_api.read, accounts.logged_in = real_read, real_login
+
+
+def test_live_refresh_asks_at_most_one_candidate_per_call(home: Path) -> None:
+    """auditor #1821 should-fix: _move_plan/find_room pass every logged-in
+    account as candidates, and a fleet-wide outage - several accounts
+    carried_old at once, #1811's own scenario - meant an unbounded number of
+    sequential usage_api.read calls (each up to HTTP_TIMEOUT_S) inside one
+    pick_account call, on the same daemon tick poll_usage's own docstring
+    budgets at 30s. Three candidates are carried_old here; only the first in
+    list order may be asked live, and the other two fall through to the
+    ordinary carried_old refusal, exactly as they would with live_refresh
+    off."""
+    os.environ["OCP_HOME"] = str(home)
+    now = int(time.time())
+    for n in ("alpha", "beta", "gamma"):
+        accounts.register(n)
+        write_status(home, n, pct_5h=90, reset_5h=now - 60,
+                     rl_carried=False, rl_at=now - status.CARRY_MAX_AGE_S - 300,
+                     collected_at=now)
+    for n in ("alpha", "beta", "gamma"):
+        check(f"live_refresh cap setup: {n} is carried_old before any ask",
+              status.read(n).pct_5h_source == "carried_old", n)
+
+    real_read, real_login = usage_api.read, accounts.logged_in
+    asked: list[str] = []
+    try:
+        def fake_read(acct, refresh=True):
+            asked.append(acct)
+            return usage_api.Reading(acct, 10, now + 9000, 20, now + 90000, now)
+        usage_api.read = fake_read
+        accounts.logged_in = lambda acct: True
+
+        picked, ranked = status.pick_account(["alpha", "beta", "gamma"], live_refresh=True)
+        check("live_refresh cap: only the first candidate was asked live",
+              asked == ["alpha"], asked)
+        check("live_refresh cap: it took the agent, since the fresh answer "
+              "has room", picked == "alpha", ranked)
+        check("live_refresh cap: the second candidate was never asked and "
+              "was refused, exactly as it would be with live_refresh off",
+              "beta" not in asked and any(n == "beta" for n, _ in ranked), ranked)
+    finally:
+        usage_api.read, accounts.logged_in = real_read, real_login
+
+
 # ---------------------------------------------------------------- usage_samples
 def test_usage_samples_round_trip_without_coercing_a_gap_to_zero(home: Path) -> None:
     """#1113: a recorded sample is read back exactly, unknown figures stay
@@ -1598,6 +1738,94 @@ def test_the_usage_poll_asks_one_account_per_tick_and_renews_only_on_failure(hom
             con.close()
     finally:
         usage_api.read, accounts.logged_in = real_read, real_login
+
+
+def test_a_failing_account_never_blocks_the_ones_behind_it(home: Path) -> None:
+    """founder #1811, #1799 part 2: the production shape. `list_accounts` is
+    sorted, so alpha/beta/delta/gamma sit ahead of omega/sigma/theta - and
+    with all four failing on every try (the endpoint 429s an account at its
+    own wall, or a token stays dead), the old `return` on the first failure
+    each tick meant the loop never reached the rest: omega answered fine and
+    went three hours unpolled because it came alphabetically last. Driven
+    over several ticks - the account that succeeds is not the point, that it
+    is reached at all despite four always-failing accounts ahead of it is."""
+    _daemon_home(home, 40)
+    for a in ("alpha", "beta", "delta", "gamma", "omega"):
+        accounts.register(a)
+    asked: list[str] = []
+
+    def fake_read(acct, refresh=True):
+        asked.append(acct)
+        if acct == "omega":
+            return usage_api.Reading(acct, 5, None, 6, None, int(time.time()))
+        return None
+
+    real_read, real_login = usage_api.read, accounts.logged_in
+    try:
+        accounts.logged_in = lambda acct: True
+        usage_api.read = fake_read
+        con = db.connect()
+        try:
+            for _ in range(3):
+                dmn.poll_usage(con, lambda _m: None)
+            check("starve: omega is actually asked, despite four accounts "
+                  "ahead of it in list_accounts order failing every time",
+                  "omega" in asked, asked)
+            check("starve: and its reading actually lands",
+                  status.read("omega").pct_5h == 5, status.read("omega").pct_5h)
+            check("starve: the four failing accounts were each tried too - "
+                  "none of them silently dropped to make room",
+                  {"alpha", "beta", "delta", "gamma"} <= set(asked), asked)
+        finally:
+            con.close()
+    finally:
+        usage_api.read, accounts.logged_in = real_read, real_login
+
+
+def test_a_reading_past_the_carry_bound_is_carried_old_even_though_the_flag_is_false(
+        home: Path) -> None:
+    """#1799 part 2 (orcapipe): reverting status.py's rl_age_s check to main
+    and re-running the full suite stayed green at 3486 passed, 0 failed -
+    nothing pinned it directly. usage_api never sets rl_carried True in
+    production (it always clears it to False on a successful poll, see its
+    own record()), so this is the actual on-disk shape a stalled poll leaves:
+    rl_carried False, rl_at old, collected_at fresh (something else, unrelated
+    to rate limits, kept it that way). Must read carried_old and must not be
+    assignable on that shape alone - not on a flag nobody sets."""
+    home.mkdir(parents=True, exist_ok=True)
+    os.environ["OCP_HOME"] = str(home)
+    write_status(home, "alpha", pct_5h=55, reset_5h=int(time.time()) + 9000,
+                 rl_carried=False, rl_lost=False,
+                 rl_at=int(time.time()) - status.CARRY_MAX_AGE_S - 60,
+                 collected_at=int(time.time()))
+    st = status.read("alpha")
+    check("carried_old: a reading past the carry bound reads carried_old even "
+          "with rl_carried False - the shape usage_api actually writes",
+          st.pct_5h_source == "carried_old", st.pct_5h_source)
+    check("carried_old: and it is not assignable",
+          not st.assignable()[0], st.assignable()[1])
+
+
+def test_a_carried_reading_with_no_age_at_all_reads_carried_old_not_live(
+        home: Path) -> None:
+    """auditor #1805 note 3: the rl_age_s reorder above, read the other
+    direction, quietly loosened one case - rl_carried True with rl_at None
+    used to read carried_old (nothing to bound the carry by), and after the
+    reorder read carried, one step fresher than it earned. Unreached in
+    production (usage_api's only writer always sets rl_at alongside
+    rl_carried), but a payload that omits it must still read as too old to
+    trust, not as newly live - the same test for pct_7d_source/rl7_at."""
+    home.mkdir(parents=True, exist_ok=True)
+    os.environ["OCP_HOME"] = str(home)
+    now = int(time.time())
+    write_status(home, "alpha", pct_5h=40, reset_5h=now + 9000,
+                 rl_carried=True, rl_at=None, collected_at=now,
+                 pct_7d=30, reset_7d=now + 90000, rl7_carried=True, rl7_at=None)
+    st = status.read("alpha")
+    check("no-age carry: rl_carried True with rl_at None reads carried_old, "
+          "not carried or live", st.pct_5h_source == "carried_old", st.pct_5h_source)
+    check("no-age carry: the same holds for the weekly figure",
+          st.pct_7d_source == "carried_old", st.pct_7d_source)
 
 
 def test_a_turn_ending_refreshes_the_snapshot_through_the_hook(home: Path) -> None:
@@ -23638,6 +23866,12 @@ def main() -> int:
         run(lambda: test_pick_account_degrades_when_every_account_would_hit_the_wall(
             Path(td) / 'allwall'))
         run(lambda: test_pick_account_stale_and_unknown_pace(Path(td) / 'staleknown'))
+        run(lambda: test_live_refresh_asks_a_carried_old_candidate_before_refusing_it(
+            Path(td) / 'liverefreshcarried'))
+        run(lambda: test_live_refresh_checks_a_stale_idle_floor_before_admitting_it(
+            Path(td) / 'liverefreshfloor'))
+        run(lambda: test_live_refresh_asks_at_most_one_candidate_per_call(
+            Path(td) / 'liverefreshcap'))
         run(lambda: test_each_calls_tokens_are_recorded_per_account_from_the_transcripts(
             Path(td) / 'tokencalls'))
         run(lambda: test_a_first_backfill_reads_a_slice_per_tick_not_the_whole_history(
@@ -23681,6 +23915,11 @@ def main() -> int:
         run(lambda: test_a_settings_write_that_dies_leaves_the_old_file(Path(td) / 'setatomic'))
         run(lambda: test_the_usage_poll_asks_one_account_per_tick_and_renews_only_on_failure(
             Path(td) / 'pullpoll'))
+        run(lambda: test_a_failing_account_never_blocks_the_ones_behind_it(Path(td) / 'pollstarve'))
+        run(lambda: test_a_reading_past_the_carry_bound_is_carried_old_even_though_the_flag_is_false(
+            Path(td) / 'carriedoldpin'))
+        run(lambda: test_a_carried_reading_with_no_age_at_all_reads_carried_old_not_live(
+            Path(td) / 'carriednoage'))
         run(lambda: test_yaml())
         run(lambda: test_agents(home))
         run(lambda: test_trust_roots(Path(td) / 'trust_roots'))

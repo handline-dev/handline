@@ -88,6 +88,13 @@ USAGE_MAX_AGE_S = 900
 # every two minutes for ever.
 USAGE_REFRESH_COOLDOWN_S = 900
 
+# poll_usage backs a failing account off by USAGE_POLL_S * 2**(streak-1),
+# capped here, rather than retrying it every USAGE_POLL_S forever - both so a
+# persistently-failing account does not keep costing a request every two
+# minutes, and so it stops eating the one-success-per-tick budget every
+# account behind it in list_accounts order depends on (#1811).
+USAGE_FAIL_BACKOFF_CAP_S = 1800
+
 MAX_FAILED_ATTEMPTS = 3      # 8.5: real failures only
 MAX_THROTTLE_STREAK = 5      # 8.6: then escalate to a human gate
 
@@ -1772,9 +1779,15 @@ def _move_plan(con, agent: str, kind: str) -> tuple[str | None, str]:
         left_reset = status.read(left).reset_5h
         if left_reset and left_reset > now:
             exclude[left] = "the account it just left, until it resets"
+    # live_refresh=True: this decides whether a parked, walled agent actually
+    # moves - not a screen - so a carried_old destination or a stale idle
+    # floor is asked fresh before it decides the answer, rather than parking
+    # an agent beside an account that could in fact take it (#1811 part 2,
+    # #1816).
     dest, ranked = status.pick_account(
         [a for a in paths.list_accounts() if accounts.logged_in(a)],
-        bootstrap=True, exclude=exclude, load=load.read_all(con), agent=agent)
+        bootstrap=True, exclude=exclude, load=load.read_all(con), agent=agent,
+        live_refresh=True)
     if dest is None:
         return None, "no account can take one more agent (" + "; ".join(
             f"{a}: {r}" for a, r in ranked if a not in exclude) + ")"
@@ -1786,7 +1799,7 @@ def _forced_plan(con, agent: str, dest: str) -> tuple[str | None, str]:
     the pick over that one account, so a walled, capped or unreadable one is
     refused with the pick's own reason. (destination, why)."""
     picked, ranked = status.pick_account([dest], bootstrap=True, load=load.read_all(con),
-                                         agent=agent)
+                                         agent=agent, live_refresh=True)
     if picked is None:
         why = dict(ranked).get(dest) or "cannot take one more agent"
         return None, f"{dest} {why}"
@@ -2398,7 +2411,7 @@ def usage_due(con, acct: str, st: status.AccountStatus, now: int) -> str | None:
 
 
 def poll_usage(con, log) -> None:
-    """Ask one account where it stands, over its own OAuth credential.
+    """Ask the accounts due for a reading, over their own OAuth credential.
 
     This is the half of the collector's payload the transcript cannot give
     (D11): a session learns its rate limits only from its own API responses, so
@@ -2407,8 +2420,18 @@ def poll_usage(con, log) -> None:
     endpoint answers for any account with nothing running at all, which is what
     makes asking cheap enough to do on a schedule, and what retired the probe.
 
-    One account per tick: five HTTPS GETs in one tick would put five timeouts in
-    the path of a 30s loop.
+    At most one *successful* reading per tick - five HTTPS GETs in one tick
+    would put five timeouts in the path of a 30s loop - but a failing account
+    must not consume that budget for every account behind it in
+    `list_accounts` order (founder #1811, #1799 part 2): with four accounts
+    failing every try (the endpoint itself 429s an account at its own wall, or
+    a token stays dead), the old `return` on the first failure meant the loop
+    never reached the rest - omega/sigma/theta answered fine and went unpolled
+    for three hours because alpha/beta/delta/gamma came first in the list and
+    always failed. A failing account keeps its own cursor moving instead
+    (`continue`), and is backed off exponentially the way a stalled retry
+    anywhere else in ocp is, so it costs less of the budget the longer it
+    keeps failing rather than the same slice of it forever.
     """
     now = int(time.time())
     for acct in paths.list_accounts():
@@ -2420,7 +2443,6 @@ def poll_usage(con, log) -> None:
         if not accounts.logged_in(acct):
             db.set_cursor(con, f"usage-poll:{acct}", now + LOGIN_CHECK_COOLDOWN_S)
             continue
-        db.set_cursor(con, f"usage-poll:{acct}", now + USAGE_POLL_S)
         # No renewal on the common path: a session on the account keeps its own
         # token fresh, and two writers of one keychain entry race.
         reading = usage_api.read(acct, refresh=False)
@@ -2428,8 +2450,14 @@ def poll_usage(con, log) -> None:
             db.set_cursor(con, f"usage-refresh:{acct}", now + USAGE_REFRESH_COOLDOWN_S)
             reading = usage_api.read(acct, refresh=True)
         if reading is None:
-            log(f"  usage: {acct}: could not ask")
-            return
+            streak = int(db.get_meta(con, f"usage-fail:{acct}") or 0) + 1
+            db.set_meta(con, f"usage-fail:{acct}", str(streak))
+            backoff = min(USAGE_POLL_S * 2 ** (streak - 1), USAGE_FAIL_BACKOFF_CAP_S)
+            db.set_cursor(con, f"usage-poll:{acct}", now + backoff)
+            log(f"  usage: {acct}: could not ask (next try in {backoff}s)")
+            continue
+        db.set_meta(con, f"usage-fail:{acct}", None)
+        db.set_cursor(con, f"usage-poll:{acct}", now + USAGE_POLL_S)
         usage_api.record(reading)
         log(f"  usage: {acct}: {why} - 5h {reading.pct_5h}% 7d {reading.pct_7d}%")
         return
