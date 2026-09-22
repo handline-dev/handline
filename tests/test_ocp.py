@@ -223,8 +223,15 @@ def _capture(fn) -> str:
     return buf.getvalue()
 
 
+LABEL_LOG: list[tuple[str, str, str]] = []  # (state, test, name) - check() names alone
+# collide across tests (e.g. two tests both say "wake: the relaunch itself is
+# reported as a success"); write_labels() below qualifies by test to tell them
+# apart. A pure addition alongside PASS/FAIL, so it changes no existing output.
+
+
 def check(name: str, cond: bool, detail: str = "") -> None:
     (PASS if cond else FAIL).append(name)
+    LABEL_LOG.append(("PASS" if cond else "FAIL", CURRENT_TEST["name"], name))
     print(f"{'PASS' if cond else 'FAIL'}  {name}" + (f"  ({detail})" if detail and not cond else ""))
 
 
@@ -19765,16 +19772,16 @@ def test_run_recovers_from_an_uncaught_error() -> None:
 
 
 def write_labels(path: str) -> None:
-    """Every PASS and FAIL label, one per line, as "<STATE> <name>".
+    """Every check from this run, one per line, as "<STATE> <test>\\t<name>".
 
-    Lets a mutation check diff two runs by label instead of by hand-built
-    comm pipelines: see diff_labels().
+    Qualified by the owning test, since the name alone is not unique - two
+    tests can and do call check() with the same literal string. Lets a
+    mutation check diff two runs by label instead of by hand-built comm
+    pipelines: see diff_labels().
     """
     with open(path, "w") as f:
-        for name in PASS:
-            f.write(f"PASS {name}\n")
-        for name in FAIL:
-            f.write(f"FAIL {name}\n")
+        for state, test, name in LABEL_LOG:
+            f.write(f"{state} {test}\t{name}\n")
 
 
 def _read_labels(path: str) -> dict[str, str]:
@@ -19782,25 +19789,27 @@ def _read_labels(path: str) -> dict[str, str]:
     for line in Path(path).read_text().splitlines():
         if not line.strip():
             continue
-        state, name = line.split(" ", 1)
-        labels[name] = state
+        state, rest = line.split(" ", 1)
+        labels[rest] = state
     return labels
 
 
 def diff_labels(path_a: str, path_b: str) -> int:
     """Print only the labels whose PASS/FAIL state differs between two
-    write_labels() files, "<state in A> -> <state in B>  <name>" per line.
+    write_labels() files, "<state in A> -> <state in B>  <test> :: <name>"
+    per line.
 
     A label present in only one file reads as MISSING on the other side -
     that means the two runs used a different -k, not that a test flipped.
     """
     a, b = _read_labels(path_a), _read_labels(path_b)
     changed = False
-    for name in sorted(set(a) | set(b)):
-        sa, sb = a.get(name, "MISSING"), b.get(name, "MISSING")
+    for key in sorted(set(a) | set(b)):
+        sa, sb = a.get(key, "MISSING"), b.get(key, "MISSING")
         if sa != sb:
             changed = True
-            print(f"{sa} -> {sb}  {name}")
+            test, name = key.split("\t", 1)
+            print(f"{sa} -> {sb}  {test} :: {name}")
     return 1 if changed else 0
 
 
