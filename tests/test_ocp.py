@@ -7830,11 +7830,21 @@ def test_a_claude_agent_is_never_placed_on_another_vendors_account(home: Path) -
                 check("vendor pick: nor does a person's forced move",
                       dmn._forced_plan(con, "backend", "zeta")[0] is None,
                       str(dmn._forced_plan(con, "backend", "zeta")))
+                # The page and the panel carry no agent, so their verdict is
+                # the account's own: judged for the vendor whose sessions are
+                # the only ones that can ever run here (#1815). Drawn as a
+                # refusal it said "assign no - a zai account, not claude" of an
+                # account that is a perfectly good place for zai agents.
                 page = dict(actions.account_detail(con, "zeta"))
                 head = next(iter(page.values()))
                 assign = next(ln for ln in head if ln.startswith("assign"))
-                check("vendor pick: its page says it does not take work",
-                      assign.startswith("assign   no"), assign)
+                check("vendor pick: its page does not refuse it outright - the "
+                      "account is judged for its own vendor",
+                      assign.startswith("assign   yes")
+                      and "not claude" not in assign, assign)
+                check("vendor pick: and the page still names the vendor above it",
+                      any(ln.startswith("config") and ln.endswith("(zai)")
+                          for ln in head), str(head))
             finally:
                 con.close()
             out = io.StringIO()
@@ -7845,8 +7855,11 @@ def test_a_claude_agent_is_never_placed_on_another_vendors_account(home: Path) -
             accounts.logged_in = lambda a: True
             rows = [tui._ANSI.sub("", ln) for ln in tui.frame(120, 40).split(chr(10))]
             zrow = [ln for ln in rows if ln.lstrip("│ ").startswith("zeta ")]
-            check("vendor pick: the accounts panel does not mark it next, nor tick it",
-                  zrow and "next" not in zrow[0] and "✘" in zrow[0], str(zrow))
+            check("vendor pick: the accounts panel does not mark it next",
+                  zrow and "next" not in zrow[0], str(zrow))
+            check("vendor pick: its tick is its own vendor's answer, not a ✘ "
+                  "that reads as a broken account",
+                  zrow and "✔" in zrow[0], str(zrow))
             check("vendor pick: a fold is not sent there",
                   foldmod._cheapest_account() != "zeta", str(foldmod._cheapest_account()))
 
@@ -7935,6 +7948,57 @@ def test_a_second_vendors_live_session_is_seen_by_the_sweep(home: Path) -> None:
         finally:
             (obsmod.live_sessions, obsmod.process_table, obsmod.process_env,
              orcamod.available, orcamod.live_terminals) = real
+
+
+def test_an_accounts_verdict_is_asked_for_its_own_vendor(home: Path) -> None:
+    """#1815: the panel's tick and the page's sentence arrive with no agent in
+    hand, so a claude-only verdict said "no - a zai account, not claude" about
+    an account that is a perfectly good place for the agents it is for, and a
+    human reads that as an account gone wrong. It is judged for its own vendor
+    now. What is genuinely absolute - unmetered, no driver, not logged in -
+    still refuses, and no placement path is touched: those all hold an agent,
+    and the test above is what pins them."""
+    _daemon_home(home, 20)
+    now = int(time.time())
+    with second_vendor(metered=True):
+        accounts.register("zeta", vendor="zai")
+        write_status(home, "zeta", pct_5h=5, pct_7d=5, reset_5h=now + 1800,
+                     reset_7d=now + 90000, rl_at=now)
+        ok, why = status.account_verdict("zeta", status.read("zeta"), None, [], True)
+        check("verdict: a healthy second-vendor account is not refused outright",
+              ok and "not claude" not in why, str((ok, why)))
+
+        _, ranked = status.pick_account(["alpha", "zeta"], vendor="zai")
+        check("verdict: pick_account ranks for the vendor it is given",
+              "a claude account, not zai" in dict(ranked)["alpha"]
+              and "not zai" not in dict(ranked)["zeta"], str(ranked))
+        ok, why = status.account_verdict("zeta", status.read("zeta"), None, ranked, True)
+        check("verdict: and that ranking's words are the ones drawn",
+              ok and why == dict(ranked)["zeta"], str((ok, why)))
+
+        agents.register("glm", "zeta")
+        _with_vendor("glm", "zai")
+        _, ranked2 = status.pick_account(["alpha", "zeta"], agent="glm", vendor="claude")
+        check("verdict: an agent's own vendor wins over a vendor named beside it",
+              "a claude account, not zai" in dict(ranked2)["alpha"], str(ranked2))
+
+        check("verdict: a claude account's own verdict is unchanged",
+              status.account_verdict("alpha", status.read("alpha"), None, [], True)[0])
+        check("verdict: and not logged in is still a no, vendor or no vendor",
+              status.account_verdict("zeta", status.read("zeta"), None, [], False)
+              == (False, "not logged in"))
+
+    # The refusals that are true of every agent there is, its own included.
+    with second_vendor(metered=False):
+        ok, why = status.account_verdict("zeta", status.read("zeta"), None, [], True)
+        check("verdict: an unmetered account is still refused, in its own words",
+              not ok and why == status.UNMETERED_WHY, str((ok, why)))
+    # No driver at all: `not_for` caught this only because the vendor asked
+    # was always claude, so it needs its own refusal now.
+    (paths.account_dir("zeta") / "vendor").write_text("nosuch\n")
+    ok, why = status.account_verdict("zeta", status.read("zeta"), None, [], True)
+    check("verdict: an account whose vendor has no driver is still refused",
+          not ok and "no driver for vendor 'nosuch'" in why, str((ok, why)))
 
 
 def test_an_unmetered_account_is_pinned_never_picked_or_polled(home: Path) -> None:
@@ -25004,6 +25068,8 @@ def main() -> int:
         run(lambda: test_a_claude_agent_is_never_placed_on_another_vendors_account(Path(td) / 'vendorpick'))
         run(lambda: test_a_second_vendors_live_session_is_seen_by_the_sweep(
             Path(td) / 'vendorsweep'))
+        run(lambda: test_an_accounts_verdict_is_asked_for_its_own_vendor(
+            Path(td) / 'vendorverdict'))
         run(lambda: test_an_unmetered_account_is_pinned_never_picked_or_polled(Path(td) / 'unmetered'))
         run(lambda: test_an_agent_is_never_launched_on_another_vendors_account(Path(td) / 'vendorlaunch'))
         run(lambda: test_an_account_records_its_vendor(Path(td) / 'vendorrecord'))

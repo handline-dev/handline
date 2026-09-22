@@ -1497,8 +1497,11 @@ def account_detail(con, acct: str, logged_in=None) -> list[tuple[str, list[str]]
     logged_in = logged_in or accounts.logged_in
     st = status.read(acct)
     loads = loadmod.read_all(con)
+    # Ranked for this account's own vendor: the page holds an account, not an
+    # agent, and claude's ranking has one thing to say about another vendor's
+    # account - that it is not claude's.
     _, ranked = status.pick_account([a for a in paths.list_accounts() if logged_in(a)],
-                                    load=loads)
+                                    load=loads, vendor=vendors.account_vendor(acct))
     is_in = logged_in(acct)
     allowed, why = status.account_verdict(acct, st, loads.get(acct), ranked, is_in)
     head = [f"login    {'logged in' if is_in else 'NOT logged in'}",

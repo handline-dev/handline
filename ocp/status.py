@@ -915,13 +915,29 @@ def account_verdict(name: str, st: "AccountStatus", ld, ranked: list[tuple[str, 
 
     The accounts panel draws the tick from this and the account's page draws
     the sentence, so the two cannot say different things. `ranked` is
-    `pick_account`'s reasons; an account outside the ranking falls back to what
-    `takes_work` says.
+    `pick_account`'s reasons, ranked for this account's own vendor; an account
+    outside the ranking falls back to what `takes_work` says.
+
+    Asked for the account's own vendor - the only vendor whose sessions can
+    ever run here, and this question arrives with no agent in hand. Answered
+    for claude alone it said of a healthy second-vendor account "no - a zai
+    account, not claude", which is true of a claude agent but is drawn as the
+    account's own ✘ and a flat "assign no". Which agent may go where is a fact
+    about the pair; every path that places one derives the vendor from the
+    agent, and none of them reads this.
     """
     if not logged_in:
         return False, "not logged in"
-    from . import agents
-    never = not_for(name, agents.DEFAULT_VENDOR)
+    from . import vendors
+    theirs = vendors.account_vendor(name)
+    try:
+        vendors.get(theirs)
+    except vendors.UnknownVendor as e:
+        # Nothing can start on an account whose vendor has no driver, and
+        # `not_for` cannot say so here: its cross-vendor clause never fires
+        # once the vendor asked is the account's own.
+        return False, str(e)
+    never = not_for(name, theirs)
     if never:
         return False, never
     allowed, why = st.takes_work(ld.active if ld else 0)
@@ -1079,7 +1095,8 @@ def pick_account(candidates: list[str] | None = None, bootstrap: bool = False,
                  agent: str | None = None,
                  prefer: str | None = None,
                  read_status=None,
-                 live_refresh: bool = False) -> tuple[str | None, list[tuple[str, str]]]:
+                 live_refresh: bool = False,
+                 vendor: str | None = None) -> tuple[str | None, list[tuple[str, str]]]:
     """Pick among the accounts that can take one more agent - any account that
     will not hit its own wall, the same test `unfit` already answers - the one
     furthest behind its own weekly pace (`pace_7d`) goes first, since headroom
@@ -1129,6 +1146,11 @@ def pick_account(candidates: list[str] | None = None, bootstrap: bool = False,
     refuses; a stale account that has run once and gone quiet is not
     "unread", and needs its own explicit preference to be picked again.
 
+    `vendor` is which vendor to pick for when no `agent` names one - what a
+    caller holding an account rather than an agent asks, so that the reasons
+    it gets back are the ones that vendor's agents would be given. `agent`
+    wins where both are passed: an agent's own vendor is not in doubt.
+
     `read_status` replaces `read` as the source of each candidate's
     AccountStatus - what `replay.py` passes, to ask this same function about
     an account as a recorded sample had it, not as its live status.json
@@ -1154,7 +1176,8 @@ def pick_account(candidates: list[str] | None = None, bootstrap: bool = False,
     read_one = read_status or read
     names = candidates if candidates is not None else paths.list_accounts()
     try:
-        vendor = vendors.agent_vendor(agent) if agent else agents.DEFAULT_VENDOR
+        picking_for = (vendors.agent_vendor(agent) if agent
+                       else vendor or agents.DEFAULT_VENDOR)
     except (OSError, ConfigError) as e:  # an unreadable agent.yaml picks nowhere
         return None, [(n, f"agent.yaml unreadable ({e})") for n in names]
     if load is None:
@@ -1173,7 +1196,7 @@ def pick_account(candidates: list[str] | None = None, bootstrap: bool = False,
             continue
         # Before anything about room: neither kind has any to weigh, and both
         # would otherwise reach the bootstrap list below, having no status.json.
-        never = not_for(n, vendor)
+        never = not_for(n, picking_for)
         if never:
             reasons.append((n, never))
             continue
