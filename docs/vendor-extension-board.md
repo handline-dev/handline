@@ -264,7 +264,7 @@ rebuild - in Orca's shape.
 |---|---|---|---|
 | build the argv (model, effort, tool denial, mcp) | `launch.build` | **DRIVER** | every flag is Claude's spelling. Orca layer 3 cannot take this over: `worker-start` has no env/config-dir flag, so it cannot place a session on a chosen account. |
 | find the binary | `shutil.which("claude")` ×7 (`launch`, `probe`, `fold`, `accounts`, `doctor`, `cli` ×2) | **DRIVER** | one lookup per vendor, in one place instead of seven. |
-| account env | `accounts.env_for` → `CLAUDE_CONFIG_DIR` | **DRIVER** | codex is `CODEX_HOME`; opencode is three `XDG_*` variables, not one (§12.1). |
+| account env | `accounts.env_for` → `CLAUDE_CONFIG_DIR` | **DRIVER** | codex is `CODEX_HOME`; opencode is four `XDG_*` variables, not one (§12.1). |
 | is this launch a resume | `launch._is_resume` (`--resume`/`-r`/`--resume=`) | **DRIVER** | codex spells it differently. |
 | system-prompt injection | `--append-system-prompt` in `launch.build` | **RESHAPE** ✅ | **No longer the hard one - the founder's #1305 challenge was right and it collapses the seam.** Not a flag per vendor: one per-agent file written into the agent's own worktree, which both vendors already read. See §1.1. |
 | launch fingerprint / drift | `launch.fingerprint`, `drifted` | **RESHAPE** | the mechanism (hash what a running session cannot pick up) is neutral; the *material list* is Claude's flags. Driver supplies the material, this keeps the logic. |
@@ -731,30 +731,34 @@ Plan, an API key, not OAuth).
 
 ### 12.1 Account selection - four variables, and the name that looks right isn't
 
-`opencode debug paths` (baseline, whole output):
+`opencode debug paths` (baseline, whole output, run with no overrides):
 
-    home   /Users/ron
-    bin    /Users/ron/.local/share/opencode/bin
-    log    /Users/ron/.local/state/opencode/log
-    data   /Users/ron/.local/share/opencode
-    config /Users/ron/.config/opencode
-    repos  /Users/ron/.local/share/opencode/project
-    state  /Users/ron/.local/state/opencode
-    cache  /Users/ron/.cache/opencode
+    home       /Users/ron
+    data       /Users/ron/.local/share/opencode
+    bin        /Users/ron/.cache/opencode/bin
+    log        /Users/ron/.local/share/opencode/log
+    repos      /Users/ron/.local/share/opencode/repos
+    cache      /Users/ron/.cache/opencode
+    config     /Users/ron/.config/opencode
+    state      /Users/ron/.local/state/opencode
+    tmp        /var/folders/1x/ts5yvbsx3sd105v4zvy_kpx40000gn/T/opencode
 
 `OPENCODE_CONFIG_DIR` - the name that reads like ocp's own `CLAUDE_CONFIG_DIR`
 - moves nothing `debug paths` reports. It is a false lead. What actually
 relocates the rows is the freedesktop trio plus a fourth, checked one at a
 time and together:
 
-    XDG_DATA_HOME=<scratch>   -> data becomes <scratch>/opencode  (auth.json, opencode.db)
+    XDG_DATA_HOME=<scratch>   -> data becomes <scratch>/opencode  (auth.json, opencode.db, log, repos)
     XDG_CONFIG_HOME=<scratch> -> config becomes <scratch>/opencode
     XDG_STATE_HOME=<scratch>  -> state becomes <scratch>/opencode
-    XDG_CACHE_HOME=<scratch>  -> cache and bin both become <scratch>/opencode
+    XDG_CACHE_HOME=<scratch>  -> cache becomes <scratch>/opencode, bin becomes <scratch>/opencode/bin
+
+`tmp` follows `TMPDIR`, not an XDG variable - a fifth location. Whether it
+needs to move per account too is unmeasured.
 
 Isolation, proven without a second login: `XDG_DATA_HOME=<scratch> opencode
 providers list` prints `0 credentials` against `<scratch>/opencode/auth.json`,
-while the real `~/.local/share/opencode/auth.json` (unread, unwritten) still
+while the real `~/.local/share/opencode/auth.json` (unwritten) still
 holds one. **Yes, it isolates one account per directory** - the same property
 `CLAUDE_CONFIG_DIR` gives us, as variables set together (`XDG_DATA_HOME` at
 minimum, for credentials and usage; `XDG_CONFIG_HOME`/`XDG_STATE_HOME` for the
@@ -854,12 +858,10 @@ opencode does not expose it, which is as far as this survey can settle it.
 
 Feeds directly into two existing DRIVER rows and one still-open question:
 
-- **§1 "account env"** and **§2 "credential location"**: opencode's answers
-  are filled in above (rows 3, 5, 6 in §11 get the same) - four `XDG_*`
-  variables (§12.1), and a plain per-provider-slug JSON file (§12.3), simpler
-  than Claude's Keychain scheme and closer in shape to codex's plain
-  `auth.json`. §2's own "credential location" row was never TBD and this
-  commit does not edit it; the opencode note belongs on the §11 rows instead.
+- **§1 "account env"**: opencode's answer is filled in above (rows 3, 5, 6 in
+  §11 get the same) - four `XDG_*` variables (§12.1), and a plain
+  per-provider-slug JSON file (§12.3), simpler than Claude's Keychain scheme
+  and closer in shape to codex's plain `auth.json`.
 - **§11 row 15, "how is a quiet account made to report"**: codex's column
   reads "unnecessary for a vendor that writes usage to a file" - true of the
   *mechanism*, but opencode is the case that shows the assumption behind it
