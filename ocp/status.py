@@ -1150,11 +1150,12 @@ def pick_account(candidates: list[str] | None = None, bootstrap: bool = False,
     False: a display must not cost a network call just by being drawn.
     """
     from . import agents, vendors
+    from .yamlcompat import ConfigError
     read_one = read_status or read
     names = candidates if candidates is not None else paths.list_accounts()
     try:
         vendor = vendors.agent_vendor(agent) if agent else agents.DEFAULT_VENDOR
-    except Exception as e:  # noqa: BLE001 - an unreadable agent.yaml picks nowhere
+    except (OSError, ConfigError) as e:  # an unreadable agent.yaml picks nowhere
         return None, [(n, f"agent.yaml unreadable ({e})") for n in names]
     if load is None:
         from . import load as loadmod

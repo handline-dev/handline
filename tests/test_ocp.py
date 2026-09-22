@@ -7964,6 +7964,12 @@ def test_an_account_records_its_vendor(home: Path) -> None:
         check("vendor record: a vendor with no driver is refused, making nothing",
               "no driver for vendor 'nosuch'" in str(e) and "nope" not in paths.list_accounts(),
               str(e))
+    agents.register("broken", "alpha")
+    agents.agent_file("broken").write_text("- not a map\n")
+    picked, ranked = status.pick_account(["alpha"], agent="broken")
+    check("vendor record: an agent whose vendor cannot be read is placed nowhere",
+          picked is None and dict(ranked)["alpha"].startswith("agent.yaml unreadable"),
+          str((picked, ranked)))
     with second_vendor():
         accounts.register("zeta", vendor="zai")
         check("vendor record: a second vendor is written down",
@@ -7978,6 +7984,12 @@ def test_an_account_records_its_vendor(home: Path) -> None:
             check("vendor record: an account's vendor is not changed under it",
                   "already a zai account" in str(e) and vendors.account_vendor("zeta") == "zai",
                   str(e))
+        mem = paths.account_dir("alpha") / ".claude" / "projects" / "-w" / "memory"
+        mem.mkdir(parents=True)
+        (mem / "MEMORY.md").write_text("- a fact\n")
+        check("vendor record: memory is not carried to another vendor's account",
+              accounts.migrate_memory("alpha", "zeta") == []
+              and not (vendors.config_dir("zeta") / "sessions").exists())
         (paths.account_dir("zeta") / "vendor").write_text("")
         check("vendor record: an empty record names no vendor, so the account is not usable",
               not accounts.logged_in("zeta") and status.pick_account(["zeta"], bootstrap=True)[0] is None)
