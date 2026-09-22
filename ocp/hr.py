@@ -25,7 +25,9 @@ journal and handoffs are the record of work that was actually done.
 """
 from __future__ import annotations
 
+import json
 import re
+import shlex
 import time
 import uuid
 from pathlib import Path
@@ -457,8 +459,55 @@ def _rename(prop: dict, con) -> tuple[bool, str]:
     con.execute("UPDATE handoff SET agent = ? WHERE agent = ?", (new, old))
     con.execute("UPDATE cursors SET name = REPLACE(name, ?, ?) WHERE name LIKE ?",
                 (old, new, f"%{old}%"))
+    _, labelled = label(con, new)
     return True, (f"{old} is now {new}: folder, team.yaml, and every row that named it. "
-                  f"{said2}")
+                  f"{said2}" + (f" {labelled}" if labelled else ""))
+
+
+# How long Orca gets to answer about a label: a rename must not wait on it the
+# way a launch waits on a terminal.
+LABEL_TIMEOUT_S = 30
+
+
+def _orca_entry(path: str) -> dict | None:
+    """Orca's entry for the checkout at `path`, or None."""
+    from . import orca
+
+    ok, out = orca._run(["worktree", "show", "--worktree", f"path:{path}", "--json"],
+                        timeout=LABEL_TIMEOUT_S)
+    try:
+        entry = json.loads(out)["result"]["worktree"] if ok else None
+    except (json.JSONDecodeError, KeyError, TypeError):
+        return None
+    return entry if isinstance(entry, dict) else None
+
+
+def label(con, agent: str) -> tuple[bool, str]:
+    """Name the agent's Orca worktree for the agent. This is what the founder
+    reads in Orca's sidebar, so it is what a rename has to change; the folder,
+    its git branch and Claude's memory keys stay as they are. (True, "") when
+    the agent has no worktree recorded; otherwise (whether Orca now shows the
+    name, what to say about it) - the reply is read back, not assumed."""
+    from . import orca, spawn
+
+    row = db.get_agent_state(con, agent)
+    path = spawn.worktree_path(row["worktree"] if row else None)
+    if not path:
+        return True, ""
+    cmd = ("orca worktree set --worktree " + shlex.quote(f"path:{path}")
+           + " --display-name " + shlex.quote(agent))
+    if not orca.available():
+        return False, f"Orca is not on PATH, so its label is not set: `{cmd}`"
+    ok, out = orca._run(["worktree", "set", "--worktree", f"path:{path}",
+                         "--display-name", agent, "--json"], timeout=LABEL_TIMEOUT_S)
+    try:
+        ok = ok and bool(json.loads(out).get("ok"))
+    except (json.JSONDecodeError, AttributeError):
+        ok = False
+    shown = (_orca_entry(path) or {}).get("displayName") if ok else None
+    if not ok or shown != agent:
+        return False, f"Orca would not set the label ({out.strip()[:160]}): `{cmd}`"
+    return True, f"Orca now labels {path} {agent!r}"
 
 
 def _edges_touching(t, name: str) -> set[str]:
