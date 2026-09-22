@@ -18,7 +18,8 @@ import sys
 import time
 from pathlib import Path
 
-from . import (accounts, actions, agents, ask as askmod, collect, daemon as daemonmod, db,
+from . import (accounts, actions, agents, ask as askmod, blocked as blockedmod, collect,
+               daemon as daemonmod, db,
                tui,
                digest, doctor,
                drift, events, fold as foldmod, guide, handoff as handoffmod, hooks, launch,
@@ -735,8 +736,11 @@ def cmd_daemon_status(args) -> int:
             print("no agent state recorded yet")
         else:
             w = _name_col([r["agent"] for r in rows], 14)
-            waits = {r["agent"]: waiting.of(con, r) for r in rows}
-            sw = len(tui.WAITING_ON_YOU) + 1 if any(waits.values()) else 11
+            # `tui.screen_state` too - the one function - so this list and the
+            # bridge cannot show two different words for the same row.
+            words = {r["agent"]: tui.screen_state(con, r) for r in rows}
+            sw = max([len("state")] + [len(word) + (1 + len(extra) if extra else 0)
+                                       for word, extra in words.values()]) + 1
             print(f"\n{'AGENT':<{w}}{'STATE':<{sw}}{'WAKE':<8}{'fail':>5}{'cont':>6}{'thr':>5}  DETAIL")
             now = int(time.time())
             sessions = obs.live_sessions()
@@ -749,13 +753,15 @@ def cmd_daemon_status(args) -> int:
                 drifted = bool(
                     not r["closed_at"] and sessions and sessions.get(r["agent"])
                     and launch.drifted(r["agent"], r))
-                shown = r["state"] + ("·closed" if r["closed_at"] else "") \
-                    + ("·drift" if drifted else "")
+                word, extra = words[r["agent"]]
+                shown = word + (f" {extra}" if extra else "") + ("·drift" if drifted else "")
                 detail = textsafe.oneline(r["detail"] or "")
-                held = waits[r["agent"]]
+                held = waiting.of(con, r)
+                block = db.block_get(con, r["agent"])
                 if held:
-                    shown = tui.WAITING_ON_YOU
                     detail = textsafe.oneline(f"{held['tool']}: {held['command']}")
+                elif block and block["kind"] in (orca.MODAL, orca.BACKGROUNDED):
+                    detail = textsafe.oneline(blockedmod.headline(block["kind"], block["detail"]))
                 walled = (daemonmod.would_wake(con, r) and
                           launch.wake_wait_reason(r["agent"], r, con))
                 if walled:
@@ -1255,7 +1261,8 @@ def _doing(con, agent: str) -> str:
     row = db.get_agent_state(con, agent)
     if not row:
         return "never started"
-    state = row["state"] + (" · closed" if row["closed_at"] else "")
+    word, extra = tui.screen_state(con, row)
+    state = word + (f" {extra}" if extra else "")
     waiting = len(db.queued_for(con, agent))
     if waiting:
         state += f" · {waiting} waiting"

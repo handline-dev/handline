@@ -10777,12 +10777,12 @@ def test_a_walled_wake_is_not_shown_with_nothing_waiting(home: Path) -> None:
 
 
 def test_a_stalled_closed_agent_keeps_its_marker_when_walled(home: Path) -> None:
-    """A STALLED agent needs a human - unstalling it is the one thing that
-    clears that mark. If the wall's yellow cell were drawn ahead of it, a
-    STALLED agent whose account crossed 90% would silently read as merely
-    walled, and the one condition on that row that needs a person would clear
-    itself the moment the window rolled over, with nobody told there was
-    ever anything wrong.
+    """A STALLED (FATAL) agent needs a human - `w` is the one thing that
+    clears that mark. Its own detail lives in the state cell itself
+    (screen_state()), never the last column a wall's yellow ⏳ also uses - so
+    there is nothing for the wall to crowd out any more: a FATAL agent whose
+    account also crossed 90% still reads FATAL, with why, whatever else the
+    row has room to say.
     """
     _daemon_home(home, 20)
     con = db.connect()
@@ -10799,8 +10799,8 @@ def test_a_stalled_closed_agent_keeps_its_marker_when_walled(home: Path) -> None
               dict(row))
         frame = tui._ANSI.sub("", tui.frame(200, 40))
         line = next((ln for ln in frame.splitlines() if "backend" in ln), "")
-        check("stalled+walled: the last cell is the human marker, not the wall",
-              "ran out of attempts" in line and "⏳" not in line, line)
+        check("stalled+walled: the state cell says FATAL with its own detail",
+              "FATAL" in line and "ran out of attempts" in line, line)
     finally:
         con.close()
 
@@ -11022,7 +11022,12 @@ def test_the_bridge_says_what_an_agent_is_where_there_is_room(home: Path) -> Non
 
 def test_the_state_column_is_as_wide_as_what_it_prints(home: Path) -> None:
     """It was 24 columns for "PARKED·closed 12m05s" on a screen where the rows
-    say IDLE. It is measured per frame, and the rows still line up."""
+    say IDLE. It is measured per frame, and the rows still line up.
+
+    #1640/#1639: no `·closed` anywhere on the screen any more - a closed,
+    parked agent reads PENDING, with the clock it wakes at, same as an open
+    one; `closed_at` still decides whether the daemon can wake it
+    (daemon.py), untouched here."""
     import re
     _daemon_home(home, 20)
     agents.register("frontend", "alpha")
@@ -11036,19 +11041,23 @@ def test_the_state_column_is_as_wide_as_what_it_prints(home: Path) -> None:
         idle_w = tui._state_width([("IDLE", ""), ("IDLE", "")])
         check("state: rows that say IDLE get a narrow column", idle_w < 14, str(idle_w))
         check("state: and their ctx cells line up", len(cols) == 1, str(rows))
+        wake = int(time.time()) + 725
         db.set_closed(con, "backend", "sess-x")
-        db.set_agent_state(con, "backend", dmn.PARKED, wake_at=int(time.time()) + 725,
-                           detail="parked")
+        db.set_agent_state(con, "backend", dmn.PARKED, wake_at=wake, detail="by hand")
         cols, rows = ctx_cols(140)
-        check("state: a parked, closed row with a countdown is shown whole",
-              any("PARKED·closed" in ln and "m" in ln for ln in rows), str(rows))
+        clock = time.strftime("%H:%M", time.localtime(wake))
+        check("state: a parked, closed row is shown whole, with its clock - and no ·closed",
+              any("PENDING" in ln and clock in ln for ln in rows)
+              and not any("closed" in ln for ln in rows), str(rows))
         check("state: the column grew for it and every row still lines up",
               len(cols) == 1 and min(cols) > 0, str(rows))
-        want = tui._state_width([("PARKED·closed", "12m05s")])
-        check("state: measured from the longest state and the widest countdown",
-              want == 1 + len("PARKED·closed") + 1 + tui.COUNTDOWN_W, str(want))
-        check("state: a shorter countdown does not narrow the column, so it does not breathe",
-              tui._state_width([("PARKED", "9s")]) == tui._state_width([("PARKED", "12m05s")]))
+        want = tui._state_width([("PENDING", clock)])
+        check("state: measured from the longest word and its own extra",
+              want == 1 + len("PENDING") + 1 + len(clock), str(want))
+        check("state: two different clock times cost the column the same - strftime's own "
+              "%H:%M is always 5 characters, so the column does not breathe either",
+              tui._state_width([("PENDING", "09:05")])
+              == tui._state_width([("PENDING", "23:59")]))
     finally:
         con.close()
 
@@ -11431,6 +11440,30 @@ def test_a_resumed_handoff_also_records_its_park(home: Path) -> None:
         events = db.events_after(con, 0, agent="backend", exclude_kinds=())
         check("resume: a recovered handoff's park is recorded too",
               any(e["kind"] == "park" for e in events), [e["kind"] for e in events])
+    finally:
+        con.close()
+
+
+def test_a_resumed_hand_park_stays_forceable_too(home: Path) -> None:
+    """resume_handoff has the same by-hand-mark-vs-assumed-account shape
+    _perform_handoff does (auditor #1744 should-fix A) - a restart recovering
+    a hand-triggered handoff must not turn it into an unforceable MOVING park
+    just because the account is still assumed."""
+    _daemon_home(home, 20)
+    con = db.connect()
+    try:
+        db.start_handoff(con, "hoff-restart-hand", "backend", None, dmn.BY_HAND_MARK,
+                         int(time.time()) + 90)
+        row = db.in_flight_for(con, "backend")
+        check("resume hand: no account is recorded, so the reading is assumed",
+              agents.account_reading("backend", con).source == "assumed")
+
+        dmn.resume_handoff(con, row, lambda _m: None)
+        parked = db.get_agent_state(con, "backend")
+        check("resume hand: the by-hand mark survives the assumed-account short retry",
+              parked["detail"].startswith(dmn.BY_HAND_MARK), parked["detail"])
+        ok, why = actions.can(con, "backend", "wake")
+        check("resume hand: and w may still force it", ok, why)
     finally:
         con.close()
 
@@ -14413,8 +14446,8 @@ def test_a_permission_prompt_waits_on_the_founder_until_it_is_answered(home: Pat
         check("bridge: drawn in red, with the command and how long",
               any(tui.RED in ln and "git push origin main" in ln for ln in frame.split("\n")),
               str(plain[:6]))
-        check("bridge: and the agent's own row reads WAITING ON YOU, not RUNNING",
-              any(ln.lstrip("│ ").startswith("backend") and "WAITING ON YOU" in ln
+        check("bridge: and the agent's own row reads DIALOG, not RUNNING",
+              any(ln.lstrip("│ ").startswith("backend") and "DIALOG" in ln
                   for ln in plain), str([ln for ln in plain if "backend" in ln]))
 
         out = io.StringIO()
@@ -14425,9 +14458,10 @@ def test_a_permission_prompt_waits_on_the_founder_until_it_is_answered(home: Pat
         finally:
             sys.stdout = real_out
         said = out.getvalue()
-        check("ps: the block comes first and the state column says it",
+        check("ps: the pinned block comes first and the state column says DIALOG",
               said.startswith("WAITING ON YOU (1)") and "backend " in said
-              and said.count("WAITING ON YOU") == 2 and "Bash: git push" in said, said[:400])
+              and said.count("WAITING ON YOU") == 1 and "DIALOG" in said
+              and "Bash: git push" in said, said[:400])
 
         rows_before = len(db.events_after(con, 0, agent="backend"))
         _fire_hook("PostToolUse", tool_name="Read", tool_input={"file_path": "/x"})
@@ -17448,7 +17482,7 @@ def test_the_wake_time_is_in_the_state_cell_not_a_column(home: Path) -> None:
         parked = [ln for ln in lines if "backend" in ln]
         idle = [ln for ln in lines if "frontend" in ln]
         check("agents: a parked row shows when it wakes, in its state cell",
-              parked and re.search(r"PARKED\s+1[12]m\d\d", parked[0]), str(parked))
+              parked and re.search(r"PENDING\s+\d\d:\d\d", parked[0]), str(parked))
         check("agents: a row with no deadline shows no time",
               idle and re.search(r"IDLE\s+\d+%|IDLE\s+\?|IDLE\s*$", idle[0])
               and not re.search(r"IDLE\s+\d+m", idle[0]), str(idle))
@@ -17458,8 +17492,9 @@ def test_the_wake_time_is_in_the_state_cell_not_a_column(home: Path) -> None:
         db.set_closed(con, "backend", "sess-1")
         lines = [tui._ANSI.sub("", ln) for ln in tui.frame(120, 40).split(chr(10))]
         closed = [ln for ln in lines if "backend" in ln]
-        check("agents: a closed parked row still fits its time beside the mark",
-              closed and re.search(r"PARKED·closed\s+1[12]m\d\d", closed[0]), str(closed))
+        check("agents: a closed parked row still fits its time, with no ·closed",
+              closed and re.search(r"PENDING\s+\d\d:\d\d", closed[0])
+              and "closed" not in closed[0], str(closed))
         db.set_agent_state(con, "backend", dmn.PARKED, wake_at=int(time.time()) - 5)
         lines = [tui._ANSI.sub("", ln) for ln in tui.frame(120, 40).split(chr(10))]
         due = [ln for ln in lines if "backend" in ln]
@@ -17850,8 +17885,9 @@ def test_the_panel_and_the_daemon_agree_about_what_is_in_the_way(home: Path) -> 
               not said, said)
 
         _, said = world(*live, dmn.STALLED, told=False)
-        check("agree: a stall names itself and the key that clears it",
-              "STALLED" in said and "u clears it" in said, said)
+        check("agree: a stall names itself, as FATAL - the same word the agents "
+              "panel reads for this row - and the key that clears it",
+              "FATAL" in said and "w clears it" in said, said)
         # And the same world with no daemon in it. Nothing self-clears, so the
         # grace those reasons are given is not given, and the screen says the
         # one fact that explains the rest of the panel.
@@ -17907,8 +17943,9 @@ def test_the_screen_says_what_is_stuck_and_what_was_decided(home: Path) -> None:
 
         db.set_terminal(con, "backend", "term_x", "wt")
         db.set_agent_state(con, "backend", dmn.STALLED, detail="by hand")
-        check("stuck: a stalled agent is on the list with its reason",
-              any("backend is STALLED" in b["what"] for b in actions.stuck(con)),
+        check("stuck: a stalled agent is on the list with its reason, as FATAL - "
+              "the same word the agents panel below it reads for this row",
+              any("backend is FATAL" in b["what"] for b in actions.stuck(con)),
               str(actions.stuck(con)))
 
         # The reason has to be the daemon's reason, or the panel is a second
@@ -20426,9 +20463,9 @@ def test_the_frame_never_draws_wider_than_the_terminal(home: Path) -> None:
         tighter = tui._ANSI.sub("", tui.keybar(tui.AGENTS, 60))
         check("top: a tight line keeps every action and drops the navigation",
               "panel" in wide and "panel" not in tight
-              and "unstall" in tight, repr(tight))
+              and "wake" in tight, repr(tight))
         check("top: and a tighter one sheds actions, counting what it held back",
-              "more" in tighter and "unstall" not in tighter, repr(tighter))
+              "more" in tighter and "wake" not in tighter, repr(tighter))
     finally:
         con.close()
 
@@ -20438,19 +20475,22 @@ def test_the_agent_footer_shows_only_what_the_row_can_do(home: Path) -> None:
     must never go quiet just because a key was hidden.
 
     One state per row of the founder's list (#790): a running agent parks and
-    closes; a parked one wakes; a stalled one unstalls; a closed one only
-    wakes; an agent with no row yet still gets what a never-launched agent can
-    use. Fold and move are gone from every one of them - reached for rarely
-    enough to cost more room than they earn - but a hidden key still does what
-    it always did, because dispatch reads AGENT_KEYS whole and never asks the
-    footer first.
+    closes; a park a person started by hand wakes; a park that clears on its
+    own does not (founder #1620/#1625/#1633 - forcing it early wakes the
+    agent into an account that is still not there); a stalled (FATAL) one
+    wakes too - `u`/unstall is gone, folded into `w` (founder #1620/#1631);
+    a closed one only wakes; an agent with no row yet still gets what a
+    never-launched agent can use. Fold and move are gone from every one of
+    them - reached for rarely enough to cost more room than they earn - but a
+    hidden key still does what it always did, because dispatch reads
+    AGENT_KEYS whole and never asks the footer first.
     """
     _daemon_home(home, 20)
     con = db.connect()
     try:
-        def labels(state=None, closed=False):
+        def labels(state=None, closed=False, detail=None):
             if state is not None:
-                db.set_agent_state(con, "backend", state)
+                db.set_agent_state(con, "backend", state, detail=detail)
             if closed:
                 db.set_closed(con, "backend", None)
             else:
@@ -20463,21 +20503,25 @@ def test_the_agent_footer_shows_only_what_the_row_can_do(home: Path) -> None:
         check("footer: a running agent gets only the always-on keys",
               got == list(common), got)
 
-        got = labels(dmn.PARKED)
-        check("footer: a parked agent adds wake, close and park",
-              set(got) == set(common) | {"wake", "close", "park"}
-              and "unstall" not in got, got)
+        got = labels(dmn.PARKED, detail="by hand; wakes at 16:40")
+        check("footer: a park started by hand adds wake, close and park",
+              set(got) == set(common) | {"wake", "close", "park"}, got)
+
+        got = labels(dmn.PARKED, detail="usage; wakes at 16:40")
+        check("footer: a usage-wall park - it clears on its own - does not offer wake",
+              set(got) == set(common) | {"close", "park"}, got)
 
         got = labels(dmn.STALLED)
-        check("footer: a stalled agent adds only unstall",
-              set(got) == set(common) | {"unstall"}, got)
+        check("footer: a FATAL (STALLED) agent adds only wake - unstall is gone",
+              set(got) == set(common) | {"wake"} and "unstall" not in got, got)
 
-        got = labels(dmn.PARKED, closed=True)
-        check("footer: a closed agent adds only wake, not close or park",
+        got = labels(dmn.PARKED, closed=True, detail="usage; wakes at 16:40")
+        check("footer: a closed agent adds only wake, not close or park - "
+              "closed always wakes, whatever parked it",
               set(got) == set(common) | {"wake"}, got)
 
-        for got in (labels(dmn.RUNNING), labels(dmn.PARKED), labels(dmn.STALLED),
-                    labels(dmn.PARKED, closed=True)):
+        for got in (labels(dmn.RUNNING), labels(dmn.PARKED, detail="by hand; wakes at 16:40"),
+                    labels(dmn.STALLED), labels(dmn.PARKED, closed=True)):
             check("footer: fold and move never appear",
                   "fold" not in got and "move" not in got, got)
 
@@ -20491,17 +20535,18 @@ def test_the_agent_footer_shows_only_what_the_row_can_do(home: Path) -> None:
 
         # The rendered frame agrees: `?` stands in for what filtering removed,
         # and a hidden key still reaches `can` when it is pressed.
-        db.set_agent_state(con, "backend", dmn.PARKED)
+        db.set_agent_state(con, "backend", dmn.PARKED, detail="by hand; wakes at 16:40")
         db.clear_closed(con, "backend")
         sel = {tui.AGENTS: "backend"}
         text = tui._ANSI.sub("", tui.frame(160, 40, sel, tui.AGENTS))
         check("footer: the rendered frame carries the filtered keys",
-              "wake" in text and "unstall" not in text and "fold" not in text
-              and "? help" in text, text)
+              "wake" in text and "fold" not in text and "? help" in text, text)
 
-        line, _ = tui._act(tui.AGENTS, sel, "u", 120, 30, None, None)
-        check("footer: a hidden key still gets `can`'s own refusal, not silence",
-              "not STALLED" in line, line)
+        db.set_agent_state(con, "backend", dmn.PARKED, detail="usage; wakes at 16:40")
+        line, _ = tui._act(tui.AGENTS, sel, "w", 120, 30, None, None)
+        check("footer: a key hidden because the row cannot use it (wake, on a "
+              "self-clearing park) still gets `can`'s own refusal, not silence",
+              "clears on its own" in line, line)
         db.set_agent_state(con, "backend", dmn.PARKED)
         line, _ = tui._act(tui.AGENTS, sel, "f", 120, 30, None, None)
         check("footer: a hidden-but-applicable key (fold) still reaches the "
@@ -20531,7 +20576,7 @@ def test_the_agent_footer_shows_only_what_the_row_can_do(home: Path) -> None:
         _, _, footer_keys = tui.build(160, {tui.STUCK: "backend"}, tui.STUCK)
         got = [label for _, label in footer_keys]
         check("footer: STUCK filters by the same agent state as AGENTS",
-              set(got) == {"open", "terminal", "message", "editor", "unstall"}, got)
+              set(got) == {"open", "terminal", "message", "editor", "wake"}, got)
     finally:
         con.close()
 
@@ -21163,6 +21208,41 @@ def test_handoff_reclaims_context(home: Path) -> None:
     finally:
         orcamod.clear_context, orcamod.alive = real_clear, real_alive
         orcamod.idle_now = real_idle
+        con.close()
+
+
+def test_a_hand_park_against_an_assumed_account_stays_forceable(home: Path) -> None:
+    """`actions.park` (the screen's `p`) is #1620/#1625's one park a person may
+    force early - but an agent with no recorded or reported account reads as
+    'assumed' (agents.account_reading's ordinary fallback, not an edge case),
+    which also asks for the short account-move recheck window. That ceiling
+    is not a reason to lose the by-hand mark: `w` must still force it.
+
+    Built through actions.park() itself, not a hand-written detail string -
+    the fixture production actually makes, per the auditor's #1744 should-fix."""
+    _daemon_home(home, 50)
+    con = db.connect()
+    real_alive, real_idle = orcamod.alive, orcamod.idle_now
+    try:
+        orcamod.available = lambda: True
+        orcamod.alive = lambda h: True
+        orcamod.idle_now = lambda h: True
+        orcamod.clear_context = lambda h, wait=True, timeout_ms=0: (True, "context cleared")
+        sessions_are("backend")
+        db.set_terminal(con, "backend", "term_x", "wt")
+        db.set_agent_state(con, "backend", dmn.IDLE, detail="cleared")
+        check("park: no account is recorded, so the reading is assumed",
+              agents.account_reading("backend", con).source == "assumed")
+
+        actions.park(con, "backend")
+        row = db.get_agent_state(con, "backend")
+        check("park: it parked", row["state"] == dmn.PARKED, str(dict(row)))
+        check("park: the by-hand mark survives the assumed-account short retry",
+              row["detail"].startswith(dmn.BY_HAND_MARK), row["detail"])
+        ok, why = actions.can(con, "backend", "wake")
+        check("park: and w may still force it", ok, why)
+    finally:
+        orcamod.alive, orcamod.idle_now = real_alive, real_idle
         con.close()
 
 
@@ -23844,6 +23924,192 @@ def diff_labels(path_a: str, path_b: str) -> int:
 WRITE_LABELS_TO: str | None = None  # set by --write-labels
 
 
+# #1640: the founder's own screen-state vocabulary. The permanent-stop guard
+# (section 8.4) - a state the daemon can write and nothing wakes.
+def _states_written_in(path) -> set[str]:
+    """Every literal state name a call to `set_agent_state` writes in one
+    source file, however it spells the state: a bare constant (already equal
+    to its own name in daemon.py, e.g. `PARKED = "PARKED"`), a quoted literal
+    (ask.py's own style), or one qualified by its module (`daemon.QUEUED` in
+    actions.py, `daemonmod.QUEUED` in cli.py - a miss here read both of those
+    real call sites as writing nothing, which defeats the guard exactly where
+    a state without one would be silent). Not a full parser - a regex over
+    source text - but the one property this needs is only ever a name right
+    after the two required positional arguments, and every real call site is
+    one line, so it does not need to be more than that."""
+    import re
+    text = Path(path).read_text()
+    return set(re.findall(r'set_agent_state\(\s*con\s*,\s*[^,]+,\s*(?:\w+\.)?"?([A-Z_]+)"?', text))
+
+
+def test_every_state_the_daemon_can_write_has_a_waker() -> None:
+    """daemon.WAKER names who or what wakes every state `set_agent_state` is
+    ever called with, in this file and everywhere else that writes one - a
+    state missing from it is the silent terminal state section 8.4 warns
+    about. Scans the real source, not a hand-kept list of call sites, so a
+    new writer added later without a WAKER entry fails this the moment it is
+    added, not the moment someone remembers to update a list here too."""
+    import ocp
+    pkg_dir = Path(ocp.__file__).parent
+    written: set[str] = set()
+    for path in pkg_dir.glob("*.py"):
+        written |= _states_written_in(path)
+    check("waker: at least the states this suite knows are written are found "
+          "(the scan itself is not vacuous)",
+          {"PARKED", "STALLED", "IDLE", "QUEUED", "HANDOFF", "DEGRADED",
+           "THROTTLED", "RUNNING"} <= written, str(written))
+    missing = written - set(dmn.WAKER)
+    check("waker: every state the daemon can write has a way back",
+          not missing, str(missing))
+
+
+def test_the_screen_word_mapping_is_the_founders_six(home: Path) -> None:
+    """tui.screen_state(): the one function - RUNNING, IDLE, PENDING, MOVING,
+    DIALOG, FATAL, each from the internal shape that produces it, and no
+    others - proof section: one check per mapping, each failing when the
+    line that makes it is reverted."""
+    _daemon_home(home, 20)
+    con = db.connect()
+    try:
+        def state(**kw):
+            db.set_agent_state(con, "backend", **kw)
+            word, extra = tui.screen_state(con, db.get_agent_state(con, "backend"))
+            check(f"map: {word} is one of the founder's six", word in tui.SCREEN_WORDS)
+            return word, extra
+
+        check("map: no row at all is IDLE", tui.screen_state(con, None) == ("IDLE", ""))
+        check("map: RUNNING is RUNNING", state(state=dmn.RUNNING) == ("RUNNING", ""))
+        check("map: HANDOFF is RUNNING too - the daemon finishing this agent's "
+              "own turn, not something a person or the agent is doing",
+              state(state=dmn.HANDOFF) == ("RUNNING", ""))
+        check("map: plain IDLE is IDLE", state(state=dmn.IDLE, detail="") == ("IDLE", ""))
+        check("map: QUEUED (work waiting) is PENDING, with no time - it is "
+              "dispatched this tick", state(state=dmn.QUEUED, detail="wake") == ("PENDING", ""))
+        check("map: QUEUED with the moving marker is MOVING, never with a time",
+              state(state=dmn.QUEUED, detail="moving alpha -> beta") == ("MOVING", ""))
+        wake = int(time.time()) + 900
+        clock = time.strftime("%H:%M", time.localtime(wake))
+        check("map: a usage-wall PARKED is PENDING, with the clock it wakes at",
+              state(state=dmn.PARKED, wake_at=wake, detail="usage; wakes at x")
+              == ("PENDING", clock))
+        check("map: a by-hand PARKED is PENDING too - only wake permission tells them apart",
+              state(state=dmn.PARKED, wake_at=wake, detail="by hand; wakes at x")
+              == ("PENDING", clock))
+        check("map: a PARKED past its own wake_at says due, not a clock behind now",
+              state(state=dmn.PARKED, wake_at=int(time.time()) - 5, detail="usage; wakes at x")
+              == ("PENDING", "due"))
+        check("map: a PARKED carrying the moving marker is MOVING, with no time",
+              state(state=dmn.PARKED, wake_at=wake, detail="moving; wakes at x")
+              == ("MOVING", ""))
+        check("map: DEGRADED is PENDING - the daemon's own retry, not a person's",
+              state(state=dmn.DEGRADED, wake_at=wake, detail="handoff timed out at 'x'")
+              == ("PENDING", clock))
+        check("map: THROTTLED is PENDING too - the ask window rolling over",
+              state(state=dmn.THROTTLED, wake_at=wake, detail="too many asks")
+              == ("PENDING", clock))
+        check("map: a PARKED requester on its own async ask is IDLE, with who it waits for",
+              state(state=dmn.PARKED, wake_at=wake,
+                   detail=askmod.await_reply_detail(1627, "keeper"))
+              == ("IDLE", "#1627 keeper"))
+        check("map: FATAL is today's STALLED, with its own detail",
+              state(state=dmn.STALLED, detail="ran out of attempts")
+              == ("FATAL", "ran out of attempts"))
+
+        # DIALOG, from each of its two sources - neither is a stored state.
+        os.environ["OCP_AGENT"], os.environ["OCP_ACCOUNT"] = "backend", "alpha"
+        real_screen_blocker = orcamod.screen_blocker
+        try:
+            db.set_terminal(con, "backend", "term_x", "wt")
+            db.set_agent_state(con, "backend", dmn.RUNNING, detail="active")
+            # waiting.of() confirms a permission wait against the terminal's
+            # own live screen (auditor #1721) - a stub stands in for it here.
+            orcamod.screen_blocker = lambda h: orcamod.Blocker(orcamod.MODAL, "permission")
+            waiting.note("backend", "Bash", {"command": "rm -rf /x"})
+            word, extra = tui.screen_state(con, db.get_agent_state(con, "backend"))
+            check("map: a permission prompt (waiting.py) is DIALOG, over RUNNING",
+                  word == "DIALOG" and "rm -rf /x" in extra, (word, extra))
+            waiting.clear("backend")
+        finally:
+            orcamod.screen_blocker = real_screen_blocker
+            os.environ.pop("OCP_AGENT", None); os.environ.pop("OCP_ACCOUNT", None)
+
+        db.set_agent_state(con, "backend", dmn.IDLE)
+        db.add_request(con, "reviewer", "backend", "look at this", None,
+                       "peer", "async", None, 0, None)
+        db.block_open(con, "backend", orcamod.MODAL, "a dialog", "request #1",
+                     int(time.time()), show_at=int(time.time()) + 1000, title="")
+        word, extra = tui.screen_state(con, db.get_agent_state(con, "backend"))
+        check("map: a delivery block (blocked.py) is DIALOG too, over IDLE",
+              word == "DIALOG" and "dialog" in extra, (word, extra))
+    finally:
+        con.close()
+
+
+def test_wake_on_a_self_clearing_park_refuses_and_says_when(home: Path) -> None:
+    """actions.can()/daemon.park_wakeable(): the property from #1620/#1625 -
+    only a park a person started by hand is worth `w` forcing early. Proof:
+    one check per key behaviour, failing when its own line is reverted."""
+    _daemon_home(home, 20)
+    con = db.connect()
+    try:
+        wake = int(time.time()) + 900
+        db.set_agent_state(con, "backend", dmn.PARKED, wake_at=wake, detail="usage; wakes at x")
+        ok, why = actions.can(con, "backend", "wake")
+        check("wake: a usage-wall park refuses, and says when it clears itself",
+              not ok and time.strftime("%H:%M", time.localtime(wake)) in why, why)
+
+        db.set_agent_state(con, "backend", dmn.PARKED, wake_at=wake, detail="moving; wakes at x")
+        ok, why = actions.can(con, "backend", "wake")
+        check("wake: a moving (short-retry) park refuses with its own reason, "
+              "not the usage-wall's window-rollover sentence beside it",
+              not ok and "moving accounts" in why and "window rolls over" not in why, why)
+
+        db.set_agent_state(con, "backend", dmn.PARKED, wake_at=wake,
+                           detail=askmod.await_reply_detail(99, "keeper"))
+        ok, why = actions.can(con, "backend", "wake")
+        check("wake: a park awaiting its own reply refuses, naming the reply",
+              not ok and "reply" in why, why)
+
+        db.set_agent_state(con, "backend", dmn.PARKED, wake_at=wake, detail="by hand; wakes at x")
+        ok, why = actions.can(con, "backend", "wake")
+        check("wake: a park started by hand is the one that stays wakeable", ok, why)
+
+        db.set_agent_state(con, "backend", dmn.STALLED, detail="ran out")
+        ok, why = actions.can(con, "backend", "wake")
+        check("wake: FATAL (STALLED) is wakeable too - this is what unstall did", ok, why)
+        said = actions.wake(con, "backend")
+        check("wake: pressing it on FATAL actually clears the stall (unstall, under wake)",
+              "STALLED -> QUEUED" in said, said)
+        check("wake: ...and the row really moved",
+              db.get_agent_state(con, "backend")["state"] == dmn.QUEUED)
+    finally:
+        con.close()
+
+
+def test_wake_over_a_stall_asks_first_same_as_unstall_did(home: Path) -> None:
+    """tui._needs_confirm(): w reached the FATAL row unconfirmed would clear a
+    stall on a stray keypress - the one safety #1618/#1620 made a condition of
+    folding unstall into wake. Proof: one check per branch, each failing when
+    its own line is reverted."""
+    _daemon_home(home, 20)
+    con = db.connect()
+    try:
+        db.set_agent_state(con, "backend", dmn.STALLED, detail="ran out")
+        check("confirm: w over a stall asks first",
+              tui._needs_confirm(con, "backend", "wake"))
+
+        db.set_agent_state(con, "backend", dmn.PARKED, wake_at=int(time.time()) + 900,
+                           detail="by hand; wakes at x")
+        check("confirm: w over an ordinary park does not ask",
+              not tui._needs_confirm(con, "backend", "wake"))
+
+        for label in tui.CONFIRM:
+            check(f"confirm: {label} always asks",
+                  tui._needs_confirm(con, "backend", label))
+    finally:
+        con.close()
+
+
 def main() -> int:
     # An agent session that runs this suite already has both set for itself,
     # and every test here that wants one sets it explicitly - so an ambient
@@ -24125,6 +24391,7 @@ def main() -> int:
         run(lambda: test_a_context_park_does_not_auto_clear_on_a_usage_reading(Path(td) / 'parklevel4'))
         run(lambda: test_an_assumed_account_does_not_auto_clear_a_park(Path(td) / 'parklevel5'))
         run(lambda: test_a_resumed_handoff_also_records_its_park(Path(td) / 'parklevel6'))
+        run(lambda: test_a_resumed_hand_park_stays_forceable_too(Path(td) / 'parklevel6b'))
         run(lambda: test_account_reading_prefers_recorded_then_reported_then_assumed(Path(td) / 'acctread'))
         run(lambda: test_supervise_reads_the_reported_account_not_an_assumed_preference(Path(td) / 'acctsupervise'))
         run(lambda: test_a_park_against_an_assumed_account_gets_a_short_recheck(Path(td) / 'acctrecheck'))
@@ -24276,6 +24543,10 @@ def main() -> int:
         run(lambda: test_a_key_never_acts_on_a_row_nobody_pointed_at(Path(td) / 'topsel'))
         run(lambda: test_the_frame_never_draws_wider_than_the_terminal(Path(td) / 'topwide'))
         run(lambda: test_the_agent_footer_shows_only_what_the_row_can_do(Path(td) / 'topfooter'))
+        run(lambda: test_every_state_the_daemon_can_write_has_a_waker())
+        run(lambda: test_the_screen_word_mapping_is_the_founders_six(Path(td) / 'screenwords'))
+        run(lambda: test_wake_on_a_self_clearing_park_refuses_and_says_when(Path(td) / 'selfclearwake'))
+        run(lambda: test_wake_over_a_stall_asks_first_same_as_unstall_did(Path(td) / 'wakeconfirm'))
         run(lambda: test_the_cursor_walks_the_whole_screen(Path(td) / 'topcur'))
         run(lambda: test_login_points_at_the_account_and_touches_no_credential(Path(td) / 'login'))
         run(lambda: test_a_fold_with_no_account_says_which_and_why(Path(td) / 'foldacct'))
@@ -24290,6 +24561,7 @@ def main() -> int:
         run(lambda: test_confirm_trust_presses_down_then_enter())
         run(lambda: test_clear_refuses_mid_turn())
         run(lambda: test_handoff_reclaims_context(Path(td) / 'reclaim'))
+        run(lambda: test_a_hand_park_against_an_assumed_account_stays_forceable(Path(td) / 'handpark'))
         run(lambda: test_wake_injects_handoff(Path(td) / 'wake'))
         run(lambda: test_a_drifted_launch_relaunches_instead_of_waking_in_place(Path(td) / 'driftwake'))
         run(lambda: test_a_parked_row_with_no_fingerprint_also_relaunches(Path(td) / 'nofp'))

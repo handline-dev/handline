@@ -37,7 +37,12 @@ HUMAN = askmod.HUMAN
 
 
 def wake(con, agent: str) -> str:
-    """Bring a closed or parked agent back."""
+    """Bring a closed or parked agent back - or, on a FATAL (STALLED) one,
+    clear the stall (founder #1620/#1631: unstall folded into wake, behind
+    the same confirmation `can()` already asks for a STALLED row)."""
+    row = db.get_agent_state(con, agent)
+    if row and row["state"] == daemon.STALLED:
+        return unstall(con, agent)
     ok, why = daemon.wake_agent(con, agent, lambda _m: None)
     return f"{agent}: {why}" if ok else f"{agent}: not woken - {why}"
 
@@ -71,7 +76,7 @@ def park(con, agent: str) -> str:
     state afterwards. Reporting the state read RUNNING as though it were a
     result.
     """
-    t = triggers.Trigger(True, "by hand", "parked by a human from the screen")
+    t = triggers.Trigger(True, daemon.BY_HAND_MARK, "parked by a human from the screen")
     said: list[str] = []
     ok = daemon.perform_handoff(con, agent, t, said.append)
     if said:
@@ -774,7 +779,7 @@ def _delivery_block(con, agent: str, sessions: dict | None,
         # First, because `supervise` returns on STALLED before delivery is
         # considered at all. Reporting a missing terminal ahead of it sent the
         # reader to start one, which would not have moved the request.
-        return f"{agent} is STALLED - the daemon will not touch it (u clears it)", False
+        return f"{agent} is FATAL - the daemon will not touch it (w clears it)", False
     handle = row["terminal"]
     if not handle:
         return f"{agent} has no terminal - nothing can be typed to it (t starts one)", False
@@ -941,7 +946,10 @@ def stuck(con) -> list[dict]:
     for row in db.all_agent_states(con):
         if row["state"] in (daemon.STALLED, daemon.DEGRADED) \
                 and not (row["agent"] in blks and blks[row["agent"]]["kind"] == blocked.STALLED):
-            add(f"{row['agent']} is {row['state']}", now - int(row["updated"]),
+            # FATAL, not the internal name STALLED - the agents panel below
+            # reads the same row through tui.screen_state and must not disagree.
+            word = "FATAL" if row["state"] == daemon.STALLED else row["state"]
+            add(f"{row['agent']} is {word}", now - int(row["updated"]),
                 row["detail"] or "", row["agent"])
     loads = loadmod.read_all(con)
     for acct in paths.list_accounts():
@@ -1090,11 +1098,13 @@ def can(con, agent: str, key: str) -> tuple[bool, str]:
     # not touch - handing a stalled agent off would clear the stall a human was
     # meant to read.
     busy = state in (daemon.RUNNING, daemon.HANDOFF, daemon.STALLED)
-    busy_why = f"{agent} is {state}" + (" - only a human clears that (u)"
+    busy_why = f"{agent} is {state}" + (" - only a human clears that (w)"
                                         if state == daemon.STALLED else "")
     if key == "wake":
-        if closed or state in (daemon.PARKED, daemon.THROTTLED, daemon.DEGRADED):
+        if closed or state == daemon.STALLED:
             return True, ""
+        if state in (daemon.PARKED, daemon.THROTTLED, daemon.DEGRADED):
+            return daemon.park_wakeable(row)
         return False, f"{agent} is {state}, not parked or closed - there is nothing to wake"
     if key == "close":
         # Work waiting is the one case where closing only adds delay: the very
@@ -1110,10 +1120,6 @@ def can(con, agent: str, key: str) -> tuple[bool, str]:
             return False, (f"{agent} has {len(waiting)} request(s) waiting - closing it now "
                            f"only delays them, the next tick wakes it again")
         return True, ""
-    if key == "unstall":
-        if state == daemon.STALLED:
-            return True, ""
-        return False, f"{agent} is not STALLED - it is {state}"
     if key == "park":
         if closed:
             return False, f"{agent} is closed - its context is already gone (w brings it back)"

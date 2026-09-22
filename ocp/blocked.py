@@ -69,14 +69,16 @@ MAX_PRESSES_AGENT = 10
 
 NO_TERMINAL, NO_SESSION, STALLED, ORCA_DOWN = "no terminal", "no session", "stalled", "orca down"
 
-# What to do about each, in the words of the bridge's own keys.
+# What to do about each, in the words of the bridge's own keys. STALLED's is
+# `w`, not the old `u`/unstall - founder #1620/#1631 folded that key into
+# wake, behind the same confirmation.
 ADVICE = {
     orca.MODAL: "answer it in its terminal (t on the agents panel)",
     orca.BACKGROUNDED: "open its terminal (t on the agents panel) and press Esc to return to the conversation",
     orca.UNREADABLE: "check its terminal (t on the agents panel); ocp cannot read its screen",
     NO_TERMINAL: "t on the agents panel starts one",
     NO_SESSION: "w on the agents panel wakes it",
-    STALLED: "u on the agents panel clears it",
+    STALLED: "w on the agents panel clears it",
     ORCA_DOWN: "check Orca and PATH; ocp cannot reach it at all",
 }
 LABEL = {orca.MODAL: "dialog open", orca.BACKGROUNDED: "conversation in the background",

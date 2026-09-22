@@ -52,6 +52,51 @@ THROTTLED, STALLED = "THROTTLED", "STALLED"
 # as parked and never woken mid-task.
 EVALUATED = {RUNNING, HANDOFF, PARKED, QUEUED, THROTTLED, IDLE, DEGRADED}
 
+# Who or what wakes each state the daemon can write to `agent_state.state` -
+# the permanent-stop guard section 8.4 warns about: a state with no way back
+# sits idle forever once an agent lands in it. Checked by a test that scans
+# every `set_agent_state(con, ..., <STATE>)` call in ocp/*.py (this file,
+# ask.py, events.py, actions.py, cli.py - wherever one is added) and fails
+# if the state it writes is not a key here. DONE is declared above but never
+# written by anything, so it carries no entry and the guard does not need one.
+WAKER = {
+    RUNNING: "the agent's own Stop hook ends its turn - the daemon never touches a RUNNING row",
+    IDLE: "would_wake, the moment a request or an answer is waiting for it",
+    QUEUED: "would_wake dispatches it at once - it already has work",
+    HANDOFF: "the handoff's own step commits, or expire_handoffs() times it out into DEGRADED",
+    DEGRADED: "the daemon retries it itself after DEGRADED_RETRY_S",
+    PARKED: "wake_at - the usage window, the async-reply fallback, or the short move recheck",
+    THROTTLED: "wake_at - the ask window rolls over (team.ASK_WINDOW_S)",
+    STALLED: "a person: w, behind a confirmation (unstall, folded into wake)",
+}
+
+# The marker a QUEUED or PARKED row's `detail` starts with when it is the
+# move/placement machinery waiting, not a usage wall - tui.screen_state draws
+# MOVING, not PENDING.
+MOVING_MARK = "moving"
+# A PARKED row's own mark for the one reason `w` is worth pressing on it - a
+# human parked it (`actions.park`, the trigger kind `park()` builds by hand).
+BY_HAND_MARK = "by hand"
+
+
+def park_wakeable(row) -> tuple[bool, str]:
+    """Whether `w` on this PARKED, THROTTLED or DEGRADED row does anything,
+    and why not when it does not (founder #1620/#1625/#1633: only a park a
+    person started by hand is worth forcing early - a usage wall, a move's
+    own short retry, an async reply and a degraded handoff's own retry all
+    clear themselves, and forcing one wakes the agent into an account, an
+    account switch, or a reply that still is not there).
+    """
+    detail = row["detail"] or ""
+    if detail.startswith(askmod.AWAIT_REPLY_MARK):
+        return False, f"{row['agent']} is waiting on a reply, not parked - it wakes when the reply lands"
+    if detail.startswith(MOVING_MARK):
+        return False, f"{row['agent']} is moving accounts - it retries on its own shortly"
+    if detail.startswith(BY_HAND_MARK):
+        return True, ""
+    when = time.strftime("%H:%M", time.localtime(row["wake_at"])) if row["wake_at"] else "?"
+    return False, f"{row['agent']} clears on its own - starts {when} when the window rolls over"
+
 # How long after a limit StopFailure the agent counts as settled.
 LIMIT_SETTLE_S = 30
 
@@ -277,16 +322,23 @@ def resume_handoff(con, row, log) -> None:
         reading = agents.account_reading(agent, con)
     except Exception:  # noqa: BLE001 - a missing account must not wedge the resume
         pass
-    # Same rule as a fresh park's ceiling (see _perform_handoff): never a 5h
-    # sleep against an account this agent may not be on.
-    if reading is None or reading.source == "assumed":
+    # Same rule as a fresh park's ceiling (see _perform_handoff), and the same
+    # three reasons: an unknown account, or a forced move - which never hits
+    # a usage wall, whatever account it names - is the move machinery still
+    # working, not a wall to sleep out.
+    short_retry = reading is None or reading.source == "assumed" or row["trigger_kind"] == "forced"
+    if short_retry:
         wake = int(time.time()) + ASSUMED_ACCOUNT_RECHECK_S
     else:
         rst = status.read(reading.account)
         wake = triggers.wake_after(row["trigger_kind"] or "", rst.reset_5h, rst.reset_7d)
+    # Same rule as a fresh park's label (see _perform_handoff): a hand park
+    # resumed after a restart is still one a person may force early.
+    label = BY_HAND_MARK if row["trigger_kind"] == BY_HAND_MARK else (
+        MOVING_MARK if short_retry else "resumed handoff")
     db.advance_handoff(con, hid, "released", state="done" if done_ok else "degraded")
     db.set_agent_state(con, agent, PARKED, wake_at=wake,
-                       detail=f"resumed handoff; wakes at "
+                       detail=f"{label}; wakes at "
                               f"{time.strftime('%H:%M', time.localtime(wake))}")
     # Same gap as a fresh park's - see _perform_handoff - through a different
     # path: a restart recovering an in-flight handoff parks the agent too.
@@ -2004,7 +2056,8 @@ def _perform_handoff(con, agent: str, trigger: triggers.Trigger, log,
     # account agent.yaml happens to prefer, not to the one this agent may
     # actually be spending, so it earns only a short re-look instead.
     reading = agents.account_reading(agent, con)
-    if reading.source == "assumed" or trigger.kind == "forced" or retry_soon:
+    short_retry = reading.source == "assumed" or trigger.kind == "forced" or retry_soon
+    if short_retry:
         # A forced move that ended the session and did not start it is not a
         # wall: the account it left had room, so there is no window to wait out.
         # `retry_soon` is the same shape: a destination had room, so whatever
@@ -2018,6 +2071,9 @@ def _perform_handoff(con, agent: str, trigger: triggers.Trigger, log,
     else:
         rst = status.read(reading.account)
         wake = triggers.wake_after(trigger.kind, rst.reset_5h, rst.reset_7d)
+    # A hand park stays a hand park whatever ceiling its wake got - the mark,
+    # not the timer, is what `w` reads to decide it may force this one early.
+    label = MOVING_MARK if short_retry and trigger.kind != BY_HAND_MARK else trigger.kind
     fresh = db.get_agent_state(con, agent)
     streak = int(fresh["throttle_count"]) if fresh else 0
     if streak:
@@ -2027,7 +2083,7 @@ def _perform_handoff(con, agent: str, trigger: triggers.Trigger, log,
             log(f"  {agent}: backing off {backoff}s after {streak} degraded handoff(s)")
     db.advance_handoff(con, hid, "released", state="done" if ok else "degraded")
     db.set_agent_state(con, agent, PARKED, wake_at=wake,
-                       detail=f"{trigger.kind}; wakes at {time.strftime('%H:%M', time.localtime(wake))}")
+                       detail=f"{label}; wakes at {time.strftime('%H:%M', time.localtime(wake))}")
     # `close` and `wake` both leave a record of when and why; a park never did,
     # so `ocp events --agent` had nothing to show for it even though the
     # kind was already reserved for it (kept out of db.AGENT_ACTIVITY_KINDS,
