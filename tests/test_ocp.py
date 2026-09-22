@@ -19955,8 +19955,35 @@ def test_reason_gaps_count_from_the_shapes_the_verbs_write(home: Path) -> None:
 
         # #1366 should-fix 2a: the fyi supersede loop retires a row without
         # ever asking anyone for a reason, so it must not count as one.
-        ok, _, f1 = askmod.ask(askmod.HUMAN, "fyi one", requester="manager", fyi=True)
-        ok, _, f2 = askmod.ask(askmod.HUMAN, "fyi two", requester="manager", fyi=True)
+        #
+        # auditor's #1565 SF2: _board_world routes only manager<->worker, so
+        # `askmod.ask(HUMAN, ..., fyi=True)` was DENIED ("unknown target
+        # 'human'") both times - no fyi row was ever built, the supersede
+        # loop never ran, and "gaps3['retirements'] == gaps2['retirements']"
+        # compared 0 retirements to 0. A route to human, added here rather
+        # than in the shared fixture every other test using _board_world also
+        # gets, makes the ask actually land so the real supersede loop
+        # (ask.py's own retire, not a hand-built row) is what is measured.
+        (home / "team.yaml").write_text("""
+agents:
+  manager: { intake: dedicated }
+  worker:  { intake: dedicated }
+
+edges:
+  - { from: "manager", to: "worker", relation: supervisor, response: fire_and_forget }
+  - { from: "worker", to: "manager", relation: subordinate, response: fire_and_forget }
+  - { from: "manager", to: "human", kind: escalate, creates_gate: true }
+
+limits:
+  max_chain_depth: 4
+  ask_rate_per_hour: 50
+""")
+        ok, msg1, f1 = askmod.ask(askmod.HUMAN, "fyi one", requester="manager", fyi=True)
+        check("reason gaps: setup - the fyi actually lands", ok, msg1)
+        ok, msg2, f2 = askmod.ask(askmod.HUMAN, "fyi two", requester="manager", fyi=True)
+        check("reason gaps: setup - the second fyi lands and supersedes the first", ok, msg2)
+        check("reason gaps: setup - the loop actually retired the first fyi",
+              db.get_request(con, f1)["state"] == "replaced", str(dict(db.get_request(con, f1))))
         gaps3 = actions.reason_gaps(con)
         check("reason gaps: an fyi superseding an fyi is not counted as a retirement",
               gaps3["retirements"] == gaps2["retirements"], str(gaps3))
