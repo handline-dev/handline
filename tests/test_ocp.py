@@ -1126,6 +1126,48 @@ def test_live_refresh_checks_a_stale_idle_floor_before_admitting_it(home: Path) 
         usage_api.read, accounts.logged_in = real_read, real_login
 
 
+def test_live_refresh_asks_at_most_one_candidate_per_call(home: Path) -> None:
+    """auditor #1821 should-fix: _move_plan/find_room pass every logged-in
+    account as candidates, and a fleet-wide outage - several accounts
+    carried_old at once, #1811's own scenario - meant an unbounded number of
+    sequential usage_api.read calls (each up to HTTP_TIMEOUT_S) inside one
+    pick_account call, on the same daemon tick poll_usage's own docstring
+    budgets at 30s. Three candidates are carried_old here; only the first in
+    list order may be asked live, and the other two fall through to the
+    ordinary carried_old refusal, exactly as they would with live_refresh
+    off."""
+    os.environ["OCP_HOME"] = str(home)
+    now = int(time.time())
+    for n in ("alpha", "beta", "gamma"):
+        accounts.register(n)
+        write_status(home, n, pct_5h=90, reset_5h=now - 60,
+                     rl_carried=False, rl_at=now - status.CARRY_MAX_AGE_S - 300,
+                     collected_at=now)
+    for n in ("alpha", "beta", "gamma"):
+        check(f"live_refresh cap setup: {n} is carried_old before any ask",
+              status.read(n).pct_5h_source == "carried_old", n)
+
+    real_read, real_login = usage_api.read, accounts.logged_in
+    asked: list[str] = []
+    try:
+        def fake_read(acct, refresh=True):
+            asked.append(acct)
+            return usage_api.Reading(acct, 10, now + 9000, 20, now + 90000, now)
+        usage_api.read = fake_read
+        accounts.logged_in = lambda acct: True
+
+        picked, ranked = status.pick_account(["alpha", "beta", "gamma"], live_refresh=True)
+        check("live_refresh cap: only the first candidate was asked live",
+              asked == ["alpha"], asked)
+        check("live_refresh cap: it took the agent, since the fresh answer "
+              "has room", picked == "alpha", ranked)
+        check("live_refresh cap: the second candidate was never asked and "
+              "was refused, exactly as it would be with live_refresh off",
+              "beta" not in asked and any(n == "beta" for n, _ in ranked), ranked)
+    finally:
+        usage_api.read, accounts.logged_in = real_read, real_login
+
+
 # ---------------------------------------------------------------- usage_samples
 def test_usage_samples_round_trip_without_coercing_a_gap_to_zero(home: Path) -> None:
     """#1113: a recorded sample is read back exactly, unknown figures stay
@@ -23828,6 +23870,8 @@ def main() -> int:
             Path(td) / 'liverefreshcarried'))
         run(lambda: test_live_refresh_checks_a_stale_idle_floor_before_admitting_it(
             Path(td) / 'liverefreshfloor'))
+        run(lambda: test_live_refresh_asks_at_most_one_candidate_per_call(
+            Path(td) / 'liverefreshcap'))
         run(lambda: test_each_calls_tokens_are_recorded_per_account_from_the_transcripts(
             Path(td) / 'tokencalls'))
         run(lambda: test_a_first_backfill_reads_a_slice_per_tick_not_the_whole_history(

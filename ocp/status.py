@@ -128,6 +128,15 @@ PCT_7D_BLOCK = triggers.WALL_PCT
 # wall this stack uses (100) that line is thirty points.
 IDLE_FLOOR_MARGIN_PCT = 30
 
+# How many candidates pick_account(live_refresh=True) may ask usage_api about
+# in one call. _move_plan/find_room pass every logged-in candidate, and a
+# fleet-wide outage (#1811's own scenario) can make several of them read
+# carried_old or stale-idle-floored at once; without a cap this call blocks on
+# that many sequential HTTP_TIMEOUT_S timeouts on the same 30s daemon tick
+# poll_usage's own docstring budgets for - one success per tick, mirrored here
+# as one attempt per call (auditor #1821 should-fix).
+LIVE_REFRESH_MAX_PER_CALL = 1
+
 
 @dataclass
 class AccountStatus:
@@ -1072,6 +1081,7 @@ def pick_account(candidates: list[str] | None = None, bootstrap: bool = False,
     reasons: list[tuple[str, str]] = []
     usable: list[tuple[str, AccountStatus, object, float | None]] = []
     blank: list[str] = []
+    live_refresh_left = LIVE_REFRESH_MAX_PER_CALL
     for n in names:
         if paths.removing(n):
             reasons.append((n, "being removed"))
@@ -1082,7 +1092,7 @@ def pick_account(candidates: list[str] | None = None, bootstrap: bool = False,
         st = read_one(n)
         ld = load.get(n)
         active = ld.active if ld else 0
-        if live_refresh and accounts.logged_in(n):
+        if live_refresh and live_refresh_left > 0 and accounts.logged_in(n):
             # Same two figures the rest of this function already treats
             # specially - a carried_old reading (refused below) and a floor
             # idle_floor would admit on (sized below) - asked fresh exactly
@@ -1090,6 +1100,7 @@ def pick_account(candidates: list[str] | None = None, bootstrap: bool = False,
             stale_here = (st.pct_5h_source == "carried_old"
                           or (st.trusted_pct_5h is None and st.idle_floor(active)[0]))
             if stale_here:
+                live_refresh_left -= 1
                 fresh = usage_api.read(n, refresh=False)
                 if fresh is not None:
                     usage_api.record(fresh)
