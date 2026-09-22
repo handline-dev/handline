@@ -7323,6 +7323,14 @@ def test_a_name_that_yaml_would_not_read_as_text_is_refused_where_it_is_typed(ho
     for n in good:
         agents.register(n, "alpha")
     check("names: and takes each ordinary one", set(good) <= set(paths.list_agents()))
+    # auditor #1774: is_plain_text passes a tab, so only register's own
+    # unsafe-character check stands between it and the roster.
+    try:
+        agents.register("a\tb", "alpha")
+        check("names: agents.register turns away a name holding a tab", False, "registered")
+    except ValueError as e:
+        check("names: agents.register turns away a name holding a tab",
+              "bad agent name" in str(e) and not paths.agent_dir("a\tb").exists(), str(e))
     for kind in ("add", "rename"):
         ok, said = hr._draft(kind, "no" if kind == "add" else "harbor", "x", "why", "alpha",
                              None, None, None, "on" if kind == "rename" else None)

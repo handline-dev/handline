@@ -548,8 +548,8 @@ def dump(data: dict) -> str:
             candidates.append(_float_text(value))
         else:
             value = str(value)
-            # `_first_unsafe_char` is the one definition, shared with
-            # refuse_unsafe_values: 0x9b is CSI, one byte, and a value
+            # `textsafe.UNSAFE_IN_VALUE` is the one definition, read here
+            # and in refuse_unsafe_values through `_first_unsafe_char`: 0x9b is CSI, one byte, and a value
             # carrying it once reached agent.yaml unquoted and was drawn on
             # the bridge.
             if _first_unsafe_char(value) is not None:
