@@ -19716,11 +19716,18 @@ def run(one) -> None:
     -k only gates the outer call, from main()'s own list: a test that calls
     run() itself on synthetic cases (test_run_recovers_from_an_uncaught_error)
     must not have those nested calls dropped by a filter aimed at main()'s.
+
+    A nested run() must also leave CURRENT_TEST as it found it: without the
+    restore, checks the enclosing test makes *after* its own nested run()
+    calls return are recorded under the last nested case's name instead of
+    the enclosing test's own - silently, since nothing here fails, the label
+    is just wrong.
     """
     name = _test_name(one)
     if _RUN_DEPTH["n"] == 0 and TEST_FILTER is not None and TEST_FILTER not in name:
         return
     restore_world()
+    prev_test = CURRENT_TEST["name"]
     CURRENT_TEST["name"] = name
     os.environ["OCP_TEST"] = CURRENT_TEST["name"]
     _RUN_DEPTH["n"] += 1
@@ -19734,15 +19741,17 @@ def run(one) -> None:
         check(f"{test}: uncaught {type(e).__name__}: {e}{loc}", False)
     finally:
         _RUN_DEPTH["n"] -= 1
+        CURRENT_TEST["name"] = prev_test
+        os.environ["OCP_TEST"] = prev_test
 
 
 def test_run_recovers_from_an_uncaught_error() -> None:
     """Review of buddyron/test-suite-agent-independent: checked by hand is not
     checked by the suite. Both a plain exception and a `sys.exit` from code
     under test must be recorded as a failure, not left to end the run."""
-    global PASS, FAIL
-    real_pass, real_fail = PASS, FAIL
-    PASS, FAIL = [], []
+    global PASS, FAIL, LABEL_LOG
+    real_pass, real_fail, real_log = PASS, FAIL, LABEL_LOG
+    PASS, FAIL, LABEL_LOG = [], [], []
     try:
         def test_synthetic_boom():
             raise ValueError("synthetic")
@@ -19750,14 +19759,15 @@ def test_run_recovers_from_an_uncaught_error() -> None:
         def test_synthetic_quits():
             sys.exit(1)
 
-        # These two are meant to fail - swallow their PASS/FAIL lines so a
-        # clean run's console output has no `FAIL` that is not a real one.
+        # These two are meant to fail - swallow their PASS/FAIL (and label)
+        # lines so a clean run's console output, and its label file, have no
+        # `FAIL` that is not a real one.
         with contextlib.redirect_stdout(io.StringIO()):
             run(lambda: test_synthetic_boom())
             run(lambda: test_synthetic_quits())
         caught = FAIL
     finally:
-        PASS, FAIL = real_pass, real_fail
+        PASS, FAIL, LABEL_LOG = real_pass, real_fail, real_log
 
     check("run(): an uncaught exception is caught, not propagated, and "
           "recorded naming the test and the error",
@@ -19771,33 +19781,124 @@ def test_run_recovers_from_an_uncaught_error() -> None:
           (1 if caught else 0) == 1)
 
 
+def test_diff_labels_prints_only_what_changed_and_nothing_else(home: Path) -> None:
+    """diff_labels() is the tool a mutation check trusts to say which label a
+    mutant killed - so it is exercised directly, on files it does not itself
+    write, rather than only by hand through one real run's output."""
+    home.mkdir(parents=True, exist_ok=True)
+    a_path, b_path = str(home / "a.jsonl"), str(home / "b.jsonl")
+    Path(a_path).write_text(
+        '{"state": "PASS", "test": "t1", "name": "x", "occurrence": 1}\n'
+        '{"state": "FAIL", "test": "t2", "name": "y", "occurrence": 1}\n')
+    Path(b_path).write_text(
+        '{"state": "FAIL", "test": "t1", "name": "x", "occurrence": 1}\n'
+        '{"state": "FAIL", "test": "t2", "name": "y", "occurrence": 1}\n'
+        '{"state": "PASS", "test": "t3", "name": "z", "occurrence": 1}\n')
+    out = _capture(lambda: diff_labels(a_path, b_path))
+    lines = [ln for ln in out.splitlines() if ln]
+    check("diff_labels: the flip is reported", "PASS -> FAIL  t1 :: x" in lines, out)
+    check("diff_labels: the label only in b reads MISSING on a's side",
+          "MISSING -> PASS  t3 :: z" in lines, out)
+    check("diff_labels: the unchanged label is not reported at all",
+          not any("t2" in ln for ln in lines), out)
+    check("diff_labels: nothing else was printed", len(lines) == 2, out)
+    check("diff_labels: a real change returns 1", diff_labels(a_path, b_path) == 1)
+
+    c_path = str(home / "c.jsonl")
+    Path(c_path).write_text(Path(a_path).read_text())
+    check("diff_labels: two identical files print nothing and return 0",
+          _capture(lambda: diff_labels(a_path, c_path)) == ""
+          and diff_labels(a_path, c_path) == 0)
+
+
+def test_write_labels_disambiguates_a_name_repeated_inside_one_test(home: Path) -> None:
+    """A name is not unique even inside the one test that emits it - a loop
+    that calls check() with the same literal string several times, as several
+    real tests in this suite do, must not collapse into one label that only
+    the last iteration can answer for."""
+    home.mkdir(parents=True, exist_ok=True)
+    global PASS, FAIL, LABEL_LOG
+    real_pass, real_fail, real_log = PASS, FAIL, LABEL_LOG
+    PASS, FAIL, LABEL_LOG = [], [], []
+    try:
+        def test_synthetic_loop():
+            for ok in (True, True, False, True):
+                check("loop: still parked - the reading is still at the wall", ok)
+
+        with contextlib.redirect_stdout(io.StringIO()):
+            run(lambda: test_synthetic_loop())
+        path = str(home / "loop.jsonl")
+        write_labels(path)
+        labels = _read_labels(path)
+    finally:
+        PASS, FAIL, LABEL_LOG = real_pass, real_fail, real_log
+
+    name = "loop: still parked - the reading is still at the wall"
+    keys = [("test_synthetic_loop", name, i) for i in range(1, 5)]
+    check("write_labels: all four occurrences are kept, not collapsed to one",
+          set(labels) == set(keys), str(labels))
+    check("write_labels: each occurrence carries its own call's state, in order",
+          [labels[k] for k in keys] == ["PASS", "PASS", "FAIL", "PASS"], str(labels))
+
+    # A mutation that flips only the first, still-real occurrence must be
+    # visible on its own - the bug this test answers is that qualifying by
+    # (test, name) alone made every occurrence but the last invisible to a
+    # flip, because the dict write for occurrence 1 was overwritten by 2, 3
+    # and 4 before diff_labels ever saw it.
+    mutated = str(home / "loop_mutated.jsonl")
+    lines = Path(path).read_text().splitlines()
+    first = json.loads(lines[0])
+    check("write_labels: setup - the first line is occurrence 1", first["occurrence"] == 1)
+    first["state"] = "FAIL"
+    lines[0] = json.dumps(first)
+    Path(mutated).write_text("\n".join(lines) + "\n")
+    out = _capture(lambda: diff_labels(path, mutated))
+    check("write_labels: diff_labels catches a flip in the first occurrence alone",
+          out.strip() == f"PASS -> FAIL  test_synthetic_loop :: {name}", out)
+
+
 def write_labels(path: str) -> None:
-    """Every check from this run, one per line, as "<STATE> <test>\\t<name>".
+    """Every check from this run, one JSON object per line: state, test, name,
+    and which occurrence of that (test, name) pair this is.
 
     Qualified by the owning test, since the name alone is not unique - two
-    tests can and do call check() with the same literal string. Lets a
-    mutation check diff two runs by label instead of by hand-built comm
-    pipelines: see diff_labels().
+    tests can and do call check() with the same literal string. The test is
+    not enough either: a name repeated inside one test (typically a loop) is
+    just as common, and without the occurrence ordinal every write but the
+    last of a group would collide into it, so a flip in any but the last
+    member of the group would be invisible to diff_labels(). JSON, one record
+    per line, rather than text joined by a space and a tab: a check's own
+    name or detail can itself carry a newline (an exception's message, not a
+    name anyone chose - see run()) or one of the other line separators
+    Python's own str.splitlines() knows, and text-joining would either split
+    that record in two or glue it to its neighbour depending on where the
+    break landed. Lets a mutation check diff two runs by label instead of by
+    hand-built comm pipelines: see diff_labels().
     """
+    seen: dict[tuple[str, str], int] = {}
     with open(path, "w") as f:
         for state, test, name in LABEL_LOG:
-            f.write(f"{state} {test}\t{name}\n")
+            key = (test, name)
+            seen[key] = seen.get(key, 0) + 1
+            f.write(json.dumps({"state": state, "test": test, "name": name,
+                                 "occurrence": seen[key]}) + "\n")
 
 
-def _read_labels(path: str) -> dict[str, str]:
-    labels: dict[str, str] = {}
+def _read_labels(path: str) -> dict[tuple[str, str, int], str]:
+    labels: dict[tuple[str, str, int], str] = {}
     for line in Path(path).read_text().splitlines():
         if not line.strip():
             continue
-        state, rest = line.split(" ", 1)
-        labels[rest] = state
+        row = json.loads(line)
+        labels[(row["test"], row["name"], row["occurrence"])] = row["state"]
     return labels
 
 
 def diff_labels(path_a: str, path_b: str) -> int:
     """Print only the labels whose PASS/FAIL state differs between two
     write_labels() files, "<state in A> -> <state in B>  <test> :: <name>"
-    per line.
+    per line (plus "[<occurrence>]" past the first time that exact pair
+    repeats within its test).
 
     A label present in only one file reads as MISSING on the other side -
     that means the two runs used a different -k, not that a test flipped.
@@ -19808,8 +19909,9 @@ def diff_labels(path_a: str, path_b: str) -> int:
         sa, sb = a.get(key, "MISSING"), b.get(key, "MISSING")
         if sa != sb:
             changed = True
-            test, name = key.split("\t", 1)
-            print(f"{sa} -> {sb}  {test} :: {name}")
+            test, name, occurrence = key
+            suffix = f" [{occurrence}]" if occurrence > 1 else ""
+            print(f"{sa} -> {sb}  {test} :: {name}{suffix}")
     return 1 if changed else 0
 
 
@@ -20223,6 +20325,9 @@ def main() -> int:
         run(lambda: test_two_processes_cannot_both_supervise_one_home(Path(td) / 'twoproc'))
         run(lambda: test_the_screen_says_when_two_daemons_are_running(Path(td) / 'dmnwarn'))
         run(lambda: test_run_recovers_from_an_uncaught_error())
+        run(lambda: test_diff_labels_prints_only_what_changed_and_nothing_else(Path(td) / 'difflabels'))
+        run(lambda: test_write_labels_disambiguates_a_name_repeated_inside_one_test(
+            Path(td) / 'looplabels'))
     # The whole run's dealings with Orca: none of its tests may have reached even
     # the stand-in, except the four that run a child `ocp`. (A test's own
     # `except Exception` can swallow the guard's error; this cannot be swallowed.)
