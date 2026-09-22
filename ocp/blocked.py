@@ -76,7 +76,7 @@ ADVICE = {
     orca.UNREADABLE: "check its terminal (t on the agents panel); ocp cannot read its screen",
     NO_TERMINAL: "t on the agents panel starts one",
     NO_SESSION: "w on the agents panel wakes it",
-    STALLED: "u on the agents panel clears it",
+    STALLED: "w on the agents panel clears it (founder #1620/#1631: unstall folded into wake)",
     ORCA_DOWN: "check Orca and PATH; ocp cannot reach it at all",
 }
 LABEL = {orca.MODAL: "dialog open", orca.BACKGROUNDED: "conversation in the background",

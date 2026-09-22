@@ -37,8 +37,8 @@ import time
 import tty
 from pathlib import Path
 
-from . import (accounts, actions, agents, daemon, db, launch, load as loadmod, orca, paths,
-               status, triggers)
+from . import (accounts, actions, agents, ask as askmod, blocked as blockedmod, daemon, db,
+               launch, load as loadmod, orca, paths, status, triggers)
 from . import waiting as promptwait
 from .textsafe import cwidth, drawable, oneline, wrap
 
@@ -58,14 +58,20 @@ RED, YEL, GRN, CYA, BLU = ("\033[31m", "\033[33m", "\033[32m", "\033[36m", "\033
 
 _ANSI = re.compile(r"\033\[[0-9;?]*[a-zA-Z]")
 
+# The screen's whole vocabulary for what an agent's row shows - drawn here and
+# by `ocp ps` (cli.py) through the one function below, screen_state(), so the
+# two cannot disagree about a word. Only DIALOG and FATAL are red: the two
+# states a person, not the daemon, clears.
+SCREEN_WORDS = ("RUNNING", "IDLE", "PENDING", "MOVING", "DIALOG", "FATAL")
 STATE_COLOR = {
-    "RUNNING": GRN, "QUEUED": CYA, "IDLE": DIM, "DONE": DIM,
-    "HANDOFF": YEL, "PARKED": YEL, "THROTTLED": YEL,
-    "DEGRADED": RED, "STALLED": RED,
+    "RUNNING": GRN, "IDLE": DIM, "PENDING": CYA, "MOVING": YEL,
+    "DIALOG": RED, "FATAL": RED,
 }
 
 # What an agent reads as while it sits at a prompt only the founder can answer.
-# Its state underneath is still RUNNING; this is drawn over it.
+# Its state underneath is still RUNNING; this is drawn over it. Not one of
+# SCREEN_WORDS: it is the pinned block's own heading, never a row's state cell
+# (that says DIALOG - see screen_state()).
 WAITING_ON_YOU = "WAITING ON YOU"
 WAITS_SHOWN = 5   # rows of the pinned block; the rest are counted, not drawn
 
@@ -100,7 +106,7 @@ PANEL_NAME = {ACCOUNTS: "accounts", AGENTS: "agents", MESSAGES: "messages",
 # terminal and an agent with one are the same keypress now.
 AGENT_KEYS = [
     ("↵", "open"), ("t", "terminal"), ("m", "message"), ("e", "editor"),
-    ("w", "wake"), ("c", "close"), ("p", "park"), ("f", "fold"), ("u", "unstall"),
+    ("w", "wake"), ("c", "close"), ("p", "park"), ("f", "fold"),
     ("v", "move"),
 ]
 ACCOUNT_KEYS = [("↵", "open"), ("l", "login"), ("a", "add"), ("c", "cap"), ("x", "remove")]
@@ -108,7 +114,24 @@ MESSAGE_KEYS = [("↵", "open"), ("a", "answer"), ("e", "answer in $EDITOR"),
                 ("x", "dismiss")]
 # A stuck row is about an agent, so it answers to the agent keys.
 STUCK_KEYS = AGENT_KEYS
-CONFIRM = {"close", "park", "unstall", "fold", "cancel"}
+# `wake` is not here - see _needs_confirm(): it asks only when the row is
+# FATAL, which is the one case unstall used to ask for on its own key
+# (founder #1620/#1631, u removed).
+CONFIRM = {"close", "park", "fold", "cancel"}
+
+
+def _needs_confirm(con, name: str, label: str) -> bool:
+    """Whether pressing `label` on `name` needs a yes first.
+
+    Static for everything but `wake`: waking a park or a closed session is
+    the ordinary case and asks nothing, same as before, but a FATAL row is
+    now reached through the same key, and clearing a stall keeps the
+    confirmation it always had under its old name, unstall.
+    """
+    if label == "wake":
+        row = db.get_agent_state(con, name)
+        return bool(row and row["state"] == daemon.STALLED)
+    return label in CONFIRM
 
 # Kept off the footer even when they apply: reached for rarely enough that
 # they cost more room on every row than they earn. Still bound - dispatch
@@ -349,12 +372,13 @@ def hidden_urgency(con, names: list[str]) -> tuple[str, int, str] | None:
     found: dict[int, list[str]] = {}
     for name in names:
         row = db.get_agent_state(con, name)
-        state = row["state"] if row else "IDLE"
         if con.execute("SELECT 1 FROM requests WHERE requester = ? AND target = ? "
                        "AND state = 'queued'", (name, actions.HUMAN)).fetchone():
             found.setdefault(0, []).append(YEL)
-        elif state in NEEDS_A_HUMAN:
-            found.setdefault(1, []).append(STATE_COLOR[state])
+            continue
+        word, _ = screen_state(con, row)
+        if word in NEEDS_A_HUMAN:
+            found.setdefault(1, []).append(STATE_COLOR[word])
         elif daemon.wall_reason(con, name, row):
             found.setdefault(1, []).append(YEL)
         elif loadmod.is_running(row):
@@ -391,7 +415,7 @@ def _wants_a_human() -> set[str]:
     con = db.connect()
     try:
         return {r["agent"] for r in db.all_agent_states(con)
-                if r["state"] in NEEDS_A_HUMAN}
+                if screen_state(con, r)[0] in NEEDS_A_HUMAN}
     except Exception:  # noqa: BLE001 - a folded row is not worth a blank screen
         return set()
     finally:
@@ -591,38 +615,99 @@ class Panel:
         return out
 
 
-# The states a person has to do something about. Everything else the daemon
-# handles on its own, and saying so is saying nothing.
-NEEDS_A_HUMAN = ("STALLED", "DEGRADED")
+# The states a person has to do something about. Kept as an alias of
+# SCREEN_WORDS' own two red words, for the one caller (hidden_urgency, on a
+# folded row) that still needs to ask "does this need a person" about a state
+# it does not otherwise draw.
+NEEDS_A_HUMAN = ("DIALOG", "FATAL")
+
+# DETAIL_CAP bounds the free text screen_state() shows beside a word - a
+# dialog's own detail, or who an IDLE reply-wait is for - to what the state
+# cell has room for; `fit()` truncates further if the column itself is
+# narrower. Long text belongs in `ocp ps`'s own DETAIL column instead.
+DETAIL_CAP = 40
 
 
-def _state_text(con, row) -> tuple[str, str]:
-    """What the state cell says for an agent's row, and until when: ("PARKED·closed",
-    "12m05s"). The width is decided from these before any row is drawn, and the
-    row is drawn from the same two strings, so the two cannot disagree."""
-    s = row["state"] if row else "IDLE"
-    # A closed session holds no memory and answers no one; showing it as PARKED
-    # hides the one difference that matters on this machine.
-    if row and row["closed_at"]:
-        s += "·closed"
-    elif promptwait.of(con, row):
-        s = WAITING_ON_YOU
-    until = countdown(row["wake_at"] if row else None).strip()
-    return s, "" if until == "-" else until
+def screen_state(con, row) -> tuple[str, str]:
+    """The one word this agent's row shows - from SCREEN_WORDS - and what to
+    say beside it: a clock time, or what it is doing or waiting for. Drawn
+    here and read by `ocp ps` (cli.py) alike, through this one function, so
+    the two screens cannot disagree about a row.
+
+    No `·closed` suffix (founder #1639/#1640: information nobody needs on
+    this screen - `closed_at` still decides whether the daemon can wake the
+    agent, in `daemon.py`, untouched here).
+
+    DIALOG overlays whatever the row's own state is, from either of two
+    sources, in this order - both are a live person-facing block, and
+    neither ever occupies the actual `state` column so there is no state to
+    restore when the dialog goes: a permission prompt the hooks recorded
+    (waiting.py), or a screen a delivery is blocked on (`delivery_blocks`,
+    written only while there is queued work behind it - see blocked.py).
+    FATAL is today's STALLED - a state only a person clears (`w`).
+
+    Everything else maps from the row's own internal `state`. RUNNING covers
+    HANDOFF too: a handoff is the daemon finishing this agent's turn for it,
+    not something the agent or a person is doing, and no word above names it.
+    QUEUED and IDLE without a `moving`/`reply` marker are PENDING and IDLE in
+    the words above; DEGRADED and THROTTLED - self-clearing retries with a
+    `wake_at` of their own, the same shape as a usage park - are PENDING too.
+    A PARKED or QUEUED row carrying daemon.MOVING_MARK is the account-move
+    machinery working, not a wall: MOVING, and never with a time, since the
+    short recheck it waits on (ASSUMED_ACCOUNT_RECHECK_S, 5 minutes) is not
+    worth a clock face. A PARKED row carrying ask.AWAIT_REPLY_MARK is a
+    requester parked on its own async ask, and the spec's own words for it -
+    IDLE, not PENDING: this agent has nothing to do until the reply lands.
+    """
+    if not row:
+        return "IDLE", ""
+    held = promptwait.of(con, row)
+    if held:
+        what = " ".join(x for x in (f"{held.get('tool') or 'tool'}:", held.get("command")) if x)
+        return "DIALOG", oneline(what)[:DETAIL_CAP]
+    block = db.block_get(con, row["agent"])
+    if block and block["kind"] in (orca.MODAL, orca.BACKGROUNDED):
+        return "DIALOG", oneline(blockedmod.headline(block["kind"], block["detail"]))[:DETAIL_CAP]
+
+    state, detail = row["state"], row["detail"] or ""
+    if state == daemon.STALLED:
+        return "FATAL", oneline(detail)[:DETAIL_CAP]
+    if state in (daemon.RUNNING, daemon.HANDOFF):
+        return "RUNNING", ""
+    if state == daemon.QUEUED:
+        return ("MOVING", "") if detail.startswith(daemon.MOVING_MARK) else ("PENDING", "")
+    if state in (daemon.PARKED, daemon.DEGRADED, daemon.THROTTLED):
+        if detail.startswith(askmod.AWAIT_REPLY_MARK):
+            return "IDLE", oneline(detail[len(askmod.AWAIT_REPLY_MARK):])[:DETAIL_CAP]
+        if detail.startswith(daemon.MOVING_MARK):
+            return "MOVING", ""
+        if not row["wake_at"]:
+            return "PENDING", ""
+        # A wake_at already in the past is a tick the daemon has not run yet,
+        # not a clock face worth printing - "due" says so the way the
+        # countdown this replaced always did.
+        until = "due" if row["wake_at"] <= int(time.time()) \
+            else time.strftime("%H:%M", time.localtime(row["wake_at"]))
+        return "PENDING", until
+    # IDLE, and anything not written above (section 8.4's own DONE, never
+    # actually written - see daemon.WAKER): shown as IDLE rather than a raw
+    # internal name a person was never meant to read.
+    return "IDLE", ""
 
 
 def _state_width(cells: list[tuple[str, str]]) -> int:
-    """The state column: the longest state the rows print, room for a countdown
-    when any row has one, and one column between it and ctx.
+    """The state column: the longest word plus its extra that the rows print,
+    and one column between it and ctx.
 
-    Measured per frame rather than fixed at the longest state there is: the rows
-    are aligned with each other, which is the drift that matters, and a column
-    that is wide for the sake of a state nobody is in is a column pushing ctx
-    off the screen. The countdown's width is its longest form, not its current
-    one, so the column does not breathe as 9m59s becomes 10m00s.
+    Measured per frame, from what is actually drawn - the rows are aligned
+    with each other, which is the drift that matters, and a column wide for
+    the sake of a word nobody is in pushes ctx off the screen. Unlike the
+    countdown this replaced, screen_state()'s own extra is a fixed string for
+    as long as the row does not change - a clock time, not a ticking span -
+    so sizing to what is actually there does not itself jitter frame to frame.
     """
     return 1 + max(len("state"),
-                   *(len(s) + (1 + COUNTDOWN_W if until else 0) for s, until in cells))
+                   *(len(s) + (1 + len(until) if until else 0) for s, until in cells))
 
 
 def _kind_fits(width: int, state_w: int) -> bool:
@@ -636,22 +721,6 @@ def _kind_fits(width: int, state_w: int) -> bool:
     wake = vlen(f"⏳ {'x' * longest}? 00:00")
     drawn = NAME_W + ACCT_COL + KIND_W + state_w + CTX_COL + IN_COL
     return width - PANEL_BORDERS - drawn >= wake
-
-
-def _needs_you(row) -> str:
-    """The last column: what this agent needs from a human, or nothing.
-
-    It used to carry the daemon's own note - "unparked by hand: the
-    usage_unknown that parked it is resolved", "woke from PARKED at
-    reconciliation", "finished its turn". That is the daemon explaining itself
-    to whoever debugs the daemon: it is on every row, it is never actionable,
-    and a column that is always full of something you cannot act on is a column
-    a reader learns to skip. What the row is doing is in the state column; why
-    it got there is in `ocp events` and on the agent's own page.
-    """
-    if not row or row["state"] not in NEEDS_A_HUMAN:
-        return ""
-    return f"{RED}{row['state'].lower()}{R} {DIM}{oneline(row['detail'] or '')[:60]}{R}"
 
 
 def wait_lines(waits: list[dict], width: int, budget: int | None = None) -> list[str]:
@@ -830,7 +899,7 @@ def build(width: int, sel: dict | None = None,
         # prices. It sits beside the account for that reason - the two together
         # are what a row costs.
         state_rows = {n: db.get_agent_state(con, n) for n, _, _ in drawn_tree}
-        cells = [_state_text(con, r) for r in state_rows.values()]
+        cells = [screen_state(con, r) for r in state_rows.values()]
         state_w = _state_width(cells) if cells else 1 + len("state")
         kinds = _kind_fits(width, state_w)
         ag.add(f"{DIM}{'agent':<{NAME_W}}{'acct':<{ACCT_COL}}"
@@ -857,7 +926,7 @@ def build(width: int, sel: dict | None = None,
                 continue
             st = status.read_for_agent(name, acct)
             row = state_rows[name]
-            s, until = _state_text(con, row)
+            s, until = screen_state(con, row)
             # Only when something is actually about to happen. Measured on a
             # live team: nothing firing, six rows reading "— closed" - which
             # the state column says already, with the same word - and two
@@ -866,10 +935,7 @@ def build(width: int, sel: dict | None = None,
             t = triggers.evaluate(st.trusted_pct_5h, st.trusted_ctx_pct)
             fire = (f"{YEL}⚠ {t.kind}{R}"
                     if t.fired and daemon.triggers_apply(row) else "")
-            # The time it waits until, where it waits: park, a degraded retry
-            # and an await fallback all set one, and it is when the agent
-            # comes back.
-            state_cell = (f"{BOLD + RED if s == WAITING_ON_YOU else STATE_COLOR.get(s, '')}"
+            state_cell = (f"{(BOLD + STATE_COLOR[s]) if s in NEEDS_A_HUMAN else STATE_COLOR.get(s, '')}"
                           f"{fit(s, state_w - 1 - (len(until) + 1 if until else 0))}{R}"
                           + (f" {DIM}{until}{R}" if until else ""))
             ctxs = f"{pct(st.ctx_pct)}%"
@@ -915,11 +981,13 @@ def build(width: int, sel: dict | None = None,
                 walled_cell = ""
             ag.add(
                 prefix
-                # A STALLED or DEGRADED agent needs a human whatever else is
-                # true of it; a wall clears itself the moment the window
-                # rolls over, so it is the last thing shown, not the thing
-                # that hides the one mark nobody but a human clears.
-                + (fire or _needs_you(row) or walled_cell),
+                # DIALOG and FATAL already say what they are in the state
+                # column, with their own detail beside them (screen_state()) -
+                # repeating it here would be the duplicated column the state
+                # column itself was cut down to avoid. A wall clears itself
+                # the moment the window rolls over, so it is the last thing
+                # shown here, not the first.
+                + (fire or walled_cell),
                 key=name,
             )
         if not paths.list_agents():
@@ -2249,7 +2317,7 @@ def _dispatch_agent_verb(con, detail: dict, name: str, label: str, width: int, h
     if label == "move":
         return detail, _move_agent(con, name, width, height,
                                    under=lambda h: _detail_frame(width, h, dict(detail, composing=True)))
-    if label in CONFIRM and not _confirm(f"{label} {name}", width, height):
+    if _needs_confirm(con, name, label) and not _confirm(f"{label} {name}", width, height):
         return detail, "left alone"
     _say(f"{label} {name}", width, height)
     said = getattr(actions, label)(con, name)
@@ -2686,7 +2754,7 @@ def _act_on(panel: int, sel: dict, key: str, width: int, height: int,
             if label == "move":
                 return _move_agent(con, name, width, height,
                                    under=lambda h: frame(width, h, sel, panel)), None
-            if label in CONFIRM:
+            if _needs_confirm(con, name, label):
                 if not _confirm(f"{label} {name}", width, height):
                     return "left alone", None
                 # A confirmation waits on a human for as long as the human

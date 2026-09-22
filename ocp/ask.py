@@ -29,6 +29,15 @@ TERMINAL_STATES = {"STALLED"}
 # cannot strand an agent.
 AWAIT_FALLBACK_S = 3600
 
+# The marker on a PARKED row's `detail` that says this park is a requester
+# waiting on its own async ask, not a usage wall - read back by the screen
+# (tui.screen_state) to draw it as IDLE, not PENDING, with what it waits for.
+AWAIT_REPLY_MARK = "reply "
+
+
+def await_reply_detail(rid: int, target: str) -> str:
+    return f"{AWAIT_REPLY_MARK}#{rid} {target}"
+
 # Where a runaway goes. Exceeding a limit is not a reason to silently drop the
 # request on the floor - a human has to see that the team got stuck in a loop
 # (team model section 6).
@@ -398,7 +407,7 @@ def ask(target: str, body: str, files: str | None = None, requester: str | None 
                 and not _terminal(con, requester):
             db.set_agent_state(con, requester, "PARKED",
                                wake_at=int(time.time()) + AWAIT_FALLBACK_S,
-                               detail=f"awaiting reply to request {rid} from {target}")
+                               detail=await_reply_detail(rid, target))
 
         note = f"queued as #{rid} for {target} (intake={decision.intake}, " \
                f"response={decision.response}, {note})"

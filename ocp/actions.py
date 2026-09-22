@@ -37,7 +37,12 @@ HUMAN = askmod.HUMAN
 
 
 def wake(con, agent: str) -> str:
-    """Bring a closed or parked agent back."""
+    """Bring a closed or parked agent back - or, on a FATAL (STALLED) one,
+    clear the stall (founder #1620/#1631: unstall folded into wake, behind
+    the same confirmation `can()` already asks for a STALLED row)."""
+    row = db.get_agent_state(con, agent)
+    if row and row["state"] == daemon.STALLED:
+        return unstall(con, agent)
     ok, why = daemon.wake_agent(con, agent, lambda _m: None)
     return f"{agent}: {why}" if ok else f"{agent}: not woken - {why}"
 
@@ -1093,8 +1098,10 @@ def can(con, agent: str, key: str) -> tuple[bool, str]:
     busy_why = f"{agent} is {state}" + (" - only a human clears that (u)"
                                         if state == daemon.STALLED else "")
     if key == "wake":
-        if closed or state in (daemon.PARKED, daemon.THROTTLED, daemon.DEGRADED):
+        if closed or state == daemon.STALLED:
             return True, ""
+        if state in (daemon.PARKED, daemon.THROTTLED, daemon.DEGRADED):
+            return daemon.park_wakeable(row)
         return False, f"{agent} is {state}, not parked or closed - there is nothing to wake"
     if key == "close":
         # Work waiting is the one case where closing only adds delay: the very
@@ -1110,10 +1117,6 @@ def can(con, agent: str, key: str) -> tuple[bool, str]:
             return False, (f"{agent} has {len(waiting)} request(s) waiting - closing it now "
                            f"only delays them, the next tick wakes it again")
         return True, ""
-    if key == "unstall":
-        if state == daemon.STALLED:
-            return True, ""
-        return False, f"{agent} is not STALLED - it is {state}"
     if key == "park":
         if closed:
             return False, f"{agent} is closed - its context is already gone (w brings it back)"
