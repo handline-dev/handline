@@ -22917,6 +22917,16 @@ def test_venv(home: Path) -> None:
     # not stdout, which the stub never produces either way.
     check("venv: the bash wrapper reaches python on a stamp with no trailing newline, not a silent exit",
           r.returncode == 0 and r.stderr == "", f"rc={r.returncode} out={r.stdout!r} err={r.stderr!r}")
+
+    # Auditor #1673 note 1: an empty stamp (the write_text truncate-then-write
+    # race, or a crash between them) is the other half of #1613's regression -
+    # `read -r` on it also returns 1, and the fix must still surface it loud
+    # as stale, not swallow it the way the pre-fix line did.
+    stamp.write_text("")
+    r = subprocess.run([str(wrapper), "venv", "status"], capture_output=True, text=True, timeout=30,
+                        env={**os.environ, "OCP_HOME": str(home)})
+    check("venv: the bash wrapper reports an empty stamp as stale, not a silent exit",
+          r.returncode != 0 and "stale" in r.stderr, f"rc={r.returncode} out={r.stdout!r} err={r.stderr!r}")
     stamp.write_text(good_hash + "\n")
 
     stamp.write_text("not a real hash\n")
