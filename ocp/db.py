@@ -899,15 +899,36 @@ def last_event_ts(con, agent: str, kind: str) -> int | None:
     return int(row["t"]) if row and row["t"] is not None else None
 
 
+# What moves an agent's activity clock: the agent acting, on its own live
+# session, never an event ocp causes. An allow-list, not a deny-list - a kind
+# nobody has sorted yet must default to "not activity", because the other
+# direction gave a closed agent a clock stamped at close time and resumed a
+# dead cache (#1527, #1533, and the same bug again through SessionEnd, which
+# ocp's own `/exit` fires at once). ask/cancel/commit/escalate/report/resolve/
+# withdraw are commands the agent itself ran. Of the hook events ocp captures
+# (ocp/events.py CAPTURED), UserPromptSubmit, Stop and StopFailure are a live
+# turn happening or ending; SubagentStop and PostCompact only ever fire mid a
+# live session, never from anything ocp can trigger on its own; PermissionRequest
+# and TeammateIdle both mean the agent's own turn ran into something needing a
+# human, same as PermissionRequest for ACTIVE_EVENTS in events.py. SessionStart
+# and SessionEnd are the two left out: ocp's own resume fires the first and
+# ocp's own `/exit` fires the second, so both can happen with the agent having
+# done nothing - the exact reasoning events.py gives for leaving SessionStart
+# out of ACTIVE_EVENTS, applied here to the clock it never reached before.
+AGENT_ACTIVITY_KINDS = frozenset({
+    "ask", "cancel", "commit", "escalate", "report", "resolve", "withdraw",
+    "UserPromptSubmit", "Stop", "StopFailure", "SubagentStop", "PostCompact",
+    "PermissionRequest", "TeammateIdle",
+})
+
+
 def last_activity(con, agent: str) -> int | None:
     """When this agent last did anything we can see. Its own hook events are
-    the record - the daemon's bookkeeping about an agent is not activity."""
+    the record - an event ocp causes about it is not activity."""
+    placeholders = ",".join("?" * len(AGENT_ACTIVITY_KINDS))
     row = con.execute(
-        "SELECT MAX(ts) AS t FROM events WHERE agent = ? AND kind NOT IN "
-        "('fold', 'fold_failed', 'handoff', 'park', 'close', 'close_failed', 'wake', 'wake_failed', "
-        "'notified', 'nudged', 'answered', 'dialog_declined', 'dialog_exit_chosen', 'account_mismatch', "
-        "'cold_start', 'forced_move', 'memory_migrated', 'moved_account', 'session_gone', "
-        "'started_for_work', 'terminal_gone', 'unstuck')", (agent,)
+        f"SELECT MAX(ts) AS t FROM events WHERE agent = ? AND kind IN ({placeholders})",
+        (agent, *AGENT_ACTIVITY_KINDS)
     ).fetchone()
     return int(row["t"]) if row and row["t"] is not None else None
 

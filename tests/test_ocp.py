@@ -7593,39 +7593,81 @@ def test_find_transcript_walks_accounts_and_takes_only_a_plain_id(home: Path) ->
 
 
 def test_only_the_agents_own_events_move_its_activity_clock(home: Path) -> None:
-    """Every kind ocp writes is either the agent acting (a hook, or a command the
-    agent ran) or the daemon's bookkeeping about it. A new kind must be sorted
-    here, and the daemon's must not move the clock: one that did gave a dead-cache
-    agent a clock and it was resumed."""
-    agent_kinds = {"ask", "cancel", "commit", "escalate", "report", "resolve", "withdraw"}
+    """Every kind ocp can write to events is either the agent acting or an
+    event ocp itself caused, and last_activity's allow-list (db.AGENT_ACTIVITY_KINDS)
+    must classify it as one or the other. An allow-list, not the deny-list this
+    replaced: an unsorted kind there defaulted to activity, which is the harm
+    #1527, #1533, and SessionEnd (ocp's own `/exit`, pinning a closed agent's
+    clock to when it was closed) all share. Every classification is proven
+    individually, not just asserted in bulk."""
     daemon_kinds = {"account_mismatch", "answered", "close", "close_failed", "cold_start",
-                    "dialog_declined", "dialog_exit_chosen", "fold", "fold_failed", "forced_move", "handoff",
-                    "memory_migrated", "moved_account", "nudged", "notified", "park",
+                    "dialog_declined", "dialog_exit_chosen", "fold", "fold_failed", "forced_move",
+                    "handoff", "memory_migrated", "moved_account", "nudged", "notified", "park",
                     "session_gone", "started_for_work", "terminal_gone", "unstuck",
-                    "wake", "wake_failed"}
+                    "wake", "wake_failed", "SessionStart", "SessionEnd"}
+
+    # Literal add_event(agent, "kind", ...) call sites: every one sorted, and
+    # the scan proven to have read every site, not just the ones its regex
+    # can parse - a call it cannot read left an unsorted kind passing at
+    # 11/11 until this count was added.
     found, calls = [], 0
     for f in Path(dmn.__file__).parent.glob("*.py"):
         text = f.read_text()
-        found += re.findall(r'add_event\s*\([^,()]+,[^,()]+,\s*"([a-z_]+)"', text)
+        found += re.findall(r'add_event\s*\([^,()]+,[^,()]+,\s*"([a-zA-Z_]+)"', text)
         calls += len(re.findall(r'add_event\s*\(', text))
-    check("activity: every kind ocp writes is sorted here",
-          set(found) <= agent_kinds | daemon_kinds, str(sorted(set(found) - agent_kinds - daemon_kinds)))
+    check("activity: every literal kind ocp writes is sorted here",
+          set(found) <= db.AGENT_ACTIVITY_KINDS | daemon_kinds,
+          str(sorted(set(found) - db.AGENT_ACTIVITY_KINDS - daemon_kinds)))
     check("activity: the scan reads every call site, not just the ones its regex can parse",
           len(found) == calls - 2, f"{len(found)} literal kinds found, {calls} add_event( sites "
           "(expected 2 unmatched: the def in db.py, the kind-as-variable forwarder in events.py)")
+
+    # events.py's forwarder passes `event`, a variable ranging over CAPTURED -
+    # invisible to the regex above at any count, so CAPTURED is sorted here
+    # directly. This is the site #1536's arithmetic exempted without checking
+    # what flowed through it: every hook kind an agent's own live session can
+    # send.
+    check("activity: every hook kind ocp captures is sorted here",
+          evmod.CAPTURED <= db.AGENT_ACTIVITY_KINDS | daemon_kinds,
+          str(sorted(evmod.CAPTURED - db.AGENT_ACTIVITY_KINDS - daemon_kinds)))
+
     _daemon_home(home, 20)
     con = db.connect()
     try:
-        con.execute("DELETE FROM events WHERE agent = 'backend'")
         for kind in sorted(daemon_kinds):
+            con.execute("DELETE FROM events WHERE agent = 'backend'")
             db.add_event(con, "backend", kind, {})
-        check("activity: none of the daemon's own kinds is activity",
-              db.last_activity(con, "backend") is None, str(db.last_activity(con, "backend")))
-        for kind in sorted(agent_kinds | {"Stop", "PostToolUse"}):
+            check(f"activity: {kind} is an event ocp caused, not activity",
+                  db.last_activity(con, "backend") is None)
+        for kind in sorted(db.AGENT_ACTIVITY_KINDS):
             con.execute("DELETE FROM events WHERE agent = 'backend'")
             db.add_event(con, "backend", kind, {})
             check(f"activity: {kind} is the agent's own and moves the clock",
                   db.last_activity(con, "backend") is not None)
+    finally:
+        con.close()
+
+
+def test_a_close_that_stamps_sessionend_does_not_unexpire_a_stale_cache(home: Path) -> None:
+    """The real shape: an agent quiet past RESUME_WARM_S, then closed by ocp
+    a minute ago. ocp's own `/exit` fires SessionEnd at once (daemon.py's
+    END_WAIT_S comment), in the same second as the `close` event - before the
+    fix this pinned the clock to the close and a wake one minute later read
+    the cache warm and resumed it dead. It must read cold instead."""
+    _daemon_home(home, 20)
+    con = db.connect()
+    try:
+        now = int(time.time())
+        con.execute("DELETE FROM events WHERE agent = 'backend'")
+        db.add_event(con, "backend", "Stop", {})
+        con.execute("UPDATE events SET ts = ? WHERE agent = 'backend'",
+                    (now - dmn.RESUME_WARM_S - 3600,))
+        for kind in ("close", "SessionEnd"):
+            db.add_event(con, "backend", kind, {})
+        con.execute("UPDATE events SET ts = ? WHERE agent = 'backend' AND kind IN "
+                    "('close', 'SessionEnd')", (now - 60,))
+        check("cache: a close a minute ago does not read as activity a minute ago",
+              dmn.cache_expired(con, "backend", "sess-close", now), "read warm")
     finally:
         con.close()
 
@@ -19449,6 +19491,7 @@ def main() -> int:
         run(lambda: test_the_cache_clock_decides_a_resume_not_whether_a_handoff_exists(Path(td) / 'coldnone'))
         run(lambda: test_find_transcript_walks_accounts_and_takes_only_a_plain_id(Path(td) / 'find_trans'))
         run(lambda: test_only_the_agents_own_events_move_its_activity_clock(Path(td) / 'actclock'))
+        run(lambda: test_a_close_that_stamps_sessionend_does_not_unexpire_a_stale_cache(Path(td) / 'sessend'))
         run(lambda: test_a_cold_wake_that_fails_leaves_no_handoff_behind(Path(td) / 'a_cold_wak'))
         run(lambda: test_a_cold_wake_with_no_handoff_still_tells_the_agent_its_transcript_and_request(Path(td) / 'coldnone2'))
         run(lambda: test_a_park_that_was_also_closed_is_woken_without_being_judged(Path(td) / 'pclosed'))
