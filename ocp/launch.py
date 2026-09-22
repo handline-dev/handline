@@ -129,6 +129,10 @@ def wake_wait(agent: str, row, con) -> WakeWait | None:
 
     A computed condition, not a stored one: called again a moment later, on an
     account whose window has since rolled over, it returns None.
+
+    5h is checked first: an account walled on both reports the 5h rollover, and
+    once that passes the wake is refused again on the 7d one still standing -
+    the sentence names a rollover that does not itself unblock the wake.
     """
     if not row or not row["closed_at"]:
         return None

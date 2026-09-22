@@ -1092,7 +1092,8 @@ def _wake_agent(con, agent: str, log, moved_to: str | None = None) -> tuple[bool
             # complete copy of the context.
             rescued = False
             acct, pct = wait.account, wait.pct
-            elsewhere = _move_plan(con, agent, "usage")[0] if session and not wait.assumed \
+            wait_kind = "usage_7d" if wait.window == "7d" else "usage"
+            elsewhere = _move_plan(con, agent, wait_kind)[0] if session and not wait.assumed \
                 and not _handoff_backing_off(con, agent) else None
             if elsewhere:
                 hid = uuid.uuid4().hex[:12]
@@ -1106,8 +1107,8 @@ def _wake_agent(con, agent: str, log, moved_to: str | None = None) -> tuple[bool
                     db.set_closed(con, agent, None)
                     db.add_event(con, agent, "moved_account",
                                  {"from": acct, "to": elsewhere, "trigger": "pinned"})
-                    log(f"  {agent}: pinned to {acct} at {pct}% - starting fresh "
-                        f"on {elsewhere}")
+                    log(f"  {agent}: pinned to {acct} at {pct}% ({wait.window}) - starting "
+                        f"fresh on {elsewhere}")
                     session, acct, moved_to, rescued = None, elsewhere, elsewhere, True
                     measure.begin(con, agent, elsewhere)
                 else:
