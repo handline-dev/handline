@@ -5451,19 +5451,30 @@ def test_dump_refuses_every_class_of_character_a_terminal_would_obey() -> None:
                   "does not write control characters" in str(e), str(e))
     # The class the guard already had, not only the one just added: proves
     # the rewrite did not narrow C0's own range (0x00-0x08, 0x0b-0x1f).
+    #
+    # auditor's #1580: asserting only the exception type here has the same
+    # gap as the newline case above, for six codepoints out of this range -
+    # 0x0b, 0x0c, 0x0d, 0x1c-0x1e are splitlines() separators, so the
+    # round-trip self-check refuses them on its own too, and the "control
+    # clause deleted" mutation left all six green. The message assertion is
+    # the same fix, applied to every codepoint here, not only the one that
+    # first showed it.
     for c in list(range(0x00, 0x09)) + list(range(0x0b, 0x20)):
         try:
             yamlcompat.dump({"k": f"a{chr(c)}b"})
             check(f"dump: refuses C0 {hex(c)}", False, "wrote instead of raising")
-        except yamlcompat.ConfigError:
-            check(f"dump: refuses C0 {hex(c)}", True)
-    # And every C1 codepoint, not just CSI.
+        except yamlcompat.ConfigError as e:
+            check(f"dump: refuses C0 {hex(c)}",
+                  "does not write control characters" in str(e), str(e))
+    # And every C1 codepoint, not just CSI. Same gap, same fix: 0x85 (NEL) is
+    # also a splitlines() separator.
     for c in range(0x7f, 0xa0):
         try:
             yamlcompat.dump({"k": f"a{chr(c)}b"})
             check(f"dump: refuses C1/DEL {hex(c)}", False, "wrote instead of raising")
-        except yamlcompat.ConfigError:
-            check(f"dump: refuses C1/DEL {hex(c)}", True)
+        except yamlcompat.ConfigError as e:
+            check(f"dump: refuses C1/DEL {hex(c)}",
+                  "does not write control characters" in str(e), str(e))
     check("dump: still writes an ordinary character",
           "k: ab\n" == yamlcompat.dump({"k": "ab"}))
 
