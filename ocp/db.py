@@ -913,7 +913,7 @@ def last_event_ts(con, agent: str, kind: str) -> int | None:
 # anything ocp can trigger on its own; PermissionRequest and TeammateIdle both
 # mean the agent's own turn ran into something needing a human, same as
 # events.py's TURN_BOUNDARIES comment gives for leaving them out of
-# QUIET_EVENTS. SessionStart and SessionEnd are the two left out: ocp's own
+# TURN_BOUNDARIES. SessionStart and SessionEnd are the two left out: ocp's own
 # resume fires the first and ocp's own `/exit` fires the second, so both can
 # happen with the agent having done nothing - the exact reasoning events.py
 # gives for leaving SessionStart out of ACTIVE_EVENTS, applied here to the
