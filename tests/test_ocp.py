@@ -7713,25 +7713,45 @@ def test_a_withdraw_landing_before_the_send_stops_the_send(home: Path) -> None:
         con.close()
 
 
+TRUST_SCREEN = """────────────────────────────────────────────────────────────────
+ Accessing workspace:
+
+ /Users/someone/worktree
+
+ Quick safety check: Is this a project you created or one you trust? (Like your
+ own code, a well-known open source project, or work from your team). If not,
+ take a moment to review what's in this folder first.
+
+ Claude Code'll be able to read, edit, and execute files here.
+
+ ❯ 1. Yes, I trust this folder
+   2. No, exit
+
+ Enter to confirm · Esc to cancel""".split("\n")
+
+
 def test_the_daemon_never_types_into_a_trust_prompt_via_deliver(home: Path) -> None:
-    """Blocking problem from auditor's #339: `deliver_queued`/`_tell` and
-    `deliver_answers` gated on `session_present`/`idle_now` alone. Orca
-    reports the folder-trust dialog as blocked, not idle (measured, #378), so
-    that gate refuses today - but only because Orca says so. Neither path may
-    type into the dialog, mark a request delivered, or mark an answer
-    announced underneath it, whatever the idle probe answers."""
+    """Auditor's #339: `deliver_queued`/`_tell` and `deliver_answers` must not
+    type into the folder-trust dialog, mark a request delivered, or mark an
+    answer announced underneath it - even with Orca reporting the terminal idle.
+    What refuses is ocp's own `screen_blocker`, reading the real screen as a
+    dialog. The sweep reports it from there (#1630)."""
     _daemon_home(home, 20)
     con = db.connect()
     sent: list[str] = []
     real = (orcamod.send, orcamod.alive, orcamod.idle_now, orcamod.available,
-            orcamod.trust_prompt_showing)
+            orcamod.screen_blocker, orcamod._screen)
     try:
         orcamod.available = lambda: True
         orcamod.alive = lambda h: True
         orcamod.idle_now = lambda h: True
         orcamod.send = lambda h, text, enter=True: (sent.append(text), (True, ""))[1]
-        orcamod.trust_prompt_showing = lambda h: True
+        orcamod.screen_blocker = REAL_ORCA["screen_blocker"]
+        orcamod._screen = lambda h: _screen_of(TRUST_SCREEN)
         sessions_are("backend")
+        seen = orcamod.screen_blocker("term_x")
+        check("trust screen: screen_blocker reads it as a dialog",
+              seen is not None and seen.kind == orcamod.MODAL, str(seen))
 
         rid = db.add_request(con, "reviewer", "backend", "look at this", None,
                              "peer", "fire_and_forget", None, 0, None)
@@ -7740,11 +7760,7 @@ def test_the_daemon_never_types_into_a_trust_prompt_via_deliver(home: Path) -> N
               not ok and not sent, str(sent))
         check("deliver_queued: the row is not marked delivered underneath it",
               db.get_request(con, rid)["delivered_at"] is None)
-        check("deliver_queued: the agent is stalled and escalated instead, "
-              "the same fail-closed default the wake path takes",
-              db.get_agent_state(con, "backend")["state"] == dmn.STALLED)
 
-        db.set_agent_state(con, "backend", dmn.IDLE, detail="reset for the next case")
         rid2 = db.add_request(con, "backend", "reviewer", "spec?", None,
                               "peer", "async", None, 0, None)
         askmod.resolve(rid2, "yes")
@@ -7755,7 +7771,7 @@ def test_the_daemon_never_types_into_a_trust_prompt_via_deliver(home: Path) -> N
               rid2 in [r["id"] for r in db.unannounced_answers(con, "backend")])
     finally:
         (orcamod.send, orcamod.alive, orcamod.idle_now, orcamod.available,
-         orcamod.trust_prompt_showing) = real
+         orcamod.screen_blocker, orcamod._screen) = real
         con.close()
 
 

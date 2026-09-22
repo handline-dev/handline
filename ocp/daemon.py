@@ -608,14 +608,6 @@ def notify_cancelled(con, row, verdict: str) -> tuple[bool, str]:
 
 
 def _tell(con, agent: str, head, depth: int, handle: str, log) -> bool:
-    # Before anything else: typing a notice into claude's trust dialog sends
-    # Enter into "No, exit" - the session ends, and `mark_delivered` below
-    # would be wrong about a request nobody read. Orca reports that screen as
-    # blocked, not idle, so `idle_now` refuses today; this does not lean on
-    # that, which is Orca's to change.
-    ok, _why = _clear_trust_prompt(con, agent, handle, log)
-    if not ok:
-        return False
     more = depth - 1
     body = head["body"] or "(empty)"
     # Capped at 400; `ocp read` has the rest.
@@ -687,12 +679,6 @@ def deliver_answers(con, agent: str, log) -> bool:
     tail = "\nRead one whole with `ocp read <id>`." if cut else ""
     with lock.terminal(agent) as mine:
         if not mine:
-            return False
-        # Not left to the idle probe above (Orca reports the dialog as
-        # blocked, which is Orca's to change): refuse before mark_announced
-        # would claim a session that never saw this.
-        ok, _why = _clear_trust_prompt(con, agent, handle, log)
-        if not ok:
             return False
         ok, _ = orca.send(
             handle, "Answers to what you asked:\n" + "\n".join(lines) + tail)
@@ -1251,14 +1237,11 @@ def _same_path(a: str, b: str) -> bool:
 
 
 def _clear_trust_prompt(con, agent: str, handle: str, log) -> tuple[bool, str]:
-    """The one gate every path that sends keystrokes into a session must
-    pass through first. A no-op when there is nothing showing; otherwise
-    standing consent (156 1b) or an escalation - never a caller deciding for
-    itself whether the screen is safe to type into.
-
-    Orca reports this dialog as `blocked` (`agent-trust-workspace`), not
-    tui-idle, so the idle probe already keeps the deliver paths off it; this
-    gate is ours so that nothing depends on Orca continuing to say so.
+    """The wake paths' gate before the wake prompt: a no-op when nothing is
+    showing, else standing consent (156 1b) or an escalation. It runs ahead
+    of `typeable_now`, which refuses this screen as a dialog and would leave
+    it unanswered. The deliver paths only check `typeable_now`, so they wait
+    and the blocked sweep reports it.
     """
     if not orca.trust_prompt_showing(handle):
         return True, "clear"
@@ -1305,8 +1288,8 @@ def _escalate_trust_prompt(con, agent: str, handle: str, log,
     default "No, exit". STALLED and escalated rather than retried: the screen
     does not resolve itself.
     """
-    # Already escalated: one tick reaches this screen from several paths, and
-    # the second would raise the same request again.
+    # Already escalated: a later wake - the next tick, an ask, a key on the
+    # bridge - meets the same screen and would raise the same request again.
     row = db.get_agent_state(con, agent)
     if row and row["state"] == STALLED and TRUST_STALL in (row["detail"] or ""):
         return False, row["detail"]
