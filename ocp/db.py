@@ -346,11 +346,15 @@ def _pre_schema_migrate(con) -> None:
         # is simply excluded from a windowed count rather than dated by guess.
     if task_cols and "closed_via" not in task_cols:
         con.execute("ALTER TABLE tasks ADD COLUMN closed_via TEXT")
-        # Best-effort backfill only, from the shape closed_by already holds -
-        # every existing close predates the --reason escape hatch that makes
-        # this guess wrong (actions.looks_like_sha, not reimported here to
-        # avoid a cycle - db is imported by actions, not the other way), so
-        # it is exact for every row it can label.
+        # Best-effort backfill only, from the shape closed_by already holds
+        # (actions.looks_like_sha, not reimported here to avoid a cycle - db
+        # is imported by actions, not the other way). Exact for an
+        # installation that only ever ran main, where every existing close
+        # predates the --reason escape hatch this guesses wrong for; on this
+        # branch's own history a hex-looking --reason (auditor's #1565 NOTE
+        # 1: `ocp close 1 deadbeef --reason`) is mislabeled 'sha'. One line
+        # in a counting display, nothing else - a real gap, not a claim this
+        # is exact everywhere.
         for r in con.execute(
                 "SELECT id, closed_by FROM tasks WHERE closed_by IS NOT NULL").fetchall():
             via = "sha" if re.fullmatch(r"[0-9a-fA-F]{4,40}", r["closed_by"]) else "reason"

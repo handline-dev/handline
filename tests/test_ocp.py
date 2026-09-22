@@ -18856,6 +18856,31 @@ def test_a_refusal_is_not_read_back_as_an_answer(home: Path) -> None:
     check("read: it says it was refused", "refused" in out, out)
 
 
+def test_a_withdrawn_or_replaced_request_is_not_read_back_as_an_answer(home: Path) -> None:
+    """The same mislabel as the refused case, for the other two states in
+    db.NEVER_REACHED_TARGET: #1348 gave a withdrawn row's verdict its own
+    label ('withdrawn: <reason>'), but `ocp read` still printed '--- answered
+    by <target> ---' above it - a row the target never received, read back
+    as though it had answered (auditor's #1565, the residual left open at
+    #1348)."""
+    _two_agents_one_slot(home, cap=10)
+    ok, _, a = askmod.ask("b", "first", requester="a")
+    askmod.withdraw(a, requester="a", reason="typo")
+    ok, first, c = askmod.ask("b", "spec", requester="a")
+    check("read: setup - the row to replace lands", ok, first)
+    ok, msg, d = askmod.ask("b", "spec v2", requester="a", replaces=c)
+    check("read: setup - the replace lands", ok, msg)
+
+    for rid, label in ((a, "withdrawn"), (c, "replaced")):
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            climod.cmd_read(climod.build_parser().parse_args(["read", str(rid)]))
+        out = buf.getvalue()
+        check(f"read: a {label} request does not name an answerer",
+              "answered by b" not in out, out)
+        check(f"read: it says it was {label}", f"--- {label} ---" in out, out)
+
+
 def test_a_refused_ask_is_never_announced_as_an_answer(home: Path) -> None:
     """A refused ask reached nobody, so nothing can come back from it. Told
     otherwise, an agent reads 34 of its own refusals as replies from the agent
@@ -20596,6 +20621,7 @@ def main() -> int:
         run(lambda: test_a_refused_ask_is_not_a_new_message(Path(td) / 'refused'))
         run(lambda: test_a_refused_ask_is_never_announced_as_an_answer(Path(td) / 'noannounce'))
         run(lambda: test_a_refusal_is_not_read_back_as_an_answer(Path(td) / 'readref'))
+        run(lambda: test_a_withdrawn_or_replaced_request_is_not_read_back_as_an_answer(Path(td) / 'readwdrn'))
         run(lambda: test_dismissing_an_agents_own_answered_request_keeps_its_verdict(
             Path(td) / 'dismissverdict'))
         run(lambda: test_dismissing_your_own_answer_does_not_announce_it_for_the_requester(

@@ -1476,9 +1476,16 @@ def cmd_read(args) -> int:
         print(textsafe.text(row["body"] or "(empty)"))
         if row["verdict"]:
             print()
-            # A denied row never reached its target, so nothing came back from
-            # it: the verdict there is this system refusing to send it.
-            print(f"--- refused ---" if row["state"] == "denied"
+            # db.NEVER_REACHED_TARGET (denied, withdrawn, replaced) never
+            # reached the target, so none of them came back as an answer -
+            # "answered by {target}" over a withdrawn row's own label was
+            # wrong the same way for all three, not just the one state that
+            # already had its own header (auditor's #1565, the residual left
+            # from #1348: the label carries the correction, the header did
+            # not).
+            headers = {"denied": "refused", "withdrawn": "withdrawn",
+                      "replaced": "replaced"}
+            print(f"--- {headers[row['state']]} ---" if row["state"] in headers
                   else f"--- answered by {row['target']} ---")
             print(textsafe.text(row["verdict"]))
         return 0
@@ -1592,6 +1599,11 @@ def cmd_resolve(args) -> int:
             retired = db.retire_queued(con, args.retires, "replaced",
                                        f"replaced by #{args.id}")
             if retired:
+                # set_moot_by's own CAS return is not read here (#1366 N1,
+                # unchanged by this pass - the ownership guard above narrows
+                # the race window but does not close it, and it stays a
+                # note, not a fix, per orcapipe's #1572: "leave the second
+                # and say you left it").
                 db.set_moot_by(con, args.retires, args.id)
                 msg += f", retiring #{args.retires}"
             else:
