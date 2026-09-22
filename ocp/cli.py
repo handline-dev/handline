@@ -24,7 +24,7 @@ from . import (accounts, actions, agents, ask as askmod, collect, daemon as daem
                drift, events, fold as foldmod, guide, handoff as handoffmod, hooks, launch,
                load, observe as obs, paths, service,
                hr, orca, status, spawn as spawnmod, team, textsafe, triggers,
-               usage_api, waiting)
+               usage_api, vendors, waiting)
 
 
 # ---------------------------------------------------------------- login
@@ -55,14 +55,15 @@ def cmd_login(args) -> int:
         print(message)
         return 0
 
-    claude = shutil.which("claude")
-    if not claude or not sys.stdin.isatty():
+    drv = vendors.for_accounts()
+    exe = drv.binary()
+    if not exe or not sys.stdin.isatty():
         print(f"run this where you can type into it:\n\n  {message}\n")
         return 1
-    print(f"handing the terminal to claude for '{args.account}' - "
+    print(f"handing the terminal to {drv.name} for '{args.account}' - "
           f"finish the login there, then come back.")
     env = accounts.env_for(args.account)
-    os.execve(claude, [claude, "/login"], env)
+    os.execve(exe, [exe, *drv.login_argv()[1:]], env)
     return 0     # unreachable: execve replaces this process
 
 
@@ -117,7 +118,7 @@ def _run_claude(argv: list[str], env: dict) -> int | None:
 
 def cmd_account_add(args) -> int:
     """Register an account and log it in, in one command."""
-    if not args.no_login and (not shutil.which("claude") or not sys.stdin.isatty()):
+    if not args.no_login and (not vendors.for_accounts().binary() or not sys.stdin.isatty()):
         print(f"logging in needs a terminal you can type into. From one, run:\n\n"
               f"  ocp account add {args.name}\n", file=sys.stderr)
         return 1

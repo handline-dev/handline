@@ -41,6 +41,7 @@ import urllib.request
 from dataclasses import dataclass
 
 from . import accounts, paths
+from .vendors import claude as claudemod
 
 USAGE_URL = "https://api.anthropic.com/api/oauth/usage"
 # What Claude Code itself sends. The endpoint is part of its OAuth surface, not
@@ -154,7 +155,7 @@ def _access_token(acct: str) -> str | None:
     The only place in ocp that reads the secret. It is never returned to a
     caller outside this module, never logged and never written.
     """
-    service = accounts.keychain_service(paths.account_claude(acct))
+    service = claudemod.keychain_service(paths.account_claude(acct))
     try:
         r = subprocess.run(["security", "find-generic-password", "-w", "-s", service],
                            capture_output=True, text=True, timeout=15)
