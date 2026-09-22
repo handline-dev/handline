@@ -5440,8 +5440,15 @@ def test_dump_refuses_every_class_of_character_a_terminal_would_obey() -> None:
         try:
             yamlcompat.dump({"k": f"a{ch}b"})
             check(f"dump: refuses {label}", False, "wrote instead of raising")
-        except yamlcompat.ConfigError:
-            check(f"dump: refuses {label}", True)
+        except yamlcompat.ConfigError as e:
+            # Two guards in dump() can raise ConfigError on this line: the
+            # control-character clause this test exists to pin, and the
+            # round-trip self-check below it, which also refuses a bare
+            # newline (it splits a line). Asserting only the type let that
+            # second guard stand in for the first - deleting the clause left
+            # this check green. The message names which one fired.
+            check(f"dump: refuses {label}",
+                  "does not write control characters" in str(e), str(e))
     # The class the guard already had, not only the one just added: proves
     # the rewrite did not narrow C0's own range (0x00-0x08, 0x0b-0x1f).
     for c in list(range(0x00, 0x09)) + list(range(0x0b, 0x20)):
