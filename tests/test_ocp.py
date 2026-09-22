@@ -135,11 +135,14 @@ def restore_world() -> None:
     # This process itself may be running inside an Orca-launched terminal -
     # left set, `orca.terminal_handle()` reads the real thing, and a test that
     # calls `launch._record_terminal` without setting its own value first
-    # reaches the real `orca` binary through ensure_run(). A test that wants
-    # one sets it itself (and pops it again when done, the same as every
-    # other piece of state this function resets); nothing here may carry a
-    # value from either a real terminal or an earlier test into the next one.
-    os.environ.pop("ORCA_TERMINAL_HANDLE", None)
+    # reaches the real `orca` binary through ensure_run(). ORCA_WORKTREE_ID is
+    # read on the same line (`db.set_terminal`'s worktree argument) and is
+    # exactly the same class of leak, just not yet the cause of a failure a
+    # real terminal's ambient value could still one day produce (auditor
+    # #1662 NOTE 2). A test that wants either sets it itself, and pops it
+    # again when done, the same as every other piece of state this resets.
+    for var in ("ORCA_TERMINAL_HANDLE", "ORCA_WORKTREE_ID"):
+        os.environ.pop(var, None)
     # No screen to read in a fixture; a test about a modal says so itself.
     orcamod.modal_open = lambda handle: False
     orcamod.screen_blocker = lambda handle: None
@@ -19798,11 +19801,22 @@ def test_run_restores_current_test_after_its_own_nested_run_calls(home: Path) ->
     real_pass, real_fail, real_log = PASS, FAIL, LABEL_LOG
     PASS, FAIL, LABEL_LOG = [], [], []
     try:
+        ocp_test_after_nested = None
+
         def test_synthetic_outer():
+            nonlocal ocp_test_after_nested
+
             def test_synthetic_inner():
                 check("inner: ran", True)
             with contextlib.redirect_stdout(io.StringIO()):
                 run(lambda: test_synthetic_inner())
+            # OCP_TEST, not only CURRENT_TEST, must come back too: it is what
+            # the fake `orca` on PATH logs a call under (see hook() below),
+            # and a caller's own filter on that log reads its owner's name
+            # from this variable - auditor #1658 NOTE 1, half of BLOCKING 2's
+            # fix left unpinned. Read here, before this test's own finally
+            # (which sets OCP_TEST again) could hide a real regression.
+            ocp_test_after_nested = os.environ.get("OCP_TEST")
             check("outer: ran after its own nested run()", True)
 
         with contextlib.redirect_stdout(io.StringIO()):
@@ -19813,6 +19827,8 @@ def test_run_restores_current_test_after_its_own_nested_run_calls(home: Path) ->
     finally:
         PASS, FAIL, LABEL_LOG = real_pass, real_fail, real_log
 
+    check("run(): OCP_TEST is restored after a nested run() too, not only CURRENT_TEST",
+          ocp_test_after_nested == "test_synthetic_outer", ocp_test_after_nested)
     check("run(): the nested case's own check carries its own name",
           labels.get(("test_synthetic_inner", "inner: ran", 1)) == "PASS", str(labels))
     check("run(): the enclosing test's check after its nested run() call "
