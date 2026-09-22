@@ -10,22 +10,18 @@ All we do is create the directory and symlink the shared settings.
 """
 from __future__ import annotations
 
-import hashlib
 import json
 import os
 import re
 import shutil
-import subprocess
-import sys
 import time
 from pathlib import Path
 
-from . import paths
+from . import paths, vendors
 from .yamlcompat import is_plain_text
 
-# What each account directory links back to shared. Nothing credential-shaped
-# appears here, deliberately.
-LINKED = ["settings.json", "CLAUDE.md", "skills", "agents", "commands", "plugins"]
+# What each account directory links back to shared.
+LINKED = vendors.for_accounts().shared_items()
 
 # Named explicitly as a guard: these are never created, linked, read or copied.
 NEVER_TOUCH = {".credentials.json", ".claude.json", "statsig", "backups"}
@@ -169,44 +165,14 @@ def unlinked() -> list[tuple[str, str]]:
     return out
 
 
-def keychain_service(config_dir: Path) -> str:
-    """The macOS Keychain service name Claude Code uses for this config dir.
-
-    Credentials are not a file on macOS. Claude Code keys them per config dir:
-    the default ~/.claude uses "Claude Code-credentials", and any other dir gets
-    that name plus the first 8 hex of the sha256 of its path. Verified against a
-    live login: ~/.orcapipe/accounts/alpha/.claude -> ...-c4b0821c.
-    """
-    if config_dir == Path.home() / ".claude":
-        return "Claude Code-credentials"
-    digest = hashlib.sha256(str(config_dir).encode()).hexdigest()[:8]
-    return f"Claude Code-credentials-{digest}"
-
-
 def logged_in(acct: str) -> bool:
-    """Whether this account has credentials, checked by existence only.
-
-    Never reads the secret: `security find-generic-password` is called without
-    -w, so it reports the item's presence and nothing else.
-    """
-    cdir = paths.account_claude(acct)
-    # File-backed storage (Linux, and macOS installs that opt out of Keychain).
-    if (cdir / ".credentials.json").exists():
-        return True
-    if sys.platform != "darwin":
-        return False
-    try:
-        r = subprocess.run(
-            ["security", "find-generic-password", "-s", keychain_service(cdir)],
-            capture_output=True, timeout=10,
-        )
-    except (OSError, subprocess.SubprocessError):
-        return False
-    return r.returncode == 0
+    """Whether this account has credentials, checked by existence only."""
+    return vendors.for_accounts().credential_present(paths.account_claude(acct))
 
 
 def login_command(acct: str) -> str:
-    return f'CLAUDE_CONFIG_DIR="{paths.account_claude(acct)}" claude /login'
+    drv = vendors.for_accounts()
+    return f'{drv.config_dir_env()}="{paths.account_claude(acct)}" {" ".join(drv.login_argv())}'
 
 
 def _subscription_file(acct: str) -> Path:
@@ -244,17 +210,10 @@ def subscription_type(acct: str, refresh: bool = False) -> str | None:
     # is still that plan, whatever went wrong just now asking again.
     if not logged_in(acct):
         return str(cached) if cached else None
-    try:
-        out = subprocess.run(
-            ["claude", "auth", "status", "--json"],
-            env={**os.environ, "CLAUDE_CONFIG_DIR": str(paths.account_claude(acct))},
-            capture_output=True, text=True, timeout=10,
-        ).stdout
-        data = json.loads(out)
-    except (OSError, subprocess.SubprocessError, json.JSONDecodeError, ValueError):
-        return str(cached) if cached else None
-    sub = data.get("subscriptionType") if isinstance(data, dict) else None
-    if not isinstance(sub, str) or not sub:
+    drv = vendors.for_accounts()
+    sub = drv.subscription_type({**os.environ,
+                                 drv.config_dir_env(): str(paths.account_claude(acct))})
+    if not sub:
         return str(cached) if cached else None
     f.parent.mkdir(parents=True, exist_ok=True)
     f.write_text(json.dumps({"subscriptionType": sub, "recorded_at": int(time.time())}))
@@ -262,10 +221,8 @@ def subscription_type(acct: str, refresh: bool = False) -> str | None:
 
 
 def memory_project_dir(repo: str) -> str:
-    """The `projects/<this>/memory/` folder Claude Code keeps one repo's
-    memory under - its own path encoding, every non-alphanumeric character
-    mapped to '-'."""
-    return re.sub(r"[^A-Za-z0-9]", "-", repo)
+    """The `<memory_root>/<this>/memory/` folder one repo's memory is kept under."""
+    return vendors.for_accounts().memory_project_dir(repo)
 
 
 _INDEX_TARGET = re.compile(r"\]\(([^)\s]+)\)")
@@ -332,7 +289,8 @@ def migrate_memory(from_acct: str, to_acct: str, project: str | None = None) -> 
 
     Returns the project names actually carried over, for the caller to log.
     """
-    src_root = paths.account_claude(from_acct) / "projects"
+    drv = vendors.for_accounts()
+    src_root = drv.memory_root(paths.account_claude(from_acct))
     if not src_root.is_dir():
         return []
     project_dirs = [src_root / project] if project else sorted(src_root.iterdir())
@@ -343,7 +301,7 @@ def migrate_memory(from_acct: str, to_acct: str, project: str | None = None) -> 
         src_mem = project_dir / "memory"
         if not src_mem.is_dir():
             continue
-        dst_mem = paths.account_claude(to_acct) / "projects" / project_dir.name / "memory"
+        dst_mem = drv.memory_root(paths.account_claude(to_acct)) / project_dir.name / "memory"
         copied_any = False
         # The index is merged against the files' mtimes as they stand before
         # any copy moves them, so it goes first by rule, not by name order.
@@ -392,15 +350,7 @@ def identity(acct: str) -> str | None:
     reads no credential and no .claude.json to learn it (KICKOFF rule 1). None
     when claude cannot say.
     """
-    claude = shutil.which("claude")
-    if not claude:
-        return None
-    try:
-        r = subprocess.run([claude, "auth", "status"], env=env_for(acct),
-                           capture_output=True, text=True, timeout=30)
-        return json.loads(r.stdout).get("email") or None
-    except (OSError, subprocess.SubprocessError, ValueError):
-        return None
+    return vendors.for_accounts().identity(env_for(acct))
 
 
 def same_login_as(acct: str) -> list[str]:
@@ -472,7 +422,7 @@ def add_account(name: str, run, no_login: bool = False) -> tuple[bool, str]:
         return False, str(e)
     if no_login:
         return True, f"registered account '{name}'; log it in with: ocp login {name}"
-    argv, env = ["claude", "/login"], env_for(name)
+    argv, env = vendors.for_accounts().login_argv(), env_for(name)
     run(argv, env)
     if not logged_in(name):
         return False, f"'{name}' is registered but not logged in - ocp login {name}"
@@ -511,8 +461,9 @@ def remove_account(name: str, confirm, run, con=None) -> tuple[bool, str]:
         if argv:
             code = run(argv, env)
             if code != 0 or logged_in(name):
+                drv = vendors.for_accounts()
                 return False, (f"logout failed - '{name}' is still logged in, so it stays. "
-                               f"Run `claude auth logout` with CLAUDE_CONFIG_DIR="
+                               f"Run `{' '.join(drv.logout_argv())}` with {drv.config_dir_env()}="
                                f"{paths.account_claude(name)} and try again.")
         marker.unlink(missing_ok=True)
         dest = retire(name)
@@ -540,7 +491,7 @@ def logout_argv(acct: str) -> tuple[list[str], dict]:
     """
     if not logged_in(acct):
         return [], {}
-    return ["claude", "auth", "logout"], env_for(acct)
+    return vendors.for_accounts().logout_argv(), env_for(acct)
 
 
 def retire(acct: str) -> Path:
@@ -561,7 +512,7 @@ def retire(acct: str) -> Path:
 def env_for(acct: str, agent: str | None = None) -> dict[str, str]:
     """Environment for launching claude as this account."""
     env = dict(os.environ)
-    env["CLAUDE_CONFIG_DIR"] = str(paths.account_claude(acct))
+    env[vendors.for_accounts().config_dir_env()] = str(paths.account_claude(acct))
     env["OCP_HOME"] = str(paths.home())
     env["OCP_ACCOUNT"] = acct
     if agent:

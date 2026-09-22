@@ -27,7 +27,7 @@ from pathlib import Path
 
 from . import (accounts, agents, ask as askmod, blocked, daemon, db, events as evmod,
                fold as foldmod, hr, load as loadmod, observe as obs, orca, paths,
-               spawn as spawnmod, status, team, textsafe, triggers, waiting)
+               spawn as spawnmod, status, team, textsafe, triggers, vendors, waiting)
 
 # The name a human's own requests are sent under, and the inbox `ocp bridge`
 # shows. Taken from `ask`, which is where escalations are addressed: a second
@@ -1059,7 +1059,7 @@ def login_argv(acct: str, force: bool = False) -> tuple[str, list[str], dict]:
     if action != "login":
         return msg, [], {}
     return (f"logging '{acct}' in - finish in claude, then come back",
-            ["claude", "/login"], accounts.env_for(acct))
+            vendors.for_accounts().login_argv(), accounts.env_for(acct))
 
 
 def move(con, agent: str, account: str) -> str:

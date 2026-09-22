@@ -14,7 +14,7 @@ import time
 from pathlib import Path
 
 from . import (accounts, agents, daemon, db, hooks, launch, load as loadmod, observe as obs,
-               orca, paths, service, status, textsafe)
+               orca, paths, service, status, textsafe, vendors)
 
 OK, WARN, FAIL = "ok", "warn", "fail"
 
@@ -56,7 +56,7 @@ class Report:
 
 def _check_tools(r: Report) -> None:
     for tool, why, hard in (
-        ("claude", "needed to run agents", True),
+        (vendors.for_accounts().name, "needed to run agents", True),
         ("orca", "terminal and worktree control", False),
     ):
         found = shutil.which(tool)
@@ -300,16 +300,9 @@ def _check_session_matches_the_record(r: Report) -> None:
         con.close()
 
 
-# Nothing is read from the status line any more (D11), so this is no longer
-# about its payload. It stays because it is the floor everything here was
-# measured against: the usage endpoint answers the `claude-code/2.1.0` client
-# `usage_api` presents itself as, and the transcript shape `collect` reads was
-# measured on this version.
-MIN_CLAUDE_VERSION = (2, 1, 0)
-
-
 def _check_claude_version(r: Report) -> None:
-    exe = shutil.which("claude")
+    drv = vendors.for_accounts()
+    exe = drv.binary()
     if not exe:
         return
     try:
@@ -324,10 +317,10 @@ def _check_claude_version(r: Report) -> None:
         return
     version = tuple(int(x) for x in m.groups())
     shown = ".".join(str(v) for v in version)
-    if version < MIN_CLAUDE_VERSION:
+    if version < drv.min_version:
         r.add(FAIL, f"Claude Code {shown} is too old",
               f"the usage endpoint and the transcript fields ocp reads were "
-              f"measured on >= {'.'.join(str(v) for v in MIN_CLAUDE_VERSION)}")
+              f"measured on >= {'.'.join(str(v) for v in drv.min_version)}")
     else:
         r.add(OK, f"Claude Code {shown}")
 

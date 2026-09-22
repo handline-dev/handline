@@ -25,11 +25,17 @@ import time
 from pathlib import Path
 from dataclasses import dataclass
 
-from . import accounts, agents, db, paths, status, triggers
+from . import accounts, agents, db, paths, status, triggers, vendors
 
 
 # `build` and `fingerprint` must name the same tools, or a change to one
 # reads as a launch that never drifted to the other.
+#
+# Work for another agent goes through `ocp ask`, where the bridge can see
+# it. Agent spawns a subagent that dies with the session, unseen; SendMessage
+# reaches another agent's own session directly, bypassing the bridge the
+# same way - a manager used exactly that tonight to resume two subordinates
+# by hand instead of asking them. Both are denied for the same reason.
 #
 # ScheduleWakeup and CronCreate: a self-scheduled wakeup survives the park's
 # /clear and fires into a session at the usage wall, and ocp types the answer
@@ -149,17 +155,6 @@ def describe_wake_wait(w: WakeWait) -> str:
     return f"waiting for {who}'s 5h window ({w.pct}%, rolls over {when})"
 
 
-def _is_resume(extra: list[str] | None) -> bool:
-    """Does this launch carry a session to resume?
-
-    Three spellings, because reading `--resume=<id>` as "not a resume" picks an
-    account by headroom and then hands claude a session id that exists under
-    the other one - a silently fresh session where a resume was asked for.
-    """
-    return any(x == "--resume" or x.startswith("--resume=") or x == "-r"
-               for x in (extra or []))
-
-
 def _mcp_config_material() -> str:
     """What `fingerprint` hashes for the shared mcp.json: whether a launch
     would pass `--mcp-config` at all, and if so, the file's content - so
@@ -206,7 +201,8 @@ def mcp_config_arg() -> tuple[list[str], str | None]:
 
 def build(agent: str, extra: list[str] | None = None, force: bool = False) -> tuple[list[str], dict]:
     """Return (argv, env) ready to hand to execve."""
-    acct = choose_account(agent, resuming=_is_resume(extra))
+    drv = vendors.for_agent(agent)
+    acct = choose_account(agent, resuming=drv.is_resume(extra))
 
     if not accounts.logged_in(acct):
         raise SystemExit(
@@ -249,21 +245,11 @@ def build(agent: str, extra: list[str] | None = None, force: bool = False) -> tu
             f"resets at {st.reset_5h}; use --force to override"
         )
 
-    claude = shutil.which("claude")
-    if not claude:
-        raise SystemExit("cannot find claude on PATH")
+    exe = drv.binary()
+    if not exe:
+        raise SystemExit(f"cannot find {drv.name} on PATH")
 
     cfg = agents.read(agent)
-    argv = [claude]
-    model = cfg.get("model")
-    if model:
-        argv += ["--model", str(model)]
-    # Work for another agent goes through `ocp ask`, where the bridge can see
-    # it. Agent spawns a subagent that dies with the session, unseen; SendMessage
-    # reaches another agent's own session directly, bypassing the bridge the
-    # same way - a manager used exactly that tonight to resume two subordinates
-    # by hand instead of asking them. Both are denied for the same reason.
-    argv += ["--disallowedTools", DISALLOWED_TOOLS]
     # Always pass effort explicitly. Left unset it comes from whatever the
     # environment carries, which is how an agent ends up silently running at a
     # far more expensive level than intended.
@@ -273,20 +259,17 @@ def build(agent: str, extra: list[str] | None = None, force: bool = False) -> tu
             f"agent '{agent}' has effort={effort!r}; must be one of "
             f"{', '.join(agents.VALID_EFFORT)}"
         )
-    argv += ["--effort", effort]
 
     mcp_arg, mcp_err = mcp_config_arg()
     if mcp_err:
         print(f"warning: shared mcp config {mcp_err}, skipping --mcp-config",
               file=sys.stderr)
-    argv += mcp_arg
 
     # The agent's standing context (team model section 1). base.md is injected
     # every session - that is what its 2KB budget is a budget for - and the
     # handoff waiting for it is injected so it picks up where it left off.
-    preamble = context_for(agent)
-    if preamble:
-        argv += ["--append-system-prompt", preamble]
+    argv = drv.launch_argv(exe, cfg.get("model"), effort, DISALLOWED_TOOLS, mcp_arg,
+                           context_for(agent))
     argv += list(extra or [])
 
     return argv, accounts.env_for(acct, agent)
