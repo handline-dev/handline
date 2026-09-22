@@ -7606,8 +7606,8 @@ def test_only_the_agents_own_events_move_its_activity_clock(home: Path) -> None:
     found, calls = [], 0
     for f in Path(dmn.__file__).parent.glob("*.py"):
         text = f.read_text()
-        found += re.findall(r'add_event\([^,()]+,[^,()]+,\s*"([a-z_]+)"', text)
-        calls += len(re.findall(r'add_event\(', text))
+        found += re.findall(r'add_event\s*\([^,()]+,[^,()]+,\s*"([a-z_]+)"', text)
+        calls += len(re.findall(r'add_event\s*\(', text))
     check("activity: every kind ocp writes is sorted here",
           set(found) <= agent_kinds | daemon_kinds, str(sorted(set(found) - agent_kinds - daemon_kinds)))
     check("activity: the scan reads every call site, not just the ones its regex can parse",
