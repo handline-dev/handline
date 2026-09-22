@@ -9,6 +9,7 @@ in the design's sample.
 from __future__ import annotations
 
 import json
+import re
 import sqlite3
 import time
 from pathlib import Path
@@ -60,11 +61,52 @@ CREATE TABLE IF NOT EXISTS requests (
   delivered_at INTEGER,
   -- A report to the human that asks nothing of them: shown, never counted as
   -- waiting on them, and closed once read or superseded by the sender's next.
-  fyi INTEGER NOT NULL DEFAULT 0
+  fyi INTEGER NOT NULL DEFAULT 0,
+  -- #1349: the id of the request that retired this row as moot - always a
+  -- request's own id, never a task's (#1366: the two are separate
+  -- AUTOINCREMENT sequences that both start at 1, so mixing them in one
+  -- column reads as one namespace when it is two). A record, not a
+  -- relation. Read from the row that went moot; nothing in routing, chain
+  -- depth, the cycle guard or any limit may read it, the same reason
+  -- parent_id does not fit that job. Set once, by the verb that already
+  -- knows both ids (a replace, or `ocp resolve --retires`).
+  moot_by     INTEGER
 );
 CREATE INDEX IF NOT EXISTS requests_target ON requests(target, state);
 CREATE INDEX IF NOT EXISTS requests_requester ON requests(requester, ts);
 CREATE INDEX IF NOT EXISTS requests_chain ON requests(chain_id, id);
+
+-- The task board (request #1259). A task is never a message: it is its own
+-- row, named and owned by whoever opened it. The columns below are the whole
+-- of it - see TASK_FIELDS. Everything else the board shows (a request's body,
+-- state, date, verdict) is read live from `requests` through task_requests.
+CREATE TABLE IF NOT EXISTS tasks (
+  id           INTEGER PRIMARY KEY AUTOINCREMENT,
+  title        TEXT NOT NULL,
+  owner        TEXT NOT NULL,
+  parent_task  INTEGER REFERENCES tasks(id),
+  opened_by    TEXT NOT NULL,
+  -- Evidence the work is done, not a claim: a merge sha (checked against
+  -- main) or a free-text reason. NULL is "open"; written once, by `ocp close`.
+  closed_by    TEXT,
+  -- #1366 should-fix 2: when `closed_by` was written, stamped alongside it -
+  -- reason_gaps() needs it to age old closes out of a measurement of current
+  -- practice, the same job resolved_at does for requests.
+  closed_at    INTEGER,
+  -- 'sha' or 'reason': which of close_task's two exclusive arguments this
+  -- close was given. Set from that choice directly, not guessed back from
+  -- the text afterwards - a --reason forced past looks_like_sha (the escape
+  -- hatch for a reason that happens to look like hex) would otherwise read
+  -- as a sha close.
+  closed_via   TEXT,
+  created_at   INTEGER NOT NULL
+);
+CREATE TABLE IF NOT EXISTS task_requests (
+  task_id     INTEGER NOT NULL REFERENCES tasks(id),
+  request_id  INTEGER NOT NULL,
+  PRIMARY KEY (task_id, request_id)
+);
+CREATE INDEX IF NOT EXISTS task_requests_request ON task_requests(request_id);
 
 -- Advanced only after the fold output validates.
 -- Small named values that are not counters: the orchestration Run this team's
@@ -289,6 +331,30 @@ def _pre_schema_migrate(con) -> None:
                 SELECT MIN(id) FROM requests WHERE state = 'queued' GROUP BY target
             )
         """)
+    if request_cols and "moot_by" not in request_cols:
+        con.execute("ALTER TABLE requests ADD COLUMN moot_by INTEGER")
+        # No backfill: which existing "replaced by #N" row retired which is
+        # already named in the verdict text, and re-parsing that text to fill
+        # a column meant to replace parsing it is the mistake this exists to
+        # end, not repeat.
+
+    task_cols = _cols(con, "tasks")
+    if task_cols and "closed_at" not in task_cols:
+        con.execute("ALTER TABLE tasks ADD COLUMN closed_at INTEGER")
+        # No backfill, same reason as resolved_at above: when an old task was
+        # actually closed is not recorded anywhere, so a closed row with none
+        # is simply excluded from a windowed count rather than dated by guess.
+    if task_cols and "closed_via" not in task_cols:
+        con.execute("ALTER TABLE tasks ADD COLUMN closed_via TEXT")
+        # Best-effort backfill only, from the shape closed_by already holds -
+        # every existing close predates the --reason escape hatch that makes
+        # this guess wrong (actions.looks_like_sha, not reimported here to
+        # avoid a cycle - db is imported by actions, not the other way), so
+        # it is exact for every row it can label.
+        for r in con.execute(
+                "SELECT id, closed_by FROM tasks WHERE closed_by IS NOT NULL").fetchall():
+            via = "sha" if re.fullmatch(r"[0-9a-fA-F]{4,40}", r["closed_by"]) else "reason"
+            con.execute("UPDATE tasks SET closed_via = ? WHERE id = ?", (via, r["id"]))
 
 
 def _unhide_the_humans_answers(con) -> None:
@@ -697,6 +763,78 @@ def retire_if_undelivered(con, rid: int, state: str, verdict: str | None = None)
         "WHERE id = ? AND state = 'queued' AND delivered_at IS NULL",
         (state, verdict, int(time.time()), rid))
     return cur.rowcount > 0
+
+
+def set_moot_by(con, rid: int, by: int) -> bool:
+    """Point a retired row at the id (request or task) that retired it.
+
+    Set once: True only the first time, so a later call naming a different id
+    cannot quietly overwrite an earlier record of why this row is moot.
+    """
+    cur = con.execute("UPDATE requests SET moot_by = ? WHERE id = ? AND moot_by IS NULL",
+                      (by, rid))
+    return cur.rowcount > 0
+
+
+# RULE: a task row holds these fields and nothing else. Never a copy of a
+# request's body, a state, a date a request already carries, or a summary of
+# an answer - the board reads those from `requests` each time it draws, so
+# there is one place each fact lives and nothing to drift. Adding a column to
+# `tasks` means adding it here, and a test fails until both agree.
+TASK_FIELDS = ("id", "title", "owner", "parent_task", "opened_by", "closed_by", "closed_at",
+               "closed_via", "created_at")
+
+
+def new_task(con, title: str, owner: str, opened_by: str,
+             parent_task: int | None = None) -> int:
+    cur = con.execute(
+        "INSERT INTO tasks(title, owner, parent_task, opened_by, created_at) "
+        "VALUES (?, ?, ?, ?, ?)", (title, owner, parent_task, opened_by, int(time.time())))
+    return int(cur.lastrowid)
+
+
+def get_task(con, tid: int):
+    return con.execute("SELECT * FROM tasks WHERE id = ?", (tid,)).fetchone()
+
+
+def open_tasks(con) -> list:
+    return con.execute(
+        "SELECT * FROM tasks WHERE closed_by IS NULL ORDER BY id").fetchall()
+
+
+def all_tasks(con) -> list:
+    return con.execute("SELECT * FROM tasks ORDER BY id").fetchall()
+
+
+def open_child_tasks(con, tid: int) -> list:
+    return con.execute(
+        "SELECT * FROM tasks WHERE parent_task = ? AND closed_by IS NULL ORDER BY id",
+        (tid,)).fetchall()
+
+
+def close_task(con, tid: int, closed_by: str, via: str = "reason") -> bool:
+    """Close a task, atomically. True only if this call was the one that
+    closed it, so a second close racing this one loses instead of overwriting
+    the first evidence. `via` is 'sha' or 'reason' - which of close_task's
+    two exclusive arguments the caller was given, not a guess made later
+    from the text (a --reason forced past looks_like_sha would guess wrong)."""
+    cur = con.execute(
+        "UPDATE tasks SET closed_by = ?, closed_at = ?, closed_via = ? "
+        "WHERE id = ? AND closed_by IS NULL",
+        (closed_by, int(time.time()), via, tid))
+    return cur.rowcount > 0
+
+
+def link_request(con, tid: int, rid: int) -> None:
+    con.execute("INSERT OR IGNORE INTO task_requests(task_id, request_id) VALUES (?, ?)",
+                (tid, rid))
+
+
+def task_requests(con, tid: int) -> list:
+    """The requests linked to a task, as they are now."""
+    return con.execute(
+        "SELECT r.* FROM requests r JOIN task_requests l ON l.request_id = r.id "
+        "WHERE l.task_id = ? ORDER BY r.id", (tid,)).fetchall()
 
 
 def get_request(con, rid: int):
