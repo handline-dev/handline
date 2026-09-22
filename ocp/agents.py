@@ -5,11 +5,10 @@ name, the Orca task label and the folder name are all the same string.
 """
 from __future__ import annotations
 
-import re
 from dataclasses import dataclass
 from pathlib import Path
 
-from . import paths
+from . import paths, textsafe
 from .yamlcompat import ConfigError, dump, is_plain_text, load, refuse_unsafe_values
 
 DEFAULT_MODEL = "sonnet"
@@ -79,7 +78,6 @@ def read(name: str) -> dict:
 # are not text there: one would make the file refuse to load or load as a bool.
 NOT_TEXT = ("It would not be read back as text from the YAML files it is written into "
             "(no, on, null, numbers and dates are not); choose another.")
-_CONTROL = re.compile(r"[\x00-\x1f\x7f-\x9f\u2028\u2029]")
 
 
 def register(name: str, account: str, role: str = "", model: str | None = None,
@@ -87,7 +85,8 @@ def register(name: str, account: str, role: str = "", model: str | None = None,
              role_file: str | None = None, repo: str | None = None) -> Path:
     # A name is stored, drawn on every screen and typed into terminals: a control
     # byte in it (an escape, a newline) is refused here, where it would stay.
-    if not name or "/" in name or name.startswith(".") or _CONTROL.search(name):
+    # `textsafe.UNSAFE_IN_VALUE` is the same set this spelled out for itself.
+    if not name or "/" in name or name.startswith(".") or textsafe.has_unsafe(name):
         raise ValueError(f"bad agent name: {name!r}")
     if not is_plain_text(name):
         raise ValueError(f"bad agent name: {name!r}. {NOT_TEXT}")

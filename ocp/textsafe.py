@@ -6,8 +6,9 @@ bridge's screen and the CLI's output alike. A terminal acts on some bytes
 instead of drawing them: an OSC sequence (window title, clipboard write, link),
 a CSI sequence (cursor moves, erase, colour), a lone ESC, any other C0 control
 (BEL, backspace, carriage return), DEL, and the C1 range (0x9b is CSI, 0x9d is
-OSC). This module is the one rule for taking those out, and it imports nothing
-of any front end, so a new one reaches it without reaching a screen.
+OSC). This module is the one rule for taking those out, and for asking whether
+a value holds any it may not (`UNSAFE_IN_VALUE`), and it imports nothing of any
+front end, so a new one reaches it without reaching a screen.
 
 It does not style, truncate or draw: those belong to the front end that owns the
 terminal. `wrap` is here although it breaks lines to a width, because it cannot
@@ -31,13 +32,24 @@ _CSI = re.compile(r"\033\[[0-?]*[ -/]*[@-~]")
 # other module can test a character against - C0 (tab and newline excluded;
 # line-oriented callers handle those separately, as `drawable` does below)
 # plus DEL plus C1 (0x9b is CSI, 0x9d is OSC, one byte instead of two). A
-# caller that also cares about tab and newline - a config scalar, never a
-# display line - adds "\t\n" itself rather than this module deciding that
-# for it.
+# caller that also cares about tab and the line breaks wants `UNSAFE_IN_VALUE`
+# below, not this set.
 CONTROL_CHARS = frozenset(chr(c) for c in range(0x00, 0x09)) \
     | frozenset(chr(c) for c in range(0x0b, 0x20)) \
     | frozenset(chr(c) for c in range(0x7f, 0xa0))
 _CONTROL = re.compile("[" + "".join(CONTROL_CHARS) + "]")
+
+# The one definition of "unsafe in a stored value" - an agent name, a config
+# scalar, a worktree path, a terminal handle. `CONTROL_CHARS` plus the four it
+# leaves to a line-oriented caller: tab, newline, U+2028 and U+2029. That is
+# the right split for drawing a screen and the wrong one here, because a
+# stored value is later written into the middle of somebody else's line, and
+# one carrying a break forges a second line there. `str.splitlines` breaks on
+# U+2028 and U+2029 too, so such a value becomes two records wherever it is
+# read back that way. A caller holding one of these refuses the value rather
+# than rewriting it: rewriting an identifier keeps a name for something that
+# does not exist.
+UNSAFE_IN_VALUE = CONTROL_CHARS | frozenset("\t\n\u2028\u2029")
 
 
 def drawable(text: str, tabs: int | None = 4) -> list[str]:
@@ -66,6 +78,12 @@ def oneline(value: str) -> str:
     """`value` as a single line of printable text: `drawable`, a newline being
     a space, and anything else unprintable blanked."""
     return "".join(c if c.isprintable() else " " for c in " ".join(drawable(value)))
+
+
+def has_unsafe(value: str) -> bool:
+    """Whether `value` holds one of `UNSAFE_IN_VALUE`, and so cannot be stored
+    and handed on as it is. See that set for what is in it and why."""
+    return bool(UNSAFE_IN_VALUE & set(value))
 
 
 def json_dumps(obj, **kw) -> str:
