@@ -4856,6 +4856,10 @@ def test_a_close_refused_by_a_dialog_is_said_once_not_every_tick(home: Path) -> 
 # only EXIT_DIALOG above is. They stand for the trust dialog, a tool permission
 # prompt and a question with a plain No, to prove what ocp presses for each.
 _RULE_ROW = "▔" * 60
+# TRUST_DIALOG is a reconstruction too, and its layout is not the real trust
+# screen's: the live one has unnumbered options with "No, exit" first, which
+# parse_dialog does not read at all. It pins a general rule, so its tests
+# stand. To model the trust screen itself, copy LIVE_TRUST_PROMPT_CAPTURE.
 TRUST_DIALOG = ["  where the work is", _RULE_ROW, "   Do you trust the files in this folder?",
                 "   /Users/ron/somewhere", "   ❯ 1. Yes, proceed", "     2. No, exit",
                 "   Enter to confirm · Esc to cancel"]
@@ -5242,6 +5246,43 @@ def test_ocps_own_exit_dialog_is_pressed_at_once_and_a_working_agent_never(home:
             blockedmod.sweep(con, lambda _m: None, now + 5000)
             blockedmod.sweep(con, lambda _m: None, now + 6000)
             check(f"working: nothing is pressed at a {state} agent's dialog", term.sent == [], str(term.sent))
+    finally:
+        con.close()
+
+
+def test_the_live_trust_screen_is_never_pressed(home: Path) -> None:
+    """auditor's #1630 3.3: TRUST_DIALOG above is reconstructed - numbered,
+    Yes first. The live screen has unnumbered options with "No, exit" first,
+    so parse_dialog cannot read it. It must still read as a dialog, and
+    neither key path may press anything at it, alone or from the sweep."""
+    restore_world()
+    tail = LIVE_TRUST_PROMPT_CAPTURE.split("\n")
+    footer = orcamod._footer_row(tail)
+    check("live trust: the footer is found", footer is not None, str(footer))
+    check("live trust: parse_dialog gives None",
+          footer is not None and orcamod.parse_dialog(tail, footer) is None)
+    term = _Terminal(tail)
+    term.install()
+    seen = orcamod.screen_blocker("term_x")
+    check("live trust: screen_blocker reads it as a dialog",
+          seen is not None and seen.kind == orcamod.MODAL, str(seen))
+    outcome, _title, why = orcamod.decline_dialog("term_x")
+    check("live trust: decline_dialog presses nothing, and says why",
+          outcome == orcamod.NOT_PRESSED and why and term.sent == [], f"{outcome} {why} {term.sent}")
+    term = _Terminal(tail)
+    term.install()
+    outcome, _title, why = orcamod.choose_exit("term_x")
+    check("live trust: choose_exit presses nothing, and says why",
+          outcome == orcamod.NOT_PRESSED and why and term.sent == [], f"{outcome} {why} {term.sent}")
+
+    con, term = _decline_world(home, tail)
+    t0 = int(time.time()) - 5000
+    try:
+        for step in (0, blockedmod.PRESS_AFTER_S, blockedmod.ESCALATE_AFTER_S):
+            blockedmod._checked.clear()
+            blockedmod.sweep(con, lambda _m: None, t0 + step)
+        check("live trust: the sweep presses nothing either, past PRESS_AFTER_S",
+              term.sent == [] and db.block_get(con, "backend") is not None, str(term.sent))
     finally:
         con.close()
 
@@ -7767,28 +7808,11 @@ def test_a_withdraw_landing_before_the_send_stops_the_send(home: Path) -> None:
         con.close()
 
 
-TRUST_SCREEN = """────────────────────────────────────────────────────────────────
- Accessing workspace:
-
- /Users/someone/worktree
-
- Quick safety check: Is this a project you created or one you trust? (Like your
- own code, a well-known open source project, or work from your team). If not,
- take a moment to review what's in this folder first.
-
- Claude Code'll be able to read, edit, and execute files here.
-
- ❯ 1. Yes, I trust this folder
-   2. No, exit
-
- Enter to confirm · Esc to cancel""".split("\n")
-
-
 def test_the_daemon_never_types_into_a_trust_prompt_via_deliver(home: Path) -> None:
     """Auditor's #339: `deliver_queued`/`_tell` and `deliver_answers` must not
     type into the folder-trust dialog, mark a request delivered, or mark an
     answer announced underneath it - even with Orca reporting the terminal idle.
-    What refuses is ocp's own `screen_blocker`, reading the real screen as a
+    What refuses is ocp's own `screen_blocker`, reading the live capture as a
     dialog. The sweep reports it from there (#1630)."""
     _daemon_home(home, 20)
     con = db.connect()
@@ -7801,7 +7825,7 @@ def test_the_daemon_never_types_into_a_trust_prompt_via_deliver(home: Path) -> N
         orcamod.idle_now = lambda h: True
         orcamod.send = lambda h, text, enter=True: (sent.append(text), (True, ""))[1]
         orcamod.screen_blocker = REAL_ORCA["screen_blocker"]
-        orcamod._screen = lambda h: _screen_of(TRUST_SCREEN)
+        orcamod._screen = lambda h: _screen_of(LIVE_TRUST_PROMPT_CAPTURE.split("\n"))
         sessions_are("backend")
         seen = orcamod.screen_blocker("term_x")
         check("trust screen: screen_blocker reads it as a dialog",
@@ -22538,6 +22562,7 @@ def main() -> int:
         run(lambda: test_a_close_answers_the_dialog_that_offers_to_exit(Path(td) / 'dcl0x'))
         run(lambda: test_a_dialog_ocp_can_decline_is_cleared_and_reported(Path(td) / 'dcl1'))
         run(lambda: test_ocps_own_exit_dialog_is_pressed_at_once_and_a_working_agent_never(Path(td) / 'dcl2'))
+        run(lambda: test_the_live_trust_screen_is_never_pressed(Path(td) / 'livetrust'))
         run(lambda: test_a_dialog_ocp_cannot_decline_is_reported_not_pressed(Path(td) / 'dcl3'))
         run(lambda: test_a_dialog_that_keeps_coming_back_stops_being_pressed_and_is_escalated(Path(td) / 'dcl4'))
         run(lambda: test_esc_that_does_not_close_a_dialog_is_not_pressed_again_and_again(Path(td) / 'dcl5'))
