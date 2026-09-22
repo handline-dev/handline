@@ -5418,6 +5418,72 @@ def test_yaml_rejects_ambiguity() -> None:
             check(f"yaml: rejects {label}", True)
 
 
+def test_dump_refuses_every_class_of_character_a_terminal_would_obey() -> None:
+    """dump()'s control-character guard once checked only ord(c) < 32 or 127 -
+    C0 and DEL - so a C1 byte (0x9b is CSI, one byte instead of two) reached
+    agent.yaml unquoted and round-tripped: dump({'name': 'a\\u009bb'}) wrote
+    `name: a\\x9bb` bare, no error, no quoting. The guard is now
+    textsafe.CONTROL_CHARS (C0, DEL, C1 - the set the module's own docstring
+    derives from what a terminal obeys instead of draws) plus tab and
+    newline, which that set leaves out for a line-oriented caller to keep
+    but a one-line config scalar has no use for. Each class is checked on
+    its own: a guard rewritten to add C1 is exactly where C0 could quietly
+    stop being covered, and only a class-by-class check would catch that."""
+    classes = {
+        "C0": "\x01",
+        "DEL": "\x7f",
+        "C1 (CSI, 0x9b)": "\u009b",
+        "tab": "\t",
+        "newline": "\n",
+    }
+    for label, ch in classes.items():
+        try:
+            yamlcompat.dump({"k": f"a{ch}b"})
+            check(f"dump: refuses {label}", False, "wrote instead of raising")
+        except yamlcompat.ConfigError:
+            check(f"dump: refuses {label}", True)
+    # The class the guard already had, not only the one just added: proves
+    # the rewrite did not narrow C0's own range (0x00-0x08, 0x0b-0x1f).
+    for c in list(range(0x00, 0x09)) + list(range(0x0b, 0x20)):
+        try:
+            yamlcompat.dump({"k": f"a{chr(c)}b"})
+            check(f"dump: refuses C0 {hex(c)}", False, "wrote instead of raising")
+        except yamlcompat.ConfigError:
+            check(f"dump: refuses C0 {hex(c)}", True)
+    # And every C1 codepoint, not just CSI.
+    for c in range(0x7f, 0xa0):
+        try:
+            yamlcompat.dump({"k": f"a{chr(c)}b"})
+            check(f"dump: refuses C1/DEL {hex(c)}", False, "wrote instead of raising")
+        except yamlcompat.ConfigError:
+            check(f"dump: refuses C1/DEL {hex(c)}", True)
+    check("dump: still writes an ordinary character",
+          "k: ab\n" == yamlcompat.dump({"k": "ab"}))
+
+
+def test_a_poisoned_proposal_field_is_refused_at_the_write_not_read_back_on_the_founders_screen(
+        home: Path) -> None:
+    """The real path: a CSI byte in --repo, through hr's own save/load/
+    escalation. Before the fix this wrote, reloaded, and reached the text
+    the founder's screen draws - reproduced end to end under the bundled
+    parser (no PyYAML), which has no printable-character check at all,
+    unlike real PyYAML's own Reader (a side effect of PyYAML's spec
+    compliance, not a guard ocp controls - the bundled parser is what most
+    of the fleet actually runs under)."""
+    _daemon_home(home, 20)
+    poisoned = "repo\u009b31mEVIL\u009bm"
+    prop = {"id": "poisontest", "kind": "add", "agent": "newagent",
+            "requested_by": "someone", "why": "test", "created": int(time.time()),
+            "account": "alpha", "repo": poisoned}
+    try:
+        hr.save(prop)
+        check("hr: a proposal with a C1 byte in a field is refused at save", False,
+              "saved instead of raising")
+    except yamlcompat.ConfigError:
+        check("hr: a proposal with a C1 byte in a field is refused at save", True)
+    check("hr: nothing was written", hr.path_of("poisontest").exists() is False)
+
+
 def test_yaml_booleans() -> None:
     got = yamlcompat.parse("a: yes\nb: no\nc: on\nd: off\ne: true\nf: false\n")
     check("yaml: YAML 1.1 booleans are booleans, not strings",
@@ -19379,6 +19445,9 @@ def main() -> int:
         run(lambda: test_yaml_differential())
         run(lambda: test_the_bundled_parser_reads_what_pyyaml_reads_as_strings_and_refuses_the_rest())
         run(lambda: test_yaml_rejects_ambiguity())
+        run(lambda: test_dump_refuses_every_class_of_character_a_terminal_would_obey())
+        run(lambda: test_a_poisoned_proposal_field_is_refused_at_the_write_not_read_back_on_the_founders_screen(
+            Path(td) / 'poisonprop'))
         run(lambda: test_a_name_that_yaml_would_not_read_as_text_is_refused_where_it_is_typed(Path(td) / 'nameguard'))
         run(lambda: test_the_guard_against_the_real_orca_names_the_test_and_cannot_be_swallowed())
         run(lambda: test_one_unreadable_proposal_does_not_take_the_hr_listing_down(Path(td) / 'hrlist'))

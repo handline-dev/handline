@@ -24,6 +24,8 @@ from __future__ import annotations
 
 import re
 
+from . import textsafe
+
 
 class ConfigError(Exception):
     pass
@@ -513,7 +515,13 @@ def dump(data: dict) -> str:
             candidates.append(_float_text(value))
         else:
             value = str(value)
-            if any(ord(c) < 32 or ord(c) == 127 for c in value):
+            # textsafe.CONTROL_CHARS is C0/DEL/C1 - what a terminal obeys
+            # instead of draws. A scalar here is one line, never text laid
+            # out, so tab and newline (which that set leaves for a
+            # line-oriented caller to handle) are refused too, same as any
+            # other control: 0x9b is CSI, one byte, and a value carrying it
+            # once reached agent.yaml unquoted and was drawn on the bridge.
+            if any(c in "\t\n" or c in textsafe.CONTROL_CHARS for c in value):
                 raise ConfigError(f"dump does not write control characters (key {key!r})")
             # Quote anything a reader would take for something else, or that
             # carries structure. A string this parser would not read back as
