@@ -2335,6 +2335,59 @@ def test_reconcile_stalls_one_agents_unreadable_config_not_the_others(home: Path
         con.close()
 
 
+def test_a_hand_edited_control_character_stalls_one_agent_live_through_the_daemon(
+        home: Path) -> None:
+    """#1609: the end-to-end case the #1571 fix exists for, run live through
+    the daemon rather than only at agents.read. A hand-edited agent.yaml -
+    never written by dump(), so this is the shape a hand edit actually takes
+    - carrying 0x9b in repo. Before #1609 this loaded silently: no C1 check
+    on read at all. Now it is refused at agents.read, reached the same way
+    the malformed-YAML case above is (resume_handoff -> account_of -> read),
+    and #1571's guard stalls that one agent by name while a second, healthy
+    agent's in-flight handoff still resolves in the same reconciliation."""
+    _daemon_home(home, 20)
+    agents.register("frontend", "alpha")
+    con = db.connect()
+    try:
+        db.set_terminal(con, "frontend", "term_y", "wt2")
+        con.execute("UPDATE agent_state SET account = NULL WHERE agent IN "
+                    "('backend', 'frontend')")
+        af = agents.agent_file("backend")
+        # A tab, not the C1 byte the unit test above also covers: real
+        # PyYAML's own Reader already refuses C1 before agents.read's new
+        # guard ever runs, so that case proves the daemon survives SOME
+        # ConfigError but not specifically this one. A tab inside a quoted
+        # scalar is accepted by both parsers (measured), so it is the guard
+        # in refuse_unsafe_values that fires here, under either interpreter -
+        # confirmed by mutation: removing that guard leaves this case
+        # loading silently and this test fails, where the C1 byte would not
+        # have caught the removal at all.
+        af.write_text(af.read_text().rstrip("\n") + '\nrepo: "before\tafter"\n')
+        db.start_handoff(con, "hid-bad", "backend", "sess-bad", "usage",
+                         int(time.time()) + 90)
+        db.start_handoff(con, "hid-ok", "frontend", "sess-ok", "usage",
+                         int(time.time()) + 90)
+
+        rc = dmn.run(once=True, verbose=False)
+        check("read guard: a control character in a hand-edited agent.yaml "
+              "does not exit the daemon", rc == 0, str(rc))
+
+        bad = db.get_agent_state(con, "backend")
+        check("read guard: the agent carrying it is stalled by name, not retried forever",
+              bad["failed_attempts"] == 1, str(dict(bad)))
+        still_open = {h["agent"] for h in db.in_flight_handoffs(con)}
+        check("read guard: its handoff is left in flight, to retry - not dropped",
+              "backend" in still_open, str(still_open))
+
+        good = db.get_agent_state(con, "frontend")
+        check("read guard: a second, healthy agent still resolves in the "
+              "same reconciliation the poisoned one failed in",
+              good["state"] == dmn.PARKED and "frontend" not in still_open,
+              str(dict(good)))
+    finally:
+        con.close()
+
+
 def test_reconcile_still_propagates_a_fault_that_is_not_one_agents(home: Path) -> None:
     """The control for the guard above: a fault that belongs to reconcile()
     itself, not to any one agent's file, must still stop the daemon - a
@@ -5748,6 +5801,74 @@ def test_a_poisoned_proposal_field_is_refused_at_the_write_not_read_back_on_the_
     except yamlcompat.ConfigError:
         check("hr: a proposal with a C1 byte in a field is refused at save", True)
     check("hr: nothing was written", hr.path_of("poisontest").exists() is False)
+
+
+def test_dump_and_the_read_guard_refuse_exactly_the_same_characters(home: Path) -> None:
+    """#1609: 'one definition of unsafe value shared by dump and read, not
+    two lists that can drift apart.' A truth table over every codepoint in
+    yamlcompat.UNSAFE_VALUE_CHARS plus a sample of ordinary ones, checked
+    against both dump() and refuse_unsafe_values() - not just that they
+    import the same constant (a future edit to either function's own
+    condition could still drift, the way #1566/#1580 found one test's worth
+    of drift inside dump() itself), but that the two actually agree,
+    character by character."""
+    ordinary = "a1 .-_'\"#[]{}:,&*|>~"
+    for c in sorted(yamlcompat.UNSAFE_VALUE_CHARS) + list(ordinary):
+        unsafe = c in yamlcompat.UNSAFE_VALUE_CHARS
+        try:
+            yamlcompat.dump({"k": f"a{c}b"})
+            dump_refused = False
+        except yamlcompat.ConfigError as e:
+            dump_refused = "does not write control characters" in str(e)
+        try:
+            yamlcompat.refuse_unsafe_values({"k": f"a{c}b"}, "src")
+            read_refused = False
+        except yamlcompat.ConfigError:
+            read_refused = True
+        check(f"dump/read agree on {hex(ord(c))} {c!r}: unsafe={unsafe}",
+              dump_refused == unsafe and read_refused == unsafe,
+              f"dump_refused={dump_refused} read_refused={read_refused}")
+
+
+def test_agents_read_refuses_a_value_a_hand_edit_wrote_with_a_control_character(
+        home: Path) -> None:
+    """#1571's ruling: REFUSE on read, not strip. A hand-edited agent.yaml -
+    never written by dump(), so never checked before this - reaches
+    agents.read unguarded until now.
+
+    A C1 byte (0x9b) is refused either way, but under real PyYAML its own
+    Reader (check_printable) refuses it first - a guard ocp does not
+    control, and the same reason test_a_poisoned_proposal_field... above
+    needs the bundled parser to show its own message at all. A tab inside a
+    quoted scalar is different: PyYAML accepts it (measured: yaml.safe_load
+    reads 'k: \"a\\tb\"' as the literal tab), so it always reaches
+    refuse_unsafe_values, under either parser - that is what the file/key
+    assertions below use, so they hold regardless of which python3 runs
+    the suite."""
+    _daemon_home(home, 20)
+    af = agents.agent_file("backend")
+    af.write_text(af.read_text().rstrip("\n") + '\nrepo: "before\u009bafter"\n')
+    try:
+        agents.read("backend")
+        check("agents.read: refuses a C1 byte in repo", False, "read instead of raising")
+    except yamlcompat.ConfigError:
+        check("agents.read: refuses a C1 byte in repo", True)
+
+    af.write_text(af.read_text().split("\nrepo:")[0] + '\nrepo: "before\tafter"\n')
+    try:
+        agents.read("backend")
+        check("agents.read: refuses a tab in repo (reaches refuse_unsafe_values "
+              "under either parser)", False, "read instead of raising")
+    except yamlcompat.ConfigError as e:
+        check("agents.read: refuses a tab in repo (reaches refuse_unsafe_values "
+              "under either parser)", True)
+        check("agents.read: names the file", str(af) in str(e), str(e))
+        check("agents.read: names the key", "'repo'" in str(e), str(e))
+
+    # Control: a clean agent.yaml still reads.
+    agents.register("clean", "alpha")
+    data = agents.read("clean")
+    check("agents.read: a clean file still reads", isinstance(data, dict) and data, str(data))
 
 
 def test_yaml_booleans() -> None:
@@ -19805,6 +19926,9 @@ def main() -> int:
         run(lambda: test_dump_refuses_every_class_of_character_a_terminal_would_obey())
         run(lambda: test_a_poisoned_proposal_field_is_refused_at_the_write_not_read_back_on_the_founders_screen(
             Path(td) / 'poisonprop'))
+        run(lambda: test_dump_and_the_read_guard_refuse_exactly_the_same_characters(Path(td) / 'readguardset'))
+        run(lambda: test_agents_read_refuses_a_value_a_hand_edit_wrote_with_a_control_character(
+            Path(td) / 'readguard'))
         run(lambda: test_a_name_that_yaml_would_not_read_as_text_is_refused_where_it_is_typed(Path(td) / 'nameguard'))
         run(lambda: test_the_guard_against_the_real_orca_names_the_test_and_cannot_be_swallowed())
         run(lambda: test_one_unreadable_proposal_does_not_take_the_hr_listing_down(Path(td) / 'hrlist'))
@@ -19837,6 +19961,8 @@ def main() -> int:
         run(lambda: test_daemon_resume(Path(td) / 'd2'))
         run(lambda: test_daemon_kill_recovery(Path(td) / 'd3'))
         run(lambda: test_reconcile_stalls_one_agents_unreadable_config_not_the_others(Path(td) / 'reconbad'))
+        run(lambda: test_a_hand_edited_control_character_stalls_one_agent_live_through_the_daemon(
+            Path(td) / 'readguarddaemon'))
         run(lambda: test_reconcile_still_propagates_a_fault_that_is_not_one_agents(Path(td) / 'reconsys'))
         run(lambda: test_reconcile_stalls_one_due_agents_unreadable_config_at_wake_too(Path(td) / 'reconwake'))
         run(lambda: test_daemon_handoff_timeout(Path(td) / 'd4'))

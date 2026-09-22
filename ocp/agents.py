@@ -10,7 +10,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from . import paths
-from .yamlcompat import ConfigError, dump, is_plain_text, load
+from .yamlcompat import ConfigError, dump, is_plain_text, load, refuse_unsafe_values
 
 DEFAULT_MODEL = "sonnet"
 
@@ -65,6 +65,12 @@ def read(name: str) -> dict:
     data = load(p.read_text())
     if not isinstance(data, dict):
         raise ConfigError(f"{p}: top level is not a map")
+    # REFUSE, not strip (#1571's ruling): a value dump() would not have
+    # written - a control character in repo, or in any field - must not
+    # silently run as something other than what the file says. Safe now that
+    # one agent's ConfigError here stalls that agent by name instead of
+    # taking the daemon down with it (#1571's own fix, its prerequisite).
+    refuse_unsafe_values(data, p)
     return data
 
 
