@@ -32,7 +32,7 @@ from ocp import (accounts, actions, agents, ask as askmod, blocked as blockedmod
                  digest,
                  doctor, drift, events as evmod, fold as foldmod,
                  handoff as handoffmod, launch, load as loadmod, lock, measure,
-                 observe as obsmod, orca as orcamod, paths, replay as replaymod, service,
+                 observe as obsmod, orca as orcamod, paths, rehome, replay as replaymod, service,
                  spawn as spawnmod,
                  status, team, textsafe, triggers, trust as trustmod, tui, usage_api, vendors, waiting,
                  yamlcompat)  # noqa: E402
@@ -6663,6 +6663,243 @@ def test_the_relabel_recovery_command_quotes_what_it_names(home: Path) -> None:
     finally:
         orcamod.available = real_avail
         con.close()
+
+
+def test_a_renamed_agents_worktree_follows_it_with_its_work_and_memory(home: Path) -> None:
+    """harbor #753: a rename leaves Orca's label right (`hr.label`, already
+    covered by test_a_rename_names_the_agents_orca_worktree) but the folder,
+    and so Claude's per-project memory, on the old name. `ocp hr rehome` is
+    the other half - actually moving it. Driven on a throwaway git repo with
+    an uncommitted file, two accounts' memory and a transcript."""
+    _daemon_home(home, 20)
+    accounts.register("beta")
+    repo = home / "repo"
+    repo.mkdir()
+    def git(*a, cwd=repo):
+        return subprocess.run(["git", *a], cwd=cwd, capture_output=True, text=True, check=True)
+    git("init", "-q", "-b", "main")
+    git("-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "--allow-empty", "-m", "x")
+    old_wt = home / "wts" / "marina"
+    git("worktree", "add", "-q", "-b", "work", str(old_wt))
+    (old_wt / "Strings.swift").write_text("uncommitted\n")
+    old_key = accounts.memory_project_dir(str(old_wt))
+    new_wt = home / "wts" / "harbor.marina"
+    new_key = accounts.memory_project_dir(str(new_wt))
+    for acct in ("alpha", "beta"):
+        proj = paths.account_claude(acct) / "projects" / old_key
+        (proj / "memory").mkdir(parents=True)
+        (proj / "memory" / "note.md").write_text(f"remember {acct}\n")
+        (proj / "sess-1.jsonl").write_text("{}\n")
+    agents.register("harbor.marina", "alpha")
+    con = db.connect()
+    real_live = obsmod.live_sessions
+    try:
+        # As `ocp launch` records it: an Orca selector, not a bare path.
+        db.set_terminal(con, "harbor.marina", "term_m", f"repo-id::{old_wt}")
+        obsmod.live_sessions = lambda: {"harbor.marina": 123}
+        ok, said = rehome.move(con, "harbor.marina", "marina")
+        check("rehome: refused while the session is live",
+              not ok and "session running" in said and old_wt.is_dir(), said)
+        obsmod.live_sessions = lambda: None
+        ok, said = rehome.move(con, "harbor.marina", "marina")
+        check("rehome: refused when liveness cannot be read", not ok and old_wt.is_dir(), said)
+        obsmod.live_sessions = lambda: {}
+        ok, said = rehome.move(con, "harbor.marina", "someone-else")
+        check("rehome: refused when the folder does not carry the old name",
+              not ok and old_wt.is_dir(), said)
+        new_wt.mkdir()
+        ok, said = rehome.move(con, "harbor.marina", "marina")
+        check("rehome: refused when the destination exists", not ok and old_wt.is_dir(), said)
+        new_wt.rmdir()
+
+        # A destination in the way on one account: refused before anything moves.
+        blocker = paths.account_claude("beta") / "projects" / new_key
+        blocker.mkdir(parents=True)
+        ok, said = rehome.move(con, "harbor.marina", "marina")
+        check("rehome: a memory dir already at the destination refuses, nothing moved",
+              not ok and old_wt.is_dir() and (old_wt / "Strings.swift").exists()
+              and not new_wt.exists()
+              and all((paths.account_claude(a) / "projects" / old_key).is_dir()
+                      for a in ("alpha", "beta")), said)
+        blocker.rmdir()
+        # And a rename that fails on the SECOND account after the first went
+        # through: the first is put back, and so is the worktree.
+        real_rename = Path.rename
+        def flaky(self, target):
+            if "beta" in str(self) and self.name == old_key:
+                raise OSError("simulated")
+            return real_rename(self, target)
+        Path.rename = flaky
+        try:
+            ok, said = rehome.move(con, "harbor.marina", "marina")
+        finally:
+            Path.rename = real_rename
+        check("rehome: a failure on a later account undoes the earlier ones and the worktree",
+              not ok and old_wt.is_dir() and (old_wt / "Strings.swift").exists()
+              and not new_wt.exists()
+              and all((paths.account_claude(a) / "projects" / old_key).is_dir()
+                      and not (paths.account_claude(a) / "projects" / new_key).exists()
+                      for a in ("alpha", "beta")), said)
+        # Orca as measured: the old entry has a comment and a parent; after the
+        # move it knows the new path only as an automatic entry.
+        calls: list[list[str]] = []
+        real_avail, real_run, real_sleep = orcamod.available, orcamod._run, time.sleep
+        moved_yet = {"v": False}
+        def fake_run(args, timeout=180):
+            calls.append(args)
+            if args[:2] == ["worktree", "show"]:
+                if args[3] == f"path:{old_wt}":
+                    w = {"id": f"repo-id::{old_wt}", "comment": "onboarding",
+                         "parentWorktreeId": "repo-id::/p",
+                         "workspaceStatus": "in-progress",
+                         "childWorktreeIds": ["repo-id::/kid"]}
+                elif moved_yet["v"]:
+                    w = {"comment": "", "displayNameMode": "automatic"}
+                else:
+                    w = None
+                return (w is not None), json.dumps({"ok": w is not None,
+                                                    "result": {"worktree": w or {}}})
+            if args[:2] == ["worktree", "list"]:
+                return True, json.dumps({"ok": True, "result": {"worktrees": []}})
+            if args[:2] == ["terminal", "list"]:
+                return True, json.dumps({"ok": True, "result": {"terminals": tabs["v"]}})
+            return True, json.dumps({"ok": True})
+        tabs = {"v": []}
+        orcamod.available = lambda: True
+        orcamod._run = fake_run
+        time.sleep = lambda s_: moved_yet.update(v=True)
+        try:
+            tabs["v"] = [{"worktreePath": str(old_wt), "handle": "term_1"}]
+            ok, said = rehome.move(con, "harbor.marina", "marina")
+            check("rehome: refused while a terminal is open in it",
+                  not ok and "terminal" in said and old_wt.is_dir(), said)
+            tabs["v"] = []
+            ok, said = rehome.move(con, "harbor.marina", "marina")
+        finally:
+            orcamod.available, orcamod._run, time.sleep = real_avail, real_run, real_sleep
+        sets = [c for c in calls if c[:2] == ["worktree", "set"]]
+        check("rehome: Orca's new entry is named for the agent, fixed, with the old "
+              "entry's comment, parent and status carried",
+              len(sets) == 2 and sets[0][3] == f"path:{new_wt}"
+              and sets[0][sets[0].index("--display-name") + 1] == "harbor.marina"
+              and sets[0][sets[0].index("--comment") + 1] == "onboarding"
+              and sets[0][sets[0].index("--parent-worktree") + 1] == "id:repo-id::/p"
+              and sets[0][sets[0].index("--workspace-status") + 1] == "in-progress",
+              str(calls))
+        kid = [c for c in sets if c[3] == "id:repo-id::/kid"]
+        check("rehome: a child of the moved worktree is pointed at the new path",
+              len(kid) == 1 and kid[0][kid[0].index("--parent-worktree") + 1] == f"path:{new_wt}",
+              str(calls))
+        check("rehome: the move waited for Orca to see the new path before setting it",
+              moved_yet["v"] and "not set" not in said, said)
+        check("rehome: moves once closed", ok and new_wt.is_dir() and not old_wt.exists(), said)
+        check("rehome: the uncommitted file survived the move",
+              (new_wt / "Strings.swift").read_text() == "uncommitted\n")
+        listed = git("worktree", "list", "--porcelain").stdout
+        check("rehome: git's own records follow (worktree list, branch, status)",
+              str(new_wt) in listed and str(old_wt) not in listed
+              and "?? Strings.swift" in git("status", "--short", cwd=new_wt).stdout
+              and git("branch", "--show-current", cwd=new_wt).stdout.strip() == "work")
+        for acct in ("alpha", "beta"):
+            root = paths.account_claude(acct) / "projects"
+            check(f"rehome: {acct}'s memory and transcript are under the new key",
+                  (root / new_key / "memory" / "note.md").read_text() == f"remember {acct}\n"
+                  and (root / new_key / "sess-1.jsonl").is_file() and not (root / old_key).exists())
+        row = db.get_agent_state(con, "harbor.marina")
+        check("rehome: the recorded worktree keeps its selector form and names the new folder",
+              row["worktree"] == f"repo-id::{new_wt}" and row["terminal"] is None,
+              str(dict(row)))
+        ok, said = rehome.move(con, "harbor.marina", "marina")
+        check("rehome: run again it is a no-op that says so", not ok and "already" in said, said)
+
+        # A blocked read of Orca is a refusal to move, not a licence to.
+        for reply, want in ((lambda a, timeout=180: (False, "timeout"), True),
+                            (lambda a, timeout=180: (False, json.dumps(
+                                {"ok": False, "error": {"code": "selector_not_found"}})), False)):
+            orcamod.available, orcamod._run = (lambda: True), reply
+            try:
+                blocked = rehome._orca_blockers(new_wt)
+            finally:
+                orcamod.available, orcamod._run = real_avail, real_run
+            check(f"rehome: Orca {'unreadable' if want else 'not knowing the path'} "
+                  f"{'refuses' if want else 'does not block'}", bool(blocked) == want, blocked)
+        # A terminal list that fails after a good show is no licence to move.
+        def show_only(args, timeout=180):
+            if args[:2] == ["worktree", "show"]:
+                return True, json.dumps({"ok": True, "result": {"worktree": {"id": "i"}}})
+            return False, "timeout"
+        orcamod.available, orcamod._run = (lambda: True), show_only
+        try:
+            blocked = rehome._orca_blockers(new_wt)
+        finally:
+            orcamod.available, orcamod._run = real_avail, real_run
+        check("rehome: a failed terminal list refuses the move", "unknown" in blocked, blocked)
+        # The move happened but Orca never shows the new path: the children's
+        # commands are printed, not dropped.
+        old_entry = {"id": "i", "childWorktreeIds": ["repo-id::/kid"]}
+        orcamod.available = lambda: True
+        orcamod._run = lambda a, timeout=180: (False, json.dumps(
+            {"ok": False, "error": {"code": "selector_not_found"}}))
+        time.sleep = lambda s_: None
+        try:
+            said = rehome._relabel(old_entry, Path("/new/place"), "harbor.marina")
+        finally:
+            orcamod.available, orcamod._run, time.sleep = real_avail, real_run, real_sleep
+        check("rehome: when Orca never sees the new path, each child's re-parent command is printed",
+              "orca worktree set --worktree id:repo-id::/kid --parent-worktree path:/new/place"
+              in said and "--display-name harbor.marina" in said, said)
+        # Orca seeing it but refusing a set: its reason is kept.
+        def refuses(args, timeout=180):
+            if args[:2] == ["worktree", "show"]:
+                return True, json.dumps({"ok": True, "result": {"worktree": {"id": "n"}}})
+            return False, json.dumps({"ok": False, "error": {"code": "busy_now"}})
+        orcamod.available, orcamod._run = (lambda: True), refuses
+        try:
+            said = rehome._relabel(old_entry, Path("/new/place"), "harbor.marina")
+        finally:
+            orcamod.available, orcamod._run = real_avail, real_run
+        check("rehome: a refused label and a refused re-parent both say why",
+              said.count("busy_now") == 2 and "would not set the label" in said
+              and "would not re-parent repo-id::/kid" in said, said)
+    finally:
+        obsmod.live_sessions = real_live
+        con.close()
+
+
+def test_hr_rehome_cli_moves_the_folder(home: Path) -> None:
+    """The `ocp hr rehome` leaf itself, not just rehome.move()."""
+    _daemon_home(home, 20)
+    repo = home / "repo"
+    repo.mkdir()
+    subprocess.run(["git", "init", "-q", "-b", "main"], cwd=repo, check=True)
+    subprocess.run(["git", "-c", "user.name=t", "-c", "user.email=t@t", "commit",
+                    "-q", "--allow-empty", "-m", "x"], cwd=repo, check=True)
+    old_wt = home / "wts" / "old"
+    subprocess.run(["git", "worktree", "add", "-q", "-b", "w", str(old_wt)],
+                   cwd=repo, check=True)
+    new_wt = home / "wts" / "newname"
+    agents.register("newname", "alpha")
+    con = db.connect()
+    try:
+        db.set_terminal(con, "newname", "term_x", str(old_wt))
+    finally:
+        con.close()
+    real_live = obsmod.live_sessions
+    obsmod.live_sessions = lambda: {}
+    try:
+        out, err = io.StringIO(), io.StringIO()
+        with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+            code = climod.main(["hr", "rehome", "newname", "--from", "old"])
+        check("hr rehome: the CLI leaf moves the folder and reports it",
+              code == 0 and new_wt.is_dir() and not old_wt.exists()
+              and "worktree moved" in out.getvalue(), out.getvalue() + err.getvalue())
+        out, err = io.StringIO(), io.StringIO()
+        with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+            code = climod.main(["hr", "rehome", "newname", "--from", "old"])
+        check("hr rehome: run again on an already-moved agent refuses, exit 1",
+              code == 1 and "already" in out.getvalue(), out.getvalue())
+    finally:
+        obsmod.live_sessions = real_live
 
 
 def test_a_name_that_yaml_would_not_read_as_text_is_refused_where_it_is_typed(home: Path) -> None:
@@ -17913,6 +18150,8 @@ def test_no_command_prints_what_a_terminal_would_obey(home: Path) -> None:
         "task link": "writes a row; prints two ids", "base promote": "writes base.md; prints sizes and a path",
         "hr relabel": "calls Orca directly, no proposal; driven in "
                       "test_a_rename_names_the_agents_orca_worktree, not this scene",
+        "hr rehome": "moves a git worktree and Claude's project directories; driven in "
+                     "test_hr_rehome_cli_moves_the_folder, not this scene",
         "trust add": "founder-only on a tty; driven in test_ocp_trust_cli_is_wired",
         "trust list": "prints declared roots; driven in test_ocp_trust_cli_is_wired",
         "trust remove": "driven in test_ocp_trust_cli_is_wired",
@@ -22932,6 +23171,8 @@ def main() -> int:
         run(lambda: test_a_walled_wake_is_said_once_not_every_tick(Path(td) / 'wallonce'))
         run(lambda: test_a_rename_names_the_agents_orca_worktree(Path(td) / 'renamelabel'))
         run(lambda: test_the_relabel_recovery_command_quotes_what_it_names(Path(td) / 'relabelquote'))
+        run(lambda: test_a_renamed_agents_worktree_follows_it_with_its_work_and_memory(Path(td) / 'rehome'))
+        run(lambda: test_hr_rehome_cli_moves_the_folder(Path(td) / 'rehomecli'))
         run(lambda: test_agent_yaml_is_written_by_dump_so_what_was_typed_reads_back(Path(td) / 'agentyaml'))
         run(lambda: test_the_suite_and_the_package_name_only_what_exists())
         run(lambda: test_yaml_booleans())

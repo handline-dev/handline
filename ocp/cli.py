@@ -22,7 +22,7 @@ from . import (accounts, actions, agents, ask as askmod, collect, daemon as daem
                tui,
                digest, doctor,
                drift, events, fold as foldmod, guide, handoff as handoffmod, hooks, launch,
-               load, observe as obs, paths, service,
+               load, observe as obs, paths, rehome, service,
                hr, orca, status, spawn as spawnmod, team, textsafe, triggers, trust,
                usage_api, vendors, waiting)
 
@@ -1070,6 +1070,14 @@ def cmd_hr(args) -> int:
             con.close()
         print(said or f"{args.id} has no worktree recorded - nothing to label")
         return 0 if ok else 1
+    if args.hr_cmd == "rehome":
+        con = db.connect()
+        try:
+            ok, said = rehome.move(con, args.id, args.old)
+        finally:
+            con.close()
+        print(said)
+        return 0 if ok else 1
     if args.hr_cmd == "apply":
         ok, said = hr.apply(args.id)
         print(said)
@@ -1902,6 +1910,11 @@ def build_parser() -> argparse.ArgumentParser:
     q = hrsub.add_parser("relabel", help="name a renamed agent's Orca worktree for it "
                                          "(what a rename does; for one already applied)")
     q.add_argument("id", help="the agent's name")
+    q.set_defaults(name=None, why=None, account=None, team=None, repo=None,
+                   model=None, effort=None)
+    q = hrsub.add_parser("rehome", help="also move the folder, once no terminal is open in it")
+    q.add_argument("id", help="the agent's new name")
+    q.add_argument("--from", dest="old", required=True, help="the name its folder still carries")
     q.set_defaults(name=None, why=None, account=None, team=None, repo=None,
                    model=None, effort=None)
     q = hrsub.add_parser("apply", help="carry out an approved proposal")
