@@ -130,7 +130,7 @@ def evaluate(pct_5h: int | None, ctx_used: int | None, pct_7d: int | None = None
     `ctx_limit` is a token count, not a percentage of anything - the caller has
     already resolved the agent's own configured-or-default figure and, when the
     model is a known one, clamped it to CONTEXT_CLAMP_FRACTION of that model's
-    window (see agents.context_tokens). This function takes numbers, never a
+    window (see status.effective_context_limit). This function takes numbers, never a
     name, so it stays the one place both callers and every test can trust
     without re-deriving an agent's override or a model's window here too.
     """

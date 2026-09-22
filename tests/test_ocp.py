@@ -3432,10 +3432,28 @@ def test_agents_stays_a_leaf_no_cycle_through_collect_or_vendors() -> None:
     to reach upward at all. This is the guard that keeps it that way: nothing
     else needs agents to import collect or vendors, so if either import
     reappears at module level, this is the fastest possible failure, not a
-    hang or a partial-module AttributeError three imports later."""
+    hang or a partial-module AttributeError three imports later.
+
+    auditor #1813: the first cut of this guard collected `n.module` off
+    every ImportFrom node - which is None for `from . import collect, ...`
+    (a relative import with no module name; the imported names live in
+    `n.names` instead), so it saw only {None, ...} and passed whatever
+    agents.py imported, the exact cycle #1784 asked removed. Also walked the
+    whole tree, which would have caught agents.py's own deliberate
+    function-body `from . import db, status` (already on main, unrelated to
+    this cycle) had it named collect or vendors. Fixed: only `tree.body`
+    (module level), and both shapes of a relative import - `from . import X`
+    (X in `n.names`) and `from .X import Y` (X is `n.module`)."""
     import ast
     tree = ast.parse((ROOT / "ocp" / "agents.py").read_text())
-    imported = {n.module for n in ast.walk(tree) if isinstance(n, ast.ImportFrom)}
+    imported: set[str] = set()
+    for n in tree.body:
+        if not isinstance(n, ast.ImportFrom):
+            continue
+        if n.module:
+            imported.add(n.module.split(".")[0])
+        else:
+            imported.update(a.name for a in n.names)
     check("agents.py imports neither collect nor vendors",
           not ({"collect", "vendors"} & imported), imported)
 
@@ -9227,7 +9245,8 @@ def test_a_session_figure_is_not_shown_as_an_accounts(home: Path) -> None:
     # shape collect.snapshot actually writes - a dict of counts - so the
     # account's 770,000 is a real, sizeable figure a bug would actually leak.
     write_status(home, "alpha", pct_5h=20, ctx_pct=77,
-                 ctx_used={"input_tokens": 770_000}, cost_usd=9.99)
+                 ctx_used={"input_tokens": 770_000}, cost_usd=9.99,
+                 model_id="claude-haiku-4-5-20251001")
     (home / "agents" / "has_session").mkdir(parents=True, exist_ok=True)
     (home / "agents" / "has_session" / "status.json").write_text(json.dumps({
         "account": "alpha", "collected_at": int(time.time()), "session_id": "s1",
@@ -9239,6 +9258,11 @@ def test_a_session_figure_is_not_shown_as_an_accounts(home: Path) -> None:
           st.ctx_pct is None, str(st.ctx_pct))
     check("nor a raw token count either", st.ctx_used is None, str(st.ctx_used))
     check("and no session id to point at either", st.session_id is None)
+    # auditor #1813 note 4: without its own snapshot, model_id must not be
+    # borrowed either - a haiku account's last session would otherwise clamp
+    # a never-run agent's (unset) context to haiku's window, not the default.
+    check("nor the account's last-seen model either", st.model_id is None,
+          str(st.model_id))
     check("but the account's rate limits still apply to it", st.pct_5h == 20)
     check("so the trigger cannot fire on a context it does not have",
           triggers.evaluate(st.trusted_pct_5h, st.trusted_ctx_used).kind != "context")
@@ -11380,6 +11404,51 @@ def test_a_usage_park_is_woken_when_the_reading_clears(home: Path) -> None:
         check("park: an open session wakes the moment the reading clears, "
               "not at the deadline it was given",
               row["state"] == dmn.QUEUED and row["wake_at"] is None, str(dict(row)))
+    finally:
+        orcamod.available, orcamod.alive = real
+        con.close()
+
+
+def test_a_parked_agent_is_unparked_by_its_own_context_limit(home: Path) -> None:
+    """auditor #1813 should-fix 2: the PARKED branch's own triggers.evaluate
+    call (daemon.py's un-park check, above the main evaluate a few lines
+    down) shares only the ctx_limit *variable* with that other call, not the
+    keyword argument itself - each call can drop its own ctx_limit=
+    independently, and the earlier call-site test (built to reach the main
+    evaluate) never parks an agent, so it never reaches this branch. Two
+    agents parked for 'usage', both recovered on their 5h reading (5%) but
+    both sitting on 200,000 context tokens - only a context_tokens override
+    tells them apart, and only this branch's own ctx_limit= could catch a
+    regression here."""
+    _daemon_home(home, 20)
+    agents.register("parkreal", "alpha")
+    agents.register("parkctl", "alpha")
+    agent_file = agents.agent_file("parkctl")
+    agent_file.write_text(agent_file.read_text() + "context_tokens: 10000000\n")
+    con = db.connect()
+    real = (orcamod.available, orcamod.alive)
+    try:
+        orcamod.available = lambda: True
+        orcamod.alive = lambda h: True
+        write_status(home, "alpha", pct_5h=5, pct_7d=10, reset_5h=int(time.time()) + 1800)
+        for name in ("parkreal", "parkctl"):
+            db.set_terminal(con, name, f"term_{name}", "wt")
+            db.set_account(con, name, "alpha")
+            _park_via_handoff(con, name, "usage")
+            db.set_agent_state(con, name, dmn.PARKED,
+                               wake_at=int(time.time()) + 3600, detail="usage; wakes at 23:00")
+            write_agent_status(name, "alpha", ctx_used=200_000, model_id="claude-sonnet-5")
+            db.add_request(con, "marina", name, "carry on", None, "peer", "async", None, 0, None)
+        dmn.supervise(con, "parkreal", lambda _m: None, int(time.time()), {}, [])
+        dmn.supervise(con, "parkctl", lambda _m: None, int(time.time()), {}, [])
+        real_row = db.get_agent_state(con, "parkreal")
+        ctl_row = db.get_agent_state(con, "parkctl")
+        check("park/ctx: the default-limit agent stays parked - its context, "
+              "not its usage, is now what keeps the PARKED branch's own "
+              "verdict fired", real_row["state"] == dmn.PARKED, dict(real_row))
+        check("park/ctx: the overridden agent un-parks on the same usage "
+              "reading, since its own PARKED-branch call site honoured the "
+              "per-agent limit too", ctl_row["state"] != dmn.PARKED, dict(ctl_row))
     finally:
         orcamod.available, orcamod.alive = real
         con.close()
@@ -24694,6 +24763,8 @@ def main() -> int:
         run(lambda: test_the_bridges_wake_column_dates_a_weekly_wall(Path(td) / 'walledwkclock'))
         run(lambda: test_a_park_that_cannot_be_woken_keeps_its_deadline(Path(td) / 'parkdue'))
         run(lambda: test_a_usage_park_is_woken_when_the_reading_clears(Path(td) / 'parklevel1'))
+        run(lambda: test_a_parked_agent_is_unparked_by_its_own_context_limit(
+            Path(td) / 'parkctxlimit'))
         run(lambda: test_a_context_handoff_does_not_thrash_within_min_handoff_interval_s(Path(td) / 'ctxthrash'))
         run(lambda: test_every_call_site_actually_hands_supervise_the_per_agent_context_limit(
             Path(td) / 'ctxsites'))
