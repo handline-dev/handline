@@ -8637,7 +8637,8 @@ def test_the_sweep_corrects_what_it_can_see(home: Path) -> None:
         waiting.note("backend", "Bash", {"command": "rm x"})
         orcamod.live_terminals = lambda: set()
         obsmod.live_sessions = lambda: {}
-        dmn.sweep(con, lambda _m: None, [])
+        gone_actions: list[str] = []
+        dmn.sweep(con, lambda _m: None, gone_actions)
         check("sweep: a terminal Orca does not list is dropped",
               db.get_agent_state(con, "backend")["terminal"] is None,
               str(db.get_agent_state(con, "backend")["terminal"]))
@@ -8647,6 +8648,8 @@ def test_the_sweep_corrects_what_it_can_see(home: Path) -> None:
               str(dict(db.get_agent_state(con, "backend"))))
         check("sweep: and shows no wait",
               waiting.of(con, db.get_agent_state(con, "backend")) is None)
+        check("sweep: the close is said, not silent - the founder reads it in the same line",
+              gone_actions and "recorded as closed" in gone_actions[0], str(gone_actions))
 
         # 2. Its session died without us. Recording it is what makes work
         #    arriving wake it rather than be typed at a bash prompt. A fresh
@@ -12651,9 +12654,9 @@ def test_a_wait_does_not_outlive_the_prompt_that_raised_it(home: Path) -> None:
     it - which never fires its own PostToolUse when the call was denied or the
     session was interrupted, so nothing else was ever built to take the file
     away. waiting.of() closes that gap: it asks whether the agent has recorded
-    activity no sibling tool call could produce - a captured hook event, or an
-    `ocp` verb it ran itself - after the row id of the PermissionRequest that
-    raised this wait, not whether time has passed."""
+    activity of one of MOVED_ON_KINDS - never a side effect of some other tool
+    call finishing - after the row id of the PermissionRequest that raised
+    this wait, not whether time has passed."""
     _daemon_home(home, 20)
     os.environ["OCP_AGENT"], os.environ["OCP_ACCOUNT"] = "backend", "alpha"
     con = db.connect()
@@ -12662,6 +12665,16 @@ def test_a_wait_does_not_outlive_the_prompt_that_raised_it(home: Path) -> None:
 
         def waiting_now() -> bool:
             return waiting.of(con, db.get_agent_state(con, "backend")) is not None
+
+        # A wait file noted with no id to compare - written by note() before
+        # this field existed, or by a caller that never got one - is left
+        # showing even with real MOVED_ON_KINDS activity after it, rather
+        # than guessed at either way.
+        waiting.note("backend", "Bash", {"command": "no id"})
+        db.add_event(con, "backend", "commit", {})
+        check("outlive: a wait with no id to compare is left showing, not guessed at",
+              waiting_now())
+        waiting.clear("backend")
 
         # Denied or interrupted: no PostToolUse ever arrives for "rm -rf /x"
         # itself. A sibling dispatched in the same batch, which does not need
@@ -12672,13 +12685,22 @@ def test_a_wait_does_not_outlive_the_prompt_that_raised_it(home: Path) -> None:
         _fire_hook("PostToolUse", tool_name="Read", tool_input={"file_path": "/y"})
         check("outlive: a mismatched sibling finishing does not clear it", waiting_now())
 
-        # The agent goes on working past the denial: a subagent it dispatched
-        # completes. It could only have dispatched that subagent once the
-        # block on the denied call was lifted - unlike the sibling above,
-        # nothing about SubagentStop is a side effect of some other tool call
-        # finishing.
+        # A subagent dispatched in the same batch as the denied call finishes
+        # on its own too, the same shape as the sibling above: the Agent tool
+        # can run several subagents at once, and SubagentStop is not this
+        # agent's own turn continuing any more than PostToolUse is (auditor
+        # #1654 SHOULD-FIX 1 - measured on the live db, same-agent
+        # SubagentStop pairs land under two seconds apart, which is what
+        # parallel subagents look like).
         _fire_hook("SubagentStop")
-        check("outlive: activity the agent could only produce by going on clears it",
+        check("outlive: a sibling subagent finishing does not clear it either", waiting_now())
+
+        # The agent goes on working past the denial: it runs an `ocp` verb,
+        # which can only happen once the tool call that ran it has itself
+        # returned - unlike the two siblings above, nothing else could have
+        # produced this event.
+        db.add_event(con, "backend", "commit", {})
+        check("outlive: an `ocp` verb the agent ran itself clears it",
               not waiting_now())
 
         # A wait that really is still pending must not read as stale merely

@@ -22,6 +22,25 @@ from . import db, paths
 _INPUT_FIELDS = ("command", "file_path", "path", "pattern", "url", "query", "description")
 SHOWN_CHARS = 120
 
+# What proves the agent's own turn continued past the prompt that raised a
+# wait - not merely that some other tool call finished. Deliberately narrower
+# than db.AGENT_ACTIVITY_KINDS: SubagentStop looks the same shape as this
+# module already refuses to trust PostToolUse for - the Agent tool can
+# dispatch several subagents in one batch, and one of them finishing while a
+# sibling is still stuck at a permission prompt fires SubagentStop the same
+# way an ordinary sibling tool call fires PostToolUse (auditor #1654
+# SHOULD-FIX 1, measured: 15 same-agent SubagentStop pairs under two seconds
+# apart in the live db, which is what parallel subagents look like).
+# TeammateIdle is not this agent's own turn either - it is another agent's
+# status reaching this session (auditor #1654 NOTE 5). What is left is
+# unimpeachable: an `ocp` verb only runs once the tool call that ran it has
+# itself returned, and PostCompact is this session's own transcript growing,
+# neither a side effect an unrelated tool call could produce.
+MOVED_ON_KINDS = frozenset({
+    "ask", "cancel", "commit", "escalate", "report", "resolve", "withdraw",
+    "no_task", "PostCompact",
+})
+
 
 def _file(agent: str) -> Path:
     return paths.home() / "waiting" / f"{agent}.json"
@@ -94,24 +113,16 @@ def of(con, row) -> dict | None:
 
     clear() only unlinks the file for the exact tool call that raised it -
     right when a denial or an interruption means that call never fires its own
-    PostToolUse, so nothing else ever clears it. A mismatched tool call is not
-    evidence the prompt is over: a sibling dispatched in the same batch
-    finishes the same way while the noted one is still genuinely pending, and
-    PostToolUse is deliberately never written to `events` (see events.py) for
-    exactly that noise. So this asks a question no sibling tool call can
-    answer instead: has the agent's *own* recorded activity - a captured hook
-    event, or an `ocp` verb it ran itself - moved past the prompt that raised
-    this wait? Every kind `last_activity_id` counts can only be produced by
-    the agent's own turn continuing; none of them is a side effect of some
-    other tool call finishing. Finding one proves the turn that hit this
-    prompt has already gone on - through however it went on - so the wait is
-    stale and is cleared here, not left for the next matching PostToolUse that
-    may never come. PermissionRequest itself must be excluded, or the very
-    event that raised this wait would always satisfy "something happened after
-    it" - which is also why the comparison is by `events.id`, not `since`: a
-    whole-second clock ties too easily against activity a real agent produces
-    moments later. A wait noted before this field existed has no id to compare
-    and is left showing rather than guessed at.
+    PostToolUse, so nothing else ever clears it. So this asks a question no
+    sibling tool call can answer instead: has the agent recorded activity of
+    one of MOVED_ON_KINDS - never a side effect of some other tool call
+    finishing - after the prompt that raised this wait? Finding one proves
+    the turn that hit this prompt has already gone on, so the wait is stale
+    and is cleared here, not left for the next matching PostToolUse that may
+    never come. The comparison is by `events.id`, not `since`: a whole-second
+    clock ties too easily against activity a real agent produces moments
+    later. A wait noted before this field existed has no id to compare and is
+    left showing rather than guessed at.
     """
     if not row or row["closed_at"] or row["state"] != "RUNNING":
         return None
@@ -120,7 +131,7 @@ def of(con, row) -> dict | None:
         return None
     eid = w.get("after_event_id")
     if eid is not None:
-        moved_on = db.last_activity_id(con, row["agent"], exclude=frozenset({"PermissionRequest"}))
+        moved_on = db.last_activity_id(con, row["agent"], MOVED_ON_KINDS)
         if moved_on is not None and moved_on > eid:
             clear(row["agent"])
             return None

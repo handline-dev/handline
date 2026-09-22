@@ -1085,8 +1085,8 @@ def last_activity(con, agent: str) -> int | None:
     return int(row["t"]) if row and row["t"] is not None else None
 
 
-def last_activity_id(con, agent: str, exclude: frozenset[str] = frozenset()) -> int | None:
-    """The row id of this agent's most recent activity, or None.
+def last_activity_id(con, agent: str, kinds: frozenset[str]) -> int | None:
+    """The row id of this agent's most recent event of one of `kinds`, or None.
 
     Same idea as `last_activity`, but by `events.id` rather than `ts`: two
     calls a real agent makes moments apart land in the same whole second more
@@ -1094,12 +1094,12 @@ def last_activity_id(con, agent: str, exclude: frozenset[str] = frozenset()) -> 
     (`waiting.of`) needs an answer a tied clock cannot give. Row ids are
     assigned in insertion order and never tie.
 
-    `exclude` drops kinds from the count without touching AGENT_ACTIVITY_KINDS
-    itself: a caller asking "has anything happened *after* this PermissionRequest"
-    needs PermissionRequest left out, or the request that raised the question
-    always answers it.
+    Unlike `last_activity`, `kinds` is the caller's own set rather than
+    AGENT_ACTIVITY_KINDS: its one caller trusts only a few of those kinds as
+    evidence a stuck agent moved on (see `waiting.MOVED_ON_KINDS`), and a
+    generic exclude-from-everything parameter for one caller and one value
+    was more surface than the job needed.
     """
-    kinds = AGENT_ACTIVITY_KINDS - exclude
     placeholders = ",".join("?" * len(kinds))
     row = con.execute(
         f"SELECT MAX(id) AS i FROM events WHERE agent = ? AND kind IN ({placeholders})",

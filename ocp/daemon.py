@@ -1335,6 +1335,29 @@ def reconcile(con, log) -> list[str]:
 _probe_turn = {"n": 0}
 
 
+def _resumable_session(con, agent: str) -> str | None:
+    """The session id to remember when recording `agent` as closed, or None.
+
+    Read the agent's own snapshot directly rather than through
+    read_for_agent, which nulls the session id once that snapshot is stale.
+    That rule is there to stop an agent being handed another agent's session
+    off the shared account file, and it is right - but a session that has
+    just died (or a terminal that just went with it) leaves a snapshot that
+    is stale by construction, and its own id is the one thing here that is
+    not in doubt. Losing it loses the only pointer to that agent's context,
+    and memory comes back where context does not.
+    """
+    own = status.read(agents.current_account(agent, con), paths.agent_status_file(agent))
+    session = None if own.error else own.session_id
+    # A session id lives under the account its session ran on. If the agent
+    # has moved since - its new session not yet visible - the id in its
+    # snapshot is the old account's, and a resume of it dies.
+    ran_on = own.raw.get("account")
+    if ran_on and ran_on != agents.current_account(agent, con):
+        session = None
+    return session
+
+
 def sweep(con, log, actions: list[str]) -> None:
     """Ask the world what is true, and correct the record where it is not.
 
@@ -1374,22 +1397,21 @@ def sweep(con, log, actions: list[str]) -> None:
             # it again would then make a second worktree beside the first.
             db.set_terminal(con, agent, None, row["worktree"])
             db.add_event(con, agent, "terminal_gone", {"handle": row["terminal"]})
-            actions.append(f"{agent}: terminal is gone; handle dropped")
-            log(f"  {agent}: terminal is gone; handle dropped")
+            said = f"{agent}: terminal is gone; handle dropped"
             # Confirmed gone is an answer, not an unread one - the same close
             # the "session ended without us" branch below does when it has its
             # own confirmation, so a terminal closed at a prompt does not read
-            # RUNNING, closed_at None, forever.
+            # RUNNING, closed_at None, forever. Said in the same line, not a
+            # second event: this is one fact (the terminal, and whatever was
+            # running in it, are both gone), not two.
             if not row["closed_at"]:
-                own = status.read(agents.current_account(agent, con),
-                                  paths.agent_status_file(agent))
-                session = None if own.error else own.session_id
-                ran_on = own.raw.get("account")
-                if ran_on and ran_on != agents.current_account(agent, con):
-                    session = None
+                session = _resumable_session(con, agent)
                 db.set_closed(con, agent, session)
                 if row["state"] == RUNNING:
                     db.set_agent_state(con, agent, IDLE, detail="terminal gone")
+                said += f"; recorded as closed (resume {session or 'unknown'})"
+            actions.append(said)
+            log(f"  {said}")
             continue
 
         if o.terminal_alive is not True or not o.session_seen:
@@ -1423,24 +1445,7 @@ def sweep(con, log, actions: list[str]) -> None:
         elif not alive and not closed and row["terminal"]:
             # It died, or a human ended it. Recording it as closed is what makes
             # work arriving wake it instead of being typed at a bash prompt.
-            #
-            # Read the agent's own snapshot directly rather than through
-            # read_for_agent, which nulls the session id once that snapshot is
-            # stale. That rule is there to stop an agent being handed another
-            # agent's session off the shared account file, and it is right - but
-            # a session that has just died leaves a snapshot that is stale by
-            # construction, and its own id is the one thing here that is not in
-            # doubt. Losing it loses the only pointer to that agent's context,
-            # and memory comes back where context does not.
-            own = status.read(agents.current_account(agent, con),
-                              paths.agent_status_file(agent))
-            session = None if own.error else own.session_id
-            # A session id lives under the account its session ran on. If the
-            # agent has moved since - its new session not yet visible - the id
-            # in its snapshot is the old account's, and a resume of it dies.
-            ran_on = own.raw.get("account")
-            if ran_on and ran_on != agents.current_account(agent, con):
-                session = None
+            session = _resumable_session(con, agent)
             db.set_closed(con, agent, session)
             if row["state"] == RUNNING:
                 db.set_agent_state(con, agent, IDLE, detail="session ended without us")
