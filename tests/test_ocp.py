@@ -2490,6 +2490,280 @@ def test_fold(home: Path) -> None:
         foldmod.run_model = real
 
 
+def test_a_resolved_ask_does_not_stay_in_progress_across_a_park(home: Path) -> None:
+    """The event that would tell a fold an outstanding ask closed only ever
+    carries a count (daemon.py's `answered` event), never which id - and for
+    an agent that was parked when the answer landed, there may be no event at
+    all yet. Either way the store already knows; the fold has to check it
+    directly rather than wait for an event that may never name the id."""
+    home.mkdir(parents=True, exist_ok=True)
+    os.environ["OCP_HOME"] = str(home)
+    (home / "team.yaml").write_text(DESIGN_TEAM)
+    agents.register("backend", "alpha")
+
+    con = db.connect()
+    try:
+        rid = db.add_request(con, "backend", "auditor", "review this", None,
+                             "peer", "fire_and_forget", None, 0, None)
+        db.add_event(con, "backend", "ask", {"request_id": rid, "target": "auditor"})
+        top = db.max_event_id(con)
+        # A fold already ran and published the ask as in progress, before the
+        # park - the cursor is past it, same as in production.
+        db.set_cursor(con, "fold:backend", top)
+    finally:
+        con.close()
+
+    day = foldmod.today()
+    previous = digest.Digest(
+        date=day, agent="backend", updated="09:00", folded_through=top,
+        sections={"done": ["set up the branch"], "in_progress": [f"Auditor request {rid} dispatched"],
+                  "decided": [], "blocked": [], "next": [], "base_candidates": []})
+    foldmod.journal_path("backend", day).write_text(digest.render(previous))
+
+    # Answered while backend was parked: the store is updated, but nothing
+    # tells the agent's own event log which id it was - the daemon's delivery
+    # path only fires that event into a live session (design section 5).
+    con = db.connect()
+    try:
+        db.set_request_state(con, rid, "done", verdict="looks good", announced=True)
+    finally:
+        con.close()
+
+    # --- no new event at all: the "nothing to fold" path still checks the store
+    ok, msg = foldmod.fold("backend", use_model=True, fold_account="alpha")
+    check("fold: an unchanged cursor still says there was nothing new", "nothing new" in msg, msg)
+    handed = digest.parse(foldmod.journal_path("backend", day).read_text())
+    check("fold: the resolved ask is not still in progress after an event-free refresh",
+          not any(str(rid) in i for i in handed.items("in_progress")), handed.items("in_progress"))
+    check("fold: and it reads as done", any(str(rid) in i for i in handed.items("done")),
+          handed.items("done"))
+
+    # --- a fold with a model that fails to reconcile it is still corrected
+    # (the refresh above already corrected the journal, so put the stale line back)
+    foldmod.journal_path("backend", day).write_text(digest.render(previous))
+    con = db.connect()
+    try:
+        db.add_event(con, "backend", "commit", {"sha": "abc", "subject": "more work"})
+        top2 = db.max_event_id(con)
+    finally:
+        con.close()
+    stuck = digest.render(digest.Digest(
+        date=day, agent="backend", updated="09:05", folded_through=top2,
+        sections={"done": ["set up the branch"], "in_progress": [f"Auditor request {rid} dispatched"],
+                  "decided": [], "blocked": [], "next": [], "base_candidates": []}))
+    real = foldmod.run_model
+    try:
+        foldmod.run_model = lambda *a, **k: (True, stuck)
+        ok, msg = foldmod.fold("backend", use_model=True, fold_account="alpha")
+        check("fold: succeeds even though the model carried the resolved ask forward", ok, msg)
+    finally:
+        foldmod.run_model = real
+    published = digest.parse(foldmod.journal_path("backend", day).read_text())
+    check("fold: the store overrules a model that left a resolved ask in progress",
+          not any(str(rid) in i for i in published.items("in_progress")),
+          published.items("in_progress"))
+    check("fold: completed work named earlier is not lost in the correction",
+          "set up the branch" in published.items("done"))
+
+
+def _reconcile_world(home: Path) -> None:
+    home.mkdir(parents=True, exist_ok=True)
+    os.environ["OCP_HOME"] = str(home)
+    (home / "team.yaml").write_text(DESIGN_TEAM)
+    agents.register("backend", "alpha")
+
+
+def test_reconcile_resolved_needs_an_explicit_reference_not_a_bare_number(home: Path) -> None:
+    """auditor's #499/#1573: a fold's own errors are one-way - build_prompt
+    forbids the very next fold from ever moving a line back out of 완료 - so
+    a wrong close is permanent in the document daemon.py tells an agent with
+    no handoff to read. \\d+ read every number in a line as a request id, and
+    request ids are small integers that nearly all resolve. Reproduced with
+    requests 1-8 done: "Phase 4 daemon rewrite, step 2 of 7" (ids 4, 2, 7,
+    all done), "rebase onto main, 3 conflicts left" and "7d reset tracking
+    needs founder call" (auditor's exact three) all moved to 완료 under the
+    old regex. Only #N or "request N" is close enough to certain."""
+    _reconcile_world(home)
+    con = db.connect()
+    try:
+        for _ in range(8):
+            rid = db.add_request(con, "backend", "auditor", "x", None, "peer",
+                                 "fire_and_forget", None, 0, None)
+            db.set_request_state(con, rid, "done", verdict="ok")
+
+        prose = ["Phase 4 daemon rewrite, step 2 of 7",
+                "rebase onto main, 3 conflicts left",
+                "7d reset tracking needs founder call"]
+        d = digest.Digest(date="2026-09-22", agent="backend", updated="09:00",
+                          folded_through=1,
+                          sections={"in_progress": prose[:2], "blocked": prose[2:],
+                                   "done": [], "decided": [], "next": [], "base_candidates": []})
+        out = foldmod.reconcile_resolved(con, d)
+        check("reconcile: a bare number in prose is not read as a request id",
+              out.items("in_progress") == prose[:2] and out.items("blocked") == prose[2:],
+              str(out.sections))
+        check("reconcile: nothing moved to 완료 on prose alone",
+              out.items("done") == [], out.items("done"))
+
+        # The control: an explicit #N to that same resolved request IS closed.
+        explicit = digest.Digest(date="2026-09-22", agent="backend", updated="09:00",
+                                 folded_through=1,
+                                 sections={"in_progress": [f"waiting on #{rid}"],
+                                          "blocked": [], "done": [], "decided": [],
+                                          "next": [], "base_candidates": []})
+        out2 = foldmod.reconcile_resolved(con, explicit)
+        check("reconcile: an explicit #N to a done request is closed",
+              out2.items("in_progress") == [] and f"waiting on #{rid}" in out2.items("done"),
+              str(out2.sections))
+    finally:
+        con.close()
+
+
+def test_reconcile_resolved_only_state_done_counts(home: Path) -> None:
+    """auditor's #499 should-fix, raised to blocking by #1573: `state !=
+    'queued'` let denied, withdrawn and replaced asks - work that never
+    happened - count as done. Only 'done' does."""
+    _reconcile_world(home)
+    con = db.connect()
+    try:
+        never_happened = {}
+        for state in ("denied", "withdrawn", "replaced", "rejected"):
+            rid = db.add_request(con, "backend", "auditor", "x", None, "peer",
+                                 "fire_and_forget", None, 0, None)
+            db.set_request_state(con, rid, state)
+            never_happened[state] = rid
+        done_rid = db.add_request(con, "backend", "auditor", "y", None, "peer",
+                                  "fire_and_forget", None, 0, None)
+        db.set_request_state(con, done_rid, "done", verdict="ok")
+        queued_rid = db.add_request(con, "backend", "auditor", "z", None, "peer",
+                                    "fire_and_forget", None, 0, None)
+
+        d = digest.Digest(date="2026-09-22", agent="backend", updated="09:00", folded_through=1,
+                          sections={"in_progress": [f"waiting on #{rid}" for rid in never_happened.values()]
+                                   + [f"waiting on #{done_rid}", f"waiting on #{queued_rid}"],
+                                   "blocked": [], "done": [], "decided": [], "next": [],
+                                   "base_candidates": []})
+        out = foldmod.reconcile_resolved(con, d)
+        for state, rid in never_happened.items():
+            line = f"waiting on #{rid}"
+            check(f"reconcile: {state} is not done - the ask never reached its target",
+                  line in out.items("in_progress") and line not in out.items("done"),
+                  str(out.sections))
+        check("reconcile: a done request is closed",
+              f"waiting on #{done_rid}" in out.items("done"), str(out.sections))
+        check("reconcile: a still-queued one stays put",
+              f"waiting on #{queued_rid}" in out.items("in_progress"), str(out.sections))
+    finally:
+        con.close()
+
+
+def test_build_prompt_tells_the_model_not_to_write_a_started_by_reference_as_hash_n(
+        home: Path) -> None:
+    """auditor's #1600 NOTE, the residual of the #N fix that closed BLOCKING
+    1: #N carries two meanings in this project's prose - 'the ask I am
+    waiting on' and 'the ask that started this work'. Only the first should
+    ever close a line, but reconcile_resolved's regex cannot tell intent
+    from text - it only sees #N. Measured (still true, and expected to be -
+    this is a prompt-level mitigation, not a structural one): with ids 1-8
+    done, "Fix auditor's #5 BLOCKING finding" and "per #3, rework the guard"
+    both still close to 완료, because both merely NAME a resolved request
+    without waiting on it. The proportionate close auditor asked for is one
+    more sentence in build_prompt telling the model which meaning #N is for,
+    so the regex matches something the prompt actually constrains against -
+    the same reasoning behind the #N rule BLOCKING 1's fix already added."""
+    _reconcile_world(home)
+    con = db.connect()
+    try:
+        for _ in range(8):
+            rid = db.add_request(con, "backend", "auditor", "x", None, "peer",
+                                 "fire_and_forget", None, 0, None)
+            db.set_request_state(con, rid, "done", verdict="ok")
+
+        started_by = ["Fix auditor's #5 BLOCKING finding", "per #3, rework the guard"]
+        d = digest.Digest(date="2026-09-22", agent="backend", updated="09:00", folded_through=1,
+                          sections={"in_progress": started_by, "blocked": [], "done": [],
+                                   "decided": [], "next": [], "base_candidates": []})
+        out = foldmod.reconcile_resolved(con, d)
+        check("reconcile: naming a resolved request as the reason work started "
+              "still closes the line - the residual, unstructural gap",
+              out.items("done") == started_by, str(out.sections))
+    finally:
+        con.close()
+
+    # The mitigation itself: the prompt tells the model #N means "waiting
+    # on", not "started by" - one more sentence, no format change.
+    prompt = foldmod.build_prompt("backend", digest.Digest(), [], "2026-09-22")
+    check("build_prompt: tells the model #N means waiting-on, not started-by",
+          "waiting on" in prompt and "work on it starts" in prompt
+          and "another way" in prompt, prompt)
+
+    # Auditor #1623 BLOCKING: a substring check on the prompt would pass for
+    # any example at all, including one that still closes the line the
+    # sentence exists to keep open - "the finding from #7" was exactly that,
+    # since _ID_RE matches #N anywhere in the text, not only where the model
+    # was told to put it. So the examples are read out of the live prompt
+    # text itself, not a second, hand-kept list that a future edit to the
+    # prompt could drift away from unnoticed, and run through
+    # reconcile_resolved the same way the two counter-examples above were.
+    segment = prompt.split("another way instead (", 1)[1].split(")", 1)[0]
+    examples = re.findall(r'"([^"]+)"', segment)
+    check("build_prompt: setup - the rule gives at least two examples to check",
+          len(examples) >= 2, segment)
+    con = db.connect()
+    try:
+        d2 = digest.Digest(date="2026-09-22", agent="backend", updated="09:00",
+                           folded_through=1,
+                           sections={"in_progress": examples, "blocked": [], "done": [],
+                                    "decided": [], "next": [], "base_candidates": []})
+        out2 = foldmod.reconcile_resolved(con, d2)
+        check("reconcile: every example the prompt recommends stays in progress, "
+              "not closed by an id it happens to contain",
+              out2.items("in_progress") == examples, str(out2.sections))
+    finally:
+        con.close()
+
+
+def test_fold_degraded_path_also_reconciles_resolved_asks(home: Path) -> None:
+    """#499 should-fix: only the no-event and model paths were exercised.
+    _degraded carries previous's in_progress/blocked lines forward verbatim
+    (design section 5's deterministic fallback), and reconcile_resolved runs
+    on that too - a fold that could not reach a model must not leave a
+    provably-done line stuck forever either."""
+    _reconcile_world(home)
+    con = db.connect()
+    try:
+        rid = db.add_request(con, "backend", "auditor", "review this", None,
+                             "peer", "fire_and_forget", None, 0, None)
+        db.add_event(con, "backend", "ask", {"request_id": rid, "target": "auditor"})
+    finally:
+        con.close()
+
+    day = foldmod.today()
+    previous = digest.Digest(
+        date=day, agent="backend", updated="09:00", folded_through=0,
+        sections={"done": ["set up the branch"], "in_progress": [f"waiting on #{rid}"],
+                  "decided": [], "blocked": [], "next": [], "base_candidates": []})
+    foldmod.journal_path("backend", day).write_text(digest.render(previous))
+
+    con = db.connect()
+    try:
+        db.set_request_state(con, rid, "done", verdict="looks good", announced=True)
+        # A second, unrelated event so the fold is not the no-event path.
+        db.add_event(con, "backend", "commit", {"sha": "abc", "subject": "more work"})
+    finally:
+        con.close()
+
+    ok, msg = foldmod.fold("backend", use_model=False, fold_account="alpha")
+    check("fold: the degraded path runs (no model requested)", not ok, msg)
+    published = digest.parse(foldmod.journal_path("backend", day).read_text())
+    check("fold: the degraded fold also closes a provably-done ask",
+          f"waiting on #{rid}" in published.items("done")
+          and f"waiting on #{rid}" not in published.items("in_progress"),
+          str(published.sections))
+    check("fold: and does not lose completed work already on the page",
+          "set up the branch" in published.items("done"), published.items("done"))
+
+
 def test_rollover(home: Path) -> None:
     home.mkdir(parents=True, exist_ok=True)
     os.environ["OCP_HOME"] = str(home)
@@ -21268,6 +21542,12 @@ def main() -> int:
         run(lambda: test_digest())
         run(lambda: test_event_allowlist())
         run(lambda: test_fold(Path(td) / 'foldhome'))
+        run(lambda: test_a_resolved_ask_does_not_stay_in_progress_across_a_park(Path(td) / 'foldparkhome'))
+        run(lambda: test_reconcile_resolved_needs_an_explicit_reference_not_a_bare_number(Path(td) / 'reconid'))
+        run(lambda: test_reconcile_resolved_only_state_done_counts(Path(td) / 'reconstate'))
+        run(lambda: test_build_prompt_tells_the_model_not_to_write_a_started_by_reference_as_hash_n(
+            Path(td) / 'reconhashn'))
+        run(lambda: test_fold_degraded_path_also_reconciles_resolved_asks(Path(td) / 'reconderaded'))
         run(lambda: test_rollover(Path(td) / 'rollhome'))
         run(lambda: test_triggers())
         run(lambda: test_daemon_evaluates_parked(Path(td) / 'd0'))

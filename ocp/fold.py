@@ -19,6 +19,7 @@ to a deterministic digest rather than publishing the garbage.
 from __future__ import annotations
 
 import json
+import re
 import shutil
 import subprocess
 import time
@@ -98,6 +99,66 @@ def deterministic_facts(agent: str, events, repo: Path | None = None) -> str:
     return "\n".join(lines)
 
 
+# A fold's own event delta cannot tell it which of an agent's outstanding
+# asks an "answered" event closed - that event carries only a count (daemon.py
+# deliver_answers), never the ids, because the row itself is the record and a
+# second copy in the event log would just be one more place to drift from it.
+# So a request an agent is still asking about, in the 진행중/막힌 것 prose the
+# model wrote last time, can sit there for folds after the store already has
+# it as done: nothing in the delta ever named it closed. This checks the
+# store directly for every id already on the page, rather than asking the
+# model to infer closure from a delta that structurally cannot say it.
+#
+# reconcile_resolved's errors are one-way: build_prompt (below) forbids the
+# very next fold from ever moving a line back out of 완료, so a wrong close
+# here is permanent, in the document an agent is told to read when it has no
+# handoff (daemon.py's no-handoff branch) and that the next fold itself reads
+# back as `previous`. That rules out guessing an id out of prose - \d+ moved
+# "step 2 of 7", "3 conflicts left" and "7d reset tracking needs founder
+# call" to 완료 once request ids 1-8 happened to be resolved, none of them
+# actually about those requests (auditor's #499/#1573). Only an explicit
+# reference is close enough to certain: #N, or "request N" the way an agent
+# writing prose about its own asks would say it. build_prompt's own rules
+# tell the model to write an ask as #N, so this matches something the prompt
+# guarantees rather than something it merely hopes for.
+_ID_RE = re.compile(r"#(\d+)|\brequest\s+(\d+)\b", re.IGNORECASE)
+_RECONCILE_SECTIONS = ("in_progress", "blocked")
+
+
+def _is_resolved(con, rid: int) -> bool:
+    # Only "done" - not db.NEVER_REACHED_TARGET (denied/withdrawn/replaced)
+    # and not "rejected": every one of those means the work this line
+    # describes never happened, and reconcile_resolved's job is to close a
+    # line once the store can PROVE it is done, not once the request is off
+    # the queue for some other reason (auditor's #499 should-fix, raised to
+    # blocking by #1573's ruling - the same one-way-error reasoning above).
+    r = db.get_request(con, rid)
+    return r is not None and r["state"] == "done"
+
+
+def reconcile_resolved(con, d: digest.Digest) -> digest.Digest:
+    """Move a 진행중/막힌 것 line to 완료 once every id it names is resolved.
+
+    A line with no ids, or with an id the store does not recognize or has not
+    resolved, stays exactly where the model put it - this only closes what the
+    store can prove is done, never rewrites a line on its own judgment.
+    """
+    for key in _RECONCILE_SECTIONS:
+        items = d.sections.get(key, [])
+        if not items:
+            continue
+        kept, resolved = [], []
+        for item in items:
+            # Two alternatives, two groups: whichever one matched is the id,
+            # the other is "".
+            ids = [int(a or b) for a, b in _ID_RE.findall(item)]
+            (resolved if ids and all(_is_resolved(con, i) for i in ids) else kept).append(item)
+        if resolved:
+            d.sections[key] = kept
+            d.sections["done"] = d.sections.get("done", []) + resolved
+    return d
+
+
 def build_prompt(agent: str, previous: digest.Digest, events, day: str) -> str:
     """The fold prompt. One call, cheap model, no conversation."""
     prev_text = digest.render(previous) if previous.agent else "(no previous digest)"
@@ -119,6 +180,14 @@ Rules:
 - Every item already under 완료 in the previous digest MUST still appear under 완료.
   Losing a completed item is the one unacceptable error.
 - Move items between sections as the new events warrant; do not invent work.
+- When a 진행중 or 막힌 것 item is about a request you asked, write its id as
+  #N (e.g. "waiting on #7") ONLY when that request is what the item is
+  waiting on - reconcile_resolved closes the item the moment that request
+  is done, so #N there means "done" ends this. A request being resolved is
+  often when work on it starts, not when it finishes (e.g. a review coming
+  back) - name that request another way instead ("auditor's review", "the
+  C1 finding"), never as #N or "request N", or the item will close the
+  moment the review lands, not when the work it starts is actually done.
 - Keep each item one line, terse and concrete.
 - Do not add sections beyond the ones listed.
 
@@ -192,6 +261,19 @@ def fold(agent: str, use_model: bool = True, model: str = "haiku",
         facts = deterministic_facts(agent, events, repo=repo)
 
         if not events:
+            # No event of this agent's own to fold, but the store can still
+            # have resolved an ask with no event to show it - a resolve event
+            # can fall before this fold's own cursor, so the model never sees
+            # it in the delta and the line it wrote sits in 진행중/막힌 것
+            # forever. Reconcile against the store here too, and republish
+            # only if that moved a line. reconcile_resolved mutates its
+            # argument in place, so the comparison needs the text taken
+            # before it runs.
+            before = digest.render(previous)
+            reconciled = reconcile_resolved(con, previous)
+            after = digest.render(reconciled)
+            if after != before:
+                _publish(agent, jpath, after, commit_msg=f"fold {agent} {day} (reconcile)")
             return True, f"{agent}: nothing new to fold (cursor at {cursor})"
 
         top = events[-1]["id"]
@@ -224,7 +306,8 @@ def fold(agent: str, use_model: bool = True, model: str = "haiku",
         if not valid:
             # Degraded fold: deterministic only. The previous digest survives,
             # the cursor does not move, and the delta is retried next time.
-            degraded = _degraded(agent, previous, events, day, facts)
+            degraded_d = reconcile_resolved(con, digest.parse(_degraded(agent, previous, events, day, facts)))
+            degraded = digest.render(degraded_d)
             _publish(agent, jpath, degraded, commit_msg=f"fold {agent} {day} (degraded)")
             # A rejected fold spent exactly what an accepted one spends, and
             # these events are the only record that the account was charged -
@@ -244,7 +327,7 @@ def fold(agent: str, use_model: bool = True, model: str = "haiku",
         # stamped rather than accepted. Asked for the right values, a fold came
         # back saying it was updated at 20:12 - the time of the last event it
         # had just read, fourteen hours earlier.
-        merged = digest.parse(candidate)
+        merged = reconcile_resolved(con, digest.parse(candidate))
         merged.facts = facts
         merged.date = day
         merged.agent = agent
