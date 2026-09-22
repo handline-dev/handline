@@ -7950,6 +7950,43 @@ def test_a_second_vendors_live_session_is_seen_by_the_sweep(home: Path) -> None:
              orcamod.available, orcamod.live_terminals) = real
 
 
+def test_another_vendors_account_never_spends_a_live_refresh(home: Path) -> None:
+    """auditor #1863: the vendor refusal runs before live_refresh. A stale zai
+    account listed ahead of a stale claude one must not be asked about, or it
+    spends the call's only refresh on an account the agent can never use and
+    the claude one is refused on its stale reading."""
+    _daemon_home(home, None)
+    now = int(time.time())
+    real_read, real_login = usage_api.read, accounts.logged_in
+    asked: list[str] = []
+    with second_vendor(metered=True):
+        try:
+            accounts.register("zeta", vendor="zai")
+            for n in ("zeta", "alpha"):
+                write_status(home, n, pct_5h=90, reset_5h=now - 60, rl_carried=False,
+                             rl_at=now - status.CARRY_MAX_AGE_S - 300, collected_at=now)
+                check(f"vendor refresh: the premise - {n} is carried_old, so a refresh "
+                      "would ask about it", status.read(n).pct_5h_source == "carried_old",
+                      status.read(n).pct_5h_source)
+
+            def fake_read(acct, refresh=True):
+                asked.append(acct)
+                return usage_api.Reading(acct, 10, now + 9000, 20, now + 90000, now)
+            usage_api.read = fake_read
+            accounts.logged_in = lambda acct: True
+
+            picked, ranked = status.pick_account(["zeta", "alpha"], agent="backend",
+                                                 live_refresh=True)
+            check("vendor refresh: the zai account is never asked about",
+                  "zeta" not in asked, asked)
+            check("vendor refresh: it is refused as another vendor's",
+                  dict(ranked).get("zeta") == "a zai account, not claude", ranked)
+            check("vendor refresh: the claude account gets the refresh and the agent",
+                  asked == ["alpha"] and picked == "alpha", (asked, picked, ranked))
+        finally:
+            usage_api.read, accounts.logged_in = real_read, real_login
+
+
 def test_an_accounts_verdict_is_asked_for_its_own_vendor(home: Path) -> None:
     """#1815: the panel's tick and the page's sentence arrive with no agent in
     hand, so a claude-only verdict said "no - a zai account, not claude" about
@@ -25066,6 +25103,8 @@ def main() -> int:
         run(lambda: test_a_vendor_with_no_driver_refuses_the_launch(Path(td) / 'novendor'))
         run(lambda: test_doctor_looks_for_the_vendors_executable_not_its_name(Path(td) / 'doctorbin'))
         run(lambda: test_a_claude_agent_is_never_placed_on_another_vendors_account(Path(td) / 'vendorpick'))
+        run(lambda: test_another_vendors_account_never_spends_a_live_refresh(
+            Path(td) / 'vendorrefresh'))
         run(lambda: test_a_second_vendors_live_session_is_seen_by_the_sweep(
             Path(td) / 'vendorsweep'))
         run(lambda: test_an_accounts_verdict_is_asked_for_its_own_vendor(
