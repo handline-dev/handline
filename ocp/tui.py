@@ -898,7 +898,7 @@ def build(width: int, sel: dict | None = None,
             # ...'s 5h window (...)" in full.
             w = daemon.would_wake(con, row) and launch.wake_wait(name, row, con)
             if w:
-                when = "?" if not w.reset_5h else time.strftime("%H:%M", time.localtime(w.reset_5h))
+                when = launch.wait_clock(w)
                 # The acct column already names it; only worth repeating when
                 # the wake would land elsewhere, or when it is only assumed -
                 # the acct column has no way to say that on its own - and only

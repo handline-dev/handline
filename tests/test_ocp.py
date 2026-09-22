@@ -10540,6 +10540,126 @@ def test_a_moved_walled_wake_names_the_new_account(home: Path) -> None:
         con.close()
 
 
+def test_a_resume_is_not_woken_onto_an_account_at_its_weekly_wall(home: Path) -> None:
+    """The resume branch is pinned to the account its session is tied to and
+    cannot follow an account change - nothing upstream refuses that account
+    on 7d the way `find_room` does for a move, so `wake_wait` is the only
+    thing standing between a resume and waking straight into the weekly
+    wall. Reverting the 7d branch alone (leaving the 5h one) makes this
+    fail while test_a_moved_walled_wake_names_the_new_account still passes,
+    since that one only exercises the move branch."""
+    _daemon_home(home, 20)
+    con = db.connect()
+    try:
+        db.set_account(con, "backend", "alpha")
+        db.set_closed(con, "backend", "sess-old")   # a resume id: the resume branch
+        db.add_request(con, "reviewer", "backend", "look at this", None,
+                       "peer", "async", None, 0, None)
+        write_status(home, "alpha", pct_5h=10, pct_7d=100, ctx_pct=5,
+                     reset_5h=int(time.time()) + 1800, reset_7d=int(time.time()) + 86400)
+        row = db.get_agent_state(con, "backend")
+        check("resumed: this row has a resume id", row["resume_session"] is not None, dict(row))
+        w = launch.wake_wait("backend", row, con)
+        check("resumed: 5h has room, but 7d is at the wall - still walled, and says which window",
+              w is not None and w.window == "7d" and w.pct == 100, w)
+        reason = launch.wake_wait_reason("backend", row, con) or ""
+        check("resumed: the sentence names the weekly window, not the 5h one",
+              "7d window" in reason, reason)
+        check("resumed: the rollover is dated, not a bare clock that would "
+              "claim a four-day-out wall rolls over today",
+              time.strftime("%m-%d", time.localtime(int(time.time()) + 86400)) in reason,
+              reason)
+        write_status(home, "alpha", pct_5h=10, pct_7d=99, ctx_pct=5,
+                     reset_5h=int(time.time()) + 1800, reset_7d=int(time.time()) + 86400)
+        check("resumed: one point under the wall is not walled",
+              launch.wake_wait("backend", row, con) is None)
+    finally:
+        con.close()
+
+
+def test_a_move_is_still_walled_on_7d_when_nowhere_else_has_room(home: Path) -> None:
+    """auditor #1724 should-fix: `choose_account`'s fallback is `find_room
+    (agent) or agents.account_of(agent)` - when every account is at its own
+    wall, find_room returns None and the move branch lands right back on the
+    walled preferred account, the same as a resume. The docstring's "belt and
+    braces" claim was false in exactly this case: with only one account in
+    play, this is the ONLY guard, not a second one alongside find_room's.
+    Reverting the 7d branch fails this test the same way it fails the resume
+    one, which the pre-existing move test (a second, roomy account) does not
+    catch."""
+    _daemon_home(home, 20)
+    con = db.connect()
+    try:
+        db.set_account(con, "backend", "alpha")
+        db.set_closed(con, "backend", None)   # no resume id: the move's wake
+        db.add_request(con, "reviewer", "backend", "look at this", None,
+                       "peer", "async", None, 0, None)
+        write_status(home, "alpha", pct_5h=10, pct_7d=100, ctx_pct=5,
+                     reset_5h=int(time.time()) + 1800, reset_7d=int(time.time()) + 86400)
+        row = db.get_agent_state(con, "backend")
+        check("move, nowhere else: this row has no resume id", row["resume_session"] is None, dict(row))
+        check("move, nowhere else: find_room has nothing to offer - alpha is walled and alone",
+              launch.find_room("backend") is None)
+        check("move, nowhere else: choose_account falls back to alpha anyway",
+              launch.choose_account("backend", resuming=False, con=con) == "alpha")
+        w = launch.wake_wait("backend", row, con)
+        check("move, nowhere else: still walled on 7d, landing back on the same account",
+              w is not None and w.account == "alpha" and w.window == "7d", w)
+    finally:
+        con.close()
+
+
+def test_a_resumed_agent_is_rescued_from_a_7d_wall_too(home: Path) -> None:
+    """auditor #1753 blocking: `_wake_agent`'s rescue always asked `_move_plan`
+    for a 5h-kind reset, even when the wait it was rescuing from was
+    `wait.window == "7d"`. `_move_plan` reads `reset_5h` for that hardcoded
+    "usage" kind, and a 5h window rolls over long before a 7d one - so the
+    rescue judged a four-day wait by a clock that had already reset, read it
+    as cheap to wait out, and never looked for room elsewhere. Passing
+    `wait.window` through as the kind is the fix; this pins it the way
+    test_a_pinned_closed_agent_moves_instead_of_waiting_out_its_window pins
+    the 5h case, which this one does not overlap with (that account is fine
+    on 7d and walled on 5h; this one is the other way around)."""
+    _daemon_home(home, 20)
+    accounts.register("beta")
+    agents.register("keeper", "alpha")
+    for acct in ("alpha", "beta"):
+        (home / "accounts" / acct / ".claude").mkdir(parents=True, exist_ok=True)
+        (home / "accounts" / acct / ".claude" / ".credentials.json").write_text("{}")
+    con = db.connect()
+    real = (orcamod.available, orcamod.relaunch, orcamod.resume_with, dmn.wait_for_session)
+    launched: list[str] = []
+    try:
+        db.set_terminal(con, "keeper", "term_x", "wt")
+        db.set_closed(con, "keeper", "sess-old")
+        keep_handoff("keeper", "# handoff · keeper\nprevious session: sess-old")
+        db.set_account(con, "keeper", "alpha")
+        db.add_request(con, "marina", "keeper", "carry on", None, "peer", "async", None, 0, None)
+        # alpha: room on 5h, walled on 7d, and its 5h clock is soon enough that
+        # the bug's hardcoded "usage" kind reads the wait as cheap to ride out.
+        write_status(home, "alpha", pct_5h=10, pct_7d=100,
+                     reset_5h=int(time.time()) + 1800, reset_7d=int(time.time()) + 4 * 86400)
+        write_status(home, "beta", pct_5h=10, pct_7d=5, reset_5h=int(time.time()) + 1800)
+        orcamod.available = lambda: True
+        orcamod.relaunch = lambda h, cmd, **kw: (launched.append(cmd), (True, "relaunched"))[1]
+        orcamod.resume_with = lambda h, text: (True, "handed back")
+        dmn.wait_for_session = lambda agent, timeout=0: True
+
+        ok, why = dmn._wake_agent(con, "keeper", lambda _m: None)
+        check("7d rescue: the wake succeeds instead of waiting out alpha's weekly wall",
+              ok, why)
+        check("7d rescue: the relaunch is a fresh start, not --resume on the walled account",
+              launched and "--resume" not in launched[-1], str(launched))
+        moved = [e for e in db.events_after(con, 0, agent="keeper")
+                 if e["kind"] == "moved_account"]
+        check("7d rescue: the move is on the record",
+              moved and '"from": "alpha"' in moved[-1]["payload"]
+              and '"to": "beta"' in moved[-1]["payload"], str(moved))
+    finally:
+        orcamod.available, orcamod.relaunch, orcamod.resume_with, dmn.wait_for_session = real
+        con.close()
+
+
 def test_the_bridge_says_what_an_agent_is_where_there_is_room(home: Path) -> None:
     """Which model at which effort - and one day which tool at all - is what
     separates two rows doing the same work at different prices. It is still
@@ -10642,6 +10762,31 @@ def test_a_walled_wake_names_the_account_only_with_room(home: Path) -> None:
               all("beta" in line(w) for w in with_kind), str(min(with_kind, default=0)))
         check("walled: kind first appears a column's width beyond the account",
               min(with_kind) >= first + tui.KIND_W, f"{min(with_kind)} vs {first}")
+    finally:
+        dmn.would_wake, launch.wake_wait = real_would_wake, real_wake_wait
+        con.close()
+
+
+def test_the_bridges_wake_column_dates_a_weekly_wall(home: Path) -> None:
+    """A 5h wall rolls over inside a day, so a bare clock says when. A weekly
+    one can be days off - the same bare "%H:%M" in the wake column would claim
+    it rolls over today. Reverting the column's own formatting alone (leaving
+    launch.describe_wake_wait's, which the daemon's log and `ocp ps`/`triggers`
+    read) must fail only this test - `ocp ps`, tested elsewhere, already
+    covers the sentence."""
+    _daemon_home(home, 20)
+    con = db.connect()
+    real_would_wake, real_wake_wait = dmn.would_wake, launch.wake_wait
+    try:
+        db.set_closed(con, "backend", "sess-x")
+        reset_at = int(time.time()) + 3 * 86400 + 3600
+        dmn.would_wake = lambda con, row: True
+        launch.wake_wait = lambda name, row, con: launch.WakeWait(
+            "alpha", 100, reset_at, window="7d")
+        line = next(ln for ln in tui._ANSI.sub("", tui.frame(200, 40)).splitlines()
+                    if "backend" in ln)
+        check("walled: the wake column dates a weekly wall, not a bare clock",
+              time.strftime("%m-%d %H:%M", time.localtime(reset_at)) in line, line)
     finally:
         dmn.would_wake, launch.wake_wait = real_would_wake, real_wake_wait
         con.close()
@@ -23450,9 +23595,13 @@ def main() -> int:
         run(lambda: test_a_stalled_closed_agent_keeps_its_marker_when_walled(Path(td) / 'walledstalled'))
         run(lambda: test_a_walled_wake_with_no_reset_reads_unknown(Path(td) / 'walledunknown'))
         run(lambda: test_a_moved_walled_wake_names_the_new_account(Path(td) / 'walledmoved'))
+        run(lambda: test_a_resume_is_not_woken_onto_an_account_at_its_weekly_wall(Path(td) / 'walled7d'))
+        run(lambda: test_a_move_is_still_walled_on_7d_when_nowhere_else_has_room(Path(td) / 'walled7dmove'))
+        run(lambda: test_a_resumed_agent_is_rescued_from_a_7d_wall_too(Path(td) / 'walled7drescue'))
         run(lambda: test_the_bridge_says_what_an_agent_is_where_there_is_room(Path(td) / 'agentkind'))
         run(lambda: test_the_state_column_is_as_wide_as_what_it_prints(Path(td) / 'statew'))
         run(lambda: test_a_walled_wake_names_the_account_only_with_room(Path(td) / 'walledroom'))
+        run(lambda: test_the_bridges_wake_column_dates_a_weekly_wall(Path(td) / 'walledwkclock'))
         run(lambda: test_a_park_that_cannot_be_woken_keeps_its_deadline(Path(td) / 'parkdue'))
         run(lambda: test_a_usage_park_is_woken_when_the_reading_clears(Path(td) / 'parklevel1'))
         run(lambda: test_a_usage_park_stays_parked_while_the_reading_is_at_the_wall(Path(td) / 'parklevel2'))

@@ -90,16 +90,18 @@ def choose_account(agent: str, resuming: bool = False, con=None) -> str:
 class WakeWait:
     account: str
     pct: int
-    reset_5h: int | None
+    # When the walled window rolls over: the 5h one, or the weekly one.
+    reset: int | None
     # True when `account` is a guess (agent.yaml's preference, or a spawn's
     # own unconfirmed one) rather than the account this resume is actually
     # tied to - `account_reading` prefers a fresher reported one first, so
     # this is the residual case where nothing has confirmed one at all.
     assumed: bool = False
+    window: str = "5h"
 
 
 def wake_wait(agent: str, row, con) -> WakeWait | None:
-    """Is a closed agent's wake walled behind its own account's 5h window?
+    """Is a closed agent's wake walled behind its own account's 5h or weekly wall?
 
     This is the check daemon.py makes before it types anything into a closed
     agent's terminal. A resume cannot follow an account change, but the
@@ -114,8 +116,23 @@ def wake_wait(agent: str, row, con) -> WakeWait | None:
     them gates on `daemon.would_wake` first; this makes no such promise on its
     own.
 
+    The move branch already goes through `choose_account` -> `find_room` ->
+    `status.unfit`, which refuses a walled account on both windows - but only
+    while some other account has room. `choose_account` falls back to the
+    agent's own preferred account when `find_room` finds nowhere (`find_room
+    (agent) or agents.account_of(agent)`), so when every account is at its
+    weekly wall the move branch reaches this 7d check too, not just the
+    resume branch: it is the only guard left, not a second one. The resume
+    branch is pinned to the account its session is tied to and cannot follow
+    an account change even when another account does have room - nothing
+    upstream ever checks 7d for it, walled or not.
+
     A computed condition, not a stored one: called again a moment later, on an
     account whose window has since rolled over, it returns None.
+
+    5h is checked first: an account walled on both reports the 5h rollover, and
+    once that passes the wake is refused again on the 7d one still standing -
+    the sentence names a rollover that does not itself unblock the wake.
     """
     if not row or not row["closed_at"]:
         return None
@@ -128,10 +145,12 @@ def wake_wait(agent: str, row, con) -> WakeWait | None:
         # answers a question this branch does not ask.
         acct, assumed = choose_account(agent, resuming=False, con=con), False
     st = status.read(acct)
-    pct = st.trusted_pct_5h
-    if pct is None or pct < status.PCT_5H_BLOCK:
-        return None
-    return WakeWait(acct, pct, st.reset_5h, assumed)
+    pct, week = st.trusted_pct_5h, st.trusted_pct_7d
+    if pct is not None and pct >= status.PCT_5H_BLOCK:
+        return WakeWait(acct, pct, st.reset_5h, assumed)
+    if week is not None and week >= status.PCT_7D_BLOCK:
+        return WakeWait(acct, week, st.reset_7d, assumed, window="7d")
+    return None
 
 
 def wake_wait_reason(agent: str, row, con) -> str | None:
@@ -147,12 +166,20 @@ def wake_wait_reason(agent: str, row, con) -> str | None:
     return None if w is None else describe_wake_wait(w)
 
 
+def wait_clock(w: WakeWait, unknown: str = "?") -> str:
+    """When the walled window rolls over: a clock for the 5h one, a date and
+    clock for the weekly one, which is days away."""
+    if not w.reset:
+        return unknown
+    return time.strftime("%H:%M" if w.window == "5h" else "%m-%d %H:%M", time.localtime(w.reset))
+
+
 def describe_wake_wait(w: WakeWait) -> str:
     """The wording for a wait already computed, so a caller that holds one
     does not recompute it (the window may have rolled over in between)."""
-    when = "unknown" if not w.reset_5h else time.strftime("%H:%M", time.localtime(w.reset_5h))
+    when = wait_clock(w, "unknown")
     who = f"assumed account {w.account}" if w.assumed else w.account
-    return f"waiting for {who}'s 5h window ({w.pct}%, rolls over {when})"
+    return f"waiting for {who}'s {w.window} window ({w.pct}%, rolls over {when})"
 
 
 def _mcp_config_material() -> str:
