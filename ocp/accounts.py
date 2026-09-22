@@ -1,4 +1,4 @@
-"""Account registration: directories, shared links, collector install.
+"""Account registration: directories and shared links.
 
 Credentials are never touched (KICKOFF rule 1). A refresh token rotates on
 single use, so two copies of one credential invalidate each other. Logging in
@@ -6,8 +6,7 @@ is a one-time human action:
 
     CLAUDE_CONFIG_DIR=~/.orcapipe/accounts/<acct>/.claude claude /login
 
-All we do is create the directory, symlink the shared settings, and install
-the collector.
+All we do is create the directory and symlink the shared settings.
 """
 from __future__ import annotations
 
@@ -31,41 +30,52 @@ LINKED = ["settings.json", "CLAUDE.md", "skills", "agents", "commands", "plugins
 # Named explicitly as a guard: these are never created, linked, read or copied.
 NEVER_TOUCH = {".credentials.json", ".claude.json", "statsig", "backups"}
 
+# The status line commands ocp used to install into shared/.claude (D11). The
+# slot is the human's now, so these are only ever removed.
+OLD_STATUSLINES = ("statusline.sh", "statusline-collect.sh")
+
 
 def ensure_shared() -> Path:
-    """Create shared/.claude and install the collector into it."""
+    """Create shared/.claude and its settings.json.
+
+    Refuses, changing nothing, when settings.json exists but cannot be read
+    as a JSON object: it holds the human's settings too, and rewriting it
+    from {} would lose them.
+    """
     shared = paths.shared_claude()
-    shared.mkdir(parents=True, exist_ok=True)
-    for sub in ("skills", "agents", "commands"):
-        (shared / sub).mkdir(exist_ok=True)
-
-    src = paths.repo_root() / "libexec" / "statusline-collect.sh"
-    dst = paths.collector()
-    if src.exists():
-        shutil.copyfile(src, dst)
-        dst.chmod(0o755)
-
     settings = shared / "settings.json"
     current = {}
     if settings.exists():
         try:
             current = json.loads(settings.read_text())
-        except json.JSONDecodeError:
-            current = {}
-    if not isinstance(current, dict):
-        current = {}
+        except (OSError, ValueError) as e:
+            raise ValueError(f"{settings} could not be read ({e}); ocp changed nothing. "
+                             "Fix or move it, then run this again.") from e
+        if not isinstance(current, dict):
+            raise ValueError(f"{settings} is not a JSON object; ocp changed nothing. "
+                             "Fix or move it, then run this again.")
 
-    # statusLine is our data source (section 4), so it always points at us.
-    current["statusLine"] = {
-        "type": "command",
-        "command": str(dst),
-        "padding": 0,
-        "refreshInterval": int(os.environ.get("OCP_STATUSLINE_REFRESH", "10")),
-    }
+    shared.mkdir(parents=True, exist_ok=True)
+    for sub in ("skills", "agents", "commands"):
+        (shared / sub).mkdir(exist_ok=True)
+
+    ours = {str(shared / name) for name in OLD_STATUSLINES}
+
+    # A statusLine pointing at a script just deleted would error in every
+    # session. Anyone else's is left alone.
+    line = current.get("statusLine")
+    if isinstance(line, dict) and line.get("command") in ours:
+        del current["statusLine"]
     # Ours overlaps Claude Code's own auto-continue, and section 4 says to pick
     # one. We pick ours, and doctor enforces that the choice stays made.
     current.setdefault("autoContinueAtUsageLimit", False)
-    settings.write_text(json.dumps(current, indent=2, ensure_ascii=False) + "\n")
+    tmp = settings.with_suffix(".json.tmp")
+    tmp.write_text(json.dumps(current, indent=2, ensure_ascii=False) + "\n")
+    tmp.replace(settings)
+    # Only once no setting points at them: deleted first, a failed write
+    # would leave every session running a script that is gone.
+    for cmd in ours:
+        Path(cmd).unlink(missing_ok=True)
     return shared
 
 
@@ -506,14 +516,14 @@ def remove_account(name: str, confirm, run, con=None) -> tuple[bool, str]:
                                f"{paths.account_claude(name)} and try again.")
         marker.unlink(missing_ok=True)
         dest = retire(name)
-        # The name can be added again: a probe remembered against the old
-        # account would keep the new one from ever being read.
+        # The name can be added again, and a poll remembered against the old
+        # account would hold the new one in its cooldown.
         from . import db
         own = con is None
         c = con or db.connect()
         try:
-            db.clear_cursor(c, f"probe:{name}")
-            db.clear_cursor(c, f"login-check:{name}")
+            for kind in ("usage-poll", "usage-refresh", "login-check"):
+                db.clear_cursor(c, f"{kind}:{name}")
         finally:
             if own:
                 c.close()

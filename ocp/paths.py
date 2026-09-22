@@ -78,11 +78,6 @@ def agent_dir(name: str) -> Path:
     return agents_dir() / name
 
 
-def collector() -> Path:
-    """The single installed collector that every account points at."""
-    return shared_claude() / "statusline-collect.sh"
-
-
 def repo_root() -> Path:
     return Path(__file__).resolve().parent.parent
 

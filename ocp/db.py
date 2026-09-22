@@ -1085,6 +1085,25 @@ def last_activity(con, agent: str) -> int | None:
     return int(row["t"]) if row and row["t"] is not None else None
 
 
+def last_account_activity(con, account: str) -> int | None:
+    """When a session on this account last took a turn.
+
+    What the usage poll asks before it asks the endpoint (D11): rate limits move
+    when a turn is taken and at no other time, so an account with no turn since
+    its last reading has nothing new to report. Only the hook events that bound
+    a turn count - the daemon's own bookkeeping spends nothing.
+
+    Not a promise that nothing was spent: a session outside ocp (a human's
+    `claude -p`, `ocp fold`'s one call) leaves no event here, which is why the
+    poll also has a cadence it keeps whatever this says.
+    """
+    row = con.execute(
+        "SELECT MAX(ts) AS t FROM events WHERE account = ? AND kind IN "
+        "('UserPromptSubmit', 'Stop', 'StopFailure', 'PostCompact', 'SessionStart')",
+        (account,)).fetchone()
+    return int(row["t"]) if row and row["t"] is not None else None
+
+
 def get_terminal(con, agent: str) -> str | None:
     row = con.execute("SELECT terminal FROM agent_state WHERE agent = ?", (agent,)).fetchone()
     return row["terminal"] if row else None

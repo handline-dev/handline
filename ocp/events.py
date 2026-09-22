@@ -12,7 +12,7 @@ import json
 import os
 import sys
 
-from . import db, waiting
+from . import collect, db, waiting
 
 # Which hook events we record. PostToolUse is deliberately absent.
 CAPTURED = {
@@ -152,8 +152,28 @@ def record_from_stdin(argv: list[str] | None = None) -> int:
             con.close()
     except Exception:  # noqa: BLE001 - a hook must never break the session
         pass
+    if event in COLLECT_EVENTS:
+        try:
+            collect.collect(agent, raw.get("cwd") or os.getcwd())
+        except Exception:  # noqa: BLE001 - same: a snapshot is not worth a session
+            pass
     print("{}")
     return 0
+
+
+# The moments at which this session's own snapshot is refreshed (D11).
+#
+# This is the statusLine's job, done by the hook that was already installed:
+# these events fire on the same boundaries, they already carry the `cwd` the
+# transcript is found under, and the work is one tail read. A `Stop` reaching
+# here is also the heartbeat the statusLine used to be - the session is alive
+# and has just finished a turn - which is what a pull alone cannot say.
+#
+# `SessionStart` is in here for the case that caught us out: `/clear` starts a
+# new transcript, and until something reads it the agent's context reads as
+# whatever it was before the clear. `SessionEnd` is deliberately absent - a
+# snapshot written as the session exits would say a dead session is fresh.
+COLLECT_EVENTS = {"SessionStart", "UserPromptSubmit", "Stop", "StopFailure", "PostCompact"}
 
 
 # What counts as "this agent is working".

@@ -18,12 +18,13 @@ import sys
 import time
 from pathlib import Path
 
-from . import (accounts, actions, agents, ask as askmod, daemon as daemonmod, db,
+from . import (accounts, actions, agents, ask as askmod, collect, daemon as daemonmod, db,
                tui,
                digest, doctor,
                drift, events, fold as foldmod, guide, handoff as handoffmod, hooks, launch,
-               load, observe as obs, paths, probe as probemod, service,
-               hr, orca, status, spawn as spawnmod, team, textsafe, triggers, waiting)
+               load, observe as obs, paths, service,
+               hr, orca, status, spawn as spawnmod, team, textsafe, triggers,
+               usage_api, waiting)
 
 
 # ---------------------------------------------------------------- login
@@ -226,24 +227,6 @@ def cmd_account_list(args) -> int:
     return 0
 
 
-def cmd_account_probe(args) -> int:
-    """`ocp account probe <acct>` - the manual form of what the daemon does
-    when an account's window has passed and nothing has run on it since."""
-    if args.account not in paths.list_accounts():
-        print(f"no such account: {args.account}")
-        return 1
-    print(f"probing {args.account} (one small turn, up to {probemod.PROBE_TIMEOUT_S}s)...")
-    st = probemod.run(args.account)
-    ld = load.read_all().get(args.account)
-    allowed, why = st.takes_work(ld.active if ld else 0)
-    age = status.ago(st.age_s)
-    print(f"{args.account}: 5h {st.trusted_pct_5h}% ({st.pct_5h_source}), "
-          f"7d {st.trusted_pct_7d}%, reading {age} old")
-    print(f"takes work: {'yes' if allowed else 'NO'} - {why}")
-    return 0
-
-
-# ---------------------------------------------------------------- agent
 def cmd_agent_move(args) -> int:
     """Move an agent's live session to another account now (a human's call)."""
     if os.environ.get("OCP_AGENT"):
@@ -512,6 +495,94 @@ def cmd_launch(args) -> int:
 
 def cmd_command(args) -> int:
     print(launch.command_for(args.agent))
+    return 0
+
+
+# ---------------------------------------------------------------- usage
+
+def cmd_usage(args) -> int:
+    """What the usage endpoint says, beside what the snapshot says.
+
+    Read-only, and it decides nothing: this exists so the two can be compared
+    before anything is wired to prefer one. An account with a session running
+    is asked without a renewal - Claude Code is already renewing its token, and
+    two writers would race.
+    """
+    live = set()
+    for _agent, pid in (obs.live_sessions() or {}).items():
+        acct = obs.account_of_process(pid)
+        if acct:
+            live.add(acct)
+    known = paths.list_accounts()
+    if args.account and args.account not in known:
+        print(f"no such account: {args.account} (have: {', '.join(known) or 'none'})")
+        return 1
+    accts = [args.account] if args.account else known
+    print(f"{'account':10} {'':4} {'5h':>5} {'7d':>5}  {'7d resets':16}  note")
+    for acct in accts:
+        st = status.read(acct)
+        age = status.span(time.time() - st.collected_at) if st.collected_at else "never"
+        print(f"{acct:10} {'ocp':>4} {str(st.pct_5h):>5} {str(st.pct_7d):>5}  "
+              f"{_when(st.reset_7d):16}  snapshot {age} old")
+        t0 = time.time()
+        r = usage_api.read(acct, refresh=acct not in live)
+        if r is None:
+            print(f"{'':10} {'api':>4} {'could not ask':>11}")
+            continue
+        flags = []
+        if r.pct_5h != st.pct_5h:
+            flags.append(f"5h differs ({st.pct_5h} -> {r.pct_5h})")
+        if r.pct_7d != st.pct_7d:
+            flags.append(f"7d differs ({st.pct_7d} -> {r.pct_7d})")
+        if acct in live:
+            flags.append("no renewal - session live")
+        print(f"{'':10} {'api':>4} {str(r.pct_5h):>5} {str(r.pct_7d):>5}  "
+              f"{_when(r.reset_7d):16}  {(time.time()-t0)*1000:.0f}ms"
+              + ("  " + "; ".join(flags) if flags else ""))
+    return 0
+
+
+def _when(ts: int | None) -> str:
+    return time.strftime("%m-%d %H:%M", time.localtime(ts)) if ts else "-"
+
+
+# ---------------------------------------------------------------- collect
+
+def cmd_collect(args) -> int:
+    """What the transcript says about each agent's session, beside the snapshot.
+
+    The daemon does this every tick for every agent whose session is open
+    (`daemon.collect_snapshots`). By hand it is a comparison: `differs` names
+    every field where the pull and the file on disk disagree, which is how the
+    two mechanisms were checked against each other over the fleet (D11).
+    """
+    con = db.connect()
+    try:
+        rows = {r["agent"]: r for r in db.all_agent_states(con)}
+    finally:
+        con.close()
+    names = [args.agent] if args.agent else paths.list_agents()
+    print(f"{'agent':22}{'account':9}{'session':10}{'ctx':>5}{'tokens':>9}"
+          f"{'age':>7}  differs")
+    for agent in names:
+        row = rows.get(agent)
+        cwd = spawnmod.worktree_path(row["worktree"] if row else None)
+        if not cwd:
+            print(f"{agent:22}(no worktree recorded)")
+            continue
+        snap = collect.snapshot(agent, cwd)
+        if snap is None:
+            print(f"{agent:22}(no transcript under {cwd})")
+            continue
+        if args.write:
+            collect.write(agent, snap)
+        have = status.read("", paths.agent_status_file(agent)).raw
+        differs = [k for k in ("account", "session_id", "ctx_pct")
+                   if have and have.get(k) != snap.get(k)]
+        print(f"{agent:22}{snap['account']:9}{snap['session_id'][:8]:10}"
+              f"{str(snap['ctx_pct']):>5}{collect.tokens(snap['ctx_used']):>9}"
+              f"{status.ago(time.time() - snap['collected_at']):>7}  "
+              f"{', '.join(differs) if differs else '-'}")
     return 0
 
 
@@ -1667,9 +1738,6 @@ def build_parser() -> argparse.ArgumentParser:
     p = acc.add_parser("list", help="accounts with usage")
     p.add_argument("--json", action="store_true")
     p.set_defaults(fn=cmd_account_list)
-    p = acc.add_parser("probe", help="spend one small turn to learn where an account stands")
-    p.add_argument("account")
-    p.set_defaults(fn=cmd_account_probe)
 
     ag = sub.add_parser("agent", help="agents").add_subparsers(dest="sub", required=True)
     p = ag.add_parser("move", help="move a live session to another account now")
@@ -1714,6 +1782,16 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--interval", type=float, default=5.0)
     p.set_defaults(fn=cmd_hooks_sync)
     hk.add_parser("status", help="show drift").set_defaults(fn=cmd_hooks_status)
+
+    p = sub.add_parser("usage", help="the usage endpoint beside the snapshot (read-only)")
+    p.add_argument("account", nargs="?", help="one account, or every account")
+    p.set_defaults(fn=cmd_usage)
+
+    p = sub.add_parser("collect", help="read each session's context from its transcript")
+    p.add_argument("agent", nargs="?", help="one agent, or every agent")
+    p.add_argument("--write", action="store_true",
+                   help="write the snapshots, as the daemon does every tick")
+    p.set_defaults(fn=cmd_collect)
 
     p = sub.add_parser("doctor", help="verify preconditions")
     p.add_argument("--no-color", action="store_true")

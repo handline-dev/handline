@@ -198,29 +198,34 @@ Run       (Orca) ── 목표 단위
 
 ---
 
-## 4. 데이터 출처 — statusLine 수집기
+## 4. 데이터 출처 — 세션 파일 pull + 사용량 엔드포인트
 
-`~/.claude` 아래에 사용률 파일은 **없다.** 없는 파일을 읽어 `pct=0`을 반환하면 모든 슬롯이 만점이 되고 벽 트리거는 영원히 거짓이 된다 — **기능이 죽었는데 대시보드는 초록색**인 fail-open이다.
+**2026-09-21 (#1402, D11) 에 출처가 바뀌었다.** 이 절의 원래 계약은 statusLine 스크립트의 stdin JSON 이었다 — 우리가 각 `CLAUDE_CONFIG_DIR` 의 `settings.json` 에 수집기를 심고, 그게 매 턴 payload 를 받아 `status.json` 을 썼다. 지금은 **아무것도 심지 않는다**: 세션이 어차피 쓰고 있는 파일을 읽는다. statusLine 슬롯은 사람이 읽는 줄을 그리는 데 쓴다 (`ocp/statusline.py`).
 
-공식 계약은 **statusLine 스크립트의 stdin JSON**이다. 각 `CLAUDE_CONFIG_DIR`의 `settings.json`에 스크립트를 심고, 그 스크립트가 stdin JSON을 `accounts/<acct>/status.json`으로 원자적으로 쓴 뒤 원래 표시 문자열을 출력한다. 스크립트는 `$CLAUDE_CONFIG_DIR`로 자기 계정을 판별하므로 shared에 한 벌만 두면 된다.
+`~/.claude` 아래에 사용률 파일은 **없다.** 없는 파일을 읽어 `pct=0`을 반환하면 모든 슬롯이 만점이 되고 벽 트리거는 영원히 거짓이 된다 — **기능이 죽었는데 대시보드는 초록색**인 fail-open이다. 그래서 출처는 둘이고, 실패하는 방식이 다르다:
+
+- **세션의 transcript** (`ocp/collect.py`) — 컨텍스트·세션 신원·모델·비용. 우리 훅(`Stop` 등, 매 턴)이 쓰고, 훅이 말하지 못한 세션은 데몬 틱이 줍는다. 어느 계정인지도 **transcript 의 경로**가 말해준다 (`accounts/<acct>/.claude/...`) — `CLAUDE_CONFIG_DIR` 만큼 1차 정보다.
+- **사용량 엔드포인트** (`ocp/usage_api.py`) — 레이트리밋. transcript 에는 없다(벽에 부딪힌 뒤의 429 뿐). 틱당 한 계정, 그리고 변할 수 있었을 때만 묻는다.
+
+파일이 여전히 `accounts/<acct>/status.json` 과 `agents/<agent>/status.json` 이고 필드 모양도 같아서, 판독기는 하나도 바뀌지 않았다.
 
 | 필요한 값 | 출처 |
 |---|---|
-| `pct_5h` | `rate_limits.five_hour.used_percentage` — **서버값이되 그 세션의 마지막 API 응답 시점의 것**이다. 라이브 재조회가 아니다 ([claude-code#75408]) |
-| 5h 리셋 시각 | `rate_limits.five_hour.resets_at` |
-| 주간 여유 | `rate_limits.seven_day.*` |
+| `pct_5h` | 엔드포인트의 `five_hour.utilization`. statusLine 시절에는 **그 세션의 마지막 API 응답 시점의 값**이었다 ([claude-code#75408]) — 엔드포인트는 세션 없이도 지금을 답한다 |
+| 5h 리셋 시각 | 엔드포인트의 `five_hour.resets_at` |
+| 주간 여유 | 엔드포인트의 `seven_day.*` |
 | `rl_at` · `rl_carried` · `rl_lost` | 그 5h **창을 언제 관측했는지**(수치를 언제 정했는지가 아니다 — 페이로드가 창을 보고했으면 그 값이 고수위에 져도 관측이다), 이번 페이로드가 아니라 이월된 것인지, 창 경계를 몰라 **잃었는지**. `collected_at` 은 수집기가 살아있다는 말일 뿐이라 수치의 나이를 못 준다 |
 | `rl7_at` · `rl7_carried` · `rl7_lost` | 7d 에 대한 같은 것. 7d 는 창이 일주일이라 **나이 제한은 두지 않되**, 잃은 7d 는 배정을 거부한다 — 95% 게이트가 "값이 있고 높으면 막는다"라서 값이 없으면 거부가 아니라 **거부의 부재**가 되기 때문이다 |
-| 컨텍스트 사용률 | 세션 토큰 / 모델 한도 → **트리거 (§8)** |
-| 세션 조인키 | `session_id`, `transcript_path` |
-| 비용 | `cost.total_cost_usd` |
+| 컨텍스트 사용률 | transcript 의 마지막 assistant 턴 `usage` 합 / 모델 창 → **트리거 (§8)**. 모델별 창 크기는 표다(`collect.CTX_SIZE`): 모르는 모델은 **수치 없음**이고, 작게 찍어두면 모든 에이전트가 제 창의 1/5 에서 park 된다 |
+| 세션 조인키 | transcript **파일 자체**가 둘 다다 — 이름이 `session_id`, 경로가 `transcript_path` |
+| 비용 | transcript 의 `cost-state.totalCostUSD` (없는 버전도 있다. 판독기가 하나뿐인 표시용이라 없어도 실패가 아니다) |
 
-statusLine은 `resets_at` 도달 시 자동 재실행되므로 리셋 타이머가 거의 불필요하다.
+`collected_at` 은 **transcript 의 mtime**이다 — 우리가 읽은 시각이 아니라 세션이 마지막으로 쓴 시각. 이게 `status.stale` 의 의미("세션이 글쓰기를 멈췄다")를 그대로 지켜주고, 데몬이 죽은 세션 파일을 읽는 것만으로 살아있어 보이지 않게 한다.
 
 ### 제약 — `ocp doctor`가 강제 점검
 
-- 세션이 살아있을 때만 갱신 → `refreshInterval`로 보완
-- managed settings의 `disableAllHooks` 계열이 걸리면 **경고 없이 비활성화**
+- 세션이 살아있을 때만 갱신된다 — 이건 그대로다. 심장박동은 우리 훅(`Stop`)이 대신하고, 훅이 안 뜬 세션은 틱이 줍는다
+- managed settings의 `disableAllHooks` 계열이 걸리면 **경고 없이 비활성화** — 이제 이게 statusLine 이 아니라 **훅**을 죽이므로, 컨텍스트·세션 신원이 틱 간격(30초)으로만 갱신된다
 - usage 엔드포인트 자체에 rate limit이 있다. 공격적 폴링 시 stale 값으로 fail-open
 - `pct_5h`가 null이라고 다 같은 null이 아니다. 판정은 **다섯 가지**다 (2026-09-17 실측)
   - `live` — 이번 페이로드가 그 창을 보고했다
@@ -232,7 +237,7 @@ statusLine은 `resets_at` 도달 시 자동 재실행되므로 리셋 타이머�
   - `unknown` — 스냅샷이 없거나·판독 불가(NaN·문자열·불리언)거나·**이월하지 못하고 잃었다**.
     이것만 fail-closed 다. 배정에서는 낡은 값을 unknown으로 거부하지 않는다 — 창 안에서는 하한(floor)이고,
     창이 끝나면 그 하한도 의미를 잃어 probe로 다시 묻는다 (`status.idle_floor`)
-- 그래서 수집기가 지키는 규칙 넷
+- 그래서 **쓰는 쪽**이 지키는 규칙 넷. 원래 수집기의 jq 에 있었고, 지금은 `usage_api.record` 에 있는 것이 둘(고수위, 롤오버)이다. 나머지 둘 — 창을 보고하지 않는 payload 의 이월과 `rl_lost` — 은 **적용될 대상이 없어졌다**: 엔드포인트는 두 창을 다 말하거나 아무 답도 안 한다. 판독 규칙(아래 다섯 가지)은 전부 그대로다: 폴이 실패하거나 토큰이 죽으면 그게 남은 전부다
   - 어떤 창을 보고하지 않는 페이로드는 **그 창의 이전 값을 지우지 않는다** (`resets_at`이 남아 있는 동안.
     로컬 시계 오차 60초는 봐준다 — `resets_at` 은 서버가 정하고 비교는 로컬 시계로 한다)
   - **창이 끝났는지 판단할 `resets_at` 자체가 없으면** 그 값을 버리되 `rl_lost` 로 표시한다. 잃은 값은
@@ -254,6 +259,8 @@ statusLine은 `resets_at` 도달 시 자동 재실행되므로 리셋 타이머�
 ### transcript 집계 시 dedup 필수
 
 한 API 응답의 content block이 각각 JSONL 라인이 되면서 **같은 usage 객체를 복사**한다. `message.id`로 dedup하지 않으면 번레이트가 과대 계산되고, 그러면 `runway`가 과소 → **모든 슬롯이 게이트 탈락 → 전원 PARKED 고착**. 실측 표본 하나에서 2.4배였다.
+
+**컨텍스트 pull 은 이 함정에 걸리지 않는다**: 합이 아니라 마지막 `usage` 레코드 **하나**를 읽기 때문이다. 같은 객체가 몇 줄에 복사돼 있어도 답은 같다 — 19개 에이전트 실측에서 statusLine 값과 토큰 단위로 일치했다. dedup 이 필요한 건 여전히 번레이트뿐이다.
 
 ---
 

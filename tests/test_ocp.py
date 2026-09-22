@@ -28,13 +28,14 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
-from ocp import (accounts, actions, agents, ask as askmod, blocked as blockedmod, burnrate, cli as climod, daemon as dmn, db, hr,
+from ocp import (accounts, actions, agents, ask as askmod, blocked as blockedmod, burnrate, cli as climod, collect, daemon as dmn, db, hr,
                  digest,
                  doctor, drift, events as evmod, fold as foldmod,
                  handoff as handoffmod, launch, load as loadmod, lock, measure,
                  observe as obsmod, orca as orcamod, paths, replay as replaymod, service,
                  spawn as spawnmod,
-                 status, team, textsafe, triggers, tui, yamlcompat)  # noqa: E402
+                 status, team, textsafe, triggers, tui, usage_api, waiting,
+                 yamlcompat)  # noqa: E402
 
 PASS, FAIL = [], []
 
@@ -1255,87 +1256,482 @@ def test_replay_burn_is_the_daemons_burn(home: Path) -> None:
         con.close()
 
 
-# ---------------------------------------------------------------- collector
-def test_collector(home: Path) -> None:
-    """Feed the real statusLine payload shape through the real collector."""
-    acct_cfg = home / "accounts" / "alpha" / ".claude"
-    acct_cfg.mkdir(parents=True, exist_ok=True)
-    payload = {
-        "session_id": "bb27dedb-03f9-45b7-ba15-db8403ab3f99",
-        "transcript_path": "/tmp/t.jsonl",
-        "model": {"id": "claude-sonnet-5", "display_name": "Sonnet 5"},
-        "workspace": {"current_dir": "/tmp/wt"},
-        "rate_limits": {
-            "five_hour": {"used_percentage": 4, "resets_at": 1789543200},
-            "seven_day": {"used_percentage": 41, "resets_at": 1789678800},
-        },
-        "context_window": {
-            "used_percentage": 5, "context_window_size": 1000000,
-            "total_input_tokens": 45465, "total_output_tokens": 4,
-            "current_usage": {"input_tokens": 2, "output_tokens": 4},
-        },
-        "cost": {"total_cost_usd": 0.078, "total_lines_added": 3, "total_lines_removed": 1},
-        "exceeds_200k_tokens": False,
-        "version": "2.1.273",
-    }
-    env = dict(os.environ, CLAUDE_CONFIG_DIR=str(acct_cfg), OCP_HOME=str(home))
-    r = subprocess.run([str(ROOT / "libexec" / "statusline-collect.sh")],
-                       input=json.dumps(payload), capture_output=True, text=True, env=env)
-    check("collector exits 0", r.returncode == 0, r.stderr)
-    check("collector prints a status line", "alpha" in r.stdout, repr(r.stdout))
+# ---------------------------------------------------------------- pull collector
+# The same payload, taken from the transcript instead of pushed by the status
+# line (D11). Every figure here is one measured off the live fleet: the numbers
+# are `orcapipe`'s own snapshot on 2026-09-21, where the pull and the push
+# agreed to the token.
+LIVE_USAGE = {"input_tokens": 2, "output_tokens": 382,
+              "cache_creation_input_tokens": 924, "cache_read_input_tokens": 84777}
 
-    st = status.read("alpha", home / "accounts" / "alpha" / "status.json")
-    check("collector derives account from CLAUDE_CONFIG_DIR", st.account == "alpha")
-    check("collector captures pct_5h", st.pct_5h == 4)
-    check("collector captures pct_7d", st.pct_7d == 41)
-    check("collector captures ctx_pct", st.ctx_pct == 5)
-    check("collector captures reset_5h", st.reset_5h == 1789543200)
-    check("collector captures cost", st.cost_usd == 0.078)
-    check("collector stamps collected_at", st.collected_at is not None)
 
-    # Allowlist: anything not in the section 4 table must not be persisted.
-    raw = json.loads((home / "accounts" / "alpha" / "status.json").read_text())
-    check("collector does not persist unknown fields", "output_style" not in raw and "thinking" not in raw)
+def write_transcript(home: Path, acct: str, cwd, session: str, turns=(),
+                     extra=(), at: int | None = None) -> Path:
+    """A transcript where Claude Code would write one, with `turns` in order."""
+    d = home / "accounts" / acct / ".claude" / "projects" / collect.encode_cwd(cwd)
+    d.mkdir(parents=True, exist_ok=True)
+    p = d / f"{session}.jsonl"
+    rows = [{"type": "assistant", "message": {"model": m, "usage": u}} for m, u in turns]
+    rows += list(extra)
+    p.write_text("".join(json.dumps(r) + "\n" for r in rows))
+    if at is not None:
+        os.utime(p, (at, at))
+    return p
 
-    # Garbage must never overwrite a good snapshot.
-    before = (home / "accounts" / "alpha" / "status.json").read_text()
-    subprocess.run([str(ROOT / "libexec" / "statusline-collect.sh")],
-                   input="not json at all", capture_output=True, text=True, env=env)
-    after = (home / "accounts" / "alpha" / "status.json").read_text()
-    check("garbage input does not clobber a good snapshot", before == after)
 
-    # A payload with no rate_limits must never become 0 in the file - that is
-    # the difference between a real reading and a silently dead trigger. Here
-    # the window in the stored snapshot has already ended, so there is nothing
-    # left to carry and the field goes back to null.
-    thin = {"session_id": "x", "model": {"id": "m"}}
-    subprocess.run([str(ROOT / "libexec" / "statusline-collect.sh")],
-                   input=json.dumps(thin), capture_output=True, text=True, env=env)
-    st = status.read("alpha", home / "accounts" / "alpha" / "status.json")
-    check("missing rate_limits becomes null, not 0", st.pct_5h is None, repr(st.pct_5h))
-    check("and reads as quiet, since the collector is alive",
-          st.pct_5h_source == "quiet", st.pct_5h_source)
+def test_the_pull_reads_the_context_the_statusline_used_to_push(home: Path) -> None:
+    """One transcript, and the figure the collector would have pushed for it.
 
-    # Inside the window it is the opposite: an idle session's payload carries no
-    # five_hour block, and must not erase what an active session on the same
-    # account just reported. Losing that is what made five agents look unknown.
-    live = dict(payload)
-    live["rate_limits"] = {
-        "five_hour": {"used_percentage": 63, "resets_at": int(time.time()) + 1800},
-        "seven_day": {"used_percentage": 41, "resets_at": int(time.time()) + 90000},
-    }
-    subprocess.run([str(ROOT / "libexec" / "statusline-collect.sh")],
-                   input=json.dumps(live), capture_output=True, text=True, env=env)
-    observed_at = status.read("alpha", home / "accounts" / "alpha" / "status.json").rl_at
-    subprocess.run([str(ROOT / "libexec" / "statusline-collect.sh")],
-                   input=json.dumps(thin), capture_output=True, text=True, env=env)
-    st = status.read("alpha", home / "accounts" / "alpha" / "status.json")
-    check("an idle payload does not erase the account's reading", st.pct_5h == 63,
-          repr(st.pct_5h))
-    check("the carried reading is marked as carried", st.rl_carried is True)
-    check("and keeps when it was observed, not when it was copied",
-          st.rl_at == observed_at, f"rl_at={st.rl_at} observed_at={observed_at}")
-    check("a carried reading still assigns", st.assignable()[0], st.assignable()[1])
+    The live check is in the report for #1402: on every agent that had a figure,
+    this arithmetic reproduced the statusLine's `current_usage` to the token.
+    Here it is pinned, along with the two records that must not be mistaken for
+    the last turn - a synthetic message and a cost-state.
+    """
+    home.mkdir(parents=True, exist_ok=True)
+    os.environ["OCP_HOME"] = str(home)
+    accounts.register("alpha")
+    cwd = home / "wt-backend"
+    cwd.mkdir(parents=True, exist_ok=True)
+    write_transcript(
+        home, "alpha", cwd, "d548338d-0000-4000-8000-000000000001",
+        turns=[("claude-opus-5", {"input_tokens": 1, "output_tokens": 1,
+                                  "cache_read_input_tokens": 10_000}),
+               # The real last turn, with the nested fields the transcript
+               # carries and the statusLine's payload did not.
+               ("claude-opus-5", dict(LIVE_USAGE, service_tier="standard",
+                                      iterations=[{"input_tokens": 2}],
+                                      cache_creation={"ephemeral_1h_input_tokens": 924}))],
+        extra=[{"type": "assistant",
+                "message": {"model": "<synthetic>",
+                            "usage": {"input_tokens": 0, "output_tokens": 0}}},
+               {"type": "cost-state", "totalCostUSD": 0.078,
+                "totalLinesAdded": 3, "totalLinesRemoved": 1}])
+
+    snap = collect.snapshot("backend", cwd)
+    check("pull: finds the session", snap is not None)
+    check("pull: the file name is the session id",
+          snap["session_id"] == "d548338d-0000-4000-8000-000000000001", snap["session_id"])
+    check("pull: the account is read off the path the session writes to",
+          snap["account"] == "alpha", snap["account"])
+    check("pull: tokens are the last turn's four counts, summed",
+          collect.tokens(snap["ctx_used"]) == 86085, snap["ctx_used"])
+    check("pull: and the nested fields beside them are not counted",
+          set(snap["ctx_used"]) == set(LIVE_USAGE), snap["ctx_used"])
+    check("pull: ctx_pct is what the statusLine reported for the same tokens",
+          snap["ctx_pct"] == 9, snap["ctx_pct"])
+    check("pull: the model comes from the same turn",
+          snap["model_id"] == "claude-opus-5", snap["model_id"])
+    check("pull: a synthetic message is not the last turn",
+          snap["ctx_pct"] == 9 and snap["ctx_used"]["cache_read_input_tokens"] == 84777)
+    check("pull: cost comes from the session's own cost-state",
+          snap["cost_usd"] == 0.078 and snap["lines_added"] == 3, snap["cost_usd"])
+    check("pull: collected_at is when the session wrote, not when we looked",
+          snap["collected_at"] == int(Path(snap["transcript_path"]).stat().st_mtime),
+          snap["collected_at"])
+
+    # And it lands where every reader already looks, so nothing downstream has
+    # to learn that the mechanism changed.
+    check("pull: writes the agent's snapshot", collect.collect("backend", cwd) is not None)
+    st = status.read("alpha", paths.agent_status_file("backend"))
+    check("pull: status.read sees the context", st.ctx_pct == 9, st.ctx_pct)
+    check("pull: status.read sees the session",
+          st.session_id == "d548338d-0000-4000-8000-000000000001", st.session_id)
+
+
+def test_a_cleared_session_reads_zero_and_an_unsearchable_one_reads_unknown(home: Path) -> None:
+    """The two ways a transcript has no turn, which have opposite answers.
+
+    A `/clear` starts a new transcript file. Measured on `orcapipe.chat`
+    (#1402): eleven lines, no assistant turn, while the statusLine was still
+    reporting the 20% the session had before the clear. Its context is 0 - that
+    is what the clear was for - and reading it as unknown throws away the fact.
+
+    A file we could not search to the end is the other case and must stay
+    unknown: reading it as 0 would tell the daemon an agent near its window's
+    end had an empty context, and nothing would ever park it.
+    """
+    home.mkdir(parents=True, exist_ok=True)
+    os.environ["OCP_HOME"] = str(home)
+    accounts.register("alpha")
+    cwd = home / "wt-chat"
+    cwd.mkdir(parents=True, exist_ok=True)
+    write_transcript(home, "alpha", cwd, "b4be3c1a-0000-4000-8000-000000000002",
+                     turns=[("claude-sonnet-5", {"cache_read_input_tokens": 203_226})],
+                     at=int(time.time()) - 120)
+    cleared = [{"type": "user", "message": {"role": "user", "content":
+                                            "<command-name>/clear</command-name>"}},
+               {"type": "cost-state", "totalCostUSD": 0}]
+    write_transcript(home, "alpha", cwd, "caaaab5a-0000-4000-8000-000000000003",
+                     extra=cleared, at=int(time.time()))
+
+    snap = collect.snapshot("chat", cwd)
+    check("cleared: the new transcript is the session",
+          snap["session_id"].startswith("caaaab5a"), snap["session_id"])
+    check("cleared: its context is 0, not the 20% of the session before it",
+          snap["ctx_pct"] == 0, snap["ctx_pct"])
+
+    # The same file, with the search cut short before it can see the whole of
+    # it. Nothing about the session changed; what changed is what we can know.
+    tail, ceiling = collect.TAIL_BYTES, collect.TAIL_MAX_BYTES
+    try:
+        collect.TAIL_BYTES = collect.TAIL_MAX_BYTES = 8
+        snap = collect.snapshot("chat", cwd)
+        check("unsearchable: a file we could not read to the end is unknown",
+              snap["ctx_pct"] is None, snap["ctx_pct"])
+        # And a turn further back than the first tail is still found, by
+        # doubling - the case a fixed tail would have missed.
+        collect.TAIL_BYTES, collect.TAIL_MAX_BYTES = 8, 1 << 20
+        snap = collect.snapshot("chat", cwd)
+        check("doubling: the turn behind a short tail is still found",
+              snap["ctx_pct"] == 0, snap["ctx_pct"])
+    finally:
+        collect.TAIL_BYTES, collect.TAIL_MAX_BYTES = tail, ceiling
+
+
+def test_the_newest_transcript_across_accounts_is_the_session(home: Path) -> None:
+    """Which account an agent is on, read off the file the session is writing.
+
+    The statusLine took it from `CLAUDE_CONFIG_DIR`, first-hand. The pull takes
+    it from the path of the transcript, which is the same fact - and it follows
+    an `ocp agent move` for nothing, because the file left behind under the old
+    account is simply older. Measured live: `orcapipe.chat` moved alpha -> sigma
+    and the pull reported sigma on the next read.
+    """
+    home.mkdir(parents=True, exist_ok=True)
+    os.environ["OCP_HOME"] = str(home)
+    accounts.register("alpha")
+    accounts.register("sigma")
+    cwd = home / "wt-chat"
+    cwd.mkdir(parents=True, exist_ok=True)
+    now = int(time.time())
+    write_transcript(home, "alpha", cwd, "aaaaaaaa-0000-4000-8000-000000000004",
+                     turns=[("claude-opus-5", {"cache_read_input_tokens": 100_000})],
+                     at=now - 600)
+    check("move: before the move, the older account is the only one",
+          collect.snapshot("chat", cwd)["account"] == "alpha")
+    write_transcript(home, "sigma", cwd, "bbbbbbbb-0000-4000-8000-000000000005",
+                     turns=[("claude-opus-5", {"cache_read_input_tokens": 20_000})],
+                     at=now)
+    snap = collect.snapshot("chat", cwd)
+    check("move: the newest transcript wins, whichever account holds it",
+          snap["account"] == "sigma" and snap["session_id"].startswith("bbbbbbbb"),
+          f"{snap['account']} {snap['session_id']}")
+    check("move: and the context is the new session's, not the old one's",
+          snap["ctx_pct"] == 2, snap["ctx_pct"])
+
+
+def test_an_unknown_model_gets_no_context_figure(home: Path) -> None:
+    """A window size is a table, so an unfamiliar model has no percentage.
+
+    Guessing small parks every agent on the context trigger at a fifth of its
+    real window; guessing large is the silence we already live with. The figure
+    goes unknown and the session's identity still comes back, because that part
+    was never a guess.
+    """
+    home.mkdir(parents=True, exist_ok=True)
+    os.environ["OCP_HOME"] = str(home)
+    accounts.register("alpha")
+    cwd = home / "wt-next"
+    cwd.mkdir(parents=True, exist_ok=True)
+    write_transcript(home, "alpha", cwd, "cccccccc-0000-4000-8000-000000000006",
+                     turns=[("some-model-nobody-has-measured",
+                             {"cache_read_input_tokens": 500_000})])
+    snap = collect.snapshot("next", cwd)
+    check("unknown model: no context percentage", snap["ctx_pct"] is None, snap["ctx_pct"])
+    check("unknown model: no invented window size", snap["ctx_size"] is None, snap["ctx_size"])
+    check("unknown model: the session is still identified",
+          snap["session_id"].startswith("cccccccc") and snap["account"] == "alpha")
+    check("unknown model: and the tokens are still reported",
+          collect.tokens(snap["ctx_used"]) == 500_000)
+
+
+def test_the_daemon_pulls_only_for_an_open_session(home: Path) -> None:
+    """The one thing a pull cannot reproduce is a heartbeat.
+
+    `collected_at` fresh means "a session is alive here" to every reader in
+    `status.py`, so collecting for an agent whose session the daemon has closed
+    would report a dead session as live for ever. A closed agent's snapshot is
+    left to age into stale, exactly as it does under the statusLine.
+    """
+    _daemon_home(home, 40)
+    cwd = home / "wt-backend"
+    cwd.mkdir(parents=True, exist_ok=True)
+    write_transcript(home, "alpha", cwd, "dddddddd-0000-4000-8000-000000000007",
+                     turns=[("claude-opus-5", {"cache_read_input_tokens": 300_000})])
+    con = db.connect()
+    try:
+        db.set_terminal(con, "backend", "term_x", str(cwd))
+        dmn.collect_snapshots(con, lambda _m: None)
+        st = status.read("alpha", paths.agent_status_file("backend"))
+        check("tick: an open session's context is pulled every tick",
+              st.ctx_pct == 30, st.ctx_pct)
+
+        paths.agent_status_file("backend").unlink()
+        db.set_closed(con, "backend", "dddddddd-0000-4000-8000-000000000007")
+        dmn.collect_snapshots(con, lambda _m: None)
+        check("tick: a closed agent's snapshot is not refreshed",
+              not paths.agent_status_file("backend").exists())
+    finally:
+        con.close()
+
+
+def test_the_usage_poll_asks_one_account_per_tick_and_renews_only_on_failure(home: Path) -> None:
+    """Rate limits are the half no transcript carries, so they are polled.
+
+    One account per tick, because five HTTPS GETs in the path of a 30s loop is
+    five timeouts. And `refresh=True` starts the Claude CLI to renew the
+    account's token, so it is only tried when the request actually failed, and
+    then no more often than its own cooldown - otherwise a logged-out account
+    pays a CLI start every two minutes for ever.
+    """
+    _daemon_home(home, 40)
+    accounts.register("beta")
+    asked: list[tuple[str, bool]] = []
+    answers: list[bool] = [True]
+
+    def fake_read(acct, refresh=True):
+        asked.append((acct, refresh))
+        if not answers[0]:
+            return None
+        return usage_api.Reading(acct, 7, None, 11, None, int(time.time()))
+
+    real_read, real_login = usage_api.read, accounts.logged_in
+    try:
+        accounts.logged_in = lambda acct: True
+        usage_api.read = fake_read
+        con = db.connect()
+        try:
+            dmn.poll_usage(con, lambda _m: None)
+            check("poll: one account per tick", len(asked) == 1, asked)
+            check("poll: and no renewal on the common path", asked[0][1] is False, asked)
+            dmn.poll_usage(con, lambda _m: None)
+            check("poll: the next tick takes the next account",
+                  [a for a, _ in asked] == ["alpha", "beta"], asked)
+            dmn.poll_usage(con, lambda _m: None)
+            check("poll: an account just read is not read again this minute",
+                  len(asked) == 2, asked)
+            check("poll: the reading lands where every reader looks",
+                  status.read("alpha").pct_5h == 7, status.read("alpha").pct_5h)
+
+            # Nothing has happened on either account since those readings, so
+            # there is nothing to ask about - the cursors being clear is not a
+            # reason on its own.
+            asked.clear()
+            db.set_cursor(con, "usage-poll:alpha", 0)
+            db.set_cursor(con, "usage-poll:beta", 0)
+            dmn.poll_usage(con, lambda _m: None)
+            check("poll: an idle account is not asked at all", asked == [], asked)
+
+            # A turn is what moves the figures, and our own hooks record one.
+            db.add_event(con, "backend", "Stop", {}, account="alpha")
+            dmn.poll_usage(con, lambda _m: None)
+            check("poll: a turn since the last reading makes it due",
+                  [a for a, _ in asked] == ["alpha"], asked)
+
+            # And the spending nothing records - a fold's `claude -p`, a human
+            # at a terminal - is why quiet is not trusted for ever. Beta's
+            # reading is aged past the cadence with no event of any kind.
+            asked.clear()
+            write_status(home, "beta", pct_5h=3, pct_7d=4,
+                         rl_at=int(time.time()) - dmn.USAGE_MAX_AGE_S - 1)
+            db.set_cursor(con, "usage-poll:beta", 0)
+            dmn.poll_usage(con, lambda _m: None)
+            check("poll: a reading older than the cadence is asked about anyway",
+                  [a for a, _ in asked] == ["beta"], asked)
+
+            # Now the endpoint cannot be reached: the token is the usual reason,
+            # and renewing it is one CLI start, once per cooldown.
+            asked.clear()
+            answers[0] = False
+            db.add_event(con, "backend", "Stop", {}, account="alpha")
+            db.set_cursor(con, "usage-poll:alpha", 0)
+            db.set_cursor(con, "usage-poll:beta", 0)
+            dmn.poll_usage(con, lambda _m: None)
+            check("poll: a failure is retried once, with a renewal",
+                  [r for _a, r in asked] == [False, True], asked)
+            asked.clear()
+            db.add_event(con, "backend", "Stop", {}, account="alpha")
+            db.set_cursor(con, "usage-poll:alpha", 0)
+            dmn.poll_usage(con, lambda _m: None)
+            check("poll: and the renewal is not tried again inside its cooldown",
+                  [r for _a, r in asked] == [False], asked)
+        finally:
+            con.close()
+    finally:
+        usage_api.read, accounts.logged_in = real_read, real_login
+
+
+def test_a_turn_ending_refreshes_the_snapshot_through_the_hook(home: Path) -> None:
+    """The statusLine's per-turn push, done by a hook that was already there.
+
+    `Stop` fires when the agent has finished a turn, already runs `ocp hook`,
+    and already carries the `cwd` the transcript lives under - so the snapshot
+    is refreshed at the moment the status line used to render one, with no
+    status line installed. A `Stop` arriving is also the heartbeat: the session
+    is alive and has just finished a turn.
+
+    An event that is not a turn boundary must not do it. `PermissionRequest`
+    fires while the agent waits on a human, and treating that as a turn would
+    keep rewriting the snapshot of a session that is doing nothing.
+    """
+    home.mkdir(parents=True, exist_ok=True)
+    os.environ["OCP_HOME"] = str(home)
+    accounts.register("alpha")
+    agents.register("backend", "alpha")
+    cwd = home / "wt-backend"
+    cwd.mkdir(parents=True, exist_ok=True)
+    write_transcript(home, "alpha", cwd, "eeeeeeee-0000-4000-8000-000000000008",
+                     turns=[("claude-opus-5", {"cache_read_input_tokens": 450_000})])
+    real_agent = os.environ.get("OCP_AGENT")
+
+    def hook(event: str, **fields) -> None:
+        real_in = sys.stdin
+        sys.stdin = io.StringIO(json.dumps({"hook_event_name": event, "session_id": "s",
+                                            "cwd": str(cwd), **fields}))
+        try:
+            evmod.record_from_stdin([event])
+        finally:
+            sys.stdin = real_in
+
+    try:
+        os.environ["OCP_AGENT"], os.environ["OCP_ACCOUNT"] = "backend", "alpha"
+        hook("Stop")
+        st = status.read("alpha", paths.agent_status_file("backend"))
+        check("hook: a turn ending refreshes this session's snapshot",
+              st.ctx_pct == 45, st.ctx_pct)
+        check("hook: with the session it was written by",
+              st.session_id == "eeeeeeee-0000-4000-8000-000000000008", st.session_id)
+
+        paths.agent_status_file("backend").unlink()
+        hook("PermissionRequest", tool_name="Bash")
+        check("hook: an event that is not a turn boundary does not collect",
+              not paths.agent_status_file("backend").exists())
+    finally:
+        if real_agent is None:
+            os.environ.pop("OCP_AGENT", None)
+        else:
+            os.environ["OCP_AGENT"] = real_agent
+
+
+# ---------------------------------------------------------------- status line
+def test_init_leaves_the_status_line_slot_empty(home: Path) -> None:
+    """ocp installs no status line (D11): the slot is the human's. `ocp init`
+    removes the ones ocp used to install, and the settings entry pointing at
+    them, and leaves anyone else's statusLine where it is."""
+    home.mkdir(parents=True, exist_ok=True)
+    os.environ["OCP_HOME"] = str(home)
+    orcamod.live_terminals = lambda: None
+    shared = paths.shared_claude()
+    shared.mkdir(parents=True, exist_ok=True)
+    settings = shared / "settings.json"
+
+    for old in accounts.OLD_STATUSLINES:
+        (shared / old).write_text("#!/bin/sh\n")
+        settings.write_text(json.dumps({"statusLine": {
+            "type": "command", "command": str(shared / old)}, "theme": "dark"}))
+        row = _doctor_row(doctor.run(), "shared statusLine")
+        check(f"status line: doctor fails an old ocp {old} left in the slot",
+              row and row[0] == doctor.FAIL, row)
+        accounts.ensure_shared()
+        got = json.loads(settings.read_text())
+        check(f"status line: init removes the entry for {old}", "statusLine" not in got, got)
+        check("status line: and keeps the rest of the settings", got.get("theme") == "dark", got)
+        check(f"status line: and deletes {old}", not (shared / old).exists())
+        check("status line: doctor is quiet once it is gone",
+              _doctor_row(doctor.run(), "shared statusLine") is None)
+
+    theirs = {"type": "command", "command": "npx ccstatusline"}
+    settings.write_text(json.dumps({"statusLine": theirs}))
+    accounts.ensure_shared()
+    check("status line: someone else's is left alone",
+          json.loads(settings.read_text()).get("statusLine") == theirs, settings.read_text())
+    check("status line: and doctor does not flag it",
+          _doctor_row(doctor.run(), "shared statusLine") is None)
+
+
+def test_a_failed_settings_write_keeps_the_old_scripts(home: Path) -> None:
+    """ensure_shared deletes ocp's old status line scripts only after the
+    settings no longer point at them: a write that fails in between must leave
+    every session with a script that still exists."""
+    home.mkdir(parents=True, exist_ok=True)
+    os.environ["OCP_HOME"] = str(home)
+    shared = paths.shared_claude()
+    shared.mkdir(parents=True, exist_ok=True)
+    old = shared / accounts.OLD_STATUSLINES[0]
+    old.write_text("#!/bin/sh\n")
+    (shared / "settings.json").write_text(json.dumps(
+        {"statusLine": {"type": "command", "command": str(old)}}))
+
+    real_write = Path.write_text
+
+    def failing_write(self, *a, **kw):
+        if self.name.startswith("settings.json"):
+            raise OSError("disk full")
+        return real_write(self, *a, **kw)
+    Path.write_text = failing_write
+    try:
+        accounts.ensure_shared()
+        raised = False
+    except OSError:
+        raised = True
+    finally:
+        Path.write_text = real_write
+    check("status line: a failed settings write is not swallowed", raised)
+    check("status line: and the script the settings still point at is kept", old.exists())
+
+
+def test_an_unreadable_settings_file_is_refused_and_left_alone(home: Path) -> None:
+    """shared/settings.json holds the human's settings as well as ocp's. One
+    that cannot be read as a JSON object is refused, naming the file, and
+    nothing is changed - never rewritten from {}."""
+    home.mkdir(parents=True, exist_ok=True)
+    os.environ["OCP_HOME"] = str(home)
+    shared = paths.shared_claude()
+    shared.mkdir(parents=True, exist_ok=True)
+    old = shared / accounts.OLD_STATUSLINES[0]
+    old.write_text("#!/bin/sh\n")
+    settings = shared / "settings.json"
+    for bad, why in (('{"theme": "dark", "model": ', "malformed JSON"),
+                     ('["a", "list"]', "JSON that is not an object")):
+        settings.write_text(bad)
+        try:
+            accounts.ensure_shared()
+            err = ""
+        except ValueError as e:
+            err = str(e)
+        check(f"settings: {why} is refused, naming the file", str(settings) in err, err)
+        check(f"settings: and {why} is left byte for byte", settings.read_text() == bad,
+              settings.read_text())
+        check(f"settings: and nothing else is touched for {why}", old.exists())
+
+
+def test_a_settings_write_that_dies_leaves_the_old_file(home: Path) -> None:
+    """The write goes through a temp file and a rename, so a write that dies
+    half way leaves the previous settings.json whole, not half of the new one."""
+    home.mkdir(parents=True, exist_ok=True)
+    os.environ["OCP_HOME"] = str(home)
+    shared = paths.shared_claude()
+    shared.mkdir(parents=True, exist_ok=True)
+    settings = shared / "settings.json"
+    before = json.dumps({"theme": "dark", "statusLine": {"command": "npx ccstatusline"}})
+    settings.write_text(before)
+
+    real_write = Path.write_text
+
+    def dies_half_way(self, data, *a, **kw):
+        if self.name.startswith("settings.json"):
+            real_write(self, data[: len(data) // 2], *a, **kw)
+            raise OSError("disk full")
+        return real_write(self, data, *a, **kw)
+    Path.write_text = dies_half_way
+    try:
+        accounts.ensure_shared()
+    except OSError:
+        pass
+    finally:
+        Path.write_text = real_write
+    check("settings: a write that dies half way leaves the old file whole",
+          settings.read_text() == before, settings.read_text())
 
 
 # ---------------------------------------------------------------- yaml
@@ -2616,68 +3012,68 @@ def test_the_other_wake_writers_also_read_the_queue(home: Path) -> None:
 
 
 def test_a_new_account_gets_its_first_reading_without_anyone_asking(home: Path) -> None:
-    """An account that exists, is logged in and has no status.json is probed
-    once by the daemon, with nobody waiting; asked once, it is not asked again
-    on that ground, and one that is not logged in is not asked at all."""
+    """An account that exists, is logged in and has no status.json is asked
+    about once by the daemon, with nobody waiting; asked once, it is not asked
+    again on that ground, and one that is not logged in is not asked at all.
+
+    The cadence is what this is about, and it outlived the mechanism: it used to
+    start `probe.py` - a session and a real turn - and now it is one HTTPS GET
+    (#1447). A never-logged-in account must still not cost a keychain
+    subprocess every tick.
+    """
     _daemon_home(home, 20)
     con = db.connect()
-    real_login, real_popen = accounts.logged_in, subprocess.Popen
-    started: list[list[str]] = []
-    from ocp import probe
+    real_login, real_read = accounts.logged_in, usage_api.read
+    asked: list[str] = []
     try:
         (home / "accounts" / "alpha" / "status.json").unlink()
         accounts.logged_in = lambda a: True  # noqa: E731
-        subprocess.Popen = lambda cmd, **kw: started.append(cmd)  # noqa: E731
+        usage_api.read = lambda acct, refresh=True: (  # noqa: E731
+            asked.append(acct)
+            or usage_api.Reading(acct, 3, int(time.time()) + 1800, 4, None, int(time.time())))
         st = status.read("alpha")
         check("new account: the state under test - it exists and has no reading",
               "alpha" in paths.list_accounts() and not st.exists)
-        dmn.probe_stale_accounts(con, lambda _m: None, [])
-        check("new account: the daemon asks it for a reading, unprompted",
-              any(c[-3:] == ["account", "probe", "alpha"] for c in started), str(started))
-        n = len(started)
-        dmn.probe_stale_accounts(con, lambda _m: None, [])
-        check("new account: and asks once, not every tick",
-              not any(c[-1] == "alpha" for c in started[n:]), str(started[n:]))
-        check("new account: probe.due still refuses an absent snapshot",
-              not probe.due(st, None))
-        # Every tick asks, so an account that has a reading, or was asked, must not
-        # cost a login check: on macOS that is a `security` subprocess apiece.
-        asked: list[str] = []
-        accounts.logged_in = lambda a: asked.append(a) or True  # noqa: E731
-        dmn.probe_stale_accounts(con, lambda _m: None, [])
-        check("new account: one already asked, or already read, is not login-checked each tick",
-              asked == [], str(asked))
-        started.clear()
-        db.set_cursor(con, "probe:alpha", 0)
-        asked = []
-        accounts.logged_in = lambda a: asked.append(a) or False  # noqa: E731
-        dmn.probe_stale_accounts(con, lambda _m: None, [])
-        check("new account: not logged in, nothing to ask", started == [], str(started))
-        # Still unread, so still eligible every tick - but a login check that
-        # came up empty must not repeat every tick for as long as it stays
-        # empty, or a never-logged-in account costs a keychain subprocess for
-        # ever.
-        dmn.probe_stale_accounts(con, lambda _m: None, [])
+        check("new account: and that is a reason to ask",
+              dmn.usage_due(con, "alpha", st, int(time.time())) == "no reading yet")
+        dmn.poll_usage(con, lambda _m: None)
+        check("new account: the daemon asks it, unprompted", asked == ["alpha"], str(asked))
+        asked.clear()
+        dmn.poll_usage(con, lambda _m: None)
+        check("new account: and asks once, not every tick", asked == [], str(asked))
+        check("new account: because it has a reading now",
+              dmn.usage_due(con, "alpha", status.read("alpha"), int(time.time())) is None)
+
+        # An account nobody is logged in to costs a `security` subprocess per
+        # check on macOS, so a check that came up empty is not repeated at once.
+        checked: list[str] = []
+        accounts.logged_in = lambda a: checked.append(a) or False  # noqa: E731
+        (home / "accounts" / "alpha" / "status.json").unlink()
+        db.set_cursor(con, "usage-poll:alpha", 0)
+        dmn.poll_usage(con, lambda _m: None)
+        check("new account: not logged in, nothing to ask", asked == [], str(asked))
+        dmn.poll_usage(con, lambda _m: None)
         check("new account: and a login check that came up empty is not repeated next tick",
-              asked == ["alpha"], str(asked))
+              checked == ["alpha"], str(checked))
+
         # A removed name added again is a new account, and is asked again.
         accounts.register("epsilon")
-        db.set_cursor(con, "probe:alpha", int(time.time()))  # one probe per pass
         accounts.logged_in = lambda a: True  # noqa: E731
-        dmn.probe_stale_accounts(con, lambda _m: None, [])
-        check("new account: epsilon was probed", db.get_cursor(con, "probe:epsilon") != 0)
+        db.set_cursor(con, "usage-poll:alpha", int(time.time()) + 600)  # one per pass
+        dmn.poll_usage(con, lambda _m: None)
+        check("new account: epsilon was asked about", asked == ["epsilon"], str(asked))
         accounts.logged_in = lambda a: False  # noqa: E731 - logout took
         ok, msg = accounts.remove_account("epsilon", lambda: True, lambda a, e: 0, con)
-        check("new account: removing it forgets that it was probed",
-              ok and db.get_cursor(con, "probe:epsilon") == 0, msg)
+        check("new account: removing it forgets its poll cooldown",
+              ok and db.get_cursor(con, "usage-poll:epsilon") == 0, msg)
         accounts.register("epsilon")
         accounts.logged_in = lambda a: True  # noqa: E731
-        started.clear()
-        dmn.probe_stale_accounts(con, lambda _m: None, [])
-        check("new account: the same name added again is probed again",
-              any(c[-1] == "epsilon" for c in started), str(started))
+        asked.clear()
+        dmn.poll_usage(con, lambda _m: None)
+        check("new account: the same name added again is asked again",
+              asked == ["epsilon"], str(asked))
     finally:
-        accounts.logged_in, subprocess.Popen = real_login, real_popen
+        accounts.logged_in, usage_api.read = real_login, real_read
         con.close()
 
 
@@ -5881,25 +6277,6 @@ def test_launch_refuses_stale(home: Path) -> None:
           not status.read("delta").assignable()[0])
 
 
-def test_collector_account_named_like_user(home: Path) -> None:
-    """An account named after the user must not be renamed to 'default'."""
-    home.mkdir(parents=True, exist_ok=True)
-    user = Path(os.path.expanduser("~")).name
-    cfg = home / "accounts" / user / ".claude"
-    cfg.mkdir(parents=True, exist_ok=True)
-    payload = {"session_id": "s1", "model": {"id": "m"},
-               "rate_limits": {"five_hour": {"used_percentage": 77, "resets_at": 1},
-                               "seven_day": {"used_percentage": 5, "resets_at": 2}}}
-    env = dict(os.environ, CLAUDE_CONFIG_DIR=str(cfg), OCP_HOME=str(home))
-    subprocess.run([str(ROOT / "libexec" / "statusline-collect.sh")],
-                   input=json.dumps(payload), capture_output=True, text=True, env=env)
-    check(f"collector: an account named {user!r} keeps its own name",
-          (home / "accounts" / user / "status.json").exists(),
-          str(sorted(p.name for p in (home / "accounts").iterdir())))
-    check("collector: no phantom 'default' account is created",
-          not (home / "accounts" / "default").exists())
-
-
 def test_db_dedup_only_swallows_dedup(home: Path) -> None:
     con = db.connect(home / "strict.sqlite")
     try:
@@ -5937,41 +6314,29 @@ def test_agent_rewrite_uses_parser(home: Path) -> None:
 def test_shared_account_context_isolation(home: Path) -> None:
     """Two agents on one account must not be judged by each other's context.
 
-    Rate limits are account-wide and shared correctly; context usage is per
-    session, and the account file only ever holds whichever session wrote last.
+    Rate limits are account-wide and shared correctly; context is per session,
+    and each agent's comes from the transcript its own session is writing.
     """
     home.mkdir(parents=True, exist_ok=True)
     os.environ["OCP_HOME"] = str(home)
     agents.register("ag_a", "shared")
     agents.register("ag_b", "shared")
+    accounts.register("shared")
+    now = int(time.time())
+    write_status(home, "shared", pct_5h=30, pct_7d=12, reset_5h=now + 1800,
+                 rl_at=now, reset_7d=now + 99999, rl7_at=now)
 
-    payload = {
-        "session_id": "sess-a", "model": {"id": "m"},
-        "rate_limits": {"five_hour": {"used_percentage": 30, "resets_at": 1},
-                        "seven_day": {"used_percentage": 12, "resets_at": 2}},
-        "context_window": {"used_percentage": 70, "context_window_size": 1000,
-                           "total_input_tokens": 1, "total_output_tokens": 1,
-                           "current_usage": {}},
-    }
-    cfg = home / "accounts" / "shared" / ".claude"
-    cfg.mkdir(parents=True, exist_ok=True)
+    for agent, tokens in (("ag_a", 700_000), ("ag_b", 50_000)):
+        cwd = home / f"wt-{agent}"
+        cwd.mkdir(parents=True, exist_ok=True)
+        write_transcript(home, "shared", cwd,
+                         f"0000000{agent[-1]}-0000-4000-8000-00000000000a",
+                         turns=[("claude-opus-5", {"cache_read_input_tokens": tokens})])
+        collect.collect(agent, cwd)
 
-    def collect(agent, ctx, session):
-        p = dict(payload)
-        p["context_window"] = dict(payload["context_window"], used_percentage=ctx)
-        p["session_id"] = session
-        subprocess.run([str(ROOT / "libexec" / "statusline-collect.sh")],
-                       input=json.dumps(p), capture_output=True, text=True,
-                       env=dict(os.environ, CLAUDE_CONFIG_DIR=str(cfg),
-                                OCP_HOME=str(home), OCP_AGENT=agent))
-
-    collect("ag_a", 70, "sess-a")   # ag_a is nearly full on context
-    collect("ag_b", 5, "sess-b")    # ag_b then writes the account file
-
-    check("collector: each agent writes its own status file",
+    check("shared account: each agent writes its own status file",
           (home / "agents" / "ag_a" / "status.json").exists()
           and (home / "agents" / "ag_b" / "status.json").exists())
-
     a = status.read_for_agent("ag_a", "shared")
     b = status.read_for_agent("ag_b", "shared")
     check("shared account: each agent keeps its own context",
@@ -6855,105 +7220,57 @@ def test_reconcile_does_not_clear_closed_at_on_a_failed_wake(home: Path) -> None
 
 
 def test_carry_bounds_and_losses(home: Path) -> None:
-    """The three ways a carried figure goes wrong, all found in review.
+    """What `status.read` must still refuse, whoever wrote the snapshot.
 
-    A figure we cannot place in a window is ignorance and must not read as an
-    idle window; a figure we can place goes old while collected_at keeps
-    refreshing; and inside one window the account figure may never go down,
-    because each session reports from the moment of its own last API response.
+    These were found through the statusLine collector, which is gone (D11), and
+    they are reading rules rather than writing ones: a figure we cannot place
+    in a window is ignorance and must not read as an idle window; a lost weekly
+    figure is the absence of a refusal, which costs the rest of the week; and a
+    figure goes old while collected_at keeps refreshing.
+
+    The writing rules they were found with - usage never falls inside one
+    window, a rollover replaces the high-water - are `usage_api.record`'s now
+    and are checked in `test_usage_api_record_stands_in_for_a_probe`. What no
+    longer exists at all is the carry: the endpoint states both windows or
+    answers nothing, so there is no payload that quietly omits one.
     """
+    home.mkdir(parents=True, exist_ok=True)
     os.environ["OCP_HOME"] = str(home)
-    acct_cfg = home / "accounts" / "carry" / ".claude"
-    acct_cfg.mkdir(parents=True, exist_ok=True)
-    env = dict(os.environ, CLAUDE_CONFIG_DIR=str(acct_cfg), OCP_HOME=str(home))
-    collect = lambda payload: subprocess.run(  # noqa: E731
-        [str(ROOT / "libexec" / "statusline-collect.sh")],
-        input=json.dumps(payload), capture_output=True, text=True, env=env)
-    read = lambda: status.read(  # noqa: E731
-        "carry", home / "accounts" / "carry" / "status.json")
-    idle = {"session_id": "idle"}          # a session with nothing to report
     now = int(time.time())
+    path = home / "accounts" / "carry" / "status.json"
+    read = lambda: status.read("carry", path)  # noqa: E731
 
-    # 1. A figure with no resets_at cannot be placed in a window, and staying
-    #    lost is the whole of it: a loss that decays into "quiet" on the next
-    #    payload is a 95% account reading as 0% one refresh later.
-    collect({"session_id": "a", "rate_limits": {"five_hour": {"used_percentage": 95}}})
-    check("carry: a figure without a window is still read", read().pct_5h == 95)
-    collect(idle)
+    # 1. A figure with no window: real, and unplaceable. Reading it as a quiet
+    #    window is a 95% account reading as 0%.
+    write_status(home, "carry", pct_5h=95, reset_5h=None, rl_at=now, rl_lost=True,
+                 pct_7d=10, reset_7d=now + 99999, rl7_at=now)
     st = read()
-    check("carry: losing it is recorded", st.rl_lost is True)
-    check("carry: and reads as unknown, not as a quiet window",
+    check("carry: a lost figure reads as unknown, not as a quiet window",
           st.pct_5h_source == "unknown", st.pct_5h_source)
     check("carry: so it refuses assignment", not st.assignable()[0], st.assignable()[1])
-    collect(idle)
-    collect(idle)
-    st = read()
-    check("carry: the loss survives the payloads that follow it",
-          st.rl_lost is True and st.pct_5h_source == "unknown", st.pct_5h_source)
-    collect({"session_id": "b", "rate_limits":
-             {"five_hour": {"used_percentage": 7, "resets_at": now + 1800}}})
-    check("carry: and clears the moment a payload reports the window again",
-          read().rl_lost is False and read().pct_5h == 7)
 
-    # 2. Inside one window the account figure never goes down, but a payload
-    #    that reported the window still counts as having observed it - freezing
-    #    rl_at would age a live account into carried_old and stop its work.
-    collect({"session_id": "live", "rate_limits":
-             {"five_hour": {"used_percentage": 40, "resets_at": now + 1800}}})
-    raw = json.loads((home / "accounts" / "carry" / "status.json").read_text())
-    raw["rl_at"] = now - 7200
-    (home / "accounts" / "carry" / "status.json").write_text(json.dumps(raw))
-    collect({"session_id": "staler", "rate_limits":
-             {"five_hour": {"used_percentage": 30, "resets_at": now + 1800}}})
+    # And a first-hand reading is what takes the account out of that state.
+    usage_api.record(usage_api.Reading("carry", 7, now + 1800, 10, now + 99999, now),
+                     path=path)
     st = read()
-    check("carry: a staler session does not lower the account", st.pct_5h == 40,
-          repr(st.pct_5h))
-    check("carry: but it did observe the window, so the figure is not stale",
-          st.rl_at is not None and st.rl_at > now - 60, str(st.rl_at))
-    check("carry: and a live account does not read as carried",
-          st.pct_5h_source == "live", st.pct_5h_source)
-    collect({"session_id": "newer", "rate_limits":
-             {"five_hour": {"used_percentage": 55, "resets_at": now + 1800}}})
-    check("carry: a higher figure is taken", read().pct_5h == 55, repr(read().pct_5h))
+    check("carry: a first-hand reading clears the loss",
+          st.rl_lost is False and st.pct_5h == 7, f"{st.rl_lost} {st.pct_5h}")
 
-    # The API returns untidy floats, and this repo has seen 28.999999999999996
-    # for a plain 29. Comparing raw would latch the rule on invisible noise.
-    collect({"session_id": "n1", "rate_limits":
-             {"five_hour": {"used_percentage": 88.00000000000001, "resets_at": now + 1800}}})
-    collect({"session_id": "n2", "rate_limits":
-             {"five_hour": {"used_percentage": 87.99999999999999, "resets_at": now + 1800}}})
+    # 2. The weekly gate is written as "block if the figure is high", so a lost
+    #    7d is the absence of a refusal rather than one.
+    write_status(home, "carry", pct_5h=5, reset_5h=now + 1800, rl_at=now,
+                 pct_7d=None, reset_7d=None, rl7_at=None, rl7_lost=True)
     st = read()
-    check("carry: float noise below the same percent does not latch the rule",
-          st.pct_5h_source == "live", st.pct_5h_source)
-
-    # A window that has ended cannot be the window a new figure belongs to.
-    collect({"session_id": "old", "rate_limits":
-             {"five_hour": {"used_percentage": 95, "resets_at": now - 600}}})
-    collect({"session_id": "reset", "rate_limits":
-             {"five_hour": {"used_percentage": 0, "resets_at": now + 1800}}})
-    check("carry: a genuine reset is not suppressed by the window before it",
-          read().pct_5h == 0, repr(read().pct_5h))
-
-    # 3. The weekly window gets the same treatment, because its gate is written
-    #    as "block if the figure is high" - so a lost 7d is not a refusal, it is
-    #    the absence of one, and a 7d mistake costs the rest of the week.
-    collect({"session_id": "w", "rate_limits": {
-        "five_hour": {"used_percentage": 5, "resets_at": now + 1800},
-        "seven_day": {"used_percentage": 100}}})
-    check("carry: a blocking 7d refuses", not read().assignable()[0], read().assignable()[1])
-    collect(idle)
-    st = read()
-    check("carry: losing the 7d is recorded", st.rl7_lost is True)
-    check("carry: and a lost 7d still refuses, rather than vanishing",
+    check("carry: a lost 7d still refuses, rather than vanishing",
           not st.assignable()[0], st.assignable()[1])
     check("carry: the refusal names the weekly gate", "7d" in st.assignable()[1])
 
-    # 4. A carried figure goes old even while collected_at stays fresh.
-    p = home / "accounts" / "carry" / "status.json"
-    raw = json.loads(p.read_text())
-    raw.update(pct_5h=55, reset_5h=now + 9000, rl_carried=True, rl_lost=False,
-               rl7_lost=False, pct_7d=10, rl_at=now - 4 * 3600, collected_at=now)
-    p.write_text(json.dumps(raw))
+    # 3. A figure goes old even while collected_at stays fresh - the ordinary
+    #    shape of an account whose poll has stopped answering while a session
+    #    on it goes on writing its own transcript.
+    write_status(home, "carry", pct_5h=55, reset_5h=now + 9000, rl_carried=True,
+                 rl_lost=False, rl7_lost=False, pct_7d=10, reset_7d=now + 99999,
+                 rl7_at=now, rl_at=now - 4 * 3600, collected_at=now)
     st = read()
     check("carry: a fresh collected_at does not make an old figure fresh",
           st.pct_5h_source == "carried_old", st.pct_5h_source)
@@ -12025,27 +12342,36 @@ def test_a_stale_account_whose_window_rolled_over_can_take_work(home: Path) -> N
           status.pick_account(["beta"])[0] is None)
 
 
-def test_a_passed_window_is_probed_rather_than_guessed(home: Path) -> None:
+def test_a_passed_window_is_asked_about_rather_than_guessed(home: Path) -> None:
     """After its window ends, an idle account's last figure describes a window
-    that no longer exists, so the only way to learn the truth is to ask."""
-    from ocp import probe
+    that no longer exists, so the only way to learn the truth is to ask.
+
+    This was `probe.due` - spend a turn on the account to find out. Since #1447
+    it is `usage_due`, and the endpoint answers without spending anything, so
+    the question is only *whether* to ask.
+    """
     _daemon_home(home, 20)
     accounts.register("beta")
     now = int(time.time())
-    write_status(home, "beta", pct_5h=95, pct_7d=34, reset_5h=now + 1800,
-                 reset_7d=now + 86400 * 2, collected_at=now - 3600)
-    check("probe: an open window is answered by the last figure, not by spending",
-          not probe.due(status.read("beta"), None))
-    write_status(home, "beta", pct_5h=95, pct_7d=34, reset_5h=now - 60,
-                 reset_7d=now + 86400 * 2, collected_at=now - 3600)
-    check("probe: a passed window with no fresh reading is due",
-          probe.due(status.read("beta"), None))
-    check("probe: not twice inside the cooldown - a probe spends the quota it asks about",
-          not probe.due(status.read("beta"), now - 60))
-    write_status(home, "beta", pct_5h=95, pct_7d=34, reset_5h=now - 60,
-                 reset_7d=now + 86400 * 2, collected_at=now)
-    check("probe: a fresh reading answers it already",
-          not probe.due(status.read("beta"), None))
+    con = db.connect()
+    try:
+        write_status(home, "beta", pct_5h=95, pct_7d=34, reset_5h=now + 1800,
+                     reset_7d=now + 86400 * 2, rl_at=now, collected_at=now)
+        check("window: an open window with a current reading is not asked about",
+              dmn.usage_due(con, "beta", status.read("beta"), now) is None)
+        write_status(home, "beta", pct_5h=95, pct_7d=34, reset_5h=now - 60,
+                     reset_7d=now + 86400 * 2, rl_at=now, collected_at=now)
+        check("window: a passed window is",
+              dmn.usage_due(con, "beta", status.read("beta"), now)
+              == "its 5h window has ended")
+        write_status(home, "beta", pct_5h=95, pct_7d=34, reset_5h=now + 1800,
+                     reset_7d=now + 86400 * 2, rl_at=now - dmn.USAGE_MAX_AGE_S - 1,
+                     collected_at=now)
+        check("window: and so is a figure older than the cadence, whatever its window",
+              (dmn.usage_due(con, "beta", status.read("beta"), now) or "").startswith(
+                  "last read"))
+    finally:
+        con.close()
 
 
 def test_one_verdict_for_the_panel_and_the_page(home: Path) -> None:
@@ -16393,6 +16719,7 @@ def test_no_command_prints_what_a_terminal_would_obey(home: Path) -> None:
             "read": [["read", str(q)], ["read", str(h)], ["read", str(d)]],
             "resolve": [(["resolve", str(d), "again"], {"OCP_AGENT": "backend"})],
             "digest": [["digest", "reviewer"]], "handoff": [["handoff", "reviewer"]],
+            "collect": [["collect"], ["collect", "reviewer"]],
             "agent list": [["agent", "list"]],
             "agent show": [["agent", "show", "reviewer"], ["agent", "show", "reviewer", "--json"]],
             "account list": [["account", "list"], ["account", "list", "--json"]],
@@ -16477,7 +16804,8 @@ def test_no_command_prints_what_a_terminal_would_obey(home: Path) -> None:
         "account add": "interactive login", "account remove": "interactive logout and a confirm",
         "account register": "creates an account directory; prints its path",
         "account cap": "writes a cap; prints numbers",
-        "account probe": "runs the probe against a real login",
+        "usage": "calls the usage endpoint and the Keychain against a real login "
+                 "(usage_api's own parsing is driven above, without either)",
         "agent move": "a confirm, and Orca", "agent register": "writes agent.yaml; a name with a control byte is refused before it prints",
         "launch": "execs claude",
         "hooks sync": "rewrites the shared settings", "hooks status": "reads the shared settings; prints paths",
@@ -19727,6 +20055,150 @@ def test_a_file_added_to_shared_reaches_every_existing_account(home: Path) -> No
           and any("relinked epsilon" in ln for ln in logs), str(logs))
 
 
+def test_usage_api_reads_a_window_nothing_has_been_spent_in() -> None:
+    """The endpoint's answer, and the distinction the whole module turns on.
+
+    A window with `utilization: 0.0` and `resets_at: null` is not an absent
+    reading - it is the endpoint saying the window has rolled over and nothing
+    has been spent since. Measured on `alpha` (#1369) at the moment its 5h
+    window reset: ocp was carrying 100% from the window that had just ended and
+    refused the whole fleet, while this said 0%.
+
+    Nothing here touches the network or the Keychain; both are stood in for.
+    """
+    calls = {"refresh": 0}
+
+    def fake_refresh(acct, timeout=None):
+        calls["refresh"] += 1
+        return True
+
+    payloads = {
+        "rolled": {"five_hour": {"utilization": 0.0, "resets_at": None},
+                   "seven_day": {"utilization": 99.0,
+                                 "resets_at": "2026-09-26T02:00:00.941775+00:00"}},
+        "mid": {"five_hour": {"utilization": 36.4,
+                              "resets_at": "2026-09-21T14:50:00.789690Z"},
+                "seven_day": {"utilization": 17.0, "resets_at": None}},
+        "absent": {"five_hour": None, "seven_day": None},
+        "notadict": [1, 2, 3],
+    }
+    state = {"which": "rolled", "token": "t", "status": 200}
+
+    def fake_fetch(req, timeout=None):
+        class R:
+            status = state["status"]
+            def read(self): return json.dumps(payloads[state["which"]]).encode()
+            def __enter__(self): return self
+            def __exit__(self, *a): return False
+        if state["status"] != 200:
+            raise usage_api.urllib.error.HTTPError(
+                usage_api.USAGE_URL, state["status"], "no", {}, None)
+        return R()
+
+    real = (usage_api.refresh_credential, usage_api._access_token,
+            usage_api.urllib.request.urlopen, usage_api.json.load)
+    usage_api.refresh_credential = fake_refresh
+    usage_api._access_token = lambda acct: state["token"]
+    usage_api.urllib.request.urlopen = fake_fetch
+    usage_api.json.load = lambda r: json.loads(r.read())
+    try:
+        r = usage_api.read("alpha")
+        check("usage_api: a rolled-over window reads 0%, not None",
+              r is not None and r.pct_5h == 0, repr(r))
+        check("usage_api: a rolled-over window reports no reset",
+              r is not None and r.reset_5h is None, repr(r))
+        check("usage_api: the other window is still read",
+              r is not None and r.pct_7d == 99 and r.reset_7d == 1790388000, repr(r))
+        check("usage_api: a refresh is asked for by default", calls["refresh"] == 1,
+              str(calls))
+
+        state["which"] = "mid"
+        r = usage_api.read("alpha", refresh=False)
+        check("usage_api: utilisation rounds to a whole percent", r.pct_5h == 36, repr(r))
+        check("usage_api: a Z-suffixed reset parses", r.reset_5h == 1790002200, repr(r))
+        check("usage_api: refresh=False does not renew", calls["refresh"] == 1, str(calls))
+
+        state["which"] = "absent"
+        r = usage_api.read("alpha", refresh=False)
+        check("usage_api: an absent window is None, not 0",
+              r is not None and r.pct_5h is None and r.pct_7d is None, repr(r))
+
+        state["which"] = "notadict"
+        check("usage_api: a payload that is not an object is not a reading",
+              usage_api.read("alpha", refresh=False) is None, "expected None")
+
+        state["which"], state["status"] = "rolled", 500
+        check("usage_api: a non-200 is 'could not look', not a reading",
+              usage_api.read("alpha", refresh=False) is None, "expected None")
+
+        state["status"], state["token"] = 200, None
+        check("usage_api: no credential is 'could not look', not 0%",
+              usage_api.read("alpha", refresh=False) is None, "expected None")
+    finally:
+        (usage_api.refresh_credential, usage_api._access_token,
+         usage_api.urllib.request.urlopen, usage_api.json.load) = real
+
+
+def test_usage_api_record_stands_in_for_a_probe(home: Path) -> None:
+    """What the endpoint leaves behind, and the one rule it must not break.
+
+    `record` leaves a snapshot the next tick reads like any other -
+    so it has to merge rather than overwrite, and it has to keep the
+    collector's rule that usage never falls inside one window while still
+    letting a rollover through. The rollover case is the one that matters: it
+    is what made `alpha` unassignable eighteen seconds after its 5h window
+    reset (#1369).
+    """
+    restore_world()
+    home.mkdir(parents=True, exist_ok=True)
+    os.environ["OCP_HOME"] = str(home)
+    p_ = home / "status.json"
+    now = int(time.time())
+
+    # A live session's own fields. These are the collector's and must survive.
+    p_.write_text(json.dumps({
+        "account": "alpha", "session_id": "sess-1", "transcript_path": "/t/x.jsonl",
+        "ctx_pct": 42, "model_id": "claude-opus-5", "cost_usd": 1.5,
+        "pct_5h": 80, "reset_5h": now + 600, "rl_at": now - 300, "rl_carried": True,
+        "pct_7d": 50, "reset_7d": now + 99999, "collected_at": now - 4000,
+    }))
+
+    ok = usage_api.record(usage_api.Reading(
+        account="alpha", pct_5h=90, reset_5h=now + 600,
+        pct_7d=51, reset_7d=now + 99999, at=now), path=p_)
+    got = json.loads(p_.read_text())
+    check("record: it writes", ok, "record returned False")
+    check("record: the session's own fields survive",
+          got.get("session_id") == "sess-1" and got.get("transcript_path") == "/t/x.jsonl"
+          and got.get("ctx_pct") == 42 and got.get("cost_usd") == 1.5, json.dumps(got))
+    check("record: a higher figure in the same window is taken", got["pct_5h"] == 90,
+          json.dumps(got))
+    check("record: the reading is marked observed, not carried",
+          got["rl_at"] == now and got["rl_carried"] is False and got["rl_lost"] is False,
+          json.dumps(got))
+    check("record: collected_at moves, so staleness does not fail the account closed",
+          got["collected_at"] == now, json.dumps(got))
+    check("record: the source is named", got.get("rl_source") == "api", json.dumps(got))
+
+    # Lower, same window: the collector's rule says usage only rises.
+    usage_api.record(usage_api.Reading(
+        account="alpha", pct_5h=70, reset_5h=now + 600,
+        pct_7d=51, reset_7d=now + 99999, at=now), path=p_)
+    check("record: a lower figure inside the same window is refused",
+          json.loads(p_.read_text())["pct_5h"] == 90, p_.read_text())
+
+    # Lower, new window: alpha's case. The high-water must not survive it.
+    usage_api.record(usage_api.Reading(
+        account="alpha", pct_5h=0, reset_5h=None,
+        pct_7d=51, reset_7d=now + 99999, at=now), path=p_)
+    rolled = json.loads(p_.read_text())
+    check("record: a rollover replaces the high-water outright",
+          rolled["pct_5h"] == 0 and rolled["reset_5h"] is None, json.dumps(rolled))
+    check("record: and the account reads assignable again",
+          status.read("alpha", path=p_).assignable()[0],
+          str(status.read("alpha", path=p_).assignable()))
+
+
 def run(one) -> None:
     """Every test starts from the real world.
 
@@ -20656,7 +21128,24 @@ def main() -> int:
         run(lambda: test_replay_reconstructs_burn_and_lets_the_week_gate_fire(
             Path(td) / 'replayweek'))
         run(lambda: test_replay_burn_is_the_daemons_burn(Path(td) / 'replayburn'))
-        run(lambda: test_collector(home))
+        run(lambda: test_usage_api_reads_a_window_nothing_has_been_spent_in())
+        run(lambda: test_usage_api_record_stands_in_for_a_probe(Path(td) / 'usagerec'))
+        run(lambda: test_the_pull_reads_the_context_the_statusline_used_to_push(
+            Path(td) / 'pull'))
+        run(lambda: test_a_cleared_session_reads_zero_and_an_unsearchable_one_reads_unknown(
+            Path(td) / 'pullclear'))
+        run(lambda: test_the_newest_transcript_across_accounts_is_the_session(
+            Path(td) / 'pullmove'))
+        run(lambda: test_an_unknown_model_gets_no_context_figure(Path(td) / 'pullmodel'))
+        run(lambda: test_the_daemon_pulls_only_for_an_open_session(Path(td) / 'pulltick'))
+        run(lambda: test_a_turn_ending_refreshes_the_snapshot_through_the_hook(
+            Path(td) / 'pullhook'))
+        run(lambda: test_init_leaves_the_status_line_slot_empty(Path(td) / 'lineslot'))
+        run(lambda: test_a_failed_settings_write_keeps_the_old_scripts(Path(td) / 'slotorder'))
+        run(lambda: test_an_unreadable_settings_file_is_refused_and_left_alone(Path(td) / 'setbad'))
+        run(lambda: test_a_settings_write_that_dies_leaves_the_old_file(Path(td) / 'setatomic'))
+        run(lambda: test_the_usage_poll_asks_one_account_per_tick_and_renews_only_on_failure(
+            Path(td) / 'pullpoll'))
         run(lambda: test_yaml())
         run(lambda: test_agents(home))
         run(lambda: test_launch(home))
@@ -20720,7 +21209,6 @@ def main() -> int:
         run(lambda: test_team_deny_validation())
         run(lambda: test_ask_respects_terminal_state(Path(td) / 'term'))
         run(lambda: test_launch_refuses_stale(Path(td) / 'stale'))
-        run(lambda: test_collector_account_named_like_user(Path(td) / 'named'))
         run(lambda: test_shared_account_context_isolation(Path(td) / 'shared'))
         run(lambda: test_db_dedup_only_swallows_dedup(Path(td) / 'strict'))
         run(lambda: test_agent_rewrite_uses_parser(Path(td) / 'rw'))
@@ -20883,7 +21371,7 @@ def main() -> int:
         run(lambda: test_a_pinned_agent_stays_pinned_when_nothing_else_has_clear_room(
             Path(td) / 'pinnedstuck'))
         run(lambda: test_a_stale_account_whose_window_rolled_over_can_take_work(Path(td) / 'stalebeta'))
-        run(lambda: test_a_passed_window_is_probed_rather_than_guessed(Path(td) / 'probedue'))
+        run(lambda: test_a_passed_window_is_asked_about_rather_than_guessed(Path(td) / 'probedue'))
         run(lambda: test_one_verdict_for_the_panel_and_the_page(Path(td) / 'verdict'))
         run(lambda: test_room_is_filtered_before_the_ranking_not_after(Path(td) / 'roomfirst'))
         run(lambda: test_the_runway_is_an_estimate_from_the_daemons_burn(Path(td) / 'runway'))

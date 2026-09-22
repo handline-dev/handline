@@ -82,7 +82,7 @@ def build_plist(home: Path | None = None) -> dict:
         "StandardErrorPath": str(err_log(home)),
         "WorkingDirectory": str(paths.repo_root()),
         # launchd jobs start with a nearly empty environment - without this
-        # block the daemon cannot find claude/orca/jq (PATH), resolve ~ for
+        # block the daemon cannot find claude/orca (PATH), resolve ~ for
         # anything that uses it (HOME), or find the right ~/.orcapipe (OCP_HOME).
         "EnvironmentVariables": {
             "PATH": os.environ.get("PATH", "/usr/bin:/bin:/usr/sbin:/sbin"),
