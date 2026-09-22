@@ -81,10 +81,10 @@ WAITS_SHOWN = 5   # rows of the pinned block; the rest are counted, not drawn
 # name again in the list above.
 ACCOUNTS, AGENTS, MESSAGES, STUCK = 0, 1, 2, 3
 NAME_W = 22   # fits `└ orcapipe-manager +2`
-# The state cell carries the time an agent is waiting until ("PARKED·closed
-# 12m05s"): park, a degraded retry and the await fallback all set one. Its width
-# is measured per frame from what the rows print (see `_state_width`), not set
-# for the longest thing it could ever print.
+# The widest a precise span prints ("59m59s") - an asserted ceiling, checked
+# by test_a_span_ends_in_its_unit_and_fits_its_columns, not a width anything
+# draws with. Not the agent state cell either: that carries a clock time
+# ("PENDING 14:32") sized per frame from what the rows print (`_state_width`).
 COUNTDOWN_W = 6   # `status.span(precise)`: 12m05s, 5h03m, 6d23h
 # What an agent *is* - its model, its effort, and one day which tool it is at
 # all - against what is happening to it now. The second wins a narrow screen:
