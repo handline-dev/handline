@@ -20295,6 +20295,77 @@ def test_a_declared_root_gets_standing_consent(home: Path) -> None:
         con.close()
 
 
+def test_a_closed_agents_relaunch_stops_at_the_trust_screen(home: Path) -> None:
+    """auditor's #1630 BLOCKING: a closed agent is woken by a relaunch that
+    carries its prompt in --prompt-file, and a relaunch - on a moved agent, a
+    config dir that has never trusted the folder - is where the trust screen
+    appears. The wake is not done while claude sits at it: under standing
+    consent it is pressed, otherwise it escalates naming the folder, and the
+    agent stays closed with its handoff kept."""
+    _daemon_home(home, 20)
+    con = db.connect()
+    wt = home / "worktree"
+    wt.mkdir(parents=True, exist_ok=True)
+    screen = (f"Accessing workspace:\n{wt}\n"
+              f"Quick safety check: Is this a project you created or one you trust?\n"
+              f"No, exit\nYes, I trust this folder\n")
+    real = (orcamod.relaunch, orcamod.alive, orcamod.trust_prompt_showing, orcamod.screen_text,
+            orcamod.confirm_trust, orcamod.wait_idle, trustmod.is_declared,
+            dmn.wait_for_session, orcamod.time.sleep)
+    showing = {"v": True}
+    trusted: list[str] = []
+    table = sessions_are()
+    try:
+        orcamod.available = lambda: True
+        orcamod.alive = lambda h: True
+        orcamod.wait_idle = lambda h, *a, **k: True
+        orcamod.time.sleep = lambda s: None
+        orcamod.relaunch = lambda h, cmd, started=None: (
+            table.update({"backend": 4242}), (True, "relaunched"))[1]
+        dmn.wait_for_session = lambda agent, timeout=0: True
+        orcamod.trust_prompt_showing = lambda h: showing["v"]
+        orcamod.screen_text = lambda h: screen
+        orcamod.confirm_trust = lambda h: (trusted.append(h), showing.update(v=False),
+                                           (True, "trusted"))[2]
+        db.set_terminal(con, "backend", "term_x", str(wt))
+
+        def closed_with_a_handoff():
+            table.clear()
+            showing["v"] = True
+            keep_handoff("backend", "# handoff · backend\n## next\n- carry on\n")
+            db.set_agent_state(con, "backend", dmn.PARKED, detail="parked")
+            db.set_closed(con, "backend", "sess-1")
+
+        closed_with_a_handoff()
+        trustmod.is_declared = lambda p: False
+        ok, why = dmn.wake_agent(con, "backend", lambda _m: None)
+        row = db.get_agent_state(con, "backend")
+        check("closed wake: an undeclared trust screen is not recorded as woken",
+              not ok and str(wt) in why, why)
+        check("closed wake: it is escalated to the founder, naming the folder",
+              con.execute("SELECT COUNT(*) c FROM requests WHERE target = ? AND kind = "
+                          "'escalate' AND body LIKE ?", (askmod.HUMAN, f"%{wt}%")
+                          ).fetchone()["c"] == 1)
+        check("closed wake: and stalled", row["state"] == dmn.STALLED, dict(row))
+        check("closed wake: it stays closed", row["closed_at"] is not None, dict(row))
+        check("closed wake: and keeps its handoff", db.get_handoff(con, "backend"), dict(row))
+        check("closed wake: nothing was pressed", not trusted, trusted)
+
+        closed_with_a_handoff()
+        trustmod.is_declared = lambda p: True
+        ok, why = dmn.wake_agent(con, "backend", lambda _m: None)
+        row = db.get_agent_state(con, "backend")
+        check("closed wake: a declared, matching folder is pressed",
+              trusted == ["term_x"], trusted)
+        check("closed wake: then it is woken", ok and row["closed_at"] is None,
+              str((ok, why, dict(row))))
+    finally:
+        (orcamod.relaunch, orcamod.alive, orcamod.trust_prompt_showing, orcamod.screen_text,
+         orcamod.confirm_trust, orcamod.wait_idle, trustmod.is_declared,
+         dmn.wait_for_session, orcamod.time.sleep) = real
+        con.close()
+
+
 def test_hooks_report_activity(home: Path) -> None:
     """A working agent must not still read as PARKED.
 
@@ -22654,6 +22725,7 @@ def main() -> int:
         run(lambda: test_a_drifted_wake_that_cannot_relaunch_says_why(Path(td) / 'driftlog'))
         run(lambda: test_a_wake_reads_the_screen_before_typing_into_it(Path(td) / 'trustscreen'))
         run(lambda: test_a_declared_root_gets_standing_consent(Path(td) / 'trustroot'))
+        run(lambda: test_a_closed_agents_relaunch_stops_at_the_trust_screen(Path(td) / 'trustclosed'))
         run(lambda: test_hooks_report_activity(Path(td) / 'hooky'))
         run(lambda: test_tui_frame_geometry(Path(td) / 'tui'))
         run(lambda: test_clear_does_not_look_like_waking(Path(td) / 'loopy'))

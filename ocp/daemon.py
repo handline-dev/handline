@@ -1205,6 +1205,12 @@ def _wake_agent(con, agent: str, log, moved_to: str | None = None) -> tuple[bool
                                           f"no session: {why}")
                 log(f"  {agent}: STALLED after {fresh['wake_failures']} failed wakes")
             return False, why
+        # A relaunch is where claude shows its folder-trust screen - on a
+        # moved agent the new account has never trusted this folder - and the
+        # wake prompt waits behind it. Until it is past, the agent is not woken.
+        ok, why = _clear_trust_prompt(con, agent, handle, log)
+        if not ok:
+            return False, why
         db.reset_counter(con, agent, "wake_failures")
         db.clear_closed(con, agent)
         db.add_event(con, agent, "wake", {"resumed_session": session if resumed else None,
