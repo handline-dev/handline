@@ -779,7 +779,7 @@ def _delivery_block(con, agent: str, sessions: dict | None,
         # First, because `supervise` returns on STALLED before delivery is
         # considered at all. Reporting a missing terminal ahead of it sent the
         # reader to start one, which would not have moved the request.
-        return f"{agent} is STALLED - the daemon will not touch it (w clears it)", False
+        return f"{agent} is FATAL - the daemon will not touch it (w clears it)", False
     handle = row["terminal"]
     if not handle:
         return f"{agent} has no terminal - nothing can be typed to it (t starts one)", False
@@ -1150,12 +1150,6 @@ def can(con, agent: str, key: str) -> tuple[bool, str]:
         # doing, including mid-turn, and an agent with no terminal gets one on
         # the way - the action does that, so there is nothing to refuse.
         return True, ""
-    if key == "unstall":
-        # Unbound today - w reaches unstall through wake - but cmd_unstall
-        # (the CLI verb) still calls this, and a bare fallthrough would have
-        # approved it for any agent in any state.
-        return (state == daemon.STALLED, "" if state == daemon.STALLED
-                else f"{agent} is not STALLED - unstall only clears a stall")
     return True, ""
 
 

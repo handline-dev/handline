@@ -645,12 +645,6 @@ def screen_state(con, row) -> tuple[str, str]:
     account-move machinery's own wall, so a time on it would say more than is
     known.
     """
-    word, extra = _screen_state(con, row)
-    assert word in SCREEN_WORDS, word  # the property this branch is named for
-    return word, extra
-
-
-def _screen_state(con, row) -> tuple[str, str]:
     if not row:
         return "IDLE", ""
     held = promptwait.of(con, row)

@@ -11124,6 +11124,30 @@ def test_a_resumed_handoff_also_records_its_park(home: Path) -> None:
         con.close()
 
 
+def test_a_resumed_hand_park_stays_forceable_too(home: Path) -> None:
+    """resume_handoff has the same by-hand-mark-vs-assumed-account shape
+    _perform_handoff does (auditor #1744 should-fix A) - a restart recovering
+    a hand-triggered handoff must not turn it into an unforceable MOVING park
+    just because the account is still assumed."""
+    _daemon_home(home, 20)
+    con = db.connect()
+    try:
+        db.start_handoff(con, "hoff-restart-hand", "backend", None, dmn.BY_HAND_MARK,
+                         int(time.time()) + 90)
+        row = db.in_flight_for(con, "backend")
+        check("resume hand: no account is recorded, so the reading is assumed",
+              agents.account_reading("backend", con).source == "assumed")
+
+        dmn.resume_handoff(con, row, lambda _m: None)
+        parked = db.get_agent_state(con, "backend")
+        check("resume hand: the by-hand mark survives the assumed-account short retry",
+              parked["detail"].startswith(dmn.BY_HAND_MARK), parked["detail"])
+        ok, why = actions.can(con, "backend", "wake")
+        check("resume hand: and w may still force it", ok, why)
+    finally:
+        con.close()
+
+
 def test_account_reading_prefers_recorded_then_reported_then_assumed(home: Path) -> None:
     """Three sources, and only the first two are facts. A recorded column
     wins outright; failing that, a fresh report from the agent's own running
@@ -17541,8 +17565,9 @@ def test_the_panel_and_the_daemon_agree_about_what_is_in_the_way(home: Path) -> 
               not said, said)
 
         _, said = world(*live, dmn.STALLED, told=False)
-        check("agree: a stall names itself and the key that clears it",
-              "STALLED" in said and "w clears it" in said, said)
+        check("agree: a stall names itself, as FATAL - the same word the agents "
+              "panel reads for this row - and the key that clears it",
+              "FATAL" in said and "w clears it" in said, said)
         # And the same world with no daemon in it. Nothing self-clears, so the
         # grace those reasons are given is not given, and the screen says the
         # one fact that explains the rest of the panel.
@@ -23628,7 +23653,9 @@ def test_the_screen_word_mapping_is_the_founders_six(home: Path) -> None:
     try:
         def state(**kw):
             db.set_agent_state(con, "backend", **kw)
-            return tui.screen_state(con, db.get_agent_state(con, "backend"))
+            word, extra = tui.screen_state(con, db.get_agent_state(con, "backend"))
+            check(f"map: {word} is one of the founder's six", word in tui.SCREEN_WORDS)
+            return word, extra
 
         check("map: no row at all is IDLE", tui.screen_state(con, None) == ("IDLE", ""))
         check("map: RUNNING is RUNNING", state(state=dmn.RUNNING) == ("RUNNING", ""))
@@ -24032,6 +24059,7 @@ def main() -> int:
         run(lambda: test_a_context_park_does_not_auto_clear_on_a_usage_reading(Path(td) / 'parklevel4'))
         run(lambda: test_an_assumed_account_does_not_auto_clear_a_park(Path(td) / 'parklevel5'))
         run(lambda: test_a_resumed_handoff_also_records_its_park(Path(td) / 'parklevel6'))
+        run(lambda: test_a_resumed_hand_park_stays_forceable_too(Path(td) / 'parklevel6b'))
         run(lambda: test_account_reading_prefers_recorded_then_reported_then_assumed(Path(td) / 'acctread'))
         run(lambda: test_supervise_reads_the_reported_account_not_an_assumed_preference(Path(td) / 'acctsupervise'))
         run(lambda: test_a_park_against_an_assumed_account_gets_a_short_recheck(Path(td) / 'acctrecheck'))
