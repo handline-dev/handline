@@ -34,7 +34,11 @@ fail() {
 stamp="$venv/.ocp_deps_sha256"
 want="$(shasum -a 256 "$reqs" | cut -d' ' -f1)"
 have=""
-[ -f "$stamp" ] && read -r have < "$stamp"
+# `read` returns 1 on a stamp with no trailing newline (EOF before the
+# newline it looks for) even though it fills $have - under set -e that would
+# exit the script right here, silently, before fail() ever runs (review
+# #1613, should-fix).
+[ -f "$stamp" ] && { read -r have < "$stamp" || true; }
 [ "$want" = "$have" ] || fail "venv at $venv is stale (requirements.txt changed since it was installed)"
 
 exec "$py" "$script_dir/_ocp_entry.py" "$@"

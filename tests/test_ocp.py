@@ -22903,6 +22903,20 @@ def test_venv(home: Path) -> None:
     ok, _ = venvmod.status(vdir)
     check("venv: status() strips surrounding whitespace from the stamp", ok)
     check("venv: the bash wrapper strips the same whitespace the same way", wrapper_ok(home))
+
+    # Review #1613 should-fix: `read -r have < stamp` returns 1 on a stamp
+    # with no trailing newline (EOF before the newline it looks for), and
+    # under set -e that used to exit the wrapper right there - silently,
+    # before fail() ever ran. A ready venv must still report ready.
+    stamp.write_text(good_hash)
+    r = subprocess.run([str(wrapper), "venv", "status"], capture_output=True, text=True, timeout=30,
+                        env={**os.environ, "OCP_HOME": str(home)})
+    # The stand-in venv python is a no-op shell stub (fake_run wrote it, not
+    # a real python), so a reached-python rc 0 with no fail() message on
+    # stderr is what distinguishes this from the silent-exit regression -
+    # not stdout, which the stub never produces either way.
+    check("venv: the bash wrapper reaches python on a stamp with no trailing newline, not a silent exit",
+          r.returncode == 0 and r.stderr == "", f"rc={r.returncode} out={r.stdout!r} err={r.stderr!r}")
     stamp.write_text(good_hash + "\n")
 
     stamp.write_text("not a real hash\n")
