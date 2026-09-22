@@ -2364,44 +2364,57 @@ def test_reconcile_still_propagates_a_fault_that_is_not_one_agents(home: Path) -
 
 def test_reconcile_stalls_one_due_agents_unreadable_config_at_wake_too(home: Path) -> None:
     """The due_agents/wake_agent half of reconcile() (step 2) gets the same
-    guard as step 1, for the same property, but I could not find a live call
-    shape that reaches agents.read() from wake_agent's closed-agent branch -
-    command_for only builds a shell string, and the config-reading calls
-    (current_account, drifted/fingerprint) sit in the not-closed branch
-    reconcile() never takes. This forces the failure wake_agent itself would
-    raise if a future change added one, rather than reproducing a live one -
-    said plainly because that is a different, weaker kind of proof than the
-    test above."""
+    guard as step 1, for the same property - and auditor's #1579 found the
+    live shape I could not: `_wake_agent`'s closed branch calls
+    `launch.wake_wait(agent, row, con)`, and with `row["resume_session"]`
+    set, `wake_wait` calls `agents.account_reading`, which falls through
+    (no db column, no fresh status snapshot) to `account_of` -> `read` ->
+    the same ConfigError step 1 guards. My first attempt forced the
+    exception by replacing `wake_agent` itself, which is what hid this path
+    from me - the test harness's `orcamod.available = lambda: False`
+    (`_daemon_home`'s own default) makes `_wake_agent` return "no terminal
+    to wake" before it ever reaches `wake_wait`, a property of the test
+    environment, not of the code. Fixed here by setting it True instead, the
+    idiom the rest of the suite already uses, and driving the real path with
+    a genuinely malformed agent.yaml - no monkeypatch of daemon code.
+
+    Calls reconcile() directly rather than dmn.run(once=True): step 1's own
+    test can go through run() because an in-flight handoff also excludes the
+    agent from supervise() (db.in_flight_for), so reconcile()'s guard is the
+    only one that ever sees this agent in that tick. Step 2's due-but-closed
+    agent has no such exclusion - the same account_reading call this guards
+    is also the first thing supervise() does for any EVALUATED agent, so
+    going through the full tick() double-counts it against tick()'s own
+    (already-tested, in test_only_the_agents_own_events_move_its_
+    activity_clock's neighbourhood) per-agent guard. reconcile() in
+    isolation is the actual unit this test is about."""
     _daemon_home(home, 20)
     con = db.connect()
     try:
+        con.execute("UPDATE agent_state SET account = NULL WHERE agent = 'backend'")
+        af = agents.agent_file("backend")
+        af.write_text(af.read_text().rstrip("\n") + '\nrepo: "unterminated\n')
         db.set_closed(con, "backend", 1)
         db.set_agent_state(con, "backend", dmn.PARKED,
                            wake_at=int(time.time()) - 10, detail="due")
     finally:
         con.close()
-    real = dmn.wake_agent
-    calls = {"n": 0}
-
-    def fail_once(con, agent, log):
-        calls["n"] += 1
-        if calls["n"] == 1:
-            raise yamlcompat.ConfigError("forced: agent.yaml unreadable")
-        return real(con, agent, log)
-    dmn.wake_agent = fail_once
+    orcamod.available = lambda: True
+    orcamod.live_terminals = lambda: {"term_x"}
+    con = db.connect()
     try:
-        rc = dmn.run(once=True, verbose=False)
+        actions = dmn.reconcile(con, lambda _m: None)
         check("reconcile: an unreadable config at the wake half does not exit "
-              "the daemon either", rc == 0, str(rc))
-        con = db.connect()
-        try:
-            row = db.get_agent_state(con, "backend")
-            check("reconcile: it is counted the same way as step 1's guard",
-                  row["failed_attempts"] == 1, str(dict(row)))
-        finally:
-            con.close()
+              "the daemon either - actions list came back, nothing raised",
+              isinstance(actions, list), str(actions))
+        row = db.get_agent_state(con, "backend")
+        check("reconcile: it is counted the same way as step 1's guard",
+              row["failed_attempts"] == 1, str(dict(row)))
+        check("reconcile: still closed and still due, to retry - not dropped",
+              row["closed_at"] and row["wake_at"], str(dict(row)))
     finally:
-        dmn.wake_agent = real
+        con.close()
+        orcamod.available = lambda: False
 
 
 def test_daemon_handoff_timeout(home: Path) -> None:
