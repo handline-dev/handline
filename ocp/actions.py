@@ -76,7 +76,7 @@ def park(con, agent: str) -> str:
     state afterwards. Reporting the state read RUNNING as though it were a
     result.
     """
-    t = triggers.Trigger(True, "by hand", "parked by a human from the screen")
+    t = triggers.Trigger(True, daemon.BY_HAND_MARK, "parked by a human from the screen")
     said: list[str] = []
     ok = daemon.perform_handoff(con, agent, t, said.append)
     if said:
@@ -779,7 +779,7 @@ def _delivery_block(con, agent: str, sessions: dict | None,
         # First, because `supervise` returns on STALLED before delivery is
         # considered at all. Reporting a missing terminal ahead of it sent the
         # reader to start one, which would not have moved the request.
-        return f"{agent} is STALLED - the daemon will not touch it (u clears it)", False
+        return f"{agent} is STALLED - the daemon will not touch it (w clears it)", False
     handle = row["terminal"]
     if not handle:
         return f"{agent} has no terminal - nothing can be typed to it (t starts one)", False
@@ -946,7 +946,10 @@ def stuck(con) -> list[dict]:
     for row in db.all_agent_states(con):
         if row["state"] in (daemon.STALLED, daemon.DEGRADED) \
                 and not (row["agent"] in blks and blks[row["agent"]]["kind"] == blocked.STALLED):
-            add(f"{row['agent']} is {row['state']}", now - int(row["updated"]),
+            # FATAL, not the internal name STALLED - the agents panel below
+            # reads the same row through tui.screen_state and must not disagree.
+            word = "FATAL" if row["state"] == daemon.STALLED else row["state"]
+            add(f"{row['agent']} is {word}", now - int(row["updated"]),
                 row["detail"] or "", row["agent"])
     loads = loadmod.read_all(con)
     for acct in paths.list_accounts():
@@ -1147,6 +1150,12 @@ def can(con, agent: str, key: str) -> tuple[bool, str]:
         # doing, including mid-turn, and an agent with no terminal gets one on
         # the way - the action does that, so there is nothing to refuse.
         return True, ""
+    if key == "unstall":
+        # Unbound today - w reaches unstall through wake - but cmd_unstall
+        # (the CLI verb) still calls this, and a bare fallthrough would have
+        # approved it for any agent in any state.
+        return (state == daemon.STALLED, "" if state == daemon.STALLED
+                else f"{agent} is not STALLED - unstall only clears a stall")
     return True, ""
 
 

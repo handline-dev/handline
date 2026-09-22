@@ -70,14 +70,9 @@ WAKER = {
     STALLED: "a person: w, behind a confirmation (unstall, folded into wake)",
 }
 
-# The marker a QUEUED or PARKED row's `detail` starts with when the daemon's
-# own move/placement machinery is what has it waiting - not a usage wall - so
-# the screen (tui.screen_state) draws it as MOVING, not PENDING. Covers an
-# active move ("moving here -> there") and the short recheck this same code
-# takes instead of a wall-length sleep whenever the wait is not really about
-# an account's window: an assumed account (the real one is not known yet), a
-# forced move, or a move that started and did not finish - a modal or a
-# session that would not end, not the account being full.
+# The marker a QUEUED or PARKED row's `detail` starts with when it is the
+# move/placement machinery waiting, not a usage wall - tui.screen_state draws
+# MOVING, not PENDING.
 MOVING_MARK = "moving"
 # A PARKED row's own mark for the one reason `w` is worth pressing on it - a
 # human parked it (`actions.park`, the trigger kind `park()` builds by hand).
@@ -324,13 +319,16 @@ def resume_handoff(con, row, log) -> None:
     # three reasons: an unknown account, or a forced move - which never hits
     # a usage wall, whatever account it names - is the move machinery still
     # working, not a wall to sleep out.
-    if reading is None or reading.source == "assumed" or row["trigger_kind"] == "forced":
+    short_retry = reading is None or reading.source == "assumed" or row["trigger_kind"] == "forced"
+    if short_retry:
         wake = int(time.time()) + ASSUMED_ACCOUNT_RECHECK_S
-        label = MOVING_MARK
     else:
         rst = status.read(reading.account)
         wake = triggers.wake_after(row["trigger_kind"] or "", rst.reset_5h, rst.reset_7d)
-        label = "resumed handoff"
+    # Same rule as a fresh park's label (see _perform_handoff): a hand park
+    # resumed after a restart is still one a person may force early.
+    label = BY_HAND_MARK if row["trigger_kind"] == BY_HAND_MARK else (
+        MOVING_MARK if short_retry else "resumed handoff")
     db.advance_handoff(con, hid, "released", state="done" if done_ok else "degraded")
     db.set_agent_state(con, agent, PARKED, wake_at=wake,
                        detail=f"{label}; wakes at "
@@ -2045,7 +2043,8 @@ def _perform_handoff(con, agent: str, trigger: triggers.Trigger, log,
     # account agent.yaml happens to prefer, not to the one this agent may
     # actually be spending, so it earns only a short re-look instead.
     reading = agents.account_reading(agent, con)
-    if reading.source == "assumed" or trigger.kind == "forced" or retry_soon:
+    short_retry = reading.source == "assumed" or trigger.kind == "forced" or retry_soon
+    if short_retry:
         # A forced move that ended the session and did not start it is not a
         # wall: the account it left had room, so there is no window to wait out.
         # `retry_soon` is the same shape: a destination had room, so whatever
@@ -2056,11 +2055,12 @@ def _perform_handoff(con, agent: str, trigger: triggers.Trigger, log,
         # and pressing what it can (#996) every tick regardless of this park;
         # this only keeps the move itself from waiting hours to look again.
         wake = int(time.time()) + ASSUMED_ACCOUNT_RECHECK_S
-        label = MOVING_MARK
     else:
         rst = status.read(reading.account)
         wake = triggers.wake_after(trigger.kind, rst.reset_5h, rst.reset_7d)
-        label = trigger.kind
+    # A hand park stays a hand park whatever ceiling its wake got - the mark,
+    # not the timer, is what `w` reads to decide it may force this one early.
+    label = MOVING_MARK if short_retry and trigger.kind != BY_HAND_MARK else trigger.kind
     fresh = db.get_agent_state(con, agent)
     streak = int(fresh["throttle_count"]) if fresh else 0
     if streak:

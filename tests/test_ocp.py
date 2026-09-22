@@ -17542,7 +17542,7 @@ def test_the_panel_and_the_daemon_agree_about_what_is_in_the_way(home: Path) -> 
 
         _, said = world(*live, dmn.STALLED, told=False)
         check("agree: a stall names itself and the key that clears it",
-              "STALLED" in said and "u clears it" in said, said)
+              "STALLED" in said and "w clears it" in said, said)
         # And the same world with no daemon in it. Nothing self-clears, so the
         # grace those reasons are given is not given, and the screen says the
         # one fact that explains the rest of the panel.
@@ -17598,8 +17598,9 @@ def test_the_screen_says_what_is_stuck_and_what_was_decided(home: Path) -> None:
 
         db.set_terminal(con, "backend", "term_x", "wt")
         db.set_agent_state(con, "backend", dmn.STALLED, detail="by hand")
-        check("stuck: a stalled agent is on the list with its reason",
-              any("backend is STALLED" in b["what"] for b in actions.stuck(con)),
+        check("stuck: a stalled agent is on the list with its reason, as FATAL - "
+              "the same word the agents panel below it reads for this row",
+              any("backend is FATAL" in b["what"] for b in actions.stuck(con)),
               str(actions.stuck(con)))
 
         # The reason has to be the daemon's reason, or the panel is a second
@@ -20865,6 +20866,41 @@ def test_handoff_reclaims_context(home: Path) -> None:
         con.close()
 
 
+def test_a_hand_park_against_an_assumed_account_stays_forceable(home: Path) -> None:
+    """`actions.park` (the screen's `p`) is #1620/#1625's one park a person may
+    force early - but an agent with no recorded or reported account reads as
+    'assumed' (agents.account_reading's ordinary fallback, not an edge case),
+    which also asks for the short account-move recheck window. That ceiling
+    is not a reason to lose the by-hand mark: `w` must still force it.
+
+    Built through actions.park() itself, not a hand-written detail string -
+    the fixture production actually makes, per the auditor's #1744 should-fix."""
+    _daemon_home(home, 50)
+    con = db.connect()
+    real_alive, real_idle = orcamod.alive, orcamod.idle_now
+    try:
+        orcamod.available = lambda: True
+        orcamod.alive = lambda h: True
+        orcamod.idle_now = lambda h: True
+        orcamod.clear_context = lambda h, wait=True, timeout_ms=0: (True, "context cleared")
+        sessions_are("backend")
+        db.set_terminal(con, "backend", "term_x", "wt")
+        db.set_agent_state(con, "backend", dmn.IDLE, detail="cleared")
+        check("park: no account is recorded, so the reading is assumed",
+              agents.account_reading("backend", con).source == "assumed")
+
+        actions.park(con, "backend")
+        row = db.get_agent_state(con, "backend")
+        check("park: it parked", row["state"] == dmn.PARKED, str(dict(row)))
+        check("park: the by-hand mark survives the assumed-account short retry",
+              row["detail"].startswith(dmn.BY_HAND_MARK), row["detail"])
+        ok, why = actions.can(con, "backend", "wake")
+        check("park: and w may still force it", ok, why)
+    finally:
+        orcamod.alive, orcamod.idle_now = real_alive, real_idle
+        con.close()
+
+
 def test_wake_injects_handoff(home: Path) -> None:
     _daemon_home(home, 50)
     con = db.connect()
@@ -23634,15 +23670,20 @@ def test_the_screen_word_mapping_is_the_founders_six(home: Path) -> None:
 
         # DIALOG, from each of its two sources - neither is a stored state.
         os.environ["OCP_AGENT"], os.environ["OCP_ACCOUNT"] = "backend", "alpha"
+        real_screen_blocker = orcamod.screen_blocker
         try:
             db.set_terminal(con, "backend", "term_x", "wt")
             db.set_agent_state(con, "backend", dmn.RUNNING, detail="active")
+            # waiting.of() confirms a permission wait against the terminal's
+            # own live screen (auditor #1721) - a stub stands in for it here.
+            orcamod.screen_blocker = lambda h: orcamod.Blocker(orcamod.MODAL, "permission")
             waiting.note("backend", "Bash", {"command": "rm -rf /x"})
             word, extra = tui.screen_state(con, db.get_agent_state(con, "backend"))
             check("map: a permission prompt (waiting.py) is DIALOG, over RUNNING",
                   word == "DIALOG" and "rm -rf /x" in extra, (word, extra))
             waiting.clear("backend")
         finally:
+            orcamod.screen_blocker = real_screen_blocker
             os.environ.pop("OCP_AGENT", None); os.environ.pop("OCP_ACCOUNT", None)
 
         db.set_agent_state(con, "backend", dmn.IDLE)
@@ -23672,7 +23713,9 @@ def test_wake_on_a_self_clearing_park_refuses_and_says_when(home: Path) -> None:
 
         db.set_agent_state(con, "backend", dmn.PARKED, wake_at=wake, detail="moving; wakes at x")
         ok, why = actions.can(con, "backend", "wake")
-        check("wake: a moving (short-retry) park refuses too", not ok, why)
+        check("wake: a moving (short-retry) park refuses with its own reason, "
+              "not the usage-wall's window-rollover sentence beside it",
+              not ok and "moving accounts" in why and "window rolls over" not in why, why)
 
         db.set_agent_state(con, "backend", dmn.PARKED, wake_at=wake,
                            detail=askmod.await_reply_detail(99, "keeper"))
@@ -23692,6 +23735,30 @@ def test_wake_on_a_self_clearing_park_refuses_and_says_when(home: Path) -> None:
               "STALLED -> QUEUED" in said, said)
         check("wake: ...and the row really moved",
               db.get_agent_state(con, "backend")["state"] == dmn.QUEUED)
+    finally:
+        con.close()
+
+
+def test_wake_over_a_stall_asks_first_same_as_unstall_did(home: Path) -> None:
+    """tui._needs_confirm(): w reached the FATAL row unconfirmed would clear a
+    stall on a stray keypress - the one safety #1618/#1620 made a condition of
+    folding unstall into wake. Proof: one check per branch, each failing when
+    its own line is reverted."""
+    _daemon_home(home, 20)
+    con = db.connect()
+    try:
+        db.set_agent_state(con, "backend", dmn.STALLED, detail="ran out")
+        check("confirm: w over a stall asks first",
+              tui._needs_confirm(con, "backend", "wake"))
+
+        db.set_agent_state(con, "backend", dmn.PARKED, wake_at=int(time.time()) + 900,
+                           detail="by hand; wakes at x")
+        check("confirm: w over an ordinary park does not ask",
+              not tui._needs_confirm(con, "backend", "wake"))
+
+        for label in tui.CONFIRM:
+            check(f"confirm: {label} always asks",
+                  tui._needs_confirm(con, "backend", label))
     finally:
         con.close()
 
@@ -24119,6 +24186,7 @@ def main() -> int:
         run(lambda: test_every_state_the_daemon_can_write_has_a_waker())
         run(lambda: test_the_screen_word_mapping_is_the_founders_six(Path(td) / 'screenwords'))
         run(lambda: test_wake_on_a_self_clearing_park_refuses_and_says_when(Path(td) / 'selfclearwake'))
+        run(lambda: test_wake_over_a_stall_asks_first_same_as_unstall_did(Path(td) / 'wakeconfirm'))
         run(lambda: test_the_cursor_walks_the_whole_screen(Path(td) / 'topcur'))
         run(lambda: test_login_points_at_the_account_and_touches_no_credential(Path(td) / 'login'))
         run(lambda: test_a_fold_with_no_account_says_which_and_why(Path(td) / 'foldacct'))
@@ -24133,6 +24201,7 @@ def main() -> int:
         run(lambda: test_confirm_trust_presses_down_then_enter())
         run(lambda: test_clear_refuses_mid_turn())
         run(lambda: test_handoff_reclaims_context(Path(td) / 'reclaim'))
+        run(lambda: test_a_hand_park_against_an_assumed_account_stays_forceable(Path(td) / 'handpark'))
         run(lambda: test_wake_injects_handoff(Path(td) / 'wake'))
         run(lambda: test_a_drifted_launch_relaunches_instead_of_waking_in_place(Path(td) / 'driftwake'))
         run(lambda: test_a_parked_row_with_no_fingerprint_also_relaunches(Path(td) / 'nofp'))

@@ -638,27 +638,19 @@ def screen_state(con, row) -> tuple[str, str]:
     this screen - `closed_at` still decides whether the daemon can wake the
     agent, in `daemon.py`, untouched here).
 
-    DIALOG overlays whatever the row's own state is, from either of two
-    sources, in this order - both are a live person-facing block, and
-    neither ever occupies the actual `state` column so there is no state to
-    restore when the dialog goes: a permission prompt the hooks recorded
-    (waiting.py), or a screen a delivery is blocked on (`delivery_blocks`,
-    written only while there is queued work behind it - see blocked.py).
-    FATAL is today's STALLED - a state only a person clears (`w`).
-
-    Everything else maps from the row's own internal `state`. RUNNING covers
-    HANDOFF too: a handoff is the daemon finishing this agent's turn for it,
-    not something the agent or a person is doing, and no word above names it.
-    QUEUED and IDLE without a `moving`/`reply` marker are PENDING and IDLE in
-    the words above; DEGRADED and THROTTLED - self-clearing retries with a
-    `wake_at` of their own, the same shape as a usage park - are PENDING too.
-    A PARKED or QUEUED row carrying daemon.MOVING_MARK is the account-move
-    machinery working, not a wall: MOVING, and never with a time, since the
-    short recheck it waits on (ASSUMED_ACCOUNT_RECHECK_S, 5 minutes) is not
-    worth a clock face. A PARKED row carrying ask.AWAIT_REPLY_MARK is a
-    requester parked on its own async ask, and the spec's own words for it -
-    IDLE, not PENDING: this agent has nothing to do until the reply lands.
+    DIALOG overlays whatever the row's own state is, from either of two live
+    person-facing sources - never a stored state, so there is nothing to
+    restore when the dialog goes. MOVING never carries a clock: the short
+    recheck it waits on (ASSUMED_ACCOUNT_RECHECK_S, 5 minutes) is not the
+    account-move machinery's own wall, so a time on it would say more than is
+    known.
     """
+    word, extra = _screen_state(con, row)
+    assert word in SCREEN_WORDS, word  # the property this branch is named for
+    return word, extra
+
+
+def _screen_state(con, row) -> tuple[str, str]:
     if not row:
         return "IDLE", ""
     held = promptwait.of(con, row)
