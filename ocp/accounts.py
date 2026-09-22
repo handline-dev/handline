@@ -1,4 +1,4 @@
-"""Account registration: directories, shared links, status line install.
+"""Account registration: directories and shared links.
 
 Credentials are never touched (KICKOFF rule 1). A refresh token rotates on
 single use, so two copies of one credential invalidate each other. Logging in
@@ -6,8 +6,7 @@ is a one-time human action:
 
     CLAUDE_CONFIG_DIR=~/.orcapipe/accounts/<acct>/.claude claude /login
 
-All we do is create the directory, symlink the shared settings, and install
-the status line command.
+All we do is create the directory and symlink the shared settings.
 """
 from __future__ import annotations
 
@@ -31,24 +30,21 @@ LINKED = ["settings.json", "CLAUDE.md", "skills", "agents", "commands", "plugins
 # Named explicitly as a guard: these are never created, linked, read or copied.
 NEVER_TOUCH = {".credentials.json", ".claude.json", "statsig", "backups"}
 
+# The status line commands ocp used to install into shared/.claude (D11). The
+# slot is the human's now, so these are only ever removed.
+OLD_STATUSLINES = ("statusline.sh", "statusline-collect.sh")
+
 
 def ensure_shared() -> Path:
-    """Create shared/.claude and install the status line command into it."""
+    """Create shared/.claude and its settings.json."""
     shared = paths.shared_claude()
     shared.mkdir(parents=True, exist_ok=True)
     for sub in ("skills", "agents", "commands"):
         (shared / sub).mkdir(exist_ok=True)
 
-    src = paths.repo_root() / "libexec" / "statusline.sh"
-    dst = paths.statusline()
-    if src.exists():
-        shutil.copyfile(src, dst)
-        dst.chmod(0o755)
-    # The collector this replaced (D11): ocp installed it under that name, so
-    # leaving it is leaving an executable here that nothing calls.
-    old = shared / "statusline-collect.sh"
-    if old.exists():
-        old.unlink()
+    ours = {str(shared / name) for name in OLD_STATUSLINES}
+    for cmd in ours:
+        Path(cmd).unlink(missing_ok=True)
 
     settings = shared / "settings.json"
     current = {}
@@ -60,14 +56,11 @@ def ensure_shared() -> Path:
     if not isinstance(current, dict):
         current = {}
 
-    # statusLine is ours, and it is a display now rather than the data source
-    # section 4 made it (D11).
-    current["statusLine"] = {
-        "type": "command",
-        "command": str(dst),
-        "padding": 0,
-        "refreshInterval": int(os.environ.get("OCP_STATUSLINE_REFRESH", "10")),
-    }
+    # A statusLine pointing at a script just deleted would error in every
+    # session. Anyone else's is left alone.
+    line = current.get("statusLine")
+    if isinstance(line, dict) and line.get("command") in ours:
+        del current["statusLine"]
     # Ours overlaps Claude Code's own auto-continue, and section 4 says to pick
     # one. We pick ours, and doctor enforces that the choice stays made.
     current.setdefault("autoContinueAtUsageLimit", False)

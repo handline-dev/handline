@@ -36,8 +36,7 @@ from pathlib import Path
 
 from . import (accounts, agents, blocked, burnrate, collect, db, events, fold as foldmod,
                handoff as handoffmod, launch, load, lock, measure, observe as obs, orca, paths,
-               service, spawn as spawnmod, status, statusline, textsafe, tokenlog, triggers,
-               usage_api)
+               service, spawn as spawnmod, status, textsafe, tokenlog, triggers, usage_api)
 from .yamlcompat import ConfigError
 
 # Section 8.2 states.
@@ -2385,9 +2384,6 @@ def tick(con, log, samples: dict | None = None) -> Tick:
 
     blocked.sweep(con, log, now)
     observe_burn(con, log)
-    # Last: the status line shows what this tick decided, and most of it was
-    # decided above (`statusline`, D11).
-    statusline.write_all(con)
     return Tick(now, actions)
 
 

@@ -93,23 +93,6 @@ def _check_home(r: Report) -> None:
         return
     r.add(OK, f"OCP_HOME {h}")
 
-    c = paths.statusline()
-    src = paths.repo_root() / "libexec" / "statusline.sh"
-    # Nothing ocp decides depends on this file any more (D11): it prints a line
-    # for a human and collects nothing. It is still checked, because a status
-    # line that errors is in front of the agent's face all day.
-    if not c.exists():
-        r.add(FAIL, "status line not installed", str(c))
-    elif not os.access(c, os.X_OK):
-        r.add(FAIL, "status line is not executable", str(c))
-    elif src.exists() and src.read_bytes() != c.read_bytes():
-        # The installed copy is what actually runs. Editing the repo copy and
-        # forgetting to reinstall means fixes silently never take effect.
-        r.add(FAIL, "installed status line differs from the repo copy",
-              f"{c} is stale - run `ocp init` to reinstall")
-    else:
-        r.add(OK, "status line installed and current", str(c))
-
     s = paths.shared_claude() / "settings.json"
     if not s.exists():
         r.add(FAIL, "shared/.claude/settings.json missing")
@@ -118,12 +101,11 @@ def _check_home(r: Report) -> None:
         line = json.loads(s.read_text()).get("statusLine", {})
     except json.JSONDecodeError:
         line = {}
-    if line.get("command") == str(c):
-        r.add(OK, "shared settings.json points at our status line")
-    else:
-        # A warning, not a failure: nothing ocp decides reads this, so someone
-        # using the slot for something else of their own is their call (D11).
-        r.add(WARN, "shared statusLine is not ours", f"currently {line.get('command')!r}")
+    # ocp installs no status line (D11); one of its old ones left in the slot
+    # points at a script `ocp init` deletes.
+    old = {str(paths.shared_claude() / n) for n in accounts.OLD_STATUSLINES}
+    if isinstance(line, dict) and line.get("command") in old:
+        r.add(FAIL, "shared statusLine is an old ocp script", "run `ocp init` to remove it")
 
 
 def _check_mcp_config(r: Report) -> None:

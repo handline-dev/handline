@@ -12,7 +12,7 @@ import json
 import os
 import sys
 
-from . import collect, db, statusline, waiting
+from . import collect, db, waiting
 
 # Which hook events we record. PostToolUse is deliberately absent.
 CAPTURED = {
@@ -122,16 +122,10 @@ def record_from_stdin(argv: list[str] | None = None) -> int:
     agent = os.environ.get("OCP_AGENT")
     account = os.environ.get("OCP_ACCOUNT")
     if agent and event in ANSWERS:
-        # Read before clearing: on the common path there is no prompt waiting
-        # and this is one failed stat, and when there is one, the line saying
-        # NEEDS YOU has to stop saying it now rather than at the next tick.
-        held = waiting.read(agent)
         try:
             waiting.clear(agent, raw.get("tool_name"), raw.get("tool_input"))
         except Exception:  # noqa: BLE001 - a hook must never break the session
             pass
-        if held:
-            refresh_line(agent)
         print("{}")
         return 0
     if not agent or event not in CAPTURED:
@@ -163,8 +157,6 @@ def record_from_stdin(argv: list[str] | None = None) -> int:
             collect.collect(agent, raw.get("cwd") or os.getcwd())
         except Exception:  # noqa: BLE001 - same: a snapshot is not worth a session
             pass
-    if event in LINE_EVENTS:
-        refresh_line(agent)
     print("{}")
     return 0
 
@@ -182,24 +174,6 @@ def record_from_stdin(argv: list[str] | None = None) -> int:
 # whatever it was before the clear. `SessionEnd` is deliberately absent - a
 # snapshot written as the session exits would say a dead session is fresh.
 COLLECT_EVENTS = {"SessionStart", "UserPromptSubmit", "Stop", "StopFailure", "PostCompact"}
-
-# And when the line a human reads is rewritten (`statusline`, D11). The turn
-# boundaries, plus the prompt: a permission request is the one thing on that
-# line that has to appear the moment it happens, because the daemon's next tick
-# is thirty seconds away and this event IS the agent stopping to ask.
-LINE_EVENTS = COLLECT_EVENTS | {"PermissionRequest"}
-
-
-def refresh_line(agent: str) -> None:
-    """Rewrite this agent's status line. Never raises: it is a display."""
-    try:
-        con = db.connect()
-        try:
-            statusline.write(con, agent)
-        finally:
-            con.close()
-    except Exception:  # noqa: BLE001 - a line is never worth a session
-        pass
 
 
 # What counts as "this agent is working".

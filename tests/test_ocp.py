@@ -34,7 +34,7 @@ from ocp import (accounts, actions, agents, ask as askmod, blocked as blockedmod
                  handoff as handoffmod, launch, load as loadmod, lock, measure,
                  observe as obsmod, orca as orcamod, paths, replay as replaymod, service,
                  spawn as spawnmod,
-                 status, statusline, team, textsafe, triggers, tui, usage_api, waiting,
+                 status, team, textsafe, triggers, tui, usage_api, waiting,
                  yamlcompat)  # noqa: E402
 
 PASS, FAIL = [], []
@@ -1614,96 +1614,40 @@ def test_a_turn_ending_refreshes_the_snapshot_through_the_hook(home: Path) -> No
 
 
 # ---------------------------------------------------------------- status line
-def test_the_status_line_says_what_the_agent_is_doing(home: Path) -> None:
-    """The slot used to print an account. It now prints the agent (D11).
-
-    What a human wants from a line under one agent's terminal is what that
-    agent is on, what is behind it, and whether it is stuck waiting for them -
-    none of which the session itself knows. It is rendered from ocp's own
-    state, and the permission prompt comes first because it is the only thing
-    on the line anyone has to act on.
-    """
+def test_init_leaves_the_status_line_slot_empty(home: Path) -> None:
+    """ocp installs no status line (D11): the slot is the human's. `ocp init`
+    removes the ones ocp used to install, and the settings entry pointing at
+    them, and leaves anyone else's statusLine where it is."""
     home.mkdir(parents=True, exist_ok=True)
     os.environ["OCP_HOME"] = str(home)
-    agents.register("backend", "alpha")
-    accounts.register("alpha")
-    now = int(time.time())
-    write_status(home, "alpha", pct_5h=41, pct_7d=12, reset_5h=now + 1800,
-                 rl_at=now, reset_7d=now + 99999, rl7_at=now)
-    cwd = home / "wt-backend"
-    cwd.mkdir(parents=True, exist_ok=True)
-    write_transcript(home, "alpha", cwd, "ffffffff-0000-4000-8000-000000000009",
-                     turns=[("claude-opus-5", {"cache_read_input_tokens": 140_000})])
-    collect.collect("backend", cwd)
+    orcamod.live_terminals = lambda: None
+    shared = paths.shared_claude()
+    shared.mkdir(parents=True, exist_ok=True)
+    settings = shared / "settings.json"
 
-    con = db.connect()
-    try:
-        db.set_terminal(con, "backend", "term_x", str(cwd))
-        db.set_agent_state(con, "backend", "RUNNING")
-        con.execute("UPDATE agent_state SET account = 'alpha' WHERE agent = 'backend'")
-        for body in ("first", "second"):
-            db.add_request(con, "human", "backend", body, None, "supervisor",
-                           "fire_and_forget", "ask", 0, None)
-        line = statusline.render(con, "backend")
-        check("line: it names the agent", line.startswith("backend"), line)
-        check("line: the request it was given", "from human" in line, line)
-        check("line: and what is behind that one", "+1 queued" in line, line)
-        check("line: the state it is in", "RUNNING" in line, line)
-        check("line: the account and its usage", "alpha 5h 41%" in line, line)
-        check("line: the context it has used", "ctx 14%" in line, line)
-        check("line: one line, within the cap",
-              "\n" not in line and len(line) <= statusline.MAX_LEN, repr(line))
+    for old in accounts.OLD_STATUSLINES:
+        (shared / old).write_text("#!/bin/sh\n")
+        settings.write_text(json.dumps({"statusLine": {
+            "type": "command", "command": str(shared / old)}, "theme": "dark"}))
+        row = _doctor_row(doctor.run(), "shared statusLine")
+        check(f"status line: doctor fails an old ocp {old} left in the slot",
+              row and row[0] == doctor.FAIL, row)
+        accounts.ensure_shared()
+        got = json.loads(settings.read_text())
+        check(f"status line: init removes the entry for {old}", "statusLine" not in got, got)
+        check("status line: and keeps the rest of the settings", got.get("theme") == "dark", got)
+        check(f"status line: and deletes {old}", not (shared / old).exists())
+        check("status line: doctor is quiet once it is gone",
+              _doctor_row(doctor.run(), "shared statusLine") is None)
 
-        # A permission prompt is the one thing here a human has to answer.
-        waiting.note("backend", "Bash", {"command": "rm -rf /"})
-        line = statusline.render(con, "backend")
-        check("line: a permission prompt is said first, and by name",
-              line.split(" · ")[1] == f"{statusline.NEEDS_YOU}: Bash", line)
-        check("line: and the rest of the line is still there", "from human" in line, line)
-    finally:
-        con.close()
+    theirs = {"type": "command", "command": "npx ccstatusline"}
+    settings.write_text(json.dumps({"statusLine": theirs}))
+    accounts.ensure_shared()
+    check("status line: someone else's is left alone",
+          json.loads(settings.read_text()).get("statusLine") == theirs, settings.read_text())
+    check("status line: and doctor does not flag it",
+          _doctor_row(doctor.run(), "shared statusLine") is None)
 
-
-def test_the_status_line_command_only_prints(home: Path) -> None:
-    """The installed command reads no payload and writes no file.
-
-    It used to be the collector: it parsed the statusLine JSON and wrote the
-    snapshot every reader in ocp used. Now it prints a line someone else
-    composed, which is what lets it cost one file read for every session on
-    the machine, six times a minute, for ever.
-    """
-    home.mkdir(parents=True, exist_ok=True)
-    os.environ["OCP_HOME"] = str(home)
-    line_file = home / "agents" / "backend" / "line.txt"
-    line_file.parent.mkdir(parents=True, exist_ok=True)
-    line_file.write_text("backend · NEEDS YOU: Bash · #12 from human\n")
-    script = str(ROOT / "libexec" / "statusline.sh")
-    payload = json.dumps({"session_id": "s", "rate_limits": {
-        "five_hour": {"used_percentage": 4, "resets_at": 1789543200}}})
-    env = dict(os.environ, OCP_HOME=str(home), OCP_AGENT="backend")
-    before = sorted(str(f) for f in home.rglob("*"))
-
-    r = subprocess.run([script], input=payload, capture_output=True, text=True, env=env)
-    check("status line: exits 0", r.returncode == 0, r.stderr)
-    check("status line: prints the line it was given",
-          r.stdout.strip() == "backend · NEEDS YOU: Bash · #12 from human", repr(r.stdout))
-    check("status line: writes nothing at all",
-          sorted(str(f) for f in home.rglob("*")) == before,
-          str(set(str(f) for f in home.rglob("*")) - set(before)))
-
-    # No line yet - a session that started before anything wrote one. It still
-    # has to print something, and never the payload.
-    line_file.unlink()
-    r = subprocess.run([script], input=payload, capture_output=True, text=True, env=env)
-    check("status line: falls back to the agent's name",
-          r.stdout.strip() == "backend", repr(r.stdout))
-    r = subprocess.run([script], input=payload, capture_output=True, text=True,
-                       env={k: v for k, v in env.items() if k != "OCP_AGENT"}
-                       | {"CLAUDE_CONFIG_DIR": str(home / "accounts" / "alpha" / ".claude")})
-    check("status line: and with no agent either, to the account",
-          r.stdout.strip() == "alpha", repr(r.stdout))
-    check("status line: never echoes the payload back",
-          "used_percentage" not in r.stdout, repr(r.stdout))
 
 # ---------------------------------------------------------------- yaml
 def test_yaml() -> None:
@@ -20248,8 +20192,7 @@ def main() -> int:
         run(lambda: test_the_daemon_pulls_only_for_an_open_session(Path(td) / 'pulltick'))
         run(lambda: test_a_turn_ending_refreshes_the_snapshot_through_the_hook(
             Path(td) / 'pullhook'))
-        run(lambda: test_the_status_line_says_what_the_agent_is_doing(Path(td) / 'linesay'))
-        run(lambda: test_the_status_line_command_only_prints(Path(td) / 'lineprint'))
+        run(lambda: test_init_leaves_the_status_line_slot_empty(Path(td) / 'lineslot'))
         run(lambda: test_the_usage_poll_asks_one_account_per_tick_and_renews_only_on_failure(
             Path(td) / 'pullpoll'))
         run(lambda: test_yaml())

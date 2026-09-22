@@ -428,8 +428,8 @@ one.
 
 **Done.** The collector (`libexec/statusline-collect.sh`, 179 lines, half of it
 a carry rule written in jq) is deleted. `ocp/collect.py` reads the same fields
-out of the file the session is writing anyway, and `libexec/statusline.sh`
-prints a line for the human.
+out of the file the session is writing anyway. ocp installs no status line at
+all (see "The slot is left empty" below).
 
 | payload | before | now |
 |---|---|---|
@@ -473,28 +473,13 @@ session's context, and `doctor`'s "a snapshot moving with no process" check stil
 holds. A pull that stamped its own clock would have reported every dead session
 as live for ever.
 
-**What the line says now.** It printed `alpha · 5h 41% · 7d 12%` - an account,
-in a terminal whose whole screen belongs to one agent. It now says what that
-agent is doing, rendered from ocp's state rather than the session's, because the
-useful facts are the ones the session cannot see:
-
-```
-orcapipe.expender · RUNNING 27m · #1402 from human · sigma 5h 63% · ctx 27%
-orcapipe.auditor · PARKED 6m · #1399 from orcapipe.chat · +6 queued · delta 5h 35%
-harbor · STALLED 1h · #1177 from harbor.deck · +3 queued · beta 5h ?
-backend · NEEDS YOU: Bash · #12 from human · alpha 5h 41%
-```
-
-A permission prompt comes first, because it is the only thing on the line a
-human has to act on, and it appears on the `PermissionRequest` hook rather than
-waiting for a tick.
-
-**The line is composed elsewhere and the command only prints it.** Measured: the
-command is re-run on a refresh interval for every live session, about a hundred
-times a minute at nineteen agents. A Python start is ~70ms of CPU apiece - 13%
-of a core, for ever - so the daemon and the hooks write `agents/<agent>/line.txt`
-and the shell reads it (~5ms). Nothing parses stdin any more, which also retires
-**jq as a dependency of ocp** - it was the collector's alone.
+**The slot is left empty (founder, #1592).** A display of the agent's state
+(`libexec/statusline.sh` printing `agents/<agent>/line.txt`) was built here and
+then removed: the founder runs their own status line (ccstatusline), and ocp has no
+business in that slot. `ensure_shared` now deletes both of ocp's old scripts and
+removes a `statusLine` entry only when it points at one of them. Anyone else's is
+kept. Nothing parses stdin any more, which also retires **jq as a dependency of
+ocp**.
 
 **What this deleted, honestly.** 179 lines of bash, the statusLine install and
 its chain variable, three doctor checks, jq, and `test_collector`. And the carry
@@ -507,10 +492,9 @@ so this is a smaller cut than D9's "that whole apparatus could go" implied.
 is the only way to learn usage when the endpoint cannot be asked at all.
 Deleting it is a separate decision with the founder.
 
-**Upgrade note:** the installed copy in `shared/.claude` is only replaced when
-`ensure_shared` next runs (`ocp init`, or registering an account). Until then
-the old collector keeps running and `ocp doctor` says the status line is not
-installed.
+**Upgrade note:** the old entry is only removed when `ensure_shared` next runs
+(`ocp init`, or registering an account). Until then `ocp doctor` fails "shared
+statusLine is an old ocp script".
 
 **Implication for vendor two:** `collector_kind` is now `pull` for both vendors.
 codex needs nothing installed, writes its own context, identity and rate limits
