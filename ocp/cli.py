@@ -25,7 +25,7 @@ from . import (accounts, actions, agents, ask as askmod, blocked as blockedmod, 
                drift, events, fold as foldmod, guide, handoff as handoffmod, hooks, launch,
                load, observe as obs, paths, rehome, service,
                hr, orca, status, spawn as spawnmod, team, textsafe, triggers, trust,
-               usage_api, vendors, waiting)
+               usage_api, vendors, venv as venvmod, waiting)
 
 
 # ---------------------------------------------------------------- login
@@ -821,6 +821,20 @@ def cmd_service_logs(args) -> int:
     path = service.err_log() if args.err else service.out_log()
     print(textsafe.text(service.tail(path, lines=args.lines)))
     return 0
+
+
+# ---------------------------------------------------------------- venv
+def cmd_venv_install(args) -> int:
+    ok, msg = venvmod.install(log=print)
+    print(msg)
+    return 0 if ok else 1
+
+
+def cmd_venv_status(args) -> int:
+    ok, reason = venvmod.status()
+    print(f"venv:  {venvmod.venv_dir()}")
+    print(f"ready: {ok}" + (f" - {reason}" if reason else ""))
+    return 0 if ok else 1
 
 
 def cmd_unstall(args) -> int:
@@ -2099,6 +2113,13 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("-n", "--lines", type=int, default=60)
     p.add_argument("--err", action="store_true", help="show stderr instead of stdout")
     p.set_defaults(fn=cmd_service_logs)
+
+    vsub = sub.add_parser("venv", help="the interpreter ocp itself runs under").add_subparsers(
+        dest="sub", required=True)
+    p = vsub.add_parser("install", help="create or refresh $OCP_HOME/venv from requirements.txt")
+    p.set_defaults(fn=cmd_venv_install)
+    p = vsub.add_parser("status", help="whether the venv exists and matches requirements.txt")
+    p.set_defaults(fn=cmd_venv_status)
 
     p = sub.add_parser("triggers", help="what the daemon would decide right now")
     p.set_defaults(fn=cmd_triggers)
