@@ -492,12 +492,10 @@ def _quoted(text: str) -> str:
 # The one definition of "unsafe in a config scalar" - textsafe.CONTROL_CHARS
 # (C0/DEL/C1, what a terminal obeys instead of draws) plus tab and newline,
 # which that set leaves for a line-oriented caller to handle but a one-line
-# config scalar has no use for. dump() below refuses WRITING a value that
-# carries one; refuse_unsafe_values refuses READING one back, at agents.read
-# (#1609, the read side #1571 deferred until the daemon could survive one
-# agent's ConfigError without exiting). One frozenset, not two lists a future
-# edit to either function could drift apart - #1566/#1580 found that drift
-# already once, inside dump()'s own test.
+# config scalar has no use for. dump() below refuses writing a value that
+# carries one; refuse_unsafe_values refuses reading one back - the read side
+# of the same rule. One frozenset, not two lists the two functions could
+# drift apart.
 UNSAFE_VALUE_CHARS = frozenset("\t\n") | textsafe.CONTROL_CHARS
 
 

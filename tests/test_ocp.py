@@ -2340,11 +2340,12 @@ def test_a_hand_edited_control_character_stalls_one_agent_live_through_the_daemo
     """#1609: the end-to-end case the #1571 fix exists for, run live through
     the daemon rather than only at agents.read. A hand-edited agent.yaml -
     never written by dump(), so this is the shape a hand edit actually takes
-    - carrying 0x9b in repo. Before #1609 this loaded silently: no C1 check
-    on read at all. Now it is refused at agents.read, reached the same way
-    the malformed-YAML case above is (resume_handoff -> account_of -> read),
-    and #1571's guard stalls that one agent by name while a second, healthy
-    agent's in-flight handoff still resolves in the same reconciliation."""
+    - carrying a tab in repo (why a tab and not the C1 byte the unit test
+    above covers: see the inline comment below). Now it is refused at
+    agents.read, reached the same way the malformed-YAML case above is
+    (resume_handoff -> account_of -> read), and #1571's guard stalls that
+    one agent by name while a second, healthy agent's in-flight handoff
+    still resolves in the same reconciliation."""
     _daemon_home(home, 20)
     agents.register("frontend", "alpha")
     con = db.connect()
