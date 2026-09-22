@@ -22,7 +22,7 @@ from dataclasses import dataclass
 
 from pathlib import Path
 
-from . import orca, paths
+from . import orca, paths, vendors
 
 
 @dataclass
@@ -122,12 +122,16 @@ def env_of(pid: int, name: str) -> str | None:
 
 
 def account_of_process(pid: int) -> str | None:
-    """The account a running process is spending: the one its own
-    CLAUDE_CONFIG_DIR names, read off its environment. It is what the process
-    was started with and never changes, so it is the one answer that cannot be
-    out of date - unlike a column recorded when a move was decided.
-    None when unreadable, or a config dir that is not one of ours."""
-    cfg = env_of(pid, "CLAUDE_CONFIG_DIR")
+    """The account a running process is spending: the one its own config-dir
+    variable names, read off its environment. It is what the process was
+    started with and never changes, so it is the one answer that cannot be out
+    of date - unlike a column recorded when a move was decided.
+    None when unreadable, or a config dir that is not one of ours.
+
+    Which variable is the vendor's answer (`config_dir_env`); the rest of this
+    is layout, not vendor - every account's config dir sits under
+    `paths.accounts_dir()` whatever the tool calls it."""
+    cfg = env_of(pid, vendors.for_accounts().config_dir_env())
     if not cfg:
         return None
     try:

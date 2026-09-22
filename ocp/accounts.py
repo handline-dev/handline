@@ -23,9 +23,6 @@ from .yamlcompat import is_plain_text
 # What each account directory links back to shared.
 LINKED = vendors.for_accounts().shared_items()
 
-# Named explicitly as a guard: these are never created, linked, read or copied.
-NEVER_TOUCH = {".credentials.json", ".claude.json", "statsig", "backups"}
-
 # The status line commands ocp used to install into shared/.claude (D11). The
 # slot is the human's now, so these are only ever removed.
 OLD_STATUSLINES = ("statusline.sh", "statusline-collect.sh")
@@ -83,7 +80,7 @@ def _link_item(cdir: Path, shared: Path, item: str, force: bool = False,
     already looking at, so only a human's call may replace it: `register`
     passes `replace_link` (a foreign symlink) and `force` (a real file or dir).
     """
-    if item in NEVER_TOUCH:
+    if item in vendors.for_accounts().never_touch():
         return False
     target = shared / item
     link = cdir / item
@@ -151,13 +148,14 @@ def unlinked() -> list[tuple[str, str]]:
     """(account, item) for every shared item an account holds as something
     other than the shared link, which `relink_all` will not replace."""
     shared = paths.shared_claude()
+    never = vendors.for_accounts().never_touch()
     out = []
     for acct in paths.list_accounts():
         cdir = paths.account_claude(acct)
         if not cdir.is_dir():
             continue
         for item in LINKED:
-            if item in NEVER_TOUCH or not (shared / item).exists():
+            if item in never or not (shared / item).exists():
                 continue
             link = cdir / item
             if not (link.is_symlink() and os.readlink(link) == str(shared / item)):

@@ -1550,7 +1550,7 @@ def trust_worktrees(acct: str, worktrees: list[tuple[str, str]]) -> list[str]:
 
 
 def _trust_one_worktree(acct: str, agent: str, worktree: str) -> str:
-    cmd = (f"cd {shlex.quote(worktree)} && CLAUDE_CONFIG_DIR="
+    cmd = (f"cd {shlex.quote(worktree)} && {vendors.for_accounts().config_dir_env()}="
            f"{shlex.quote(str(paths.account_claude(acct)))} claude")
     handle = orca.create_terminal(cmd, title=f"trust-{acct}-{agent}")
     if not handle:

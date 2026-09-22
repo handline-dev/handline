@@ -16,7 +16,7 @@ import json
 import time
 from datetime import datetime
 
-from . import db, paths
+from . import db, paths, vendors
 
 # Kept longer than the samples they are fitted against (14 days).
 RETENTION_DAYS = 60
@@ -81,7 +81,7 @@ def ingest(con, acct: str, budget: int = BYTES_PER_TICK, now: int | None = None)
     which is more than the rows written when one streamed over several. A
     file is read from where it stopped, and only up to its last whole line."""
     now = int(time.time()) if now is None else now
-    root = paths.account_claude(acct) / "projects"
+    root = vendors.for_accounts().memory_root(paths.account_claude(acct))
     if not root.is_dir():
         return 0
     try:

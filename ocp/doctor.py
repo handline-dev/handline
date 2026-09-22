@@ -142,10 +142,11 @@ def _check_accounts(r: Report) -> None:
         r.add(FAIL, "no accounts registered", "ocp account add <name>")
         return
     loads = loadmod.read_all()
+    cfg_env = vendors.for_accounts().config_dir_env()
     for a in names:
         cdir = paths.account_claude(a)
         if not cdir.is_dir():
-            r.add(FAIL, f"account {a}: CLAUDE_CONFIG_DIR missing", str(cdir))
+            r.add(FAIL, f"account {a}: {cfg_env} missing", str(cdir))
             continue
         if accounts.logged_in(a):
             r.add(OK, f"account {a}: logged in")
