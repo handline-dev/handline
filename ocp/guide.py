@@ -58,12 +58,17 @@ its session lives on.""",
   ocp ask <agent> "..." --replaces <id>   correct a task you sent, before it is delivered
   ocp ask human "..." --fyi       a report that asks nothing: not red, not counted as
                                   waiting on the founder, gone once read or superseded
-  ocp withdraw <id>               take back your own request, before it is delivered
+  ocp withdraw <id> [--reason R]  take back your own request, before it is delivered;
+                                   --reason (also on dismiss, and on ask --replaces)
+                                   is stored as typed
   ocp cancel <id>                 the founder's: take any request out of an agent's queue
   ocp inbox                       the one thing currently waiting for you, and a count
   ocp inbox --all                 the whole queue and its history
   ocp read <id>                   one of them whole
-  ocp resolve <id> "<verdict>"    answer one
+  ocp resolve <id> "<verdict>"    answer one (the founder's requests also need
+                                   --task N [N ...] or --no-task "reason")
+  ocp resolve <id> "..." --retires <old id>   also takes that older, still-queued
+                                   request out of its queue as superseded (a duplicate ask)
   ocp dismiss <id>                take one off your list without replying
 
 An agent is given one request at a time - the head of its queue - not the
@@ -128,6 +133,7 @@ exchange as one thread; the screen's answer key does it for you.""",
 
     "memory": """closing an idle session
   ocp close <agent>                end the session, keep the terminal
+  (`ocp close <task number> <sha or reason>` closes a task on the board instead)
   ocp resume <agent>               put it back, resuming the same session
 
 A session that is not being used holds 250-500MB and spends no tokens at all.

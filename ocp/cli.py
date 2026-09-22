@@ -11,6 +11,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -335,7 +336,51 @@ def cmd_handoff_write(args) -> int:
 
 
 def cmd_close(args) -> int:
-    """Close an agent's session by hand, keeping its terminal."""
+    """One verb, two things it can close: a task by its number (`ocp close 7
+    <sha or reason>`), or an agent's session by its name, keeping its
+    terminal. An agent is never named with a number, so the argument decides;
+    evidence given to a name, or none given to a number, is refused rather
+    than guessed at.
+    """
+    raw = args.target
+    if raw.isdigit():
+        # close_task's event names whoever ran this - unlike an agent's
+        # session below, which needs no identity to close - so an identity
+        # is required here too, the same refusal cmd_resolve and cmd_dismiss
+        # already give. Without it, `askmod.asking_agent() or row["owner"]`
+        # falls back to the task's owner, and an event nobody ran gets
+        # attributed to an agent that did nothing (auditor's #1565 SF3).
+        if askmod.asking_agent() is None:
+            print(_who_refusal("close a task"))
+            return 1
+        con = db.connect()
+        try:
+            if db.get_task(con, int(raw)) is None:
+                print(f"no task #{raw}. A number is read as a task, never as an agent "
+                      "(agents are named); `ocp task list` shows the open ones.")
+                return 1
+            if not args.evidence:
+                print(f"read {raw} as task #{raw} (a number is a task): closing it needs "
+                      "a merge sha or a reason, and none was given.")
+                return 1
+            ev = args.evidence
+            # Words are a reason; hex is a sha and must resolve to one, or it
+            # is refused - a sha mistyped must not quietly become a reason and
+            # skip the ancestor check. --reason forces the words reading.
+            sha = None if args.reason or not actions.looks_like_sha(ev) else ev
+            ok, msg = actions.close_task(con, int(raw), sha=sha,
+                                         reason=None if sha else ev,
+                                         repo=Path(args.repo) if args.repo else None)
+            print(msg)
+        finally:
+            con.close()
+        return 0 if ok else 1
+    if args.evidence:
+        print(f"read '{raw}' as an agent's name, so this would end its session - but a "
+              "sha or reason closes a task, by its number, and says nothing about a "
+              "session. Nothing was closed.")
+        return 1
+    args.agent = raw
     con = db.connect()
     try:
         st = status.read_for_agent(args.agent, agents.current_account(args.agent, con))
@@ -344,6 +389,82 @@ def cmd_close(args) -> int:
     finally:
         con.close()
     return 0 if ok else 1
+
+
+def _task_owner_ok(name: str) -> bool:
+    return name in paths.list_agents()
+
+
+def cmd_task_new(args) -> int:
+    me = askmod.asking_agent()
+    if me is None:
+        print(_who_refusal("open a task"))
+        return 1
+    if me == askmod.HUMAN:
+        print("a task is opened by an agent, never in the founder's name")
+        return 1
+    if not _task_owner_ok(args.owner):
+        print(f"no agent named {args.owner}")
+        return 1
+    title = textsafe.oneline(args.title).strip()
+    if not title:
+        print("a task needs a title")
+        return 1
+    con = db.connect()
+    try:
+        if args.parent is not None and db.get_task(con, args.parent) is None:
+            print(f"no task #{args.parent}")
+            return 1
+        tid = db.new_task(con, title, args.owner, me, args.parent)
+    finally:
+        con.close()
+    print(f"task #{tid} opened for {args.owner}")
+    return 0
+
+
+def cmd_task_link(args) -> int:
+    con = db.connect()
+    try:
+        if db.get_task(con, args.task) is None:
+            print(f"no task #{args.task}")
+            return 1
+        if db.get_request(con, args.request) is None:
+            print(f"no request #{args.request}")
+            return 1
+        db.link_request(con, args.task, args.request)
+    finally:
+        con.close()
+    print(f"request #{args.request} linked to task #{args.task}")
+    return 0
+
+
+def _print_board(con, tasks: list) -> None:
+    """Each task, then the requests linked to it as they stand now: state and
+    date are read from the request, never held on the task."""
+    if not tasks:
+        print("no open tasks.")
+        return
+    for t in tasks:
+        parent = f" (under #{t['parent_task']})" if t["parent_task"] else ""
+        done = f"  CLOSED: {textsafe.oneline(t['closed_by'])}" if t["closed_by"] else ""
+        print(f"#{t['id']:<4} {textsafe.oneline(t['title'])}  [{t['owner']}]{parent}{done}")
+        for r in db.task_requests(con, t["id"]):
+            when = time.strftime("%Y-%m-%d %H:%M", time.localtime(r["ts"]))
+            print(f"        request #{r['id']} {r['requester']} → {r['target']} "
+                  f"{r['state']} {when}")
+
+
+def cmd_task_list(args) -> int:
+    con = db.connect()
+    try:
+        _print_board(con, db.all_tasks(con) if args.all else db.open_tasks(con))
+        gaps = actions.reason_gaps(con)
+        print(f"reason (last 30d): {gaps['retirements_blank']}/{gaps['retirements']} "
+              f"retirements carry no reason, {gaps['closures_sha']} closures by sha, "
+              f"{gaps['closures_reason']} by reason")
+    finally:
+        con.close()
+    return 0
 
 
 def cmd_resume(args) -> int:
@@ -1049,22 +1170,37 @@ def _text_arg(inline: str | None, file_path: str | None, label: str) -> tuple[st
     return inline, None
 
 
+# A `--reason` given as an empty string is typed, not omitted: taking it as
+# "no reason" would silently drop what was typed, on ask, withdraw and dismiss
+# alike (#1348 note 1).
+_EMPTY_REASON = "--reason was given empty; type one or leave the flag off"
+
+
 def cmd_ask(args) -> int:
     body, err = _text_arg(args.body, args.file, "body")
     if err:
         print(err)
         return 1
+    if args.reason == "":
+        print(_EMPTY_REASON)
+        return 1
+    if args.reason and args.replaces is None:
+        print("--reason says why a request was replaced: it needs --replaces ID")
+        return 1
     ok, msg, _ = askmod.ask(args.target, body, files=args.files,
                             requester=args.of, parent_id=args.parent,
                             mergeable=args.mergeable, first=args.first,
-                            replaces=args.replaces, fyi=args.fyi)
+                            replaces=args.replaces, fyi=args.fyi, reason=args.reason)
     # ask() already phrases its own refusals; do not prefix them again.
     print(msg)
     return 0 if ok else 1
 
 
 def cmd_withdraw(args) -> int:
-    ok, msg = askmod.withdraw(args.id, requester=args.of)
+    if args.reason == "":
+        print(_EMPTY_REASON)
+        return 1
+    ok, msg = askmod.withdraw(args.id, requester=args.of, reason=args.reason)
     print(msg)
     return 0 if ok else 1
 
@@ -1257,6 +1393,9 @@ def cmd_dismiss(args) -> int:
     knowing which. Somebody else's row is neither: dismissing it would resolve
     a request they are still waiting on, with a verdict they never wrote.
     """
+    if args.reason == "":
+        print(_EMPTY_REASON)
+        return 1
     con = db.connect()
     try:
         row = db.get_request(con, args.id)
@@ -1272,8 +1411,10 @@ def cmd_dismiss(args) -> int:
             print(f"#{args.id} is {row['requester']} → {row['target']}, not yours to "
                   f"dismiss. `ocp read {args.id}` shows it.")
             return 1
-        print(actions.dismiss(con, args.id, me=me))
-        return 0
+        ok, msg = actions.dismiss(con, args.id, me=me, reason=args.reason,
+                                  tasks=args.task, no_task=args.no_task)
+        print(msg)
+        return 0 if ok else 1
     finally:
         con.close()
 
@@ -1282,6 +1423,15 @@ def cmd_dismiss(args) -> int:
 # target, plus the two that settled one. A wait that does not know them waits
 # out its whole timeout for an answer nobody is going to write.
 SETTLED = ("done", "rejected", *db.NEVER_REACHED_TARGET)
+
+# cmd_read's header for a row in one of db.NEVER_REACHED_TARGET's states - a
+# module-level name, not an inline literal, so a test can check every name
+# that constant holds has a header here (auditor's #1565 NOTE 1: two
+# hardcoded lists that happened to agree is the same gap raised on textsafe
+# at #1566 - a fourth state added to NEVER_REACHED_TARGET without a header
+# here silently reads as "answered by {target}" again).
+_NEVER_ANSWERED_HEADERS = {"denied": "refused", "withdrawn": "withdrawn",
+                           "replaced": "replaced"}
 
 
 def _waiting_ids(con, agent: str) -> set:
@@ -1343,9 +1493,15 @@ def cmd_read(args) -> int:
         print(textsafe.text(row["body"] or "(empty)"))
         if row["verdict"]:
             print()
-            # A denied row never reached its target, so nothing came back from
-            # it: the verdict there is this system refusing to send it.
-            print(f"--- refused ---" if row["state"] == "denied"
+            # db.NEVER_REACHED_TARGET (denied, withdrawn, replaced) never
+            # reached the target, so none of them came back as an answer -
+            # "answered by {target}" over a withdrawn row's own label was
+            # wrong the same way for all three, not just the one state that
+            # already had its own header (auditor's #1565, the residual left
+            # from #1348: the label carries the correction, the header did
+            # not).
+            print(f"--- {_NEVER_ANSWERED_HEADERS[row['state']]} ---"
+                  if row["state"] in _NEVER_ANSWERED_HEADERS
                   else f"--- answered by {row['target']} ---")
             print(textsafe.text(row["verdict"]))
         return 0
@@ -1391,9 +1547,85 @@ def cmd_resolve(args) -> int:
                   + (f" ({textsafe.oneline(row['verdict'])[:120]})" if row["verdict"] else "")
                   + " - nothing to resolve.")
             return 1
+        refusal = actions.check_human_resolve(con, row, args.task, args.no_task, me)
+        if refusal:
+            print(refusal)
+            return 1
+        if args.retires is not None:
+            old = db.get_request(con, args.retires)
+            if old is None:
+                print(f"no request #{args.retires} to retire")
+                return 1
+            # #1565 BLOCKING: this pre-check tested existence, moot_by and
+            # state but never whose row it is - so any agent could retire any
+            # queued request in the system, including the founder's, with
+            # db.retire_queued stamping announced_at as though it had already
+            # been reported and check_human_resolve never running (it guards
+            # the row being resolved, not the one being retired). `old` is
+            # mine to retire the same way `--replaces` treats its own old
+            # row as the requester's: here it is the row I was asked and am
+            # now saying another answer already covers, so ownership is
+            # target, not requester - matched against `me`, already
+            # established above as the target of the row this resolve is
+            # answering. A founder row narrows further: even a legitimate
+            # target must still say what it becomes, same as answering one
+            # directly (db.retire_queued has this new caller now; #1350's
+            # enumeration did not, because this verb did not exist yet).
+            if old["target"] != me and me != askmod.HUMAN:
+                print(f"#{args.retires} is {old['requester']} -> {old['target']}, "
+                     f"not yours to retire")
+                return 1
+            if old["requester"] == askmod.HUMAN:
+                refusal = actions.check_human_resolve(con, old, args.task, args.no_task, me)
+                if refusal:
+                    print(refusal)
+                    return 1
+            if old["moot_by"] is not None:
+                print(f"#{args.retires} is already moot (by #{old['moot_by']})")
+                return 1
+            if old["state"] != "queued":
+                # Caught here, not left for db.retire_queued's WHERE to fail
+                # on: that failure is worded for a race ("left 'queued'
+                # before it could be retired"), which is the wrong story for
+                # a row that was never queued to begin with - already
+                # answered, its own way, with no moot_by set (a real answer,
+                # not a retirement).
+                print(f"#{args.retires} is already {old['state']} - nothing to retire")
+                return 1
     finally:
         con.close()
+    if args.task or args.no_task:
+        con = db.connect()
+        try:
+            actions.record_human_resolve(con, args.id, args.task, args.no_task, me)
+        finally:
+            con.close()
     ok, msg = askmod.resolve(args.id, verdict, state=args.state)
+    if ok and args.retires is not None:
+        con = db.connect()
+        try:
+            # Actually take the named row out of its queue - moot_by said
+            # "retiring #N" while leaving it queued, live and about to be
+            # worked on, which is worse than not recording anything (#1366
+            # BLOCKING). db.retire_queued is the same close the human
+            # mailbox and the fyi supersede loop already use for a row a
+            # newer one has superseded, delivered or not; its own WHERE
+            # state='queued' is the atomic check against a race with
+            # whatever else might close it between here and the check above.
+            retired = db.retire_queued(con, args.retires, "replaced",
+                                       f"replaced by #{args.id}")
+            if retired:
+                # set_moot_by's own CAS return is not read here (#1366 N1,
+                # unchanged by this pass - the ownership guard above narrows
+                # the race window but does not close it, and it stays a
+                # note, not a fix, per orcapipe's #1572: "leave the second
+                # and say you left it").
+                db.set_moot_by(con, args.retires, args.id)
+                msg += f", retiring #{args.retires}"
+            else:
+                msg += f" (#{args.retires} left 'queued' before it could be retired)"
+        finally:
+            con.close()
     print(msg)
     return 0 if ok else 1
 
@@ -1558,6 +1790,8 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--replaces", type=int, default=None, metavar="ID",
                    help="correct your own request ID before it has been delivered; "
                         "ID is retired and this takes its place in line")
+    p.add_argument("--reason", default=None,
+                   help="why --replaces retires the old request; stored as typed")
     p.add_argument("--fyi", action="store_true",
                    help="a report to the human that asks nothing of them: not red, not "
                         "counted as waiting on them, gone once read or when your next "
@@ -1567,6 +1801,7 @@ def build_parser() -> argparse.ArgumentParser:
     p = sub.add_parser("withdraw", help="take back your own request before it is delivered")
     p.add_argument("id", type=int)
     p.add_argument("--of", default=None, help="requester (defaults to $OCP_AGENT)")
+    p.add_argument("--reason", default=None, help="why; stored as typed")
     p.set_defaults(fn=cmd_withdraw)
 
     p = sub.add_parser("cancel", help="the founder takes a request out of an agent's queue")
@@ -1596,10 +1831,22 @@ def build_parser() -> argparse.ArgumentParser:
                    help="read the verdict from this file instead of the inline argument - "
                         "safe against a shell expanding backticks or $() in the text")
     p.add_argument("--state", default="done", choices=["done", "rejected"])
+    p.add_argument("--task", type=int, nargs="+", metavar="N",
+                   help="the task(s) this answer belongs to; required on the founder's requests")
+    p.add_argument("--no-task", metavar="REASON",
+                   help="answered, nothing to build; required on the founder's requests "
+                        "unless --task is given")
+    p.add_argument("--retires", type=int, default=None, metavar="ID",
+                   help="an older request this answer makes moot")
     p.set_defaults(fn=cmd_resolve)
 
     p = sub.add_parser("dismiss", help="take one row off your mailbox without replying")
     p.add_argument("id", type=int)
+    p.add_argument("--reason", default=None, help="why; stored as typed")
+    p.add_argument("--task", type=int, nargs="+", metavar="N",
+                   help="the task(s) this belongs to; required to dismiss a request the founder made")
+    p.add_argument("--no-task", metavar="REASON",
+                   help="nothing to build; required to dismiss a founder request unless --task is given")
     p.set_defaults(fn=cmd_dismiss)
 
     p = sub.add_parser("fold", help="fold events into the digest (the one model call)")
@@ -1701,9 +1948,28 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("agent")
     p.set_defaults(fn=cmd_handoff_write)
 
-    p = sub.add_parser("close", help="end an idle agent's session, keeping its terminal")
-    p.add_argument("agent")
+    p = sub.add_parser("close", help="close a task (ocp close 7 <sha or reason>), or "
+                                     "end an idle agent's session, keeping its terminal")
+    p.add_argument("target", help="a task number, or an agent's name")
+    p.add_argument("evidence", nargs="?", help="a merge sha on main, or a reason")
+    p.add_argument("--repo", default=None, help="the repo whose main a sha is checked against")
+    p.add_argument("--reason", action="store_true",
+                   help="record the evidence as words even if it looks like hex")
     p.set_defaults(fn=cmd_close)
+
+    tk = sub.add_parser("task", help="the task board").add_subparsers(dest="sub", required=True)
+    p = tk.add_parser("new", help="open a task")
+    p.add_argument("title")
+    p.add_argument("--owner", required=True)
+    p.add_argument("--parent", type=int, default=None, help="the task this is a part of")
+    p.set_defaults(fn=cmd_task_new)
+    p = tk.add_parser("list", help="the open tasks and their requests")
+    p.add_argument("--all", action="store_true", help="closed tasks too, with what closed them")
+    p.set_defaults(fn=cmd_task_list)
+    p = tk.add_parser("link", help="attach a further request to a task")
+    p.add_argument("task", type=int)
+    p.add_argument("request", type=int)
+    p.set_defaults(fn=cmd_task_link)
 
     p = sub.add_parser("resume", help="hand a parked agent back its handoff")
     p.add_argument("agent")

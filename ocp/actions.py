@@ -20,12 +20,14 @@ over.
 from __future__ import annotations
 
 import os
+import re
+import subprocess
 import time
 from pathlib import Path
 
 from . import (accounts, agents, ask as askmod, blocked, daemon, db, events as evmod,
                fold as foldmod, hr, load as loadmod, observe as obs, orca, paths,
-               spawn as spawnmod, status, team, triggers, waiting)
+               spawn as spawnmod, status, team, textsafe, triggers, waiting)
 
 # The name a human's own requests are sent under, and the inbox `ocp bridge`
 # shows. Taken from `ask`, which is where escalations are addressed: a second
@@ -189,8 +191,21 @@ def answer(con, rid: int, verdict: str) -> str:
     return msg
 
 
-def dismiss(con, rid: int, me: str | None = None) -> str:
-    """Take one row off the mailbox without replying to it.
+def record_human_resolve(con, rid: int, tasks: list[int] | None, no_task: str | None,
+                         me: str | None) -> None:
+    """What a guarded close leaves behind: the links (--task), or the
+    reason nothing was built (--no-task)."""
+    for tid in tasks or []:
+        db.link_request(con, tid, rid)
+    if no_task:
+        db.add_event(con, me or "", "no_task", {"request_id": rid, "reason": no_task})
+
+
+def dismiss(con, rid: int, me: str | None = None, reason: str | None = None,
+            tasks: list[int] | None = None, no_task: str | None = None) -> tuple[bool, str]:
+    """Take one row off the mailbox without replying to it. A `reason` is
+    stored, as typed, after "read - no reply" in the verdict of a still-queued
+    row; a row that already carries a real verdict keeps it.
 
     A row that has already left 'queued' carries somebody's real verdict.
     Read by whoever asked for it (`me`, when known), it is marked told - the
@@ -200,27 +215,41 @@ def dismiss(con, rid: int, me: str | None = None) -> str:
     target dismissing its own answered request), there is nothing left to
     do: stamping it told would announce it on the real requester's behalf,
     and the requester would never actually be told.
+
+    Returns (ok, message): a guard refusal is the only `False` here, so a
+    caller reading it as an exit code does not conclude a founder's row was
+    handled when it is still sitting in the queue.
     """
     row = db.get_request(con, rid)
     if row is None:
-        return f"#{rid} is gone"
+        return True, f"#{rid} is gone"
+    guarded = row["state"] == "queued" and row["requester"] == HUMAN
+    if guarded or tasks:
+        refusal = check_human_resolve(con, row, tasks, no_task, me)
+        if refusal:
+            return False, refusal
     if row["state"] != "queued":
         if me is not None and me == row["target"]:
-            return f"#{rid} was already answered - nothing more for you to do"
+            return True, f"#{rid} was already answered - nothing more for you to do"
         db.mark_announced(con, [rid])
-        return f"#{rid} marked read"
+        return True, f"#{rid} marked read"
+    verdict = "read - no reply" + (f": {reason}" if reason else "")
+    if guarded or tasks or no_task:
+        # Linked before the row is closed: a failure between the two leaves a
+        # link on a still-queued row, never an answered row attached to nothing.
+        record_human_resolve(con, rid, tasks, no_task, me)
     if row["response"] != "async":
         # Nobody is waiting on this one, so nobody is told: no push_answer, no
         # wake. Typing "read" at an agent as though it were an answer costs it
         # a turn to discover that it is not one - manager was mid-sentence
         # when a dismissal arrived as "#60 from human: read". resolve() itself
         # stamps announced_at, in the same write as the state change.
-        ok, msg = askmod.resolve(rid, "read - no reply", state="done", notify=False)
-        return f"{msg} (dismissed; {row['requester']} is not waiting on it)"
+        ok, msg = askmod.resolve(rid, verdict, state="done", notify=False)
+        return ok, f"{msg} (dismissed; {row['requester']} is not waiting on it)"
     # An `async` sender parked on a reply and nothing else will ever unpark it,
     # so it is told - and what it is told says it was read, not answered.
-    ok, msg = askmod.resolve(rid, "read - no reply", state="done")
-    return msg
+    ok, msg = askmod.resolve(rid, verdict, state="done")
+    return ok, msg
 
 
 def waiting_ids(con, agent: str) -> list[int]:
@@ -254,6 +283,163 @@ def cancel(con, rid: int) -> str:
     """Take a request out of an agent's queue as the founder. See `ask.cancel`."""
     ok, msg = askmod.cancel(rid)
     return msg if ok else f"not cancelled - {msg}"
+
+
+def _git(repo: Path, *args: str):
+    return subprocess.run(["git", *args], cwd=repo, capture_output=True, text=True, timeout=15)
+
+
+def looks_like_sha(text: str) -> bool:
+    """Hex of a length a person types a sha at - short ones included."""
+    return re.fullmatch(r"[0-9a-fA-F]{4,40}", text) is not None
+
+
+def _sha_on_main(repo: Path, sha: str) -> tuple[str | None, str]:
+    """The full sha `sha` names in `repo`, when it is reachable from `main`;
+    otherwise None and why.
+
+    `closed_by` is evidence, not a claim: a sha typed by hand that never
+    merged - or that names nothing here - must not close a task, so this runs
+    before anything is written, and what is stored is the full sha it resolved
+    to, whatever length was typed.
+    """
+    try:
+        r = _git(repo, "rev-parse", "--verify", "--quiet", f"{sha}^{{commit}}")
+        if r.returncode != 0:
+            return None, "no such commit in this repo"
+        full = r.stdout.strip()
+        r = _git(repo, "merge-base", "--is-ancestor", full, "main")
+    except (OSError, subprocess.SubprocessError) as e:
+        return None, str(e)
+    if r.returncode == 0:
+        return full, ""
+    return None, textsafe.oneline((r.stderr or r.stdout).strip())
+
+
+def close_task(con, tid: int, sha: str | None = None, reason: str | None = None,
+               repo: Path | None = None) -> tuple[bool, str]:
+    """Close a task on the board.
+
+    Exactly one of `sha` (checked against `main`) or `reason` (for work
+    nothing merges: a plan, a decision, a duplicate). Refused while a child
+    task is open - a five-part ask closed as one row hid that parts 4 and 5
+    were not done (#1008). Nothing here looks at the linked requests' state:
+    a task is open until someone closes it.
+
+    No `--retires` here (#1349/#1366): task ids and request ids are separate
+    AUTOINCREMENT sequences that both start at 1, so a single moot_by column
+    fed by either reads as one namespace when it is two - "#1 is already moot
+    (by #1)" cannot say whether that second #1 is a task or a request.
+    `ocp resolve --retires` stays, where the id is always a request's.
+    """
+    row = db.get_task(con, tid)
+    if row is None:
+        return False, f"no task #{tid}"
+    if row["closed_by"]:
+        return False, f"task #{tid} is already closed ({row['closed_by']})"
+    kids = db.open_child_tasks(con, tid)
+    if kids:
+        ids = ", ".join(f"#{k['id']}" for k in kids)
+        return False, f"task #{tid} still has open child tasks ({ids}) - close them first"
+    if bool(sha) == bool(reason):
+        return False, "close needs exactly one of a sha or a reason"
+    if sha:
+        full, why = _sha_on_main(repo or Path.cwd(), sha)
+        if full is None:
+            return False, f"{sha} is not an ancestor of main" + (f" ({why})" if why else "")
+        mark = full
+    else:
+        mark = reason
+    if not db.close_task(con, tid, mark, via="sha" if sha else "reason"):
+        return False, f"task #{tid} was closed by someone else just now"
+    # Hoisted out of the call so the kind-enumeration scan in
+    # test_only_the_agents_own_events_move_its_activity_clock can see it -
+    # a literal kind inside a parenthesised second argument is invisible to
+    # that regex, and only the scan's own call-count check caught it
+    # (auditor's #1565 SF3). cli.cmd_close now refuses without an identity,
+    # so `who` is always a real agent, never the fallback.
+    who = askmod.asking_agent() or row["owner"]
+    db.add_event(con, who, "close_task", {"task_id": tid, "closed_by": mark})
+    return True, f"task #{tid} closed ({mark})"
+
+
+def reason_gaps(con, window_days: int = 30) -> dict:
+    """#1349/#1366: how many retirements carry no reason, counted from the
+    exact shapes those verbs write - not a grep over free text, which is the
+    measurement orcapipe refused (today's evidence: purser could not size
+    duplicated work this way with any confidence). A withdraw with none
+    stores a NULL verdict; a dismiss or a replace with none stores the fixed
+    phrase with no ": " suffix.
+
+    Two corrections from auditor #1366's should-fix 2, measured against the
+    live board: `fyi=0` excludes the rows ask.py's own supersede loop
+    replaces - nobody was ever asked for a reason there, so counting them as
+    a human omission overstated the gap (20% of one bucket, that day). And
+    `resolved_at >= cutoff` bounds the count to the last `window_days`: with
+    no window the line reports history forever, dominated by rows that
+    predate `--reason` existing rather than current practice.
+
+    Closures are reported as their own two counts, not folded into a "gap":
+    `close` requires exactly one of a sha or a reason, so a closed task is
+    never blank, and counting a sha close as a missing reason (the previous
+    shape here) pointed a reader at the wrong thing to fix. Which one a row
+    was is read from `closed_via`, set at close time from the argument the
+    caller actually gave - not guessed back from the text, which a --reason
+    forced past looks_like_sha (hex-looking words, still a reason) would
+    misread as a sha.
+    """
+    cutoff = int(time.time()) - window_days * 86400
+    def one(where: str) -> int:
+        return con.execute(
+            f"SELECT COUNT(*) FROM requests WHERE fyi = 0 AND resolved_at >= ? AND {where}",
+            (cutoff,)).fetchone()[0]
+    withdrawn_total = one("state = 'withdrawn'")
+    withdrawn_blank = one("state = 'withdrawn' AND verdict IS NULL")
+    dismissed_total = one("(verdict = 'read - no reply' OR verdict LIKE 'read - no reply: %')")
+    dismissed_blank = one("verdict = 'read - no reply'")
+    replaced_total = one("state = 'replaced'")
+    replaced_blank = one("state = 'replaced' AND verdict NOT LIKE '%: %'")
+    def closures(via: str) -> int:
+        return con.execute(
+            "SELECT COUNT(*) FROM tasks WHERE closed_via = ? AND closed_at >= ?",
+            (via, cutoff)).fetchone()[0]
+    return {
+        "retirements": withdrawn_total + dismissed_total + replaced_total,
+        "retirements_blank": withdrawn_blank + dismissed_blank + replaced_blank,
+        "closures_sha": closures("sha"),
+        "closures_reason": closures("reason"),
+    }
+
+
+def check_human_resolve(con, row, tasks: list[int] | None, no_task: str | None,
+                        me: str | None = None) -> str | None:
+    """The refusal for resolving a request the human made without saying what
+    it becomes; None when it may go ahead. Any --task id is checked on every
+    row, before anything is written, so a bad id never follows an answer that
+    has already gone out.
+
+    The guard is on the answer, not on the ask: agent-to-agent and
+    manager-to-agent rows are conversation and never reach it, and it covers
+    replies inside a running thread, because that is how the founder attaches
+    the next piece of work to a report. Every path that closes such a row on
+    an agent's behalf goes through here (`ocp resolve`, `ocp dismiss`); the
+    founder's own hands - the bridge answer key, cancel, withdraw - are the
+    person the guard exists to serve, so `me == HUMAN` passes.
+    """
+    for tid in tasks or []:
+        t = db.get_task(con, tid)
+        if t is None:
+            return f"no task #{tid}"
+        if t["closed_by"]:
+            return f"task #{tid} is already closed ({t['closed_by']})"
+    if row["requester"] != HUMAN or me == HUMAN:
+        return None
+    if bool(tasks) == bool(no_task):
+        return (f"#{row['id']} is the founder's: say what it becomes. --task N [N ...] "
+                "names the tasks this answer belongs to (one per deliverable "
+                "promised), --no-task 'reason' says nothing needs building. "
+                "`ocp task new --owner NAME 'title'` makes a task.")
+    return None
 
 
 def _is_answer_to_human(row) -> bool:

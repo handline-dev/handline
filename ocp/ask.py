@@ -216,11 +216,14 @@ def _merge_into_queued(con, requester: str, target: str, body: str,
 
 def ask(target: str, body: str, files: str | None = None, requester: str | None = None,
         parent_id: int | None = None, mergeable: bool = False, first: bool = False,
-        replaces: int | None = None, fyi: bool = False) -> tuple[bool, str, int | None]:
+        replaces: int | None = None, fyi: bool = False,
+        reason: str | None = None) -> tuple[bool, str, int | None]:
     """Route and, if allowed, enqueue. Returns (allowed, message, request id).
 
     `first` and `replaces` are request #189's --first and --replaces; see
-    `db.add_request` and `db.head_of_queue`.
+    `db.add_request` and `db.head_of_queue`. `reason` is what the retired
+    request's verdict says after "replaced by #N", exactly as typed; it means
+    nothing without `replaces`.
     """
     requester = requester or asking_agent()
     if fyi and target != HUMAN:
@@ -371,7 +374,8 @@ def ask(target: str, body: str, files: str | None = None, requester: str | None 
                 db.retire_queued(con, int(prev["id"]), "replaced", f"replaced by #{rid}")
         if old is not None:
             con.execute("UPDATE requests SET verdict = ? WHERE id = ?",
-                       (f"replaced by #{rid}", replaces))
+                       (f"replaced by #{rid}" + (f": {reason}" if reason else ""), replaces))
+            db.set_moot_by(con, replaces, rid)
             p = _inbox(old["target"]) / f"{replaces:06d}.json"
             if p.exists():
                 p.unlink()
@@ -494,8 +498,10 @@ def inbox(agent: str, unread_only: bool = True) -> list[dict]:
         con.close()
 
 
-def withdraw(rid: int, requester: str | None = None) -> tuple[bool, str]:
+def withdraw(rid: int, requester: str | None = None,
+             reason: str | None = None) -> tuple[bool, str]:
     """Take back your own request before it has been delivered (request #189).
+    `reason` is stored as the row's verdict, as typed.
 
     Once delivered, a reply in its thread is the only way to change it.
     """
@@ -516,13 +522,18 @@ def withdraw(rid: int, requester: str | None = None) -> tuple[bool, str]:
         if row["delivered_at"]:
             return False, too_late
         # Atomic: the write itself is the gate against a delivery landing
-        # between the check above and here.
-        if not db.retire_if_undelivered(con, rid, "withdrawn"):
+        # between the check above and here. Labelled "withdrawn: ", the same
+        # as "replaced by #N" and "read - no reply" are already read as
+        # machine text - a bare typed reason here was drawn as the target's
+        # own answer, in the founder's name on their own screen (#1348).
+        verdict = f"withdrawn: {reason}" if reason else None
+        if not db.retire_if_undelivered(con, rid, "withdrawn", verdict):
             return False, too_late
         p = _inbox(row["target"]) / f"{rid:06d}.json"
         if p.exists():
             p.unlink()
-        db.add_event(con, requester, "withdraw", {"request_id": rid, "target": row["target"]})
+        db.add_event(con, requester, "withdraw", {"request_id": rid, "target": row["target"],
+                                                   "reason": reason})
         return True, f"request #{rid} to {row['target']} withdrawn"
     finally:
         con.close()
