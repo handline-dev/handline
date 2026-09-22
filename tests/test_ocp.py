@@ -1028,6 +1028,104 @@ def test_pick_account_stale_and_unknown_pace(home: Path) -> None:
           "refuses", not allowed, why)
 
 
+def test_live_refresh_asks_a_carried_old_candidate_before_refusing_it(home: Path) -> None:
+    """founder #1811 part 2, #1816, production shape: an agent walled on
+    'here' is looking for room; 'alpha' last answered the endpoint over
+    CARRY_MAX_AGE_S ago (usage_api's own writer never sets rl_carried True in
+    production, so this is the real shape a stalled poll leaves), and the
+    daemon's own background poller has not caught up to it yet - but the
+    endpoint itself would say alpha has room right now. Without asking it
+    live at the moment of the decision, alpha reads as carried_old, unknown,
+    refused - a move given up on while an account could in fact answer.
+    Control: the identical setup with live_refresh=False (pick_account's
+    default, and the whole of pick_account's behaviour before this) refuses
+    it, reproducing the parked-179-minutes symptom."""
+    os.environ["OCP_HOME"] = str(home)
+    now = int(time.time())
+    accounts.register("alpha")
+    # The stale reading's own window has already passed - consistent with why
+    # nobody re-asked it: it is old because it describes a window that ended,
+    # not one still open, so a fresh, lower reading in a new window is not
+    # the "usage only rises" case record() guards.
+    write_status(home, "alpha", pct_5h=90, reset_5h=now - 60,
+                 rl_carried=False, rl_at=now - status.CARRY_MAX_AGE_S - 300,
+                 collected_at=now)
+    st = status.read("alpha")
+    check("live_refresh setup: alpha is genuinely carried_old before any ask",
+          st.pct_5h_source == "carried_old", st.pct_5h_source)
+
+    real_read, real_login = usage_api.read, accounts.logged_in
+    asked: list[str] = []
+    try:
+        def fake_read(acct, refresh=True):
+            asked.append(acct)
+            return usage_api.Reading(acct, 10, now + 9000, 20, now + 90000, now)
+        usage_api.read = fake_read
+        accounts.logged_in = lambda acct: True
+
+        picked, ranked = status.pick_account(["alpha"], live_refresh=False)
+        check("control: without live_refresh, the carried_old candidate is "
+              "still refused - the pre-fix behaviour", picked is None, ranked)
+        check("control: and nothing was asked to produce that refusal",
+              asked == [], asked)
+
+        picked, ranked = status.pick_account(["alpha"], live_refresh=True)
+        check("live_refresh: the same candidate is asked fresh before being "
+              "refused", asked == ["alpha"], asked)
+        check("live_refresh: and takes the agent, since the fresh answer has "
+              "room - the move is not given up on while it could answer",
+              picked == "alpha", ranked)
+        check("live_refresh: the fresh reading actually landed on disk, not "
+              "just in this decision", status.read("alpha").pct_5h == 10,
+              status.read("alpha").pct_5h)
+    finally:
+        usage_api.read, accounts.logged_in = real_read, real_login
+
+
+def test_live_refresh_checks_a_stale_idle_floor_before_admitting_it(home: Path) -> None:
+    """founder #1811 part 2, #1816, production shape: omega was last seen at
+    16%, 3h ago - stale, but inside its window and idle, so idle_floor admits
+    it as a floor. The endpoint would now say 100%: the account crossed the
+    wall in the 2h45m nothing re-asked it. Admitting it on the old floor
+    hands an agent to an account already at the wall. Control: the identical
+    setup with live_refresh=False admits it on the stale floor, reproducing
+    the bug."""
+    os.environ["OCP_HOME"] = str(home)
+    now = int(time.time())
+    accounts.register("omega")
+    write_status(home, "omega", pct_5h=16, reset_5h=now + 9000,
+                 collected_at=now - 3 * 3600)
+    st = status.read("omega")
+    check("live_refresh setup: omega is stale but idle-floor-admitted before "
+          "any ask", st.stale and st.idle_floor(0)[0], (st.stale, st.idle_floor(0)))
+
+    real_read, real_login = usage_api.read, accounts.logged_in
+    asked: list[str] = []
+    try:
+        def fake_read(acct, refresh=True):
+            asked.append(acct)
+            return usage_api.Reading(acct, 100, now + 60, 40, now + 90000, now)
+        usage_api.read = fake_read
+        accounts.logged_in = lambda acct: True
+
+        picked, ranked = status.pick_account(["omega"], live_refresh=False)
+        check("control: without live_refresh, the stale floor admits it - "
+              "the pre-fix behaviour", picked == "omega", ranked)
+        check("control: and nothing was asked to produce that admission",
+              asked == [], asked)
+
+        picked, ranked = status.pick_account(["omega"], live_refresh=True)
+        check("live_refresh: the stale floor is asked fresh before being "
+              "used", asked == ["omega"], asked)
+        check("live_refresh: and refuses now that the fresh answer is at "
+              "the wall - not handed to an account already full",
+              picked is None, ranked)
+        check("live_refresh: the fresh reading actually landed on disk",
+              status.read("omega").pct_5h == 100, status.read("omega").pct_5h)
+    finally:
+        usage_api.read, accounts.logged_in = real_read, real_login
+
+
 # ---------------------------------------------------------------- usage_samples
 def test_usage_samples_round_trip_without_coercing_a_gap_to_zero(home: Path) -> None:
     """#1113: a recorded sample is read back exactly, unknown figures stay
@@ -23704,6 +23802,10 @@ def main() -> int:
         run(lambda: test_pick_account_degrades_when_every_account_would_hit_the_wall(
             Path(td) / 'allwall'))
         run(lambda: test_pick_account_stale_and_unknown_pace(Path(td) / 'staleknown'))
+        run(lambda: test_live_refresh_asks_a_carried_old_candidate_before_refusing_it(
+            Path(td) / 'liverefreshcarried'))
+        run(lambda: test_live_refresh_checks_a_stale_idle_floor_before_admitting_it(
+            Path(td) / 'liverefreshfloor'))
         run(lambda: test_each_calls_tokens_are_recorded_per_account_from_the_transcripts(
             Path(td) / 'tokencalls'))
         run(lambda: test_a_first_backfill_reads_a_slice_per_tick_not_the_whole_history(

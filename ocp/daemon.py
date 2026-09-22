@@ -1779,9 +1779,15 @@ def _move_plan(con, agent: str, kind: str) -> tuple[str | None, str]:
         left_reset = status.read(left).reset_5h
         if left_reset and left_reset > now:
             exclude[left] = "the account it just left, until it resets"
+    # live_refresh=True: this decides whether a parked, walled agent actually
+    # moves - not a screen - so a carried_old destination or a stale idle
+    # floor is asked fresh before it decides the answer, rather than parking
+    # an agent beside an account that could in fact take it (#1811 part 2,
+    # #1816).
     dest, ranked = status.pick_account(
         [a for a in paths.list_accounts() if accounts.logged_in(a)],
-        bootstrap=True, exclude=exclude, load=load.read_all(con), agent=agent)
+        bootstrap=True, exclude=exclude, load=load.read_all(con), agent=agent,
+        live_refresh=True)
     if dest is None:
         return None, "no account can take one more agent (" + "; ".join(
             f"{a}: {r}" for a, r in ranked if a not in exclude) + ")"
@@ -1793,7 +1799,7 @@ def _forced_plan(con, agent: str, dest: str) -> tuple[str | None, str]:
     the pick over that one account, so a walled, capped or unreadable one is
     refused with the pick's own reason. (destination, why)."""
     picked, ranked = status.pick_account([dest], bootstrap=True, load=load.read_all(con),
-                                         agent=agent)
+                                         agent=agent, live_refresh=True)
     if picked is None:
         why = dict(ranked).get(dest) or "cannot take one more agent"
         return None, f"{dest} {why}"

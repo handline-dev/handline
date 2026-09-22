@@ -59,7 +59,7 @@ import time
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from . import paths, triggers
+from . import accounts, paths, triggers, usage_api
 
 # statusLine only refreshes while a session is alive, so a snapshot older than
 # this is not trusted as "current" (section 4 constraint - refreshInterval
@@ -984,7 +984,8 @@ def pick_account(candidates: list[str] | None = None, bootstrap: bool = False,
                  load: dict | None = None,
                  agent: str | None = None,
                  prefer: str | None = None,
-                 read_status=None) -> tuple[str | None, list[tuple[str, str]]]:
+                 read_status=None,
+                 live_refresh: bool = False) -> tuple[str | None, list[tuple[str, str]]]:
     """Pick among the accounts that can take one more agent - any account that
     will not hit its own wall, the same test `unfit` already answers - the one
     furthest behind its own weekly pace (`pace_7d`) goes first, since headroom
@@ -1038,6 +1039,21 @@ def pick_account(candidates: list[str] | None = None, bootstrap: bool = False,
     AccountStatus - what `replay.py` passes, to ask this same function about
     an account as a recorded sample had it, not as its live status.json
     reads today.
+
+    `live_refresh=True` (founder #1811 part 2, #1816): before a candidate is
+    refused for being carried_old, or admitted only on an idle floor that
+    predates whatever it now stands for, ask the account's own OAuth
+    credential directly (`usage_api`, one HTTPS GET, no session) and use the
+    answer if it came back. Without this, a decision that turns on a figure
+    nobody has refreshed either parks an agent beside an account that could
+    in fact take it (a carried_old destination read as "unknown" and refused,
+    though the background poller would have found room within minutes), or
+    admits one on a floor stale enough that the account has since crossed the
+    wall in a window this call never re-checked. `replay.py` never passes
+    this - a recorded sample cannot be asked anything, live or not - and
+    every caller that is answering "what would happen" rather than "give an
+    agent somewhere to go right now" (a screen redraw, `ocp status`) leaves it
+    False: a display must not cost a network call just by being drawn.
     """
     read_one = read_status or read
     names = candidates if candidates is not None else paths.list_accounts()
@@ -1057,6 +1073,18 @@ def pick_account(candidates: list[str] | None = None, bootstrap: bool = False,
         st = read_one(n)
         ld = load.get(n)
         active = ld.active if ld else 0
+        if live_refresh and accounts.logged_in(n):
+            # Same two figures the rest of this function already treats
+            # specially - a carried_old reading (refused below) and a floor
+            # idle_floor would admit on (sized below) - asked fresh exactly
+            # once, in place, before either decision is made on the old one.
+            stale_here = (st.pct_5h_source == "carried_old"
+                          or (st.trusted_pct_5h is None and st.idle_floor(active)[0]))
+            if stale_here:
+                fresh = usage_api.read(n, refresh=False)
+                if fresh is not None:
+                    usage_api.record(fresh)
+                    st = read_one(n)
         allowed, why = st.takes_work(active)
         if not allowed:
             if bootstrap and not st.exists:
