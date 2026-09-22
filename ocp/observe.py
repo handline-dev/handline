@@ -40,15 +40,8 @@ class Observed:
 
 
 def is_session(command: str) -> bool:
-    """Is this process an agent's session, rather than something else of ours?
-
-    A fold is a headless `claude -p` that inherits whatever OCP_AGENT its caller
-    had. Counting it would tell the sweep an agent is alive for as long as a
-    fold runs and closed the moment it ends.
-    """
-    if "claude" not in command:
-        return False
-    return " -p " not in command and not command.endswith(" -p")
+    """Is this process an agent's session, rather than something else of ours?"""
+    return any(drv.is_session(command) for drv in vendors.known())
 
 
 def process_table() -> list[tuple[int, str]] | None:
@@ -128,26 +121,30 @@ def account_of_process(pid: int) -> str | None:
     of date - unlike a column recorded when a move was decided.
     None when unreadable, or a config dir that is not one of ours.
 
-    Which variable is the vendor's answer (`config_dir_env`); the rest of this
-    is layout, not vendor - every account's config dir sits under
-    `paths.accounts_dir()` whatever the tool calls it."""
-    cfg = env_of(pid, vendors.for_accounts().config_dir_env())
-    if not cfg:
-        return None
-    try:
-        rel = Path(cfg).resolve().relative_to(paths.accounts_dir().resolve())
-    except (ValueError, OSError):
-        return None
-    return rel.parts[0] if rel.parts else None
+    Which variable is the vendor's answer (`config_dir_env`), so each known
+    vendor's is asked; the rest of this is layout, not vendor - every account's
+    config dir sits under `paths.accounts_dir()` whatever the tool calls it."""
+    for drv in vendors.known():
+        cfg = env_of(pid, drv.config_dir_env())
+        if not cfg:
+            continue
+        try:
+            rel = Path(cfg).resolve().relative_to(paths.accounts_dir().resolve())
+        except (ValueError, OSError):
+            continue
+        if rel.parts:
+            return rel.parts[0]
+    return None
 
 
 def live_sessions() -> dict[str, int] | None:
-    """agent -> pid for every claude session that is actually running.
+    """agent -> pid for every agent session that is actually running, whatever
+    vendor it runs in (`is_session`).
 
-    Read from the environment `ocp launch` set before exec'ing claude, which is
-    the same string the rest of the system keys on. A fold is excluded: it is a
-    headless `claude -p` that inherits whatever OCP_AGENT its caller had, and it
-    is not the agent's session.
+    Read from the environment `ocp launch` set before exec'ing the vendor's
+    binary, which is the same string the rest of the system keys on. A fold is
+    excluded: it is a headless run that inherits whatever OCP_AGENT its caller
+    had, and it is not the agent's session.
     """
     table = process_table()
     if table is None:

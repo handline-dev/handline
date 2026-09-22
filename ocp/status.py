@@ -161,6 +161,10 @@ def effective_context_limit(cfg: dict, model_id: str | None) -> int:
 class AccountStatus:
     account: str
     exists: bool = False
+    # Its vendor reports no usage ocp can read (`Driver.meters`). Not "no
+    # reading yet": that is a claude account nothing has run on, a bootstrap
+    # candidate, and nothing ever will give this one a reading.
+    unmetered: bool = False
     raw: dict = field(default_factory=dict)
     error: str | None = None
 
@@ -362,6 +366,8 @@ class AccountStatus:
         (`load.Load.active`); it only matters to a stale reading
         (`idle_floor`) - a live one is judged on what it reports, agents
         mid-turn on it and all."""
+        if self.unmetered:
+            return False, UNMETERED_WHY
         if not self.exists:
             return False, "no status.json - no session has run yet (fail-closed)"
         if self.error:
@@ -541,9 +547,38 @@ def _as_int(v):
     return int(v) if isinstance(v, (int, float)) else None
 
 
+UNMETERED_WHY = "unmetered - its vendor reports no usage; only agents that name it run there"
+
+
+def metered(acct: str) -> bool:
+    """False only for an account whose vendor's driver says it cannot be read.
+    A vendor with no driver is left to `logged_in`, which refuses it."""
+    from . import vendors
+    try:
+        return vendors.for_account(acct).meters()
+    except vendors.UnknownVendor:
+        return True
+
+
+def not_for(acct: str, vendor: str) -> str | None:
+    """Why no agent of `vendor` is ever placed on this account, whatever its
+    room: it is another vendor's (the agent would run its own binary against
+    that vendor's credentials), or it cannot be read. None when it may be."""
+    from . import vendors
+    theirs = vendors.account_vendor(acct)
+    if theirs != vendor:
+        return f"a {theirs} account, not {vendor}"
+    if not metered(acct):
+        return UNMETERED_WHY
+    return None
+
+
 def read(acct: str, path: Path | None = None) -> AccountStatus:
     p = path or paths.status_file(acct)
     st = AccountStatus(account=acct)
+    if not metered(acct):
+        st.unmetered = True
+        return st
     if not p.exists():
         return st
     st.exists = True
@@ -880,11 +915,23 @@ def account_verdict(name: str, st: "AccountStatus", ld, ranked: list[tuple[str, 
 
     The accounts panel draws the tick from this and the account's page draws
     the sentence, so the two cannot say different things. `ranked` is
-    `pick_account`'s reasons; an account outside the ranking falls back to what
-    `takes_work` says.
+    `pick_account`'s reasons, ranked for this account's own vendor; an account
+    outside the ranking falls back to what `takes_work` says.
     """
     if not logged_in:
         return False, "not logged in"
+    from . import vendors
+    theirs = vendors.account_vendor(name)
+    try:
+        vendors.get(theirs)
+    except vendors.UnknownVendor as e:
+        # Nothing can start on an account whose vendor has no driver, and
+        # `not_for` cannot say so here: its cross-vendor clause never fires
+        # once the vendor asked is the account's own.
+        return False, str(e)
+    never = not_for(name, theirs)
+    if never:
+        return False, never
     allowed, why = st.takes_work(ld.active if ld else 0)
     return allowed and unfit(st, ld) is None, dict(ranked).get(name, why)
 
@@ -1040,7 +1087,8 @@ def pick_account(candidates: list[str] | None = None, bootstrap: bool = False,
                  agent: str | None = None,
                  prefer: str | None = None,
                  read_status=None,
-                 live_refresh: bool = False) -> tuple[str | None, list[tuple[str, str]]]:
+                 live_refresh: bool = False,
+                 vendor: str | None = None) -> tuple[str | None, list[tuple[str, str]]]:
     """Pick among the accounts that can take one more agent - any account that
     will not hit its own wall, the same test `unfit` already answers - the one
     furthest behind its own weekly pace (`pace_7d`) goes first, since headroom
@@ -1090,6 +1138,11 @@ def pick_account(candidates: list[str] | None = None, bootstrap: bool = False,
     refuses; a stale account that has run once and gone quiet is not
     "unread", and needs its own explicit preference to be picked again.
 
+    `vendor` is which vendor to pick for when no `agent` names one - what a
+    caller holding an account rather than an agent asks, so that the reasons
+    it gets back are the ones that vendor's agents would be given. `agent`
+    wins where both are passed: an agent's own vendor is not in doubt.
+
     `read_status` replaces `read` as the source of each candidate's
     AccountStatus - what `replay.py` passes, to ask this same function about
     an account as a recorded sample had it, not as its live status.json
@@ -1110,8 +1163,15 @@ def pick_account(candidates: list[str] | None = None, bootstrap: bool = False,
     agent somewhere to go right now" (a screen redraw, `ocp status`) leaves it
     False: a display must not cost a network call just by being drawn.
     """
+    from . import agents, vendors
+    from .yamlcompat import ConfigError
     read_one = read_status or read
     names = candidates if candidates is not None else paths.list_accounts()
+    try:
+        picking_for = (vendors.agent_vendor(agent) if agent
+                       else vendor or agents.DEFAULT_VENDOR)
+    except (OSError, ConfigError) as e:  # an unreadable agent.yaml picks nowhere
+        return None, [(n, f"agent.yaml unreadable ({e})") for n in names]
     if load is None:
         from . import load as loadmod
         load = loadmod.read_all()
@@ -1125,6 +1185,12 @@ def pick_account(candidates: list[str] | None = None, bootstrap: bool = False,
             continue
         if exclude and n in exclude:
             reasons.append((n, exclude[n]))
+            continue
+        # Before anything about room: neither kind has any to weigh, and both
+        # would otherwise reach the bootstrap list below, having no status.json.
+        never = not_for(n, picking_for)
+        if never:
+            reasons.append((n, never))
             continue
         st = read_one(n)
         ld = load.get(n)

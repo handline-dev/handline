@@ -2495,7 +2495,10 @@ def poll_usage(con, log) -> None:
     for acct in paths.list_accounts():
         if now < db.get_cursor(con, f"usage-poll:{acct}"):
             continue
-        why = usage_due(con, acct, status.read(acct), now)
+        st = status.read(acct)
+        if st.unmetered:
+            continue
+        why = usage_due(con, acct, st, now)
         if why is None:
             continue
         if not accounts.logged_in(acct):

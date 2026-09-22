@@ -17,11 +17,8 @@ import shutil
 import time
 from pathlib import Path
 
-from . import paths, vendors
+from . import agents, paths, vendors
 from .yamlcompat import is_plain_text
-
-# What each account directory links back to shared.
-LINKED = vendors.for_accounts().shared_items()
 
 # The status line commands ocp used to install into shared/.claude (D11). The
 # slot is the human's now, so these are only ever removed.
@@ -72,7 +69,7 @@ def ensure_shared() -> Path:
     return shared
 
 
-def _link_item(cdir: Path, shared: Path, item: str, force: bool = False,
+def _link_item(drv, cdir: Path, shared: Path, item: str, force: bool = False,
                replace_link: bool = False) -> bool:
     """Symlink one shared item into an account's .claude dir; True if it changed.
 
@@ -80,7 +77,7 @@ def _link_item(cdir: Path, shared: Path, item: str, force: bool = False,
     already looking at, so only a human's call may replace it: `register`
     passes `replace_link` (a foreign symlink) and `force` (a real file or dir).
     """
-    if item in vendors.for_accounts().never_touch():
+    if item in drv.never_touch():
         return False
     target = shared / item
     link = cdir / item
@@ -100,8 +97,11 @@ def _link_item(cdir: Path, shared: Path, item: str, force: bool = False,
     return True
 
 
-def register(acct: str, force: bool = False) -> Path:
-    """Create the account directory and link it to shared. Does not log in."""
+def register(acct: str, force: bool = False, vendor: str | None = None) -> Path:
+    """Create the account directory and link it to shared. Does not log in.
+
+    `vendor` is recorded before anything else is made, so an account is never
+    briefly the default vendor's; a vendor with no driver is refused."""
     if not acct or "/" in acct or acct.startswith("."):
         raise ValueError(f"bad account name: {acct!r}")
     # It is written as `account: <name>` in every agent.yaml and as a key in
@@ -109,13 +109,23 @@ def register(acct: str, force: bool = False) -> Path:
     if not is_plain_text(acct):
         raise ValueError(f"bad account name: {acct!r}. It would not be read back as text "
                          "from the YAML files it is written into; choose another.")
+    if vendor is not None:
+        vendors.get(vendor)
+        # Its credentials, config dir and every agent on it are that vendor's.
+        was = vendors.account_vendor(acct)
+        if paths.account_dir(acct).is_dir() and was != vendor:
+            raise ValueError(f"account '{acct}' is already a {was} account")
     ensure_shared()
-    cdir = paths.account_claude(acct)
+    paths.account_dir(acct).mkdir(parents=True, exist_ok=True)
+    if vendor is not None and vendor != agents.DEFAULT_VENDOR:
+        vendors.record_vendor(acct, vendor)
+    drv = vendors.for_account(acct)
+    cdir = vendors.config_dir(acct)
     cdir.mkdir(parents=True, exist_ok=True)
 
     shared = paths.shared_claude()
-    for item in LINKED:
-        _link_item(cdir, shared, item, force=force, replace_link=True)
+    for item in drv.shared_items():
+        _link_item(drv, cdir, shared, item, force=force, replace_link=True)
     return cdir
 
 
@@ -130,11 +140,17 @@ def relink_all(log=None) -> dict[str, list[str]]:
     shared = paths.shared_claude()
     done: dict[str, list[str]] = {}
     for acct in paths.list_accounts():
-        cdir = paths.account_claude(acct)
+        try:
+            drv = vendors.for_account(acct)
+        except vendors.UnknownVendor as e:
+            if log:
+                log(f"  relink: {acct}: {e}")
+            continue
+        cdir = vendors.config_dir(acct)
         if not cdir.is_dir():
             continue  # not an account `register()` ran on
         try:
-            linked = [item for item in LINKED if _link_item(cdir, shared, item)]
+            linked = [item for item in drv.shared_items() if _link_item(drv, cdir, shared, item)]
         except OSError as e:
             if log:
                 log(f"  relink: {acct}: {e}")
@@ -148,13 +164,17 @@ def unlinked() -> list[tuple[str, str]]:
     """(account, item) for every shared item an account holds as something
     other than the shared link, which `relink_all` will not replace."""
     shared = paths.shared_claude()
-    never = vendors.for_accounts().never_touch()
     out = []
     for acct in paths.list_accounts():
-        cdir = paths.account_claude(acct)
+        try:
+            drv = vendors.for_account(acct)
+        except vendors.UnknownVendor:
+            continue
+        cdir = vendors.config_dir(acct)
         if not cdir.is_dir():
             continue
-        for item in LINKED:
+        never = drv.never_touch()
+        for item in drv.shared_items():
             if item in never or not (shared / item).exists():
                 continue
             link = cdir / item
@@ -164,13 +184,18 @@ def unlinked() -> list[tuple[str, str]]:
 
 
 def logged_in(acct: str) -> bool:
-    """Whether this account has credentials, checked by existence only."""
-    return vendors.for_accounts().credential_present(paths.account_claude(acct))
+    """Whether this account has credentials, checked by existence only. An
+    account whose vendor has no driver cannot be driven, so it is not."""
+    try:
+        drv = vendors.for_account(acct)
+    except vendors.UnknownVendor:
+        return False
+    return drv.credential_present(vendors.config_dir(acct))
 
 
 def login_command(acct: str) -> str:
-    drv = vendors.for_accounts()
-    return f'{drv.config_dir_env()}="{paths.account_claude(acct)}" {" ".join(drv.login_argv())}'
+    drv = vendors.for_account(acct)
+    return f'{drv.config_dir_env()}="{vendors.config_dir(acct)}" {" ".join(drv.login_argv())}'
 
 
 def _subscription_file(acct: str) -> Path:
@@ -208,9 +233,7 @@ def subscription_type(acct: str, refresh: bool = False) -> str | None:
     # is still that plan, whatever went wrong just now asking again.
     if not logged_in(acct):
         return str(cached) if cached else None
-    drv = vendors.for_accounts()
-    sub = drv.subscription_type({**os.environ,
-                                 drv.config_dir_env(): str(paths.account_claude(acct))})
+    sub = vendors.for_account(acct).subscription_type(env_for(acct))
     if not sub:
         return str(cached) if cached else None
     f.parent.mkdir(parents=True, exist_ok=True)
@@ -218,9 +241,10 @@ def subscription_type(acct: str, refresh: bool = False) -> str | None:
     return sub
 
 
-def memory_project_dir(repo: str) -> str:
-    """The `<memory_root>/<this>/memory/` folder one repo's memory is kept under."""
-    return vendors.for_accounts().memory_project_dir(repo)
+def memory_project_dir(acct: str, repo: str) -> str:
+    """The `<memory_root>/<this>/memory/` folder one repo's memory is kept under
+    on this account."""
+    return vendors.for_account(acct).memory_project_dir(repo)
 
 
 _INDEX_TARGET = re.compile(r"\]\(([^)\s]+)\)")
@@ -287,8 +311,10 @@ def migrate_memory(from_acct: str, to_acct: str, project: str | None = None) -> 
 
     Returns the project names actually carried over, for the caller to log.
     """
-    drv = vendors.for_accounts()
-    src_root = drv.memory_root(paths.account_claude(from_acct))
+    drv = vendors.for_account(from_acct)
+    if vendors.account_vendor(to_acct) != drv.name:
+        return []
+    src_root = drv.memory_root(vendors.config_dir(from_acct))
     if not src_root.is_dir():
         return []
     project_dirs = [src_root / project] if project else sorted(src_root.iterdir())
@@ -299,7 +325,7 @@ def migrate_memory(from_acct: str, to_acct: str, project: str | None = None) -> 
         src_mem = project_dir / "memory"
         if not src_mem.is_dir():
             continue
-        dst_mem = drv.memory_root(paths.account_claude(to_acct)) / project_dir.name / "memory"
+        dst_mem = drv.memory_root(vendors.config_dir(to_acct)) / project_dir.name / "memory"
         copied_any = False
         # The index is merged against the files' mtimes as they stand before
         # any copy moves them, so it goes first by rule, not by name order.
@@ -348,7 +374,7 @@ def identity(acct: str) -> str | None:
     reads no credential and no .claude.json to learn it (KICKOFF rule 1). None
     when claude cannot say.
     """
-    return vendors.for_accounts().identity(env_for(acct))
+    return vendors.for_account(acct).identity(env_for(acct))
 
 
 def same_login_as(acct: str) -> list[str]:
@@ -403,7 +429,8 @@ def remove_plan(acct: str, con=None) -> tuple[bool, str]:
     return True, ""
 
 
-def add_account(name: str, run, no_login: bool = False) -> tuple[bool, str]:
+def add_account(name: str, run, no_login: bool = False,
+                vendor: str | None = None) -> tuple[bool, str]:
     """The one add sequence, for the CLI and the screen: register, log in, check.
 
     `run(argv, env)` hands the terminal to claude and returns its exit code, or
@@ -415,12 +442,12 @@ def add_account(name: str, run, no_login: bool = False) -> tuple[bool, str]:
     if name in paths.list_accounts():
         return False, f"account '{name}' already exists"
     try:
-        register(name)
+        register(name, vendor=vendor)
     except ValueError as e:
         return False, str(e)
     if no_login:
         return True, f"registered account '{name}'; log it in with: ocp login {name}"
-    argv, env = vendors.for_accounts().login_argv(), env_for(name)
+    argv, env = vendors.for_account(name).login_argv(), env_for(name)
     run(argv, env)
     if not logged_in(name):
         return False, f"'{name}' is registered but not logged in - ocp login {name}"
@@ -459,10 +486,10 @@ def remove_account(name: str, confirm, run, con=None) -> tuple[bool, str]:
         if argv:
             code = run(argv, env)
             if code != 0 or logged_in(name):
-                drv = vendors.for_accounts()
+                drv = vendors.for_account(name)
                 return False, (f"logout failed - '{name}' is still logged in, so it stays. "
                                f"Run `{' '.join(drv.logout_argv())}` with {drv.config_dir_env()}="
-                               f"{paths.account_claude(name)} and try again.")
+                               f"{vendors.config_dir(name)} and try again.")
         marker.unlink(missing_ok=True)
         dest = retire(name)
         # The name can be added again, and a poll remembered against the old
@@ -489,7 +516,7 @@ def logout_argv(acct: str) -> tuple[list[str], dict]:
     """
     if not logged_in(acct):
         return [], {}
-    return vendors.for_accounts().logout_argv(), env_for(acct)
+    return vendors.for_account(acct).logout_argv(), env_for(acct)
 
 
 def retire(acct: str) -> Path:
@@ -508,9 +535,13 @@ def retire(acct: str) -> Path:
 
 
 def env_for(acct: str, agent: str | None = None) -> dict[str, str]:
-    """Environment for launching claude as this account."""
+    """Environment for launching this account's vendor as this account."""
     env = dict(os.environ)
-    env[vendors.for_accounts().config_dir_env()] = str(paths.account_claude(acct))
+    # Another vendor's variable inherited from whoever launched this would
+    # name a second account on the same process (`observe.account_of_process`).
+    for drv in vendors.known():
+        env.pop(drv.config_dir_env(), None)
+    env[vendors.for_account(acct).config_dir_env()] = str(vendors.config_dir(acct))
     env["OCP_HOME"] = str(paths.home())
     env["OCP_ACCOUNT"] = acct
     if agent:

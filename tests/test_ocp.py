@@ -1447,7 +1447,7 @@ LIVE_USAGE = {"input_tokens": 2, "output_tokens": 382,
 def write_transcript(home: Path, acct: str, cwd, session: str, turns=(),
                      extra=(), at: int | None = None) -> Path:
     """A transcript where Claude Code would write one, with `turns` in order."""
-    d = home / "accounts" / acct / ".claude" / "projects" / collect.encode_cwd(cwd)
+    d = home / "accounts" / acct / ".claude" / "projects" / collect.encode_cwd(acct, cwd)
     d.mkdir(parents=True, exist_ok=True)
     p = d / f"{session}.jsonl"
     rows = [{"type": "assistant", "message": {"model": m, "usage": u}} for m, u in turns]
@@ -7077,9 +7077,9 @@ def test_a_renamed_agents_worktree_follows_it_with_its_work_and_memory(home: Pat
     old_wt = home / "wts" / "marina"
     git("worktree", "add", "-q", "-b", "work", str(old_wt))
     (old_wt / "Strings.swift").write_text("uncommitted\n")
-    old_key = accounts.memory_project_dir(str(old_wt))
+    old_key = accounts.memory_project_dir("alpha", str(old_wt))
     new_wt = home / "wts" / "harbor.marina"
-    new_key = accounts.memory_project_dir(str(new_wt))
+    new_key = accounts.memory_project_dir("alpha", str(new_wt))
     for acct in ("alpha", "beta"):
         proj = paths.account_claude(acct) / "projects" / old_key
         (proj / "memory").mkdir(parents=True)
@@ -7323,6 +7323,14 @@ def test_a_name_that_yaml_would_not_read_as_text_is_refused_where_it_is_typed(ho
     for n in good:
         agents.register(n, "alpha")
     check("names: and takes each ordinary one", set(good) <= set(paths.list_agents()))
+    # auditor #1774: is_plain_text passes a tab, so only register's own
+    # unsafe-character check stands between it and the roster.
+    try:
+        agents.register("a\tb", "alpha")
+        check("names: agents.register turns away a name holding a tab", False, "registered")
+    except ValueError as e:
+        check("names: agents.register turns away a name holding a tab",
+              "bad agent name" in str(e) and not paths.agent_dir("a\tb").exists(), str(e))
     for kind in ("add", "rename"):
         ok, said = hr._draft(kind, "no" if kind == "add" else "harbor", "x", "why", "alpha",
                              None, None, None, "on" if kind == "rename" else None)
@@ -7714,139 +7722,587 @@ def test_a_vendor_with_no_driver_refuses_the_launch(home: Path) -> None:
         con.close()
 
 
+class SecondVendor:
+    """A second vendor, registered for real: a single-vendor suite cannot see
+    a literal left behind, or an account handed to the wrong kind of agent -
+    both read the same as the right answer until a second vendor exists. Every
+    answer differs from claude's. `logged_in` and `metered` are what the
+    account-picking tests flip."""
+    name = "zai"
+    min_version = (0,)
+    config_dir_name = ".zai"
+
+    def __init__(self, logged_in: bool = True, metered: bool = False):
+        self.logged_in, self.metered = logged_in, metered
+
+    def binary(self):
+        return "/opt/zai/bin/opencode"
+    def config_dir_env(self):
+        return "ZAI_HOME"
+    def is_session(self, command):
+        # Its own binary, and its own spelling of headless - neither word
+        # appears in claude's answer, so a check that still carries claude's
+        # literals answers no to every line below.
+        if "opencode" not in command:
+            return False
+        return " run " not in command and not command.endswith(" run")
+    def meters(self):
+        return self.metered
+    def is_resume(self, extra):
+        return False
+    def launch_argv(self, exe, model, effort, disallowed, mcp, preamble):
+        return [exe]
+    def credential_present(self, config_dir):
+        return self.logged_in
+    def login_argv(self):
+        return ["opencode", "login"]
+    def logout_argv(self):
+        return ["opencode", "logout"]
+    def identity(self, env):
+        return None
+    def subscription_type(self, env):
+        return None
+    def shared_items(self):
+        return ["skills"]
+    def never_touch(self):
+        return {"skills"}
+    def memory_root(self, config_dir):
+        return config_dir / "sessions"
+    def memory_project_dir(self, repo):
+        return repo.replace("/", "_")
+
+
+@contextlib.contextmanager
+def second_vendor(**kw):
+    drv = SecondVendor(**kw)
+    vendors._REGISTRY[drv.name] = drv
+    try:
+        yield drv
+    finally:
+        vendors._REGISTRY.pop(drv.name, None)
+
+
+def _with_vendor(agent: str, vendor: str) -> None:
+    with agents.agent_file(agent).open("a") as f:
+        f.write(f"vendor: {vendor}\n")
+
+
+def test_a_claude_agent_is_never_placed_on_another_vendors_account(home: Path) -> None:
+    """#1776: a second vendor's account that reads as logged in and has room
+    is still never a place for a claude agent - it would run claude against
+    that vendor's credentials. Until accounts carried a vendor the only thing
+    keeping one out was `logged_in` asking claude's Keychain and getting a
+    no, an accident. Here the account is logged in by its own driver and
+    reads better than anything else, so each place that picks an account is
+    asked, and only the vendor keeps it out."""
+    _daemon_home(home, 99)
+    now = int(time.time())
+    # Far enough from its reset that a move beats waiting for it.
+    write_status(home, "alpha", pct_5h=99, pct_7d=10, ctx_pct=5, reset_5h=now + 4 * 3600)
+    real = (accounts.logged_in, orcamod.available)
+    with second_vendor(metered=True):
+        try:
+            accounts.register("alpha")
+            (paths.account_dir("alpha") / ".claude" / ".credentials.json").write_text("{}")
+            accounts.register("zeta", vendor="zai")
+            write_status(home, "zeta", pct_5h=5, pct_7d=5, reset_5h=now + 1800,
+                         reset_7d=now + 90000, rl_at=now)
+            check("vendor pick: the premise - zeta is logged in by its own driver",
+                  accounts.logged_in("zeta"))
+            check("vendor pick: and has room, so nothing but its vendor can keep it out",
+                  status.read("zeta").takes_work()[0], str(status.read("zeta").takes_work()))
+
+            check("vendor pick: find_room does not send the walled claude agent there",
+                  launch.find_room("backend") != "zeta", str(launch.find_room("backend")))
+            picked, ranked = status.pick_account(bootstrap=True, agent="backend")
+            check("vendor pick: pick_account for the agent does not take it",
+                  picked != "zeta" and "a zai account, not claude" in dict(ranked)["zeta"],
+                  str((picked, ranked)))
+            check("vendor pick: nor pick_account for no agent in particular",
+                  status.pick_account()[0] != "zeta", str(status.pick_account()))
+            con = db.connect()
+            try:
+                db.add_request(con, "orcapipe", "backend", "work", None, "supervisor",
+                               "async", None, 0, None)
+                plan = dmn._move_plan(con, "backend", "usage_5h")
+                check("vendor pick: the daemon's move off the wall does not go there",
+                      plan[0] is None and "zeta: a zai account, not claude" in plan[1], str(plan))
+                check("vendor pick: nor does a person's forced move",
+                      dmn._forced_plan(con, "backend", "zeta")[0] is None,
+                      str(dmn._forced_plan(con, "backend", "zeta")))
+                # The page and the panel carry no agent, so their verdict is
+                # the account's own: judged for the vendor whose sessions are
+                # the only ones that can ever run here (#1815). Drawn as a
+                # refusal it said "assign no - a zai account, not claude" of an
+                # account that is a perfectly good place for zai agents.
+                page = dict(actions.account_detail(con, "zeta"))
+                head = next(iter(page.values()))
+                assign = next(ln for ln in head if ln.startswith("assign"))
+                check("vendor pick: its page does not refuse it outright - the "
+                      "account is judged for its own vendor",
+                      assign.startswith("assign   yes")
+                      and "not claude" not in assign, assign)
+                check("vendor pick: and the page still names the vendor above it",
+                      any(ln.startswith("config") and ln.endswith("(zai)")
+                          for ln in head), str(head))
+            finally:
+                con.close()
+            out = io.StringIO()
+            with contextlib.redirect_stdout(out):
+                climod.cmd_status(argparse.Namespace(json=True))
+            check("vendor pick: ocp status does not name it next",
+                  json.loads(out.getvalue())["picked"] != "zeta", out.getvalue()[:200])
+            accounts.logged_in = lambda a: True
+            rows = [tui._ANSI.sub("", ln) for ln in tui.frame(120, 40).split(chr(10))]
+            zrow = [ln for ln in rows if ln.lstrip("│ ").startswith("zeta ")]
+            check("vendor pick: the accounts panel does not mark it next",
+                  zrow and "next" not in zrow[0], str(zrow))
+            check("vendor pick: its tick is its own vendor's answer, not a ✘ "
+                  "that reads as a broken account",
+                  zrow and "✔" in zrow[0], str(zrow))
+            check("vendor pick: a fold is not sent there",
+                  foldmod._cheapest_account() != "zeta", str(foldmod._cheapest_account()))
+
+            # The control: a zai agent is placed there, so the filter is on
+            # the vendor, not on the account.
+            agents.register("glm", "zeta")
+            _with_vendor("glm", "zai")
+            check("vendor pick: a zai agent is placed on the zai account",
+                  launch.find_room("glm") == "zeta"
+                  and status.pick_account(agent="glm")[0] == "zeta",
+                  str((launch.find_room("glm"), status.pick_account(agent="glm"))))
+        finally:
+            accounts.logged_in, orcamod.available = real
+
+
+def test_a_second_vendors_live_session_is_seen_by_the_sweep(home: Path) -> None:
+    """#1815: `is_session` decided from claude's own literals, so a session of
+    any other vendor matched nothing at all. `live_sessions` then left that
+    agent's pid None, and `reconcile` reads "terminal alive, no process" as the
+    session having died - so the daemon recorded a live, correctly placed agent
+    closed, on every tick. Which binary a session runs, and how the vendor
+    spells a headless run, are both the driver's answers now.
+
+    Driven through real `ps` command lines rather than by patching
+    `live_sessions`: every other test in this file replaces that function
+    wholesale, so none of them reaches `is_session` at all."""
+    _daemon_home(home, 20)
+    with second_vendor(metered=True):
+        check("is_session: a second vendor's own binary is a session",
+              obsmod.is_session("/opt/zai/bin/opencode --model glm-4.6"))
+        check("is_session: claude's still is",
+              obsmod.is_session("/usr/local/bin/claude --resume abc123"))
+        check("is_session: the second vendor's own spelling of headless is not",
+              not obsmod.is_session("/opt/zai/bin/opencode run 'fold it'"))
+        check("is_session: nor is claude's",
+              not obsmod.is_session("/usr/local/bin/claude -p 'fold it'"))
+        check("is_session: and nothing of ours is not a session either",
+              not obsmod.is_session("/usr/bin/ssh somewhere"))
+    check("is_session: with that driver gone its command line is not a session",
+          not obsmod.is_session("/opt/zai/bin/opencode --model glm-4.6"))
+
+    # And the invariant the miss actually broke: the daemon's own record of a
+    # running agent. Real `live_sessions`, over a process table we supply.
+    real = (obsmod.live_sessions, obsmod.process_table, obsmod.process_env,
+            orcamod.available, orcamod.live_terminals)
+    obsmod.live_sessions = REAL_OBSERVE["live_sessions"]
+    orcamod.available = lambda: True
+    orcamod.live_terminals = lambda: {"term_x", "term_z"}
+    with second_vendor(metered=True):
+        try:
+            accounts.register("zeta", vendor="zai")
+            agents.register("glm", "zeta")
+            _with_vendor("glm", "zai")
+            con = db.connect()
+            try:
+                db.set_terminal(con, "glm", "term_z", "wt")
+                db.set_agent_state(con, "glm", dmn.RUNNING, detail="working")
+                table = [(4301, "/opt/zai/bin/opencode --model glm-4.6")]
+                obsmod.process_table = lambda: list(table)
+                obsmod.process_env = lambda pid: f"OCP_AGENT={'glm' if pid == 4301 else 'x'}"
+                check("vendor sweep: the premise - its pid is found",
+                      obsmod.live_sessions() == {"glm": 4301},
+                      str(obsmod.live_sessions()))
+                said: list[str] = []
+                dmn.sweep(con, lambda _m: None, said)
+                row = db.get_agent_state(con, "glm")
+                check("vendor sweep: a live second-vendor session is not recorded closed",
+                      not row["closed_at"]
+                      and not any("glm: its session is gone" in a for a in said),
+                      str((dict(row), said)))
+
+                # The control, on the same fixture: when its process really has
+                # gone, the same sweep does record it closed - so the check
+                # above is about the vendor and not about a sweep that never
+                # reached this agent.
+                table.clear()
+                said = []
+                dmn.sweep(con, lambda _m: None, said)
+                row = db.get_agent_state(con, "glm")
+                check("vendor sweep: and when it really is gone, it is recorded closed",
+                      row["closed_at"]
+                      and any("glm: its session is gone" in a for a in said),
+                      str((dict(row), said)))
+            finally:
+                con.close()
+        finally:
+            (obsmod.live_sessions, obsmod.process_table, obsmod.process_env,
+             orcamod.available, orcamod.live_terminals) = real
+
+
+def test_another_vendors_account_never_spends_a_live_refresh(home: Path) -> None:
+    """auditor #1863: the vendor refusal runs before live_refresh. A stale zai
+    account listed ahead of a stale claude one must not be asked about, or it
+    spends the call's only refresh on an account the agent can never use and
+    the claude one is refused on its stale reading."""
+    _daemon_home(home, None)
+    now = int(time.time())
+    real_read, real_login = usage_api.read, accounts.logged_in
+    asked: list[str] = []
+    with second_vendor(metered=True):
+        try:
+            accounts.register("zeta", vendor="zai")
+            for n in ("zeta", "alpha"):
+                write_status(home, n, pct_5h=90, reset_5h=now - 60, rl_carried=False,
+                             rl_at=now - status.CARRY_MAX_AGE_S - 300, collected_at=now)
+                check(f"vendor refresh: the premise - {n} is carried_old, so a refresh "
+                      "would ask about it", status.read(n).pct_5h_source == "carried_old",
+                      status.read(n).pct_5h_source)
+
+            def fake_read(acct, refresh=True):
+                asked.append(acct)
+                return usage_api.Reading(acct, 10, now + 9000, 20, now + 90000, now)
+            usage_api.read = fake_read
+            accounts.logged_in = lambda acct: True
+
+            picked, ranked = status.pick_account(["zeta", "alpha"], agent="backend",
+                                                 live_refresh=True)
+            check("vendor refresh: the zai account is never asked about",
+                  "zeta" not in asked, asked)
+            check("vendor refresh: it is refused as another vendor's",
+                  dict(ranked).get("zeta") == "a zai account, not claude", ranked)
+            check("vendor refresh: the claude account gets the refresh and the agent",
+                  asked == ["alpha"] and picked == "alpha", (asked, picked, ranked))
+        finally:
+            usage_api.read, accounts.logged_in = real_read, real_login
+
+
+def test_an_accounts_verdict_is_asked_for_its_own_vendor(home: Path) -> None:
+    """#1815: the panel's tick and the page's sentence arrive with no agent in
+    hand, so a claude-only verdict said "no - a zai account, not claude" about
+    an account that is a perfectly good place for the agents it is for, and a
+    human reads that as an account gone wrong. It is judged for its own vendor
+    now. What is genuinely absolute - unmetered, no driver, not logged in -
+    still refuses, and no placement path is touched: those all hold an agent,
+    and the test above is what pins them."""
+    _daemon_home(home, 20)
+    now = int(time.time())
+    with second_vendor(metered=True):
+        accounts.register("zeta", vendor="zai")
+        write_status(home, "zeta", pct_5h=5, pct_7d=5, reset_5h=now + 1800,
+                     reset_7d=now + 90000, rl_at=now)
+        ok, why = status.account_verdict("zeta", status.read("zeta"), None, [], True)
+        check("verdict: a healthy second-vendor account is not refused outright",
+              ok and "not claude" not in why, str((ok, why)))
+
+        _, ranked = status.pick_account(["alpha", "zeta"], vendor="zai")
+        check("verdict: pick_account ranks for the vendor it is given",
+              "a claude account, not zai" in dict(ranked)["alpha"]
+              and "not zai" not in dict(ranked)["zeta"], str(ranked))
+        ok, why = status.account_verdict("zeta", status.read("zeta"), None, ranked, True)
+        check("verdict: and that ranking's words are the ones drawn",
+              ok and why == dict(ranked)["zeta"], str((ok, why)))
+
+        agents.register("glm", "zeta")
+        _with_vendor("glm", "zai")
+        _, ranked2 = status.pick_account(["alpha", "zeta"], agent="glm", vendor="claude")
+        check("verdict: an agent's own vendor wins over a vendor named beside it",
+              "a claude account, not zai" in dict(ranked2)["alpha"], str(ranked2))
+
+        check("verdict: a claude account's own verdict is unchanged",
+              status.account_verdict("alpha", status.read("alpha"), None, [], True)[0])
+        check("verdict: and not logged in is still a no, vendor or no vendor",
+              status.account_verdict("zeta", status.read("zeta"), None, [], False)
+              == (False, "not logged in"))
+
+    # The refusals that are true of every agent there is, its own included.
+    with second_vendor(metered=False):
+        ok, why = status.account_verdict("zeta", status.read("zeta"), None, [], True)
+        check("verdict: an unmetered account is still refused, in its own words",
+              not ok and why == status.UNMETERED_WHY, str((ok, why)))
+    # No driver at all: `not_for` caught this only because the vendor asked
+    # was always claude, so it needs its own refusal now.
+    (paths.account_dir("zeta") / "vendor").write_text("nosuch\n")
+    ok, why = status.account_verdict("zeta", status.read("zeta"), None, [], True)
+    check("verdict: an account whose vendor has no driver is still refused",
+          not ok and "no driver for vendor 'nosuch'" in why, str((ok, why)))
+
+
+def test_an_unmetered_account_is_pinned_never_picked_or_polled(home: Path) -> None:
+    """#1776: an account whose vendor reports no usage is its own state, not
+    "no reading yet" - that one is a bootstrap candidate, and nothing will
+    ever give this one a reading. Its own agents start there; nothing is
+    moved onto it, it is never asked for usage, and it is drawn unmetered."""
+    _daemon_home(home, 20)
+    real = (usage_api.read, usage_api.refresh_credential, accounts.logged_in)
+    with second_vendor(metered=False):
+        try:
+            accounts.register("alpha")
+            (paths.account_dir("alpha") / ".claude" / ".credentials.json").write_text("{}")
+            accounts.register("zeta", vendor="zai")
+            accounts.register("zeta2", vendor="zai")
+            agents.register("glm", "zeta")
+            _with_vendor("glm", "zai")
+            st = status.read("zeta")
+            check("unmetered: read as its own state, not as no reading yet",
+                  st.unmetered and st.assignable() == (False, status.UNMETERED_WHY),
+                  str((st.unmetered, st.assignable())))
+            picked, ranked = status.pick_account(["zeta2"], bootstrap=True, agent="glm")
+            check("unmetered: never picked, not even as a bootstrap last resort",
+                  picked is None and dict(ranked)["zeta2"] == status.UNMETERED_WHY,
+                  str((picked, ranked)))
+            check("unmetered: the agent that names it still starts there",
+                  launch.find_room("glm") == "zeta", str(launch.find_room("glm")))
+            argv, env = launch.build("glm")
+            check("unmetered: and launches as its own vendor, into its own config dir",
+                  argv[0] == "/opt/zai/bin/opencode"
+                  and env.get("ZAI_HOME") == str(vendors.config_dir("zeta")),
+                  str((argv[:1], env.get("ZAI_HOME"))))
+
+            asked: list[str] = []
+            usage_api.read = lambda acct, refresh=True: asked.append(acct)
+            con = db.connect()
+            try:
+                # One account per tick, each put on its cooldown once asked,
+                # so four ticks walk past every account there is.
+                for _ in range(4):
+                    dmn.poll_usage(con, lambda _m: None)
+            finally:
+                con.close()
+            check("unmetered: the usage poll never asks about it",
+                  "alpha" in asked and not {"zeta", "zeta2"} & set(asked), str(asked))
+            usage_api.read = real[0]
+            renewed: list[str] = []
+            usage_api.refresh_credential = lambda acct, **k: renewed.append(acct) or True
+            check("unmetered: nor does the endpoint reader, and it renews nothing",
+                  usage_api.read("zeta") is None and not renewed, str(renewed))
+
+            accounts.logged_in = lambda a: True
+            rows = [tui._ANSI.sub("", ln) for ln in tui.frame(120, 40).split(chr(10))]
+            zrow = [ln for ln in rows if ln.lstrip("│ ").startswith("zeta ")]
+            check("unmetered: the accounts panel says so",
+                  zrow and "unmetered" in zrow[0], str(zrow))
+            accounts.logged_in = real[2]
+            r = doctor.Report()
+            doctor._check_accounts(r)
+            check("unmetered: doctor says so rather than warning of no status.json",
+                  any(n == "account zeta: unmetered (zai)" for _lv, n, _d in r.rows)
+                  and not any(n.startswith("account zeta: no status") for _lv, n, _d in r.rows),
+                  str([n for _lv, n, _d in r.rows if "zeta" in n]))
+        finally:
+            usage_api.read, usage_api.refresh_credential, accounts.logged_in = real
+
+
+def test_an_agent_is_never_launched_on_another_vendors_account(home: Path) -> None:
+    """The last line before the exec: whatever chose the account - agent.yaml,
+    a resume, a stale record - a session is the agent's vendor's binary
+    against that account's credentials, so a mismatch refuses, in words."""
+    os.environ["OCP_HOME"] = str(home)
+    with second_vendor():
+        accounts.register("alpha")
+        (paths.account_dir("alpha") / ".claude" / ".credentials.json").write_text("{}")
+        accounts.register("zeta", vendor="zai")
+        agents.register("backend", "zeta")
+        agents.register("glm", "alpha")
+        _with_vendor("glm", "zai")
+        for agent, want in (("backend", "agent 'backend' is a claude agent and account "
+                                        "'zeta' is a zai account"),
+                            ("glm", "agent 'glm' is a zai agent and account "
+                                    "'alpha' is a claude account")):
+            try:
+                launch.build(agent)
+                check(f"launch: {agent} on the other vendor's account is refused", False, "built")
+            except SystemExit as e:
+                check(f"launch: {agent} on the other vendor's account is refused",
+                      want in str(e), str(e))
+        r = doctor.Report()
+        doctor._check_agents(r)
+        names = [n for _lv, n, _d in r.rows]
+        check("doctor: names the agent on the other vendor's account",
+              "agent backend: a claude agent on zai account 'zeta'" in names, str(names))
+
+
+def test_an_account_records_its_vendor(home: Path) -> None:
+    """The vendor is written where the account is, once, and every account
+    answer comes from it; one that predates vendors is claude's."""
+    os.environ["OCP_HOME"] = str(home)
+    accounts.register("alpha")
+    check("vendor record: an account that records none is the default's",
+          vendors.account_vendor("alpha") == "claude"
+          and not (paths.account_dir("alpha") / "vendor").exists())
+    try:
+        accounts.register("nope", vendor="nosuch")
+        check("vendor record: a vendor with no driver is refused", False, "registered")
+    except ValueError as e:
+        check("vendor record: a vendor with no driver is refused, making nothing",
+              "no driver for vendor 'nosuch'" in str(e) and "nope" not in paths.list_accounts(),
+              str(e))
+    agents.register("broken", "alpha")
+    agents.agent_file("broken").write_text("- not a map\n")
+    picked, ranked = status.pick_account(["alpha"], agent="broken")
+    check("vendor record: an agent whose vendor cannot be read is placed nowhere",
+          picked is None and dict(ranked)["alpha"].startswith("agent.yaml unreadable"),
+          str((picked, ranked)))
+    with second_vendor():
+        accounts.register("zeta", vendor="zai")
+        check("vendor record: a second vendor is written down",
+              vendors.account_vendor("zeta") == "zai")
+        accounts.register("zeta")
+        check("vendor record: re-registering without one keeps it",
+              vendors.account_vendor("zeta") == "zai")
+        try:
+            accounts.register("zeta", vendor="claude")
+            check("vendor record: an account's vendor is not changed under it", False, "changed")
+        except ValueError as e:
+            check("vendor record: an account's vendor is not changed under it",
+                  "already a zai account" in str(e) and vendors.account_vendor("zeta") == "zai",
+                  str(e))
+        mem = paths.account_dir("alpha") / ".claude" / "projects" / "-w" / "memory"
+        mem.mkdir(parents=True)
+        (mem / "MEMORY.md").write_text("- a fact\n")
+        check("vendor record: memory is not carried to another vendor's account",
+              accounts.migrate_memory("alpha", "zeta") == []
+              and not (vendors.config_dir("zeta") / "sessions").exists())
+        (paths.account_dir("zeta") / "vendor").write_text("")
+        check("vendor record: an empty record names no vendor, so the account is not usable",
+              not accounts.logged_in("zeta") and status.pick_account(["zeta"], bootstrap=True)[0] is None)
+
+
 def test_doctor_looks_for_the_vendors_executable_not_its_name(home: Path) -> None:
     """auditor's #1691: the tool check asks the driver for its executable. A
     vendor is not named after its binary (Z.ai runs through opencode), so a
     lookup by name reports it missing wherever it is installed."""
-    class Zai:
-        name = "zai"
-        def binary(self):
-            return "/opt/zai/bin/opencode"
-    real = vendors.for_accounts
-    try:
-        vendors.for_accounts = lambda: Zai()
+    os.environ["OCP_HOME"] = str(home)
+    with second_vendor():
+        accounts.register("gamma", vendor="zai")
         r = doctor.Report()
         doctor._check_tools(r)
         row = [x for x in r.rows if x[1].startswith("zai")]
         check("doctor: a vendor whose binary is installed is found, under the vendor's name",
               row and row[0][0] == doctor.OK and row[0][2] == "/opt/zai/bin/opencode", str(r.rows))
-    finally:
-        vendors.for_accounts = real
 
 
 def test_the_config_dir_and_its_layout_are_the_drivers_answers(home: Path) -> None:
     """Step 2 of design/03 §7: which variable pins a session to one account,
-    and how that directory is laid out inside, are the vendor's answers. A
-    single-vendor suite cannot see a literal left behind - it reads the same as
-    the driver's answer - so each one is asked of a driver that answers
-    otherwise, the way #1691's doctor slip was caught.
+    and how that directory is laid out inside, are the vendor's answers - here
+    the vendor the account records, not the default's.
     """
     os.environ["OCP_HOME"] = str(home)
-
-    class Zai:
-        name = "zai"
-        def binary(self):
-            return "/opt/zai/bin/opencode"
-        def config_dir_env(self):
-            return "ZAI_HOME"
-        def never_touch(self):
-            return {"skills"}
-        def credential_present(self, config_dir):
-            return False
-        def login_argv(self):
-            return ["opencode", "login"]
-        def memory_root(self, config_dir):
-            return config_dir / "sessions"
-        def memory_project_dir(self, repo):
-            return repo.replace("/", "_")
-
-    real = (vendors.for_accounts, obsmod.env_of)
+    real = obsmod.env_of
     try:
-        vendors.for_accounts = lambda: Zai()
+        with second_vendor(logged_in=False):
+            accounts.register("gamma", vendor="zai")
+            cdir = vendors.config_dir("gamma")
+            check("accounts: the config dir is named by the account's vendor",
+                  cdir == paths.account_dir("gamma") / ".zai" and cdir.is_dir(), str(cdir))
+            env = accounts.env_for("gamma")
+            check("accounts: the launch environment sets the driver's variable to it",
+                  env.get("ZAI_HOME") == str(cdir), str({k: v for k, v in env.items() if "HOME" in k}))
+            os.environ["CLAUDE_CONFIG_DIR"] = str(paths.account_dir("alpha") / ".claude")
+            try:
+                env = accounts.env_for("gamma")
+            finally:
+                os.environ.pop("CLAUDE_CONFIG_DIR", None)
+            check("accounts: and drops another vendor's variable inherited from the caller",
+                  "CLAUDE_CONFIG_DIR" not in env, env.get("CLAUDE_CONFIG_DIR", ""))
+            check("accounts: the login command is the driver's, with its variable",
+                  accounts.login_command("gamma") == f'ZAI_HOME="{cdir}" opencode login',
+                  accounts.login_command("gamma"))
 
-        # account_of_process: the variable is the driver's; the layout under
-        # accounts/ is ours, so the account still falls out of the path.
-        asked: list[str] = []
+            # account_of_process: every vendor's variable is asked; the layout
+            # under accounts/ is ours, so the account still falls out of the path.
+            asked: list[str] = []
 
-        def env_of(pid, name):
-            asked.append(name)
-            return str(paths.account_dir("gamma") / ".zai") if name == "ZAI_HOME" else None
+            def env_of(pid, name):
+                asked.append(name)
+                return str(cdir) if name == "ZAI_HOME" else None
 
-        obsmod.env_of = env_of
-        got = obsmod.account_of_process(1)
-        check("observe: the config-dir variable read off the process is the driver's",
-              asked == ["ZAI_HOME"], str(asked))
-        check("observe: and the account still comes out of the path under accounts/",
-              got == "gamma", repr(got))
+            obsmod.env_of = env_of
+            got = obsmod.account_of_process(1)
+            check("observe: the config-dir variable read off the process is each driver's",
+                  "ZAI_HOME" in asked and "CLAUDE_CONFIG_DIR" in asked, str(asked))
+            check("observe: and the account still comes out of the path under accounts/",
+                  got == "gamma", repr(got))
 
-        # The layout inside that directory: what a working directory is called
-        # there, and where its transcripts hang off.
-        check("collect: a working directory is named the vendor's way",
-              collect.encode_cwd("/tmp/a/b") == "_tmp_a_b", collect.encode_cwd("/tmp/a/b"))
-        check("collect: and the transcript directory hangs off the driver's memory root",
-              collect.project_dir("gamma", "/tmp/a/b")
-              == paths.account_claude("gamma") / "sessions" / "_tmp_a_b",
-              str(collect.project_dir("gamma", "/tmp/a/b")))
+            # The layout inside that directory: what a working directory is called
+            # there, and where its transcripts hang off.
+            check("collect: a working directory is named the vendor's way",
+                  collect.encode_cwd("gamma", "/tmp/a/b") == "_tmp_a_b",
+                  collect.encode_cwd("gamma", "/tmp/a/b"))
+            check("collect: and the transcript directory hangs off the driver's memory root",
+                  collect.project_dir("gamma", "/tmp/a/b") == cdir / "sessions" / "_tmp_a_b",
+                  str(collect.project_dir("gamma", "/tmp/a/b")))
 
-        # What is never linked into an account's config dir is the vendor's
-        # list too - here "skills", which claude shares and this one does not.
-        shared = paths.shared_claude()
-        (shared / "skills").mkdir(parents=True, exist_ok=True)
-        cdir = paths.account_claude("gamma")
-        cdir.mkdir(parents=True, exist_ok=True)
-        check("accounts: an item the driver never touches is not linked",
-              accounts._link_item(cdir, shared, "skills") is False
-              and not (cdir / "skills").exists())
-        check("accounts: and it is not reported as an account's to relink either",
-              ("gamma", "skills") not in accounts.unlinked(), str(accounts.unlinked()))
+            # What is linked into an account's config dir is the vendor's list,
+            # less what it never touches - here "skills", which claude shares.
+            shared = paths.shared_claude()
+            (shared / "skills").mkdir(parents=True, exist_ok=True)
+            accounts.register("gamma")
+            check("accounts: an item the driver never touches is not linked",
+                  not (cdir / "skills").exists())
+            check("accounts: and it is not reported as an account's to relink either",
+                  ("gamma", "skills") not in accounts.unlinked(), str(accounts.unlinked()))
+            accounts.relink_all()
+            check("accounts: nor linked by the catch-up pass",
+                  not (cdir / "skills").exists())
 
-        # The transcript search runs down the same root, one level deep.
-        tdir = paths.account_claude("gamma") / "sessions" / "_tmp_a_b"
-        tdir.mkdir(parents=True, exist_ok=True)
-        (tdir / "sess1.jsonl").write_text("{}\n")
-        check("handoff: a transcript is looked for under the driver's memory root",
-              handoffmod.find_transcript("sess1", "gamma") == tdir / "sess1.jsonl",
-              str(handoffmod.find_transcript("sess1", "gamma")))
+            # The transcript search runs down the same root, one level deep.
+            tdir = cdir / "sessions" / "_tmp_a_b"
+            tdir.mkdir(parents=True, exist_ok=True)
+            (tdir / "sess1.jsonl").write_text("{}\n")
+            check("handoff: a transcript is looked for under the driver's memory root",
+                  handoffmod.find_transcript("sess1", "gamma") == tdir / "sess1.jsonl",
+                  str(handoffmod.find_transcript("sess1", "gamma")))
 
-        # The token log walks that root too: the decoy sits where claude keeps
-        # its transcripts, and must not be read for a vendor that does not.
-        from ocp import tokenlog
-        (tdir / "s2.jsonl").write_text(_call_line("req_driver", 10))
-        decoy = paths.account_claude("gamma") / "projects" / "-w-x"
-        decoy.mkdir(parents=True, exist_ok=True)
-        (decoy / "s3.jsonl").write_text(_call_line("req_claudes_place", 10))
-        con = db.connect()
-        try:
-            tokenlog.ingest(con, "gamma")
-            reqs = {r["req"] for r in con.execute("SELECT req FROM token_calls")}
-        finally:
-            con.close()
-        check("tokenlog: the transcripts read are the ones under the driver's root",
-              reqs == {"req_driver"}, str(reqs))
+            # The token log walks that root too: the decoy sits where claude keeps
+            # its transcripts, and must not be read for a vendor that does not.
+            from ocp import tokenlog
+            (tdir / "s2.jsonl").write_text(_call_line("req_driver", 10))
+            decoy = cdir / "projects" / "-w-x"
+            decoy.mkdir(parents=True, exist_ok=True)
+            (decoy / "s3.jsonl").write_text(_call_line("req_claudes_place", 10))
+            con = db.connect()
+            try:
+                tokenlog.ingest(con, "gamma")
+                reqs = {r["req"] for r in con.execute("SELECT req FROM token_calls")}
+            finally:
+                con.close()
+            check("tokenlog: the transcripts read are the ones under the driver's root",
+                  reqs == {"req_driver"}, str(reqs))
 
-        # The command the founder is handed to trust a worktree names the
-        # variable their tool reads, not claude's.
-        made: list[str] = []
-        real_ct = orcamod.create_terminal
-        try:
-            orcamod.create_terminal = lambda cmd, **k: (made.append(cmd), None)[1]
-            actions.trust_worktrees("gamma", [("backend", "/w/backend")])
-        finally:
-            orcamod.create_terminal = real_ct
-        check("actions: the trust command sets the driver's config-dir variable",
-              made and "ZAI_HOME=" in made[0] and "CLAUDE_CONFIG_DIR" not in made[0],
-              str(made))
+            # The command the founder is handed to trust a worktree names the
+            # variable their tool reads, and their tool, not claude's.
+            made: list[str] = []
+            real_ct = orcamod.create_terminal
+            try:
+                orcamod.create_terminal = lambda cmd, **k: (made.append(cmd), None)[1]
+                actions.trust_worktrees("gamma", [("backend", "/w/backend")])
+            finally:
+                orcamod.create_terminal = real_ct
+            check("actions: the trust command sets the driver's config-dir variable",
+                  made and "ZAI_HOME=" in made[0] and "CLAUDE_CONFIG_DIR" not in made[0]
+                  and made[0].endswith(" /opt/zai/bin/opencode"), str(made))
 
-        # And the name doctor prints, so its reader is told which variable to
-        # go and set rather than claude's.
-        (paths.account_dir("nocfg")).mkdir(parents=True, exist_ok=True)
-        r = doctor.Report()
-        doctor._check_accounts(r)
-        lines = [name for _lv, name, _d in r.rows]
-        check("doctor: the missing-config-dir line names the driver's variable",
-              "account nocfg: ZAI_HOME missing" in lines, str(lines))
+            # And the name doctor prints, so its reader is told which variable to
+            # go and set rather than claude's.
+            cdir.rename(cdir.with_name(".zai-gone"))
+            r = doctor.Report()
+            doctor._check_accounts(r)
+            lines = [name for _lv, name, _d in r.rows]
+            check("doctor: the missing-config-dir line names the driver's variable",
+                  "account gamma: ZAI_HOME missing" in lines, str(lines))
     finally:
-        vendors.for_accounts, obsmod.env_of = real
+        obsmod.env_of = real
 
 
 def test_launch_refuses_stale(home: Path) -> None:
@@ -9050,8 +9506,8 @@ def test_migrate_memory_merges_the_index_and_stays_in_scope(home: Path) -> None:
     check("migrate_memory: a symlinked file is not carried", not (dst / "link.md").exists())
 
     check("memory_project_dir: '/' and '.' and '_' all map to '-'",
-          accounts.memory_project_dir("/Users/ron/work/my.repo_x") == "-Users-ron-work-my-repo-x",
-          accounts.memory_project_dir("/Users/ron/work/my.repo_x"))
+          accounts.memory_project_dir("alpha", "/Users/ron/work/my.repo_x") == "-Users-ron-work-my-repo-x",
+          accounts.memory_project_dir("alpha", "/Users/ron/work/my.repo_x"))
 
 
 def test_record_terminal_migrates_memory_on_an_account_change(home: Path) -> None:
@@ -24646,6 +25102,16 @@ def main() -> int:
         run(lambda: test_ask_respects_terminal_state(Path(td) / 'term'))
         run(lambda: test_a_vendor_with_no_driver_refuses_the_launch(Path(td) / 'novendor'))
         run(lambda: test_doctor_looks_for_the_vendors_executable_not_its_name(Path(td) / 'doctorbin'))
+        run(lambda: test_a_claude_agent_is_never_placed_on_another_vendors_account(Path(td) / 'vendorpick'))
+        run(lambda: test_another_vendors_account_never_spends_a_live_refresh(
+            Path(td) / 'vendorrefresh'))
+        run(lambda: test_a_second_vendors_live_session_is_seen_by_the_sweep(
+            Path(td) / 'vendorsweep'))
+        run(lambda: test_an_accounts_verdict_is_asked_for_its_own_vendor(
+            Path(td) / 'vendorverdict'))
+        run(lambda: test_an_unmetered_account_is_pinned_never_picked_or_polled(Path(td) / 'unmetered'))
+        run(lambda: test_an_agent_is_never_launched_on_another_vendors_account(Path(td) / 'vendorlaunch'))
+        run(lambda: test_an_account_records_its_vendor(Path(td) / 'vendorrecord'))
         run(lambda: test_the_config_dir_and_its_layout_are_the_drivers_answers(
             Path(td) / 'vendorcfg'))
         run(lambda: test_launch_refuses_stale(Path(td) / 'stale'))

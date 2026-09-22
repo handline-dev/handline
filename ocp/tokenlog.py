@@ -81,7 +81,10 @@ def ingest(con, acct: str, budget: int = BYTES_PER_TICK, now: int | None = None)
     which is more than the rows written when one streamed over several. A
     file is read from where it stopped, and only up to its last whole line."""
     now = int(time.time()) if now is None else now
-    root = vendors.for_accounts().memory_root(paths.account_claude(acct))
+    try:
+        root = vendors.for_account(acct).memory_root(vendors.config_dir(acct))
+    except vendors.UnknownVendor:
+        return 0
     if not root.is_dir():
         return 0
     try:

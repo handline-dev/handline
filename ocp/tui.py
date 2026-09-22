@@ -320,6 +320,9 @@ def account_cells(name: str, st, now: float | None = None,
     `at_cap` whether the pick has no slot left on it (`load.Load.at_cap`); `ld`
     the account's `load.Load`, which the runway needs to judge the week by the
     pick's own figure."""
+    if st.unmetered:
+        return {"agents": agents_cell(counts, unplaced, at_cap), "five": f"{DIM}unmetered{R}",
+                "reset5": "", "seven": "", "reset7": "", "runway": ""}
     runway_text = status.describe_runway(status.runway(st, status.read_burn(name), now, ld))
     # One definition of the figure and its mark, shared with `ocp account list`.
     # A last-seen figure is drawn at its value, dimmed and uncoloured, with its
@@ -834,7 +837,7 @@ def build(width: int, sel: dict | None = None,
         loads = loadmod.read_all()
         roster, unplaced = loadmod.roster(con)
         global _LAST_NEXT
-        first, ranked = status.pick_account(
+        first, _ = status.pick_account(
             [a for a in paths.list_accounts() if _logged_in(a)], load=loads,
             prefer=_LAST_NEXT)
         _LAST_NEXT = first
@@ -842,7 +845,8 @@ def build(width: int, sel: dict | None = None,
             st = status.read(name)
             # The tick beside the name says the pick could use it: not only
             # that it is under the wall but that it has a slot and would last.
-            allowed, _ = status.account_verdict(name, st, loads.get(name), ranked,
+            # No ranking: the one in hand is claude's; the page says the words.
+            allowed, _ = status.account_verdict(name, st, loads.get(name), [],
                                                 _logged_in(name))
             mark = f"{GRN}✔{R}" if allowed else f"{RED}✘{R}"
             # Where work goes next is said in a word after the tick, not drawn

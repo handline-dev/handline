@@ -44,11 +44,19 @@ def cmd_login(args) -> int:
             return 1
         for a in names:
             state = "logged in" if accounts.logged_in(a) else "NOT logged in"
-            print(f"{a:<12}{state:<14}{paths.account_claude(a)}")
+            try:
+                where = str(vendors.config_dir(a))
+            except vendors.UnknownVendor as e:
+                where = str(e)
+            print(f"{a:<12}{state:<14}{where}")
         print(f"\nLog one in with: ocp login <account>")
         return 0
 
-    action, message = accounts.login_plan(args.account, force=args.force)
+    try:
+        action, message = accounts.login_plan(args.account, force=args.force)
+    except vendors.UnknownVendor as e:
+        print(f"account '{args.account}': {e}", file=sys.stderr)
+        return 1
     if action == "unknown":
         print(message, file=sys.stderr)
         return 1
@@ -56,7 +64,7 @@ def cmd_login(args) -> int:
         print(message)
         return 0
 
-    drv = vendors.for_accounts()
+    drv = vendors.for_account(args.account)
     exe = drv.binary()
     if not exe or not sys.stdin.isatty():
         print(f"run this where you can type into it:\n\n  {message}\n")
@@ -119,14 +127,23 @@ def _run_claude(argv: list[str], env: dict) -> int | None:
 
 def cmd_account_add(args) -> int:
     """Register an account and log it in, in one command."""
-    if not args.no_login and (not vendors.for_accounts().binary() or not sys.stdin.isatty()):
+    vendor = args.vendor or agents.DEFAULT_VENDOR
+    try:
+        drv = vendors.get(vendor)
+    except vendors.UnknownVendor as e:
+        print(e, file=sys.stderr)
+        return 1
+    if not args.no_login and (not drv.binary() or not sys.stdin.isatty()):
         print(f"logging in needs a terminal you can type into. From one, run:\n\n"
-              f"  ocp account add {args.name}\n", file=sys.stderr)
+              f"  ocp account add {args.name}"
+              f"{'' if vendor == agents.DEFAULT_VENDOR else ' --vendor ' + vendor}\n",
+              file=sys.stderr)
         return 1
     if not args.no_login:
-        print("use an Anthropic account no other account here uses. "
-              "Finish the login in claude, then exit it (/exit) to come back.\n")
-    ok, msg = accounts.add_account(args.name, _run_claude, no_login=args.no_login)
+        print(f"use a {drv.name} login no other account here uses. "
+              f"Finish the login in {drv.name}, then exit it to come back.\n")
+    ok, msg = accounts.add_account(args.name, _run_claude, no_login=args.no_login,
+                                   vendor=args.vendor)
     print(msg, file=None if ok else sys.stderr)
     if not ok:
         return 1
@@ -134,7 +151,8 @@ def cmd_account_add(args) -> int:
     # 156 item 1c: without this, the first real session this account runs for
     # an existing agent meets claude's folder-trust screen cold. `no_login`
     # leaves nothing yet to start a session on.
-    if not args.no_login and orca.available():
+    # The trust screen is claude's own.
+    if not args.no_login and vendor == agents.DEFAULT_VENDOR and orca.available():
         _offer_to_trust_worktrees(args.name, input)
     return 0
 
@@ -549,6 +567,9 @@ def cmd_usage(args) -> int:
     print(f"{'account':10} {'':4} {'5h':>5} {'7d':>5}  {'7d resets':16}  note")
     for acct in accts:
         st = status.read(acct)
+        if st.unmetered:
+            print(f"{acct:10} {'':4} unmetered")
+            continue
         age = status.span(time.time() - st.collected_at) if st.collected_at else "never"
         trusted5 = str(st.trusted_pct_5h) if st.trusted_pct_5h is not None else "?"
         trusted7 = str(st.trusted_pct_7d) if st.trusted_pct_7d is not None else "?"
@@ -1816,6 +1837,8 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("name")
     p.add_argument("--no-login", action="store_true",
                    help="register only; log in later with `ocp login <name>`")
+    p.add_argument("--vendor", default=None,
+                   help="the tool this account is for (default: claude)")
     p.set_defaults(fn=cmd_account_add)
     p = acc.add_parser("remove", help="log an account out and take it off the roster")
     p.add_argument("name")

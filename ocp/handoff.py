@@ -62,9 +62,12 @@ def find_transcript(session: str, account: str) -> Path | None:
         return None
     # One directory level under the vendor's memory root is where a transcript
     # is written, so the search is that deep and no deeper.
-    root = vendors.for_accounts().memory_root
     for acct in [account, *(a for a in paths.list_accounts() if a != account)]:
-        for f in root(paths.account_claude(acct)).glob(f"*/{session}.jsonl"):
+        try:
+            root = vendors.for_account(acct).memory_root(vendors.config_dir(acct))
+        except vendors.UnknownVendor:
+            continue
+        for f in root.glob(f"*/{session}.jsonl"):
             return f
     return None
 

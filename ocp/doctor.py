@@ -54,10 +54,21 @@ class Report:
         return "\n".join(lines)
 
 
+def _vendors_in_use() -> list:
+    """The driver of every vendor an account is for, the default's first."""
+    names = {agents.DEFAULT_VENDOR, *(vendors.account_vendor(a) for a in paths.list_accounts())}
+    out = []
+    for n in sorted(names, key=lambda n: (n != agents.DEFAULT_VENDOR, n)):
+        try:
+            out.append(vendors.get(n))
+        except vendors.UnknownVendor:
+            pass  # `_check_accounts` names the account that records it
+    return out
+
+
 def _check_tools(r: Report) -> None:
-    drv = vendors.for_accounts()
     for tool, found, why, hard in (
-        (drv.name, drv.binary(), "needed to run agents", True),
+        *((drv.name, drv.binary(), "needed to run agents", True) for drv in _vendors_in_use()),
         ("orca", shutil.which("orca"), "terminal and worktree control", False),
     ):
         if found:
@@ -142,11 +153,15 @@ def _check_accounts(r: Report) -> None:
         r.add(FAIL, "no accounts registered", "ocp account add <name>")
         return
     loads = loadmod.read_all()
-    cfg_env = vendors.for_accounts().config_dir_env()
     for a in names:
-        cdir = paths.account_claude(a)
+        try:
+            drv = vendors.for_account(a)
+        except vendors.UnknownVendor as e:
+            r.add(FAIL, f"account {a}: {e}", str(paths.account_dir(a) / "vendor"))
+            continue
+        cdir = vendors.config_dir(a)
         if not cdir.is_dir():
-            r.add(FAIL, f"account {a}: {cfg_env} missing", str(cdir))
+            r.add(FAIL, f"account {a}: {drv.config_dir_env()} missing", str(cdir))
             continue
         if accounts.logged_in(a):
             r.add(OK, f"account {a}: logged in")
@@ -156,12 +171,18 @@ def _check_accounts(r: Report) -> None:
 
         link = cdir / "settings.json"
         want = paths.shared_claude() / "settings.json"
-        if link.is_symlink() and Path(os.readlink(link)) == want:
+        if "settings.json" not in drv.shared_items():
+            pass
+        elif link.is_symlink() and Path(os.readlink(link)) == want:
             r.add(OK, f"account {a}: settings.json -> shared")
         else:
             r.add(FAIL, f"account {a}: settings.json does not point at shared",
                   f"ocp account register --force {a}")
 
+        if not drv.meters():
+            r.add(OK, f"account {a}: unmetered ({drv.name})",
+                  "never picked or polled; only agents that name it run there")
+            continue
         st = status.read(a)
         ld = loads.get(a)
         allowed, why = st.assignable(ld.active if ld else 0)
@@ -186,10 +207,14 @@ def _check_agents(r: Report) -> None:
         except Exception as e:  # noqa: BLE001 - config errors are reported as-is
             r.add(FAIL, f"agent {n}: agent.yaml error", str(e))
             continue
-        if acct in known:
-            r.add(OK, f"agent {n} -> account {acct}")
-        else:
+        if acct not in known:
             r.add(FAIL, f"agent {n}: account '{acct}' is not registered")
+        elif vendors.agent_vendor(n) != vendors.account_vendor(acct):
+            r.add(FAIL, f"agent {n}: a {vendors.agent_vendor(n)} agent on "
+                        f"{vendors.account_vendor(acct)} account '{acct}'",
+                  "its launch is refused; name an account of its own vendor")
+        else:
+            r.add(OK, f"agent {n} -> account {acct}")
         for fn, size, budget, over in agents.budget_report(n):
             if over:
                 r.add(WARN, f"agent {n}: {fn} over budget",
@@ -294,7 +319,7 @@ def _check_session_matches_the_record(r: Report) -> None:
                 continue
             r.add(WARN, f"agent {agent}: its transcript is still being written with no session running",
                   "only a live session writes that transcript, and the "
-                  "process-table search finds no claude for this agent - check "
+                  "process-table search finds no session for this agent - check "
                   "observe.is_session; while it does not match, nothing is "
                   "delivered to anyone")
     finally:
@@ -302,7 +327,7 @@ def _check_session_matches_the_record(r: Report) -> None:
 
 
 def _check_claude_version(r: Report) -> None:
-    drv = vendors.for_accounts()
+    drv = vendors.get(agents.DEFAULT_VENDOR)
     exe = drv.binary()
     if not exe:
         return

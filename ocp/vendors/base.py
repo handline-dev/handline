@@ -13,12 +13,29 @@ from typing import Protocol
 class Driver(Protocol):
     name: str
     min_version: tuple[int, ...]
+    # What `config_dir_env` points at, under the account's own directory.
+    config_dir_name: str
 
     def binary(self) -> str | None:
         """The executable's path, or None when it is not installed."""
 
     def config_dir_env(self) -> str:
         """The variable that pins a session to one account's config dir."""
+
+    def is_session(self, command: str) -> bool:
+        """Is this `ps` command line one of this vendor's agent sessions?
+
+        Both halves are the vendor's own: which binary its sessions run, and
+        how it spells a headless run. A headless one is not a session - ocp's
+        fold is one, and it inherits its caller's OCP_AGENT, so counting it
+        would report that agent alive for as long as the fold runs and closed
+        the moment it ends.
+        """
+
+    def meters(self) -> bool:
+        """Whether ocp can read how much of the account's limit is spent. An
+        account whose vendor cannot be read is unmetered: never picked, never
+        polled, and only its own agents' agent.yaml sends work there."""
 
     def is_resume(self, extra: list[str] | None) -> bool:
         """Does this argv carry a session to resume?"""
