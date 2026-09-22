@@ -596,7 +596,7 @@ class Panel:
 NEEDS_A_HUMAN = ("STALLED", "DEGRADED")
 
 
-def _state_text(row) -> tuple[str, str]:
+def _state_text(con, row) -> tuple[str, str]:
     """What the state cell says for an agent's row, and until when: ("PARKED·closed",
     "12m05s"). The width is decided from these before any row is drawn, and the
     row is drawn from the same two strings, so the two cannot disagree."""
@@ -605,7 +605,7 @@ def _state_text(row) -> tuple[str, str]:
     # hides the one difference that matters on this machine.
     if row and row["closed_at"]:
         s += "·closed"
-    elif promptwait.of(row):
+    elif promptwait.of(con, row):
         s = WAITING_ON_YOU
     until = countdown(row["wake_at"] if row else None).strip()
     return s, "" if until == "-" else until
@@ -830,7 +830,7 @@ def build(width: int, sel: dict | None = None,
         # prices. It sits beside the account for that reason - the two together
         # are what a row costs.
         state_rows = {n: db.get_agent_state(con, n) for n, _, _ in drawn_tree}
-        cells = [_state_text(r) for r in state_rows.values()]
+        cells = [_state_text(con, r) for r in state_rows.values()]
         state_w = _state_width(cells) if cells else 1 + len("state")
         kinds = _kind_fits(width, state_w)
         ag.add(f"{DIM}{'agent':<{NAME_W}}{'acct':<{ACCT_COL}}"
@@ -857,7 +857,7 @@ def build(width: int, sel: dict | None = None,
                 continue
             st = status.read_for_agent(name, acct)
             row = state_rows[name]
-            s, until = _state_text(row)
+            s, until = _state_text(con, row)
             # Only when something is actually about to happen. Measured on a
             # live team: nothing firing, six rows reading "— closed" - which
             # the state column says already, with the same word - and two

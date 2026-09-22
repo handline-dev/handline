@@ -137,7 +137,7 @@ def classify(con, agent: str, row) -> tuple[str, str, str] | None:
     """
     from . import daemon
 
-    if not row or row["closed_at"] or waiting.of(row):
+    if not row or row["closed_at"] or waiting.of(con, row):
         return None
     if row["state"] == daemon.STALLED:
         return STALLED, row["detail"] or "", ""

@@ -705,7 +705,7 @@ def cmd_daemon_status(args) -> int:
             print("no agent state recorded yet")
         else:
             w = _name_col([r["agent"] for r in rows], 14)
-            waits = {r["agent"]: waiting.of(r) for r in rows}
+            waits = {r["agent"]: waiting.of(con, r) for r in rows}
             sw = len(tui.WAITING_ON_YOU) + 1 if any(waits.values()) else 11
             print(f"\n{'AGENT':<{w}}{'STATE':<{sw}}{'WAKE':<8}{'fail':>5}{'cont':>6}{'thr':>5}  DETAIL")
             now = int(time.time())

@@ -143,10 +143,14 @@ def record_from_stdin(argv: list[str] | None = None) -> int:
                     payload["limit"], payload["limit_source"] = lim
             if event == "PermissionRequest":
                 payload["command"] = waiting.summary(raw.get("tool_input"))
-                waiting.note(agent, raw.get("tool_name"), raw.get("tool_input"))
             elif event in ENDS_WAIT:
                 waiting.clear(agent)
-            db.add_event(con, agent, event, payload, account=account)
+            eid = db.add_event(con, agent, event, payload, account=account)
+            if event == "PermissionRequest":
+                # After its own row exists, so the id `of()` later compares
+                # other activity against is this exact prompt's, not the one
+                # before it.
+                waiting.note(agent, raw.get("tool_name"), raw.get("tool_input"), eid)
             _mark_activity(con, agent, event, payload)
         finally:
             con.close()

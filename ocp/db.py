@@ -1085,6 +1085,29 @@ def last_activity(con, agent: str) -> int | None:
     return int(row["t"]) if row and row["t"] is not None else None
 
 
+def last_activity_id(con, agent: str, exclude: frozenset[str] = frozenset()) -> int | None:
+    """The row id of this agent's most recent activity, or None.
+
+    Same idea as `last_activity`, but by `events.id` rather than `ts`: two
+    calls a real agent makes moments apart land in the same whole second more
+    often than not, and a caller ordering "did X happen after event N"
+    (`waiting.of`) needs an answer a tied clock cannot give. Row ids are
+    assigned in insertion order and never tie.
+
+    `exclude` drops kinds from the count without touching AGENT_ACTIVITY_KINDS
+    itself: a caller asking "has anything happened *after* this PermissionRequest"
+    needs PermissionRequest left out, or the request that raised the question
+    always answers it.
+    """
+    kinds = AGENT_ACTIVITY_KINDS - exclude
+    placeholders = ",".join("?" * len(kinds))
+    row = con.execute(
+        f"SELECT MAX(id) AS i FROM events WHERE agent = ? AND kind IN ({placeholders})",
+        (agent, *kinds)
+    ).fetchone()
+    return int(row["i"]) if row and row["i"] is not None else None
+
+
 def last_account_activity(con, account: str) -> int | None:
     """When a session on this account last took a turn.
 

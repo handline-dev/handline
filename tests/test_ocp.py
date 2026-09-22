@@ -8630,15 +8630,30 @@ def test_the_sweep_corrects_what_it_can_see(home: Path) -> None:
 
         # 1. Its terminal is gone. Nothing may be delivered to it and nothing
         #    can be closed in it, and both already key on having a handle.
+        #    Confirmed gone is an answer, not an unread one: it was RUNNING and
+        #    at a prompt, and both must end, the same as the "session died
+        #    without us" branch below does when it has its own confirmation.
+        db.set_agent_state(con, "backend", dmn.RUNNING, detail="working")
+        waiting.note("backend", "Bash", {"command": "rm x"})
         orcamod.live_terminals = lambda: set()
         obsmod.live_sessions = lambda: {}
         dmn.sweep(con, lambda _m: None, [])
         check("sweep: a terminal Orca does not list is dropped",
               db.get_agent_state(con, "backend")["terminal"] is None,
               str(db.get_agent_state(con, "backend")["terminal"]))
+        check("sweep: confirmed gone ends closed, out of RUNNING",
+              db.get_agent_state(con, "backend")["closed_at"] is not None
+              and db.get_agent_state(con, "backend")["state"] == dmn.IDLE,
+              str(dict(db.get_agent_state(con, "backend"))))
+        check("sweep: and shows no wait",
+              waiting.of(con, db.get_agent_state(con, "backend")) is None)
 
         # 2. Its session died without us. Recording it is what makes work
-        #    arriving wake it rather than be typed at a bash prompt.
+        #    arriving wake it rather than be typed at a bash prompt. A fresh
+        #    scenario, not a continuation of #1's - clear the close #1 left
+        #    (with no status.json yet to read, it could not carry a resume id)
+        #    so this one's own close is not skipped as already done.
+        db.clear_closed(con, "backend")
         db.set_terminal(con, "backend", "term_x", "wt")
         (home / "agents" / "backend").mkdir(parents=True, exist_ok=True)
         (home / "agents" / "backend" / "status.json").write_text(json.dumps({
@@ -12626,6 +12641,55 @@ def test_a_permission_prompt_waits_on_the_founder_until_it_is_answered(home: Pat
         db.set_agent_state(con, "backend", dmn.RUNNING)
         db.set_closed(con, "backend", "sess-1")
         check("prompt: nor is a closed one", not waits())
+    finally:
+        os.environ.pop("OCP_AGENT", None); os.environ.pop("OCP_ACCOUNT", None)
+        con.close()
+
+
+def test_a_wait_does_not_outlive_the_prompt_that_raised_it(home: Path) -> None:
+    """clear() only unlinks the wait file for the exact tool call that raised
+    it - which never fires its own PostToolUse when the call was denied or the
+    session was interrupted, so nothing else was ever built to take the file
+    away. waiting.of() closes that gap: it asks whether the agent has recorded
+    activity no sibling tool call could produce - a captured hook event, or an
+    `ocp` verb it ran itself - after the row id of the PermissionRequest that
+    raised this wait, not whether time has passed."""
+    _daemon_home(home, 20)
+    os.environ["OCP_AGENT"], os.environ["OCP_ACCOUNT"] = "backend", "alpha"
+    con = db.connect()
+    try:
+        db.set_agent_state(con, "backend", dmn.RUNNING, detail="active")
+
+        def waiting_now() -> bool:
+            return waiting.of(con, db.get_agent_state(con, "backend")) is not None
+
+        # Denied or interrupted: no PostToolUse ever arrives for "rm -rf /x"
+        # itself. A sibling dispatched in the same batch, which does not need
+        # permission, finishes on its own and fires its own PostToolUse - that
+        # must not read as the denied call's answer.
+        _fire_hook("PermissionRequest", tool_name="Bash", tool_input={"command": "rm -rf /x"})
+        check("outlive: raised", waiting_now())
+        _fire_hook("PostToolUse", tool_name="Read", tool_input={"file_path": "/y"})
+        check("outlive: a mismatched sibling finishing does not clear it", waiting_now())
+
+        # The agent goes on working past the denial: a subagent it dispatched
+        # completes. It could only have dispatched that subagent once the
+        # block on the denied call was lifted - unlike the sibling above,
+        # nothing about SubagentStop is a side effect of some other tool call
+        # finishing.
+        _fire_hook("SubagentStop")
+        check("outlive: activity the agent could only produce by going on clears it",
+              not waiting_now())
+
+        # A wait that really is still pending must not read as stale merely
+        # because it is old - there is no clock here, only whether the agent's
+        # own row id has moved past the prompt's.
+        _fire_hook("PermissionRequest", tool_name="Bash", tool_input={"command": "rm -rf /z"})
+        check("outlive: raised again", waiting_now())
+        w = waiting.read("backend")
+        w["since"] -= 6 * 3600
+        (paths.home() / "waiting" / "backend.json").write_text(json.dumps(w))
+        check("outlive: a genuinely pending wait keeps showing, however old", waiting_now())
     finally:
         os.environ.pop("OCP_AGENT", None); os.environ.pop("OCP_ACCOUNT", None)
         con.close()
@@ -21395,6 +21459,7 @@ def main() -> int:
         run(lambda: test_replaying_0919_makes_fewer_moves_than_the_old_rules(Path(td) / 'ar6'))
         run(lambda: test_a_turn_that_ends_on_the_usage_limit_is_at_the_wall(Path(td) / 'limitstop'))
         run(lambda: test_a_permission_prompt_waits_on_the_founder_until_it_is_answered(Path(td) / 'promptwait'))
+        run(lambda: test_a_wait_does_not_outlive_the_prompt_that_raised_it(Path(td) / 'outlive'))
         run(lambda: test_a_proposal_and_an_escalation_wait_on_the_founder_too(Path(td) / 'founderwaits'))
         run(lambda: test_an_unknown_reset_does_not_make_the_runway_absurd(Path(td) / 'runwayunknown'))
         run(lambda: test_what_one_agent_costs_is_measured_from_stretches_of_work(Path(td) / 'burnobs'))

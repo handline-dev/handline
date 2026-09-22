@@ -1376,6 +1376,20 @@ def sweep(con, log, actions: list[str]) -> None:
             db.add_event(con, agent, "terminal_gone", {"handle": row["terminal"]})
             actions.append(f"{agent}: terminal is gone; handle dropped")
             log(f"  {agent}: terminal is gone; handle dropped")
+            # Confirmed gone is an answer, not an unread one - the same close
+            # the "session ended without us" branch below does when it has its
+            # own confirmation, so a terminal closed at a prompt does not read
+            # RUNNING, closed_at None, forever.
+            if not row["closed_at"]:
+                own = status.read(agents.current_account(agent, con),
+                                  paths.agent_status_file(agent))
+                session = None if own.error else own.session_id
+                ran_on = own.raw.get("account")
+                if ran_on and ran_on != agents.current_account(agent, con):
+                    session = None
+                db.set_closed(con, agent, session)
+                if row["state"] == RUNNING:
+                    db.set_agent_state(con, agent, IDLE, detail="terminal gone")
             continue
 
         if o.terminal_alive is not True or not o.session_seen:

@@ -580,7 +580,7 @@ def founder_waits(con) -> list[dict]:
     """
     out: list[dict] = []
     for row in db.all_agent_states(con):
-        w = waiting.of(row)
+        w = waiting.of(con, row)
         if w:
             out.append({"kind": "permission", "who": row["agent"], "red": True,
                         "what": " ".join(x for x in (f"{w.get('tool') or 'tool'}:",
