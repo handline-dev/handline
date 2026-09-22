@@ -19788,6 +19788,63 @@ def test_run_recovers_from_an_uncaught_error() -> None:
           (1 if caught else 0) == 1)
 
 
+def test_run_restores_current_test_after_its_own_nested_run_calls(home: Path) -> None:
+    """Pins BLOCKING 2 (auditor #1647, re-flagged unpinned in #1658
+    SHOULD-FIX 1) at the label file itself: a test that calls run() on
+    synthetic cases of its own must have its OWN later checks recorded under
+    its own name in write_labels()'s output, not the last nested case's."""
+    home.mkdir(parents=True, exist_ok=True)
+    global PASS, FAIL, LABEL_LOG
+    real_pass, real_fail, real_log = PASS, FAIL, LABEL_LOG
+    PASS, FAIL, LABEL_LOG = [], [], []
+    try:
+        def test_synthetic_outer():
+            def test_synthetic_inner():
+                check("inner: ran", True)
+            with contextlib.redirect_stdout(io.StringIO()):
+                run(lambda: test_synthetic_inner())
+            check("outer: ran after its own nested run()", True)
+
+        with contextlib.redirect_stdout(io.StringIO()):
+            run(lambda: test_synthetic_outer())
+        path = str(home / "nested.jsonl")
+        write_labels(path)
+        labels = _read_labels(path)
+    finally:
+        PASS, FAIL, LABEL_LOG = real_pass, real_fail, real_log
+
+    check("run(): the nested case's own check carries its own name",
+          labels.get(("test_synthetic_inner", "inner: ran", 1)) == "PASS", str(labels))
+    check("run(): the enclosing test's check after its nested run() call "
+          "carries its own name, not the nested one's",
+          labels.get(("test_synthetic_outer",
+                       "outer: ran after its own nested run()", 1)) == "PASS",
+          str(labels))
+
+
+def test_a_clean_runs_label_file_has_no_fail_record(home: Path) -> None:
+    """Pins SHOULD-FIX 3 (auditor #1647, re-flagged unpinned in #1658
+    SHOULD-FIX 1) at the label file itself: LABEL_LOG is swapped alongside
+    PASS/FAIL in test_run_recovers_from_an_uncaught_error, so its two
+    synthetic failures must not reach write_labels()'s output - measured end
+    to end here, not only by re-reading that test's own PASS/FAIL lists."""
+    home.mkdir(parents=True, exist_ok=True)
+    global PASS, FAIL, LABEL_LOG
+    real_pass, real_fail, real_log = PASS, FAIL, LABEL_LOG
+    PASS, FAIL, LABEL_LOG = [], [], []
+    try:
+        with contextlib.redirect_stdout(io.StringIO()):
+            run(lambda: test_run_recovers_from_an_uncaught_error())
+        path = str(home / "clean.jsonl")
+        write_labels(path)
+        fails = [ln for ln in Path(path).read_text().splitlines()
+                 if json.loads(ln)["state"] == "FAIL"]
+    finally:
+        PASS, FAIL, LABEL_LOG = real_pass, real_fail, real_log
+    check("write_labels: a run with nothing really failing writes no FAIL record",
+          fails == [], str(fails))
+
+
 def test_diff_labels_prints_only_what_changed_and_nothing_else(home: Path) -> None:
     """diff_labels() is the tool a mutation check trusts to say which label a
     mutant killed - so it is exercised directly, on files it does not itself
@@ -19801,7 +19858,8 @@ def test_diff_labels_prints_only_what_changed_and_nothing_else(home: Path) -> No
         '{"state": "FAIL", "test": "t1", "name": "x", "occurrence": 1}\n'
         '{"state": "FAIL", "test": "t2", "name": "y", "occurrence": 1}\n'
         '{"state": "PASS", "test": "t3", "name": "z", "occurrence": 1}\n')
-    out = _capture(lambda: diff_labels(a_path, b_path))
+    got: dict = {}
+    out = _capture(lambda: got.__setitem__("rc", diff_labels(a_path, b_path)))
     lines = [ln for ln in out.splitlines() if ln]
     check("diff_labels: the flip is reported", "PASS -> FAIL  t1 :: x" in lines, out)
     check("diff_labels: the label only in b reads MISSING on a's side",
@@ -19809,13 +19867,32 @@ def test_diff_labels_prints_only_what_changed_and_nothing_else(home: Path) -> No
     check("diff_labels: the unchanged label is not reported at all",
           not any("t2" in ln for ln in lines), out)
     check("diff_labels: nothing else was printed", len(lines) == 2, out)
-    check("diff_labels: a real change returns 1", diff_labels(a_path, b_path) == 1)
+    check("diff_labels: a real change returns 1", got["rc"] == 1)
 
     c_path = str(home / "c.jsonl")
     Path(c_path).write_text(Path(a_path).read_text())
+    out2 = _capture(lambda: got.__setitem__("rc", diff_labels(a_path, c_path)))
     check("diff_labels: two identical files print nothing and return 0",
-          _capture(lambda: diff_labels(a_path, c_path)) == ""
-          and diff_labels(a_path, c_path) == 0)
+          out2 == "" and got["rc"] == 0, out2)
+
+    # A group whose length differs between two runs (one occurrence dropped
+    # and the rest renumbered, not only a different -k) is the likelier real
+    # cause of a MISSING past the first, and the ordinal it names is the
+    # group's new tail, not whichever iteration actually vanished - true of
+    # the mechanism, worth knowing when reading its output.
+    d_path = str(home / "d.jsonl")
+    Path(d_path).write_text(
+        '{"state": "PASS", "test": "t4", "name": "w", "occurrence": 1}\n'
+        '{"state": "PASS", "test": "t4", "name": "w", "occurrence": 2}\n'
+        '{"state": "PASS", "test": "t4", "name": "w", "occurrence": 3}\n')
+    e_path = str(home / "e.jsonl")
+    Path(e_path).write_text(
+        '{"state": "PASS", "test": "t4", "name": "w", "occurrence": 1}\n'
+        '{"state": "PASS", "test": "t4", "name": "w", "occurrence": 2}\n')
+    out3 = _capture(lambda: diff_labels(d_path, e_path))
+    check("diff_labels: a shortened group is named by its tail ordinal, "
+          "past the first, whichever member actually left",
+          out3.strip() == "PASS -> MISSING  t4 :: w [3]", out3)
 
 
 def test_write_labels_disambiguates_a_name_repeated_inside_one_test(home: Path) -> None:
@@ -19845,7 +19922,7 @@ def test_write_labels_disambiguates_a_name_repeated_inside_one_test(home: Path) 
     check("write_labels: all four occurrences are kept, not collapsed to one",
           set(labels) == set(keys), str(labels))
     check("write_labels: each occurrence carries its own call's state, in order",
-          [labels[k] for k in keys] == ["PASS", "PASS", "FAIL", "PASS"], str(labels))
+          [labels.get(k) for k in keys] == ["PASS", "PASS", "FAIL", "PASS"], str(labels))
 
     # A mutation that flips only the first, still-real occurrence must be
     # visible on its own - the bug this test answers is that qualifying by
@@ -19908,7 +19985,11 @@ def diff_labels(path_a: str, path_b: str) -> int:
     repeats within its test).
 
     A label present in only one file reads as MISSING on the other side -
-    that means the two runs used a different -k, not that a test flipped.
+    the two runs used a different -k, or a loop that calls check() the same
+    number of times every run stopped doing so (auditor #1658 NOTE 3): the
+    ordinal MISSING names is the group's new tail, not whichever occurrence
+    actually left, since every occurrence after it renumbered down to fill
+    the gap. Either way it is not itself a flipped state to chase.
     """
     a, b = _read_labels(path_a), _read_labels(path_b)
     changed = False
@@ -20332,6 +20413,8 @@ def main() -> int:
         run(lambda: test_two_processes_cannot_both_supervise_one_home(Path(td) / 'twoproc'))
         run(lambda: test_the_screen_says_when_two_daemons_are_running(Path(td) / 'dmnwarn'))
         run(lambda: test_run_recovers_from_an_uncaught_error())
+        run(lambda: test_run_restores_current_test_after_its_own_nested_run_calls(Path(td) / 'nestedrun'))
+        run(lambda: test_a_clean_runs_label_file_has_no_fail_record(Path(td) / 'cleanrun'))
         run(lambda: test_diff_labels_prints_only_what_changed_and_nothing_else(Path(td) / 'difflabels'))
         run(lambda: test_write_labels_disambiguates_a_name_repeated_inside_one_test(
             Path(td) / 'looplabels'))
