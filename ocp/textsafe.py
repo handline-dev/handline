@@ -26,7 +26,18 @@ import unicodedata
 # control - a lone ESC, C0, DEL and C1.
 _OSC = re.compile(r"\033\][^\a\033]*(?:\a|\033\\)?")
 _CSI = re.compile(r"\033\[[0-?]*[ -/]*[@-~]")
-_CONTROL = re.compile(r"[\x00-\x08\x0b-\x1f\x7f-\x9f]")
+
+# The single-byte controls a terminal obeys instead of draws, as a set any
+# other module can test a character against - C0 (tab and newline excluded;
+# line-oriented callers handle those separately, as `drawable` does below)
+# plus DEL plus C1 (0x9b is CSI, 0x9d is OSC, one byte instead of two). A
+# caller that also cares about tab and newline - a config scalar, never a
+# display line - adds "\t\n" itself rather than this module deciding that
+# for it.
+CONTROL_CHARS = frozenset(chr(c) for c in range(0x00, 0x09)) \
+    | frozenset(chr(c) for c in range(0x0b, 0x20)) \
+    | frozenset(chr(c) for c in range(0x7f, 0xa0))
+_CONTROL = re.compile("[" + "".join(CONTROL_CHARS) + "]")
 
 
 def drawable(text: str, tabs: int | None = 4) -> list[str]:
