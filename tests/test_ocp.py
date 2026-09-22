@@ -10190,6 +10190,55 @@ def test_a_request_can_be_read_whole(home: Path) -> None:
         pass
 
 
+def test_ask_and_resolve_take_their_text_from_a_file_too(home: Path) -> None:
+    """Founder incident: a message typed inline with backticks in it is
+    rewritten - or run - by the caller's own shell before ocp ever sees
+    argv. `--file` is the way out: text a caller wrote with a quoted heredoc
+    or a file tool never goes through a shell at all."""
+    _daemon_home(home, 20)
+    try:
+        hostile = "see `describe_modal` and $(orca terminal send --terminal x --text boom)"
+        f = home / "ask_body.txt"
+        f.write_text(hostile)
+        out = _capture(lambda: climod.main(["ask", "reviewer", "--file", str(f), "--of", "backend"]))
+        check("ask --file: it went through", "queued" in out or "delivered" in out, out)
+        con = db.connect()
+        try:
+            row = db.head_of_queue(con, "reviewer")
+            check("ask --file: the text landed whole, backticks and all - nothing a shell "
+                  "would have expanded ever reached one", row and row["body"] == hostile,
+                  str(dict(row) if row else None))
+            rid = row["id"]
+        finally:
+            con.close()
+
+        out = _capture(lambda: climod.main(["ask", "reviewer", "--of", "backend"]))
+        check("ask: neither inline nor --file is a clear refusal, not a crash",
+              "required" in out or "--file" in out, out)
+        out = _capture(lambda: climod.main(
+            ["ask", "reviewer", "inline text", "--file", str(f), "--of", "backend"]))
+        check("ask: both inline and --file is refused too - one source, not a merge",
+              "not both" in out, out)
+
+        vf = home / "verdict.txt"
+        vf.write_text("done - `also not run`")
+        os.environ["OCP_AGENT"] = "reviewer"
+        try:
+            out = _capture(lambda: climod.main(["resolve", str(rid), "--file", str(vf)]))
+        finally:
+            del os.environ["OCP_AGENT"]
+        check("resolve --file: it went through", "done" in out or "->" in out, out)
+        con = db.connect()
+        try:
+            check("resolve --file: the verdict landed whole too",
+                  db.get_request(con, rid)["verdict"] == "done - `also not run`",
+                  db.get_request(con, rid)["verdict"])
+        finally:
+            con.close()
+    finally:
+        pass
+
+
 def test_inbox_and_withdraw_cli(home: Path) -> None:
     """`ocp inbox` shows the head and a count, not the whole queue (request
     #189); `ocp withdraw` takes back an undelivered request of your own."""
@@ -19547,6 +19596,7 @@ def main() -> int:
         run(lambda: test_an_answer_reaches_the_agent_that_asked(Path(td) / 'answered'))
         run(lambda: test_an_answer_wakes_the_agent_that_was_waiting_for_it(Path(td) / 'waiting'))
         run(lambda: test_a_request_can_be_read_whole(Path(td) / 'readone'))
+        run(lambda: test_ask_and_resolve_take_their_text_from_a_file_too(Path(td) / 'askfile'))
         run(lambda: test_inbox_and_withdraw_cli(Path(td) / 'inboxcli'))
         run(lambda: test_only_one_thing_types_at_an_agent_at_a_time(Path(td) / 'locking'))
         run(lambda: test_growing_the_team_needs_a_person(Path(td) / 'hr'))

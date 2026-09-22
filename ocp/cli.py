@@ -1020,8 +1020,33 @@ def cmd_team_check(args) -> int:
     return 0
 
 
+def _text_arg(inline: str | None, file_path: str | None, label: str) -> tuple[str | None, str | None]:
+    """(text, error). One of `inline` or `file_path` - never neither, never
+    both. A shell expands backticks and $() inside double quotes before this
+    process ever sees argv, so a message with either in it is silently
+    rewritten - or, at a live terminal, run - by the caller's own shell. A
+    file the caller wrote with a quoted heredoc, `Write`, or any tool that
+    does not itself go through a shell has no such risk; `--file` exists so
+    that is always an option instead of inline text being the only one.
+    """
+    if file_path and inline is not None:
+        return None, f"give {label} inline or with --file, not both"
+    if file_path:
+        try:
+            return Path(file_path).read_text(), None
+        except OSError as e:
+            return None, f"could not read {file_path}: {e}"
+    if inline is None:
+        return None, f"{label} is required (or --file PATH)"
+    return inline, None
+
+
 def cmd_ask(args) -> int:
-    ok, msg, _ = askmod.ask(args.target, args.body, files=args.files,
+    body, err = _text_arg(args.body, args.file, "body")
+    if err:
+        print(err)
+        return 1
+    ok, msg, _ = askmod.ask(args.target, body, files=args.files,
                             requester=args.of, parent_id=args.parent,
                             mergeable=args.mergeable, first=args.first,
                             replaces=args.replaces, fyi=args.fyi)
@@ -1329,6 +1354,10 @@ def cmd_resolve(args) -> int:
     The screen's answer key has always branched on that; this is the same
     branch, because the two must not disagree about what "answer" means.
     """
+    verdict, err = _text_arg(args.verdict, args.file, "verdict")
+    if err:
+        print(err)
+        return 1
     con = db.connect()
     try:
         row = db.get_request(con, args.id)
@@ -1340,7 +1369,7 @@ def cmd_resolve(args) -> int:
             print(_who_refusal("answer"))
             return 1
         if row["requester"] == me and row["state"] != "queued":
-            print(actions.answer(con, args.id, args.verdict))
+            print(actions.answer(con, args.id, verdict))
             return 0
         if row["target"] != me:
             print(f"#{args.id} is {row['requester']} → {row['target']}, not yours to "
@@ -1356,7 +1385,7 @@ def cmd_resolve(args) -> int:
             return 1
     finally:
         con.close()
-    ok, msg = askmod.resolve(args.id, args.verdict, state=args.state)
+    ok, msg = askmod.resolve(args.id, verdict, state=args.state)
     print(msg)
     return 0 if ok else 1
 
@@ -1500,7 +1529,10 @@ def build_parser() -> argparse.ArgumentParser:
 
     p = sub.add_parser("ask", help="send a request to another agent")
     p.add_argument("target")
-    p.add_argument("body")
+    p.add_argument("body", nargs="?", default=None)
+    p.add_argument("--file", default=None, metavar="PATH",
+                   help="read the body from this file instead of the inline argument - "
+                        "safe against a shell expanding backticks or $() in the text")
     p.add_argument("--files", default=None, help="comma-separated paths")
     p.add_argument("--of", default=None,
                    help="requester (defaults to $OCP_AGENT, or to the human "
@@ -1546,7 +1578,10 @@ def build_parser() -> argparse.ArgumentParser:
 
     p = sub.add_parser("resolve", help="close a request with a verdict")
     p.add_argument("id", type=int)
-    p.add_argument("verdict")
+    p.add_argument("verdict", nargs="?", default=None)
+    p.add_argument("--file", default=None, metavar="PATH",
+                   help="read the verdict from this file instead of the inline argument - "
+                        "safe against a shell expanding backticks or $() in the text")
     p.add_argument("--state", default="done", choices=["done", "rejected"])
     p.set_defaults(fn=cmd_resolve)
 
