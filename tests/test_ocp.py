@@ -6843,15 +6843,24 @@ def test_a_poisoned_proposal_field_is_refused_at_the_write_not_read_back_on_the_
 def test_dump_and_the_read_guard_refuse_exactly_the_same_characters(home: Path) -> None:
     """#1609: 'one definition of unsafe value shared by dump and read, not
     two lists that can drift apart.' A truth table over every codepoint in
-    yamlcompat.UNSAFE_VALUE_CHARS plus a sample of ordinary ones, checked
+    textsafe.UNSAFE_IN_VALUE plus a sample of ordinary ones, checked
     against both dump() and refuse_unsafe_values() - not just that they
     import the same constant (a future edit to either function's own
     condition could still drift, the way #1566/#1580 found one test's worth
     of drift inside dump() itself), but that the two actually agree,
     character by character."""
+    # auditor #1729: the rows below are generated from the set they are
+    # checking, so they agree with themselves whatever it holds. The four the
+    # set adds to CONTROL_CHARS are named literally here instead - they are
+    # the ones that end a line rather than drive a terminal, and the read
+    # guard let U+2028 and U+2029 through before this branch.
+    for c in "\t\n\u2028\u2029":
+        check(f"unsafe in a stored value though not on a screen: {hex(ord(c))}",
+              c in textsafe.UNSAFE_IN_VALUE and c not in textsafe.CONTROL_CHARS)
+
     ordinary = "a1 .-_'\"#[]{}:,&*|>~"
-    for c in sorted(yamlcompat.UNSAFE_VALUE_CHARS) + list(ordinary):
-        unsafe = c in yamlcompat.UNSAFE_VALUE_CHARS
+    for c in sorted(textsafe.UNSAFE_IN_VALUE) + list(ordinary):
+        unsafe = c in textsafe.UNSAFE_IN_VALUE
         try:
             yamlcompat.dump({"k": f"a{c}b"})
             dump_refused = False
@@ -8694,6 +8703,31 @@ def test_a_control_byte_is_never_accepted_as_an_identifier(home: Path) -> None:
               not ok and msg.startswith("could not read the new worktree path"), repr(msg))
         check("spawn: and nothing of it is stored",
               "\x9b" not in msg and stored() == (None, None), (repr(msg), stored()))
+
+        # auditor #1729: the rule is the one `agents.register` already applies
+        # to a name, so it covers the four `CONTROL_CHARS` leaves out. A
+        # newline is the one that bites: the sinks' `oneline` calls are gone,
+        # so a path holding one would be stored and then written into the
+        # middle of start_in's line, forging a second one after it.
+        for label, ch in (("a newline", "\n"), ("a tab", "\t"),
+                          ("U+2028", "\u2028"), ("U+2029", "\u2029")):
+            spawnmod._run = lambda args, cwd=None, c=ch: fake_run(
+                args, wt=f"{good_wt}{c}error: forged line", handle=f"term{c}x")
+            ok, msg = spawnmod.spawn("spawny", ROOT, base="main")
+            check(f"spawn: a worktree path carrying {label} is not read as a path",
+                  not ok and msg.startswith("could not read the new worktree path")
+                  and ch not in msg, repr(msg))
+            check(f"spawn: and {label} reaches no row, so no later message",
+                  stored() == (None, None), stored())
+
+        # The same refusal on the way in through the environment.
+        os.environ["ORCA_TERMINAL_HANDLE"] = "h\nerror: forged line"
+        os.environ["ORCA_WORKTREE_ID"] = "/tmp/plain-id"
+        launch._record_terminal("spawny", "alpha")
+        check("_record_terminal: nor is an environment handle carrying a newline",
+              stored()[0] is None, stored())
+        os.environ.pop("ORCA_TERMINAL_HANDLE", None)
+        os.environ.pop("ORCA_WORKTREE_ID", None)
 
         # A value that is not a string cannot be tested for what it carries,
         # and it is not a path either: the same refusal, not a crash.

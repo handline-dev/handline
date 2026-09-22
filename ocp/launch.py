@@ -455,9 +455,9 @@ def _record_terminal(agent: str, acct: str | None = None, fp: str | None = None)
     # are identifiers, read back and named in messages long after this - so one
     # carrying a control byte is refused here, not rewritten, and the reader is
     # left with what it already handles: no handle, and no worktree.
-    if handle and textsafe.has_control(handle):
+    if handle and textsafe.has_unsafe(handle):
         handle = None
-    if wt and textsafe.has_control(wt):
+    if wt and textsafe.has_unsafe(wt):
         wt = None
     if not handle and not acct:
         return

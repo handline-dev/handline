@@ -489,18 +489,13 @@ def _quoted(text: str) -> str:
     return '"' + text.replace("\\", "\\\\").replace('"', '\\"') + '"'
 
 
-# The one definition of "unsafe in a config scalar" - textsafe.CONTROL_CHARS
-# (C0/DEL/C1, what a terminal obeys instead of draws) plus tab and newline,
-# which that set leaves for a line-oriented caller to handle but a one-line
-# config scalar has no use for. dump() below refuses writing a value that
-# carries one; refuse_unsafe_values refuses reading one back - the read side
-# of the same rule. One frozenset, not two lists the two functions could
-# drift apart.
-UNSAFE_VALUE_CHARS = frozenset("\t\n") | textsafe.CONTROL_CHARS
-
-
 def _first_unsafe_char(value: str) -> str | None:
-    return next((c for c in value if c in UNSAFE_VALUE_CHARS), None)
+    """`textsafe.UNSAFE_IN_VALUE` is the definition, shared with `agents`'
+    name check and with the driver values `spawn` parses - a config scalar is
+    the same kind of thing, stored and handed on. dump() below refuses writing
+    a value that carries one; refuse_unsafe_values refuses reading one back,
+    the read side of the same rule."""
+    return next((c for c in value if c in textsafe.UNSAFE_IN_VALUE), None)
 
 
 def refuse_unsafe_values(data: dict, source) -> None:
@@ -553,7 +548,7 @@ def dump(data: dict) -> str:
             candidates.append(_float_text(value))
         else:
             value = str(value)
-            # UNSAFE_VALUE_CHARS (above) is the one definition, shared with
+            # `_first_unsafe_char` is the one definition, shared with
             # refuse_unsafe_values: 0x9b is CSI, one byte, and a value
             # carrying it once reached agent.yaml unquoted and was drawn on
             # the bridge.

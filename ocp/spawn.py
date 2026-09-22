@@ -54,7 +54,7 @@ def _parsed(out: str, *keys: str) -> str | None:
             value = value[k]
     except (json.JSONDecodeError, KeyError, TypeError):
         return None
-    if not isinstance(value, str) or textsafe.has_control(value):
+    if not isinstance(value, str) or textsafe.has_unsafe(value):
         return None
     return value
 
