@@ -2182,6 +2182,7 @@ def supervise(con, agent: str, log, now: int, samples: dict,
     reading = _confirmed_reading(con, agent, agents.account_reading(agent, con), log)
     acct = reading.account
     st = status.read_for_agent(agent, acct)
+    ctx_limit = status.effective_context_limit(agents.read(agent), st.model_id)
 
     # An agent whose *closed* session was restored in this tick is judged on the
     # next one: `st` was read above, before the wake, and a closed agent's
@@ -2346,8 +2347,8 @@ def supervise(con, agent: str, log, now: int, samples: dict,
             and state == PARKED and reading.source != "assumed" \
             and orca.available() and orca.alive(row["terminal"]):
         last = db.last_handoff(con, agent)
-        verdict = triggers.evaluate(st.trusted_pct_5h, st.trusted_ctx_pct,
-                                    pct_7d=st.trusted_pct_7d)
+        verdict = triggers.evaluate(st.trusted_pct_5h, st.trusted_ctx_used,
+                                    pct_7d=st.trusted_pct_7d, ctx_limit=ctx_limit)
         movable = last and last["trigger_kind"] in MOVABLE_TRIGGERS
         # Still at the wall here, but another account may have rolled over or
         # freed a slot since the park: if the work is worth a cold start, move
@@ -2386,7 +2387,8 @@ def supervise(con, agent: str, log, now: int, samples: dict,
     # trusted_* is None only when we genuinely do not know: no snapshot, or
     # one too old to believe. Unknown is not a wall, so it does not fire; an
     # account whose window is merely quiet reads as 0, not as unknown.
-    t = triggers.evaluate(st.trusted_pct_5h, st.trusted_ctx_pct, pct_7d=st.trusted_pct_7d)
+    t = triggers.evaluate(st.trusted_pct_5h, st.trusted_ctx_used,
+                          pct_7d=st.trusted_pct_7d, ctx_limit=ctx_limit)
     # A turn that ended on the usage limit means the agent is at the wall
     # whatever the reading says (it can lag, or be the other window): move it
     # the same way a trigger would.

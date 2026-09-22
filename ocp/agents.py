@@ -8,7 +8,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
-from . import paths, textsafe
+from . import paths, textsafe, triggers
 from .yamlcompat import ConfigError, dump, is_plain_text, load, refuse_unsafe_values
 
 DEFAULT_MODEL = "sonnet"
@@ -34,6 +34,21 @@ def parts(cfg: dict) -> tuple[str, str, str]:
     return (str(cfg.get("vendor") or DEFAULT_VENDOR),
             str(cfg.get("model") or DEFAULT_MODEL),
             str(cfg.get("effort") or DEFAULT_EFFORT))
+
+
+def context_tokens(cfg: dict) -> int:
+    """The agent's own context-handoff threshold, configured or the default.
+
+    Absent or falsy (missing, null, 0, "") reads as the default, the same as
+    every other agent.yaml field here. Garbage - a string, a negative number,
+    a bool - also reads as the default rather than as whatever `int()` would
+    coerce it to: a value this permissive that read a bad config as 0 would
+    hand off on every single tick, which is worse than ignoring it.
+    """
+    v = cfg.get("context_tokens")
+    if isinstance(v, bool) or not isinstance(v, int) or v <= 0:
+        return triggers.CONTEXT_TOKENS
+    return v
 
 
 def kind(cfg: dict) -> str:

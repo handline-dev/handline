@@ -918,14 +918,15 @@ def build(width: int, sel: dict | None = None,
             # the state column says already, with the same word - and two
             # reading "—". A column that is empty or duplicated is a column
             # that trains a reader not to look at it.
-            t = triggers.evaluate(st.trusted_pct_5h, st.trusted_ctx_pct)
+            ctx_limit = status.effective_context_limit(cfg, st.model_id)
+            t = triggers.evaluate(st.trusted_pct_5h, st.trusted_ctx_used, ctx_limit=ctx_limit)
             fire = (f"{YEL}⚠ {t.kind}{R}"
                     if t.fired and daemon.triggers_apply(row) else "")
             state_cell = (f"{(BOLD + STATE_COLOR[s]) if s in NEEDS_A_HUMAN else STATE_COLOR.get(s, '')}"
                           f"{fit(s, state_w - 1 - (len(until) + 1 if until else 0))}{R}"
                           + (f" {DIM}{until}{R}" if until else ""))
             ctxs = f"{pct(st.ctx_pct)}%"
-            if st.ctx_pct is not None and st.ctx_pct >= triggers.CONTEXT_PCT:
+            if st.ctx_used is not None and st.ctx_used >= ctx_limit:
                 ctxs = YEL + ctxs + R
             inbox = len(db.queued_for(con, name))
             # Padded on visible width, like the accounts panel: a state that

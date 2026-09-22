@@ -59,7 +59,7 @@ import time
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from . import accounts, paths, triggers, usage_api
+from . import accounts, agents, collect, paths, triggers, usage_api
 
 # statusLine only refreshes while a session is alive, so a snapshot older than
 # this is not trusted as "current" (section 4 constraint - refreshInterval
@@ -138,6 +138,25 @@ IDLE_FLOOR_MARGIN_PCT = 30
 LIVE_REFRESH_MAX_PER_CALL = 1
 
 
+def effective_context_limit(cfg: dict, model_id: str | None) -> int:
+    """`agents.context_tokens(cfg)`, clamped to a fraction of the model's own
+    window when collect.ctx_size recognizes it - the ceiling of last resort
+    described at triggers.CONTEXT_CLAMP_FRACTION. An unrecognized model has no
+    window to take a fraction of, so the configured-or-default figure stands
+    alone.
+
+    Lives here, not in agents.py: every caller (cli, daemon, tui) already
+    imports status, and agents.py stays a leaf - it must not reach up into
+    collect or vendors just to resolve a limit its own callers can resolve
+    themselves (#1784, orcapipe/auditor).
+    """
+    limit = agents.context_tokens(cfg)
+    size = collect.ctx_size(model_id)
+    if size:
+        limit = min(limit, int(size * triggers.CONTEXT_CLAMP_FRACTION))
+    return limit
+
+
 @dataclass
 class AccountStatus:
     account: str
@@ -149,6 +168,7 @@ class AccountStatus:
     pct_5h: int | None = None
     pct_7d: int | None = None
     ctx_pct: int | None = None
+    ctx_used: int | None = None
     reset_5h: int | None = None
     reset_7d: int | None = None
     cost_usd: float | None = None
@@ -313,6 +333,10 @@ class AccountStatus:
     @property
     def trusted_ctx_pct(self) -> int | None:
         return None if self.stale else self.ctx_pct
+
+    @property
+    def trusted_ctx_used(self) -> int | None:
+        return None if self.stale else self.ctx_used
 
     def last_known(self) -> str:
         """The figures of a stale snapshot, with their age, for a reader.
@@ -539,6 +563,13 @@ def read(acct: str, path: Path | None = None) -> AccountStatus:
     st.pct_5h_readable = "pct_5h" in raw and (raw["pct_5h"] is None or st.pct_5h is not None)
     st.pct_7d = _as_pct(raw.get("pct_7d"))
     st.ctx_pct = _as_pct(raw.get("ctx_pct"))
+    # The snapshot's own field is the raw usage breakdown (collect.snapshot's
+    # "ctx_used"), not a total - sum it the same way collect.tokens does, or
+    # leave it None when nothing was written, never 0. A bare number here
+    # (an older or hand-written payload) is read as-is.
+    raw_ctx_used = raw.get("ctx_used")
+    st.ctx_used = (collect.tokens(raw_ctx_used) if isinstance(raw_ctx_used, dict)
+                  else _as_int(raw_ctx_used))
     st.reset_5h = _as_int(raw.get("reset_5h"))
     st.reset_7d = _as_int(raw.get("reset_7d"))
     st.collected_at = _as_int(raw.get("collected_at"))
@@ -571,8 +602,10 @@ def read_for_agent(agent: str, account: str) -> AccountStatus:
         # have. An agent that has never run was being shown another agent's
         # context, and judged on it.
         acct_status.ctx_pct = None
+        acct_status.ctx_used = None
         acct_status.session_id = None
         acct_status.transcript_path = None
+        acct_status.model_id = None
         return acct_status
     own = read(account, agent_file)
     if own.error or own.stale:
@@ -585,12 +618,16 @@ def read_for_agent(agent: str, account: str) -> AccountStatus:
         # told a woken agent to grep a stranger's transcript, in a stranger's
         # repository, in a system whose whole premise is per-agent isolation.
         acct_status.ctx_pct = None
+        acct_status.ctx_used = None
         acct_status.session_id = None
         acct_status.transcript_path = None
+        acct_status.model_id = None
         return acct_status
     acct_status.ctx_pct = own.ctx_pct
+    acct_status.ctx_used = own.ctx_used
     acct_status.session_id = own.session_id
     acct_status.transcript_path = own.transcript_path
+    acct_status.model_id = own.model_id
     return acct_status
 
 

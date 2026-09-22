@@ -861,11 +861,13 @@ def cmd_triggers(args) -> int:
                 # and FIRES YES while the daemon, reading the new one, does
                 # nothing: the dashboard arguing with the daemon.
                 acct = agents.current_account(a, con)
+                cfg = agents.read(a)
             except Exception as e:  # noqa: BLE001
                 print(f"{a:<{w}} config error: {e}")
                 continue
             st = status.read_for_agent(a, acct)
-            t = triggers.evaluate(st.trusted_pct_5h, st.trusted_ctx_pct)
+            ctx_limit = status.effective_context_limit(cfg, st.model_id)
+            t = triggers.evaluate(st.trusted_pct_5h, st.trusted_ctx_used, ctx_limit=ctx_limit)
             cell = lambda v: "  -" if v is None else f"{v:>3}"  # noqa: E731
             # The figure the trigger used, not the raw one: a column saying "-"
             # beside a reason saying "0%" is the dashboard arguing with the daemon.

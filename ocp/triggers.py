@@ -17,8 +17,29 @@ from __future__ import annotations
 import time
 from dataclasses import dataclass
 
-# Replaces the cache-expiry trigger that appendix A-2 removed.
-CONTEXT_PCT = 60
+# Replaces the cache-expiry trigger that appendix A-2 removed. Was a
+# percentage of a per-model window (60%), which meant one thing when every
+# model's window was 200k and a different, five times looser thing once
+# opus/sonnet grew to 1M and the sentence did not change with it (#1665,
+# #1668). An absolute figure means the same thing on every model, including
+# one whose window this box has never priced - measured against 7 days of
+# token_calls (#1755-#1759): the founder's own anchor, what 60% meant when
+# the window was 200k, and the only candidate that cut real cache-read cost
+# rather than just capping a peak that the old rule's own looseness produced.
+CONTEXT_TOKENS = 120_000
+
+# The clamp: a ceiling of last resort, not the normal decider. When the
+# model is one collect.ctx_size() recognizes, the effective limit is never
+# above this fraction of that model's own window, so a model with a small
+# window still gets a working check even if its configured or default
+# figure is sized for a 1M-token one. Reusing 60% (CONTEXT_PCT's old value)
+# means this reproduces exactly what the rule already meant for each known
+# model - sonnet/opus clamp to 600,000, unchanged from today; haiku clamps
+# to 120,000, the same as the flat default. An unrecognized model has no
+# window to take a fraction of, so it gets the flat default alone - the
+# deliberate failure direction, since refusing to hand off forever (today's
+# silent behaviour) is worse than a number picked for a different model.
+CONTEXT_CLAMP_FRACTION = 0.60
 
 # Both windows are spent to their own ceiling.
 WALL_PCT = 100
@@ -98,22 +119,31 @@ def burn_rate_per_s(samples: list[tuple[int, int]]) -> float:
     return (p1 - p0) / span
 
 
-def evaluate(pct_5h: int | None, ctx_pct: int | None, pct_7d: int | None = None) -> Trigger:
+def evaluate(pct_5h: int | None, ctx_used: int | None, pct_7d: int | None = None,
+             ctx_limit: int = CONTEXT_TOKENS) -> Trigger:
     """Should this agent hand off now?
 
     Usage answers only at the wall. An unreadable figure is not a wall: the
     wall announces itself, and moving an agent off an account nobody can read
     spends a cold start on a guess.
+
+    `ctx_limit` is a token count, not a percentage of anything - the caller has
+    already resolved the agent's own configured-or-default figure and, when the
+    model is a known one, clamped it to CONTEXT_CLAMP_FRACTION of that model's
+    window (see agents.context_tokens). This function takes numbers, never a
+    name, so it stays the one place both callers and every test can trust
+    without re-deriving an agent's override or a model's window here too.
     """
     if pct_5h is not None and pct_5h >= WALL_PCT:
         return Trigger(True, "usage", f"pct_5h {pct_5h}% - at the wall")
     if pct_7d is not None and pct_7d >= WALL_PCT:
         return Trigger(True, "usage_7d", f"pct_7d {pct_7d}% - at the weekly wall")
-    if ctx_pct is not None and ctx_pct >= CONTEXT_PCT:
-        return Trigger(True, "context", f"context {ctx_pct}% >= {CONTEXT_PCT}%")
+    if ctx_used is not None and ctx_used >= ctx_limit:
+        return Trigger(True, "context", f"context {ctx_used:,} >= {ctx_limit:,}")
     return Trigger(False, "", f"pct_5h {'?' if pct_5h is None else str(pct_5h) + '%'} below "
                               f"the wall, context "
-                              f"{'?' if ctx_pct is None else str(ctx_pct) + '%'} < {CONTEXT_PCT}%")
+                              f"{'?' if ctx_used is None else format(ctx_used, ',')} "
+                              f"< {ctx_limit:,}")
 
 
 def stay_within_s(cold_start_pct: float | None = None) -> float:
