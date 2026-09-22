@@ -2308,7 +2308,15 @@ def test_build_prompt_tells_the_model_not_to_write_a_started_by_reference_as_has
     # text itself, not a second, hand-kept list that a future edit to the
     # prompt could drift away from unnoticed, and run through
     # reconcile_resolved the same way the two counter-examples above were.
-    segment = prompt.split("another way instead (", 1)[1].split(")", 1)[0]
+    # auditor #1623 NOTE: split()[1] on an anchor a future reword could drop
+    # would raise IndexError before the "setup" check below ever ran - the
+    # same shape as the .get() fix elsewhere, so the anchor split is checked
+    # before it is indexed, not after.
+    anchor = "another way instead ("
+    parts = prompt.split(anchor, 1)
+    check("build_prompt: setup - the rule's example list is where this test expects it",
+          len(parts) == 2, prompt)
+    segment = parts[1].split(")", 1)[0] if len(parts) == 2 else ""
     examples = re.findall(r'"([^"]+)"', segment)
     check("build_prompt: setup - the rule gives at least two examples to check",
           len(examples) >= 2, segment)
