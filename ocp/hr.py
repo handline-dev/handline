@@ -27,6 +27,7 @@ from __future__ import annotations
 
 import json
 import re
+import shlex
 import time
 import uuid
 from pathlib import Path
@@ -493,7 +494,8 @@ def label(con, agent: str) -> tuple[bool, str]:
     path = spawn.worktree_path(row["worktree"] if row else None)
     if not path:
         return True, ""
-    cmd = f"orca worktree set --worktree path:{path} --display-name {agent}"
+    cmd = ("orca worktree set --worktree " + shlex.quote(f"path:{path}")
+           + " --display-name " + shlex.quote(agent))
     if not orca.available():
         return False, f"Orca is not on PATH, so its label is not set: `{cmd}`"
     ok, out = orca._run(["worktree", "set", "--worktree", f"path:{path}",

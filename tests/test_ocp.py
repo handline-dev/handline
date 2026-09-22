@@ -5390,6 +5390,29 @@ edges:
         con.close()
 
 
+def test_the_relabel_recovery_command_quotes_what_it_names(home: Path) -> None:
+    """hr.label's recovery command was an f-string with no quoting - a worktree
+    path or an agent name with a space in it produced a command that broke on
+    the exact thing it exists to let a human paste and run."""
+    _daemon_home(home, 20)
+    con = db.connect()
+    real_avail = orcamod.available
+    try:
+        wt = home / "trees" / "has space"
+        wt.mkdir(parents=True)
+        db.set_terminal(con, "has space", "term_x", f"repo-id::{wt}")
+        orcamod.available = lambda: False
+        done, said = hr.label(con, "has space")
+        cmd = said.split("`")[1]
+        parts = shlex.split(cmd)
+        check("label: the path and the name each round-trip as one shell word",
+              not done and parts[parts.index("--worktree") + 1] == f"path:{wt}"
+              and parts[parts.index("--display-name") + 1] == "has space", said)
+    finally:
+        orcamod.available = real_avail
+        con.close()
+
+
 def test_a_name_that_yaml_would_not_read_as_text_is_refused_where_it_is_typed(home: Path) -> None:
     """A name is written unquoted into team.yaml, agent.yaml and config.yaml. `no`
     is False to PyYAML and a refusal to the bundled parser, and a refusal on a
@@ -16173,6 +16196,8 @@ def test_no_command_prints_what_a_terminal_would_obey(home: Path) -> None:
         "daemon": "runs forever", "service install": "launchd", "service uninstall": "launchd",
         "service status": "launchd; prints a pid",
         "close": "types into a terminal through Orca", "base promote": "writes base.md; prints sizes and a path",
+        "hr relabel": "calls Orca directly, no proposal; driven in "
+                      "test_a_rename_names_the_agents_orca_worktree, not this scene",
     }
     have = set(driven_now := scene.driven) | set(skipped)
     every = set(leaves())
@@ -19481,6 +19506,7 @@ def main() -> int:
         run(lambda: test_one_unreadable_proposal_does_not_take_the_hr_listing_down(Path(td) / 'hrlist'))
         run(lambda: test_a_walled_wake_is_said_once_not_every_tick(Path(td) / 'wallonce'))
         run(lambda: test_a_rename_names_the_agents_orca_worktree(Path(td) / 'renamelabel'))
+        run(lambda: test_the_relabel_recovery_command_quotes_what_it_names(Path(td) / 'relabelquote'))
         run(lambda: test_agent_yaml_is_written_by_dump_so_what_was_typed_reads_back(Path(td) / 'agentyaml'))
         run(lambda: test_the_suite_and_the_package_name_only_what_exists())
         run(lambda: test_yaml_booleans())
