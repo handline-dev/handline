@@ -37,6 +37,7 @@ from pathlib import Path
 from . import (accounts, agents, blocked, burnrate, db, events, fold as foldmod, handoff as handoffmod, launch,
                load, lock, measure, observe as obs, orca, paths, probe, service, spawn as spawnmod,
                status, textsafe, tokenlog, triggers)
+from .yamlcompat import ConfigError
 
 # Section 8.2 states.
 IDLE, QUEUED, RUNNING, DONE = "IDLE", "QUEUED", "RUNNING", "DONE"
@@ -1222,6 +1223,25 @@ def expire_handoffs(con, log) -> list[str]:
     return actions
 
 
+def _stall_on_unreadable_config(con, agent: str, log, actions: list[str],
+                                e: Exception, where: str) -> None:
+    """This agent's own file is bad, not reconciliation's fault: count it
+    against the agent (8.5) and stall it once the streak reaches the same
+    ceiling tick()'s per-agent guard uses, rather than let it wedge every
+    other agent behind it. Only ConfigError/UnicodeDecodeError/OSError reach
+    here - the class a bad file raises - so a database failure (a different
+    exception entirely) is not this function's to catch and keeps propagating,
+    the same distinction hr.listing already draws for a bad proposal file."""
+    db.bump_counter(con, agent, "failed_attempts")
+    fresh = db.get_agent_state(con, agent)
+    actions.append(f"{agent}: {where}: {e}")
+    log(f"  {agent}: {where}: {e}")
+    if fresh and fresh["failed_attempts"] >= MAX_FAILED_ATTEMPTS:
+        db.set_agent_state(con, agent, STALLED,
+                           detail=f"{fresh['failed_attempts']} failed attempts: {where}: {e}")
+        log(f"  {agent}: STALLED after {fresh['failed_attempts']} failed attempts")
+
+
 def reconcile(con, log) -> list[str]:
     """One unconditional pass at startup (8.4).
 
@@ -1238,7 +1258,15 @@ def reconcile(con, log) -> list[str]:
     actions += expire_handoffs(con, log)
     for row in db.in_flight_handoffs(con):
         agent, step = row["agent"], row["step"]
-        resume_handoff(con, row, log)
+        try:
+            resume_handoff(con, row, log)
+        except (ConfigError, UnicodeDecodeError, OSError) as e:
+            # Reached through account_of when agent_state.account is not yet
+            # recorded: one agent's unreadable agent.yaml must not leave every
+            # other in-flight handoff - and every due wake below it - unresolved.
+            _stall_on_unreadable_config(con, agent, log, actions, e,
+                                       f"could not resume handoff from step '{step}'")
+            continue
         actions.append(f"{agent}: resumed in-flight handoff from step '{step}'")
 
     # 2. wake_at deadlines that have come due.
@@ -1253,7 +1281,12 @@ def reconcile(con, log) -> list[str]:
         # leaves behind is the ordinary way - has to stay due, or due_agents
         # never selects it again and the agent sleeps until a human looks.
         if row["closed_at"]:
-            ok, why = wake_agent(con, agent, log)
+            try:
+                ok, why = wake_agent(con, agent, log)
+            except (ConfigError, UnicodeDecodeError, OSError) as e:
+                _stall_on_unreadable_config(con, agent, log, actions, e,
+                                           "could not wake at reconciliation")
+                continue
             if not ok:
                 actions.append(f"{agent}: could not wake at reconciliation, "
                                f"still due - {why}")
