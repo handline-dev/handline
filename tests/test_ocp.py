@@ -1600,6 +1600,72 @@ def test_the_usage_poll_asks_one_account_per_tick_and_renews_only_on_failure(hom
         usage_api.read, accounts.logged_in = real_read, real_login
 
 
+def test_a_failing_account_never_blocks_the_ones_behind_it(home: Path) -> None:
+    """founder #1811, #1799 part 2: the production shape. `list_accounts` is
+    sorted, so alpha/beta/delta/gamma sit ahead of omega/sigma/theta - and
+    with all four failing on every try (the endpoint 429s an account at its
+    own wall, or a token stays dead), the old `return` on the first failure
+    each tick meant the loop never reached the rest: omega answered fine and
+    went three hours unpolled because it came alphabetically last. Driven
+    over several ticks - the account that succeeds is not the point, that it
+    is reached at all despite four always-failing accounts ahead of it is."""
+    _daemon_home(home, 40)
+    for a in ("alpha", "beta", "delta", "gamma", "omega"):
+        accounts.register(a)
+    asked: list[str] = []
+
+    def fake_read(acct, refresh=True):
+        asked.append(acct)
+        if acct == "omega":
+            return usage_api.Reading(acct, 5, None, 6, None, int(time.time()))
+        return None
+
+    real_read, real_login = usage_api.read, accounts.logged_in
+    try:
+        accounts.logged_in = lambda acct: True
+        usage_api.read = fake_read
+        con = db.connect()
+        try:
+            for _ in range(3):
+                dmn.poll_usage(con, lambda _m: None)
+            check("starve: omega is actually asked, despite four accounts "
+                  "ahead of it in list_accounts order failing every time",
+                  "omega" in asked, asked)
+            check("starve: and its reading actually lands",
+                  status.read("omega").pct_5h == 5, status.read("omega").pct_5h)
+            check("starve: the four failing accounts were each tried too - "
+                  "none of them silently dropped to make room",
+                  {"alpha", "beta", "delta", "gamma"} <= set(asked), asked)
+        finally:
+            con.close()
+    finally:
+        usage_api.read, accounts.logged_in = real_read, real_login
+
+
+def test_a_reading_past_the_carry_bound_is_carried_old_even_though_the_flag_is_false(
+        home: Path) -> None:
+    """#1799 part 2 (orcapipe): reverting status.py's rl_age_s check to main
+    and re-running the full suite stayed green at 3486 passed, 0 failed -
+    nothing pinned it directly. usage_api never sets rl_carried True in
+    production (it always clears it to False on a successful poll, see its
+    own record()), so this is the actual on-disk shape a stalled poll leaves:
+    rl_carried False, rl_at old, collected_at fresh (something else, unrelated
+    to rate limits, kept it that way). Must read carried_old and must not be
+    assignable on that shape alone - not on a flag nobody sets."""
+    home.mkdir(parents=True, exist_ok=True)
+    os.environ["OCP_HOME"] = str(home)
+    write_status(home, "alpha", pct_5h=55, reset_5h=int(time.time()) + 9000,
+                 rl_carried=False, rl_lost=False,
+                 rl_at=int(time.time()) - status.CARRY_MAX_AGE_S - 60,
+                 collected_at=int(time.time()))
+    st = status.read("alpha")
+    check("carried_old: a reading past the carry bound reads carried_old even "
+          "with rl_carried False - the shape usage_api actually writes",
+          st.pct_5h_source == "carried_old", st.pct_5h_source)
+    check("carried_old: and it is not assignable",
+          not st.assignable()[0], st.assignable()[1])
+
+
 def test_a_turn_ending_refreshes_the_snapshot_through_the_hook(home: Path) -> None:
     """The statusLine's per-turn push, done by a hook that was already there.
 
@@ -23681,6 +23747,9 @@ def main() -> int:
         run(lambda: test_a_settings_write_that_dies_leaves_the_old_file(Path(td) / 'setatomic'))
         run(lambda: test_the_usage_poll_asks_one_account_per_tick_and_renews_only_on_failure(
             Path(td) / 'pullpoll'))
+        run(lambda: test_a_failing_account_never_blocks_the_ones_behind_it(Path(td) / 'pollstarve'))
+        run(lambda: test_a_reading_past_the_carry_bound_is_carried_old_even_though_the_flag_is_false(
+            Path(td) / 'carriedoldpin'))
         run(lambda: test_yaml())
         run(lambda: test_agents(home))
         run(lambda: test_trust_roots(Path(td) / 'trust_roots'))

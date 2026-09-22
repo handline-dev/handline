@@ -88,6 +88,13 @@ USAGE_MAX_AGE_S = 900
 # every two minutes for ever.
 USAGE_REFRESH_COOLDOWN_S = 900
 
+# poll_usage backs a failing account off by USAGE_POLL_S * 2**(streak-1),
+# capped here, rather than retrying it every USAGE_POLL_S forever - both so a
+# persistently-failing account does not keep costing a request every two
+# minutes, and so it stops eating the one-success-per-tick budget every
+# account behind it in list_accounts order depends on (#1811).
+USAGE_FAIL_BACKOFF_CAP_S = 1800
+
 MAX_FAILED_ATTEMPTS = 3      # 8.5: real failures only
 MAX_THROTTLE_STREAK = 5      # 8.6: then escalate to a human gate
 
@@ -2398,7 +2405,7 @@ def usage_due(con, acct: str, st: status.AccountStatus, now: int) -> str | None:
 
 
 def poll_usage(con, log) -> None:
-    """Ask one account where it stands, over its own OAuth credential.
+    """Ask the accounts due for a reading, over their own OAuth credential.
 
     This is the half of the collector's payload the transcript cannot give
     (D11): a session learns its rate limits only from its own API responses, so
@@ -2407,8 +2414,18 @@ def poll_usage(con, log) -> None:
     endpoint answers for any account with nothing running at all, which is what
     makes asking cheap enough to do on a schedule, and what retired the probe.
 
-    One account per tick: five HTTPS GETs in one tick would put five timeouts in
-    the path of a 30s loop.
+    At most one *successful* reading per tick - five HTTPS GETs in one tick
+    would put five timeouts in the path of a 30s loop - but a failing account
+    must not consume that budget for every account behind it in
+    `list_accounts` order (founder #1811, #1799 part 2): with four accounts
+    failing every try (the endpoint itself 429s an account at its own wall, or
+    a token stays dead), the old `return` on the first failure meant the loop
+    never reached the rest - omega/sigma/theta answered fine and went unpolled
+    for three hours because alpha/beta/delta/gamma came first in the list and
+    always failed. A failing account keeps its own cursor moving instead
+    (`continue`), and is backed off exponentially the way a stalled retry
+    anywhere else in ocp is, so it costs less of the budget the longer it
+    keeps failing rather than the same slice of it forever.
     """
     now = int(time.time())
     for acct in paths.list_accounts():
@@ -2420,7 +2437,6 @@ def poll_usage(con, log) -> None:
         if not accounts.logged_in(acct):
             db.set_cursor(con, f"usage-poll:{acct}", now + LOGIN_CHECK_COOLDOWN_S)
             continue
-        db.set_cursor(con, f"usage-poll:{acct}", now + USAGE_POLL_S)
         # No renewal on the common path: a session on the account keeps its own
         # token fresh, and two writers of one keychain entry race.
         reading = usage_api.read(acct, refresh=False)
@@ -2428,8 +2444,14 @@ def poll_usage(con, log) -> None:
             db.set_cursor(con, f"usage-refresh:{acct}", now + USAGE_REFRESH_COOLDOWN_S)
             reading = usage_api.read(acct, refresh=True)
         if reading is None:
-            log(f"  usage: {acct}: could not ask")
-            return
+            streak = int(db.get_meta(con, f"usage-fail:{acct}") or 0) + 1
+            db.set_meta(con, f"usage-fail:{acct}", str(streak))
+            backoff = min(USAGE_POLL_S * 2 ** (streak - 1), USAGE_FAIL_BACKOFF_CAP_S)
+            db.set_cursor(con, f"usage-poll:{acct}", now + backoff)
+            log(f"  usage: {acct}: could not ask (next try in {backoff}s)")
+            continue
+        db.set_meta(con, f"usage-fail:{acct}", None)
+        db.set_cursor(con, f"usage-poll:{acct}", now + USAGE_POLL_S)
         usage_api.record(reading)
         log(f"  usage: {acct}: {why} - 5h {reading.pct_5h}% 7d {reading.pct_7d}%")
         return
