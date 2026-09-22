@@ -264,7 +264,7 @@ rebuild - in Orca's shape.
 |---|---|---|---|
 | build the argv (model, effort, tool denial, mcp) | `launch.build` | **DRIVER** | every flag is Claude's spelling. Orca layer 3 cannot take this over: `worker-start` has no env/config-dir flag, so it cannot place a session on a chosen account. |
 | find the binary | `shutil.which("claude")` ×7 (`launch`, `probe`, `fold`, `accounts`, `doctor`, `cli` ×2) | **DRIVER** | one lookup per vendor, in one place instead of seven. |
-| account env | `accounts.env_for` → `CLAUDE_CONFIG_DIR` | **DRIVER** | codex is `CODEX_HOME`; opencode TBD. |
+| account env | `accounts.env_for` → `CLAUDE_CONFIG_DIR` | **DRIVER** | codex is `CODEX_HOME`; opencode is four `XDG_*` variables, not one (§12.1). |
 | is this launch a resume | `launch._is_resume` (`--resume`/`-r`/`--resume=`) | **DRIVER** | codex spells it differently. |
 | system-prompt injection | `--append-system-prompt` in `launch.build` | **RESHAPE** ✅ | **No longer the hard one - the founder's #1305 challenge was right and it collapses the seam.** Not a flag per vendor: one per-agent file written into the agent's own worktree, which both vendors already read. See §1.1. |
 | launch fingerprint / drift | `launch.fingerprint`, `drifted` | **RESHAPE** | the mechanism (hash what a running session cannot pick up) is neutral; the *material list* is Claude's flags. Driver supplies the material, this keeps the logic. |
@@ -685,10 +685,10 @@ board has to be written twice.
 |---|---|---|---|
 | 1 | what argv starts a session | `--model --effort --disallowedTools --mcp-config` | tool denial has no codex equivalent; its analogue is approval policy + a `PreToolUse` hook |
 | 2 | where is the binary | `which("claude")` ×7 | one lookup instead of seven |
-| 3 | how is an account selected | `CLAUDE_CONFIG_DIR` | codex: `CODEX_HOME` |
+| 3 | how is an account selected | `CLAUDE_CONFIG_DIR` | codex: `CODEX_HOME`; opencode: four `XDG_*` variables together (§12.1) |
 | 4 | is this launch a resume | `--resume` / `-r` / `--resume=` | |
-| 5 | who is this account | `claude auth status --json` | |
-| 6 | where does the credential live | macOS Keychain, per-config-dir digest | codex: a plain `auth.json` - simpler |
+| 5 | who is this account | `claude auth status --json` | opencode: `providers list` names the provider and credential path, never an account id (§12.2) |
+| 6 | where does the credential live | macOS Keychain, per-config-dir digest | codex: a plain `auth.json` - simpler; opencode: a plain JSON keyed by provider slug at `$XDG_DATA_HOME/opencode/auth.json` (§12.3) |
 | 7 | which shared config items link in | settings.json, CLAUDE.md, skills, agents, commands, plugins | per-vendor layout |
 | 8 | how does memory move with an account | `projects/<encoded>/memory/` | |
 | 9 | which account is a live process spending | `CLAUDE_CONFIG_DIR` off `ps eww` | Orca cannot answer this for us at all |
@@ -711,3 +711,183 @@ closely. `daemon.py`, `tui.py`, `actions.py`, `cli.py`, `ask.py` and
 vendor-neutral state machines and their known vendor coupling is the `/clear`
 and `/exit` call sites already counted as 12 and 13 - but a new DRIVER row
 appearing from them is possible, not ruled out.
+
+---
+
+## 12. opencode + Z.ai: the five #1660 questions, measured
+
+Section 11's own gap - none of the fifteen #1660 rows had an opencode answer -
+closed on this machine, once the founder installed opencode and linked a real
+Z.ai account himself (#1758). No login, no logout was performed. `auth.json`
+stayed 112 bytes, mtime unchanged at the founder's own login (22:30).
+`opencode.db`'s mtime did move, but not on every subcommand: `debug paths` and
+`providers list` left the db, `-shm` and `-wal` mtimes unchanged; `opencode
+stats` moved all three - that is this survey's own stats run writing the
+(empty) db, not idle housekeeping. It was read through a `mode=ro&immutable=1`
+URI throughout.
+
+opencode 1.18.32, one provider configured: `zai-coding-plan` (Z.ai's Coding
+Plan, an API key, not OAuth).
+
+### 12.1 Account selection - four variables, and the name that looks right isn't
+
+`opencode debug paths` (baseline, whole output, run with no overrides):
+
+    home       /Users/ron
+    data       /Users/ron/.local/share/opencode
+    bin        /Users/ron/.cache/opencode/bin
+    log        /Users/ron/.local/share/opencode/log
+    repos      /Users/ron/.local/share/opencode/repos
+    cache      /Users/ron/.cache/opencode
+    config     /Users/ron/.config/opencode
+    state      /Users/ron/.local/state/opencode
+    tmp        /var/folders/1x/ts5yvbsx3sd105v4zvy_kpx40000gn/T/opencode
+
+`OPENCODE_CONFIG_DIR` - the name that reads like ocp's own `CLAUDE_CONFIG_DIR`
+- moves nothing `debug paths` reports. It is a false lead. What actually
+relocates the rows is the freedesktop trio plus a fourth, checked one at a
+time and together:
+
+    XDG_DATA_HOME=<scratch>   -> data becomes <scratch>/opencode  (auth.json, opencode.db, log, repos)
+    XDG_CONFIG_HOME=<scratch> -> config becomes <scratch>/opencode
+    XDG_STATE_HOME=<scratch>  -> state becomes <scratch>/opencode
+    XDG_CACHE_HOME=<scratch>  -> cache becomes <scratch>/opencode, bin becomes <scratch>/opencode/bin
+
+`tmp` follows `TMPDIR`, not an XDG variable - a fifth location. Whether it
+needs to move per account too is unmeasured.
+
+Isolation, proven without a second login: `XDG_DATA_HOME=<scratch> opencode
+providers list` prints `0 credentials` against `<scratch>/opencode/auth.json`,
+while the real `~/.local/share/opencode/auth.json` (unwritten) still
+holds one. **Yes, it isolates one account per directory** - the same property
+`CLAUDE_CONFIG_DIR` gives us, as variables set together (`XDG_DATA_HOME` at
+minimum, for credentials and usage; `XDG_CONFIG_HOME`/`XDG_STATE_HOME` for the
+rest) rather than one. `XDG_CACHE_HOME` holds `models.json` and downloaded
+tools; whether it needs to move per account too is unmeasured - it probably
+does not, since nothing in it looks account-specific.
+
+### 12.2 Who an account is - a command names the provider, never the account
+
+    $ opencode providers list
+    Credentials  ~/.local/share/opencode/auth.json
+    ● Z.AI Coding Plan  api
+    1 credentials
+
+Names the provider and the credential file's path. There is no "who am I"
+beyond that - auth is per-**provider**, not a bare account id. The file was
+opened to read its key names and value types only, never the credential
+value itself: `{"zai-coding-plan": {"type": "str", "key": "str"}}` - a flat
+API key keyed by provider slug, not an OAuth token pair. No email, no
+account id, no expiry.
+
+### 12.3 Credential location and concurrent accounts - proven for two directories, unproven within one
+
+The credential lives at `$XDG_DATA_HOME/opencode/auth.json` (default
+`~/.local/share/opencode/auth.json`), keyed by provider slug. §12.1's isolation
+mechanism answers the framing exactly: **two different directories** (two
+`XDG_DATA_HOME` values) each hold their own logged-in Z.ai account with no
+eviction between them - proven above, no second login needed. **Within one
+directory**, the file is keyed by provider slug, not by account, so a second
+Z.ai login into the *same* data directory overwrites the `"zai-coding-plan"`
+entry - eviction, the same failure shape a shared `CLAUDE_CONFIG_DIR` would
+have. A second real account, logged in and read back successfully, remains
+unproven - this survey did not log one in.
+
+`opencode.db`'s `account` / `account_state` / `control_account` tables (schema
+read via `PRAGMA table_info`, no values) are all empty for this provider - an
+API-key credential does not populate them. Their shape looks built for an
+OAuth-style provider (`account` carries email/access_token/refresh_token/
+token_expiry; `account_state` names one `active_account_id`, singular - the
+same one-active-account shape Orca's own Claude/Codex management has). So even
+if opencode grows a way to hold several OAuth accounts in one data directory
+later, `account_state`'s own shape says only one would ever be active there -
+the multi-account answer would still come down to directories, not rows in
+this table.
+
+The counts above were read through a `mode=ro&immutable=1` URI, which ignores
+the WAL - a re-count against a scratch copy that included the WAL (7 frames)
+gives the same zeros, so the claim holds, but the ro/immutable method alone
+could not have shown it. That copy also turned up a `credential` table (`id`,
+`integration_id`, `label`, `value`, …), 0 rows, that the tables named above
+don't cover.
+
+### 12.4 Usage - a local spend tally, and no remaining-quota figure anywhere
+
+`opencode.db` has `session` and `message` tables; `opencode stats` reads them:
+
+    $ opencode stats
+    Sessions 0, Messages 0, Days 0
+    Total Cost $0.00, Input 0, Output 0, Cache Read 0, Cache Write 0
+
+All zero because no session has run on this account yet. This is **local
+accounting**, not a live pull of anything on Z.ai's side - inferred from the
+`session`/`message` schema (`cost`, `tokens_input`, `tokens_output`,
+`tokens_cache_read`, …), not observed happening, since no session has run to
+populate it. `opencode models zai-coding-plan` lists seven model ids
+(`glm-4.7` through `glm-5.3-flash`/`highspeed`); each carries a context and
+output token limit and a cost figure, but **no quota figure** - none of them
+say how much of the account's allowance is left. Searched the binary for a
+Z.ai-specific remaining-quota endpoint and
+found none: a generic `getCredits()` hits `{baseURL}/v1/credits`, but it
+belongs to the AI-gateway-auth-method code path (Vercel's AI Gateway), not
+anything scoped to `zai-coding-plan` - no evidence Z.ai's own provider entry
+calls it.
+
+**Measured: opencode exposes no quota figure for a Z.ai subscription - not a
+remaining-allowance number, not a wall.** The only number opencode will ever
+produce is our own running tally of what was spent, computed the same way
+regardless of what the plan actually allows. Whether Z.ai's plan has a
+window-shaped quota of its own, and what shape it would take, is **not
+measured** - it would need the API key itself and a call to Z.ai's own
+service, which this survey does not make (rule 1).
+
+### 12.5 A quiet account - the question does not disappear, it comes back empty
+
+Usage is written to a file, so there is no statusLine-style push to react to
+and no probe needed to force one - but the file only updates because a session
+ran, and even then it holds our own tally, never the account's real remaining
+allowance. A quiet account's db stays quiet; a busy one's db only ever answers
+"how much have we spent," never "how much is left." **What opencode itself can
+answer - is there a wall to park against - is no.** Nothing here corresponds
+to `pct_5h`/`pct_7d`, and `status.unfit`/`triggers.evaluate`'s usage-wall shape
+has nothing to read for a Z.ai account. Whether Z.ai's own real limit is a
+window at all, and whether it is reachable some other way, is unmeasured -
+opencode does not expose it, which is as far as this survey can settle it.
+
+### 12.6 What this changes on the board
+
+Feeds directly into two existing DRIVER rows and one still-open question:
+
+- **§1 "account env"**: opencode's answer is filled in above (rows 3, 5, 6 in
+  §11 get the same) - four `XDG_*` variables (§12.1), and a plain
+  per-provider-slug JSON file (§12.3), simpler than Claude's Keychain scheme
+  and closer in shape to codex's plain `auth.json`.
+- **§11 row 15, "how is a quiet account made to report"**: codex's column
+  reads "unnecessary for a vendor that writes usage to a file" - true of the
+  *mechanism*, but opencode is the case that shows the assumption behind it
+  does not always hold. Writing usage to a file answers *how a reading is
+  collected*; it says nothing about whether that reading is a **wall**. Z.ai's
+  file answers "how much did we spend" and never "how much is left" - so §12.5
+  is a second, sharper finding than row 15 currently states, not covered by it.
+- **§5's window model**: this is the finding the founder asked this survey to
+  produce even if the answer did not fit. What is measured: **opencode
+  exposes no quota figure; whether Z.ai's plan has one, and its shape, is not
+  measured.** So there is nothing measured here to reshape into a
+  `pct_5h`/`pct_7d`-shaped figure - which is narrower than saying the shape is
+  absent from the account itself. If a later measurement finds Z.ai has no
+  quota endpoint at all, whatever shape that account gets in `status.py`
+  would be a fourth case beside carried/quiet/unknown, closer to the
+  **DECIDE** row in §7 than to a DRIVER row - a code question about what an
+  *unmetered* account looks like to `pick_account` and `triggers.evaluate`.
+  Not answered here because this section is measurement, not design, and the
+  premise (no quota endpoint exists) is itself unmeasured. `buddyron/account-vendor`
+  (`status.UNMETERED_WHY`, #1776) already sketches this fourth case, not yet
+  on main - check there before designing it twice.
+
+**Not measured, and would need what #1660 and #1766 both said to stop and ask
+about first:** a second real Z.ai login (proves §12.3's open half); whether
+opencode reads a preamble file the way Claude/codex do (§1.1's table still
+carries `opencode | TBD | TBD`); whether a Z.ai plan has any server-side
+quota endpoint at all, reachable only with the API key itself in hand
+(the same rule-1 exception `usage_api` already carries for Claude, and a
+founder decision either way).
