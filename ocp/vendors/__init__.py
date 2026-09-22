@@ -8,12 +8,16 @@ from .claude import Claude
 _REGISTRY: dict[str, Driver] = {d.name: d for d in (Claude(),)}
 
 
+class UnknownVendor(ValueError):
+    pass
+
+
 def get(vendor: str) -> Driver:
     try:
         return _REGISTRY[vendor]
     except KeyError:
-        raise ValueError(f"no driver for vendor {vendor!r}; "
-                         f"known: {', '.join(sorted(_REGISTRY))}") from None
+        raise UnknownVendor(f"no driver for vendor {vendor!r}; "
+                            f"known: {', '.join(sorted(_REGISTRY))}") from None
 
 
 def for_agent(name: str) -> Driver:

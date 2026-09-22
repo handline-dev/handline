@@ -55,11 +55,11 @@ class Report:
 
 
 def _check_tools(r: Report) -> None:
-    for tool, why, hard in (
-        (vendors.for_accounts().name, "needed to run agents", True),
-        ("orca", "terminal and worktree control", False),
+    drv = vendors.for_accounts()
+    for tool, found, why, hard in (
+        (drv.name, drv.binary(), "needed to run agents", True),
+        ("orca", shutil.which("orca"), "terminal and worktree control", False),
     ):
-        found = shutil.which(tool)
         if found:
             r.add(OK, f"{tool} found", found)
         else:

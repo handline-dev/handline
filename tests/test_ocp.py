@@ -34,7 +34,7 @@ from ocp import (accounts, actions, agents, ask as askmod, blocked as blockedmod
                  handoff as handoffmod, launch, load as loadmod, lock, measure,
                  observe as obsmod, orca as orcamod, paths, replay as replaymod, service,
                  spawn as spawnmod,
-                 status, team, textsafe, triggers, tui, usage_api, waiting,
+                 status, team, textsafe, triggers, tui, usage_api, vendors, waiting,
                  yamlcompat)  # noqa: E402
 
 PASS, FAIL = [], []
@@ -6643,6 +6643,62 @@ def test_ask_respects_terminal_state(home: Path) -> None:
               st["state"] == "STALLED", str(dict(st)))
     finally:
         con.close()
+
+
+def test_a_vendor_with_no_driver_refuses_the_launch(home: Path) -> None:
+    """auditor's #1691: an agent.yaml naming a vendor ocp has no driver for
+    refuses the launch as a decision, a written line and no traceback or
+    class name. It does so before anything is chosen or consumed, so nothing
+    is exec'd and the handoff waiting for the agent is still there."""
+    os.environ["OCP_HOME"] = str(home)
+    bindir = home / "stub"
+    bindir.mkdir(parents=True, exist_ok=True)
+    stub = bindir / "claude"
+    stub.write_text('#!/bin/sh\necho EXECED\n')
+    stub.chmod(0o755)
+    agents.register("zaitest", "gamma")
+    with agents.agent_file("zaitest").open("a") as f:
+        f.write("vendor: nosuch\n")
+    cfg = home / "accounts" / "gamma" / ".claude"
+    cfg.mkdir(parents=True, exist_ok=True)
+    (cfg / ".credentials.json").write_text("{}")
+    keep_handoff("zaitest", "# handoff · zaitest\n- carry on\n")
+    env = dict(os.environ, PATH=f"{bindir}:{os.environ['PATH']}", OCP_HOME=str(home))
+    env.pop("OCP_AGENT", None)
+    r = subprocess.run([sys.executable, str(ROOT / "bin" / "ocp"), "launch", "zaitest"],
+                       capture_output=True, text=True, env=env)
+    out = r.stdout + r.stderr
+    check("unknown vendor: the launch is refused", r.returncode != 0, out)
+    check("unknown vendor: in a written line that names the agent and the vendor",
+          "zaitest" in out and "no driver for vendor 'nosuch'" in out, out)
+    check("unknown vendor: which reads as a decision, not a crash",
+          not re.search(r"error: [A-Za-z]+: ", out) and "Traceback" not in out, out)
+    check("unknown vendor: nothing is exec'd", "EXECED" not in out, out)
+    con = db.connect()
+    try:
+        check("unknown vendor: the handoff is not consumed", db.get_handoff(con, "zaitest"))
+    finally:
+        con.close()
+
+
+def test_doctor_looks_for_the_vendors_executable_not_its_name(home: Path) -> None:
+    """auditor's #1691: the tool check asks the driver for its executable. A
+    vendor is not named after its binary (Z.ai runs through opencode), so a
+    lookup by name reports it missing wherever it is installed."""
+    class Zai:
+        name = "zai"
+        def binary(self):
+            return "/opt/zai/bin/opencode"
+    real = vendors.for_accounts
+    try:
+        vendors.for_accounts = lambda: Zai()
+        r = doctor.Report()
+        doctor._check_tools(r)
+        row = [x for x in r.rows if x[1].startswith("zai")]
+        check("doctor: a vendor whose binary is installed is found, under the vendor's name",
+              row and row[0][0] == doctor.OK and row[0][2] == "/opt/zai/bin/opencode", str(r.rows))
+    finally:
+        vendors.for_accounts = real
 
 
 def test_launch_refuses_stale(home: Path) -> None:
@@ -21728,6 +21784,8 @@ def main() -> int:
         run(lambda: test_status_edge_cases(Path(td) / 'se'))
         run(lambda: test_team_deny_validation())
         run(lambda: test_ask_respects_terminal_state(Path(td) / 'term'))
+        run(lambda: test_a_vendor_with_no_driver_refuses_the_launch(Path(td) / 'novendor'))
+        run(lambda: test_doctor_looks_for_the_vendors_executable_not_its_name(Path(td) / 'doctorbin'))
         run(lambda: test_launch_refuses_stale(Path(td) / 'stale'))
         run(lambda: test_shared_account_context_isolation(Path(td) / 'shared'))
         run(lambda: test_db_dedup_only_swallows_dedup(Path(td) / 'strict'))

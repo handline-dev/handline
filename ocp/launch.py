@@ -201,7 +201,10 @@ def mcp_config_arg() -> tuple[list[str], str | None]:
 
 def build(agent: str, extra: list[str] | None = None, force: bool = False) -> tuple[list[str], dict]:
     """Return (argv, env) ready to hand to execve."""
-    drv = vendors.for_agent(agent)
+    try:
+        drv = vendors.for_agent(agent)
+    except vendors.UnknownVendor as e:
+        raise SystemExit(f"agent '{agent}': {e}") from None
     acct = choose_account(agent, resuming=drv.is_resume(extra))
 
     if not accounts.logged_in(acct):

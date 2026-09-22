@@ -1,6 +1,6 @@
 # 03 - The vendor driver
 
-Draft (#1315). Not implemented; nothing here has been applied to the codebase.
+Draft (#1315). Step 1 of §7 is built (`ocp/vendors/`, #1657); the rest is not.
 
 One place that answers, per vendor, the fifteen questions enumerated in
 `docs/vendor-extension-board.md` §11. Everything else in ocp stays where it is.
@@ -271,6 +271,22 @@ Each step is independently shippable and leaves the tree green.
 
 Steps 1-4 are vendor-neutral refactors that leave ocp single-vendor and
 working. **Nothing in 1-4 needs codex to exist.**
+
+**Before a second vendor's account exists: accounts carry a vendor.** Today
+an account records none, and every account-level answer comes from
+`vendors.for_accounts()`, the default vendor's driver. That is two places,
+not one:
+
+- `for_accounts()` itself, which then takes the account.
+- `accounts.LINKED`, which is `for_accounts().shared_items()` frozen at
+  import time into a module constant. Three functions read it, and there is
+  no account to hand a constant, so it has to become a per-account call.
+  This is a change of shape, not of argument.
+
+The failure if this is skipped is silent: env_for's config-dir variable,
+logged_in, identity, login and logout, memory_root and shared_items would
+all give claude's answers for the second vendor's account, and nothing
+would raise. (#1691)
 
 ## 8. Open
 
