@@ -126,8 +126,10 @@ def work_waiting(con, agent: str, row, now: int) -> str:
 
 def classify(con, agent: str, row) -> tuple[str, str, str] | None:
     """(kind, detail, title) of what is in the way of giving this agent its
-    work, or None when nothing is. One screen read at most. `title` is the
-    dialog's own title, raw - empty for every kind but MODAL.
+    work, or None when nothing is. One screen read of its own at most -
+    waiting.of() above may also read this handle, for a different question,
+    and this one still reads fresh. `title` is the dialog's own title, raw -
+    empty for every kind but MODAL.
 
     Left out on purpose: busy, which is what an agent working is and which
     `STUCK_RUNNING_S` already judges; a usage wall, which resolves when the
