@@ -108,13 +108,32 @@ def deterministic_facts(agent: str, events, repo: Path | None = None) -> str:
 # it as done: nothing in the delta ever named it closed. This checks the
 # store directly for every id already on the page, rather than asking the
 # model to infer closure from a delta that structurally cannot say it.
-_ID_RE = re.compile(r"\d+")
+#
+# reconcile_resolved's errors are one-way: build_prompt (below) forbids the
+# very next fold from ever moving a line back out of 완료, so a wrong close
+# here is permanent, in the document an agent is told to read when it has no
+# handoff (daemon.py's no-handoff branch) and that the next fold itself reads
+# back as `previous`. That rules out guessing an id out of prose - \d+ moved
+# "step 2 of 7", "3 conflicts left" and "7d reset tracking needs founder
+# call" to 완료 once request ids 1-8 happened to be resolved, none of them
+# actually about those requests (auditor's #499/#1573). Only an explicit
+# reference is close enough to certain: #N, or "request N" the way an agent
+# writing prose about its own asks would say it. build_prompt's own rules
+# tell the model to write an ask as #N, so this matches something the prompt
+# guarantees rather than something it merely hopes for.
+_ID_RE = re.compile(r"#(\d+)|\brequest\s+(\d+)\b", re.IGNORECASE)
 _RECONCILE_SECTIONS = ("in_progress", "blocked")
 
 
 def _is_resolved(con, rid: int) -> bool:
+    # Only "done" - not db.NEVER_REACHED_TARGET (denied/withdrawn/replaced)
+    # and not "rejected": every one of those means the work this line
+    # describes never happened, and reconcile_resolved's job is to close a
+    # line once the store can PROVE it is done, not once the request is off
+    # the queue for some other reason (auditor's #499 should-fix, raised to
+    # blocking by #1573's ruling - the same one-way-error reasoning above).
     r = db.get_request(con, rid)
-    return r is not None and r["state"] != "queued"
+    return r is not None and r["state"] == "done"
 
 
 def reconcile_resolved(con, d: digest.Digest) -> digest.Digest:
@@ -130,7 +149,9 @@ def reconcile_resolved(con, d: digest.Digest) -> digest.Digest:
             continue
         kept, resolved = [], []
         for item in items:
-            ids = [int(m) for m in _ID_RE.findall(item)]
+            # Two alternatives, two groups: whichever one matched is the id,
+            # the other is "".
+            ids = [int(a or b) for a, b in _ID_RE.findall(item)]
             (resolved if ids and all(_is_resolved(con, i) for i in ids) else kept).append(item)
         if resolved:
             d.sections[key] = kept
@@ -159,6 +180,10 @@ Rules:
 - Every item already under 완료 in the previous digest MUST still appear under 완료.
   Losing a completed item is the one unacceptable error.
 - Move items between sections as the new events warrant; do not invent work.
+- When a 진행중 or 막힌 것 item is about a request you asked, write its id as
+  #N (e.g. "waiting on #7"). reconcile_resolved only recognizes that form -
+  a bare number, or one written any other way, is read as prose, not a
+  reference, and the item is never closed by the store alone.
 - Keep each item one line, terse and concrete.
 - Do not add sections beyond the ones listed.
 
@@ -233,11 +258,13 @@ def fold(agent: str, use_model: bool = True, model: str = "haiku",
 
         if not events:
             # No event of this agent's own to fold, but the store can still
-            # have resolved an ask with no event to show it - reconcile the
-            # journal against the store so a resume never reads a stale
-            # in_progress/blocked line, and republish only if that moved one.
-            # reconcile_resolved mutates its argument in place, so the
-            # comparison needs the text taken before it runs.
+            # have resolved an ask with no event to show it - a resolve event
+            # can fall before this fold's own cursor, so the model never sees
+            # it in the delta and the line it wrote sits in 진행중/막힌 것
+            # forever. Reconcile against the store here too, and republish
+            # only if that moved a line. reconcile_resolved mutates its
+            # argument in place, so the comparison needs the text taken
+            # before it runs.
             before = digest.render(previous)
             reconciled = reconcile_resolved(con, previous)
             after = digest.render(reconciled)

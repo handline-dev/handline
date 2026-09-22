@@ -2169,6 +2169,138 @@ def test_a_resolved_ask_does_not_stay_in_progress_across_a_park(home: Path) -> N
           "set up the branch" in published.items("done"))
 
 
+def _reconcile_world(home: Path) -> None:
+    home.mkdir(parents=True, exist_ok=True)
+    os.environ["OCP_HOME"] = str(home)
+    (home / "team.yaml").write_text(DESIGN_TEAM)
+    agents.register("backend", "alpha")
+
+
+def test_reconcile_resolved_needs_an_explicit_reference_not_a_bare_number(home: Path) -> None:
+    """auditor's #499/#1573: a fold's own errors are one-way - build_prompt
+    forbids the very next fold from ever moving a line back out of 완료 - so
+    a wrong close is permanent in the document daemon.py tells an agent with
+    no handoff to read. \\d+ read every number in a line as a request id, and
+    request ids are small integers that nearly all resolve. Reproduced with
+    requests 1-8 done: "Phase 4 daemon rewrite, step 2 of 7" (ids 4, 2, 7,
+    all done), "rebase onto main, 3 conflicts left" and "7d reset tracking
+    needs founder call" (auditor's exact three) all moved to 완료 under the
+    old regex. Only #N or "request N" is close enough to certain."""
+    _reconcile_world(home)
+    con = db.connect()
+    try:
+        for _ in range(8):
+            rid = db.add_request(con, "backend", "auditor", "x", None, "peer",
+                                 "fire_and_forget", None, 0, None)
+            db.set_request_state(con, rid, "done", verdict="ok")
+
+        prose = ["Phase 4 daemon rewrite, step 2 of 7",
+                "rebase onto main, 3 conflicts left",
+                "7d reset tracking needs founder call"]
+        d = digest.Digest(date="2026-09-22", agent="backend", updated="09:00",
+                          folded_through=1,
+                          sections={"in_progress": prose[:2], "blocked": prose[2:],
+                                   "done": [], "decided": [], "next": [], "base_candidates": []})
+        out = foldmod.reconcile_resolved(con, d)
+        check("reconcile: a bare number in prose is not read as a request id",
+              out.items("in_progress") == prose[:2] and out.items("blocked") == prose[2:],
+              str(out.sections))
+        check("reconcile: nothing moved to 완료 on prose alone",
+              out.items("done") == [], out.items("done"))
+
+        # The control: an explicit #N to that same resolved request IS closed.
+        explicit = digest.Digest(date="2026-09-22", agent="backend", updated="09:00",
+                                 folded_through=1,
+                                 sections={"in_progress": [f"waiting on #{rid}"],
+                                          "blocked": [], "done": [], "decided": [],
+                                          "next": [], "base_candidates": []})
+        out2 = foldmod.reconcile_resolved(con, explicit)
+        check("reconcile: an explicit #N to a done request is closed",
+              out2.items("in_progress") == [] and f"waiting on #{rid}" in out2.items("done"),
+              str(out2.sections))
+    finally:
+        con.close()
+
+
+def test_reconcile_resolved_only_state_done_counts(home: Path) -> None:
+    """auditor's #499 should-fix, raised to blocking by #1573: `state !=
+    'queued'` let denied, withdrawn and replaced asks - work that never
+    happened - count as done. Only 'done' does."""
+    _reconcile_world(home)
+    con = db.connect()
+    try:
+        never_happened = {}
+        for state in ("denied", "withdrawn", "replaced", "rejected"):
+            rid = db.add_request(con, "backend", "auditor", "x", None, "peer",
+                                 "fire_and_forget", None, 0, None)
+            db.set_request_state(con, rid, state)
+            never_happened[state] = rid
+        done_rid = db.add_request(con, "backend", "auditor", "y", None, "peer",
+                                  "fire_and_forget", None, 0, None)
+        db.set_request_state(con, done_rid, "done", verdict="ok")
+        queued_rid = db.add_request(con, "backend", "auditor", "z", None, "peer",
+                                    "fire_and_forget", None, 0, None)
+
+        d = digest.Digest(date="2026-09-22", agent="backend", updated="09:00", folded_through=1,
+                          sections={"in_progress": [f"waiting on #{rid}" for rid in never_happened.values()]
+                                   + [f"waiting on #{done_rid}", f"waiting on #{queued_rid}"],
+                                   "blocked": [], "done": [], "decided": [], "next": [],
+                                   "base_candidates": []})
+        out = foldmod.reconcile_resolved(con, d)
+        for state, rid in never_happened.items():
+            line = f"waiting on #{rid}"
+            check(f"reconcile: {state} is not done - the ask never reached its target",
+                  line in out.items("in_progress") and line not in out.items("done"),
+                  str(out.sections))
+        check("reconcile: a done request is closed",
+              f"waiting on #{done_rid}" in out.items("done"), str(out.sections))
+        check("reconcile: a still-queued one stays put",
+              f"waiting on #{queued_rid}" in out.items("in_progress"), str(out.sections))
+    finally:
+        con.close()
+
+
+def test_fold_degraded_path_also_reconciles_resolved_asks(home: Path) -> None:
+    """#499 should-fix: only the no-event and model paths were exercised.
+    _degraded carries previous's in_progress/blocked lines forward verbatim
+    (design section 5's deterministic fallback), and reconcile_resolved runs
+    on that too - a fold that could not reach a model must not leave a
+    provably-done line stuck forever either."""
+    _reconcile_world(home)
+    con = db.connect()
+    try:
+        rid = db.add_request(con, "backend", "auditor", "review this", None,
+                             "peer", "fire_and_forget", None, 0, None)
+        db.add_event(con, "backend", "ask", {"request_id": rid, "target": "auditor"})
+    finally:
+        con.close()
+
+    day = foldmod.today()
+    previous = digest.Digest(
+        date=day, agent="backend", updated="09:00", folded_through=0,
+        sections={"done": ["set up the branch"], "in_progress": [f"waiting on #{rid}"],
+                  "decided": [], "blocked": [], "next": [], "base_candidates": []})
+    foldmod.journal_path("backend", day).write_text(digest.render(previous))
+
+    con = db.connect()
+    try:
+        db.set_request_state(con, rid, "done", verdict="looks good", announced=True)
+        # A second, unrelated event so the fold is not the no-event path.
+        db.add_event(con, "backend", "commit", {"sha": "abc", "subject": "more work"})
+    finally:
+        con.close()
+
+    ok, msg = foldmod.fold("backend", use_model=False, fold_account="alpha")
+    check("fold: the degraded path runs (no model requested)", not ok, msg)
+    published = digest.parse(foldmod.journal_path("backend", day).read_text())
+    check("fold: the degraded fold also closes a provably-done ask",
+          f"waiting on #{rid}" in published.items("done")
+          and f"waiting on #{rid}" not in published.items("in_progress"),
+          str(published.sections))
+    check("fold: and does not lose completed work already on the page",
+          "set up the branch" in published.items("done"), published.items("done"))
+
+
 def test_rollover(home: Path) -> None:
     home.mkdir(parents=True, exist_ok=True)
     os.environ["OCP_HOME"] = str(home)
@@ -19568,6 +19700,9 @@ def main() -> int:
         run(lambda: test_event_allowlist())
         run(lambda: test_fold(Path(td) / 'foldhome'))
         run(lambda: test_a_resolved_ask_does_not_stay_in_progress_across_a_park(Path(td) / 'foldparkhome'))
+        run(lambda: test_reconcile_resolved_needs_an_explicit_reference_not_a_bare_number(Path(td) / 'reconid'))
+        run(lambda: test_reconcile_resolved_only_state_done_counts(Path(td) / 'reconstate'))
+        run(lambda: test_fold_degraded_path_also_reconciles_resolved_asks(Path(td) / 'reconderaded'))
         run(lambda: test_rollover(Path(td) / 'rollhome'))
         run(lambda: test_triggers())
         run(lambda: test_daemon_evaluates_parked(Path(td) / 'd0'))
