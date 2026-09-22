@@ -319,7 +319,7 @@ def _check_session_matches_the_record(r: Report) -> None:
                 continue
             r.add(WARN, f"agent {agent}: its transcript is still being written with no session running",
                   "only a live session writes that transcript, and the "
-                  "process-table search finds no claude for this agent - check "
+                  "process-table search finds no session for this agent - check "
                   "observe.is_session; while it does not match, nothing is "
                   "delivered to anyone")
     finally:

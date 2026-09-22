@@ -40,6 +40,13 @@ class Claude:
     def config_dir_env(self) -> str:
         return "CLAUDE_CONFIG_DIR"
 
+    def is_session(self, command: str) -> bool:
+        """`claude` in the command line, headless runs excluded. Headless here
+        is `-p`, which is claude's spelling and nobody else's."""
+        if "claude" not in command:
+            return False
+        return " -p " not in command and not command.endswith(" -p")
+
     def meters(self) -> bool:
         return True
 

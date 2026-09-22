@@ -42,13 +42,14 @@ class Observed:
 def is_session(command: str) -> bool:
     """Is this process an agent's session, rather than something else of ours?
 
-    A fold is a headless `claude -p` that inherits whatever OCP_AGENT its caller
-    had. Counting it would tell the sweep an agent is alive for as long as a
-    fold runs and closed the moment it ends.
+    Which binary a session runs, and how a headless run is spelled, are both
+    the vendor's answers, so every known driver is asked - the same shape
+    `account_of_process` uses. Hardcoding claude's answers here made a second
+    vendor's live session invisible: nothing matched it, `live_sessions` left
+    its agent's pid None, and the daemon read that as the session having died
+    and recorded a running agent closed, on every tick.
     """
-    if "claude" not in command:
-        return False
-    return " -p " not in command and not command.endswith(" -p")
+    return any(drv.is_session(command) for drv in vendors.known())
 
 
 def process_table() -> list[tuple[int, str]] | None:
@@ -145,12 +146,13 @@ def account_of_process(pid: int) -> str | None:
 
 
 def live_sessions() -> dict[str, int] | None:
-    """agent -> pid for every claude session that is actually running.
+    """agent -> pid for every agent session that is actually running, whatever
+    vendor it runs in (`is_session`).
 
-    Read from the environment `ocp launch` set before exec'ing claude, which is
-    the same string the rest of the system keys on. A fold is excluded: it is a
-    headless `claude -p` that inherits whatever OCP_AGENT its caller had, and it
-    is not the agent's session.
+    Read from the environment `ocp launch` set before exec'ing the vendor's
+    binary, which is the same string the rest of the system keys on. A fold is
+    excluded: it is a headless run that inherits whatever OCP_AGENT its caller
+    had, and it is not the agent's session.
     """
     table = process_table()
     if table is None:

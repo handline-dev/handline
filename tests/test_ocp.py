@@ -7739,6 +7739,13 @@ class SecondVendor:
         return "/opt/zai/bin/opencode"
     def config_dir_env(self):
         return "ZAI_HOME"
+    def is_session(self, command):
+        # Its own binary, and its own spelling of headless - neither word
+        # appears in claude's answer, so a check that still carries claude's
+        # literals answers no to every line below.
+        if "opencode" not in command:
+            return False
+        return " run " not in command and not command.endswith(" run")
     def meters(self):
         return self.metered
     def is_resume(self, extra):
@@ -7853,6 +7860,81 @@ def test_a_claude_agent_is_never_placed_on_another_vendors_account(home: Path) -
                   str((launch.find_room("glm"), status.pick_account(agent="glm"))))
         finally:
             accounts.logged_in, orcamod.available = real
+
+
+def test_a_second_vendors_live_session_is_seen_by_the_sweep(home: Path) -> None:
+    """#1815: `is_session` decided from claude's own literals, so a session of
+    any other vendor matched nothing at all. `live_sessions` then left that
+    agent's pid None, and `reconcile` reads "terminal alive, no process" as the
+    session having died - so the daemon recorded a live, correctly placed agent
+    closed, on every tick. Which binary a session runs, and how the vendor
+    spells a headless run, are both the driver's answers now.
+
+    Driven through real `ps` command lines rather than by patching
+    `live_sessions`: every other test in this file replaces that function
+    wholesale, so none of them reaches `is_session` at all."""
+    _daemon_home(home, 20)
+    with second_vendor(metered=True):
+        check("is_session: a second vendor's own binary is a session",
+              obsmod.is_session("/opt/zai/bin/opencode --model glm-4.6"))
+        check("is_session: claude's still is",
+              obsmod.is_session("/usr/local/bin/claude --resume abc123"))
+        check("is_session: the second vendor's own spelling of headless is not",
+              not obsmod.is_session("/opt/zai/bin/opencode run 'fold it'"))
+        check("is_session: nor is claude's",
+              not obsmod.is_session("/usr/local/bin/claude -p 'fold it'"))
+        check("is_session: and nothing of ours is not a session either",
+              not obsmod.is_session("/usr/bin/ssh somewhere"))
+    check("is_session: with that driver gone its command line is not a session",
+          not obsmod.is_session("/opt/zai/bin/opencode --model glm-4.6"))
+
+    # And the invariant the miss actually broke: the daemon's own record of a
+    # running agent. Real `live_sessions`, over a process table we supply.
+    real = (obsmod.live_sessions, obsmod.process_table, obsmod.process_env,
+            orcamod.available, orcamod.live_terminals)
+    obsmod.live_sessions = REAL_OBSERVE["live_sessions"]
+    orcamod.available = lambda: True
+    orcamod.live_terminals = lambda: {"term_x", "term_z"}
+    with second_vendor(metered=True):
+        try:
+            accounts.register("zeta", vendor="zai")
+            agents.register("glm", "zeta")
+            _with_vendor("glm", "zai")
+            con = db.connect()
+            try:
+                db.set_terminal(con, "glm", "term_z", "wt")
+                db.set_agent_state(con, "glm", dmn.RUNNING, detail="working")
+                table = [(4301, "/opt/zai/bin/opencode --model glm-4.6")]
+                obsmod.process_table = lambda: list(table)
+                obsmod.process_env = lambda pid: f"OCP_AGENT={'glm' if pid == 4301 else 'x'}"
+                check("vendor sweep: the premise - its pid is found",
+                      obsmod.live_sessions() == {"glm": 4301},
+                      str(obsmod.live_sessions()))
+                said: list[str] = []
+                dmn.sweep(con, lambda _m: None, said)
+                row = db.get_agent_state(con, "glm")
+                check("vendor sweep: a live second-vendor session is not recorded closed",
+                      not row["closed_at"]
+                      and not any("glm: its session is gone" in a for a in said),
+                      str((dict(row), said)))
+
+                # The control, on the same fixture: when its process really has
+                # gone, the same sweep does record it closed - so the check
+                # above is about the vendor and not about a sweep that never
+                # reached this agent.
+                table.clear()
+                said = []
+                dmn.sweep(con, lambda _m: None, said)
+                row = db.get_agent_state(con, "glm")
+                check("vendor sweep: and when it really is gone, it is recorded closed",
+                      row["closed_at"]
+                      and any("glm: its session is gone" in a for a in said),
+                      str((dict(row), said)))
+            finally:
+                con.close()
+        finally:
+            (obsmod.live_sessions, obsmod.process_table, obsmod.process_env,
+             orcamod.available, orcamod.live_terminals) = real
 
 
 def test_an_unmetered_account_is_pinned_never_picked_or_polled(home: Path) -> None:
@@ -24920,6 +25002,8 @@ def main() -> int:
         run(lambda: test_a_vendor_with_no_driver_refuses_the_launch(Path(td) / 'novendor'))
         run(lambda: test_doctor_looks_for_the_vendors_executable_not_its_name(Path(td) / 'doctorbin'))
         run(lambda: test_a_claude_agent_is_never_placed_on_another_vendors_account(Path(td) / 'vendorpick'))
+        run(lambda: test_a_second_vendors_live_session_is_seen_by_the_sweep(
+            Path(td) / 'vendorsweep'))
         run(lambda: test_an_unmetered_account_is_pinned_never_picked_or_polled(Path(td) / 'unmetered'))
         run(lambda: test_an_agent_is_never_launched_on_another_vendors_account(Path(td) / 'vendorlaunch'))
         run(lambda: test_an_account_records_its_vendor(Path(td) / 'vendorrecord'))
