@@ -352,8 +352,14 @@ def close_task(con, tid: int, sha: str | None = None, reason: str | None = None,
         mark = reason
     if not db.close_task(con, tid, mark, via="sha" if sha else "reason"):
         return False, f"task #{tid} was closed by someone else just now"
-    db.add_event(con, askmod.asking_agent() or row["owner"], "close_task",
-                 {"task_id": tid, "closed_by": mark})
+    # Hoisted out of the call so the kind-enumeration scan in
+    # test_only_the_agents_own_events_move_its_activity_clock can see it -
+    # a literal kind inside a parenthesised second argument is invisible to
+    # that regex, and only the scan's own call-count check caught it
+    # (auditor's #1565 SF3). cli.cmd_close now refuses without an identity,
+    # so `who` is always a real agent, never the fallback.
+    who = askmod.asking_agent() or row["owner"]
+    db.add_event(con, who, "close_task", {"task_id": tid, "closed_by": mark})
     return True, f"task #{tid} closed ({mark})"
 
 

@@ -7600,11 +7600,17 @@ def test_only_the_agents_own_events_move_its_activity_clock(home: Path) -> None:
     #1527, #1533, and SessionEnd (ocp's own `/exit`, pinning a closed agent's
     clock to when it was closed) all share. Every classification is proven
     individually, not just asserted in bulk."""
-    daemon_kinds = {"account_mismatch", "answered", "close", "close_failed", "cold_start",
-                    "dialog_declined", "dialog_exit_chosen", "fold", "fold_failed", "forced_move",
-                    "handoff", "memory_migrated", "moved_account", "nudged", "notified", "park",
-                    "session_gone", "started_for_work", "terminal_gone", "unstuck",
-                    "wake", "wake_failed", "SessionStart", "SessionEnd"}
+    daemon_kinds = {"account_mismatch", "answered", "close", "close_failed", "close_task",
+                    "cold_start", "dialog_declined", "dialog_exit_chosen", "fold", "fold_failed",
+                    "forced_move", "handoff", "memory_migrated", "moved_account", "nudged",
+                    "notified", "park", "session_gone", "started_for_work", "terminal_gone",
+                    "unstuck", "wake", "wake_failed", "SessionStart", "SessionEnd"}
+    # close_task is here, not in AGENT_ACTIVITY_KINDS, because of
+    # actions.close_task's `askmod.asking_agent() or row["owner"]` fallback:
+    # cli.cmd_close now refuses without an identity, but the fallback still
+    # exists in actions.py for any future caller that does not - and this is
+    # the allow-list that decides what a fallback like that can do to a
+    # clock, not just what today's one caller happens to send (#1565 SF3).
 
     # Literal add_event(agent, "kind", ...) call sites: every one sorted, and
     # the scan proven to have read every site, not just the ones its regex
@@ -19648,6 +19654,55 @@ def test_closing_a_task_needs_evidence_and_no_open_child(home: Path) -> None:
     check("close: a task number with no evidence is refused", rc == 1, out)
 
 
+def test_close_task_refuses_without_an_identity_and_does_not_move_a_clock(home: Path) -> None:
+    """#1565 SF3, both halves. (a) The scan: actions.close_task wrote
+    `db.add_event(con, askmod.asking_agent() or row["owner"], "close_task",
+    ...)` with the fallback expression inline as the call's second argument -
+    invisible to the kind-enumeration regex in
+    test_only_the_agents_own_events_move_its_activity_clock, which reads
+    literal kinds, not expressions. (b) The classification: with that
+    fallback live, a process with no OCP_AGENT and no tty (cli.cmd_close did
+    not refuse for want of one, unlike cmd_resolve and cmd_dismiss) wrote a
+    close_task attributed to the task's owner, who did nothing - and if
+    close_task were activity, that flip moved the owner's clock. Measured:
+    reviewer's last real turn an hour past RESUME_WARM_S, closed from a
+    process with no identity - last_activity was unchanged only once (1)
+    cmd_close refuses outright and (2) close_task is kept out of
+    AGENT_ACTIVITY_KINDS as a second line of defense for any future caller
+    that does not refuse."""
+    _board_world(home)
+    con = db.connect()
+    try:
+        t = db.new_task(con, "owned by worker", "worker", "manager")
+    finally:
+        con.close()
+
+    rc, out = _cli(["close", str(t), "a reason"], as_agent=None)
+    check("close task: refused with no identity, not attributed to the owner",
+          rc == 1, out)
+    con = db.connect()
+    try:
+        check("close task: nothing closed it", db.get_task(con, t)["closed_by"] is None)
+        n = con.execute("SELECT COUNT(*) c FROM events WHERE kind = 'close_task'").fetchone()["c"]
+        check("close task: no event was written either", n == 0, str(n))
+    finally:
+        con.close()
+
+    # With a real identity it succeeds, and the clock moved is the closer's
+    # own, and close_task itself does not move it.
+    rc, out = _cli(["close", str(t), "a reason"], as_agent="worker")
+    check("close task: succeeds once someone real is running it", rc == 0, out)
+    con = db.connect()
+    try:
+        db.add_event(con, "manager", "Stop", {})
+        stamp = db.last_activity(con, "manager")
+        db.add_event(con, "manager", "close_task", {"task_id": t, "closed_by": "a reason"})
+        check("close task: does not move the clock of the agent it is (correctly) attributed to",
+              db.last_activity(con, "manager") == stamp)
+    finally:
+        con.close()
+
+
 def test_a_second_close_loses_the_race(home: Path) -> None:
     """closed_by is evidence: a close that lost the race must not overwrite it."""
     _board_world(home)
@@ -20551,6 +20606,7 @@ def main() -> int:
         run(lambda: test_task_new_list_and_link(Path(td) / 'tasknew'))
         run(lambda: test_resolving_the_founders_request_says_what_it_becomes(Path(td) / 'taskguard'))
         run(lambda: test_closing_a_task_needs_evidence_and_no_open_child(Path(td) / 'taskclose'))
+        run(lambda: test_close_task_refuses_without_an_identity_and_does_not_move_a_clock(Path(td) / 'taskcloseid'))
         run(lambda: test_a_second_close_loses_the_race(Path(td) / 'taskrace'))
         run(lambda: test_no_other_path_closes_the_founders_request_unguarded(Path(td) / 'taskdismiss'))
         run(lambda: test_close_says_what_it_read_and_never_guesses(Path(td) / 'taskcloseread'))

@@ -344,6 +344,15 @@ def cmd_close(args) -> int:
     """
     raw = args.target
     if raw.isdigit():
+        # close_task's event names whoever ran this - unlike an agent's
+        # session below, which needs no identity to close - so an identity
+        # is required here too, the same refusal cmd_resolve and cmd_dismiss
+        # already give. Without it, `askmod.asking_agent() or row["owner"]`
+        # falls back to the task's owner, and an event nobody ran gets
+        # attributed to an agent that did nothing (auditor's #1565 SF3).
+        if askmod.asking_agent() is None:
+            print(_who_refusal("close a task"))
+            return 1
         con = db.connect()
         try:
             if db.get_task(con, int(raw)) is None:
