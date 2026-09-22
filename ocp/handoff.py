@@ -27,7 +27,7 @@ import subprocess
 import time
 from pathlib import Path
 
-from . import agents, db, paths, spawn as spawnmod, status, textsafe
+from . import agents, db, paths, spawn as spawnmod, status, textsafe, vendors
 
 # Enough to see what is in flight; the rest is `git status` away.
 _STATUS_LINES = 20
@@ -60,10 +60,11 @@ def find_transcript(session: str, account: str) -> Path | None:
     ran under is searched first."""
     if not session or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_-]*", session):
         return None
-    # One directory level under projects/ is where Claude Code writes a
-    # transcript, so the search is that deep and no deeper.
+    # One directory level under the vendor's memory root is where a transcript
+    # is written, so the search is that deep and no deeper.
+    root = vendors.for_accounts().memory_root
     for acct in [account, *(a for a in paths.list_accounts() if a != account)]:
-        for f in (paths.account_claude(acct) / "projects").glob(f"*/{session}.jsonl"):
+        for f in root(paths.account_claude(acct)).glob(f"*/{session}.jsonl"):
             return f
     return None
 

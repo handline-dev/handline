@@ -115,6 +115,12 @@ class Claude:
         # Nothing credential-shaped appears here, deliberately.
         return ["settings.json", "CLAUDE.md", "skills", "agents", "commands", "plugins"]
 
+    def never_touch(self) -> set[str]:
+        # Named explicitly as a guard: the credential file the installs that do
+        # not use the Keychain keep (KICKOFF rule 1), claude's own config, and
+        # its machine state.
+        return {".credentials.json", ".claude.json", "statsig", "backups"}
+
     def memory_root(self, config_dir: Path) -> Path:
         return config_dir / "projects"
 

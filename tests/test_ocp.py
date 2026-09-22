@@ -7093,6 +7093,121 @@ def test_doctor_looks_for_the_vendors_executable_not_its_name(home: Path) -> Non
         vendors.for_accounts = real
 
 
+def test_the_config_dir_and_its_layout_are_the_drivers_answers(home: Path) -> None:
+    """Step 2 of design/03 §7: which variable pins a session to one account,
+    and how that directory is laid out inside, are the vendor's answers. A
+    single-vendor suite cannot see a literal left behind - it reads the same as
+    the driver's answer - so each one is asked of a driver that answers
+    otherwise, the way #1691's doctor slip was caught.
+    """
+    os.environ["OCP_HOME"] = str(home)
+
+    class Zai:
+        name = "zai"
+        def binary(self):
+            return "/opt/zai/bin/opencode"
+        def config_dir_env(self):
+            return "ZAI_HOME"
+        def never_touch(self):
+            return {"skills"}
+        def credential_present(self, config_dir):
+            return False
+        def login_argv(self):
+            return ["opencode", "login"]
+        def memory_root(self, config_dir):
+            return config_dir / "sessions"
+        def memory_project_dir(self, repo):
+            return repo.replace("/", "_")
+
+    real = (vendors.for_accounts, obsmod.env_of)
+    try:
+        vendors.for_accounts = lambda: Zai()
+
+        # account_of_process: the variable is the driver's; the layout under
+        # accounts/ is ours, so the account still falls out of the path.
+        asked: list[str] = []
+
+        def env_of(pid, name):
+            asked.append(name)
+            return str(paths.account_dir("gamma") / ".zai") if name == "ZAI_HOME" else None
+
+        obsmod.env_of = env_of
+        got = obsmod.account_of_process(1)
+        check("observe: the config-dir variable read off the process is the driver's",
+              asked == ["ZAI_HOME"], str(asked))
+        check("observe: and the account still comes out of the path under accounts/",
+              got == "gamma", repr(got))
+
+        # The layout inside that directory: what a working directory is called
+        # there, and where its transcripts hang off.
+        check("collect: a working directory is named the vendor's way",
+              collect.encode_cwd("/tmp/a/b") == "_tmp_a_b", collect.encode_cwd("/tmp/a/b"))
+        check("collect: and the transcript directory hangs off the driver's memory root",
+              collect.project_dir("gamma", "/tmp/a/b")
+              == paths.account_claude("gamma") / "sessions" / "_tmp_a_b",
+              str(collect.project_dir("gamma", "/tmp/a/b")))
+
+        # What is never linked into an account's config dir is the vendor's
+        # list too - here "skills", which claude shares and this one does not.
+        shared = paths.shared_claude()
+        (shared / "skills").mkdir(parents=True, exist_ok=True)
+        cdir = paths.account_claude("gamma")
+        cdir.mkdir(parents=True, exist_ok=True)
+        check("accounts: an item the driver never touches is not linked",
+              accounts._link_item(cdir, shared, "skills") is False
+              and not (cdir / "skills").exists())
+        check("accounts: and it is not reported as an account's to relink either",
+              ("gamma", "skills") not in accounts.unlinked(), str(accounts.unlinked()))
+
+        # The transcript search runs down the same root, one level deep.
+        tdir = paths.account_claude("gamma") / "sessions" / "_tmp_a_b"
+        tdir.mkdir(parents=True, exist_ok=True)
+        (tdir / "sess1.jsonl").write_text("{}\n")
+        check("handoff: a transcript is looked for under the driver's memory root",
+              handoffmod.find_transcript("sess1", "gamma") == tdir / "sess1.jsonl",
+              str(handoffmod.find_transcript("sess1", "gamma")))
+
+        # The token log walks that root too: the decoy sits where claude keeps
+        # its transcripts, and must not be read for a vendor that does not.
+        from ocp import tokenlog
+        (tdir / "s2.jsonl").write_text(_call_line("req_driver", 10))
+        decoy = paths.account_claude("gamma") / "projects" / "-w-x"
+        decoy.mkdir(parents=True, exist_ok=True)
+        (decoy / "s3.jsonl").write_text(_call_line("req_claudes_place", 10))
+        con = db.connect()
+        try:
+            tokenlog.ingest(con, "gamma")
+            reqs = {r["req"] for r in con.execute("SELECT req FROM token_calls")}
+        finally:
+            con.close()
+        check("tokenlog: the transcripts read are the ones under the driver's root",
+              reqs == {"req_driver"}, str(reqs))
+
+        # The command the founder is handed to trust a worktree names the
+        # variable their tool reads, not claude's.
+        made: list[str] = []
+        real_ct = orcamod.create_terminal
+        try:
+            orcamod.create_terminal = lambda cmd, **k: (made.append(cmd), None)[1]
+            actions.trust_worktrees("gamma", [("backend", "/w/backend")])
+        finally:
+            orcamod.create_terminal = real_ct
+        check("actions: the trust command sets the driver's config-dir variable",
+              made and "ZAI_HOME=" in made[0] and "CLAUDE_CONFIG_DIR" not in made[0],
+              str(made))
+
+        # And the name doctor prints, so its reader is told which variable to
+        # go and set rather than claude's.
+        (paths.account_dir("nocfg")).mkdir(parents=True, exist_ok=True)
+        r = doctor.Report()
+        doctor._check_accounts(r)
+        lines = [name for _lv, name, _d in r.rows]
+        check("doctor: the missing-config-dir line names the driver's variable",
+              "account nocfg: ZAI_HOME missing" in lines, str(lines))
+    finally:
+        vendors.for_accounts, obsmod.env_of = real
+
+
 def test_launch_refuses_stale(home: Path) -> None:
     home.mkdir(parents=True, exist_ok=True)
     os.environ["OCP_HOME"] = str(home)
@@ -22987,6 +23102,8 @@ def main() -> int:
         run(lambda: test_ask_respects_terminal_state(Path(td) / 'term'))
         run(lambda: test_a_vendor_with_no_driver_refuses_the_launch(Path(td) / 'novendor'))
         run(lambda: test_doctor_looks_for_the_vendors_executable_not_its_name(Path(td) / 'doctorbin'))
+        run(lambda: test_the_config_dir_and_its_layout_are_the_drivers_answers(
+            Path(td) / 'vendorcfg'))
         run(lambda: test_launch_refuses_stale(Path(td) / 'stale'))
         run(lambda: test_shared_account_context_isolation(Path(td) / 'shared'))
         run(lambda: test_db_dedup_only_swallows_dedup(Path(td) / 'strict'))

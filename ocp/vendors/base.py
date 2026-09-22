@@ -45,6 +45,10 @@ class Driver(Protocol):
     def shared_items(self) -> list[str]:
         """Names under shared/ linked into every account's config dir."""
 
+    def never_touch(self) -> set[str]:
+        """Names inside an account's config dir ocp never creates, links,
+        reads or copies - the vendor's own credential and machine state."""
+
     def memory_root(self, config_dir: Path) -> Path:
         """The folder holding one directory per repo, each with a memory/."""
 

@@ -36,12 +36,11 @@ account's own OAuth credential.
 from __future__ import annotations
 
 import json
-import re
 import time
 from dataclasses import dataclass
 from pathlib import Path
 
-from . import paths
+from . import paths, vendors
 
 # Context window size per model. The transcript does not carry it, and
 # `agent-context --json` has no field for it either (measured for D9: 236
@@ -106,20 +105,20 @@ def ctx_size(model_id: str | None) -> int | None:
 
 
 def encode_cwd(cwd: str | Path) -> str:
-    """A working directory as Claude Code names its project directory.
+    """A working directory as the vendor names its project directory.
 
-    Every character outside [A-Za-z0-9] becomes `-`, which is why
-    `/Users/ron/orca/workspaces/orcapipe/orcapipe.expender` is
-    `-Users-ron-orca-workspaces-orcapipe-orcapipe-expender` - the dot goes the
-    same way as the slashes. Read off the live directories rather than guessed:
-    they keep case (`-Users-ron-Library-Application-Support-...`) and collapse
-    `/.claude` to `--claude`.
+    Claude Code's answer, which this was written against, maps every character
+    outside [A-Za-z0-9] to `-`: `/Users/ron/orca/workspaces/orcapipe` becomes
+    `-Users-ron-orca-workspaces-orcapipe`, the dot going the same way as the
+    slashes. Read off the live directories rather than guessed: they keep case
+    (`-Users-ron-Library-Application-Support-...`) and collapse `/.claude` to
+    `--claude`.
     """
-    return re.sub(r"[^A-Za-z0-9]", "-", str(cwd))
+    return vendors.for_accounts().memory_project_dir(str(cwd))
 
 
 def project_dir(account: str, cwd: str | Path) -> Path:
-    return paths.account_claude(account) / "projects" / encode_cwd(cwd)
+    return vendors.for_accounts().memory_root(paths.account_claude(account)) / encode_cwd(cwd)
 
 
 @dataclass(frozen=True)

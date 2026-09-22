@@ -1,6 +1,6 @@
 # 03 - The vendor driver
 
-Draft (#1315). Step 1 of §7 is built (`ocp/vendors/`, #1657); the rest is not.
+Draft (#1315). Steps 1 and 2 of §7 are built (`ocp/vendors/`, #1657); the rest is not.
 
 One place that answers, per vendor, the fifteen questions enumerated in
 `docs/vendor-extension-board.md` §11. Everything else in ocp stays where it is.
@@ -261,7 +261,21 @@ Each step is independently shippable and leaves the tree green.
 1. **`ocp/vendors/` with `claude.py` only.** Pure move. The guard is that the
    suite passes unchanged - no test should notice.
 2. **`config_dir_env` through `observe.account_of_process`.** Smallest real
-   generalization; makes one function vendor-neutral for free.
+   generalization; makes one function vendor-neutral for free. Built: the
+   config-dir *variable* is the driver's answer at every site that named it
+   (`observe.account_of_process`, `actions._trust_one_worktree`, doctor's
+   missing-dir line), and so is what that directory holds - `never_touch`
+   (was `accounts.NEVER_TOUCH`) and the transcript layout `collect`,
+   `handoff` and `tokenlog` walk, through `memory_root` and
+   `memory_project_dir`. `collect.encode_cwd` had been a second copy of the
+   latter's rule.
+
+   Deliberately **not** in step 2: the config dir's *name*. `paths.account_claude`
+   spells `.claude` and thirty call sites say it. `account_of_process` does not
+   need it - it takes the first part under `paths.accounts_dir()`, whatever the
+   directory is called - so nothing in this step was blocked by it. It is the
+   right companion to the account-vendor change below, which is the other thing
+   that has to know which vendor an account is.
 3. **The window model (§5).** The big one: 208 lines, 16 files, five of which
    never mention `claude`. Do it with both `pct_5h` and `windows` written for
    one release so a bad read is visible, then drop the old keys.
