@@ -549,8 +549,11 @@ def cmd_usage(args) -> int:
     for acct in accts:
         st = status.read(acct)
         age = status.span(time.time() - st.collected_at) if st.collected_at else "never"
-        print(f"{acct:10} {'ocp':>4} {str(st.pct_5h):>5} {str(st.pct_7d):>5}  "
-              f"{_when(st.reset_7d):16}  snapshot {age} old")
+        trusted5 = str(st.trusted_pct_5h) if st.trusted_pct_5h is not None else "?"
+        trusted7 = str(st.trusted_pct_7d) if st.trusted_pct_7d is not None else "?"
+        print(f"{acct:10} {'ocp':>4} {trusted5:>5} {trusted7:>5}  "
+              f"{_when(st.reset_7d):16}  snapshot {age} old"
+              f" ({st.pct_5h_source}/{st.pct_7d_source})")
         t0 = time.time()
         r = usage_api.read(acct, refresh=acct not in live)
         if r is None:
