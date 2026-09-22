@@ -19762,6 +19762,12 @@ def test_moot_by_records_who_retired_a_row(home: Path) -> None:
     try:
         check("moot: resolve --retires points the old row at the resolving one",
               db.get_request(con, c)["moot_by"] == d)
+        # #1565 SF1: moot_by alone is a record, not the retirement - #1366's
+        # own blocking bug was moot_by written with the row left queued, and
+        # a check on moot_by only never noticed. db.retire_queued is what
+        # actually takes it out of the queue.
+        check("moot: ...and the row is actually out of the queue, not just recorded",
+              db.get_request(con, c)["state"] == "replaced", str(dict(db.get_request(con, c))))
     finally:
         con.close()
     rc, out = _cli(["resolve", str(d2), "done", "--retires", str(c)], as_agent="worker")
