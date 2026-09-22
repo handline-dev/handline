@@ -23,7 +23,7 @@ from . import (accounts, actions, agents, ask as askmod, collect, daemon as daem
                digest, doctor,
                drift, events, fold as foldmod, guide, handoff as handoffmod, hooks, launch,
                load, observe as obs, paths, service,
-               hr, orca, status, spawn as spawnmod, team, textsafe, triggers,
+               hr, orca, status, spawn as spawnmod, team, textsafe, triggers, trust,
                usage_api, vendors, waiting)
 
 
@@ -127,7 +127,33 @@ def cmd_account_add(args) -> int:
               "Finish the login in claude, then exit it (/exit) to come back.\n")
     ok, msg = accounts.add_account(args.name, _run_claude, no_login=args.no_login)
     print(msg, file=None if ok else sys.stderr)
-    return 0 if ok else 1
+    if not ok:
+        return 1
+
+    # 156 item 1c: without this, the first real session this account runs for
+    # an existing agent meets claude's folder-trust screen cold. `no_login`
+    # leaves nothing yet to start a session on.
+    if not args.no_login and orca.available():
+        _offer_to_trust_worktrees(args.name, input)
+    return 0
+
+
+def _offer_to_trust_worktrees(acct: str, ask) -> None:
+    """Ask, listing exactly the worktrees a yes would trust, then do it."""
+    declared, skipped = actions.eligible_worktrees()
+    if not declared:
+        if skipped:
+            print(f"\n{len(skipped)} agent worktree(s) exist but are outside any "
+                  f"declared root - not offering to trust them: "
+                  f"{', '.join(a for a, _ in skipped)}")
+        return
+    listed = "\n".join(f"  {a}: {w}" for a, w in declared)
+    skip_note = (f"\n(skipping {len(skipped)} outside declared roots: "
+                f"{', '.join(a for a, _ in skipped)})" if skipped else "")
+    if ask(f"\nTrust these worktrees on '{acct}'?\n{listed}{skip_note}\n[y/N] "
+          ).strip().lower() in ("y", "yes"):
+        for line in actions.trust_worktrees(acct, declared):
+            print(f"  {line}")
 
 
 def cmd_account_remove(args) -> int:
@@ -1063,6 +1089,53 @@ def cmd_hr(args) -> int:
     return 0 if ok else 1
 
 
+def cmd_trust(args) -> int:
+    """Declare, list or drop a root ocp may answer claude's trust prompt in.
+
+    Adding goes through the same propose/approve gate as the roster; the
+    founder may also add directly. Removing needs no gate: it only narrows
+    what standing consent covers.
+    """
+    if args.trust_cmd == "list":
+        rows = trust.list_roots()
+        if not rows:
+            print("no declared roots")
+            return 0
+        for r in rows:
+            print(f"{r['root']}  (added by {r.get('added_by', '?')}: {r.get('why', '')})")
+        return 0
+    if args.trust_cmd == "proposals":
+        rows = trust.listing()
+        if not rows:
+            print("no proposals")
+            return 0
+        for p_ in rows:
+            print(f"{p_['id']}  {p_.get('state', '?'):<10}#{p_.get('request', '-')}  "
+                  f"{p_['root']}  by {p_.get('requested_by', '?')}")
+        return 0
+    if args.trust_cmd == "apply":
+        ok, said = trust.apply(args.id)
+        print(said)
+        return 0 if ok else 1
+    if args.trust_cmd == "remove":
+        ok, said = trust.remove(args.root)
+        print(said)
+        return 0 if ok else 1
+    me = askmod.asking_agent()
+    if not me:
+        print(_who_refusal("propos"))
+        return 1
+    if me == askmod.HUMAN:
+        ok, said = trust.enact(args.root, args.why or "added by the founder")
+    else:
+        if not args.why:
+            print("say why: the founder is deciding, not rubber-stamping", file=sys.stderr)
+            return 1
+        ok, said = trust.propose(args.root, args.why, requester=me)
+    print(said)
+    return 0 if ok else 1
+
+
 def cmd_org(args) -> int:
     """Put every live agent in the team's Run, under whoever it reports to.
 
@@ -1836,6 +1909,22 @@ def build_parser() -> argparse.ArgumentParser:
     q.set_defaults(name=None, why=None, account=None, team=None, repo=None,
                    model=None, effort=None)
     p.set_defaults(fn=cmd_hr)
+
+    p = sub.add_parser("trust", help="declare a folder ocp may answer claude's trust prompt in")
+    trsub = p.add_subparsers(dest="trust_cmd", required=True)
+    q = trsub.add_parser("add", help="propose (or, for the founder, declare) a root")
+    q.add_argument("root")
+    q.add_argument("--why", default=None, help="what the founder is deciding")
+    q = trsub.add_parser("remove", help="drop a declared root - no gate needed")
+    q.add_argument("root")
+    q = trsub.add_parser("list", help="every declared root")
+    q.set_defaults(root=None, why=None)
+    q = trsub.add_parser("proposals", help="proposals and what became of them")
+    q.set_defaults(root=None, why=None)
+    q = trsub.add_parser("apply", help="carry out an approved proposal")
+    q.add_argument("id")
+    q.set_defaults(root=None, why=None)
+    p.set_defaults(fn=cmd_trust)
 
     p = sub.add_parser("org", help="register live agents as workers in the team's Run")
     p.set_defaults(fn=cmd_org)

@@ -110,6 +110,121 @@ def _result(out: str, *path: str):
     return node
 
 
+# claude's folder-trust screen ("Quick safety check: Is this a project you
+# created or one you trust?"), rendered, not accumulated output - the default
+# read stacks a repainted screen's fragments rather than showing what it
+# looks like now, which this specifically needs.
+TRUST_PROMPT_MARKER = "Is this a project you created or one you trust"
+
+
+def screen_text(handle: str) -> str | None:
+    """What this terminal is rendering right now, or None if it could not be
+    read - never mistaken for "nothing is showing"."""
+    term = _screen(handle)
+    tail = term.get("tail") if term else None
+    if not isinstance(tail, list) or term.get("source") != "screen":
+        return None
+    return "\n".join(tail)
+
+
+def trust_prompt_showing(handle: str) -> bool:
+    """Is claude sitting at its folder-trust screen, cursor on "No, exit"?
+
+    Read before typing anything: a handoff followed by Enter, the daemon's
+    ordinary wake, chooses "No, exit" on this screen every time.
+    """
+    text = screen_text(handle)
+    return text is not None and TRUST_PROMPT_MARKER in text
+
+
+def wait_for_trust_prompt(handle: str, showing: bool, timeout_s: float = 5.0,
+                          poll_s: float = 0.5) -> bool:
+    """Poll until `trust_prompt_showing(handle)` is `showing`, or give up.
+
+    The daemon uses it after pressing "Yes", to wait for the screen to clear:
+    claude's redraw is not instant, and checking on the very next line risks
+    reading the screen it was still drawing.
+    """
+    deadline = time.time() + timeout_s
+    while trust_prompt_showing(handle) != showing:
+        if time.time() >= deadline:
+            return False
+        time.sleep(poll_s)
+    return True
+
+
+# The line the prompt names its folder under. Wrapped at terminal width with
+# no separator, so its continuation lines are joined bare, not with a space.
+WORKSPACE_MARKER = "Accessing workspace:"
+
+
+def trust_prompt_folder(text: str) -> str | None:
+    """The folder the prompt itself names, out of its own screen text.
+
+    Never the path a caller has on record for the session: the two can
+    differ (a stale record, a reused terminal, a human's own `cd`), and
+    pressing "Yes" presses it for whatever is actually on screen.
+    """
+    lines = text.split("\n")
+    try:
+        start = next(i for i, ln in enumerate(lines) if WORKSPACE_MARKER in ln) + 1
+    except StopIteration:
+        return None
+    parts = []
+    for ln in lines[start:]:
+        stripped = ln.strip()
+        if not stripped or TRUST_PROMPT_MARKER in stripped:
+            break
+        parts.append(stripped)
+    return "".join(parts) or None
+
+
+# Verified against a live prompt: one Down off the default cursor ("No,
+# exit") lands on "Yes, I trust this folder"; a bare Enter then confirms it.
+# A bare Enter with no Down confirms "No, exit" instead.
+TRUST_PROMPT_DOWN_ARROW = "\x1b[B"
+
+
+def confirm_trust(handle: str) -> tuple[bool, str]:
+    """Press Down then Enter to choose "Yes, I trust this folder".
+
+    Callers decide *whether* to press it; this only presses it, blind to
+    which folder is on screen. Writes nothing to `.claude.json`.
+    """
+    ok, out = _run(["terminal", "send", "--terminal", handle,
+                    "--text", TRUST_PROMPT_DOWN_ARROW])
+    if not ok:
+        return False, f"could not move to 'Yes, I trust this folder': {out[:200]}"
+    ok, out = send(handle, "")
+    return ok, "trusted" if ok else f"could not confirm the trust prompt: {out[:200]}"
+
+
+def create_terminal(command: str, worktree: str = "current",
+                    title: str | None = None) -> str | None:
+    """Start a fresh terminal running `command`, or None if Orca could not.
+
+    `worktree` is a selector as `orca terminal create --worktree` takes it -
+    "current" runs inside whatever worktree this process is already in, which
+    is what a throwaway probe wants (a directory `command` itself `cd`s into,
+    not one Orca has to know about).
+    """
+    args = ["terminal", "create", "--worktree", worktree, "--command", command]
+    if title:
+        args += ["--title", title]
+    ok, out = _run(args)
+    if not ok:
+        return None
+    return _result(out, "terminal", "handle")
+
+
+def close_terminal(handle: str, tab: bool = True) -> tuple[bool, str]:
+    """Close one terminal, and its tab unless told to leave the tab standing."""
+    args = ["terminal", "close", "--terminal", handle]
+    if tab:
+        args.append("--tab")
+    return _run(args)
+
+
 def run_create(objective: str) -> str | None:
     """Start an orchestration Run - the card a team's work hangs under.
 

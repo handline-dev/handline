@@ -21,13 +21,14 @@ from __future__ import annotations
 
 import os
 import re
+import shlex
 import subprocess
 import time
 from pathlib import Path
 
 from . import (accounts, agents, ask as askmod, blocked, daemon, db, events as evmod,
                fold as foldmod, hr, load as loadmod, observe as obs, orca, paths,
-               spawn as spawnmod, status, team, textsafe, triggers, vendors, waiting)
+               spawn as spawnmod, status, team, textsafe, triggers, trust, vendors, waiting)
 
 # The name a human's own requests are sent under, and the inbox `ocp bridge`
 # shows. Taken from `ask`, which is where escalations are addressed: a second
@@ -1518,4 +1519,61 @@ def _account_of(agent: str, con=None) -> str | None:
         return agents.current_account(agent, con)
     except Exception:  # noqa: BLE001 - an unreadable agent belongs to no account here
         return None
+
+
+def eligible_worktrees() -> tuple[list[tuple[str, str]], list[tuple[str, str]]]:
+    """Every registered agent's worktree, split (declared, undeclared).
+
+    A y/N that presses "Yes" to whatever it finds means what it says only
+    when it lists exactly what it will press it for - so a worktree outside
+    a declared root is never included, only reported as skipped.
+    """
+    con = db.connect()
+    try:
+        found = []
+        for name in paths.list_agents():
+            row = db.get_agent_state(con, name)
+            wt = spawnmod.worktree_path(row["worktree"]) if row else None
+            if wt:
+                found.append((name, wt))
+    finally:
+        con.close()
+    declared = [(a, w) for a, w in found if trust.is_declared(w)]
+    undeclared = [(a, w) for a, w in found if not trust.is_declared(w)]
+    return declared, undeclared
+
+
+def trust_worktrees(acct: str, worktrees: list[tuple[str, str]]) -> list[str]:
+    """Pre-authorize `acct` for each (agent, worktree), one throwaway session
+    at a time, so a real session there never meets the trust screen cold."""
+    return [_trust_one_worktree(acct, name, wt) for name, wt in worktrees]
+
+
+def _trust_one_worktree(acct: str, agent: str, worktree: str) -> str:
+    cmd = (f"cd {shlex.quote(worktree)} && CLAUDE_CONFIG_DIR="
+           f"{shlex.quote(str(paths.account_claude(acct)))} claude")
+    handle = orca.create_terminal(cmd, title=f"trust-{acct}-{agent}")
+    if not handle:
+        return f"{agent} ({worktree}): could not start a session to trust it"
+    try:
+        # Booting, not mid-turn: `wait_idle`'s probe wants a running session,
+        # and this one has none yet, so a bounded poll for the one screen
+        # this cares about instead.
+        deadline = time.time() + 20
+        while time.time() < deadline and not orca.trust_prompt_showing(handle):
+            if orca.idle_now(handle):
+                break
+            time.sleep(1)
+        if orca.trust_prompt_showing(handle):
+            ok, why = orca.confirm_trust(handle)
+            if not ok:
+                return f"{agent} ({worktree}): {why}"
+            orca.wait_idle(handle)
+            result = f"{agent} ({worktree}): trusted"
+        else:
+            result = f"{agent} ({worktree}): no trust prompt appeared - already trusted?"
+        orca.send(handle, "/exit")
+        return result
+    finally:
+        orca.close_terminal(handle)
 

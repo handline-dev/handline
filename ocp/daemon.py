@@ -34,9 +34,10 @@ import uuid
 from dataclasses import dataclass
 from pathlib import Path
 
-from . import (accounts, agents, blocked, burnrate, collect, db, events, fold as foldmod,
-               handoff as handoffmod, launch, load, lock, measure, observe as obs, orca, paths,
-               service, spawn as spawnmod, status, textsafe, tokenlog, triggers, usage_api)
+from . import (accounts, agents, ask as askmod, blocked, burnrate, collect, db, events,
+               fold as foldmod, handoff as handoffmod, launch, load, lock, measure,
+               observe as obs, orca, paths, service, spawn as spawnmod, status, textsafe,
+               tokenlog, triggers, trust, usage_api)
 from .yamlcompat import ConfigError
 
 # Section 8.2 states.
@@ -1190,6 +1191,12 @@ def _wake_agent(con, agent: str, log, moved_to: str | None = None) -> tuple[bool
                                           f"no session: {why}")
                 log(f"  {agent}: STALLED after {fresh['wake_failures']} failed wakes")
             return False, why
+        # A relaunch is where claude shows its folder-trust screen - on a
+        # moved agent the new account has never trusted this folder - and the
+        # wake prompt waits behind it. Until it is past, the agent is not woken.
+        ok, why = _clear_trust_prompt(con, agent, handle, log)
+        if not ok:
+            return False, why
         db.reset_counter(con, agent, "wake_failures")
         db.clear_closed(con, agent)
         db.add_event(con, agent, "wake", {"resumed_session": session if resumed else None,
@@ -1208,6 +1215,10 @@ def _wake_agent(con, agent: str, log, moved_to: str | None = None) -> tuple[bool
         # the branch above then relaunches it before anything is typed.
         return False, "no session process; not typing the handoff at a shell prompt"
 
+    ok, why = _clear_trust_prompt(con, agent, handle, log)
+    if not ok:
+        return False, why
+
     if not orca.typeable_now(handle):
         return False, "the session is busy or has a modal open; not typing the handoff"
     ok, why = orca.resume_with(handle, wake_prompt(agent, False, was_closed=False,
@@ -1216,6 +1227,80 @@ def _wake_agent(con, agent: str, log, moved_to: str | None = None) -> tuple[bool
         db.set_handoff(con, agent, None)
     log(f"  {agent}: {why}")
     return ok, why
+
+
+def _same_path(a: str, b: str) -> bool:
+    try:
+        return Path(a).expanduser().resolve() == Path(b).expanduser().resolve()
+    except (OSError, RuntimeError, ValueError):
+        return False
+
+
+def _clear_trust_prompt(con, agent: str, handle: str, log) -> tuple[bool, str]:
+    """The wake paths' gate before the wake prompt: a no-op when nothing is
+    showing, else standing consent (156 1b) or an escalation. It runs ahead
+    of `typeable_now`, which refuses this screen as a dialog and would leave
+    it unanswered. The deliver paths only check `typeable_now`, so they wait
+    and the blocked sweep reports it.
+    """
+    if not orca.trust_prompt_showing(handle):
+        return True, "clear"
+    return _handle_trust_prompt(con, agent, handle, log)
+
+
+def _handle_trust_prompt(con, agent: str, handle: str, log) -> tuple[bool, str]:
+    """Standing consent: press "Yes" only for the folder the dialog itself
+    names, and only when that folder is both a declared root and the one on
+    record for this agent. Anything else - unreadable, undeclared, or a
+    mismatch with the recorded worktree - escalates, as does a press whose
+    keys did not land.
+    """
+    row = db.get_agent_state(con, agent)
+    recorded = spawnmod.worktree_path(row["worktree"]) if row else None
+    text = orca.screen_text(handle)
+    shown = orca.trust_prompt_folder(text) if text else None
+    if not shown or not recorded or not trust.is_declared(shown) \
+            or not _same_path(shown, recorded):
+        return _escalate_trust_prompt(con, agent, handle, log, shown, recorded)
+    ok, why = orca.confirm_trust(handle)
+    # The redraw is not instant; checking on the very next line risks reading
+    # the screen claude was still drawing, and escalating a trust that
+    # actually went through.
+    orca.wait_for_trust_prompt(handle, showing=False)
+    if not ok or orca.trust_prompt_showing(handle):
+        return _escalate_trust_prompt(con, agent, handle, log, shown, recorded)
+    db.add_event(con, agent, "trust_confirmed", {"path": shown})
+    log(f"  {agent}: trusted {shown} (standing consent)")
+    # The screen just changed under us; typing the wake prompt before claude
+    # has finished drawing its ordinary TUI loses the opening characters.
+    orca.wait_idle(handle)
+    return True, "trusted"
+
+
+TRUST_STALL = "folder-trust prompt"
+
+
+def _escalate_trust_prompt(con, agent: str, handle: str, log,
+                          shown: str | None = None, recorded: str | None = None
+                          ) -> tuple[bool, str]:
+    """claude is sitting at its folder-trust screen - nothing is typed, since
+    typed text is not a choice there, it is a coin flip landing on the
+    default "No, exit". STALLED and escalated rather than retried: the screen
+    does not resolve itself.
+    """
+    # Already escalated: a later wake - the next tick, an ask, a key on the
+    # bridge - meets the same screen and would raise the same request again.
+    row = db.get_agent_state(con, agent)
+    if row and row["state"] == STALLED and TRUST_STALL in (row["detail"] or ""):
+        return False, row["detail"]
+    acct = agents.current_account(agent, con)
+    why = (f"{agent}'s terminal is showing claude's {TRUST_STALL} for "
+           f"{shown or 'an unreadable folder'} (account {acct}, recorded "
+           f"worktree {recorded or 'unknown'}) - nothing was typed into it")
+    askmod.escalate(con, agent, f"[trust] {why}", why)
+    db.set_agent_state(con, agent, STALLED, wake_at=None, detail=why[:300])
+    log(f"  {agent}: {why}")
+    return False, why
 
 
 def expire_handoffs(con, log) -> list[str]:

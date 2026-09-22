@@ -34,7 +34,7 @@ from ocp import (accounts, actions, agents, ask as askmod, blocked as blockedmod
                  handoff as handoffmod, launch, load as loadmod, lock, measure,
                  observe as obsmod, orca as orcamod, paths, replay as replaymod, service,
                  spawn as spawnmod,
-                 status, team, textsafe, triggers, tui, usage_api, waiting,
+                 status, team, textsafe, triggers, trust as trustmod, tui, usage_api, waiting,
                  yamlcompat)  # noqa: E402
 
 PASS, FAIL = [], []
@@ -1770,6 +1770,246 @@ def test_agents(home: Path) -> None:
     check("base.md budget is enforced", "base.md" in over)
 
 
+def test_trust_roots(home: Path) -> None:
+    """Blocker 3 (auditor's #304): roots are an explicit list the founder
+    sets, never inferred from the roster or Orca's own layout - propose/apply
+    for an agent, enact directly for the founder, is_declared checks a path
+    against exactly that list."""
+    home.mkdir(parents=True, exist_ok=True)
+    os.environ["OCP_HOME"] = str(home)
+    (home / "team.yaml").write_text(
+        "agents:\n  backend: { intake: dedicated }\n"
+        'edges:\n  - { from: "*", to: "human", kind: escalate, creates_gate: true }\n')
+    agents.register("backend", "alpha")
+    root = home / "repos" / "widget"
+    root.mkdir(parents=True, exist_ok=True)
+
+    check("trust: nothing is declared to start", not trustmod.list_roots())
+    check("trust: is_declared is false with nothing declared",
+          not trustmod.is_declared(root))
+
+    ok, msg = trustmod.enact(str(root), "the founder's own say-so")
+    check("trust: the founder enacts directly, no proposal needed", ok, msg)
+    check("trust: it is now declared", trustmod.is_declared(root))
+    check("trust: a worktree under it counts too",
+          trustmod.is_declared(root / "some-agent-worktree"))
+    check("trust: a sibling directory does not",
+          not trustmod.is_declared(root.parent / "other"))
+
+    ok, msg = trustmod.enact(str(root), "again")
+    check("trust: enacting an already-declared root is refused", not ok, msg)
+
+    ok, msg = trustmod.propose(str(home / "repos" / "second"), "", requester="backend")
+    check("trust: a proposal needs a reason", not ok, msg)
+
+    ok, msg = trustmod.propose(str(home / "repos" / "second"), "needs it for work",
+                               requester="backend")
+    check("trust: an agent proposes rather than declaring directly", ok, msg)
+    props = trustmod.listing()
+    check("trust: the proposal is on record", len(props) == 1, str(props))
+    pid, rid = props[0]["id"], props[0]["request"]
+
+    ok, msg = trustmod.apply(pid)
+    check("trust: applying before the founder answers is refused", not ok, msg)
+
+    askmod.resolve(rid, "approve")
+    ok, msg = trustmod.apply(pid)
+    check("trust: applying an approved proposal declares the root", ok, msg)
+    check("trust: it is now declared",
+          trustmod.is_declared(home / "repos" / "second"))
+    ok, msg = trustmod.apply(pid)
+    check("trust: applying twice is refused", not ok, msg)
+
+    ok, msg = trustmod.propose(str(home / "repos" / "third"), "for later",
+                               requester="backend")
+    pid3 = trustmod.listing()[-1]["id"]
+    rid3 = trustmod.listing()[-1]["request"]
+    askmod.resolve(rid3, "reject - not yet")
+    ok, msg = trustmod.apply(pid3)
+    check("trust: a rejected proposal is never applied", not ok, msg)
+    check("trust: and the root stays undeclared",
+          not trustmod.is_declared(home / "repos" / "third"))
+
+    ok, msg = trustmod.remove(str(root))
+    check("trust: the founder can remove a root, no gate needed", ok, msg)
+    check("trust: it reads as undeclared again", not trustmod.is_declared(root))
+    ok, msg = trustmod.remove(str(root))
+    check("trust: removing an undeclared root is refused", not ok, msg)
+
+    # note 6 (auditor's #339): is_declared and remove must agree on what a
+    # root's own spelling is, or a symlinked path declared one way is never
+    # removable the other way.
+    real_root = home / "repos" / "real"
+    real_root.mkdir(parents=True, exist_ok=True)
+    link_root = home / "repos" / "linked"
+    link_root.symlink_to(real_root)
+    ok, msg = trustmod.enact(str(link_root), "via a symlink")
+    check("trust: enacted through a symlinked spelling", ok, msg)
+    check("trust: stored under the resolved (real) path",
+          trustmod.list_roots()[-1]["root"] == str(real_root.resolve()),
+          trustmod.list_roots()[-1])
+    ok, msg = trustmod.remove(str(link_root))
+    check("trust: removed through the same symlinked spelling", ok, msg)
+    check("trust: gone, checked either way",
+          not trustmod.is_declared(real_root) and not trustmod.is_declared(link_root))
+
+    # note 7 (auditor's #339): apply refuses a proposal whose root was
+    # changed after the founder approved a (different) one.
+    ok, msg = trustmod.propose(str(home / "repos" / "fourth"), "for a test",
+                               requester="backend")
+    check("trust: the fourth proposal went through", ok, msg)
+
+    def proposal_for(path) -> dict:
+        # listing() is ordered by proposal id, which is random.
+        want = trustmod._resolved(path)
+        return next(p for p in trustmod.listing() if p["root"] == want)
+
+    pid4 = proposal_for(home / "repos" / "fourth")["id"]
+    rid4 = proposal_for(home / "repos" / "fourth")["request"]
+    askmod.resolve(rid4, "approve")
+    tampered = trustmod.load_proposal(pid4)
+    tampered["root"] = str(home / "repos" / "not-what-was-approved")
+    trustmod._save_proposal(tampered)
+    ok, msg = trustmod.apply(pid4)
+    check("trust: apply refuses a root that does not match what was approved",
+          not ok, msg)
+    check("trust: and nothing is declared from it",
+          not trustmod.is_declared(home / "repos" / "not-what-was-approved"))
+
+    # auditor's #384: a substring test let through a proposal edited to a
+    # PARENT of the path the founder read, which widens consent to everything
+    # under it.
+    ok, msg = trustmod.propose(str(home / "repos" / "fifth" / "deep"), "for a test",
+                               requester="backend")
+    check("trust: the fifth proposal went through", ok, msg)
+    pid5 = proposal_for(home / "repos" / "fifth" / "deep")["id"]
+    askmod.resolve(proposal_for(home / "repos" / "fifth" / "deep")["request"], "approve")
+    widened = trustmod.load_proposal(pid5)
+    widened["root"] = str(home / "repos" / "fifth")
+    trustmod._save_proposal(widened)
+    ok, msg = trustmod.apply(pid5)
+    check("trust: apply refuses a proposal edited to a parent of what was approved",
+          not ok and "does not match" in msg, msg)
+    check("trust: and neither the parent nor the child is declared from it",
+          not trustmod.is_declared(home / "repos" / "fifth")
+          and not trustmod.is_declared(home / "repos" / "fifth" / "deep"))
+    widened["root"] = str(home / "repos" / "fifth" / "deep")
+    trustmod._save_proposal(widened)
+    ok, msg = trustmod.apply(pid5)
+    check("trust: the path as approved still applies", ok, msg)
+
+
+def test_ocp_trust_cli_is_wired(home: Path) -> None:
+    """`ocp trust add/list/remove` reach the same trust.py the daemon reads,
+    the founder's own path through the argparse layer."""
+    home.mkdir(parents=True, exist_ok=True)
+    os.environ["OCP_HOME"] = str(home)
+    root = home / "repos" / "widget"
+    root.mkdir(parents=True, exist_ok=True)
+
+    class FakeStdin:
+        def isatty(self) -> bool:
+            return True
+
+    real_env, real_stdin = os.environ.pop("OCP_AGENT", None), sys.stdin
+    try:
+        sys.stdin = FakeStdin()
+        out = _capture(lambda: climod.main(
+            ["trust", "add", str(root), "--why", "cli smoke"]))
+        check("cli trust add: the founder declares it directly, no proposal",
+              trustmod.is_declared(root), out)
+        out = _capture(lambda: climod.main(["trust", "list"]))
+        check("cli trust list: the new root is shown", str(root) in out, out)
+        out = _capture(lambda: climod.main(["trust", "remove", str(root)]))
+        check("cli trust remove: it is gone", not trustmod.is_declared(root), out)
+    finally:
+        sys.stdin = real_stdin
+        if real_env is not None:
+            os.environ["OCP_AGENT"] = real_env
+
+
+def test_eligible_worktrees_splits_declared_from_not(home: Path) -> None:
+    """Blocker 3 / should-fix 5 (auditor's #304): 1c only ever offers to
+    trust a worktree inside a declared root, and the rest are reported as
+    skipped rather than silently pressed too."""
+    os.environ["OCP_HOME"] = str(home)
+    agents.register("backend", "alpha")
+    agents.register("frontend", "alpha")
+    wt_in = home / "declared" / "backend-wt"
+    wt_in.mkdir(parents=True, exist_ok=True)
+    wt_out = home / "elsewhere" / "frontend-wt"
+    wt_out.mkdir(parents=True, exist_ok=True)
+    con = db.connect()
+    try:
+        db.set_terminal(con, "backend", "term_b", str(wt_in))
+        db.set_terminal(con, "frontend", "term_f", str(wt_out))
+    finally:
+        con.close()
+    trustmod.enact(str(home / "declared"), "test root")
+
+    declared, skipped = actions.eligible_worktrees()
+    check("eligible: the declared worktree is offered",
+          declared == [("backend", str(wt_in))], declared)
+    check("eligible: the undeclared one is only reported as skipped",
+          skipped == [("frontend", str(wt_out))], skipped)
+
+
+def test_trust_worktrees(home: Path) -> None:
+    """1c's mechanism: one throwaway session per (agent, worktree) pair."""
+    os.environ["OCP_HOME"] = str(home)
+    created: list[tuple[str, str | None]] = []
+    sent: list[tuple[str, str]] = []
+    closed: list[str] = []
+    real = (orcamod.create_terminal, orcamod.trust_prompt_showing, orcamod.confirm_trust,
+            orcamod.wait_idle, orcamod.idle_now, orcamod.send, orcamod.close_terminal)
+    try:
+        orcamod.create_terminal = (
+            lambda cmd, **k: (created.append((cmd, k.get("title"))), "term_probe")[1])
+        orcamod.trust_prompt_showing = lambda h: True
+        orcamod.confirm_trust = lambda h: (True, "trusted")
+        orcamod.wait_idle = lambda h, *a, **k: True
+        orcamod.idle_now = lambda h: False
+        orcamod.send = lambda h, text, **k: (sent.append((h, text)), (True, "ok"))[1]
+        orcamod.close_terminal = lambda h, **k: (closed.append(h), (True, "closed"))[1]
+
+        result = actions.trust_worktrees("gamma", [("backend", "/w/backend")])
+        check("trust: one line per worktree", len(result) == 1, str(result))
+        check("trust: reports the trust", "trusted" in result[0], result[0])
+        check("trust: starts the session in the worktree, under the new account",
+              created and "/w/backend" in created[0][0] and "gamma" in created[0][0],
+              str(created))
+        check("trust: exits the throwaway session afterwards",
+              sent == [("term_probe", "/exit")], sent)
+        check("trust: and closes its terminal", closed == ["term_probe"], closed)
+
+        created.clear(); sent.clear(); closed.clear()
+        orcamod.trust_prompt_showing = lambda h: False
+        result = actions.trust_worktrees("gamma", [("backend", "/w/backend")])
+        check("trust: no prompt shown is reported, not claimed as a confirmed trust",
+              not result[0].endswith(": trusted") and "no trust prompt" in result[0],
+              result[0])
+        check("trust: still exits and closes even then",
+              sent == [("term_probe", "/exit")] and closed == ["term_probe"],
+              str((sent, closed)))
+    finally:
+        (orcamod.create_terminal, orcamod.trust_prompt_showing, orcamod.confirm_trust,
+         orcamod.wait_idle, orcamod.idle_now, orcamod.send, orcamod.close_terminal) = real
+
+
+def test_trust_worktrees_quotes_the_path(home: Path) -> None:
+    """Should-fix 6 (#304): a worktree path containing a quote must not
+    break the command it is interpolated into."""
+    os.environ["OCP_HOME"] = str(home)
+    created: list[str] = []
+    real = orcamod.create_terminal
+    try:
+        orcamod.create_terminal = lambda cmd, **k: (created.append(cmd), None)[1]
+        actions.trust_worktrees("gamma", [("backend", "/tmp/a'b")])
+        check("trust: the command still parses, quote and all",
+              created and shlex.split(created[0].split("&&")[0])[-1] == "/tmp/a'b",
+              str(created))
+    finally:
+        orcamod.create_terminal = real
 
 
 # ---------------------------------------------------------------- launch
@@ -4473,6 +4713,60 @@ def test_blocked_agents_come_due_in_one_request(home: Path) -> None:
         blockedmod.sweep(con, lambda _m: None, t0 + blockedmod.ESCALATE_AFTER_S + 40)
         check("blocked: the last one closes it", _escalations(con)[0]["state"] == "done")
     finally:
+        con.close()
+
+
+def test_a_trust_screen_is_one_founder_request(home: Path) -> None:
+    """The wake escalates the trust screen and stalls the agent; the sweep then
+    sees a STALLED block with work waiting. Past ESCALATE_AFTER_S that is still
+    one request - and the block row stays, for the bridge. Once the founder
+    closes the trust request with the agent still stuck, the block is raised."""
+    con = _blocked_world(home)
+    wt = home / "worktree"
+    wt.mkdir(parents=True, exist_ok=True)
+    db.set_terminal(con, "backend", "term_x", str(wt))
+    real = (orcamod.trust_prompt_showing, orcamod.screen_text, trustmod.is_declared)
+    orcamod.trust_prompt_showing = lambda h: True
+    orcamod.screen_text = lambda h: (f"Accessing workspace:\n{wt}\nQuick safety check: Is this "
+                                     f"a project you created or one you trust?\n")
+    trustmod.is_declared = lambda p: False
+    orcamod.screen_blocker = lambda h: orcamod.Blocker(orcamod.MODAL, '"trust"')
+    t0 = int(time.time()) - 2 * blockedmod.ESCALATE_AFTER_S - 3000
+    try:
+        keep_handoff("backend", "# handoff · backend\n## next\n- carry on\n")
+        ok, _why = dmn.wake_agent(con, "backend", lambda _m: None)
+        check("trust once: the wake escalates and stalls",
+              not ok and len(_escalations(con)) == 1
+              and db.get_agent_state(con, "backend")["state"] == dmn.STALLED,
+              str((ok, _why, [dict(r) for r in _escalations(con)])))
+        for at in (0, blockedmod.ESCALATE_AFTER_S, blockedmod.ESCALATE_AFTER_S + 900):
+            blockedmod._checked.clear()
+            blockedmod.sweep(con, lambda _m: None, t0 + at)
+        check("trust once: past ESCALATE_AFTER_S, still one founder request",
+              len(_escalations(con)) == 1, str([dict(r) for r in _escalations(con)]))
+        rec = db.block_get(con, "backend")
+        check("trust once: the block row stays, for the bridge",
+              rec is not None and rec["kind"] == blockedmod.STALLED, str(rec and dict(rec)))
+
+        askmod.resolve(_escalations(con)[0]["id"], "looked", state="done", notify=False)
+        blockedmod._checked.clear()
+        blockedmod.sweep(con, lambda _m: None, t0 + blockedmod.ESCALATE_AFTER_S + 1000)
+        check("trust once: closed while it is still stuck, the block is raised",
+              len(_escalations(con)) == 2, str([dict(r) for r in _escalations(con)]))
+
+        # Only a stall is taken as already said: a dialog is a different
+        # obstacle from whatever the agent's open escalation is about.
+        db.set_agent_state(con, "backend", dmn.IDLE)
+        db.block_clear(con, "backend")
+        con.execute("UPDATE requests SET state = 'done' WHERE kind = 'escalate'")
+        askmod.escalate(con, "backend", "something else", "unrelated")
+        blockedmod._checked.clear()
+        blockedmod.sweep(con, lambda _m: None, t0 + 5000)
+        blockedmod.sweep(con, lambda _m: None, t0 + 5000 + blockedmod.ESCALATE_AFTER_S)
+        check("trust once: a dialog is raised beside an unrelated open escalation",
+              len(_escalations(con)) == 4, str([dict(r) for r in _escalations(con)]))
+    finally:
+        (orcamod.trust_prompt_showing, orcamod.screen_text, trustmod.is_declared) = real
         con.close()
 
 
@@ -7504,6 +7798,68 @@ def test_a_withdraw_landing_before_the_send_stops_the_send(home: Path) -> None:
         con.close()
 
 
+TRUST_SCREEN = """────────────────────────────────────────────────────────────────
+ Accessing workspace:
+
+ /Users/someone/worktree
+
+ Quick safety check: Is this a project you created or one you trust? (Like your
+ own code, a well-known open source project, or work from your team). If not,
+ take a moment to review what's in this folder first.
+
+ Claude Code'll be able to read, edit, and execute files here.
+
+ ❯ 1. Yes, I trust this folder
+   2. No, exit
+
+ Enter to confirm · Esc to cancel""".split("\n")
+
+
+def test_the_daemon_never_types_into_a_trust_prompt_via_deliver(home: Path) -> None:
+    """Auditor's #339: `deliver_queued`/`_tell` and `deliver_answers` must not
+    type into the folder-trust dialog, mark a request delivered, or mark an
+    answer announced underneath it - even with Orca reporting the terminal idle.
+    What refuses is ocp's own `screen_blocker`, reading the real screen as a
+    dialog. The sweep reports it from there (#1630)."""
+    _daemon_home(home, 20)
+    con = db.connect()
+    sent: list[str] = []
+    real = (orcamod.send, orcamod.alive, orcamod.idle_now, orcamod.available,
+            orcamod.screen_blocker, orcamod._screen)
+    try:
+        orcamod.available = lambda: True
+        orcamod.alive = lambda h: True
+        orcamod.idle_now = lambda h: True
+        orcamod.send = lambda h, text, enter=True: (sent.append(text), (True, ""))[1]
+        orcamod.screen_blocker = REAL_ORCA["screen_blocker"]
+        orcamod._screen = lambda h: _screen_of(TRUST_SCREEN)
+        sessions_are("backend")
+        seen = orcamod.screen_blocker("term_x")
+        check("trust screen: screen_blocker reads it as a dialog",
+              seen is not None and seen.kind == orcamod.MODAL, str(seen))
+
+        rid = db.add_request(con, "reviewer", "backend", "look at this", None,
+                             "peer", "fire_and_forget", None, 0, None)
+        ok = dmn.deliver_queued(con, "backend", lambda _m: None)
+        check("deliver_queued: nothing is typed into a trust dialog",
+              not ok and not sent, str(sent))
+        check("deliver_queued: the row is not marked delivered underneath it",
+              db.get_request(con, rid)["delivered_at"] is None)
+
+        rid2 = db.add_request(con, "backend", "reviewer", "spec?", None,
+                              "peer", "async", None, 0, None)
+        askmod.resolve(rid2, "yes")
+        ok = dmn.deliver_answers(con, "backend", lambda _m: None)
+        check("deliver_answers: nothing is typed into a trust dialog either",
+              not ok and not sent, str(sent))
+        check("deliver_answers: the answer is not marked announced underneath it",
+              rid2 in [r["id"] for r in db.unannounced_answers(con, "backend")])
+    finally:
+        (orcamod.send, orcamod.alive, orcamod.idle_now, orcamod.available,
+         orcamod.screen_blocker, orcamod._screen) = real
+        con.close()
+
+
 def test_work_arriving_wakes_a_closed_agent(home: Path) -> None:
     """A closed session cannot read its own inbox. Without this, `ocp ask`
     queues into a terminal with nobody in it - reviewer sat closed with two
@@ -8724,7 +9080,8 @@ def test_only_the_agents_own_events_move_its_activity_clock(home: Path) -> None:
                     "cold_start", "dialog_declined", "dialog_exit_chosen", "fold", "fold_failed",
                     "forced_move", "handoff", "memory_migrated", "moved_account", "nudged",
                     "notified", "park", "session_gone", "started_for_work", "terminal_gone",
-                    "unstuck", "wake", "wake_failed", "SessionStart", "SessionEnd"}
+                    "unstuck", "trust_confirmed", "wake", "wake_failed", "SessionStart",
+                    "SessionEnd"}
     # close_task is here, not in AGENT_ACTIVITY_KINDS, because of
     # actions.close_task's `askmod.asking_agent() or row["owner"]` fallback:
     # cli.cmd_close now refuses without an identity, but the fallback still
@@ -9017,6 +9374,50 @@ def test_reconcile_wakes_a_park_that_was_also_closed(home: Path) -> None:
     finally:
         (orcamod.alive, orcamod.wait_idle, orcamod.idle_now, orcamod.send,
          orcamod.available, orcamod.clear_context) = real
+        con.close()
+
+
+def test_a_dead_sessions_id_is_kept_only_from_a_matching_snapshot(home: Path) -> None:
+    """A move by hand changes agent.yaml (so `current_account` answers at
+    once) without touching the status file a session on the OLD account
+    already wrote - that file is the new account's until a session actually
+    runs there. The sweep used to trust its session id anyway once the
+    process died, on the theory that "its own id is not in doubt" - which
+    reproduced in production as a --resume recorded for a session that lives
+    under a config directory this agent is no longer even pointed at, and
+    that launch failed every time it was retried.
+    """
+    _daemon_home(home, 20)
+    con = db.connect()
+    real = (orcamod.live_terminals, obsmod.live_sessions, orcamod.available)
+    f = home / "agents" / "backend" / "status.json"
+    f.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        orcamod.available = lambda: True
+        orcamod.live_terminals = lambda: {"term_x"}
+        obsmod.live_sessions = lambda: {}     # the process is gone
+
+        # Stale by account, not only by age: this is beta's snapshot, and
+        # `current_account` already says alpha.
+        f.write_text(json.dumps({"account": "beta", "collected_at": int(time.time()),
+                                 "session_id": "beta-sess"}))
+        dmn.sweep(con, lambda _m: None, [])
+        row = db.get_agent_state(con, "backend")
+        check("sweep: a session id from a snapshot on the wrong account is dropped",
+              row["closed_at"] is not None and row["resume_session"] is None,
+              str(dict(row)))
+
+        # Reopen it and let its own account's snapshot be the one on file.
+        db.clear_closed(con, "backend")
+        f.write_text(json.dumps({"account": "alpha", "collected_at": int(time.time()),
+                                 "session_id": "alpha-sess"}))
+        dmn.sweep(con, lambda _m: None, [])
+        row = db.get_agent_state(con, "backend")
+        check("sweep: and kept once the snapshot is the account it is on now",
+              row["closed_at"] is not None and row["resume_session"] == "alpha-sess",
+              str(dict(row)))
+    finally:
+        orcamod.live_terminals, obsmod.live_sessions, orcamod.available = real
         con.close()
 
 
@@ -17399,6 +17800,11 @@ def test_no_command_prints_what_a_terminal_would_obey(home: Path) -> None:
         "task link": "writes a row; prints two ids", "base promote": "writes base.md; prints sizes and a path",
         "hr relabel": "calls Orca directly, no proposal; driven in "
                       "test_a_rename_names_the_agents_orca_worktree, not this scene",
+        "trust add": "founder-only on a tty; driven in test_ocp_trust_cli_is_wired",
+        "trust list": "prints declared roots; driven in test_ocp_trust_cli_is_wired",
+        "trust remove": "driven in test_ocp_trust_cli_is_wired",
+        "trust proposals": "lists proposal files; prints their ids",
+        "trust apply": "founder-only; applies a proposal and prints its id",
     }
     have = set(driven_now := scene.driven) | set(skipped)
     every = set(leaves())
@@ -19487,6 +19893,87 @@ def test_orca_idle_parsing() -> None:
         orcamod._run = real
 
 
+# A real `orca terminal read --screen --json` capture (auditor's #339
+# should-fix 3): a throwaway session started under an account no agent
+# runs on, in a scratch directory outside any declared root, before any
+# key was sent. The path is wrapped at terminal width with no separator,
+# split across two lines by "Accessing workspace:".
+LIVE_TRUST_PROMPT_CAPTURE = "\n".join([
+    " ron@Ron-MacBookAir  ~/orca/workspaces/orcapipe/keeper-2   buddyron/trust-screen  "
+    "cd '/private/tmp/claude-501/-Users",
+    "-ron-orca-workspaces-orcapipe-keeper-2/592b2fde-6685-4f79-b057-8931a4b64d3a/"
+    "scratchpad/trust-probe' && CLAUDE_CONFIG_DIR",
+    "=/Users/ron/.orcapipe/accounts/gamma/.claude claude",
+    "─" * 124,
+    " Accessing workspace:",
+    " /private/tmp/claude-501/-Users-ron-orca-workspaces-orcapipe-keeper-2/"
+    "592b2fde-6685-4f79-b057-8931a4b64d3a/scratchpad/t",
+    " rust-probe",
+    " Quick safety check: Is this a project you created or one you trust? (Like your "
+    "own code, a well-known open source",
+    " project, or work from your team). If not, take a moment to review what's in "
+    "this folder first.",
+    " Claude Code'll be able to read, edit, and execute files here.",
+    " Security guide",
+    " ❯ No, exit",
+    "   Yes, I trust this folder",
+    " Enter to confirm · Esc to cancel",
+])
+LIVE_TRUST_PROMPT_FOLDER = (
+    "/private/tmp/claude-501/-Users-ron-orca-workspaces-orcapipe-keeper-2/"
+    "592b2fde-6685-4f79-b057-8931a4b64d3a/scratchpad/trust-probe")
+
+
+def test_trust_prompt_folder_parses_a_live_capture() -> None:
+    """auditor's #339 should-fix 3: `trust_prompt_folder` is what blocker 2's
+    whole fix rests on, and nothing pinned its join-bare, wrapped-path
+    behaviour against a real screen - only a synthetic one-liner. A parse
+    that silently comes out wrong fails closed (escalate + STALLED), so a
+    quiet regression here stalls every agent in a declared root."""
+    check("trust_prompt_folder: the wrapped path is joined bare, no space",
+          orcamod.trust_prompt_folder(LIVE_TRUST_PROMPT_CAPTURE) == LIVE_TRUST_PROMPT_FOLDER,
+          orcamod.trust_prompt_folder(LIVE_TRUST_PROMPT_CAPTURE))
+    check("trust_prompt_folder: trust_prompt_showing agrees this is the screen",
+          orcamod.TRUST_PROMPT_MARKER in LIVE_TRUST_PROMPT_CAPTURE)
+    check("trust_prompt_folder: no marker at all is None, not a guess",
+          orcamod.trust_prompt_folder("ordinary TUI, nothing to see here") is None)
+    check("trust_prompt_folder: the marker with nothing after it is None too",
+          orcamod.trust_prompt_folder("Accessing workspace:") is None)
+
+
+def test_confirm_trust_presses_down_then_enter() -> None:
+    """Request 156 item 1b's two keys, measured against a live prompt (see
+    orca.py's own comment on TRUST_PROMPT_DOWN_ARROW): one Down off the
+    default 'No, exit' lands on 'Yes, I trust this folder', and a bare Enter
+    after that confirms it. Wrong order or a missing key each press whatever
+    the cursor happened to be sitting on instead."""
+    calls: list[list[str]] = []
+    real = orcamod._run
+    try:
+        orcamod._run = lambda args, *a, **k: (calls.append(args), (True, "{}"))[1]
+        ok, why = orcamod.confirm_trust("term_x")
+        check("confirm_trust: reports success", ok, why)
+        check("confirm_trust: sends exactly two commands", len(calls) == 2, str(calls))
+        check("confirm_trust: the first moves down, with no --enter",
+              calls[0] == ["terminal", "send", "--terminal", "term_x",
+                           "--text", orcamod.TRUST_PROMPT_DOWN_ARROW],
+              str(calls[0]))
+        check("confirm_trust: the second is a bare Enter",
+              calls[1] == ["terminal", "send", "--terminal", "term_x", "--text", "", "--enter"],
+              str(calls[1]))
+    finally:
+        orcamod._run = real
+
+    real = orcamod._run
+    try:
+        orcamod._run = lambda *a, **k: (False, "no such terminal")
+        ok, why = orcamod.confirm_trust("term_x")
+        check("confirm_trust: a failed first key is reported, not silently retried",
+              not ok and "Yes" in why, why)
+    finally:
+        orcamod._run = real
+
+
 def test_clear_refuses_mid_turn() -> None:
     real_alive, real_wait, real_send = orcamod.alive, orcamod.wait_idle, orcamod.send
     sent = []
@@ -19791,6 +20278,257 @@ def test_a_drifted_wake_that_cannot_relaunch_says_why(home: Path) -> None:
     finally:
         (orcamod.available, orcamod.alive, orcamod.close_session, orcamod.resume_with,
          dmn.wait_for_session) = real
+        con.close()
+
+
+def test_a_wake_reads_the_screen_before_typing_into_it(home: Path) -> None:
+    """The cursor on claude's folder-trust screen defaults to "No, exit" - a
+    handoff typed there, followed by Enter, chooses exit every time, and the
+    next wake finds the same screen again. Read before typing catches it
+    instead of discovering it from the loop.
+    """
+    _daemon_home(home, 50)
+    con = db.connect()
+    real = (orcamod.resume_with, orcamod.alive, orcamod.trust_prompt_showing,
+            orcamod.typeable_now)
+    sent: list[str] = []
+    try:
+        orcamod.available = lambda: True
+        orcamod.alive = lambda h: True
+        # As in production: screen_blocker reads the trust dialog as a modal,
+        # so typeable_now is False while it shows.
+        orcamod.typeable_now = lambda h: not orcamod.trust_prompt_showing(h)
+        orcamod.resume_with = lambda h, text: (sent.append(text), (True, "typed"))[1]
+        sessions_are("backend")
+        db.set_terminal(con, "backend", "term_x", "wt")
+        keep_handoff("backend", "# handoff · backend\n## next\n- carry on\n")
+
+        orcamod.trust_prompt_showing = lambda h: True
+        ok, why = dmn.wake_agent(con, "backend", lambda _m: None)
+        check("wake: nothing is typed into a trust prompt", not ok and not sent, str((ok, sent)))
+        row = db.get_agent_state(con, "backend")
+        check("wake: the agent is stalled instead of retried into the same screen",
+              row["state"] == dmn.STALLED, str(dict(row)))
+        printed = _capture(lambda: climod.main(["inbox", "human"]))
+        check("wake: and the founder's own queue is told, not just the screen",
+              "trust" in printed.lower() and "backend" in printed, printed)
+
+        orcamod.trust_prompt_showing = lambda h: False
+        db.set_agent_state(con, "backend", dmn.PARKED, detail="reset for the next case")
+        ok, why = dmn.wake_agent(con, "backend", lambda _m: None)
+        check("wake: an ordinary screen is typed into as before", ok and sent, why)
+    finally:
+        (orcamod.resume_with, orcamod.alive, orcamod.trust_prompt_showing,
+         orcamod.typeable_now) = real
+        con.close()
+
+
+def test_a_declared_root_gets_standing_consent(home: Path) -> None:
+    """Standing consent, and blocker 2 (auditor's #304): pressed only for the
+    folder the dialog itself names, checked against both the declared roots
+    and the recorded worktree, and only once the keys actually land.
+    Anything else escalates, the same as with no standing consent at all."""
+    _daemon_home(home, 50)
+    con = db.connect()
+    wt = home / "worktree"
+    wt.mkdir(parents=True, exist_ok=True)
+    other = home / "elsewhere"
+    other.mkdir(parents=True, exist_ok=True)
+
+    def screen_for(path) -> str:
+        return (f"some prompt line\nAccessing workspace:\n{path}\n"
+                f"Quick safety check: Is this a project you created or one you trust?\n"
+                f"...\nNo, exit\nYes, I trust this folder\n")
+
+    real = (orcamod.resume_with, orcamod.alive, orcamod.trust_prompt_showing,
+            orcamod.confirm_trust, orcamod.wait_idle, orcamod.screen_text,
+            trustmod.is_declared, orcamod.idle_now, orcamod.send, orcamod.screen_blocker,
+            orcamod.time.sleep)
+    sent: list[str] = []
+    trusted: list[str] = []
+    showing = {"v": True}
+
+    def reset():
+        showing["v"] = True
+        sent.clear()
+        trusted.clear()
+        # A typed handoff is consumed, so each case parks with a fresh one.
+        keep_handoff("backend", "# handoff · backend\n## next\n- carry on\n")
+        db.set_agent_state(con, "backend", dmn.PARKED, detail="reset for the next case")
+
+    try:
+        orcamod.available = lambda: True
+        orcamod.alive = lambda h: True
+        orcamod.resume_with = lambda h, text: (sent.append(text), (True, "typed"))[1]
+        orcamod.wait_idle = lambda h, *a, **k: True
+        orcamod.trust_prompt_showing = lambda h: showing["v"]
+        # As in production: the trust dialog is a modal to screen_blocker.
+        orcamod.screen_blocker = lambda h: (orcamod.Blocker(orcamod.MODAL)
+                                            if orcamod.trust_prompt_showing(h) else None)
+        sessions_are("backend")
+        db.set_terminal(con, "backend", "term_x", str(wt))
+        keep_handoff("backend", "# handoff · backend\n## next\n- carry on\n")
+
+        # 1. Not a declared root at all: escalates, nothing pressed.
+        orcamod.screen_text = lambda h: screen_for(wt)
+        trustmod.is_declared = lambda p: False
+        orcamod.confirm_trust = lambda h: (trusted.append(h), (True, "trusted"))[1]
+        ok, why = dmn.wake_agent(con, "backend", lambda _m: None)
+        check("wake: an undeclared root escalates, nothing confirmed or typed",
+              not ok and not sent and not trusted, str((ok, sent, trusted)))
+        check("wake: ...and the agent is stalled",
+              db.get_agent_state(con, "backend")["state"] == dmn.STALLED)
+
+        # 2. Declared, but the dialog names a folder the record does not.
+        reset()
+        orcamod.screen_text = lambda h: screen_for(other)
+        trustmod.is_declared = lambda p: True
+        ok, why = dmn.wake_agent(con, "backend", lambda _m: None)
+        check("wake: a recorded path that differs from the dialog's folder escalates",
+              not ok and not sent and not trusted, str((ok, sent, trusted)))
+
+        # 3. Declared and matching, but the keys never land.
+        reset()
+        orcamod.screen_text = lambda h: screen_for(wt)
+        ok, why = dmn.wake_agent(con, "backend", lambda _m: None)
+        check("wake: keys that did not land escalate rather than typing blind",
+              not ok and not sent, str((ok, sent, trusted)))
+
+        # 4. Declared, matching, and the keys land: pressed, then typed.
+        reset()
+        def confirm_and_close(h):
+            trusted.append(h)
+            showing["v"] = False
+            return True, "trusted"
+        orcamod.confirm_trust = confirm_and_close
+        ok, why = dmn.wake_agent(con, "backend", lambda _m: None)
+        check("wake: declared, matching, and the keys land: pressed",
+              ok and trusted == ["term_x"], str((ok, trusted)))
+        check("wake: ...and the handoff is still typed once it is",
+              sent and "carry on" in sent[-1], sent)
+        events = [dict(r) for r in db.events_after(con, 0, agent="backend")]
+        check("wake: ...and standing consent is on the record",
+              any(e["kind"] == "trust_confirmed" for e in events), events)
+
+        # 5. The keys land but claude is still redrawing: the settle waits for
+        # the screen to clear instead of reading the redraw as a refusal.
+        reset()
+        confirmed, reads = {"v": False}, {"n": 0}
+
+        def slow_redraw(h):
+            if not confirmed["v"]:
+                return True
+            reads["n"] += 1
+            return reads["n"] < 3      # still drawing for the first two reads
+
+        def confirm_landing(h):
+            confirmed["v"] = True
+            return True, "trusted"
+        orcamod.trust_prompt_showing = slow_redraw
+        orcamod.confirm_trust = confirm_landing
+        orcamod.time.sleep = lambda s: None
+        ok, why = dmn.wake_agent(con, "backend", lambda _m: None)
+        check("wake: a redraw that outlasts the press is waited out, not escalated",
+              ok and sent and reads["n"] >= 3
+              and db.get_agent_state(con, "backend")["state"] != dmn.STALLED,
+              str((ok, why, reads, sent)))
+        orcamod.time.sleep = real[-1]
+        orcamod.trust_prompt_showing = lambda h: showing["v"]
+
+        # 6. The deliver paths meet the same screen: typeable_now refuses it,
+        # so neither types nor presses - the sweep is what reports it.
+        reset()
+        orcamod.confirm_trust = lambda h: (trusted.append(h), (True, "trusted"))[1]
+        orcamod.screen_text = lambda h: screen_for(wt)
+        trustmod.is_declared = lambda p: False
+        orcamod.idle_now = lambda h: True
+        orcamod.send = lambda h, text, enter=True: (sent.append(text), (True, ""))[1]
+        db.add_request(con, "reviewer", "backend", "please look", None,
+                       "peer", "fire_and_forget", None, 0, None)
+        asked = db.add_request(con, "backend", "reviewer", "did it land?", None,
+                               "peer", "async", None, 0, None)
+        db.set_request_state(con, asked, "done", "yes")
+        db.set_agent_state(con, "backend", dmn.RUNNING)
+        dmn.deliver_answers(con, "backend", lambda _m: None)
+        dmn.deliver_queued(con, "backend", lambda _m: None)
+        check("trust: the deliver paths neither type nor press at the screen",
+              not sent and not trusted, str((sent, trusted)))
+    finally:
+        (orcamod.resume_with, orcamod.alive, orcamod.trust_prompt_showing,
+         orcamod.confirm_trust, orcamod.wait_idle, orcamod.screen_text,
+         trustmod.is_declared, orcamod.idle_now, orcamod.send, orcamod.screen_blocker,
+         orcamod.time.sleep) = real
+        con.close()
+
+
+def test_a_closed_agents_relaunch_stops_at_the_trust_screen(home: Path) -> None:
+    """auditor's #1630 BLOCKING: a closed agent is woken by a relaunch that
+    carries its prompt in --prompt-file, and a relaunch - on a moved agent, a
+    config dir that has never trusted the folder - is where the trust screen
+    appears. The wake is not done while claude sits at it: under standing
+    consent it is pressed, otherwise it escalates naming the folder, and the
+    agent stays closed with its handoff kept."""
+    _daemon_home(home, 20)
+    con = db.connect()
+    wt = home / "worktree"
+    wt.mkdir(parents=True, exist_ok=True)
+    screen = (f"Accessing workspace:\n{wt}\n"
+              f"Quick safety check: Is this a project you created or one you trust?\n"
+              f"No, exit\nYes, I trust this folder\n")
+    real = (orcamod.relaunch, orcamod.alive, orcamod.trust_prompt_showing, orcamod.screen_text,
+            orcamod.confirm_trust, orcamod.wait_idle, trustmod.is_declared,
+            dmn.wait_for_session, orcamod.time.sleep)
+    showing = {"v": True}
+    trusted: list[str] = []
+    table = sessions_are()
+    try:
+        orcamod.available = lambda: True
+        orcamod.alive = lambda h: True
+        orcamod.wait_idle = lambda h, *a, **k: True
+        orcamod.time.sleep = lambda s: None
+        orcamod.relaunch = lambda h, cmd, started=None: (
+            table.update({"backend": 4242}), (True, "relaunched"))[1]
+        dmn.wait_for_session = lambda agent, timeout=0: True
+        orcamod.trust_prompt_showing = lambda h: showing["v"]
+        orcamod.screen_text = lambda h: screen
+        orcamod.confirm_trust = lambda h: (trusted.append(h), showing.update(v=False),
+                                           (True, "trusted"))[2]
+        db.set_terminal(con, "backend", "term_x", str(wt))
+
+        def closed_with_a_handoff():
+            table.clear()
+            showing["v"] = True
+            keep_handoff("backend", "# handoff · backend\n## next\n- carry on\n")
+            db.set_agent_state(con, "backend", dmn.PARKED, detail="parked")
+            db.set_closed(con, "backend", "sess-1")
+
+        closed_with_a_handoff()
+        trustmod.is_declared = lambda p: False
+        ok, why = dmn.wake_agent(con, "backend", lambda _m: None)
+        row = db.get_agent_state(con, "backend")
+        check("closed wake: an undeclared trust screen is not recorded as woken",
+              not ok and str(wt) in why, why)
+        check("closed wake: it is escalated to the founder, naming the folder",
+              con.execute("SELECT COUNT(*) c FROM requests WHERE target = ? AND kind = "
+                          "'escalate' AND body LIKE ?", (askmod.HUMAN, f"%{wt}%")
+                          ).fetchone()["c"] == 1)
+        check("closed wake: and stalled", row["state"] == dmn.STALLED, dict(row))
+        check("closed wake: it stays closed", row["closed_at"] is not None, dict(row))
+        check("closed wake: and keeps its handoff", db.get_handoff(con, "backend"), dict(row))
+        check("closed wake: nothing was pressed", not trusted, trusted)
+
+        closed_with_a_handoff()
+        trustmod.is_declared = lambda p: True
+        ok, why = dmn.wake_agent(con, "backend", lambda _m: None)
+        row = db.get_agent_state(con, "backend")
+        check("closed wake: a declared, matching folder is pressed",
+              trusted == ["term_x"], trusted)
+        check("closed wake: then it is woken", ok and row["closed_at"] is None,
+              str((ok, why, dict(row))))
+    finally:
+        (orcamod.relaunch, orcamod.alive, orcamod.trust_prompt_showing, orcamod.screen_text,
+         orcamod.confirm_trust, orcamod.wait_idle, trustmod.is_declared,
+         dmn.wait_for_session, orcamod.time.sleep) = real
         con.close()
 
 
@@ -20211,6 +20949,42 @@ def test_an_account_is_added_and_removed_from_ocp(home: Path) -> None:
     check("account remove: an unknown account is said to be unknown", rc == 1, out)
 
 
+def test_offer_to_trust_worktrees_lists_paths_and_skips(home: Path) -> None:
+    """Should-fix 5 (auditor's #304): the y/N question names exactly the
+    worktrees a yes will press, and reports the rest as skipped rather than
+    acting on them silently."""
+    home.mkdir(parents=True, exist_ok=True)
+    os.environ["OCP_HOME"] = str(home)
+    agents.register("backend", "alpha")
+    agents.register("frontend", "alpha")
+    wt_in = home / "declared" / "backend-wt"
+    wt_in.mkdir(parents=True, exist_ok=True)
+    wt_out = home / "elsewhere" / "frontend-wt"
+    wt_out.mkdir(parents=True, exist_ok=True)
+    con = db.connect()
+    try:
+        db.set_terminal(con, "backend", "term_b", str(wt_in))
+        db.set_terminal(con, "frontend", "term_f", str(wt_out))
+    finally:
+        con.close()
+    trustmod.enact(str(home / "declared"), "test root")
+
+    real_trust = actions.trust_worktrees
+    asked: list[str] = []
+    try:
+        actions.trust_worktrees = lambda acct, wts: [f"{a}: trusted" for a, w in wts]
+        out = _capture(lambda: climod._offer_to_trust_worktrees(
+            "gamma", lambda p: (asked.append(p), "y")[1]))
+    finally:
+        actions.trust_worktrees = real_trust
+    check("offer: the declared worktree is named in the question",
+          any("backend" in p and str(wt_in) in p for p in asked), asked)
+    check("offer: the undeclared one is named as skipped, not offered",
+          any("skipping" in p and "frontend" in p for p in asked), asked)
+    check("offer: a yes goes ahead and trusts only the declared one",
+          "backend: trusted" in out, out)
+
+
 def test_each_account_guard_fails_under_its_own_mutation(home: Path) -> None:
     """One condition per check, so removing any one guard fails a test."""
     home.mkdir(parents=True, exist_ok=True)
@@ -20442,6 +21216,44 @@ def test_dismissing_your_own_answer_does_not_announce_it_for_the_requester(
               rid in [r["id"] for r in db.unannounced_answers(con, "a")], out)
     finally:
         con.close()
+
+
+def test_add_account_from_the_tui_offers_to_trust_worktrees(home: Path) -> None:
+    """Blocking 1's TUI half (#304): 'a' on the accounts panel runs the same
+    trust_worktrees sequence the CLI does, listing what a yes would press."""
+    home.mkdir(parents=True, exist_ok=True)
+    os.environ["OCP_HOME"] = str(home)
+    agents.register("backend", "alpha")
+    wt = home / "declared" / "backend-wt"
+    wt.mkdir(parents=True, exist_ok=True)
+    con = db.connect()
+    try:
+        db.set_terminal(con, "backend", "term_b", str(wt))
+    finally:
+        con.close()
+    trustmod.enact(str(home / "declared"), "test root")
+
+    real_add, real_avail, real_line, real_trust = (
+        accounts.add_account, orcamod.available, tui._line, actions.trust_worktrees)
+    asked: list[str] = []
+    try:
+        accounts.add_account = lambda name, run, no_login=False: (
+            True, f"'{name}' is logged in.")
+        orcamod.available = lambda: True
+
+        def fake_line(prompt, w, h, **_kw):
+            asked.append(prompt)
+            return "gamma" if "new account name" in prompt else "y"
+        tui._line = fake_line
+        actions.trust_worktrees = lambda acct, wts: [f"{a} ({w}): trusted" for a, w in wts]
+
+        msg = tui._add_account(80, 24, None, None)
+        check("tui add: the worktree is named in the question",
+              any("backend" in p and str(wt) in p for p in asked), asked)
+        check("tui add: a yes goes ahead and trusts it", "trusted" in msg, msg)
+    finally:
+        (accounts.add_account, orcamod.available, tui._line,
+         actions.trust_worktrees) = real_add, real_avail, real_line, real_trust
 
 
 def test_tui_frame_geometry(home: Path) -> None:
@@ -21725,6 +22537,11 @@ def main() -> int:
             Path(td) / 'pullpoll'))
         run(lambda: test_yaml())
         run(lambda: test_agents(home))
+        run(lambda: test_trust_roots(Path(td) / 'trust_roots'))
+        run(lambda: test_ocp_trust_cli_is_wired(Path(td) / 'trust_cli'))
+        run(lambda: test_eligible_worktrees_splits_declared_from_not(Path(td) / 'eligible_wt'))
+        run(lambda: test_trust_worktrees(Path(td) / 'trust_wt'))
+        run(lambda: test_trust_worktrees_quotes_the_path(Path(td) / 'trust_wt_quote'))
         run(lambda: test_launch(home))
         run(lambda: test_doctor_checks_shared_mcp_config(home))
         run(lambda: test_team_routing())
@@ -21808,6 +22625,7 @@ def main() -> int:
         run(lambda: test_the_human_and_strangers_are_not_blocked_agents(Path(td) / 'blk10'))
         run(lambda: test_the_tick_looks_for_blocks(Path(td) / 'blk8'))
         run(lambda: test_blocked_agents_come_due_in_one_request(Path(td) / 'blk4'))
+        run(lambda: test_a_trust_screen_is_one_founder_request(Path(td) / 'trustonce'))
         run(lambda: test_a_dialog_ocps_own_exit_raised_is_said_at_once(Path(td) / 'blk5'))
         run(lambda: test_a_failed_close_says_why_and_records_the_dialog(Path(td) / 'blk6'))
         run(lambda: test_a_close_refused_by_a_dialog_is_said_once_not_every_tick(Path(td) / 'blk11'))
@@ -21843,6 +22661,9 @@ def main() -> int:
         run(lambda: test_a_close_that_will_not_take_is_not_tried_again_every_tick(Path(td) / 'exitretry'))
         run(lambda: test_wake_without_a_closed_session_uses_the_handoff(Path(td) / 'wakeh'))
         run(lambda: test_reconcile_does_not_clear_closed_at_on_a_failed_wake(Path(td) / 'crashwake'))
+        run(lambda: test_a_withdraw_landing_before_the_send_stops_the_send(Path(td) / 'withdrawrace'))
+        run(lambda: test_the_daemon_never_types_into_a_trust_prompt_via_deliver(
+            Path(td) / 'delivertrust'))
         run(lambda: test_work_arriving_wakes_a_closed_agent(Path(td) / 'wakework'))
         run(lambda: test_a_running_agent_is_told_when_work_arrives(Path(td) / 'deliver'))
         run(lambda: test_a_report_to_the_founder_is_not_a_wait(Path(td) / 'fyi'))
@@ -21884,6 +22705,7 @@ def main() -> int:
         run(lambda: test_a_cold_wake_with_no_handoff_still_tells_the_agent_its_transcript_and_request(Path(td) / 'coldnone2'))
         run(lambda: test_a_park_that_was_also_closed_is_woken_without_being_judged(Path(td) / 'pclosed'))
         run(lambda: test_reconcile_wakes_a_park_that_was_also_closed(Path(td) / 'pclosed2'))
+        run(lambda: test_a_dead_sessions_id_is_kept_only_from_a_matching_snapshot(Path(td) / 'deadacct'))
         run(lambda: test_a_wake_does_not_call_a_fresh_start_a_park(Path(td) / 'freshstart'))
         run(lambda: test_installing_hooks_twice_does_not_double_them(Path(td) / 'hookdup'))
         run(lambda: test_the_sweep_corrects_what_it_can_see(Path(td) / 'sweep'))
@@ -22061,6 +22883,8 @@ def main() -> int:
         run(lambda: test_a_rejected_fold_still_records_what_it_spent(Path(td) / 'spend'))
         run(lambda: test_one_agents_bad_tick_is_not_everyones(Path(td) / 'badtick'))
         run(lambda: test_orca_idle_parsing())
+        run(lambda: test_trust_prompt_folder_parses_a_live_capture())
+        run(lambda: test_confirm_trust_presses_down_then_enter())
         run(lambda: test_clear_refuses_mid_turn())
         run(lambda: test_handoff_reclaims_context(Path(td) / 'reclaim'))
         run(lambda: test_wake_injects_handoff(Path(td) / 'wake'))
@@ -22068,6 +22892,9 @@ def main() -> int:
         run(lambda: test_a_parked_row_with_no_fingerprint_also_relaunches(Path(td) / 'nofp'))
         run(lambda: test_a_launch_records_its_fingerprint_and_says_when_it_cannot(Path(td) / 'recfp'))
         run(lambda: test_a_drifted_wake_that_cannot_relaunch_says_why(Path(td) / 'driftlog'))
+        run(lambda: test_a_wake_reads_the_screen_before_typing_into_it(Path(td) / 'trustscreen'))
+        run(lambda: test_a_declared_root_gets_standing_consent(Path(td) / 'trustroot'))
+        run(lambda: test_a_closed_agents_relaunch_stops_at_the_trust_screen(Path(td) / 'trustclosed'))
         run(lambda: test_hooks_report_activity(Path(td) / 'hooky'))
         run(lambda: test_tui_frame_geometry(Path(td) / 'tui'))
         run(lambda: test_clear_does_not_look_like_waking(Path(td) / 'loopy'))
@@ -22077,9 +22904,13 @@ def main() -> int:
         run(lambda: test_an_idle_close_keeps_a_handoff_only_if_it_closed(Path(td) / 'hdclose'))
         run(lambda: test_the_digest_facts_do_not_repeat_one_event_kind(Path(td) / 'hdfacts'))
         run(lambda: test_an_account_is_added_and_removed_from_ocp(Path(td) / 'acctaddrm'))
+        run(lambda: test_offer_to_trust_worktrees_lists_paths_and_skips(
+            Path(td) / 'offertrust'))
         run(lambda: test_each_account_guard_fails_under_its_own_mutation(Path(td) / 'guards'))
         run(lambda: test_a_second_name_for_one_login_is_caught(Path(td) / 'acctsame'))
         run(lambda: test_the_accounts_panel_adds_and_removes(Path(td) / 'acctpanel'))
+        run(lambda: test_add_account_from_the_tui_offers_to_trust_worktrees(
+            Path(td) / 'accttrust'))
         run(lambda: test_a_file_added_to_shared_reaches_every_existing_account(Path(td) / 'relink'))
         run(lambda: test_a_second_daemon_is_refused_by_the_lock_alone(Path(td) / 'onedmn'))
         run(lambda: test_an_exiting_daemon_leaves_the_live_ones_name(Path(td) / 'pidname'))
