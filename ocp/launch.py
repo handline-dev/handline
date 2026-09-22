@@ -90,16 +90,18 @@ def choose_account(agent: str, resuming: bool = False, con=None) -> str:
 class WakeWait:
     account: str
     pct: int
-    reset_5h: int | None
+    # When the walled window rolls over: the 5h one, or the weekly one.
+    reset: int | None
     # True when `account` is a guess (agent.yaml's preference, or a spawn's
     # own unconfirmed one) rather than the account this resume is actually
     # tied to - `account_reading` prefers a fresher reported one first, so
     # this is the residual case where nothing has confirmed one at all.
     assumed: bool = False
+    window: str = "5h"
 
 
 def wake_wait(agent: str, row, con) -> WakeWait | None:
-    """Is a closed agent's wake walled behind its own account's 5h window?
+    """Is a closed agent's wake walled behind its own account's 5h or weekly wall?
 
     This is the check daemon.py makes before it types anything into a closed
     agent's terminal. A resume cannot follow an account change, but the
@@ -113,6 +115,14 @@ def wake_wait(agent: str, row, con) -> WakeWait | None:
     hard way. A screen that means to show only the waits with something behind
     them gates on `daemon.would_wake` first; this makes no such promise on its
     own.
+
+    The move branch already goes through `choose_account` -> `find_room` ->
+    `status.unfit`, which refuses a walled account on both windows before
+    this is ever reached - the 7d check here is belt and braces for it. The
+    resume branch is the one this actually protects: it is pinned to the
+    account its session is tied to, cannot follow an account change, and
+    nothing upstream has refused that account on 7d - without this, a resume
+    wakes an agent straight into the weekly wall.
 
     A computed condition, not a stored one: called again a moment later, on an
     account whose window has since rolled over, it returns None.
@@ -128,10 +138,12 @@ def wake_wait(agent: str, row, con) -> WakeWait | None:
         # answers a question this branch does not ask.
         acct, assumed = choose_account(agent, resuming=False, con=con), False
     st = status.read(acct)
-    pct = st.trusted_pct_5h
-    if pct is None or pct < status.PCT_5H_BLOCK:
-        return None
-    return WakeWait(acct, pct, st.reset_5h, assumed)
+    pct, week = st.trusted_pct_5h, st.trusted_pct_7d
+    if pct is not None and pct >= status.PCT_5H_BLOCK:
+        return WakeWait(acct, pct, st.reset_5h, assumed)
+    if week is not None and week >= status.PCT_7D_BLOCK:
+        return WakeWait(acct, week, st.reset_7d, assumed, window="7d")
+    return None
 
 
 def wake_wait_reason(agent: str, row, con) -> str | None:
@@ -150,9 +162,10 @@ def wake_wait_reason(agent: str, row, con) -> str | None:
 def describe_wake_wait(w: WakeWait) -> str:
     """The wording for a wait already computed, so a caller that holds one
     does not recompute it (the window may have rolled over in between)."""
-    when = "unknown" if not w.reset_5h else time.strftime("%H:%M", time.localtime(w.reset_5h))
+    fmt = "%H:%M" if w.window == "5h" else "%m-%d %H:%M"
+    when = "unknown" if not w.reset else time.strftime(fmt, time.localtime(w.reset))
     who = f"assumed account {w.account}" if w.assumed else w.account
-    return f"waiting for {who}'s 5h window ({w.pct}%, rolls over {when})"
+    return f"waiting for {who}'s {w.window} window ({w.pct}%, rolls over {when})"
 
 
 def _mcp_config_material() -> str:
