@@ -2300,6 +2300,31 @@ def test_build_prompt_tells_the_model_not_to_write_a_started_by_reference_as_has
           "waiting on" in prompt and "work on it starts" in prompt
           and "another way" in prompt, prompt)
 
+    # Auditor #1623 BLOCKING: a substring check on the prompt would pass for
+    # any example at all, including one that still closes the line the
+    # sentence exists to keep open - "the finding from #7" was exactly that,
+    # since _ID_RE matches #N anywhere in the text, not only where the model
+    # was told to put it. So the examples are read out of the live prompt
+    # text itself, not a second, hand-kept list that a future edit to the
+    # prompt could drift away from unnoticed, and run through
+    # reconcile_resolved the same way the two counter-examples above were.
+    segment = prompt.split("another way instead (", 1)[1].split(")", 1)[0]
+    examples = re.findall(r'"([^"]+)"', segment)
+    check("build_prompt: setup - the rule gives at least two examples to check",
+          len(examples) >= 2, segment)
+    con = db.connect()
+    try:
+        d2 = digest.Digest(date="2026-09-22", agent="backend", updated="09:00",
+                           folded_through=1,
+                           sections={"in_progress": examples, "blocked": [], "done": [],
+                                    "decided": [], "next": [], "base_candidates": []})
+        out2 = foldmod.reconcile_resolved(con, d2)
+        check("reconcile: every example the prompt recommends stays in progress, "
+              "not closed by an id it happens to contain",
+              out2.items("in_progress") == examples, str(out2.sections))
+    finally:
+        con.close()
+
 
 def test_fold_degraded_path_also_reconciles_resolved_asks(home: Path) -> None:
     """#499 should-fix: only the no-event and model paths were exercised.

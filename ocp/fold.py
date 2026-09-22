@@ -185,9 +185,9 @@ Rules:
   waiting on - reconcile_resolved closes the item the moment that request
   is done, so #N there means "done" ends this. A request being resolved is
   often when work on it starts, not when it finishes (e.g. a review coming
-  back) - name that request another way instead ("auditor's review",
-  "the finding from #7"), never as #N, or the item will close the moment
-  the review lands, not when the work it starts is actually done.
+  back) - name that request another way instead ("auditor's review", "the
+  C1 finding"), never as #N or "request N", or the item will close the
+  moment the review lands, not when the work it starts is actually done.
 - Keep each item one line, terse and concrete.
 - Do not add sections beyond the ones listed.
 
