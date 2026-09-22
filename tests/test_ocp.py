@@ -159,6 +159,22 @@ def restore_world() -> None:
     actions._WORLD["at"] = 0.0
 
 
+def test_restore_world_pops_orca_env_vars_a_real_terminal_would_leave_set() -> None:
+    """Auditor #1662/#1670: on a machine with no real Orca terminal (the
+    common case, unlike the account this suite is usually run from), the pop
+    in restore_world() is otherwise covered by nothing - both variables are
+    set and unset by nothing else in the suite. Set both to markers directly,
+    the same shape a real terminal's environment would leave them in, so the
+    check does not depend on which machine runs it."""
+    os.environ["ORCA_TERMINAL_HANDLE"] = "marker_handle"
+    os.environ["ORCA_WORKTREE_ID"] = "marker_worktree"
+    restore_world()
+    check("restore_world: ORCA_TERMINAL_HANDLE is popped, not just this test's own",
+          "ORCA_TERMINAL_HANDLE" not in os.environ)
+    check("restore_world: ORCA_WORKTREE_ID is popped too, same class of leak",
+          "ORCA_WORKTREE_ID" not in os.environ)
+
+
 def relaunching_send(sent: list, table: dict[str, int]) -> object:
     """An orca.send that records, and starts a session when it is a relaunch.
 
@@ -20429,6 +20445,7 @@ def main() -> int:
         run(lambda: test_two_processes_cannot_both_supervise_one_home(Path(td) / 'twoproc'))
         run(lambda: test_the_screen_says_when_two_daemons_are_running(Path(td) / 'dmnwarn'))
         run(lambda: test_run_recovers_from_an_uncaught_error())
+        run(lambda: test_restore_world_pops_orca_env_vars_a_real_terminal_would_leave_set())
         run(lambda: test_run_restores_current_test_after_its_own_nested_run_calls(Path(td) / 'nestedrun'))
         run(lambda: test_a_clean_runs_label_file_has_no_fail_record(Path(td) / 'cleanrun'))
         run(lambda: test_diff_labels_prints_only_what_changed_and_nothing_else(Path(td) / 'difflabels'))
