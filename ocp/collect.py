@@ -104,7 +104,7 @@ def ctx_size(model_id: str | None) -> int | None:
     return None
 
 
-def encode_cwd(cwd: str | Path) -> str:
+def encode_cwd(account: str, cwd: str | Path) -> str:
     """A working directory as the vendor names its project directory.
 
     Claude Code's answer, which this was written against, maps every character
@@ -114,11 +114,12 @@ def encode_cwd(cwd: str | Path) -> str:
     (`-Users-ron-Library-Application-Support-...`) and collapse `/.claude` to
     `--claude`.
     """
-    return vendors.for_accounts().memory_project_dir(str(cwd))
+    return vendors.for_account(account).memory_project_dir(str(cwd))
 
 
 def project_dir(account: str, cwd: str | Path) -> Path:
-    return vendors.for_accounts().memory_root(paths.account_claude(account)) / encode_cwd(cwd)
+    return (vendors.for_account(account).memory_root(vendors.config_dir(account))
+            / encode_cwd(account, cwd))
 
 
 @dataclass(frozen=True)
@@ -152,10 +153,9 @@ def locate(cwd: str | Path, accounts: list[str] | None = None) -> Located | None
     """
     best: Located | None = None
     for acct in (accounts if accounts is not None else paths.list_accounts()):
-        d = project_dir(acct, cwd)
         try:
-            entries = list(d.glob("*.jsonl"))
-        except OSError:
+            entries = list(project_dir(acct, cwd).glob("*.jsonl"))
+        except (OSError, vendors.UnknownVendor):
             continue
         for f in entries:
             try:

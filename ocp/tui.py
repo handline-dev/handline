@@ -320,6 +320,9 @@ def account_cells(name: str, st, now: float | None = None,
     `at_cap` whether the pick has no slot left on it (`load.Load.at_cap`); `ld`
     the account's `load.Load`, which the runway needs to judge the week by the
     pick's own figure."""
+    if st.unmetered:
+        return {"agents": agents_cell(counts, unplaced, at_cap), "five": f"{DIM}unmetered{R}",
+                "reset5": "", "seven": "", "reset7": "", "runway": ""}
     runway_text = status.describe_runway(status.runway(st, status.read_burn(name), now, ld))
     # One definition of the figure and its mark, shared with `ocp account list`.
     # A last-seen figure is drawn at its value, dimmed and uncoloured, with its

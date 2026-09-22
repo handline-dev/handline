@@ -128,17 +128,20 @@ def account_of_process(pid: int) -> str | None:
     of date - unlike a column recorded when a move was decided.
     None when unreadable, or a config dir that is not one of ours.
 
-    Which variable is the vendor's answer (`config_dir_env`); the rest of this
-    is layout, not vendor - every account's config dir sits under
-    `paths.accounts_dir()` whatever the tool calls it."""
-    cfg = env_of(pid, vendors.for_accounts().config_dir_env())
-    if not cfg:
-        return None
-    try:
-        rel = Path(cfg).resolve().relative_to(paths.accounts_dir().resolve())
-    except (ValueError, OSError):
-        return None
-    return rel.parts[0] if rel.parts else None
+    Which variable is the vendor's answer (`config_dir_env`), so each known
+    vendor's is asked; the rest of this is layout, not vendor - every account's
+    config dir sits under `paths.accounts_dir()` whatever the tool calls it."""
+    for drv in vendors.known():
+        cfg = env_of(pid, drv.config_dir_env())
+        if not cfg:
+            continue
+        try:
+            rel = Path(cfg).resolve().relative_to(paths.accounts_dir().resolve())
+        except (ValueError, OSError):
+            continue
+        if rel.parts:
+            return rel.parts[0]
+    return None
 
 
 def live_sessions() -> dict[str, int] | None:

@@ -40,7 +40,7 @@ import urllib.error
 import urllib.request
 from dataclasses import dataclass
 
-from . import accounts, paths
+from . import accounts, paths, vendors
 from .vendors import claude as claudemod
 
 USAGE_URL = "https://api.anthropic.com/api/oauth/usage"
@@ -180,7 +180,13 @@ def read(acct: str, refresh: bool = True) -> Reading | None:
     `refresh=False` skips the renewal, for a caller that already knows the
     token is live - an account with a session running on it, say, where Claude
     Code is renewing it anyway and two writers would race.
+
+    Claude's endpoint, asked with claude's credential: any other vendor's
+    account is not asked, and its `claude auth status` would run against no
+    config dir of its own - the default login's.
     """
+    if vendors.account_vendor(acct) != claudemod.Claude.name:
+        return None
     if refresh:
         refresh_credential(acct)
     token = _access_token(acct)

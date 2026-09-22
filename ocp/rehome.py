@@ -26,7 +26,7 @@ import subprocess
 import time
 from pathlib import Path
 
-from . import accounts, db, orca, paths, textsafe
+from . import accounts, db, orca, paths, textsafe, vendors
 
 
 def split_recorded(recorded: str | None) -> tuple[str, str]:
@@ -75,11 +75,14 @@ def plan(con, agent: str, old: str) -> tuple[Path | None, Path | None, str]:
 
 def _project_dirs(src: Path, dest: Path) -> list[tuple[Path, Path]]:
     """(from, to) for each account's `projects/<encoded src>` directory."""
-    old_key = accounts.memory_project_dir(str(src))
-    new_key = accounts.memory_project_dir(str(dest))
     pairs = []
     for acct in paths.list_accounts():
-        root = paths.account_claude(acct) / "projects"
+        try:
+            root = vendors.for_account(acct).memory_root(vendors.config_dir(acct))
+        except vendors.UnknownVendor:
+            continue
+        old_key = accounts.memory_project_dir(acct, str(src))
+        new_key = accounts.memory_project_dir(acct, str(dest))
         if (root / old_key).is_dir():
             pairs.append((root / old_key, root / new_key))
     return pairs

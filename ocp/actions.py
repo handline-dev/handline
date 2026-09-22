@@ -1068,7 +1068,7 @@ def login_argv(acct: str, force: bool = False) -> tuple[str, list[str], dict]:
     if action != "login":
         return msg, [], {}
     return (f"logging '{acct}' in - finish in claude, then come back",
-            vendors.for_accounts().login_argv(), accounts.env_for(acct))
+            vendors.for_account(acct).login_argv(), accounts.env_for(acct))
 
 
 def move(con, agent: str, account: str) -> str:
@@ -1480,6 +1480,13 @@ def agent_worktree(con, agent: str) -> str:
     return worktree_path(row["worktree"]) or row["worktree"]
 
 
+def _config_line(acct: str) -> str:
+    try:
+        return f"{vendors.config_dir(acct)} ({vendors.account_vendor(acct)})"
+    except vendors.UnknownVendor as e:
+        return str(e)
+
+
 def account_detail(con, acct: str, logged_in=None) -> list[tuple[str, list[str]]]:
     """What is behind an account's row, in the same shape as an agent's.
 
@@ -1495,7 +1502,7 @@ def account_detail(con, acct: str, logged_in=None) -> list[tuple[str, list[str]]
     is_in = logged_in(acct)
     allowed, why = status.account_verdict(acct, st, loads.get(acct), ranked, is_in)
     head = [f"login    {'logged in' if is_in else 'NOT logged in'}",
-            f"config   {paths.account_claude(acct)}",
+            f"config   {_config_line(acct)}",
             f"5h       {st.trusted_pct_5h}% ({st.pct_5h_source})   7d {st.pct_7d}%",
             f"snapshot {'-' if st.age_s is None else status.ago(st.age_s) + ' old'}"
             f"   session {st.session_id or '-'}",
@@ -1556,8 +1563,9 @@ def trust_worktrees(acct: str, worktrees: list[tuple[str, str]]) -> list[str]:
 
 
 def _trust_one_worktree(acct: str, agent: str, worktree: str) -> str:
-    cmd = (f"cd {shlex.quote(worktree)} && {vendors.for_accounts().config_dir_env()}="
-           f"{shlex.quote(str(paths.account_claude(acct)))} claude")
+    drv = vendors.for_account(acct)
+    cmd = (f"cd {shlex.quote(worktree)} && {drv.config_dir_env()}="
+           f"{shlex.quote(str(vendors.config_dir(acct)))} {shlex.quote(drv.binary() or drv.name)}")
     handle = orca.create_terminal(cmd, title=f"trust-{acct}-{agent}")
     if not handle:
         return f"{agent} ({worktree}): could not start a session to trust it"

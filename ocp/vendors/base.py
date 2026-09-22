@@ -13,12 +13,19 @@ from typing import Protocol
 class Driver(Protocol):
     name: str
     min_version: tuple[int, ...]
+    # What `config_dir_env` points at, under the account's own directory.
+    config_dir_name: str
 
     def binary(self) -> str | None:
         """The executable's path, or None when it is not installed."""
 
     def config_dir_env(self) -> str:
         """The variable that pins a session to one account's config dir."""
+
+    def meters(self) -> bool:
+        """Whether ocp can read how much of the account's limit is spent. An
+        account whose vendor cannot be read is unmetered: never picked, never
+        polled, and only its own agents' agent.yaml sends work there."""
 
     def is_resume(self, extra: list[str] | None) -> bool:
         """Does this argv carry a session to resume?"""

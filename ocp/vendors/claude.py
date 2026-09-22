@@ -32,12 +32,16 @@ class Claude:
     # `usage_api` presents itself as, and the transcript shape `collect` reads was
     # measured on this version.
     min_version = (2, 1, 0)
+    config_dir_name = ".claude"
 
     def binary(self) -> str | None:
         return shutil.which("claude")
 
     def config_dir_env(self) -> str:
         return "CLAUDE_CONFIG_DIR"
+
+    def meters(self) -> bool:
+        return True
 
     def is_resume(self, extra: list[str] | None) -> bool:
         """Three spellings, because reading `--resume=<id>` as "not a resume" picks an

@@ -360,8 +360,9 @@ def _cheapest_account() -> str | None:
     # tick and self-corrects, but a fold is the one spend nothing observes -
     # sending it to an account we already cannot read only deepens the
     # blindness. Same rule the fallback below applies.
-    readable = [a for a in paths.list_accounts()
-               if accounts.logged_in(a) and not status.read(a).stale]
+    # `claude -p`, so a claude account and one ocp can read.
+    ours = [a for a in paths.list_accounts() if status.not_for(a, agents.DEFAULT_VENDOR) is None]
+    readable = [a for a in ours if accounts.logged_in(a) and not status.read(a).stale]
     picked, _ = status.pick_account(readable)
     if picked:
         return picked
@@ -381,7 +382,7 @@ def _cheapest_account() -> str | None:
     # on the tightest readable account while a roomier one sits beside it is
     # the avoidable version of this call's risk.
     usable = []
-    for a in paths.list_accounts():
+    for a in ours:
         if not accounts.logged_in(a):
             continue
         pct = status.read(a).trusted_pct_5h

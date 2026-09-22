@@ -237,6 +237,12 @@ def build(agent: str, extra: list[str] | None = None, force: bool = False) -> tu
     except vendors.UnknownVendor as e:
         raise SystemExit(f"agent '{agent}': {e}") from None
     acct = choose_account(agent, resuming=drv.is_resume(extra))
+    # The last line before an exec: whatever chose this account, a session
+    # is this vendor's binary pointed at that account's credentials.
+    theirs = vendors.account_vendor(acct)
+    if theirs != drv.name:
+        raise SystemExit(f"agent '{agent}' is a {drv.name} agent and account '{acct}' "
+                         f"is a {theirs} account - refusing to start it there.")
 
     if not accounts.logged_in(acct):
         raise SystemExit(
@@ -517,7 +523,7 @@ def _record_terminal(agent: str, acct: str | None = None, fp: str | None = None)
                 previous = prev_row["account"] if prev_row else None
                 if previous and previous != acct:
                     repo = agents.repo_of(agent)
-                    project = accounts.memory_project_dir(repo) if repo else None
+                    project = accounts.memory_project_dir(previous, repo) if repo else None
                     try:
                         carried = accounts.migrate_memory(previous, acct, project=project)
                         db.add_event(con, agent, "memory_migrated",
