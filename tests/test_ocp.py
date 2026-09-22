@@ -16,6 +16,7 @@ import select
 import shlex
 import shutil
 import signal
+import sqlite3
 import subprocess
 import sys
 import tempfile
@@ -2287,6 +2288,133 @@ def test_daemon_kill_recovery(home: Path) -> None:
               len(db.in_flight_handoffs(con)) == before, str(before))
     finally:
         con.close()
+
+
+def test_reconcile_stalls_one_agents_unreadable_config_not_the_others(home: Path) -> None:
+    """orcapipe #1571: a malformed agent.yaml reached in-process, uncaught,
+    through resume_handoff -> agents.current_account -> account_of -> read -
+    live before the fix: db.start_handoff with agent_state.account NULL (the
+    real shape - a handoff started before an account was ever recorded),
+    then dmn.run(once=True) crashed the whole process at "daemon starting -
+    reconciling", before its own while loop ever began. A second, healthy
+    agent's in-flight handoff never got a chance to resolve.
+
+    The fix stalls only the agent whose file cannot be read (8.5's counter,
+    the same ceiling tick()'s per-agent guard uses) and keeps going."""
+    _daemon_home(home, 20)
+    agents.register("frontend", "alpha")
+    con = db.connect()
+    try:
+        db.set_terminal(con, "frontend", "term_y", "wt2")
+        con.execute("UPDATE agent_state SET account = NULL WHERE agent IN "
+                    "('backend', 'frontend')")
+        af = agents.agent_file("backend")
+        af.write_text(af.read_text().rstrip("\n") + '\nrepo: "unterminated\n')
+        db.start_handoff(con, "hid-bad", "backend", "sess-bad", "usage",
+                         int(time.time()) + 90)
+        db.start_handoff(con, "hid-ok", "frontend", "sess-ok", "usage",
+                         int(time.time()) + 90)
+
+        rc = dmn.run(once=True, verbose=False)
+        check("reconcile: a malformed agent.yaml does not exit the daemon",
+              rc == 0, str(rc))
+
+        bad = db.get_agent_state(con, "backend")
+        check("reconcile: the unreadable agent is counted, not silently retried forever",
+              bad["failed_attempts"] == 1, str(dict(bad)))
+        still_open = {h["agent"] for h in db.in_flight_handoffs(con)}
+        check("reconcile: its handoff is left in flight, to retry - not dropped",
+              "backend" in still_open, str(still_open))
+
+        good = db.get_agent_state(con, "frontend")
+        check("reconcile: a healthy agent's in-flight handoff still resolves "
+              "in the same reconciliation the bad one failed in",
+              good["state"] == dmn.PARKED and "frontend" not in still_open,
+              str(dict(good)))
+    finally:
+        con.close()
+
+
+def test_reconcile_still_propagates_a_fault_that_is_not_one_agents(home: Path) -> None:
+    """The control for the guard above: a fault that belongs to reconcile()
+    itself, not to any one agent's file, must still stop the daemon - a
+    handler that swallows both would hide the outage that actually needs a
+    human, which is the failure mode explicitly not wanted here."""
+    _daemon_home(home, 20)
+    con = db.connect()
+    try:
+        db.start_handoff(con, "hid-x", "backend", "sess-x", "usage",
+                         int(time.time()) + 90)
+    finally:
+        con.close()
+    real = dmn.resume_handoff
+    dmn.resume_handoff = lambda con, row, log: (_ for _ in ()).throw(
+        sqlite3.OperationalError("database is locked"))
+    try:
+        try:
+            dmn.run(once=True, verbose=False)
+            check("reconcile: a database fault is not mistaken for one agent's "
+                  "bad file and swallowed", False, "run() returned instead of raising")
+        except sqlite3.OperationalError:
+            check("reconcile: a database fault is not mistaken for one agent's "
+                  "bad file and swallowed", True)
+    finally:
+        dmn.resume_handoff = real
+
+
+def test_reconcile_stalls_one_due_agents_unreadable_config_at_wake_too(home: Path) -> None:
+    """The due_agents/wake_agent half of reconcile() (step 2) gets the same
+    guard as step 1, for the same property - and auditor's #1579 found the
+    live shape I could not: `_wake_agent`'s closed branch calls
+    `launch.wake_wait(agent, row, con)`, and with `row["resume_session"]`
+    set, `wake_wait` calls `agents.account_reading`, which falls through
+    (no db column, no fresh status snapshot) to `account_of` -> `read` ->
+    the same ConfigError step 1 guards. My first attempt forced the
+    exception by replacing `wake_agent` itself, which is what hid this path
+    from me - the test harness's `orcamod.available = lambda: False`
+    (`_daemon_home`'s own default) makes `_wake_agent` return "no terminal
+    to wake" before it ever reaches `wake_wait`, a property of the test
+    environment, not of the code. Fixed here by setting it True instead, the
+    idiom the rest of the suite already uses, and driving the real path with
+    a genuinely malformed agent.yaml - no monkeypatch of daemon code.
+
+    Calls reconcile() directly rather than dmn.run(once=True): step 1's own
+    test can go through run() because an in-flight handoff also excludes the
+    agent from supervise() (db.in_flight_for), so reconcile()'s guard is the
+    only one that ever sees this agent in that tick. Step 2's due-but-closed
+    agent has no such exclusion - the same account_reading call this guards
+    is also the first thing supervise() does for any EVALUATED agent, so
+    going through the full tick() double-counts it against tick()'s own
+    (already-tested, in test_only_the_agents_own_events_move_its_
+    activity_clock's neighbourhood) per-agent guard. reconcile() in
+    isolation is the actual unit this test is about."""
+    _daemon_home(home, 20)
+    con = db.connect()
+    try:
+        con.execute("UPDATE agent_state SET account = NULL WHERE agent = 'backend'")
+        af = agents.agent_file("backend")
+        af.write_text(af.read_text().rstrip("\n") + '\nrepo: "unterminated\n')
+        db.set_closed(con, "backend", 1)
+        db.set_agent_state(con, "backend", dmn.PARKED,
+                           wake_at=int(time.time()) - 10, detail="due")
+    finally:
+        con.close()
+    orcamod.available = lambda: True
+    orcamod.live_terminals = lambda: {"term_x"}
+    con = db.connect()
+    try:
+        actions = dmn.reconcile(con, lambda _m: None)
+        check("reconcile: an unreadable config at the wake half does not exit "
+              "the daemon either - actions list came back, nothing raised",
+              isinstance(actions, list), str(actions))
+        row = db.get_agent_state(con, "backend")
+        check("reconcile: it is counted the same way as step 1's guard",
+              row["failed_attempts"] == 1, str(dict(row)))
+        check("reconcile: still closed and still due, to retry - not dropped",
+              row["closed_at"] and row["wake_at"], str(dict(row)))
+    finally:
+        con.close()
+        orcamod.available = lambda: False
 
 
 def test_daemon_handoff_timeout(home: Path) -> None:
@@ -19708,6 +19836,9 @@ def main() -> int:
         run(lambda: test_daemon_park(Path(td) / 'd1'))
         run(lambda: test_daemon_resume(Path(td) / 'd2'))
         run(lambda: test_daemon_kill_recovery(Path(td) / 'd3'))
+        run(lambda: test_reconcile_stalls_one_agents_unreadable_config_not_the_others(Path(td) / 'reconbad'))
+        run(lambda: test_reconcile_still_propagates_a_fault_that_is_not_one_agents(Path(td) / 'reconsys'))
+        run(lambda: test_reconcile_stalls_one_due_agents_unreadable_config_at_wake_too(Path(td) / 'reconwake'))
         run(lambda: test_daemon_handoff_timeout(Path(td) / 'd4'))
         run(lambda: test_daemon_stall_escalation(Path(td) / 'd5'))
         run(lambda: test_daemon_success_clears_streak(Path(td) / 'd5b'))
