@@ -1680,6 +1680,60 @@ def test_a_failed_settings_write_keeps_the_old_scripts(home: Path) -> None:
     check("status line: and the script the settings still point at is kept", old.exists())
 
 
+def test_an_unreadable_settings_file_is_refused_and_left_alone(home: Path) -> None:
+    """shared/settings.json holds the human's settings as well as ocp's. One
+    that cannot be read as a JSON object is refused, naming the file, and
+    nothing is changed - never rewritten from {}."""
+    home.mkdir(parents=True, exist_ok=True)
+    os.environ["OCP_HOME"] = str(home)
+    shared = paths.shared_claude()
+    shared.mkdir(parents=True, exist_ok=True)
+    old = shared / accounts.OLD_STATUSLINES[0]
+    old.write_text("#!/bin/sh\n")
+    settings = shared / "settings.json"
+    for bad, why in (('{"theme": "dark", "model": ', "malformed JSON"),
+                     ('["a", "list"]', "JSON that is not an object")):
+        settings.write_text(bad)
+        try:
+            accounts.ensure_shared()
+            err = ""
+        except ValueError as e:
+            err = str(e)
+        check(f"settings: {why} is refused, naming the file", str(settings) in err, err)
+        check(f"settings: and {why} is left byte for byte", settings.read_text() == bad,
+              settings.read_text())
+        check(f"settings: and nothing else is touched for {why}", old.exists())
+
+
+def test_a_settings_write_that_dies_leaves_the_old_file(home: Path) -> None:
+    """The write goes through a temp file and a rename, so a write that dies
+    half way leaves the previous settings.json whole, not half of the new one."""
+    home.mkdir(parents=True, exist_ok=True)
+    os.environ["OCP_HOME"] = str(home)
+    shared = paths.shared_claude()
+    shared.mkdir(parents=True, exist_ok=True)
+    settings = shared / "settings.json"
+    before = json.dumps({"theme": "dark", "statusLine": {"command": "npx ccstatusline"}})
+    settings.write_text(before)
+
+    real_write = Path.write_text
+
+    def dies_half_way(self, data, *a, **kw):
+        if self.name.startswith("settings.json"):
+            real_write(self, data[: len(data) // 2], *a, **kw)
+            raise OSError("disk full")
+        return real_write(self, data, *a, **kw)
+    Path.write_text = dies_half_way
+    try:
+        accounts.ensure_shared()
+    except OSError:
+        pass
+    finally:
+        Path.write_text = real_write
+    check("settings: a write that dies half way leaves the old file whole",
+          settings.read_text() == before, settings.read_text())
+
+
 # ---------------------------------------------------------------- yaml
 def test_yaml() -> None:
     text = (
@@ -20225,6 +20279,8 @@ def main() -> int:
             Path(td) / 'pullhook'))
         run(lambda: test_init_leaves_the_status_line_slot_empty(Path(td) / 'lineslot'))
         run(lambda: test_a_failed_settings_write_keeps_the_old_scripts(Path(td) / 'slotorder'))
+        run(lambda: test_an_unreadable_settings_file_is_refused_and_left_alone(Path(td) / 'setbad'))
+        run(lambda: test_a_settings_write_that_dies_leaves_the_old_file(Path(td) / 'setatomic'))
         run(lambda: test_the_usage_poll_asks_one_account_per_tick_and_renews_only_on_failure(
             Path(td) / 'pullpoll'))
         run(lambda: test_yaml())

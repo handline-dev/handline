@@ -36,22 +36,30 @@ OLD_STATUSLINES = ("statusline.sh", "statusline-collect.sh")
 
 
 def ensure_shared() -> Path:
-    """Create shared/.claude and its settings.json."""
-    shared = paths.shared_claude()
-    shared.mkdir(parents=True, exist_ok=True)
-    for sub in ("skills", "agents", "commands"):
-        (shared / sub).mkdir(exist_ok=True)
+    """Create shared/.claude and its settings.json.
 
-    ours = {str(shared / name) for name in OLD_STATUSLINES}
+    Refuses, changing nothing, when settings.json exists but cannot be read
+    as a JSON object: it holds the human's settings too, and rewriting it
+    from {} would lose them.
+    """
+    shared = paths.shared_claude()
     settings = shared / "settings.json"
     current = {}
     if settings.exists():
         try:
             current = json.loads(settings.read_text())
-        except json.JSONDecodeError:
-            current = {}
-    if not isinstance(current, dict):
-        current = {}
+        except (OSError, ValueError) as e:
+            raise ValueError(f"{settings} could not be read ({e}); ocp changed nothing. "
+                             "Fix or move it, then run this again.") from e
+        if not isinstance(current, dict):
+            raise ValueError(f"{settings} is not a JSON object; ocp changed nothing. "
+                             "Fix or move it, then run this again.")
+
+    shared.mkdir(parents=True, exist_ok=True)
+    for sub in ("skills", "agents", "commands"):
+        (shared / sub).mkdir(exist_ok=True)
+
+    ours = {str(shared / name) for name in OLD_STATUSLINES}
 
     # A statusLine pointing at a script just deleted would error in every
     # session. Anyone else's is left alone.
@@ -61,7 +69,9 @@ def ensure_shared() -> Path:
     # Ours overlaps Claude Code's own auto-continue, and section 4 says to pick
     # one. We pick ours, and doctor enforces that the choice stays made.
     current.setdefault("autoContinueAtUsageLimit", False)
-    settings.write_text(json.dumps(current, indent=2, ensure_ascii=False) + "\n")
+    tmp = settings.with_suffix(".json.tmp")
+    tmp.write_text(json.dumps(current, indent=2, ensure_ascii=False) + "\n")
+    tmp.replace(settings)
     # Only once no setting points at them: deleted first, a failed write
     # would leave every session running a script that is gone.
     for cmd in ours:
