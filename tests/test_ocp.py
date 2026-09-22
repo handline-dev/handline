@@ -17098,7 +17098,7 @@ def test_a_span_ends_in_its_unit_and_fits_its_columns(home: Path) -> None:
         cell = tui.countdown(ts).strip()
         widest = max(widest, len(cell))
         check(f"span: the bridge countdown says {want}", cell == want, cell)
-    check("span: the countdown the state column reserves is the widest one",
+    check("span: the widest precise span fits its own asserted ceiling",
           widest <= tui.COUNTDOWN_W, f"{widest}")
     check("span: the widest fits the reset columns",
           widest < tui.ACCT_W["reset5"] and widest < tui.ACCT_W["reset7"], str(widest))

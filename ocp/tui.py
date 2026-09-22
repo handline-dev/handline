@@ -81,10 +81,11 @@ WAITS_SHOWN = 5   # rows of the pinned block; the rest are counted, not drawn
 # name again in the list above.
 ACCOUNTS, AGENTS, MESSAGES, STUCK = 0, 1, 2, 3
 NAME_W = 22   # fits `└ orcapipe-manager +2`
-# The widest a precise span prints - not the agent state cell, which carries
-# a clock time ("PENDING 14:32") sized per frame from what the rows actually
-# print instead (see `_state_width`). This bounds `countdown()`, drawn in the
-# accounts panel's reset columns.
+# The widest a precise span prints ("59m59s") - an asserted ceiling, checked
+# by the test below, not a width anything reads: `countdown()` and the
+# accounts panel's reset columns size themselves independently of it. Nor is
+# it the agent state cell, which carries a clock time ("PENDING 14:32") sized
+# per frame from what the rows actually print instead (see `_state_width`).
 COUNTDOWN_W = 6   # `status.span(precise)`: 12m05s, 5h03m, 6d23h
 # What an agent *is* - its model, its effort, and one day which tool it is at
 # all - against what is happening to it now. The second wins a narrow screen:
