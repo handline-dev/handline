@@ -489,6 +489,44 @@ def _quoted(text: str) -> str:
     return '"' + text.replace("\\", "\\\\").replace('"', '\\"') + '"'
 
 
+# The one definition of "unsafe in a config scalar" - textsafe.CONTROL_CHARS
+# (C0/DEL/C1, what a terminal obeys instead of draws) plus tab and newline,
+# which that set leaves for a line-oriented caller to handle but a one-line
+# config scalar has no use for. dump() below refuses writing a value that
+# carries one; refuse_unsafe_values refuses reading one back - the read side
+# of the same rule. One frozenset, not two lists the two functions could
+# drift apart.
+UNSAFE_VALUE_CHARS = frozenset("\t\n") | textsafe.CONTROL_CHARS
+
+
+def _first_unsafe_char(value: str) -> str | None:
+    return next((c for c in value if c in UNSAFE_VALUE_CHARS), None)
+
+
+def refuse_unsafe_values(data: dict, source) -> None:
+    """Refuse a parsed map that carries a value dump() would have refused to
+    write - the read side of the same rule, not a second one.
+
+    Only top-level string values: dump() only ever writes those (a nested
+    value is refused there too, before this ever runs against it), so a
+    string nested inside a list or a map dump() could not have produced is
+    not this function's to check either. `source` is named in the error so
+    the daemon's stall (#1571's guard, now the thing that makes this REFUSE
+    rather than STRIP safe) says which file to go and look at, not just that
+    something, somewhere, was bad.
+    """
+    if not isinstance(data, dict):
+        return
+    for key, value in data.items():
+        if not isinstance(value, str):
+            continue
+        bad = _first_unsafe_char(value)
+        if bad is not None:
+            raise ConfigError(f"{source}: key {key!r} carries a control character "
+                              f"({hex(ord(bad))}) - refused, not read as though it "
+                              f"were not there")
+
+
 def dump(data: dict) -> str:
     """Serialize a shallow config map back to YAML.
 
@@ -515,13 +553,11 @@ def dump(data: dict) -> str:
             candidates.append(_float_text(value))
         else:
             value = str(value)
-            # textsafe.CONTROL_CHARS is C0/DEL/C1 - what a terminal obeys
-            # instead of draws. A scalar here is one line, never text laid
-            # out, so tab and newline (which that set leaves for a
-            # line-oriented caller to handle) are refused too, same as any
-            # other control: 0x9b is CSI, one byte, and a value carrying it
-            # once reached agent.yaml unquoted and was drawn on the bridge.
-            if any(c in "\t\n" or c in textsafe.CONTROL_CHARS for c in value):
+            # UNSAFE_VALUE_CHARS (above) is the one definition, shared with
+            # refuse_unsafe_values: 0x9b is CSI, one byte, and a value
+            # carrying it once reached agent.yaml unquoted and was drawn on
+            # the bridge.
+            if _first_unsafe_char(value) is not None:
                 raise ConfigError(f"dump does not write control characters (key {key!r})")
             # Quote anything a reader would take for something else, or that
             # carries structure. A string this parser would not read back as
