@@ -20130,7 +20130,9 @@ def test_a_wake_reads_the_screen_before_typing_into_it(home: Path) -> None:
     try:
         orcamod.available = lambda: True
         orcamod.alive = lambda h: True
-        orcamod.typeable_now = lambda h: True
+        # As in production: screen_blocker reads the trust dialog as a modal,
+        # so typeable_now is False while it shows.
+        orcamod.typeable_now = lambda h: not orcamod.trust_prompt_showing(h)
         orcamod.resume_with = lambda h, text: (sent.append(text), (True, "typed"))[1]
         sessions_are("backend")
         db.set_terminal(con, "backend", "term_x", "wt")
@@ -20175,7 +20177,8 @@ def test_a_declared_root_gets_standing_consent(home: Path) -> None:
 
     real = (orcamod.resume_with, orcamod.alive, orcamod.trust_prompt_showing,
             orcamod.confirm_trust, orcamod.wait_idle, orcamod.screen_text,
-            trustmod.is_declared, orcamod.idle_now, orcamod.send, orcamod.time.sleep)
+            trustmod.is_declared, orcamod.idle_now, orcamod.send, orcamod.screen_blocker,
+            orcamod.time.sleep)
     sent: list[str] = []
     trusted: list[str] = []
     showing = {"v": True}
@@ -20194,6 +20197,9 @@ def test_a_declared_root_gets_standing_consent(home: Path) -> None:
         orcamod.resume_with = lambda h, text: (sent.append(text), (True, "typed"))[1]
         orcamod.wait_idle = lambda h, *a, **k: True
         orcamod.trust_prompt_showing = lambda h: showing["v"]
+        # As in production: the trust dialog is a modal to screen_blocker.
+        orcamod.screen_blocker = lambda h: (orcamod.Blocker(orcamod.MODAL)
+                                            if orcamod.trust_prompt_showing(h) else None)
         sessions_are("backend")
         db.set_terminal(con, "backend", "term_x", str(wt))
         keep_handoff("backend", "# handoff · backend\n## next\n- carry on\n")
@@ -20264,8 +20270,8 @@ def test_a_declared_root_gets_standing_consent(home: Path) -> None:
         orcamod.time.sleep = real[-1]
         orcamod.trust_prompt_showing = lambda h: showing["v"]
 
-        # 6. One tick reaches the screen from more than one path: it is
-        # escalated once, and neither path types.
+        # 6. The deliver paths meet the same screen: typeable_now refuses it,
+        # so neither types nor presses - the sweep is what reports it.
         reset()
         orcamod.confirm_trust = lambda h: (trusted.append(h), (True, "trusted"))[1]
         orcamod.screen_text = lambda h: screen_for(wt)
@@ -20278,20 +20284,15 @@ def test_a_declared_root_gets_standing_consent(home: Path) -> None:
                                "peer", "async", None, 0, None)
         db.set_request_state(con, asked, "done", "yes")
         db.set_agent_state(con, "backend", dmn.RUNNING)
-        def escalations() -> int:
-            return con.execute(
-                "SELECT COUNT(*) c FROM requests WHERE target = ? AND kind = 'escalate' "
-                "AND body LIKE '%folder-trust%'", (askmod.HUMAN,)).fetchone()["c"]
-        before = escalations()
         dmn.deliver_answers(con, "backend", lambda _m: None)
         dmn.deliver_queued(con, "backend", lambda _m: None)
-        check("trust: the same screen reached twice in one tick is escalated once",
-              escalations() - before == 1 and not sent and not trusted,
-              str((escalations() - before, sent, trusted)))
+        check("trust: the deliver paths neither type nor press at the screen",
+              not sent and not trusted, str((sent, trusted)))
     finally:
         (orcamod.resume_with, orcamod.alive, orcamod.trust_prompt_showing,
          orcamod.confirm_trust, orcamod.wait_idle, orcamod.screen_text,
-         trustmod.is_declared, orcamod.idle_now, orcamod.send, orcamod.time.sleep) = real
+         trustmod.is_declared, orcamod.idle_now, orcamod.send, orcamod.screen_blocker,
+         orcamod.time.sleep) = real
         con.close()
 
 
