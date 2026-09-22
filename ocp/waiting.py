@@ -104,7 +104,7 @@ def clear(agent: str, tool: str | None = None, tool_input: object = None) -> Non
         pass
 
 
-def _modal_still_there(handle: str | None) -> bool:
+def _modal_still_there(handle: str | None, since: int) -> bool:
     """Is the terminal's own screen still showing a dialog - the authoritative
     check, since events can be entirely silent for as long as an agent is
     mid-turn (PostToolUse is deliberately never recorded, #1698: a founder
@@ -117,10 +117,15 @@ def _modal_still_there(handle: str | None) -> bool:
     BACKGROUNDED (the session picker showing instead) and None (a plain
     composer) both mean no dialog is on screen; only MODAL and UNREADABLE
     keep the wait up.
+
+    `since` (the wait's own timestamp) is passed to the cache as
+    `not_before`: a read taken before this wait was even noted cannot prove
+    it is gone (auditor #1721 BLOCKING - a cached "no dialog" from prompt A
+    answered prompt B, which had not been raised yet when that read happened).
     """
     if not handle:
         return True
-    blocker = orca.screen_blocker_cached(handle)
+    blocker = orca.screen_blocker_cached(handle, not_before=since)
     return bool(blocker and blocker.kind in (orca.MODAL, orca.UNREADABLE))
 
 
@@ -149,8 +154,16 @@ def of(con, row) -> dict | None:
     has a wait file - almost always zero or one agent, never the whole fleet,
     so this costs nothing on a tick nobody is waiting. Read through Orca's
     short cache (screen_blocker_cached), since this runs on every redraw of
-    the dashboard for as long as a wait stays open. Whichever of the three
-    clears first wins; none of them undoes what another already cleared.
+    the dashboard for as long as a wait stays open.
+
+    Unlike the other two, a clean screen does not delete the file - it only
+    hides this call's answer (auditor #1721 BLOCKING: deleting on a cached
+    "no dialog" could delete a *second* prompt's wait, raised after that read
+    was taken, the moment its own screen read fell in the same cache window).
+    The hooks and the activity check above still delete on the real thing
+    they each answer for; whichever of those two clears first still wins.
+    A wait the screen hides here is shown again the moment a fresh read finds
+    the dialog still up - nothing here is lost, only not shown this call.
     """
     if not row or row["closed_at"] or row["state"] != "RUNNING":
         return None
@@ -163,7 +176,6 @@ def of(con, row) -> dict | None:
         if moved_on is not None and moved_on > eid:
             clear(row["agent"])
             return None
-    if not _modal_still_there(row["terminal"]):
-        clear(row["agent"])
+    if not _modal_still_there(row["terminal"], w["since"]):
         return None
     return w

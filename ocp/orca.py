@@ -709,10 +709,20 @@ SCREEN_CACHE_TTL_S = 5
 _screen_cache: dict[str, tuple[float, Blocker | None]] = {}
 
 
-def screen_blocker_cached(handle: str) -> Blocker | None:
+def screen_blocker_cached(handle: str, not_before: float = 0.0) -> Blocker | None:
+    """A cached read of `handle`'s screen, at most SCREEN_CACHE_TTL_S old.
+
+    `not_before` refuses a cached read older than that instant: a read taken
+    before a fact existed cannot answer a question about it - auditor's
+    #1721 BLOCKING, a read from before a second permission prompt was raised
+    read as "no dialog" and answered the new prompt with the old one's
+    absence, deleting a wait that had not even been shown yet. A caller with
+    no such fact in play passes nothing, and any cached read within the TTL
+    still answers.
+    """
     now = time.time()
     seen = _screen_cache.get(handle)
-    if seen and now - seen[0] < SCREEN_CACHE_TTL_S:
+    if seen and seen[0] > not_before and now - seen[0] < SCREEN_CACHE_TTL_S:
         return seen[1]
     blocker = screen_blocker(handle)
     _screen_cache[handle] = (now, blocker)
