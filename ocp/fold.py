@@ -181,9 +181,13 @@ Rules:
   Losing a completed item is the one unacceptable error.
 - Move items between sections as the new events warrant; do not invent work.
 - When a 진행중 or 막힌 것 item is about a request you asked, write its id as
-  #N (e.g. "waiting on #7"). reconcile_resolved only recognizes that form -
-  a bare number, or one written any other way, is read as prose, not a
-  reference, and the item is never closed by the store alone.
+  #N (e.g. "waiting on #7") ONLY when that request is what the item is
+  waiting on - reconcile_resolved closes the item the moment that request
+  is done, so #N there means "done" ends this. A request being resolved is
+  often when work on it starts, not when it finishes (e.g. a review coming
+  back) - name that request another way instead ("auditor's review",
+  "the finding from #7"), never as #N, or the item will close the moment
+  the review lands, not when the work it starts is actually done.
 - Keep each item one line, terse and concrete.
 - Do not add sections beyond the ones listed.
 

@@ -2260,6 +2260,47 @@ def test_reconcile_resolved_only_state_done_counts(home: Path) -> None:
         con.close()
 
 
+def test_build_prompt_tells_the_model_not_to_write_a_started_by_reference_as_hash_n(
+        home: Path) -> None:
+    """auditor's #1600 NOTE, the residual of the #N fix that closed BLOCKING
+    1: #N carries two meanings in this project's prose - 'the ask I am
+    waiting on' and 'the ask that started this work'. Only the first should
+    ever close a line, but reconcile_resolved's regex cannot tell intent
+    from text - it only sees #N. Measured (still true, and expected to be -
+    this is a prompt-level mitigation, not a structural one): with ids 1-8
+    done, "Fix auditor's #5 BLOCKING finding" and "per #3, rework the guard"
+    both still close to 완료, because both merely NAME a resolved request
+    without waiting on it. The proportionate close auditor asked for is one
+    more sentence in build_prompt telling the model which meaning #N is for,
+    so the regex matches something the prompt actually constrains against -
+    the same reasoning behind the #N rule BLOCKING 1's fix already added."""
+    _reconcile_world(home)
+    con = db.connect()
+    try:
+        for _ in range(8):
+            rid = db.add_request(con, "backend", "auditor", "x", None, "peer",
+                                 "fire_and_forget", None, 0, None)
+            db.set_request_state(con, rid, "done", verdict="ok")
+
+        started_by = ["Fix auditor's #5 BLOCKING finding", "per #3, rework the guard"]
+        d = digest.Digest(date="2026-09-22", agent="backend", updated="09:00", folded_through=1,
+                          sections={"in_progress": started_by, "blocked": [], "done": [],
+                                   "decided": [], "next": [], "base_candidates": []})
+        out = foldmod.reconcile_resolved(con, d)
+        check("reconcile: naming a resolved request as the reason work started "
+              "still closes the line - the residual, unstructural gap",
+              out.items("done") == started_by, str(out.sections))
+    finally:
+        con.close()
+
+    # The mitigation itself: the prompt tells the model #N means "waiting
+    # on", not "started by" - one more sentence, no format change.
+    prompt = foldmod.build_prompt("backend", digest.Digest(), [], "2026-09-22")
+    check("build_prompt: tells the model #N means waiting-on, not started-by",
+          "waiting on" in prompt and "work on it starts" in prompt
+          and "another way" in prompt, prompt)
+
+
 def test_fold_degraded_path_also_reconciles_resolved_asks(home: Path) -> None:
     """#499 should-fix: only the no-event and model paths were exercised.
     _degraded carries previous's in_progress/blocked lines forward verbatim
@@ -19702,6 +19743,8 @@ def main() -> int:
         run(lambda: test_a_resolved_ask_does_not_stay_in_progress_across_a_park(Path(td) / 'foldparkhome'))
         run(lambda: test_reconcile_resolved_needs_an_explicit_reference_not_a_bare_number(Path(td) / 'reconid'))
         run(lambda: test_reconcile_resolved_only_state_done_counts(Path(td) / 'reconstate'))
+        run(lambda: test_build_prompt_tells_the_model_not_to_write_a_started_by_reference_as_hash_n(
+            Path(td) / 'reconhashn'))
         run(lambda: test_fold_degraded_path_also_reconciles_resolved_asks(Path(td) / 'reconderaded'))
         run(lambda: test_rollover(Path(td) / 'rollhome'))
         run(lambda: test_triggers())
