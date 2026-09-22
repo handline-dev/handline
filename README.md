@@ -215,7 +215,9 @@ file that does not reach that account.
 ## Tests
 
 ```bash
-python3 tests/test_ocp.py     # 240 checks, no network, no tokens
+python3 tests/test_ocp.py     # ~2960 checks, no network, no tokens
+python3 tests/test_ocp.py -k reconcile --write-labels before.txt   # a subset, labels saved
+python3 tests/test_ocp.py --diff-labels before.txt after.txt       # labels that changed state
 ```
 
 Design docs are in `design/`; the Phase 0 findings and their evidence are in

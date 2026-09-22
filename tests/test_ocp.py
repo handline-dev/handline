@@ -133,6 +133,17 @@ def restore_world() -> None:
     subprocess.Popen.__init__ = _guarded_popen_init
     for n, f in REAL_ORCA.items():
         setattr(orcamod, n, f)
+    # This process itself may be running inside an Orca-launched terminal -
+    # left set, `orca.terminal_handle()` reads the real thing, and a test that
+    # calls `launch._record_terminal` without setting its own value first
+    # reaches the real `orca` binary through ensure_run(). ORCA_WORKTREE_ID is
+    # read on the same line (`db.set_terminal`'s worktree argument) and is
+    # exactly the same class of leak, just not yet the cause of a failure a
+    # real terminal's ambient value could still one day produce (auditor
+    # #1662 NOTE 2). A test that wants either sets it itself, and pops it
+    # again when done, the same as every other piece of state this resets.
+    for var in ("ORCA_TERMINAL_HANDLE", "ORCA_WORKTREE_ID"):
+        os.environ.pop(var, None)
     # No screen to read in a fixture; a test about a modal says so itself.
     orcamod.modal_open = lambda handle: False
     orcamod.screen_blocker = lambda handle: None
@@ -147,6 +158,22 @@ def restore_world() -> None:
     dmn._seen.clear()
     dmn._seen_at["t"] = 0.0
     actions._WORLD["at"] = 0.0
+
+
+def test_restore_world_pops_orca_env_vars_a_real_terminal_would_leave_set() -> None:
+    """Auditor #1662/#1670: on a machine with no real Orca terminal (the
+    common case, unlike the account this suite is usually run from), the pop
+    in restore_world() is otherwise covered by nothing - both variables are
+    set and unset by nothing else in the suite. Set both to markers directly,
+    the same shape a real terminal's environment would leave them in, so the
+    check does not depend on which machine runs it."""
+    os.environ["ORCA_TERMINAL_HANDLE"] = "marker_handle"
+    os.environ["ORCA_WORKTREE_ID"] = "marker_worktree"
+    restore_world()
+    check("restore_world: ORCA_TERMINAL_HANDLE is popped, not just this test's own",
+          "ORCA_TERMINAL_HANDLE" not in os.environ)
+    check("restore_world: ORCA_WORKTREE_ID is popped too, same class of leak",
+          "ORCA_WORKTREE_ID" not in os.environ)
 
 
 def relaunching_send(sent: list, table: dict[str, int]) -> object:
@@ -224,8 +251,15 @@ def _capture(fn) -> str:
     return buf.getvalue()
 
 
+LABEL_LOG: list[tuple[str, str, str]] = []  # (state, test, name) - check() names alone
+# collide across tests (e.g. two tests both say "wake: the relaunch itself is
+# reported as a success"); write_labels() below qualifies by test to tell them
+# apart. A pure addition alongside PASS/FAIL, so it changes no existing output.
+
+
 def check(name: str, cond: bool, detail: str = "") -> None:
     (PASS if cond else FAIL).append(name)
+    LABEL_LOG.append(("PASS" if cond else "FAIL", CURRENT_TEST["name"], name))
     print(f"{'PASS' if cond else 'FAIL'}  {name}" + (f"  ({detail})" if detail and not cond else ""))
 
 
@@ -8269,7 +8303,6 @@ def test_record_terminal_migrates_memory_on_an_account_change(home: Path) -> Non
     move to room elsewhere, a human typing `ocp launch` by hand - is where
     this has to happen once, rather than in each of those separately."""
     os.environ["OCP_HOME"] = str(home)
-    os.environ.pop("ORCA_TERMINAL_HANDLE", None)
     agents.register("mover", "alpha")
     con = db.connect()
     try:
@@ -21668,6 +21701,19 @@ def test_usage_api_record_stands_in_for_a_probe(home: Path) -> None:
           str(status.read("alpha", path=p_).assignable()))
 
 
+TEST_FILTER: str | None = None  # set by -k; substring match on the test name
+_RUN_DEPTH = {"n": 0}  # >0 inside a test's own nested run() calls, where -k does not apply
+
+
+def _test_name(one) -> str:
+    # The test that is running, by the name its lambda calls: what the guard
+    # against the real Orca says, and what a fake `orca` on PATH logs.
+    named = [getattr(one, "__name__", "")]
+    named += [n for n in one.__code__.co_names]
+    named += [getattr(c.cell_contents, "__name__", "") for c in (one.__closure__ or ())]
+    return next((n for n in named if n.startswith("test_")), "<test>")
+
+
 def run(one) -> None:
     """Every test starts from the real world.
 
@@ -21681,15 +21727,25 @@ def run(one) -> None:
     would stop `main` before it printed a final count, and a short run that
     looks like a clean pass is worse than a loud one. KeyboardInterrupt is
     left alone - that is the human stopping the suite, not a test failing.
+
+    -k only gates the outer call, from main()'s own list: a test that calls
+    run() itself on synthetic cases (test_run_recovers_from_an_uncaught_error)
+    must not have those nested calls dropped by a filter aimed at main()'s.
+
+    A nested run() must also leave CURRENT_TEST as it found it: without the
+    restore, checks the enclosing test makes *after* its own nested run()
+    calls return are recorded under the last nested case's name instead of
+    the enclosing test's own - silently, since nothing here fails, the label
+    is just wrong.
     """
+    name = _test_name(one)
+    if _RUN_DEPTH["n"] == 0 and TEST_FILTER is not None and TEST_FILTER not in name:
+        return
     restore_world()
-    # The test that is running, by the name its lambda calls: what the guard
-    # against the real Orca says, and what a fake `orca` on PATH logs.
-    named = [getattr(one, "__name__", "")]
-    named += [n for n in one.__code__.co_names]
-    named += [getattr(c.cell_contents, "__name__", "") for c in (one.__closure__ or ())]
-    CURRENT_TEST["name"] = next((n for n in named if n.startswith("test_")), "<test>")
+    prev_test = CURRENT_TEST["name"]
+    CURRENT_TEST["name"] = name
     os.environ["OCP_TEST"] = CURRENT_TEST["name"]
+    _RUN_DEPTH["n"] += 1
     try:
         one()
     except (Exception, SystemExit) as e:
@@ -21698,15 +21754,19 @@ def run(one) -> None:
         where = tb[-1] if tb else None
         loc = f" at {where.filename}:{where.lineno}" if where else ""
         check(f"{test}: uncaught {type(e).__name__}: {e}{loc}", False)
+    finally:
+        _RUN_DEPTH["n"] -= 1
+        CURRENT_TEST["name"] = prev_test
+        os.environ["OCP_TEST"] = prev_test
 
 
 def test_run_recovers_from_an_uncaught_error() -> None:
     """Review of buddyron/test-suite-agent-independent: checked by hand is not
     checked by the suite. Both a plain exception and a `sys.exit` from code
     under test must be recorded as a failure, not left to end the run."""
-    global PASS, FAIL
-    real_pass, real_fail = PASS, FAIL
-    PASS, FAIL = [], []
+    global PASS, FAIL, LABEL_LOG
+    real_pass, real_fail, real_log = PASS, FAIL, LABEL_LOG
+    PASS, FAIL, LABEL_LOG = [], [], []
     try:
         def test_synthetic_boom():
             raise ValueError("synthetic")
@@ -21714,14 +21774,15 @@ def test_run_recovers_from_an_uncaught_error() -> None:
         def test_synthetic_quits():
             sys.exit(1)
 
-        # These two are meant to fail - swallow their PASS/FAIL lines so a
-        # clean run's console output has no `FAIL` that is not a real one.
+        # These two are meant to fail - swallow their PASS/FAIL (and label)
+        # lines so a clean run's console output, and its label file, have no
+        # `FAIL` that is not a real one.
         with contextlib.redirect_stdout(io.StringIO()):
             run(lambda: test_synthetic_boom())
             run(lambda: test_synthetic_quits())
         caught = FAIL
     finally:
-        PASS, FAIL = real_pass, real_fail
+        PASS, FAIL, LABEL_LOG = real_pass, real_fail, real_log
 
     check("run(): an uncaught exception is caught, not propagated, and "
           "recorded naming the test and the error",
@@ -22550,6 +22611,237 @@ def test_task_ids_are_checked_before_any_answer_and_short_shas_are_resolved(home
     check("close: a number is never an agent name (the dispatch rests on it)", refused)
 
 
+def test_run_restores_current_test_after_its_own_nested_run_calls(home: Path) -> None:
+    """Pins BLOCKING 2 (auditor #1647, re-flagged unpinned in #1658
+    SHOULD-FIX 1) at the label file itself: a test that calls run() on
+    synthetic cases of its own must have its OWN later checks recorded under
+    its own name in write_labels()'s output, not the last nested case's."""
+    home.mkdir(parents=True, exist_ok=True)
+    global PASS, FAIL, LABEL_LOG
+    real_pass, real_fail, real_log = PASS, FAIL, LABEL_LOG
+    PASS, FAIL, LABEL_LOG = [], [], []
+    try:
+        ocp_test_after_nested = None
+
+        def test_synthetic_outer():
+            nonlocal ocp_test_after_nested
+
+            def test_synthetic_inner():
+                check("inner: ran", True)
+            with contextlib.redirect_stdout(io.StringIO()):
+                run(lambda: test_synthetic_inner())
+            # OCP_TEST, not only CURRENT_TEST, must come back too: it is what
+            # the fake `orca` on PATH logs a call under (see hook() below),
+            # and a caller's own filter on that log reads its owner's name
+            # from this variable - auditor #1658 NOTE 1, half of BLOCKING 2's
+            # fix left unpinned. Read here, before this test's own finally
+            # (which sets OCP_TEST again) could hide a real regression.
+            ocp_test_after_nested = os.environ.get("OCP_TEST")
+            check("outer: ran after its own nested run()", True)
+
+        with contextlib.redirect_stdout(io.StringIO()):
+            run(lambda: test_synthetic_outer())
+        path = str(home / "nested.jsonl")
+        write_labels(path)
+        labels = _read_labels(path)
+    finally:
+        PASS, FAIL, LABEL_LOG = real_pass, real_fail, real_log
+
+    check("run(): OCP_TEST is restored after a nested run() too, not only CURRENT_TEST",
+          ocp_test_after_nested == "test_synthetic_outer", ocp_test_after_nested)
+    check("run(): the nested case's own check carries its own name",
+          labels.get(("test_synthetic_inner", "inner: ran", 1)) == "PASS", str(labels))
+    check("run(): the enclosing test's check after its nested run() call "
+          "carries its own name, not the nested one's",
+          labels.get(("test_synthetic_outer",
+                       "outer: ran after its own nested run()", 1)) == "PASS",
+          str(labels))
+
+
+def test_a_clean_runs_label_file_has_no_fail_record(home: Path) -> None:
+    """Pins SHOULD-FIX 3 (auditor #1647, re-flagged unpinned in #1658
+    SHOULD-FIX 1) at the label file itself: LABEL_LOG is swapped alongside
+    PASS/FAIL in test_run_recovers_from_an_uncaught_error, so its two
+    synthetic failures must not reach write_labels()'s output - measured end
+    to end here, not only by re-reading that test's own PASS/FAIL lists."""
+    home.mkdir(parents=True, exist_ok=True)
+    global PASS, FAIL, LABEL_LOG
+    real_pass, real_fail, real_log = PASS, FAIL, LABEL_LOG
+    PASS, FAIL, LABEL_LOG = [], [], []
+    try:
+        with contextlib.redirect_stdout(io.StringIO()):
+            run(lambda: test_run_recovers_from_an_uncaught_error())
+        path = str(home / "clean.jsonl")
+        write_labels(path)
+        fails = [ln for ln in Path(path).read_text().splitlines()
+                 if json.loads(ln)["state"] == "FAIL"]
+    finally:
+        PASS, FAIL, LABEL_LOG = real_pass, real_fail, real_log
+    check("write_labels: a run with nothing really failing writes no FAIL record",
+          fails == [], str(fails))
+
+
+def test_diff_labels_prints_only_what_changed_and_nothing_else(home: Path) -> None:
+    """diff_labels() is the tool a mutation check trusts to say which label a
+    mutant killed - so it is exercised directly, on files it does not itself
+    write, rather than only by hand through one real run's output."""
+    home.mkdir(parents=True, exist_ok=True)
+    a_path, b_path = str(home / "a.jsonl"), str(home / "b.jsonl")
+    Path(a_path).write_text(
+        '{"state": "PASS", "test": "t1", "name": "x", "occurrence": 1}\n'
+        '{"state": "FAIL", "test": "t2", "name": "y", "occurrence": 1}\n')
+    Path(b_path).write_text(
+        '{"state": "FAIL", "test": "t1", "name": "x", "occurrence": 1}\n'
+        '{"state": "FAIL", "test": "t2", "name": "y", "occurrence": 1}\n'
+        '{"state": "PASS", "test": "t3", "name": "z", "occurrence": 1}\n')
+    got: dict = {}
+    out = _capture(lambda: got.__setitem__("rc", diff_labels(a_path, b_path)))
+    lines = [ln for ln in out.splitlines() if ln]
+    check("diff_labels: the flip is reported", "PASS -> FAIL  t1 :: x" in lines, out)
+    check("diff_labels: the label only in b reads MISSING on a's side",
+          "MISSING -> PASS  t3 :: z" in lines, out)
+    check("diff_labels: the unchanged label is not reported at all",
+          not any("t2" in ln for ln in lines), out)
+    check("diff_labels: nothing else was printed", len(lines) == 2, out)
+    check("diff_labels: a real change returns 1", got["rc"] == 1)
+
+    c_path = str(home / "c.jsonl")
+    Path(c_path).write_text(Path(a_path).read_text())
+    out2 = _capture(lambda: got.__setitem__("rc", diff_labels(a_path, c_path)))
+    check("diff_labels: two identical files print nothing and return 0",
+          out2 == "" and got["rc"] == 0, out2)
+
+    # A group whose length differs between two runs (one occurrence dropped
+    # and the rest renumbered, not only a different -k) is the likelier real
+    # cause of a MISSING past the first, and the ordinal it names is the
+    # group's new tail, not whichever iteration actually vanished - true of
+    # the mechanism, worth knowing when reading its output.
+    d_path = str(home / "d.jsonl")
+    Path(d_path).write_text(
+        '{"state": "PASS", "test": "t4", "name": "w", "occurrence": 1}\n'
+        '{"state": "PASS", "test": "t4", "name": "w", "occurrence": 2}\n'
+        '{"state": "PASS", "test": "t4", "name": "w", "occurrence": 3}\n')
+    e_path = str(home / "e.jsonl")
+    Path(e_path).write_text(
+        '{"state": "PASS", "test": "t4", "name": "w", "occurrence": 1}\n'
+        '{"state": "PASS", "test": "t4", "name": "w", "occurrence": 2}\n')
+    out3 = _capture(lambda: diff_labels(d_path, e_path))
+    check("diff_labels: a shortened group is named by its tail ordinal, "
+          "past the first, whichever member actually left",
+          out3.strip() == "PASS -> MISSING  t4 :: w [3]", out3)
+
+
+def test_write_labels_disambiguates_a_name_repeated_inside_one_test(home: Path) -> None:
+    """A name is not unique even inside the one test that emits it - a loop
+    that calls check() with the same literal string several times, as several
+    real tests in this suite do, must not collapse into one label that only
+    the last iteration can answer for."""
+    home.mkdir(parents=True, exist_ok=True)
+    global PASS, FAIL, LABEL_LOG
+    real_pass, real_fail, real_log = PASS, FAIL, LABEL_LOG
+    PASS, FAIL, LABEL_LOG = [], [], []
+    try:
+        def test_synthetic_loop():
+            for ok in (True, True, False, True):
+                check("loop: still parked - the reading is still at the wall", ok)
+
+        with contextlib.redirect_stdout(io.StringIO()):
+            run(lambda: test_synthetic_loop())
+        path = str(home / "loop.jsonl")
+        write_labels(path)
+        labels = _read_labels(path)
+    finally:
+        PASS, FAIL, LABEL_LOG = real_pass, real_fail, real_log
+
+    name = "loop: still parked - the reading is still at the wall"
+    keys = [("test_synthetic_loop", name, i) for i in range(1, 5)]
+    check("write_labels: all four occurrences are kept, not collapsed to one",
+          set(labels) == set(keys), str(labels))
+    check("write_labels: each occurrence carries its own call's state, in order",
+          [labels.get(k) for k in keys] == ["PASS", "PASS", "FAIL", "PASS"], str(labels))
+
+    # A mutation that flips only the first, still-real occurrence must be
+    # visible on its own - the bug this test answers is that qualifying by
+    # (test, name) alone made every occurrence but the last invisible to a
+    # flip, because the dict write for occurrence 1 was overwritten by 2, 3
+    # and 4 before diff_labels ever saw it.
+    mutated = str(home / "loop_mutated.jsonl")
+    lines = Path(path).read_text().splitlines()
+    first = json.loads(lines[0])
+    check("write_labels: setup - the first line is occurrence 1", first["occurrence"] == 1)
+    first["state"] = "FAIL"
+    lines[0] = json.dumps(first)
+    Path(mutated).write_text("\n".join(lines) + "\n")
+    out = _capture(lambda: diff_labels(path, mutated))
+    check("write_labels: diff_labels catches a flip in the first occurrence alone",
+          out.strip() == f"PASS -> FAIL  test_synthetic_loop :: {name}", out)
+
+
+def write_labels(path: str) -> None:
+    """Every check from this run, one JSON object per line: state, test, name,
+    and which occurrence of that (test, name) pair this is.
+
+    Qualified by the owning test, since the name alone is not unique - two
+    tests can and do call check() with the same literal string. The test is
+    not enough either: a name repeated inside one test (typically a loop) is
+    just as common, and without the occurrence ordinal every write but the
+    last of a group would collide into it, so a flip in any but the last
+    member of the group would be invisible to diff_labels(). JSON, one record
+    per line, rather than text joined by a space and a tab: a check's own
+    name or detail can itself carry a newline (an exception's message, not a
+    name anyone chose - see run()) or one of the other line separators
+    Python's own str.splitlines() knows, and text-joining would either split
+    that record in two or glue it to its neighbour depending on where the
+    break landed. Lets a mutation check diff two runs by label instead of by
+    hand-built comm pipelines: see diff_labels().
+    """
+    seen: dict[tuple[str, str], int] = {}
+    with open(path, "w") as f:
+        for state, test, name in LABEL_LOG:
+            key = (test, name)
+            seen[key] = seen.get(key, 0) + 1
+            f.write(json.dumps({"state": state, "test": test, "name": name,
+                                 "occurrence": seen[key]}) + "\n")
+
+
+def _read_labels(path: str) -> dict[tuple[str, str, int], str]:
+    labels: dict[tuple[str, str, int], str] = {}
+    for line in Path(path).read_text().splitlines():
+        if not line.strip():
+            continue
+        row = json.loads(line)
+        labels[(row["test"], row["name"], row["occurrence"])] = row["state"]
+    return labels
+
+
+def diff_labels(path_a: str, path_b: str) -> int:
+    """Print only the labels whose PASS/FAIL state differs between two
+    write_labels() files, "<state in A> -> <state in B>  <test> :: <name>"
+    per line (plus "[<occurrence>]" past the first time that exact pair
+    repeats within its test).
+
+    A label present in only one file reads as MISSING on the other side -
+    the two runs used a different -k, or a loop that calls check() the same
+    number of times every run stopped doing so (auditor #1658 NOTE 3): the
+    ordinal MISSING names is the group's new tail, not whichever occurrence
+    actually left, since every occurrence after it renumbered down to fill
+    the gap. Either way it is not itself a flipped state to chase.
+    """
+    a, b = _read_labels(path_a), _read_labels(path_b)
+    changed = False
+    for key in sorted(set(a) | set(b)):
+        sa, sb = a.get(key, "MISSING"), b.get(key, "MISSING")
+        if sa != sb:
+            changed = True
+            test, name, occurrence = key
+            suffix = f" [{occurrence}]" if occurrence > 1 else ""
+            print(f"{sa} -> {sb}  {test} :: {name}{suffix}")
+    return 1 if changed else 0
+
+
+WRITE_LABELS_TO: str | None = None  # set by --write-labels
+
+
 def main() -> int:
     # An agent session that runs this suite already has both set for itself,
     # and every test here that wants one sets it explicitly - so an ambient
@@ -23023,6 +23315,12 @@ def main() -> int:
         run(lambda: test_retires_is_refused_on_a_row_that_is_not_the_resolvers(Path(td) / 'retiresown'))
         run(lambda: test_reason_gaps_count_from_the_shapes_the_verbs_write(Path(td) / 'reasongaps'))
         run(lambda: test_run_recovers_from_an_uncaught_error())
+        run(lambda: test_restore_world_pops_orca_env_vars_a_real_terminal_would_leave_set())
+        run(lambda: test_run_restores_current_test_after_its_own_nested_run_calls(Path(td) / 'nestedrun'))
+        run(lambda: test_a_clean_runs_label_file_has_no_fail_record(Path(td) / 'cleanrun'))
+        run(lambda: test_diff_labels_prints_only_what_changed_and_nothing_else(Path(td) / 'difflabels'))
+        run(lambda: test_write_labels_disambiguates_a_name_repeated_inside_one_test(
+            Path(td) / 'looplabels'))
     # The whole run's dealings with Orca: none of its tests may have reached even
     # the stand-in, except the four that run a child `ocp`. (A test's own
     # `except Exception` can swallow the guard's error; this cannot be swallowed.)
@@ -23032,6 +23330,8 @@ def main() -> int:
           not stray, "; ".join(f"{t}: {c[0]}" for t, c in sorted(stray.items())[:4]))
     check("orca: no test started an orca process itself, whether or not it caught the error",
           not ORCA_ATTEMPTS, "; ".join(f"{t}: {c}" for t, c in ORCA_ATTEMPTS[:4]))
+    if WRITE_LABELS_TO is not None:
+        write_labels(WRITE_LABELS_TO)
     print(f"\n{len(PASS)} passed, {len(FAIL)} failed")
     for f in FAIL:
         print(f"  FAILED: {f}")
@@ -23039,4 +23339,18 @@ def main() -> int:
 
 
 if __name__ == "__main__":
+    parser = argparse.ArgumentParser()
+    parser.add_argument("-k", dest="filter", default=None,
+                         help="run only test_* functions whose name contains this substring")
+    parser.add_argument("--write-labels", dest="write_labels", default=None,
+                         help="write every PASS/FAIL label from this run to a file")
+    parser.add_argument("--diff-labels", dest="diff_labels", nargs=2, default=None,
+                         metavar=("A", "B"),
+                         help="print only the labels whose state differs between two "
+                              "--write-labels files; does not run the suite")
+    args = parser.parse_args()
+    if args.diff_labels:
+        sys.exit(diff_labels(*args.diff_labels))
+    TEST_FILTER = args.filter
+    WRITE_LABELS_TO = args.write_labels
     sys.exit(main())
