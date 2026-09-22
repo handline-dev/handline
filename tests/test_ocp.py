@@ -22894,6 +22894,17 @@ def test_venv(home: Path) -> None:
           stamp.read_text().strip() == hashlib.sha256(venvmod.requirements_file().read_bytes()).hexdigest())
     check("venv: the bash wrapper agrees a freshly-stamped venv is ready", wrapper_ok(home))
 
+    # Review #1597 note 1: python's stamp.read_text().strip() and bash's
+    # `read -r have < stamp` must agree on more than a clean "<sha>\n" -
+    # that is the one input a diagnostic disagreeing with the thing it
+    # diagnoses would slip through on.
+    good_hash = stamp.read_text().strip()
+    stamp.write_text(f"  {good_hash}  \n")
+    ok, _ = venvmod.status(vdir)
+    check("venv: status() strips surrounding whitespace from the stamp", ok)
+    check("venv: the bash wrapper strips the same whitespace the same way", wrapper_ok(home))
+    stamp.write_text(good_hash + "\n")
+
     stamp.write_text("not a real hash\n")
     ok, reason = venvmod.status(vdir)
     check("venv: status() refuses a venv stamped against a different requirements.txt",
@@ -22913,6 +22924,45 @@ def test_venv(home: Path) -> None:
     check("venv: install() reports failure when pip fails", not ok and "boom" in msg, msg)
     check("venv: a failed install leaves the venv reading as stale, not falsely fresh",
           stamp.read_text().strip() == "not a real hash")
+
+    # Review #1597 note 2: status()'s own docstring promises (ok, reason) for
+    # any way the venv cannot be trusted - a requirements.txt that vanished
+    # (a broken checkout) is that family too, not a crash.
+    real_reqs_file = venvmod.requirements_file
+    try:
+        venvmod.requirements_file = lambda: home / "no-such-requirements.txt"
+        ok, reason = venvmod.status(vdir)
+        check("venv: status() reports (False, reason) for a missing requirements.txt, not a traceback",
+              not ok and "requirements.txt" in reason, reason)
+    finally:
+        venvmod.requirements_file = real_reqs_file
+
+    # Same case through the bash wrapper: copy it beside a venv with no
+    # requirements.txt one level up, so `script_dir/../requirements.txt`
+    # resolves to nothing - the wrapper must fail() with a clear reason, not
+    # `set -e` out on shasum's own raw error (review #1597 note 2).
+    reqshome = home / "reqsmissing"
+    (reqshome / "bin").mkdir(parents=True, exist_ok=True)
+    shutil.copy(wrapper, reqshome / "bin" / "ocp-venv")
+    shutil.copy(paths.repo_root() / "bin" / "_ocp_entry.py", reqshome / "bin" / "_ocp_entry.py")
+    (reqshome / "bin" / "ocp-venv").chmod(0o755)
+    reqs_vdir = reqshome / "home" / "venv" / "bin"
+    reqs_vdir.mkdir(parents=True)
+    (reqs_vdir / "python3").write_text("#!/bin/sh\n")
+    (reqs_vdir / "python3").chmod(0o755)
+    r = subprocess.run([str(reqshome / "bin" / "ocp-venv"), "venv", "status"],
+                        capture_output=True, text=True, timeout=30,
+                        env={**os.environ, "OCP_HOME": str(reqshome / "home")})
+    check("venv: the bash wrapper also fails clean (not a raw shasum error) on a missing requirements.txt",
+          r.returncode == 1 and "no requirements.txt" in r.stderr and "shasum" not in r.stderr, r.stderr)
+
+    # Review #1597 should-fix: the remedy the wrapper prints must still be
+    # runnable once this file is promoted to bin/ocp - "$script_dir/ocp" is
+    # then the very command that just refused.
+    r = subprocess.run([str(wrapper), "venv", "status"], capture_output=True, text=True, timeout=30,
+                        env={**os.environ, "OCP_HOME": str(home / "no-such-home")})
+    check("venv: the wrapper's own remedy is a bare `python3 ... _ocp_entry.py`, not itself",
+          "python3 " in r.stderr and str(wrapper) not in r.stderr, r.stderr)
 
 
 def test_run_recovers_from_an_uncaught_error() -> None:

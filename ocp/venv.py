@@ -59,7 +59,10 @@ def status(vdir: Path | None = None) -> tuple[bool, str]:
         return False, f"no venv at {vdir}"
     stamp = vdir / STAMP_NAME
     have = stamp.read_text().strip() if stamp.exists() else None
-    want = _sha256(requirements_file())
+    reqs = requirements_file()
+    if not reqs.is_file():
+        return False, f"no requirements.txt at {reqs}"
+    want = _sha256(reqs)
     if have != want:
         return False, f"venv at {vdir} is stale (requirements.txt changed since it was installed)"
     return True, ""

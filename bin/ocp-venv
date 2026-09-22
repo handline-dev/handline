@@ -17,11 +17,15 @@ reqs="$script_dir/../requirements.txt"
 
 fail() {
     echo "ocp: $1" >&2
-    echo "ocp: run \`$script_dir/ocp venv install\` to fix it" >&2
+    # Once this file is bin/ocp, the venv it just refused to use is the same
+    # one the remedy needs - so the remedy is a bare system python3, not "$py"
+    # or this wrapper (review #1597, should-fix).
+    echo "ocp: run \`python3 $script_dir/_ocp_entry.py venv install\` to fix it" >&2
     exit 1
 }
 
 [ -x "$py" ] || fail "no venv at $venv"
+[ -f "$reqs" ] || fail "no requirements.txt at $reqs"
 
 # Existing is not the same as working: a venv installed before requirements.txt
 # last changed is missing whatever changed. ocp/venv.install() writes this
@@ -29,7 +33,8 @@ fail() {
 # install reads as stale here rather than failing deep inside a command.
 stamp="$venv/.ocp_deps_sha256"
 want="$(shasum -a 256 "$reqs" | cut -d' ' -f1)"
-have="$(cat "$stamp" 2>/dev/null || true)"
+have=""
+[ -f "$stamp" ] && read -r have < "$stamp"
 [ "$want" = "$have" ] || fail "venv at $venv is stale (requirements.txt changed since it was installed)"
 
 exec "$py" "$script_dir/_ocp_entry.py" "$@"
