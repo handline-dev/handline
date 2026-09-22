@@ -5413,6 +5413,29 @@ def _mkrepo(path: Path) -> None:
     run("commit", "-qm", "base")
 
 
+def test_drift_git_gives_one_clean_entry_per_file(tmp: Path) -> None:
+    """auditor's #1194: drift._git itself hands back sanitised records, one per
+    file, rather than leaning on cmd_drift sanitising at the sink. Split on
+    newlines only: a name holding U+0085 or U+2028 is still one file."""
+    repo = tmp / "repo"
+    repo.mkdir(parents=True)
+
+    def git(*args: str) -> None:
+        subprocess.run(["git", *args], cwd=repo, check=True, capture_output=True)
+    git("init", "-q", "-b", "main")
+    git("config", "core.quotePath", "false")      # names come back verbatim, as they do here
+    names = ["a\u0085b.txt", "c\u2028d.txt", "e\x9b31mf.txt", "plain.txt"]
+    for n in names:
+        (repo / n).write_text("x")
+    git("add", ".")
+    ok, out = drift._git(["ls-files"], repo)
+    entries = out.split("\n")
+    check("drift._git: one entry per file, whatever the name holds",
+          ok and len(entries) == len(names), repr(entries))
+    check("drift._git: and nothing a terminal would obey reaches a caller",
+          not any(c in out for c in "\x9b\x85\u2028"), repr(out))
+
+
 def test_drift(tmp: Path) -> None:
     origin = tmp / "origin"
     _mkrepo(origin)
@@ -8175,6 +8198,50 @@ def test_display_agrees_with_the_daemon(home: Path) -> None:
     check("display: top draws the figure, not a question mark",
           "0%*" in text, "no marked 0% in the frame")
     check("display: and prints the legend", "inferred" in text)
+
+
+def test_spawn_sanitises_what_it_parsed_out_of_orcas_json(home: Path) -> None:
+    """auditor's #1194: _run strips a raw control byte before a parse, but one
+    sent escaped comes back real from json.loads. The worktree path and the
+    terminal handle are sanitised where spawn's messages embed them."""
+    os.environ["OCP_HOME"] = str(home)
+    home.mkdir(parents=True, exist_ok=True)
+    agents.register("spawny", "alpha")
+    csi = "\u009b31m"
+
+    def fake_run(args, cwd=None):
+        if args[:3] == ["orca", "worktree", "create"]:
+            return 0, json.dumps({"result": {"worktree": {"path": f"/tmp/w{csi}t"}}}), ""
+        if args[:3] == ["orca", "terminal", "create"]:
+            return 0, json.dumps({"result": {"terminal": {"handle": f"term{csi}_s"}}}), ""
+        return 0, "", ""
+
+    real = (spawnmod._run, spawnmod.shutil.which)
+    try:
+        spawnmod.shutil.which = lambda _n: "/usr/bin/orca"
+        spawnmod._run = fake_run
+        orcamod.run_current = lambda: None
+        orcamod.run_create = lambda objective: None
+        ok, msg = spawnmod.spawn("spawny", ROOT, base="main")
+        check("spawn: the escaped byte came back real from the parse (the case is live)",
+              "\x9b" in json.loads(fake_run(["orca", "worktree", "create"])[1])
+              ["result"]["worktree"]["path"])
+        check("spawn: its message carries no control byte from the parsed path or handle",
+              ok and "\x9b" not in msg and "w31mt" in msg and "term31m_s" in msg, repr(msg))
+
+        wt = home / "wt"
+        wt.mkdir()
+        ok, msg = spawnmod.start_in("spawny", str(wt))
+        check("start_in: nor does its message carry one from the parsed handle",
+              ok and "\x9b" not in msg and "term31m_s" in msg, repr(msg))
+
+        spawnmod._run = lambda args, cwd=None: (
+            fake_run(args) if args[:3] == ["orca", "worktree", "create"] else (1, "", "boom"))
+        ok, msg = spawnmod.spawn("spawny", ROOT, base="main")
+        check("spawn: nor the failure that names the new worktree",
+              not ok and "\x9b" not in msg and "w31mt" in msg, repr(msg))
+    finally:
+        spawnmod._run, spawnmod.shutil.which = real
 
 
 def test_spawn_confirms_the_task_landed(home: Path) -> None:
@@ -17417,8 +17484,9 @@ def test_a_module_that_returns_subprocess_text_as_a_message_imports_textsafe(hom
     # sink the property is about - the list a later hand has to justify, the
     # same shape as the CLI's driven-or-skipped table.
     exempt = {
-        "accounts.py": "parses one known JSON field (subscriptionType, email) "
-                       "out of `claude auth status`; never returns the raw text",
+        "accounts.py": "parses subscriptionType and email out of "
+                       "`claude auth status`; both are Anthropic's own auth output "
+                       "and the user's own email, never text an agent wrote",
         "service.py": "launchctl's own error text - a macOS tool's output, not "
                       "anything an agent chose, and the least reachable of these",
     }
@@ -21740,6 +21808,7 @@ def main() -> int:
         run(lambda: test_service_log_rotation(Path(td) / 'svc6'))
         run(lambda: test_doctor_service_check(Path(td) / 'svc7'))
         run(lambda: test_drift(Path(td) / 'drift'))
+        run(lambda: test_drift_git_gives_one_clean_entry_per_file(Path(td) / 'driftgit'))
         run(lambda: test_spawn_base_selection(Path(td) / 'spawn'))
         run(lambda: test_idle_session_is_closed_and_resumed(Path(td) / 'idle'))
         run(lambda: test_an_open_head_request_on_an_idle_agent_is_nudged_then_shown(Path(td) / 'nudge'))
@@ -21774,6 +21843,7 @@ def main() -> int:
         run(lambda: test_spawn_confirms_the_task_landed(Path(td) / 'spawnland'))
         run(lambda: test_events_view_starts_at_the_newest(Path(td) / 'evview'))
         run(lambda: test_spawn_survives_its_own_main_path(Path(td) / 'spawnmain'))
+        run(lambda: test_spawn_sanitises_what_it_parsed_out_of_orcas_json(Path(td) / 'spawnjson'))
         run(lambda: test_an_agent_is_never_handed_another_agents_session(Path(td) / 'ident'))
         run(lambda: test_a_closed_agent_is_not_handed_off(Path(td) / 'closedtrig'))
         run(lambda: test_a_woken_agent_is_told_on_the_following_tick(Path(td) / 'woketick'))

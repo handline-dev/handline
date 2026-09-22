@@ -71,12 +71,12 @@ class Drift:
 
 
 def _git(args: list[str], cwd: Path, timeout: int = 30) -> tuple[bool, str]:
-    """On success, `out` is data a caller below still splits on its own
-    newlines (a file a line) - untouched, since a filename is sanitised where
-    it is drawn, at the sink `cmd_drift` already owns. On failure it is git's
-    own error text, which `check` embeds straight into `d.error` for that same
-    sink to print - sanitised here, so that embedding is clean by construction
-    the way orca._run and spawn._run's callers are."""
+    """On success, `out` is one line per record, each sanitised here, so a
+    caller that embeds one is clean by construction. Split on "\n" only: that
+    is git's separator, and a filename may hold anything else `splitlines`
+    breaks on (U+0085, U+2028), which would make one file two. On failure it
+    is git's own error text, sanitised the same way for `check` to embed into
+    `d.error`."""
     try:
         r = subprocess.run(["git", *args], cwd=cwd, capture_output=True,
                            text=True, timeout=timeout)
@@ -84,7 +84,7 @@ def _git(args: list[str], cwd: Path, timeout: int = 30) -> tuple[bool, str]:
         return False, textsafe.oneline(str(e))
     if r.returncode != 0:
         return False, textsafe.oneline(r.stderr.strip())
-    return True, r.stdout.strip()
+    return True, "\n".join(textsafe.oneline(ln) for ln in r.stdout.strip().split("\n"))
 
 
 def touched_files(repo: Path, base: str) -> list[str]:

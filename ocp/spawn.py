@@ -28,9 +28,11 @@ SUBMIT_WAIT_S = 60
 
 
 def _run(args: list[str], cwd: Path | None = None) -> tuple[int, str, str]:
-    """`git`'s or Orca's own text, clean at the source - every caller below
-    embeds `out` or `err` straight into a message it returns, and none of
-    them should have to remember to sanitise it first."""
+    """`git`'s or Orca's own text, clean at the source, so a caller that embeds
+    `out` or `err` in a message it returns need not sanitise it first. This
+    does not cover a caller that `json.loads` `out`: a control byte sent
+    escaped comes back real from the parse, so a parsed value is sanitised
+    where a message embeds it."""
     r = subprocess.run(args, cwd=cwd, capture_output=True, text=True, timeout=120)
     return (r.returncode, textsafe.oneline(r.stdout.strip()),
             textsafe.oneline(r.stderr.strip()))
@@ -134,7 +136,8 @@ def start_in(agent: str, worktree: str) -> tuple[bool, str]:
             register_worker(con, agent, handle)
         finally:
             con.close()
-    return True, f"{agent}: started in {worktree} (terminal {handle or 'unknown'})"
+    return True, (f"{agent}: started in {worktree} "
+                  f"(terminal {textsafe.oneline(handle) if handle else 'unknown'})")
 
 
 def spawn(agent: str, repo: Path, base: str = "main", prompt: str | None = None,
@@ -174,7 +177,8 @@ def spawn(agent: str, repo: Path, base: str = "main", prompt: str | None = None,
         "--title", agent, "--command", cmd, "--json",
     ])
     if code != 0:
-        return False, f"worktree {wt} created, but starting the agent failed: {err or out}"
+        return False, (f"worktree {textsafe.oneline(wt)} created, but starting the agent "
+                       f"failed: {err or out}")
     try:
         handle = json.loads(out)["result"]["terminal"]["handle"]
     except (json.JSONDecodeError, KeyError, TypeError):
@@ -188,8 +192,8 @@ def spawn(agent: str, repo: Path, base: str = "main", prompt: str | None = None,
         finally:
             con.close()
 
-    lines = [f"{agent}: worktree {wt}", f"  branched from {base_ref} ({why})",
-             f"  terminal {handle or 'unknown'}"]
+    lines = [f"{agent}: worktree {textsafe.oneline(wt)}", f"  branched from {base_ref} ({why})",
+             f"  terminal {textsafe.oneline(handle) if handle else 'unknown'}"]
 
     if prompt and not handle:
         # Sending to a handle we could not read means typing into nothing and
