@@ -159,11 +159,18 @@ def wake_wait_reason(agent: str, row, con) -> str | None:
     return None if w is None else describe_wake_wait(w)
 
 
+def wait_clock(w: WakeWait, unknown: str = "?") -> str:
+    """When the walled window rolls over: a clock for the 5h one, a date and
+    clock for the weekly one, which is days away."""
+    if not w.reset:
+        return unknown
+    return time.strftime("%H:%M" if w.window == "5h" else "%m-%d %H:%M", time.localtime(w.reset))
+
+
 def describe_wake_wait(w: WakeWait) -> str:
     """The wording for a wait already computed, so a caller that holds one
     does not recompute it (the window may have rolled over in between)."""
-    fmt = "%H:%M" if w.window == "5h" else "%m-%d %H:%M"
-    when = "unknown" if not w.reset else time.strftime(fmt, time.localtime(w.reset))
+    when = wait_clock(w, "unknown")
     who = f"assumed account {w.account}" if w.assumed else w.account
     return f"waiting for {who}'s {w.window} window ({w.pct}%, rolls over {when})"
 
