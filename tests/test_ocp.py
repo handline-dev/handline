@@ -132,6 +132,14 @@ def restore_world() -> None:
     subprocess.Popen.__init__ = _guarded_popen_init
     for n, f in REAL_ORCA.items():
         setattr(orcamod, n, f)
+    # This process itself may be running inside an Orca-launched terminal -
+    # left set, `orca.terminal_handle()` reads the real thing, and a test that
+    # calls `launch._record_terminal` without setting its own value first
+    # reaches the real `orca` binary through ensure_run(). A test that wants
+    # one sets it itself (and pops it again when done, the same as every
+    # other piece of state this function resets); nothing here may carry a
+    # value from either a real terminal or an earlier test into the next one.
+    os.environ.pop("ORCA_TERMINAL_HANDLE", None)
     # No screen to read in a fixture; a test about a modal says so itself.
     orcamod.modal_open = lambda handle: False
     orcamod.screen_blocker = lambda handle: None
@@ -7096,7 +7104,6 @@ def test_record_terminal_migrates_memory_on_an_account_change(home: Path) -> Non
     move to room elsewhere, a human typing `ocp launch` by hand - is where
     this has to happen once, rather than in each of those separately."""
     os.environ["OCP_HOME"] = str(home)
-    os.environ.pop("ORCA_TERMINAL_HANDLE", None)
     agents.register("mover", "alpha")
     con = db.connect()
     try:
