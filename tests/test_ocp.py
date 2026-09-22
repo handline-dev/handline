@@ -8935,7 +8935,8 @@ def test_only_the_agents_own_events_move_its_activity_clock(home: Path) -> None:
                     "cold_start", "dialog_declined", "dialog_exit_chosen", "fold", "fold_failed",
                     "forced_move", "handoff", "memory_migrated", "moved_account", "nudged",
                     "notified", "park", "session_gone", "started_for_work", "terminal_gone",
-                    "unstuck", "wake", "wake_failed", "SessionStart", "SessionEnd"}
+                    "unstuck", "trust_confirmed", "wake", "wake_failed", "SessionStart",
+                    "SessionEnd"}
     # close_task is here, not in AGENT_ACTIVITY_KINDS, because of
     # actions.close_task's `askmod.asking_agent() or row["owner"]` fallback:
     # cli.cmd_close now refuses without an identity, but the fallback still
@@ -17635,6 +17636,11 @@ def test_no_command_prints_what_a_terminal_would_obey(home: Path) -> None:
         "task link": "writes a row; prints two ids", "base promote": "writes base.md; prints sizes and a path",
         "hr relabel": "calls Orca directly, no proposal; driven in "
                       "test_a_rename_names_the_agents_orca_worktree, not this scene",
+        "trust add": "founder-only on a tty; driven in test_ocp_trust_cli_is_wired",
+        "trust list": "prints declared roots; driven in test_ocp_trust_cli_is_wired",
+        "trust remove": "driven in test_ocp_trust_cli_is_wired",
+        "trust proposals": "lists proposal files; prints their ids",
+        "trust apply": "founder-only; applies a proposal and prints its id",
     }
     have = set(driven_now := scene.driven) | set(skipped)
     every = set(leaves())
@@ -20118,15 +20124,17 @@ def test_a_wake_reads_the_screen_before_typing_into_it(home: Path) -> None:
     """
     _daemon_home(home, 50)
     con = db.connect()
-    real = (orcamod.resume_with, orcamod.alive, orcamod.trust_prompt_showing)
+    real = (orcamod.resume_with, orcamod.alive, orcamod.trust_prompt_showing,
+            orcamod.typeable_now)
     sent: list[str] = []
     try:
         orcamod.available = lambda: True
         orcamod.alive = lambda h: True
+        orcamod.typeable_now = lambda h: True
         orcamod.resume_with = lambda h, text: (sent.append(text), (True, "typed"))[1]
         sessions_are("backend")
         db.set_terminal(con, "backend", "term_x", "wt")
-        foldmod.handoff_path("backend").write_text("# handoff · backend\n## next\n- carry on\n")
+        keep_handoff("backend", "# handoff · backend\n## next\n- carry on\n")
 
         orcamod.trust_prompt_showing = lambda h: True
         ok, why = dmn.wake_agent(con, "backend", lambda _m: None)
@@ -20143,7 +20151,8 @@ def test_a_wake_reads_the_screen_before_typing_into_it(home: Path) -> None:
         ok, why = dmn.wake_agent(con, "backend", lambda _m: None)
         check("wake: an ordinary screen is typed into as before", ok and sent, why)
     finally:
-        orcamod.resume_with, orcamod.alive, orcamod.trust_prompt_showing = real
+        (orcamod.resume_with, orcamod.alive, orcamod.trust_prompt_showing,
+         orcamod.typeable_now) = real
         con.close()
 
 
@@ -20175,6 +20184,8 @@ def test_a_declared_root_gets_standing_consent(home: Path) -> None:
         showing["v"] = True
         sent.clear()
         trusted.clear()
+        # A typed handoff is consumed, so each case parks with a fresh one.
+        keep_handoff("backend", "# handoff · backend\n## next\n- carry on\n")
         db.set_agent_state(con, "backend", dmn.PARKED, detail="reset for the next case")
 
     try:
@@ -20185,7 +20196,7 @@ def test_a_declared_root_gets_standing_consent(home: Path) -> None:
         orcamod.trust_prompt_showing = lambda h: showing["v"]
         sessions_are("backend")
         db.set_terminal(con, "backend", "term_x", str(wt))
-        foldmod.handoff_path("backend").write_text("# handoff · backend\n## next\n- carry on\n")
+        keep_handoff("backend", "# handoff · backend\n## next\n- carry on\n")
 
         # 1. Not a declared root at all: escalates, nothing pressed.
         orcamod.screen_text = lambda h: screen_for(wt)
@@ -20993,7 +21004,7 @@ def test_add_account_from_the_tui_offers_to_trust_worktrees(home: Path) -> None:
             True, f"'{name}' is logged in.")
         orcamod.available = lambda: True
 
-        def fake_line(prompt, w, h):
+        def fake_line(prompt, w, h, **_kw):
             asked.append(prompt)
             return "gamma" if "new account name" in prompt else "y"
         tui._line = fake_line

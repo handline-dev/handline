@@ -120,11 +120,11 @@ TRUST_PROMPT_MARKER = "Is this a project you created or one you trust"
 def screen_text(handle: str) -> str | None:
     """What this terminal is rendering right now, or None if it could not be
     read - never mistaken for "nothing is showing"."""
-    ok, out = _run(["terminal", "read", "--terminal", handle, "--screen", "--json"])
-    if not ok:
+    term = _screen(handle)
+    tail = term.get("tail") if term else None
+    if not isinstance(tail, list) or term.get("source") != "screen":
         return None
-    tail = _result(out, "terminal", "tail")
-    return "\n".join(tail) if isinstance(tail, list) else None
+    return "\n".join(tail)
 
 
 def trust_prompt_showing(handle: str) -> bool:
