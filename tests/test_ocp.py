@@ -18880,6 +18880,19 @@ def test_a_withdrawn_or_replaced_request_is_not_read_back_as_an_answer(home: Pat
               "answered by b" not in out, out)
         check(f"read: it says it was {label}", f"--- {label} ---" in out, out)
 
+    # auditor's #1565 NOTE 1: the header dict in cli.cmd_read and this test's
+    # own labels both hardcode the three state names; neither reads
+    # db.NEVER_REACHED_TARGET, so a state added to that constant later gets
+    # "answered by {target}" again and nothing here would notice. This does
+    # not derive the header from the constant (the wording genuinely differs
+    # - "denied" prints "refused") but it does make an unlabelled state fail
+    # here rather than pass silently: every name the constant holds must
+    # appear as a state in cli.cmd_read's own header keys.
+    check("read: every db.NEVER_REACHED_TARGET state has its own header, "
+          "not just the ones hardcoded above",
+          set(db.NEVER_REACHED_TARGET) <= climod._NEVER_ANSWERED_HEADERS.keys(),
+          str(set(db.NEVER_REACHED_TARGET) - climod._NEVER_ANSWERED_HEADERS.keys()))
+
 
 def test_a_refused_ask_is_never_announced_as_an_answer(home: Path) -> None:
     """A refused ask reached nobody, so nothing can come back from it. Told
@@ -19917,18 +19930,20 @@ def test_retires_is_refused_on_a_row_that_is_not_the_resolvers(home: Path) -> No
 agents:
   reviewer: { intake: dedicated }
   backend:  { intake: dedicated }
+  frontend: { intake: dedicated }
 
 edges:
   - { from: "*",         to: "human", kind: escalate,  creates_gate: true }
   - { from: "human",     to: "*",     relation: supervisor, response: fire_and_forget }
   - { from: "reviewer",  to: "backend", relation: peer, response: fire_and_forget }
   - { from: "backend",   to: "reviewer", relation: peer, response: fire_and_forget }
+  - { from: "reviewer",  to: "frontend", relation: peer, response: fire_and_forget }
 
 limits:
   max_chain_depth: 4
   ask_rate_per_hour: 50
 """)
-    for n in ("reviewer", "backend"):
+    for n in ("reviewer", "backend", "frontend"):
         agents.register(n, "alpha")
     con = db.connect()
     try:
@@ -19953,6 +19968,37 @@ limits:
         check("retires: the resolve of backend's own row also did not go "
               "through, since the whole command is refused up front",
               db.get_request(con, unrelated)["state"] == "queued")
+    finally:
+        con.close()
+
+    # auditor's #1582 SHOULD-FIX: the founder case above is now
+    # double-guarded (the ownership check AND check_human_resolve both
+    # refuse it), so deleting the ownership check alone does not reproduce
+    # #1565's bug there - check_human_resolve still catches it. The case
+    # that is ONLY protected by the ownership check has no founder in it at
+    # all: any agent closing any OTHER two agents' queued row, "any agent
+    # can silently close any queued work" in its general form. A second
+    # unrelated row, between reviewer and frontend, that backend is neither
+    # requester nor target of.
+    con = db.connect()
+    try:
+        thirdparty = db.add_request(con, "reviewer", "frontend", "not backend's business",
+                                    None, "peer", "fire_and_forget", None, 0, None)
+        unrelated2 = db.add_request(con, "reviewer", "backend", "another unrelated ask",
+                                    None, "peer", "fire_and_forget", None, 0, None)
+    finally:
+        con.close()
+    rc, out = _cli(["resolve", str(unrelated2), "answered", "--retires", str(thirdparty)],
+                   as_agent="backend")
+    check("retires: refused - a row between two other agents entirely is not backend's either",
+          rc == 1 and "not yours to retire" in out, out)
+    con = db.connect()
+    try:
+        row = db.get_request(con, thirdparty)
+        check("retires: the third-party row is untouched too - "
+              "still queued, moot_by unset, not marked as reported",
+              row["state"] == "queued" and row["moot_by"] is None
+              and not row["announced_at"], str(dict(row)))
     finally:
         con.close()
 

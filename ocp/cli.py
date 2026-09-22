@@ -1416,6 +1416,15 @@ def cmd_dismiss(args) -> int:
 # out its whole timeout for an answer nobody is going to write.
 SETTLED = ("done", "rejected", *db.NEVER_REACHED_TARGET)
 
+# cmd_read's header for a row in one of db.NEVER_REACHED_TARGET's states - a
+# module-level name, not an inline literal, so a test can check every name
+# that constant holds has a header here (auditor's #1565 NOTE 1: two
+# hardcoded lists that happened to agree is the same gap raised on textsafe
+# at #1566 - a fourth state added to NEVER_REACHED_TARGET without a header
+# here silently reads as "answered by {target}" again).
+_NEVER_ANSWERED_HEADERS = {"denied": "refused", "withdrawn": "withdrawn",
+                           "replaced": "replaced"}
+
 
 def _waiting_ids(con, agent: str) -> set:
     """The request ids currently on this agent's list, human or not.
@@ -1483,9 +1492,8 @@ def cmd_read(args) -> int:
             # already had its own header (auditor's #1565, the residual left
             # from #1348: the label carries the correction, the header did
             # not).
-            headers = {"denied": "refused", "withdrawn": "withdrawn",
-                      "replaced": "replaced"}
-            print(f"--- {headers[row['state']]} ---" if row["state"] in headers
+            print(f"--- {_NEVER_ANSWERED_HEADERS[row['state']]} ---"
+                  if row["state"] in _NEVER_ANSWERED_HEADERS
                   else f"--- answered by {row['target']} ---")
             print(textsafe.text(row["verdict"]))
         return 0
