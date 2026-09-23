@@ -534,16 +534,18 @@ def _session_changed(con, agent: str) -> bool:
 # #1973, measured in daemon.out.log: a notify and a context handoff fired in
 # the same tick, against the same agent - the handoff read idle from a probe
 # taken before the notify landed, and typed /clear into the session the
-# notify had just started, which Claude Code then queued behind the turn.
-# `lock.terminal` alone does not close this: it only keeps two writers from
-# holding the terminal at once, and the notify had already released it by
-# the time the handoff took it. The screen itself lags a moment behind a
-# line that just landed - Orca's own idle probe can still read "idle" for a
-# beat after Enter is sent - so a *destructive* type (one that throws work
-# away if it lands mid-turn: a handoff's /clear or /exit) may not follow any
-# type at the same agent, from any path or process, within this long -
-# ordinary notifies are not held to it, since Claude Code only ever queues
-# unsent text behind a busy turn, it does not discard it.
+# notify had just started, which sat unsent behind the turn instead of
+# running. `lock.terminal` alone does not close this: it only keeps two
+# writers from holding the terminal at once, and the notify had already
+# released it by the time the handoff took it. The screen itself lags a
+# moment behind a line that just landed - Orca's own idle probe can still
+# read "idle" for a beat after Enter is sent - so a *destructive* type (one
+# that throws work away if it lands mid-turn: a handoff's /clear or /exit)
+# may not follow any type at the same agent, from any path or process,
+# within this long - ordinary notifies are not held to it: a busy session
+# leaves typed text sitting unsent in its input box rather than discarding
+# it, whichever vendor is running it (design/03-vendor-driver.md), same as
+# the incident above shows for the one this was measured on.
 TYPE_SETTLE_S = 15
 
 
