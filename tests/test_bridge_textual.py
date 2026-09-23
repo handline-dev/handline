@@ -317,6 +317,82 @@ async def test_agent_page_box_restores_a_draft_the_send_failed() -> None:
               screen.box.text == "not routed", repr(screen.box.text))
 
 
+async def test_agent_page_box_keeps_a_refused_draft_ahead_of_the_next_one() -> None:
+    """auditor #2050 SHOULD-FIX 2: `restore_if_refused` only put the draft
+    back "if not self.box.text" - a human who sends, then starts typing the
+    next thing before the refusal comes back, had the failed send discarded
+    for good, with nothing in the flash to retype it from. It must go back
+    ahead of whatever is now in the box, not only into an empty one."""
+    _home("boxfail2")
+    con = db.connect()
+    try:
+        db.set_terminal(con, "backend", "term_x", "wt")
+    finally:
+        con.close()
+    bt._DRAFTS.pop("backend", None)
+
+    class _HostApp(bt.App):
+        def __init__(self):
+            super().__init__()
+            self.jobs = jobsmod.Jobs()
+
+        def on_mount(self):
+            self.push_screen(bt.AgentDetail("backend"))
+
+    app = _HostApp()
+    async with app.run_test(size=(100, 30)) as pilot:
+        await pilot.pause()
+        screen = app.screen
+        for ch in "not routed":
+            await pilot.press(ch)
+        await pilot.press("enter")
+        await pilot.pause(0.1)
+        check("page2: the box clears the moment the send is on its way",
+              screen.box.text == "", repr(screen.box.text))
+        for ch in "next thing":       # started before the refusal comes back
+            await pilot.press(ch)
+        deadline = asyncio.get_event_loop().time() + 8
+        while asyncio.get_event_loop().time() < deadline and not screen.flash:
+            await pilot.pause(0.1)
+        check("page2: the real routing refusal comes back",
+              "failed" in screen.flash or "denied" in screen.flash, screen.flash)
+        check("page2: the failed draft is put back ahead of what was typed since, not dropped",
+              screen.box.text == "not routed\nnext thing", repr(screen.box.text))
+
+
+async def test_agent_page_box_keeps_a_paste_instead_of_dropping_it() -> None:
+    """auditor #2050 SHOULD-FIX 1: `AgentDetail.on_paste` had no test of its
+    own - renaming it away still passed 47/0, since the only paste check was
+    `TextPrompt`'s, from phase 1."""
+    _home("boxpaste")
+    agents.register("reviewer", "alpha")
+    con = db.connect()
+    try:
+        db.set_terminal(con, "reviewer", "term_r", "wt")
+    finally:
+        con.close()
+    bt._DRAFTS.pop("reviewer", None)
+
+    class _HostApp(bt.App):
+        def __init__(self):
+            super().__init__()
+            self.jobs = jobsmod.Jobs()
+
+        def on_mount(self):
+            self.push_screen(bt.AgentDetail("reviewer"))
+
+    app = _HostApp()
+    async with app.run_test(size=(100, 30)) as pilot:
+        await pilot.pause()
+        screen = app.screen
+        for ch in "draft ":
+            await pilot.press(ch)
+        screen.post_message(events.Paste("pasted one\npasted two"))
+        await pilot.pause(0.2)
+        check("page: a paste into the agent's own box lands whole, not dropped",
+              screen.box.text == "draft pasted one\npasted two", repr(screen.box.text))
+
+
 async def test_accounts_panel_cap_add_remove_and_open() -> None:
     """ACCOUNTS' non-interactive actions (task #45's own third piece): `c`
     sets the cap through `loadmod` directly, `a`/`x` refuse through the same
@@ -572,6 +648,8 @@ async def _run_all() -> None:
     await test_agent_page_box_sends_a_message_and_runs_slash_commands()
     await test_agent_page_box_keeps_a_draft_a_busy_target_refuses()
     await test_agent_page_box_restores_a_draft_the_send_failed()
+    await test_agent_page_box_keeps_a_refused_draft_ahead_of_the_next_one()
+    await test_agent_page_box_keeps_a_paste_instead_of_dropping_it()
     await test_accounts_panel_cap_add_remove_and_open()
     await test_accounts_remove_only_fires_on_the_typed_name()
     await test_messages_panel_open_reaches_the_agents_page()

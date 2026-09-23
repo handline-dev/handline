@@ -662,7 +662,10 @@ class AgentDetail(JobsAware, Screen):
         on a refusal `_start` already caught (a busy target, `MAX_JOBS`), and
         is restored if the job's own answer turns out to be a refusal - a
         team routing decision, say - since typing it twice is worse than a
-        line saying it did not go."""
+        line saying it did not go. Restored ahead of whatever is in the box
+        by then, not only when it is empty: the human may already be typing
+        the next thing by the time a refusal comes back, and that draft is
+        no reason to drop the one that did not go."""
         box = self.box
         con = db.connect()
         try:
@@ -674,8 +677,11 @@ class AgentDetail(JobsAware, Screen):
                 agent = self.agent
 
                 def restore_if_refused(ok: bool, _text: str) -> None:
-                    if not ok and not self.box.text:
-                        self.box.text, self.box.pos = body, len(body)
+                    if ok:
+                        return
+                    prefix = body if not self.box.text else body + "\n"
+                    self.box.text = prefix + self.box.text
+                    self.box.pos += len(prefix)
 
                 refused = self._start("chat_reply", agent, f"messaging {agent}", (agent, body),
                                       on_result=restore_if_refused)
