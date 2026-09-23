@@ -21737,17 +21737,7 @@ def test_a_module_that_returns_subprocess_text_as_a_message_imports_textsafe(hom
                        "and the user's own email, never text an agent wrote",
         "service.py": "launchctl's own error text - a macOS tool's output, not "
                       "anything an agent chose, and the least reachable of these",
-        "bridge_textual.py": "the `.stdout` here is sys.stdout.isatty() (task #54's "
-                             "--once/non-tty snapshot), not a subprocess result - "
-                             "_run_suspended's own subprocess.run() is read for its "
-                             "returncode only, never its stdout or stderr",
     }
-    # bridge_textual.py imports textsafe anyway (task #72: `oneline()` on task
-    # titles/evidence read out of the db - arbitrary text an agent typed,
-    # nothing to do with _run_suspended's subprocess.run(), which the
-    # exemption above is about). The import does not make that reason a lie;
-    # it is just unrelated to it.
-    imports_for_an_unrelated_reason = {"bridge_textual.py"}
     named, clean = [], []
     for f in sorted((ROOT / "ocp").glob("*.py")):
         if f.name == "textsafe.py":
@@ -21761,8 +21751,7 @@ def test_a_module_that_returns_subprocess_text_as_a_message_imports_textsafe(hom
           not (set(named) - set(exempt)), str(sorted(set(named) - set(exempt))))
     check("boundary: an exempt module is not also one that already imports it - "
           "the reason would be a lie",
-          not (set(exempt) & set(clean) - imports_for_an_unrelated_reason),
-          str(exempt.keys() & set(clean)))
+          not (set(exempt) & set(clean)), str(exempt.keys() & set(clean)))
     # Real files today, both directions: cli/hr/tui/textsafe pass on the merits
     # (hr never touches a subprocess at all; the other three do and are clean),
     # and orca.py/spawn.py/drift.py/fold.py/handoff.py are exactly the ones
