@@ -118,8 +118,12 @@ CREATE INDEX IF NOT EXISTS task_requests_request ON task_requests(request_id);
 -- task #21/#1884: `task_id` cannot be worked until `blocks_on` closes. A row
 -- here, not a column on `tasks`, because a task can be blocked by more than
 -- one other and `--unblock` removes exactly one edge. Gone once `blocks_on`
--- closes (close_task deletes it after telling the owner) - open rows are the
--- whole state, nothing is inferred from `tasks.closed_by` at read time.
+-- closes, in the same transaction that closes it and writes any resulting
+-- notice (actions.close_task) - `add_block` also refuses to write a row
+-- naming an already-closed task on either end. `task_blockers` still checks
+-- `tasks.closed_by` itself rather than trusting a row's mere presence,
+-- cheap insurance against either guard missing a case, not the only place
+-- that state lives.
 CREATE TABLE IF NOT EXISTS task_blocks (
   task_id     INTEGER NOT NULL REFERENCES tasks(id),
   blocks_on   INTEGER NOT NULL REFERENCES tasks(id),
@@ -911,9 +915,10 @@ def task_blockers(con, tid: int) -> list:
 
 
 def blocks_on_ids(con, tid: int) -> list[int]:
-    """The raw edges `tid` itself names, any state - what cycle detection
-    walks; `task_blockers` filters to open ones, which a cycle can run
-    through just as well as an open one."""
+    """The raw edges `tid` itself names - what cycle detection walks.
+    `task_blockers` filters to the ones whose blocker is still open, because
+    that is the board's question ("what am I waiting on"); a cycle is a
+    question about the edges themselves, so this reads every one of them."""
     return [r["blocks_on"] for r in con.execute(
         "SELECT blocks_on FROM task_blocks WHERE task_id = ?", (tid,)).fetchall()]
 

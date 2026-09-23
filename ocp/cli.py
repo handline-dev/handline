@@ -482,6 +482,14 @@ def cmd_task_link(args) -> int:
 
 
 def cmd_task_edit(args) -> int:
+    """Every part named (`--owner`/`--title`, `--blocked-by`, `--unblock`) is
+    one transaction, so a later part's refusal never leaves an earlier one
+    applied (auditor's #2042 SHOULD-FIX 5: `--owner X --blocked-by <cycle>`
+    used to rename the task and then refuse, exit 1 reading as nothing
+    happened). Stops at the first refusal rather than trying the rest, so
+    every message printed is for a part that actually took - never a change
+    about to be rolled back.
+    """
     me = askmod.asking_agent()
     if me is None:
         print(_who_refusal("edit a task"))
@@ -489,20 +497,24 @@ def cmd_task_edit(args) -> int:
     if args.owner is None and args.title is None and args.blocked_by is None and args.unblock is None:
         print("edit needs a new owner, a new title, --blocked-by, or --unblock")
         return 1
-    ok = True
     con = db.connect()
     try:
-        if args.owner is not None or args.title is not None:
-            ok, msg = actions.edit_task(con, args.task, me, owner=args.owner, title=args.title)
-            print(msg)
-        if args.blocked_by is not None:
-            bok, msg = actions.add_block(con, args.task, args.blocked_by, me)
-            ok = ok and bok
-            print(msg)
-        if args.unblock is not None:
-            uok, msg = actions.unblock(con, args.task, args.unblock, me)
-            ok = ok and uok
-            print(msg)
+        con.execute("BEGIN IMMEDIATE")
+        ok = True
+        try:
+            if args.owner is not None or args.title is not None:
+                ok, msg = actions.edit_task(con, args.task, me, owner=args.owner, title=args.title)
+                print(msg)
+            if ok and args.blocked_by is not None:
+                ok, msg = actions.add_block(con, args.task, args.blocked_by, me)
+                print(msg)
+            if ok and args.unblock is not None:
+                ok, msg = actions.unblock(con, args.task, args.unblock, me)
+                print(msg)
+        except Exception:
+            con.execute("ROLLBACK")
+            raise
+        con.execute("COMMIT" if ok else "ROLLBACK")
     finally:
         con.close()
     return 0 if ok else 1
