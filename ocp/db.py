@@ -116,10 +116,12 @@ CREATE TABLE IF NOT EXISTS tasks (
   -- for who that is. An identity, not evidence: NULL is "still open"
   -- (whether waiting, doing or done); written once, and only once
   -- done_evidence is set - `close_task` refuses a task that is not done yet.
-  -- Ordered last, after every other column: the #71 migration can only
-  -- ADD these two (SQLite has no "insert column here"), so a migrated
-  -- table and a fresh one agree on physical order only if CREATE TABLE
-  -- puts them last too.
+  -- Ordered last here, after every other column, since the #71 migration
+  -- can only ADD these two (SQLite has no "insert column here"). A table
+  -- migrated through earlier ALTERs (edited_by/edited_at added before #71
+  -- ran) still ends up in a different physical order than a fresh CREATE
+  -- TABLE - nothing in ocp reads a task's columns by position, so that's
+  -- fine; TASK_FIELDS is compared as a set, never as an order.
   closed_by    TEXT,
   closed_at    INTEGER
 );

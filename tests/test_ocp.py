@@ -26623,7 +26623,7 @@ def test_a_task_row_holds_its_fields_and_nothing_else(home: Path) -> None:
     try:
         cols = tuple(r["name"] for r in con.execute("PRAGMA table_info(tasks)"))
         check("task row: the table holds TASK_FIELDS and nothing else",
-              cols == db.TASK_FIELDS, str(cols))
+              set(cols) == set(db.TASK_FIELDS), str(cols))
         reqcols = {r["name"] for r in con.execute("PRAGMA table_info(requests)")}
         check("task row: requests gained no title or closed_by column",
               not ({"title", "closed_by"} & reqcols), str(reqcols))
@@ -26686,7 +26686,8 @@ def test_the_done_close_migration_upgrades_an_old_tasks_table(home: Path) -> Non
     con = db.connect(p)
     try:
         cols = tuple(r["name"] for r in con.execute("PRAGMA table_info(tasks)"))
-        check("migration: the new column set, exactly", cols == db.TASK_FIELDS, str(cols))
+        check("migration: the new column set, exactly",
+              set(cols) == set(db.TASK_FIELDS), str(cols))
         rows = {r["title"]: r for r in con.execute("SELECT * FROM tasks").fetchall()}
 
         closed = rows["shipped it"]
