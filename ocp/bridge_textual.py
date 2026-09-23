@@ -46,7 +46,8 @@ from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.screen import ModalScreen, Screen
 from textual.containers import VerticalScroll
-from textual.widgets import DataTable, Footer, Static, TabbedContent, TabPane
+from textual.message import Message
+from textual.widgets import DataTable, Footer, Input, Static, TabbedContent, TabPane, TextArea
 
 from . import accounts, actions, db, jobs as jobsmod, load as loadmod, orca, textsafe, tui
 
@@ -114,48 +115,74 @@ class Confirm(ModalScreen[bool]):
         self.dismiss(ch in ("y", "Y"))
 
 
+class _LineBox(Input):
+    """A one-line box that keeps a multi-line paste as one line: each line
+    break is a space, where Input alone would keep only the first line. A paste
+    goes in as `textsafe.drawable` text: a widget draws a control character raw."""
+
+    def on_paste(self, event: events.Paste) -> None:
+        event.prevent_default()
+        event.stop()
+        self.insert_text_at_cursor(" ".join(textsafe.drawable(event.text)))
+
+
+class _TextBox(TextArea):
+    """A several-line box: Enter sends, Alt/Shift+Enter or Ctrl+J is a new line.
+    A paste goes in as `textsafe.drawable` text: a widget draws a control
+    character raw."""
+
+    class Send(Message):
+        pass
+
+    def on_paste(self, event: events.Paste) -> None:
+        event.prevent_default()
+        event.stop()
+        self.insert("\n".join(textsafe.drawable(event.text, tabs=None)))
+
+    async def _on_key(self, event: events.Key) -> None:
+        if event.key == "enter":
+            event.prevent_default()
+            event.stop()
+            self.post_message(self.Send())
+            return
+        if event.key in ("alt+enter", "shift+enter", "ctrl+j"):
+            event.prevent_default()
+            event.stop()
+            self.insert("\n")
+            return
+        await super()._on_key(event)
+
+
 class TextPrompt(ModalScreen[str | None]):
-    """One line (or, `multi`, several) read with the screen still up, through
-    the same `Composer` the curses composer uses - so word-left, paste, and
-    backspace behave exactly as they always have. None if the human backs out."""
+    """One line (or, `multi`, several) read with the screen still up, in a
+    Textual `Input` or `TextArea`. Enter sends and Esc backs out (None); a paste
+    is kept whole, minus anything a terminal would obey."""
+
+    BINDINGS = [Binding("escape", "dismiss(None)", "cancel"),
+                Binding("ctrl+c", "dismiss(None)", "cancel", show=False)]
+    DEFAULT_CSS = """
+    TextPrompt #prompt { dock: top; height: auto; }
+    """
 
     def __init__(self, prompt: str, multi: bool = False) -> None:
         super().__init__()
-        self.prompt, self.box = prompt, tui.Composer(multi=multi)
+        self.prompt, self.multi = prompt, multi
 
     def compose(self) -> ComposeResult:
-        yield Static(id="prompt")
+        yield Static(Text(self.prompt, style="bold"), id="prompt")
+        yield _TextBox(id="box") if self.multi else _LineBox(id="box")
+        yield Footer()
 
     def on_mount(self) -> None:
-        self._redraw()
+        self.query_one("#box").focus()
 
-    def _redraw(self) -> None:
-        w, h = max(20, self.app.size.width), max(3, self.app.size.height - 2)
-        rows = self.box.shown(self.prompt, w, h)
-        self.query_one("#prompt", Static).update(
-            Text.from_ansi("\n".join(tui.fit(r, w) for r in rows)))
-
-    def on_key(self, event: events.Key) -> None:
+    def on_input_submitted(self, event: Input.Submitted) -> None:
         event.stop()
-        k = key_token(event)
-        if k is None:
-            return
-        done = self.box.feed(k)
-        if done == "send":
-            self.dismiss(self.box.text)
-        elif done == "cancel":
-            self.dismiss(None)
-        else:
-            self._redraw()
+        self.dismiss(event.value)
 
-    def on_paste(self, event: events.Paste) -> None:
-        # Textual delivers a paste as its own event, not as keys - `Composer`
-        # still needs it wrapped in its own bracketed-paste markers to tell it
-        # from typing (a pasted "y" must not confirm, a pasted newline must
-        # not send).
+    def on__text_box_send(self, event: "_TextBox.Send") -> None:
         event.stop()
-        self.box.feed(tui.Composer.START + event.text + tui.Composer.END)
-        self._redraw()
+        self.dismiss(self.query_one("#box", TextArea).text)
 
 
 class JobsAware:

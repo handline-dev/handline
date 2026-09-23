@@ -664,6 +664,56 @@ async def test_text_prompt_keeps_a_paste_instead_of_dropping_it() -> None:
           app.result == "line one\nline two", repr(app.result))
 
 
+async def test_text_prompt_line_keeps_a_multiline_paste_and_shows_escapes_inert() -> None:
+    """A one-line prompt joins a pasted block into one line (Input alone would
+    keep only its first), and a pasted escape sequence is never handed to the
+    terminal; alt+enter is a new line in a several-line prompt, enter sends."""
+    class _HostApp(bt.App):
+        def __init__(self, multi):
+            super().__init__()
+            self.multi, self.result = multi, "<unset>"
+
+        async def on_mount(self):
+            self.run_worker(self._read())
+
+        async def _read(self):
+            self.result = await self.push_screen_wait(bt.TextPrompt("p:", multi=self.multi))
+
+    app = _HostApp(False)
+    async with app.run_test(size=(80, 12)) as pilot:
+        await pilot.pause()
+        app.screen.post_message(events.Paste("one\ntwo \033[2J\u009b31m\033]8;;http://evil.example\033\\x"))
+        await pilot.pause(0.2)
+        segs = [seg for strip in app.screen._compositor.render_strips() for seg in strip]
+        text = "".join(seg.text for seg in segs)
+        check("prompt: a pasted escape reaches no rendered segment",
+              "\033" not in text and "\u009b" not in text
+              and not any(seg.style and seg.style.link for seg in segs), repr(text[:200]))
+        await pilot.press("enter")
+        await pilot.pause(0.2)
+    check("prompt: a one-line prompt joins a pasted block with a space",
+          app.result.startswith("one two "), repr(app.result))
+
+    app = _HostApp(True)
+    async with app.run_test(size=(80, 12)) as pilot:
+        await pilot.pause()
+        await pilot.press("a", "alt+enter", "b")
+        await pilot.press("enter")
+        await pilot.pause(0.2)
+    check("prompt: alt+enter is a new line and enter sends, in a several-line prompt",
+          app.result == "a\nb", repr(app.result))
+
+    app = _HostApp(True)
+    async with app.run_test(size=(80, 12)) as pilot:
+        await pilot.pause()
+        app.screen.post_message(events.Paste("x\033[2Jy\u009bz\tw"))
+        await pilot.pause(0.2)
+        await pilot.press("enter")
+        await pilot.pause(0.2)
+    check("prompt: a pasted escape is not sent from a several-line prompt, a tab is",
+          app.result == "xyz\tw", repr(app.result))
+
+
 async def test_task_checks_lists_and_acts_on_the_founders_own() -> None:
     """Task #72 (founder #2154/#2155): the bridge's own 'done - waiting for
     check' list (#71), reached with `b` from the dashboard - only the tasks
@@ -832,6 +882,7 @@ async def _run_all() -> None:
     await test_text_prompt_keeps_a_paste_instead_of_dropping_it()
     await test_task_checks_lists_and_acts_on_the_founders_own()
     await test_task_checks_closes_several_checked_at_once()
+    await test_text_prompt_line_keeps_a_multiline_paste_and_shows_escapes_inert()
     await test_read_only_page_shows_foreign_text_inert_and_scrolls_on_arrows()
 
 
