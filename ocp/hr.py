@@ -345,9 +345,12 @@ def _add(prop: dict, con) -> tuple[bool, str]:
     ok, said = _in_team_yaml(name, prop.get("team"), add=True)
     if not ok:
         return False, said
+    # An old proposal saved before vendor was recorded has no vendor key, but
+    # the account's vendor is fixed (accounts.register refuses a change), so
+    # it is still exact to derive it now rather than register as claude.
     agents.register(name, prop["account"], model=prop.get("model"),
                     effort=prop.get("effort"), repo=prop.get("repo"),
-                    vendor=prop.get("vendor"),
+                    vendor=prop.get("vendor") or vendors.account_vendor(prop["account"]),
                     role=f"Added on {_when(prop.get('created'))} at "
                          f"{prop['requested_by']}'s request: {prop['why']}")
     return True, (f"{name} is an agent: account {prop['account']}"

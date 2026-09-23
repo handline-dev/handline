@@ -13125,8 +13125,46 @@ edges:
         cfg = yamlcompat.load(agents.agent_file("glm2").read_text())
         check("hr add: apply writes the vendor the proposal recorded",
               cfg.get("vendor") == "opencode", str(cfg))
+
+        # auditor #1971's should-fix: a proposal saved before vendor was
+        # recorded has no vendor key. It must still apply with the account's
+        # real vendor, not silently as claude.
+        ok, said = hr.propose("add", "glm3", requester="marina", why="w", account="zai")
+        pid3 = said.split()[1]
+        prop3 = hr.load_proposal(pid3)
+        del prop3["vendor"]
+        hr.save(prop3)
+        con.execute("UPDATE requests SET state = 'done', verdict = 'approve' WHERE id = ?",
+                   (prop3["request"],))
+        ok, said = hr.apply(pid3, con)
+        check("hr add: an old proposal with no vendor key still applies", ok, said)
+        cfg = yamlcompat.load(agents.agent_file("glm3").read_text())
+        check("hr add: it takes the vendor from the account, not claude",
+              cfg.get("vendor") == "opencode", str(cfg))
+        check("hr add: agent_vendor reads it as opencode",
+              vendors.agent_vendor("glm3") == "opencode")
     finally:
         con.close()
+
+
+def test_register_writes_vendor_onto_an_agent_that_already_exists(home: Path) -> None:
+    """auditor #1971's surviving mutation: register's existing-agent branch
+    (`if vendor and vendor != DEFAULT_VENDOR: cfg["vendor"] = vendor`) had no
+    test of its own. This is the orcapipe.glm case: the agent's folder is
+    made first, by hand or by an earlier register, and the vendor arrives on
+    a later call - hr's own re-register among them."""
+    _daemon_home(home, 20)
+    accounts.register("alpha")
+    agents.register("late", "alpha")
+    cfg = yamlcompat.load(agents.agent_file("late").read_text())
+    check("register existing: no vendor key yet", "vendor" not in cfg, str(cfg))
+
+    agents.register("late", "alpha", vendor="opencode")
+    cfg = yamlcompat.load(agents.agent_file("late").read_text())
+    check("register existing: a later call writes the vendor onto the "
+          "already-registered agent", cfg.get("vendor") == "opencode", str(cfg))
+    check("register existing: agent_vendor reads it as opencode",
+          vendors.agent_vendor("late") == "opencode")
 
 
 def test_hr_move_changes_an_agents_account(home: Path) -> None:
@@ -25876,6 +25914,8 @@ def main() -> int:
         run(lambda: test_a_report_shows_its_name_without_its_parents_and_keeps_the_whole_key(
             Path(td) / 'dotted'))
         run(lambda: test_hr_add_takes_the_vendor_from_the_named_account(Path(td) / 'hrvendor'))
+        run(lambda: test_register_writes_vendor_onto_an_agent_that_already_exists(
+            Path(td) / 'registervendor'))
         run(lambda: test_hr_move_changes_an_agents_account(Path(td) / 'hrmove'))
         run(lambda: test_hr_move_does_not_touch_a_live_sessions_own_record(Path(td) / 'hrmovelive'))
         run(lambda: test_hr_move_leaves_account_alone_when_liveness_cannot_be_read(Path(td) / 'hrmoveunknown'))
