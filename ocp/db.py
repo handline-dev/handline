@@ -86,19 +86,30 @@ CREATE TABLE IF NOT EXISTS tasks (
   owner        TEXT NOT NULL,
   parent_task  INTEGER REFERENCES tasks(id),
   opened_by    TEXT NOT NULL,
-  -- Evidence the work is done, not a claim: a merge sha (checked against
-  -- main) or a free-text reason. NULL is "open"; written once, by `ocp close`.
-  closed_by    TEXT,
-  -- #1366 should-fix 2: when `closed_by` was written, stamped alongside it -
-  -- reason_gaps() needs it to age old closes out of a measurement of current
-  -- practice, the same job resolved_at does for requests.
-  closed_at    INTEGER,
-  -- 'sha' or 'reason': which of close_task's two exclusive arguments this
-  -- close was given. Set from that choice directly, not guessed back from
-  -- the text afterwards - a --reason forced past looks_like_sha (the escape
+  -- Task #71: a single close used to conflate two different calls - the
+  -- builder's evidence that the work is done, and the asker's sign-off that
+  -- ends it. They are split. done_evidence is that evidence: a merge sha
+  -- (checked against main), the id of a request where the result was
+  -- already reported, or a free-text fact for work that leaves no commit.
+  -- NULL is "not done yet"; written once, by `ocp task done`.
+  done_evidence TEXT,
+  -- #1366 should-fix 2, carried over: when done_evidence was written,
+  -- stamped alongside it - reason_gaps() needs it to age old closes out of a
+  -- measurement of current practice, the same job resolved_at does for
+  -- requests.
+  done_at      INTEGER,
+  -- 'sha', 'request' or 'reason': which of mark_task_done's evidence forms
+  -- this was. Set from the caller's actual choice, not guessed back from the
+  -- text afterwards - a --reason forced past looks_like_sha (the escape
   -- hatch for a reason that happens to look like hex) would otherwise read
-  -- as a sha close.
-  closed_via   TEXT,
+  -- as a sha.
+  done_via     TEXT,
+  -- The asker's own sign-off (`ocp close`), final - see actions.task_asker
+  -- for who that is. An identity, not evidence: NULL is "still open"
+  -- (whether waiting, doing or done); written once, and only once
+  -- done_evidence is set - `close_task` refuses a task that is not done yet.
+  closed_by    TEXT,
+  closed_at    INTEGER,
   -- Who last edited the owner or title, and when - `ocp task edit`'s
   -- evidence, the same job closed_by/closed_at do for a close. NULL until
   -- the first edit; overwritten by each later one, so this is the latest
@@ -389,6 +400,26 @@ def _pre_schema_migrate(con) -> None:
         # (the verb did not exist), so every row's history here is empty.
     if task_cols and "edited_at" not in task_cols:
         con.execute("ALTER TABLE tasks ADD COLUMN edited_at INTEGER")
+    if task_cols and "done_evidence" not in task_cols:
+        # Task #71: split the old single-stage close into done (the
+        # builder's evidence) and closed (the asker's sign-off). The old
+        # evidence columns become the done stage under their new names, and
+        # closed_by/closed_at start meaning what they now say - an identity
+        # and when, never evidence - so every existing closed task reads as
+        # done-and-closed by whoever the evidence names, which is the only
+        # identity this migration has to offer.
+        con.execute("ALTER TABLE tasks RENAME COLUMN closed_by TO done_evidence")
+        con.execute("ALTER TABLE tasks RENAME COLUMN closed_at TO done_at")
+        con.execute("ALTER TABLE tasks RENAME COLUMN closed_via TO done_via")
+        con.execute("ALTER TABLE tasks ADD COLUMN closed_by TEXT")
+        con.execute("ALTER TABLE tasks ADD COLUMN closed_at INTEGER")
+        # Best-effort backfill: closed_by should be an identity, and all this
+        # migration has for one is the evidence text itself - wrong for a
+        # sha close, but the field is otherwise NULL (reading as "still
+        # open"), which is worse for every task this rule was written for.
+        con.execute(
+            "UPDATE tasks SET closed_by = done_evidence, closed_at = done_at "
+            "WHERE done_evidence IS NOT NULL")
 
 
 def _unhide_the_humans_answers(con) -> None:
@@ -861,8 +892,9 @@ def set_moot_by(con, rid: int, by: int) -> bool:
 # an answer - the board reads those from `requests` each time it draws, so
 # there is one place each fact lives and nothing to drift. Adding a column to
 # `tasks` means adding it here, and a test fails until both agree.
-TASK_FIELDS = ("id", "title", "owner", "parent_task", "opened_by", "closed_by", "closed_at",
-               "closed_via", "edited_by", "edited_at", "created_at")
+TASK_FIELDS = ("id", "title", "owner", "parent_task", "opened_by",
+               "done_evidence", "done_at", "done_via", "closed_by", "closed_at",
+               "edited_by", "edited_at", "created_at")
 
 
 def new_task(con, title: str, owner: str, opened_by: str,
@@ -898,17 +930,47 @@ def open_child_tasks(con, tid: int) -> list:
         (tid,)).fetchall()
 
 
-def close_task(con, tid: int, closed_by: str, via: str = "reason") -> bool:
-    """Close a task, atomically. True only if this call was the one that
-    closed it, so a second close racing this one loses instead of overwriting
-    the first evidence. `via` is 'sha' or 'reason' - which of close_task's
-    two exclusive arguments the caller was given, not a guess made later
-    from the text (a --reason forced past looks_like_sha would guess wrong)."""
+def mark_task_done(con, tid: int, evidence: str, via: str = "reason") -> bool:
+    """Mark a task done, atomically. True only if this call was the one that
+    wrote the first evidence, so a second call racing this one loses instead
+    of overwriting it. `via` is 'sha', 'request' or 'reason' - which of
+    mark_task_done's exclusive evidence forms the caller was given, not a
+    guess made later from the text (a --reason forced past looks_like_sha
+    would guess wrong)."""
     cur = con.execute(
-        "UPDATE tasks SET closed_by = ?, closed_at = ?, closed_via = ? "
-        "WHERE id = ? AND closed_by IS NULL",
-        (closed_by, int(time.time()), via, tid))
+        "UPDATE tasks SET done_evidence = ?, done_at = ?, done_via = ? "
+        "WHERE id = ? AND done_evidence IS NULL AND closed_by IS NULL",
+        (evidence, int(time.time()), via, tid))
     return cur.rowcount > 0
+
+
+def close_task(con, tid: int, closed_by: str) -> bool:
+    """Close a task, atomically - the asker's sign-off, final. True only if
+    this call was the one that closed it. `closed_by` is an identity, never
+    evidence (that is done_evidence, written earlier by mark_task_done)."""
+    cur = con.execute(
+        "UPDATE tasks SET closed_by = ?, closed_at = ? WHERE id = ? AND closed_by IS NULL",
+        (closed_by, int(time.time()), tid))
+    return cur.rowcount > 0
+
+
+def reopen_task(con, tid: int) -> bool:
+    """Send a done task back to doing, atomically - the opposite of marking
+    it done. True only if this call was the one that cleared it. Refuses (by
+    matching no row) a task that is not currently done, or one already
+    closed - closing is final."""
+    cur = con.execute(
+        "UPDATE tasks SET done_evidence = NULL, done_at = NULL, done_via = NULL "
+        "WHERE id = ? AND done_evidence IS NOT NULL AND closed_by IS NULL",
+        (tid,))
+    return cur.rowcount > 0
+
+
+def tasks_needing_close(con) -> list:
+    """Done tasks not yet closed - #71's 'done - waiting for check' group."""
+    return con.execute(
+        "SELECT * FROM tasks WHERE done_evidence IS NOT NULL AND closed_by IS NULL "
+        "ORDER BY id").fetchall()
 
 
 def edit_task(con, tid: int, by: str, owner: str | None = None,

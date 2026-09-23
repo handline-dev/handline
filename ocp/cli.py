@@ -371,21 +371,21 @@ def cmd_handoff_write(args) -> int:
 
 
 def cmd_close(args) -> int:
-    """One verb, two things it can close: a task by its number (`ocp close 7
-    <sha or reason>`), or an agent's session by its name, keeping its
-    terminal. An agent is never named with a number, so the argument decides;
-    evidence given to a name, or none given to a number, is refused rather
-    than guessed at.
+    """One verb, two things it can close: a task by its number (`ocp close
+    7`) - the asker's own sign-off, once it is done (`ocp task done` first;
+    #71) - or an agent's session by its name, keeping its terminal. An agent
+    is never named with a number, so the argument decides; evidence given to
+    either is refused rather than guessed at - marking a task done, with its
+    evidence, is `ocp task done` now, not this verb.
     """
     raw = args.target
     if raw.isdigit():
         # close_task's event names whoever ran this - unlike an agent's
         # session below, which needs no identity to close - so an identity
         # is required here too, the same refusal cmd_resolve and cmd_dismiss
-        # already give. Without it, `askmod.asking_agent() or row["owner"]`
-        # falls back to the task's owner, and an event nobody ran gets
-        # attributed to an agent that did nothing (auditor's #1565 SF3).
-        if askmod.asking_agent() is None:
+        # already give.
+        me = askmod.asking_agent()
+        if me is None:
             print(_who_refusal("close a task"))
             return 1
         con = db.connect()
@@ -394,32 +394,75 @@ def cmd_close(args) -> int:
                 print(f"no task #{raw}. A number is read as a task, never as an agent "
                       "(agents are named); `ocp task list` shows the open ones.")
                 return 1
-            if not args.evidence:
-                print(f"read {raw} as task #{raw} (a number is a task): closing it needs "
-                      "a merge sha or a reason, and none was given.")
+            if args.evidence:
+                print(f"read {raw} as task #{raw} (a number is a task): closing it takes no "
+                      f"evidence any more - `ocp task done {raw} <sha, --request N, or a "
+                      f"reason>` marks it done, then `ocp close {raw}` closes it.")
                 return 1
-            ev = args.evidence
-            # Words are a reason; hex is a sha and must resolve to one, or it
-            # is refused - a sha mistyped must not quietly become a reason and
-            # skip the ancestor check. --reason forces the words reading.
-            sha = None if args.reason or not actions.looks_like_sha(ev) else ev
-            ok, msg = actions.close_task(con, int(raw), sha=sha,
-                                         reason=None if sha else ev,
-                                         repo=Path(args.repo) if args.repo else None)
+            ok, msg = actions.close_task(con, int(raw), me)
             print(msg)
         finally:
             con.close()
         return 0 if ok else 1
     if args.evidence:
         print(f"read '{raw}' as an agent's name, so this would end its session - but a "
-              "sha or reason closes a task, by its number, and says nothing about a "
-              "session. Nothing was closed.")
+              "task closes by its number, and says nothing about a session. Nothing "
+              "was closed.")
         return 1
     args.agent = raw
     con = db.connect()
     try:
         st = status.read_for_agent(args.agent, agents.current_account(args.agent, con))
         ok, msg = daemonmod.close_agent(con, args.agent, print, st)
+        print(msg)
+    finally:
+        con.close()
+    return 0 if ok else 1
+
+
+def cmd_task_done(args) -> int:
+    """Mark a task done (#71) - the owner's own evidence, not the end of it.
+    Exactly one of a sha, --request N, or a reason; `actions.mark_task_done`
+    is where that is actually enforced, so the parsing here only shapes
+    whatever was given into the right keyword."""
+    me = askmod.asking_agent()
+    if me is None:
+        print(_who_refusal("mark a task done"))
+        return 1
+    con = db.connect()
+    try:
+        if db.get_task(con, args.task) is None:
+            print(f"no task #{args.task}")
+            return 1
+        sha, reason = None, None
+        if args.evidence is not None:
+            # Words are a reason; hex is a sha and must resolve to one, or it
+            # is refused - a sha mistyped must not quietly become a reason
+            # and skip the ancestor check. --reason forces the words reading.
+            sha = None if args.reason or not actions.looks_like_sha(args.evidence) else args.evidence
+            reason = None if sha else args.evidence
+        ok, msg = actions.mark_task_done(con, args.task, me, sha=sha, request_id=args.request,
+                                         reason=reason,
+                                         repo=Path(args.repo) if args.repo else None)
+        print(msg)
+    finally:
+        con.close()
+    return 0 if ok else 1
+
+
+def cmd_task_reopen(args) -> int:
+    """Send a done task back to doing (#71) - the asker's own call, needing
+    a one-line reason."""
+    me = askmod.asking_agent()
+    if me is None:
+        print(_who_refusal("reopen a task"))
+        return 1
+    con = db.connect()
+    try:
+        if db.get_task(con, args.task) is None:
+            print(f"no task #{args.task}")
+            return 1
+        ok, msg = actions.reopen_task(con, args.task, me, args.reason)
         print(msg)
     finally:
         con.close()
@@ -544,29 +587,49 @@ def cmd_task_edit(args) -> int:
 
 def _print_board(con, tasks: list) -> None:
     """Each task, then the requests linked to it as they stand now: state and
-    date are read from the request, never held on the task."""
+    date are read from the request, never held on the task. `state` (#71) is
+    one of waiting, doing, done, closed - waiting and doing read live off
+    those same requests, done and closed off the task's own evidence."""
     if not tasks:
         print("no open tasks.")
         return
     for t in tasks:
         parent = f" (under #{t['parent_task']})" if t["parent_task"] else ""
         edited = f"  edited by {textsafe.oneline(t['edited_by'])}" if t["edited_by"] else ""
-        done = f"  CLOSED: {textsafe.oneline(t['closed_by'])}" if t["closed_by"] else ""
-        print(f"#{t['id']:<4} {textsafe.oneline(t['title'])}  [{t['owner']}]{parent}{edited}{done}")
+        state = actions.task_state(con, t)
+        done = f"  DONE: {textsafe.oneline(t['done_evidence'])}" if t["done_evidence"] else ""
+        closed = f"  CLOSED by {textsafe.oneline(t['closed_by'])}" if t["closed_by"] else ""
+        print(f"#{t['id']:<4} {textsafe.oneline(t['title'])}  [{t['owner']}] {state}"
+              f"{parent}{edited}{done}{closed}")
         for r in db.task_requests(con, t["id"]):
             when = time.strftime("%Y-%m-%d %H:%M", time.localtime(r["ts"]))
             print(f"        request #{r['id']} {r['requester']} → {r['target']} "
                   f"{r['state']} {when}")
 
 
+def _print_needing_close(con, tasks: list) -> None:
+    """#71's 'done - waiting for check' group: done tasks not yet closed,
+    each with the evidence its owner gave. Shared by `ocp task list` (and
+    through it, the status file status-sync.sh polls it into) and
+    `ocp task board`."""
+    if not tasks:
+        return
+    print("done - waiting for check:")
+    for t in tasks:
+        parent = f" (under #{t['parent_task']})" if t["parent_task"] else ""
+        print(_fit100(f"#{t['id']:<4} {textsafe.oneline(t['title'])}  [{t['owner']}]{parent}"))
+        print(_fit100(f"      done: {textsafe.oneline(t['done_evidence'])}"))
+
+
 def cmd_task_list(args) -> int:
     con = db.connect()
     try:
         _print_board(con, db.all_tasks(con) if args.all else db.open_tasks(con))
+        _print_needing_close(con, db.tasks_needing_close(con))
         gaps = actions.reason_gaps(con)
         print(f"reason (last 30d): {gaps['retirements_blank']}/{gaps['retirements']} "
               f"retirements carry no reason, {gaps['closures_sha']} closures by sha, "
-              f"{gaps['closures_reason']} by reason")
+              f"{gaps['closures_request']} by request, {gaps['closures_reason']} by reason")
     finally:
         con.close()
     return 0
@@ -593,6 +656,11 @@ def cmd_task_board(args) -> int:
     Waiting on an open blocker (task #21/#1884) reads as `waiting on #N`
     instead of either of those two - it is neither nobody's turn nor mine
     while the thing it waits on is still open.
+
+    #71's 'done - waiting for check' group follows, for tasks *I* am the
+    asker of (`actions.task_asker`) and that are done but not yet closed -
+    whether or not I own them, since owning and asking are usually two
+    different agents here.
     """
     me = askmod.asking_agent()
     if me is None:
@@ -601,7 +669,9 @@ def cmd_task_board(args) -> int:
     con = db.connect()
     try:
         tasks = db.open_tasks_for(con, me)
-        if not tasks:
+        needing_close = [t for t in db.tasks_needing_close(con)
+                        if actions.task_asker(con, t) == me]
+        if not tasks and not needing_close:
             print("no open tasks.")
             return 0
         for t in tasks:
@@ -621,6 +691,7 @@ def cmd_task_board(args) -> int:
             parent = f" (under #{t['parent_task']})" if t["parent_task"] else ""
             print(_fit100(f"#{t['id']:<4} {textsafe.oneline(t['title'])}{parent}"))
             print(_fit100(f"      now: {now}"))
+        _print_needing_close(con, needing_close)
     finally:
         con.close()
     return 0
@@ -2407,13 +2478,12 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("agent")
     p.set_defaults(fn=cmd_handoff_write)
 
-    p = sub.add_parser("close", help="close a task (ocp close 7 <sha or reason>), or "
-                                     "end an idle agent's session, keeping its terminal")
+    p = sub.add_parser("close", help="close a done task (ocp close 7), the asker's own "
+                                     "sign-off, or end an idle agent's session, keeping "
+                                     "its terminal")
     p.add_argument("target", help="a task number, or an agent's name")
-    p.add_argument("evidence", nargs="?", help="a merge sha on main, or a reason")
-    p.add_argument("--repo", default=None, help="the repo whose main a sha is checked against")
-    p.add_argument("--reason", action="store_true",
-                   help="record the evidence as words even if it looks like hex")
+    p.add_argument("evidence", nargs="?",
+                   help="refused - `ocp task done` takes the evidence now")
     p.set_defaults(fn=cmd_close)
 
     tk = sub.add_parser("task", help="the task board").add_subparsers(dest="sub", required=True)
@@ -2441,6 +2511,21 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--unblock", type=int, default=None,
                    help="remove that blocking task")
     p.set_defaults(fn=cmd_task_edit)
+    p = tk.add_parser("done", help="mark a task done (#71) - owner only, exactly one of "
+                                   "a sha, --request N, or a reason")
+    p.add_argument("task", type=int)
+    p.add_argument("evidence", nargs="?", help="a merge sha on main, or a reason")
+    p.add_argument("--request", type=int, default=None,
+                   help="a request where the result was already reported")
+    p.add_argument("--repo", default=None, help="the repo whose main a sha is checked against")
+    p.add_argument("--reason", action="store_true",
+                   help="record the evidence as words even if it looks like hex")
+    p.set_defaults(fn=cmd_task_done)
+    p = tk.add_parser("reopen", help="send a done task back to doing (#71) - the asker "
+                                     "only, needs a one-line reason")
+    p.add_argument("task", type=int)
+    p.add_argument("reason")
+    p.set_defaults(fn=cmd_task_reopen)
     p = tk.add_parser("board", help="your own open tasks, and who holds each one now")
     p.set_defaults(fn=cmd_task_board)
 

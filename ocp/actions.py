@@ -336,10 +336,10 @@ def _sha_on_main(repo: Path, sha: str) -> tuple[str | None, str]:
     """The full sha `sha` names in `repo`, when it is reachable from `main`;
     otherwise None and why.
 
-    `closed_by` is evidence, not a claim: a sha typed by hand that never
-    merged - or that names nothing here - must not close a task, so this runs
-    before anything is written, and what is stored is the full sha it resolved
-    to, whatever length was typed.
+    `done_evidence` is evidence, not a claim: a sha typed by hand that never
+    merged - or that names nothing here - must not mark a task done, so this
+    runs before anything is written, and what is stored is the full sha it
+    resolved to, whatever length was typed.
     """
     try:
         r = _git(repo, "rev-parse", "--verify", "--quiet", f"{sha}^{{commit}}")
@@ -363,21 +363,105 @@ def _sha_on_main(repo: Path, sha: str) -> tuple[str | None, str]:
 _UNBLOCK_REQUESTER = "task-board"
 
 
-def close_task(con, tid: int, sha: str | None = None, reason: str | None = None,
-               repo: Path | None = None) -> tuple[bool, str]:
-    """Close a task on the board.
+def task_asker(con, row) -> str:
+    """Who task `row` answers to when it closes (#71): the founder, if any
+    request linked to it came from the founder - the task exists because the
+    founder asked for something. Otherwise whoever opened the task itself: a
+    task the manager opens on its own (an auditor finding, internal cleanup)
+    is the manager's own to close, never its own superior's."""
+    for r in db.task_requests(con, row["id"]):
+        if r["requester"] == HUMAN:
+            return HUMAN
+    return row["opened_by"]
 
-    Exactly one of `sha` (checked against `main`) or `reason` (for work
-    nothing merges: a plan, a decision, a duplicate). Refused while a child
-    task is open - a five-part ask closed as one row hid that parts 4 and 5
-    were not done (#1008). Nothing here looks at the linked requests' state:
-    a task is open until someone closes it.
 
-    Also refused while this task itself is waiting on an open blocker (task
-    #21/#1884) - otherwise closing it directly is a back door around the
-    wait the block exists to enforce. Once it does close, clears every block
-    naming it and, for a task that leaves with no open blocker left, tells
-    its owner once - a durable request, not a typed-only notice.
+def task_state(con, row) -> str:
+    """One of waiting, doing, done, closed (#71). done and closed are
+    written, once each; waiting and doing are never stored - read live from
+    whether a request is currently queued against this task or an open child
+    of it, the same live read the board already does for "who holds it now",
+    so there is nothing here that a write path must remember to keep in
+    sync."""
+    if row["closed_by"]:
+        return "closed"
+    if row["done_evidence"]:
+        return "done"
+    if any(r["state"] == "queued" for r in db.task_requests(con, row["id"])):
+        return "doing"
+    if any(r["state"] == "queued"
+           for c in db.open_child_tasks(con, row["id"])
+           for r in db.task_requests(con, c["id"])):
+        return "doing"
+    return "waiting"
+
+
+def _request_answered(row) -> bool:
+    """Has this request been told something back, as opposed to still
+    sitting queued? Mirrors cli._answered's own reading (verdict set, or a
+    settled state) without importing cli, which imports this module."""
+    return bool(row["verdict"]) or row["state"] != "queued"
+
+
+def mark_task_done(con, tid: int, by: str, sha: str | None = None,
+                   request_id: int | None = None, reason: str | None = None,
+                   repo: Path | None = None) -> tuple[bool, str]:
+    """Mark a task done (#71) - the builder's evidence, not the end of it.
+    Exactly one of a merge sha (checked against `main`), the id of a request
+    where the result was already reported (must exist and be answered - not
+    a claim taken on trust), or a one-line fact for work that leaves no
+    commit (a plan, a decision, a duplicate).
+
+    Only the task's own owner may - the one actually doing the work, never
+    the opener standing in for them. Refused if the task is already done or
+    already closed. Nothing here checks open child tasks or an open blocker
+    on this task itself - that gate belongs to `close_task` now: the asker
+    is the one who decides, at sign-off, whether what is underneath is
+    enough (#1008 stays enforced, one stage later).
+    """
+    row = db.get_task(con, tid)
+    if row is None:
+        return False, f"no task #{tid}"
+    if row["closed_by"]:
+        return False, f"task #{tid} is already closed ({row['closed_by']})"
+    if row["done_evidence"]:
+        return False, f"task #{tid} is already done ({row['done_evidence']})"
+    if by != row["owner"]:
+        return False, f"task #{tid} can only be marked done by its owner ({row['owner']})"
+    given = [x for x in (sha, request_id, reason) if x is not None]
+    if len(given) != 1:
+        return False, "done needs exactly one of a sha, --request, or a reason"
+    if sha:
+        full, why = _sha_on_main(repo or Path.cwd(), sha)
+        if full is None:
+            return False, f"{sha} is not an ancestor of main" + (f" ({why})" if why else "")
+        mark, via = full, "sha"
+    elif request_id is not None:
+        r = db.get_request(con, request_id)
+        if r is None:
+            return False, f"no request #{request_id}"
+        if not _request_answered(r):
+            return False, f"request #{request_id} is still queued - not answered yet"
+        mark, via = f"request #{request_id}", "request"
+    else:
+        mark, via = reason, "reason"
+    if not db.mark_task_done(con, tid, mark, via):
+        return False, f"task #{tid} was marked done by someone else just now"
+    db.add_event(con, by, "mark_task_done", {"task_id": tid, "done": mark})
+    return True, f"task #{tid} done ({mark})"
+
+
+def close_task(con, tid: int, by: str) -> tuple[bool, str]:
+    """Close a task on the board (#71) - the asker's own sign-off, final.
+    See `task_asker` for who that is.
+
+    Refused before the task is done (nothing to sign off on yet), while a
+    child task is open - a five-part ask closed as one row hid that parts 4
+    and 5 were not done (#1008) - or while this task itself is waiting on an
+    open blocker (task #21/#1884), otherwise closing it directly is a back
+    door around the wait the block exists to enforce. Once it does close,
+    clears every block naming it and, for a task that leaves with no open
+    blocker left, tells its owner once - a durable request, not a
+    typed-only notice.
 
     The close, its event, every cleared block, and any resulting notice's
     database row are one transaction (auditor's #2042 BLOCKING): decoupled,
@@ -387,18 +471,17 @@ def close_task(con, tid: int, sha: str | None = None, reason: str | None = None,
     file for a notice is written only after COMMIT - the database row is
     what the daemon schedules delivery from, so a crash before that file
     lands is still recoverable, same as any other `ask.deliver`.
-
-    No `--retires` here (#1349/#1366): task ids and request ids are separate
-    AUTOINCREMENT sequences that both start at 1, so a single moot_by column
-    fed by either reads as one namespace when it is two - "#1 is already moot
-    (by #1)" cannot say whether that second #1 is a task or a request.
-    `ocp resolve --retires` stays, where the id is always a request's.
     """
     row = db.get_task(con, tid)
     if row is None:
         return False, f"no task #{tid}"
     if row["closed_by"]:
         return False, f"task #{tid} is already closed ({row['closed_by']})"
+    if not row["done_evidence"]:
+        return False, f"task #{tid} is not done yet - `ocp task done` first"
+    asker = task_asker(con, row)
+    if by != asker:
+        return False, f"task #{tid} can only be closed by {asker} - whoever asked for it"
     kids = db.open_child_tasks(con, tid)
     if kids:
         ids = ", ".join(f"#{k['id']}" for k in kids)
@@ -407,29 +490,13 @@ def close_task(con, tid: int, sha: str | None = None, reason: str | None = None,
     if blockers:
         ids = ", ".join(f"#{b['id']}" for b in blockers)
         return False, f"task #{tid} is waiting on {ids} - it closes only once they do"
-    if bool(sha) == bool(reason):
-        return False, "close needs exactly one of a sha or a reason"
-    if sha:
-        full, why = _sha_on_main(repo or Path.cwd(), sha)
-        if full is None:
-            return False, f"{sha} is not an ancestor of main" + (f" ({why})" if why else "")
-        mark = full
-    else:
-        mark = reason
-    # Hoisted out of the call so the kind-enumeration scan in
-    # test_only_the_agents_own_events_move_its_activity_clock can see it -
-    # a literal kind inside a parenthesised second argument is invisible to
-    # that regex, and only the scan's own call-count check caught it
-    # (auditor's #1565 SF3). cli.cmd_close now refuses without an identity,
-    # so `who` is always a real agent, never the fallback.
-    who = askmod.asking_agent() or row["owner"]
     con.execute("BEGIN IMMEDIATE")
     try:
-        if not db.close_task(con, tid, mark, via="sha" if sha else "reason"):
+        if not db.close_task(con, tid, by):
             con.execute("ROLLBACK")
             return False, f"task #{tid} was closed by someone else just now"
-        db.add_event(con, who, "close_task", {"task_id": tid, "closed_by": mark})
-        notices = _clear_blocks_on(con, tid, who)
+        db.add_event(con, by, "close_task", {"task_id": tid, "closed_by": by})
+        notices = _clear_blocks_on(con, tid, by)
         con.execute("COMMIT")
     except Exception:
         con.execute("ROLLBACK")
@@ -439,7 +506,31 @@ def close_task(con, tid: int, sha: str | None = None, reason: str | None = None,
                        team.Decision(True, "task unblocked", kind="report",
                                      response="fire_and_forget", creates_gate=False,
                                      chain_depth=0))
-    return True, f"task #{tid} closed ({mark})"
+    return True, f"task #{tid} closed by {by}"
+
+
+def reopen_task(con, tid: int, by: str, reason: str) -> tuple[bool, str]:
+    """Send a done task back to doing (#71) - the asker's own call, the
+    opposite of closing it. Needs a one-line reason, the same as any other
+    undo in this system. Refused for a task not currently done (nothing to
+    undo) or already closed (closing is final - see close_task)."""
+    row = db.get_task(con, tid)
+    if row is None:
+        return False, f"no task #{tid}"
+    if row["closed_by"]:
+        return False, f"task #{tid} is closed - closing is final, nothing to reopen"
+    if not row["done_evidence"]:
+        return False, f"task #{tid} is not done - nothing to reopen"
+    asker = task_asker(con, row)
+    if by != asker:
+        return False, f"task #{tid} can only be reopened by {asker} - whoever asked for it"
+    said = textsafe.oneline(reason).strip()
+    if not said:
+        return False, "reopening needs a one-line reason"
+    if not db.reopen_task(con, tid):
+        return False, f"task #{tid} was closed or reopened by someone else just now"
+    db.add_event(con, by, "reopen_task", {"task_id": tid, "reason": said})
+    return True, f"task #{tid} reopened by {by}: {said}"
 
 
 def _notify_unblocked(con, dep_tid: int, owner: str, closer: str, closed_tid: int) -> tuple[int, str, str]:
@@ -614,14 +705,15 @@ def reason_gaps(con, window_days: int = 30) -> dict:
     no window the line reports history forever, dominated by rows that
     predate `--reason` existing rather than current practice.
 
-    Closures are reported as their own two counts, not folded into a "gap":
-    `close` requires exactly one of a sha or a reason, so a closed task is
-    never blank, and counting a sha close as a missing reason (the previous
-    shape here) pointed a reader at the wrong thing to fix. Which one a row
-    was is read from `closed_via`, set at close time from the argument the
-    caller actually gave - not guessed back from the text, which a --reason
-    forced past looks_like_sha (hex-looking words, still a reason) would
-    misread as a sha.
+    Closures are reported as their own counts, not folded into a "gap":
+    `ocp task done` requires exactly one of a sha, a request, or a reason, so
+    a done task is never blank, and counting a sha as a missing reason (the
+    previous shape here) pointed a reader at the wrong thing to fix. Which
+    one a row was is read from `done_via`, set when the evidence was given
+    from the argument the caller actually gave - not guessed back from the
+    text, which a --reason forced past looks_like_sha (hex-looking words,
+    still a reason) would misread as a sha. #71 moved this evidence from the
+    close to the done stage; the counts still measure the same thing.
     """
     cutoff = int(time.time()) - window_days * 86400
     def one(where: str) -> int:
@@ -636,12 +728,13 @@ def reason_gaps(con, window_days: int = 30) -> dict:
     replaced_blank = one("state = 'replaced' AND verdict NOT LIKE '%: %'")
     def closures(via: str) -> int:
         return con.execute(
-            "SELECT COUNT(*) FROM tasks WHERE closed_via = ? AND closed_at >= ?",
+            "SELECT COUNT(*) FROM tasks WHERE done_via = ? AND done_at >= ?",
             (via, cutoff)).fetchone()[0]
     return {
         "retirements": withdrawn_total + dismissed_total + replaced_total,
         "retirements_blank": withdrawn_blank + dismissed_blank + replaced_blank,
         "closures_sha": closures("sha"),
+        "closures_request": closures("request"),
         "closures_reason": closures("reason"),
     }
 
