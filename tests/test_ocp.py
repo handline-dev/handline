@@ -20215,6 +20215,8 @@ def test_no_command_prints_what_a_terminal_would_obey(home: Path) -> None:
         "task edit": "writes a row; driven in "
                      "test_editing_a_task_needs_the_opener_or_the_founder_and_is_never_silent, "
                      "not this scene",
+        "task board": "own open tasks and who holds each; driven in "
+                       "test_task_board_shows_who_holds_each_open_task, not this scene",
         "base promote": "writes base.md; prints sizes and a path",
         "hr relabel": "calls Orca directly, no proposal; driven in "
                       "test_a_rename_names_the_agents_orca_worktree, not this scene",
@@ -24462,6 +24464,84 @@ def test_editing_a_task_needs_the_opener_or_the_founder_and_is_never_silent(home
           rc == 1 and "OCP_AGENT" in out, out)
 
 
+def _request(requester: str, target: str) -> int:
+    con = db.connect()
+    try:
+        return db.add_request(con, requester, target, "go", None,
+                              "supervisor", "fire_and_forget", None, 0, None)
+    finally:
+        con.close()
+
+
+def _now_line(out: str, tid: int) -> str:
+    lines = out.splitlines()
+    for i, line in enumerate(lines):
+        if line.split()[:1] == [f"#{tid}"]:
+            return lines[i + 1].strip()
+    return ""
+
+
+def _link(tid: int, rid: int, state: str | None = None) -> None:
+    con = db.connect()
+    try:
+        db.link_request(con, tid, rid)
+        if state:
+            con.execute("UPDATE requests SET state = ? WHERE id = ?", (state, rid))
+    finally:
+        con.close()
+
+
+def test_task_board_shows_who_holds_each_open_task(home: Path) -> None:
+    """task #36 (#1945): `ocp task board` ports status-sync.sh's own rules for
+    요청-현황.md rather than rederiving them - a still-queued request's target
+    is who holds it now; absent that, an open child task's own queued
+    request means the work moved down a level; absent that too, the last
+    linked request having come back `done` from someone else is my own turn
+    to read the result; and nothing linked, or the last exchange closed some
+    other way (withdrawn, rejected, replaced), is nobody holding it."""
+    _board_world(home)
+    rc, out = _cli(["task", "board"])
+    check("board: nothing open reads as nothing open",
+          rc == 0 and "no open tasks." in out, out)
+
+    con = db.connect()
+    try:
+        t_nobody = db.new_task(con, "nobody yet", "manager", "manager")
+        t_held = db.new_task(con, "with worker now", "manager", "manager")
+        t_back = db.new_task(con, "worker answered", "manager", "manager")
+        t_closed_other = db.new_task(con, "withdrawn, not my turn", "manager", "manager")
+        t_parent = db.new_task(con, "parent task", "manager", "manager")
+        t_child = db.new_task(con, "child does the work", "worker", "manager", t_parent)
+        t_not_mine = db.new_task(con, "not mine", "worker", "manager")
+    finally:
+        con.close()
+
+    _link(t_held, _request("manager", "worker"))
+    _link(t_back, _request("manager", "worker"), state="done")
+    _link(t_closed_other, _request("manager", "worker"), state="withdrawn")
+    _link(t_child, _request("manager", "worker"))
+
+    rc, out = _cli(["task", "board"])
+    check("board: rc 0", rc == 0, out)
+    check("board: an unlinked task holds nothing", _now_line(out, t_nobody) == "now: nobody holds it",
+          out)
+    check("board: a queued request's target holds it", _now_line(out, t_held) == "now: worker", out)
+    check("board: a request back done from someone else is my own turn to read",
+          _now_line(out, t_back) == "now: you - a result is in", out)
+    check("board: a request closed some other way is nobody holding it, not my turn",
+          _now_line(out, t_closed_other) == "now: nobody holds it", out)
+    check("board: an open child task's own queued request is not shown as my own task",
+          f"#{t_child} " not in out, out)
+    check("board: the parent shows the child's held target as a sub-task",
+          _now_line(out, t_parent) == "now: sub-task: worker", out)
+    check("board: a task owned by someone else is not on my board",
+          f"#{t_not_mine} " not in out, out)
+
+    rc, out = _cli(["task", "board"], as_agent=None)
+    check("board: with no identity and no tty, refused rather than guessed at",
+          rc == 1 and "OCP_AGENT" in out, out)
+
+
 def test_resolving_the_founders_request_says_what_it_becomes(home: Path) -> None:
     """The guard (#1259): every human-requester resolve, including a reply in a
     running thread, needs --task or --no-task; nothing else is guarded."""
@@ -26109,6 +26189,7 @@ def main() -> int:
         run(lambda: test_task_new_list_and_link(Path(td) / 'tasknew'))
         run(lambda: test_editing_a_task_needs_the_opener_or_the_founder_and_is_never_silent(
             Path(td) / 'taskedit'))
+        run(lambda: test_task_board_shows_who_holds_each_open_task(Path(td) / 'taskboard'))
         run(lambda: test_resolving_the_founders_request_says_what_it_becomes(Path(td) / 'taskguard'))
         run(lambda: test_closing_a_task_needs_evidence_and_no_open_child(Path(td) / 'taskclose'))
         run(lambda: test_close_task_refuses_without_an_identity_and_does_not_move_a_clock(Path(td) / 'taskcloseid'))
