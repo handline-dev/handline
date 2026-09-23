@@ -4113,6 +4113,49 @@ def test_quiet_hours_holds_queued_work_from_an_idle_claude_agent(home: Path) -> 
         con.close()
 
 
+def test_quiet_hours_wakes_on_its_own_when_the_window_closes(home: Path) -> None:
+    """orcapipe #2201: parked at 10:59 PT is still ticked at 11:00 PT, and
+    resumes through the ordinary wake path - no new code for waking, and
+    nothing typed by hand - picking up the queued work it was parked on.
+    Driven through `tick()` itself, with the real clock stood in for, since
+    that is the daemon's own entry point and the one #2201 named."""
+    _daemon_home(home, 20)
+    con = db.connect()
+    real_time = time.time
+    try:
+        orcamod.available = lambda: True
+        orcamod.live_terminals = lambda: {"term_x"}
+        orcamod.alive = lambda h: True
+        orcamod.idle_now = lambda h: True
+        sent: list[str] = []
+        orcamod.send = lambda h, text, enter=True: (sent.append(text), (True, ""))[1]
+        sessions_are("backend")
+        db.set_agent_state(con, "backend", dmn.IDLE)
+        db.add_request(con, "marina", "backend", "carry on", None,
+                       "peer", "async", None, 0, None)
+        dmn.set_quiet_hours(True)
+
+        time.time = lambda: float(_pt_epoch(2026, 9, 21, 10, 59))
+        dmn.tick(con, lambda _m: None)
+        row = db.get_agent_state(con, "backend")
+        check("quiet hours wake: 10:59 PT still parks it",
+              row["state"] == dmn.PARKED and row["wake_at"] == _pt_epoch(2026, 9, 21, 11, 0),
+              str(dict(row)))
+        check("quiet hours wake: nothing typed at 10:59 PT", sent == [], str(sent))
+
+        time.time = lambda: float(_pt_epoch(2026, 9, 21, 11, 0))
+        dmn.tick(con, lambda _m: None)
+        row = db.get_agent_state(con, "backend")
+        check("quiet hours wake: 11:00 PT wakes it on its own, no hand typing",
+              row["state"] != dmn.PARKED, str(dict(row)))
+        check("quiet hours wake: and it picks up the queued work",
+              sent and "carry on" in sent[-1], str(sent))
+    finally:
+        time.time = real_time
+        dmn.set_quiet_hours(False)
+        con.close()
+
+
 def test_reconcile_still_propagates_a_fault_that_is_not_one_agents(home: Path) -> None:
     """The control for the guard above: a fault that belongs to reconcile()
     itself, not to any one agent's file, must still stop the daemon - a
@@ -29047,6 +29090,7 @@ def main() -> int:
         run(lambda: test_quiet_hours_window_is_weekday_mornings_pacific(Path(td) / 'quiethourswindow'))
         run(lambda: test_quiet_hours_blocks_only_a_claude_agent_with_the_flag_on(Path(td) / 'quiethoursvendor'))
         run(lambda: test_quiet_hours_holds_queued_work_from_an_idle_claude_agent(Path(td) / 'quiethourshold'))
+        run(lambda: test_quiet_hours_wakes_on_its_own_when_the_window_closes(Path(td) / 'quiethourswake'))
         run(lambda: test_reconcile_still_propagates_a_fault_that_is_not_one_agents(Path(td) / 'reconsys'))
         run(lambda: test_reconcile_stalls_one_due_agents_unreadable_config_at_wake_too(Path(td) / 'reconwake'))
         run(lambda: test_daemon_handoff_timeout(Path(td) / 'd4'))
