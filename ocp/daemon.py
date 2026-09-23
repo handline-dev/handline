@@ -416,18 +416,24 @@ def _wait_session_gone(agent: str) -> bool:
 WAKE_SESSION_TIMEOUT_S = 15
 
 
-def wait_for_session(agent: str, timeout_s: int) -> bool:
+def wait_for_session(agent: str, timeout_s: int, prompt: Path | None = None) -> bool:
     """Did the launch we typed actually start a session?
 
     `relaunch` reports on having sent the command, which is not the same thing:
     `ocp launch` refuses over the 5h limit and exits when the account is not
     logged in, leaving the shell exactly as it was. The reading is taken here
     rather than from the tick's cache, which predates the command.
+
+    With `prompt`, the session counts only once that file is gone: the launch
+    removes it just before it becomes the session. A launch typed by someone
+    else starts a session without taking it, and counting that one as ours
+    loses the prompt.
     """
     deadline = time.time() + timeout_s
     while True:
         sessions = obs.live_sessions()
-        if sessions is not None and sessions.get(agent):
+        if (sessions is not None and sessions.get(agent)
+                and not (prompt and prompt.exists())):
             return True
         if time.time() >= deadline:
             return False
@@ -1195,8 +1201,8 @@ def _wake_agent(con, agent: str, log, moved_to: str | None = None) -> tuple[bool
         # the launch reads and deletes: typed at the terminal instead, it lands
         # in a bare shell whenever the session dies first, and the shell runs
         # it line by line.
-        started = lambda: wait_for_session(agent, WAKE_SESSION_TIMEOUT_S)  # noqa: E731
         resumed = False
+        foreign = False
         # Past the cache's life a resume costs the whole transcript and a
         # fresh start costs the handoff; the record stays on the row for the
         # launch to inject.
@@ -1220,11 +1226,22 @@ def _wake_agent(con, agent: str, log, moved_to: str | None = None) -> tuple[bool
                                    moved_to=moved_to, con=con, cold=cold))
             cmd = f"{base} --prompt-file {shlex.quote(str(pf))}" + (
                 f" -- --resume {session}" if resume else "")
-            ok, why = orca.relaunch(handle, cmd, started=started)
+            ok, why = orca.relaunch(
+                handle, cmd,
+                started=lambda: wait_for_session(agent, WAKE_SESSION_TIMEOUT_S, pf))
             if ok:
                 resumed = resume
                 break
+            taken = not pf.exists()
             pf.unlink(missing_ok=True)
+            # A session owns the terminal now, and the next attempt's command
+            # would be typed into it as a prompt. It is this launch's own, come
+            # up late, only if the launch took the prompt.
+            if (obs.live_sessions() or {}).get(agent):
+                foreign = not taken
+                if foreign:
+                    why = "a session it did not start is running"
+                break
         if not ok:
             if took:
                 # A record no session was handed would be typed at whichever
@@ -1235,6 +1252,12 @@ def _wake_agent(con, agent: str, log, moved_to: str | None = None) -> tuple[bool
             # arriving, or the next restart - has nothing else to use.
             db.add_event(con, agent, "wake_failed", {"resume_session": session,
                                                      "why": why})
+            if foreign:
+                # The agent is running, so this is no failed wake to count
+                # toward STALLED; the sweep sees the session and clears the
+                # closed mark.
+                log(f"  {agent}: {why}; typed nothing more")
+                return False, why
             db.bump_counter(con, agent, "wake_failures")
             log(f"  {agent}: {why}; still closed")
             fresh = db.get_agent_state(con, agent)

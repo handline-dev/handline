@@ -432,8 +432,10 @@ def drifted(agent: str, row) -> bool:
 def take_prompt(path: str | None) -> str | None:
     """Read and remove a prompt file the daemon left for this launch.
 
-    Removed as it is read, so a launch that dies before this point leaves a
-    file no later launch will pick up: a prompt belongs to one launch.
+    Taken only after `build` has let the launch go ahead: a launch that
+    refuses leaves the file, which is how the daemon tells its own session
+    from one somebody else started (`daemon.wait_for_session`). Removed as it
+    is read, so no later launch picks it up: a prompt belongs to one launch.
     """
     if not path:
         return None
@@ -448,8 +450,8 @@ def take_prompt(path: str | None) -> str | None:
 
 def exec_agent(agent: str, extra: list[str] | None = None, force: bool = False,
                prompt_file: str | None = None) -> None:
-    prompt = take_prompt(prompt_file)
     argv, env = build(agent, list(extra or []), force)
+    prompt = take_prompt(prompt_file)
     if prompt:
         argv += vendors.for_agent(agent).prompt_argv(prompt)
     if not prompt_file:

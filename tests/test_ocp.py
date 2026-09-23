@@ -195,20 +195,36 @@ def relaunching_send(sent: list, table: dict[str, int]) -> object:
         sent.append(text)
         if " launch " in text:
             table[text.split(" launch ")[1].split()[0]] = 4242
-            # The wake prompt rides the launch as a file the launch reads, not
+            # The wake prompt rides the launch as a file the launch takes, not
             # as a line typed afterwards; listed here as what the session is
             # handed on start, so tests can assert on what it was told.
             if "--prompt-file " in text:
-                sent.append(Path(shlex.split(text.split("--prompt-file ")[1])[0]).read_text())
+                sent.append(take_launched_prompt(text))
         elif text == "/exit":
             table.clear()       # one terminal, one agent, in every fixture here
         return True, ""
     return send
 
 
+_taken_prompts: dict[str, str] = {}
+
+
+def take_launched_prompt(command: str) -> str | None:
+    """What a launch command's session starts with, taken as `ocp launch`
+    takes it: the file is gone afterwards, which is how the daemon knows its
+    own launch started the session."""
+    if "--prompt-file " not in command:
+        return None
+    text = launch.take_prompt(shlex.split(command.split("--prompt-file ")[1])[0])
+    _taken_prompts[command] = text or ""
+    return text
+
+
 def launched_prompt(command: str) -> str:
-    """The first prompt a launch command hands its session."""
-    return Path(shlex.split(command.split("--prompt-file ")[1])[0]).read_text()
+    """The first prompt a launch command hands its session, taken or not; ""
+    for one the daemon removed because nothing took it."""
+    f = Path(shlex.split(command.split("--prompt-file ")[1])[0])
+    return f.read_text() if f.exists() else _taken_prompts.get(command, "")
 
 
 def sessions_are(*agents: str) -> dict[str, int]:
@@ -9073,6 +9089,7 @@ def test_idle_session_is_closed_and_resumed(home: Path) -> None:
             if text == "/exit":
                 table.pop("backend", None)
             elif " launch " in text:
+                take_launched_prompt(text)
                 table["backend"] = 4242
             return True, ""
 
@@ -9338,6 +9355,7 @@ def test_a_wake_types_nothing_at_a_shell_when_the_session_dies(home: Path) -> No
         def send(h, text, enter=True):
             sent.append(text)
             if " launch " in text:
+                take_launched_prompt(text)
                 table["backend"] = 4242        # the session starts ...
                 orcamod.send = lambda *a, **k: (sent.append(a[1]), (True, ""))[1]
             return True, ""
@@ -11481,6 +11499,7 @@ def test_a_wake_is_believed_only_when_a_session_appears(home: Path) -> None:
         def send_launching(h, text, enter=True):
             sent.append(text)
             if " launch " in text and "--resume" not in text:
+                take_launched_prompt(text)
                 table.update({"backend": 4242})
             return True, ""
         orcamod.send = send_launching
@@ -11599,6 +11618,116 @@ def test_a_wake_is_believed_only_when_a_session_appears(home: Path) -> None:
         (orcamod.available, orcamod.alive, orcamod.wait_idle, orcamod.send,
          orcamod.resume_with, dmn.WAKE_SESSION_TIMEOUT_S) = real
         con.close()
+
+
+def test_a_wake_does_not_claim_a_session_it_did_not_start(home: Path) -> None:
+    """orcapipe.glm, 09-23: the wake's launch was refused, and a launch typed
+    by hand started the agent's session a moment later. Seeing that session,
+    the wake logged "relaunched with its wake prompt" for a prompt nothing had
+    taken. A session is the wake's only once its launch has taken the prompt
+    file, and a refused launch leaves the file where it was. Once one is
+    running, nothing more is typed: a fallback launch would land in it as a
+    prompt.
+    """
+    _daemon_home(home, 20)
+    con = db.connect()
+    sent: list[str] = []
+    real = (orcamod.available, orcamod.alive, orcamod.wait_idle, orcamod.send,
+            dmn.WAKE_SESSION_TIMEOUT_S)
+    try:
+        dmn.WAKE_SESSION_TIMEOUT_S = 1
+        orcamod.available = lambda: True
+        orcamod.live_terminals = lambda: {"term_x"}
+        orcamod.alive = lambda h: True
+        orcamod.wait_idle = lambda h, timeout_ms=0: True
+        table = sessions_are()
+
+        def refused_while_someone_else_launches(h, text, enter=True):
+            sent.append(text)
+            if " launch " in text:
+                table["backend"] = 4300     # the hand-typed launch, no prompt file
+            return True, ""
+        orcamod.send = refused_while_someone_else_launches
+        db.set_terminal(con, "backend", "term_x", "wt")
+        db.set_closed(con, "backend", None)
+
+        ok, why = dmn.wake_agent(con, "backend", lambda _m: None)
+        row = db.get_agent_state(con, "backend")
+        check("wake: a session its launch did not start is not its wake", not ok, why)
+        check("wake: so it is not recorded as woken",
+              not any(e["kind"] == "wake" for e in con.execute(
+                  "SELECT kind FROM events WHERE agent='backend'")), why)
+        check("wake: and the prompt nothing took is removed",
+              not any((home / "wake").glob("backend*")),
+              str(list((home / "wake").glob("*"))))
+        check("wake: and a running agent is not counted toward STALLED",
+              row["wake_failures"] == 0, str(dict(row)))
+
+        # With a resume id there is a fresh start to fall back to, and its
+        # command would be typed into the session already running.
+        table.clear()
+        sent.clear()
+        db.set_closed(con, "backend", "sess-abc")
+        ok, why = dmn.wake_agent(con, "backend", lambda _m: None)
+        row = db.get_agent_state(con, "backend")
+        check("wake: nothing is typed into a session it did not start",
+              not ok and [" launch " in t for t in sent] == [True], f"{why} {sent}")
+        check("wake: and that one is not counted either",
+              row["wake_failures"] == 0, str(dict(row)))
+
+        # Its own session, come up after the wait gave up, is no reason to
+        # type the fallback into it either - but it is a counted failure.
+        table.clear()
+        sent.clear()
+        db.set_closed(con, "backend", "sess-abc")
+        realr = orcamod.relaunch
+
+        def own_but_late(h, cmd, **kw):
+            sent.append(cmd)
+            take_launched_prompt(cmd)
+            table["backend"] = 4301
+            return False, "no session seen within the timeout"
+        orcamod.relaunch = own_but_late
+        try:
+            ok, why = dmn.wake_agent(con, "backend", lambda _m: None)
+        finally:
+            orcamod.relaunch = realr
+        row = db.get_agent_state(con, "backend")
+        check("wake: nothing more is typed into its own late session",
+              not ok and len(sent) == 1, f"{why} {sent}")
+        check("wake: and that one is counted", row["wake_failures"] == 1, str(dict(row)))
+    finally:
+        (orcamod.available, orcamod.alive, orcamod.wait_idle, orcamod.send,
+         dmn.WAKE_SESSION_TIMEOUT_S) = real
+        con.close()
+
+
+def test_a_refused_launch_leaves_its_prompt(home: Path) -> None:
+    """The prompt file is taken only by a launch that goes ahead: the daemon
+    reads a file still there as "my launch started nothing"."""
+    f = home / "prompt.txt"
+    home.mkdir(parents=True, exist_ok=True)
+    f.write_text("carry on")
+
+    def refuse(*a, **k):
+        raise SystemExit("refusing to start it there.")
+    realb, realx, realr = launch.build, os.execve, launch._record_terminal
+    launch.build = refuse
+    os.execve = lambda *a, **k: None
+    launch._record_terminal = lambda *a, **k: None
+    try:
+        try:
+            launch.exec_agent("backend", prompt_file=str(f))
+            refused = False
+        except SystemExit:
+            refused = True
+        check("launch: a refused launch leaves its prompt file",
+              refused and f.read_text() == "carry on", str(refused))
+        launch.build = lambda *a, **k: (["x"], {})
+        launch.exec_agent("backend", prompt_file=str(f))
+        check("launch: a launch that goes ahead takes it", not f.exists())
+    finally:
+        launch.build, os.execve, launch._record_terminal = realb, realx, realr
 
 
 def test_a_walled_wake_says_so_everywhere(home: Path) -> None:
@@ -17358,6 +17487,7 @@ def test_a_move_still_records_a_session_the_wait_missed_but_a_hook_saw(home: Pat
         def relaunch_but_miss(h, cmd, **kw):
             # The session starts and its hook fires, but the wait `_wake_agent`
             # gave it read as a timeout - what `relaunch` reports is "not woke".
+            take_launched_prompt(cmd)
             _SESSION_TABLE["t"]["mover"] = 4242
             evmod._mark_activity(con, "mover", "UserPromptSubmit")
             return False, "no session seen within the timeout"
@@ -17415,6 +17545,7 @@ def test_stalled_survives_a_hook_that_fires_after_the_third_failed_wake(home: Pa
         def relaunch_fails_but_late(h, cmd, **kw):
             # The session comes up late - after `_wake_agent` has already
             # given up on this, its third, attempt - and its hook fires anyway.
+            take_launched_prompt(cmd)
             _SESSION_TABLE["t"]["mover"] = 4242
             evmod._mark_activity(con, "mover", "UserPromptSubmit")
             return False, "no session seen within the timeout"
@@ -25797,6 +25928,8 @@ def main() -> int:
         run(lambda: test_an_agent_with_nowhere_to_run_is_not_handed_off(Path(td) / 'noterm'))
         run(lambda: test_nothing_is_typed_into_a_shell_with_no_session(Path(td) / 'shellgate'))
         run(lambda: test_a_wake_is_believed_only_when_a_session_appears(Path(td) / 'wakereceipt'))
+        run(lambda: test_a_wake_does_not_claim_a_session_it_did_not_start(Path(td) / 'wakeforeign'))
+        run(lambda: test_a_refused_launch_leaves_its_prompt(Path(td) / 'launchrefused'))
         run(lambda: test_a_walled_wake_says_so_everywhere(Path(td) / 'walled'))
         run(lambda: test_a_walled_wake_is_not_shown_with_nothing_waiting(Path(td) / 'walledquiet'))
         run(lambda: test_a_stalled_closed_agent_keeps_its_marker_when_walled(Path(td) / 'walledstalled'))
