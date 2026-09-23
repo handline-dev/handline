@@ -2028,6 +2028,10 @@ def cmd_resolve(args) -> int:
             print(_who_refusal("answer"))
             return 1
         if row["requester"] == me and row["state"] != "queued":
+            if args.finding:
+                print(f"#{args.id} is your own request - a finding is opened by "
+                      f"whoever answers it, not by you")
+                return 1
             print(actions.answer(con, args.id, verdict))
             return 0
         if row["target"] != me:
@@ -2049,6 +2053,10 @@ def cmd_resolve(args) -> int:
         refusal = actions.check_open_proposal(args.id, row, verdict)
         if refusal:
             print(refusal)
+            return 1
+        if args.finding and row["requester"] not in paths.list_agents():
+            print(f"#{args.id} came from {row['requester']}, not an agent - a finding "
+                  f"cannot be tied to it; open it with `ocp task new --owner NAME`")
             return 1
         if args.finding and any(not textsafe.oneline(f).strip() for f in args.finding):
             print("a finding needs a title")
@@ -2109,14 +2117,10 @@ def cmd_resolve(args) -> int:
             actions.record_human_resolve(con, args.id, args.task, args.no_task, me)
         finally:
             con.close()
-    if args.finding:
-        con = db.connect()
-        try:
-            tids = actions.open_finding_tasks(con, args.id, args.finding, row["requester"], me)
-        finally:
-            con.close()
-        verdict = verdict + "\n\nOpened as task(s): " + ", ".join(f"#{t}" for t in tids)
-    ok, msg = askmod.resolve(args.id, verdict, state=args.state)
+    ok, msg = askmod.resolve(
+        args.id, verdict, state=args.state,
+        open_tasks=(lambda c: actions.open_finding_tasks(c, args.id, args.finding))
+        if args.finding else None)
     if ok and args.retires is not None:
         con = db.connect()
         try:

@@ -27487,10 +27487,10 @@ def test_resolve_finding_opens_a_task_in_the_same_step(home: Path) -> None:
         titles = {t["title"] for t in tasks.values()}
         check("finding: each finding's text became a task's title",
               titles == {"note 1 - tighten the retry", "note 2 - rename the flag"}, titles)
-        check("finding: the task is owned by whoever asked, not the resolver",
-              all(t["owner"] == "worker" for t in tasks.values()), str(tasks))
-        check("finding: opened_by is the resolver",
-              all(t["opened_by"] == "manager" for t in tasks.values()), str(tasks))
+        check("finding: every task is owned by orcapipe, not the asker or resolver",
+              all(t["owner"] == "orcapipe" for t in tasks.values()), str(tasks))
+        check("finding: and opened by orcapipe",
+              all(t["opened_by"] == "orcapipe" for t in tasks.values()), str(tasks))
         check("finding: the verdict names the new task numbers",
               all(f"#{tid}" in row["verdict"] for tid in tasks)
               and "Opened as task" in row["verdict"], row["verdict"])
@@ -27507,6 +27507,47 @@ def test_resolve_finding_opens_a_task_in_the_same_step(home: Path) -> None:
         check("finding: and no task was opened for it",
               not con.execute("SELECT 1 FROM task_requests WHERE request_id = ?",
                               (rid2,)).fetchone())
+        before = con.execute("SELECT COUNT(*) c FROM tasks").fetchone()["c"]
+    finally:
+        con.close()
+
+    hid = _human_request("manager")
+    rc, out = _cli(["resolve", str(hid), "PASS", "--no-task", "nothing",
+                    "--finding", "fnd A"], as_agent="manager")
+    con = db.connect()
+    try:
+        check("finding: refused on a founder's request, naming ocp task new",
+              rc == 1 and "ocp task new --owner" in out, out)
+        check("finding: founder's request stays queued and no task row was written",
+              db.get_request(con, hid)["state"] == "queued"
+              and con.execute("SELECT COUNT(*) c FROM tasks").fetchone()["c"] == before)
+    finally:
+        con.close()
+
+    ok, _, rid3 = askmod.ask("manager", "third review", requester="worker")
+    _cli(["resolve", str(rid3), "PASS"], as_agent="manager")
+    rc, out = _cli(["resolve", str(rid3), "thanks", "--finding", "fnd B"], as_agent="worker")
+    con = db.connect()
+    try:
+        check("finding: refused on the requester's side, not dropped with rc 0",
+              rc == 1 and "your own request" in out, out)
+        check("finding: and no task was opened by it",
+              con.execute("SELECT COUNT(*) c FROM tasks").fetchone()["c"] == before)
+    finally:
+        con.close()
+
+    ok, _, rid4 = askmod.ask("manager", "fourth review", requester="worker")
+    real = askmod.db.close_if_queued
+    askmod.db.close_if_queued = lambda *a, **k: False
+    try:
+        ok4, _ = askmod.resolve(rid4, "PASS", open_tasks=lambda c: actions.open_finding_tasks(
+            c, rid4, ["lost race"]))
+    finally:
+        askmod.db.close_if_queued = real
+    con = db.connect()
+    try:
+        check("finding: a close that fails takes its tasks back",
+              not ok4 and con.execute("SELECT COUNT(*) c FROM tasks").fetchone()["c"] == before)
     finally:
         con.close()
 

@@ -234,14 +234,17 @@ def record_human_resolve(con, rid: int, tasks: list[int] | None, no_task: str | 
         db.add_event(con, me or "", "no_task", {"request_id": rid, "reason": no_task})
 
 
-def open_finding_tasks(con, rid: int, findings: list[str], owner: str, me: str) -> list[int]:
+TASK_OWNER = "orcapipe"
+
+
+def open_finding_tasks(con, rid: int, findings: list[str]) -> list[int]:
     """Task #73 (founder #2150, #2154 point 2): a finding the resolver is
     deferring rather than blocking the review on becomes a task in the same
-    step, linked back to the row it came out of - never left only in a
-    verdict's prose for someone else to remember to open later."""
+    step, linked to the request it came out of. Every task is owned and
+    opened by orcapipe (#1914), whoever resolves."""
     tids = []
     for title in findings:
-        tid = db.new_task(con, textsafe.oneline(title).strip(), owner, me)
+        tid = db.new_task(con, textsafe.oneline(title).strip(), TASK_OWNER, TASK_OWNER)
         db.link_request(con, tid, rid)
         tids.append(tid)
     return tids
