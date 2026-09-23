@@ -14720,12 +14720,12 @@ edges:
 
 
 def test_every_door_onto_an_open_proposal_also_needs_a_decision(home: Path) -> None:
-    """#1893 SF1, #1908, #1919: `answer()` (the bridge's key) is not the only
-    door onto a queued proposal escalation - `ocp resolve`, `--retires` and
-    `ask.cancel` each reach the same row, and only `answer()` had the guard.
-    A verdict, a retirement or a cancel typed there that is not a decision
-    used to close the row anyway, leaving the proposal stuck exactly as if
-    the bridge had let it through."""
+    """#1893 SF1, #1908, #1919, #1938: `answer()` (the bridge's key) is not
+    the only door onto a queued proposal escalation - `ocp resolve`,
+    `--retires`, `ask.cancel` and `--replaces` each reach the same row, and
+    only `answer()` had the guard. A verdict, a retirement, a cancel or a
+    replace typed there that is not a decision used to close the row anyway,
+    leaving the proposal stuck exactly as if the bridge had let it through."""
     _daemon_home(home, 20)
     con = db.connect()
     try:
@@ -14787,6 +14787,21 @@ edges:
     con = db.connect()
     try:
         check("cancel: and stays queued", db.get_request(con, rid2)["state"] == "queued")
+    finally:
+        con.close()
+
+    # #1938 should-fix: a fifth door - the proposer's own `--replaces` passes
+    # the ownership check (old["requester"] == requester) and would close the
+    # escalation with "replaced by #N", a row the founder cannot tell apart
+    # from the original and that approving does not enact.
+    ok, said, rid4 = askmod.ask(askmod.HUMAN, "corrected: add yerin on gamma",
+                                requester="hr", replaces=rid2)
+    check("replaces: an open proposal refuses to be replaced away",
+          not ok and "withdraw" in said, said)
+    check("replaces: no new row was queued for it", rid4 is None, rid4)
+    con = db.connect()
+    try:
+        check("replaces: and stays queued", db.get_request(con, rid2)["state"] == "queued")
     finally:
         con.close()
 

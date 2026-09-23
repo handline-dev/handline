@@ -267,6 +267,16 @@ def ask(target: str, body: str, files: str | None = None, requester: str | None 
             if old["state"] != "queued":
                 return False, (f"#{replaces} is already {old['state']} - "
                                f"nothing to replace"), None
+            from . import hr
+            if hr.is_open_proposal(replaces):
+                # #1938 should-fix: the proposer is `old["requester"]`, so
+                # `--replaces` passes the ownership check above and would
+                # close the escalation with "replaced by #N" - not a
+                # decision, and the new row it queues is not linked to the
+                # proposal, so approving it enacts nothing. `hr withdraw`
+                # is the one way out; a corrected proposal is a fresh one.
+                return False, (f"#{replaces} is a roster proposal - `hr withdraw` it "
+                               f"and send a fresh proposal instead"), None
             # The human's rows are "delivered" when drawn on the bridge, and
             # nobody can withdraw or answer one on their behalf - so a
             # correction is the only way a stale escalation ever leaves.
