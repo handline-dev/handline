@@ -25378,10 +25378,10 @@ def test_usage_api_reads_a_window_nothing_has_been_spent_in() -> None:
                 usage_api.USAGE_URL, state["status"], "no", {}, None)
         return R()
 
-    real = (usage_api.refresh_credential, usage_api._access_token,
+    real = (usage_api.refresh_credential, usage_api._access_token_detailed,
             usage_api.urllib.request.urlopen, usage_api.json.load)
     usage_api.refresh_credential = fake_refresh
-    usage_api._access_token = lambda acct: state["token"]
+    usage_api._access_token_detailed = lambda acct: (state["token"], state["token"] is None)
     usage_api.urllib.request.urlopen = fake_fetch
     usage_api.json.load = lambda r: json.loads(r.read())
     try:
@@ -25418,8 +25418,88 @@ def test_usage_api_reads_a_window_nothing_has_been_spent_in() -> None:
         check("usage_api: no credential is 'could not look', not 0%",
               usage_api.read("alpha", refresh=False) is None, "expected None")
     finally:
-        (usage_api.refresh_credential, usage_api._access_token,
+        (usage_api.refresh_credential, usage_api._access_token_detailed,
          usage_api.urllib.request.urlopen, usage_api.json.load) = real
+
+
+def test_read_claude_tells_a_dead_credential_apart_from_transient() -> None:
+    """`_read_claude`'s own classification (#2186's BLOCKING): drives it
+    directly, past `recover`'s stub of `read_detailed`, since that stub is
+    the reason #2178's bug (every failure marked needs-relogin) still passed
+    the whole suite once before. 401/403 -> auth_failed True; a 429, a 5xx
+    and a timeout -> False, because none of those three say the credential
+    itself was refused."""
+    real_token, real_urlopen = usage_api._access_token_detailed, usage_api.urllib.request.urlopen
+    usage_api._access_token_detailed = lambda acct: ("t", False)
+    try:
+        for code, want in ((401, True), (403, True), (429, False), (503, False)):
+            def fake_fetch(req, timeout=None, _code=code):
+                raise usage_api.urllib.error.HTTPError(
+                    usage_api.USAGE_URL, _code, "no", {}, None)
+            usage_api.urllib.request.urlopen = fake_fetch
+            reading, auth_failed = usage_api._read_claude("alpha", refresh=False)
+            check(f"_read_claude: HTTPError {code} classifies auth_failed={want}",
+                  reading is None and auth_failed is want, (reading, auth_failed))
+
+        def fake_timeout(req, timeout=None):
+            raise usage_api.urllib.error.URLError("timed out")
+        usage_api.urllib.request.urlopen = fake_timeout
+        reading, auth_failed = usage_api._read_claude("alpha", refresh=False)
+        check("_read_claude: a timeout is transient, not a dead credential",
+              reading is None and auth_failed is False, (reading, auth_failed))
+    finally:
+        usage_api._access_token_detailed, usage_api.urllib.request.urlopen = real_token, real_urlopen
+
+
+def test_access_token_detailed_tells_missing_apart_from_could_not_read() -> None:
+    """`_access_token_detailed` (#2186's SHOULD-FIX 1): `security` exit 44 or
+    a parsed item with no accessToken is the credential genuinely gone; every
+    other shape of failure is 'could not read it', not 'it is not there'."""
+    real_run = usage_api.subprocess.run
+
+    def fake_run(returncode: int, stdout: str):
+        class R:
+            pass
+        r = R()
+        r.returncode, r.stdout = returncode, stdout
+        return lambda *a, **k: r
+
+    try:
+        usage_api.subprocess.run = fake_run(44, "")
+        token, missing = usage_api._access_token_detailed("alpha")
+        check("access_token: exit 44 (item not found) is missing=True",
+              token is None and missing is True, (token, missing))
+
+        usage_api.subprocess.run = fake_run(1, "")
+        token, missing = usage_api._access_token_detailed("alpha")
+        check("access_token: any other nonzero exit is missing=False (could not read)",
+              token is None and missing is False, (token, missing))
+
+        usage_api.subprocess.run = fake_run(
+            0, '{"claudeAiOauth": {"accessToken": ""}}')
+        token, missing = usage_api._access_token_detailed("alpha")
+        check("access_token: a parsed item with an empty token is missing=True",
+              token is None and missing is True, (token, missing))
+
+        usage_api.subprocess.run = fake_run(0, "not json")
+        token, missing = usage_api._access_token_detailed("alpha")
+        check("access_token: malformed stdout is missing=False (could not read)",
+              token is None and missing is False, (token, missing))
+
+        def raise_timeout(*a, **k):
+            raise usage_api.subprocess.TimeoutExpired(cmd="security", timeout=15)
+        usage_api.subprocess.run = raise_timeout
+        token, missing = usage_api._access_token_detailed("alpha")
+        check("access_token: a timed-out security call is missing=False",
+              token is None and missing is False, (token, missing))
+
+        usage_api.subprocess.run = fake_run(
+            0, '{"claudeAiOauth": {"accessToken": "tok"}}')
+        token, missing = usage_api._access_token_detailed("alpha")
+        check("access_token: a real token is returned, missing=False",
+              token == "tok" and missing is False, (token, missing))
+    finally:
+        usage_api.subprocess.run = real_run
 
 
 # The endpoint's answer, measured live on the founder's own plan (task #42,
@@ -28321,6 +28401,8 @@ def main() -> int:
             Path(td) / 'replayweek'))
         run(lambda: test_replay_burn_is_the_daemons_burn(Path(td) / 'replayburn'))
         run(lambda: test_usage_api_reads_a_window_nothing_has_been_spent_in())
+        run(lambda: test_read_claude_tells_a_dead_credential_apart_from_transient())
+        run(lambda: test_access_token_detailed_tells_missing_apart_from_could_not_read())
         run(lambda: test_the_zai_meter_reads_the_plan_and_hides_its_key(Path(td) / 'zaimeter'))
         run(lambda: test_the_quota_request_never_follows_a_redirect(Path(td) / 'zairedir'))
         run(lambda: test_usage_api_record_stands_in_for_a_probe(Path(td) / 'usagerec'))
