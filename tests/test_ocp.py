@@ -3319,6 +3319,8 @@ def test_event_allowlist() -> None:
 # ---------------------------------------------------------------- triggers
 def test_triggers() -> None:
     T = triggers
+    check("trigger: the default context-handoff limit is 200,000 tokens (#1898)",
+          T.CONTEXT_TOKENS == 200_000)
     check("trigger: quiet agent does not fire", not T.evaluate(10, 10).fired)
     check("trigger: context at the default fires",
           T.evaluate(10, T.CONTEXT_TOKENS).kind == "context")
@@ -3413,8 +3415,8 @@ def test_the_clamp_holds_a_small_window_agent_down() -> None:
                                         "claude-haiku-4-5-20251001") == haiku_clamp,
           status.effective_context_limit({"context_tokens": 500_000},
                                         "claude-haiku-4-5-20251001"))
-    check("clamp: the flat default already sits at haiku's clamp - 120,000 is "
-          "60% of 200,000 by construction, the anchor CONTEXT_TOKENS was chosen from",
+    check("clamp: the flat default is held down to haiku's clamp - 120,000, "
+          "60% of haiku's 200,000 window, so there the clamp is the working limit",
           status.effective_context_limit({}, "claude-haiku-4-5-20251001") == haiku_clamp)
     check("clamp: a sane figure on a 1M-window model is not touched",
           status.effective_context_limit({"context_tokens": 300_000}, "claude-sonnet-5")
@@ -12277,10 +12279,10 @@ def test_a_context_handoff_does_not_thrash_within_min_handoff_interval_s(home: P
         limit_real = status.effective_context_limit(agents.read("keeper"), "claude-sonnet-5")
         limit_ctl = status.effective_context_limit(agents.read("keeper_ctl"), "claude-sonnet-5")
         check("control: the override actually raises the limit above the reading",
-              limit_ctl > 200_000 > limit_real, (limit_real, limit_ctl))
-        t_real = triggers.evaluate(10, 200_000, ctx_limit=limit_real)
-        t_ctl = triggers.evaluate(10, 200_000, ctx_limit=limit_ctl)
-        check("real: 200,000 tokens fires at the default limit", t_real.fired, t_real.reason)
+              limit_ctl > 300_000 > limit_real, (limit_real, limit_ctl))
+        t_real = triggers.evaluate(10, 300_000, ctx_limit=limit_real)
+        t_ctl = triggers.evaluate(10, 300_000, ctx_limit=limit_ctl)
+        check("real: 300,000 tokens fires at the default limit", t_real.fired, t_real.reason)
         check("control: the same reading does not fire once the limit is raised",
               not t_ctl.fired, t_ctl.reason)
 
