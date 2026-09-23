@@ -517,6 +517,55 @@ def cmd_task_list(args) -> int:
     return 0
 
 
+def _fit100(line: str) -> str:
+    """Plain text, one screen wide: what the room reading it over is stuck
+    with."""
+    return line if len(line) <= 100 else line[:99] + "…"
+
+
+def cmd_task_board(args) -> int:
+    """The asking agent's own open tasks, and who holds each one now.
+
+    Ports `status-sync.sh`'s logic (which built 요청 현황.md by polling)
+    rather than rederiving it: a task's own linked requests, read live,
+    never a status copied onto the task row. `held` is who a still-queued
+    request is with. Absent that, an open child task's own queued request
+    means the work moved down a level. Absent that too, the last linked
+    request having come back `done` from someone other than me or the
+    founder means the result is in and it is my turn to read it. Nothing
+    linked, or the last exchange already closed some other way (withdrawn,
+    rejected, replaced), is nobody holding it - the same as never asked.
+    """
+    me = askmod.asking_agent()
+    if me is None:
+        print(_who_refusal("board"))
+        return 1
+    con = db.connect()
+    try:
+        tasks = db.open_tasks_for(con, me)
+        if not tasks:
+            print("no open tasks.")
+            return 0
+        for t in tasks:
+            reqs = db.task_requests(con, t["id"])
+            held = sorted({r["target"] for r in reqs if r["state"] == "queued"})
+            kids = sorted({r["target"] for c in db.open_child_tasks(con, t["id"])
+                          for r in db.task_requests(con, c["id"]) if r["state"] == "queued"})
+            last = reqs[-1] if reqs else None
+            back = (last is not None and last["state"] == "done"
+                    and last["target"] not in (me, askmod.HUMAN))
+            now = (", ".join(held) if held
+                  else "sub-task: " + ", ".join(kids) if kids
+                  else "you - a result is in" if back
+                  else "nobody holds it")
+            parent = f" (under #{t['parent_task']})" if t["parent_task"] else ""
+            print(_fit100(f"#{t['id']:<4} {textsafe.oneline(t['title'])}{parent}"))
+            print(_fit100(f"      now: {now}"))
+    finally:
+        con.close()
+    return 0
+
+
 def cmd_resume(args) -> int:
     con = db.connect()
     try:
@@ -2238,6 +2287,8 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--owner", default=None, help="fixing who was named, not handing off work")
     p.add_argument("--title", default=None)
     p.set_defaults(fn=cmd_task_edit)
+    p = tk.add_parser("board", help="your own open tasks, and who holds each one now")
+    p.set_defaults(fn=cmd_task_board)
 
     p = sub.add_parser("resume", help="hand a parked agent back its handoff")
     p.add_argument("agent")
