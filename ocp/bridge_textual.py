@@ -624,7 +624,12 @@ class AgentDetail(JobsAware, Screen):
         pin = min(max_top, max(0, conv_end - room))
         top = pin if self.top is None else max(0, min(self.top, max_top))
         self._top_now = top
-        self.top = None if top >= pin else top
+        # `== pin`, not `>= pin` (auditor #2171 BLOCKING 1): curses re-pins
+        # only on the exact spot (`tui._detail_frame`: `end = top == pin`) -
+        # `>=` re-pinned on any scroll past it too, so a look at what is
+        # queued under the conversation snapped back to `pin` on the very
+        # next redraw, a timer tick away.
+        self.top = None if top == pin else top
         shown = body[top:top + room]
         while len(shown) < room:
             shown.append("")

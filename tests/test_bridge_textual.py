@@ -667,6 +667,22 @@ async def test_agent_page_opens_pinned_to_the_newest_message() -> None:
         check("pin: still pinned, a fresh message follows it down",
               f"message {n0 + 1}" in text, text)
 
+        # auditor #2171 BLOCKING 1: `top == pin` re-pinned on any scroll past
+        # pin too (a bare `>=`), not only exactly at it - a look at what is
+        # queued under the conversation snapped straight back on the next
+        # redraw, a timer tick away, and "queued 11" was never reachable.
+        for _ in range(60):
+            await pilot.press("down")
+        top_after_scroll = screen.top
+        check("pin: scrolling well past the pin, into the queued section, un-pins it",
+              top_after_scroll is not None, str(top_after_scroll))
+        screen._redraw()         # a tick, or anything else that redraws
+        check("pin: and a redraw does not snap it back to the pin",
+              screen.top == top_after_scroll, f"{screen.top} != {top_after_scroll}")
+        text = str(screen.query_one("#canvas").render())
+        check("pin: what is queued under the conversation is reachable at all",
+              "queued 11" in text, text)
+
 
 async def test_wake_on_a_stalled_agent_asks_first() -> None:
     """auditor #2008 BLOCKING 2a: waking a STALLED agent needs a yes first in

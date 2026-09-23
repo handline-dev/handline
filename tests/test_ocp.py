@@ -26232,36 +26232,62 @@ def test_venv(home: Path) -> None:
           hashlib.sha256(venvmod._canonical_requirements(venvmod.requirements_file())).hexdigest())
     check("venv: the bash wrapper agrees a freshly-stamped venv is ready", wrapper_ok(home))
 
-    # Founder #2134: a comment-only edit to the real requirements.txt used to
-    # flip both sides to stale, since the stamp hashed the file's raw bytes -
+    # Founder #2134: a comment-only edit to requirements.txt used to flip
+    # both sides to stale, since the stamp hashed the file's raw bytes -
     # `_canonical_requirements` (python) and bin/ocp's own strip-then-filter
-    # (bash) must both still call the venv ready.
-    real_reqs = venvmod.requirements_file()
-    original = real_reqs.read_text()
+    # (bash) must both still call the venv ready. auditor #2171 should-fix 2:
+    # this used to write the mutation into the tracked, shared
+    # requirements.txt (a killed run, or another process reading it mid-test,
+    # both leave real damage) - it now runs against a copy of bin/ocp and an
+    # isolated requirements.txt of its own instead. `_ocp_entry.py` is
+    # symlinked, not copied: it locates the real `ocp` package through its
+    # own resolved path, and a copy of it would look for one beside itself.
+    iso_root = home / "iso_reqs"
+    (iso_root / "bin").mkdir(parents=True, exist_ok=True)
+    real_bin = paths.repo_root() / "bin"
+    shutil.copy2(real_bin / "ocp", iso_root / "bin" / "ocp")
+    (iso_root / "bin" / "ocp").chmod(0o755)
+    (iso_root / "bin" / "_ocp_entry.py").symlink_to((real_bin / "_ocp_entry.py").resolve())
+    iso_reqs = iso_root / "requirements.txt"
+    iso_reqs.write_text(venvmod.requirements_file().read_text())
+    iso_wrapper = iso_root / "bin" / "ocp"
     original_stamp = stamp.read_text()
+
+    def run_iso_wrapper():
+        return subprocess.run([str(iso_wrapper), "venv", "status"], capture_output=True, text=True,
+                              env={**os.environ, "OCP_HOME": str(home)}, timeout=30)
+
+    real_reqs_file = venvmod.requirements_file
     try:
-        real_reqs.write_text(f"# a comment nobody installs\n{original}\n# another one\n")
+        venvmod.requirements_file = lambda: iso_reqs
+
+        iso_reqs.write_text("# a comment nobody installs\n" + iso_reqs.read_text() + "# another one\n")
+        stamp.write_text(venvmod._sha256(iso_reqs) + "\n")
         ok, reason = venvmod.status(vdir)
         check("venv: status() ignores a comment-only requirements.txt edit", ok, reason)
-        check("venv: the bash wrapper ignores the same comment-only edit", wrapper_ok(home))
+        r = run_iso_wrapper()
+        # rc == 0 alone would pass even on a fallback, since the real PATH
+        # python3 that lands on also exits 0 - the stub venv python's silent
+        # no-op stdout is what proves the wrapper itself agreed and actually
+        # picked it (auditor #2171 should-fix 1: the previous version of this
+        # check could not tell the two apart, and passed unchanged with
+        # bin/ocp's own hash line put back to a raw `shasum`).
+        check("venv: the bash wrapper ignores the same comment-only edit",
+              r.returncode == 0 and r.stdout == "" and r.stderr == "",
+              f"rc={r.returncode} out={r.stdout!r} err={r.stderr!r}")
 
         # code-review finding: a requirements.txt that filters down to
         # nothing (all comments/blank) has python's `_canonical_requirements`
         # hash `b""`, and bash's `grep -v` pipeline must hash the same zero
         # bytes - not "\n", which `shasum` hashes to a different digest.
-        real_reqs.write_text("# nothing here\n\n# not one real requirement\n")
-        stamp.write_text(venvmod._sha256(real_reqs) + "\n")
-        r = run_wrapper(home)
-        # `wrapper_ok` alone (rc == 0) would pass even on a fallback, since
-        # the real PATH python3 that lands on also exits 0 - the stub venv
-        # python's silent no-op stdout is what proves the wrapper actually
-        # picked it, the same distinction the no-trailing-newline check above
-        # relies on.
+        iso_reqs.write_text("# nothing here\n\n# not one real requirement\n")
+        stamp.write_text(venvmod._sha256(iso_reqs) + "\n")
+        r = run_iso_wrapper()
         check("venv: an all-comments requirements.txt hashes the same on both sides",
               r.returncode == 0 and r.stdout == "" and r.stderr == "",
               f"rc={r.returncode} out={r.stdout!r} err={r.stderr!r}")
     finally:
-        real_reqs.write_text(original)
+        venvmod.requirements_file = real_reqs_file
         stamp.write_text(original_stamp)
 
     # Review #1597 note 1: python's stamp.read_text().strip() and bash's
