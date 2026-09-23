@@ -35,9 +35,11 @@ def _relogin_file(acct: str) -> Path:
 
 
 def needs_relogin(acct: str) -> bool:
-    """Set once a real turn still left the usage endpoint unreadable - the
-    one case fail-closed must keep refusing rather than retry forever, since
-    nothing left to try would ever clear it."""
+    """Set once a real turn still left the credential refused (401/403) -
+    the one case nothing left to try would ever clear, so `recover` itself
+    keeps refusing rather than retrying forever. Fail-closed (status.py,
+    `takes_work`) does not read this; the account stays refused there the
+    same way any stale account is, by the ordinary staleness rule."""
     return _relogin_file(acct).exists()
 
 
@@ -68,6 +70,12 @@ def recover(acct: str) -> tuple[bool, str]:
         return False, f"{acct} is not a claude account"
     if not accounts.logged_in(acct):
         return False, f"{acct} is not logged in"
+    # trusted_pct_7d carries a stale reading as a floor until its own reset
+    # passes (status.py), so this still catches an account genuinely at the
+    # wall even though this whole module exists for the case where the
+    # reading is stale. When the figure is truly unknown (never read, or its
+    # window has already rolled over) trusted_pct_7d is None and a turn is
+    # spent - the account is exactly the one #1885 exists to unstick.
     week = status.read(acct).trusted_pct_7d
     if week is not None and week >= status.PCT_7D_BLOCK:
         return False, f"{acct}: 7d {week}% is at the wall - not spending a turn on it"
@@ -76,10 +84,12 @@ def recover(acct: str) -> tuple[bool, str]:
     if not ok:
         return False, f"{acct}: recovery turn failed: {out}"
 
-    reading = usage_api.read(acct, refresh=False)
+    reading, auth_failed = usage_api.read_detailed(acct, refresh=False)
     if reading is None:
-        mark_relogin(acct, "a real turn ran but the usage endpoint still would not answer")
-        return False, f"{acct}: still unreadable after a real turn - marked needs re-login"
+        if auth_failed:
+            mark_relogin(acct, "a real turn ran but the credential was still refused (401/403)")
+            return False, f"{acct}: still unreadable after a real turn - marked needs re-login"
+        return False, f"{acct}: still unreadable after a real turn - not marked, may be transient"
     clear_relogin(acct)
     usage_api.record(reading)
     return True, f"{acct}: recovered - 5h {reading.pct_5h}% 7d {reading.pct_7d}%"

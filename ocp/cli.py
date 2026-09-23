@@ -216,12 +216,18 @@ def cmd_account_cap(args) -> int:
 
 def cmd_account_recover(args) -> int:
     """#1885's per-account switch: whether a dead read may spend one real turn
-    to fix itself. With no on/off, says where it stands, needs-re-login mark
-    included since that is the other way this stops running on its own."""
+    to fix itself. With no on/off/--now, says where it stands, needs-re-login
+    mark included since that is the other way this stops running on its own.
+    `--now` is the only caller of `recover.recover` until #76 wires daemon.py's
+    poll into it - the one way to run this by hand before then."""
     if args.clear_relogin:
         recovermod.clear_relogin(args.name)
     if args.state is not None:
         load.set_usage_recover(args.name, args.state == "on")
+    if args.now:
+        ok, msg = recovermod.recover(args.name)
+        print(msg)
+        return 0 if ok else 1
     on = load.usage_recover_enabled(args.name)
     print(f"{args.name}: usage recovery is {'on' if on else 'off'}")
     if recovermod.needs_relogin(args.name):
@@ -2090,6 +2096,8 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("state", choices=["on", "off"], nargs="?", default=None)
     p.add_argument("--clear-relogin", action="store_true",
                    help="clear a 'needs re-login' mark left by a failed recovery")
+    p.add_argument("--now", action="store_true",
+                   help="run recover.recover() on this account now, by hand")
     p.set_defaults(fn=cmd_account_recover)
     p = acc.add_parser("list", help="accounts with usage")
     p.add_argument("--json", action="store_true")
