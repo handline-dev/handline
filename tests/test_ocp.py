@@ -8,6 +8,7 @@ import argparse
 import atexit
 import contextlib
 import hashlib
+import http.client
 import http.server
 import io
 import json
@@ -24427,6 +24428,8 @@ def test_the_zai_meter_reads_the_plan_and_hides_its_key(home: Path) -> None:
         class R:
             status = 200
             def read(self):
+                if isinstance(payload, Exception):
+                    raise payload
                 return payload
             def __enter__(self):
                 return self
@@ -24494,6 +24497,14 @@ def test_the_zai_meter_reads_the_plan_and_hides_its_key(home: Path) -> None:
               usage_api.read("zai", refresh=False) is None)
         body["raw"] = b'{"code": 200, "success": true, "data": "limits"}'
         check("zai meter: a data field that is not a dict is could-not-look, not a crash",
+              usage_api.read("zai", refresh=False) is None)
+        body["raw"] = b'{"code": 200, "success": true, "data": {"limits": [' \
+                      b'{"type": "CREDIT_LIMIT", "unit": 3, "percentage": 87, ' \
+                      b'"nextResetTime": 9999999999999999999999999999999999999}]}}'
+        check("zai meter: a reset outside any sane window is could-not-look, not a time bomb",
+              usage_api.read("zai", refresh=False) is None)
+        body["raw"] = http.client.IncompleteRead(b"x", 10)
+        check("zai meter: a body cut off mid-read is could-not-look, not a crash",
               usage_api.read("zai", refresh=False) is None)
         body["raw"] = json.dumps(ZAI_QUOTA).encode()
 
