@@ -14719,6 +14719,43 @@ edges:
         con.close()
 
 
+def test_ocp_resolve_on_an_open_proposal_also_needs_a_decision(home: Path) -> None:
+    """#1893 SF1: `answer()` (the bridge's key) is not the only door onto a
+    queued proposal escalation - `ocp resolve` reaches the same row when the
+    founder is its target, and only `answer()` had the guard. A verdict typed
+    there that is neither approve nor reject used to close the row anyway,
+    leaving the proposal stuck exactly as if the bridge had let it through."""
+    _daemon_home(home, 20)
+    con = db.connect()
+    try:
+        accounts.register("beta")
+        agents.register("hr", "beta")
+        (home / "team.yaml").write_text("""
+agents:
+  hr: { intake: serial }
+edges:
+  - { from: "*", to: "human", kind: escalate, creates_gate: true }
+""")
+        ok, said = hr.propose("add", "dohyun", requester="hr", why="more hands",
+                              account="beta")
+        pid = said.split()[1]
+        rid = int(said.split("#")[1].split(".")[0])
+    finally:
+        con.close()
+    rc, out = _cli(["resolve", str(rid), "sounds good"], as_agent=askmod.HUMAN)
+    con = db.connect()
+    try:
+        check("resolve: an open proposal refuses a non-decision here too",
+              rc == 1 and "approve" in out and db.get_request(con, rid)["state"] == "queued",
+              out)
+    finally:
+        con.close()
+    rc, out = _cli(["resolve", str(rid), "approve"], as_agent=askmod.HUMAN)
+    check("resolve: approve still goes through", rc == 0, out)
+    ok, said = hr.apply(pid)
+    check("resolve: and apply carries it out", ok and "dohyun" in paths.list_agents(), said)
+
+
 def test_growing_the_team_needs_a_person(home: Path) -> None:
     """A team that cannot grow has one way to take on more work: each agent
     quietly making helpers that die with the session that made them. So growing
@@ -27317,6 +27354,8 @@ def main() -> int:
             Path(td) / 'registervendor'))
         run(lambda: test_a_proposal_dismissed_in_the_bridge_is_never_stranded(
             Path(td) / 'hrdismiss'))
+        run(lambda: test_ocp_resolve_on_an_open_proposal_also_needs_a_decision(
+            Path(td) / 'hrresolveguard'))
         run(lambda: test_hr_move_changes_an_agents_account(Path(td) / 'hrmove'))
         run(lambda: test_hr_move_does_not_touch_a_live_sessions_own_record(Path(td) / 'hrmovelive'))
         run(lambda: test_hr_move_leaves_account_alone_when_liveness_cannot_be_read(Path(td) / 'hrmoveunknown'))

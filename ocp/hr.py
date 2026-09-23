@@ -341,10 +341,10 @@ def withdraw(pid: str, me: str, con=None) -> tuple[bool, str]:
 
     The way out of a proposal that will get no decision: an escalation closed
     without approve or reject leaves `apply` refusing it and nothing else able
-    to end it. Anything not yet applied can be withdrawn, an approved one
-    included, and `apply` refuses a withdrawn one. A still-queued escalation
-    is closed with it and marked told: the proposer is not messaged, whoever
-    withdrew.
+    to end it. Anything still proposed can be withdrawn, an approved but
+    unapplied one included, and `apply` refuses a withdrawn one. A still-queued
+    escalation is closed with it and marked told: the proposer is not
+    messaged, whoever withdrew.
     """
     prop = load_proposal(pid)
     if not prop:

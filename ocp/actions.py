@@ -202,10 +202,26 @@ def answer_ok(con, rid: int, verdict: str) -> tuple[bool, str]:
             # to dismiss what they have just answered.
             db.mark_announced(con, [rid])
         return ok, msg
+    refusal = check_open_proposal(rid, row, verdict)
+    if refusal:
+        return False, refusal
+    return askmod.resolve(rid, verdict)
+
+
+def check_open_proposal(rid: int, row, verdict: str) -> str | None:
+    """The refusal for closing a queued roster-proposal escalation with
+    anything that is not a decision; None when it may go ahead.
+
+    `ocp resolve` reaches a queued row the same way `answer()` does - the
+    founder targeting a row that is theirs to close - and a proposal's
+    requester is the proposing agent, never HUMAN, so `check_human_resolve`
+    does not see it. Both callers need this same check, or one of them is
+    the silent non-answer this guard exists to prevent (#1770, #1893 SF1).
+    """
     if row["state"] == "queued" and hr.is_open_proposal(rid) \
             and hr.decision(verdict) == "unclear":
-        return False, f"#{rid} is a roster proposal - answer `approve` or `reject`"
-    return askmod.resolve(rid, verdict)
+        return f"#{rid} is a roster proposal - answer `approve` or `reject`"
+    return None
 
 
 def record_human_resolve(con, rid: int, tasks: list[int] | None, no_task: str | None,

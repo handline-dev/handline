@@ -1896,6 +1896,10 @@ def cmd_resolve(args) -> int:
         if refusal:
             print(refusal)
             return 1
+        refusal = actions.check_open_proposal(args.id, row, verdict)
+        if refusal:
+            print(refusal)
+            return 1
         if args.retires is not None:
             old = db.get_request(con, args.retires)
             if old is None:
