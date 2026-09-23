@@ -32,7 +32,7 @@ import time
 import uuid
 from pathlib import Path
 
-from . import agents, ask as askmod, db, paths, team, textsafe
+from . import agents, ask as askmod, db, paths, team, textsafe, vendors
 from .yamlcompat import ConfigError, dump, is_plain_text, load
 
 # What the founder types to decide. Printed in the escalation, so the words are
@@ -99,7 +99,8 @@ def listing(unreadable: list[str] | None = None) -> list[dict]:
 
 def _draft(kind: str, name: str, requester: str, why: str, account: str | None,
            team_name: str | None, repo: str | None, model: str | None,
-           to: str | None, effort: str | None = None) -> tuple[dict, str]:
+           to: str | None, effort: str | None = None,
+           vendor: str | None = None) -> tuple[dict, str]:
     """Check what was asked for and write it down. Returns (proposal, refusal)."""
     if kind not in KINDS:
         return {}, f"kind must be one of {', '.join(KINDS)}"
@@ -135,6 +136,19 @@ def _draft(kind: str, name: str, requester: str, why: str, account: str | None,
         if kind == "move" and account == agents.account_of(name):
             return {}, f"{name} already prefers account '{account}'"
 
+    # #1964 (task #41): an add's vendor is not a choice, it is what the named account
+    # already is - a claude agent registered onto an opencode account would
+    # launch as the wrong binary against the wrong credentials. Taken from
+    # the account, not typed, so `hr apply` always has one to write; a
+    # --vendor given anyway is only ever a check against that, never a way
+    # to override it.
+    add_vendor = None
+    if kind == "add":
+        add_vendor = vendors.account_vendor(account)
+        if vendor and vendor != add_vendor:
+            return {}, (f"--vendor {vendor} disagrees with account '{account}', which "
+                        f"is a {add_vendor} account")
+
     prop = {
         "id": uuid.uuid4().hex[:8],
         "kind": kind,
@@ -145,7 +159,8 @@ def _draft(kind: str, name: str, requester: str, why: str, account: str | None,
         "state": "proposed",
     }
     for key, value in (("account", account), ("team", team_name), ("repo", repo),
-                       ("model", model), ("effort", effort), ("to", to)):
+                       ("model", model), ("effort", effort), ("to", to),
+                       ("vendor", add_vendor)):
         if value:
             prop[key] = value
     return prop, ""
@@ -154,10 +169,10 @@ def _draft(kind: str, name: str, requester: str, why: str, account: str | None,
 def propose(kind: str, name: str, requester: str, why: str, account: str | None = None,
             team_name: str | None = None, repo: str | None = None,
             model: str | None = None, to: str | None = None,
-            effort: str | None = None) -> tuple[bool, str]:
+            effort: str | None = None, vendor: str | None = None) -> tuple[bool, str]:
     """Write the proposal down and raise it to the founder. Nothing changes yet."""
     prop, err = _draft(kind, name, requester, why, account, team_name, repo, model,
-                       to, effort)
+                       to, effort, vendor)
     if err:
         return False, err
     # Written down before it is raised: a proposal that cannot be recorded must
@@ -178,7 +193,8 @@ def propose(kind: str, name: str, requester: str, why: str, account: str | None 
 def enact(kind: str, name: str, why: str, account: str | None = None,
           team_name: str | None = None, repo: str | None = None,
           model: str | None = None, to: str | None = None,
-          effort: str | None = None, con=None) -> tuple[bool, str]:
+          effort: str | None = None, con=None,
+          vendor: str | None = None) -> tuple[bool, str]:
     """The founder changing the roster directly. No proposal to approve.
 
     The gate exists to stop an *agent* hiring on its own, and the founder is the
@@ -190,7 +206,7 @@ def enact(kind: str, name: str, why: str, account: str | None = None,
     change that fails halfway still leaves a record of what was attempted.
     """
     prop, err = _draft(kind, name, "human", why, account, team_name, repo, model,
-                       to, effort)
+                       to, effort, vendor)
     if err:
         return False, err
     prop["state"] = "enacting"
@@ -229,7 +245,10 @@ def _escalation(prop: dict) -> str:
         lines += [f"It would be registered on account {prop.get('account')}"
                   + (f", in team {prop['team']}" if prop.get("team") else "")
                   + (f", working in {prop['repo']}" if prop.get("repo") else "")
-                  + (f", model {prop['model']}" if prop.get("model") else "") + ".",
+                  + (f", model {prop['model']}" if prop.get("model") else "")
+                  + (f", vendor {prop['vendor']}"
+                     if prop.get("vendor") and prop["vendor"] != agents.DEFAULT_VENDOR else "")
+                  + ".",
                   "team.yaml gains its name; nothing else in the routing changes."]
     elif prop["kind"] == "rename":
         lines += [f"{prop['agent']} would become {prop.get('to')}: its folder, its "
@@ -326,8 +345,12 @@ def _add(prop: dict, con) -> tuple[bool, str]:
     ok, said = _in_team_yaml(name, prop.get("team"), add=True)
     if not ok:
         return False, said
+    # An old proposal saved before vendor was recorded has no vendor key, but
+    # the account's vendor is fixed (accounts.register refuses a change), so
+    # it is still exact to derive it now rather than register as claude.
     agents.register(name, prop["account"], model=prop.get("model"),
                     effort=prop.get("effort"), repo=prop.get("repo"),
+                    vendor=prop.get("vendor") or vendors.account_vendor(prop["account"]),
                     role=f"Added on {_when(prop.get('created'))} at "
                          f"{prop['requested_by']}'s request: {prop['why']}")
     return True, (f"{name} is an agent: account {prop['account']}"
