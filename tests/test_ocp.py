@@ -24496,6 +24496,46 @@ def test_jobs_stops_a_hung_action_at_its_declared_bound_not_past_it(home: Path) 
             actions.WAITS["dismiss"] = real_wait
 
 
+def test_jobs_kills_the_group_when_a_grandchild_outlives_the_leader(home: Path) -> None:
+    """auditor #2035 SHOULD-FIX 1: `_signal`'s SIGKILL only ever fired from the
+    `code is None` branch of `reap` - while the leader (`job.proc`) was still
+    alive. A leader that dies on SIGTERM but leaves a grandchild that ignores
+    it (or is just slow) is reaped at once, so that branch never runs, and
+    `communicate()` then blocks on the pipes the grandchild still holds open
+    until *it* exits. The fix SIGKILLs the whole group once the leader is
+    gone and the job had been stopped - checked here against the wall clock,
+    not trusted from the source."""
+    _daemon_home(home, 20)
+    agents.register("reviewer", "alpha")
+    stub = home / "stub_grandchild.py"
+    stub.write_text(
+        "import subprocess, sys, time\n"
+        "subprocess.Popen([sys.executable, '-c',\n"
+        "    'import signal, time; signal.signal(signal.SIGTERM, signal.SIG_IGN); time.sleep(20)'])\n"
+        "time.sleep(60)\n"      # the leader itself has no handler, so SIGTERM ends it at once
+    )
+    real_command, real_wait, real_grace = jobsmod.ACT_COMMAND, actions.WAITS.get("dismiss"), jobsmod.GRACE_S
+    try:
+        jobsmod.ACT_COMMAND = [sys.executable, str(stub)]
+        actions.WAITS["dismiss"] = ("", 1)
+        jobs = jobsmod.Jobs()
+        said = jobs.start("dismiss", "reviewer", "dismissing reviewer")
+        check("jobs: the action with a grandchild starts", said == "", said)
+        started = time.time()
+        deadline = started + 1 + jobsmod.GRACE_S + 8
+        while time.time() < deadline and jobs.running:
+            jobs.reap()
+            time.sleep(0.05)
+        took = time.time() - started
+        check("jobs: a grandchild that ignores SIGTERM does not freeze reap for its own sleep",
+              not jobs.running and took < 1 + jobsmod.GRACE_S + 5,
+              f"took {took:.1f}s for a 1s bound + {jobsmod.GRACE_S}s grace")
+    finally:
+        jobsmod.ACT_COMMAND, jobsmod.GRACE_S = real_command, real_grace
+        if real_wait is not None:
+            actions.WAITS["dismiss"] = real_wait
+
+
 def test_jobs_lines_reports_state_honestly(home: Path) -> None:
     """The line for a running action: not there for one just started, said in
     each state it can be in (ordinary, slow, past its bound, stopped), capped
@@ -26641,6 +26681,8 @@ def main() -> int:
         run(lambda: test_jobs_runs_the_real_actrun_and_answers_or_refuses(Path(td) / 'jobsrun'))
         run(lambda: test_jobs_stops_a_hung_action_at_its_declared_bound_not_past_it(
             Path(td) / 'jobsbound'))
+        run(lambda: test_jobs_kills_the_group_when_a_grandchild_outlives_the_leader(
+            Path(td) / 'jobsgrandchild'))
         run(lambda: test_jobs_lines_reports_state_honestly(Path(td) / 'jobslines'))
         run(lambda: test_venv(Path(td) / 'venvhome'))
         run(lambda: test_run_recovers_from_an_uncaught_error())

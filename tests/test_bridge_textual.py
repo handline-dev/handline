@@ -109,6 +109,36 @@ async def test_an_action_runs_off_the_key_loop_and_the_screen_says_so() -> None:
         jobsmod.ACT_COMMAND = real_command
 
 
+async def test_confirm_rechecks_can_if_the_state_changed_while_it_was_open() -> None:
+    """auditor #2035 SHOULD-FIX 2: a confirm waits on a human for as long as
+    the human takes, and the daemon ticks every two seconds in the meantime -
+    `dispatch_agent_verb` reruns `tui._confirmed_can` on a yes rather than
+    trusting what `actions.can` said when the key was first pressed. Flips
+    `backend` to HANDOFF while the modal is open; curses's own pilot for this
+    (auditor #2008/#2035) got 'backend is HANDOFF - it changed while you
+    looked' - the port must say the same."""
+    home = _home("recheck")
+    app = bt.BridgeApp()
+    async with app.run_test(size=(120, 30)) as pilot:
+        await pilot.pause()
+        screen = app.screen
+        await pilot.press("c")             # close: CONFIRM
+        await pilot.pause(0.1)
+        check("recheck: c on an idle agent asks first",
+              isinstance(app.screen, bt.Confirm), type(app.screen).__name__)
+        con = db.connect()
+        try:
+            db.set_agent_state(con, "backend", daemonmod.HANDOFF)
+        finally:
+            con.close()
+        await pilot.press("y")
+        await pilot.pause(0.2)
+        check("recheck: a yes rechecks actions.can rather than trusting the first read",
+              "HANDOFF" in screen.flash and "changed while you looked" in screen.flash,
+              screen.flash)
+        check("recheck: and does not start the job", not screen.jobs.running, "")
+
+
 async def test_text_prompt_composer_sends_and_cancels() -> None:
     async def read(multi: bool, keys: list[str]) -> str | None:
         app_ = _HostApp(bt.TextPrompt("to backend:", multi=multi))
@@ -381,6 +411,7 @@ async def test_text_prompt_keeps_a_paste_instead_of_dropping_it() -> None:
 async def _run_all() -> None:
     await test_dashboard_shows_a_registered_agent_and_moves_the_cursor()
     await test_an_action_runs_off_the_key_loop_and_the_screen_says_so()
+    await test_confirm_rechecks_can_if_the_state_changed_while_it_was_open()
     await test_text_prompt_composer_sends_and_cancels()
     await test_agent_page_box_sends_a_message_and_runs_slash_commands()
     await test_agent_page_box_keeps_a_draft_a_busy_target_refuses()

@@ -122,6 +122,13 @@ class Jobs:
                     self._signal(job, signal.SIGKILL)
                 continue
             self.running.remove(job)
+            if job.stopped_at is not None:
+                # The leader (`job.proc`) exiting on SIGTERM does not mean the
+                # group did: a grandchild that ignores SIGTERM, or is slow to
+                # clean up, keeps the pipes `communicate()` reads from open
+                # until it too is gone - SIGKILL the whole group once there is
+                # no leader left to relay a gentler signal to.
+                self._signal(job, signal.SIGKILL)
             out, err = job.proc.communicate()
             ok, text = self._said(job, code, out, err, now)
             said.append(text)
