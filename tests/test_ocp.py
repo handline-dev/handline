@@ -21182,6 +21182,10 @@ def test_a_module_that_returns_subprocess_text_as_a_message_imports_textsafe(hom
                        "and the user's own email, never text an agent wrote",
         "service.py": "launchctl's own error text - a macOS tool's output, not "
                       "anything an agent chose, and the least reachable of these",
+        "bridge_textual.py": "the `.stdout` here is sys.stdout.isatty() (task #54's "
+                             "--once/non-tty snapshot), not a subprocess result - "
+                             "_run_suspended's own subprocess.run() is read for its "
+                             "returncode only, never its stdout or stderr",
     }
     named, clean = [], []
     for f in sorted((ROOT / "ocp").glob("*.py")):
@@ -25539,6 +25543,59 @@ def _python_with_textual() -> str | None:
     return None
 
 
+def test_bridge_routing_defaults_to_textual_falls_back_only_when_missing() -> None:
+    """`cmd_bridge`'s own routing (task #54): Textual is the default now, not
+    behind `--textual` - `--curses` is the one way back to the raw-termios
+    screen it replaced, and the plain default falls back to it only when the
+    `textual` package cannot be imported at all, silently (a machine whose
+    venv is not ready yet, #2069, must still get a working `ocp bridge`).
+    `bridge_textual` is stubbed in `sys.modules` rather than actually run -
+    what is under test is which one `cmd_bridge` reaches for, not either
+    screen's own behavior."""
+    import argparse
+    import types
+    calls: list[tuple] = []
+    fake = types.ModuleType("ocp.bridge_textual")
+    fake.run = lambda once=False: calls.append(("textual", once)) or 0
+    real_run = climod.tui.run
+    climod.tui.run = lambda interval=2.0, once=False: calls.append(("curses", once)) or 0
+    real_module = sys.modules.get("ocp.bridge_textual")
+    had_module = "ocp.bridge_textual" in sys.modules
+
+    def ns(**kw):
+        base = dict(interval=2.0, once=False, textual=False, curses=False)
+        base.update(kw)
+        return argparse.Namespace(**base)
+
+    try:
+        sys.modules["ocp.bridge_textual"] = fake
+        code = climod.cmd_bridge(ns())
+        check("bridge routing: the plain default reaches for bridge_textual",
+              calls == [("textual", False)] and code == 0, calls)
+
+        calls.clear()
+        code = climod.cmd_bridge(ns(curses=True))
+        check("bridge routing: --curses skips it entirely, even though it is importable",
+              calls == [("curses", False)] and code == 0, calls)
+
+        calls.clear()
+        del sys.modules["ocp.bridge_textual"]
+        code = climod.cmd_bridge(ns())
+        check("bridge routing: missing and no flag falls back to curses silently",
+              calls == [("curses", False)] and code == 0, calls)
+
+        calls.clear()
+        code = climod.cmd_bridge(ns(textual=True))
+        check("bridge routing: missing and --textual fails loud instead, not a fallback",
+              calls == [] and code == 1, calls)
+    finally:
+        climod.tui.run = real_run
+        if had_module:
+            sys.modules["ocp.bridge_textual"] = real_module
+        else:
+            sys.modules.pop("ocp.bridge_textual", None)
+
+
 def test_bridge_textual_flag_fails_loud_without_the_package() -> None:
     """`ocp bridge --textual` on an interpreter with no `textual` (this suite's
     own, most of the time - see `_python_with_textual`) says so and how to fix
@@ -25577,6 +25634,35 @@ def test_bridge_textual_dashboard() -> None:
     out = r.stdout + r.stderr
     check(f"bridge_textual: under {py}, its own tests all pass",
           r.returncode == 0 and "passed, 0 failed" in out, out[-2000:])
+
+
+def test_bridge_textual_once_prints_a_frame_and_does_not_need_a_tty(home: Path) -> None:
+    """Task #54 item 5: `ocp bridge --textual --once` (a script, a pipe, a cron
+    line - the non-interactive case `tui.run`'s own `once`/non-tty branch
+    exists for) must print one frame and exit, not start a Textual app that
+    blocks forever with nothing attached to its input. `bridge_textual.run`
+    took no `once` at all before this; `cmd_bridge` never passed it through."""
+    py = _python_with_textual()
+    if py is None:
+        check("bridge --textual --once: a python3 with textual to run this under", False,
+              "none found; `ocp venv install` puts it in $OCP_HOME/venv")
+        return
+    _daemon_home(home, 20)
+    env = {k: v for k, v in os.environ.items() if k != "OCP_AGENT"}
+    env["OCP_HOME"] = str(home)
+    entry = paths.repo_root() / "bin" / "_ocp_entry.py"
+    r = subprocess.run([py, str(entry), "bridge", "--textual", "--once"],
+                       capture_output=True, text=True, timeout=30, env=env)
+    check("bridge --textual --once: exits 0 with the dashboard's own frame, not empty",
+          r.returncode == 0 and "AGENTS" in r.stdout and "backend" in r.stdout,
+          f"out={r.stdout!r} err={r.stderr!r}")
+    # Piped stdout (no --once) is the same non-tty case `tui.run` already
+    # covers - not an interactive session either, so it must fall back the
+    # same way rather than only responding to the flag.
+    r2 = subprocess.run([py, str(entry), "bridge", "--textual"],
+                        capture_output=True, text=True, timeout=30, env=env)
+    check("bridge --textual: piped stdout falls back to one frame too, not a hang",
+          r2.returncode == 0 and "AGENTS" in r2.stdout, f"out={r2.stdout!r} err={r2.stderr!r}")
 
 
 def test_jobs_refuses_a_busy_target_and_a_full_queue(home: Path) -> None:
@@ -28209,8 +28295,11 @@ def main() -> int:
         run(lambda: test_moot_by_records_who_retired_a_row(Path(td) / 'mootby'))
         run(lambda: test_retires_is_refused_on_a_row_that_is_not_the_resolvers(Path(td) / 'retiresown'))
         run(lambda: test_reason_gaps_count_from_the_shapes_the_verbs_write(Path(td) / 'reasongaps'))
+        run(lambda: test_bridge_routing_defaults_to_textual_falls_back_only_when_missing())
         run(lambda: test_bridge_textual_flag_fails_loud_without_the_package())
         run(lambda: test_bridge_textual_dashboard())
+        run(lambda: test_bridge_textual_once_prints_a_frame_and_does_not_need_a_tty(
+            Path(td) / 'textualonce'))
         run(lambda: test_jobs_refuses_a_busy_target_and_a_full_queue(Path(td) / 'jobsbusy'))
         run(lambda: test_jobs_runs_the_real_actrun_and_answers_or_refuses(Path(td) / 'jobsrun'))
         run(lambda: test_jobs_stops_a_hung_action_at_its_declared_bound_not_past_it(

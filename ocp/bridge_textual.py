@@ -26,13 +26,23 @@ typing a login code into claude's own screen, same as curses's `_suspend` -
 through Textual's own `App.suspend()` rather than `jobs.Jobs`: it is
 interactive, not something to run and report on later.
 
-Not yet ported: opening an ACCOUNTS row into a page of its own beyond a
-read-only summary, and ACCOUNTS' "next" tick-mark bookkeeping the dashboard
-already draws from `tui.build` regardless.
+`?` on an AGENTS/STUCK row and a row opened read-only (`/knows`, `/done`,
+ACCOUNTS) go through the same `tui.agent_help_line`/`tui._detail_frame`/
+`tui._in_detail` curses uses for both - the scrolling, the tab strip across
+named sections, and the "line N-M of T" counter, not a flat unscrollable
+dump (task #54). ACCOUNTS' "next" tick-mark needed nothing of its own: it is
+computed inside `tui.build`, which `tui.frame` already calls unconditionally,
+so the dashboard has always drawn it correctly - the port's earlier
+docstring flagged it as outstanding without checking that.
+
+Not yet ported: opening an ACCOUNTS row into a page of its own with actions
+on it, beyond the read-only summary above.
 """
 from __future__ import annotations
 
+import shutil
 import subprocess
+import sys
 
 from rich.text import Text
 from textual import events
@@ -318,7 +328,8 @@ class Dashboard(JobsAware, Screen):
     async def _act_account(self, con, name: str, key: str) -> None:
         if key in ("\r", "\n"):
             sections = actions.account_detail(con, name, accounts.logged_in)
-            await self.app.push_screen_wait(ReadOnly(f"account {name}", sections))
+            await self.app.push_screen_wait(
+                ReadOnly(f"account {name}", sections, tui.ACCOUNTS, name))
             return
         if key == "l":
             await self._account_login(name)
@@ -412,6 +423,12 @@ class Dashboard(JobsAware, Screen):
         if key in ("\r", "\n"):    # "↵" in AGENT_KEYS is a display label, never a lookup key
             self.app.push_screen(AgentDetail(name))
             return
+        if key == "?":
+            # The keybar (tui.keybar, drawn by tui.frame under this screen
+            # unchanged) folds fold/move out of a filtered row's own footer -
+            # `?` is the one place every AGENT_KEYS verb is named, curses or not.
+            self.flash = tui.agent_help_line()
+            return
         label = dict(tui.AGENT_KEYS).get(key)
         if not label or label == "open":
             return
@@ -461,31 +478,53 @@ class Dashboard(JobsAware, Screen):
 class ReadOnly(ModalScreen[None]):
     """`/knows`, `/done`, and an ACCOUNTS row opened: a page of text over
     whatever was open, in `page()`'s own shape - a title per section, then its
-    rows. A single flat list is one section with no heading. Any key closes
-    it - there is nothing on it to act on."""
+    rows. A single flat list is one section with no heading.
 
-    def __init__(self, title: str, sections: list) -> None:
+    Drawn and read through `tui._detail_frame`/`tui._in_detail` - the same
+    scrolling, tab strip (←→ across named sections) and "line N-M of T"
+    counter curses's own detail page has, not reimplemented here. Task #54
+    item 3: the earlier version dumped every row flat with no scroll and no
+    tabs, and closed on any key rather than only esc/q - fine for a short
+    page, wrong for one long enough to need either.
+    """
+
+    def __init__(self, title: str, sections: list, panel: int = tui.AGENTS,
+                key: object = None) -> None:
         super().__init__()
-        self.title_ = title
         if sections and not isinstance(sections[0], tuple):
             sections = [("", sections)]
-        self.sections = [(str(h), [str(r) for r in rows]) for h, rows in sections]
+        sections = [(str(h), [str(r) for r in rows]) for h, rows in sections]
+        self.detail = tui.page(title, sections, panel, key)
+        self.detail["read_only"] = True
+        self.flash = ""
 
     def compose(self) -> ComposeResult:
         yield Static(id="readonly")
 
     def on_mount(self) -> None:
-        w = max(20, self.app.size.width)
-        lines = [tui.fit(f"{tui.BOLD}{self.title_}{tui.R}", w), ""]
-        for heading, rows in self.sections:
-            if heading:
-                lines.append(tui.fit(f"{tui.DIM}{heading}{tui.R}", w))
-            lines += [tui.fit(r, w) for r in rows] + [""]
-        self.query_one("#readonly", Static).update(Text.from_ansi("\n".join(lines)))
+        self._redraw()
+
+    def _redraw(self) -> None:
+        size = self.size
+        width, height = max(20, size.width), max(6, size.height)
+        text = tui._detail_frame(width, height, self.detail, self.flash)
+        text = text.replace(tui.CLEAR_EOL, "")
+        self.query_one("#readonly", Static).update(Text.from_ansi(text))
 
     def on_key(self, event: events.Key) -> None:
+        k = key_token(event)
+        if k is None:
+            return
         event.stop()
-        self.dismiss(None)
+        if k in ("q", "Q", "\x03"):    # the same global quit every screen answers to
+            self.app.exit()
+            return
+        nxt, self.flash = tui._in_detail(self.detail, k, self.size.width, self.size.height)
+        if nxt is None:
+            self.dismiss(None)
+            return
+        self.detail = nxt
+        self._redraw()
 
 
 class AgentDraft(tui.Composer):
@@ -699,7 +738,7 @@ class AgentDetail(JobsAware, Screen):
             return
         if kind == "page":
             rows = actions.agent_knows(con, name) if cmd == "knows" else actions.agent_done(con, name)
-            await self.app.push_screen_wait(ReadOnly(f"{cmd} · {name}", rows))
+            await self.app.push_screen_wait(ReadOnly(f"{cmd} · {name}", rows, tui.AGENTS, name))
             return
         if kind == "cancel":
             await self._cancel(con, name, cmd.partition(" ")[2])
@@ -743,6 +782,15 @@ class BridgeApp(App):
         self.push_screen(Dashboard())
 
 
-def run() -> int:
+def run(once: bool = False) -> int:
+    """`once`, or stdout not a tty (a script or a pipe): one frame, printed
+    plain, no Textual app started - `tui.run`'s own non-interactive snapshot
+    (task #54 item 5), through the exact `tui.frame` the dashboard itself
+    draws with, so the two front ends cannot print a different picture of
+    the same state."""
+    if once or not sys.stdout.isatty():
+        size = shutil.get_terminal_size((100, 40))
+        print(tui.frame(min(size.columns, 200), size.lines))
+        return 0
     BridgeApp().run()
     return 0
