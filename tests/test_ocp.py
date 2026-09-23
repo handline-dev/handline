@@ -8,6 +8,7 @@ import argparse
 import atexit
 import contextlib
 import hashlib
+import http.server
 import io
 import json
 import os
@@ -21,6 +22,7 @@ import sqlite3
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 import traceback
 import types
@@ -36,8 +38,8 @@ from ocp import (accounts, actions, agents, ask as askmod, blocked as blockedmod
                  observe as obsmod, orca as orcamod, paths, rehome, replay as replaymod, service,
                  spawn as spawnmod,
                  status, team, textsafe, triggers, trust as trustmod, tui, usage_api, vendors,
-                  venv as venvmod, waiting,
-                  yamlcompat)  # noqa: E402
+                 venv as venvmod, waiting,
+                 yamlcompat)  # noqa: E402
 from ocp.vendors import opencode as ocmod  # noqa: E402
 
 PASS, FAIL = [], []
@@ -24416,23 +24418,24 @@ def test_the_zai_meter_reads_the_plan_and_hides_its_key(home: Path) -> None:
     drv.binary = lambda: "/x/bin/opencode"
     drv.credential_present = lambda config_dir: True
     asked: list[str] = []
+    body = {"raw": json.dumps(ZAI_QUOTA).encode()}
 
-    def fake_urlopen(req, timeout=None):
+    def fake_open(req, timeout=None):
         asked.append(req.headers.get("Authorization"))
-        body = json.dumps(ZAI_QUOTA).encode()
+        payload = body["raw"]
 
         class R:
             status = 200
             def read(self):
-                return body
+                return payload
             def __enter__(self):
                 return self
             def __exit__(self, *a):
                 return False
         return R()
 
-    real_urlopen = ocmod.urllib.request.urlopen
-    ocmod.urllib.request.urlopen = fake_urlopen
+    real_open = ocmod._OPENER.open
+    ocmod._OPENER.open = fake_open
     try:
         check("zai meter: the driver reports the vendor as metered",
               drv.meters() and status.metered("zai"))
@@ -24449,6 +24452,36 @@ def test_the_zai_meter_reads_the_plan_and_hides_its_key(home: Path) -> None:
         snap = paths.status_file("zai").read_text()
         check("zai meter: the reading lands in the status file without the key",
               "SECRET-ZAI-KEY" not in snap and '"pct_5h": 13' in snap, snap)
+
+        # A 200 is not an answer until it carries a figure: each of these
+        # shapes is could-not-look, because recorded it would read as a fresh
+        # null and a fresh null reads as quiet - 0% spent (#2025 blocker).
+        body["raw"] = json.dumps({"code": 200, "success": True, "data": {"limits": []}}).encode()
+        check("zai meter: a 200 with no limit rows is could-not-look, not 0%",
+              usage_api.read("zai", refresh=False) is None)
+        body["raw"] = json.dumps({"code": 200, "success": False, "data": {"limits": [
+            {"type": "CREDIT_LIMIT", "unit": 3, "percentage": 87}]}
+        }).encode()
+        check("zai meter: success naming a failure is could-not-look, whatever it carries",
+              usage_api.read("zai", refresh=False) is None)
+        body["raw"] = json.dumps({"code": 200, "success": True, "data": {"limits": [
+            {"type": "CREDIT_LIMIT", "unit": 6, "percentage": 9}]}
+        }).encode()
+        check("zai meter: no 5-hour figure is could-not-look, not a weekly-only reading",
+              usage_api.read("zai", refresh=False) is None)
+        body["raw"] = json.dumps({"code": 200, "success": True, "data": {"limits": [
+            {"type": "CREDIT_LIMIT", "unit": 3, "percentage": 87.5, "nextResetTime": 1790142946743},
+            {"type": "CREDIT_LIMIT", "unit": 6, "percentage": 2.9}]}
+        }).encode()
+        r = usage_api.read("zai", refresh=False)
+        check("zai meter: a float percentage is taken and rounded down, not dropped",
+              r is not None and r.pct_5h == 87 and r.pct_7d == 2, repr(r))
+        body["raw"] = json.dumps({"code": 500, "success": True, "data": {"limits": [
+            {"type": "CREDIT_LIMIT", "unit": 3, "percentage": 87}]}
+        }).encode()
+        check("zai meter: a code naming a failure is could-not-look",
+              usage_api.read("zai", refresh=False) is None)
+        body["raw"] = json.dumps(ZAI_QUOTA).encode()
 
         real_live = obsmod.live_sessions
         obsmod.live_sessions = lambda: {}
@@ -24471,7 +24504,58 @@ def test_the_zai_meter_reads_the_plan_and_hides_its_key(home: Path) -> None:
               usage_api.read("zai", refresh=False) is None)
     finally:
         del drv.binary, drv.credential_present
-        ocmod.urllib.request.urlopen = real_urlopen
+        ocmod._OPENER.open = real_open
+
+
+def test_the_quota_request_never_follows_a_redirect(home: Path) -> None:
+    """auditor #2025's note: urllib's redirect handler copies Authorization
+    onto the redirect, to any host. The quota request is sent with the
+    account's key, so a redirect must be refused outright - exercised here
+    against a real local server that answers the first request with a 301 to
+    a second one holding a perfectly good quota answer. Refused, the read is
+    could-not-look and the second endpoint is never asked; followed, it would
+    be a reading and the key would have arrived there."""
+    home.mkdir(parents=True, exist_ok=True)
+    os.environ["OCP_HOME"] = str(home)
+    accounts.register("zai", vendor="opencode")
+    cdir = vendors.config_dir("zai")
+    (cdir / "opencode").mkdir(parents=True, exist_ok=True)
+    (cdir / "opencode" / "auth.json").write_text(
+        '{"zai-coding-plan": {"type": "api", "key": "SECRET-ZAI-KEY"}}')
+
+    hits: list[str] = []
+
+    class Handler(http.server.BaseHTTPRequestHandler):
+        def do_GET(self):
+            hits.append(self.path)
+            if self.path == "/elsewhere":
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json")
+                self.end_headers()
+                self.wfile.write(json.dumps(ZAI_QUOTA).encode())
+            else:
+                self.send_response(301)
+                self.send_header("Location", f"/elsewhere?from={self.path}")
+                self.end_headers()
+
+        def log_message(self, *a):
+            pass
+
+    srv = http.server.HTTPServer(("127.0.0.1", 0), Handler)
+    thread = threading.Thread(target=srv.serve_forever, daemon=True)
+    thread.start()
+    drv = vendors.get("opencode")
+    real_url = drv.QUOTA_URL
+    drv.QUOTA_URL = f"http://127.0.0.1:{srv.server_port}/quota"
+    try:
+        check("zai redirect: a redirect is could-not-look, not a reading",
+              drv.usage_reading(cdir) is None)
+        check("zai redirect: and the redirect target was never asked",
+              hits == ["/quota"], str(hits))
+    finally:
+        drv.QUOTA_URL = real_url
+        srv.shutdown()
+        srv.server_close()
 
 
 def test_usage_api_record_stands_in_for_a_probe(home: Path) -> None:
@@ -26452,6 +26536,7 @@ def main() -> int:
         run(lambda: test_replay_burn_is_the_daemons_burn(Path(td) / 'replayburn'))
         run(lambda: test_usage_api_reads_a_window_nothing_has_been_spent_in())
         run(lambda: test_the_zai_meter_reads_the_plan_and_hides_its_key(Path(td) / 'zaimeter'))
+        run(lambda: test_the_quota_request_never_follows_a_redirect(Path(td) / 'zairedir'))
         run(lambda: test_usage_api_record_stands_in_for_a_probe(Path(td) / 'usagerec'))
         run(lambda: test_the_pull_reads_the_context_the_statusline_used_to_push(
             Path(td) / 'pull'))

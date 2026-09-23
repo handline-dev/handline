@@ -27,6 +27,18 @@ _BOX_BOTTOM = re.compile(r"^\s*\u2579\u2580{8,}")
 _FOOTER_ROWS = 6
 
 
+class _RefuseRedirect(urllib.request.HTTPRedirectHandler):
+    # urllib's default copies every request header - Authorization included -
+    # onto a redirect, to any host. The quota endpoint is asked with the
+    # account's key, so a redirect is refused outright: the answer it wants
+    # never lives anywhere else.
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        return None
+
+
+_OPENER = urllib.request.build_opener(_RefuseRedirect)
+
+
 
 class Opencode:
     name = "opencode"
@@ -68,12 +80,17 @@ class Opencode:
                                                        int | None, int | None] | None:
         """This account's (5h pct, 5h reset, week pct, week reset), or None
         when it could not be asked - "could not look", never "nothing spent".
+        A 200 whose body carries no usable 5-hour percentage is could not
+        look too: recorded, it would read as a fresh null, and a fresh null
+        reads as quiet - an 87% account taking work on the strength of an
+        answer that named no figure.
 
         The credential is read in memory for this one request (KICKOFF rule 1
         as amended, #2010). The key is never returned, logged, or written: it
         reaches no agent's env, prompt, terminal, logs, db, and no file ocp
-        writes. Reset instants are epoch seconds; the percentage comes as the
-        whole number the endpoint already floor-rounded.
+        writes. Reset instants are epoch seconds; the percentage arrives
+        sometimes as a float and is rounded down the way the endpoint's own
+        display does.
         """
         try:
             doc = json.loads((config_dir / "opencode" / "auth.json").read_text())
@@ -86,13 +103,20 @@ class Opencode:
             self.QUOTA_URL,
             headers={"Authorization": f"Bearer {key}", "Accept-Language": "en-US,en"})
         try:
-            with urllib.request.urlopen(req, timeout=10) as resp:
+            with _OPENER.open(req, timeout=10) as resp:
                 if resp.status != 200:
                     return None
                 payload = json.load(resp)
         except (urllib.error.URLError, OSError, json.JSONDecodeError, ValueError):
             return None
-        limits = (payload.get("data") or {}).get("limits") if isinstance(payload, dict) else None
+        if not isinstance(payload, dict):
+            return None
+        # Success and code are how the endpoint says the answer is an answer.
+        # Either one naming a failure - present but not success/200 - is not
+        # one, whatever else the body carries.
+        if payload.get("success") is False or payload.get("code") not in (None, 200):
+            return None
+        limits = (payload.get("data") or {}).get("limits")
         if not isinstance(limits, list):
             return None
         out: list[int | None] = [None, None, None, None]
@@ -104,10 +128,12 @@ class Opencode:
             if unit not in (self.FIVE_HOUR_UNIT, self.WEEK_UNIT):
                 continue
             i = 0 if unit == self.FIVE_HOUR_UNIT else 2
-            if isinstance(pct, int) and not isinstance(pct, bool):
-                out[i] = max(0, min(100, pct))
+            if isinstance(pct, (int, float)) and not isinstance(pct, bool):
+                out[i] = max(0, min(100, int(pct)))
             if isinstance(reset, (int, float)) and not isinstance(reset, bool):
                 out[i + 1] = int(reset // 1000)
+        if out[0] is None:
+            return None
         return tuple(out)
 
     def is_resume(self, extra: list[str] | None) -> bool:
