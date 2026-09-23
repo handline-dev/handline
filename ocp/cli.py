@@ -467,6 +467,20 @@ def cmd_task_link(args) -> int:
     return 0
 
 
+def cmd_task_edit(args) -> int:
+    me = askmod.asking_agent()
+    if me is None:
+        print(_who_refusal("edit a task"))
+        return 1
+    con = db.connect()
+    try:
+        ok, msg = actions.edit_task(con, args.task, me, owner=args.owner, title=args.title)
+        print(msg)
+    finally:
+        con.close()
+    return 0 if ok else 1
+
+
 def _print_board(con, tasks: list) -> None:
     """Each task, then the requests linked to it as they stand now: state and
     date are read from the request, never held on the task."""
@@ -475,8 +489,9 @@ def _print_board(con, tasks: list) -> None:
         return
     for t in tasks:
         parent = f" (under #{t['parent_task']})" if t["parent_task"] else ""
+        edited = f"  edited by {textsafe.oneline(t['edited_by'])}" if t["edited_by"] else ""
         done = f"  CLOSED: {textsafe.oneline(t['closed_by'])}" if t["closed_by"] else ""
-        print(f"#{t['id']:<4} {textsafe.oneline(t['title'])}  [{t['owner']}]{parent}{done}")
+        print(f"#{t['id']:<4} {textsafe.oneline(t['title'])}  [{t['owner']}]{parent}{edited}{done}")
         for r in db.task_requests(con, t["id"]):
             when = time.strftime("%Y-%m-%d %H:%M", time.localtime(r["ts"]))
             print(f"        request #{r['id']} {r['requester']} → {r['target']} "
@@ -2207,6 +2222,12 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("task", type=int)
     p.add_argument("request", type=int)
     p.set_defaults(fn=cmd_task_link)
+    p = tk.add_parser("edit", help="change a task's owner and/or title - opener or "
+                                   "founder only, and never silent about it")
+    p.add_argument("task", type=int)
+    p.add_argument("--owner", default=None, help="fixing who was named, not handing off work")
+    p.add_argument("--title", default=None)
+    p.set_defaults(fn=cmd_task_edit)
 
     p = sub.add_parser("resume", help="hand a parked agent back its handoff")
     p.add_argument("agent")

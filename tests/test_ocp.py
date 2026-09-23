@@ -10648,7 +10648,8 @@ def test_only_the_agents_own_events_move_its_activity_clock(home: Path) -> None:
     clock to when it was closed) all share. Every classification is proven
     individually, not just asserted in bulk."""
     daemon_kinds = {"account_mismatch", "answered", "close", "close_failed", "close_task",
-                    "cold_start", "dialog_declined", "dialog_exit_chosen", "fold", "fold_failed",
+                    "cold_start", "dialog_declined", "dialog_exit_chosen", "edit_task",
+                    "fold", "fold_failed",
                     "forced_move", "handoff", "memory_migrated", "moved_account", "nudged",
                     "notified", "park", "session_gone", "started_for_work", "terminal_gone",
                     "unstuck", "trust_confirmed", "wake", "wake_failed", "SessionStart",
@@ -10659,6 +10660,9 @@ def test_only_the_agents_own_events_move_its_activity_clock(home: Path) -> None:
     # exists in actions.py for any future caller that does not - and this is
     # the allow-list that decides what a fallback like that can do to a
     # clock, not just what today's one caller happens to send (#1565 SF3).
+    # edit_task is here for the same reason as close_task: editing the board
+    # is not the edited agent doing work, and it is often the founder or a
+    # manager editing someone else's task entirely.
 
     # Literal add_event(agent, "kind", ...) call sites: every one sorted, and
     # the scan proven to have read every site, not just the ones its regex
@@ -19922,7 +19926,11 @@ def test_no_command_prints_what_a_terminal_would_obey(home: Path) -> None:
         "service status": "launchd; prints a pid",
         "close": "an agent's session is ended through Orca; the task half is driven by test_closing_a_task_needs_evidence_and_no_open_child",
         "task new": "writes a row; prints its id and an owner already checked against the registry",
-        "task link": "writes a row; prints two ids", "base promote": "writes base.md; prints sizes and a path",
+        "task link": "writes a row; prints two ids",
+        "task edit": "writes a row; driven in "
+                     "test_editing_a_task_needs_the_opener_or_the_founder_and_is_never_silent, "
+                     "not this scene",
+        "base promote": "writes base.md; prints sizes and a path",
         "hr relabel": "calls Orca directly, no proposal; driven in "
                       "test_a_rename_names_the_agents_orca_worktree, not this scene",
         "hr rehome": "moves a git worktree and Claude's project directories; driven in "
@@ -24104,6 +24112,71 @@ def test_task_new_list_and_link(home: Path) -> None:
           and f"request #{rid}" in out, out)
 
 
+def test_editing_a_task_needs_the_opener_or_the_founder_and_is_never_silent(home: Path) -> None:
+    """#1880/#19: change a task's owner and/or title, only for the opener or
+    the founder, and always stamped with who and when (the same evidence
+    close_task leaves on closed_by/closed_at)."""
+    _board_world(home)
+    con = db.connect()
+    try:
+        tid = db.new_task(con, "first title", "worker", "manager")
+    finally:
+        con.close()
+
+    rc, out = _cli(["task", "edit", str(tid), "--title", "renamed"], as_agent="worker")
+    check("edit: refused for anyone but the opener or the founder", rc == 1, out)
+    con = db.connect()
+    try:
+        row = db.get_task(con, tid)
+        check("edit: refused, the title did not move", row["title"] == "first title", str(dict(row)))
+        check("edit: refused, no evidence was written", row["edited_by"] is None)
+        n = con.execute("SELECT COUNT(*) c FROM events WHERE kind = 'edit_task'").fetchone()["c"]
+        check("edit: refused, no event was written", n == 0)
+    finally:
+        con.close()
+
+    rc, out = _cli(["task", "edit", str(tid), "--title", "renamed by opener"], as_agent="manager")
+    check("edit: the opener may edit", rc == 0 and "renamed by opener" in out, out)
+    con = db.connect()
+    try:
+        row = db.get_task(con, tid)
+        check("edit: the title changed", row["title"] == "renamed by opener", str(dict(row)))
+        check("edit: edited_by records who", row["edited_by"] == "manager")
+        check("edit: edited_at records when", row["edited_at"] is not None)
+        ev = con.execute("SELECT * FROM events WHERE kind = 'edit_task' ORDER BY id"
+                         ).fetchall()
+        check("edit: one event, naming the old and new title", len(ev) == 1
+              and json.loads(ev[0]["payload"])["title"] == {"old": "first title",
+                                                             "new": "renamed by opener"},
+              str([dict(e) for e in ev]))
+    finally:
+        con.close()
+
+    rc, out = _cli(["task", "edit", str(tid), "--owner", "manager"], as_agent=askmod.HUMAN)
+    check("edit: the founder may edit a task it did not open", rc == 0 and "owner" in out, out)
+    con = db.connect()
+    try:
+        row = db.get_task(con, tid)
+        check("edit: the owner changed", row["owner"] == "manager", str(dict(row)))
+        check("edit: edited_by now records the founder", row["edited_by"] == askmod.HUMAN)
+    finally:
+        con.close()
+
+    rc, out = _cli(["task", "edit", str(tid), "--owner", "nobody"], as_agent="manager")
+    check("edit: an owner that is not an agent is refused", rc == 1 and "no agent" in out, out)
+    rc, out = _cli(["task", "edit", str(tid)], as_agent="manager")
+    check("edit: needs at least one field to change", rc == 1, out)
+    rc, out = _cli(["task", "edit", str(tid), "--owner", "manager"], as_agent="manager")
+    check("edit: a no-op edit (same value) is refused, not written as an event",
+          rc == 1 and "nothing to edit" in out, out)
+    rc, out = _cli(["task", "edit", "99", "--title", "x"], as_agent="manager")
+    check("edit: no such task", rc == 1 and "no task" in out, out)
+
+    rc, out = _cli(["task", "edit", str(tid), "--title", "x"], as_agent=None)
+    check("edit: with no identity and no tty, refused rather than guessed at",
+          rc == 1 and "OCP_AGENT" in out, out)
+
+
 def test_resolving_the_founders_request_says_what_it_becomes(home: Path) -> None:
     """The guard (#1259): every human-requester resolve, including a reply in a
     running thread, needs --task or --no-task; nothing else is guarded."""
@@ -25745,6 +25818,8 @@ def main() -> int:
         run(lambda: test_the_screen_says_when_two_daemons_are_running(Path(td) / 'dmnwarn'))
         run(lambda: test_a_task_row_holds_its_fields_and_nothing_else(Path(td) / 'taskinv'))
         run(lambda: test_task_new_list_and_link(Path(td) / 'tasknew'))
+        run(lambda: test_editing_a_task_needs_the_opener_or_the_founder_and_is_never_silent(
+            Path(td) / 'taskedit'))
         run(lambda: test_resolving_the_founders_request_says_what_it_becomes(Path(td) / 'taskguard'))
         run(lambda: test_closing_a_task_needs_evidence_and_no_open_child(Path(td) / 'taskclose'))
         run(lambda: test_close_task_refuses_without_an_identity_and_does_not_move_a_clock(Path(td) / 'taskcloseid'))

@@ -99,6 +99,13 @@ CREATE TABLE IF NOT EXISTS tasks (
   -- hatch for a reason that happens to look like hex) would otherwise read
   -- as a sha close.
   closed_via   TEXT,
+  -- Who last edited the owner or title, and when - `ocp task edit`'s
+  -- evidence, the same job closed_by/closed_at do for a close. NULL until
+  -- the first edit; overwritten by each later one, so this is the latest
+  -- edit only - the full history (old value, new value) is in `events`
+  -- under kind 'edit_task', one row per edit.
+  edited_by    TEXT,
+  edited_at    INTEGER,
   created_at   INTEGER NOT NULL
 );
 CREATE TABLE IF NOT EXISTS task_requests (
@@ -359,6 +366,12 @@ def _pre_schema_migrate(con) -> None:
                 "SELECT id, closed_by FROM tasks WHERE closed_by IS NOT NULL").fetchall():
             via = "sha" if re.fullmatch(r"[0-9a-fA-F]{4,40}", r["closed_by"]) else "reason"
             con.execute("UPDATE tasks SET closed_via = ? WHERE id = ?", (via, r["id"]))
+    if task_cols and "edited_by" not in task_cols:
+        con.execute("ALTER TABLE tasks ADD COLUMN edited_by TEXT")
+        # No backfill: no existing installation has ever edited a task
+        # (the verb did not exist), so every row's history here is empty.
+    if task_cols and "edited_at" not in task_cols:
+        con.execute("ALTER TABLE tasks ADD COLUMN edited_at INTEGER")
 
 
 def _unhide_the_humans_answers(con) -> None:
@@ -792,7 +805,7 @@ def set_moot_by(con, rid: int, by: int) -> bool:
 # there is one place each fact lives and nothing to drift. Adding a column to
 # `tasks` means adding it here, and a test fails until both agree.
 TASK_FIELDS = ("id", "title", "owner", "parent_task", "opened_by", "closed_by", "closed_at",
-               "closed_via", "created_at")
+               "closed_via", "edited_by", "edited_at", "created_at")
 
 
 def new_task(con, title: str, owner: str, opened_by: str,
@@ -833,6 +846,24 @@ def close_task(con, tid: int, closed_by: str, via: str = "reason") -> bool:
         "WHERE id = ? AND closed_by IS NULL",
         (closed_by, int(time.time()), via, tid))
     return cur.rowcount > 0
+
+
+def edit_task(con, tid: int, by: str, owner: str | None = None,
+              title: str | None = None) -> None:
+    """Write a changed owner and/or title, stamped with who and when - the
+    same evidence close_task leaves on closed_by/closed_at. Caller has
+    already checked permission and that something actually changed; this
+    only writes."""
+    sets = ["edited_by = ?", "edited_at = ?"]
+    params: list = [by, int(time.time())]
+    if owner is not None:
+        sets.append("owner = ?")
+        params.append(owner)
+    if title is not None:
+        sets.append("title = ?")
+        params.append(title)
+    params.append(tid)
+    con.execute(f"UPDATE tasks SET {', '.join(sets)} WHERE id = ?", params)
 
 
 def link_request(con, tid: int, rid: int) -> None:
