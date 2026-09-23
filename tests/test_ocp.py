@@ -3861,6 +3861,29 @@ def test_dev_mode_fingerprint_and_restart_decision(tmp_path: Path, home: Path) -
         dmn.set_dev_mode(False)
 
 
+def test_dev_mode_fingerprint_skips_a_missing_watched_file(tmp_path: Path) -> None:
+    """auditor #2174 should-fix: `_code_fingerprint`'s try/except around
+    stat() has to actually run to matter, and both restart-decision tests
+    replace `_dev_mode_should_restart` whole, so the fingerprint code never
+    executes under them. `_watched_files` no longer filters by `exists()`,
+    so this skip is what stands between a missing requirements.txt/bin/ocp
+    (or one caught mid-merge) and `_dev_mode_should_restart` never getting
+    past 'check failed' every tick."""
+    root = tmp_path / "repo"
+    (root / "ocp").mkdir(parents=True)
+    (root / "bin").mkdir()
+    (root / "ocp" / "cli.py").write_text("x = 1\n")
+    (root / "bin" / "ocp").write_text("#!/bin/sh\n")
+    # requirements.txt is listed by _watched_files but never created.
+    fp = dmn._code_fingerprint(root)
+    check("dev-mode fingerprint: a missing watched file does not raise",
+          isinstance(fp, tuple), str(fp))
+    check("dev-mode fingerprint: the missing file is left out, not fingerprinted as absent",
+          "requirements.txt" not in str(fp), str(fp))
+    check("dev-mode fingerprint: the files that do exist are still in it",
+          len(fp) == 2, str(fp))
+
+
 def test_dev_mode_import_check_runs_the_real_entrypoint(home: Path) -> None:
     """`_dev_import_check` execs `bin/ocp --help` - the actual restart path,
     not a bare `python -c import` - so a broken bash wrapper or a broken
@@ -28081,6 +28104,7 @@ def main() -> int:
         run(lambda: test_dev_mode_config_round_trips(Path(td) / 'devmodecfg'))
         run(lambda: test_dev_mode_fingerprint_and_restart_decision(
             Path(td) / 'devmodefp_repo', Path(td) / 'devmodefp_home'))
+        run(lambda: test_dev_mode_fingerprint_skips_a_missing_watched_file(Path(td) / 'devmodefpmissing'))
         run(lambda: test_dev_mode_import_check_runs_the_real_entrypoint(Path(td) / 'devmodeimport'))
         run(lambda: test_dev_mode_restart_execs_after_the_lock_and_db_are_released(Path(td) / 'devmoderestart'))
         run(lambda: test_dev_mode_check_failing_degrades_not_crashes(Path(td) / 'devmodedegrade'))
