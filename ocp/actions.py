@@ -165,13 +165,22 @@ def terminal(con, agent: str, repo: str | None = None) -> str:
 
 def message(con, agent: str, body: str) -> str:
     """Send an agent work, as the human."""
+    return message_ok(con, agent, body)[1]
+
+
+def message_ok(con, agent: str, body: str) -> tuple[bool, str]:
+    """`message`, and whether it went: what is typed is kept unless it did."""
     if not body.strip():
-        return "nothing sent: no message typed"
+        return False, "nothing sent: no message typed"
     ok, msg, _ = askmod.ask(agent, body, requester=HUMAN)
-    return msg
+    return ok, msg
 
 
 def answer(con, rid: int, verdict: str) -> str:
+    return answer_ok(con, rid, verdict)[1]
+
+
+def answer_ok(con, rid: int, verdict: str) -> tuple[bool, str]:
     """Reply to one row of the human's mailbox, whichever way it is pointing.
 
     Two rows land in that mailbox and the same key has to work on both. A
@@ -182,19 +191,18 @@ def answer(con, rid: int, verdict: str) -> str:
     known for certain rather than guessed at.
     """
     if not verdict.strip():
-        return "nothing sent: no answer typed"
+        return False, "nothing sent: no answer typed"
     row = db.get_request(con, rid)
     if row is None:
-        return f"#{rid} is gone"
+        return False, f"#{rid} is gone"
     if _is_answer_to_human(row):
         ok, msg, _ = askmod.ask(row["target"], verdict, requester=HUMAN, parent_id=rid)
         if ok:
             # Replied to is read: leaving it in the mailbox would ask the human
             # to dismiss what they have just answered.
             db.mark_announced(con, [rid])
-        return msg
-    ok, msg = askmod.resolve(rid, verdict)
-    return msg
+        return ok, msg
+    return askmod.resolve(rid, verdict)
 
 
 def record_human_resolve(con, rid: int, tasks: list[int] | None, no_task: str | None,
@@ -1393,16 +1401,21 @@ def chat_target(con, agent: str) -> tuple[str, int | None]:
 
 def chat_reply(con, agent: str, body: str) -> str:
     """Send the human's message where `chat_target` says it goes."""
+    return chat_reply_ok(con, agent, body)[1]
+
+
+def chat_reply_ok(con, agent: str, body: str) -> tuple[bool, str]:
+    """`chat_reply`, and whether it went."""
     if not body.strip():
-        return "nothing sent: no message typed"
+        return False, "nothing sent: no message typed"
     how, rid = chat_target(con, agent)
     if how == "new":
-        return message(con, agent, body)
+        return message_ok(con, agent, body)
     row = db.get_request(con, rid)
     if how == "answers" or _is_answer_to_human(row):
-        return answer(con, rid, body)
+        return answer_ok(con, rid, body)
     ok, msg, _ = askmod.ask(agent, body, requester=HUMAN, parent_id=rid)
-    return msg
+    return ok, msg
 
 
 def _seen_key(agent: str) -> str:
@@ -1636,4 +1649,59 @@ def _trust_one_worktree(acct: str, agent: str, worktree: str) -> str:
         return result
     finally:
         orca.close_terminal(handle)
+
+
+# ------------------------------------------------- acting without holding a screen
+# Everything above returns when it is done, and some of it is not quick: it waits
+# for an agent to finish its turn, for a session to appear, for a model. The
+# bridge runs a verb in a process of its own (`ocp.actrun`) and says, while it
+# runs, what it can be waiting for and how long the longest of those waits is.
+# The verbs are the ones a key on the bridge acts with; nothing else can be asked.
+ASYNC_VERBS = ("wake", "close", "park", "fold", "unstall", "terminal", "message", "answer",
+               "dismiss", "cancel", "move", "chat_reply")
+
+_IDLE_WAIT_S = orca.IDLE_TIMEOUT_MS // 1000 + 30       # wait_idle's own subprocess bound
+_DELIVERY_S = daemon.WAKE_SESSION_TIMEOUT_S + _IDLE_WAIT_S + 60
+
+# verb -> (what it can be waiting for, the longest that can take in seconds). The
+# longest is the sum of the waits on the path, each bounded by the constant that
+# bounds it; it is not a promise about a typical run, it is the point past which
+# something is wrong - and the point `ocp.actrun` is stopped, not just flagged
+# (jobs.py). Verbs that only write the record say nothing and are given a minute.
+WAITS: dict[str, tuple[str, int]] = {
+    "wake": ("its session to start and settle", _DELIVERY_S),
+    "close": ("it to finish its turn, then its session to end",
+              _IDLE_WAIT_S + 30 + daemon.END_WAIT_S + 15),
+    "park": ("its handoff to be recorded and its context cleared", _DELIVERY_S),
+    "move": ("its handoff, then its session to end and start elsewhere", 2 * _DELIVERY_S),
+    "fold": ("the model to fold the day's events", foldmod.FOLD_TIMEOUT_S + 30),
+    "terminal": ("a terminal to be made and its session to start",
+                 120 + STARTED_TIMEOUT_S + _IDLE_WAIT_S),
+    "message": ("its terminal to be idle, then the message to be typed", _DELIVERY_S),
+    "chat_reply": ("its terminal to be idle, then the message to be typed", _DELIVERY_S),
+    "answer": ("the terminal it is delivered to to be idle", _DELIVERY_S),
+    "cancel": ("both ends to be told", _DELIVERY_S),
+    "dismiss": ("", 60),
+    "unstall": ("", 60),
+}
+
+
+def perform(verb: str, *args, **kwargs) -> str:
+    """Run one of `ASYNC_VERBS` on a connection of its own and return what it says.
+    The one door the bridge's worker process (`ocp.actrun`) goes in by.
+
+    Every verb here says what happened in words; `dismiss` alone also returns
+    whether a guard refused it (its callers already unpack that), which is not
+    something `ocp.actrun`'s one-line JSON answer has a second slot for - the
+    words already carry a refusal ("is not yours to dismiss"), so only the
+    words cross this door.
+    """
+    if verb not in ASYNC_VERBS:
+        raise ValueError(f"not an action: {verb!r}")
+    con = db.connect()
+    try:
+        result = globals()[verb](con, *args, **kwargs)
+        return result[1] if isinstance(result, tuple) else result
+    finally:
+        con.close()
 

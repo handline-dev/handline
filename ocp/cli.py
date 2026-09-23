@@ -729,6 +729,14 @@ def cmd_spawn(args) -> int:
 
 
 def cmd_bridge(args) -> int:
+    if args.textual:
+        try:
+            from . import bridge_textual
+        except ImportError as e:
+            print(f"ocp bridge --textual needs the `textual` package: {e}\n"
+                  f"`ocp venv install` puts it in $OCP_HOME/venv (see requirements.txt).")
+            return 1
+        return bridge_textual.run()
     return tui.run(interval=args.interval, once=args.once)
 
 
@@ -2192,6 +2200,8 @@ def build_parser() -> argparse.ArgumentParser:
                        help="the screen the team is run from")
     p.add_argument("--interval", type=float, default=2.0)
     p.add_argument("--once", action="store_true", help="print one frame and exit")
+    p.add_argument("--textual", action="store_true",
+                   help="the dashboard, ported to Textual (task #45) - one screen so far")
     p.set_defaults(fn=cmd_bridge)
 
     bs = sub.add_parser("base", help="the per-session fixed context").add_subparsers(

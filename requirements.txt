@@ -1,4 +1,4 @@
 # What $OCP_HOME/venv is installed from - the one place a dependency is
 # decided, read by both `ocp venv install` (ocp/venv.py) and bin/ocp-venv's
-# own staleness check. Empty for now: this venv exists to give ocp a known
-# interpreter, not yet to carry PyYAML - that is its own, later change.
+# own staleness check.
+textual>=0.58

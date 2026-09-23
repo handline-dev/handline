@@ -32,7 +32,7 @@ sys.path.insert(0, str(ROOT))
 from ocp import (accounts, actions, agents, ask as askmod, blocked as blockedmod, burnrate, cli as climod, collect, daemon as dmn, db, hr,
                  digest,
                  doctor, drift, events as evmod, fold as foldmod,
-                 handoff as handoffmod, launch, load as loadmod, lock, measure,
+                 handoff as handoffmod, jobs as jobsmod, launch, load as loadmod, lock, measure,
                  observe as obsmod, orca as orcamod, paths, rehome, replay as replaymod, service,
                  spawn as spawnmod,
                  status, team, textsafe, triggers, trust as trustmod, tui, usage_api, vendors,
@@ -24041,6 +24041,212 @@ def run(one) -> None:
         os.environ["OCP_TEST"] = prev_test
 
 
+def _python_with_textual() -> str | None:
+    """A python3 that can import textual: the interpreter running the suite when
+    it can, else the real machine's $OCP_HOME/venv (requirements.txt,
+    ocp/venv.py) - textual is only ever installed there, never assumed on
+    whatever runs this suite. `paths.default_home()`, not whatever OCP_HOME an
+    earlier test in this run happens to have left set: this asks about the
+    actual machine, not a fixture."""
+    candidates = [sys.executable, str(venvmod.venv_python(paths.default_home() / "venv"))]
+    for py in candidates:
+        if py and Path(py).exists() and subprocess.run(
+                [py, "-c", "import textual"], capture_output=True).returncode == 0:
+            return py
+    return None
+
+
+def test_bridge_textual_flag_fails_loud_without_the_package() -> None:
+    """`ocp bridge --textual` on an interpreter with no `textual` (this suite's
+    own, most of the time - see `_python_with_textual`) says so and how to fix
+    it, rather than a bare traceback or a silent fall back to curses."""
+    try:
+        import textual  # noqa: F401
+        check("bridge --textual: this interpreter already has textual - "
+              "nothing to test the refusal against here", True)
+        return
+    except ImportError:
+        pass
+    buf = io.StringIO()
+    with contextlib.redirect_stdout(buf):
+        code = climod.main(["bridge", "--textual"])
+    out = buf.getvalue()
+    check("bridge --textual: missing the package fails loud with the fix",
+          code == 1 and "ocp venv install" in out and "textual" in out, out)
+
+
+def test_bridge_textual_dashboard() -> None:
+    """task #45: the Textual port's first screen (ocp/bridge_textual.py) - its
+    own tests, in tests/test_bridge_textual.py, need `textual` to import at
+    all. Without it on the interpreter running this suite the file is run
+    under one that has it (`ocp venv install`'s own venv), the same way
+    test_yaml_differential falls back to a python3 with PyYAML - a missing
+    dependency must fail loud, not leave the screen unexercised on whichever
+    python happens to run the suite."""
+    py = _python_with_textual()
+    if py is None:
+        check("bridge_textual: a python3 with textual to run its tests under", False,
+              "none found; `ocp venv install` puts it in $OCP_HOME/venv")
+        return
+    script = Path(__file__).resolve().parent / "test_bridge_textual.py"
+    r = subprocess.run([py, str(script)], capture_output=True, text=True, timeout=120,
+                       env={k: v for k, v in os.environ.items() if k != "OCP_AGENT"})
+    out = r.stdout + r.stderr
+    check(f"bridge_textual: under {py}, its own tests all pass",
+          r.returncode == 0 and "passed, 0 failed" in out, out[-2000:])
+
+
+def test_jobs_refuses_a_busy_target_and_a_full_queue(home: Path) -> None:
+    """`ocp/jobs.py` (task #45): a second action on a target already running one
+    is refused with what is running and for how long, not queued or dropped;
+    a fifth action while `MAX_JOBS` already run is refused for the same reason
+    a screen has no room to show more than a few at once."""
+    _daemon_home(home, 20)
+    agents.register("reviewer", "alpha")
+    jobs = jobsmod.Jobs()
+    now = time.time()
+    busy = jobsmod.Job("close", "reviewer", "closing reviewer", None, now - 4)
+    jobs.running = [busy]
+    said = jobs.start("wake", "reviewer", "waking reviewer")
+    check("jobs: a second action on a busy target is refused, naming what is running",
+          "still closing reviewer" in said and "4s" in said, said)
+    check("jobs: the refusal starts nothing new", jobs.running == [busy])
+
+    jobs.running = [jobsmod.Job("close", f"agent{i}", "x", None, now) for i in range(jobsmod.MAX_JOBS)]
+    said = jobs.start("wake", "reviewer", "waking reviewer")
+    check("jobs: a full queue is refused too, saying how many are already running",
+          str(jobsmod.MAX_JOBS) in said and "already running" in said, said)
+
+
+def test_jobs_runs_the_real_actrun_and_answers_or_refuses(home: Path) -> None:
+    """`ocp.actrun` is the process `Jobs.start` hands a verb to: it runs through
+    `actions.perform` and answers as JSON, and refuses anything that is not one
+    of `actions.ASYNC_VERBS`. Every verb has something to say while it runs."""
+    _daemon_home(home, 20)
+    agents.register("reviewer", "alpha")
+    check("jobs: every verb the screen may run has what it waits for and how long",
+          set(actions.ASYNC_VERBS) == set(actions.WAITS)
+          and all(isinstance(v[1], int) and v[1] > 0 for v in actions.WAITS.values()),
+          str(set(actions.ASYNC_VERBS) ^ set(actions.WAITS)))
+    check("jobs: the long ones say what they wait on, the writes to the record say nothing",
+          all(actions.WAITS[v][0] for v in ("wake", "close", "park", "move", "fold", "terminal",
+                                            "message", "answer", "cancel"))
+          and not actions.WAITS["dismiss"][0] and not actions.WAITS["unstall"][0])
+
+    def ask(request: dict) -> tuple[dict, int]:
+        r = subprocess.run([sys.executable, "-m", "ocp.actrun"], input=json.dumps(request),
+                           capture_output=True, text=True, cwd=str(ROOT), env=dict(os.environ),
+                           timeout=60)
+        return json.loads(r.stdout.strip().splitlines()[-1]), r.returncode
+
+    said, code = ask({"verb": "unstall", "args": ["reviewer"]})
+    check("jobs: a verb answers as the action does", said["ok"] and "not STALLED" in said["said"]
+          and code == 0, str(said))
+    said, code = ask({"verb": "dismiss", "args": [999], "kwargs": {"me": "human"}})
+    check("jobs: keyword arguments arrive", said["ok"] and "gone" in said["said"], str(said))
+    said, code = ask({"verb": "os.system", "args": ["true"]})
+    check("jobs: anything that is not an action is refused, and says so",
+          not said["ok"] and "not an action" in said["said"] and code == 1, str(said))
+
+    jobs = jobsmod.Jobs()
+    check("jobs: through Jobs itself, with the real runner, it starts",
+          jobs.start("unstall", "reviewer", "unstalling reviewer", ("reviewer",)) == "")
+    deadline, out = time.time() + 20, []
+    while time.time() < deadline and not out:
+        out = jobs.reap()
+        time.sleep(0.05)
+    check("jobs: and its answer comes back the same way", out and "not STALLED" in out[0], str(out))
+
+
+def test_jobs_stops_a_hung_action_at_its_declared_bound_not_past_it(home: Path) -> None:
+    """The bug task #45 names: the old curses branch declared a verb's longest
+    wait and then let it run another 30s past that before even asking it to
+    stop - dismiss said "60s" and nothing killed it before 90. Here the stop
+    fires the moment a job is older than its own declared `longest`, so what a
+    screen says and when it acts agree - checked against the wall clock, not
+    trusted from the source."""
+    _daemon_home(home, 20)
+    agents.register("reviewer", "alpha")
+    stub = home / "stub_hang.py"
+    stub.write_text("import time\nwhile True:\n    time.sleep(60)\n")
+    real_command, real_wait, real_grace = jobsmod.ACT_COMMAND, actions.WAITS.get("dismiss"), jobsmod.GRACE_S
+    try:
+        jobsmod.ACT_COMMAND = [sys.executable, str(stub)]
+        actions.WAITS["dismiss"] = ("", 1)     # `longest` = 1s, so the bound is quick to observe
+        jobs = jobsmod.Jobs()
+        said = jobs.start("dismiss", "reviewer", "dismissing reviewer")
+        check("jobs: the hung action starts", said == "", said)
+        started = time.time()
+        # Still running just before its declared bound: it is not stopped early.
+        time.sleep(0.7)
+        jobs.reap()
+        check("jobs: it is not stopped before its own declared longest",
+              jobs.running, "stopped early")
+        deadline = started + 1 + jobsmod.GRACE_S + 3     # generous margin past the fix's own bound
+        stopped_at = None
+        while time.time() < deadline:
+            if not jobs.reap() and not jobs.running:
+                break
+            if jobs.running and jobs.running[0].stopped_at is not None and stopped_at is None:
+                stopped_at = jobs.running[0].stopped_at
+            if not jobs.running:
+                break
+            time.sleep(0.05)
+        took = time.time() - started
+        check("jobs: it is killed close to its declared bound, not 30s past it",
+              took < 1 + jobsmod.GRACE_S + 2, f"took {took:.1f}s for a 1s bound")
+        check("jobs: `terminate()` itself fires at the declared bound, before any extra grace",
+              stopped_at is not None and stopped_at - started < 1 + 1,
+              f"stopped_at {stopped_at}, started {started}")
+    finally:
+        jobsmod.ACT_COMMAND, jobsmod.GRACE_S = real_command, real_grace
+        if real_wait is not None:
+            actions.WAITS["dismiss"] = real_wait
+
+
+def test_jobs_lines_reports_state_honestly(home: Path) -> None:
+    """The line for a running action: not there for one just started, said in
+    each state it can be in (ordinary, slow, past its bound, stopped), capped
+    at three with the rest counted, never a colour of its own."""
+    _daemon_home(home, 20)
+    now = time.time()
+
+    def job(target: str, age: float, longest: int = 100, stopped: bool = False) -> jobsmod.Job:
+        j = jobsmod.Job("close", target, f"closing {target}", None, now - age)
+        j.longest = longest
+        j.stopped_at = now if stopped else None
+        return j
+
+    jobs = jobsmod.Jobs()
+    jobs.running = [job("a", 0.1)]
+    check("lines: an action that has only just started is not drawn", jobs.lines(now) == [])
+
+    jobs.running = [job("a", 3)]
+    rows = jobs.lines(now)
+    check("lines: it says what it is, what it waits for, how long, and the longest",
+          "closing a" in rows[0].text and "waiting for it to finish its turn" in rows[0].text
+          and "3s" in rows[0].text and "longest 1m40s" in rows[0].text, rows[0].text)
+    check("lines: normal while ordinary", rows[0].level == "normal", rows[0].level)
+
+    jobs.running = [job("a", 20)]
+    check("lines: slow once it has taken a while", jobs.lines(now)[0].level == "slow")
+
+    jobs.running = [job("a", 130)]
+    row = jobs.lines(now)[0]
+    check("lines: danger past its own declared longest, and says so in words",
+          row.level == "danger" and "past the longest" in row.text, row.text)
+
+    jobs.running = [job("a", 130, stopped=True)]
+    row = jobs.lines(now)[0]
+    check("lines: one that has been told to stop says so, not a countdown",
+          row.level == "danger" and "no answer, stopping it" in row.text, row.text)
+
+    jobs.running = [job(n, 3 + i) for i, n in enumerate("abcde")]
+    rows = jobs.lines(now)
+    check("lines: at most three rows, and the rest are counted",
+          len(rows) == 4 and "+ 2 more running" in rows[-1].text, str([r.text for r in rows]))
+
+
 def test_venv(home: Path) -> None:
     """ocp/venv.py's own docstring: `is_stale` is a second copy of the sha256
     comparison bin/ocp-venv's bash wrapper makes, kept honest by a test that
@@ -26048,6 +26254,13 @@ def main() -> int:
         run(lambda: test_moot_by_records_who_retired_a_row(Path(td) / 'mootby'))
         run(lambda: test_retires_is_refused_on_a_row_that_is_not_the_resolvers(Path(td) / 'retiresown'))
         run(lambda: test_reason_gaps_count_from_the_shapes_the_verbs_write(Path(td) / 'reasongaps'))
+        run(lambda: test_bridge_textual_flag_fails_loud_without_the_package())
+        run(lambda: test_bridge_textual_dashboard())
+        run(lambda: test_jobs_refuses_a_busy_target_and_a_full_queue(Path(td) / 'jobsbusy'))
+        run(lambda: test_jobs_runs_the_real_actrun_and_answers_or_refuses(Path(td) / 'jobsrun'))
+        run(lambda: test_jobs_stops_a_hung_action_at_its_declared_bound_not_past_it(
+            Path(td) / 'jobsbound'))
+        run(lambda: test_jobs_lines_reports_state_honestly(Path(td) / 'jobslines'))
         run(lambda: test_venv(Path(td) / 'venvhome'))
         run(lambda: test_run_recovers_from_an_uncaught_error())
         run(lambda: test_restore_world_pops_orca_env_vars_a_real_terminal_would_leave_set())
