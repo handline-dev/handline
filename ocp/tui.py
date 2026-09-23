@@ -503,6 +503,76 @@ def agents_data(con) -> tuple[list[AgentRow], list[str]]:
     return rows, [] if paths.list_agents() else ["no agents registered"]
 
 
+class MessageRow(NamedTuple):
+    key: object
+    when: str
+    flavour: str      # "gate", "waiting", "answer" or "read"
+    id: int
+    sender: str
+    kind: str
+    first: str        # the first line with something on it, drawable
+    behind: str       # ANSI: how many more a fold stands for, or ""
+
+
+def message_mark(flavour: str) -> tuple[str, str]:
+    """The glyph and the sender's style for a message row: `{}` in the second
+    is where the (padded) sender goes. An agent parked until this is answered
+    is the only thing on the screen that no one else will ever clear; it is not
+    drawn like a report that happens to be addressed here. An answer is the one
+    row that is not addressed to the human at all: they asked for it, so it is
+    drawn as what it is and cannot be read as a new demand on their time."""
+    if flavour == "gate":
+        return f"{YEL}⚠{R}", f"{BOLD}{{:<12}}{R}"
+    if flavour == "waiting":
+        return f"{CYA}◷{R}", f"{BOLD}{{:<12}}{R}"
+    if flavour == "answer":
+        return f"{GRN}↩{R}", f"{BOLD}{{:<12}}{R}"
+    return f"{DIM}·{R}", f"{DIM}{{:<12}}{R}"
+
+
+def messages_data(con) -> tuple[str, list[MessageRow], list[str]]:
+    """What the FOR YOU panel shows, before any of it is laid out: its title
+    (what is waiting, counted), one row per message and the notes under them.
+
+    What is waiting for the human is the one queue nothing else in this system
+    will ever clear: an agent's escalation sits here until it is answered."""
+    waiting = actions.messages(con)
+    # Counted over the unfolded rows, not `waiting`: a fold shows one
+    # agent's latest, and a title built from the folded list would drop
+    # every message its line does not happen to represent.
+    raw = actions.mailbox_rows(con)
+    gates = sum(1 for m in raw if m["gate"])
+    parked = sum(1 for m in raw if m["waiting"] and not m["gate"])
+    back = sum(1 for m in raw if m["answer"])
+    to_read = sum(1 for m in raw if not m["gate"] and not m["waiting"]
+                  and not m["answer"])
+    counts = [(gates, "to decide"), (parked, "asked for a reply"),
+              (back, "came back"), (to_read, "to read")]
+    said = ", ".join(f"{n} {what}" for n, what in counts if n)
+    today = time.strftime("%Y%m%d")
+    rows = []
+    for m in waiting:
+        # The clock alone made a two-day-old row look like this hour's.
+        when = time.strftime(
+            "%H:%M" if time.strftime("%Y%m%d", time.localtime(m["ts"])) == today
+            else "%m-%d", time.localtime(m["ts"]))
+        # Same rule as the reading view: what a message says is its text.
+        # An escape here is invisible to the width count, so it is never
+        # truncated, and `esc [ 2J` clears the screen drawing it. The first
+        # line is the first one with something on it, as it is everywhere
+        # else - a body that starts with a blank line drew an empty row.
+        flavour = ("gate" if m["gate"] else "waiting" if m["waiting"]
+                   else "answer" if m["answer"] else "read")
+        # A folded row stands for more than one: the count is the only
+        # sign anything sits behind it.
+        behind = f" {DIM}(+{m['unread'] - 1}){R}" if m["unread"] > 1 else ""
+        rows.append(MessageRow(m["key"], when, flavour, m["id"], oneline(m["from"]),
+                               oneline(m["kind"] or "ask"),
+                               drawable(actions.first_line(m["body"]))[0], behind))
+    return (f"FOR YOU — {said}" if said else "FOR YOU"), rows, \
+        [] if waiting else ["nothing waiting on you"]
+
+
 def pct(v: int | None) -> str:
     return "  ?" if v is None else f"{v:>3}"
 
@@ -1107,60 +1177,15 @@ def build(width: int, sel: dict | None = None,
             ag.add(f"{DIM}  {note}{R}")
 
         # ---- messages ------------------------------------------------
-        # What is waiting for the human, which is the one queue nothing else in
-        # this system will ever clear: an agent's escalation sits here until it
-        # is answered, and it used to be visible only by running `ocp inbox`
-        # with the right name.
-        waiting = actions.messages(con)
-        # Counted over the unfolded rows, not `waiting`: a fold shows one
-        # agent's latest, and a title built from the folded list would drop
-        # every message its line does not happen to represent.
-        raw = actions.mailbox_rows(con)
-        gates = sum(1 for m in raw if m["gate"])
-        parked = sum(1 for m in raw if m["waiting"] and not m["gate"])
-        back = sum(1 for m in raw if m["answer"])
-        to_read = sum(1 for m in raw if not m["gate"] and not m["waiting"]
-                      and not m["answer"])
-        counts = [(gates, "to decide"), (parked, "asked for a reply"),
-                  (back, "came back"), (to_read, "to read")]
-        said = ", ".join(f"{n} {what}" for n, what in counts if n)
-        title = f"FOR YOU — {said}" if said else "FOR YOU"
+        title, rows, notes = messages_data(con)
         ms = Panel(title, width, focused=panel == MESSAGES)
         ms.selected = sel.get(MESSAGES)
-        today = time.strftime("%Y%m%d")
-        for m in waiting:
-            # The clock alone made a two-day-old row look like this hour's.
-            when = time.strftime(
-                "%H:%M" if time.strftime("%Y%m%d", time.localtime(m["ts"])) == today
-                else "%m-%d", time.localtime(m["ts"]))
-            # Same rule as the reading view: what a message says is its text.
-            # An escape here is invisible to the width count, so it is never
-            # truncated, and `esc [ 2J` clears the screen drawing it. The first
-            # line is the first one with something on it, as it is everywhere
-            # else - a body that starts with a blank line drew an empty row.
-            first = drawable(actions.first_line(m["body"]))[0]
-            sender = oneline(m["from"])
-            # An agent parked until this is answered is the only thing on the
-            # screen that no one else will ever clear; it is not drawn like a
-            # report that happens to be addressed here.
-            if m["gate"]:
-                mark, name = f"{YEL}⚠{R}", f"{BOLD}{sender:<12}{R}"
-            elif m["waiting"]:
-                mark, name = f"{CYA}◷{R}", f"{BOLD}{sender:<12}{R}"
-            elif m["answer"]:
-                # An answer is the one row here that is not addressed to the
-                # human at all: they asked for it. Drawn as what it is, so a
-                # reply cannot be read as a new demand on their time.
-                mark, name = f"{GRN}↩{R}", f"{BOLD}{sender:<12}{R}"
-            else:
-                mark, name = f"{DIM}·{R}", f"{DIM}{sender:<12}{R}"
-            # A folded row stands for more than one: the count is the only
-            # sign anything sits behind it.
-            behind = f" {DIM}(+{m['unread'] - 1}){R}" if m["unread"] > 1 else ""
-            ms.add(f"{DIM}{when}{R} {mark} {CYA}#{m['id']:<5}{R}{name}"
-                   f"{pad(oneline(m['kind'] or 'ask'), 11)}{first}{behind}", key=m["key"])
-        if not waiting:
-            ms.add(f"{DIM}  nothing waiting on you{R}")
+        for r in rows:
+            mark, name = message_mark(r.flavour)
+            ms.add(f"{DIM}{r.when}{R} {mark} {CYA}#{r.id:<5}{R}{name.format(r.sender)}"
+                   f"{pad(r.kind, 11)}{r.first}{r.behind}", key=r.key)
+        for note in notes:
+            ms.add(f"{DIM}  {note}{R}")
 
         # ---- stuck -----------------------------------------------------
         # This was "in flight", and almost nothing ever is: a handoff takes

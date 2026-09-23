@@ -787,6 +787,40 @@ async def test_dashboard_agents_table_is_fed_by_agents_data_and_follows_the_curs
         check("dashboard: leaving AGENTS hides the table's cursor", not table.show_cursor)
 
 
+async def test_dashboard_messages_table_is_fed_by_messages_data_and_follows_the_cursor() -> None:
+    """The FOR YOU panel is a DataTable fed by `tui.messages_data`: a title that
+    counts what is waiting, a row per message (sender, kind, its first line
+    with nothing a terminal would obey in it) and its row cursor the dashboard's
+    own selection, shown only on MESSAGES."""
+    _home("msgdata")
+    agents.register("reviewer", "alpha")
+    from ocp import ask as askmod
+    askmod.ask("human", "\n\033[2Jplease \033]8;;http://evil.example\033\\review\033]8;;\033\\ this",
+               requester="reviewer")
+    con = db.connect()
+    try:
+        title, rows, notes = tui.messages_data(con)
+    finally:
+        con.close()
+    check("messages_data: the title counts what is waiting", "1 " in title and title.startswith("FOR YOU"), title)
+    check("messages_data: one row from the sender, no note",
+          [r.sender for r in rows] == ["reviewer"] and not notes, rows)
+    check("messages_data: the first line is the first with something on it, inert",
+          rows[0].first == "please review this", repr(rows[0].first))
+    check("message_mark: an answer, a gate and a read one are three different glyphs",
+          len({tui.message_mark(f)[0] for f in ("gate", "answer", "read")}) == 3)
+    app = bt.BridgeApp()
+    async with app.run_test(size=(110, 30)) as pilot:
+        await pilot.pause(0.3)
+        table = app.screen.query_one("#messages", bt.DataTable)
+        check("dashboard: the messages table has the message's row",
+              table.row_count == 1 and not table.show_cursor, (table.row_count, table.show_cursor))
+        await pilot.press("right")
+        await pilot.pause(0.3)
+        check("dashboard: on MESSAGES the table shows the cursor on the selected message",
+              table.show_cursor and table.cursor_row == 0, (table.show_cursor, table.cursor_row))
+
+
 async def test_task_checks_lists_and_acts_on_the_founders_own() -> None:
     """Task #72 (founder #2154/#2155): the bridge's own 'done - waiting for
     check' list (#71), reached with `b` from the dashboard - only the tasks
@@ -957,6 +991,7 @@ async def _run_all() -> None:
     await test_task_checks_closes_several_checked_at_once()
     await test_dashboard_accounts_table_is_fed_by_accounts_data_and_follows_the_cursor()
     await test_dashboard_agents_table_is_fed_by_agents_data_and_follows_the_cursor()
+    await test_dashboard_messages_table_is_fed_by_messages_data_and_follows_the_cursor()
     await test_text_prompt_line_keeps_a_multiline_paste_and_shows_escapes_inert()
     await test_read_only_page_shows_foreign_text_inert_and_scrolls_on_arrows()
 
