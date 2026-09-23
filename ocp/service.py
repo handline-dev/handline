@@ -69,11 +69,11 @@ def build_plist(home: Path | None = None) -> dict:
     home = home or paths.home()
     return {
         "Label": LABEL,
-        # bin/ocp's own "#!/usr/bin/env python3" shebang resolves the
-        # interpreter through PATH at run time, not sys.executable pinned at
-        # install time - a python upgrade or a removed venv would otherwise
-        # leave this pointed at an interpreter that no longer exists, and the
-        # failure would be a job that silently never starts.
+        # bin/ocp's own bash wrapper picks the interpreter at run time (the
+        # venv's python3 if it is ready, PATH's otherwise), not sys.executable
+        # pinned at install time - a python upgrade or a removed venv would
+        # otherwise leave this pointed at an interpreter that no longer
+        # exists, and the failure would be a job that silently never starts.
         "ProgramArguments": [ocp_executable(), "daemon"],
         "RunAtLoad": True,
         "KeepAlive": True,
