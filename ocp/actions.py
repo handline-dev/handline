@@ -340,6 +340,12 @@ def close_task(con, tid: int, sha: str | None = None, reason: str | None = None,
     were not done (#1008). Nothing here looks at the linked requests' state:
     a task is open until someone closes it.
 
+    Also refused while this task itself is waiting on an open blocker (task
+    #21/#1884) - otherwise closing it directly is a back door around the
+    wait the block exists to enforce. Once it does close, clears every block
+    naming it and, for a task that leaves with no open blocker left, tells
+    its owner once - a durable request, not a typed-only notice.
+
     No `--retires` here (#1349/#1366): task ids and request ids are separate
     AUTOINCREMENT sequences that both start at 1, so a single moot_by column
     fed by either reads as one namespace when it is two - "#1 is already moot
@@ -355,6 +361,10 @@ def close_task(con, tid: int, sha: str | None = None, reason: str | None = None,
     if kids:
         ids = ", ".join(f"#{k['id']}" for k in kids)
         return False, f"task #{tid} still has open child tasks ({ids}) - close them first"
+    blockers = db.task_blockers(con, tid)
+    if blockers:
+        ids = ", ".join(f"#{b['id']}" for b in blockers)
+        return False, f"task #{tid} is waiting on {ids} - it closes only once they do"
     if bool(sha) == bool(reason):
         return False, "close needs exactly one of a sha or a reason"
     if sha:
@@ -374,16 +384,64 @@ def close_task(con, tid: int, sha: str | None = None, reason: str | None = None,
     # so `who` is always a real agent, never the fallback.
     who = askmod.asking_agent() or row["owner"]
     db.add_event(con, who, "close_task", {"task_id": tid, "closed_by": mark})
+    _clear_blocks_on(con, tid, who)
     return True, f"task #{tid} closed ({mark})"
+
+
+def _notify_unblocked(con, dep_tid: int, owner: str, closer: str, closed_tid: int) -> int:
+    """task #21/#1884: told once, as a durable request linked to the task -
+    not a typed-only notice that a park or a crash between here and the
+    agent reading its screen would lose. Never called when `closer == owner`
+    (team.route()'s own "an agent cannot ask itself" - _clear_blocks_on
+    checks before calling): the owner who just closed the blocker themselves
+    does not need telling."""
+    text = f"task #{dep_tid} is unblocked - #{closed_tid}, its last open blocker, closed"
+    rid = db.add_request(con, closer, owner, text, None, None, "fire_and_forget",
+                         "report", 0, None)
+    askmod.deliver(rid, closer, owner, text, None,
+                   team.Decision(True, "task unblocked", kind="report",
+                                 response="fire_and_forget", creates_gate=False,
+                                 chain_depth=0))
+    db.link_request(con, dep_tid, rid)
+    db.add_event(con, closer, "task_unblocked",
+                {"task_id": dep_tid, "request_id": rid, "closed_task": closed_tid})
+    return rid
+
+
+def _clear_blocks_on(con, tid: int, closer: str) -> None:
+    """After `tid` closes: drop every block row naming it, and for each task
+    that leaves with no open blocker left, tell its owner once. Dropping the
+    row here - not on read - is what makes "once" true: the row that would
+    trigger a second notice is gone before anything can re-read it."""
+    for dep in db.tasks_blocked_by(con, tid):
+        db.remove_block(con, dep["task_id"], tid)
+        dep_row = db.get_task(con, dep["task_id"])
+        if dep_row is None or dep_row["closed_by"]:
+            continue
+        if db.task_blockers(con, dep["task_id"]):
+            continue
+        if dep_row["owner"] == closer:
+            continue
+        _notify_unblocked(con, dep["task_id"], dep_row["owner"], closer, tid)
+
+
+def _task_edit_guard(row, tid: int, by: str) -> str | None:
+    """None if `by` may reshape task `tid` (its opener, or the founder) - a
+    task is not a request, it has no `target` a supervisor could redirect -
+    otherwise the refusal to show. Shared by every verb that changes a task
+    without changing whose it is (edit_task, add_block, unblock)."""
+    if by != row["opened_by"] and by != HUMAN:
+        return (f"task #{tid} can only be edited by whoever opened it "
+               f"({row['opened_by']}) or the founder")
+    return None
 
 
 def edit_task(con, tid: int, by: str, owner: str | None = None,
               title: str | None = None) -> tuple[bool, str]:
     """Change a task's owner and/or title. Only the task's opener or the
-    founder may - a task is not a request, it has no `target` a supervisor
-    could redirect, and #1914: every orcapipe task is owned by orcapipe
-    itself, members only link requests to it, so an owner change here is for
-    fixing who was named by mistake, not for handing work along.
+    founder may - #1914: every orcapipe task is owned by orcapipe itself,
+    members only link requests to it, so an owner change here is for fixing
+    who was named by mistake, not for handing work along.
 
     Refused if neither field actually changes anything, so a no-op edit
     cannot be used to touch edited_by/edited_at without saying what moved -
@@ -392,9 +450,9 @@ def edit_task(con, tid: int, by: str, owner: str | None = None,
     row = db.get_task(con, tid)
     if row is None:
         return False, f"no task #{tid}"
-    if by != row["opened_by"] and by != askmod.HUMAN:
-        return False, (f"task #{tid} can only be edited by whoever opened it "
-                       f"({row['opened_by']}) or the founder")
+    guard = _task_edit_guard(row, tid, by)
+    if guard:
+        return False, guard
     if owner is None and title is None:
         return False, "edit needs a new owner, a new title, or both"
     changes: dict = {}
@@ -418,6 +476,54 @@ def edit_task(con, tid: int, by: str, owner: str | None = None,
     db.add_event(con, by, "edit_task", {"task_id": tid, **changes})
     said = ", ".join(f"{k} {v['old']!r} -> {v['new']!r}" for k, v in changes.items())
     return True, f"task #{tid} edited by {by}: {said}"
+
+
+def _blocked_by_cycle(con, tid: int, blocks_on: int, seen: set[int] | None = None) -> bool:
+    """True if `tid` waiting on `blocks_on` would close a loop: walking from
+    `blocks_on` through what it itself waits on reaches `tid` again. Walks
+    every edge `task_blocks` holds, open or closed - a stale row left by a
+    close that has not yet been swept is still a loop if followed."""
+    if blocks_on == tid:
+        return True
+    seen = seen if seen is not None else set()
+    if blocks_on in seen:
+        return False
+    seen.add(blocks_on)
+    return any(_blocked_by_cycle(con, tid, nxt, seen)
+              for nxt in db.blocks_on_ids(con, blocks_on))
+
+
+def add_block(con, tid: int, blocks_on: int, by: str) -> tuple[bool, str]:
+    """`tid` cannot be worked until `blocks_on` closes (task #21/#1884)."""
+    row = db.get_task(con, tid)
+    if row is None:
+        return False, f"no task #{tid}"
+    guard = _task_edit_guard(row, tid, by)
+    if guard:
+        return False, guard
+    if db.get_task(con, blocks_on) is None:
+        return False, f"no task #{blocks_on}"
+    if blocks_on == tid:
+        return False, f"task #{tid} cannot block itself"
+    if _blocked_by_cycle(con, tid, blocks_on):
+        return False, f"task #{tid} cannot wait on #{blocks_on}: that would be a cycle"
+    db.add_block(con, tid, blocks_on)
+    db.add_event(con, by, "block_task", {"task_id": tid, "blocks_on": blocks_on})
+    return True, f"task #{tid} now waits on #{blocks_on}"
+
+
+def unblock(con, tid: int, blocks_on: int, by: str) -> tuple[bool, str]:
+    """Remove one blocking edge - the counterpart of `add_block`."""
+    row = db.get_task(con, tid)
+    if row is None:
+        return False, f"no task #{tid}"
+    guard = _task_edit_guard(row, tid, by)
+    if guard:
+        return False, guard
+    if not db.remove_block(con, tid, blocks_on):
+        return False, f"task #{tid} is not waiting on #{blocks_on}"
+    db.add_event(con, by, "unblock_task", {"task_id": tid, "blocks_on": blocks_on})
+    return True, f"task #{tid} no longer waits on #{blocks_on}"
 
 
 def reason_gaps(con, window_days: int = 30) -> dict:

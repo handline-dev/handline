@@ -450,7 +450,15 @@ def cmd_task_new(args) -> int:
         if args.parent is not None and db.get_task(con, args.parent) is None:
             print(f"no task #{args.parent}")
             return 1
+        if args.blocked_by is not None and db.get_task(con, args.blocked_by) is None:
+            print(f"no task #{args.blocked_by}")
+            return 1
         tid = db.new_task(con, title, args.owner, me, args.parent)
+        if args.blocked_by is not None:
+            ok, msg = actions.add_block(con, tid, args.blocked_by, me)
+            if not ok:
+                print(msg)
+                return 1
     finally:
         con.close()
     print(f"task #{tid} opened for {args.owner}")
@@ -478,10 +486,23 @@ def cmd_task_edit(args) -> int:
     if me is None:
         print(_who_refusal("edit a task"))
         return 1
+    if args.owner is None and args.title is None and args.blocked_by is None and args.unblock is None:
+        print("edit needs a new owner, a new title, --blocked-by, or --unblock")
+        return 1
+    ok = True
     con = db.connect()
     try:
-        ok, msg = actions.edit_task(con, args.task, me, owner=args.owner, title=args.title)
-        print(msg)
+        if args.owner is not None or args.title is not None:
+            ok, msg = actions.edit_task(con, args.task, me, owner=args.owner, title=args.title)
+            print(msg)
+        if args.blocked_by is not None:
+            bok, msg = actions.add_block(con, args.task, args.blocked_by, me)
+            ok = ok and bok
+            print(msg)
+        if args.unblock is not None:
+            uok, msg = actions.unblock(con, args.task, args.unblock, me)
+            ok = ok and uok
+            print(msg)
     finally:
         con.close()
     return 0 if ok else 1
@@ -535,6 +556,9 @@ def cmd_task_board(args) -> int:
     founder means the result is in and it is my turn to read it. Nothing
     linked, or the last exchange already closed some other way (withdrawn,
     rejected, replaced), is nobody holding it - the same as never asked.
+    Waiting on an open blocker (task #21/#1884) reads as `waiting on #N`
+    instead of either of those two - it is neither nobody's turn nor mine
+    while the thing it waits on is still open.
     """
     me = askmod.asking_agent()
     if me is None:
@@ -554,8 +578,10 @@ def cmd_task_board(args) -> int:
             last = reqs[-1] if reqs else None
             back = (last is not None and last["state"] == "done"
                     and last["target"] not in (me, askmod.HUMAN))
+            blockers = db.task_blockers(con, t["id"])
             now = (", ".join(held) if held
                   else "sub-task: " + ", ".join(kids) if kids
+                  else "waiting on " + ", ".join(f"#{b['id']}" for b in blockers) if blockers
                   else "you - a result is in" if back
                   else "nobody holds it")
             parent = f" (under #{t['parent_task']})" if t["parent_task"] else ""
@@ -2283,6 +2309,8 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("title")
     p.add_argument("--owner", required=True)
     p.add_argument("--parent", type=int, default=None, help="the task this is a part of")
+    p.add_argument("--blocked-by", type=int, default=None,
+                   help="cannot be worked until this task closes")
     p.set_defaults(fn=cmd_task_new)
     p = tk.add_parser("list", help="the open tasks and their requests")
     p.add_argument("--all", action="store_true", help="closed tasks too, with what closed them")
@@ -2296,6 +2324,10 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("task", type=int)
     p.add_argument("--owner", default=None, help="fixing who was named, not handing off work")
     p.add_argument("--title", default=None)
+    p.add_argument("--blocked-by", type=int, default=None,
+                   help="cannot be worked until this task closes")
+    p.add_argument("--unblock", type=int, default=None,
+                   help="remove that blocking task")
     p.set_defaults(fn=cmd_task_edit)
     p = tk.add_parser("board", help="your own open tasks, and who holds each one now")
     p.set_defaults(fn=cmd_task_board)

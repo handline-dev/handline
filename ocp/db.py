@@ -115,6 +115,19 @@ CREATE TABLE IF NOT EXISTS task_requests (
 );
 CREATE INDEX IF NOT EXISTS task_requests_request ON task_requests(request_id);
 
+-- task #21/#1884: `task_id` cannot be worked until `blocks_on` closes. A row
+-- here, not a column on `tasks`, because a task can be blocked by more than
+-- one other and `--unblock` removes exactly one edge. Gone once `blocks_on`
+-- closes (close_task deletes it after telling the owner) - open rows are the
+-- whole state, nothing is inferred from `tasks.closed_by` at read time.
+CREATE TABLE IF NOT EXISTS task_blocks (
+  task_id     INTEGER NOT NULL REFERENCES tasks(id),
+  blocks_on   INTEGER NOT NULL REFERENCES tasks(id),
+  created_at  INTEGER NOT NULL,
+  PRIMARY KEY (task_id, blocks_on)
+);
+CREATE INDEX IF NOT EXISTS task_blocks_on ON task_blocks(blocks_on);
+
 -- Advanced only after the fold output validates.
 -- Small named values that are not counters: the orchestration Run this team's
 -- work hangs under, and anything else that is one string per installation.
@@ -875,6 +888,42 @@ def edit_task(con, tid: int, by: str, owner: str | None = None,
 def link_request(con, tid: int, rid: int) -> None:
     con.execute("INSERT OR IGNORE INTO task_requests(task_id, request_id) VALUES (?, ?)",
                 (tid, rid))
+
+
+def add_block(con, tid: int, blocks_on: int) -> None:
+    con.execute("INSERT OR IGNORE INTO task_blocks(task_id, blocks_on, created_at) "
+                "VALUES (?, ?, ?)", (tid, blocks_on, int(time.time())))
+
+
+def remove_block(con, tid: int, blocks_on: int) -> bool:
+    cur = con.execute("DELETE FROM task_blocks WHERE task_id = ? AND blocks_on = ?",
+                      (tid, blocks_on))
+    return cur.rowcount > 0
+
+
+def task_blockers(con, tid: int) -> list:
+    """The still-open tasks blocking `tid`, whatever `task_blocks` names -
+    a row surviving a blocker's own close is a bug elsewhere, not a reason
+    to trust it here."""
+    return con.execute(
+        "SELECT t.* FROM tasks t JOIN task_blocks b ON b.blocks_on = t.id "
+        "WHERE b.task_id = ? AND t.closed_by IS NULL ORDER BY t.id", (tid,)).fetchall()
+
+
+def blocks_on_ids(con, tid: int) -> list[int]:
+    """The raw edges `tid` itself names, any state - what cycle detection
+    walks; `task_blockers` filters to open ones, which a cycle can run
+    through just as well as an open one."""
+    return [r["blocks_on"] for r in con.execute(
+        "SELECT blocks_on FROM task_blocks WHERE task_id = ?", (tid,)).fetchall()]
+
+
+def tasks_blocked_by(con, tid: int) -> list:
+    """Every task with a (possibly stale) block row naming `tid`, closed or
+    not - the caller decides what to do with each."""
+    return con.execute(
+        "SELECT task_id FROM task_blocks WHERE blocks_on = ? ORDER BY task_id",
+        (tid,)).fetchall()
 
 
 def task_requests(con, tid: int) -> list:
