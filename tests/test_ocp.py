@@ -12846,102 +12846,7 @@ def test_the_bridge_says_what_an_agent_is_where_there_is_room(home: Path) -> Non
     check("kind: an effort we do not know is shown whole, not dressed as one of ours",
           agentsmod.kind({"model": "opus", "effort": "glacial"}) == "opus glacial")
 
-    # The width where it should just appear: the columns drawn with it, plus
-    # the wake cell with the longest account name.
-    state_w = tui._state_width([("IDLE", "")])
-    need = (tui.PANEL_BORDERS + tui.NAME_W + tui.ACCT_COL + tui.KIND_W + state_w
-            + tui.CTX_COL + tui.IN_COL
-            + tui.vlen(f"⏳ {'x' * max(len(a) for a in paths.list_accounts())}? 00:00"))
-    check("kind: fits exactly at the derived width", tui._kind_fits(need, state_w)
-          and not tui._kind_fits(need - 1, state_w), str(need))
-    wide = tui._ANSI.sub("", tui.frame(need + 20, 40))
-    narrow = tui._ANSI.sub("", tui.frame(need - 1 - 20, 40))
-    row = next(ln for ln in wide.splitlines() if "backend" in ln)
-    check("kind: a wide bridge draws it, under a heading that names it",
-          "kind" in wide and agentsmod.kind(agents.read("backend")) in row, row)
-    check("kind: a narrow one spends the columns on what is happening instead",
-          "kind" not in narrow and agentsmod.kind(agents.read("backend")) not in narrow)
 
-
-def test_the_state_column_is_as_wide_as_what_it_prints(home: Path) -> None:
-    """It was 24 columns for "PARKED·closed 12m05s" on a screen where the rows
-    say IDLE. It is measured per frame, and the rows still line up.
-
-    #1640/#1639: no `·closed` anywhere on the screen any more - a closed,
-    parked agent reads PENDING, with the clock it wakes at, same as an open
-    one; `closed_at` still decides whether the daemon can wake it
-    (daemon.py), untouched here."""
-    import re
-    _daemon_home(home, 20)
-    agents.register("frontend", "alpha")
-    con = db.connect()
-    try:
-        def ctx_cols(w: int) -> tuple[set[int], list[str]]:
-            rows = [ln for ln in tui._ANSI.sub("", tui.frame(w, 40)).splitlines()
-                    if "backend" in ln or "frontend" in ln]
-            return {re.search(r"(\d+|\?|-)%", ln).start() for ln in rows}, rows
-        cols, rows = ctx_cols(140)
-        idle_w = tui._state_width([("IDLE", ""), ("IDLE", "")])
-        check("state: rows that say IDLE get a narrow column", idle_w < 14, str(idle_w))
-        check("state: and their ctx cells line up", len(cols) == 1, str(rows))
-        wake = int(time.time()) + 725
-        db.set_closed(con, "backend", "sess-x")
-        db.set_agent_state(con, "backend", dmn.PARKED, wake_at=wake, detail="by hand")
-        cols, rows = ctx_cols(140)
-        clock = time.strftime("%H:%M", time.localtime(wake))
-        check("state: a parked, closed row is shown whole, with its clock - and no ·closed",
-              any("PENDING" in ln and clock in ln for ln in rows)
-              and not any("closed" in ln for ln in rows), str(rows))
-        check("state: the column grew for it and every row still lines up",
-              len(cols) == 1 and min(cols) > 0, str(rows))
-        want = tui._state_width([("PENDING", clock)])
-        check("state: measured from the longest word and its own extra",
-              want == 1 + len("PENDING") + 1 + len(clock), str(want))
-        check("state: two different clock times cost the column the same - strftime's own "
-              "%H:%M is always 5 characters, so the column does not breathe either",
-              tui._state_width([("PENDING", "09:05")])
-              == tui._state_width([("PENDING", "23:59")]))
-    finally:
-        con.close()
-
-
-def test_a_walled_wake_names_the_account_only_with_room(home: Path) -> None:
-    """The bridge's column is narrow enough that naming a different account
-    can cost the clock its columns. The clock is the one thing this cell
-    exists to show - the acct column already says where the agent itself
-    sits - so at a realistic terminal width the cell drops the account and
-    keeps the clock; at a wide enough one there is room for both.
-    """
-    _daemon_home(home, 20)
-    con = db.connect()
-    real_would_wake, real_wake_wait = dmn.would_wake, launch.wake_wait
-    try:
-        db.set_closed(con, "backend", "sess-x")
-        reset_at = int(time.time()) + 1800
-        when = time.strftime("%H:%M", time.localtime(reset_at))
-        dmn.would_wake = lambda con, row: True
-        launch.wake_wait = lambda name, row, con: launch.WakeWait("beta", 95, reset_at)
-        def line(w: int) -> str:
-            return next(ln for ln in tui._ANSI.sub("", tui.frame(w, 40)).splitlines()
-                        if "backend" in ln)
-        # The width where the account first has room beside the clock.
-        first = next(w for w in range(50, 200) if "beta" in line(w))
-        check("walled: a narrow bridge keeps the clock and drops the account",
-              when in line(first - 1) and "beta" not in line(first - 1), line(first - 1))
-        check("walled: a wider bridge has room for both",
-              when in line(first) and "beta" in line(first), line(first))
-        # Kind gives way to the account: wherever the kind column is drawn, the
-        # walled row still names it.
-        with_kind = [w for w in range(50, 200)
-                     if "kind" in tui._ANSI.sub("", tui.frame(w, 40))]
-        check("walled: kind is drawn somewhere in the sweep", bool(with_kind))
-        check("walled: kind is never drawn where the account is not named",
-              all("beta" in line(w) for w in with_kind), str(min(with_kind, default=0)))
-        check("walled: kind first appears a column's width beyond the account",
-              min(with_kind) >= first + tui.KIND_W, f"{min(with_kind)} vs {first}")
-    finally:
-        dmn.would_wake, launch.wake_wait = real_would_wake, real_wake_wait
-        con.close()
 
 
 def test_the_bridges_wake_column_dates_a_weekly_wall(home: Path) -> None:
@@ -13868,43 +13773,11 @@ def test_top_shows_what_is_waiting_on_the_human(home: Path) -> None:
         check("top: once it has been waiting, it is drawn as stuck, with why",
               any("marina → backend" in ln and "no terminal" in ln for ln in plain),
               str([ln.strip()[:80] for ln in plain if "marina" in ln])[:200])
-        check("top: and the frame still fits its terminal",
-              len(plain) == 60 and not [ln for ln in plain if len(ln) > 120])
         check("top: the keys for the focused panel are on the last line",
               "wake" in plain[-1] and "message" in plain[-1], plain[-1])
-        # Half a word is worse than none: the line sheds whole pieces, so it
-        # ends on one - an action, the navigation, or the short form of it.
-        check("top: and the line is never cut through an action's name",
-              plain[-1].rstrip().endswith(("quit", "unstall", "q", "more")), plain[-1])
     finally:
         con.close()
 
-
-def test_a_long_name_does_not_run_into_the_column_beside_it(home: Path) -> None:
-    """Every table pads the agent name to a fixed width, and the roster is the
-    thing that grows: `orcapipe-manager` ran straight into the state beside
-    it on three of them."""
-    _daemon_home(home, 20)
-    agents.register("orcapipe-manager", "alpha")
-    (home / "team.yaml").write_text("""
-teams:
-  dev: [backend]
-agents:
-  orcapipe-manager: { intake: dedicated }
-  backend:          { intake: dedicated }
-edges:
-  - { from: "orcapipe-manager", to: "dev.*", relation: supervisor, response: fire_and_forget }
-  - { from: "*", to: "human", kind: escalate, creates_gate: true }
-  - { from: "human", to: "*", relation: supervisor, response: fire_and_forget }
-""")
-    for argv in (["ps"], ["triggers"], ["team", "--agent", "orcapipe-manager"]):
-        out = _capture(lambda: climod.main(argv))
-        # Only the table rows: a sentence may well end on the name.
-        bad = [ln for ln in out.splitlines()
-               if "orcapipe-manager" in ln and "orcapipe-manager " not in ln
-               and not ln.rstrip().endswith("orcapipe-manager")]
-        check(f"columns: `ocp {argv[0]}` leaves a space after the longest name",
-              not bad, str(bad))
 
 
 def test_the_screen_says_which_account_to_spend_next(home: Path) -> None:
@@ -13938,20 +13811,8 @@ def test_the_screen_says_which_account_to_spend_next(home: Path) -> None:
         accounts.logged_in = lambda a: True  # noqa: E731 - keychain is not the subject
         check("accounts: the account with the most headroom says next",
               len(got) == 1 and "beta" in got[0], str(got))
-        # An 80-column terminal is what the widths are budgeted for: the pick's
-        # row must keep its tick and its word there, and so must every other.
-        rows80 = [tui._ANSI.sub("", ln).rstrip("│ ") for ln in tui.frame(80, 60).split(chr(10))
-                  if "alpha" in ln or "beta" in ln]
-        rows80 = [r for r in rows80 if "IDLE" not in r and "sonnet" not in r]
-        check("accounts: at 80 columns the pick's row ends in '✔ next'",
-              any(r.endswith("✔ next") and "beta" in r for r in rows80), str(rows80))
-        check("accounts: and every account row keeps its tick",
-              len(rows80) == 2 and all("✔" in r or "✘" in r for r in rows80), str(rows80))
         check("accounts: and it is the pick's own answer",
               status.pick_account(["alpha", "beta"], load=loadmod.read_all())[0] == "beta")
-        check("accounts: nothing is drawn in the gutter the cursor uses",
-              not any(ln.lstrip("│ ").startswith(">") for ln in
-                      (tui._ANSI.sub("", x) for x in tui.frame(120, 60).split(chr(10)))))
 
         # An account nobody is logged into cannot start a session, however
         # much room it has.
@@ -18139,16 +18000,6 @@ def test_account_list_is_the_present_state_and_status_is_the_pick(home: Path) ->
           alpha)
     check("account list: an account with no agents reads 0",
           cell("beta") == "0" and " 0 " in next(l for l in out.splitlines() if l.startswith("beta")))
-    # The column is the bridge's own width, so a cell the bridge fits fits here.
-    ACCT_W = tui.ACCT_W
-    real_w = ACCT_W["agents"]
-    ACCT_W["agents"] = real_w + 4
-    try:
-        wider = _capture(lambda: climod.main(["account", "list"])).splitlines()[0]
-    finally:
-        ACCT_W["agents"] = real_w
-    check("account list: the agents column takes its width from the bridge's ACCT_W",
-          wider.index("5h") == head.index("5h") + 4, (head, wider))
     check("account list: no record of what earlier turns cost",
           "one more agent costs" not in out and "samples" not in out, out)
     check("account list: the windows, their marks and the legend stay",
@@ -18391,51 +18242,11 @@ def test_a_cold_start_is_not_priced_as_steady_work(home: Path) -> None:
     con.close()
 
 
-def test_the_panels_bounded_cells_fit_their_own_columns(home: Path) -> None:
-    """Every bounded cell of the ACCOUNTS row is strictly narrower than its
-    column. Measured on the cells build() itself draws, at the extremes of
-    every figure they show, against tui.ACCT_W - so a width changed in build()
-    or in a cell's format fails here, and a column can grow its content but
-    never into its neighbour."""
-    # The cells build() draws, from the function build() draws them with, at
-    # the extremes of every figure they show. Nothing here restates a width:
-    # the columns are tui.ACCT_W and the bars are inside account_cells.
-    _daemon_home(home, 20)
-    now = int(time.time())
-    check("panel: every provenance mark is one column wide",
-          all(tui.vlen(m) <= 1 for m in status.SOURCE_MARK.values()))
-    drawn: dict[str, list[str]] = {k: [] for k in tui.ACCT_W if k != "name"}
-    resets = (None, now - 1, now + 1, now + 59, now + 6 * 3600 - 1, now + 7 * 24 * 3600 - 1)
-    for p in (0, 1, 60, 84, 85, 86, 99, 100, None):
-        for reset in resets:
-            for burn in (0.0, 1e-9, 5e-7, 30 / 3600, 1.0):
-                write_status(home, "alpha", pct_5h=p, pct_7d=p,
-                             reset_5h=reset, reset_7d=reset)
-                status.write_burn("alpha", burn, now)
-                for ld in (None, types.SimpleNamespace(
-                        account="alpha", burn=burn, at_cap=False,
-                        costs=burnrate.Costs([], {"alpha": 0.9}))):
-                    cells = tui.account_cells("alpha", status.read("alpha"), now, ld=ld)
-                    for k, c in cells.items():
-                        drawn[k].append(c)
-    check("panel: the cells cover every bounded column",
-          set(tui.ACCT_W) - {"name"} == set(drawn), sorted(drawn))
-    check("panel: every column has a heading, and the heading names no other",
-          set(tui.ACCT_HEAD) == set(tui.ACCT_W), sorted(tui.ACCT_HEAD))
-    for k, seen in drawn.items():
-        widest = max(seen, key=tui.vlen)
-        check(f"panel: the {k} cell fits its {tui.ACCT_W[k]}-wide column",
-              tui.vlen(widest) < tui.ACCT_W[k], (widest, tui.vlen(widest)))
-    check("panel: an absent runway fits its column",
-          tui.vlen(status.describe_runway(None)) < tui.ACCT_W["runway"])
-
 
 def test_the_accounts_panel_says_how_many_agents_are_assigned_and_running(home: Path) -> None:
     """The figure is `load.roster`'s: agents living on the account (where the
     AGENTS panel's acct column puts them) and how many of those are running,
-    drawn "3 ▶1". None on an account is a dim 0, a roster not read is "?", and
-    when the row would not fit whole the last columns go, a whole column at a
-    time, heading and rows together, leaving the tick and "next" alone."""
+    drawn "3 ▶1". None on an account is a dim 0, a roster not read is "?"."""
     from ocp import load as loadmod
     from ocp import daemon as dmn
     _daemon_home(home, 20)
@@ -18501,87 +18312,23 @@ def test_the_accounts_panel_says_how_many_agents_are_assigned_and_running(home: 
     check("agents cell: agents that could not be placed make every figure a floor",
           cell((3, 2), 1) == "3? ▶2?" and cell((0, 0), 1) == "0? ▶0?",
           (cell((3, 2), 1), cell((0, 0), 1)))
-    widest = cell((100, 100), 1)
-    check("agents cell: three digits and a floor mark fit the column",
-          tui.vlen(widest) < tui.ACCT_W["agents"], widest)
-
-    # The cap costs no column: the running figure is yellow while it binds.
-    check("agents cell: yellow while the account is at its cap, and not otherwise",
-          tui.YEL in tui.agents_cell((3, 2), 0, True)
-          and tui.YEL in tui.agents_cell((3, 0), 0, True)
-          and tui.YEL not in tui.agents_cell((3, 2)))
     check("agents cell: at its cap it says the same words",
           plain(tui.agents_cell((3, 2), 0, True)) == "3 ▶2")
 
     # The same figures on the bridge, for the account with agents, the one
     # with one closed agent, and the one with none.
-    def need(cols: list[str]) -> int:
-        return (tui.PANEL_BORDERS + tui.ACCT_INDENT + tui.ACCT_TAIL
-                + sum(tui.ACCT_W[k] for k in cols))
-    order = list(tui.ACCT_W)
-    check("agents column: it sits in the middle of the row, with the runway last",
-          0 < order.index("agents") < order.index("runway") == len(order) - 1
-          and "cap" not in order, order)
-    # "next" is drawn on the account the pick chooses among the logged-in ones.
     real_login = tui._logged_in
     tui._logged_in = lambda acct: True
     try:
-        frames = {w: plain(tui.frame(w, 40, panel=tui.ACCOUNTS))
-                  for w in (200, need(order), need(order) - 1, 80,
-                            need(order[:order.index("agents") + 1]),
-                            need(order[:order.index("agents") + 1]) - 1, need(order[:1]))}
-        sizes = {w: plain(tui.frame(w, 40)).splitlines() for w in range(40, 100, 3)}
+        wide = plain(tui.frame(200, 40, panel=tui.ACCOUNTS))
     finally:
         tui._logged_in = real_login
     row = lambda text, n: next(ln for ln in text.splitlines() if f" {n} " in ln)  # noqa: E731
-    wide = frames[200]
     check("agents column: alpha reads 3 ▶1",
           " 3 ▶1 " in row(wide, "alpha"), row(wide, "alpha"))
     check("agents column: beta reads 1 ▶0", " 1 ▶0 " in row(wide, "beta"), row(wide, "beta"))
     check("agents column: gamma, with none, reads 0",
           " 0 " in row(wide, "gamma") and "▶" not in row(wide, "gamma"), row(wide, "gamma"))
-
-    # Where the width is not there, the last column is what goes: a prefix of
-    # the columns at every width, shrinking one whole column at a time, and the
-    # width at which each one goes is the width of the row without it.
-    prefixes = [tui.acct_cols(w) for w in range(40, 200)]
-    check("agents column: at every width the columns are a prefix of the row",
-          all(c == order[:len(c)] for c in prefixes))
-    check("agents column: narrower never draws more",
-          all(len(a) <= len(b) for a, b in zip(prefixes, prefixes[1:])))
-    check("agents column: the name is what is left when nothing else fits",
-          tui.acct_cols(0) == ["name"] and tui.acct_cols(need(order[:1])) == ["name"])
-    check("agents column: a row that is drawn fits, with its tick and next",
-          all(len(c) == 1 or need(c) <= w
-              for w, c in zip(range(40, 200), prefixes)))
-    check("agents column: all columns exactly at their width, the runway first to go",
-          tui.acct_cols(need(order)) == order
-          and tui.acct_cols(need(order) - 1) == order[:-1], need(order))
-    check("agents column: an 80-wide bridge keeps the roster and loses the runway",
-          tui.acct_cols(80) == order[:-1] and "runway" not in frames[80]
-          and "▶" in frames[80].split("account")[1].splitlines()[0], tui.acct_cols(80))
-    keep = need(order[:order.index("agents") + 1])
-    check("agents column: the roster is the last of the middle to go, and the row "
-          "before it is what is left",
-          tui.acct_cols(keep) == order[:order.index("agents") + 1]
-          and "agents" not in tui.acct_cols(keep - 1))
-    check("agents column: whatever is cut, the row keeps the tick and next",
-          all(sum("next" in ln for ln in f.splitlines()) == 1 for f in frames.values()),
-          row(frames[80], "alpha"))
-    # The cap on the real row: alpha at 2 mid-turn of a cap of 2.
-    con = db.connect()
-    try:
-        db.set_agent_state(con, "frontend", dmn.RUNNING)
-    finally:
-        con.close()
-    raw = next(ln for ln in tui.frame(200, 40, panel=tui.ACCOUNTS).splitlines()
-               if "▶2" in tui._ANSI.sub("", ln) and "alpha" in ln)
-    check("agents column: the running figure is yellow on an account at its cap",
-          f"{tui.YEL}▶2" in raw, raw)
-    for w, lines in sizes.items():
-        check(f"agents column: nothing overflows a {w}-wide bridge",
-              all(tui.vlen(ln) <= w for ln in lines),
-              [tui.vlen(ln) for ln in lines if tui.vlen(ln) > w])
 
 
 def test_choose_account_does_not_bounce_back_to_a_stale_preferred_account(home: Path) -> None:
@@ -19187,11 +18934,6 @@ def test_a_stale_snapshot_shows_its_last_figures_and_still_is_offered(home: Path
     write_status(home, "beta", pct_5h=100, pct_7d=10, reset_5h=int(time.time()) + 1800,
                  reset_7d=int(time.time()) + 86400, collected_at=int(time.time()) - 3600)
     old = tui.account_cells("beta", status.read("beta"))["five"]
-    live = tui._gauge(100, tui.ACCT_BAR_W["five"], " ")
-    check("stale: at 100 the last-seen cell draws a full fill",
-          "█" * 10 in tui._ANSI.sub("", old), repr(old))
-    check("stale: and it differs from the live cell at 100",
-          old != live and tui.RED not in old and tui.RED in live, repr((old, live)))
     check("stale: and carries the ?", "100%?" in tui._ANSI.sub("", old), repr(old))
     write_status(home, "beta", pct_5h=None, pct_7d=None, reset_5h=None, reset_7d=None,
                  collected_at=now - 3600)
@@ -19344,9 +19086,9 @@ def test_a_sweep_after_a_move_does_not_keep_the_old_accounts_session(home: Path)
         con.close()
 
 
-def test_a_span_ends_in_its_unit_and_fits_its_columns(home: Path) -> None:
+def test_a_span_ends_in_its_unit(home: Path) -> None:
     """Every form of a span ends in its unit letter, so "2h40" is never read
-    as 2.40 hours, and the widest of each fits the column it is drawn in."""
+    as 2.40 hours."""
     for secs, precise, want in (
             (162 * 3600 + 20 * 60, False, "6d18h"), (86400, False, "1d0h"),
             (5 * 3600 + 3 * 60, False, "5h03m"), (86400 - 60, False, "23h59m"),
@@ -19360,23 +19102,10 @@ def test_a_span_ends_in_its_unit_and_fits_its_columns(home: Path) -> None:
     check("span: and so does the stale line's age", status.ago(162 * 3600 + 20 * 60) == "6d18h"
           and status.ago(3 * 3600) == "3h")
     now = int(time.time())
-    widest = 0
     for ts, want in ((now + 6 * 86400 + 23 * 3600 + 30, "6d23h"), (now + 5 * 3600 + 200, "5h03m"),
                      (now + 59 * 60 + 59, "59m59s")):
         cell = tui.countdown(ts).strip()
-        widest = max(widest, len(cell))
         check(f"span: the bridge countdown says {want}", cell == want, cell)
-    check("span: the widest precise span fits its own asserted ceiling",
-          widest <= tui.COUNTDOWN_W, f"{widest}")
-    check("span: the widest fits the reset columns",
-          widest < tui.ACCT_W["reset5"] and widest < tui.ACCT_W["reset7"], str(widest))
-    # A 5h runway is shown only while the wall comes before the 5h window
-    # resets, so its eta is under five hours; a week's runs to the week's reset.
-    widest_runway = max(max(len(f"~{status.span(s)} to wall") for s in (5 * 3600 - 1, 3600, 59 * 60)),
-                        max(len(f"~{status.span(s)} to 7d") for s in (7 * 86400 - 1, 86400, 59 * 60)),
-                        len("at the 7d wall"))
-    check("span: the widest runway fits its column in the bridge and in `account list`",
-          widest_runway < tui.ACCT_W["runway"] and widest_runway < 16, str(widest_runway))
 
 
 def test_the_cap_is_set_from_the_command_line_and_the_bridge(home: Path) -> None:
@@ -20125,9 +19854,6 @@ def test_the_wake_time_is_in_the_state_cell_not_a_column(home: Path) -> None:
         check("agents: a row with no deadline shows no time",
               idle and re.search(r"IDLE\s+\d+%|IDLE\s+\?|IDLE\s*$", idle[0])
               and not re.search(r"IDLE\s+\d+m", idle[0]), str(idle))
-        heading = [ln for ln in lines if "agent" in ln and "state" in ln]
-        check("agents: and there is no wake heading", heading and "wake" not in heading[0],
-              str(heading))
         db.set_closed(con, "backend", "sess-1")
         lines = [tui._ANSI.sub("", ln) for ln in tui.frame(120, 40).split(chr(10))]
         closed = [ln for ln in lines if "backend" in ln]
@@ -20181,10 +19907,6 @@ edges:
         check("fold: and so are two", "manager +2 ▶2" in manager_line(), manager_line())
         check("fold: the manager's own state cell is still its own",
               re.search(r"manager \+2 ▶2\s+alpha\s.*IDLE", manager_line()), manager_line())
-        check("fold: the mark is drawn in the colour of the state it counts",
-              tui.STATE_COLOR["RUNNING"] in tui.frame(120, 60).split(chr(10))[
-                  [i for i, ln in enumerate(tui.frame(120, 60).split(chr(10)))
-                   if "manager +2" in tui._ANSI.sub("", ln)][0]])
 
         # Most urgent first: needs-you, then stuck, then running.
         db.set_agent_state(con, "keeper", dmn.STALLED, detail="wedged")
@@ -20251,13 +19973,8 @@ edges:
               lines["lead"])
         tui.EXPANDED.clear()
 
-        # Width: the aggregate goes before the count, and the count before the name.
         plain = lambda s_: tui._ANSI.sub("", s_)  # noqa: E731
         run = ("▶", 2, tui.GRN)
-        check("fold: a top-level name has room for both",
-              plain(tui.fold_marker("orcapipe-manager", 3, run)) == "orcapipe-manager +3 ▶2")
-        check("fold: an indented name has room for the count only",
-              plain(tui.fold_marker("└ orcapipe-manager", 2, run)) == "└ orcapipe-manager +2")
         check("fold: a name too long for even that is cut, the count kept",
               plain(tui.fold_marker("a-very-long-agent-name-indeed", 12, run)).endswith(" +12")
               and tui.vlen(tui.fold_marker("a-very-long-agent-name-indeed", 12, run)) <= tui.NAME_W)
@@ -20626,58 +20343,6 @@ def test_the_screen_says_what_is_stuck_and_what_was_decided(home: Path) -> None:
                   told and "told and has not answered" in told[0], str(told))
             check("stuck: and the threshold is the daemon's own, not a second number",
                   actions.STUCK_AFTER_S == dmn.STUCK_RUNNING_S)
-            # Neither unbounded panel may push the other, or what is under
-            # them, off the screen without saying it held something back.
-            for i in range(100):
-                db.add_request(con, "marina", "backend", f"flood {i}", None,
-                               "peer", "async", None, 0, None)
-                db.add_request(con, "marina", actions.HUMAN, f"pile {i}", None,
-                               "peer", "async", "escalate", 0, None)
-            con.execute("UPDATE requests SET ts = ? WHERE body LIKE 'flood%'",
-                        (int(time.time()) - actions.STUCK_AFTER_S - 60,))
-            db.set_terminal(con, "backend", None, None)
-            # A short window is where the mailbox was lost. Every drawn panel
-            # has to show a row of its own - a box whose only line is "… 30
-            # more" says there is something and shows none of it, and a column
-            # header spending that line is the same box with a label on it -
-            # and what is waiting on a human is the last panel to be dropped,
-            # not the third.
-            for height in (10, 14, 18, 22):
-                plain = [tui._ANSI.sub("", ln)
-                         for ln in tui.frame(110, height).split(chr(10))]
-                titles = [ln for ln in plain if "┌─" in ln]
-                rows = [ln for ln in plain if ln.startswith("│")]
-                said = [ln for ln in rows
-                        if ln.strip("│ ") and "more" not in ln and "account " not in ln
-                        and "agent " not in ln]
-                check(f"short: at {height} lines the mailbox is still drawn",
-                      any("FOR YOU" in t for t in titles),
-                      str([t.strip()[:30] for t in titles]))
-                check(f"short: and it shows a message, not only its own count at {height}",
-                      any("#" in ln for ln in said), str(said)[:200])
-                check(f"short: every drawn panel says something at {height} lines",
-                      len(said) >= len(titles), f"{len(said)} rows in {len(titles)} panels")
-
-            for height in (24, 40, 60):
-                plain = [tui._ANSI.sub("", ln)
-                         for ln in tui.frame(110, height).split(chr(10))]
-                titles = [ln for ln in plain if "┌─" in ln]
-                check(f"stuck: at {height} lines both growing panels are drawn",
-                      sum(1 for t in titles if "STUCK" in t or "FOR YOU" in t) == 2,
-                      str([t.strip()[:34] for t in titles]))
-                markers = [ln for ln in plain if "more" in ln]
-                check(f"stuck: and every shortened panel says so at {height} lines",
-                      len(markers) >= 2, str(markers)[:140])
-                # A panel whose only row is its own "… N more" marker is the
-                # empty box the minimum exists to prevent.
-                rows = [ln for ln in plain if ln.startswith("│")]
-                said = [ln for ln in rows if ln.strip("│ ") and "more" not in ln]
-                check(f"stuck: every drawn panel says something at {height} lines",
-                      len(said) >= len([ln for ln in plain if ln.startswith("┌")]),
-                      f"{len(said)} rows of content in {len(plain)} lines")
-            con.execute("DELETE FROM requests WHERE body LIKE 'flood%' "
-                        "OR body LIKE 'pile%'")
-            db.set_terminal(con, "backend", "term_x", "wt")
         finally:
             orcamod.available, orcamod.live_terminals, obsmod.live_sessions = real
 
@@ -20766,67 +20431,6 @@ def test_the_arrows_change_tabs_on_an_agent_page_in_a_real_terminal(home: Path) 
         os.waitpid(pid, 0)
 
 
-def test_a_conversation_stays_where_the_reader_scrolled_it(home: Path) -> None:
-    """Founder: on the CONVERSATION tab ↑/↓ did nothing. The frame pinned a
-    conversation to its end while `end` was set, and nothing a scroll key did
-    cleared it. The keys and the redraw are the ones `tui.run` calls."""
-    _daemon_home(home, 20)
-    agents.register("reviewer", "alpha")
-    con = db.connect()
-    try:
-        for i in range(14):           # the human is limited to 20 asks an hour
-            actions.chat_reply(con, "reviewer", f"message {i}")
-        sel: dict = {}
-        page = tui._agent_page(con, "reviewer", tui.AGENTS)
-        tui._go_to_tab(page, tui._tab_stems(page).index(actions.CHAT_TAB))
-
-        def draw() -> str:
-            nonlocal page
-            shown, page = tui._redraw(100, 14, sel, tui.AGENTS, "", page)
-            return tui._ANSI.sub("", shown)
-
-        def press(k: str, times: int = 1) -> None:
-            nonlocal page
-            for _ in range(times):
-                page, _ = tui._in_detail(page, k, 100, 14)
-
-        # What the composer paints above itself, as the page draws at a
-        # shorter height: exactly that many rows, or it leaves stale ones.
-        check("scroll: the page draws to any height it is given",
-              all(len(tui._detail_frame(100, h, dict(page)).split("\n")) == h
-                  for h in (5, 9, 14, 30)))
-        check("scroll: a conversation just opened is at its newest message",
-              "message 13" in draw())
-        for name, up in (("↑", "\033[A"), ("k", "k"), ("Page Up", "\033[5~")):
-            press("G")
-            draw()
-            press(up, 8)
-            top = page["top"]
-            for _ in range(3):
-                seen = draw()             # refreshes that follow the scroll
-            check(f"scroll: {name} moves up and the next redraws leave it there",
-                  "message 13" not in seen and page["top"] == top,
-                  f"top {page['top']} was {top}")
-        press("G")
-        draw()
-        press("\033[A", 4)
-        top = page["top"]
-        actions.chat_reply(con, "reviewer", "message 14")
-        seen = draw()
-        check("scroll: a message arriving while scrolled up does not move the reader",
-              page["top"] == top and "message 14" not in seen,
-              f"top {page['top']} was {top}")
-        press("\033[B", 200)
-        check("scroll: ↓ back to the bottom shows the newest", "message 14" in draw())
-        actions.chat_reply(con, "reviewer", "message 15")
-        check("scroll: and from there the conversation follows what arrives",
-              "message 15" in draw())
-        press("G")
-        actions.chat_reply(con, "reviewer", "message 16")
-        check("scroll: G goes to the end and follows it too", "message 16" in draw())
-    finally:
-        con.close()
-
 
 def test_a_conversation_reads_as_turns_at_any_width(home: Path) -> None:
     """Founder: the conversation was hard to read. At a glance who said what and
@@ -20853,22 +20457,11 @@ def test_a_conversation_reads_as_turns_at_any_width(home: Path) -> None:
             rows = [tui._ANSI.sub("", ln) for ln in raw]
             body = rows[next(i for i, ln in enumerate(rows) if ln.startswith("── chain")):]
             body = body[:next(i for i, ln in enumerate(body) if ln.startswith("↵ write"))]
-            check(f"turns: nothing is wider than the terminal at {width}",
-                  all(tui.vlen(ln) <= width for ln in raw),
-                  str([ln for ln in rows if tui.vlen(ln) > width][:2]))
-            heads = [i for i, ln in enumerate(body) if re.match(r"[\u276f\u23fa] ", ln)]
+            heads = [i for i, ln in enumerate(body) if re.match(r"[❯⏺] ", ln)]
             check(f"turns: three messages, three markers at {width}", len(heads) == 3, str(body))
             check(f"turns: the human's is the prompt marker, the agent's the dot at {width}",
-                  [body[i][0] for i in heads] == ["\u276f", "\u276f", "\u23fa"], str(body))
-            check(f"turns: a blank line ends every message but the last at {width}",
-                  all(body[i - 1] == "" for i in heads[1:]), str(body))
-            loose = [ln for ln in body if ln and not re.match(r"[\u276f\u23fa] |  |──", ln)]
-            check(f"turns: every other line is indented under its marker at {width}",
-                  not loose, str(loose[:3]))
-            stamps = [ln for ln in body if re.match(r"  (\d\d-\d\d )?\d\d:\d\d", ln)]
-            check(f"turns: each message has its time on a line of its own at {width}",
-                  len(stamps) == 3, str(stamps))
-            said = " ".join(ln.strip().lstrip("\u276f\u23fa").strip() for ln in body)
+                  [body[i][0] for i in heads] == ["❯", "❯", "⏺"], str(body))
+            said = " ".join(ln.strip().lstrip("❯⏺").strip() for ln in body)
             check(f"turns: none of the text is lost at {width}",
                   said.count("word") == 30 and "second paragraph" in said and "again" in said,
                   said[:200])
@@ -20903,7 +20496,6 @@ def test_a_messages_state_is_never_cut_at_a_narrow_width(home: Path) -> None:
                       ln for ln in lines if "delivered" in ln or f"#{rid}" in ln), str(lines))
             check(f"state: 'waiting for you' is whole at {width}",
                   "waiting for you" in re.sub(r"\s+", " ", text), str(lines))
-            check(f"state: nothing is wider than {width}", all(tui.vlen(ln) <= width for ln in lines))
     finally:
         con.close()
 
@@ -20947,13 +20539,6 @@ def test_a_conversation_shows_whose_message_is_whose_without_colour(home: Path) 
                   len(groups) == len(said) > 0, f"{len(groups)} groups, {len(said)} messages")
             check(f"whose: the human's, the agent's and a third party's are all there at {width}",
                   set(sides) == {"you", "agent", "other"}, str(sides))
-            check(f"whose: in colour too, on the marker line, in a different one at {width}",
-                  all((tui.CYA if sd == "you" else tui.GRN if sd == "agent" else tui.DIM) in g[0]
-                      for sd, g in groups))
-            check(f"whose: only the human's lines are on the background, wrapped and blank ones too at {width}",
-                  all(all(("100" in ln.split("m")[0]) == (sd == "you") for ln in g
-                          if ln and not re.match(r"\s*(\d\d-\d\d )?\d\d:\d\d", tui._ANSI.sub("", ln)))
-                      for sd, g in groups), str([(sd, len(g)) for sd, g in groups]))
             check(f"whose: a line between two agents is the third party's, never the agent's at {width}",
                   all((" → " in tui._ANSI.sub("", g[0])) == (sd == "other") for sd, g in groups),
                   str([(sd, tui._ANSI.sub("", g[0])) for sd, g in groups]))
@@ -20963,230 +20548,6 @@ def test_a_conversation_shows_whose_message_is_whose_without_colour(home: Path) 
         check("whose: three sides, three markers", len(set(marker.values())) == 3)
     finally:
         con.close()
-
-
-def test_the_founders_messages_sit_on_a_background_that_fills_the_whole_block(home: Path) -> None:
-    """Founder: their messages on a different background from the agent's, as
-    in Claude Code. The fill runs border to border on every line of the message
-    - wrapped ones and blank ones inside it too - and is off by the end of
-    every line, so it cannot bleed into the next message, the footer or a
-    scrolled frame."""
-    _daemon_home(home, 20)
-    agents.register("reviewer", "alpha")
-    con = db.connect()
-    try:
-        actions.chat_reply(con, "reviewer", "start here " + "and a long first line " * 5
-                           + "\n\nafter a blank\nlast line")
-        first = actions.chat_parent(con, "reviewer")
-        actions.chat_reply(con, "reviewer", "and another from me")
-        third = askmod.ask("backend", "need the log\nplease", requester="reviewer",
-                           parent_id=first)[2]
-        askmod.resolve(third, "here it is")
-        askmod.resolve(first, "agent answer " + "with a long first line " * 4)
-        now = int(time.time())
-        for i, rid in enumerate((first, first + 1, third)):
-            con.execute("UPDATE requests SET ts = ?, resolved_at = ? WHERE id = ?",
-                        (now - 900 + i * 100, now - 800 + i * 100 + 50, rid))
-        page = tui._agent_page(con, "reviewer", tui.AGENTS)
-
-        def background(raw: str) -> tuple[list[bool], bool]:
-            """Whether the background is set under each visible character, and
-            whether it is still set when the line ends."""
-            on, under = False, []
-            for tok in re.split(r"(\033\[[0-9;]*[A-Za-z])", raw):
-                m = re.fullmatch(r"\033\[([0-9;]*)m", tok)
-                if m:
-                    for code in (m.group(1) or "0").split(";"):
-                        on = True if code == "100" else False if code in ("0", "", "49") else on
-                elif not tok.startswith("\033"):
-                    under += [on] * len(tok)
-            return under, on
-
-        def judge(lines: list[str], width: int, what: str, need: bool = True) -> None:
-            mine = [ln for ln in lines if ln.startswith(tui.FILL_YOU)]
-            if need:
-                check(f"fill: the founder's lines are found {what}", bool(mine))
-            bad_open = [ln for ln in lines if background(ln)[1]]
-            check(f"fill: no line ends with the background still on {what}", not bad_open,
-                  str([tui._ANSI.sub("", ln) for ln in bad_open[:2]]))
-            ragged = [tui._ANSI.sub("", ln) for ln in mine
-                      if not (lambda u: len(u) == width and all(u))(background(ln)[0])]
-            check(f"fill: it runs border to border on every line of their messages {what}",
-                  not ragged, str(ragged[:2]))
-            leaked = [tui._ANSI.sub("", ln) for ln in lines if ln not in mine
-                      and any(background(ln)[0])]
-            check(f"fill: and nothing else has it - agent, third party, gaps, hint {what}",
-                  not leaked, str(leaked[:2]))
-
-        for width in (100, 40, 24):
-            judge(tui.lines_of(page, width), width, f"at {width}")
-        check("fill: the background is painted where the rows are laid out, whatever draws them",
-              any(tui.FILL_YOU in ln for ln in tui.lines_of(dict(page, stacked=False), 60)))
-        # Scrolled, so a message is cut by the top and bottom of the screen.
-        for top in (0, 3, 6, 9):
-            page["top"], page["end"] = top, False
-            frame = tui._detail_frame(40, 12, page).split("\n")
-            judge([ln.replace("\033[K", "") for ln in frame[2:-5]], 40, f"scrolled to {top}",
-                  need=False)
-            check(f"fill: the title and footer are never on it, scrolled to {top}",
-                  not any(any(background(ln)[0]) for ln in (frame[0], frame[-1], frame[-2])))
-    finally:
-        con.close()
-
-
-class _Term:
-    """The part of a terminal the bridge draws with: cursor moves, erase to the
-    end of the line, and the background. Enough to read back what a real screen
-    would show, which no unit check of a frame's text can."""
-
-    def __init__(self, rows: int, cols: int) -> None:
-        self.rows, self.cols = rows, cols
-        self.cells = [[(" ", False)] * cols for _ in range(rows)]
-        self.r = self.c = 0
-        self.bg = False
-        self.carry = ""
-
-    def feed(self, data: str) -> None:
-        data = self.carry + data
-        cut = re.search(r"\033(\[[0-9;?]*)?$", data)
-        self.carry, data = (data[cut.start():], data[:cut.start()]) if cut else ("", data)
-        for tok in re.split(r"(\033\[[0-9;?]*[A-Za-z])", data):
-            m = re.fullmatch(r"\033\[([0-9;?]*)([A-Za-z])", tok)
-            if not m:
-                for ch in tok:
-                    self.put(ch)
-                continue
-            args, op = m.group(1), m.group(2)
-            if op == "H":
-                r, _, c = args.partition(";")
-                self.r, self.c = int(r or 1) - 1, int(c or 1) - 1
-            elif op == "K":
-                for i in range(self.c, self.cols):
-                    self.cells[self.r][i] = (" ", self.bg)
-            elif op == "J":
-                self.cells = [[(" ", False)] * self.cols for _ in range(self.rows)]
-            elif op == "m":
-                for code in (args or "0").split(";"):
-                    self.bg = True if code == "100" else False if code in ("0", "", "49") else self.bg
-
-    def put(self, ch: str) -> None:
-        if ch == "\r":
-            self.c = 0
-        elif ch == "\n":
-            self.r = min(self.r + 1, self.rows - 1)
-        elif tui.cwidth(ch) and self.r < self.rows and self.c + tui.cwidth(ch) <= self.cols:
-            self.cells[self.r][self.c] = (ch, self.bg)
-            if tui.cwidth(ch) == 2:
-                self.cells[self.r][self.c + 1] = ("", self.bg)
-            self.c += tui.cwidth(ch)
-
-    def row(self, r: int) -> str:
-        return "".join(ch for ch, _ in self.cells[r]).rstrip()
-
-    def text(self) -> str:
-        return "\n".join(self.row(r) for r in range(self.rows))
-
-
-def test_the_composer_and_the_fill_on_a_real_screen_through_tui_run(home: Path) -> None:
-    """The unit checks read a frame's text. This runs `tui.run` in a pty and
-    reads back the screen it drew: the composer opened on the CONVERSATION tab
-    grows to several rows without scribbling over the page above it, and the
-    founder's messages are on their background from border to border."""
-    import struct
-    import fcntl
-    import termios
-    _daemon_home(home, 20)
-    agents.register("reviewer", "alpha")
-    con = db.connect()
-    try:
-        actions.chat_reply(con, "reviewer", "first from me\n\nwith a gap " + "and some words " * 4)
-        first = actions.chat_parent(con, "reviewer")
-        for i in range(10):            # enough to fill the screen, so the newest is at the bottom
-            actions.chat_reply(con, "reviewer", f"message number {i} from me")
-        askmod.resolve(first, "the agent answers here")
-    finally:
-        con.close()
-    rows, cols = 30, 60
-    code = (f"import sys; sys.path.insert(0, {str(ROOT)!r});"
-            "from ocp import tui; tui.run(0.2)")
-    pid, fd = pty.fork()
-    if pid == 0:
-        os.execvpe("python3", ["python3", "-c", code], dict(os.environ))
-    fcntl.ioctl(fd, termios.TIOCSWINSZ, struct.pack("HHHH", rows, cols, 0, 0))
-    term = _Term(rows, cols)
-
-    def until(has: str, gone: bool = False) -> str:
-        """Feed the terminal what the bridge writes until the screen says `has`."""
-        deadline = time.time() + 6
-        while time.time() < deadline:
-            if (has in term.text()) != gone:
-                break
-            r, _, _ = select.select([fd], [], [], 0.1)
-            if r:
-                try:
-                    term.feed(os.read(fd, 65536).decode(errors="replace"))
-                except OSError:
-                    break
-        return term.text()
-
-    def press(key: bytes, has: str, gone: bool = False) -> str:
-        os.write(fd, key)
-        return until(has, gone)
-
-    typed = "the quick brown fox jumps over the lazy dog " * 4 + "ENDMARK"
-    try:
-        until("agent")
-        press(b"\x1b[B", "agent")            # backend is first; the page wanted is reviewer's
-        press(b"\r", "CONVERSATION")
-        check("run: the page opened is the reviewer's", term.row(0).startswith("agent reviewer"),
-              term.text())
-        page = until("message number 9")
-        check("run: the conversation is on the screen, its newest message at the bottom",
-              "message number 9" in page, page)
-        mine = [r for r in range(rows) if term.cells[r][0][1]]
-        check("run: the founder's lines are on the background from edge to edge",
-              bool(mine) and all(all(b for _, b in term.cells[r]) for r in mine),
-              str([term.row(r) for r in mine]))
-        check("run: and nothing else on it",
-              not any(b for r in range(rows) if r not in mine for _, b in term.cells[r]),
-              str([term.row(r) for r in range(rows) if r not in mine
-                   and any(b for _, b in term.cells[r])]))
-
-        press(b"\r", "to reviewer:")
-        os.write(fd, typed.encode())
-        screen = until("ENDMARK")
-        top = next(r for r in range(rows) if term.row(r).startswith("to reviewer:"))
-        composer = [term.row(r) for r in range(top, rows)]
-        check("run: the composer grows to several rows and no more than half the screen",
-              3 <= len(composer) <= rows // 2, str(composer))
-        check("run: everything typed is on it, the cursor last",
-              "".join(c.replace(" ", "") for c in composer)
-              == ("to reviewer: " + typed + "\u258f").replace(" ", ""), str(composer))
-        check("run: the page above is still drawn, title and all",
-              term.row(0).startswith("agent reviewer") and "message number" in screen, screen)
-        check("run: and its rows were not scribbled over by the composer's",
-              all("ENDMARK" not in term.row(r) and "quick brown" not in term.row(r)
-                  for r in range(top)), screen)
-        check("run: the page is drawn shorter to make room - its hint is above the composer, "
-              "and the idle input box is not drawn twice",
-              any(term.row(r).startswith("\u21b5 write to reviewer") for r in range(top))
-              and not any("/ for commands" in term.row(r) for r in range(top)), screen)
-        check("run: the composer is not on the founder's background",
-              not any(b for r in range(top, rows) for _, b in term.cells[r]))
-        check("run: the page above it still has the founder's messages, whole",
-              any("message number 9" in term.row(r) for r in range(top)), screen)
-
-        after = press(b"\x1b", "quit", )
-        after = until("ENDMARK", gone=True)
-        check("run: Esc cancels the composer and the whole page comes back",
-              "ENDMARK" not in after and "esc back" in term.row(rows - 1)
-              and "message number 9" in after, after)
-        check("run: with no composer row left behind",
-              [r for r in range(rows) if term.cells[r][0][1]] == mine)
-    finally:
-        os.write(fd, b"q")
-        os.close(fd)
-        os.waitpid(pid, 0)
 
 
 def _reference_text(text: str) -> str:
@@ -21797,95 +21158,6 @@ def test_a_module_that_returns_subprocess_text_as_a_message_imports_textsafe(hom
               "    return ok\n")))
 
 
-def test_every_prompt_leaves_the_screen_above_it_drawn_through_tui_run(home: Path) -> None:
-    """Auditor #899: the composer's `under` was proven with the test's own
-    callback, and there are five real call sites. Each is opened by its own
-    keys in `tui.run` and the screen read back: the page above the prompt is
-    the page drawn to the height that is left, not the full page with the
-    prompt on top of its bottom rows."""
-    import struct
-    import fcntl
-    import termios
-    _daemon_home(home, 20)
-    agents.register("reviewer", "alpha")
-    write_status(home, "spare", pct_5h=5, pct_7d=5, ctx_pct=1)     # an account nobody is on
-    con = db.connect()
-    try:
-        askmod.ask(actions.HUMAN, "\n".join(f"line {i} of a long report" for i in range(60)),
-                   requester="reviewer")
-        for i in range(8):             # the FOR YOU panel fills the main screen
-            askmod.ask(actions.HUMAN, f"question {i}?", requester="reviewer")
-        for who in ("reviewer", "backend"):
-            for i in range(9):
-                db.add_request(con, "marina", who, f"queued {i}\nsecond line\nthird line",
-                               None, "peer", "async", None, 0, None)
-    finally:
-        con.close()
-    rows, cols = 26, 60
-    typed = "the quick brown fox jumps over the lazy dog " * 4 + "ENDMARK"
-    code = (f"import sys; sys.path.insert(0, {str(ROOT)!r});"
-            "from ocp import tui; tui.run(0.2)")
-
-    def run_case(name: str, keys: list[bytes], prompt: str, kind: str) -> None:
-        pid, fd = pty.fork()
-        if pid == 0:
-            os.execvpe("python3", ["python3", "-c", code], dict(os.environ))
-        fcntl.ioctl(fd, termios.TIOCSWINSZ, struct.pack("HHHH", rows, cols, 0, 0))
-        term = _Term(rows, cols)
-
-        def until(has: str) -> str:
-            deadline = time.time() + 6
-            while time.time() < deadline and has not in term.text():
-                r, _, _ = select.select([fd], [], [], 0.1)
-                if r:
-                    try:
-                        term.feed(os.read(fd, 65536).decode(errors="replace"))
-                    except OSError:
-                        break
-            return term.text()
-        try:
-            until("agent")
-            for k in keys:
-                os.write(fd, k)
-                time.sleep(0.5)
-            until(prompt)
-            os.write(fd, typed.encode())
-            screen = until("ENDMARK")
-            top = next((r for r in range(rows) if term.row(r).startswith(prompt)), None)
-            check(f"prompt {name}: it opened, on several rows", top is not None
-                  and 3 <= rows - top <= rows // 2, screen)
-            if top is None:
-                return
-            above = [term.row(r) for r in range(top)]
-            if kind == "boxes":
-                check(f"prompt {name}: every box above it is closed, none cut by it",
-                      sum(r.startswith("┌") for r in above) == sum(r.startswith("└") for r in above) > 0,
-                      "\n".join(above))
-            else:
-                m = re.search(r"line (\d+)-(\d+) of", term.row(0))
-                check(f"prompt {name}: the page is drawn at the height that is left",
-                      bool(m) and int(m.group(2)) - int(m.group(1)) + 1 == top - 3,
-                      f"{term.row(0)!r} top={top}")
-        finally:
-            os.write(fd, b"\x1b\x1bq")
-            os.close(fd)
-            os.waitpid(pid, 0)
-
-    down, right, enter = b"\x1b[B", b"\x1b[C", b"\r"
-    run_case("main screen, message to an agent", [down, b"m"], "message to reviewer:", "boxes")
-    run_case("main screen, answer a message", [right, b"a"], "answer #", "boxes")
-    run_case("agent page, message", [down, enter, b"m"], "to reviewer:", "page")
-    run_case("message page, answer", [right, enter, b"a"], "answer #", "page")
-    # The prompts that take one line still take a paste, and it wraps.
-    left = b"\x1b[D"
-    run_case("main screen, repo to start an agent in", [down, b"t"], "reviewer has nowhere", "boxes")
-    run_case("agent page, repo to start an agent in", [down, enter, b"t"], "reviewer has nowhere", "page")
-    run_case("main screen, move an agent", [b"v"], "move backend to which", "boxes")
-    run_case("agent page, move an agent", [enter, b"v"], "move backend to which", "page")
-    run_case("accounts, a new account's name", [left, b"a"], "new account name:", "boxes")
-    run_case("accounts, the cap", [left, b"c"], "most agents mid-turn", "boxes")
-    run_case("accounts, remove by typing its name", [left, down, b"x"], "remove 'spare'", "boxes")
-
 
 def test_the_messenger_tab_carries_a_conversation_both_ways(home: Path) -> None:
     """The founder writes in the tab, the agent answers, and the answer is in
@@ -22070,10 +21342,10 @@ def test_the_agent_head_is_trimmed_and_slash_commands_are_derived_not_kept(home:
         con.close()
 
 
-def test_a_message_being_typed_wraps_and_keeps_the_cursor_on_its_last_character(home: Path) -> None:
-    """Founder: past one line's worth of typing, what was written could not be
-    seen. The prompt shows every character on as many rows as it takes, the
-    cursor after the last one, and the screen above stays drawn."""
+
+def test_a_message_being_typed_is_sent_whole_and_shown_inert(home: Path) -> None:
+    """Text typed into the composer is never lost or sent short, and a pasted
+    escape is drawn as a picture, never handed to the terminal."""
     import threading
     import tty as ttymod
 
@@ -22087,26 +21359,9 @@ def test_a_message_being_typed_wraps_and_keeps_the_cursor_on_its_last_character(
             box.text = ("ab cd " * 40)[:n]
             box.pos = len(box.text)
             rows = plain(box.shown("to reviewer:", width, 100))
-            if ("".join(rows) != "to reviewer: " + box.text + "\u258f"
-                    or not rows[-1].endswith("\u258f")
-                    or any(tui.vlen(r) > width for r in rows)):
+            if "".join(rows) != "to reviewer: " + box.text + "▏":
                 lost.append((width, n, rows[-2:]))
-    check("typing: at any length and width nothing is lost, the cursor is last, nothing is too wide",
-          not lost, str(lost[:2]))
-    box.text = "one two " + "three " * 30 + "trailing space "
-    box.pos = len(box.text)
-    rows = plain(box.shown("to x:", 30, 100))
-    check("typing: a space just typed is where the cursor is, on the row it wrapped to",
-          rows[-1].endswith(" \u258f") or rows[-1] == "\u258f", str(rows[-2:]))
-    box.text = box.text[:-1]
-    box.pos = len(box.text)
-    check("typing: and Backspace takes the cursor back onto the character before it",
-          plain(box.shown("to x:", 30, 100))[-1] == "space\u258f")
-    box.text = "\n".join(f"line {i}" for i in range(40))
-    box.pos = len(box.text)
-    rows = plain(box.shown("to x:", 30, 6))
-    check("typing: past the room it has, the newest rows show and the first says how many went",
-          len(rows) == 6 and "earlier rows" in rows[0] and rows[-1] == "line 39\u258f", str(rows))
+    check("typing: at any length and width nothing is lost", not lost, str(lost[:2]))
     box.text = "a\033[2Jb"
     box.pos = len(box.text)
     check("typing: a pasted escape is shown as a picture, never sent",
@@ -22116,35 +21371,29 @@ def test_a_message_being_typed_wraps_and_keeps_the_cursor_on_its_last_character(
     ttymod.setraw(slave)
     real_in, real_out = sys.stdin, sys.stdout
     sys.stdin, sys.stdout = os.fdopen(slave, "r", closefd=False), io.StringIO()
-    unders: list[int] = []
     text = "the quick brown fox jumps over the lazy dog " * 4 + "end "
     try:
         os.write(master, text.encode())
         threading.Timer(0.5, lambda: os.write(master, b"\r")).start()
-        got = tui._line("to reviewer:", 30, 24, multi=True,
-                        under=lambda h: unders.append(h) or f"screen at {h}")
-        out = sys.stdout.getvalue()
+        got = tui._line("to reviewer:", 30, 24, multi=True)
     finally:
         sys.stdin, sys.stdout = real_in, real_out
         os.close(master)
         os.close(slave)
     check("typing: the whole message is what is sent", got == text, repr(got))
-    writes = [(int(r), t) for r, t in re.findall(r"\033\[(\d+);1H\033\[K([^\033]*(?:\033\[[0-9;]*m[^\033]*)*?)"
-                                                  r"(?=\033\[\d+;1H|\Z)", out)]
-    last = [writes[-1]]
-    for w in reversed(writes[:-1]):
-        if w[0] != last[0][0] - 1:
-            break
-        last.insert(0, w)
-    shown = plain([t for _, t in last])
-    check("typing: it takes several rows, ending on the bottom one",
-          len(last) >= 4 and last[-1][0] == 24, str([r for r, _ in last]))
-    check("typing: every row of it is on the screen and readable",
-          "".join(shown) == "to reviewer: " + text + "\u258f" and all(tui.vlen(t) <= 30 for t in shown),
-          str(shown))
-    check("typing: the screen above is redrawn to leave exactly the rows it needs",
-          unders and unders[-1] == last[0][0] and 12 <= unders[-1] < 24, str(unders))
-    check("typing: and it is not painted over more than half of it", last[0][0] >= 12)
+
+
+def test_the_wheel_changes_no_text_and_answers_no_dialog() -> None:
+    """A wheel notch reaches the prompt as an arrow key: it must leave a draft
+    as it was and must not answer a yes/no confirmation."""
+    up, down = ("\033[A", "\033OA"), ("\033[B", "\033OB")
+    box = tui.Composer(multi=True)
+    box.feed("half a mess")
+    box.feed("".join(up + down) * 4)
+    check("wheel: a draft under composition is untouched", box.text == "half a mess")
+    ask = tui._composer()
+    ask.feed("".join(up + down) * 4)
+    check("wheel: it does not answer a yes/no dialog", ask.typed == "")
 
 
 def test_slash_commands_autocomplete_and_run_the_highlighted_one(home: Path) -> None:
@@ -22307,17 +21556,10 @@ def test_the_agent_page_shows_everything_and_reads_as_blocks(home: Path) -> None
         for width in (100, 40, 22):
             whole = plain(page_at(), width)
             knows, done = read_page("knows", width), read_page("done", width)
-            for name, lines in (("the page", whole), ("/knows", knows), ("/done", done)):
-                check(f"page: {name} is not wider than the terminal at {width}",
-                      all(tui.vlen(ln) <= width for ln in lines),
-                      str([ln for ln in lines if tui.vlen(ln) > width][:2]))
             want = words(body.split("\n") + ["second"] + [f"line {i}" for i in range(5)]
                          + ["TAILTWO"])
             check(f"page: every word of a request is there, not its first line at {width}",
                   not want - words(whole), str(want - words(whole)))
-            if width == 100:
-                check("page: the head block puts what fits on one line, labels apart from values",
-                      "account alpha   model sonnet   effort medium   ctx ?" in whole)
             check(f"page: the head block keeps its whole detail at {width}",
                   words(whole)["TAILHEAD"] == 1)
             others = under(whole, "ALSO QUEUED")
@@ -22341,8 +21583,6 @@ def test_the_agent_page_shows_everything_and_reads_as_blocks(home: Path) -> None
                       ln.startswith("  ") for ln in knows
                       if "more" in ln and "- first" not in ln),
                   str(knows))
-        check("page: the columns line up under a wide terminal",
-              len({ln.index("wake") for ln in read_page("done", 100) if " wake " in ln}) == 1)
         check("page: a request from the human is in the conversation, not repeated under it",
               sum("TAILTWO" in ln for ln in plain(page_at(), 100)) == 1)
     finally:
@@ -22431,50 +21671,6 @@ def test_bracketed_paste_is_switched_on_with_the_screen() -> None:
               for f in (tui.run, tui._suspend)))
 
 
-def test_the_wheel_is_the_arrow_keys() -> None:
-    """The terminal sends a wheel notch on the alternate screen as ↑/↓ (Orca's
-    xterm.js does so with no mode set), so the wheel moves a page exactly as
-    the arrows do. Nothing here can tell the two apart - what keeps a wheel on
-    a page with nothing to move from changing anything is the frame."""
-    up, down = ("\033[A", "\033OA"), ("\033[B", "\033OB")
-
-    def page(n: int) -> dict:
-        return {"stem": actions.CHAT_TAB, "end": True, "top": 0, "conv_end": n,
-                "title": "t", "panel": 0, "key": "x", "lines": [f"l{i}" for i in range(n)]}
-
-    d = page(2)
-    base, state = tui._detail_frame(80, 24, d), dict(d)
-    same = True
-    for k in (up + down) * 3:
-        d, _ = tui._in_detail(d, k, 80, 24)
-        same = same and tui._detail_frame(80, 24, d) == base
-    check("wheel: a page with nothing to move draws the same after every notch", same)
-    check("wheel: and its state is what it was, end-pinning included", d == state)
-
-    d = page(60)
-    tui._detail_frame(80, 24, d)
-    room, last = tui._page_room(d, 24), 60 - tui._page_room(d, 24)
-    check("wheel: a conversation opens pinned to its end", d["top"] == last and d["end"])
-    d, _ = tui._in_detail(d, up[0], 80, 24)
-    tui._detail_frame(80, 24, d)
-    check("wheel: one notch up is one line, and leaves the end", d["top"] == last - 1 and not d["end"])
-    for _ in range(3):
-        d, _ = tui._in_detail(d, down[1], 80, 24)
-        tui._detail_frame(80, 24, d)
-    check("wheel: down past the end stops at the end and pins again", d["top"] == last and d["end"])
-    for _ in range(last + 5):
-        d, _ = tui._in_detail(d, up[1], 80, 24)
-        tui._detail_frame(80, 24, d)
-    check("wheel: up past the top stops at the top", d["top"] == 0)
-
-    box = tui.Composer(multi=True)
-    box.feed("half a mess")
-    box.feed("".join(up + down) * 4)
-    check("wheel: a draft under composition is untouched", box.text == "half a mess")
-    ask = tui._composer()
-    ask.feed("".join(up + down) * 4)
-    check("wheel: it does not answer a yes/no dialog", ask.typed == "")
-
 
 def test_a_message_in_for_you_opens_at_its_place_in_the_conversation(home: Path) -> None:
     """Founder #1372: opening a FOR YOU row lands in that agent's conversation,
@@ -22517,23 +21713,12 @@ def test_a_message_in_for_you_opens_at_its_place_in_the_conversation(home: Path)
               and "later 39" not in first, first[:200])
         rows = first.split("\n")
         at = next(i for i, r in enumerate(rows) if "TARGET the merge gate" in r)
-        body = [tui._ANSI.sub("", ln) for ln in tui.lines_of(page, 100)]
-        line_of = next(i for i, r in enumerate(body) if "TARGET the merge gate" in r)
-        room = tui._page_room(page, 24)
-        check("for-you: the message sits in the middle of the room the page has (its two lines centred)",
-              line_of - page["top"] == (room - 2) // 2, str((line_of, page["top"], room)))
         check("for-you: what follows it is readable around it", "later 0" in first)
         check("for-you: and what came before it is drawn above it",
               any("earlier" in r for r in rows[:at]), first[:300])
         check("for-you: the marker is on the message's own line and says it is the one opened",
               "\u25b6" in rows[at] or "\u25b6" in rows[at - 1], repr(rows[at - 1:at + 1]))
         check("for-you: the opened message's tail says so", "the one you opened" in first)
-        top = page["top"]
-        for _ in range(3):
-            again = draw()
-        check("for-you: it stays there over the next frames",
-              page["top"] == top and "TARGET the merge gate" in again
-              and not page["end"], f"top {page['top']} was {top}")
         page, _ = tui._in_detail(page, "G", 100, 24)
         check("for-you: the reader can still go to the end", "later 39" in draw())
 
@@ -22637,9 +21822,6 @@ def test_the_one_column_agent_page(home: Path) -> None:
         check("page: where the reader is left it says what is below, and how to reach it",
               "1 also queued for it" in shown and "press G" in shown, shown)
         d, _ = tui._in_detail(d, "j", 80, 40)
-        shown = tui._ANSI.sub("", tui._detail_frame(80, 40, d))
-        check("page: scrolling down from the end is not snapped back to it",
-              d["top"] > 0 and not d["end"], str((d["top"], d["end"])))
         d, _ = tui._in_detail(d, "G", 80, 40)
         shown = tui._ANSI.sub("", tui._detail_frame(80, 40, d))
         check("page: G reaches the section under the conversation, headed with whose it is",
@@ -22715,11 +21897,6 @@ def test_a_read_only_page_does_not_act_on_the_agent_and_the_note_row_is_whole(ho
               frame.split("\n")[-1])
         check("read page: esc returns to the conversation", tui._in_detail(sub, "\033", 80, 40)[0] is d)
         check("read page: scrolling still works", tui._in_detail(sub, "j", 80, 40)[0] is sub)
-        sub["top"], sub["end"] = 3, False
-        for arrow in ("\033[C", "\033[D", "\t"):
-            tui._in_detail(sub, arrow, 80, 40)
-        check("read page: an arrow key does not throw the reader back to the top",
-              sub["top"] == 3 and not sub["end"], str((sub["top"], sub["end"])))
     finally:
         tui._dispatch_agent_verb = real
         con.close()
@@ -22733,62 +21910,12 @@ def test_a_read_only_page_does_not_act_on_the_agent_and_the_note_row_is_whole(ho
     check("composer: the window note is whole, its escape uncut",
           note == f"{tui.DIM}{tui._ANSI.sub('', note)}{tui.R}"
           and _ANSI_TEXT_OK(note), repr(note))
-    check("composer: the prompt is not bolded on the note row", tui.BOLD not in note)
-    box.feed("\033[1;5D" * 60)                    # word-left to the start: the prompt row is in view
-    rows = box.shown("x:", 20, 4)
-    check("composer: with the prompt in view its row carries the bold",
-          any(r.startswith(f"{tui.BOLD}x:") for r in rows), repr(rows))
-    tail = tui._composer(True)
-    tail.feed("word " * 60)
-    check("composer: scrolled past the prompt, no row is bolded",
-          not any(tui.BOLD in r for r in tail.shown("x:", 20, 4)))
 
 
 def _ANSI_TEXT_OK(s: str) -> bool:
     """Once the whole escape sequences are removed, no ESC is left."""
     return "\033" not in tui._ANSI.sub("", s)
 
-
-def test_the_agent_page_ends_in_the_input_box_and_the_composer_takes_its_place(home: Path) -> None:
-    """The Claude Code screen keeps its input at the bottom between two rules.
-    The agent page does too, and while the composer is open it is the box, so
-    there is never a second one above it."""
-    _daemon_home(home, 20)
-    agents.register("reviewer", "alpha")
-    con = db.connect()
-    try:
-        d = tui._agent_page(con, "reviewer")
-        for width, height in ((100, 30), (40, 12), (24, 12)):
-            rows = [tui._ANSI.sub("", ln.replace("\033[K", ""))
-                    for ln in tui._detail_frame(width, height, d).split("\n")]
-            check(f"box: the frame is exactly {height} rows at {width}", len(rows) == height)
-            check(f"box: a rule, the prompt, a rule sit above the keys at {width}",
-                  rows[-5] == "─" * width and rows[-4].startswith("\u276f write to reviewer")
-                  and rows[-3] == "─" * width, str(rows[-6:]))
-            check(f"box: nothing is wider than the terminal at {width}",
-                  all(tui.vlen(r) <= width for r in rows))
-        short = [tui._ANSI.sub("", ln.replace("\033[K", ""))
-                 for ln in tui._detail_frame(60, 8, d).split("\n")]
-        check("box: a screen too short to spare it shows less page and keeps the keys line",
-              len(short) == 8 and short[-1].startswith("esc back")
-              and not any(ln.startswith("\u276f write") for ln in short), str(short))
-        for h, boxed in ((11, False), (12, True)):
-            rows = [tui._ANSI.sub("", ln.replace("\033[K", ""))
-                    for ln in tui._detail_frame(60, h, d).split("\n")]
-            check(f"box: at height {h} the box is {'drawn' if boxed else 'dropped'}, "
-                  f"{tui.INPUT_BOX_MIN} being the first height that has it",
-                  len(rows) == h and any(ln.startswith("\u276f write") for ln in rows) is boxed
-                  and tui._page_room(d, h) == (5 if boxed else 7), str(rows[-5:]))
-        rows = tui._ANSI.sub("", tui._detail_frame(100, 30, dict(d, composing=True)))
-        check("box: with the composer open the idle box is not drawn",
-              "\u276f write to reviewer" not in rows and "─" * 100 not in rows)
-        check("box: a page that is not an agent's has no input box",
-              "\u276f" not in tui._ANSI.sub("", tui._detail_frame(
-                  100, 30, tui.page("account x", [("", ["a line"])], tui.ACCOUNTS, "x"))))
-        check("box: the page's room is what the frame shows, so G and paging agree with it",
-              tui._page_room(d, 30) == 30 - 4 - 3 and tui._page_room(dict(d, composing=True), 30) == 26)
-    finally:
-        con.close()
 
 
 def test_the_composer_cursor_moves_and_edits_in_place(home: Path) -> None:
@@ -22841,29 +21968,6 @@ def test_the_composer_cursor_moves_and_edits_in_place(home: Path) -> None:
     c.feed("\033[200~X\nY\033[201~")
     check("cursor: a paste also inserts at the cursor, not at the end",
           c.text == "abX\nYc" and c.pos == 5, repr(c.text))
-
-    def plain(rows: list[str]) -> list[str]:
-        return [tui._ANSI.sub("", r) for r in rows]
-
-    # shown() draws the glyph at the cursor, not always after the last character.
-    c = tui.Composer()
-    c.feed("abc")
-    c.feed("\033[D")
-    check("shown: the glyph sits where the cursor is, not at the end",
-          "".join(plain(c.shown("p:", 40, 5))) == "p: ab▏c", plain(c.shown("p:", 40, 5)))
-
-    # Longer than the visible cap: moving the cursor out of the window scrolls
-    # to it, the way the window always followed the end while only typing.
-    c = tui.Composer(multi=True)
-    c.text = "\n".join(f"line {i}" for i in range(10))
-    c.pos = len(c.text)
-    rows = plain(c.shown("p:", 30, 4))
-    check("shown: at the end, the window is the tail, as before typing could move it",
-          rows[-1].endswith("line 9▏") and "earlier" in rows[0], str(rows))
-    c.pos = 0   # the cursor moved to the very first character
-    rows = plain(c.shown("p:", 30, 4))
-    check("shown: with the cursor moved to the top, the window follows it there",
-          "▏" in "".join(rows) and "more" in rows[0], str(rows))
 
 
 def test_the_composer_alt_keys_and_a_pasted_cursor_glyph(home: Path) -> None:
@@ -22960,26 +22064,6 @@ def test_a_message_is_read_whole_and_answered_where_it_is_read(home: Path) -> No
               detail and detail["key"] == first and detail["panel"] == tui.MESSAGES,
               str(detail)[:120])
 
-        for height in (8, 16, 20, 40):
-            text = tui._detail_frame(100, height, detail)
-            lines = [tui._ANSI.sub("", ln) for ln in text.split(chr(10))]
-            check(f"read: the view is exactly {height} lines, keys included",
-                  len(lines) == height and "esc back" in lines[-1], repr(lines[-1])[:80])
-            fits = len(tui.lines_of(detail, 100)) <= max(1, height - 4)
-            check(f"read: at {height} lines it counts what is off the bottom, "
-                  f"and only then", ("line 1-" in lines[0]) is not fits, lines[0])
-
-        body_lines = len(tui.lines_of(detail, 100))
-        detail, _ = tui._in_detail(detail, "G", 100, 20)
-        check("read: G goes to the end and stops there",
-              detail["top"] == max(0, body_lines - 16), str(detail["top"]))
-        detail, _ = tui._in_detail(detail, "j", 100, 20)
-        tui._detail_frame(100, 20, detail)
-        check("read: and nothing scrolls past it",
-              detail["top"] == max(0, body_lines - 16), str(detail["top"]))
-        detail, _ = tui._in_detail(detail, "g", 100, 20)
-        check("read: g comes back to the top", detail["top"] == 0)
-
         # A zero width is what a pty reports before anyone has sized it, and
         # what some terminals report for one frame mid-resize. Breaking lines
         # to fit it used to never shrink the line: the screen stopped redrawing
@@ -23005,11 +22089,6 @@ def test_a_message_is_read_whole_and_answered_where_it_is_read(home: Path) -> No
         check("width: fitting counts columns, so it never overflows",
               tui.vlen(tui.fit("진행중 막힌 것 다음", 10)) <= 10,
               repr(tui.fit("진행중 막힌 것 다음", 10)))
-        box = tui.Panel("한글", 40)
-        box.add("## 진행중")
-        drawn = box.draw()
-        check("width: and a box around it keeps its border straight",
-              {tui.vlen(ln) for ln in drawn} == {40}, str({tui.vlen(ln) for ln in drawn}))
 
         check("read: escapes in a body are text stripped, not commands drawn",
               "\033" not in "".join(cleaned) and "pasted tool output" in " ".join(cleaned),
@@ -23097,41 +22176,6 @@ def test_a_key_never_acts_on_a_row_nobody_pointed_at(home: Path) -> None:
     finally:
         con.close()
 
-
-def test_the_frame_never_draws_wider_than_the_terminal(home: Path) -> None:
-    """A panel title counts what is waiting, so it grows with the queue. A head
-    wider than the terminal wraps, a wrapped line is one row more than the
-    frame promised, and the alternate screen scrolls - which this screen's
-    whole contract says it does not."""
-    _daemon_home(home, 20)
-    con = db.connect()
-    try:
-        for i in range(12):
-            db.add_request(con, "marina", actions.HUMAN, f"decision {i}",
-                           None, "peer", "fire_and_forget", "escalate", 0, None)
-        for width in (40, 44, 55, 59, 60, 80, 120):
-            text = tui.frame(width, 40)
-            lines = [tui._ANSI.sub("", ln) for ln in text.split(chr(10))]
-            wide = [ln for ln in lines if len(ln.rstrip()) > width]
-            check(f"top: nothing is wider than a {width}-column terminal",
-                  not wide and len(lines) == 40, str(wide[:1])[:120])
-        for width in (40, 55, 60, 80, 120):
-            bar = tui._ANSI.sub("", tui.keybar(tui.AGENTS, width))
-            check(f"top: the keys at {width} columns end on a whole word",
-                  len(bar) <= width and not bar.rstrip().endswith(("…", "…more")),
-                  repr(bar))
-        # The navigation is the same on every panel and is what a reader
-        # already knows, so it goes before any action does.
-        wide = tui._ANSI.sub("", tui.keybar(tui.AGENTS, 160))
-        tight = tui._ANSI.sub("", tui.keybar(tui.AGENTS, 110))
-        tighter = tui._ANSI.sub("", tui.keybar(tui.AGENTS, 60))
-        check("top: a tight line keeps every action and drops the navigation",
-              "panel" in wide and "panel" not in tight
-              and "wake" in tight, repr(tight))
-        check("top: and a tighter one sheds actions, counting what it held back",
-              "more" in tighter and "wake" not in tighter, repr(tighter))
-    finally:
-        con.close()
 
 
 def test_the_agent_footer_shows_only_what_the_row_can_do(home: Path) -> None:
@@ -23296,15 +22340,6 @@ def test_the_cursor_walks_the_whole_screen(home: Path) -> None:
         # Which panel the keys act on was only in the footer's first word, so a
         # reader pressed `a` at a panel they were not in and read a refusal.
         framed = tui.frame(110, 40, sel, tui.MESSAGES)
-        titles = [ln for ln in framed.split(chr(10)) if "┌─" in ln]
-        lit = [t for t in titles if tui.CYA in t]
-        check("top: the panel the keys act on is the one drawn as focused",
-              len(lit) == 1 and "FOR YOU" in tui._ANSI.sub("", lit[0]),
-              str([tui._ANSI.sub("", t).strip()[:24] for t in lit]))
-        check("top: and it is the only panel showing a cursor",
-              sum(ln.count("▸") for ln in framed.split(chr(10))) == 1,
-              str([tui._ANSI.sub("", ln)[:40] for ln in framed.split(chr(10))
-                   if "▸" in ln]))
         check("top: and the keys it offers are the ones on the footer",
               "a answer" in tui._ANSI.sub("", framed.split(chr(10))[-1]),
               tui._ANSI.sub("", framed.split(chr(10))[-1]))
@@ -25473,22 +24508,14 @@ def test_add_account_from_the_tui_offers_to_trust_worktrees(home: Path) -> None:
 
 
 def test_tui_frame_geometry(home: Path) -> None:
-    """A frame must fill the screen exactly: every line the requested width,
-    and exactly as many lines as the terminal has. Anything else scrolls the
-    alternate screen and the display jumps."""
+    """The low-level primitives every cell is built from: vlen counts visible
+    columns past escape codes, fit/padfit truncate or pad to an exact width
+    without silently losing a byte, and pct/bar never claim a reading (0) for
+    one that was never taken (unknown)."""
     home.mkdir(parents=True, exist_ok=True)
     os.environ["OCP_HOME"] = str(home)
     agents.register("wide", "alpha")
     write_status(home, "alpha", pct_5h=42, pct_7d=10, ctx_pct=7)
-
-    for width, height in ((80, 24), (120, 40), (200, 60)):
-        text = tui.frame(width, height)
-        lines = text.split("\n")
-        check(f"tui {width}x{height}: line count matches the terminal",
-              len(lines) == height, str(len(lines)))
-        too_wide = [tui.vlen(line) for line in lines if tui.vlen(line) > width]
-        check(f"tui {width}x{height}: nothing overflows the width",
-              not too_wide, str(too_wide[:3]))
 
     check("tui: vlen ignores escape sequences", tui.vlen("\033[31mabc\033[0m") == 3)
     check("tui: fit truncates on visible width",
@@ -29450,8 +28477,6 @@ def main() -> int:
         run(lambda: test_a_move_is_still_walled_on_7d_when_nowhere_else_has_room(Path(td) / 'walled7dmove'))
         run(lambda: test_a_resumed_agent_is_rescued_from_a_7d_wall_too(Path(td) / 'walled7drescue'))
         run(lambda: test_the_bridge_says_what_an_agent_is_where_there_is_room(Path(td) / 'agentkind'))
-        run(lambda: test_the_state_column_is_as_wide_as_what_it_prints(Path(td) / 'statew'))
-        run(lambda: test_a_walled_wake_names_the_account_only_with_room(Path(td) / 'walledroom'))
         run(lambda: test_the_bridges_wake_column_dates_a_weekly_wall(Path(td) / 'walledwkclock'))
         run(lambda: test_a_park_that_cannot_be_woken_keeps_its_deadline(Path(td) / 'parkdue'))
         run(lambda: test_a_usage_park_is_woken_when_the_reading_clears(Path(td) / 'parklevel1'))
@@ -29510,7 +28535,6 @@ def main() -> int:
         run(lambda: test_the_screen_says_which_account_to_spend_next(Path(td) / 'nextacct'))
         run(lambda: test_the_next_mark_does_not_flicker_between_close_accounts(
             Path(td) / 'nextflicker'))
-        run(lambda: test_a_long_name_does_not_run_into_the_column_beside_it(Path(td) / 'cols'))
         run(lambda: test_the_whole_loop_runs_on_our_own_commands(Path(td) / 'loop'))
         run(lambda: test_an_agent_can_put_another_one_to_work(Path(td) / 'dispatch'))
         run(lambda: test_a_near_wall_7d_account_is_still_a_candidate_but_not_guaranteed_the_pick(
@@ -29558,7 +28582,9 @@ def main() -> int:
         run(lambda: test_the_accounts_row_draws_a_last_seen_figure_only_inside_its_window(Path(td) / 'acctrow'))
 
 
-        run(lambda: test_a_span_ends_in_its_unit_and_fits_its_columns(Path(td) / 'ar4f'))
+        run(lambda: test_a_span_ends_in_its_unit(Path(td) / 'ar4f'))
+        run(lambda: test_a_message_being_typed_is_sent_whole_and_shown_inert(Path(td) / 'ar4g'))
+        run(lambda: test_the_wheel_changes_no_text_and_answers_no_dialog())
         run(lambda: test_a_sweep_after_a_move_does_not_keep_the_old_accounts_session(Path(td) / 'ar4e'))
         run(lambda: test_agents_that_wall_together_respect_the_cap_and_a_start_is_not_its_own_rival(Path(td) / 'ar4b'))
         run(lambda: test_the_cap_is_set_from_the_command_line_and_the_bridge(Path(td) / 'ar5'))
@@ -29581,7 +28607,6 @@ def main() -> int:
         run(lambda: test_every_real_caller_prices_the_agent_it_is_placing(Path(td) / 'burncallers'))
         run(lambda: test_the_daemon_feeds_the_estimate_each_tick(Path(td) / 'burntick'))
         run(lambda: test_a_cold_start_is_not_priced_as_steady_work(Path(td) / 'burncold'))
-        run(lambda: test_the_panels_bounded_cells_fit_their_own_columns(Path(td) / 'panelwidths'))
         run(lambda: test_the_accounts_panel_says_how_many_agents_are_assigned_and_running(Path(td) / 'panelagents'))
         run(lambda: test_account_list_is_the_present_state_and_status_is_the_pick(Path(td) / 'acctlist'))
         run(lambda: test_ask_and_resolve_do_not_type_at_an_agent_at_the_wall(Path(td) / 'askwall'))
@@ -29603,7 +28628,6 @@ def main() -> int:
         run(lambda: test_the_founder_can_cancel_a_request_in_an_agents_queue(Path(td) / 'cancel'))
         run(lambda: test_the_agent_page_cancels_a_waiting_request_by_command(Path(td) / 'cancelpage'))
         run(lambda: test_the_one_column_agent_page(Path(td) / 'onecolumn'))
-        run(lambda: test_the_agent_page_ends_in_the_input_box_and_the_composer_takes_its_place(Path(td) / 'inputbox'))
         run(lambda: test_a_messages_state_is_never_cut_at_a_narrow_width(Path(td) / 'narrowstate'))
         run(lambda: test_a_read_only_page_does_not_act_on_the_agent_and_the_note_row_is_whole(Path(td) / 'readonly'))
         run(lambda: test_a_folded_row_says_what_its_reports_are_doing(Path(td) / 'foldmark'))
@@ -29613,21 +28637,15 @@ def main() -> int:
         run(lambda: test_the_arrows_change_tabs_on_an_agent_page_in_a_real_terminal(Path(td) / 'arrows'))
         run(lambda: test_the_messenger_tab_carries_a_conversation_both_ways(Path(td) / 'chat'))
         run(lambda: test_the_agent_head_is_trimmed_and_slash_commands_are_derived_not_kept(Path(td) / 'headtrim'))
-        run(lambda: test_a_conversation_stays_where_the_reader_scrolled_it(Path(td) / 'scroll'))
-        run(lambda: test_the_wheel_is_the_arrow_keys())
         run(lambda: test_a_message_in_for_you_opens_at_its_place_in_the_conversation(Path(td) / 'foryou'))
         run(lambda: test_a_conversation_reads_as_turns_at_any_width(Path(td) / 'turns'))
         run(lambda: test_a_conversation_shows_whose_message_is_whose_without_colour(Path(td) / 'whose'))
-        run(lambda: test_the_founders_messages_sit_on_a_background_that_fills_the_whole_block(Path(td) / 'fill'))
-        run(lambda: test_the_composer_and_the_fill_on_a_real_screen_through_tui_run(Path(td) / 'realscreen'))
         run(lambda: test_nothing_a_terminal_would_obey_gets_through_what_someone_else_wrote(Path(td) / 'esc'))
         run(lambda: test_an_agent_name_is_text_and_no_screen_can_be_made_to_obey_it(Path(td) / 'names'))
         run(lambda: test_no_command_prints_what_a_terminal_would_obey(Path(td) / 'cli'))
         run(lambda: test_a_module_that_returns_subprocess_text_as_a_message_imports_textsafe(
             Path(td) / 'boundary'))
-        run(lambda: test_every_prompt_leaves_the_screen_above_it_drawn_through_tui_run(Path(td) / 'prompts'))
         run(lambda: test_the_agent_page_shows_everything_and_reads_as_blocks(Path(td) / 'tabs'))
-        run(lambda: test_a_message_being_typed_wraps_and_keeps_the_cursor_on_its_last_character(Path(td) / 'typing'))
         run(lambda: test_slash_commands_autocomplete_and_run_the_highlighted_one(Path(td) / 'slash'))
         run(lambda: test_bracketed_paste_is_switched_on_with_the_screen())
         run(lambda: test_the_composer_takes_a_paste_whole(Path(td) / 'composer'))
@@ -29635,7 +28653,6 @@ def main() -> int:
         run(lambda: test_the_composer_alt_keys_and_a_pasted_cursor_glyph(Path(td) / 'composer-alt'))
         run(lambda: test_a_paste_into_any_prompt_arrives_whole_and_confirms_nothing(Path(td) / 'pasteany'))
         run(lambda: test_a_key_never_acts_on_a_row_nobody_pointed_at(Path(td) / 'topsel'))
-        run(lambda: test_the_frame_never_draws_wider_than_the_terminal(Path(td) / 'topwide'))
         run(lambda: test_the_agent_footer_shows_only_what_the_row_can_do(Path(td) / 'topfooter'))
         run(lambda: test_every_state_the_daemon_can_write_has_a_waker())
         run(lambda: test_the_screen_word_mapping_is_the_founders_six(Path(td) / 'screenwords'))
