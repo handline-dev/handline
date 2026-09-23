@@ -101,13 +101,7 @@ class Confirm(ModalScreen[bool]):
         self.question = question
 
     def compose(self) -> ComposeResult:
-        yield Static(id="confirm")
-
-    def on_mount(self) -> None:
-        w = max(20, self.app.size.width)
-        text = f"{self.question}? " + "y / n"
-        self.query_one("#confirm", Static).update(
-            Text.from_ansi(tui.fit(f"{tui.YEL}{text}{tui.R}", w)))
+        yield Static(Text(f"{self.question}? y / n", style="yellow"))
 
     def on_key(self, event: events.Key) -> None:
         event.stop()
