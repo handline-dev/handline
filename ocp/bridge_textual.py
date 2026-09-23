@@ -494,8 +494,8 @@ class ReadOnly(ModalScreen[None]):
         Binding("escape", "dismiss(None)", "back"),
         Binding("left", "tab(-1)", "prev tab", show=False),
         Binding("right,tab", "tab(1)", "next tab", show=False),
-        Binding("j", "scroll(1)", "down", show=False),
-        Binding("k", "scroll(-1)", "up", show=False),
+        Binding("j,down", "scroll(1)", "down", show=False),
+        Binding("k,up", "scroll(-1)", "up", show=False),
         Binding("space", "page(1)", "page", show=False),
         Binding("b", "page(-1)", "page up", show=False),
         Binding("g", "edge(0)", "top", show=False),
@@ -515,7 +515,8 @@ class ReadOnly(ModalScreen[None]):
         self.sections = [(str(h), [str(r) for r in rows]) for h, rows in sections]
 
     def _body(self, rows: list[str]) -> VerticalScroll:
-        return VerticalScroll(Static(Text.from_ansi("\n".join(rows))))
+        lines = [ln for r in rows for ln in textsafe.drawable(r)]
+        return VerticalScroll(Static(Text("\n".join(lines))))
 
     def compose(self) -> ComposeResult:
         yield Static(Text(self.title_text, style="bold"), id="title")
