@@ -639,6 +639,31 @@ def deliver_queued(con, agent: str, log) -> bool:
         return _tell(con, agent, head, depth, handle, log)
 
 
+def _queued_delivery_blocked_reason(con, agent: str) -> str:
+    """Why `deliver_queued` just declined, in the same guard order it checks
+    them in - read-only, so calling it after the fact changes nothing (#83).
+    Not a return value of `deliver_queued` itself: that stays a plain bool for
+    its dozen other callers, which do not need a reason and should not have
+    to unpack one."""
+    head = db.head_of_queue(con, agent)
+    if not head:
+        return "nothing at the head after all"
+    if db.get_cursor(con, f"notify:{agent}") == int(head["id"]) \
+            and not _session_changed(con, agent):
+        return "already told about this head; nothing has changed since"
+    why = wall_reason(con, agent)
+    if why:
+        return why
+    handle = db.get_terminal(con, agent)
+    if not handle or not orca.available() or not orca.alive(handle):
+        return "no live terminal"
+    if not session_present(agent):
+        return "no session process"
+    if not orca.typeable_now(handle):
+        return "the session is busy or has a modal open"
+    return "something changed between the attempt and this read"
+
+
 # An agent is asked to resolve the request at the head of its queue once it has
 # been idle this long with nothing of its own outstanding. Ten minutes: a turn
 # that ended and left the request open is not thinking, and a real wait on
@@ -847,10 +872,10 @@ def should_close(con, agent: str, state: str, row, now: int, st) -> bool:
     Closing is about the machine, not the account, so the question is whether
     anyone is using this session and whether we can bring it back. Six things
     say no: it is working or being handed off, a human has to look at it,
-    someone is waiting on it, it has been busy recently, we cannot name the
-    session we would resume, or a close of it failed within the last idle
-    window. Anything else is a session whose only job right now
-    is to occupy 250-500MB.
+    someone is waiting on it (unless it is PARKED, task #83), it has been
+    busy recently, we cannot name the session we would resume, or a close of
+    it failed within the last idle window. Anything else is a session whose
+    only job right now is to occupy 250-500MB.
 
     The session id is the asymmetric trade: memory is recoverable the moment
     anything wants it, and a working context is not recoverable at all. Closing
@@ -861,7 +886,13 @@ def should_close(con, agent: str, state: str, row, now: int, st) -> bool:
         return False
     if not row or row["closed_at"] or not row["terminal"]:
         return False
-    if db.queued_for(con, agent):
+    # Everywhere else, work waiting is a reason to keep the session hot: it is
+    # about to be delivered this same tick. A PARKED agent is not - delivery
+    # here is gated on `wake_at`, not on this check - so refusing leaves the
+    # session open for the rest of the park buying nothing (task #83: a
+    # quiet-hours park sat open the whole window with two asks queued for
+    # it). Waking a closed PARKED agent resumes the same session either way.
+    if db.queued_for(con, agent) and state != PARKED:
         return False          # work is waiting; closing would only delay it
     if not st.session_id:
         return False          # nothing to resume; losing the context costs more
@@ -2528,8 +2559,17 @@ def supervise(con, agent: str, log, now: int, samples: dict,
         # on that, and telling it about new work while its own question is
         # still unanswered is the wrong order.
         deliver_answers(con, agent, log)
-        deliver_queued(con, agent, log)
+        delivered = deliver_queued(con, agent, log)
         nudge_forgotten_resolve(con, agent, row, now, log)
+        # #83: a QUEUED agent is the daemon's own claim that work is waiting
+        # for it. If delivery does not land, that claim needs a reason every
+        # tick it is still true - not once, since the reason itself can sit
+        # unchanged for hours (an agent parked for quiet hours came back
+        # QUEUED with a session no wake had actually reached, and nothing
+        # said why for five hours straight).
+        if state == QUEUED and not delivered and db.queued_for(con, agent):
+            log(f"  {agent}: QUEUED with work waiting, not delivered - "
+                f"{_queued_delivery_blocked_reason(con, agent)}")
 
     # Memory is the scarce resource on one laptop running a team, and an
     # idle session spends it while earning nothing: it holds its context,

@@ -22238,6 +22238,99 @@ def test_a_drifted_wake_that_cannot_relaunch_says_why(home: Path) -> None:
         con.close()
 
 
+def test_a_queued_agent_stalled_after_a_silent_wake_logs_why_every_tick(home: Path) -> None:
+    """#83 (founder #2284/#2286/#2287), the production trace: parked for
+    quiet hours with an idle session left open (task #77's own park never
+    takes a handoff - no new state, no context clear), the launch recipe
+    changed underneath it while it slept (main moved on), and with no
+    session id recorded the wake could only try typing in place - but there
+    was no handoff to type. `supervise` still moved PARKED -> QUEUED as if
+    the wake had worked, and from there `deliver_queued` declined every tick
+    with nothing said: two queued asks sat for five hours with no line about
+    this agent in the log at all.
+
+    Drives exactly that shape through `supervise` over several ticks. What
+    must hold (the founder's own words): a QUEUED agent with queued asks
+    either starts on an account that can take it, or the daemon logs the
+    reason - every tick it is still true, not once."""
+    _daemon_home(home, 20)
+    con = db.connect()
+    real = (orcamod.available, orcamod.alive, orcamod.idle_now, orcamod.resume_with,
+            orcamod.live_terminals)
+    sessions_are("backend")
+    try:
+        orcamod.available = lambda: True
+        orcamod.alive = lambda h: True
+        orcamod.live_terminals = lambda: {"term_x"}
+        orcamod.resume_with = lambda h, text: (False, "should not be reached")
+        db.set_terminal(con, "backend", "term_x", "wt")
+        db.set_account(con, "backend", "alpha")
+        write_status(home, "alpha", pct_5h=20, pct_7d=10, ctx_pct=5,
+                     reset_5h=int(time.time()) + 1800)
+        # A drifted session with no session id recorded to end and resume -
+        # exactly what "waking it in place" falls back to instead of a clean
+        # relaunch.
+        f = paths.agent_status_file("backend")
+        f.parent.mkdir(parents=True, exist_ok=True)
+        f.write_text(json.dumps({"account": "alpha", "collected_at": int(time.time()),
+                                 "ctx_pct": 5}))
+        db.set_launch_fingerprint(con, "backend", "stale-fingerprint")
+        # A quiet-hours park's own shape (task #77): PARKED/wake_at, and
+        # nothing else - no db.set_handoff, unlike an ordinary usage park.
+        db.set_agent_state(con, "backend", dmn.PARKED, wake_at=int(time.time()) - 10,
+                           detail="quiet hours; wakes at 11:00")
+        db.add_request(con, "marina", "backend", "carry on", None,
+                       "peer", "async", None, 0, None)
+        db.add_request(con, "marina", "backend", "and this too", None,
+                       "peer", "async", None, 0, None)
+
+        # The session never becomes typeable again - standing in for whatever
+        # kept it stuck in production; this alone must not stay silent.
+        orcamod.idle_now = lambda h: False
+        actions: list[str] = []
+        logs: list[str] = []
+        for _ in range(5):
+            dmn.supervise(con, "backend", logs.append, int(time.time()), {}, actions)
+        row = db.get_agent_state(con, "backend")
+        check("stalled wake: the wake-in-place path is the one taken, not a relaunch",
+              any("no session id" in m and "in place" in m for m in logs), str(logs))
+        check("stalled wake: the wake did not actually happen, but the row still "
+              "reads QUEUED - the work really is waiting",
+              row["state"] == dmn.QUEUED, str(dict(row)))
+        check("stalled wake: every tick it is still stuck says why - not just the "
+              "first tick, all five",
+              sum("not delivered" in m for m in logs) == 5, str(logs))
+    finally:
+        (orcamod.available, orcamod.alive, orcamod.idle_now, orcamod.resume_with,
+         orcamod.live_terminals) = real
+        con.close()
+
+
+def test_a_parked_agent_with_queued_work_is_still_closed_while_idle(home: Path) -> None:
+    """#83: a parked agent cannot be delivered to anyway - `supervise` gates
+    delivery on `wake_at`, not on this check - so refusing to close it over
+    queued work buys nothing and leaves the session (250-500MB) open for the
+    rest of the park. A closed PARKED agent's wake already resumes the same
+    session by its own session id (`_wake_agent`'s `closed` branch), so
+    nothing about waking it back up is worse for having been closed."""
+    _daemon_home(home, 20)
+    con = db.connect()
+    try:
+        db.set_terminal(con, "backend", "term_x", "wt")
+        db.add_request(con, "marina", "backend", "carry on", None,
+                       "peer", "async", None, 0, None)
+        row = db.get_agent_state(con, "backend")
+        st = status.AccountStatus("alpha", exists=True, session_id="sess-1")
+        check("parked+queued close: an IDLE agent with queued work is not closed - "
+              "it is about to be delivered to instead",
+              not dmn.should_close(con, "backend", dmn.IDLE, row, int(time.time()) + 10_000, st))
+        check("parked+queued close: a PARKED agent with the same queued work is - "
+              "nothing here will deliver it until wake_at either way",
+              dmn.should_close(con, "backend", dmn.PARKED, row, int(time.time()) + 10_000, st))
+    finally:
+        con.close()
+
+
 def test_a_wake_reads_the_screen_before_typing_into_it(home: Path) -> None:
     """The cursor on claude's folder-trust screen defaults to "No, exit" - a
     handoff typed there, followed by Enter, chooses exit every time, and the
@@ -27528,6 +27621,10 @@ def main() -> int:
         run(lambda: test_a_parked_row_with_no_fingerprint_also_relaunches(Path(td) / 'nofp'))
         run(lambda: test_a_launch_records_its_fingerprint_and_says_when_it_cannot(Path(td) / 'recfp'))
         run(lambda: test_a_drifted_wake_that_cannot_relaunch_says_why(Path(td) / 'driftlog'))
+        run(lambda: test_a_queued_agent_stalled_after_a_silent_wake_logs_why_every_tick(
+            Path(td) / 'stalledqueued'))
+        run(lambda: test_a_parked_agent_with_queued_work_is_still_closed_while_idle(
+            Path(td) / 'parkedqueuedclose'))
         run(lambda: test_a_wake_reads_the_screen_before_typing_into_it(Path(td) / 'trustscreen'))
         run(lambda: test_a_declared_root_gets_standing_consent(Path(td) / 'trustroot'))
         run(lambda: test_a_closed_agents_relaunch_stops_at_the_trust_screen(Path(td) / 'trustclosed'))
