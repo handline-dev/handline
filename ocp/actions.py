@@ -29,6 +29,7 @@ from pathlib import Path
 from . import (accounts, agents, ask as askmod, blocked, daemon, db, events as evmod,
                fold as foldmod, hr, load as loadmod, observe as obs, orca, paths,
                spawn as spawnmod, status, team, textsafe, triggers, trust, vendors, waiting)
+from .yamlcompat import ConfigError
 
 # The name a human's own requests are sent under, and the inbox `ocp bridge`
 # shows. Taken from `ask`, which is where escalations are addressed: a second
@@ -234,17 +235,26 @@ def record_human_resolve(con, rid: int, tasks: list[int] | None, no_task: str | 
         db.add_event(con, me or "", "no_task", {"request_id": rid, "reason": no_task})
 
 
-TASK_OWNER = "orcapipe"
+def finding_owner(me: str) -> str | None:
+    """The manager of the resolver's lane: the lane key `me` belongs to, or
+    `me` when it is itself a lane's manager. None when that is not a
+    registered agent, so a task never lands on a name nobody answers to."""
+    try:
+        t = team.Team.load()
+    except (FileNotFoundError, ConfigError):
+        return None
+    owner = t.team_of(me) or (me if me in t.teams else None)
+    return owner if owner in paths.list_agents() else None
 
 
-def open_finding_tasks(con, rid: int, findings: list[str]) -> list[int]:
+def open_finding_tasks(con, rid: int, findings: list[str], owner: str) -> list[int]:
     """Task #73 (founder #2150, #2154 point 2): a finding the resolver is
     deferring rather than blocking the review on becomes a task in the same
-    step, linked to the request it came out of. Every task is owned and
-    opened by orcapipe (#1914), whoever resolves."""
+    step, linked to the request it came out of. The task is owned and opened
+    by the resolver's lane manager (#1914), never by the resolver."""
     tids = []
     for title in findings:
-        tid = db.new_task(con, textsafe.oneline(title).strip(), TASK_OWNER, TASK_OWNER)
+        tid = db.new_task(con, textsafe.oneline(title).strip(), owner, owner)
         db.link_request(con, tid, rid)
         tids.append(tid)
     return tids

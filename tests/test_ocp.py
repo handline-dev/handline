@@ -27463,12 +27463,39 @@ def test_resolving_the_founders_request_says_what_it_becomes(home: Path) -> None
     check("guard: a closed task cannot be attached to", rc == 1 and "closed" in out, out)
 
 
+def _two_lanes(home: Path) -> None:
+    """manager leads worker; boss leads reviewer, in a second lane."""
+    (home / "team.yaml").write_text("""
+teams:
+  manager: [worker]
+  boss: [reviewer]
+
+agents:
+  manager:  { intake: dedicated }
+  worker:   { intake: dedicated }
+  boss:     { intake: dedicated }
+  reviewer: { intake: dedicated }
+
+edges:
+  - { from: "manager", to: "worker", relation: supervisor, response: fire_and_forget }
+  - { from: "worker", to: "manager", relation: subordinate, response: fire_and_forget }
+  - { from: "worker", to: "reviewer", relation: peer, response: fire_and_forget }
+
+limits:
+  max_chain_depth: 4
+  ask_rate_per_hour: 50
+""")
+    for n in ("boss", "reviewer"):
+        agents.register(n, "alpha")
+
+
 def test_resolve_finding_opens_a_task_in_the_same_step(home: Path) -> None:
     """Task #73 (founder #2150, #2154 point 2): a finding the resolver defers
     rather than blocks on opens as its own task, owned by whoever asked,
     linked to the row, in the same `ocp resolve` call - not left only in the
     resolver's own prose for someone else to remember to open."""
     _board_world(home)
+    _two_lanes(home)
     ok, _, rid = askmod.ask("manager", "please review", requester="worker")
     check("setup: the review request went through", ok, rid)
 
@@ -27487,10 +27514,10 @@ def test_resolve_finding_opens_a_task_in_the_same_step(home: Path) -> None:
         titles = {t["title"] for t in tasks.values()}
         check("finding: each finding's text became a task's title",
               titles == {"note 1 - tighten the retry", "note 2 - rename the flag"}, titles)
-        check("finding: every task is owned by orcapipe, not the asker or resolver",
-              all(t["owner"] == "orcapipe" for t in tasks.values()), str(tasks))
-        check("finding: and opened by orcapipe",
-              all(t["opened_by"] == "orcapipe" for t in tasks.values()), str(tasks))
+        check("finding: every task is owned by the resolver's lane manager",
+              all(t["owner"] == "manager" for t in tasks.values()), str(tasks))
+        check("finding: and opened by that manager",
+              all(t["opened_by"] == "manager" for t in tasks.values()), str(tasks))
         check("finding: the verdict names the new task numbers",
               all(f"#{tid}" in row["verdict"] for tid in tasks)
               and "Opened as task" in row["verdict"], row["verdict"])
@@ -27536,12 +27563,43 @@ def test_resolve_finding_opens_a_task_in_the_same_step(home: Path) -> None:
     finally:
         con.close()
 
+    ok, _, rid5 = askmod.ask("reviewer", "other lane review", requester="worker")
+    rc, out = _cli(["resolve", str(rid5), "PASS", "--finding", "fnd C"], as_agent="reviewer")
+    con = db.connect()
+    try:
+        row5 = con.execute("SELECT t.* FROM tasks t JOIN task_requests tr ON tr.task_id = t.id "
+                           "WHERE tr.request_id = ?", (rid5,)).fetchone()
+        check("finding: a second lane's finding is owned by its own manager",
+              rc == 0 and row5 and row5["owner"] == "boss" and row5["opened_by"] == "boss",
+              out + str(dict(row5) if row5 else None))
+    finally:
+        con.close()
+    before = None
+    con = db.connect()
+    try:
+        before = con.execute("SELECT COUNT(*) c FROM tasks").fetchone()["c"]
+    finally:
+        con.close()
+
+    ok, _, rid6 = askmod.ask("reviewer", "unmanaged lane", requester="worker")
+    (home / "team.yaml").write_text((home / "team.yaml").read_text().replace(
+        "  boss: [reviewer]", "  ghost: [reviewer]"))
+    rc, out = _cli(["resolve", str(rid6), "PASS", "--finding", "fnd D"], as_agent="reviewer")
+    con = db.connect()
+    try:
+        check("finding: an owner that is not a registered agent is refused, nothing written",
+              rc == 1 and "no registered manager" in out and db.get_request(con, rid6)["state"] == "queued"
+              and con.execute("SELECT COUNT(*) c FROM tasks").fetchone()["c"] == before,
+              out)
+    finally:
+        con.close()
+
     ok, _, rid4 = askmod.ask("manager", "fourth review", requester="worker")
     real = askmod.db.close_if_queued
     askmod.db.close_if_queued = lambda *a, **k: False
     try:
         ok4, _ = askmod.resolve(rid4, "PASS", open_tasks=lambda c: actions.open_finding_tasks(
-            c, rid4, ["lost race"]))
+            c, rid4, ["lost race"], "manager"))
     finally:
         askmod.db.close_if_queued = real
     con = db.connect()

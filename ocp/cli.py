@@ -2058,6 +2058,11 @@ def cmd_resolve(args) -> int:
             print(f"#{args.id} came from {row['requester']}, not an agent - a finding "
                   f"cannot be tied to it; open it with `ocp task new --owner NAME`")
             return 1
+        owner = actions.finding_owner(me) if args.finding else None
+        if args.finding and owner is None:
+            print(f"no registered manager for {me}'s lane - a finding cannot be owned; "
+                  f"open it with `ocp task new --owner NAME`")
+            return 1
         if args.finding and any(not textsafe.oneline(f).strip() for f in args.finding):
             print("a finding needs a title")
             return 1
@@ -2119,7 +2124,7 @@ def cmd_resolve(args) -> int:
             con.close()
     ok, msg = askmod.resolve(
         args.id, verdict, state=args.state,
-        open_tasks=(lambda c: actions.open_finding_tasks(c, args.id, args.finding))
+        open_tasks=(lambda c: actions.open_finding_tasks(c, args.id, args.finding, owner))
         if args.finding else None)
     if ok and args.retires is not None:
         con = db.connect()
