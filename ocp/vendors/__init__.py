@@ -64,6 +64,17 @@ def config_dir(acct: str) -> Path:
     return paths.account_dir(acct) / for_account(acct).config_dir_name
 
 
+def account_named_by(value: str) -> str | None:
+    """The account a config-dir variable's value points into, or None for a
+    directory that is not one of ours. Every account's config dir sits under
+    `paths.accounts_dir()`, whatever its vendor calls it."""
+    try:
+        rel = Path(value).resolve().relative_to(paths.accounts_dir().resolve())
+    except (ValueError, OSError):
+        return None
+    return rel.parts[0] if rel.parts else None
+
+
 def of_vendor(names: list[str], vendor: str) -> list[str]:
     """The accounts among `names` that an agent of `vendor` can run on. An
     agent runs as its own vendor's binary against the account's credentials,

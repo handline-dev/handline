@@ -20,9 +20,7 @@ from __future__ import annotations
 import subprocess
 from dataclasses import dataclass
 
-from pathlib import Path
-
-from . import orca, paths, vendors
+from . import orca, vendors
 
 
 @dataclass
@@ -122,18 +120,13 @@ def account_of_process(pid: int) -> str | None:
     None when unreadable, or a config dir that is not one of ours.
 
     Which variable is the vendor's answer (`config_dir_env`), so each known
-    vendor's is asked; the rest of this is layout, not vendor - every account's
-    config dir sits under `paths.accounts_dir()` whatever the tool calls it."""
+    vendor's is asked; which account it names is layout, not vendor
+    (`vendors.account_named_by`)."""
     for drv in vendors.known():
         cfg = env_of(pid, drv.config_dir_env())
-        if not cfg:
-            continue
-        try:
-            rel = Path(cfg).resolve().relative_to(paths.accounts_dir().resolve())
-        except (ValueError, OSError):
-            continue
-        if rel.parts:
-            return rel.parts[0]
+        acct = vendors.account_named_by(cfg) if cfg else None
+        if acct:
+            return acct
     return None
 
 

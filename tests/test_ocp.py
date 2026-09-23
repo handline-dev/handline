@@ -8210,10 +8210,31 @@ def test_the_opencode_driver(home: Path) -> None:
         cdir = vendors.config_dir("zai")
         check("opencode: its account's directory is XDG_DATA_HOME's, made at register",
               cdir == paths.account_dir("zai") / "xdg-data" and cdir.is_dir(), str(cdir))
-        env = accounts.env_for("zai")
-        check("opencode: a session's environment names it in XDG_DATA_HOME",
-              env.get("XDG_DATA_HOME") == str(cdir) and "CLAUDE_CONFIG_DIR" not in env,
-              str(env.get("XDG_DATA_HOME")))
+        # Launched from inside a claude agent, whose own variable names its
+        # account. auditor's #1906: XDG_DATA_HOME is also the user's own, and
+        # claude reads it, so only a value pointing into one of our accounts
+        # is dropped.
+        saved = {k: os.environ.get(k) for k in ("XDG_DATA_HOME", "CLAUDE_CONFIG_DIR")}
+        try:
+            os.environ["CLAUDE_CONFIG_DIR"] = str(vendors.config_dir("alpha"))
+            env = accounts.env_for("zai")
+            check("opencode: a session's environment names it in XDG_DATA_HOME",
+                  env.get("XDG_DATA_HOME") == str(cdir) and "CLAUDE_CONFIG_DIR" not in env,
+                  str((env.get("XDG_DATA_HOME"), env.get("CLAUDE_CONFIG_DIR"))))
+            os.environ["XDG_DATA_HOME"] = str(home / "user-share")
+            check("opencode: a claude launch keeps the XDG_DATA_HOME it inherits",
+                  accounts.env_for("alpha").get("XDG_DATA_HOME") == str(home / "user-share"),
+                  str(accounts.env_for("alpha").get("XDG_DATA_HOME")))
+            os.environ["XDG_DATA_HOME"] = str(cdir)
+            check("opencode: but not one naming an opencode account",
+                  "XDG_DATA_HOME" not in accounts.env_for("alpha"),
+                  str(accounts.env_for("alpha").get("XDG_DATA_HOME")))
+        finally:
+            for k, v in saved.items():
+                if v is None:
+                    os.environ.pop(k, None)
+                else:
+                    os.environ[k] = v
         check("opencode: the login a human is handed is opencode's, under that directory",
               accounts.login_command("zai") == f'XDG_DATA_HOME="{cdir}" opencode auth login',
               accounts.login_command("zai"))
