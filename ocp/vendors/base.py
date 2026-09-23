@@ -66,6 +66,14 @@ class Driver(Protocol):
         """With `idle_from_screen`, whether the rendered screen shows the
         session waiting for input."""
 
+    def working_on_screen(self, tail: list[str]) -> bool | None:
+        """Whether the rendered screen shows a turn in progress, with
+        positive evidence both ways: True working, False idle at its prompt,
+        None when the screen carries no evidence either way - a shell, a
+        start screen - and the reader keeps its own state. For a driver whose
+        working state Orca reads (idle_from_screen False), the answer is
+        None: Orca's word is that vendor's witness, not its screen."""
+
     def screen_blocker(self, tail: list[str]):
         """What on this vendor's rendered screen a typed line would answer or
         merge into, as an `orca.Blocker`, or None when its prompt is ready."""
