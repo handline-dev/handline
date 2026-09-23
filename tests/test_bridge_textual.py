@@ -456,11 +456,11 @@ async def test_accounts_panel_cap_add_remove_and_open() -> None:
         await pilot.pause(0.2)
         check("accounts: enter opens a read-only page (account_detail)",
               isinstance(app.screen, bt.ReadOnly), type(app.screen).__name__)
-        text = str(app.screen.query_one("#readonly").render())
+        text = app.screen.title_text + "\n".join(r for _, rows in app.screen.sections for r in rows)
         check("accounts: it is that account's own detail",
               "account alpha" in text and "config" in text, text)
         check("accounts: it names its own named section as a tab, not flattened",
-              "AGENTS ON IT" in text, text)
+              any(h.startswith("AGENTS ON IT") for h, _ in app.screen.sections), app.screen.sections)
         await pilot.press("down")           # a scroll key: task #54 item 3, no longer any key
         await pilot.pause(0.1)
         check("accounts: a scroll key does not close it", isinstance(app.screen, bt.ReadOnly),
@@ -788,6 +788,31 @@ async def test_task_checks_closes_several_checked_at_once() -> None:
         check("checks: checked is cleared once acted on", not screen.checked, screen.checked)
 
 
+async def test_read_only_page_shows_foreign_text_inert_and_scrolls_on_arrows() -> None:
+    """Auditor #2259: a page shows text an agent wrote (message bodies, a
+    handoff), so a colour code, an OSC 8 link, a C1 CSI or a BEL in a row must
+    not reach the terminal - and the arrow keys (the wheel) scroll a tabbed page."""
+    _home("readonly_inert")
+    bad = "red:\033[31mRED\033[0m link:\033]8;;http://evil.example\033\\click\033]8;;\033\\ c1:\u009b2J bel:\a end"
+    app = bt.BridgeApp()
+    async with app.run_test(size=(80, 12)) as pilot:
+        await pilot.pause()
+        secs = [("ONE", [bad] + [f"row {i}" for i in range(30)]), ("TWO", ["x"])]
+        app.push_screen(bt.ReadOnly("t", secs))
+        await pilot.pause()
+        segs = [seg for strip in app.screen._compositor.render_strips() for seg in strip]
+        text = "".join(seg.text for seg in segs)
+        check("readonly: no C1 or BEL reaches the rendered text",
+              "\u009b" not in text and "\a" not in text, repr(text[:200]))
+        check("readonly: no row carries a hyperlink",
+              not any(seg.style and seg.style.link for seg in segs))
+        check("readonly: the visible words survive", "red:RED" in text and "click" in text, text[:200])
+        pane = app.screen._pane()
+        await pilot.press("down")
+        await pilot.pause()
+        check("readonly: down scrolls a tabbed page", pane.scroll_y == 1, pane.scroll_y)
+
+
 async def _run_all() -> None:
     await test_dashboard_shows_a_registered_agent_and_moves_the_cursor()
     await test_help_key_names_every_agent_verb_the_footer_folds_out()
@@ -807,6 +832,7 @@ async def _run_all() -> None:
     await test_text_prompt_keeps_a_paste_instead_of_dropping_it()
     await test_task_checks_lists_and_acts_on_the_founders_own()
     await test_task_checks_closes_several_checked_at_once()
+    await test_read_only_page_shows_foreign_text_inert_and_scrolls_on_arrows()
 
 
 def main() -> int:

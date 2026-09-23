@@ -26,9 +26,9 @@ typing a login code into claude's own screen, same as curses's `_suspend` -
 through Textual's own `App.suspend()` rather than `jobs.Jobs`: it is
 interactive, not something to run and report on later.
 
-`?` on an AGENTS/STUCK row and a row opened read-only (`/knows`, `/done`,
-ACCOUNTS) go through the same `tui.agent_help_line`/`tui._detail_frame`/
-`tui._in_detail` curses uses for both. ACCOUNTS' "next" tick-mark needs
+`?` on an AGENTS/STUCK row goes through the same `tui.agent_help_line` curses
+uses, and a row opened read-only (`/knows`, `/done`, ACCOUNTS) is a `ReadOnly`
+page of Textual widgets. ACCOUNTS' "next" tick-mark needs
 nothing of its own: it is computed inside `tui.build`, which `tui.frame`
 already calls unconditionally.
 
@@ -45,7 +45,8 @@ from textual import events
 from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.screen import ModalScreen, Screen
-from textual.widgets import DataTable, Footer, Static
+from textual.containers import VerticalScroll
+from textual.widgets import DataTable, Footer, Static, TabbedContent, TabPane
 
 from . import accounts, actions, db, jobs as jobsmod, load as loadmod, orca, textsafe, tui
 
@@ -336,7 +337,7 @@ class Dashboard(JobsAware, Screen):
         if key in ("\r", "\n"):
             sections = actions.account_detail(con, name, accounts.logged_in)
             await self.app.push_screen_wait(
-                ReadOnly(f"account {name}", sections, tui.ACCOUNTS, name))
+                ReadOnly(f"account {name}", sections))
             return
         if key == "l":
             await self._account_login(name)
@@ -468,7 +469,7 @@ class Dashboard(JobsAware, Screen):
                 self.flash = f"#{rid} is gone"
                 return
             title, sections = detail
-            await self.app.push_screen_wait(ReadOnly(title, sections, tui.MESSAGES, target))
+            await self.app.push_screen_wait(ReadOnly(title, sections))
             return
         if key == "x":
             self.flash = self._start("dismiss", f"#{rid}", f"dismissing #{rid}", (rid,),
@@ -484,51 +485,73 @@ class Dashboard(JobsAware, Screen):
 
 class ReadOnly(ModalScreen[None]):
     """`/knows`, `/done`, and an ACCOUNTS row opened: a page of text over
-    whatever was open, in `page()`'s own shape - a title per section, then its
-    rows. A single flat list is one section with no heading.
+    whatever was open, in `tui.page()`'s shape - a title per section, then its
+    rows. A single flat list is one section with no heading, and several
+    sections are tabs. Textual's own scroll container and tab strip do the
+    scrolling and the tab keys; a page has nothing to act on, so Esc closes it."""
 
-    Drawn and read through `tui._detail_frame`/`tui._in_detail` - the same
-    scrolling, tab strip (←→ across named sections) and "line N-M of T"
-    counter curses's own detail page has, not reimplemented here.
+    BINDINGS = [
+        Binding("escape", "dismiss(None)", "back"),
+        Binding("left", "tab(-1)", "prev tab", show=False),
+        Binding("right,tab", "tab(1)", "next tab", show=False),
+        Binding("j,down", "scroll(1)", "down", show=False),
+        Binding("k,up", "scroll(-1)", "up", show=False),
+        Binding("space", "page(1)", "page", show=False),
+        Binding("b", "page(-1)", "page up", show=False),
+        Binding("g", "edge(0)", "top", show=False),
+        Binding("G", "edge(1)", "bottom", show=False),
+        Binding("q,ctrl+c", "app.quit", "quit", show=False),
+    ]
+    DEFAULT_CSS = """
+    ReadOnly #title { dock: top; height: 1; }
+    ReadOnly TabbedContent { height: 1fr; }
     """
 
-    def __init__(self, title: str, sections: list, panel: int = tui.AGENTS,
-                key: object = None) -> None:
+    def __init__(self, title: str, sections: list) -> None:
         super().__init__()
         if sections and not isinstance(sections[0], tuple):
             sections = [("", sections)]
-        sections = [(str(h), [str(r) for r in rows]) for h, rows in sections]
-        self.detail = tui.page(title, sections, panel, key)
-        self.detail["read_only"] = True
-        self.flash = ""
+        self.title_text = title
+        self.sections = [(str(h), [str(r) for r in rows]) for h, rows in sections]
+
+    def _body(self, rows: list[str]) -> VerticalScroll:
+        lines = [ln for r in rows for ln in textsafe.drawable(r)]
+        return VerticalScroll(Static(Text("\n".join(lines))))
 
     def compose(self) -> ComposeResult:
-        yield Static(id="readonly")
+        yield Static(Text(self.title_text, style="bold"), id="title")
+        if len(self.sections) == 1 and not self.sections[0][0]:
+            yield self._body(self.sections[0][1])
+        else:
+            with TabbedContent():
+                for i, (head, rows) in enumerate(self.sections):
+                    with TabPane(head or "-", id=f"sec{i}"):
+                        yield self._body(rows)
+        yield Footer()
 
-    def on_mount(self) -> None:
-        self._redraw()
+    def _pane(self) -> VerticalScroll:
+        tabs = self.query(TabbedContent)
+        if tabs:
+            return self.query_one(f"#{tabs.first().active} VerticalScroll", VerticalScroll)
+        return self.query_one(VerticalScroll)
 
-    def _redraw(self) -> None:
-        size = self.size
-        width, height = max(20, size.width), max(6, size.height)
-        text = tui._detail_frame(width, height, self.detail, self.flash)
-        text = text.replace(tui.CLEAR_EOL, "")
-        self.query_one("#readonly", Static).update(Text.from_ansi(text))
+    def action_tab(self, step: int) -> None:
+        tabs = list(self.query(TabbedContent))
+        if tabs:
+            n = len(self.sections)
+            cur = int(tabs[0].active.removeprefix("sec") or 0)
+            tabs[0].active = f"sec{(cur + step) % n}"
 
-    def on_key(self, event: events.Key) -> None:
-        k = key_token(event)
-        if k is None:
-            return
-        event.stop()
-        if k in ("q", "Q", "\x03"):    # the same global quit every screen answers to
-            self.app.exit()
-            return
-        nxt, self.flash = tui._in_detail(self.detail, k, self.size.width, self.size.height)
-        if nxt is None:
-            self.dismiss(None)
-            return
-        self.detail = nxt
-        self._redraw()
+    def action_scroll(self, step: int) -> None:
+        self._pane().scroll_relative(y=step, animate=False)
+
+    def action_page(self, step: int) -> None:
+        pane = self._pane()
+        (pane.scroll_page_down if step > 0 else pane.scroll_page_up)(animate=False)
+
+    def action_edge(self, end: int) -> None:
+        pane = self._pane()
+        (pane.scroll_end if end else pane.scroll_home)(animate=False)
 
 
 class TaskChecks(JobsAware, Screen):
@@ -895,7 +918,7 @@ class AgentDetail(JobsAware, Screen):
             return
         if kind == "page":
             rows = actions.agent_knows(con, name) if cmd == "knows" else actions.agent_done(con, name)
-            await self.app.push_screen_wait(ReadOnly(f"{cmd} · {name}", rows, tui.AGENTS, name))
+            await self.app.push_screen_wait(ReadOnly(f"{cmd} · {name}", rows))
             return
         if kind == "cancel":
             await self._cancel(con, name, cmd.partition(" ")[2])
