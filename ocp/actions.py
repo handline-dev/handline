@@ -29,6 +29,7 @@ from pathlib import Path
 from . import (accounts, agents, ask as askmod, blocked, daemon, db, events as evmod,
                fold as foldmod, hr, load as loadmod, observe as obs, orca, paths,
                spawn as spawnmod, status, team, textsafe, triggers, trust, vendors, waiting)
+from .yamlcompat import ConfigError
 
 # The name a human's own requests are sent under, and the inbox `ocp bridge`
 # shows. Taken from `ask`, which is where escalations are addressed: a second
@@ -232,6 +233,34 @@ def record_human_resolve(con, rid: int, tasks: list[int] | None, no_task: str | 
         db.link_request(con, tid, rid)
     if no_task:
         db.add_event(con, me or "", "no_task", {"request_id": rid, "reason": no_task})
+
+
+def finding_owner(me: str) -> str | None:
+    """The manager `me` answers to by the supervisor edges the daemon routes
+    on, or `me` when it is itself some agent's supervisor. None when that is
+    not a registered agent, so a task never lands on a name nobody answers to."""
+    try:
+        t = team.Team.load()
+    except (FileNotFoundError, ConfigError):
+        return None
+    owner = supervisor_of(t, me)
+    if owner is None and any(e.get("relation") == "supervisor" and e.get("from") == me
+                             for e in t.edges):
+        owner = me
+    return owner if owner in paths.list_agents() else None
+
+
+def open_finding_tasks(con, rid: int, findings: list[str], owner: str) -> list[int]:
+    """Task #73 (founder #2150, #2154 point 2): a finding the resolver is
+    deferring rather than blocking the review on becomes a task in the same
+    step, linked to the request it came out of. The task is owned and opened
+    by the resolver's manager (#1914), never by the resolver."""
+    tids = []
+    for title in findings:
+        tid = db.new_task(con, textsafe.oneline(title).strip(), owner, owner)
+        db.link_request(con, tid, rid)
+        tids.append(tid)
+    return tids
 
 
 def dismiss(con, rid: int, me: str | None = None, reason: str | None = None,

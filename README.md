@@ -101,6 +101,7 @@ work again. ocp names the dialog and never answers it.
 | `ocp close <task> <sha or reason>` | close a task; a sha must be an ancestor of `main`, and a task with an open child task will not close |
 | `ocp resolve <id> "<verdict>" --task N [N ...]` / `--no-task "<reason>"` | answering a request the founder made says what it becomes: the tasks it belongs to, or that nothing needs building. Agent-to-agent asks are never guarded |
 | | *Why requests link to tasks through `task_requests` and not a column on `requests`:* `--task` takes a list and a request can be attached later, so one column could hold only one task and would drift the first time it mattered. Do not fold it back into a column to save a join. |
+| `ocp resolve <id> "<verdict>" --finding "<title>" [--finding "<title>" ...]` | a finding you are deferring rather than blocking on opens as its own task in the same step - owned by your lane's manager, linked to this request, its number appended to the verdict; refused on a request that did not come from an agent (task #73, founder #2150/#2154) |
 | `ocp dismiss <id> --task N ... / --no-task "<reason>"` | dismissing a request the founder made is answered the same way `resolve` is: it names what it becomes, or says nothing needs building |
 | `ocp doctor` | verify the preconditions of every phase |
 | `ocp account list` | how the accounts stand now: usage windows, the agents assigned to each and how many are running, and whether it may take work |

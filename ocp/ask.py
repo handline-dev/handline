@@ -675,17 +675,35 @@ def _after_close(con, rid: int, row, state: str, notify: bool) -> str:
     return f"request #{rid} -> {state}" + (f"\n{said}" if said else "")
 
 
-def resolve(rid: int, verdict: str, state: str = "done", notify: bool = True) -> tuple[bool, str]:
-    """`notify=False` is `dismiss`'s case: settle the row without telling the requester."""
+def resolve(rid: int, verdict: str, state: str = "done", notify: bool = True,
+            open_tasks=None) -> tuple[bool, str]:
+    """`notify=False` is `dismiss`'s case: settle the row without telling the requester.
+
+    `open_tasks(con) -> list[int]` opens tasks in the same transaction as the
+    close, and their numbers are appended to the verdict: a close that loses
+    the race to another answer takes the tasks back with it."""
     con = db.connect()
     try:
         row = db.get_request(con, rid)
         if row is None:
             return False, f"request {rid} does not exist"
-        # Conditional on 'queued', the same as `cancel`'s close: two answers
-        # landing on the same row at once must not have the second overwrite
-        # the first, whichever path either comes through.
-        if not db.close_if_queued(con, rid, state, verdict, announced=not notify):
+        if open_tasks is not None:
+            con.execute("BEGIN IMMEDIATE")
+        try:
+            if open_tasks is not None:
+                tids = open_tasks(con)
+                verdict += "\n\nOpened as task(s): " + ", ".join(f"#{t}" for t in tids)
+            # Conditional on 'queued', the same as `cancel`'s close: two answers
+            # landing on the same row at once must not have the second overwrite
+            # the first, whichever path either comes through.
+            closed = db.close_if_queued(con, rid, state, verdict, announced=not notify)
+        except Exception:
+            if open_tasks is not None:
+                con.execute("ROLLBACK")
+            raise
+        if open_tasks is not None:
+            con.execute("COMMIT" if closed else "ROLLBACK")
+        if not closed:
             fresh = db.get_request(con, rid)
             if fresh["state"] == "queued":
                 # The chokepoint in db.close_if_queued refused this verdict

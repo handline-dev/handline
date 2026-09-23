@@ -68,6 +68,11 @@ its session lives on.""",
                                    --task N [N ...] or --no-task "reason")
   ocp resolve <id> "..." --retires <old id>   also takes that older, still-queued
                                    request out of its queue as superseded (a duplicate ask)
+  ocp resolve <id> "..." --finding "<title>" [--finding "<title>" ...]   a finding
+                                   you are deferring, not blocking on, opens as its own
+                                   task in the same step - owned by your lane's manager, linked
+                                   to this request, its number named in the verdict;
+                                   refused on a request from the founder
   ocp dismiss <id>                take one off your list without replying
 
 An agent is given one request at a time - the head of its queue - not the

@@ -2028,6 +2028,10 @@ def cmd_resolve(args) -> int:
             print(_who_refusal("answer"))
             return 1
         if row["requester"] == me and row["state"] != "queued":
+            if args.finding:
+                print(f"#{args.id} is your own request - a finding is opened by "
+                      f"whoever answers it, not by you")
+                return 1
             print(actions.answer(con, args.id, verdict))
             return 0
         if row["target"] != me:
@@ -2049,6 +2053,18 @@ def cmd_resolve(args) -> int:
         refusal = actions.check_open_proposal(args.id, row, verdict)
         if refusal:
             print(refusal)
+            return 1
+        if args.finding and row["requester"] not in paths.list_agents():
+            print(f"#{args.id} came from {row['requester']}, not an agent - a finding "
+                  f"cannot be tied to it; open it with `ocp task new --owner NAME`")
+            return 1
+        owner = actions.finding_owner(me) if args.finding else None
+        if args.finding and owner is None:
+            print(f"no registered manager for {me}'s lane - a finding cannot be owned; "
+                  f"open it with `ocp task new --owner NAME`")
+            return 1
+        if args.finding and any(not textsafe.oneline(f).strip() for f in args.finding):
+            print("a finding needs a title")
             return 1
         if args.retires is not None:
             old = db.get_request(con, args.retires)
@@ -2106,7 +2122,10 @@ def cmd_resolve(args) -> int:
             actions.record_human_resolve(con, args.id, args.task, args.no_task, me)
         finally:
             con.close()
-    ok, msg = askmod.resolve(args.id, verdict, state=args.state)
+    ok, msg = askmod.resolve(
+        args.id, verdict, state=args.state,
+        open_tasks=(lambda c: actions.open_finding_tasks(c, args.id, args.finding, owner))
+        if args.finding else None)
     if ok and args.retires is not None:
         con = db.connect()
         try:
@@ -2390,6 +2409,10 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--no-task", metavar="REASON",
                    help="answered, nothing to build; required on the founder's requests "
                         "unless --task is given")
+    p.add_argument("--finding", action="append", metavar="TITLE",
+                   help="a non-blocking finding you are deferring rather than blocking "
+                        "on; opens as its own task, owned by whoever you are answering, "
+                        "linked to this request - repeat for more than one")
     p.add_argument("--retires", type=int, default=None, metavar="ID",
                    help="an older request this answer makes moot")
     p.set_defaults(fn=cmd_resolve)

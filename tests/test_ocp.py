@@ -27463,6 +27463,168 @@ def test_resolving_the_founders_request_says_what_it_becomes(home: Path) -> None
     check("guard: a closed task cannot be attached to", rc == 1 and "closed" in out, out)
 
 
+def _two_lanes(home: Path) -> None:
+    """manager leads worker; boss leads reviewer, in a second lane."""
+    (home / "team.yaml").write_text("""
+teams:
+  manager: [worker]
+  boss: [reviewer]
+  halim: [lane.x]
+
+agents:
+  manager:  { intake: dedicated }
+  worker:   { intake: dedicated }
+  boss:     { intake: dedicated }
+  reviewer: { intake: dedicated }
+  lane.x:   { intake: dedicated }
+
+edges:
+  - { from: "manager", to: "worker", relation: supervisor, response: fire_and_forget }
+  - { from: "worker", to: "manager", relation: subordinate, response: fire_and_forget }
+  - { from: "worker", to: "reviewer", relation: peer, response: fire_and_forget }
+  - { from: "worker", to: "lane.x", relation: peer, response: fire_and_forget }
+  - { from: "boss", to: "reviewer", relation: supervisor, response: fire_and_forget }
+  - { from: "boss", to: "lane.x", relation: supervisor, response: fire_and_forget }
+
+limits:
+  max_chain_depth: 4
+  ask_rate_per_hour: 50
+""")
+    for n in ("boss", "reviewer", "lane.x"):
+        agents.register(n, "alpha")
+
+
+def test_resolve_finding_opens_a_task_in_the_same_step(home: Path) -> None:
+    """Task #73 (founder #2150, #2154 point 2): a finding the resolver defers
+    rather than blocks on opens as its own task, owned by whoever asked,
+    linked to the row, in the same `ocp resolve` call - not left only in the
+    resolver's own prose for someone else to remember to open."""
+    _board_world(home)
+    _two_lanes(home)
+    ok, _, rid = askmod.ask("manager", "please review", requester="worker")
+    check("setup: the review request went through", ok, rid)
+
+    rc, out = _cli(["resolve", str(rid), "PASS",
+                    "--finding", "note 1 - tighten the retry",
+                    "--finding", "note 2 - rename the flag"], as_agent="manager")
+    check("finding: resolve still succeeds", rc == 0, out)
+    con = db.connect()
+    try:
+        row = db.get_request(con, rid)
+        tasks = {r["id"]: dict(r) for r in
+                 con.execute("SELECT t.* FROM tasks t JOIN task_requests tr "
+                             "ON tr.task_id = t.id WHERE tr.request_id = ?", (rid,)).fetchall()}
+        check("finding: exactly two tasks were opened and linked",
+              len(tasks) == 2, str(tasks))
+        titles = {t["title"] for t in tasks.values()}
+        check("finding: each finding's text became a task's title",
+              titles == {"note 1 - tighten the retry", "note 2 - rename the flag"}, titles)
+        check("finding: every task is owned by the resolver's lane manager",
+              all(t["owner"] == "manager" for t in tasks.values()), str(tasks))
+        check("finding: and opened by that manager",
+              all(t["opened_by"] == "manager" for t in tasks.values()), str(tasks))
+        check("finding: the verdict names the new task numbers",
+              all(f"#{tid}" in row["verdict"] for tid in tasks)
+              and "Opened as task" in row["verdict"], row["verdict"])
+    finally:
+        con.close()
+
+    ok, _, rid2 = askmod.ask("manager", "another review", requester="worker")
+    rc, out = _cli(["resolve", str(rid2), "PASS", "--finding", "   "], as_agent="manager")
+    check("finding: a blank finding title is refused", rc == 1 and "title" in out, out)
+    con = db.connect()
+    try:
+        check("finding: refused, the request is still queued",
+              db.get_request(con, rid2)["state"] == "queued")
+        check("finding: and no task was opened for it",
+              not con.execute("SELECT 1 FROM task_requests WHERE request_id = ?",
+                              (rid2,)).fetchone())
+        before = con.execute("SELECT COUNT(*) c FROM tasks").fetchone()["c"]
+    finally:
+        con.close()
+
+    hid = _human_request("manager")
+    rc, out = _cli(["resolve", str(hid), "PASS", "--no-task", "nothing",
+                    "--finding", "fnd A"], as_agent="manager")
+    con = db.connect()
+    try:
+        check("finding: refused on a founder's request, naming ocp task new",
+              rc == 1 and "ocp task new --owner" in out, out)
+        check("finding: founder's request stays queued and no task row was written",
+              db.get_request(con, hid)["state"] == "queued"
+              and con.execute("SELECT COUNT(*) c FROM tasks").fetchone()["c"] == before)
+    finally:
+        con.close()
+
+    ok, _, rid3 = askmod.ask("manager", "third review", requester="worker")
+    _cli(["resolve", str(rid3), "PASS"], as_agent="manager")
+    rc, out = _cli(["resolve", str(rid3), "thanks", "--finding", "fnd B"], as_agent="worker")
+    con = db.connect()
+    try:
+        check("finding: refused on the requester's side, not dropped with rc 0",
+              rc == 1 and "your own request" in out, out)
+        check("finding: and no task was opened by it",
+              con.execute("SELECT COUNT(*) c FROM tasks").fetchone()["c"] == before)
+    finally:
+        con.close()
+
+    ok, _, rid5 = askmod.ask("reviewer", "other lane review", requester="worker")
+    rc, out = _cli(["resolve", str(rid5), "PASS", "--finding", "fnd C"], as_agent="reviewer")
+    con = db.connect()
+    try:
+        row5 = con.execute("SELECT t.* FROM tasks t JOIN task_requests tr ON tr.task_id = t.id "
+                           "WHERE tr.request_id = ?", (rid5,)).fetchone()
+        check("finding: a second lane's finding is owned by its own manager",
+              rc == 0 and row5 and row5["owner"] == "boss" and row5["opened_by"] == "boss",
+              out + str(dict(row5) if row5 else None))
+    finally:
+        con.close()
+    ok, _, ridx = askmod.ask("lane.x", "key differs from manager", requester="worker")
+    rc, out = _cli(["resolve", str(ridx), "PASS", "--finding", "fnd X"], as_agent="lane.x")
+    con = db.connect()
+    try:
+        rowx = con.execute("SELECT t.* FROM tasks t JOIN task_requests tr ON tr.task_id = t.id "
+                           "WHERE tr.request_id = ?", (ridx,)).fetchone()
+        check("finding: a lane whose key is not its manager's name still finds the manager",
+              rc == 0 and rowx and rowx["owner"] == "boss", out + str(dict(rowx) if rowx else None))
+    finally:
+        con.close()
+    before = None
+    con = db.connect()
+    try:
+        before = con.execute("SELECT COUNT(*) c FROM tasks").fetchone()["c"]
+    finally:
+        con.close()
+
+    ok, _, rid6 = askmod.ask("reviewer", "unmanaged lane", requester="worker")
+    (home / "team.yaml").write_text((home / "team.yaml").read_text().replace(
+        "from: \"boss\", to: \"reviewer\"", "from: \"ghost\", to: \"reviewer\""))
+    rc, out = _cli(["resolve", str(rid6), "PASS", "--finding", "fnd D"], as_agent="reviewer")
+    con = db.connect()
+    try:
+        check("finding: an owner that is not a registered agent is refused, nothing written",
+              rc == 1 and "no registered manager" in out and db.get_request(con, rid6)["state"] == "queued"
+              and con.execute("SELECT COUNT(*) c FROM tasks").fetchone()["c"] == before,
+              out)
+    finally:
+        con.close()
+
+    ok, _, rid4 = askmod.ask("manager", "fourth review", requester="worker")
+    real = askmod.db.close_if_queued
+    askmod.db.close_if_queued = lambda *a, **k: False
+    try:
+        ok4, _ = askmod.resolve(rid4, "PASS", open_tasks=lambda c: actions.open_finding_tasks(
+            c, rid4, ["lost race"], "manager"))
+    finally:
+        askmod.db.close_if_queued = real
+    con = db.connect()
+    try:
+        check("finding: a close that fails takes its tasks back",
+              not ok4 and con.execute("SELECT COUNT(*) c FROM tasks").fetchone()["c"] == before)
+    finally:
+        con.close()
+
+
 def test_task_blocked_by_another_task(home: Path) -> None:
     """task #21/#1884: a task can wait on another. The board reads it as
     `waiting on #N` - never `you - a result is in` and never `nobody holds
@@ -29552,6 +29714,7 @@ def main() -> int:
         run(lambda: test_done_tasks_show_as_a_waiting_for_check_group(Path(td) / 'taskdonegroup'))
         run(lambda: test_task_blocked_by_another_task(Path(td) / 'taskblock'))
         run(lambda: test_resolving_the_founders_request_says_what_it_becomes(Path(td) / 'taskguard'))
+        run(lambda: test_resolve_finding_opens_a_task_in_the_same_step(Path(td) / 'findingtask'))
         run(lambda: test_marking_a_task_done_needs_evidence_and_only_the_owner_or_a_linked_target(
             Path(td) / 'taskdone'))
         run(lambda: test_closing_a_task_needs_no_open_child_and_only_the_asker(Path(td) / 'taskclose'))
