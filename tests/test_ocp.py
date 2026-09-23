@@ -23455,6 +23455,30 @@ def test_a_resumed_handoff_with_a_good_record_clears_the_streak(home: Path) -> N
         con.close()
 
 
+def test_a_resumed_context_handoff_wakes_at_once(home: Path) -> None:
+    """resume_handoff's else-branch (a trigger with no real wall to sleep
+    out) parks with an immediate wake, the same as a fresh handoff's does
+    (#1903, #1957) - covered here for a `context` trigger, which the other
+    resume tests never exercise (they all use `usage`, which takes the
+    wake_after branch instead)."""
+    _daemon_home(home, 20)
+    con = db.connect()
+    try:
+        readable_agent(con, home, "backend")
+        db.start_handoff(con, "hoff-restart-ctx", "backend", None, "context",
+                         int(time.time()) + 90)
+        row = db.in_flight_for(con, "backend")
+
+        before = int(time.time())
+        dmn.resume_handoff(con, row, lambda _m: None)
+        got = db.get_agent_state(con, "backend")
+        check("resumed context handoff: parks with an immediate wake",
+              got["state"] == dmn.PARKED and got["wake_at"] is not None
+              and got["wake_at"] <= before + 5, str(dict(got)))
+    finally:
+        con.close()
+
+
 def test_a_usage_5h_handoff_still_parks_until_reset(home: Path) -> None:
     """The one trigger #1903 keeps waiting for: a usage wall does not clear
     until its own window rolls over, whatever a context handoff now does.
@@ -27994,6 +28018,7 @@ def main() -> int:
         run(lambda: test_repeated_failed_clears_reach_the_throttle_cap(Path(td) / 'throttlecap'))
         run(lambda: test_a_moved_handoff_with_a_good_record_clears_the_streak(Path(td) / 'movedreset'))
         run(lambda: test_a_resumed_handoff_with_a_good_record_clears_the_streak(Path(td) / 'resumereset'))
+        run(lambda: test_a_resumed_context_handoff_wakes_at_once(Path(td) / 'resumectxwake'))
         run(lambda: test_a_usage_5h_handoff_still_parks_until_reset(Path(td) / 'usage5hpark'))
         run(lambda: test_a_hand_park_against_an_assumed_account_stays_forceable(Path(td) / 'handpark'))
         run(lambda: test_wake_injects_handoff(Path(td) / 'wake'))
