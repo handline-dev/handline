@@ -3919,20 +3919,35 @@ def test_daemon_stall_escalation(home: Path) -> None:
 
 
 def test_daemon_success_clears_streak(home: Path) -> None:
-    """A handoff that works must end the streak, or every agent eventually
-    stalls just from having been busy."""
+    """A handoff that works - record AND clear both land - must end the
+    streak, or every agent eventually stalls just from having been busy.
+
+    Orca must be reachable for the clear to land at all (#1975): without it
+    `_reclaim_context` fails every time regardless of the record, and the
+    streak would correctly stay put, not exercising the success path this
+    test is for.
+    """
     _daemon_home(home, 100)
     con = db.connect()
+    real = (orcamod.clear_context, orcamod.alive, orcamod.idle_now, orcamod.live_terminals)
     try:
+        orcamod.available = lambda: True
+        orcamod.alive = lambda h: True
+        orcamod.idle_now = lambda h: True
+        orcamod.clear_context = lambda h, wait=True, timeout_ms=0: (True, "context cleared")
+        orcamod.live_terminals = lambda: {"term_x"}
         for _ in range(3):
             db.bump_counter(con, "backend", "throttle_count")
         readable_agent(con, home, "backend")
+        sessions_are("backend")
         db.set_agent_state(con, "backend", dmn.QUEUED)
         dmn.tick(con, lambda _m: None)
         row = db.get_agent_state(con, "backend")
         check("daemon: a successful handoff clears the throttle streak",
               row["throttle_count"] == 0, str(dict(row)))
     finally:
+        orcamod.clear_context, orcamod.alive, orcamod.idle_now, orcamod.live_terminals = real
+        orcamod.available = lambda: False
         con.close()
 
 

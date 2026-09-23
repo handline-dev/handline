@@ -287,13 +287,16 @@ class Tick:
 
 def _record_handoff(con, agent: str, hid: str, log) -> bool:
     """Take the handoff record and commit the step. False when it is degraded,
-    which is only ever because a fact it holds could not be read."""
+    which is only ever because a fact it holds could not be read.
+
+    Does not touch the throttle streak on success: the record is only half of
+    a handoff, and resetting here would wipe out a failure the clear that
+    follows is about to add. The caller resets once the whole handoff - clear
+    included - is known to have landed clean.
+    """
     missing = handoffmod.record(con, agent)
     if not missing:
         db.advance_handoff(con, hid, "recorded")
-        # A handoff that worked ends the streak. This is the only thing that
-        # clears it, so a run of failures accumulates until 8.6 escalates.
-        db.reset_counter(con, agent, "throttle_count")
         return True
     why = "could not read " + ", ".join(missing)
     db.advance_handoff(con, hid, "recorded", state="degraded", detail=why[:300])
@@ -314,6 +317,12 @@ def resume_handoff(con, row, log) -> None:
     done_ok = True
     if step == "requested":
         done_ok = _record_handoff(con, agent, hid, log)
+        # This path never runs its own clear (the crash it resumes from
+        # landed past that step already), so a good record is the whole of
+        # what this function can vouch for - same streak reset the record
+        # used to give itself before a clear could still fail after it.
+        if done_ok:
+            db.reset_counter(con, agent, "throttle_count")
     if step in ("requested", "recorded", "folded"):
         db.advance_handoff(con, hid, "extracted")
 
@@ -2179,6 +2188,11 @@ def _perform_handoff(con, agent: str, trigger: triggers.Trigger, log,
     if moved:
         db.advance_handoff(con, hid, "released", state="done" if ok else "degraded")
         db.bump_counter(con, agent, "continuations")
+        if ok:
+            # A move never clears context itself, so a good record is the
+            # whole of this handoff - the streak ends here (see
+            # _record_handoff for why it no longer resets itself).
+            db.reset_counter(con, agent, "throttle_count")
         return ok
     landed = db.get_agent_state(con, agent)
     if trigger.kind == "forced" and landed and not landed["closed_at"]:
@@ -2198,6 +2212,15 @@ def _perform_handoff(con, agent: str, trigger: triggers.Trigger, log,
     # worktree and account and empties only the conversation.
     cleared, why = _reclaim_context(con, agent, log)
     db.advance_handoff(con, hid, "extracted", detail=why)
+
+    if ok and cleared:
+        # A handoff that fully worked - record and clear both landed - ends
+        # the streak. This is the only thing that clears it, so a run of
+        # failures at either step accumulates until 8.6 escalates. Checked
+        # here, after both steps, so a clear that fails right after a good
+        # record cannot have its bump wiped out by the record's own success
+        # (#1975).
+        db.reset_counter(con, agent, "throttle_count")
 
     # Park until the usage window rolls over - or longer, if this agent keeps
     # degrading, so a broken one is not retried at full cadence forever. Never
