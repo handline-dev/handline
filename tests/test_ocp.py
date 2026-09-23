@@ -11659,6 +11659,7 @@ def test_a_wake_is_believed_only_when_a_session_appears(home: Path) -> None:
         orcamod.send = relaunching_send(sent, table)
         ok, _ = dmn.wake_agent(con, "backend", lambda _m: None)
         check("wake: and it goes through once the window rolls over", ok, str(sent))
+        table.clear()   # the session that wake started is closed again below
         db.set_closed(con, "backend", "sess-8")
         db.set_agent_state(con, "backend", dmn.IDLE, detail="closed again for the next case")
 
@@ -11756,6 +11757,91 @@ def test_a_wake_does_not_claim_a_session_it_did_not_start(home: Path) -> None:
         check("wake: nothing more is typed into its own late session",
               not ok and len(sent) == 1, f"{why} {sent}")
         check("wake: and that one is counted", row["wake_failures"] == 1, str(dict(row)))
+
+        # Auditor #1982 note 2, closed by #44's single writer: the closed
+        # branch's very first send was never checked at all - only the read
+        # taken after a failed attempt could catch a foreign session, so one
+        # already live before the wake even started still got typed at.
+        table.clear()
+        sent.clear()
+        db.reset_counter(con, "backend", "wake_failures")
+        db.set_closed(con, "backend", "sess-def")
+        table["backend"] = 4321        # live before this wake starts at all
+        obsmod.live_sessions = lambda: dict(table)
+        ok, why = dmn.wake_agent(con, "backend", lambda _m: None)
+        row = db.get_agent_state(con, "backend")
+        check("wake: a session already live before the wake starts is never typed into",
+              not ok and not sent, f"{why} {sent}")
+        check("wake: and it is not counted either", row["wake_failures"] == 0, str(dict(row)))
+
+        # Auditor #1982 note 2, second half: the check that ran after a
+        # failed attempt was the only one - a session coming up right after
+        # it, before the next attempt's own send, still got that send typed
+        # into it. Each attempt now checks again, immediately before it types.
+        table.clear()
+        sent.clear()
+        db.reset_counter(con, "backend", "wake_failures")
+        db.set_closed(con, "backend", "sess-def")
+        calls = {"n": 0}
+
+        def appears_before_the_second_attempt():
+            calls["n"] += 1
+            # 1: this attempt's own pre-send check, empty. 2: the check after
+            # it fails, still empty. 3: the fresh start's pre-send check -
+            # a session has shown up in the gap since.
+            return {"backend": 4321} if calls["n"] >= 3 else {}
+        obsmod.live_sessions = appears_before_the_second_attempt
+        realr = orcamod.relaunch
+
+        def refused_once(h, cmd, **kw):
+            sent.append(cmd)
+            return False, "refused"
+        orcamod.relaunch = refused_once
+        try:
+            ok, why = dmn.wake_agent(con, "backend", lambda _m: None)
+        finally:
+            orcamod.relaunch = realr
+        row = db.get_agent_state(con, "backend")
+        check("wake: a session that appears before the fresh-start attempt stops that one too",
+              not ok and len(sent) == 1, f"{why} {sent}")
+        check("wake: and it is not counted, since it is not this wake's own",
+              row["wake_failures"] == 0, str(dict(row)))
+
+        # Auditor #2071 should-fix: the pre-send check must not always read a
+        # live session as foreign. One that comes up here can be the previous
+        # attempt's own, come up late after its relaunch call already
+        # returned False - the same rule the post-send check above already
+        # applies.
+        table.clear()
+        sent.clear()
+        db.reset_counter(con, "backend", "wake_failures")
+        db.set_closed(con, "backend", "sess-def")
+        calls = {"n": 0}
+
+        def appears_after_its_own_attempt_took_the_prompt():
+            calls["n"] += 1
+            # 1: the first attempt's own pre-send check, empty. 2: the check
+            # after it fails, still empty - its launch already took the
+            # prompt. 3: the fresh start's pre-send check - that same
+            # attempt's own session has shown up since.
+            return {"backend": 4322} if calls["n"] >= 3 else {}
+        obsmod.live_sessions = appears_after_its_own_attempt_took_the_prompt
+        realr = orcamod.relaunch
+
+        def took_but_no_session_seen(h, cmd, **kw):
+            sent.append(cmd)
+            take_launched_prompt(cmd)
+            return False, "no session seen within the timeout"
+        orcamod.relaunch = took_but_no_session_seen
+        try:
+            ok, why = dmn.wake_agent(con, "backend", lambda _m: None)
+        finally:
+            orcamod.relaunch = realr
+        row = db.get_agent_state(con, "backend")
+        check("wake: a session that turns out to be its own attempt's is not called foreign",
+              not ok and why == "no session seen within the timeout", f"{why} {sent}")
+        check("wake: so it counts toward STALLED, like any other failed attempt",
+              row["wake_failures"] == 1, str(dict(row)))
     finally:
         (orcamod.available, orcamod.alive, orcamod.wait_idle, orcamod.send,
          dmn.WAKE_SESSION_TIMEOUT_S) = real
@@ -14470,7 +14556,7 @@ def test_only_one_thing_types_at_an_agent_at_a_time(home: Path) -> None:
         orcamod.alive = lambda h: True
         orcamod.wait_idle = lambda h, timeout_ms=0: True
         orcamod.idle_now = lambda h: True
-        table = sessions_are("backend")
+        table = sessions_are()          # closed below - no session running yet
         orcamod.send = relaunching_send(sent, table)
         db.set_terminal(con, "backend", "term_x", "wt")
         db.set_closed(con, "backend", "sess-1")

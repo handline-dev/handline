@@ -534,16 +534,20 @@ def _session_changed(con, agent: str) -> bool:
 # #1973, measured in daemon.out.log: a notify and a context handoff fired in
 # the same tick, against the same agent - the handoff read idle from a probe
 # taken before the notify landed, and typed /clear into the session the
-# notify had just started, which Claude Code then queued behind the turn.
-# `lock.terminal` alone does not close this: it only keeps two writers from
-# holding the terminal at once, and the notify had already released it by
-# the time the handoff took it. The screen itself lags a moment behind a
-# line that just landed - Orca's own idle probe can still read "idle" for a
-# beat after Enter is sent - so a *destructive* type (one that throws work
-# away if it lands mid-turn: a handoff's /clear or /exit) may not follow any
-# type at the same agent, from any path or process, within this long -
-# ordinary notifies are not held to it, since Claude Code only ever queues
-# unsent text behind a busy turn, it does not discard it.
+# notify had just started, which sat unsent behind the turn instead of
+# running. `lock.terminal` alone does not close this: it only keeps two
+# writers from holding the terminal at once, and the notify had already
+# released it by the time the handoff took it. The screen itself lags a
+# moment behind a line that just landed - Orca's own idle probe can still
+# read "idle" for a beat after Enter is sent - so a *destructive* type (one
+# that throws work away if it lands mid-turn: a handoff's /clear or /exit)
+# may not follow any type at the same agent, from any path or process,
+# within this long - ordinary notifies are not held to it: the vendor this
+# was measured on (#1973, Claude Code) keeps text typed mid-turn and runs it
+# after the turn ends, rather than discarding it, which is what the incident
+# above shows. A vendor that discards or interrupts on a mid-turn type would
+# need notifies held to the window too; that has not been measured for any
+# other vendor.
 TYPE_SETTLE_S = 15
 
 
@@ -1299,7 +1303,24 @@ def _wake_agent(con, agent: str, log, moved_to: str | None = None) -> tuple[bool
                 # doing anything, and counting it would read a dead cache warm.
                 db.add_event(con, agent, "handoff", {"degraded": True, "session": session, "why": why})
                 log(f"  {agent}: cold wake handoff degraded ({why})")
+        ok = False
+        taken = False
         for resume in ([True, False] if session and not cold else [False]):
+            # Checked fresh before every send, not only after one fails: the
+            # closed branch has no lock on the world outside ocp, and a
+            # session can come up here between the first attempt's check and
+            # the second's, or before either has run at all - auditor #1982
+            # note 2. `taken` still holds the previous attempt's own verdict
+            # here (False on the first iteration, since nothing has sent
+            # anything yet): a session already live now is that attempt's own
+            # come up late, not foreign, if that attempt's launch took the
+            # prompt file - same rule the post-send check below uses. `why`
+            # is left as that attempt's own failure reason in that case.
+            if (obs.live_sessions() or {}).get(agent):
+                foreign = not taken
+                if foreign:
+                    why = "a session it did not start is running"
+                break
             pf = _write_wake_prompt(
                 agent, wake_prompt(agent, resume, was_closed=closed,
                                    moved_to=moved_to, con=con, cold=cold))
