@@ -547,6 +547,13 @@ def env_for(acct: str, agent: str | None = None) -> dict[str, str]:
         v = env.get(drv.config_dir_env())
         if v and vendors.account_named_by(v):
             del env[drv.config_dir_env()]
+    # An inherited OPENCODE_CONFIG_CONTENT is another session's whole config -
+    # its preamble path, its tool denials. It goes: an opencode launch is
+    # handed its own back by the driver's launch_env, and no other vendor's
+    # launch reads it. OPENCODE_CONFIG_DIR stays: Orca sets it in every
+    # terminal it opens for its opencode status plugin (busy/idle), and
+    # dropping it here would strip that plugin from every opencode relaunch.
+    env.pop("OPENCODE_CONFIG_CONTENT", None)
     env[vendors.for_account(acct).config_dir_env()] = str(vendors.config_dir(acct))
     env["OCP_HOME"] = str(paths.home())
     env["OCP_ACCOUNT"] = acct

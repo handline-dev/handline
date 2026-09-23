@@ -8519,6 +8519,54 @@ def test_an_opencode_session_under_ocp(home: Path) -> None:
         del drv.binary, drv.credential_present
 
 
+def test_a_launch_does_not_inherit_an_opencode_sessions_config(home: Path) -> None:
+    """#43: accounts.env_for starts from the launching process's environment,
+    and an opencode session's own tools carry OPENCODE_CONFIG_CONTENT - another
+    session's whole config, preamble and denials, which a claude launch would
+    keep. env_for drops that one variable. An inherited OPENCODE_CONFIG_DIR
+    stays, whatever the launch's vendor: Orca sets it in every terminal it
+    opens for its opencode status plugin (busy/idle), and dropping it would
+    strip that plugin from every relaunch. The opencode launch's own
+    OPENCODE_CONFIG_CONTENT comes back from its driver's launch_env."""
+    home.mkdir(parents=True, exist_ok=True)
+    os.environ["OCP_HOME"] = str(home)
+    accounts.register("alpha")
+    accounts.register("zai", vendor="opencode")
+    agents.register("backend", "alpha")
+    agents.register("glm", "zai", model="zai-coding-plan/glm-5.3-flash")
+    _with_vendor("glm", "opencode")
+    (vendors.config_dir("alpha") / ".credentials.json").write_text("{}")
+    cdrv, odrv = vendors.get("claude"), vendors.get("opencode")
+    cdrv.binary = lambda: "/x/bin/claude"
+    odrv.binary = lambda: "/x/bin/opencode"
+    odrv.credential_present = lambda config_dir: True
+    saved = {k: os.environ.get(k) for k in ("OPENCODE_CONFIG_CONTENT", "OPENCODE_CONFIG_DIR")}
+    try:
+        os.environ["OPENCODE_CONFIG_CONTENT"] = '{"instructions": ["/someone-else/preamble.md"]}'
+        os.environ["OPENCODE_CONFIG_DIR"] = "/orca/opencode-hooks/shared"
+
+        env = launch.build("backend")[1]
+        check("launch: a claude launch drops the inherited config, keeps the dir",
+              "OPENCODE_CONFIG_CONTENT" not in env
+              and env.get("OPENCODE_CONFIG_DIR") == "/orca/opencode-hooks/shared",
+              str({k: env.get(k) for k in ("OPENCODE_CONFIG_CONTENT", "OPENCODE_CONFIG_DIR")}))
+
+        env = launch.build("glm")[1]
+        own = odrv.launch_env(launch.context_for("glm"), launch.DISALLOWED_TOOLS,
+                              paths.agent_dir("glm"))["OPENCODE_CONFIG_CONTENT"]
+        check("launch: an opencode launch keeps the dir and its driver's own config",
+              env.get("OPENCODE_CONFIG_DIR") == "/orca/opencode-hooks/shared"
+              and env["OPENCODE_CONFIG_CONTENT"] == own,
+              str({k: env.get(k) for k in ("OPENCODE_CONFIG_CONTENT", "OPENCODE_CONFIG_DIR")}))
+    finally:
+        del cdrv.binary, odrv.binary, odrv.credential_present
+        for k, v in saved.items():
+            if v is None:
+                os.environ.pop(k, None)
+            else:
+                os.environ[k] = v
+
+
 def test_doctor_looks_for_the_vendors_executable_not_its_name(home: Path) -> None:
     """auditor's #1691: the tool check asks the driver for its executable. A
     vendor is not named after its binary (Z.ai runs through opencode), so a
@@ -25938,6 +25986,7 @@ def main() -> int:
             Path(td) / 'vendorcfg'))
         run(lambda: test_the_opencode_driver(Path(td) / 'opencode'))
         run(lambda: test_an_opencode_session_under_ocp(Path(td) / 'ocsession'))
+        run(lambda: test_a_launch_does_not_inherit_an_opencode_sessions_config(Path(td) / 'ocleak'))
         run(lambda: test_launch_refuses_stale(Path(td) / 'stale'))
         run(lambda: test_shared_account_context_isolation(Path(td) / 'shared'))
         run(lambda: test_db_dedup_only_swallows_dedup(Path(td) / 'strict'))
