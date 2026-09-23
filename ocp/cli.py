@@ -959,19 +959,17 @@ def _bridge_textual_module():
 
 
 def cmd_bridge(args) -> int:
-    # Textual is the default screen (task #54); --curses opts back into the
-    # one it replaces, still needed until the venv is ready (bin/ocp's own
-    # PATH-python3 fallback, #2069).
-    if args.curses:
-        return tui.run(interval=args.interval, once=args.once)
+    # The bridge is a Textual app. Run once, or into a pipe, it is `tui.snapshot`:
+    # plain text that needs no `textual`.
+    if args.once or not sys.stdout.isatty():
+        print(tui.snapshot())
+        return 0
     bridge_textual = _bridge_textual_module()
     if bridge_textual is None:
-        if args.textual:
-            print("ocp bridge --textual needs the `textual` package.\n"
-                  "`ocp venv install` puts it in $OCP_HOME/venv (see requirements.txt).")
-            return 1
-        return tui.run(interval=args.interval, once=args.once)
-    return bridge_textual.run(once=args.once)
+        print("ocp bridge needs the `textual` package.\n"
+              "`ocp venv install` puts it in $OCP_HOME/venv (see requirements.txt).")
+        return 1
+    return bridge_textual.run()
 
 
 def cmd_guide(args) -> int:
@@ -1779,10 +1777,11 @@ def cmd_inbox(args) -> int:
         # the one you are not looking at is the one holding the escalation. A
         # pipe still gets text - a script asking for the list is not a human
         # asking for somewhere to sit. It opens on the same screen `cmd_bridge`
-        # does, with the same fallback (task #54, #2069).
+        # does.
         if sys.stdout.isatty() and not args.all and not args.wait:
             bridge_textual = _bridge_textual_module()
-            return bridge_textual.run() if bridge_textual else tui.run()
+            if bridge_textual:
+                return bridge_textual.run()
         return _human_inbox(args.all)
     if args.all:
         rows = askmod.inbox(agent, unread_only=False)
@@ -2526,14 +2525,9 @@ def build_parser() -> argparse.ArgumentParser:
 
     p = sub.add_parser("bridge", aliases=["top", "watch"],
                        help="the screen the team is run from")
-    p.add_argument("--interval", type=float, default=2.0)
-    p.add_argument("--once", action="store_true", help="print one frame and exit")
-    screen = p.add_mutually_exclusive_group()
-    screen.add_argument("--textual", action="store_true",
-                        help="the default now (task #54) - fail loud rather than fall back "
-                             "silently if the `textual` package is missing")
-    screen.add_argument("--curses", action="store_true",
-                        help="the raw-termios screen Textual replaced, for opting back out")
+    p.add_argument("--once", action="store_true", help="print the screen as text and exit")
+    p.add_argument("--textual", action="store_true",
+                   help="accepted and does nothing: Textual is the only screen")
     p.set_defaults(fn=cmd_bridge)
 
     bs = sub.add_parser("base", help="the per-session fixed context").add_subparsers(

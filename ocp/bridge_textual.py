@@ -1156,11 +1156,10 @@ class BridgeApp(App):
 
 
 def run(once: bool = False) -> int:
-    """`once`, or stdout not a tty (a script or a pipe): `tui.run`'s own
-    non-interactive snapshot, not a Textual app - the same one `ocp bridge
-    --curses --once` prints, so the two front ends cannot show a different
-    picture of the same state."""
+    """`once`, or stdout not a tty (a script or a pipe): `tui.snapshot`, plain
+    text, not a Textual app."""
     if once or not sys.stdout.isatty():
-        return tui.run(once=True)
+        print(tui.snapshot())
+        return 0
     BridgeApp().run()
     return 0

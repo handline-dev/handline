@@ -622,6 +622,51 @@ def panel_keys(panel: int, agent_keys: list[tuple[str, str]] | None = None) -> l
             STUCK: STUCK_KEYS}[panel]
 
 
+def snapshot() -> str:
+    """The bridge as plain text, once: what `ocp bridge --once` prints, and what
+    a pipe or a script gets. Every panel's rows from the same data functions the
+    screen draws from, their cells joined by two spaces and stripped of colour."""
+    plain = lambda cell: _ANSI.sub("", cell)  # noqa: E731
+    con = db.connect()
+    try:
+        head = header_data(con)
+        accounts_, acct_notes = accounts_data(con)
+        agents_, agent_notes = agents_data(con)
+        title, messages_, message_notes = messages_data(con)
+        stuck_title, stuck_ = stuck_data(con)
+    finally:
+        con.close()
+    now = time.time()
+    out = [f"ocp · daemon {'running' if head.running else 'NOT RUNNING'} · {head.clock}"]
+    if head.waits:
+        out.append(f"{WAITING_ON_YOU} ({len(head.waits)})")
+        out += [f"  {oneline(w['who'])} · {oneline(w['what'])} · {age(now - w['since'])}"
+                for w in head.waits]
+    out += ["", "ACCOUNTS"]
+    for r in accounts_:
+        out.append("  " + "  ".join([oneline(r.name)] + [plain(r.cells[k]) for k in ACCT_W if k != "name"]
+                                    + [plain(r.mark + r.next)]))
+    out += [f"  {n}" for n in acct_notes]
+    out += ["", "AGENTS"]
+    for r in agents_:
+        if r.error:
+            out.append(f"  {plain(r.twig)}{r.shown}  config error: {oneline(r.error)}")
+            continue
+        wall = f"  ⏳ {r.wall.account}{r.wall.mark} {r.wall.when}" if r.wall else ""
+        out.append(f"  {plain(r.twig)}{r.shown}{plain(fold_suffix(r.under, r.urgency))}  {r.acct}  "
+                   f"{r.kind}  {plain(state_cell(r.state, r.until))}  {plain(r.ctx)}  "
+                   f"{r.inbox or '·'}{'  ' + plain(r.fire) if r.fire else ''}{wall}")
+    out += [f"  {n}" for n in agent_notes]
+    out += ["", title]
+    for r in messages_:
+        out.append(f"  {r.when}  {plain(message_mark(r.flavour)[0])}  #{r.id}  {r.sender}  "
+                   f"{r.kind}  {r.first}{plain(r.behind)}")
+    out += [f"  {n}" for n in message_notes]
+    out += ["", stuck_title]
+    out += [f"  {r.what}  {r.age}  {r.why}".rstrip() for r in stuck_]
+    return "\n".join(out)
+
+
 def pct(v: int | None) -> str:
     return "  ?" if v is None else f"{v:>3}"
 
