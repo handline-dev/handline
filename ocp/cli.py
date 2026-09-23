@@ -1148,7 +1148,7 @@ def cmd_hr(args) -> int:
         return 1
     kw = dict(why=args.why, account=args.account, team_name=args.team,
               repo=args.repo, model=args.model, to=getattr(args, "to", None),
-              effort=args.effort)
+              effort=args.effort, vendor=getattr(args, "vendor", None))
     # The founder is the approval, so their own change is made, not proposed.
     if me == askmod.HUMAN:
         ok, said = hr.enact(args.hr_cmd, args.name, **kw)
@@ -1959,15 +1959,19 @@ def build_parser() -> argparse.ArgumentParser:
             q.add_argument("--repo", default=None, help="where it works")
             q.add_argument("--model", default=None)
             q.add_argument("--effort", default=None, choices=sorted(agents.VALID_EFFORT))
+            q.add_argument("--vendor", default=None,
+                           help="checked against the account's own vendor, not a choice; "
+                                "the account's is what gets written")
         elif kind == "rename":
             q.add_argument("--to", required=True, help="the new name")
             q.add_argument("--team", default=None, help="team it should be in after")
-            q.set_defaults(account=None, repo=None, model=None, effort=None)
+            q.set_defaults(account=None, repo=None, model=None, effort=None, vendor=None)
         elif kind == "move":
             q.add_argument("--account", required=True, help="the account it should prefer next")
-            q.set_defaults(team=None, repo=None, model=None, effort=None, to=None)
+            q.set_defaults(team=None, repo=None, model=None, effort=None, to=None, vendor=None)
         else:
-            q.set_defaults(account=None, team=None, repo=None, model=None, effort=None)
+            q.set_defaults(account=None, team=None, repo=None, model=None, effort=None,
+                           vendor=None)
     q = hrsub.add_parser("list", help="proposals and what became of them")
     q.set_defaults(name=None, why=None, account=None, team=None, repo=None,
                    model=None, effort=None)

@@ -13058,6 +13058,77 @@ edges:
         con.close()
 
 
+def test_hr_add_takes_the_vendor_from_the_named_account(home: Path) -> None:
+    """#1964 (task #41, founder #1880): `hr add` wrote no vendor into
+    agent.yaml, so a claude agent registered onto an opencode account could
+    not launch (`ocp launch` refuses the mismatch) - a human had to add
+    `vendor: opencode` to agent.yaml by hand. The vendor is read from the
+    account named, not typed; a --vendor that disagrees is refused before
+    anything is written."""
+    _daemon_home(home, 20)
+    accounts.register("alpha")
+    accounts.register("zai", vendor="opencode")
+    con = db.connect()
+    try:
+        ok, said = hr.enact("add", "claudey", why="w", account="alpha")
+        check("hr add: succeeds on a claude account", ok, said)
+        cfg = yamlcompat.load(agents.agent_file("claudey").read_text())
+        check("hr add: no vendor key for the default vendor, same as every "
+              "existing agent.yaml", "vendor" not in cfg, str(cfg))
+        check("hr add: agent_vendor still reads it as claude",
+              vendors.agent_vendor("claudey") == "claude")
+
+        ok, said = hr.enact("add", "glm", why="w", account="zai")
+        check("hr add: succeeds on an opencode account", ok, said)
+        cfg = yamlcompat.load(agents.agent_file("glm").read_text())
+        check("hr add: the account's vendor is written", cfg.get("vendor") == "opencode",
+              str(cfg))
+        check("hr add: agent_vendor reads it as opencode",
+              vendors.agent_vendor("glm") == "opencode")
+
+        ok, said = hr.enact("add", "wrong", why="w", account="zai", vendor="claude")
+        check("hr add: a --vendor that disagrees with the account is refused",
+              not ok and "disagrees" in said, said)
+        check("hr add: refused, nothing was registered", "wrong" not in paths.list_agents())
+        check("hr add: refused, no proposal file left behind for the draft",
+              not [p_ for p_ in hr.listing() if p_["agent"] == "wrong"])
+
+        ok, said = hr.enact("add", "agree", why="w", account="zai", vendor="opencode")
+        check("hr add: a --vendor that agrees with the account is not refused", ok, said)
+
+        # A proposal (an agent asking, not the founder) raises with the
+        # vendor named, so the founder is not asked to approve a fact about
+        # the account they cannot see.
+        (home / "team.yaml").write_text("""
+agents:
+  marina: { intake: dedicated }
+edges:
+  - { from: "*", to: "human", kind: escalate, creates_gate: true }
+  - { from: "human", to: "*", relation: supervisor, response: fire_and_forget }
+""")
+        agents.register("marina", "alpha")
+        ok, said = hr.propose("add", "glm2", requester="marina", why="w", account="zai")
+        check("hr add: a proposal on an opencode account raises", ok, said)
+        pid = said.split()[1]
+        prop = hr.load_proposal(pid)
+        check("hr add: the proposal itself records the vendor",
+              prop.get("vendor") == "opencode", str(prop))
+        req = db.get_request(con, prop["request"])
+        check("hr add: the escalation names the vendor to the founder",
+              "vendor opencode" in req["body"], req["body"])
+
+        # Applying it writes the same thing enact does.
+        con.execute("UPDATE requests SET state = 'done', verdict = 'approve' WHERE id = ?",
+                   (prop["request"],))
+        ok, said = hr.apply(pid, con)
+        check("hr add: applying an approved proposal succeeds", ok, said)
+        cfg = yamlcompat.load(agents.agent_file("glm2").read_text())
+        check("hr add: apply writes the vendor the proposal recorded",
+              cfg.get("vendor") == "opencode", str(cfg))
+    finally:
+        con.close()
+
+
 def test_hr_move_changes_an_agents_account(home: Path) -> None:
     """Request #154/#156: there was no command to change an agent's account -
     a human edited agent.yaml by hand, and the loop #154 traced started with a
@@ -25804,6 +25875,7 @@ def main() -> int:
         run(lambda: test_the_founder_does_not_approve_their_own_request(Path(td) / 'hrself'))
         run(lambda: test_a_report_shows_its_name_without_its_parents_and_keeps_the_whole_key(
             Path(td) / 'dotted'))
+        run(lambda: test_hr_add_takes_the_vendor_from_the_named_account(Path(td) / 'hrvendor'))
         run(lambda: test_hr_move_changes_an_agents_account(Path(td) / 'hrmove'))
         run(lambda: test_hr_move_does_not_touch_a_live_sessions_own_record(Path(td) / 'hrmovelive'))
         run(lambda: test_hr_move_leaves_account_alone_when_liveness_cannot_be_read(Path(td) / 'hrmoveunknown'))

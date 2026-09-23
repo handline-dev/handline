@@ -97,7 +97,8 @@ NOT_TEXT = ("It would not be read back as text from the YAML files it is written
 
 def register(name: str, account: str, role: str = "", model: str | None = None,
              effort: str | None = None, weight: str | None = None,
-             role_file: str | None = None, repo: str | None = None) -> Path:
+             role_file: str | None = None, repo: str | None = None,
+             vendor: str | None = None) -> Path:
     # A name is stored, drawn on every screen and typed into terminals: a control
     # byte in it (an escape, a newline) is refused here, where it would stay.
     # `textsafe.UNSAFE_IN_VALUE` is the same set this spelled out for itself.
@@ -116,7 +117,8 @@ def register(name: str, account: str, role: str = "", model: str | None = None,
         # Built before the folder exists, so a value it refuses leaves nothing.
         text = dump({"name": name, "account": account, "model": model or DEFAULT_MODEL,
                      "effort": effort or DEFAULT_EFFORT, "weight": weight or "light",
-                     "enabled": True, **({"repo": repo} if repo else {})})
+                     "enabled": True, **({"repo": repo} if repo else {}),
+                     **({"vendor": vendor} if vendor and vendor != DEFAULT_VENDOR else {})})
     for sub in ("inbox", "journal"):
         (d / sub).mkdir(parents=True, exist_ok=True)
 
@@ -139,6 +141,8 @@ def register(name: str, account: str, role: str = "", model: str | None = None,
             cfg["weight"] = weight
         if repo:
             cfg["repo"] = repo
+        if vendor and vendor != DEFAULT_VENDOR:
+            cfg["vendor"] = vendor
         cfg.setdefault("effort", DEFAULT_EFFORT)
         f.write_text(dump(cfg))
 
