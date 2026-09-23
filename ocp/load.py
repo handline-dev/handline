@@ -61,6 +61,23 @@ def set_cap(acct: str, n: int) -> None:
     paths.config_file().write_text(dump(cfg))
 
 
+def usage_recover_enabled(acct: str, cfg: dict | None = None) -> bool:
+    """Whether #1885's recovery turn may run on this account - on by default,
+    off only where config.yaml's `usage_recover_<account>: false` says so."""
+    cfg = _config() if cfg is None else cfg
+    return cfg.get(f"usage_recover_{acct}") is not False
+
+
+def set_usage_recover(acct: str, on: bool) -> None:
+    """Write the per-account switch, keeping every other setting."""
+    cfg = _config()
+    if on:
+        cfg.pop(f"usage_recover_{acct}", None)
+    else:
+        cfg[f"usage_recover_{acct}"] = False
+    paths.config_file().write_text(dump(cfg))
+
+
 def active_by_account(con) -> dict[str, list[str]]:
     """Agents mid-turn, by the account each is running on. An agent that has
     just moved is mid-turn on its handback before the daemon has seen it run,

@@ -36,7 +36,8 @@ from ocp import (accounts, actions, agents, ask as askmod, blocked as blockedmod
                  digest,
                  doctor, drift, events as evmod, fold as foldmod,
                  handoff as handoffmod, jobs as jobsmod, launch, load as loadmod, lock, measure,
-                 observe as obsmod, orca as orcamod, paths, rehome, replay as replaymod, service,
+                 observe as obsmod, orca as orcamod, paths, recover as recovermod, rehome,
+                 replay as replaymod, service,
                  spawn as spawnmod,
                  status, team, textsafe, triggers, trust as trustmod, tui, usage_api, vendors,
                  venv as venvmod, waiting,
@@ -21256,6 +21257,8 @@ def test_no_command_prints_what_a_terminal_would_obey(home: Path) -> None:
         "account add": "interactive login", "account remove": "interactive logout and a confirm",
         "account register": "creates an account directory; prints its path",
         "account cap": "writes a cap; prints numbers",
+        "account recover": "writes a per-account setting; prints where it stands - "
+                           "recover.py's own mechanism is driven in test_recover_*",
         "usage": "calls the usage endpoint and the Keychain against a real login "
                  "(usage_api's own parsing is driven above, without either)",
         "agent move": "a confirm, and Orca", "agent register": "writes agent.yaml; a name with a control byte is refused before it prints",
@@ -25695,6 +25698,142 @@ def test_usage_api_record_stands_in_for_a_probe(home: Path) -> None:
           str(status.read("alpha", path=p_).assignable()))
 
 
+def test_usage_recover_is_a_per_account_switch(home: Path) -> None:
+    """load.py's own idiom (`cap_of`/`set_cap`), for #1885: on by default,
+    off only where config.yaml names the account, and every other account and
+    setting untouched by flipping one."""
+    home.mkdir(parents=True, exist_ok=True)
+    os.environ["OCP_HOME"] = str(home)
+    check("usage recover: on by default, nothing written yet",
+          loadmod.usage_recover_enabled("omega"))
+    loadmod.set_cap("omega", 3)
+    loadmod.set_usage_recover("omega", False)
+    check("usage recover: off once turned off", not loadmod.usage_recover_enabled("omega"))
+    check("usage recover: a different account is untouched",
+          loadmod.usage_recover_enabled("sigma"))
+    check("usage recover: turning it off does not disturb another setting",
+          loadmod.cap_of("omega") == 3)
+    loadmod.set_usage_recover("omega", True)
+    check("usage recover: turning it back on removes the key rather than storing true",
+          "usage_recover_omega" not in yamlcompat.load(paths.config_file().read_text()),
+          paths.config_file().read_text())
+    check("usage recover: back on", loadmod.usage_recover_enabled("omega"))
+
+
+def test_recover_marks_and_clears_needs_relogin(home: Path) -> None:
+    """The one file this writes, and the one thing that reads it: a mark
+    fail-closed can act on without asking the network again."""
+    home.mkdir(parents=True, exist_ok=True)
+    os.environ["OCP_HOME"] = str(home)
+    check("recover: not marked to start", not recovermod.needs_relogin("omega"))
+    recovermod.mark_relogin("omega", "still 401 after a real turn")
+    check("recover: marked", recovermod.needs_relogin("omega"))
+    check("recover: the reason is on disk",
+          "401" in (paths.account_dir("omega") / "needs_relogin").read_text())
+    recovermod.clear_relogin("omega")
+    check("recover: cleared", not recovermod.needs_relogin("omega"))
+    # Clearing twice is not an error - the CLI's --clear-relogin has no way to
+    # know in advance whether the mark is even there.
+    recovermod.clear_relogin("omega")
+
+
+def test_recover_spends_one_turn_and_rereads(home: Path) -> None:
+    """#1885's mechanism end to end, standing in for the network, the
+    Keychain and the CLI the same way `test_usage_api_reads_a_window...`
+    already does - `recover` is a caller of `fold.run_model` and
+    `usage_api.read`, never the network itself.
+    """
+    home.mkdir(parents=True, exist_ok=True)
+    os.environ["OCP_HOME"] = str(home)
+    (paths.account_dir("omega") / ".claude").mkdir(parents=True, exist_ok=True)
+
+    real_run_model, real_read, real_record = (foldmod.run_model, usage_api.read, usage_api.record)
+    real_logged_in, real_vendor = accounts.logged_in, vendors.account_vendor
+    accounts.logged_in = lambda acct: True
+    vendors.account_vendor = lambda acct: "claude"
+    calls = {"run_model": [], "recorded": []}
+    try:
+        # --- happy path: the turn runs, the re-read succeeds -------------
+        foldmod.run_model = lambda prompt, acct, model: (
+            calls["run_model"].append((prompt, acct, model)) or (True, "hi yourself"))
+        usage_api.read = lambda acct, refresh=True: usage_api.Reading(
+            account=acct, pct_5h=1, reset_5h=int(time.time()) + 18000,
+            pct_7d=10, reset_7d=None, at=int(time.time()))
+        usage_api.record = lambda reading: calls["recorded"].append(reading) or True
+        ok, msg = recovermod.recover("omega")
+        check("recover: a working turn and a clean re-read succeed", ok, msg)
+        check("recover: it is haiku, one line, on the account asked for",
+              calls["run_model"] == [(recovermod.RECOVER_PROMPT, "omega", recovermod.RECOVER_MODEL)],
+              str(calls["run_model"]))
+        check("recover: the fresh reading is recorded",
+              len(calls["recorded"]) == 1 and calls["recorded"][0].pct_5h == 1,
+              str(calls["recorded"]))
+        check("recover: no needs-relogin mark is left behind",
+              not recovermod.needs_relogin("omega"))
+
+        # --- the turn runs but the endpoint still will not answer ---------
+        calls["run_model"].clear()
+        calls["recorded"].clear()
+        usage_api.read = lambda acct, refresh=True: None
+        ok, msg = recovermod.recover("omega")
+        check("recover: still unreadable after a real turn is a failure", not ok, msg)
+        check("recover: marks needs re-login so the next tick does not retry forever",
+              recovermod.needs_relogin("omega"))
+        check("recover: nothing is recorded from a reading that never came",
+              calls["recorded"] == [])
+
+        # --- marked: refuses before spending anything ----------------------
+        calls["run_model"].clear()
+        ok, msg = recovermod.recover("omega")
+        check("recover: a marked account is refused without a turn",
+              not ok and calls["run_model"] == [], msg)
+        recovermod.clear_relogin("omega")
+
+        # --- turned off: refuses before spending anything -------------------
+        loadmod.set_usage_recover("omega", False)
+        ok, msg = recovermod.recover("omega")
+        check("recover: turned off refuses without a turn",
+              not ok and calls["run_model"] == [], msg)
+        loadmod.set_usage_recover("omega", True)
+
+        # --- not a claude account: refuses ----------------------------------
+        vendors.account_vendor = lambda acct: "opencode"
+        ok, msg = recovermod.recover("omega")
+        check("recover: a non-claude account is refused, not asked to auth", not ok, msg)
+        vendors.account_vendor = lambda acct: "claude"
+
+        # --- not logged in: refuses ------------------------------------------
+        accounts.logged_in = lambda acct: False
+        ok, msg = recovermod.recover("omega")
+        check("recover: not logged in is refused before spending a turn",
+              not ok and calls["run_model"] == [], msg)
+        accounts.logged_in = lambda acct: True
+
+        # --- the run itself fails: no re-read, no record ----------------------
+        foldmod.run_model = lambda prompt, acct, model: (False, "boom")
+        usage_api.record = lambda reading: calls["recorded"].append(reading) or True
+        ok, msg = recovermod.recover("omega")
+        check("recover: a failed turn is reported and nothing is recorded",
+              not ok and "boom" in msg and calls["recorded"] == [], msg)
+
+        # --- at the 7d wall: refuses before spending anything ------------------
+        real_record(usage_api.Reading(
+            account="omega", pct_5h=1, reset_5h=int(time.time()) + 18000,
+            pct_7d=status.PCT_7D_BLOCK, reset_7d=int(time.time()) + 500000,
+            at=int(time.time())))
+        calls["run_model"].clear()
+        foldmod.run_model = lambda prompt, acct, model: (
+            calls["run_model"].append((prompt, acct, model)) or (True, "hi yourself"))
+        ok, msg = recovermod.recover("omega")
+        check("recover: a 7d account at the wall is not spent on",
+              not ok and calls["run_model"] == [], msg)
+    finally:
+        foldmod.run_model, usage_api.read, usage_api.record = (
+            real_run_model, real_read, real_record)
+        accounts.logged_in, vendors.account_vendor = real_logged_in, real_vendor
+        recovermod.clear_relogin("omega")
+
+
 TEST_FILTER: str | None = None  # set by -k; substring match on the test name
 _RUN_DEPTH = {"n": 0}  # >0 inside a test's own nested run() calls, where -k does not apply
 
@@ -28167,6 +28306,9 @@ def main() -> int:
         run(lambda: test_the_zai_meter_reads_the_plan_and_hides_its_key(Path(td) / 'zaimeter'))
         run(lambda: test_the_quota_request_never_follows_a_redirect(Path(td) / 'zairedir'))
         run(lambda: test_usage_api_record_stands_in_for_a_probe(Path(td) / 'usagerec'))
+        run(lambda: test_usage_recover_is_a_per_account_switch(Path(td) / 'recoverswitch'))
+        run(lambda: test_recover_marks_and_clears_needs_relogin(Path(td) / 'recovermark'))
+        run(lambda: test_recover_spends_one_turn_and_rereads(Path(td) / 'recoverturn'))
         run(lambda: test_the_pull_reads_the_context_the_statusline_used_to_push(
             Path(td) / 'pull'))
         run(lambda: test_a_cleared_session_reads_zero_and_an_unsearchable_one_reads_unknown(

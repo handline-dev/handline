@@ -23,7 +23,7 @@ from . import (accounts, actions, agents, ask as askmod, blocked as blockedmod, 
                tui,
                digest, doctor,
                drift, events, fold as foldmod, guide, handoff as handoffmod, hooks, launch,
-               load, observe as obs, paths, rehome, service,
+               load, observe as obs, paths, recover as recovermod, rehome, service,
                hr, orca, status, spawn as spawnmod, team, textsafe, triggers, trust,
                usage_api, vendors, venv as venvmod, waiting)
 
@@ -211,6 +211,22 @@ def cmd_account_cap(args) -> int:
         print(e, file=sys.stderr)
         return 1
     print(f"{args.name}: at most {args.n} agents mid-turn at once")
+    return 0
+
+
+def cmd_account_recover(args) -> int:
+    """#1885's per-account switch: whether a dead read may spend one real turn
+    to fix itself. With no on/off, says where it stands, needs-re-login mark
+    included since that is the other way this stops running on its own."""
+    if args.clear_relogin:
+        recovermod.clear_relogin(args.name)
+    if args.state is not None:
+        load.set_usage_recover(args.name, args.state == "on")
+    on = load.usage_recover_enabled(args.name)
+    print(f"{args.name}: usage recovery is {'on' if on else 'off'}")
+    if recovermod.needs_relogin(args.name):
+        print(f"{args.name}: marked needs re-login - recovery refuses it until "
+              f"that mark is cleared (`ocp account recover {args.name} --clear-relogin`)")
     return 0
 
 
@@ -2069,6 +2085,12 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("name")
     p.add_argument("n", type=int, nargs="?", default=None)
     p.set_defaults(fn=cmd_account_cap)
+    p = acc.add_parser("recover", help="show or set #1885's per-account usage-recovery switch")
+    p.add_argument("name")
+    p.add_argument("state", choices=["on", "off"], nargs="?", default=None)
+    p.add_argument("--clear-relogin", action="store_true",
+                   help="clear a 'needs re-login' mark left by a failed recovery")
+    p.set_defaults(fn=cmd_account_recover)
     p = acc.add_parser("list", help="accounts with usage")
     p.add_argument("--json", action="store_true")
     p.set_defaults(fn=cmd_account_list)
