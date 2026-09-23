@@ -38,7 +38,7 @@ from . import (accounts, agents, ask as askmod, blocked, burnrate, collect, db, 
                fold as foldmod, handoff as handoffmod, launch, load, lock, measure,
                observe as obs, orca, paths, service, spawn as spawnmod, status, textsafe,
                tokenlog, triggers, trust, usage_api)
-from .yamlcompat import ConfigError
+from .yamlcompat import ConfigError, dump
 
 # Section 8.2 states.
 IDLE, QUEUED, RUNNING, DONE = "IDLE", "QUEUED", "RUNNING", "DONE"
@@ -2743,6 +2743,113 @@ def poll_usage(con, log) -> None:
         return
 
 
+# ---------------------------------------------------------------- dev mode
+# Task #64 (founder #2120, #2121): the daemon restarting itself, in place,
+# once it notices its own code changed - so a merge no longer needs a human
+# to kill and relaunch it by hand. Off by default; `ocp dev-mode on` turns it
+# on (config.yaml, next to `active_cap`).
+DEV_MODE_KEY = "dev_mode"
+
+
+def dev_mode_enabled() -> bool:
+    return bool(load._config().get(DEV_MODE_KEY))
+
+
+def set_dev_mode(on: bool) -> None:
+    # load._config()'s own read: same file `active_cap` writes to
+    # (load.set_cap), same failure if it fails to parse - not new risk here,
+    # just a second writer of it.
+    cfg = load._config()
+    cfg[DEV_MODE_KEY] = bool(on)
+    paths.config_file().write_text(dump(cfg))
+
+
+def _watched_files(root: Path) -> list[Path]:
+    """ocp/*.py, bin/ocp, requirements.txt - task #64's own list, read from
+    the checkout the daemon is running from rather than named once and left
+    to rot as files are added."""
+    files = sorted((root / "ocp").glob("*.py"))
+    files.append(root / "bin" / "ocp")
+    files.append(root / "requirements.txt")
+    return files
+
+
+def _code_fingerprint(root: Path) -> tuple:
+    """mtime+size of every watched file - one stat() apiece, not a read,
+    since this runs every tick dev mode is on. A file gone between listing
+    and stat()ing it - a merge in the main checkout unlinks and rewrites
+    files, and that is exactly when this runs - is left out of the
+    fingerprint rather than raised: still gone or written back by the next
+    tick, either way that tick's fingerprint differs from this one's."""
+    found = []
+    for f in _watched_files(root):
+        try:
+            st = f.stat()
+        except FileNotFoundError:
+            continue
+        found.append((str(f.relative_to(root)), st.st_mtime_ns, st.st_size))
+    return tuple(sorted(found))
+
+
+def _dev_import_check(log) -> bool:
+    """Whether the code on disk right now would still start: `bin/ocp
+    --help`, the same entrypoint a restart execs, so this exercises the real
+    venv selection and the real import of every module - not a read of the
+    diff. Nothing it does is acted on; argparse builds the parser and exits.
+    A version that fails this is not restarted into; the old process (already
+    imported, already running) keeps ticking and this says why not."""
+    exe = service.ocp_executable()
+    try:
+        res = subprocess.run([exe, "--help"], capture_output=True, text=True, timeout=30)
+    except (OSError, subprocess.TimeoutExpired) as e:
+        log(f"dev-mode: import check could not run - staying on the running version ({e})")
+        return False
+    if res.returncode != 0:
+        tail = (res.stderr or res.stdout).strip().splitlines()
+        why = tail[-1] if tail else f"exit {res.returncode}, no output"
+        log(f"dev-mode: new code fails to import, staying on the running version - {why}")
+        return False
+    return True
+
+
+def _dev_mode_should_restart(state: dict, log) -> bool:
+    """Called once a tick. `state` is `run`'s own dict, carried across calls:
+    `fp` is the fingerprint this process started (or was last found clean)
+    with, `warned` is one that already failed the import check, so a version
+    still broken is not re-checked and re-logged every tick until it is."""
+    if not dev_mode_enabled():
+        state["fp"] = None
+        state["warned"] = None
+        return False
+    root = paths.repo_root()
+    fp = _code_fingerprint(root)
+    if state["fp"] is None:
+        state["fp"] = fp  # dev mode just turned on, or the daemon just started - this is the baseline
+        return False
+    if fp == state["fp"] or fp == state["warned"]:
+        return False
+    if _dev_import_check(log):
+        log("dev-mode: code changed - finishing this tick, then restarting")
+        return True
+    state["warned"] = fp
+    return False
+
+
+def _dev_mode_restart() -> None:
+    """Exec the same entrypoint with the same arguments, in this process.
+
+    Not a kill from outside (#2121): by the time this runs, the tick it
+    interrupted has already finished, `run` has already released the daemon
+    lock and closed the database connection the way a clean exit always
+    does - the only difference is what runs next. `os.execv` also means
+    launchd never sees an exit to restart from, so KeepAlive is irrelevant
+    either way: this is the one restart path, whether launchd is supervising
+    or the daemon is running by hand.
+    """
+    exe = service.ocp_executable()
+    os.execv(exe, [exe] + sys.argv[1:])
+
+
 def tick(con, log, samples: dict | None = None) -> Tick:
     now = int(time.time())
     actions: list[str] = []
@@ -2839,6 +2946,9 @@ def observe_burn(con, log) -> None:
 
 # ---------------------------------------------------------------- loop
 def run(once: bool = False, verbose: bool = True, max_ticks: int | None = None) -> int:
+    """`max_ticks` counts this process's own ticks. A dev-mode restart
+    (task #64) execs a fresh process, so a run that restarts mid-way starts
+    its count over at 0 and runs past `max_ticks` overall."""
     def log(msg: str) -> None:
         # Every line here can carry text an agent's own screen wrote - a
         # dialog's title among it - and this is stdout, tailed raw by whoever
@@ -2846,6 +2956,11 @@ def run(once: bool = False, verbose: bool = True, max_ticks: int | None = None) 
         # body, at the sink it reaches most often.
         if verbose:
             print(f"[{time.strftime('%H:%M:%S')}] {textsafe.oneline(msg)}", flush=True)
+
+    # Set inside the lock below, read after it releases - restarting (task
+    # #64) happens only once the lock and the db connection are given up the
+    # same way a clean exit always gives them up.
+    restarting = False
 
     # The lock decides who supervises, and records who: a daemon started by
     # hand, or orphaned when launchd reloaded the job under it, is still a
@@ -2863,9 +2978,16 @@ def run(once: bool = False, verbose: bool = True, max_ticks: int | None = None) 
             log(f"daemon starting - already running{named}, exiting")
             return 1
         stopping = {"now": False}
+        # Separate from `stopping`: a restart also sets that flag to break
+        # the loop, and `signalled` is what tells the two apart afterward -
+        # a real SIGTERM/SIGINT must win over a restart whose 30s import
+        # check (bin/ocp --help, subprocess.run's own timeout) was still
+        # running when the signal arrived.
+        signalled = {"now": False}
 
         def stop(signum, _frame):
             stopping["now"] = True
+            signalled["now"] = True
             log(f"signal {signum} - stopping after this tick")
 
         for sig in (signal.SIGINT, signal.SIGTERM):
@@ -2876,6 +2998,7 @@ def run(once: bool = False, verbose: bool = True, max_ticks: int | None = None) 
 
         con = db.connect()
         samples: dict = {}
+        dev_state: dict = {"fp": None, "warned": None}
         try:
             log("daemon starting - reconciling")
             reconcile(con, log)
@@ -2893,10 +3016,29 @@ def run(once: bool = False, verbose: bool = True, max_ticks: int | None = None) 
                     service.rotate_logs()
                 except OSError as e:
                     log(f"log rotation failed: {e}")
+                # Same reasoning as rotate_logs above: a tree mid-checkout
+                # (a merge in the main checkout unlinks and rewrites files
+                # while this is exactly what runs) must degrade dev mode,
+                # not the daemon.
+                try:
+                    should_restart = _dev_mode_should_restart(dev_state, log)
+                except Exception as e:  # noqa: BLE001
+                    log(f"dev-mode check failed: {e}")
+                    should_restart = False
+                if should_restart:
+                    if signalled["now"]:
+                        log("dev-mode: restart skipped - a stop signal arrived during the import check")
+                    else:
+                        stopping["now"] = True
+                        restarting = True
                 if once or (max_ticks and ticks >= max_ticks):
                     break
-                time.sleep(triggers.POLL_S)
+                if not stopping["now"]:
+                    time.sleep(triggers.POLL_S)
             log(f"stopped after {ticks} tick(s)")
-            return 0
         finally:
             con.close()
+
+    if restarting:
+        _dev_mode_restart()  # execs; does not return
+    return 0

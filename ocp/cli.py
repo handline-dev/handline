@@ -868,6 +868,18 @@ def cmd_daemon(args) -> int:
                          max_ticks=args.max_ticks)
 
 
+def cmd_dev_mode(args) -> int:
+    """Off by default (task #64). A running daemon reads config.yaml once a
+    tick, right after that tick finishes, so `ocp dev-mode on` takes effect
+    on its next tick - no restart needed to turn it on."""
+    if args.state is None:
+        print("on" if daemonmod.dev_mode_enabled() else "off")
+        return 0
+    daemonmod.set_dev_mode(args.state == "on")
+    print(f"dev-mode: {args.state}")
+    return 0
+
+
 def _print_waits() -> None:
     """The founder's waits above everything else `ps` prints, in words: the same
     list the bridge pins in red."""
@@ -2306,6 +2318,11 @@ def build_parser() -> argparse.ArgumentParser:
 
     p = sub.add_parser("ps", help="daemon and agent state")
     p.set_defaults(fn=cmd_daemon_status)
+
+    p = sub.add_parser("dev-mode",
+                       help="daemon restarts itself when its own code changes - off by default")
+    p.add_argument("state", nargs="?", choices=["on", "off"], help="omit to print the current state")
+    p.set_defaults(fn=cmd_dev_mode)
 
     sv = sub.add_parser("service", help="run the daemon as a launchd LaunchAgent").add_subparsers(
         dest="sub", required=True)

@@ -3775,6 +3775,230 @@ def test_a_hand_edited_control_character_stalls_one_agent_live_through_the_daemo
         con.close()
 
 
+def test_dev_mode_config_round_trips(home: Path) -> None:
+    """Task #64: off by default, `ocp dev-mode on/off` flips config.yaml
+    (the same file `account cap` writes to), and a plain `ocp dev-mode`
+    reads it back without changing it."""
+    home.mkdir(parents=True, exist_ok=True)
+    os.environ["OCP_HOME"] = str(home)
+    check("dev-mode: off by default", dmn.dev_mode_enabled() is False,
+          str(dmn.dev_mode_enabled()))
+    out = _capture(lambda: climod.main(["dev-mode"]))
+    check("cli dev-mode: prints the current state with no argument",
+          out.strip() == "off", out)
+    out = _capture(lambda: climod.main(["dev-mode", "on"]))
+    check("cli dev-mode on: confirms the flip", "on" in out, out)
+    check("dev-mode: on reaches daemon.py's own reader",
+          dmn.dev_mode_enabled() is True, str(dmn.dev_mode_enabled()))
+    out = _capture(lambda: climod.main(["dev-mode"]))
+    check("cli dev-mode: reads back on without an argument", out.strip() == "on", out)
+    climod.main(["dev-mode", "off"])
+    check("dev-mode: off turns it back off, not just adds a second key",
+          dmn.dev_mode_enabled() is False, str(dmn.dev_mode_enabled()))
+
+
+def test_dev_mode_fingerprint_and_restart_decision(tmp_path: Path, home: Path) -> None:
+    """`_dev_mode_should_restart` (called once a tick): the first call after
+    dev mode turns on is the baseline, not a change; a later call with an
+    untouched tree is quiet; one whose watched files actually changed asks
+    to restart only when the import check passes, and remembers a broken
+    version so it is not re-logged every tick."""
+    home.mkdir(parents=True, exist_ok=True)
+    os.environ["OCP_HOME"] = str(home)
+    root = tmp_path / "repo"
+    (root / "ocp").mkdir(parents=True)
+    (root / "bin").mkdir()
+    (root / "ocp" / "cli.py").write_text("x = 1\n")
+    (root / "bin" / "ocp").write_text("#!/bin/sh\n")
+    (root / "requirements.txt").write_text("")
+    real_repo_root = paths.repo_root
+    paths.repo_root = lambda: root
+    logs: list[str] = []
+    log = logs.append
+    try:
+        state = {"fp": None, "warned": None}
+        check("dev-mode: while off, no baseline is kept",
+              dmn._dev_mode_should_restart(state, log) is False and state["fp"] is None,
+              str(state))
+
+        dmn.set_dev_mode(True)
+        check("dev-mode: turning on captures a baseline, not a restart",
+              dmn._dev_mode_should_restart(state, log) is False and state["fp"] is not None,
+              str(state))
+        check("dev-mode: an untouched tree asks nothing on the next tick",
+              dmn._dev_mode_should_restart(state, log) is False, str(state))
+
+        real_check = dmn._dev_import_check
+        dmn._dev_import_check = lambda log_: True
+        try:
+            time.sleep(0.01)
+            (root / "ocp" / "cli.py").write_text("x = 2\n")
+            check("dev-mode: a changed file, with the import check stubbed clean, asks to restart",
+                  dmn._dev_mode_should_restart(state, log) is True,
+                  str(state) + " " + str(logs))
+        finally:
+            dmn._dev_import_check = real_check
+
+        def failing_check(log_):
+            log_("stub: fails to import")
+            return False
+        dmn._dev_import_check = failing_check
+        try:
+            time.sleep(0.01)
+            (root / "ocp" / "cli.py").write_text("x = 3\n")
+            logs.clear()
+            check("dev-mode: a changed file that fails the import check does not ask to restart",
+                  dmn._dev_mode_should_restart(state, log) is False, str(state))
+            check("dev-mode: it logs why",
+                  any("fails to import" in m for m in logs), str(logs))
+            logs.clear()
+            check("dev-mode: the same broken fingerprint is not re-logged next tick",
+                  dmn._dev_mode_should_restart(state, log) is False and logs == [], str(logs))
+        finally:
+            dmn._dev_import_check = real_check
+    finally:
+        paths.repo_root = real_repo_root
+        dmn.set_dev_mode(False)
+
+
+def test_dev_mode_fingerprint_skips_a_missing_watched_file(tmp_path: Path) -> None:
+    """auditor #2174 should-fix: `_code_fingerprint`'s try/except around
+    stat() has to actually run to matter, and both restart-decision tests
+    replace `_dev_mode_should_restart` whole, so the fingerprint code never
+    executes under them. `_watched_files` no longer filters by `exists()`,
+    so this skip is what stands between a missing requirements.txt/bin/ocp
+    (or one caught mid-merge) and `_dev_mode_should_restart` never getting
+    past 'check failed' every tick."""
+    root = tmp_path / "repo"
+    (root / "ocp").mkdir(parents=True)
+    (root / "bin").mkdir()
+    (root / "ocp" / "cli.py").write_text("x = 1\n")
+    (root / "bin" / "ocp").write_text("#!/bin/sh\n")
+    # requirements.txt is listed by _watched_files but never created.
+    fp = dmn._code_fingerprint(root)
+    check("dev-mode fingerprint: a missing watched file does not raise",
+          isinstance(fp, tuple), str(fp))
+    check("dev-mode fingerprint: the missing file is left out, not fingerprinted as absent",
+          "requirements.txt" not in str(fp), str(fp))
+    check("dev-mode fingerprint: the files that do exist are still in it",
+          len(fp) == 2, str(fp))
+
+
+def test_dev_mode_import_check_runs_the_real_entrypoint(home: Path) -> None:
+    """`_dev_import_check` execs `bin/ocp --help` - the actual restart path,
+    not a bare `python -c import` - so a broken bash wrapper or a broken
+    venv selection is caught the same way a broken module would be."""
+    home.mkdir(parents=True, exist_ok=True)
+    os.environ["OCP_HOME"] = str(home)
+    logs: list[str] = []
+    check("dev-mode: the real bin/ocp --help passes its own import check",
+          dmn._dev_import_check(logs.append) is True, str(logs))
+
+    real_exe = service.ocp_executable
+    service.ocp_executable = lambda: "/no/such/ocp-binary-at-all"
+    try:
+        check("dev-mode: an entrypoint that cannot even run fails closed",
+              dmn._dev_import_check(logs.append) is False, str(logs))
+        check("dev-mode: it says why", any(logs), str(logs))
+    finally:
+        service.ocp_executable = real_exe
+
+
+def test_dev_mode_restart_execs_after_the_lock_and_db_are_released(home: Path) -> None:
+    """The integration the loop makes: a tick that finds changed, importable
+    code sets the same `stopping` flag SIGTERM does, finishes cleanly - the
+    lock released and the connection closed exactly like every other clean
+    exit - and only then calls the restart. Faked here by stubbing the
+    restart itself (`os.execv` never returns, so a real call would end the
+    test process); what is checked is that it is reached only after `run`
+    has already given up the lock."""
+    _daemon_home(home, 20)
+    real_should, real_restart = dmn._dev_mode_should_restart, dmn._dev_mode_restart
+    calls: list[bool] = []
+
+    def fake_should(state, log):
+        # True on the very first tick call - run() must still finish that
+        # tick and release the lock before this fires.
+        return True
+
+    def fake_restart():
+        calls.append(dmn.lock.holder(dmn.DAEMON_LOCK) is not None)
+
+    dmn._dev_mode_should_restart, dmn._dev_mode_restart = fake_should, fake_restart
+    try:
+        rc_box: list[int] = []
+        out = _capture(lambda: rc_box.append(dmn.run(once=False, verbose=True, max_ticks=5)))
+        check("dev-mode restart: run() returns normally once execv is stubbed out",
+              rc_box == [0], str(rc_box))
+        check("dev-mode restart: it stopped after the first tick, not after max_ticks",
+              "stopped after 1 tick(s)" in out, out)
+        check("dev-mode restart: the restart was actually invoked",
+              len(calls) == 1, str(calls))
+        check("dev-mode restart: the daemon lock was already released when it ran",
+              calls == [False], str(calls))
+    finally:
+        dmn._dev_mode_should_restart, dmn._dev_mode_restart = real_should, real_restart
+
+
+def test_dev_mode_check_failing_degrades_not_crashes(home: Path) -> None:
+    """auditor #2170 should-fix 1: `_dev_mode_should_restart` sits beside
+    `rotate_logs` in the loop, and must be guarded the same way - a file
+    gone between listing and stat()ing it (a merge in the main checkout is
+    exactly when this runs) must not end a daemon a human started by hand
+    the way an unguarded exception would."""
+    _daemon_home(home, 20)
+    real_should, real_sleep = dmn._dev_mode_should_restart, dmn.time.sleep
+
+    def raising_should(state, log):
+        raise RuntimeError("stub: vanished mid-stat")
+
+    dmn._dev_mode_should_restart = raising_should
+    dmn.time.sleep = lambda s: None  # two real ticks, not two real POLL_S waits
+    try:
+        out = _capture(lambda: check(
+            "dev-mode check failing: run() still exits cleanly, not with an exception",
+            dmn.run(once=False, verbose=True, max_ticks=2) == 0, ""))
+        check("dev-mode check failing: it ran both ticks it was asked for",
+              "stopped after 2 tick(s)" in out, out)
+        check("dev-mode check failing: it says why, not just that it failed",
+              "dev-mode check failed" in out and "vanished mid-stat" in out, out)
+    finally:
+        dmn._dev_mode_should_restart, dmn.time.sleep = real_should, real_sleep
+
+
+def test_dev_mode_restart_yields_to_a_signal_that_arrived_during_the_check(home: Path) -> None:
+    """auditor #2170 should-fix 2: `_dev_import_check` can run for up to 30s
+    (bin/ocp --help's own timeout). A real SIGTERM delivered to this process
+    while that stub stands in for it must still end the daemon - not be
+    overridden by the restart the check was in the middle of approving."""
+    _daemon_home(home, 20)
+    real_should, real_restart = dmn._dev_mode_should_restart, dmn._dev_mode_restart
+    restart_calls: list[bool] = []
+
+    def should_but_signal_first(state, log):
+        # Stands in for a signal landing mid-way through the real 30s
+        # subprocess call this replaces.
+        os.kill(os.getpid(), signal.SIGTERM)
+        return True
+
+    def fake_restart():
+        restart_calls.append(True)
+
+    dmn._dev_mode_should_restart, dmn._dev_mode_restart = should_but_signal_first, fake_restart
+    try:
+        out = _capture(lambda: check(
+            "dev-mode signal race: run() exits cleanly",
+            dmn.run(once=False, verbose=True, max_ticks=5) == 0, ""))
+        check("dev-mode signal race: it stopped at the signal, not at max_ticks",
+              "stopped after 1 tick(s)" in out, out)
+        check("dev-mode signal race: the restart it was approving never ran",
+              restart_calls == [], str(restart_calls))
+        check("dev-mode signal race: it says why the restart was skipped",
+              "restart skipped" in out, out)
+    finally:
+        dmn._dev_mode_should_restart, dmn._dev_mode_restart = real_should, real_restart
+
+
 def test_reconcile_still_propagates_a_fault_that_is_not_one_agents(home: Path) -> None:
     """The control for the guard above: a fault that belongs to reconcile()
     itself, not to any one agent's file, must still stop the daemon - a
@@ -21046,6 +21270,8 @@ def test_no_command_prints_what_a_terminal_would_obey(home: Path) -> None:
         "hook": "reads a hook payload on stdin and prints nothing",
         "daemon": "runs forever", "service install": "launchd", "service uninstall": "launchd",
         "service status": "launchd; prints a pid",
+        "dev-mode": "writes a config flag; prints on/off - driven in "
+                    "test_dev_mode_config_round_trips, not this scene",
         "close": "an agent's session is ended through Orca; the task half is driven by test_closing_a_task_needs_evidence_and_no_open_child",
         "task new": "writes a row; prints its id and an owner already checked against the registry",
         "task link": "writes a row; prints two ids",
@@ -27875,6 +28101,15 @@ def main() -> int:
         run(lambda: test_reconcile_stalls_one_agents_unreadable_config_not_the_others(Path(td) / 'reconbad'))
         run(lambda: test_a_hand_edited_control_character_stalls_one_agent_live_through_the_daemon(
             Path(td) / 'readguarddaemon'))
+        run(lambda: test_dev_mode_config_round_trips(Path(td) / 'devmodecfg'))
+        run(lambda: test_dev_mode_fingerprint_and_restart_decision(
+            Path(td) / 'devmodefp_repo', Path(td) / 'devmodefp_home'))
+        run(lambda: test_dev_mode_fingerprint_skips_a_missing_watched_file(Path(td) / 'devmodefpmissing'))
+        run(lambda: test_dev_mode_import_check_runs_the_real_entrypoint(Path(td) / 'devmodeimport'))
+        run(lambda: test_dev_mode_restart_execs_after_the_lock_and_db_are_released(Path(td) / 'devmoderestart'))
+        run(lambda: test_dev_mode_check_failing_degrades_not_crashes(Path(td) / 'devmodedegrade'))
+        run(lambda: test_dev_mode_restart_yields_to_a_signal_that_arrived_during_the_check(
+            Path(td) / 'devmodesignalrace'))
         run(lambda: test_reconcile_still_propagates_a_fault_that_is_not_one_agents(Path(td) / 'reconsys'))
         run(lambda: test_reconcile_stalls_one_due_agents_unreadable_config_at_wake_too(Path(td) / 'reconwake'))
         run(lambda: test_daemon_handoff_timeout(Path(td) / 'd4'))
