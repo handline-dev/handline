@@ -2573,7 +2573,12 @@ def supervise(con, agent: str, log, now: int, samples: dict,
     # `reading` above is a guess exactly when there is neither a recorded nor
     # a fresh reported account to act on, and a guess is not evidence enough
     # to wake this agent into.
-    if not woke_now and row and row["terminal"] and not row["closed_at"] \
+    # A quiet-hours park reads the same as a recovered usage park to this
+    # branch - it only knows the last *handoff's* trigger, not why this park
+    # was actually written - and without `quiet_blocked` a prior usage
+    # handoff flips it QUEUED/PARKED every other tick for the rest of the
+    # window (auditor #2211).
+    if not woke_now and not quiet_blocked and row and row["terminal"] and not row["closed_at"] \
             and state == PARKED and reading.source != "assumed" \
             and orca.available() and orca.alive(row["terminal"]):
         last = db.last_handoff(con, agent)

@@ -4156,6 +4156,56 @@ def test_quiet_hours_wakes_on_its_own_when_the_window_closes(home: Path) -> None
         con.close()
 
 
+def test_quiet_hours_is_not_undone_by_the_usage_recovery_branch(home: Path) -> None:
+    """auditor #2211 BLOCKING: a separate branch un-parks a PARKED agent once
+    its last usage reading no longer fires - keyed only on the last handoff's
+    trigger kind, since nothing on the row itself says why this park was
+    written. That reads a quiet park exactly like a usage park that
+    recovered. Without `quiet_blocked` in its condition, an agent with a
+    prior usage handoff flips PARKED/QUEUED every tick for the rest of the
+    window; nothing leaks to the terminal (`open_idle` still catches
+    delivery), but the state and 'usage recovered' log line churn for hours,
+    and the move branch beside it can move a parked claude agent to another
+    claude account - exactly the work this window exists to prevent."""
+    _daemon_home(home, 20)
+    con = db.connect()
+    try:
+        orcamod.available = lambda: True
+        orcamod.alive = lambda h: True
+        orcamod.live_terminals = lambda: {"term_x"}
+        orcamod.idle_now = lambda h: True
+        sent: list[str] = []
+        orcamod.send = lambda h, text, enter=True: (sent.append(text), (True, ""))[1]
+        sessions_are("backend")
+        # The two things production has that the plain integration test's
+        # fixture does not: an account recorded (not assumed), and a prior
+        # handoff whose trigger names it as a usage park.
+        db.set_account(con, "backend", "alpha")
+        hid = "usagehid1"
+        db.start_handoff(con, hid, "backend", None, "usage", int(time.time()) + 3600)
+        db.advance_handoff(con, hid, "released", state="done")
+        db.add_request(con, "marina", "backend", "carry on", None,
+                       "peer", "async", None, 0, None)
+        dmn.set_quiet_hours(True)
+        window_end = _pt_epoch(2026, 9, 21, 11, 0)
+        db.set_agent_state(con, "backend", dmn.PARKED, wake_at=window_end,
+                           detail="quiet hours; wakes at 11:00")
+
+        actions: list[str] = []
+        for minute in range(6):
+            now = _pt_epoch(2026, 9, 21, 7, minute)
+            dmn.supervise(con, "backend", lambda _m: None, now, {}, actions)
+            row = db.get_agent_state(con, "backend")
+            check(f"quiet hours vs usage recovery: tick {minute} stays PARKED",
+                  row["state"] == dmn.PARKED, str(dict(row)))
+        check("quiet hours vs usage recovery: 'usage recovered' never logged",
+              not any("usage recovered" in a for a in actions), str(actions))
+        check("quiet hours vs usage recovery: nothing was typed", sent == [], str(sent))
+    finally:
+        dmn.set_quiet_hours(False)
+        con.close()
+
+
 def test_reconcile_still_propagates_a_fault_that_is_not_one_agents(home: Path) -> None:
     """The control for the guard above: a fault that belongs to reconcile()
     itself, not to any one agent's file, must still stop the daemon - a
@@ -29091,6 +29141,7 @@ def main() -> int:
         run(lambda: test_quiet_hours_blocks_only_a_claude_agent_with_the_flag_on(Path(td) / 'quiethoursvendor'))
         run(lambda: test_quiet_hours_holds_queued_work_from_an_idle_claude_agent(Path(td) / 'quiethourshold'))
         run(lambda: test_quiet_hours_wakes_on_its_own_when_the_window_closes(Path(td) / 'quiethourswake'))
+        run(lambda: test_quiet_hours_is_not_undone_by_the_usage_recovery_branch(Path(td) / 'quiethoursrecov'))
         run(lambda: test_reconcile_still_propagates_a_fault_that_is_not_one_agents(Path(td) / 'reconsys'))
         run(lambda: test_reconcile_stalls_one_due_agents_unreadable_config_at_wake_too(Path(td) / 'reconwake'))
         run(lambda: test_daemon_handoff_timeout(Path(td) / 'd4'))
