@@ -2050,6 +2050,9 @@ def cmd_resolve(args) -> int:
         if refusal:
             print(refusal)
             return 1
+        if args.finding and any(not textsafe.oneline(f).strip() for f in args.finding):
+            print("a finding needs a title")
+            return 1
         if args.retires is not None:
             old = db.get_request(con, args.retires)
             if old is None:
@@ -2106,6 +2109,13 @@ def cmd_resolve(args) -> int:
             actions.record_human_resolve(con, args.id, args.task, args.no_task, me)
         finally:
             con.close()
+    if args.finding:
+        con = db.connect()
+        try:
+            tids = actions.open_finding_tasks(con, args.id, args.finding, row["requester"], me)
+        finally:
+            con.close()
+        verdict = verdict + "\n\nOpened as task(s): " + ", ".join(f"#{t}" for t in tids)
     ok, msg = askmod.resolve(args.id, verdict, state=args.state)
     if ok and args.retires is not None:
         con = db.connect()
@@ -2390,6 +2400,10 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--no-task", metavar="REASON",
                    help="answered, nothing to build; required on the founder's requests "
                         "unless --task is given")
+    p.add_argument("--finding", action="append", metavar="TITLE",
+                   help="a non-blocking finding you are deferring rather than blocking "
+                        "on; opens as its own task, owned by whoever you are answering, "
+                        "linked to this request - repeat for more than one")
     p.add_argument("--retires", type=int, default=None, metavar="ID",
                    help="an older request this answer makes moot")
     p.set_defaults(fn=cmd_resolve)

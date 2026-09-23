@@ -234,6 +234,19 @@ def record_human_resolve(con, rid: int, tasks: list[int] | None, no_task: str | 
         db.add_event(con, me or "", "no_task", {"request_id": rid, "reason": no_task})
 
 
+def open_finding_tasks(con, rid: int, findings: list[str], owner: str, me: str) -> list[int]:
+    """Task #73 (founder #2150, #2154 point 2): a finding the resolver is
+    deferring rather than blocking the review on becomes a task in the same
+    step, linked back to the row it came out of - never left only in a
+    verdict's prose for someone else to remember to open later."""
+    tids = []
+    for title in findings:
+        tid = db.new_task(con, textsafe.oneline(title).strip(), owner, me)
+        db.link_request(con, tid, rid)
+        tids.append(tid)
+    return tids
+
+
 def dismiss(con, rid: int, me: str | None = None, reason: str | None = None,
             tasks: list[int] | None = None, no_task: str | None = None) -> tuple[bool, str]:
     """Take one row off the mailbox without replying to it. A `reason` is

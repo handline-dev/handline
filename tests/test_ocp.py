@@ -27463,6 +27463,54 @@ def test_resolving_the_founders_request_says_what_it_becomes(home: Path) -> None
     check("guard: a closed task cannot be attached to", rc == 1 and "closed" in out, out)
 
 
+def test_resolve_finding_opens_a_task_in_the_same_step(home: Path) -> None:
+    """Task #73 (founder #2150, #2154 point 2): a finding the resolver defers
+    rather than blocks on opens as its own task, owned by whoever asked,
+    linked to the row, in the same `ocp resolve` call - not left only in the
+    resolver's own prose for someone else to remember to open."""
+    _board_world(home)
+    ok, _, rid = askmod.ask("manager", "please review", requester="worker")
+    check("setup: the review request went through", ok, rid)
+
+    rc, out = _cli(["resolve", str(rid), "PASS",
+                    "--finding", "note 1 - tighten the retry",
+                    "--finding", "note 2 - rename the flag"], as_agent="manager")
+    check("finding: resolve still succeeds", rc == 0, out)
+    con = db.connect()
+    try:
+        row = db.get_request(con, rid)
+        tasks = {r["id"]: dict(r) for r in
+                 con.execute("SELECT t.* FROM tasks t JOIN task_requests tr "
+                             "ON tr.task_id = t.id WHERE tr.request_id = ?", (rid,)).fetchall()}
+        check("finding: exactly two tasks were opened and linked",
+              len(tasks) == 2, str(tasks))
+        titles = {t["title"] for t in tasks.values()}
+        check("finding: each finding's text became a task's title",
+              titles == {"note 1 - tighten the retry", "note 2 - rename the flag"}, titles)
+        check("finding: the task is owned by whoever asked, not the resolver",
+              all(t["owner"] == "worker" for t in tasks.values()), str(tasks))
+        check("finding: opened_by is the resolver",
+              all(t["opened_by"] == "manager" for t in tasks.values()), str(tasks))
+        check("finding: the verdict names the new task numbers",
+              all(f"#{tid}" in row["verdict"] for tid in tasks)
+              and "Opened as task" in row["verdict"], row["verdict"])
+    finally:
+        con.close()
+
+    ok, _, rid2 = askmod.ask("manager", "another review", requester="worker")
+    rc, out = _cli(["resolve", str(rid2), "PASS", "--finding", "   "], as_agent="manager")
+    check("finding: a blank finding title is refused", rc == 1 and "title" in out, out)
+    con = db.connect()
+    try:
+        check("finding: refused, the request is still queued",
+              db.get_request(con, rid2)["state"] == "queued")
+        check("finding: and no task was opened for it",
+              not con.execute("SELECT 1 FROM task_requests WHERE request_id = ?",
+                              (rid2,)).fetchone())
+    finally:
+        con.close()
+
+
 def test_task_blocked_by_another_task(home: Path) -> None:
     """task #21/#1884: a task can wait on another. The board reads it as
     `waiting on #N` - never `you - a result is in` and never `nobody holds
@@ -29552,6 +29600,7 @@ def main() -> int:
         run(lambda: test_done_tasks_show_as_a_waiting_for_check_group(Path(td) / 'taskdonegroup'))
         run(lambda: test_task_blocked_by_another_task(Path(td) / 'taskblock'))
         run(lambda: test_resolving_the_founders_request_says_what_it_becomes(Path(td) / 'taskguard'))
+        run(lambda: test_resolve_finding_opens_a_task_in_the_same_step(Path(td) / 'findingtask'))
         run(lambda: test_marking_a_task_done_needs_evidence_and_only_the_owner_or_a_linked_target(
             Path(td) / 'taskdone'))
         run(lambda: test_closing_a_task_needs_no_open_child_and_only_the_asker(Path(td) / 'taskclose'))
