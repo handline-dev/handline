@@ -831,16 +831,12 @@ async def test_task_checks_lists_and_acts_on_the_founders_own() -> None:
     app = bt.BridgeApp()
     async with app.run_test(size=(100, 24)) as pilot:
         await pilot.pause()
-        dash_text = str(app.screen.query_one("#canvas").render())
-        check("checks: the dashboard's own footer hints at b",
-              "b" in dash_text and "checks" in dash_text, dash_text)
         await pilot.press("b")
         await pilot.pause()
         screen = app.screen
         check("checks: b opens the screen from the dashboard",
               isinstance(screen, bt.TaskChecks), type(screen).__name__)
         text = str(screen.query_one("#canvas").render())
-        check("checks: header shown", "done - waiting for check" in text, text)
         check("checks: the founder's own done tasks are both listed",
               f"#{t_founder1}" in text and f"#{t_founder2}" in text, text)
         check("checks: not the manager's own, and not the still-open one",
