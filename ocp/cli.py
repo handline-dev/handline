@@ -450,7 +450,27 @@ def cmd_task_new(args) -> int:
         if args.parent is not None and db.get_task(con, args.parent) is None:
             print(f"no task #{args.parent}")
             return 1
-        tid = db.new_task(con, title, args.owner, me, args.parent)
+        if args.blocked_by is not None and db.get_task(con, args.blocked_by) is None:
+            print(f"no task #{args.blocked_by}")
+            return 1
+        # new_task and a refused add_block are one transaction (auditor's
+        # #2065 SHOULD-FIX C: add_block's own closed-blocker refusal used to
+        # land after the task row already existed, leaving a task nobody
+        # asked for - the same defect #2042 SHOULD-FIX 5 fixed for edit).
+        con.execute("BEGIN IMMEDIATE")
+        tid = None
+        try:
+            tid = db.new_task(con, title, args.owner, me, args.parent)
+            if args.blocked_by is not None:
+                ok, msg = actions.add_block(con, tid, args.blocked_by, me)
+                if not ok:
+                    con.execute("ROLLBACK")
+                    print(msg)
+                    return 1
+        except Exception:
+            con.execute("ROLLBACK")
+            raise
+        con.execute("COMMIT")
     finally:
         con.close()
     print(f"task #{tid} opened for {args.owner}")
@@ -474,16 +494,51 @@ def cmd_task_link(args) -> int:
 
 
 def cmd_task_edit(args) -> int:
+    """Every part named (`--owner`/`--title`, `--blocked-by`, `--unblock`) is
+    one transaction, so a later part's refusal never leaves an earlier one
+    applied (auditor's #2042 SHOULD-FIX 5: `--owner X --blocked-by <cycle>`
+    used to rename the task and then refuse, exit 1 reading as nothing
+    happened). Stops at the first refusal rather than trying the rest.
+
+    Messages are held and printed only once COMMIT or ROLLBACK has actually
+    happened (auditor's #2065 SHOULD-FIX B) - printing a part's message as
+    soon as it runs said a change had taken before the transaction as a
+    whole was known to hold; a later refusal then rolled it back while the
+    line claiming it stayed on the screen.
+    """
     me = askmod.asking_agent()
     if me is None:
         print(_who_refusal("edit a task"))
         return 1
+    if args.owner is None and args.title is None and args.blocked_by is None and args.unblock is None:
+        print("edit needs a new owner, a new title, --blocked-by, or --unblock")
+        return 1
     con = db.connect()
     try:
-        ok, msg = actions.edit_task(con, args.task, me, owner=args.owner, title=args.title)
-        print(msg)
+        con.execute("BEGIN IMMEDIATE")
+        ok = True
+        msgs: list[str] = []
+        try:
+            if args.owner is not None or args.title is not None:
+                ok, msg = actions.edit_task(con, args.task, me, owner=args.owner, title=args.title)
+                msgs.append(msg)
+            if ok and args.blocked_by is not None:
+                ok, msg = actions.add_block(con, args.task, args.blocked_by, me)
+                msgs.append(msg)
+            if ok and args.unblock is not None:
+                ok, msg = actions.unblock(con, args.task, args.unblock, me)
+                msgs.append(msg)
+        except Exception:
+            con.execute("ROLLBACK")
+            raise
+        con.execute("COMMIT" if ok else "ROLLBACK")
     finally:
         con.close()
+    # A refusal's own message is the last one appended (every part before it
+    # took, or there was only the one that failed) - the only one still true
+    # after a ROLLBACK, so only it is shown.
+    for msg in (msgs if ok else msgs[-1:]):
+        print(msg)
     return 0 if ok else 1
 
 
@@ -535,6 +590,9 @@ def cmd_task_board(args) -> int:
     founder means the result is in and it is my turn to read it. Nothing
     linked, or the last exchange already closed some other way (withdrawn,
     rejected, replaced), is nobody holding it - the same as never asked.
+    Waiting on an open blocker (task #21/#1884) reads as `waiting on #N`
+    instead of either of those two - it is neither nobody's turn nor mine
+    while the thing it waits on is still open.
     """
     me = askmod.asking_agent()
     if me is None:
@@ -554,8 +612,10 @@ def cmd_task_board(args) -> int:
             last = reqs[-1] if reqs else None
             back = (last is not None and last["state"] == "done"
                     and last["target"] not in (me, askmod.HUMAN))
+            blockers = db.task_blockers(con, t["id"])
             now = (", ".join(held) if held
                   else "sub-task: " + ", ".join(kids) if kids
+                  else "waiting on " + ", ".join(f"#{b['id']}" for b in blockers) if blockers
                   else "you - a result is in" if back
                   else "nobody holds it")
             parent = f" (under #{t['parent_task']})" if t["parent_task"] else ""
@@ -2283,6 +2343,8 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("title")
     p.add_argument("--owner", required=True)
     p.add_argument("--parent", type=int, default=None, help="the task this is a part of")
+    p.add_argument("--blocked-by", type=int, default=None,
+                   help="cannot be worked until this task closes")
     p.set_defaults(fn=cmd_task_new)
     p = tk.add_parser("list", help="the open tasks and their requests")
     p.add_argument("--all", action="store_true", help="closed tasks too, with what closed them")
@@ -2296,6 +2358,10 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("task", type=int)
     p.add_argument("--owner", default=None, help="fixing who was named, not handing off work")
     p.add_argument("--title", default=None)
+    p.add_argument("--blocked-by", type=int, default=None,
+                   help="cannot be worked until this task closes")
+    p.add_argument("--unblock", type=int, default=None,
+                   help="remove that blocking task")
     p.set_defaults(fn=cmd_task_edit)
     p = tk.add_parser("board", help="your own open tasks, and who holds each one now")
     p.set_defaults(fn=cmd_task_board)

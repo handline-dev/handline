@@ -115,6 +115,23 @@ CREATE TABLE IF NOT EXISTS task_requests (
 );
 CREATE INDEX IF NOT EXISTS task_requests_request ON task_requests(request_id);
 
+-- task #21/#1884: `task_id` cannot be worked until `blocks_on` closes. A row
+-- here, not a column on `tasks`, because a task can be blocked by more than
+-- one other and `--unblock` removes exactly one edge. Gone once `blocks_on`
+-- closes, in the same transaction that closes it and writes any resulting
+-- notice (actions.close_task) - `add_block` also refuses to write a row
+-- naming an already-closed task on either end. `task_blockers` still checks
+-- `tasks.closed_by` itself rather than trusting a row's mere presence,
+-- cheap insurance against either guard missing a case, not the only place
+-- that state lives.
+CREATE TABLE IF NOT EXISTS task_blocks (
+  task_id     INTEGER NOT NULL REFERENCES tasks(id),
+  blocks_on   INTEGER NOT NULL REFERENCES tasks(id),
+  created_at  INTEGER NOT NULL,
+  PRIMARY KEY (task_id, blocks_on)
+);
+CREATE INDEX IF NOT EXISTS task_blocks_on ON task_blocks(blocks_on);
+
 -- Advanced only after the fold output validates.
 -- Small named values that are not counters: the orchestration Run this team's
 -- work hangs under, and anything else that is one string per installation.
@@ -875,6 +892,43 @@ def edit_task(con, tid: int, by: str, owner: str | None = None,
 def link_request(con, tid: int, rid: int) -> None:
     con.execute("INSERT OR IGNORE INTO task_requests(task_id, request_id) VALUES (?, ?)",
                 (tid, rid))
+
+
+def add_block(con, tid: int, blocks_on: int) -> None:
+    con.execute("INSERT OR IGNORE INTO task_blocks(task_id, blocks_on, created_at) "
+                "VALUES (?, ?, ?)", (tid, blocks_on, int(time.time())))
+
+
+def remove_block(con, tid: int, blocks_on: int) -> bool:
+    cur = con.execute("DELETE FROM task_blocks WHERE task_id = ? AND blocks_on = ?",
+                      (tid, blocks_on))
+    return cur.rowcount > 0
+
+
+def task_blockers(con, tid: int) -> list:
+    """The still-open tasks blocking `tid`, whatever `task_blocks` names -
+    a row surviving a blocker's own close is a bug elsewhere, not a reason
+    to trust it here."""
+    return con.execute(
+        "SELECT t.* FROM tasks t JOIN task_blocks b ON b.blocks_on = t.id "
+        "WHERE b.task_id = ? AND t.closed_by IS NULL ORDER BY t.id", (tid,)).fetchall()
+
+
+def blocks_on_ids(con, tid: int) -> list[int]:
+    """The raw edges `tid` itself names - what cycle detection walks.
+    `task_blockers` filters to the ones whose blocker is still open, because
+    that is the board's question ("what am I waiting on"); a cycle is a
+    question about the edges themselves, so this reads every one of them."""
+    return [r["blocks_on"] for r in con.execute(
+        "SELECT blocks_on FROM task_blocks WHERE task_id = ?", (tid,)).fetchall()]
+
+
+def tasks_blocked_by(con, tid: int) -> list:
+    """Every task with a (possibly stale) block row naming `tid`, closed or
+    not - the caller decides what to do with each."""
+    return con.execute(
+        "SELECT task_id FROM task_blocks WHERE blocks_on = ? ORDER BY task_id",
+        (tid,)).fetchall()
 
 
 def task_requests(con, tid: int) -> list:

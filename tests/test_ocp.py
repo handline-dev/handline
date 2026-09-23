@@ -10898,6 +10898,7 @@ def test_only_the_agents_own_events_move_its_activity_clock(home: Path) -> None:
     individually, not just asserted in bulk."""
     daemon_kinds = {"account_mismatch", "answered", "close", "close_failed", "close_task",
                     "cold_start", "dialog_declined", "dialog_exit_chosen", "edit_task",
+                    "block_task", "unblock_task", "task_unblocked",
                     "fold", "fold_failed",
                     "forced_move", "handoff", "memory_migrated", "moved_account", "nudged",
                     "notified", "park", "session_gone", "started_for_work", "terminal_gone",
@@ -10911,7 +10912,11 @@ def test_only_the_agents_own_events_move_its_activity_clock(home: Path) -> None:
     # clock, not just what today's one caller happens to send (#1565 SF3).
     # edit_task is here for the same reason as close_task: editing the board
     # is not the edited agent doing work, and it is often the founder or a
-    # manager editing someone else's task entirely.
+    # manager editing someone else's task entirely. block_task and
+    # unblock_task are the same shape as edit_task (task #21/#1884);
+    # task_unblocked is close_task's own aftermath, recorded under whoever
+    # closed the blocker, not the blocked task's owner - never that owner's
+    # activity.
 
     # Literal add_event(agent, "kind", ...) call sites: every one sorted, and
     # the scan proven to have read every site, not just the ones its regex
@@ -25468,6 +25473,287 @@ def test_resolving_the_founders_request_says_what_it_becomes(home: Path) -> None
     check("guard: a closed task cannot be attached to", rc == 1 and "closed" in out, out)
 
 
+def test_task_blocked_by_another_task(home: Path) -> None:
+    """task #21/#1884: a task can wait on another. The board reads it as
+    `waiting on #N` - never `you - a result is in` and never `nobody holds
+    it` - while #N is open; a cycle is refused; and closing #N tells the
+    blocked task's owner once, as a durable request linked to that task -
+    opened by manager, owned by worker, so the notice (manager -> worker) is
+    not a self-request that would muddy what it proves."""
+    _board_world(home)
+    con = db.connect()
+    try:
+        t_blocker = db.new_task(con, "blocker", "worker", "manager")
+    finally:
+        con.close()
+
+    rc, out = _cli(["task", "new", "--owner", "worker", "dependent",
+                    "--blocked-by", str(t_blocker)])
+    check("task new --blocked-by: opens the task blocked", rc == 0, out)
+    t_dep = int(out.split("#", 1)[1].split()[0])
+
+    rc, out = _cli(["task", "new", "--owner", "worker", "x", "--blocked-by", "999"])
+    check("task new --blocked-by: a blocker that does not exist is refused",
+          rc == 1 and "no task" in out, out)
+
+    rc, out = _cli(["task", "board"], as_agent="worker")
+    check("board: waiting on an open blocker, not mine and not nobody's",
+          _now_line(out, t_dep) == f"now: waiting on #{t_blocker}", out)
+
+    rc, out = _cli(["task", "edit", str(t_blocker), "--blocked-by", str(t_dep)])
+    check("edit --blocked-by: a direct cycle is refused", rc == 1 and "cycle" in out, out)
+
+    con = db.connect()
+    try:
+        t_third = db.new_task(con, "third", "worker", "manager")
+    finally:
+        con.close()
+    # third -> dep -> blocker, neither of these two edges touching the other
+    # directly - the cycle below only closes through both hops.
+    rc, out = _cli(["task", "edit", str(t_third), "--blocked-by", str(t_dep)])
+    check("edit --blocked-by: a chain, not yet a cycle, is fine", rc == 0, out)
+    rc, out = _cli(["task", "edit", str(t_blocker), "--blocked-by", str(t_third)])
+    check("edit --blocked-by: closing the loop two hops away is refused too",
+          rc == 1 and "cycle" in out, out)
+    rc, out = _cli(["task", "edit", str(t_third), "--unblock", str(t_dep)])
+    check("edit --unblock: drops the chained blocker again", rc == 0, out)
+
+    rc, out = _cli(["close", str(t_third), "done"])
+    check("close: third has no blocker left, closes fine", rc == 0, out)
+    rc, out = _cli(["task", "edit", str(t_dep), "--blocked-by", str(t_third)])
+    check("edit --blocked-by: refused on an already-closed blocker (auditor's "
+          "#2042 SHOULD-FIX 2) - a row naming it would never be cleared",
+          rc == 1 and "closed" in out, out)
+    rc, out = _cli(["task", "edit", str(t_third), "--blocked-by", str(t_blocker)])
+    check("edit --blocked-by: refused blocking an already-closed task too - "
+          "not just naming one as the blocker", rc == 1 and "closed" in out, out)
+
+    con = db.connect()
+    try:
+        before_count = con.execute("SELECT COUNT(*) c FROM tasks").fetchone()["c"]
+    finally:
+        con.close()
+    rc, out = _cli(["task", "new", "--owner", "worker", "late", "--blocked-by", str(t_third)])
+    check("task new --blocked-by: refused for an already-closed blocker too",
+          rc == 1 and "closed" in out, out)
+    con = db.connect()
+    try:
+        after_count = con.execute("SELECT COUNT(*) c FROM tasks").fetchone()["c"]
+        check("task new --blocked-by: no orphan task row left behind by the "
+              "refused block (auditor's #2065 SHOULD-FIX C)",
+              after_count == before_count, f"{before_count} -> {after_count}")
+    finally:
+        con.close()
+
+    rc, out = _cli(["task", "edit", str(t_dep), "--blocked-by", str(t_dep)])
+    check("edit --blocked-by: a task cannot block itself", rc == 1, out)
+
+    # SHOULD-FIX 5: a multi-part edit is one transaction - a later part's
+    # refusal must not leave an earlier part applied.
+    con = db.connect()
+    try:
+        before_owner = db.get_task(con, t_dep)["owner"]
+    finally:
+        con.close()
+    rc, out = _cli(["task", "edit", str(t_dep), "--owner", "manager",
+                    "--blocked-by", str(t_dep)])
+    check("edit: a combined --owner and a refused --blocked-by is refused "
+          "as a whole", rc == 1, out)
+    check("edit: the output says nothing was edited, since the owner change "
+          "that would have said so was rolled back (auditor's #2065 "
+          "SHOULD-FIX B)", "edited" not in out, out)
+    con = db.connect()
+    try:
+        check("edit: the owner change from the same call was rolled back, "
+              "not left half-applied (auditor's #2042 SHOULD-FIX 5)",
+              db.get_task(con, t_dep)["owner"] == before_owner,
+              db.get_task(con, t_dep)["owner"])
+    finally:
+        con.close()
+
+    rc, out = _cli(["task", "edit", str(t_dep), "--unblock", "999"])
+    check("edit --unblock: not actually waiting on that one is refused",
+          rc == 1, out)
+
+    rc, out = _cli(["task", "edit", str(t_dep), "--blocked-by", str(t_blocker)], as_agent="worker")
+    check("edit --blocked-by: refused for anyone but the opener or the founder "
+          "(worker owns it, but manager opened it)", rc == 1, out)
+
+    rc, out = _cli(["task", "edit", str(t_dep), "--unblock", str(t_blocker)], as_agent="worker")
+    check("edit --unblock: refused for anyone but the opener or the founder "
+          "too (auditor's #2065 SHOULD-FIX A - no test drove this before)",
+          rc == 1, out)
+    con = db.connect()
+    try:
+        check("edit --unblock: the refused non-opener attempt left the block "
+              "row in place", db.blocks_on_ids(con, t_dep) == [t_blocker])
+    finally:
+        con.close()
+
+    rc, out = _cli(["close", str(t_dep), "done"])
+    check("close: closing the blocked task itself is refused while its "
+          "blocker is still open - a back door around the wait it exists to "
+          "enforce", rc == 1 and "waiting on" in out, out)
+
+    rc, out = _cli(["close", str(t_blocker), "done"])
+    check("close: the blocker closes", rc == 0, out)
+
+    rc, out = _cli(["task", "board"], as_agent="worker")
+    check("board: no longer reads as waiting once the blocker closes",
+          _now_line(out, t_dep) != f"now: waiting on #{t_blocker}", out)
+    check("board: the durable notice is what the board now shows worker holds",
+          _now_line(out, t_dep) == "now: worker", out)
+
+    con = db.connect()
+    try:
+        reqs = db.task_requests(con, t_dep)
+        check("close: the owner is told once, as a request linked to the blocked task",
+              len(reqs) == 1 and reqs[0]["target"] == "worker", str([dict(r) for r in reqs]))
+        check("close: the notice's requester is never a real agent or the "
+              "founder, whoever actually closed the blocker - so resolving "
+              "or dismissing it routes no answer back and it never reads as "
+              "from human (auditor's #2042 SHOULD-FIX 3)",
+              len(reqs) == 1 and reqs[0]["requester"] == actions._UNBLOCK_REQUESTER
+              and reqs[0]["requester"] not in ("manager", "worker", askmod.HUMAN),
+              str([dict(r) for r in reqs]))
+        check("close: not left as a stale block row for a second notice to fire "
+              "from - queried against task_blocks directly (auditor's #2065 "
+              "SHOULD-FIX A: task_blockers filters closed blockers out, so it "
+              "cannot see the row this check is named for)",
+              db.blocks_on_ids(con, t_dep) == [])
+        notice_rid = reqs[0]["id"]
+    finally:
+        con.close()
+
+    # Resolving the notice must not route an answer back to manager, who
+    # closed the blocker (auditor's #2042 SHOULD-FIX 3) - watched the same
+    # way #185's regression test watches it, by catching the daemon calls
+    # that deliver an answer.
+    woken: list = []
+    delivered: list = []
+    real_wake, real_deliver = dmn.wake_agent, dmn.deliver_answers
+    dmn.wake_agent = lambda con_, a, log_: (woken.append(a), (True, "woken"))[1]
+    dmn.deliver_answers = lambda con_, a, log_: (delivered.append(a), True)[1]
+    try:
+        rc, out = _cli(["resolve", str(notice_rid), "ok"], as_agent="worker")
+        check("resolve: the owner can acknowledge the notice", rc == 0, out)
+        check("resolve: nothing was pushed back to manager or anyone else",
+              not woken and not delivered, f"woken={woken} delivered={delivered}")
+    finally:
+        dmn.wake_agent, dmn.deliver_answers = real_wake, real_deliver
+
+    rc, out = _cli(["close", str(t_blocker), "closed again"])
+    check("close: an already-closed task is refused, no second notice risked",
+          rc == 1, out)
+    con = db.connect()
+    try:
+        check("close: still exactly one linked request after the refused re-close",
+              len(db.task_requests(con, t_dep)) == 1)
+    finally:
+        con.close()
+
+    # Same owner on both sides of the block, closed by that owner itself
+    # (worker chaining its own two tasks) - the owner who just closed the
+    # blocker does not need telling, so no notice should fire.
+    con = db.connect()
+    try:
+        t_self_blocker = db.new_task(con, "self blocker", "worker", "worker")
+        t_self_dep = db.new_task(con, "self dep", "worker", "worker")
+    finally:
+        con.close()
+    ok, msg = actions.add_block(con := db.connect(), t_self_dep, t_self_blocker, "worker")
+    con.close()
+    check("add_block: same-owner chain sets up fine", ok, msg)
+
+    rc, out = _cli(["close", str(t_self_blocker), "done"], as_agent="worker")
+    check("close: worker closes its own blocker", rc == 0, out)
+
+    con = db.connect()
+    try:
+        check("close: no self-targeted request was created for the same-owner case",
+              db.task_requests(con, t_self_dep) == [])
+        check("close: the block row is still cleared even without a notice, "
+              "checked against task_blocks directly",
+              db.blocks_on_ids(con, t_self_dep) == [])
+    finally:
+        con.close()
+
+    # A dependent with two blockers: the first one closing must not notify -
+    # the second is still open - and the second closing must notify exactly
+    # once. This is the shape auditor's #2042 BLOCKING drove through
+    # decoupled writes to get two notices; close_task's transaction makes
+    # each close's view of task_blockers strictly before or after the
+    # other's commit, never overlapping.
+    con = db.connect()
+    try:
+        t_alice = db.new_task(con, "alice's part", "worker", "manager")
+        t_bob = db.new_task(con, "bob's part", "worker", "manager")
+        t_carol = db.new_task(con, "carol's part", "worker", "manager")
+        ok1, msg1 = actions.add_block(con, t_carol, t_alice, "manager")
+        ok2, msg2 = actions.add_block(con, t_carol, t_bob, "manager")
+    finally:
+        con.close()
+    check("add_block: carol's task waits on both", ok1 and ok2, f"{msg1} {msg2}")
+
+    rc, out = _cli(["close", str(t_alice), "done"])
+    check("close: alice's part closes", rc == 0, out)
+    con = db.connect()
+    try:
+        check("close: no notice yet - bob's part is still open",
+              db.task_requests(con, t_carol) == [])
+    finally:
+        con.close()
+
+    rc, out = _cli(["close", str(t_bob), "done"])
+    check("close: bob's part closes too", rc == 0, out)
+    con = db.connect()
+    try:
+        reqs = db.task_requests(con, t_carol)
+        check("close: exactly one notice once both blockers are closed, "
+              "never two", len(reqs) == 1, str([dict(r) for r in reqs]))
+    finally:
+        con.close()
+
+    # BLOCKING: the close, its event and any resulting notice are one
+    # transaction. Made `db.add_request` raise mid-close, and the task must
+    # still read open, with its block row still in place - not half-closed
+    # with the notice lost.
+    con = db.connect()
+    try:
+        t_boom_blocker = db.new_task(con, "boom blocker", "worker", "manager")
+        t_boom_dep = db.new_task(con, "boom dep", "manager", "manager")
+    finally:
+        con.close()
+    con = db.connect()
+    try:
+        actions.add_block(con, t_boom_dep, t_boom_blocker, "manager")
+    finally:
+        con.close()
+    real_add_request = db.add_request
+    db.add_request = lambda *a, **k: (_ for _ in ()).throw(RuntimeError("boom"))
+    boom_con = db.connect()
+    try:
+        raised = False
+        try:
+            actions.close_task(boom_con, t_boom_blocker, reason="done")
+        except RuntimeError:
+            raised = True
+        check("close: add_request raising propagates rather than being swallowed",
+              raised)
+    finally:
+        db.add_request = real_add_request
+        boom_con.close()
+    con = db.connect()
+    try:
+        row = db.get_task(con, t_boom_blocker)
+        check("close: the task itself is still open after the rollback",
+              row["closed_by"] is None, str(dict(row)))
+        check("close: the block row is still there too - nothing half-applied",
+              db.task_blockers(con, t_boom_dep) != [])
+    finally:
+        con.close()
+
+
 def test_closing_a_task_needs_evidence_and_no_open_child(home: Path) -> None:
     _board_world(home)
     repo = home / "repo"
@@ -27060,6 +27346,7 @@ def main() -> int:
         run(lambda: test_editing_a_task_needs_the_opener_or_the_founder_and_is_never_silent(
             Path(td) / 'taskedit'))
         run(lambda: test_task_board_shows_who_holds_each_open_task(Path(td) / 'taskboard'))
+        run(lambda: test_task_blocked_by_another_task(Path(td) / 'taskblock'))
         run(lambda: test_resolving_the_founders_request_says_what_it_becomes(Path(td) / 'taskguard'))
         run(lambda: test_closing_a_task_needs_evidence_and_no_open_child(Path(td) / 'taskclose'))
         run(lambda: test_close_task_refuses_without_an_identity_and_does_not_move_a_clock(Path(td) / 'taskcloseid'))
