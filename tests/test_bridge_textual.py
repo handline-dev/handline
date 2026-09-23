@@ -1076,7 +1076,19 @@ async def test_read_only_page_shows_foreign_text_inert_and_scrolls_on_arrows() -
         check("readonly: down scrolls a tabbed page", pane.scroll_y == 1, pane.scroll_y)
 
 
+def test_only_y_n_or_escape_answers_a_confirm() -> None:
+    """A wheel notch reaches a confirm as an arrow key and must not answer it."""
+    for key, ch in (("up", None), ("down", None), ("left", None), ("right", None),
+                    ("enter", "\r"), ("space", " "), ("x", "x"), ("pageup", None)):
+        check(f"confirm: {key} leaves it open", bt.confirm_answer(key, ch) is None)
+    check("confirm: y confirms", bt.confirm_answer("y", "y") is True)
+    check("confirm: Y confirms", bt.confirm_answer("Y", "Y") is True)
+    check("confirm: n declines", bt.confirm_answer("n", "n") is False)
+    check("confirm: escape declines", bt.confirm_answer("escape", "\x1b") is False)
+
+
 async def _run_all() -> None:
+    test_only_y_n_or_escape_answers_a_confirm()
     await test_dashboard_shows_a_registered_agent_and_moves_the_cursor()
     await test_help_key_names_every_agent_verb_the_footer_folds_out()
     await test_an_action_runs_off_the_key_loop_and_the_screen_says_so()

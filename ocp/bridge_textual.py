@@ -109,10 +109,19 @@ def _job_lines_ansi(jobs: jobsmod.Jobs, width: int) -> list[str]:
             for jl in jobs.lines()]
 
 
+def confirm_answer(key: str, character: str | None) -> bool | None:
+    """True for y, False for n or Escape, None for any other key: a wheel notch
+    arrives as an arrow and must leave the question open."""
+    if character in ("y", "Y"):
+        return True
+    if character in ("n", "N") or key == "escape":
+        return False
+    return None
+
+
 class Confirm(ModalScreen[bool]):
-    """Yes or no, over the screen under it - only a typed y confirms, the same
-    rule `tui._confirm` uses, so a destructive key asks the same question
-    however it is drawn."""
+    """Yes or no, over the screen under it - only a typed y confirms, and only
+    y, n or Escape answers; every other key leaves the question open."""
 
     def __init__(self, question: str) -> None:
         super().__init__()
@@ -123,8 +132,9 @@ class Confirm(ModalScreen[bool]):
 
     def on_key(self, event: events.Key) -> None:
         event.stop()
-        ch = event.character or ""
-        self.dismiss(ch in ("y", "Y"))
+        answer = confirm_answer(event.key, event.character)
+        if answer is not None:
+            self.dismiss(answer)
 
 
 class _LineBox(Input):
