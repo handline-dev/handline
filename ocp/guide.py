@@ -132,7 +132,9 @@ exchange as one thread; the screen's answer key does it for you.""",
 
     "memory": """closing an idle session
   ocp close <agent>                end the session, keep the terminal
-  (`ocp close <task number> <sha or reason>` closes a task on the board instead)
+  (`ocp close <task number>` closes a task on the board instead - the
+   asker's sign-off, once `ocp task done <task number> <sha, --request N,
+   or a reason>` says the owner is finished; #71)
   ocp resume <agent>               put it back, resuming the same session
 
 A session that is not being used holds 250-500MB and spends no tokens at all.

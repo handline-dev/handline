@@ -11295,6 +11295,7 @@ def test_only_the_agents_own_events_move_its_activity_clock(home: Path) -> None:
     clock to when it was closed) all share. Every classification is proven
     individually, not just asserted in bulk."""
     daemon_kinds = {"account_mismatch", "answered", "close", "close_failed", "close_task",
+                    "mark_task_done", "reopen_task",
                     "cold_start", "dialog_declined", "dialog_exit_chosen", "edit_task",
                     "block_task", "unblock_task", "task_unblocked",
                     "fold", "fold_failed",
@@ -11302,19 +11303,21 @@ def test_only_the_agents_own_events_move_its_activity_clock(home: Path) -> None:
                     "notified", "park", "session_gone", "started_for_work", "terminal_gone",
                     "unstuck", "trust_confirmed", "wake", "wake_failed", "SessionStart",
                     "SessionEnd"}
-    # close_task is here, not in AGENT_ACTIVITY_KINDS, because of
-    # actions.close_task's `askmod.asking_agent() or row["owner"]` fallback:
-    # cli.cmd_close now refuses without an identity, but the fallback still
-    # exists in actions.py for any future caller that does not - and this is
-    # the allow-list that decides what a fallback like that can do to a
-    # clock, not just what today's one caller happens to send (#1565 SF3).
-    # edit_task is here for the same reason as close_task: editing the board
-    # is not the edited agent doing work, and it is often the founder or a
-    # manager editing someone else's task entirely. block_task and
-    # unblock_task are the same shape as edit_task (task #21/#1884);
-    # task_unblocked is close_task's own aftermath, recorded under whoever
-    # closed the blocker, not the blocked task's owner - never that owner's
-    # activity.
+    # close_task, mark_task_done and reopen_task (#71) are here, not in
+    # AGENT_ACTIVITY_KINDS, because none of the three is necessarily the
+    # agent whose clock a careless future caller might attribute it to: a
+    # close is the asker's sign-off (often the founder or a different
+    # agent than the task's owner), a done-mark and a reopen are attributed
+    # to whoever the CLI's own identity check names, but the allow-list is
+    # what decides what any future caller - one that does not refuse for
+    # want of an identity - can do to a clock, not just what today's callers
+    # happen to send (#1565 SF3).
+    # edit_task is here for the same reason: editing the board is not the
+    # edited agent doing work, and it is often the founder or a manager
+    # editing someone else's task entirely. block_task and unblock_task are
+    # the same shape as edit_task (task #21/#1884); task_unblocked is
+    # close_task's own aftermath, recorded under whoever closed the
+    # blocker, not the blocked task's owner - never that owner's activity.
 
     # Literal add_event(agent, "kind", ...) call sites: every one sorted, and
     # the scan proven to have read every site, not just the ones its regex
@@ -21388,9 +21391,11 @@ def test_no_command_prints_what_a_terminal_would_obey(home: Path) -> None:
         "service status": "launchd; prints a pid",
         "dev-mode": "writes a config flag; prints on/off - driven in "
                     "test_dev_mode_config_round_trips, not this scene",
-        "close": "an agent's session is ended through Orca; the task half is driven by test_closing_a_task_needs_evidence_and_no_open_child",
+        "close": "an agent's session is ended through Orca; the task half is driven by test_closing_a_task_needs_no_open_child_and_only_the_asker",
         "task new": "writes a row; prints its id and an owner already checked against the registry",
         "task link": "writes a row; prints two ids",
+        "task done": "writes a row; driven in test_marking_a_task_done_needs_evidence_and_only_the_owner_or_a_linked_target, not this scene",
+        "task reopen": "writes a row; driven in test_reopening_a_done_task_needs_a_reason_and_only_the_asker, not this scene",
         "task edit": "writes a row; driven in "
                      "test_editing_a_task_needs_the_opener_or_the_founder_and_is_never_silent, "
                      "not this scene",
@@ -26863,7 +26868,7 @@ def test_a_task_row_holds_its_fields_and_nothing_else(home: Path) -> None:
     try:
         cols = tuple(r["name"] for r in con.execute("PRAGMA table_info(tasks)"))
         check("task row: the table holds TASK_FIELDS and nothing else",
-              cols == db.TASK_FIELDS, str(cols))
+              set(cols) == set(db.TASK_FIELDS), str(cols))
         reqcols = {r["name"] for r in con.execute("PRAGMA table_info(requests)")}
         check("task row: requests gained no title or closed_by column",
               not ({"title", "closed_by"} & reqcols), str(reqcols))
@@ -26889,6 +26894,75 @@ def test_a_task_row_holds_its_fields_and_nothing_else(home: Path) -> None:
         out = buf.getvalue().lower()
         check("task row: no derived status is drawn",
               "awaiting" not in out and "merge" not in out and "pending" not in out, out)
+    finally:
+        con.close()
+
+
+def test_the_done_close_migration_upgrades_an_old_tasks_table(home: Path) -> None:
+    """Auditor's #2187 SHOULD-FIX 2: nothing built the pre-#71 schema and ran
+    the migration against it. Without the backfill this drives (`closed_by =
+    done_evidence, closed_at = done_at`), every existing closed task would
+    come back reading as done-but-not-closed - on the founder's board, every
+    one of them in the 'done - waiting for check' group."""
+    import sqlite3
+    home.mkdir(parents=True, exist_ok=True)
+    p = home / "old.sqlite"
+    old = sqlite3.connect(p)
+    old.execute("""
+        CREATE TABLE tasks (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          title TEXT NOT NULL, owner TEXT NOT NULL,
+          parent_task INTEGER, opened_by TEXT NOT NULL,
+          closed_by TEXT, closed_at INTEGER, closed_via TEXT,
+          edited_by TEXT, edited_at INTEGER, created_at INTEGER NOT NULL
+        )
+    """)
+    now = int(time.time())
+    old.execute(
+        "INSERT INTO tasks(title, owner, opened_by, closed_by, closed_at, closed_via, "
+        "created_at) VALUES (?,?,?,?,?,?,?)",
+        ("shipped it", "worker", "manager", "abc123def456", now - 100, "sha", now - 200))
+    old.execute(
+        "INSERT INTO tasks(title, owner, opened_by, created_at) VALUES (?,?,?,?)",
+        ("still open", "worker", "manager", now - 50))
+    old.commit()
+    old.close()
+
+    con = db.connect(p)
+    try:
+        cols = tuple(r["name"] for r in con.execute("PRAGMA table_info(tasks)"))
+        check("migration: the new column set, exactly",
+              set(cols) == set(db.TASK_FIELDS), str(cols))
+        rows = {r["title"]: r for r in con.execute("SELECT * FROM tasks").fetchall()}
+
+        closed = rows["shipped it"]
+        check("migration: the old evidence reads as done_evidence/done_via/done_at",
+              closed["done_evidence"] == "abc123def456" and closed["done_via"] == "sha"
+              and closed["done_at"] == now - 100, str(dict(closed)))
+        check("migration: closed_by is backfilled from the evidence, closed_at from done_at",
+              closed["closed_by"] == "abc123def456" and closed["closed_at"] == now - 100,
+              str(dict(closed)))
+        check("migration: it reads as closed", actions.task_state(con, closed) == "closed",
+              actions.task_state(con, closed))
+        check("migration: not in the done-waiting-for-check group - #2156 asked existing "
+              "closed tasks to stay closed", db.tasks_needing_close(con) == [])
+
+        open_row = rows["still open"]
+        check("migration: an old open row is untouched - done_evidence and closed_by both NULL",
+              open_row["done_evidence"] is None and open_row["closed_by"] is None,
+              str(dict(open_row)))
+        check("migration: it reads as waiting", actions.task_state(con, open_row) == "waiting",
+              actions.task_state(con, open_row))
+
+        # A second connect (every ocp command, and the daemon) re-runs the
+        # migration guard - it must be a no-op the second time, not a second
+        # rename onto columns that no longer exist.
+        con2 = db.connect(p)
+        try:
+            check("migration: idempotent - a second connect changes nothing",
+                  dict(db.get_task(con2, closed["id"])) == dict(closed))
+        finally:
+            con2.close()
     finally:
         con.close()
 
@@ -27006,6 +27080,17 @@ def _link(tid: int, rid: int, state: str | None = None) -> None:
         con.close()
 
 
+def _done_and_close(tid: int, owner: str, evidence: str = "done",
+                    closer: str | None = "manager") -> tuple[int, str]:
+    """#71: the two-step close most tests just need - mark it done as its
+    owner, then close it as `closer` (the task's opener, the default asker
+    for a task nobody linked a founder request to)."""
+    rc, out = _cli(["task", "done", str(tid), evidence], as_agent=owner)
+    if rc != 0:
+        return rc, out
+    return _cli(["close", str(tid)], as_agent=closer)
+
+
 def test_task_board_shows_who_holds_each_open_task(home: Path) -> None:
     """task #36 (#1945): exercises the four rules documented on
     `cmd_task_board` itself."""
@@ -27059,6 +27144,46 @@ def test_task_board_shows_who_holds_each_open_task(home: Path) -> None:
     rc, out = _cli(["task", "board"], as_agent=None)
     check("board: with no identity and no tty, refused rather than guessed at",
           rc == 1 and "OCP_AGENT" in out, out)
+
+
+def test_done_tasks_show_as_a_waiting_for_check_group(home: Path) -> None:
+    """#71: `ocp task list` (what status-sync.sh polls into 요청-현황.md) and
+    `ocp task board` both surface done-not-yet-closed tasks as their own
+    group - list shows every one, board only the ones *I* am the asker of."""
+    _board_world(home)
+    con = db.connect()
+    try:
+        t_mine = db.new_task(con, "manager's own", "worker", "manager")
+        t_founders = db.new_task(con, "founder's own", "worker", "manager")
+        t_open = db.new_task(con, "not done yet", "worker", "manager")
+    finally:
+        con.close()
+    _link(t_founders, _request(askmod.HUMAN, "manager"))
+    _cli(["task", "done", str(t_mine), "shipped it"], as_agent="worker")
+    _cli(["task", "done", str(t_founders), "shipped that too"], as_agent="worker")
+
+    rc, out = _cli(["task", "list"])
+    check("list: the group header is shown", "done - waiting for check:" in out, out)
+    check("list: both done tasks are in it, the open one is not",
+          f"#{t_mine} " in out.split("done - waiting for check:", 1)[1]
+          and f"#{t_founders} " in out.split("done - waiting for check:", 1)[1]
+          and f"#{t_open} " not in out.split("done - waiting for check:", 1)[1], out)
+    check("list: the evidence is shown", "done: shipped it" in out, out)
+
+    rc, out = _cli(["task", "board"], as_agent="manager")
+    check("board: manager is the asker for its own task, sees it in the group",
+          "done - waiting for check:" in out and f"#{t_mine} " in out, out)
+    check("board: not the founder's - manager is not that task's asker",
+          f"#{t_founders} " not in out.split("done - waiting for check:", 1)[1], out)
+
+    rc, out = _cli(["task", "board"], as_agent="worker")
+    check("board: worker owns both done tasks but asks neither, so no group at all",
+          "done - waiting for check:" not in out, out)
+
+    rc, out = _cli(["task", "board"], as_agent=askmod.HUMAN)
+    check("board: the founder is the asker for the linked task, sees only that one",
+          "done - waiting for check:" in out and f"#{t_founders} " in out
+          and f"#{t_mine} " not in out, out)
 
 
 def test_resolving_the_founders_request_says_what_it_becomes(home: Path) -> None:
@@ -27125,7 +27250,9 @@ def test_resolving_the_founders_request_says_what_it_becomes(home: Path) -> None
     finally:
         con.close()
 
-    _cli(["close", "1", "done by hand"])
+    # Task #1 has r1 (a founder request) linked to it, so #71's task_asker is
+    # the founder now, not whoever opened the task.
+    _done_and_close(1, "worker", closer=askmod.HUMAN)
     r4 = _human_request()
     rc, out = _cli(["resolve", str(r4), "ok", "--task", "1"])
     check("guard: a closed task cannot be attached to", rc == 1 and "closed" in out, out)
@@ -27176,7 +27303,7 @@ def test_task_blocked_by_another_task(home: Path) -> None:
     rc, out = _cli(["task", "edit", str(t_third), "--unblock", str(t_dep)])
     check("edit --unblock: drops the chained blocker again", rc == 0, out)
 
-    rc, out = _cli(["close", str(t_third), "done"])
+    rc, out = _done_and_close(t_third, "worker")
     check("close: third has no blocker left, closes fine", rc == 0, out)
     rc, out = _cli(["task", "edit", str(t_dep), "--blocked-by", str(t_third)])
     check("edit --blocked-by: refused on an already-closed blocker (auditor's "
@@ -27248,12 +27375,13 @@ def test_task_blocked_by_another_task(home: Path) -> None:
     finally:
         con.close()
 
-    rc, out = _cli(["close", str(t_dep), "done"])
+    _cli(["task", "done", str(t_dep), "done"], as_agent="worker")
+    rc, out = _cli(["close", str(t_dep)])
     check("close: closing the blocked task itself is refused while its "
           "blocker is still open - a back door around the wait it exists to "
           "enforce", rc == 1 and "waiting on" in out, out)
 
-    rc, out = _cli(["close", str(t_blocker), "done"])
+    rc, out = _done_and_close(t_blocker, "worker")
     check("close: the blocker closes", rc == 0, out)
 
     rc, out = _cli(["task", "board"], as_agent="worker")
@@ -27300,7 +27428,7 @@ def test_task_blocked_by_another_task(home: Path) -> None:
     finally:
         dmn.wake_agent, dmn.deliver_answers = real_wake, real_deliver
 
-    rc, out = _cli(["close", str(t_blocker), "closed again"])
+    rc, out = _cli(["close", str(t_blocker)])
     check("close: an already-closed task is refused, no second notice risked",
           rc == 1, out)
     con = db.connect()
@@ -27323,7 +27451,7 @@ def test_task_blocked_by_another_task(home: Path) -> None:
     con.close()
     check("add_block: same-owner chain sets up fine", ok, msg)
 
-    rc, out = _cli(["close", str(t_self_blocker), "done"], as_agent="worker")
+    rc, out = _done_and_close(t_self_blocker, "worker", closer="worker")
     check("close: worker closes its own blocker", rc == 0, out)
 
     con = db.connect()
@@ -27353,7 +27481,7 @@ def test_task_blocked_by_another_task(home: Path) -> None:
         con.close()
     check("add_block: carol's task waits on both", ok1 and ok2, f"{msg1} {msg2}")
 
-    rc, out = _cli(["close", str(t_alice), "done"])
+    rc, out = _done_and_close(t_alice, "worker")
     check("close: alice's part closes", rc == 0, out)
     con = db.connect()
     try:
@@ -27362,7 +27490,7 @@ def test_task_blocked_by_another_task(home: Path) -> None:
     finally:
         con.close()
 
-    rc, out = _cli(["close", str(t_bob), "done"])
+    rc, out = _done_and_close(t_bob, "worker")
     check("close: bob's part closes too", rc == 0, out)
     con = db.connect()
     try:
@@ -27379,12 +27507,15 @@ def test_task_blocked_by_another_task(home: Path) -> None:
     con = db.connect()
     try:
         t_boom_blocker = db.new_task(con, "boom blocker", "worker", "manager")
-        t_boom_dep = db.new_task(con, "boom dep", "manager", "manager")
+        # Owned by someone other than manager (#71's asker, and closer
+        # below) - the same owner would be read as needing no notice.
+        t_boom_dep = db.new_task(con, "boom dep", "worker", "manager")
     finally:
         con.close()
     con = db.connect()
     try:
         actions.add_block(con, t_boom_dep, t_boom_blocker, "manager")
+        actions.mark_task_done(con, t_boom_blocker, "worker", reason="done")
     finally:
         con.close()
     real_add_request = db.add_request
@@ -27393,7 +27524,7 @@ def test_task_blocked_by_another_task(home: Path) -> None:
     try:
         raised = False
         try:
-            actions.close_task(boom_con, t_boom_blocker, reason="done")
+            actions.close_task(boom_con, t_boom_blocker, "manager")
         except RuntimeError:
             raised = True
         check("close: add_request raising propagates rather than being swallowed",
@@ -27412,7 +27543,14 @@ def test_task_blocked_by_another_task(home: Path) -> None:
         con.close()
 
 
-def test_closing_a_task_needs_evidence_and_no_open_child(home: Path) -> None:
+def test_marking_a_task_done_needs_evidence_and_only_the_owner_or_a_linked_target(
+        home: Path) -> None:
+    """#71: mark_task_done takes exactly one of a sha (checked against
+    main), a --request (must exist and be answered), or a reason - and only
+    the task's own owner, or the target of a request linked to it that is
+    open or done, may write it (auditor's #2187 SHOULD-FIX 1, orcapipe's
+    #2195 decision - #1914 means the owner alone would leave only orcapipe
+    itself able to mark anything done)."""
     _board_world(home)
     repo = home / "repo"
     repo.mkdir()
@@ -27435,54 +27573,146 @@ def test_closing_a_task_needs_evidence_and_no_open_child(home: Path) -> None:
     con = db.connect()
     try:
         t1 = db.new_task(con, "one", "worker", "manager")
-        t2 = db.new_task(con, "two", "worker", "manager")
-        ok, msg = actions.close_task(con, t1, sha=feature_sha, repo=repo)
-        check("close: a sha not on main is refused", not ok and "ancestor" in msg, msg)
-        check("close: refused, still open", db.get_task(con, t1)["closed_by"] is None)
-        ok, msg = actions.close_task(con, t1)
-        check("close: neither sha nor reason is refused", not ok, msg)
-        ok, msg = actions.close_task(con, t1, sha=main_sha, reason="both")
-        check("close: both is refused", not ok, msg)
-        ok, msg = actions.close_task(con, t1, sha=main_sha, repo=repo)
-        check("close: a sha that is an ancestor of main closes it", ok, msg)
-        check("close: closed_by records the sha", db.get_task(con, t1)["closed_by"] == main_sha)
-        ok, msg = actions.close_task(con, 99, reason="x")
-        check("close: no such task", not ok, msg)
+        ok, msg = actions.mark_task_done(con, t1, "manager", sha=main_sha, repo=repo)
+        check("done: refused for anyone but the owner", not ok and "owner" in msg, msg)
+        ok, msg = actions.mark_task_done(con, t1, "worker", sha=feature_sha, repo=repo)
+        check("done: a sha not on main is refused", not ok and "ancestor" in msg, msg)
+        check("done: refused, still not done", db.get_task(con, t1)["done_evidence"] is None)
+        ok, msg = actions.mark_task_done(con, t1, "worker")
+        check("done: none of sha, --request, or reason is refused", not ok, msg)
+        ok, msg = actions.mark_task_done(con, t1, "worker", sha=main_sha, reason="both")
+        check("done: both is refused", not ok, msg)
+        ok, msg = actions.mark_task_done(con, t1, "worker", sha=main_sha, repo=repo)
+        check("done: a sha that is an ancestor of main marks it done", ok, msg)
+        check("done: done_evidence records the sha", db.get_task(con, t1)["done_evidence"] == main_sha)
+        ok, msg = actions.mark_task_done(con, t1, "worker", reason="again")
+        check("done: already done is refused", not ok and "already done" in msg, msg)
+        ok, msg = actions.mark_task_done(con, 99, "worker", reason="x")
+        check("done: no such task", not ok, msg)
 
-        parent = db.new_task(con, "parent", "worker", "manager")
-        child = db.new_task(con, "child", "worker", "manager", parent)
-        ok, msg = actions.close_task(con, parent, reason="looks done")
-        check("close: refused while a child task is open", not ok and f"#{child}" in msg, msg)
-        ok, msg = actions.close_task(con, child, reason="part done")
-        check("close: the child closes on its own", ok, msg)
-        ok, msg = actions.close_task(con, parent, reason="all parts")
-        check("close: the parent then closes", ok, msg)
+        # SHOULD-FIX 1: owner alone and target-alone are each sufficient
+        # (mutated separately, not just together) - t_o is owned by worker
+        # with no linked request at all, t_t is owned by manager (so worker
+        # is never the owner) with a request linking worker in.
+        t_o = db.new_task(con, "owner only, no link at all", "worker", "manager")
+        ok, msg = actions.mark_task_done(con, t_o, "worker", reason="owner works alone")
+        check("done: the owner marks it done with no linked request at all", ok, msg)
+
+        t_t = db.new_task(con, "target only, not the owner", "manager", "manager")
+        r_queued = db.add_request(con, "manager", "worker", "go", None, "supervisor",
+                                  "fire_and_forget", None, 0, None)
+        db.link_request(con, t_t, r_queued)
+        ok, msg = actions.mark_task_done(con, t_t, "worker", reason="target works alone")
+        check("done: the target of a still-queued linked request marks it done, "
+              "not the owner", ok, msg)
+
+        t_t2 = db.new_task(con, "target of a done request", "manager", "manager")
+        r_done = db.add_request(con, "manager", "worker", "go", None, "supervisor",
+                                "fire_and_forget", None, 0, None)
+        askmod.resolve(r_done, "shipped")
+        db.link_request(con, t_t2, r_done)
+        ok, msg = actions.mark_task_done(con, t_t2, "worker", reason="a done link works too")
+        check("done: the target of a done linked request marks it done too", ok, msg)
+
+        t_neither = db.new_task(con, "neither owner nor target", "manager", "manager")
+        ok, msg = actions.mark_task_done(con, t_neither, "worker", reason="not allowed")
+        check("done: refused - worker is neither the owner nor a linked target",
+              not ok and "owner" in msg and "target" in msg, msg)
+
+        t_withdrawn = db.new_task(con, "target of a withdrawn request", "manager", "manager")
+        r_withdrawn = db.add_request(con, "manager", "worker", "go", None, "supervisor",
+                                     "fire_and_forget", None, 0, None)
+        askmod.withdraw(r_withdrawn, requester="manager")
+        db.link_request(con, t_withdrawn, r_withdrawn)
+        ok, msg = actions.mark_task_done(con, t_withdrawn, "worker", reason="too late")
+        check("done: refused - a withdrawn linked request named nobody real for this",
+              not ok, msg)
+
+        r = db.add_request(con, "manager", "worker", "go", None, "supervisor",
+                           "fire_and_forget", None, 0, None)
+        t2 = db.new_task(con, "two", "worker", "manager")
+        ok, msg = actions.mark_task_done(con, t2, "worker", request_id=r)
+        check("done: a still-queued request is not evidence yet",
+              not ok and "queued" in msg, msg)
+        askmod.resolve(r, "shipped")
+        ok, msg = actions.mark_task_done(con, t2, "worker", request_id=r)
+        check("done: an answered request is evidence", ok, msg)
+        check("done: done_via records 'request'", db.get_task(con, t2)["done_via"] == "request")
+        t2b = db.new_task(con, "two-b", "worker", "manager")
+        ok, msg = actions.mark_task_done(con, t2b, "worker", request_id=999999)
+        check("done: a request that does not exist is refused",
+              not ok and "no request" in msg, msg)
     finally:
         con.close()
-    rc, out = _cli(["close", str(t2), "fine, a reason"])
-    check("close: the verb takes a reason", rc == 0 and "closed" in out, out)
+
+    t3 = db.new_task(con := db.connect(), "three", "worker", "manager")
+    con.close()
+    rc, out = _cli(["task", "done", str(t3), "fine, a reason"], as_agent="worker")
+    check("done: the verb takes a reason", rc == 0 and "done" in out, out)
+    rc, out = _cli(["task", "done", str(t3), "again"], as_agent="worker")
+    check("done: the verb refuses an already-done task", rc == 1, out)
+    rc, out = _cli(["task", "done", "99999", "x"], as_agent="worker")
+    check("done: the verb refuses a task that does not exist", rc == 1 and "no task" in out, out)
+    rc, out = _cli(["task", "done", str(t1), "x"], as_agent=None)
+    check("done: refused with no identity", rc == 1, out)
+
+
+def test_closing_a_task_needs_no_open_child_and_only_the_asker(home: Path) -> None:
+    """#71: close_task is the asker's own sign-off - refused before the task
+    is done, for anyone but the asker (see task_asker), and while a child
+    task is open."""
+    _board_world(home)
+    con = db.connect()
+    try:
+        t = db.new_task(con, "not done yet", "worker", "manager")
+        ok, msg = actions.close_task(con, t, "manager")
+        check("close: refused before the task is done", not ok and "not done" in msg, msg)
+        actions.mark_task_done(con, t, "worker", reason="finished")
+        ok, msg = actions.close_task(con, t, "worker")
+        check("close: refused for anyone but the asker", not ok and "manager" in msg, msg)
+        ok, msg = actions.close_task(con, t, "manager")
+        check("close: the asker (the opener, since no founder request is "
+              "linked) closes it", ok, msg)
+    finally:
+        con.close()
+
+    con = db.connect()
+    try:
+        parent = db.new_task(con, "parent", "worker", "manager")
+        child = db.new_task(con, "child", "worker", "manager", parent)
+        actions.mark_task_done(con, parent, "worker", reason="looks done")
+        actions.mark_task_done(con, child, "worker", reason="part done")
+    finally:
+        con.close()
+    rc, out = _cli(["close", str(parent)])
+    check("close: refused while a child task is open", rc == 1 and f"#{child}" in out, out)
+    rc, out = _cli(["close", str(child)])
+    check("close: the child closes on its own", rc == 0, out)
+    rc, out = _cli(["close", str(parent)])
+    check("close: the parent then closes", rc == 0, out)
+
+    con = db.connect()
+    try:
+        t2 = db.new_task(con, "two", "worker", "manager")
+    finally:
+        con.close()
+    rc, out = _done_and_close(t2, "worker")
+    check("close: the verb takes no evidence and succeeds", rc == 0 and "closed" in out, out)
+    rc, out = _cli(["close", "99999"])
+    check("close: no such task", rc == 1 and "no task" in out, out)
     rc, out = _cli(["close", "worker", "a reason"])
     check("close: evidence on an agent's name is refused, not an agent close", rc == 1, out)
-    rc, out = _cli(["close", str(parent)])
-    check("close: a task number with no evidence is refused", rc == 1, out)
+    rc, out = _cli(["close", str(t2), "a reason"])
+    check("close: evidence on a task number is refused now - `ocp task done` takes it",
+          rc == 1, out)
 
 
 def test_close_task_refuses_without_an_identity_and_does_not_move_a_clock(home: Path) -> None:
-    """#1565 SF3, both halves. (a) The scan: actions.close_task wrote
-    `db.add_event(con, askmod.asking_agent() or row["owner"], "close_task",
-    ...)` with the fallback expression inline as the call's second argument -
-    invisible to the kind-enumeration regex in
-    test_only_the_agents_own_events_move_its_activity_clock, which reads
-    literal kinds, not expressions. (b) The classification: with that
-    fallback live, a process with no OCP_AGENT and no tty (cli.cmd_close did
-    not refuse for want of one, unlike cmd_resolve and cmd_dismiss) wrote a
-    close_task attributed to the task's owner, who did nothing - and if
-    close_task were activity, that flip moved the owner's clock. Measured:
-    reviewer's last real turn an hour past RESUME_WARM_S, closed from a
-    process with no identity - last_activity was unchanged only once (1)
-    cmd_close refuses outright and (2) close_task is kept out of
-    AGENT_ACTIVITY_KINDS as a second line of defense for any future caller
-    that does not refuse."""
+    """#1565 SF3, carried over to #71's split. Neither `ocp task done` nor
+    `ocp close` falls back to the task's owner when no identity is given -
+    cli refuses outright before either call, and close_task/mark_task_done
+    are kept out of AGENT_ACTIVITY_KINDS as a second line of defense for any
+    future caller that does not refuse."""
     _board_world(home)
     con = db.connect()
     try:
@@ -27490,54 +27720,119 @@ def test_close_task_refuses_without_an_identity_and_does_not_move_a_clock(home: 
     finally:
         con.close()
 
-    rc, out = _cli(["close", str(t), "a reason"], as_agent=None)
-    check("close task: refused with no identity, not attributed to the owner",
-          rc == 1, out)
+    rc, out = _cli(["task", "done", str(t), "a reason"], as_agent=None)
+    check("done: refused with no identity, not attributed to the owner", rc == 1, out)
     con = db.connect()
     try:
-        check("close task: nothing closed it", db.get_task(con, t)["closed_by"] is None)
-        n = con.execute("SELECT COUNT(*) c FROM events WHERE kind = 'close_task'").fetchone()["c"]
-        check("close task: no event was written either", n == 0, str(n))
+        check("done: nothing marked it done", db.get_task(con, t)["done_evidence"] is None)
     finally:
         con.close()
 
-    # With a real identity it succeeds, and the clock moved is the closer's
-    # own, and close_task itself does not move it.
-    rc, out = _cli(["close", str(t), "a reason"], as_agent="worker")
-    check("close task: succeeds once someone real is running it", rc == 0, out)
+    rc, out = _cli(["task", "done", str(t), "a reason"], as_agent="worker")
+    check("done: succeeds once someone real is running it", rc == 0, out)
+    rc, out = _cli(["close", str(t)], as_agent=None)
+    check("close: refused with no identity, not attributed to the asker", rc == 1, out)
+    con = db.connect()
+    try:
+        check("close: nothing closed it", db.get_task(con, t)["closed_by"] is None)
+        n = con.execute("SELECT COUNT(*) c FROM events WHERE kind = 'close_task'").fetchone()["c"]
+        check("close: no event was written either", n == 0, str(n))
+    finally:
+        con.close()
+
+    rc, out = _cli(["close", str(t)], as_agent="manager")
+    check("close: succeeds once someone real is running it", rc == 0, out)
     con = db.connect()
     try:
         db.add_event(con, "manager", "Stop", {})
         stamp = db.last_activity(con, "manager")
-        db.add_event(con, "manager", "close_task", {"task_id": t, "closed_by": "a reason"})
-        check("close task: does not move the clock of the agent it is (correctly) attributed to",
+        db.add_event(con, "manager", "close_task", {"task_id": t, "closed_by": "manager"})
+        db.add_event(con, "manager", "mark_task_done", {"task_id": t, "done": "x"})
+        db.add_event(con, "manager", "reopen_task", {"task_id": t, "reason": "x"})
+        check("close task: none of the three move the clock of the agent it is "
+              "(correctly) attributed to",
               db.last_activity(con, "manager") == stamp)
     finally:
         con.close()
 
 
-def test_a_second_close_loses_the_race(home: Path) -> None:
-    """closed_by is evidence: a close that lost the race must not overwrite it."""
+def test_reopening_a_done_task_needs_a_reason_and_only_the_asker(home: Path) -> None:
+    """#71: the opposite of closing - only the asker, only from done, and
+    needs a one-line reason. Clears the evidence, so it reads as not-done
+    again."""
+    _board_world(home)
+    con = db.connect()
+    t = db.new_task(con, "reopenable", "worker", "manager")
+    ok, msg = actions.reopen_task(con, t, "manager", "not enough")
+    check("reopen: refused before the task is done", not ok and "not done" in msg, msg)
+
+    actions.mark_task_done(con, t, "worker", reason="looks done")
+    ok, msg = actions.reopen_task(con, t, "worker", "not enough")
+    check("reopen: refused for anyone but the asker", not ok, msg)
+    ok, msg = actions.reopen_task(con, t, "manager", "")
+    check("reopen: refused with no reason", not ok and "reason" in msg, msg)
+    ok, msg = actions.reopen_task(con, t, "manager", "needs another pass")
+    check("reopen: the asker reopens it", ok, msg)
+    row = db.get_task(con, t)
+    check("reopen: done_evidence is cleared", row["done_evidence"] is None, str(dict(row)))
+    check("reopen: still open, not closed", row["closed_by"] is None)
+    ev = con.execute("SELECT payload FROM events WHERE kind = 'reopen_task'").fetchall()
+    check("reopen: the reason is recorded", len(ev) == 1
+          and json.loads(ev[0]["payload"])["reason"] == "needs another pass", str(ev))
+
+    ok, msg = actions.reopen_task(con, t, "manager", "again")
+    check("reopen: refused - it is not done any more, nothing to undo",
+          not ok and "not done" in msg, msg)
+
+    actions.mark_task_done(con, t, "worker", reason="done again")
+    actions.close_task(con, t, "manager")
+    ok, msg = actions.reopen_task(con, t, "manager", "too late")
+    check("reopen: refused once closed - closing is final", not ok and "final" in msg, msg)
+    con.close()
+
+    con = db.connect()
+    try:
+        t2 = db.new_task(con, "cli reopenable", "worker", "manager")
+    finally:
+        con.close()
+    rc, out = _cli(["task", "done", str(t2), "done"], as_agent="worker")
+    check("reopen cli: setup - done", rc == 0, out)
+    rc, out = _cli(["task", "reopen", str(t2), "needs work"], as_agent="manager")
+    check("reopen cli: succeeds", rc == 0 and "reopened" in out, out)
+    rc, out = _cli(["task", "reopen", "99999", "x"], as_agent="manager")
+    check("reopen cli: no such task", rc == 1 and "no task" in out, out)
+    rc, out = _cli(["task", "reopen", str(t2), "x"], as_agent=None)
+    check("reopen cli: refused with no identity", rc == 1, out)
+
+
+def test_a_second_done_or_close_loses_the_race(home: Path) -> None:
+    """done_evidence and closed_by are each written once: a call that lost
+    the race must not overwrite the winner's."""
     _board_world(home)
     con = db.connect()
     try:
         t = db.new_task(con, "raced", "worker", "manager")
-        check("race: the first close wins", db.close_task(con, t, "first"))
-        check("race: the second reports it lost", not db.close_task(con, t, "second"))
-        check("race: the first evidence stands", db.get_task(con, t)["closed_by"] == "first")
+        check("race: the first done wins", db.mark_task_done(con, t, "first"))
+        check("race: the second reports it lost", not db.mark_task_done(con, t, "second"))
+        check("race: the first evidence stands", db.get_task(con, t)["done_evidence"] == "first")
+        check("race: the first close wins", db.close_task(con, t, "closer-a"))
+        check("race: the second close reports it lost", not db.close_task(con, t, "closer-b"))
+        check("race: the first closer stands", db.get_task(con, t)["closed_by"] == "closer-a")
+
         # The loser that passed the "already closed" read before the winner wrote.
         real = db.get_task
         t2 = db.new_task(con, "raced two", "worker", "manager")
+        db.mark_task_done(con, t2, "evidence")
         stale = dict(real(con, t2))
         db.close_task(con, t2, "winner")
         db.get_task = lambda c, i: stale
         try:
-            ok, msg = actions.close_task(con, t2, reason="loser")
+            ok, msg = actions.close_task(con, t2, "manager")
         finally:
             db.get_task = real
         check("race: a close that read the row before the winner wrote is refused",
               not ok and "someone else" in msg, msg)
-        check("race: and the winner's evidence stands", real(con, t2)["closed_by"] == "winner")
+        check("race: and the winner's identity stands", real(con, t2)["closed_by"] == "winner")
     finally:
         con.close()
 
@@ -27832,20 +28127,20 @@ def test_reason_gaps_count_from_the_shapes_the_verbs_write(home: Path) -> None:
               str(gaps))
 
         t1 = db.new_task(con, "merged", "worker", "manager")
-        # db.close_task directly: a real merge close needs a git repo, and
-        # the count only cares about the shape closed_by ends up holding.
-        db.close_task(con, t1, "f" * 40, via="sha")
+        # db.mark_task_done directly: a real merge needs a git repo, and the
+        # count only cares about the shape done_evidence ends up holding.
+        db.mark_task_done(con, t1, "f" * 40, via="sha")
         t2 = db.new_task(con, "worded", "worker", "manager")
-        ok, msg = actions.close_task(con, t2, reason="a decision, nothing to merge")
-        check("close: worded close succeeds", ok, msg)
+        ok, msg = actions.mark_task_done(con, t2, "worker", reason="a decision, nothing to merge")
+        check("done: worded close succeeds", ok, msg)
 
         # code review of #1366: a --reason forced past looks_like_sha (hex-
         # looking words, still a reason) must count as a reason close, not a
-        # sha close - closed_via records the caller's own choice, not a
+        # sha close - done_via records the caller's own choice, not a
         # guess made later from the text.
         t3 = db.new_task(con, "hex-looking reason", "worker", "manager")
-        ok, msg = actions.close_task(con, t3, reason="deadbeef")
-        check("close: a hex-looking --reason still succeeds as a reason close", ok, msg)
+        ok, msg = actions.mark_task_done(con, t3, "worker", reason="deadbeef")
+        check("done: a hex-looking --reason still succeeds as a reason close", ok, msg)
 
         gaps2 = actions.reason_gaps(con)
         check("reason gaps: a sha close and two worded closes (one hex-looking) land in "
@@ -27978,9 +28273,12 @@ def test_close_says_what_it_read_and_never_guesses(home: Path) -> None:
     rc, out = _cli(["close", "42"])
     check("close: and the same with no evidence", rc == 1 and "no task #42" in out, out)
     _cli(["task", "new", "--owner", "worker", "t"])
+    rc, out = _cli(["close", "1", "fine"])
+    check("close: a real task with evidence says it read a task and why it refused "
+          "(#71: evidence belongs to `ocp task done` now)",
+          rc == 1 and "as task #1" in out and "task done" in out, out)
     rc, out = _cli(["close", "1"])
-    check("close: a real task with no evidence says it read a task and why it refused",
-          rc == 1 and "as task #1" in out and "none was given" in out, out)
+    check("close: a real task not done yet is refused too", rc == 1 and "not done" in out, out)
     rc, out = _cli(["close", "worker", "abc1234"])
     check("close: evidence on a name says it read an agent, and closed nothing",
           rc == 1 and "as an agent's name" in out and "Nothing was closed" in out, out)
@@ -28020,28 +28318,31 @@ def test_task_ids_are_checked_before_any_answer_and_short_shas_are_resolved(home
     _cli(["task", "new", "--owner", "worker", "one"])
     _cli(["task", "new", "--owner", "worker", "two"])
     _cli(["task", "new", "--owner", "worker", "three"])
-    rc, out = _cli(["close", "1", "abc123", "--repo", str(repo)])
+    rc, out = _cli(["task", "done", "1", "abc123", "--repo", str(repo)], as_agent="worker")
     check("sha: hex that names no commit is refused, not recorded as a reason",
           rc == 1 and "not an ancestor of main" in out, out)
-    rc, out = _cli(["close", "1", full[:6], "--repo", str(repo)])
+    rc, out = _cli(["task", "done", "1", full[:6], "--repo", str(repo)], as_agent="worker")
     con = db.connect()
     try:
         check("sha: a short sha resolves and the full one is what is stored",
-              rc == 0 and db.get_task(con, 1)["closed_by"] == full, out)
+              rc == 0 and db.get_task(con, 1)["done_evidence"] == full, out)
     finally:
         con.close()
-    rc, out = _cli(["close", "2", "deadbeef", "--reason", "--repo", str(repo)])
+    rc, out = _cli(["task", "done", "2", "deadbeef", "--reason", "--repo", str(repo)],
+                   as_agent="worker")
     con = db.connect()
     try:
         check("sha: --reason records hex-looking words as words",
-              rc == 0 and db.get_task(con, 2)["closed_by"] == "deadbeef", out)
+              rc == 0 and db.get_task(con, 2)["done_evidence"] == "deadbeef", out)
     finally:
         con.close()
+    _cli(["close", "1"])
+    _cli(["close", "2"])
     rc, out = _cli(["task", "list"])
     check("board: closed tasks are not on the plain list", "two" not in out and "one" not in out, out)
     rc, out = _cli(["task", "list", "--all"])
     check("board: --all shows what closed each task",
-          f"CLOSED: {full}" in out and "CLOSED: deadbeef" in out, out)
+          "CLOSED by manager" in out and "DONE: " + full in out and "DONE: deadbeef" in out, out)
     try:
         agents.register("7", "alpha")
         refused = False
@@ -29032,15 +29333,20 @@ def main() -> int:
         run(lambda: test_two_processes_cannot_both_supervise_one_home(Path(td) / 'twoproc'))
         run(lambda: test_the_screen_says_when_two_daemons_are_running(Path(td) / 'dmnwarn'))
         run(lambda: test_a_task_row_holds_its_fields_and_nothing_else(Path(td) / 'taskinv'))
+        run(lambda: test_the_done_close_migration_upgrades_an_old_tasks_table(Path(td) / 'taskmigrate'))
         run(lambda: test_task_new_list_and_link(Path(td) / 'tasknew'))
         run(lambda: test_editing_a_task_needs_the_opener_or_the_founder_and_is_never_silent(
             Path(td) / 'taskedit'))
         run(lambda: test_task_board_shows_who_holds_each_open_task(Path(td) / 'taskboard'))
+        run(lambda: test_done_tasks_show_as_a_waiting_for_check_group(Path(td) / 'taskdonegroup'))
         run(lambda: test_task_blocked_by_another_task(Path(td) / 'taskblock'))
         run(lambda: test_resolving_the_founders_request_says_what_it_becomes(Path(td) / 'taskguard'))
-        run(lambda: test_closing_a_task_needs_evidence_and_no_open_child(Path(td) / 'taskclose'))
+        run(lambda: test_marking_a_task_done_needs_evidence_and_only_the_owner_or_a_linked_target(
+            Path(td) / 'taskdone'))
+        run(lambda: test_closing_a_task_needs_no_open_child_and_only_the_asker(Path(td) / 'taskclose'))
         run(lambda: test_close_task_refuses_without_an_identity_and_does_not_move_a_clock(Path(td) / 'taskcloseid'))
-        run(lambda: test_a_second_close_loses_the_race(Path(td) / 'taskrace'))
+        run(lambda: test_reopening_a_done_task_needs_a_reason_and_only_the_asker(Path(td) / 'taskreopen'))
+        run(lambda: test_a_second_done_or_close_loses_the_race(Path(td) / 'taskrace'))
         run(lambda: test_no_other_path_closes_the_founders_request_unguarded(Path(td) / 'taskdismiss'))
         run(lambda: test_close_says_what_it_read_and_never_guesses(Path(td) / 'taskcloseread'))
         run(lambda: test_task_ids_are_checked_before_any_answer_and_short_shas_are_resolved(Path(td) / 'taskshas'))
