@@ -3919,20 +3919,35 @@ def test_daemon_stall_escalation(home: Path) -> None:
 
 
 def test_daemon_success_clears_streak(home: Path) -> None:
-    """A handoff that works must end the streak, or every agent eventually
-    stalls just from having been busy."""
+    """A handoff that works - record AND clear both land - must end the
+    streak, or every agent eventually stalls just from having been busy.
+
+    Orca must be reachable for the clear to land at all (#1975): without it
+    `_reclaim_context` fails every time regardless of the record, and the
+    streak would correctly stay put, not exercising the success path this
+    test is for.
+    """
     _daemon_home(home, 100)
     con = db.connect()
+    real = (orcamod.clear_context, orcamod.alive, orcamod.idle_now, orcamod.live_terminals)
     try:
+        orcamod.available = lambda: True
+        orcamod.alive = lambda h: True
+        orcamod.idle_now = lambda h: True
+        orcamod.clear_context = lambda h, wait=True, timeout_ms=0: (True, "context cleared")
+        orcamod.live_terminals = lambda: {"term_x"}
         for _ in range(3):
             db.bump_counter(con, "backend", "throttle_count")
         readable_agent(con, home, "backend")
+        sessions_are("backend")
         db.set_agent_state(con, "backend", dmn.QUEUED)
         dmn.tick(con, lambda _m: None)
         row = db.get_agent_state(con, "backend")
         check("daemon: a successful handoff clears the throttle streak",
               row["throttle_count"] == 0, str(dict(row)))
     finally:
+        orcamod.clear_context, orcamod.alive, orcamod.idle_now, orcamod.live_terminals = real
+        orcamod.available = lambda: False
         con.close()
 
 
@@ -12587,6 +12602,11 @@ def test_a_context_handoff_does_not_thrash_within_min_handoff_interval_s(home: P
         # a state that only happened to block it would not let this one through.
         con.execute("UPDATE handoff SET updated = ? WHERE agent = 'keeper'",
                     (int(time.time()) - dmn.MIN_HANDOFF_INTERVAL_S - 1,))
+        # The first clear also started the single writer's 15s settle window
+        # (#2064) - real here, not backdated with it, so it is cleared the same
+        # way the interval above was, or this "later" call reads as "moments
+        # ago" and the gate, not the interval, is what would have let it through.
+        db.clear_cursor(con, "typed_at:keeper")
         dmn.perform_handoff(con, "keeper", t_real, logs.append)
         check("real: once the interval has passed, the same condition folds again",
               cleared["term_keeper"] == 2, cleared)
@@ -15506,6 +15526,9 @@ def test_a_forced_move_goes_through_the_verified_move_or_not_at_all(home: Path) 
         db.set_agent_state(con, "keeper", dmn.IDLE)
         keep_handoff("keeper", "# handoff · keeper\n## 다음\n- carry on\n")
         orcamod.relaunch = lambda h, cmd, **kw: (False, "refused")
+        # The move above typed a real /exit and started the single writer's
+        # 15s settle window (#2064); this next move is real here, not later.
+        db.clear_cursor(con, "typed_at:keeper")
         ok, msg = dmn.force_move(con, "keeper", "alpha", "test", log.append)
         row = db.get_agent_state(con, "keeper")
         check("forced: a launch that fails on the destination is not a move", not ok, msg)
@@ -15965,6 +15988,32 @@ def test_an_agent_parks_through_the_usage_limit_dialog(home: Path) -> None:
               term.sent[:1] == [("\x1b", False)] and [t for t, _ in term.sent[1:]] == ["/clear"], str(term.sent))
         ev = con.execute("SELECT payload FROM events WHERE agent = 'keeper' AND kind = 'dialog_declined'").fetchall()
         check("park through: what was pressed is on the record", len(ev) == 1, str([dict(e) for e in ev]))
+    finally:
+        con.close()
+
+
+def test_a_parked_agent_gets_past_a_usage_limit_dialog_before_its_wake(home: Path) -> None:
+    """Founder #2087: a turn still running when a context handoff typed its
+    /clear can hit the usage wall on its own afterward, well after the park
+    already began - and wake_at, set for the reason the handoff recorded, can
+    be hours off from when that turn actually failed. Nothing else looks at a
+    parked agent's screen before its own wake_at comes due, so the dialog
+    would otherwise sit up for however long that is. Esc'd on the very next
+    tick instead, whatever wake_at says - and the park itself is untouched."""
+    con, term = _park_behind(home, LIMIT_DIALOG, ends_at_limit=False)
+    con.execute("DELETE FROM requests WHERE target = 'keeper'")
+    try:
+        wake = int(time.time()) + 3600
+        db.set_agent_state(con, "keeper", dmn.PARKED, wake_at=wake, detail="context; parked")
+        dmn.supervise(con, "keeper", lambda _m: None, int(time.time()), {}, [])
+        check("parked: the dialog is pressed past well before wake_at",
+              term.sent == [("\x1b", False)], str(term.sent))
+        row = db.get_agent_state(con, "keeper")
+        check("parked: the park itself is untouched - still due at its own wake_at",
+              row["state"] == dmn.PARKED and row["wake_at"] == wake, str(dict(row)))
+        ev = con.execute(
+            "SELECT payload FROM events WHERE agent = 'keeper' AND kind = 'dialog_declined'").fetchall()
+        check("parked: what was pressed is on the record", len(ev) == 1, str([dict(e) for e in ev]))
     finally:
         con.close()
 
@@ -17238,6 +17287,11 @@ def test_a_turn_that_ends_on_the_usage_limit_is_at_the_wall(home: Path) -> None:
                   not typed, str(typed))
             seen.clear()
             con.execute("UPDATE handoff SET updated = updated - 1000 WHERE agent = 'backend'")
+            # The first pass already moved backend (the stub above stands in
+            # for a real /exit) and started the single writer's 15s settle
+            # window (#2064); real here, not 1000s ago like the interval just
+            # backdated, so it is cleared too or this pass reads as too soon.
+            db.clear_cursor(con, "typed_at:backend")
             db.set_agent_state(con, "backend", dmn.IDLE, detail="at its usage limit")
             orcamod.idle_now = lambda h, **kw: False
             dmn.supervise(con, "backend", lambda _m: None, now, {}, [])
@@ -23234,6 +23288,324 @@ def test_handoff_reclaims_context(home: Path) -> None:
         con.close()
 
 
+def test_a_context_handoff_wakes_at_once_with_its_record(home: Path) -> None:
+    """Founder #1903: a context handoff is not a usage wall, so once the
+    clear is done there is no window left to wait out - its park's wake_at
+    is immediate, not the account's reset_5h, whatever its usage window says.
+
+    But it still has to be a park, not a shortcut straight to QUEUED/IDLE:
+    waking is the one path (`wake_agent`/`wake_prompt`) that hands the agent
+    its own record back. Skipping it left the agent with an empty
+    conversation and no memory of what it was doing - auditor #1957's
+    blocking finding on the first cut of this fix, which only asserted the
+    state was not PARKED and so passed on exactly that regression.
+    """
+    _daemon_home(home, 20)
+    con = db.connect()
+    typed: list[str] = []
+    real = (orcamod.clear_context, orcamod.alive, orcamod.idle_now,
+           orcamod.resume_with, orcamod.typeable_now)
+    try:
+        # A recorded (non-assumed) reading on an account with room to spare -
+        # the case the auditor hit sitting PARKED 09:25-11:30 at 19%.
+        db.set_account(con, "backend", "alpha")
+        write_status(home, "alpha", pct_5h=19, pct_7d=10, ctx_pct=5,
+                     reset_5h=int(time.time()) + 9000)
+        orcamod.available = lambda: True
+        orcamod.alive = lambda h: True
+        orcamod.idle_now = lambda h: True
+        orcamod.typeable_now = lambda h: True
+        orcamod.clear_context = lambda h, wait=True, timeout_ms=0: (True, "context cleared")
+        orcamod.resume_with = lambda h, text: (typed.append(text), (True, "typed"))[1]
+        readable_agent(con, home, "backend")
+        # Otherwise the wake reads this as a launch-recipe change and takes
+        # the closed-agent relaunch path instead of typing at the live one.
+        db.set_launch_fingerprint(con, "backend", launch.fingerprint("backend"))
+        sessions_are("backend")
+
+        t = triggers.Trigger(True, "context", "context 700,000 >= 120,000")
+        dmn.perform_handoff(con, "backend", t, lambda _m: None)
+        before = int(time.time())
+        row = db.get_agent_state(con, "backend")
+        check("context handoff: parks with an immediate wake, not the account's reset",
+              row["state"] == dmn.PARKED and row["wake_at"] is not None
+              and row["wake_at"] <= before + 5, str(dict(row)))
+        check("context handoff: keeps its own record for the wake to deliver",
+              bool(db.get_handoff(con, "backend")), "no handoff kept")
+
+        for _ in range(3):
+            dmn.supervise(con, "backend", lambda _m: None, int(time.time()) + 1, {}, [])
+        check("context handoff: its own record is typed into the session",
+              any("Carry on from here" in t for t in typed), str(typed))
+        row = db.get_agent_state(con, "backend")
+        check("context handoff: settles into QUEUED or IDLE once delivered, not PARKED",
+              row["state"] in (dmn.IDLE, dmn.QUEUED) and not row["wake_at"],
+              str(dict(row)))
+        check("context handoff: the record is spent, not replayed on the next wake",
+              db.get_handoff(con, "backend") is None)
+    finally:
+        (orcamod.clear_context, orcamod.alive, orcamod.idle_now,
+         orcamod.resume_with, orcamod.typeable_now) = real
+        con.close()
+
+
+def test_a_context_handoff_backs_off_when_the_clear_keeps_failing(home: Path) -> None:
+    """Should-fix from #1957: an immediate wake is only safe once the context
+    is actually reclaimed. A /clear that keeps failing leaves the agent over
+    its limit, so the trigger fires again next tick - nothing stopped that
+    from spinning at full cadence forever, since only a failed record ever
+    counted toward the degraded streak. A failed clear must count too.
+    """
+    _daemon_home(home, 20)
+    con = db.connect()
+    real = (orcamod.clear_context, orcamod.alive, orcamod.idle_now)
+    try:
+        db.set_account(con, "backend", "alpha")
+        write_status(home, "alpha", pct_5h=19, pct_7d=10, ctx_pct=5,
+                     reset_5h=int(time.time()) + 9000)
+        orcamod.available = lambda: True
+        orcamod.alive = lambda h: True
+        orcamod.idle_now = lambda h: True
+        orcamod.clear_context = lambda h, wait=True, timeout_ms=0: (False, "still mid-turn")
+        readable_agent(con, home, "backend")
+        sessions_are("backend")
+
+        t = triggers.Trigger(True, "context", "context 700,000 >= 120,000")
+        before = int(time.time())
+        dmn.perform_handoff(con, "backend", t, lambda _m: None)
+        row = db.get_agent_state(con, "backend")
+        check("failed clear: counts toward the degraded streak",
+              row["throttle_count"] == 1, str(dict(row)))
+        check("failed clear: backs the wake off rather than retrying at once",
+              row["state"] == dmn.PARKED and row["wake_at"] is not None
+              and row["wake_at"] > before + 30, str(dict(row)))
+    finally:
+        orcamod.clear_context, orcamod.alive, orcamod.idle_now = real
+        con.close()
+
+
+def test_repeated_failed_clears_reach_the_throttle_cap(home: Path) -> None:
+    """#1975: a good record used to reset the streak by itself, so a clear
+    that kept failing right after it never accumulated - throttle_count sat
+    pinned at 1 and 8.6's STALLED escalation was unreachable for this case.
+    Driving MAX_THROTTLE_STREAK failed-clear handoffs is the test #1975 asked
+    for: it must fail if `_record_handoff` goes back to resetting on its own.
+    """
+    _daemon_home(home, 20)
+    con = db.connect()
+    real = (orcamod.clear_context, orcamod.alive, orcamod.idle_now)
+    try:
+        db.set_account(con, "backend", "alpha")
+        write_status(home, "alpha", pct_5h=19, pct_7d=10, ctx_pct=5,
+                     reset_5h=int(time.time()) + 9000)
+        orcamod.available = lambda: True
+        orcamod.alive = lambda h: True
+        orcamod.idle_now = lambda h: True
+        orcamod.clear_context = lambda h, wait=True, timeout_ms=0: (False, "still mid-turn")
+        readable_agent(con, home, "backend")
+        sessions_are("backend")
+
+        t = triggers.Trigger(True, "context", "context 700,000 >= 120,000")
+        for _ in range(dmn.MAX_THROTTLE_STREAK):
+            # Hours apart in reality; backdate so the too-soon guard does not
+            # skip a handoff that just fired (same as test_daemon_stall_escalation).
+            con.execute("UPDATE handoff SET updated = updated - ? WHERE agent = 'backend'",
+                        (dmn.MIN_HANDOFF_INTERVAL_S * 2,))
+            dmn.perform_handoff(con, "backend", t, lambda _m: None)
+        row = db.get_agent_state(con, "backend")
+        check("repeated failed clears: the streak reaches the cap, not pinned at 1",
+              row["throttle_count"] == dmn.MAX_THROTTLE_STREAK, str(dict(row)))
+    finally:
+        orcamod.clear_context, orcamod.alive, orcamod.idle_now = real
+        con.close()
+
+
+def test_a_moved_handoff_with_a_good_record_clears_the_streak(home: Path) -> None:
+    """The moved-path reset in `_perform_handoff` (an agent that moves to
+    another account never runs its own clear, so a good record is the whole
+    of what it can vouch for) - covered on its own, since a handoff that ends
+    in a move never reaches the record+clear reset below it."""
+    _daemon_home(home, 20)
+    con = db.connect()
+    agents.register("keeper", "alpha")
+    write_status(home, "beta", pct_5h=10, pct_7d=5, ctx_pct=5,
+                 reset_5h=int(time.time()) + 1800)
+    for acct in ("alpha", "beta"):
+        (home / "accounts" / acct / ".claude").mkdir(parents=True, exist_ok=True)
+        (home / "accounts" / acct / ".claude" / ".credentials.json").write_text("{}")
+    real = (orcamod.available, orcamod.alive, orcamod.close_session, orcamod.relaunch,
+            orcamod.clear_context, orcamod.resume_with, orcamod.idle_now,
+            dmn.wait_for_session)
+    try:
+        orcamod.available = lambda: True
+        orcamod.alive = lambda h: True
+        orcamod.idle_now = lambda h: True
+        orcamod.clear_context = lambda h, **kw: (True, "cleared")
+        orcamod.close_session = exit_ends_session("keeper")
+        orcamod.resume_with = lambda h, text: (True, "handed back")
+        orcamod.relaunch = lambda h, cmd, **kw: (
+            _SESSION_TABLE["t"].update({"keeper": 4300}), (True, "relaunched"))[1]
+        dmn.wait_for_session = lambda agent, timeout=0: True
+        readable_agent(con, home, "keeper")
+        sessions_are("keeper")
+        # A move only happens for work waiting - an idle agent at the wall
+        # just parks (see _move_to_room), which would exercise the other
+        # reset site instead of the one this test is for.
+        db.add_request(con, "marina", "keeper", "carry on", None, "peer", "async", None, 0, None)
+        for _ in range(3):
+            db.bump_counter(con, "keeper", "throttle_count")
+
+        write_status(home, "alpha", pct_5h=100, pct_7d=20, ctx_pct=5,
+                     reset_5h=int(time.time()) + 3 * 3600)
+        t = triggers.evaluate(100, 10)
+        dmn.perform_handoff(con, "keeper", t, lambda _m: None)
+
+        row = db.get_agent_state(con, "keeper")
+        check("moved handoff: it really moved (state dispatched, not parked)",
+              row["state"] == dmn.QUEUED, str(dict(row)))
+        check("moved handoff: a good record clears the streak on its own",
+              row["throttle_count"] == 0, str(dict(row)))
+    finally:
+        (orcamod.available, orcamod.alive, orcamod.close_session, orcamod.relaunch,
+         orcamod.clear_context, orcamod.resume_with, orcamod.idle_now,
+         dmn.wait_for_session) = real
+        con.close()
+
+
+def test_a_moved_handoff_with_a_failed_record_still_marks_typed(home: Path) -> None:
+    """The move path's `typed=True` (#2064's (ok, typed) split) is unconditional
+    on `ok`: a move always types /exit, whether or not the record landed. This
+    matters because the move calls the unlocked `_wake_agent`, which does not
+    mark `typed_at` itself - the mark this test is for is the only thing
+    covering the wake prompt /exit-then-resume just typed into the new
+    session (#1973's settle window). No `readable_agent` here, so the record
+    comes out degraded (`ok=False`) while the move still succeeds - the case
+    should-fix 1 in #2108 asked for."""
+    _daemon_home(home, 20)
+    con = db.connect()
+    agents.register("keeper", "alpha")
+    write_status(home, "beta", pct_5h=10, pct_7d=5, ctx_pct=5,
+                 reset_5h=int(time.time()) + 1800)
+    for acct in ("alpha", "beta"):
+        (home / "accounts" / acct / ".claude").mkdir(parents=True, exist_ok=True)
+        (home / "accounts" / acct / ".claude" / ".credentials.json").write_text("{}")
+    real = (orcamod.available, orcamod.alive, orcamod.close_session, orcamod.relaunch,
+            orcamod.clear_context, orcamod.resume_with, orcamod.idle_now,
+            dmn.wait_for_session)
+    try:
+        orcamod.available = lambda: True
+        orcamod.alive = lambda h: True
+        orcamod.idle_now = lambda h: True
+        orcamod.clear_context = lambda h, **kw: (True, "cleared")
+        orcamod.close_session = exit_ends_session("keeper")
+        orcamod.resume_with = lambda h, text: (True, "handed back")
+        orcamod.relaunch = lambda h, cmd, **kw: (
+            _SESSION_TABLE["t"].update({"keeper": 4300}), (True, "relaunched"))[1]
+        dmn.wait_for_session = lambda agent, timeout=0: True
+        sessions_are("keeper")
+        # A terminal handle, so the move itself can go ahead (`_move_to_room`
+        # needs one) - but no `write_agent_status`, so the record still comes
+        # out degraded for the session facts it cannot read.
+        db.set_terminal(con, "keeper", "term_x", None)
+        db.add_request(con, "marina", "keeper", "carry on", None, "peer", "async", None, 0, None)
+
+        write_status(home, "alpha", pct_5h=100, pct_7d=20, ctx_pct=5,
+                     reset_5h=int(time.time()) + 3 * 3600)
+        db.clear_cursor(con, "typed_at:keeper")
+        t = triggers.evaluate(100, 10)
+        dmn.perform_handoff(con, "keeper", t, lambda _m: None)
+
+        row = db.get_agent_state(con, "keeper")
+        check("moved-degraded: it really moved (state dispatched, not parked)",
+              row["state"] == dmn.QUEUED, str(dict(row)))
+        check("moved-degraded: the record itself is degraded",
+              row["throttle_count"] > 0, str(dict(row)))
+        check("moved-degraded: the move's own /exit still marks typed_at",
+              db.get_cursor(con, "typed_at:keeper") > 0, str(dict(row)))
+    finally:
+        (orcamod.available, orcamod.alive, orcamod.close_session, orcamod.relaunch,
+         orcamod.clear_context, orcamod.resume_with, orcamod.idle_now,
+         dmn.wait_for_session) = real
+        con.close()
+
+
+def test_a_resumed_handoff_with_a_good_record_clears_the_streak(home: Path) -> None:
+    """resume_handoff's own reset (step "requested" never runs a clear, so a
+    good record is the whole of what it can vouch for) - covered on its own,
+    since this path never reaches `_perform_handoff`'s record+clear reset."""
+    _daemon_home(home, 20)
+    con = db.connect()
+    try:
+        for _ in range(3):
+            db.bump_counter(con, "backend", "throttle_count")
+        readable_agent(con, home, "backend")
+        db.start_handoff(con, "hoff-restart", "backend", None, "usage",
+                         int(time.time()) + 90)
+        row = db.in_flight_for(con, "backend")
+
+        dmn.resume_handoff(con, row, lambda _m: None)
+        got = db.get_agent_state(con, "backend")
+        check("resumed handoff: a good record clears the streak on its own",
+              got["throttle_count"] == 0, str(dict(got)))
+    finally:
+        con.close()
+
+
+def test_a_resumed_context_handoff_wakes_at_once(home: Path) -> None:
+    """resume_handoff's else-branch (a trigger with no real wall to sleep
+    out) parks with an immediate wake, the same as a fresh handoff's does
+    (#1903, #1957) - covered here for a `context` trigger, which the other
+    resume tests never exercise (they all use `usage`, which takes the
+    wake_after branch instead)."""
+    _daemon_home(home, 20)
+    con = db.connect()
+    try:
+        readable_agent(con, home, "backend")
+        db.start_handoff(con, "hoff-restart-ctx", "backend", None, "context",
+                         int(time.time()) + 90)
+        row = db.in_flight_for(con, "backend")
+
+        before = int(time.time())
+        dmn.resume_handoff(con, row, lambda _m: None)
+        got = db.get_agent_state(con, "backend")
+        check("resumed context handoff: parks with an immediate wake",
+              got["state"] == dmn.PARKED and got["wake_at"] is not None
+              and got["wake_at"] <= before + 5, str(dict(got)))
+    finally:
+        con.close()
+
+
+def test_a_usage_5h_handoff_still_parks_until_reset(home: Path) -> None:
+    """The one trigger #1903 keeps waiting for: a usage wall does not clear
+    until its own window rolls over, whatever a context handoff now does.
+    """
+    _daemon_home(home, 100)
+    con = db.connect()
+    real_clear, real_alive, real_idle = orcamod.clear_context, orcamod.alive, orcamod.idle_now
+    try:
+        db.set_account(con, "backend", "alpha")
+        reset_at = int(time.time()) + 9000
+        write_status(home, "alpha", pct_5h=100, pct_7d=10, ctx_pct=5, reset_5h=reset_at)
+        orcamod.available = lambda: True
+        orcamod.alive = lambda h: True
+        orcamod.idle_now = lambda h: True
+        orcamod.clear_context = lambda h, wait=True, timeout_ms=0: (True, "context cleared")
+        sessions_are("backend")
+
+        t = triggers.evaluate(100, 5)
+        check("usage_5h fixture: fires the usage trigger", t.kind == "usage", t.kind)
+        dmn.perform_handoff(con, "backend", t, lambda _m: None)
+        row = db.get_agent_state(con, "backend")
+        check("usage_5h handoff: still parks", row["state"] == dmn.PARKED, str(dict(row)))
+        check("usage_5h handoff: wakes at the account's own reset",
+              row["wake_at"] is not None and abs(row["wake_at"] - reset_at) < 5,
+              str(dict(row)))
+    finally:
+        orcamod.clear_context, orcamod.alive = real_clear, real_alive
+        orcamod.idle_now = real_idle
+        con.close()
+
+
 def test_a_hand_park_against_an_assumed_account_stays_forceable(home: Path) -> None:
     """`actions.park` (the screen's `p`) is #1620/#1625's one park a person may
     force early - but an agent with no recorded or reported account reads as
@@ -27609,6 +27981,8 @@ def main() -> int:
         run(lambda: test_the_usage_limit_dialog_is_declined_with_the_key_that_was_measured(
             Path(td) / 'limitkey'))
         run(lambda: test_an_agent_parks_through_the_usage_limit_dialog(Path(td) / 'limitpark'))
+        run(lambda: test_a_parked_agent_gets_past_a_usage_limit_dialog_before_its_wake(
+            Path(td) / 'limitparked'))
         run(lambda: test_a_close_gets_past_the_dialog_before_it_types_exit(Path(td) / 'limitclose'))
         run(lambda: test_a_dialog_ocp_cannot_get_past_stalls_the_agent_with_the_reason(
             Path(td) / 'dialogstall'))
@@ -27737,6 +28111,14 @@ def main() -> int:
         run(lambda: test_confirm_trust_presses_down_then_enter())
         run(lambda: test_clear_refuses_mid_turn())
         run(lambda: test_handoff_reclaims_context(Path(td) / 'reclaim'))
+        run(lambda: test_a_context_handoff_wakes_at_once_with_its_record(Path(td) / 'ctxnopark'))
+        run(lambda: test_a_context_handoff_backs_off_when_the_clear_keeps_failing(Path(td) / 'ctxclearfail'))
+        run(lambda: test_repeated_failed_clears_reach_the_throttle_cap(Path(td) / 'throttlecap'))
+        run(lambda: test_a_moved_handoff_with_a_good_record_clears_the_streak(Path(td) / 'movedreset'))
+        run(lambda: test_a_moved_handoff_with_a_failed_record_still_marks_typed(Path(td) / 'movedtyped'))
+        run(lambda: test_a_resumed_handoff_with_a_good_record_clears_the_streak(Path(td) / 'resumereset'))
+        run(lambda: test_a_resumed_context_handoff_wakes_at_once(Path(td) / 'resumectxwake'))
+        run(lambda: test_a_usage_5h_handoff_still_parks_until_reset(Path(td) / 'usage5hpark'))
         run(lambda: test_a_hand_park_against_an_assumed_account_stays_forceable(Path(td) / 'handpark'))
         run(lambda: test_wake_injects_handoff(Path(td) / 'wake'))
         run(lambda: test_a_drifted_launch_relaunches_instead_of_waking_in_place(Path(td) / 'driftwake'))

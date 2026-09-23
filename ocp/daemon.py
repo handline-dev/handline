@@ -287,13 +287,16 @@ class Tick:
 
 def _record_handoff(con, agent: str, hid: str, log) -> bool:
     """Take the handoff record and commit the step. False when it is degraded,
-    which is only ever because a fact it holds could not be read."""
+    which is only ever because a fact it holds could not be read.
+
+    Does not touch the throttle streak on success: the record is only half of
+    a handoff, and resetting here would wipe out a failure the clear that
+    follows is about to add. The caller resets once the whole handoff - clear
+    included - is known to have landed clean.
+    """
     missing = handoffmod.record(con, agent)
     if not missing:
         db.advance_handoff(con, hid, "recorded")
-        # A handoff that worked ends the streak. This is the only thing that
-        # clears it, so a run of failures accumulates until 8.6 escalates.
-        db.reset_counter(con, agent, "throttle_count")
         return True
     why = "could not read " + ", ".join(missing)
     db.advance_handoff(con, hid, "recorded", state="degraded", detail=why[:300])
@@ -314,6 +317,13 @@ def resume_handoff(con, row, log) -> None:
     done_ok = True
     if step == "requested":
         done_ok = _record_handoff(con, agent, hid, log)
+        # Reached at step "requested", so the kill landed before the record -
+        # before the clear too. This path has no _reclaim_context of its own
+        # and never runs one, so a good record is the whole of what it can
+        # vouch for - same streak reset the record used to give itself before
+        # a clear could still fail after it.
+        if done_ok:
+            db.reset_counter(con, agent, "throttle_count")
     if step in ("requested", "recorded", "folded"):
         db.advance_handoff(con, hid, "extracted")
 
@@ -326,24 +336,32 @@ def resume_handoff(con, row, log) -> None:
     # three reasons: an unknown account, or a forced move - which never hits
     # a usage wall, whatever account it names - is the move machinery still
     # working, not a wall to sleep out.
-    short_retry = reading is None or reading.source == "assumed" or row["trigger_kind"] == "forced"
+    kind = row["trigger_kind"] or ""
+    short_retry = reading is None or reading.source == "assumed" or kind == "forced"
     if short_retry:
         wake = int(time.time()) + ASSUMED_ACCOUNT_RECHECK_S
-    else:
+    elif kind in USAGE_TRIGGERS or kind == BY_HAND_MARK:
         rst = status.read(reading.account)
-        wake = triggers.wake_after(row["trigger_kind"] or "", rst.reset_5h, rst.reset_7d)
+        wake = triggers.wake_after(kind, rst.reset_5h, rst.reset_7d)
+    else:
+        # Not a usage wall and not a park a person asked for: whatever this
+        # trigger fired on (context) is already handled by the clear
+        # above, so there is nothing left to wait for - but the wake is still
+        # what hands the agent its own record back (`wake_agent`/`wake_prompt`),
+        # so this parks with an immediate wake rather than skipping it (#1957).
+        wake = int(time.time())
+    db.advance_handoff(con, hid, "released", state="done" if done_ok else "degraded")
     # Same rule as a fresh park's label (see _perform_handoff): a hand park
     # resumed after a restart is still one a person may force early.
-    label = BY_HAND_MARK if row["trigger_kind"] == BY_HAND_MARK else (
+    label = BY_HAND_MARK if kind == BY_HAND_MARK else (
         MOVING_MARK if short_retry else "resumed handoff")
-    db.advance_handoff(con, hid, "released", state="done" if done_ok else "degraded")
     db.set_agent_state(con, agent, PARKED, wake_at=wake,
                        detail=f"{label}; wakes at "
                               f"{time.strftime('%H:%M', time.localtime(wake))}")
     # Same gap as a fresh park's - see _perform_handoff - through a different
     # path: a restart recovering an in-flight handoff parks the agent too.
     db.add_event(con, agent, "park", {
-        "kind": row["trigger_kind"], "wake_at": wake,
+        "kind": kind, "wake_at": wake,
         "account": reading.account if reading else None,
         "account_source": reading.source if reading else None,
     })
@@ -1906,8 +1924,8 @@ def perform_handoff(con, agent: str, trigger: triggers.Trigger, log,
         if why:
             log(f"  {agent}: {trigger.kind} fired but {why} - not handing off")
             return True
-        ok = _perform_handoff(con, agent, trigger, log, dest)
-        if ok:
+        ok, typed = _perform_handoff(con, agent, trigger, log, dest)
+        if typed:
             _mark_typed(con, agent)
         return ok
 
@@ -1916,6 +1934,13 @@ def perform_handoff(con, agent: str, trigger: triggers.Trigger, log,
 # below a wall is a reason to move a working agent, and an account nobody can
 # read is not a wall.
 MOVABLE_TRIGGERS = ("usage", "usage_7d", "forced")
+
+# The only triggers with a real wall to sleep out: an account's own window has
+# to roll over before either can clear. Everything else a handoff fires on -
+# context - is already handled once the clear is done, so parking it
+# against a usage window it never hit just sits it out for nothing (#1903:
+# the auditor sat PARKED 09:25-11:30 on a context handoff with room to spare).
+USAGE_TRIGGERS = ("usage", "usage_7d")
 
 
 def _handoff_backing_off(con, agent: str) -> bool:
@@ -2140,7 +2165,15 @@ def _move_to_room(con, agent: str, trigger: triggers.Trigger, log,
 
 
 def _perform_handoff(con, agent: str, trigger: triggers.Trigger, log,
-                     dest: str | None = None) -> bool:
+                     dest: str | None = None) -> tuple[bool, bool]:
+    """(ok, typed). `ok` is whether the record landed - the streak's own
+    signal, unrelated to whether anything was typed. `typed` is the settle
+    window's: a move types /exit whenever it happens at all, the fall-through
+    path types /clear only when `_reclaim_context` says so, and the early
+    "forced move did not happen" return types nothing. A caller that marks
+    typed on `ok` instead marks it on a failed clear that never touched the
+    terminal, and the next attempt is then held off by a settle window
+    nothing here earned (#2064)."""
     hid = uuid.uuid4().hex[:12]
     st = status.read(agents.current_account(agent, con)) if agent in paths.list_agents() else None
     deadline = int(time.time()) + HANDOFF_DEADLINE_S
@@ -2164,7 +2197,12 @@ def _perform_handoff(con, agent: str, trigger: triggers.Trigger, log,
     if moved:
         db.advance_handoff(con, hid, "released", state="done" if ok else "degraded")
         db.bump_counter(con, agent, "continuations")
-        return ok
+        if ok:
+            # A move never clears context itself, so a good record is the
+            # whole of this handoff - the streak ends here (see
+            # _record_handoff for why it no longer resets itself).
+            db.reset_counter(con, agent, "throttle_count")
+        return ok, True
     landed = db.get_agent_state(con, agent)
     if trigger.kind == "forced" and landed and not landed["closed_at"]:
         # Nothing was ended, so there is nothing to park: the session is live
@@ -2175,7 +2213,7 @@ def _perform_handoff(con, agent: str, trigger: triggers.Trigger, log,
         db.advance_handoff(con, hid, "released", state="degraded",
                            detail="forced move did not happen")
         db.set_agent_state(con, agent, IDLE, detail="forced move did not happen")
-        return False
+        return False, False
 
     # Return the context. Recording a handoff is only half of a handoff;
     # without this the context never drops, and a context trigger fires again
@@ -2183,6 +2221,15 @@ def _perform_handoff(con, agent: str, trigger: triggers.Trigger, log,
     # worktree and account and empties only the conversation.
     cleared, why = _reclaim_context(con, agent, log)
     db.advance_handoff(con, hid, "extracted", detail=why)
+
+    if ok and cleared:
+        # A handoff that fully worked - record and clear both landed - ends
+        # the streak. This is the only thing that clears it, so a run of
+        # failures at either step accumulates until 8.6 escalates. Checked
+        # here, after both steps, so a clear that fails right after a good
+        # record cannot have its bump wiped out by the record's own success
+        # (#1975).
+        db.reset_counter(con, agent, "throttle_count")
 
     # Park until the usage window rolls over - or longer, if this agent keeps
     # degrading, so a broken one is not retried at full cadence forever. Never
@@ -2202,15 +2249,33 @@ def _perform_handoff(con, agent: str, trigger: triggers.Trigger, log,
         # and pressing what it can (#996) every tick regardless of this park;
         # this only keeps the move itself from waiting hours to look again.
         wake = int(time.time()) + ASSUMED_ACCOUNT_RECHECK_S
-    else:
+    elif trigger.kind in USAGE_TRIGGERS or trigger.kind == BY_HAND_MARK:
         rst = status.read(reading.account)
         wake = triggers.wake_after(trigger.kind, rst.reset_5h, rst.reset_7d)
+    else:
+        # Not a usage wall and not a park a person asked for by hand: whatever
+        # this trigger fired on (context) is already handled by the
+        # clear above, so there is no window left to wait out - but the wake
+        # is still what hands the agent its own record back
+        # (`wake_agent`/`wake_prompt`), so this still parks, just with an
+        # immediate wake instead of the account's reset (#1903, #1957).
+        wake = int(time.time())
+        if not cleared:
+            # Unlike a usage wall or a hand park, nothing else here waits out
+            # a real window - so a clear that keeps failing would retry at
+            # full cadence forever with nothing counted against it. This
+            # gives it the same streak, and the same eventual 8.6 escalation
+            # to STALLED, that a failed record already gets (#1957 should-fix).
+            db.bump_counter(con, agent, "throttle_count")
     # A hand park stays a hand park whatever ceiling its wake got - the mark,
     # not the timer, is what `w` reads to decide it may force this one early.
     label = MOVING_MARK if short_retry and trigger.kind != BY_HAND_MARK else trigger.kind
     fresh = db.get_agent_state(con, agent)
     streak = int(fresh["throttle_count"]) if fresh else 0
     if streak:
+        # A broken handoff - or clear - is retried, never resumed at full
+        # cadence: this is the one thing that still has to wait even when the
+        # trigger itself (context) does not.
         backoff = backoff_for(streak)
         if int(time.time()) + backoff > wake:
             wake = int(time.time()) + backoff
@@ -2230,7 +2295,7 @@ def _perform_handoff(con, agent: str, trigger: triggers.Trigger, log,
                                       "account_source": reading.source})
     db.bump_counter(con, agent, "continuations")  # 8.5: handoff is not a failure
     log(f"  {agent}: PARKED until {time.strftime('%Y-%m-%d %H:%M', time.localtime(wake))}")
-    return ok
+    return ok, cleared
 
 
 # ---------------------------------------------------------------- tick
@@ -2307,6 +2372,18 @@ def supervise(con, agent: str, log, now: int, samples: dict,
     # An agent mid-handoff is excluded from trigger evaluation (8.9).
     if db.in_flight_for(con, agent):
         return
+
+    # A turn still running when the park began can hit the usage wall on its
+    # own afterward, well before wake_at comes due - the dialog that puts on
+    # screen is not one a person is answering (`usage_limit_open`'s own
+    # promise), so nothing is lost by pressing past it here rather than
+    # leaving it up until the wake that would otherwise be the first thing to
+    # look (#2087).
+    if state in (PARKED, THROTTLED, DEGRADED) and row["terminal"] and not row["closed_at"] \
+            and orca.available():
+        with lock.terminal(agent) as mine:
+            if mine:
+                _past_dialog(con, agent, log, only_limit=True)
 
     # The live reading this tick judges the agent against, not the account a
     # resume would use: `account_reading` prefers a fresh report from the
