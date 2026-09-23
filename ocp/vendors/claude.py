@@ -70,6 +70,27 @@ class Claude:
             argv += ["--append-system-prompt", preamble]
         return argv
 
+    def launch_env(self, preamble: str | None, disallowed: str, state_dir: Path) -> dict[str, str]:
+        return {}
+
+    def prompt_argv(self, prompt: str) -> list[str]:
+        return [prompt]
+
+    def clear_command(self) -> str:
+        return "/clear"
+
+    def exit_command(self) -> str:
+        return "/exit"
+
+    idle_from_screen = False
+
+    def idle_on_screen(self, tail: list[str]) -> bool:
+        return True
+
+    def screen_blocker(self, tail: list[str]):
+        from .. import orca  # late: orca looks drivers up
+        return orca.claude_screen_blocker(tail)
+
     def credential_present(self, config_dir: Path) -> bool:
         """Never reads the secret: `security find-generic-password` is called without
         -w, so it reports the item's presence and nothing else.

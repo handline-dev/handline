@@ -308,11 +308,13 @@ def build(agent: str, extra: list[str] | None = None, force: bool = False) -> tu
     # The agent's standing context (team model section 1). base.md is injected
     # every session - that is what its 2KB budget is a budget for - and the
     # handoff waiting for it is injected so it picks up where it left off.
-    argv = drv.launch_argv(exe, cfg.get("model"), effort, DISALLOWED_TOOLS, mcp_arg,
-                           context_for(agent))
+    preamble = context_for(agent)
+    argv = drv.launch_argv(exe, cfg.get("model"), effort, DISALLOWED_TOOLS, mcp_arg, preamble)
     argv += list(extra or [])
 
-    return argv, accounts.env_for(acct, agent)
+    env = accounts.env_for(acct, agent)
+    env.update(drv.launch_env(preamble, DISALLOWED_TOOLS, paths.agent_dir(agent)))
+    return argv, env
 
 
 def _static_preamble(agent: str) -> str:
@@ -449,7 +451,7 @@ def exec_agent(agent: str, extra: list[str] | None = None, force: bool = False,
     prompt = take_prompt(prompt_file)
     argv, env = build(agent, list(extra or []), force)
     if prompt:
-        argv.append(prompt)
+        argv += vendors.for_agent(agent).prompt_argv(prompt)
     if not prompt_file:
         # A launch nobody is waiting on consumed the handoff `build` put in the
         # system prompt, so a record still on the row means one nobody was

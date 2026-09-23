@@ -1138,6 +1138,13 @@ def get_terminal(con, agent: str) -> str | None:
     return row["terminal"] if row else None
 
 
+def agent_of_terminal(con, terminal: str) -> str | None:
+    """The agent last recorded in this terminal."""
+    row = con.execute("SELECT agent FROM agent_state WHERE terminal = ? "
+                      "ORDER BY updated DESC LIMIT 1", (terminal,)).fetchone()
+    return row["agent"] if row else None
+
+
 def bump_counter(con, agent: str, column: str, by: int = 1) -> None:
     if column not in ("failed_attempts", "continuations", "throttle_count",
                       "wake_failures"):

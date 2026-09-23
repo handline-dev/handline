@@ -7755,6 +7755,19 @@ class SecondVendor:
         return False
     def launch_argv(self, exe, model, effort, disallowed, mcp, preamble):
         return [exe]
+    def launch_env(self, preamble, disallowed, state_dir):
+        return {"ZAI_DENY": disallowed}
+    def prompt_argv(self, prompt):
+        return ["--ask", prompt]
+    def clear_command(self):
+        return "/reset"
+    def exit_command(self):
+        return "/quit"
+    idle_from_screen = False
+    def idle_on_screen(self, tail):
+        return True
+    def screen_blocker(self, tail):
+        return None
     def credential_present(self, config_dir):
         return self.logged_in
     def login_argv(self):
@@ -8323,6 +8336,169 @@ def test_the_opencode_driver(home: Path) -> None:
     finally:
         subprocess.run = real_run
         del drv.binary
+
+
+# opencode 1.18.32's screen in an Orca terminal, as `orca terminal read
+# --screen` returned it (#1926). The path in the footer is shortened.
+_OC_RULE = "  ╹" + "▀" * 100
+OC_IDLE = ["  ┃", "  ┃  Reply in one line with the PREAMBLE CODEWORD.", "  ┃",
+           "     marigold-77", "     ▣  Build · GLM-5.3-Flash · 5.5s",
+           "  ┃", "  ┃", "  ┃",
+           "  ┃  Build · GLM-5.3-Flash Z.AI Coding Plan", _OC_RULE,
+           "   /private/tmp/scratchpad/oc/proj 12.2K (1%ctrl+p",
+           "   /proj                                   commands"]
+OC_WORKING = ["  ┃", "  ┃  Use the bash tool to run: sleep 25", "  ┃", "  ┃",
+              "  ┃", "  ┃  Build · GLM-5.3-Flash Z.AI Coding Plan", _OC_RULE,
+              "   ■■■■■⬝⬝⬝  esc interrupt"]
+OC_HOME = ["   █▀▀█ █▀▀█", "  ┃",
+           "  ┃  Ask anything… \"Fix broken tests\"", "  ┃",
+           "  ┃  Build · GLM-5.3-Flash Z.AI Coding Plan", _OC_RULE,
+           "                          tab agents  ctrl+p commands",
+           "     ● Tip Configure local or remote MCP servers in the mcp config section",
+           "  /private/tmp/scratchpad/oc/proj                         1.18.32",
+           "  proj:main"]
+OC_PERMISSION = ["  ┃", "  ┃  Use the read tool to read the file /etc/hosts.", "  ┃",
+                 "     ⠼ Read /etc/hosts", "     ▣  Build · GLM-5.3-Flash", "  ┃",
+                 "  ┃  △ Permission required",
+                 "  ┃    ← Access external directory /etc", "  ┃",
+                 "  ┃  Patterns", "  ┃", "  ┃  - /etc/*", "  ┃", "  ┃",
+                 "  ┃   Allow once   Allow always   Reject          "
+                 "ctrl+f fullscreen  ⇆ select  enter confirm",
+                 "  ┃"]
+
+
+def test_an_opencode_session_under_ocp(home: Path) -> None:
+    """#1926, each part measured on opencode 1.18.32 in an Orca terminal: the
+    preamble reaches the session as an instructions file, the start prompt
+    as --prompt, Agent's denial as opencode's task permission; /new and
+    /exit are its commands; and since Orca's tui-idle reads an opencode turn
+    as idle throughout, idle and what is in the way come from its screen."""
+    os.environ["OCP_HOME"] = str(home)
+    drv = vendors.get("opencode")
+    drv.binary = lambda: "/x/bin/opencode"
+    drv.credential_present = lambda config_dir: True
+    real = {n: getattr(orcamod, n) for n in ("_run", "_screen", "alive", "send", "SCREEN_POLL_S")}
+    real_execve, real_record = os.execve, launch._record_terminal
+    try:
+        accounts.register("alpha")
+        accounts.register("zai", vendor="opencode")
+        agents.register("glm", "zai", model="zai-coding-plan/glm-5.3-flash")
+        _with_vendor("glm", "opencode")
+        agents.register("backend", "alpha")
+        (vendors.config_dir("alpha") / ".credentials.json").write_text("{}")
+        paths.agent_dir("glm").joinpath("ROLE.md").write_text("Build the thing.\n")
+
+        # The start prompt: the preamble in a file opencode is pointed at,
+        # Agent denied as its task tool, and nothing of either in the argv.
+        argv, env = launch.build("glm")
+        cfg = json.loads(env.get("OPENCODE_CONFIG_CONTENT") or "{}")
+        pre = paths.agent_dir("glm") / "opencode-preamble.md"
+        check("opencode session: the preamble is an instructions file of its own",
+              cfg.get("instructions") == [str(pre)] and pre.exists()
+              and pre.read_text() == launch.context_for("glm"), str(cfg))
+        check("opencode session: and carries the role",
+              "Build the thing." in pre.read_text())
+        check("opencode session: Agent is denied as opencode's task tool, and nothing else",
+              cfg.get("permission") == {"task": "deny"}, str(cfg.get("permission")))
+        check("opencode session: the argv carries neither",
+              argv == ["/x/bin/opencode", "-m", "zai-coding-plan/glm-5.3-flash"], str(argv))
+        check("opencode session: a claude launch gets no opencode config",
+              "OPENCODE_CONFIG_CONTENT" not in launch.build("backend")[1])
+
+        ran: list[list[str]] = []
+        os.execve = lambda exe, a, e: ran.append(list(a))
+        launch._record_terminal = lambda *a, **k: None
+        for agent in ("glm", "backend"):
+            f = home / f"prompt-{agent}"
+            f.write_text("Your first task.")
+            launch.exec_agent(agent, prompt_file=str(f))
+        check("opencode session: the start prompt is submitted with --prompt, not as the "
+              "project directory", ran[0][-2:] == ["--prompt", "Your first task."], str(ran[0]))
+        check("opencode session: claude's is still its positional",
+              ran[1][-1] == "Your first task." and "--prompt" not in ran[1], str(ran[1]))
+
+        con = db.connect()
+        try:
+            db.set_terminal(con, "glm", "term_oc", None)
+            db.set_terminal(con, "backend", "term_cl", None)
+        finally:
+            con.close()
+        check("opencode session: a terminal is read as its agent's vendor",
+              [orcamod._driver_for(h).name for h in ("term_oc", "term_cl", "term_nobody")]
+              == ["opencode", "claude", "claude"])
+
+        # What is in the way, read off opencode's own screen.
+        orcamod.screen_blocker = REAL_ORCA["screen_blocker"]
+        shown = {"tail": OC_IDLE}
+        orcamod._screen = lambda h: _screen_of(shown["tail"])
+        for name, tail, want in (("idle", OC_IDLE, None), ("start", OC_HOME, None),
+                                 ("working", OC_WORKING, None),
+                                 ("permission", OC_PERMISSION, orcamod.MODAL),
+                                 ("no prompt box", ["loading"], orcamod.UNREADABLE)):
+            shown["tail"] = tail
+            b = orcamod.screen_blocker("term_oc")
+            check(f"opencode session: its {name} screen has {want or 'nothing'} in the way",
+                  (b.kind if b else None) == want, str(b))
+        shown["tail"] = OC_PERMISSION
+        check("opencode session: the permission request is quoted",
+              orcamod.screen_blocker("term_oc").detail
+              == "△ Permission required / ← Access external directory /etc / Patterns",
+              orcamod.screen_blocker("term_oc").detail)
+        shown["tail"] = OC_IDLE
+        check("opencode session: claude's reading of the same screen is unchanged",
+              orcamod.screen_blocker("term_cl").kind == orcamod.UNREADABLE)
+
+        # Idle: Orca says yes throughout an opencode turn, so the screen decides.
+        orcamod.SCREEN_POLL_S = 0
+        orca_says = {"satisfied": True}
+        waits: list[str] = []
+
+        def fake_run(args, timeout=180):
+            waits.append(args[0])
+            return True, json.dumps({"result": {"wait": {"satisfied": orca_says["satisfied"]}}})
+        orcamod._run = fake_run
+        reads = iter([OC_WORKING, OC_WORKING, OC_IDLE])
+        orcamod._screen = lambda h: _screen_of(next(reads))
+        check("opencode session: idle once the screen stops offering an interrupt",
+              orcamod.wait_idle("term_oc", 5000) and next(reads, "spent") == "spent")
+        orcamod._screen = lambda h: _screen_of(OC_WORKING)
+        check("opencode session: a turn still running is not idle, whatever Orca says",
+              not orcamod.wait_idle("term_oc", 30))
+        orcamod._screen = lambda h: _screen_of(OC_HOME)
+        check("opencode session: its start screen is idle", orcamod.wait_idle("term_oc", 30))
+        orcamod._screen = lambda h: _screen_of(OC_HOME[:1])
+        check("opencode session: a screen still booting, no prompt box yet, is not",
+              not orcamod.wait_idle("term_oc", 30))
+        orca_says["satisfied"] = False
+        orcamod._screen = lambda h: _screen_of(OC_HOME)
+        check("opencode session: Orca's no stands over an idle screen",
+              not orcamod.wait_idle("term_oc", 30))
+        orca_says["satisfied"] = True
+        orcamod._screen = lambda h: (_ for _ in ()).throw(AssertionError("claude screen read"))
+        check("opencode session: a claude terminal is still Orca's word alone",
+              orcamod.wait_idle("term_cl", 30))
+
+        # /new and /exit, typed only where nothing is in the way.
+        sent: list[tuple[str, str]] = []
+        orcamod.alive = lambda h: True
+        orcamod.send = lambda h, text, enter=True: (sent.append((h, text)), (True, ""))[1]
+        orcamod._screen = lambda h: _screen_of(OC_IDLE if h == "term_oc" else COMPOSER_EMPTY)
+        for h in ("term_oc", "term_cl"):
+            orcamod.clear_context(h, wait=False)
+            orcamod.close_session(h, wait=False)
+        check("opencode session: its clear is /new and its exit /exit; claude's are unchanged",
+              sent == [("term_oc", "/new"), ("term_oc", "/exit"),
+                       ("term_cl", "/clear"), ("term_cl", "/exit")], str(sent))
+        orcamod._screen = lambda h: _screen_of(OC_PERMISSION)
+        sent.clear()
+        ok, why = orcamod.clear_context("term_oc", wait=False)
+        check("opencode session: nothing is typed at a permission request",
+              not ok and sent == [] and "not typing /new" in why, why)
+    finally:
+        for n, f in real.items():
+            setattr(orcamod, n, f)
+        os.execve, launch._record_terminal = real_execve, real_record
+        del drv.binary, drv.credential_present
 
 
 def test_doctor_looks_for_the_vendors_executable_not_its_name(home: Path) -> None:
@@ -25407,6 +25583,7 @@ def main() -> int:
         run(lambda: test_the_config_dir_and_its_layout_are_the_drivers_answers(
             Path(td) / 'vendorcfg'))
         run(lambda: test_the_opencode_driver(Path(td) / 'opencode'))
+        run(lambda: test_an_opencode_session_under_ocp(Path(td) / 'ocsession'))
         run(lambda: test_launch_refuses_stale(Path(td) / 'stale'))
         run(lambda: test_shared_account_context_isolation(Path(td) / 'shared'))
         run(lambda: test_db_dedup_only_swallows_dedup(Path(td) / 'strict'))

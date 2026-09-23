@@ -44,6 +44,32 @@ class Driver(Protocol):
                     mcp: list[str], preamble: str | None) -> list[str]:
         """argv for one session, before any caller-supplied extras."""
 
+    def launch_env(self, preamble: str | None, disallowed: str, state_dir: Path) -> dict[str, str]:
+        """Environment one session needs beyond its account's, for what its
+        argv cannot carry. `state_dir` is the agent's own, for a file the
+        vendor has to be pointed at."""
+
+    def prompt_argv(self, prompt: str) -> list[str]:
+        """argv that submits `prompt` as the session's first message."""
+
+    def clear_command(self) -> str:
+        """Typed to start a fresh session in the same process."""
+
+    def exit_command(self) -> str:
+        """Typed to end the session and leave the shell standing."""
+
+    # Whether Orca's tui-idle answer needs the screen's agreement. Orca reads
+    # claude's working state; it reports an opencode turn idle throughout.
+    idle_from_screen: bool
+
+    def idle_on_screen(self, tail: list[str]) -> bool:
+        """With `idle_from_screen`, whether the rendered screen shows the
+        session waiting for input."""
+
+    def screen_blocker(self, tail: list[str]):
+        """What on this vendor's rendered screen a typed line would answer or
+        merge into, as an `orca.Blocker`, or None when its prompt is ready."""
+
     def credential_present(self, config_dir: Path) -> bool:
         """Whether a credential exists. Never reads or returns it."""
 
