@@ -38,7 +38,15 @@ stamp="$venv/.ocp_deps_sha256"
 
 ready=0
 if [ -x "$py" ] && [ -f "$reqs" ] && [ -f "$stamp" ]; then
-    want="$(shasum -a 256 "$reqs" | cut -d' ' -f1)"
+    # ocp/venv.py's `_canonical_requirements`, in bash: strip each line, drop
+    # blank ones and whole-line comments, hash what is left - a comment-only
+    # edit must not read as stale (task #54, founder #2134).
+    # `|| true`: grep exits 1 if nothing survives the filter (an empty or
+    # all-comments requirements.txt) - under pipefail that would abort the
+    # script right here, the same silent-exit class review #1613 fixed for
+    # the stamp read below.
+    want="$( { sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//' "$reqs" \
+        | grep -v '^#' | grep -v '^$' || true; } | shasum -a 256 | cut -d' ' -f1)"
     have=""
     # `read` returns 1 on a stamp with no trailing newline (EOF before the
     # newline it looks for) even though it fills $have - under set -e that

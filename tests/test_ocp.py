@@ -25777,7 +25777,13 @@ def test_bridge_routing_defaults_to_textual_falls_back_only_when_missing() -> No
     venv is not ready yet, #2069, must still get a working `ocp bridge`).
     `bridge_textual` is stubbed in `sys.modules` rather than actually run -
     what is under test is which one `cmd_bridge` reaches for, not either
-    screen's own behavior."""
+    screen's own behavior. auditor #2138 should-fix 2: "missing" has to make
+    `import textual` itself fail, not just drop the already-imported
+    `ocp.bridge_textual` from `sys.modules` - on an interpreter that already
+    has `textual` (this suite's own venv run), deleting only the latter just
+    re-imports the real module a moment later, and the "falls back" checks
+    below never actually exercise the fallback there. `sys.modules["textual"]
+    = None` makes `import textual` raise ImportError regardless."""
     import argparse
     import types
     calls: list[tuple] = []
@@ -25787,6 +25793,8 @@ def test_bridge_routing_defaults_to_textual_falls_back_only_when_missing() -> No
     climod.tui.run = lambda interval=2.0, once=False: calls.append(("curses", once)) or 0
     real_module = sys.modules.get("ocp.bridge_textual")
     had_module = "ocp.bridge_textual" in sys.modules
+    had_textual = "textual" in sys.modules
+    real_textual = sys.modules.get("textual")
 
     def ns(**kw):
         base = dict(interval=2.0, once=False, textual=False, curses=False)
@@ -25806,6 +25814,7 @@ def test_bridge_routing_defaults_to_textual_falls_back_only_when_missing() -> No
 
         calls.clear()
         del sys.modules["ocp.bridge_textual"]
+        sys.modules["textual"] = None
         code = climod.cmd_bridge(ns())
         check("bridge routing: missing and no flag falls back to curses silently",
               calls == [("curses", False)] and code == 0, calls)
@@ -25820,6 +25829,89 @@ def test_bridge_routing_defaults_to_textual_falls_back_only_when_missing() -> No
             sys.modules["ocp.bridge_textual"] = real_module
         else:
             sys.modules.pop("ocp.bridge_textual", None)
+        if had_textual:
+            sys.modules["textual"] = real_textual
+        else:
+            sys.modules.pop("textual", None)
+
+
+def test_bridge_textual_missing_package_classification() -> None:
+    """auditor #2138 should-fix 1: `_bridge_textual_module` must tell
+    `textual`/`rich` themselves being missing (fall back) from any other
+    `ModuleNotFoundError` a broken import behind them raises (a real bug -
+    must be seen, not served the founder the old screen with nothing said)."""
+    check("missing-package: a bare `textual` import is the missing case",
+          climod._missing_bridge_package(ModuleNotFoundError(name="textual")))
+    check("missing-package: a submodule of it is too",
+          climod._missing_bridge_package(ModuleNotFoundError(name="textual.widgets")))
+    check("missing-package: `rich` is the other one bridge_textual needs",
+          climod._missing_bridge_package(ModuleNotFoundError(name="rich")))
+    check("missing-package: an unrelated missing module is not",
+          not climod._missing_bridge_package(ModuleNotFoundError(name="ocp.no_such_module")))
+    check("missing-package: no name at all is not",
+          not climod._missing_bridge_package(ModuleNotFoundError()))
+
+    real_import = climod._import_bridge_textual
+    try:
+        climod._import_bridge_textual = lambda: (_ for _ in ()).throw(
+            ModuleNotFoundError("cannot import name 'no_such_name' from 'ocp.tui'", name="ocp.tui"))
+        raised = False
+        try:
+            climod._bridge_textual_module()
+        except ModuleNotFoundError:
+            raised = True
+        check("missing-package: _bridge_textual_module re-raises an unrelated ModuleNotFoundError",
+              raised)
+
+        climod._import_bridge_textual = lambda: (_ for _ in ()).throw(
+            ModuleNotFoundError("No module named 'textual'", name="textual"))
+        check("missing-package: _bridge_textual_module returns None for textual itself",
+              climod._bridge_textual_module() is None)
+    finally:
+        climod._import_bridge_textual = real_import
+
+
+def test_human_inbox_routing_matches_cmd_bridge() -> None:
+    """auditor #2138 note 4: `cmd_inbox`'s human route to the screen shares
+    `_bridge_textual_module` with `cmd_bridge` (same code, same fallback) but
+    had no test of its own before this. "missing" goes through
+    `_import_bridge_textual` (not deleting `ocp.bridge_textual` from
+    `sys.modules`) so this passes the same way on an interpreter that
+    genuinely has `textual` - deleting only the cached module there would
+    just re-import the real one and actually start it, waiting on a real
+    terminal forever."""
+    import argparse
+    import types
+    calls: list[tuple] = []
+    fake = types.ModuleType("ocp.bridge_textual")
+    fake.run = lambda once=False: calls.append(("textual",)) or 0
+    real_run = climod.tui.run
+    climod.tui.run = lambda interval=2.0, once=False: calls.append(("curses",)) or 0
+    real_isatty = sys.stdout.isatty
+    sys.stdout.isatty = lambda: True
+    real_import = climod._import_bridge_textual
+
+    def ns(**kw):
+        base = dict(agent=actions.HUMAN, wait=False, all=False, timeout=60)
+        base.update(kw)
+        return argparse.Namespace(**base)
+
+    try:
+        climod._import_bridge_textual = lambda: fake
+        climod.cmd_inbox(ns())
+        check("inbox routing: a tty with no --all/--wait opens the screen, textual first",
+              calls == [("textual",)], calls)
+
+        calls.clear()
+        climod._import_bridge_textual = lambda: (_ for _ in ()).throw(
+            ModuleNotFoundError("No module named 'textual'", name="textual"))
+        climod.cmd_inbox(ns())
+        check("inbox routing: missing falls back to curses, same as cmd_bridge",
+              calls == [("curses",)], calls)
+    finally:
+        climod.tui.run = real_run
+        sys.stdout.isatty = real_isatty
+        climod._import_bridge_textual = real_import
 
 
 def test_bridge_textual_flag_fails_loud_without_the_package() -> None:
@@ -26135,9 +26227,72 @@ def test_venv(home: Path) -> None:
     ok, reason = venvmod.status(vdir)
     check("venv: status() reports ready right after a successful install", ok, reason)
     stamp = vdir / venvmod.STAMP_NAME
-    check("venv: install() stamps the venv with requirements.txt's own hash",
-          stamp.read_text().strip() == hashlib.sha256(venvmod.requirements_file().read_bytes()).hexdigest())
+    check("venv: install() stamps the venv with requirements.txt's canonical hash",
+          stamp.read_text().strip() ==
+          hashlib.sha256(venvmod._canonical_requirements(venvmod.requirements_file())).hexdigest())
     check("venv: the bash wrapper agrees a freshly-stamped venv is ready", wrapper_ok(home))
+
+    # Founder #2134: a comment-only edit to requirements.txt used to flip
+    # both sides to stale, since the stamp hashed the file's raw bytes -
+    # `_canonical_requirements` (python) and bin/ocp's own strip-then-filter
+    # (bash) must both still call the venv ready. auditor #2171 should-fix 2:
+    # this used to write the mutation into the tracked, shared
+    # requirements.txt (a killed run, or another process reading it mid-test,
+    # both leave real damage) - it now runs against a copy of bin/ocp and an
+    # isolated requirements.txt of its own instead. `_ocp_entry.py` is
+    # symlinked, not copied: it locates the real `ocp` package through its
+    # own resolved path, and a copy of it would look for one beside itself.
+    iso_root = home / "iso_reqs"
+    (iso_root / "bin").mkdir(parents=True, exist_ok=True)
+    real_bin = paths.repo_root() / "bin"
+    shutil.copy2(real_bin / "ocp", iso_root / "bin" / "ocp")
+    (iso_root / "bin" / "ocp").chmod(0o755)
+    (iso_root / "bin" / "_ocp_entry.py").symlink_to((real_bin / "_ocp_entry.py").resolve())
+    iso_reqs = iso_root / "requirements.txt"
+    iso_reqs.write_text(venvmod.requirements_file().read_text())
+    iso_wrapper = iso_root / "bin" / "ocp"
+    original_stamp = stamp.read_text()
+
+    def run_iso_wrapper():
+        return subprocess.run([str(iso_wrapper), "venv", "status"], capture_output=True, text=True,
+                              env={**os.environ, "OCP_HOME": str(home)}, timeout=30)
+
+    real_reqs_file = venvmod.requirements_file
+    try:
+        venvmod.requirements_file = lambda: iso_reqs
+
+        # `stamp` is left as install() wrote it, for iso_reqs's unedited
+        # content - re-stamping from the edited file here would only prove
+        # the two sides hash the same edited bytes as each other, not that
+        # a comment edit leaves an install stamped for the original content
+        # still reading as ready (auditor #2181 BLOCKING).
+        iso_reqs.write_text("# a comment nobody installs\n" + iso_reqs.read_text() + "# another one\n")
+        ok, reason = venvmod.status(vdir)
+        check("venv: status() ignores a comment-only requirements.txt edit", ok, reason)
+        r = run_iso_wrapper()
+        # rc == 0 alone would pass even on a fallback, since the real PATH
+        # python3 that lands on also exits 0 - the stub venv python's silent
+        # no-op stdout is what proves the wrapper itself agreed and actually
+        # picked it (auditor #2171 should-fix 1: the previous version of this
+        # check could not tell the two apart, and passed unchanged with
+        # bin/ocp's own hash line put back to a raw `shasum`).
+        check("venv: the bash wrapper ignores the same comment-only edit",
+              r.returncode == 0 and r.stdout == "" and r.stderr == "",
+              f"rc={r.returncode} out={r.stdout!r} err={r.stderr!r}")
+
+        # code-review finding: a requirements.txt that filters down to
+        # nothing (all comments/blank) has python's `_canonical_requirements`
+        # hash `b""`, and bash's `grep -v` pipeline must hash the same zero
+        # bytes - not "\n", which `shasum` hashes to a different digest.
+        iso_reqs.write_text("# nothing here\n\n# not one real requirement\n")
+        stamp.write_text(venvmod._sha256(iso_reqs) + "\n")
+        r = run_iso_wrapper()
+        check("venv: an all-comments requirements.txt hashes the same on both sides",
+              r.returncode == 0 and r.stdout == "" and r.stderr == "",
+              f"rc={r.returncode} out={r.stdout!r} err={r.stderr!r}")
+    finally:
+        venvmod.requirements_file = real_reqs_file
+        stamp.write_text(original_stamp)
 
     # Review #1597 note 1: python's stamp.read_text().strip() and bash's
     # `read -r have < stamp` must agree on more than a clean "<sha>\n" -
@@ -28531,6 +28686,8 @@ def main() -> int:
         run(lambda: test_retires_is_refused_on_a_row_that_is_not_the_resolvers(Path(td) / 'retiresown'))
         run(lambda: test_reason_gaps_count_from_the_shapes_the_verbs_write(Path(td) / 'reasongaps'))
         run(lambda: test_bridge_routing_defaults_to_textual_falls_back_only_when_missing())
+        run(lambda: test_bridge_textual_missing_package_classification())
+        run(lambda: test_human_inbox_routing_matches_cmd_bridge())
         run(lambda: test_bridge_textual_flag_fails_loud_without_the_package())
         run(lambda: test_bridge_textual_dashboard())
         run(lambda: test_bridge_textual_once_prints_a_frame_and_does_not_need_a_tty(

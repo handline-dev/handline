@@ -28,19 +28,15 @@ interactive, not something to run and report on later.
 
 `?` on an AGENTS/STUCK row and a row opened read-only (`/knows`, `/done`,
 ACCOUNTS) go through the same `tui.agent_help_line`/`tui._detail_frame`/
-`tui._in_detail` curses uses for both - the scrolling, the tab strip across
-named sections, and the "line N-M of T" counter, not a flat unscrollable
-dump (task #54). ACCOUNTS' "next" tick-mark needed nothing of its own: it is
-computed inside `tui.build`, which `tui.frame` already calls unconditionally,
-so the dashboard has always drawn it correctly - the port's earlier
-docstring flagged it as outstanding without checking that.
+`tui._in_detail` curses uses for both. ACCOUNTS' "next" tick-mark needs
+nothing of its own: it is computed inside `tui.build`, which `tui.frame`
+already calls unconditionally.
 
 Not yet ported: opening an ACCOUNTS row into a page of its own with actions
 on it, beyond the read-only summary above.
 """
 from __future__ import annotations
 
-import shutil
 import subprocess
 import sys
 
@@ -461,7 +457,7 @@ class Dashboard(JobsAware, Screen):
                 self.flash = f"#{rid} is gone"
                 return
             title, sections = detail
-            await self.app.push_screen_wait(ReadOnly(title, sections))
+            await self.app.push_screen_wait(ReadOnly(title, sections, tui.MESSAGES, target))
             return
         if key == "x":
             self.flash = self._start("dismiss", f"#{rid}", f"dismissing #{rid}", (rid,),
@@ -482,10 +478,7 @@ class ReadOnly(ModalScreen[None]):
 
     Drawn and read through `tui._detail_frame`/`tui._in_detail` - the same
     scrolling, tab strip (←→ across named sections) and "line N-M of T"
-    counter curses's own detail page has, not reimplemented here. Task #54
-    item 3: the earlier version dumped every row flat with no scroll and no
-    tabs, and closed on any key rather than only esc/q - fine for a short
-    page, wrong for one long enough to need either.
+    counter curses's own detail page has, not reimplemented here.
     """
 
     def __init__(self, title: str, sections: list, panel: int = tui.AGENTS,
@@ -569,12 +562,17 @@ def _resolved(box: AgentDraft) -> str:
     return box.text.strip("\n")
 
 
-def _conversation_lines(con, name: str, width: int) -> list[str]:
+def _conversation_lines(con, name: str, width: int) -> tuple[list[str], int]:
     """The conversation, formatted and wrapped exactly as curses draws it
-    (`tui._agent_page`, `tui.lines_of` - the tested turn-by-turn layout).
+    (`tui._agent_page`, `tui.lines_of` - the tested turn-by-turn layout), and
+    where it ends - `conv_end`, the newest line of the conversation itself,
+    not of whatever `agent_detail` lists under it (queued-for-it rows,
+    untold answers). Pinning to `len(body)` pins to the bottom of that list
+    instead, on any agent with something queued (auditor #2146 BLOCKING).
     `hint=False`: this screen's own box already says where a message goes."""
     detail = tui._agent_page(con, name, tui.AGENTS, hint=False)
-    return tui.lines_of(detail, width)
+    body = tui.lines_of(detail, width)
+    return body, detail.get("conv_end", len(body))
 
 
 class AgentDetail(JobsAware, Screen):
@@ -584,9 +582,11 @@ class AgentDetail(JobsAware, Screen):
 
     def __init__(self, agent: str) -> None:
         super().__init__()
-        # `top`: None means pinned to the newest message - the page opens
-        # there and follows it as replies arrive, until a scroll away from
-        # the bottom sets an explicit row and un-pins it (task #54, #2124).
+        # `top`: None means pinned to the end of the conversation (`_redraw`'s
+        # `pin`, not the bottom of the page - what agent_detail lists under
+        # the conversation is not it, auditor #2146). The page opens there
+        # and follows it as replies arrive, until a scroll away from it sets
+        # an explicit row and un-pins it (task #54, #2124).
         self.agent, self.top, self.flash = agent, None, ""
         self._top_now = 0
         self.commands: list[tuple[str, str]] = []
@@ -611,7 +611,7 @@ class AgentDetail(JobsAware, Screen):
         width, height = max(20, size.width), max(10, size.height)
         con = db.connect()
         try:
-            body = _conversation_lines(con, self.agent, width)
+            body, conv_end = _conversation_lines(con, self.agent, width)
             cmds = tui.agent_commands(con, self.agent)
         finally:
             con.close()
@@ -619,9 +619,17 @@ class AgentDetail(JobsAware, Screen):
         job_lines = _job_lines_ansi(self.jobs, width)
         room = self._room(height) - len(job_lines)
         max_top = max(0, len(body) - room)
-        top = max_top if self.top is None else max(0, min(self.top, max_top))
+        # `tui._detail_frame`'s own pin: the end of the conversation, not of
+        # whatever `agent_detail` lists under it (auditor #2146 BLOCKING).
+        pin = min(max_top, max(0, conv_end - room))
+        top = pin if self.top is None else max(0, min(self.top, max_top))
         self._top_now = top
-        self.top = None if top >= max_top else top
+        # `== pin`, not `>= pin` (auditor #2171 BLOCKING 1): curses re-pins
+        # only on the exact spot (`tui._detail_frame`: `end = top == pin`) -
+        # `>=` re-pinned on any scroll past it too, so a look at what is
+        # queued under the conversation snapped back to `pin` on the very
+        # next redraw, a timer tick away.
+        self.top = None if top == pin else top
         shown = body[top:top + room]
         while len(shown) < room:
             shown.append("")
@@ -661,7 +669,7 @@ class AgentDetail(JobsAware, Screen):
             self._redraw()
             return
         if k in ("\033[H", "\033[F") and not box.text:
-            self.top = 0 if k == "\033[H" else None    # None: pinned to the bottom
+            self.top = 0 if k == "\033[H" else None    # None: pinned to the conversation's end
             self._redraw()
             return
         if k == "\x15":         # ctrl+u: clear the draft, kept for ctrl+y
@@ -789,14 +797,11 @@ class BridgeApp(App):
 
 
 def run(once: bool = False) -> int:
-    """`once`, or stdout not a tty (a script or a pipe): one frame, printed
-    plain, no Textual app started - `tui.run`'s own non-interactive snapshot
-    (task #54 item 5), through the exact `tui.frame` the dashboard itself
-    draws with, so the two front ends cannot print a different picture of
-    the same state."""
+    """`once`, or stdout not a tty (a script or a pipe): `tui.run`'s own
+    non-interactive snapshot, not a Textual app - the same one `ocp bridge
+    --curses --once` prints, so the two front ends cannot show a different
+    picture of the same state."""
     if once or not sys.stdout.isatty():
-        size = shutil.get_terminal_size((100, 40))
-        print(tui.frame(min(size.columns, 200), size.lines))
-        return 0
+        return tui.run(once=True)
     BridgeApp().run()
     return 0
