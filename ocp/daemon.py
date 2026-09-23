@@ -32,7 +32,9 @@ import sys
 import time
 import uuid
 from dataclasses import dataclass
+from datetime import datetime
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 from . import (accounts, agents, ask as askmod, blocked, burnrate, collect, db, events,
                fold as foldmod, handoff as handoffmod, launch, load, lock, measure,
@@ -2373,6 +2375,12 @@ def supervise(con, agent: str, log, now: int, samples: dict,
     if db.in_flight_for(con, agent):
         return
 
+    # Task #77: computed once, used at every point below that would start new
+    # work. RUNNING/HANDOFF are not gated here - a turn already going finishes
+    # on its own; the park lands once it is back in EVALUATED next tick.
+    quiet_blocked, quiet_until = (False, 0) if state in (RUNNING, HANDOFF) \
+        else _quiet_hours_blocks(agent, now)
+
     # A turn still running when the park began can hit the usage wall on its
     # own afterward, well before wake_at comes due - the dialog that puts on
     # screen is not one a person is answering (`usage_limit_open`'s own
@@ -2455,9 +2463,13 @@ def supervise(con, agent: str, log, now: int, samples: dict,
     started_now = False
     if not (row and row["terminal"]) and (db.queued_for(con, agent)
                                           or db.unannounced_answers(con, agent)):
-        actions.append(_start_for_work(con, agent, log))
-        row = db.get_agent_state(con, agent)
-        started_now = bool(row and row["terminal"])
+        if quiet_blocked:
+            _quiet_hours_park(con, agent, log, row, quiet_until)
+            row = db.get_agent_state(con, agent)
+        else:
+            actions.append(_start_for_work(con, agent, log))
+            row = db.get_agent_state(con, agent)
+            started_now = bool(row and row["terminal"])
 
     # A closed session cannot read its own inbox, so the arrival of work is
     # what has to bring it back. Without this an `ocp ask` queues into a
@@ -2474,7 +2486,10 @@ def supervise(con, agent: str, log, now: int, samples: dict,
         # writes QUEUED over the park and clears the wake_at that would have
         # brought it back. Without this, nothing in the system ever wakes it.
         answers = db.unannounced_answers(con, agent)
-        if waiting or answers:
+        if (waiting or answers) and quiet_blocked:
+            _quiet_hours_park(con, agent, log, row, quiet_until)
+            row = db.get_agent_state(con, agent)
+        elif waiting or answers:
             ok, why = wake_agent(con, agent, log)
             what = (f"{len(waiting)} waiting request(s)" if waiting
                     else f"{len(answers)} answer(s) it asked for")
@@ -2503,8 +2518,12 @@ def supervise(con, agent: str, log, now: int, samples: dict,
     # into it would start a turn that fails at once, mark the request
     # delivered, and clear the very mark that says it is at the wall.
     at_wall = events.at_limit(con, agent)
-    if state not in (RUNNING, HANDOFF) and not woke_now and not at_wall \
-            and not (row and row["closed_at"]):
+    open_idle = state not in (RUNNING, HANDOFF) and not woke_now and not at_wall \
+        and not (row and row["closed_at"])
+    if open_idle and quiet_blocked and (db.queued_for(con, agent)
+                                        or db.unannounced_answers(con, agent)):
+        _quiet_hours_park(con, agent, log, row, quiet_until)
+    elif open_idle:
         # An answer first: an agent that asked something and parked is waiting
         # on that, and telling it about new work while its own question is
         # still unanswered is the wrong order.
@@ -2554,7 +2573,12 @@ def supervise(con, agent: str, log, now: int, samples: dict,
     # `reading` above is a guess exactly when there is neither a recorded nor
     # a fresh reported account to act on, and a guess is not evidence enough
     # to wake this agent into.
-    if not woke_now and row and row["terminal"] and not row["closed_at"] \
+    # A quiet-hours park reads the same as a recovered usage park to this
+    # branch - it only knows the last *handoff's* trigger, not why this park
+    # was actually written - and without `quiet_blocked` a prior usage
+    # handoff flips it QUEUED/PARKED every other tick for the rest of the
+    # window (auditor #2211).
+    if not woke_now and not quiet_blocked and row and row["terminal"] and not row["closed_at"] \
             and state == PARKED and reading.source != "assumed" \
             and orca.available() and orca.alive(row["terminal"]):
         last = db.last_handoff(con, agent)
@@ -2741,6 +2765,74 @@ def poll_usage(con, log) -> None:
         usage_api.record(reading)
         log(f"  usage: {acct}: {why} - 5h {reading.pct_5h}% 7d {reading.pct_7d}%")
         return
+
+
+# ---------------------------------------------------------------- quiet hours
+# Task #77 (founder #2199): a claude account's usage drains fastest on US
+# weekday mornings. While this is on and the clock is in the window, no
+# claude-vendor agent starts new work; opencode/Z.ai agents do not share the
+# wall this protects and are unaffected. Off by default; `ocp quiet-hours on`
+# turns it on (config.yaml, next to `dev_mode`).
+QUIET_HOURS_KEY = "quiet_hours"
+QUIET_HOURS_TZ = ZoneInfo("America/Los_Angeles")
+QUIET_HOURS_START_H, QUIET_HOURS_END_H = 5, 11  # 05:00-11:00 PT, weekdays
+
+
+def quiet_hours_enabled() -> bool:
+    return bool(load._config().get(QUIET_HOURS_KEY))
+
+
+def set_quiet_hours(on: bool) -> None:
+    cfg = load._config()
+    cfg[QUIET_HOURS_KEY] = bool(on)
+    paths.config_file().write_text(dump(cfg))
+
+
+def _quiet_hours_window(now: int) -> tuple[bool, int]:
+    """Whether `now` falls in the founder's weekday 05:00-11:00
+    America/Los_Angeles window, and the timestamp that window ends at.
+    zoneinfo carries the DST offset for the date `now` falls on, so the
+    March/November transition needs no case of its own."""
+    local = datetime.fromtimestamp(now, QUIET_HOURS_TZ)
+    start = local.replace(hour=QUIET_HOURS_START_H, minute=0, second=0, microsecond=0)
+    end = local.replace(hour=QUIET_HOURS_END_H, minute=0, second=0, microsecond=0)
+    active = local.weekday() < 5 and start <= local < end
+    return active, int(end.timestamp())
+
+
+def _quiet_hours_blocks(agent: str, now: int) -> tuple[bool, int]:
+    """(True, the wake_at new work must wait for) when this agent's own new
+    work is on hold for quiet hours right now - the flag on, the clock in the
+    window, and the agent a claude vendor (`DEFAULT_VENDOR` - the wall this
+    protects is claude's, not opencode's or Z.ai's). Always (False, 0)
+    otherwise, so a caller never has to ask both questions itself."""
+    if not quiet_hours_enabled():
+        return False, 0
+    try:
+        vendor, _, _ = agents.parts(agents.read(agent))
+    except FileNotFoundError:
+        return False, 0
+    if vendor != agents.DEFAULT_VENDOR:
+        return False, 0
+    active, until = _quiet_hours_window(now)
+    return (True, until) if active else (False, 0)
+
+
+def _quiet_hours_park(con, agent: str, log, row, until: int) -> bool:
+    """Reuse the ordinary PARKED/wake_at path (8.4) rather than a new state:
+    the agent wakes through the same wake_at-due branch `supervise` already
+    runs for a usage park. Never shortens a wake_at already later than
+    `until` - a real usage wall past the end of the window still wins - and
+    is a no-op, so a caller may call it every tick without re-logging one
+    park over and over."""
+    wake = max(until, int(row["wake_at"]) if row and row["wake_at"] else 0)
+    if row and row["state"] == PARKED and row["wake_at"] == wake:
+        return False
+    db.set_agent_state(con, agent, PARKED, wake_at=wake,
+                       detail=f"quiet hours; wakes at {time.strftime('%H:%M', time.localtime(wake))}")
+    log(f"  {agent}: quiet hours - work held, parked until "
+        f"{time.strftime('%Y-%m-%d %H:%M', time.localtime(wake))}")
+    return True
 
 
 # ---------------------------------------------------------------- dev mode

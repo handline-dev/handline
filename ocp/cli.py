@@ -996,6 +996,17 @@ def cmd_dev_mode(args) -> int:
     return 0
 
 
+def cmd_quiet_hours(args) -> int:
+    """Off by default (task #77). Same config.yaml, same read-once-a-tick
+    daemon, so this too takes effect on the daemon's next tick."""
+    if args.state is None:
+        print("on" if daemonmod.quiet_hours_enabled() else "off")
+        return 0
+    daemonmod.set_quiet_hours(args.state == "on")
+    print(f"quiet-hours: {args.state}")
+    return 0
+
+
 def _print_waits() -> None:
     """The founder's waits above everything else `ps` prints, in words: the same
     list the bridge pins in red."""
@@ -2443,6 +2454,11 @@ def build_parser() -> argparse.ArgumentParser:
                        help="daemon restarts itself when its own code changes - off by default")
     p.add_argument("state", nargs="?", choices=["on", "off"], help="omit to print the current state")
     p.set_defaults(fn=cmd_dev_mode)
+
+    p = sub.add_parser("quiet-hours",
+                       help="weekday 05:00-11:00 PT: no claude-vendor agent starts new work - off by default")
+    p.add_argument("state", nargs="?", choices=["on", "off"], help="omit to print the current state")
+    p.set_defaults(fn=cmd_quiet_hours)
 
     sv = sub.add_parser("service", help="run the daemon as a launchd LaunchAgent").add_subparsers(
         dest="sub", required=True)

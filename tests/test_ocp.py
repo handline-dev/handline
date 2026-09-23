@@ -7,6 +7,7 @@ from __future__ import annotations
 import argparse
 import atexit
 import contextlib
+from datetime import datetime
 import hashlib
 import http.client
 import http.server
@@ -3998,6 +3999,211 @@ def test_dev_mode_restart_yields_to_a_signal_that_arrived_during_the_check(home:
               "restart skipped" in out, out)
     finally:
         dmn._dev_mode_should_restart, dmn._dev_mode_restart = real_should, real_restart
+
+
+def _pt_epoch(y: int, m: int, d: int, h: int, mi: int) -> int:
+    return int(datetime(y, m, d, h, mi, tzinfo=dmn.QUIET_HOURS_TZ).timestamp())
+
+
+def test_quiet_hours_config_round_trips(home: Path) -> None:
+    """Task #77: off by default, `ocp quiet-hours on/off` flips config.yaml
+    (the same file `dev-mode` and `account cap` write to), and a plain
+    `ocp quiet-hours` reads it back without changing it."""
+    home.mkdir(parents=True, exist_ok=True)
+    os.environ["OCP_HOME"] = str(home)
+    check("quiet-hours: off by default", dmn.quiet_hours_enabled() is False,
+          str(dmn.quiet_hours_enabled()))
+    out = _capture(lambda: climod.main(["quiet-hours"]))
+    check("cli quiet-hours: prints the current state with no argument",
+          out.strip() == "off", out)
+    out = _capture(lambda: climod.main(["quiet-hours", "on"]))
+    check("cli quiet-hours on: confirms the flip", "on" in out, out)
+    check("quiet-hours: on reaches daemon.py's own reader",
+          dmn.quiet_hours_enabled() is True, str(dmn.quiet_hours_enabled()))
+    climod.main(["quiet-hours", "off"])
+    check("quiet-hours: off turns it back off, not just adds a second key",
+          dmn.quiet_hours_enabled() is False, str(dmn.quiet_hours_enabled()))
+
+
+def test_quiet_hours_window_is_weekday_mornings_pacific(home: Path) -> None:
+    """Founder #2199's own figures: weekdays 05:00-11:00 America/Los_Angeles,
+    computed with zoneinfo. A Monday edge on both ends, a weekend, and a day
+    either side of the DST transition so the window is checked against the
+    real offset for that date rather than a fixed UTC delta."""
+    check("quiet hours: Monday 04:59 PT is not yet in the window",
+          dmn._quiet_hours_window(_pt_epoch(2026, 9, 21, 4, 59))[0] is False)
+    check("quiet hours: Monday 05:00 PT is the first minute in",
+          dmn._quiet_hours_window(_pt_epoch(2026, 9, 21, 5, 0))[0] is True)
+    check("quiet hours: Monday 10:59 PT is still in",
+          dmn._quiet_hours_window(_pt_epoch(2026, 9, 21, 10, 59))[0] is True)
+    check("quiet hours: Monday 11:00 PT is out again",
+          dmn._quiet_hours_window(_pt_epoch(2026, 9, 21, 11, 0))[0] is False)
+    check("quiet hours: Saturday 07:00 PT is a weekend, never in",
+          dmn._quiet_hours_window(_pt_epoch(2026, 9, 19, 7, 0))[0] is False)
+    check("quiet hours: the day after the US spring-forward is still 05:00-11:00 local",
+          dmn._quiet_hours_window(_pt_epoch(2026, 3, 9, 5, 0))[0] is True and
+          dmn._quiet_hours_window(_pt_epoch(2026, 3, 9, 10, 59))[0] is True and
+          dmn._quiet_hours_window(_pt_epoch(2026, 3, 9, 11, 0))[0] is False)
+    active, end = dmn._quiet_hours_window(_pt_epoch(2026, 9, 21, 7, 0))
+    check("quiet hours: the window end it reports is 11:00 PT that day",
+          active and end == _pt_epoch(2026, 9, 21, 11, 0), str(end))
+
+
+def test_quiet_hours_blocks_only_a_claude_agent_with_the_flag_on(home: Path) -> None:
+    """`_quiet_hours_blocks` is the one question every call site asks: the
+    flag, the window and the vendor all have to agree, or nothing is held.
+    opencode/Z.ai agents (founder's own words) are unaffected whether or not
+    the flag is on."""
+    home.mkdir(parents=True, exist_ok=True)
+    os.environ["OCP_HOME"] = str(home)
+    (home / "team.yaml").write_text(DESIGN_TEAM)
+    agents.register("backend", "alpha")
+    agents.register("coder", "alpha", vendor="opencode")
+    in_window = _pt_epoch(2026, 9, 21, 7, 0)
+    out_of_window = _pt_epoch(2026, 9, 21, 12, 0)
+
+    dmn.set_quiet_hours(False)
+    check("quiet hours: flag off blocks nobody, even inside the window",
+          dmn._quiet_hours_blocks("backend", in_window) == (False, 0))
+
+    dmn.set_quiet_hours(True)
+    check("quiet hours: flag on, outside the window blocks nobody",
+          dmn._quiet_hours_blocks("backend", out_of_window) == (False, 0))
+    blocked, until = dmn._quiet_hours_blocks("backend", in_window)
+    check("quiet hours: flag on and inside the window blocks the claude agent",
+          blocked and until == _pt_epoch(2026, 9, 21, 11, 0), str((blocked, until)))
+    check("quiet hours: an opencode agent is unaffected, same flag, same clock",
+          dmn._quiet_hours_blocks("coder", in_window) == (False, 0))
+
+
+def test_quiet_hours_holds_queued_work_from_an_idle_claude_agent(home: Path) -> None:
+    """Integration: `supervise` on a claude agent sitting IDLE with a request
+    already queued does not deliver it while quiet hours block it - it parks,
+    reusing PARKED/wake_at rather than a new state - and does deliver once
+    the same call is made with `now` outside the window."""
+    _daemon_home(home, 20)
+    con = db.connect()
+    try:
+        orcamod.available = lambda: True
+        orcamod.live_terminals = lambda: {"term_x"}
+        orcamod.alive = lambda h: True
+        orcamod.idle_now = lambda h: True
+        sent: list[str] = []
+        orcamod.send = lambda h, text, enter=True: (sent.append(text), (True, ""))[1]
+        sessions_are("backend")
+        db.set_agent_state(con, "backend", dmn.IDLE)
+        db.add_request(con, "marina", "backend", "carry on", None,
+                       "peer", "async", None, 0, None)
+        dmn.set_quiet_hours(True)
+        in_window = _pt_epoch(2026, 9, 21, 7, 0)
+
+        dmn.supervise(con, "backend", lambda _m: None, in_window, {}, [])
+        check("quiet hours: nothing was typed while blocked", sent == [], str(sent))
+        row = db.get_agent_state(con, "backend")
+        check("quiet hours: the agent parks instead, PARKED with a wake_at",
+              row["state"] == dmn.PARKED and row["wake_at"] == _pt_epoch(2026, 9, 21, 11, 0),
+              str(dict(row)))
+
+        out_of_window = _pt_epoch(2026, 9, 21, 12, 0)
+        dmn.supervise(con, "backend", lambda _m: None, out_of_window, {}, [])
+        check("quiet hours: past the window, the same queued work is delivered",
+              sent and "carry on" in sent[-1], str(sent))
+    finally:
+        dmn.set_quiet_hours(False)
+        con.close()
+
+
+def test_quiet_hours_wakes_on_its_own_when_the_window_closes(home: Path) -> None:
+    """orcapipe #2201: parked at 10:59 PT is still ticked at 11:00 PT, and
+    resumes through the ordinary wake path - no new code for waking, and
+    nothing typed by hand - picking up the queued work it was parked on.
+    Driven through `tick()` itself, with the real clock stood in for, since
+    that is the daemon's own entry point and the one #2201 named."""
+    _daemon_home(home, 20)
+    con = db.connect()
+    real_time = time.time
+    try:
+        orcamod.available = lambda: True
+        orcamod.live_terminals = lambda: {"term_x"}
+        orcamod.alive = lambda h: True
+        orcamod.idle_now = lambda h: True
+        sent: list[str] = []
+        orcamod.send = lambda h, text, enter=True: (sent.append(text), (True, ""))[1]
+        sessions_are("backend")
+        db.set_agent_state(con, "backend", dmn.IDLE)
+        db.add_request(con, "marina", "backend", "carry on", None,
+                       "peer", "async", None, 0, None)
+        dmn.set_quiet_hours(True)
+
+        time.time = lambda: float(_pt_epoch(2026, 9, 21, 10, 59))
+        dmn.tick(con, lambda _m: None)
+        row = db.get_agent_state(con, "backend")
+        check("quiet hours wake: 10:59 PT still parks it",
+              row["state"] == dmn.PARKED and row["wake_at"] == _pt_epoch(2026, 9, 21, 11, 0),
+              str(dict(row)))
+        check("quiet hours wake: nothing typed at 10:59 PT", sent == [], str(sent))
+
+        time.time = lambda: float(_pt_epoch(2026, 9, 21, 11, 0))
+        dmn.tick(con, lambda _m: None)
+        row = db.get_agent_state(con, "backend")
+        check("quiet hours wake: 11:00 PT wakes it on its own, no hand typing",
+              row["state"] != dmn.PARKED, str(dict(row)))
+        check("quiet hours wake: and it picks up the queued work",
+              sent and "carry on" in sent[-1], str(sent))
+    finally:
+        time.time = real_time
+        dmn.set_quiet_hours(False)
+        con.close()
+
+
+def test_quiet_hours_is_not_undone_by_the_usage_recovery_branch(home: Path) -> None:
+    """auditor #2211 BLOCKING: a separate branch un-parks a PARKED agent once
+    its last usage reading no longer fires - keyed only on the last handoff's
+    trigger kind, since nothing on the row itself says why this park was
+    written. That reads a quiet park exactly like a usage park that
+    recovered. Without `quiet_blocked` in its condition, an agent with a
+    prior usage handoff flips PARKED/QUEUED every tick for the rest of the
+    window; nothing leaks to the terminal (`open_idle` still catches
+    delivery), but the state and 'usage recovered' log line churn for hours,
+    and the move branch beside it can move a parked claude agent to another
+    claude account - exactly the work this window exists to prevent."""
+    _daemon_home(home, 20)
+    con = db.connect()
+    try:
+        orcamod.available = lambda: True
+        orcamod.alive = lambda h: True
+        orcamod.live_terminals = lambda: {"term_x"}
+        orcamod.idle_now = lambda h: True
+        sent: list[str] = []
+        orcamod.send = lambda h, text, enter=True: (sent.append(text), (True, ""))[1]
+        sessions_are("backend")
+        # The two things production has that the plain integration test's
+        # fixture does not: an account recorded (not assumed), and a prior
+        # handoff whose trigger names it as a usage park.
+        db.set_account(con, "backend", "alpha")
+        hid = "usagehid1"
+        db.start_handoff(con, hid, "backend", None, "usage", int(time.time()) + 3600)
+        db.advance_handoff(con, hid, "released", state="done")
+        db.add_request(con, "marina", "backend", "carry on", None,
+                       "peer", "async", None, 0, None)
+        dmn.set_quiet_hours(True)
+        window_end = _pt_epoch(2026, 9, 21, 11, 0)
+        db.set_agent_state(con, "backend", dmn.PARKED, wake_at=window_end,
+                           detail="quiet hours; wakes at 11:00")
+
+        actions: list[str] = []
+        for minute in range(6):
+            now = _pt_epoch(2026, 9, 21, 7, minute)
+            dmn.supervise(con, "backend", lambda _m: None, now, {}, actions)
+            row = db.get_agent_state(con, "backend")
+            check(f"quiet hours vs usage recovery: tick {minute} stays PARKED",
+                  row["state"] == dmn.PARKED, str(dict(row)))
+        check("quiet hours vs usage recovery: 'usage recovered' never logged",
+              not any("usage recovered" in a for a in actions), str(actions))
+        check("quiet hours vs usage recovery: nothing was typed", sent == [], str(sent))
+    finally:
+        dmn.set_quiet_hours(False)
+        con.close()
 
 
 def test_reconcile_still_propagates_a_fault_that_is_not_one_agents(home: Path) -> None:
@@ -21391,6 +21597,8 @@ def test_no_command_prints_what_a_terminal_would_obey(home: Path) -> None:
         "service status": "launchd; prints a pid",
         "dev-mode": "writes a config flag; prints on/off - driven in "
                     "test_dev_mode_config_round_trips, not this scene",
+        "quiet-hours": "writes a config flag; prints on/off - driven in "
+                       "test_quiet_hours_config_round_trips, not this scene",
         "close": "an agent's session is ended through Orca; the task half is driven by test_closing_a_task_needs_no_open_child_and_only_the_asker",
         "task new": "writes a row; prints its id and an owner already checked against the registry",
         "task link": "writes a row; prints two ids",
@@ -28928,6 +29136,12 @@ def main() -> int:
         run(lambda: test_dev_mode_check_failing_degrades_not_crashes(Path(td) / 'devmodedegrade'))
         run(lambda: test_dev_mode_restart_yields_to_a_signal_that_arrived_during_the_check(
             Path(td) / 'devmodesignalrace'))
+        run(lambda: test_quiet_hours_config_round_trips(Path(td) / 'quiethourscfg'))
+        run(lambda: test_quiet_hours_window_is_weekday_mornings_pacific(Path(td) / 'quiethourswindow'))
+        run(lambda: test_quiet_hours_blocks_only_a_claude_agent_with_the_flag_on(Path(td) / 'quiethoursvendor'))
+        run(lambda: test_quiet_hours_holds_queued_work_from_an_idle_claude_agent(Path(td) / 'quiethourshold'))
+        run(lambda: test_quiet_hours_wakes_on_its_own_when_the_window_closes(Path(td) / 'quiethourswake'))
+        run(lambda: test_quiet_hours_is_not_undone_by_the_usage_recovery_branch(Path(td) / 'quiethoursrecov'))
         run(lambda: test_reconcile_still_propagates_a_fault_that_is_not_one_agents(Path(td) / 'reconsys'))
         run(lambda: test_reconcile_stalls_one_due_agents_unreadable_config_at_wake_too(Path(td) / 'reconwake'))
         run(lambda: test_daemon_handoff_timeout(Path(td) / 'd4'))
