@@ -7,6 +7,7 @@ from __future__ import annotations
 import argparse
 import atexit
 import contextlib
+import hashlib
 import io
 import json
 import os
@@ -34,7 +35,8 @@ from ocp import (accounts, actions, agents, ask as askmod, blocked as blockedmod
                  handoff as handoffmod, launch, load as loadmod, lock, measure,
                  observe as obsmod, orca as orcamod, paths, rehome, replay as replaymod, service,
                  spawn as spawnmod,
-                 status, team, textsafe, triggers, trust as trustmod, tui, usage_api, vendors, waiting,
+                 status, team, textsafe, triggers, trust as trustmod, tui, usage_api, vendors,
+                 venv as venvmod, waiting,
                  yamlcompat)  # noqa: E402
 
 PASS, FAIL = [], []
@@ -19690,6 +19692,7 @@ def test_no_command_prints_what_a_terminal_would_obey(home: Path) -> None:
             "ask": [(["ask", "reviewer", f"a new one {p}", "--of", "marina"], None, "ask")],
             "withdraw": [["withdraw", str(d + 1), "--of", "marina"]],
             "unstall": [["unstall", "reviewer"]],
+            "venv status": [["venv", "status"]],
         }
         out = {}
 
@@ -19784,6 +19787,7 @@ def test_no_command_prints_what_a_terminal_would_obey(home: Path) -> None:
         "trust remove": "driven in test_ocp_trust_cli_is_wired",
         "trust proposals": "lists proposal files; prints their ids",
         "trust apply": "founder-only; applies a proposal and prints its id",
+        "venv install": "creates a real venv and pip installs into it",
     }
     have = set(driven_now := scene.driven) | set(skipped)
     every = set(leaves())
@@ -23669,6 +23673,149 @@ def run(one) -> None:
         os.environ["OCP_TEST"] = prev_test
 
 
+def test_venv(home: Path) -> None:
+    """ocp/venv.py's own docstring: `is_stale` is a second copy of the sha256
+    comparison bin/ocp-venv's bash wrapper makes, kept honest by a test that
+    runs both and compares. Both sides must read the same requirements.txt -
+    the real one, since neither status() nor the wrapper takes a path for it."""
+    home.mkdir(parents=True, exist_ok=True)
+    vdir = home / "venv"
+    wrapper = paths.repo_root() / "bin" / "ocp-venv"
+
+    def wrapper_ok(home_dir: Path) -> bool:
+        r = subprocess.run([str(wrapper), "venv", "status"], capture_output=True, text=True,
+                            env={**os.environ, "OCP_HOME": str(home_dir)}, timeout=30)
+        return r.returncode == 0
+
+    ok, reason = venvmod.status(vdir)
+    check("venv: status() refuses a venv that does not exist", not ok and "no venv" in reason, reason)
+    check("venv: the bash wrapper refuses the same missing venv",
+          not wrapper_ok(home), "wrapper disagreed with status() on a missing venv")
+
+    calls = []
+
+    def fake_run(args):
+        calls.append(args)
+        if "venv" in args:
+            (vdir / "bin").mkdir(parents=True, exist_ok=True)
+            py = venvmod.venv_python(vdir)
+            py.write_text("#!/bin/sh\n")
+            py.chmod(0o755)
+        return subprocess.CompletedProcess(args, 0, "", "")
+
+    real_run = venvmod._run
+    try:
+        venvmod._run = fake_run
+        ok, msg = venvmod.install(vdir, log=lambda *a: None)
+        check("venv: install() creates the venv and reports success", ok, msg)
+        check("venv: install() runs `python3 -m venv` before pip", calls[0][1:3] == ["-m", "venv"])
+        check("venv: install() then pip installs requirements.txt into it",
+              calls[1][1:4] == ["-m", "pip", "install"])
+    finally:
+        venvmod._run = real_run
+
+    ok, reason = venvmod.status(vdir)
+    check("venv: status() reports ready right after a successful install", ok, reason)
+    stamp = vdir / venvmod.STAMP_NAME
+    check("venv: install() stamps the venv with requirements.txt's own hash",
+          stamp.read_text().strip() == hashlib.sha256(venvmod.requirements_file().read_bytes()).hexdigest())
+    check("venv: the bash wrapper agrees a freshly-stamped venv is ready", wrapper_ok(home))
+
+    # Review #1597 note 1: python's stamp.read_text().strip() and bash's
+    # `read -r have < stamp` must agree on more than a clean "<sha>\n" -
+    # that is the one input a diagnostic disagreeing with the thing it
+    # diagnoses would slip through on.
+    good_hash = stamp.read_text().strip()
+    stamp.write_text(f"  {good_hash}  \n")
+    ok, _ = venvmod.status(vdir)
+    check("venv: status() strips surrounding whitespace from the stamp", ok)
+    check("venv: the bash wrapper strips the same whitespace the same way", wrapper_ok(home))
+
+    # Review #1613 should-fix: `read -r have < stamp` returns 1 on a stamp
+    # with no trailing newline (EOF before the newline it looks for), and
+    # under set -e that used to exit the wrapper right there - silently,
+    # before fail() ever ran. A ready venv must still report ready.
+    stamp.write_text(good_hash)
+    r = subprocess.run([str(wrapper), "venv", "status"], capture_output=True, text=True, timeout=30,
+                        env={**os.environ, "OCP_HOME": str(home)})
+    # The stand-in venv python is a no-op shell stub (fake_run wrote it, not
+    # a real python), so a reached-python rc 0 with no fail() message on
+    # stderr is what distinguishes this from the silent-exit regression -
+    # not stdout, which the stub never produces either way.
+    check("venv: the bash wrapper reaches python on a stamp with no trailing newline, not a silent exit",
+          r.returncode == 0 and r.stderr == "", f"rc={r.returncode} out={r.stdout!r} err={r.stderr!r}")
+
+    # Auditor #1673 note 1: an empty stamp (the write_text truncate-then-write
+    # race, or a crash between them) is the other half of #1613's regression -
+    # `read -r` on it also returns 1, and the fix must still surface it loud
+    # as stale, not swallow it the way the pre-fix line did.
+    stamp.write_text("")
+    r = subprocess.run([str(wrapper), "venv", "status"], capture_output=True, text=True, timeout=30,
+                        env={**os.environ, "OCP_HOME": str(home)})
+    check("venv: the bash wrapper reports an empty stamp as stale, not a silent exit",
+          r.returncode != 0 and "stale" in r.stderr, f"rc={r.returncode} out={r.stdout!r} err={r.stderr!r}")
+    stamp.write_text(good_hash + "\n")
+
+    stamp.write_text("not a real hash\n")
+    ok, reason = venvmod.status(vdir)
+    check("venv: status() refuses a venv stamped against a different requirements.txt",
+          not ok and "stale" in reason, reason)
+    check("venv: the bash wrapper refuses the same stale stamp",
+          not wrapper_ok(home), "wrapper disagreed with status() on a stale stamp")
+
+    def fake_run_fails(args):
+        calls.append(args)
+        return subprocess.CompletedProcess(args, 1, "", "boom")
+
+    venvmod._run = fake_run_fails
+    try:
+        ok, msg = venvmod.install(vdir, log=lambda *a: None)
+    finally:
+        venvmod._run = real_run
+    check("venv: install() reports failure when pip fails", not ok and "boom" in msg, msg)
+    check("venv: a failed install leaves the venv reading as stale, not falsely fresh",
+          stamp.read_text().strip() == "not a real hash")
+
+    # Review #1597 note 2: status()'s own docstring promises (ok, reason) for
+    # any way the venv cannot be trusted - a requirements.txt that vanished
+    # (a broken checkout) is that family too, not a crash.
+    real_reqs_file = venvmod.requirements_file
+    try:
+        venvmod.requirements_file = lambda: home / "no-such-requirements.txt"
+        ok, reason = venvmod.status(vdir)
+        check("venv: status() reports (False, reason) for a missing requirements.txt, not a traceback",
+              not ok and "requirements.txt" in reason, reason)
+    finally:
+        venvmod.requirements_file = real_reqs_file
+
+    # Same case through the bash wrapper: copy it beside a venv with no
+    # requirements.txt one level up, so `script_dir/../requirements.txt`
+    # resolves to nothing - the wrapper must fail() with a clear reason, not
+    # `set -e` out on shasum's own raw error (review #1597 note 2).
+    reqshome = home / "reqsmissing"
+    (reqshome / "bin").mkdir(parents=True, exist_ok=True)
+    shutil.copy(wrapper, reqshome / "bin" / "ocp-venv")
+    shutil.copy(paths.repo_root() / "bin" / "_ocp_entry.py", reqshome / "bin" / "_ocp_entry.py")
+    (reqshome / "bin" / "ocp-venv").chmod(0o755)
+    reqs_vdir = reqshome / "home" / "venv" / "bin"
+    reqs_vdir.mkdir(parents=True)
+    (reqs_vdir / "python3").write_text("#!/bin/sh\n")
+    (reqs_vdir / "python3").chmod(0o755)
+    r = subprocess.run([str(reqshome / "bin" / "ocp-venv"), "venv", "status"],
+                        capture_output=True, text=True, timeout=30,
+                        env={**os.environ, "OCP_HOME": str(reqshome / "home")})
+    check("venv: the bash wrapper also fails clean (not a raw shasum error) on a missing requirements.txt",
+          r.returncode == 1 and "no requirements.txt" in r.stderr and "shasum" not in r.stderr, r.stderr)
+
+    # Review #1597 should-fix: the remedy the wrapper prints must still be
+    # runnable once this file is promoted to bin/ocp - "$script_dir/ocp" is
+    # then the very command that just refused.
+    r = subprocess.run([str(wrapper), "venv", "status"], capture_output=True, text=True, timeout=30,
+                        env={**os.environ, "OCP_HOME": str(home / "no-such-home")})
+    check("venv: the wrapper's own remedy is a bare `python3 ... _ocp_entry.py`, not itself",
+          "python3 " in r.stderr and str(wrapper) not in r.stderr, r.stderr)
+
+
 def test_run_recovers_from_an_uncaught_error() -> None:
     """Review of buddyron/test-suite-agent-independent: checked by hand is not
     checked by the suite. Both a plain exception and a `sys.exit` from code
@@ -25463,6 +25610,7 @@ def main() -> int:
         run(lambda: test_moot_by_records_who_retired_a_row(Path(td) / 'mootby'))
         run(lambda: test_retires_is_refused_on_a_row_that_is_not_the_resolvers(Path(td) / 'retiresown'))
         run(lambda: test_reason_gaps_count_from_the_shapes_the_verbs_write(Path(td) / 'reasongaps'))
+        run(lambda: test_venv(Path(td) / 'venvhome'))
         run(lambda: test_run_recovers_from_an_uncaught_error())
         run(lambda: test_restore_world_pops_orca_env_vars_a_real_terminal_would_leave_set())
         run(lambda: test_run_restores_current_test_after_its_own_nested_run_calls(Path(td) / 'nestedrun'))

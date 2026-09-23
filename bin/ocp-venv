@@ -1,0 +1,44 @@
+#!/usr/bin/env bash
+# Staging copy of what bin/ocp becomes once the venv is proven (founder
+# ruling, #1574/#1570): a bash wrapper, not a python shebang. That looks
+# backwards - trading a one-line python file for this - but a python
+# shebang has already committed to an interpreter before any of our own
+# code runs, so nothing written in python can be the thing that notices a
+# missing or stale venv and says so. bash is the one thing macOS guarantees
+# is there when python3 might not be (a Homebrew python3 with no PyYAML, or
+# none at all). Do not "simplify" this back to a python shebang.
+set -euo pipefail
+
+home_dir="${OCP_HOME:-$HOME/.orcapipe}"
+venv="$home_dir/venv"
+py="$venv/bin/python3"
+script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+reqs="$script_dir/../requirements.txt"
+
+fail() {
+    echo "ocp: $1" >&2
+    # Once this file is bin/ocp, the venv it just refused to use is the same
+    # one the remedy needs - so the remedy is a bare system python3, not "$py"
+    # or this wrapper (review #1597, should-fix).
+    echo "ocp: run \`python3 $script_dir/_ocp_entry.py venv install\` to fix it" >&2
+    exit 1
+}
+
+[ -x "$py" ] || fail "no venv at $venv"
+[ -f "$reqs" ] || fail "no requirements.txt at $reqs"
+
+# Existing is not the same as working: a venv installed before requirements.txt
+# last changed is missing whatever changed. ocp/venv.install() writes this
+# stamp only once pip has actually succeeded, so a failed or out-of-date
+# install reads as stale here rather than failing deep inside a command.
+stamp="$venv/.ocp_deps_sha256"
+want="$(shasum -a 256 "$reqs" | cut -d' ' -f1)"
+have=""
+# `read` returns 1 on a stamp with no trailing newline (EOF before the
+# newline it looks for) even though it fills $have - under set -e that would
+# exit the script right here, silently, before fail() ever runs (review
+# #1613, should-fix).
+[ -f "$stamp" ] && { read -r have < "$stamp" || true; }
+[ "$want" = "$have" ] || fail "venv at $venv is stale (requirements.txt changed since it was installed)"
+
+exec "$py" "$script_dir/_ocp_entry.py" "$@"
