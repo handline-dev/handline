@@ -23296,6 +23296,45 @@ def test_an_account_is_added_and_removed_from_ocp(home: Path) -> None:
     check("account remove: an unknown account is said to be unknown", rc == 1, out)
 
 
+def test_account_add_login_preflight_names_the_actual_blocker(home: Path) -> None:
+    """The login preflight refuses for two different reasons - the vendor's
+    binary is not on PATH, or stdin is not a terminal. One message for both
+    sends a reader without the binary hunting for a terminal, and a reader
+    in a script off to install something they have."""
+    home.mkdir(parents=True, exist_ok=True)
+    os.environ["OCP_HOME"] = str(home)
+
+    def run_cli(*argv):
+        buf, err = io.StringIO(), io.StringIO()
+        with contextlib.redirect_stdout(buf), contextlib.redirect_stderr(err):
+            rc = climod.main(list(argv))
+        return rc, buf.getvalue() + err.getvalue()
+
+    drv = vendors.get("claude")
+    real_stdin = sys.stdin
+
+    class NoTty:
+        def isatty(self) -> bool:
+            return False
+
+    try:
+        drv.binary = lambda: None
+        rc, out = run_cli("account", "add", "delta")
+        check("account add: a missing binary is named and said to be off PATH",
+              rc == 1 and "claude was not found on PATH" in out
+              and "terminal" not in out, out)
+
+        drv.binary = lambda: "/x/bin/claude"
+        sys.stdin = NoTty()
+        rc, out = run_cli("account", "add", "delta")
+        check("account add: no terminal says terminal, not PATH",
+              rc == 1 and "needs a terminal you can type into" in out
+              and "not found on PATH" not in out, out)
+    finally:
+        del drv.binary
+        sys.stdin = real_stdin
+
+
 def test_offer_to_trust_worktrees_lists_paths_and_skips(home: Path) -> None:
     """Should-fix 5 (auditor's #304): the y/N question names exactly the
     worktrees a yes will press, and reports the rest as skipped rather than
@@ -25898,6 +25937,7 @@ def main() -> int:
         run(lambda: test_an_idle_close_keeps_a_handoff_only_if_it_closed(Path(td) / 'hdclose'))
         run(lambda: test_the_digest_facts_do_not_repeat_one_event_kind(Path(td) / 'hdfacts'))
         run(lambda: test_an_account_is_added_and_removed_from_ocp(Path(td) / 'acctaddrm'))
+        run(lambda: test_account_add_login_preflight_names_the_actual_blocker(Path(td) / 'acctaddmsg'))
         run(lambda: test_offer_to_trust_worktrees_lists_paths_and_skips(
             Path(td) / 'offertrust'))
         run(lambda: test_each_account_guard_fails_under_its_own_mutation(Path(td) / 'guards'))

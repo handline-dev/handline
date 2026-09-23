@@ -133,7 +133,13 @@ def cmd_account_add(args) -> int:
     except vendors.UnknownVendor as e:
         print(e, file=sys.stderr)
         return 1
-    if not args.no_login and (not drv.binary() or not sys.stdin.isatty()):
+    if not args.no_login and not drv.binary():
+        print(f"{drv.login_argv()[0]} was not found on PATH. Install it, then run:\n\n"
+              f"  ocp account add {args.name}"
+              f"{'' if vendor == agents.DEFAULT_VENDOR else ' --vendor ' + vendor}\n",
+              file=sys.stderr)
+        return 1
+    if not args.no_login and not sys.stdin.isatty():
         print(f"logging in needs a terminal you can type into. From one, run:\n\n"
               f"  ocp account add {args.name}"
               f"{'' if vendor == agents.DEFAULT_VENDOR else ' --vendor ' + vendor}\n",
