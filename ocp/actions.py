@@ -1292,7 +1292,7 @@ class Said(Row):
         return self
 
 
-def conversation_and_drawn(con, agent: str) -> tuple[list[str], set[int]]:
+def conversation_and_drawn(con, agent: str, hint: bool = True) -> tuple[list[str], set[int]]:
     """The human's conversation with `agent`, in time order, a thread at a time,
     and the ids of the requests it drew - only the newest CHAT_CHAINS chains
     are drawn, so a request in an older one is not in it.
@@ -1301,6 +1301,10 @@ def conversation_and_drawn(con, agent: str) -> tuple[list[str], set[int]]:
     between the two of them, so what the agent asked a third agent on the way to
     answering is visible where it happened. One row is two messages - the ask
     and, once closed, its verdict - and each is placed at its own time.
+
+    `hint` is False for a screen whose own input box already says where a
+    message goes - a trailing "write to ..." line drawn under the conversation
+    would be a second, contradicting one.
     """
     chains: dict[str, list] = {}
     for r in _chat_rows(con, agent):
@@ -1347,10 +1351,11 @@ def conversation_and_drawn(con, agent: str) -> tuple[list[str], set[int]]:
         drawn |= {m[1] for m in msgs}
     if not out:
         out.append(f"nothing yet between you and {agent}")
-    how, rid = chat_target(con, agent)
-    goes = {"answers": f" · answers #{rid}", "under": f" · goes under #{rid}",
-            "new": " · starts a new thread"}[how]
-    out += ["", f"↵ write to {agent}{goes} · e in $EDITOR"]
+    if hint:
+        how, rid = chat_target(con, agent)
+        goes = {"answers": f" · answers #{rid}", "under": f" · goes under #{rid}",
+                "new": " · starts a new thread"}[how]
+        out += ["", f"↵ write to {agent}{goes} · e in $EDITOR"]
     return out, drawn
 
 
@@ -1443,13 +1448,15 @@ def chat_seen(con, agent: str) -> None:
     db.set_cursor(con, _seen_key(agent), int(time.time()))
 
 
-def agent_detail(con, agent: str) -> list[tuple[str, list[str]]]:
+def agent_detail(con, agent: str, hint: bool = True) -> list[tuple[str, list[str]]]:
     """What is behind an agent's row, in sections a screen can draw.
 
     The head, then the conversation the human has with it, then whatever is
     waiting on it or owed to it that is not part of that conversation - a
     request from another agent is not something the human said to it. What it
     knows and what it has done are read on request (`agent_knows`, `agent_done`).
+
+    `hint`: see `conversation_and_drawn`.
     """
     row = db.get_agent_state(con, agent)
     try:
@@ -1478,7 +1485,7 @@ def agent_detail(con, agent: str) -> list[tuple[str, list[str]]]:
     # What the conversation drew is not repeated; every other queued request
     # and untold answer is listed under it, including one in a chain too old
     # for the conversation to draw.
-    chat, drawn = conversation_and_drawn(con, agent)
+    chat, drawn = conversation_and_drawn(con, agent, hint)
     others = [Entry(r["id"], r["requester"], r["body"] or "", r["ts"])
               for r in db.queued_for(con, agent) if r["id"] not in drawn]
     untold = [Entry(r["id"], r["target"], r["verdict"] or r["state"], r["resolved_at"] or r["ts"])
@@ -1686,22 +1693,25 @@ WAITS: dict[str, tuple[str, int]] = {
 }
 
 
-def perform(verb: str, *args, **kwargs) -> str:
-    """Run one of `ASYNC_VERBS` on a connection of its own and return what it says.
-    The one door the bridge's worker process (`ocp.actrun`) goes in by.
+def perform(verb: str, *args, **kwargs) -> tuple[bool, str]:
+    """Run one of `ASYNC_VERBS` on a connection of its own. Returns (ok, said).
 
-    Every verb here says what happened in words; `dismiss` alone also returns
-    whether a guard refused it (its callers already unpack that), which is not
-    something `ocp.actrun`'s one-line JSON answer has a second slot for - the
-    words already carry a refusal ("is not yours to dismiss"), so only the
-    words cross this door.
+    Every verb here says what happened in words, and `ok` is True for all but
+    `chat_reply`: their refusal is already in the words ("is not yours to
+    dismiss"), and `ocp.actrun`'s "ok" turning that into a red "failed" line
+    would misdescribe a well-formed answer. `chat_reply` is the one place a
+    screen needs the real bool - the box it was typed in has to know whether
+    to clear itself or keep what was typed - so it alone crosses through
+    `chat_reply_ok` rather than the plain wrapper the others use.
     """
     if verb not in ASYNC_VERBS:
         raise ValueError(f"not an action: {verb!r}")
     con = db.connect()
     try:
+        if verb == "chat_reply":
+            return chat_reply_ok(con, *args, **kwargs)
         result = globals()[verb](con, *args, **kwargs)
-        return result[1] if isinstance(result, tuple) else result
+        return True, (result[1] if isinstance(result, tuple) else result)
     finally:
         con.close()
 

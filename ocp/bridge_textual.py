@@ -171,8 +171,9 @@ class JobsAware:
             self._retime()
         self._redraw()
 
-    def _start(self, verb: str, target: str, what: str, args: tuple, kwargs: dict | None = None) -> str:
-        said = self.jobs.start(verb, target, what, args, kwargs)
+    def _start(self, verb: str, target: str, what: str, args: tuple, kwargs: dict | None = None,
+               on_result=None) -> str:
+        said = self.jobs.start(verb, target, what, args, kwargs, on_result)
         self._retime()
         return said
 
@@ -404,13 +405,10 @@ def _resolved(box: AgentDraft) -> str:
 
 def _conversation_lines(con, name: str, width: int) -> list[str]:
     """The conversation, formatted and wrapped exactly as curses draws it
-    (`tui._agent_page`, `tui.lines_of` - the tested turn-by-turn layout), less
-    the trailing "write to ..." hint: this screen's own box replaces it."""
-    detail = tui._agent_page(con, name, tui.AGENTS)
-    lines = tui.lines_of(detail, width)
-    while len(lines) >= 2 and lines[-2] == "" and "write to" in lines[-1]:
-        lines = lines[:-2]
-    return lines
+    (`tui._agent_page`, `tui.lines_of` - the tested turn-by-turn layout).
+    `hint=False`: this screen's own box already says where a message goes."""
+    detail = tui._agent_page(con, name, tui.AGENTS, hint=False)
+    return tui.lines_of(detail, width)
 
 
 class AgentDetail(JobsAware, Screen):

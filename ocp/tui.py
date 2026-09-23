@@ -1092,11 +1092,13 @@ def page(title: str, sections: list[tuple[str, list[str]]],
 
 
 def _agent_page(con, name: str, panel: int = AGENTS, title: str | None = None,
-                old: dict | None = None) -> dict:
+                old: dict | None = None, hint: bool = True) -> dict:
     """An agent's page: its head, and the conversation under it. `old` is the
     page it replaces, so a redraw keeps the scroll the reader was at. What is
-    new in the conversation stays counted until the reader leaves the page."""
-    d = page(title or f"agent {name}", actions.agent_detail(con, name), panel, name)
+    new in the conversation stays counted until the reader leaves the page.
+    `hint`: see `actions.conversation_and_drawn` - False for a screen with its
+    own input box, which already says where a message goes."""
+    d = page(title or f"agent {name}", actions.agent_detail(con, name, hint), panel, name)
     d["agent"] = name
     d["stacked"], d["stem"], d["end"] = True, actions.CHAT_TAB, True
     if old:
