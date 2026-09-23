@@ -1,20 +1,28 @@
 """ocp bridge, ported to Textual (task #45).
 
-The first screen ported: the dashboard (`tui.build`'s four panels - ACCOUNTS,
-AGENTS, MESSAGES, STUCK - the same screen `tui.frame` draws for curses). It
-draws from the same data functions curses does (`tui.build`, `tui.navigate`,
-`tui.step`, `actions.can`, ...) - "it draws; it does not decide" (tui.py's own
-rule) holds here too, so the two screens cannot disagree about what a row
-means. What changes is the interaction layer: raw termios reads and writes
-become Textual's event loop, and a key that acts no longer blocks it.
+Two screens so far: the dashboard (`tui.build`'s four panels - ACCOUNTS,
+AGENTS, MESSAGES, STUCK - the same screen `tui.frame` draws for curses) and an
+agent's own page (its conversation and the box chat-box put there). Both draw
+from the same data functions curses does (`tui.build`, `tui.navigate`,
+`tui._agent_page`, `tui.lines_of`, `actions.can`, ...) - "it draws; it does
+not decide" (tui.py's own rule) holds here too, so the two front ends cannot
+disagree about what a row or a page means. What changes is the interaction
+layer: raw termios reads and writes become Textual's event loop, and a key
+that acts no longer blocks it.
 
 That is `jobs.py`, taken over from the unmerged `buddyron/bridge-working`
-branch (task #16 / #1615) as a requirement of this port: `w`, `c`, `p`, `f`,
-`v`, `t`, `m`, `e` and the MESSAGES panel's `a`/`e`/`x` all hand their verb to
-`ocp.actrun` and return at once, so the dashboard keeps redrawing and reading
-keys while an action is in flight, with a line saying what is running and for
-how long. The agent detail page (chat-box, `buddyron/chat-box-is-the-composer`)
-is the next screen; this one does not open it yet.
+branch (task #16 / #1615) as a requirement of this port: every verb a key or a
+slash command can run hands its verb to `ocp.actrun` and returns at once, so a
+screen keeps redrawing and reading keys while an action is in flight, with a
+line saying what is running and for how long.
+
+The agent's page's box is `buddyron/chat-box-is-the-composer` (task #16),
+taken over the same way: typing lands in it, Enter sends, and a message
+starting with '/' is a command - `/knows`, `/done`, `/cancel <id>`, and every
+`AGENT_KEYS` verb the row keys still bind on the dashboard.
+
+Not yet ported: ACCOUNTS' login/add/cap/remove, and opening a MESSAGES row
+into its own page - `ocp bridge` (curses) still covers those meanwhile.
 """
 from __future__ import annotations
 
@@ -136,28 +144,19 @@ class TextPrompt(ModalScreen[str | None]):
         self._redraw()
 
 
-class Dashboard(Screen):
-    """The main screen: `tui.build`'s four panels, tab- and arrow-navigable,
-    with the row actions dispatched through `jobs.Jobs` rather than run in
-    place."""
+class JobsAware:
+    """What a screen needs to run a verb through `jobs.Jobs` and keep showing
+    it: one `Jobs` per app (`self.app.jobs`), shared across screens so an
+    action started from the dashboard is still there, still running, if the
+    human moves to an agent's own page while it goes."""
 
     REFRESH_S = 2.0        # matches curses `run`'s own default interval
     BUSY_REFRESH_S = 0.25  # while a job is running, quick enough to notice it end
+    flash = ""
 
-    def __init__(self) -> None:
-        super().__init__()
-        self.panel = tui.AGENTS
-        self.sel: dict = {}
-        self.flash = ""
-        self.jobs = jobsmod.Jobs()
-        tui._enter(self.panel, self.sel)
-
-    def compose(self) -> ComposeResult:
-        yield Static(id="canvas")
-
-    def on_mount(self) -> None:
-        self._retime()
-        self._redraw()
+    @property
+    def jobs(self) -> jobsmod.Jobs:
+        return self.app.jobs
 
     def _retime(self) -> None:
         if getattr(self, "_timer", None) is not None:
@@ -170,6 +169,82 @@ class Dashboard(Screen):
         if said:
             self.flash = "  ·  ".join(said)
             self._retime()
+        self._redraw()
+
+    def _start(self, verb: str, target: str, what: str, args: tuple, kwargs: dict | None = None) -> str:
+        said = self.jobs.start(verb, target, what, args, kwargs)
+        self._retime()
+        return said
+
+
+async def dispatch_agent_verb(screen: JobsAware, con, name: str, label: str) -> None:
+    """Run one `AGENT_KEYS` verb against `name`, whichever screen it was
+    pressed or typed on - `tui._dispatch_agent_verb`'s decisions (what asks
+    first, what needs a prompt), a modal and `jobs.Jobs` in place of curses's
+    blocking prompt and in-place call."""
+    allowed, why = actions.can(con, name, label)
+    if not allowed:
+        screen.flash = why
+        return
+    if label in ("message", "editor"):
+        # "editor" is curses's $EDITOR spawn - one more way to write the same
+        # message, not a different action (`actions.can` has no case for it
+        # either). The modal composer stands in for both here.
+        body = await screen.app.push_screen_wait(TextPrompt(f"message {name}:", multi=True))
+        if body is None:
+            screen.flash = "nothing sent: try again to retry"
+            return
+        screen.flash = screen._start("message", name, f"messaging {name}", (name, body))
+        return
+    if label == "terminal" and tui._needs_a_terminal(con, name):
+        repo = await screen.app.push_screen_wait(
+            TextPrompt(f"{name} has nowhere to run - repo to start it in:"))
+        if not repo:
+            screen.flash = "not started"
+            return
+        screen.flash = screen._start("terminal", name, f"starting {name}", (name, repo.strip()))
+        return
+    if label == "move":
+        dest = await screen.app.push_screen_wait(TextPrompt(f"move {name} to which account:"))
+        if not dest:
+            screen.flash = "not moved"
+            return
+        dest = dest.strip()
+        if not await screen.app.push_screen_wait(
+                Confirm(f"move {name} to {dest} - records its handoff, ends its session, "
+                        f"and makes {dest} its preferred account")):
+            screen.flash = "left alone"
+            return
+        screen.flash = screen._start("move", name, f"moving {name} to {dest}", (name, dest))
+        return
+    if tui._needs_confirm(con, name, label):
+        if not await screen.app.push_screen_wait(Confirm(f"{label} {name}")):
+            screen.flash = "left alone"
+            return
+        ok, why = tui._confirmed_can(con, name, label)
+        if not ok:
+            screen.flash = why
+            return
+    screen.flash = screen._start(label, name, f"{jobsmod.GERUND.get(label, label)} {name}", (name,))
+
+
+class Dashboard(JobsAware, Screen):
+    """The main screen: `tui.build`'s four panels, tab- and arrow-navigable,
+    with the row actions dispatched through `jobs.Jobs` rather than run in
+    place."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.panel = tui.AGENTS
+        self.sel: dict = {}
+        self.flash = ""
+        tui._enter(self.panel, self.sel)
+
+    def compose(self) -> ComposeResult:
+        yield Static(id="canvas")
+
+    def on_mount(self) -> None:
+        self._retime()
         self._redraw()
 
     def _redraw(self) -> None:
@@ -229,53 +304,13 @@ class Dashboard(Screen):
             con.close()
 
     async def _act_agent(self, con, name: str, key: str) -> None:
+        if key in ("\r", "\n"):    # "↵" in AGENT_KEYS is a display label, never a lookup key
+            self.app.push_screen(AgentDetail(name))
+            return
         label = dict(tui.AGENT_KEYS).get(key)
         if not label or label == "open":
-            return          # "open" is the next screen (the agent's own page)
-        allowed, why = actions.can(con, name, label)
-        if not allowed:
-            self.flash = why
             return
-        if label in ("message", "editor"):
-            # "editor" is curses's $EDITOR spawn - one more way to write the same
-            # message, not a different action (`actions.can` has no case for it
-            # either). The modal composer stands in for both here.
-            body = await self.app.push_screen_wait(TextPrompt(f"message {name}:", multi=True))
-            if body is None:
-                self.flash = "nothing sent: e or m again to retry"
-                return
-            self.flash = self._start("message", name, f"messaging {name}", (name, body))
-            return
-        if label == "terminal" and tui._needs_a_terminal(con, name):
-            repo = await self.app.push_screen_wait(
-                TextPrompt(f"{name} has nowhere to run - repo to start it in:"))
-            if not repo:
-                self.flash = "not started"
-                return
-            self.flash = self._start("terminal", name, f"starting {name}", (name, repo.strip()))
-            return
-        if label == "move":
-            dest = await self.app.push_screen_wait(TextPrompt(f"move {name} to which account:"))
-            if not dest:
-                self.flash = "not moved"
-                return
-            dest = dest.strip()
-            if not await self.app.push_screen_wait(
-                    Confirm(f"move {name} to {dest} - records its handoff, ends its session, "
-                            f"and makes {dest} its preferred account")):
-                self.flash = "left alone"
-                return
-            self.flash = self._start("move", name, f"moving {name} to {dest}", (name, dest))
-            return
-        if tui._needs_confirm(con, name, label):
-            if not await self.app.push_screen_wait(Confirm(f"{label} {name}")):
-                self.flash = "left alone"
-                return
-            ok, why = tui._confirmed_can(con, name, label)
-            if not ok:
-                self.flash = why
-                return
-        self.flash = self._start(label, name, f"{jobsmod.GERUND.get(label, label)} {name}", (name,))
+        await dispatch_agent_verb(self, con, name, label)
 
     async def _act_message(self, con, target, key: str) -> None:
         # `target` is the row's stable key, not its id: a folded row's id is
@@ -302,17 +337,254 @@ class Dashboard(Screen):
                 return
             self.flash = self._start("answer", f"#{rid}", f"answering #{rid}", (rid, text))
 
-    def _start(self, verb: str, target: str, what: str, args: tuple, kwargs: dict | None = None) -> str:
-        said = self.jobs.start(verb, target, what, args, kwargs)
+
+class ReadOnly(ModalScreen[None]):
+    """`/knows` and `/done`: a page of text over the conversation. Any key
+    closes it - there is nothing on it to act on."""
+
+    def __init__(self, title: str, rows: list) -> None:
+        super().__init__()
+        self.title_, self.rows = title, [str(r) for r in rows]
+
+    def compose(self) -> ComposeResult:
+        yield Static(id="readonly")
+
+    def on_mount(self) -> None:
+        w = max(20, self.app.size.width)
+        text = "\n".join([tui.fit(f"{tui.BOLD}{self.title_}{tui.R}", w), ""]
+                         + [tui.fit(r, w) for r in self.rows])
+        self.query_one("#readonly", Static).update(Text.from_ansi(text))
+
+    def on_key(self, event: events.Key) -> None:
+        event.stop()
+        self.dismiss(None)
+
+
+class AgentDraft(tui.Composer):
+    """What is typed in an agent's own box (chat-box, `buddyron/chat-box-is-
+    the-composer`, task #16 - taken over as a requirement here). One per
+    agent, kept in `_DRAFTS` for the session: it is not part of the screen,
+    which is rebuilt from the database every tick, and leaving the page keeps
+    it."""
+
+    def __init__(self) -> None:
+        super().__init__(multi=True)
+        self.matches: list[str] = []
+        self.sel, self.picked = 0, False
+        self.cleared = ""
+
+
+_DRAFTS: dict[str, AgentDraft] = {}
+
+
+def _draft(agent: str) -> AgentDraft:
+    return _DRAFTS.setdefault(agent, AgentDraft())
+
+
+def _sync_matches(box: AgentDraft, cmds: list[tuple[str, str]]) -> list[str]:
+    """The commands the box's text names. The highlight survives only typing
+    that leaves the same list - clamping alone would retarget it to another
+    command."""
+    new = ([n for n, _ in cmds if n.startswith(box.text[1:])]
+           if box.text.startswith("/") else [])
+    if new != box.matches:
+        box.sel, box.picked = 0, False
+    box.matches = new
+    return new
+
+
+def _resolved(box: AgentDraft) -> str:
+    """What Enter sends: a command when exactly one is named or the human
+    picked one, otherwise the text as typed - a real message may start with
+    '/'."""
+    if len(box.matches) == 1 or (box.matches and box.picked):
+        return f"/{box.matches[box.sel]}"
+    return box.text.strip("\n")
+
+
+def _conversation_lines(con, name: str, width: int) -> list[str]:
+    """The conversation, formatted and wrapped exactly as curses draws it
+    (`tui._agent_page`, `tui.lines_of` - the tested turn-by-turn layout), less
+    the trailing "write to ..." hint: this screen's own box replaces it."""
+    detail = tui._agent_page(con, name, tui.AGENTS)
+    lines = tui.lines_of(detail, width)
+    while len(lines) >= 2 and lines[-2] == "" and "write to" in lines[-1]:
+        lines = lines[:-2]
+    return lines
+
+
+class AgentDetail(JobsAware, Screen):
+    """An agent's own page: its conversation, and the box chat-box put there -
+    typing lands in it, Enter sends, '/' opens its commands in place. Escape
+    goes back to the dashboard, keeping the draft."""
+
+    def __init__(self, agent: str) -> None:
+        super().__init__()
+        self.agent, self.top, self.flash = agent, 0, ""
+        self.commands: list[tuple[str, str]] = []
+
+    @property
+    def box(self) -> AgentDraft:
+        return _draft(self.agent)
+
+    def compose(self) -> ComposeResult:
+        yield Static(id="canvas")
+
+    def on_mount(self) -> None:
         self._retime()
-        return said
+        self._redraw()
+
+    def _room(self, height: int) -> int:
+        # title + blank, two rules, the box (at least one row), flash, keys.
+        return max(1, height - 8)
+
+    def _redraw(self) -> None:
+        size = self.size
+        width, height = max(20, size.width), max(10, size.height)
+        con = db.connect()
+        try:
+            body = _conversation_lines(con, self.agent, width)
+            cmds = tui.agent_commands(con, self.agent)
+        finally:
+            con.close()
+        self.commands = cmds
+        job_lines = _job_lines_ansi(self.jobs, width)
+        room = self._room(height) - len(job_lines)
+        top = max(0, min(self.top, max(0, len(body) - room)))
+        self.top = top
+        shown = body[top:top + room]
+        while len(shown) < room:
+            shown.append("")
+        rule = f"{tui.DIM}{'─' * width}{tui.R}"
+        box_text = self.box.shown(f"{tui.CYA}{tui.BOLD}❯{tui.R}", width, 3)
+        _sync_matches(self.box, cmds)
+        if self.box.matches:
+            box_text = box_text + [tui.fit(f"{tui.DIM}  " + "  ".join(
+                (f"{tui.R}▸{tui.DIM}" if i == self.box.sel else " ") + n
+                for i, n in enumerate(self.box.matches)) + tui.R, width)]
+        keys = "esc back · ↑↓ scroll · / commands · ↵ send"
+        lines = ([tui.fit(f"{tui.BOLD}agent {self.agent}{tui.R}", width), ""]
+                 + shown + [rule] + box_text + [rule] + job_lines
+                 + [tui.fit(self.flash, width) if self.flash else "",
+                    tui.fit(f"{tui.DIM}{keys}{tui.R}", width)])
+        text = "\n".join(line for line in lines[:height])
+        self.query_one("#canvas", Static).update(Text.from_ansi(text))
+
+    def on_key(self, event: events.Key) -> None:
+        k = key_token(event)
+        if k is None:
+            return
+        event.stop()
+        box = self.box
+        if k in ("\033[A", "\033[B") and box.matches:
+            box.sel = max(0, min(len(box.matches) - 1, box.sel + (1 if k == "\033[B" else -1)))
+            box.picked = True
+            self._redraw()
+            return
+        if k in ("\033[A", "\033[B"):
+            self.top = max(0, self.top + (1 if k == "\033[B" else -1))
+            self._redraw()
+            return
+        if k in ("\033[5~", "\033[6~"):
+            room = self._room(max(10, self.size.height))
+            self.top = max(0, self.top + room * (1 if k == "\033[6~" else -1))
+            self._redraw()
+            return
+        if k in ("\033[H", "\033[F") and not box.text:
+            self.top = 0 if k == "\033[H" else 1 << 30     # clamped in `_redraw`
+            self._redraw()
+            return
+        if k == "\x15":         # ctrl+u: clear the draft, kept for ctrl+y
+            if box.text:
+                box.cleared = box.text
+                box.text, box.pos, box.typed = "", 0, ""
+            self._redraw()
+            return
+        if k == "\x19":         # ctrl+y: bring the cleared draft back
+            if box.cleared:
+                box.text = box.text[:box.pos] + box.cleared + box.text[box.pos:]
+                box.pos += len(box.cleared)
+                box.cleared = ""
+            self._redraw()
+            return
+        done = box.feed(k)
+        _sync_matches(box, self.commands)
+        if done == "cancel":
+            self.app.pop_screen()
+            return
+        if done == "send":
+            body = _resolved(box)
+            if body.strip():
+                self.run_worker(self._deliver(body), exclusive=True, group="act")
+            return
+        self._redraw()
+
+    async def _deliver(self, body: str) -> None:
+        """Send `body`, or run it when it names one of `self.commands` - a
+        literal message that happens to type a real command's name runs it,
+        the same tradeoff any chat command syntax makes. Dispatched through
+        `jobs.Jobs` either way, so the box is free the moment it is handed
+        off, not once an answer comes back."""
+        box = self.box
+        con = db.connect()
+        try:
+            known = dict(self.commands)
+            if body.startswith("/") and body[1:] in known:
+                await self._run_command(con, body[1:], known[body[1:]])
+            else:
+                self.flash = self._start("chat_reply", self.agent, f"messaging {self.agent}",
+                                         (self.agent, body))
+            box.text, box.pos, box.typed, box.cleared = "", 0, "", ""
+        finally:
+            con.close()
+        self._redraw()
+
+    async def _run_command(self, con, cmd: str, kind: str) -> None:
+        name = self.agent
+        if kind == "info":
+            _, self.flash = tui._run_info_command(con, {}, name, cmd)
+            return
+        if kind == "page":
+            rows = actions.agent_knows(con, name) if cmd == "knows" else actions.agent_done(con, name)
+            await self.app.push_screen_wait(ReadOnly(f"{cmd} · {name}", rows))
+            return
+        if kind == "cancel":
+            await self._cancel(con, name, cmd.partition(" ")[2])
+            return
+        await dispatch_agent_verb(self, con, name, cmd)
+
+    async def _cancel(self, con, name: str, arg: str) -> None:
+        waiting = actions.waiting_ids(con, name)
+        if not arg:
+            if len(waiting) != 1:
+                self.flash = ("nothing is waiting for it" if not waiting else
+                              "several are waiting - " + " · ".join(f"/cancel {r}" for r in waiting))
+                return
+            rid = waiting[0]
+        else:
+            rid = int(arg)
+            if rid not in waiting:
+                self.flash = f"#{rid} is not waiting for {name}"
+                return
+        ok, plan = actions.cancel_plan(con, rid)
+        if not ok:
+            self.flash = plan
+            return
+        if not await self.app.push_screen_wait(Confirm(plan)):
+            self.flash = "left alone"
+            return
+        self.flash = self._start("cancel", f"#{rid}", f"cancelling #{rid}", (rid,))
 
 
 class BridgeApp(App):
-    """The Textual bridge (`ocp bridge --textual`, task #45). One screen so
-    far: the dashboard - see `Dashboard`."""
+    """The Textual bridge (`ocp bridge --textual`, task #45). Two screens so
+    far: the dashboard and an agent's own page - see `Dashboard`, `AgentDetail`."""
 
     TITLE = "ocp bridge"
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.jobs = jobsmod.Jobs()
 
     def on_mount(self) -> None:
         self.push_screen(Dashboard())

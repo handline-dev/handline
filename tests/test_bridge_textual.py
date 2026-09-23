@@ -24,8 +24,8 @@ sys.path.insert(0, str(ROOT))
 
 from textual import events  # noqa: E402
 from ocp import (actions, agents, bridge_textual as bt, daemon as daemonmod,  # noqa: E402
-                 db, jobs as jobsmod, orca as orcamod, tui)
-import test_ocp as t  # noqa: E402 - its `_daemon_home` fixture, not re-derived here
+                 db, jobs as jobsmod)
+import test_ocp as t  # noqa: E402 - its `_daemon_home`/`DESIGN_TEAM` fixture, not re-derived here
 
 PASS: list[str] = []
 FAIL: list[str] = []
@@ -37,20 +37,17 @@ def check(name: str, cond: bool, detail: str = "") -> None:
 
 
 def _home(tag: str) -> Path:
+    """`t._daemon_home`, minus the daemon-trigger fixture (a percentage, a
+    Stop event) this screen has no use for: registers `backend` on `alpha`
+    with a terminal, and a real team.yaml so `actions.chat_reply`/`ask` have
+    somewhere to route through."""
     home = Path(tempfile.mkdtemp(prefix=f"ocp_bt_{tag}_"))
-    os.environ["OCP_HOME"] = str(home)
-    orcamod.available = lambda: False
+    t._daemon_home(home, 20)
     return home
 
 
 async def test_dashboard_shows_a_registered_agent_and_moves_the_cursor() -> None:
     _home("dash")
-    agents.register("backend", "alpha")
-    con = db.connect()
-    try:
-        db.set_terminal(con, "backend", "term_x", "wt")
-    finally:
-        con.close()
     app = bt.BridgeApp()
     async with app.run_test(size=(120, 30)) as pilot:
         await pilot.pause()
@@ -70,12 +67,6 @@ async def test_an_action_runs_off_the_key_loop_and_the_screen_says_so() -> None:
     screen - it keeps redrawing and reading keys while the action runs, with a
     line saying what it is doing."""
     home = _home("jobs")
-    agents.register("backend", "alpha")
-    con = db.connect()
-    try:
-        db.set_terminal(con, "backend", "term_x", "wt")
-    finally:
-        con.close()
     stub = home / "stub_slow.py"
     stub.write_text(
         "import sys, json, time\n"
@@ -143,6 +134,69 @@ async def test_text_prompt_composer_sends_and_cancels() -> None:
     check("prompt: escape cancels and sends nothing", cancelled is None, repr(cancelled))
 
 
+async def test_agent_page_box_sends_a_message_and_runs_slash_commands() -> None:
+    """chat-box (task #16/#1390), taken over: typing lands in the box, Enter
+    sends it, '/' opens the same commands `agent_commands` lists elsewhere,
+    and escape goes back keeping the draft - through `ocp.actrun`, same as
+    every other verb here (bridge-working).
+
+    Targets `reviewer`, not `backend`: DESIGN_TEAM (`test_ocp._daemon_home`)
+    gives `*` an edge to `reviewer` alone, so a human message to `backend`
+    would be denied for a reason that has nothing to do with this screen."""
+    _home("box")
+    agents.register("reviewer", "alpha")
+    con = db.connect()
+    try:
+        db.set_terminal(con, "reviewer", "term_r", "wt")
+    finally:
+        con.close()
+
+    class _HostApp(bt.App):
+        def __init__(self):
+            super().__init__()
+            self.jobs = jobsmod.Jobs()
+
+        def on_mount(self):
+            self.push_screen(bt.AgentDetail("reviewer"))
+
+    app = _HostApp()
+    async with app.run_test(size=(100, 30)) as pilot:
+        await pilot.pause()
+        screen = app.screen
+        check("page: opens on the agent it is given",
+              isinstance(screen, bt.AgentDetail) and screen.agent == "reviewer",
+              type(screen).__name__)
+
+        for ch in "hello there":
+            await pilot.press(ch)
+        text = str(screen.query_one("#canvas").render())
+        check("page: what is typed lands in the box", "hello there" in text, text)
+
+        await pilot.press("enter")
+        deadline = asyncio.get_event_loop().time() + 8
+        while asyncio.get_event_loop().time() < deadline and "hello there" in screen.box.text:
+            await pilot.pause(0.1)
+        check("page: the box is cleared once the message is handed off",
+              screen.box.text == "", repr(screen.box.text))
+        while asyncio.get_event_loop().time() < deadline and not screen.flash:
+            await pilot.pause(0.1)
+        check("page: sending it runs through the real chat_reply, not a stub",
+              "queued as #" in screen.flash, screen.flash)
+
+        await pilot.press("slash")
+        await pilot.pause(0.1)
+        text = str(screen.query_one("#canvas").render())
+        check("page: '/' alone lists every command agent_commands does",
+              "knows" in text and "terminal" in text and "cancel" in text, text)
+        for ch in "knows":
+            await pilot.press(ch)
+        await pilot.press("escape")
+        await pilot.pause(0.1)
+        check("page: escape backs out of the page, keeping the draft",
+              not isinstance(app.screen, bt.AgentDetail) and screen.box.text == "/knows",
+              f"{type(app.screen).__name__} draft={screen.box.text!r}")
+
+
 async def test_wake_on_a_stalled_agent_asks_first() -> None:
     """auditor #2008 BLOCKING 2a: waking a STALLED agent needs a yes first in
     curses (`_needs_confirm`, founder #1620/#1631) - checking only `label in
@@ -177,8 +231,7 @@ async def test_messages_panel_acts_on_a_folded_row() -> None:
     (`"agent:<name>"`), not an id, and the ordinary row is folded - a report
     with nothing pinning it. Acting on it must look the id up fresh, the same
     way `tui._act_on` does, rather than trying to read the key as one."""
-    home = Path(tempfile.mkdtemp(prefix="ocp_bt_msgfold_"))
-    t._daemon_home(home, 20)
+    _home("msgfold")
     agents.register("reviewer", "alpha")
     con = db.connect()
     try:
@@ -239,6 +292,7 @@ async def _run_all() -> None:
     await test_dashboard_shows_a_registered_agent_and_moves_the_cursor()
     await test_an_action_runs_off_the_key_loop_and_the_screen_says_so()
     await test_text_prompt_composer_sends_and_cancels()
+    await test_agent_page_box_sends_a_message_and_runs_slash_commands()
     await test_wake_on_a_stalled_agent_asks_first()
     await test_messages_panel_acts_on_a_folded_row()
     await test_text_prompt_keeps_a_paste_instead_of_dropping_it()
