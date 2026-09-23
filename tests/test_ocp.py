@@ -23234,15 +23234,23 @@ def test_handoff_reclaims_context(home: Path) -> None:
         con.close()
 
 
-def test_a_context_handoff_never_parks(home: Path) -> None:
+def test_a_context_handoff_wakes_at_once_with_its_record(home: Path) -> None:
     """Founder #1903: a context handoff is not a usage wall, so once the
-    clear is done there is nothing left to wait out - the agent must come
-    back running or ready right away, whatever its account's usage window
-    says, not sit PARKED until reset_5h the way a usage trigger would.
+    clear is done there is no window left to wait out - its park's wake_at
+    is immediate, not the account's reset_5h, whatever its usage window says.
+
+    But it still has to be a park, not a shortcut straight to QUEUED/IDLE:
+    waking is the one path (`wake_agent`/`wake_prompt`) that hands the agent
+    its own record back. Skipping it left the agent with an empty
+    conversation and no memory of what it was doing - auditor #1957's
+    blocking finding on the first cut of this fix, which only asserted the
+    state was not PARKED and so passed on exactly that regression.
     """
     _daemon_home(home, 20)
     con = db.connect()
-    real_clear, real_alive, real_idle = orcamod.clear_context, orcamod.alive, orcamod.idle_now
+    typed: list[str] = []
+    real = (orcamod.clear_context, orcamod.alive, orcamod.idle_now,
+           orcamod.resume_with, orcamod.typeable_now)
     try:
         # A recorded (non-assumed) reading on an account with room to spare -
         # the case the auditor hit sitting PARKED 09:25-11:30 at 19%.
@@ -23252,20 +23260,73 @@ def test_a_context_handoff_never_parks(home: Path) -> None:
         orcamod.available = lambda: True
         orcamod.alive = lambda h: True
         orcamod.idle_now = lambda h: True
+        orcamod.typeable_now = lambda h: True
         orcamod.clear_context = lambda h, wait=True, timeout_ms=0: (True, "context cleared")
+        orcamod.resume_with = lambda h, text: (typed.append(text), (True, "typed"))[1]
         readable_agent(con, home, "backend")
+        # Otherwise the wake reads this as a launch-recipe change and takes
+        # the closed-agent relaunch path instead of typing at the live one.
+        db.set_launch_fingerprint(con, "backend", launch.fingerprint("backend"))
         sessions_are("backend")
 
         t = triggers.Trigger(True, "context", "context 700,000 >= 120,000")
         dmn.perform_handoff(con, "backend", t, lambda _m: None)
+        before = int(time.time())
         row = db.get_agent_state(con, "backend")
-        check("context handoff: never PARKED", row["state"] != dmn.PARKED, str(dict(row)))
-        check("context handoff: no future wake_at", not row["wake_at"], str(dict(row)))
-        check("context handoff: left running or ready",
-              row["state"] in (dmn.IDLE, dmn.QUEUED), str(dict(row)))
+        check("context handoff: parks with an immediate wake, not the account's reset",
+              row["state"] == dmn.PARKED and row["wake_at"] is not None
+              and row["wake_at"] <= before + 5, str(dict(row)))
+        check("context handoff: keeps its own record for the wake to deliver",
+              bool(db.get_handoff(con, "backend")), "no handoff kept")
+
+        for _ in range(3):
+            dmn.supervise(con, "backend", lambda _m: None, int(time.time()) + 1, {}, [])
+        check("context handoff: its own record is typed into the session",
+              any("Carry on from here" in t for t in typed), str(typed))
+        row = db.get_agent_state(con, "backend")
+        check("context handoff: settles into QUEUED or IDLE once delivered, not PARKED",
+              row["state"] in (dmn.IDLE, dmn.QUEUED) and not row["wake_at"],
+              str(dict(row)))
+        check("context handoff: the record is spent, not replayed on the next wake",
+              db.get_handoff(con, "backend") is None)
     finally:
-        orcamod.clear_context, orcamod.alive = real_clear, real_alive
-        orcamod.idle_now = real_idle
+        (orcamod.clear_context, orcamod.alive, orcamod.idle_now,
+         orcamod.resume_with, orcamod.typeable_now) = real
+        con.close()
+
+
+def test_a_context_handoff_backs_off_when_the_clear_keeps_failing(home: Path) -> None:
+    """Should-fix from #1957: an immediate wake is only safe once the context
+    is actually reclaimed. A /clear that keeps failing leaves the agent over
+    its limit, so the trigger fires again next tick - nothing stopped that
+    from spinning at full cadence forever, since only a failed record ever
+    counted toward the degraded streak. A failed clear must count too.
+    """
+    _daemon_home(home, 20)
+    con = db.connect()
+    real = (orcamod.clear_context, orcamod.alive, orcamod.idle_now)
+    try:
+        db.set_account(con, "backend", "alpha")
+        write_status(home, "alpha", pct_5h=19, pct_7d=10, ctx_pct=5,
+                     reset_5h=int(time.time()) + 9000)
+        orcamod.available = lambda: True
+        orcamod.alive = lambda h: True
+        orcamod.idle_now = lambda h: True
+        orcamod.clear_context = lambda h, wait=True, timeout_ms=0: (False, "still mid-turn")
+        readable_agent(con, home, "backend")
+        sessions_are("backend")
+
+        t = triggers.Trigger(True, "context", "context 700,000 >= 120,000")
+        before = int(time.time())
+        dmn.perform_handoff(con, "backend", t, lambda _m: None)
+        row = db.get_agent_state(con, "backend")
+        check("failed clear: counts toward the degraded streak",
+              row["throttle_count"] == 1, str(dict(row)))
+        check("failed clear: backs the wake off rather than retrying at once",
+              row["state"] == dmn.PARKED and row["wake_at"] is not None
+              and row["wake_at"] > before + 30, str(dict(row)))
+    finally:
+        orcamod.clear_context, orcamod.alive, orcamod.idle_now = real
         con.close()
 
 
@@ -27803,7 +27864,8 @@ def main() -> int:
         run(lambda: test_confirm_trust_presses_down_then_enter())
         run(lambda: test_clear_refuses_mid_turn())
         run(lambda: test_handoff_reclaims_context(Path(td) / 'reclaim'))
-        run(lambda: test_a_context_handoff_never_parks(Path(td) / 'ctxnopark'))
+        run(lambda: test_a_context_handoff_wakes_at_once_with_its_record(Path(td) / 'ctxnopark'))
+        run(lambda: test_a_context_handoff_backs_off_when_the_clear_keeps_failing(Path(td) / 'ctxclearfail'))
         run(lambda: test_a_usage_5h_handoff_still_parks_until_reset(Path(td) / 'usage5hpark'))
         run(lambda: test_a_hand_park_against_an_assumed_account_stays_forceable(Path(td) / 'handpark'))
         run(lambda: test_wake_injects_handoff(Path(td) / 'wake'))

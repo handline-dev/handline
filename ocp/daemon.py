@@ -336,13 +336,11 @@ def resume_handoff(con, row, log) -> None:
     else:
         # Not a usage wall and not a park a person asked for: whatever this
         # trigger fired on (context, today) is already handled by the clear
-        # above, so there is nothing left to wait out - #1903.
-        wake = None
+        # above, so there is nothing left to wait for - but the wake is still
+        # what hands the agent its own record back (`wake_agent`/`wake_prompt`),
+        # so this parks with an immediate wake rather than skipping it (#1957).
+        wake = int(time.time())
     db.advance_handoff(con, hid, "released", state="done" if done_ok else "degraded")
-    if wake is None:
-        new_state = _queued_or_idle(con, agent, f"resumed {kind or 'unknown'} handoff")
-        log(f"  {agent}: resumed handoff from '{step}' -> {new_state}")
-        return
     # Same rule as a fresh park's label (see _perform_handoff): a hand park
     # resumed after a restart is still one a person may force early.
     label = BY_HAND_MARK if kind == BY_HAND_MARK else (
@@ -2225,28 +2223,32 @@ def _perform_handoff(con, agent: str, trigger: triggers.Trigger, log,
     else:
         # Not a usage wall and not a park a person asked for by hand: whatever
         # this trigger fired on (context, today) is already handled by the
-        # clear above, so there is nothing left to wait out - resume at once
-        # rather than sleeping out a usage window it never hit (#1903).
-        wake = None
+        # clear above, so there is no window left to wait out - but the wake
+        # is still what hands the agent its own record back
+        # (`wake_agent`/`wake_prompt`), so this still parks, just with an
+        # immediate wake instead of the account's reset (#1903, #1957).
+        wake = int(time.time())
+        if not cleared:
+            # Unlike a usage wall or a hand park, nothing else here waits out
+            # a real window - so a clear that keeps failing would retry at
+            # full cadence forever with nothing counted against it. This
+            # gives it the same streak, and the same eventual 8.6 escalation
+            # to STALLED, that a failed record already gets (#1957 should-fix).
+            db.bump_counter(con, agent, "throttle_count")
     # A hand park stays a hand park whatever ceiling its wake got - the mark,
     # not the timer, is what `w` reads to decide it may force this one early.
     label = MOVING_MARK if short_retry and trigger.kind != BY_HAND_MARK else trigger.kind
     fresh = db.get_agent_state(con, agent)
     streak = int(fresh["throttle_count"]) if fresh else 0
     if streak:
-        # A broken handoff is retried, never resumed at full cadence: this is
-        # the one thing that still has to wait even when the trigger itself
-        # (context) does not.
+        # A broken handoff - or clear - is retried, never resumed at full
+        # cadence: this is the one thing that still has to wait even when the
+        # trigger itself (context) does not.
         backoff = backoff_for(streak)
-        if wake is None or int(time.time()) + backoff > wake:
+        if int(time.time()) + backoff > wake:
             wake = int(time.time()) + backoff
             log(f"  {agent}: backing off {backoff}s after {streak} degraded handoff(s)")
     db.advance_handoff(con, hid, "released", state="done" if ok else "degraded")
-    if wake is None:
-        new_state = _queued_or_idle(con, agent, f"{trigger.kind} handoff done")
-        db.bump_counter(con, agent, "continuations")  # 8.5: handoff is not a failure
-        log(f"  {agent}: {trigger.kind} handoff done -> {new_state}")
-        return ok
     db.set_agent_state(con, agent, PARKED, wake_at=wake,
                        detail=f"{label}; wakes at {time.strftime('%H:%M', time.localtime(wake))}")
     # `close` and `wake` both leave a record of when and why; a park never did,
