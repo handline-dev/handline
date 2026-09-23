@@ -22,11 +22,10 @@ from dataclasses import dataclass
 # model's window was 200k and a different, five times looser thing once
 # opus/sonnet grew to 1M and the sentence did not change with it (#1665,
 # #1668). An absolute figure means the same thing on every model, including
-# one whose window this box has never priced - measured against 7 days of
-# token_calls (#1755-#1759): the founder's own anchor, what 60% meant when
-# the window was 200k, and the only candidate that cut real cache-read cost
-# rather than just capping a peak that the old rule's own looseness produced.
-CONTEXT_TOKENS = 120_000
+# one whose window this box has never priced. The founder sets the figure
+# (#1898); an agent's own context_tokens overrides it, and
+# CONTEXT_CLAMP_FRACTION holds a small-window model down to its share below.
+CONTEXT_TOKENS = 200_000
 
 # The clamp: a ceiling of last resort, not the normal decider. When the
 # model is one collect.ctx_size() recognizes, the effective limit is never
@@ -34,11 +33,12 @@ CONTEXT_TOKENS = 120_000
 # window still gets a working check even if its configured or default
 # figure is sized for a 1M-token one. Reusing 60% (CONTEXT_PCT's old value)
 # means this reproduces exactly what the rule already meant for each known
-# model - sonnet/opus clamp to 600,000, unchanged from today; haiku clamps
-# to 120,000, the same as the flat default. An unrecognized model has no
-# window to take a fraction of, so it gets the flat default alone - the
-# deliberate failure direction, since refusing to hand off forever (today's
-# silent behaviour) is worse than a number picked for a different model.
+# model - sonnet/opus clamp to 600,000; haiku clamps to 120,000, below the
+# flat default, so on haiku the clamp is the working limit. An unrecognized
+# model has no window to take a fraction of, so it gets the flat default
+# alone - the deliberate failure direction, since refusing to hand off
+# forever (today's silent behaviour) is worse than a number picked for a
+# different model.
 CONTEXT_CLAMP_FRACTION = 0.60
 
 # Both windows are spent to their own ceiling.
