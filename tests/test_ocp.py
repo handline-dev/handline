@@ -12496,22 +12496,9 @@ def test_a_context_handoff_does_not_thrash_within_min_handoff_interval_s(home: P
 
 def test_a_delivery_and_a_handoff_in_the_same_tick_the_handoff_must_not_type(
         home: Path) -> None:
-    """#1973, measured in daemon.out.log: a notify and a context handoff
-    fired in the same tick, against the same agent - the daemon logged
-    'told about #N' and then 'HANDOFF (context)' one line apart, and the
-    handoff's /clear landed on the session the notify had just started,
-    which Claude Code queued behind the turn instead of running.
-
-    `lock.terminal` alone does not close this: the notify had already
-    released the agent's lock by the time the handoff took it, so mutual
-    exclusion was never actually contested. And a fresh `typeable_now` read
-    taken right after the handoff does take the lock is not enough by
-    itself either - the screen can still say idle for a moment after Enter
-    lands, which is simulated here by leaving `typeable_now` stubbed True
-    throughout, exactly the stale reading the incident had. What has to
-    catch it is `_type_gate`'s settle window: nothing destructive may type
-    within TYPE_SETTLE_S of the last successful type at the same agent,
-    whatever a fresh probe claims."""
+    """#1973 (see the comment above `TYPE_SETTLE_S`). `typeable_now` is left
+    stubbed True throughout - the stale reading the incident had - so what
+    has to catch this is the settle window alone."""
     _daemon_home(home, 20)
     con = db.connect()
     typed: list[str] = []
@@ -12556,14 +12543,11 @@ def test_a_delivery_and_a_handoff_in_the_same_tick_the_handoff_must_not_type(
 
 
 def test_the_settle_window_actually_enforces_with_require_idle_false(home: Path) -> None:
-    """/code-review catch on this branch: `_type_gate(..., require_idle=False,
-    require_settled=True)` - the shape the parked-move-to-room site (and,
-    until this fix, `wake_agent`) uses - must actually enforce the settle
-    window. With `require_settled` left at its default (False), the same
-    call is a silent no-op: neither gate checked, whatever a prior type just
-    did. This pins the True case directly, since driving it end to end
-    through `supervise` needs a PARKED agent with room elsewhere - a fuller
-    scenario the delivery/handoff race test above does not need."""
+    """`_type_gate(..., require_idle=False, require_settled=True)` - the
+    shape the close and parked-move sites use - must actually enforce the
+    settle window; with `require_settled` left at its default (False), the
+    same call is a silent no-op. Pinned directly here, since driving it end
+    to end needs a fuller scenario than this alone."""
     _daemon_home(home, 20)
     con = db.connect()
     try:
@@ -12581,6 +12565,95 @@ def test_the_settle_window_actually_enforces_with_require_idle_false(home: Path)
               dmn._type_gate(con, "backend", None, require_idle=False,
                              require_settled=True) is None)
     finally:
+        con.close()
+
+
+def test_the_post_lock_idle_reread_actually_gates(home: Path) -> None:
+    """should-fix 2 (#1973 review): a stub left True throughout, as the race
+    test above uses, proves nothing about the re-read `_type_gate` does once
+    the lock is held - only a probe that changes between the two reads does.
+    Here `typeable_now` answers True the first time (the pre-lock check every
+    path already had) and False every time after (the re-read #1973 asked
+    for), for `deliver_queued` and for `perform_handoff` in turn: each must
+    type nothing."""
+    _daemon_home(home, 20)
+    con = db.connect()
+    typed: list[str] = []
+    real = (orcamod.available, orcamod.alive, orcamod.typeable_now, orcamod.send,
+            orcamod.clear_context)
+    try:
+        orcamod.available = lambda: True
+        orcamod.alive = lambda h: True
+        orcamod.send = lambda h, text, enter=True: (typed.append(text), (True, "sent"))[1]
+        orcamod.clear_context = lambda h, **kw: (typed.append("/clear"), (True, "context cleared"))[1]
+        sessions_are("backend")
+        db.set_terminal(con, "backend", "term_x", "wt")
+        db.add_request(con, "marina", "backend", "carry on", None, "peer", "async", None, 0, None)
+
+        calls = [True, False]
+        orcamod.typeable_now = lambda h: calls.pop(0) if calls else False
+        ok = dmn.deliver_queued(con, "backend", lambda _m: None)
+        check("reread: deliver_queued reads idle before the lock but busy "
+              "after, and types nothing", not ok and not typed, typed)
+
+        calls[:] = [True, False]
+        t = triggers.evaluate(10, 300_000)
+        check("reread: setup - the trigger actually fires", t.fired, t.reason)
+        fired = dmn.perform_handoff(con, "backend", t, lambda _m: None)
+        check("reread: perform_handoff sees the same and types nothing too",
+              not typed, typed)
+        check("reread: and reports deferred (True), not degraded (False)",
+              fired is True, fired)
+    finally:
+        (orcamod.available, orcamod.alive, orcamod.typeable_now, orcamod.send,
+         orcamod.clear_context) = real
+        con.close()
+
+
+def test_a_close_right_after_a_delivery_in_the_same_tick_must_not_type(
+        home: Path) -> None:
+    """BLOCKING (#1973 review): `deliver_answers` and `close_agent` can both
+    run in the same tick - `should_close` reads nothing `deliver_answers`
+    changes - and close typed `/exit` straight after the answer typed: the
+    same settle gap #1973 is about, on the close door rather than the
+    handoff door. `wait_idle`, `close_session`'s own fresh idle probe, is
+    left stubbed True throughout, so only `close_agent`'s own settle check
+    can catch this."""
+    _daemon_home(home, 20)
+    con = db.connect()
+    sent: list[str] = []
+    real = (orcamod.alive, orcamod.wait_idle, orcamod.available, orcamod.send)
+    try:
+        orcamod.available = lambda: True
+        orcamod.live_terminals = lambda: {"term_x"}
+        orcamod.alive = lambda h: True
+        orcamod.wait_idle = lambda h, timeout_ms=0: True
+        table = sessions_are("backend")
+        orcamod.send = relaunching_send(sent, table)
+        db.set_terminal(con, "backend", "term_x", "wt")
+        db.set_agent_state(con, "backend", dmn.IDLE)
+        (home / "agents" / "backend").mkdir(parents=True, exist_ok=True)
+        (home / "agents" / "backend" / "status.json").write_text(json.dumps({
+            "account": "alpha", "collected_at": int(time.time()),
+            "session_id": "sess-close-race", "pct_5h": 20}))
+
+        rid = db.add_request(con, "backend", "reviewer", "spec?", None,
+                             "peer", "async", None, 0, None)
+        # `resolve` pushes the answer at once (`push_answer` ->
+        # `deliver_answers`) rather than leaving it for the next tick - this
+        # is the delivery the race is against.
+        ok, out = askmod.resolve(rid, "yes")
+        check("close race: the answer is delivered as part of resolving it",
+              ok and len(sent) == 1, (out, sent))
+
+        st = status.read_for_agent("backend", "alpha")
+        dmn.close_agent(con, "backend", lambda _m: None, st)
+        check("close race: nothing typed after the answer - no /exit followed it",
+              len(sent) == 1, sent)
+        check("close race: and the agent was not marked closed underneath it",
+              db.get_agent_state(con, "backend")["closed_at"] is None)
+    finally:
+        orcamod.alive, orcamod.wait_idle, orcamod.available, orcamod.send = real
         con.close()
 
 
@@ -26286,6 +26359,10 @@ def main() -> int:
             Path(td) / 'deliverhandoffrace'))
         run(lambda: test_the_settle_window_actually_enforces_with_require_idle_false(
             Path(td) / 'settleenforce'))
+        run(lambda: test_the_post_lock_idle_reread_actually_gates(
+            Path(td) / 'idlereread'))
+        run(lambda: test_a_close_right_after_a_delivery_in_the_same_tick_must_not_type(
+            Path(td) / 'closerace'))
         run(lambda: test_every_call_site_actually_hands_supervise_the_per_agent_context_limit(
             Path(td) / 'ctxsites'))
         run(lambda: test_a_usage_park_stays_parked_while_the_reading_is_at_the_wall(Path(td) / 'parklevel2'))

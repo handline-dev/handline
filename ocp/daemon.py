@@ -550,19 +550,18 @@ TYPE_SETTLE_S = 15
 def _type_gate(con, agent: str, handle: str | None, *, require_idle: bool = True,
                require_settled: bool = False) -> str | None:
     """The re-read every path that types at an agent's terminal must do once
-    its lock is actually held (#1973) - never trust a reading taken before
-    asking for the lock. None means clear to type; anything else is why not.
+    its lock is actually held (see #1973 above) - never trust a reading taken
+    before asking for the lock. None means clear to type; anything else is
+    why not.
 
-    `require_idle` is False for a wake: a closed agent has no live process to
-    be mid-turn in, and the sub-paths that do meet a live one (a drifted
-    session, a resume) already probe it themselves, inline, where they act.
-    `orca.typeable_now`, the same probe every pre-lock check already uses -
-    not `idle_now` alone - so a dialog that opened in the gap refuses here
-    too, not only a turn that started.
+    `require_idle` is False at a site whose own act (`_end_session`) does its
+    own fresh idle read inline, where it actually types - `orca.typeable_now`
+    here would only be a second, redundant read of the same thing.
 
-    `require_settled` is True only for a handoff's own gate: the settle
-    window above is what catches a stale idle reading that `typeable_now`,
-    read fresh a moment too soon, still cannot.
+    `require_settled` is True wherever the type that follows is destructive
+    (a handoff's `/clear` or `/exit`) or ends a session (a close, a parked
+    move): the settle window above is what catches a stale idle reading that
+    `typeable_now`, read fresh a moment too soon, still cannot.
     """
     if require_settled:
         last = db.get_cursor(con, f"typed_at:{agent}")
@@ -903,11 +902,14 @@ def close_agent(con, agent: str, log, st) -> tuple[bool, str]:
     with lock.terminal(agent) as mine:
         if not mine:
             return False, "someone else is typing at this agent; not closing"
-        # Not `_type_gate`: this is not one of #1973's named doors (notify,
-        # wake, a handoff's /clear or /exit, spawn, resume, a move) - it is a
-        # separate "give back idle memory" path with its own dialog handling
-        # already inline in `_close_agent`/`_end_session`, and `should_close`
-        # (its only caller) already refuses a RUNNING or HANDOFF agent.
+        # A delivery or an answer just typed in this same tick can still read
+        # idle on the very probe `_end_session` uses (#1973's settle window) -
+        # require_idle=False since that probe is `_end_session`'s own to run,
+        # inline, where `/exit` is actually typed.
+        why = _type_gate(con, agent, db.get_terminal(con, agent),
+                         require_idle=False, require_settled=True)
+        if why:
+            return False, why
         ok, said = _close_agent(con, agent, log, st)
         if ok:
             _mark_typed(con, agent)
@@ -1174,13 +1176,8 @@ def wake_agent(con, agent: str, log) -> tuple[bool, str]:
             # A human's key and a tick can both land here, and this one holds
             # the terminal for as long as a session takes to appear.
             return False, "someone else is typing at this agent; not waking twice"
-        # Not `_type_gate`: a closed agent has no live process to be
-        # mid-turn in, so there is nothing for a fresh idle re-read to catch,
-        # and the sub-paths below that do meet a live one (a drifted
-        # session, a resume) already probe it themselves, inline, right
-        # where they act - the settle window matters at a genuinely
-        # destructive type (a handoff's /clear or /exit, or moving a
-        # PARKED agent), not here.
+        # Not `_type_gate`: closed means no live process to be mid-turn in,
+        # and the sub-paths below that do meet a live one probe it themselves.
         ok, said = _wake_agent(con, agent, log)
         if ok:
             _mark_typed(con, agent)
@@ -1881,14 +1878,9 @@ def perform_handoff(con, agent: str, trigger: triggers.Trigger, log,
             log(f"  {agent}: {trigger.kind} fired but something else is typing at it "
                 f"- not handing off")
             return True
-        # #1973: the checks above (typeable_now, session_present) were read
-        # before this lock was taken - the exact gap the incident this fixes
-        # sits in. Re-read now that the terminal is actually held, or a
-        # delivery that landed in between reads as idle here too.
-        # require_idle mirrors `settled` exactly as the dialog-handling
-        # block above does: a settled usage-limit stop bypasses the probe on
-        # purpose, because the dialog it is stuck at does not clear by
-        # waiting, and this re-check must not reintroduce that wait.
+        # The re-read `_type_gate` documents above, at the gap #1973 was in:
+        # require_idle mirrors `settled` exactly as the dialog-handling block
+        # above does, so a settled usage-limit stop still bypasses the probe.
         why = _type_gate(con, agent, handle, require_idle=not settled, require_settled=True)
         if why:
             log(f"  {agent}: {trigger.kind} fired but {why} - not handing off")
@@ -2477,9 +2469,10 @@ def supervise(con, agent: str, log, now: int, samples: dict,
         if movable and verdict.fired and verdict.kind in MOVABLE_TRIGGERS \
                 and _move_plan(con, agent, verdict.kind)[0]:
             with lock.terminal(agent) as mine:
-                # require_idle=False: PARKED means already closed, so there is
-                # no live process to be mid-turn in - require_settled=True is
-                # what actually applies here.
+                # require_idle=False: `_move_to_room` ends the session itself,
+                # through `_end_session`, which does its own fresh idle read
+                # inline where `/exit` is typed - require_settled=True is what
+                # actually applies here, against a delivery just typed.
                 moved = bool(mine) and not _type_gate(con, agent, None, require_idle=False,
                                                       require_settled=True) \
                     and _move_to_room(con, agent, verdict, log)[0]
