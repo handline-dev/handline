@@ -1731,10 +1731,13 @@ def test_the_usage_poll_asks_one_account_per_tick_and_renews_only_on_failure(hom
             return None
         return usage_api.Reading(acct, 7, None, 11, None, int(time.time()))
 
-    real_read, real_login = usage_api.read, accounts.logged_in
+    real_read, real_login, real_recover = usage_api.read, accounts.logged_in, recovermod.recover
     try:
         accounts.logged_in = lambda acct: True
         usage_api.read = fake_read
+        # #1885/#76 is driven separately below; a plain read failure here
+        # must fall into the ordinary backoff, not spend a real turn.
+        recovermod.recover = lambda acct: (False, "stub: not under test here")
         con = db.connect()
         try:
             dmn.poll_usage(con, lambda _m: None)
@@ -1794,7 +1797,7 @@ def test_the_usage_poll_asks_one_account_per_tick_and_renews_only_on_failure(hom
         finally:
             con.close()
     finally:
-        usage_api.read, accounts.logged_in = real_read, real_login
+        usage_api.read, accounts.logged_in, recovermod.recover = real_read, real_login, real_recover
 
 
 def test_a_failing_account_never_blocks_the_ones_behind_it(home: Path) -> None:
@@ -1817,10 +1820,11 @@ def test_a_failing_account_never_blocks_the_ones_behind_it(home: Path) -> None:
             return usage_api.Reading(acct, 5, None, 6, None, int(time.time()))
         return None
 
-    real_read, real_login = usage_api.read, accounts.logged_in
+    real_read, real_login, real_recover = usage_api.read, accounts.logged_in, recovermod.recover
     try:
         accounts.logged_in = lambda acct: True
         usage_api.read = fake_read
+        recovermod.recover = lambda acct: (False, "stub: not under test here")
         con = db.connect()
         try:
             for _ in range(3):
@@ -1836,7 +1840,131 @@ def test_a_failing_account_never_blocks_the_ones_behind_it(home: Path) -> None:
         finally:
             con.close()
     finally:
-        usage_api.read, accounts.logged_in = real_read, real_login
+        usage_api.read, accounts.logged_in, recovermod.recover = real_read, real_login, real_recover
+
+
+def test_poll_usage_calls_recover_on_a_dead_token_and_at_the_5h_boundary(home: Path) -> None:
+    """Task #76: `poll_usage` is the one place that notices a reading is worth
+    a real turn - `recover.recover(acct)` is the mechanism (#1885), this is
+    the trigger. Two call sites, per purser #2176's spec:
+    - the plain read still reads None after the refresh=True retry (a dead
+      token) - recover() is tried before the fail-streak/backoff path.
+    - `usage_due`'s 'its 5h window has ended' case, even though the plain read
+      just succeeded - a stale reading can report success right up to the
+      boundary, and nothing else starts the new window.
+    A refusal (recover() itself is cheap - off, marked, at the wall) falls
+    into the ordinary path unchanged either way, so this costs nothing on the
+    common case recover() is not needed for."""
+    _daemon_home(home, 40)
+    real_read, real_login, real_recover, real_record = (
+        usage_api.read, accounts.logged_in, recovermod.recover, usage_api.record)
+    recovered: list[str] = []
+    recorded: list = []
+    try:
+        accounts.logged_in = lambda acct: True
+        usage_api.record = lambda reading: recorded.append(reading) or real_record(reading)
+
+        # --- a dead token: recover() succeeds, treated like a normal read ---
+        usage_api.read = lambda acct, refresh=True: None
+        recovermod.recover = lambda acct: (
+            recovered.append(acct) or (True, f"{acct}: recovered - 5h 3% 7d 4%"))
+        con = db.connect()
+        try:
+            logs: list[str] = []
+            dmn.poll_usage(con, logs.append)
+            check("poll+recover: a dead token calls recover()", recovered == ["alpha"], recovered)
+            check("poll+recover: recover's own message is logged, not a 'could not ask'",
+                  any("recovered - 5h 3% 7d 4%" in m for m in logs)
+                  and not any("could not ask" in m for m in logs), logs)
+            check("poll+recover: the fail streak is reset, exactly like a plain success",
+                  db.get_meta(con, "usage-fail:alpha") is None,
+                  db.get_meta(con, "usage-fail:alpha"))
+            check("poll+recover: the poll cursor moved on to the ordinary cadence",
+                  db.get_cursor(con, "usage-poll:alpha") >= int(time.time()) + dmn.USAGE_POLL_S - 1,
+                  db.get_cursor(con, "usage-poll:alpha"))
+            check("poll+recover: recover() records itself - daemon does not double-record",
+                  recorded == [], recorded)
+
+            # --- a dead token: recover() refuses too - the old path, unchanged
+            recovered.clear()
+            db.set_cursor(con, "usage-poll:alpha", 0)
+            db.set_meta(con, "usage-fail:alpha", None)
+            recovermod.recover = lambda acct: (
+                recovered.append(acct) or (False, "stub: refuses"))
+            logs.clear()
+            dmn.poll_usage(con, logs.append)
+            check("poll+recover: refusal still tries recover() first",
+                  recovered == ["alpha"], recovered)
+            check("poll+recover: and falls into the unchanged backoff path",
+                  db.get_meta(con, "usage-fail:alpha") == "1"
+                  and any("could not ask" in m for m in logs), logs)
+        finally:
+            con.close()
+
+        # --- the 5h window ended, but the plain read still succeeded --------
+        recovered.clear()
+        recorded.clear()
+        now = int(time.time())
+        write_status(home, "alpha", pct_5h=90, pct_7d=10,
+                     reset_5h=now - 60, rl_at=now - 60)
+        usage_api.read = lambda acct, refresh=True: usage_api.Reading(
+            acct, 91, now + 18000, 11, None, now)
+
+        def _recover_and_record(acct):
+            recovered.append(acct)
+            real_record(usage_api.Reading(acct, 0, int(time.time()) + 18000, 11, None,
+                                          int(time.time())))
+            return True, f"{acct}: recovered - 5h 0% 7d 11%"
+        recovermod.recover = _recover_and_record
+        con = db.connect()
+        try:
+            db.set_cursor(con, "usage-poll:alpha", 0)
+            check("poll+recover setup: the 5h window has in fact ended",
+                  dmn.usage_due(con, "alpha", status.read("alpha"), now)
+                  == "its 5h window has ended")
+            logs = []
+            dmn.poll_usage(con, logs.append)
+            check("poll+recover: the 5h boundary calls recover() too, "
+                  "even though the plain read just succeeded",
+                  recovered == ["alpha"], recovered)
+            check("poll+recover: recover's own reading wins, not the stale plain one",
+                  status.read("alpha").pct_5h == 0, status.read("alpha").pct_5h)
+
+            # --- recover() refuses at the boundary: the plain reading still stands
+            recovered.clear()
+            db.set_cursor(con, "usage-poll:alpha", 0)
+            write_status(home, "alpha", pct_5h=90, pct_7d=10,
+                         reset_5h=now - 60, rl_at=now - 60)
+            recovermod.recover = lambda acct: (
+                recovered.append(acct) or (False, "stub: refuses"))
+            logs = []
+            dmn.poll_usage(con, logs.append)
+            check("poll+recover: a refusal at the boundary still tried recover()",
+                  recovered == ["alpha"], recovered)
+            check("poll+recover: and falls back to the plain reading that already succeeded",
+                  status.read("alpha").pct_5h == 91
+                  and any("its 5h window has ended - 5h 91%" in m for m in logs), logs)
+        finally:
+            con.close()
+
+        # --- the common path never spends a turn it does not need -----------
+        recovered.clear()
+        write_status(home, "alpha", pct_5h=5, pct_7d=10, ctx_pct=5,
+                     reset_5h=int(time.time()) + 1800)
+        usage_api.read = lambda acct, refresh=True: usage_api.Reading(
+            acct, 6, int(time.time()) + 1800, 11, None, int(time.time()))
+        con = db.connect()
+        try:
+            db.add_event(con, "backend", "Stop", {}, account="alpha")
+            db.set_cursor(con, "usage-poll:alpha", 0)
+            dmn.poll_usage(con, lambda _m: None)
+            check("poll+recover: an ordinary due-for-a-reason poll never calls recover()",
+                  recovered == [], recovered)
+        finally:
+            con.close()
+    finally:
+        (usage_api.read, accounts.logged_in,
+         recovermod.recover, usage_api.record) = real_read, real_login, real_recover, real_record
 
 
 def test_a_reading_past_the_carry_bound_is_carried_old_even_though_the_flag_is_false(
@@ -8617,6 +8745,8 @@ def test_an_unmetered_account_is_pinned_never_picked_or_polled(home: Path) -> No
 
             asked: list[str] = []
             usage_api.read = lambda acct, refresh=True: asked.append(acct)
+            real_recover = recovermod.recover
+            recovermod.recover = lambda acct: (False, "stub: not under test here")
             con = db.connect()
             try:
                 # One account per tick, each put on its cooldown once asked,
@@ -8625,6 +8755,7 @@ def test_an_unmetered_account_is_pinned_never_picked_or_polled(home: Path) -> No
                     dmn.poll_usage(con, lambda _m: None)
             finally:
                 con.close()
+                recovermod.recover = real_recover
             check("unmetered: the usage poll never asks about it",
                   "alpha" in asked and not {"zeta", "zeta2"} & set(asked), str(asked))
             usage_api.read = real[0]
@@ -26957,6 +27088,8 @@ def main() -> int:
         run(lambda: test_the_usage_poll_asks_one_account_per_tick_and_renews_only_on_failure(
             Path(td) / 'pullpoll'))
         run(lambda: test_a_failing_account_never_blocks_the_ones_behind_it(Path(td) / 'pollstarve'))
+        run(lambda: test_poll_usage_calls_recover_on_a_dead_token_and_at_the_5h_boundary(
+            Path(td) / 'pollrecover'))
         run(lambda: test_a_reading_past_the_carry_bound_is_carried_old_even_though_the_flag_is_false(
             Path(td) / 'carriedoldpin'))
         run(lambda: test_a_carried_reading_with_no_age_at_all_reads_carried_old_not_live(
