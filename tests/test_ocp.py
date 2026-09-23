@@ -14901,18 +14901,36 @@ edges:
         # #2072 should-fix: pinning set_request_state's absence by name only
         # catches that name coming back, not a new unguarded door under a
         # different one - assert the property db.py must hold instead: every
-        # function that writes requests.state calls _would_strand_a_proposal
-        # first, and the three that do are named here so this cannot pass by
-        # finding none.
+        # function that writes requests.state calls _would_strand_a_proposal,
+        # and the three that do are named here so this cannot pass by
+        # finding none. Auditor #2094 should-fix: a raw substring match on
+        # the function's source missed a writer whose SET clause orders
+        # `state` after another column, and one written as two adjacent
+        # string literals (a style db.py already uses) - Python folds
+        # adjacent literals into one ast.Constant, so walk those instead of
+        # the source text, and isolate the SET clause before looking for
+        # `state =` in it, or a WHERE clause naming `state` (mark_delivered's
+        # and _pre_schema_migrate's) reads as a writer too.
         import ast
+        import re
         db_src = (ROOT / "ocp" / "db.py").read_text()
         db_tree = ast.parse(db_src)
+        set_clause_re = re.compile(r"UPDATE\s+requests\s+SET\s+(.*?)(?:\bWHERE\b|$)",
+                                   re.S | re.I)
+        state_col_re = re.compile(r"(^|[\s,])state\s*=")
         guarded_writers, unguarded_writers = set(), set()
         for n in db_tree.body:
             if not isinstance(n, ast.FunctionDef):
                 continue
-            seg = ast.get_source_segment(db_src, n) or ""
-            if "UPDATE requests SET state" not in seg:
+            writes_state = False
+            for c in ast.walk(n):
+                if not (isinstance(c, ast.Constant) and isinstance(c.value, str)):
+                    continue
+                m = set_clause_re.search(c.value)
+                if m and state_col_re.search(m.group(1)):
+                    writes_state = True
+                    break
+            if not writes_state:
                 continue
             calls_guard = any(
                 isinstance(c, ast.Call) and isinstance(c.func, ast.Name)
@@ -14920,7 +14938,7 @@ edges:
                 for c in ast.walk(n))
             (guarded_writers if calls_guard else unguarded_writers).add(n.name)
         check("chokepoint: every db.py function writing requests.state "
-              "calls _would_strand_a_proposal first",
+              "calls _would_strand_a_proposal",
               not unguarded_writers and guarded_writers ==
               {"retire_queued", "close_if_queued", "retire_if_undelivered"},
               f"guarded={guarded_writers} unguarded={unguarded_writers}")
