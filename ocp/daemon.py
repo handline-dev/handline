@@ -317,10 +317,11 @@ def resume_handoff(con, row, log) -> None:
     done_ok = True
     if step == "requested":
         done_ok = _record_handoff(con, agent, hid, log)
-        # This path never runs its own clear (the crash it resumes from
-        # landed past that step already), so a good record is the whole of
-        # what this function can vouch for - same streak reset the record
-        # used to give itself before a clear could still fail after it.
+        # Reached at step "requested", so the kill landed before the record -
+        # before the clear too. This path has no _reclaim_context of its own
+        # and never runs one, so a good record is the whole of what it can
+        # vouch for - same streak reset the record used to give itself before
+        # a clear could still fail after it.
         if done_ok:
             db.reset_counter(con, agent, "throttle_count")
     if step in ("requested", "recorded", "folded"):
@@ -344,7 +345,7 @@ def resume_handoff(con, row, log) -> None:
         wake = triggers.wake_after(kind, rst.reset_5h, rst.reset_7d)
     else:
         # Not a usage wall and not a park a person asked for: whatever this
-        # trigger fired on (context, today) is already handled by the clear
+        # trigger fired on (context) is already handled by the clear
         # above, so there is nothing left to wait for - but the wake is still
         # what hands the agent its own record back (`wake_agent`/`wake_prompt`),
         # so this parks with an immediate wake rather than skipping it (#1957).
@@ -1936,7 +1937,7 @@ MOVABLE_TRIGGERS = ("usage", "usage_7d", "forced")
 
 # The only triggers with a real wall to sleep out: an account's own window has
 # to roll over before either can clear. Everything else a handoff fires on -
-# context, today - is already handled once the clear is done, so parking it
+# context - is already handled once the clear is done, so parking it
 # against a usage window it never hit just sits it out for nothing (#1903:
 # the auditor sat PARKED 09:25-11:30 on a context handoff with room to spare).
 USAGE_TRIGGERS = ("usage", "usage_7d")
@@ -2245,7 +2246,7 @@ def _perform_handoff(con, agent: str, trigger: triggers.Trigger, log,
         wake = triggers.wake_after(trigger.kind, rst.reset_5h, rst.reset_7d)
     else:
         # Not a usage wall and not a park a person asked for by hand: whatever
-        # this trigger fired on (context, today) is already handled by the
+        # this trigger fired on (context) is already handled by the
         # clear above, so there is no window left to wait out - but the wake
         # is still what hands the agent its own record back
         # (`wake_agent`/`wake_prompt`), so this still parks, just with an
