@@ -8451,6 +8451,85 @@ OC_PERMISSION = ["  ┃", "  ┃  Use the read tool to read the file /etc/hosts.
                  "  ┃"]
 
 
+def test_an_opencode_row_takes_its_state_word_from_orca(home: Path) -> None:
+    """#59: claude agents report RUNNING and IDLE through hooks; opencode has
+    no counterpart wired, so production writes IDLE at launch and the row
+    sits there for the life of the session - an agent working right now reads
+    IDLE. The state cell reads the pane's screen instead (tui-idle answers
+    idle mid-turn for opencode, measured), both ways: a screen mid-turn draws
+    RUNNING over the db's IDLE, an idle screen draws IDLE even if the db says
+    RUNNING. When the screen cannot be read, the db state stands. A claude
+    row is never screened: its hooks already said."""
+    home.mkdir(parents=True, exist_ok=True)
+    os.environ["OCP_HOME"] = str(home)
+    accounts.register("alpha")
+    accounts.register("zai", vendor="opencode")
+    agents.register("backend", "alpha")
+    agents.register("glm", "zai")
+    _with_vendor("glm", "opencode")
+    con = db.connect()
+    asked: list[list] = []
+    real_screen = orcamod._screen
+    orcamod._screen = lambda h: (asked.append([h]), {
+        "source": "screen",
+        "tail": OC_WORKING if h == "term_oc" else OC_IDLE,
+    })[1]
+    saved_seen = dict(tui._opencode_seen)
+    tui._opencode_seen.clear()
+
+    def row(agent):
+        return db.get_agent_state(con, agent)
+
+    try:
+        db.set_agent_state(con, "backend", dmn.RUNNING)
+        db.set_terminal(con, "backend", "term_cl", "wt")
+        db.set_account(con, "backend", "alpha")
+        # What production writes for an opencode agent: IDLE.
+        db.set_agent_state(con, "glm", dmn.IDLE)
+        db.set_terminal(con, "glm", "term_oc", "wt")
+        db.set_account(con, "glm", "zai")
+
+        word, detail = tui.screen_state(con, row("glm"))
+        check("opencode row: a screen mid-turn reads RUNNING over the db's IDLE",
+              (word, detail) == ("RUNNING", ""), f"{word!r} {detail!r}")
+        check("opencode row: the claude row is never screened",
+              asked == [["term_oc"]], str(asked))
+
+        asked.clear()
+        orcamod._screen = lambda h: (asked.append([h]), {
+            "source": "screen",
+            "tail": OC_IDLE if h == "term_oc" else OC_IDLE,
+        })[1]
+        tui._opencode_seen.clear()
+        check("opencode row: an idle screen reads IDLE",
+              tui.screen_state(con, row("glm"))[0] == "IDLE")
+
+        # And the other direction: a RUNNING row over an idle screen.
+        db.set_agent_state(con, "glm", dmn.RUNNING)
+        check("opencode row: an idle screen keeps a RUNNING row honest",
+              tui.screen_state(con, row("glm"))[0] == "IDLE")
+
+        orcamod._screen = lambda h: {"source": "stream", "tail": OC_WORKING}
+        tui._opencode_seen.clear()
+        db.set_agent_state(con, "glm", dmn.IDLE)
+        check("opencode row: an unreadable screen leaves the db state standing",
+              tui.screen_state(con, row("glm"))[0] == "IDLE")
+
+        orcamod._screen = real_screen
+        tui._opencode_seen.clear()
+        asked.clear()
+        orcamod._screen = lambda h: (asked.append([h]), {
+            "source": "screen", "tail": OC_WORKING})[1]
+        first = tui.screen_state(con, row("glm"))[0]
+        second = tui.screen_state(con, row("glm"))[0]
+        check("opencode row: the cache holds within the ttl - one read per pane",
+              first == second == "RUNNING" and asked == [["term_oc"]], str(asked))
+    finally:
+        orcamod._screen = real_screen
+        tui._opencode_seen = saved_seen
+        con.close()
+
+
 def test_an_opencode_session_under_ocp(home: Path) -> None:
     """#1926, each part measured on opencode 1.18.32 in an Orca terminal: the
     preamble reaches the session as an instructions file, the start prompt
@@ -27910,6 +27989,7 @@ def main() -> int:
             Path(td) / 'vendorcfg'))
         run(lambda: test_the_opencode_driver(Path(td) / 'opencode'))
         run(lambda: test_an_opencode_session_under_ocp(Path(td) / 'ocsession'))
+        run(lambda: test_an_opencode_row_takes_its_state_word_from_orca(Path(td) / 'ocrow'))
         run(lambda: test_a_launch_does_not_inherit_an_opencode_sessions_config(Path(td) / 'ocleak'))
         run(lambda: test_launch_refuses_stale(Path(td) / 'stale'))
         run(lambda: test_shared_account_context_isolation(Path(td) / 'shared'))

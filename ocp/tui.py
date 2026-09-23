@@ -38,7 +38,7 @@ import tty
 from pathlib import Path
 
 from . import (accounts, actions, agents, ask as askmod, blocked as blockedmod, daemon, db,
-               launch, load as loadmod, orca, paths, status, triggers)
+               launch, load as loadmod, orca, paths, status, triggers, vendors)
 from . import waiting as promptwait
 from .textsafe import cwidth, drawable, oneline, wrap
 
@@ -644,6 +644,44 @@ NEEDS_A_HUMAN = ("DIALOG", "FATAL")
 DETAIL_CAP = 40
 
 
+# The state word for an opencode agent is read off its pane, not out of the
+# db: claude reports RUNNING and IDLE through hooks, and opencode has no
+# counterpart wired, so its row sits at whatever launch wrote - IDLE - for the
+# life of the session. The witness is the pane's own screen, the same one
+# wait_idle's screen half trusts: Orca's tui-idle word is no good here,
+# measured on a busy opencode pane it answers idle while the turn streams
+# (orca.py's docstring says the same). One screen read is ~110ms; the cache
+# keeps a redraw's rows from each paying it, and the timestamp is taken after
+# the read, so a slow answer is not born already expired.
+OPENCODE_STATE_TTL_S = 2.0
+_opencode_seen: dict[str, tuple[float, bool | None]] = {}
+
+
+def _opencode_working(handle: str) -> bool | None:
+    """What this pane's screen says: True working, False idle at its prompt.
+
+    None when the screen cannot be read - Orca down, or the handle is gone -
+    and the row keeps whatever the db state says. The distinction matters:
+    a dead session must not read IDLE at its prompt.
+    """
+    now = time.monotonic()
+    hit = _opencode_seen.get(handle)
+    if hit and now - hit[0] <= OPENCODE_STATE_TTL_S:
+        return hit[1]
+    term = orca._screen(handle)
+    tail = term.get("tail") if term else None
+    if not isinstance(tail, list) or term.get("source") != "screen":
+        working = None
+    else:
+        # idle_on_screen answers "idle"; the cell asks "working".
+        working = not orca._driver_for(handle).idle_on_screen(tail)
+    if len(_opencode_seen) > 128:
+        for k in [k for k, (at, _) in _opencode_seen.items() if now - at > OPENCODE_STATE_TTL_S]:
+            del _opencode_seen[k]
+    _opencode_seen[handle] = (time.monotonic(), working)
+    return working
+
+
 def screen_state(con, row) -> tuple[str, str]:
     """The one word this agent's row shows - from SCREEN_WORDS - and what to
     say beside it: a clock time, or what it is doing or waiting for. Drawn
@@ -675,6 +713,14 @@ def screen_state(con, row) -> tuple[str, str]:
     if state == daemon.STALLED:
         return "FATAL", oneline(detail)[:DETAIL_CAP]
     if state in (daemon.RUNNING, daemon.HANDOFF):
+        # An opencode row's word is the pane's (see _opencode_working).
+        # HANDOFF stays RUNNING - it is the daemon's protected mid-move, and
+        # moving is working. When the screen cannot be read, the db state
+        # stands, as it always did.
+        if state == daemon.RUNNING and row["terminal"] \
+                and vendors.account_vendor(row["account"] or "") == "opencode" \
+                and _opencode_working(row["terminal"]) is False:
+            return "IDLE", ""
         return "RUNNING", ""
     if state == daemon.QUEUED:
         return ("MOVING", "") if detail.startswith(daemon.MOVING_MARK) else ("PENDING", "")
@@ -691,6 +737,13 @@ def screen_state(con, row) -> tuple[str, str]:
         until = "due" if row["wake_at"] <= int(time.time()) \
             else time.strftime("%H:%M", time.localtime(row["wake_at"]))
         return "PENDING", until
+    # An opencode agent never writes RUNNING - its hooks do not exist - so an
+    # agent that IS working sits here in the db and the plain IDLE below would
+    # hide it. The same witness speaks first.
+    if state == daemon.IDLE and row["terminal"] \
+            and vendors.account_vendor(row["account"] or "") == "opencode" \
+            and _opencode_working(row["terminal"]) is True:
+        return "RUNNING", ""
     # IDLE, and anything not written above (section 8.4's own DONE, never
     # actually written - see daemon.WAKER): shown as IDLE rather than a raw
     # internal name a person was never meant to read.
