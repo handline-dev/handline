@@ -317,6 +317,92 @@ async def test_agent_page_box_restores_a_draft_the_send_failed() -> None:
               screen.box.text == "not routed", repr(screen.box.text))
 
 
+async def test_accounts_panel_cap_add_remove_and_open() -> None:
+    """ACCOUNTS' non-interactive actions (task #45's own third piece): `c`
+    sets the cap through `loadmod` directly, `a`/`x` refuse through the same
+    `accounts.add_account`/`remove_account` the CLI uses before either ever
+    needs a real login shell, and `enter` opens a read-only summary
+    (`actions.account_detail`)."""
+    _home("accts")
+    app = bt.BridgeApp()
+    async with app.run_test(size=(120, 30)) as pilot:
+        await pilot.pause()
+        await pilot.press("left")          # AGENTS -> ACCOUNTS
+        await pilot.pause(0.1)
+        screen = app.screen
+        check("accounts: left from AGENTS enters the ACCOUNTS panel", screen.panel == 0, str(screen.panel))
+
+        await pilot.press("c")
+        await pilot.pause(0.1)
+        for ch in "3":
+            await pilot.press(ch)
+        await pilot.press("enter")
+        await pilot.pause(0.2)
+        check("accounts: c sets the cap through loadmod",
+              "at most 3 agents mid-turn" in screen.flash, screen.flash)
+
+        await pilot.press("a")
+        await pilot.pause(0.1)
+        for ch in "alpha":
+            await pilot.press(ch)
+        await pilot.press("enter")
+        await pilot.pause(0.2)
+        check("accounts: adding one that exists refuses through accounts.add_account, "
+              "never reaching a real login", screen.flash == "account 'alpha' already exists",
+              screen.flash)
+
+        await pilot.press("x")
+        await pilot.pause(0.1)
+        for ch in "nope":
+            await pilot.press(ch)
+        await pilot.press("enter")
+        await pilot.pause(0.2)
+        check("accounts: removing one an agent is on refuses before the confirmation is even read",
+              "in use by" in screen.flash, screen.flash)
+
+        await pilot.press("enter")
+        await pilot.pause(0.2)
+        check("accounts: enter opens a read-only page (account_detail)",
+              isinstance(app.screen, bt.ReadOnly), type(app.screen).__name__)
+        text = str(app.screen.query_one("#readonly").render())
+        check("accounts: it is that account's own detail",
+              "account alpha" in text and "config" in text, text)
+        await pilot.press("q")
+        await pilot.pause(0.1)
+        check("accounts: any key closes it", isinstance(app.screen, bt.Dashboard),
+              type(app.screen).__name__)
+
+
+async def test_messages_panel_open_reaches_the_agents_page() -> None:
+    """A MESSAGES row's `enter` opens the same conversation page an AGENTS
+    row does when the message belongs to one - `actions.message_place`,
+    reused rather than a separate detail view for the common case."""
+    home = _home("msgopen")
+    agents.register("reviewer", "alpha")
+    con = db.connect()
+    try:
+        db.set_terminal(con, "reviewer", "term_r", "wt")
+    finally:
+        con.close()
+    from ocp import ask as askmod
+    askmod.ask("human", "please review this", requester="reviewer")
+
+    app = bt.BridgeApp()
+    async with app.run_test(size=(120, 30)) as pilot:
+        await pilot.pause()
+        await pilot.press("right")         # AGENTS -> MESSAGES
+        await pilot.pause(0.1)
+        screen = app.screen
+        check("messages: right from AGENTS enters MESSAGES", screen.panel == 2, str(screen.panel))
+        await pilot.press("enter")
+        await pilot.pause(0.2)
+        check("messages: enter opens the sender's own page",
+              isinstance(app.screen, bt.AgentDetail) and app.screen.agent == "reviewer",
+              type(app.screen).__name__)
+        text = str(app.screen.query_one("#canvas").render())
+        check("messages: the message itself is on it", "please review this" in text, text)
+
+
 async def test_wake_on_a_stalled_agent_asks_first() -> None:
     """auditor #2008 BLOCKING 2a: waking a STALLED agent needs a yes first in
     curses (`_needs_confirm`, founder #1620/#1631) - checking only `label in
@@ -416,6 +502,8 @@ async def _run_all() -> None:
     await test_agent_page_box_sends_a_message_and_runs_slash_commands()
     await test_agent_page_box_keeps_a_draft_a_busy_target_refuses()
     await test_agent_page_box_restores_a_draft_the_send_failed()
+    await test_accounts_panel_cap_add_remove_and_open()
+    await test_messages_panel_open_reaches_the_agents_page()
     await test_wake_on_a_stalled_agent_asks_first()
     await test_messages_panel_acts_on_a_folded_row()
     await test_text_prompt_keeps_a_paste_instead_of_dropping_it()

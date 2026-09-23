@@ -21,12 +21,18 @@ taken over the same way: typing lands in it, Enter sends, and a message
 starting with '/' is a command - `/knows`, `/done`, `/cancel <id>`, and every
 `AGENT_KEYS` verb the row keys still bind on the dashboard.
 
-Not yet ported: ACCOUNTS' login/add/cap/remove, and opening a MESSAGES row
-into its own page - `ocp bridge` (curses) still covers those meanwhile.
+ACCOUNTS' login and add hand the whole terminal to another program - a human
+typing a login code into claude's own screen, same as curses's `_suspend` -
+through Textual's own `App.suspend()` rather than `jobs.Jobs`: it is
+interactive, not something to run and report on later.
+
+Not yet ported: opening an ACCOUNTS row into a page of its own beyond a
+read-only summary, and ACCOUNTS' "next" tick-mark bookkeeping the dashboard
+already draws from `tui.build` regardless.
 """
 from __future__ import annotations
 
-import time
+import subprocess
 
 from rich.text import Text
 from textual import events
@@ -34,7 +40,7 @@ from textual.app import App, ComposeResult
 from textual.screen import ModalScreen, Screen
 from textual.widgets import Static
 
-from . import actions, db, jobs as jobsmod, tui
+from . import accounts, actions, db, jobs as jobsmod, load as loadmod, orca, tui
 
 # Textual hands a key event as a symbolic name (`event.key`) plus, for a
 # printable one, the character itself (`event.character`). tui.py's own key
@@ -286,23 +292,109 @@ class Dashboard(JobsAware, Screen):
     async def _act(self, key: str) -> None:
         """One keypress on the selected row - `tui._act_on`'s decisions
         (which key does what, what asks first, what needs a prompt), `jobs.Jobs`
-        for running it. Kept deliberately smaller than `_act_on` for now:
-        AGENTS, STUCK and MESSAGES are ported; ACCOUNTS (login, add, cap,
-        remove) and opening a row into its own page are not yet - `ocp
-        account`/`ocp hr` cover the former from the command line meanwhile."""
+        for running it (or, for ACCOUNTS' login/add, `App.suspend()`: those
+        hand the whole terminal to another program)."""
         panel, sel = self.panel, self.sel
+        if panel == tui.ACCOUNTS and key == "a":
+            # Adding needs no row under the cursor - the first account is
+            # added to an empty panel, so this comes before the "no rows" guard.
+            await self._account_add()
+            return
         keys = tui._keys_of(panel)
         target = sel.get(panel)
         if not keys or target not in keys:
             return
         con = db.connect()
         try:
-            if panel in (tui.AGENTS, tui.STUCK):
+            if panel == tui.ACCOUNTS:
+                await self._act_account(con, str(target), key)
+            elif panel in (tui.AGENTS, tui.STUCK):
                 await self._act_agent(con, str(target), key)
             elif panel == tui.MESSAGES:
                 await self._act_message(con, target, key)
         finally:
             con.close()
+
+    async def _act_account(self, con, name: str, key: str) -> None:
+        if key in ("\r", "\n"):
+            sections = actions.account_detail(con, name, accounts.logged_in)
+            await self.app.push_screen_wait(ReadOnly(f"account {name}", sections))
+            return
+        if key == "l":
+            await self._account_login(name)
+            return
+        if key == "c":
+            await self._account_cap(name)
+            return
+        if key == "x":
+            await self._account_remove(name)
+            return
+
+    def _run_suspended(self, argv: list[str], env: dict) -> tuple[int | None, str]:
+        """`tui._suspend`'s own contract, through `App.suspend()`: hand the
+        whole terminal to `argv` (a login is a human typing a code into
+        claude's own screen - nothing about that can happen behind Textual's
+        screen), then take it back."""
+        try:
+            with self.app.suspend():
+                r = subprocess.run(argv, env=env)
+                return r.returncode, f"{argv[0]} exited {r.returncode}"
+        except (OSError, subprocess.SubprocessError) as e:
+            return None, f"could not run {argv[0]}: {e}"
+
+    async def _account_add(self) -> None:
+        name = await self.app.push_screen_wait(TextPrompt("new account name:"))
+        if not name or not name.strip():
+            self.flash = "not added"
+            return
+        name = name.strip()
+        ok, msg = accounts.add_account(name, lambda argv, env: self._run_suspended(argv, env)[0])
+        self.flash = msg
+        if not ok or not orca.available():
+            return
+        # 156 item 1c: the CLI and this screen share the one trusting sequence.
+        declared, skipped = actions.eligible_worktrees()
+        if not declared:
+            return
+        listed = ", ".join(f"{a} ({w})" for a, w in declared)
+        prompt = f"trust {listed}? y/N" + (f" (skipping {len(skipped)} outside declared roots)"
+                                           if skipped else "")
+        yn = await self.app.push_screen_wait(TextPrompt(prompt))
+        if (yn or "").strip().lower() in ("y", "yes"):
+            self.flash = msg + " · " + "; ".join(actions.trust_worktrees(name, declared))
+
+    async def _account_login(self, name: str) -> None:
+        line, argv, env = actions.login_argv(name)
+        if not argv:
+            self.flash = line
+            return
+        _, self.flash = self._run_suspended(argv, env)
+
+    async def _account_cap(self, name: str) -> None:
+        text = await self.app.push_screen_wait(
+            TextPrompt(f"most agents mid-turn on {name} at once [{loadmod.cap_of(name)}]:"))
+        if not text or not text.strip():
+            self.flash = "cap unchanged"
+            return
+        try:
+            loadmod.set_cap(name, int(text.strip()))
+        except ValueError:
+            self.flash = "a cap is a whole number, at least 1"
+            return
+        self.flash = f"{name}: at most {text.strip()} agents mid-turn"
+
+    async def _account_remove(self, name: str) -> None:
+        typed = await self.app.push_screen_wait(
+            TextPrompt(f"remove '{name}'? type its name to confirm:"))
+        confirmed = typed == name
+        con = db.connect()
+        try:
+            ok, msg = accounts.remove_account(
+                name, lambda: confirmed,
+                lambda argv, env: self._run_suspended(argv, env)[0], con)
+        finally:
+            con.close()
+        self.flash = msg
 
     async def _act_agent(self, con, name: str, key: str) -> None:
         if key in ("\r", "\n"):    # "↵" in AGENT_KEYS is a display label, never a lookup key
@@ -327,6 +419,19 @@ class Dashboard(JobsAware, Screen):
         if not row:
             self.flash = f"#{rid} is gone"
             return
+        if key in ("\r", "\n"):
+            actions.opened_by_human(con, rid)
+            place = actions.message_place(con, rid)
+            if place is not None:
+                self.app.push_screen(AgentDetail(place[0]))
+                return
+            detail = actions.message_detail(con, rid)
+            if detail is None:
+                self.flash = f"#{rid} is gone"
+                return
+            title, sections = detail
+            await self.app.push_screen_wait(ReadOnly(title, sections))
+            return
         if key == "x":
             self.flash = self._start("dismiss", f"#{rid}", f"dismissing #{rid}", (rid,),
                                      {"me": actions.HUMAN})
@@ -340,21 +445,29 @@ class Dashboard(JobsAware, Screen):
 
 
 class ReadOnly(ModalScreen[None]):
-    """`/knows` and `/done`: a page of text over the conversation. Any key
-    closes it - there is nothing on it to act on."""
+    """`/knows`, `/done`, and an ACCOUNTS row opened: a page of text over
+    whatever was open, in `page()`'s own shape - a title per section, then its
+    rows. A single flat list is one section with no heading. Any key closes
+    it - there is nothing on it to act on."""
 
-    def __init__(self, title: str, rows: list) -> None:
+    def __init__(self, title: str, sections: list) -> None:
         super().__init__()
-        self.title_, self.rows = title, [str(r) for r in rows]
+        self.title_ = title
+        if sections and not isinstance(sections[0], tuple):
+            sections = [("", sections)]
+        self.sections = [(str(h), [str(r) for r in rows]) for h, rows in sections]
 
     def compose(self) -> ComposeResult:
         yield Static(id="readonly")
 
     def on_mount(self) -> None:
         w = max(20, self.app.size.width)
-        text = "\n".join([tui.fit(f"{tui.BOLD}{self.title_}{tui.R}", w), ""]
-                         + [tui.fit(r, w) for r in self.rows])
-        self.query_one("#readonly", Static).update(Text.from_ansi(text))
+        lines = [tui.fit(f"{tui.BOLD}{self.title_}{tui.R}", w), ""]
+        for heading, rows in self.sections:
+            if heading:
+                lines.append(tui.fit(f"{tui.DIM}{heading}{tui.R}", w))
+            lines += [tui.fit(r, w) for r in rows] + [""]
+        self.query_one("#readonly", Static).update(Text.from_ansi("\n".join(lines)))
 
     def on_key(self, event: events.Key) -> None:
         event.stop()
