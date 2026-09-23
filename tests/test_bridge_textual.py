@@ -64,6 +64,24 @@ async def test_dashboard_shows_a_registered_agent_and_moves_the_cursor() -> None
               "not parked or closed" in screen.flash, screen.flash)
 
 
+async def test_help_key_names_every_agent_verb_the_footer_folds_out() -> None:
+    """Task #54 item 2: `?` on an AGENTS/STUCK row - the one place fold and
+    move (and whatever a row's own state hid) are named at all, same as
+    curses's `agent_help_line` (tui.py). It must not fall through and do
+    nothing, the way an unhandled AGENT_KEYS lookup normally would."""
+    _home("help")
+    app = bt.BridgeApp()
+    async with app.run_test(size=(120, 30)) as pilot:
+        await pilot.pause()
+        screen = app.screen
+        await pilot.press("?")
+        await pilot.pause(0.1)
+        check("help: `?` shows the full AGENT_KEYS legend, not nothing",
+              screen.flash == t.tui.agent_help_line(), screen.flash)
+        check("help: the legend names a key the footer can fold away (move)",
+              "v move" in screen.flash, screen.flash)
+
+
 async def test_an_action_runs_off_the_key_loop_and_the_screen_says_so() -> None:
     """Task #45 / #1615 (bridge-working): a key that acts must not block the
     screen - it keeps redrawing and reading keys while the action runs, with a
@@ -441,9 +459,15 @@ async def test_accounts_panel_cap_add_remove_and_open() -> None:
         text = str(app.screen.query_one("#readonly").render())
         check("accounts: it is that account's own detail",
               "account alpha" in text and "config" in text, text)
-        await pilot.press("q")
+        check("accounts: it names its own named section as a tab, not flattened",
+              "AGENTS ON IT" in text, text)
+        await pilot.press("down")           # a scroll key: task #54 item 3, no longer any key
         await pilot.pause(0.1)
-        check("accounts: any key closes it", isinstance(app.screen, bt.Dashboard),
+        check("accounts: a scroll key does not close it", isinstance(app.screen, bt.ReadOnly),
+              type(app.screen).__name__)
+        await pilot.press("escape")
+        await pilot.pause(0.1)
+        check("accounts: escape closes it", isinstance(app.screen, bt.Dashboard),
               type(app.screen).__name__)
 
 
@@ -491,6 +515,40 @@ async def test_accounts_remove_only_fires_on_the_typed_name() -> None:
         check("accounts: and says so", "removed account 'beta'" in screen.flash, screen.flash)
 
 
+async def test_read_only_page_scrolls_past_one_screen() -> None:
+    """Task #54 item 3: the generic detail page (`bt.ReadOnly`) through
+    `tui._detail_frame`/`tui._in_detail` - real scrolling over a page longer
+    than the screen, not the flat unscrollable dump it replaced."""
+    class _HostApp(bt.App):
+        def __init__(self, screen):
+            super().__init__()
+            self._screen = screen
+
+        async def on_mount(self):
+            self.run_worker(self.push_screen_wait(self._screen))
+
+    rows = [f"row {i}" for i in range(60)]
+    app = _HostApp(bt.ReadOnly("a long page", rows))
+    async with app.run_test(size=(80, 20)) as pilot:
+        await pilot.pause()
+        screen = app.screen
+        text = str(screen.query_one("#readonly").render())
+        check("scroll: it opens at the top", "row 0" in text and "row 59" not in text, text)
+        # 61, not 60: a flat list with no section heading is still an "intro"
+        # to `lines_of`, which appends one trailing blank line under it.
+        check("scroll: the page says how much more there is", "line 1-" in text and "of 61" in text, text)
+        for _ in range(30):
+            await pilot.press("down")
+        await pilot.pause(0.1)
+        text = str(screen.query_one("#readonly").render())
+        check("scroll: paging down moves past the first screenful",
+              "row 0" not in text and "row 30" in text, text)
+        await pilot.press("G")
+        await pilot.pause(0.1)
+        text = str(screen.query_one("#readonly").render())
+        check("scroll: G jumps to the end", "row 59" in text, text)
+
+
 async def test_messages_panel_open_reaches_the_agents_page() -> None:
     """A MESSAGES row's `enter` opens the same conversation page an AGENTS
     row does when the message belongs to one - `actions.message_place`,
@@ -519,6 +577,76 @@ async def test_messages_panel_open_reaches_the_agents_page() -> None:
               type(app.screen).__name__)
         text = str(app.screen.query_one("#canvas").render())
         check("messages: the message itself is on it", "please review this" in text, text)
+
+
+async def test_agent_page_opens_pinned_to_the_newest_message() -> None:
+    """#2124: a conversation longer than one screen must open scrolled to the
+    newest message, not the oldest, and stay pinned to the bottom as replies
+    arrive - unless the founder scrolled up, in which case a new message must
+    not yank the page back down under them."""
+    _home("pin")
+    agents.register("reviewer", "alpha")
+    con = db.connect()
+    try:
+        db.set_terminal(con, "reviewer", "term_r", "wt")
+    finally:
+        con.close()
+    bt._DRAFTS.pop("reviewer", None)
+
+    def _say(i: int) -> None:
+        # `askmod.ask` is rate-limited (20/hour) - direct inserts build a
+        # conversation this long without tripping it.
+        con = db.connect()
+        try:
+            db.add_request(con, "reviewer", "human", f"message {i}", None,
+                           None, None, None, 0, None)
+        finally:
+            con.close()
+
+    for i in range(40):
+        _say(i)
+
+    class _HostApp(bt.App):
+        def __init__(self):
+            super().__init__()
+            self.jobs = jobsmod.Jobs()
+
+        def on_mount(self):
+            self.push_screen(bt.AgentDetail("reviewer"))
+
+    app = _HostApp()
+    async with app.run_test(size=(100, 20)) as pilot:
+        await pilot.pause()
+        screen = app.screen
+        text = str(screen.query_one("#canvas").render())
+        check("pin: it opens at the newest message, not the oldest",
+              "message 39" in text and "message 0" not in text, text)
+
+        await pilot.press("up")
+        await pilot.press("up")
+        await pilot.pause(0.1)
+        check("pin: an upward scroll un-pins it", screen.top is not None, str(screen.top))
+
+        _say(40)
+        await pilot.pause(0.2)
+        screen._redraw()
+        text = str(screen.query_one("#canvas").render())
+        check("pin: scrolled up, a new message does not yank the view back down",
+              "message 40" not in text, text)
+
+        await pilot.press("end")
+        await pilot.pause(0.1)
+        check("pin: `end` re-pins it", screen.top is None, str(screen.top))
+        text = str(screen.query_one("#canvas").render())
+        check("pin: re-pinned, the newest message is shown again",
+              "message 40" in text, text)
+
+        _say(41)
+        await pilot.pause(0.2)
+        screen._redraw()
+        text = str(screen.query_one("#canvas").render())
+        check("pin: still pinned, a fresh message follows it down",
+              "message 41" in text, text)
 
 
 async def test_wake_on_a_stalled_agent_asks_first() -> None:
@@ -642,6 +770,7 @@ async def test_text_prompt_keeps_a_paste_instead_of_dropping_it() -> None:
 
 async def _run_all() -> None:
     await test_dashboard_shows_a_registered_agent_and_moves_the_cursor()
+    await test_help_key_names_every_agent_verb_the_footer_folds_out()
     await test_an_action_runs_off_the_key_loop_and_the_screen_says_so()
     await test_confirm_rechecks_can_if_the_state_changed_while_it_was_open()
     await test_text_prompt_composer_sends_and_cancels()
@@ -652,7 +781,9 @@ async def _run_all() -> None:
     await test_agent_page_box_keeps_a_paste_instead_of_dropping_it()
     await test_accounts_panel_cap_add_remove_and_open()
     await test_accounts_remove_only_fires_on_the_typed_name()
+    await test_read_only_page_scrolls_past_one_screen()
     await test_messages_panel_open_reaches_the_agents_page()
+    await test_agent_page_opens_pinned_to_the_newest_message()
     await test_wake_on_a_stalled_agent_asks_first()
     await test_messages_panel_acts_on_a_folded_row()
     await test_text_prompt_keeps_a_paste_instead_of_dropping_it()

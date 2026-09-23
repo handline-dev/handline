@@ -838,15 +838,24 @@ def cmd_spawn(args) -> int:
 
 
 def cmd_bridge(args) -> int:
-    if args.textual:
-        try:
-            from . import bridge_textual
-        except ImportError as e:
+    # Task #54: Textual is the default screen now, not an opt-in - `--curses`
+    # is the escape hatch back to the raw-termios one this replaces. `--textual`
+    # stays as the explicit ask that fails loud when the package is missing
+    # (`ocp venv install` puts it there), for a script that wants to know
+    # rather than silently get the other screen; the plain default degrades
+    # quietly instead; `ocp bridge` on a machine whose venv is not ready yet
+    # (bin/ocp's own PATH-python3 fallback, #2069) must still open something.
+    if args.curses:
+        return tui.run(interval=args.interval, once=args.once)
+    try:
+        from . import bridge_textual
+    except ImportError as e:
+        if args.textual:
             print(f"ocp bridge --textual needs the `textual` package: {e}\n"
                   f"`ocp venv install` puts it in $OCP_HOME/venv (see requirements.txt).")
             return 1
-        return bridge_textual.run()
-    return tui.run(interval=args.interval, once=args.once)
+        return tui.run(interval=args.interval, once=args.once)
+    return bridge_textual.run(once=args.once)
 
 
 def cmd_guide(args) -> int:
@@ -1630,9 +1639,15 @@ def cmd_inbox(args) -> int:
         # is the screen: two places to do it is two places to keep in step, and
         # the one you are not looking at is the one holding the escalation. A
         # pipe still gets text - a script asking for the list is not a human
-        # asking for somewhere to sit.
+        # asking for somewhere to sit. Task #54: the screen it opens on is
+        # Textual now, the same silent fall back to curses `cmd_bridge` has
+        # for a machine whose venv is not ready yet (#2069).
         if sys.stdout.isatty() and not args.all and not args.wait:
-            return tui.run()
+            try:
+                from . import bridge_textual
+            except ImportError:
+                return tui.run()
+            return bridge_textual.run()
         return _human_inbox(args.all)
     if args.all:
         rows = askmod.inbox(agent, unread_only=False)
@@ -2338,7 +2353,10 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--interval", type=float, default=2.0)
     p.add_argument("--once", action="store_true", help="print one frame and exit")
     p.add_argument("--textual", action="store_true",
-                   help="the dashboard, ported to Textual (task #45) - one screen so far")
+                   help="the default now (task #54) - fail loud rather than fall back "
+                        "silently if the `textual` package is missing")
+    p.add_argument("--curses", action="store_true",
+                   help="the raw-termios screen Textual replaced, for opting back out")
     p.set_defaults(fn=cmd_bridge)
 
     bs = sub.add_parser("base", help="the per-session fixed context").add_subparsers(
