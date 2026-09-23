@@ -187,6 +187,21 @@ def test_restore_world_pops_orca_env_vars_a_real_terminal_would_leave_set() -> N
           "ORCA_WORKTREE_ID" not in os.environ)
 
 
+def _set_request_state(con, rid: int, state: str, verdict: str | None = None,
+                       announced: bool = False) -> None:
+    """Force a request row to any state, for setup only - never a production
+    closer, so it carries none of `db.py`'s chokepoint guard (#2024): tests
+    that need to reach a row's own defense-in-depth past that guard (past
+    `_would_strand_a_proposal`, for one) use this to get there."""
+    now = int(time.time())
+    con.execute(
+        "UPDATE requests SET state = ?, verdict = COALESCE(?, verdict), "
+        "resolved_at = COALESCE(resolved_at, ?), "
+        "announced_at = COALESCE(announced_at, ?) WHERE id = ?",
+        (state, verdict, now if state != "queued" else None,
+         now if announced else None, rid))
+
+
 def relaunching_send(sent: list, table: dict[str, int]) -> object:
     """An orca.send that records, and starts a session when it is a relaunch.
 
@@ -3054,7 +3069,7 @@ def test_a_resolved_ask_does_not_stay_in_progress_across_a_park(home: Path) -> N
     # path only fires that event into a live session (design section 5).
     con = db.connect()
     try:
-        db.set_request_state(con, rid, "done", verdict="looks good", announced=True)
+        _set_request_state(con, rid, "done", verdict="looks good", announced=True)
     finally:
         con.close()
 
@@ -3118,7 +3133,7 @@ def test_reconcile_resolved_needs_an_explicit_reference_not_a_bare_number(home: 
         for _ in range(8):
             rid = db.add_request(con, "backend", "auditor", "x", None, "peer",
                                  "fire_and_forget", None, 0, None)
-            db.set_request_state(con, rid, "done", verdict="ok")
+            _set_request_state(con, rid, "done", verdict="ok")
 
         prose = ["Phase 4 daemon rewrite, step 2 of 7",
                 "rebase onto main, 3 conflicts left",
@@ -3159,11 +3174,11 @@ def test_reconcile_resolved_only_state_done_counts(home: Path) -> None:
         for state in ("denied", "withdrawn", "replaced", "rejected"):
             rid = db.add_request(con, "backend", "auditor", "x", None, "peer",
                                  "fire_and_forget", None, 0, None)
-            db.set_request_state(con, rid, state)
+            _set_request_state(con, rid, state)
             never_happened[state] = rid
         done_rid = db.add_request(con, "backend", "auditor", "y", None, "peer",
                                   "fire_and_forget", None, 0, None)
-        db.set_request_state(con, done_rid, "done", verdict="ok")
+        _set_request_state(con, done_rid, "done", verdict="ok")
         queued_rid = db.add_request(con, "backend", "auditor", "z", None, "peer",
                                     "fire_and_forget", None, 0, None)
 
@@ -3206,7 +3221,7 @@ def test_build_prompt_tells_the_model_not_to_write_a_started_by_reference_as_has
         for _ in range(8):
             rid = db.add_request(con, "backend", "auditor", "x", None, "peer",
                                  "fire_and_forget", None, 0, None)
-            db.set_request_state(con, rid, "done", verdict="ok")
+            _set_request_state(con, rid, "done", verdict="ok")
 
         started_by = ["Fix auditor's #5 BLOCKING finding", "per #3, rework the guard"]
         d = digest.Digest(date="2026-09-22", agent="backend", updated="09:00", folded_through=1,
@@ -3284,7 +3299,7 @@ def test_fold_degraded_path_also_reconciles_resolved_asks(home: Path) -> None:
 
     con = db.connect()
     try:
-        db.set_request_state(con, rid, "done", verdict="looks good", announced=True)
+        _set_request_state(con, rid, "done", verdict="looks good", announced=True)
         # A second, unrelated event so the fold is not the no-event path.
         db.add_event(con, "backend", "commit", {"sha": "abc", "subject": "more work"})
     finally:
@@ -6332,7 +6347,7 @@ def test_the_handoff_is_three_facts_read_without_a_model(home: Path) -> None:
 
         # A request nobody has been shown yet is not one in hand.
         db.add_request(con, "marina", "backend", "later", None, "peer", "async", None, 0, None)
-        db.set_request_state(con, rid, "done", "ok")
+        _set_request_state(con, rid, "done", "ok")
         check("handoff: no delivered request is a fact, not a gap",
               handoffmod.record(con, "backend") == []
               and "request: none in progress" in db.get_handoff(con, "backend"))
@@ -8908,7 +8923,7 @@ def test_an_open_head_request_on_an_idle_agent_is_nudged_then_shown(home: Path) 
                              "peer", "async", None, 0, None)
         check("nudge: an agent with an ask of its own outstanding is waiting, not forgetful",
               not nudge(now) and not sent, str(sent))
-        db.set_request_state(con, ask, "done", verdict="fine", announced=True)
+        _set_request_state(con, ask, "done", verdict="fine", announced=True)
 
         # The gates delivery has.
         dmn.wall_reason = lambda con_, agent, row=None: "at its 5h limit"
@@ -8974,7 +8989,7 @@ def test_an_open_head_request_on_an_idle_agent_is_nudged_then_shown(home: Path) 
         idle_for(dmn.FORGOTTEN_STUCK_S + 60)
         check("stuck: and is shown again once it has",
               any("idle on" in b["what"] for b in actions.stuck(con)))
-        db.set_request_state(con, head, "done", verdict="did it")
+        _set_request_state(con, head, "done", verdict="did it")
         check("stuck: resolving it clears the row",
               not any("idle on" in b["what"] for b in actions.stuck(con)))
     finally:
@@ -14305,7 +14320,7 @@ def test_an_answer_reaches_the_agent_that_asked(home: Path) -> None:
               str(sent[-1:])[:120])
         denied = db.add_request(con, "backend", "nobody", "unroutable", None,
                                 "peer", "async", None, 0, None)
-        db.set_request_state(con, denied, "denied", "unknown target")
+        _set_request_state(con, denied, "denied", "unknown target")
         dmn.deliver_answers(con, "backend", lambda _m: None)
         check("answered: an ask routing refused is not typed back at it",
               "unroutable" not in sent[-1] and "unknown target" not in sent[-1],
@@ -14879,6 +14894,15 @@ edges:
               db.close_if_queued(con, rid, "done", "approve") is True)
         check("close_if_queued: and the row is no longer queued",
               db.get_request(con, rid)["state"] == "done")
+
+        # #2024: db.py once also held an unguarded state-setter, so the
+        # docstring's "every function below" was false for it. That function
+        # moved to this file as `_set_request_state`, test-only - this pins
+        # it staying out, so a future unguarded setter added to db.py fails
+        # here rather than reading as covered by the check above.
+        check("chokepoint: db.py has no other function that can move a row "
+              "out of 'queued' unguarded",
+              not hasattr(db, "set_request_state"))
     finally:
         con.close()
 
@@ -14938,12 +14962,11 @@ edges:
         check("hr: it cannot be applied before it is answered",
               not ok and "has not answered" in said, said)
         # #1943: `askmod.resolve` itself now refuses this verdict on an open
-        # proposal - db.set_request_state is the one closer with no guard
-        # (test scaffolding only, never a door in production), used here to
-        # reach the row hr.apply's own decision check exists for: one closed
-        # by something other than this fix, such as data from before it
-        # shipped.
-        db.set_request_state(con, rid[0], "done", "hmm, maybe next week")
+        # proposal - `_set_request_state` (test-only, see #2024) bypasses that
+        # guard to reach the row hr.apply's own decision check exists for:
+        # one closed by something other than this fix, such as data from
+        # before it shipped.
+        _set_request_state(con, rid[0], "done", "hmm, maybe next week")
         ok, said = hr.apply(pid)
         check("hr: nor on an answer that is not a decision",
               not ok and "not a decision" in said and "dohyun" not in paths.list_agents(),
@@ -17060,7 +17083,7 @@ def test_a_report_to_the_founder_is_not_a_wait(home: Path) -> None:
                   db.get_request(con, f2)["verdict"] is None)
         finally:
             askmod.asking_agent = real_who
-        db.set_request_state(con, f2, "queued")
+        _set_request_state(con, f2, "queued")
         actions.opened_by_human(con, f2)
         row = db.get_request(con, f2)
         check("fyi: opening it closes it", row["state"] == "done")
@@ -23603,7 +23626,7 @@ def test_a_declared_root_gets_standing_consent(home: Path) -> None:
                        "peer", "fire_and_forget", None, 0, None)
         asked = db.add_request(con, "backend", "reviewer", "did it land?", None,
                                "peer", "async", None, 0, None)
-        db.set_request_state(con, asked, "done", "yes")
+        _set_request_state(con, asked, "done", "yes")
         db.set_agent_state(con, "backend", dmn.RUNNING)
         dmn.deliver_answers(con, "backend", lambda _m: None)
         dmn.deliver_queued(con, "backend", lambda _m: None)
@@ -23865,7 +23888,7 @@ def test_review_pingpong(home: Path) -> None:
         parent = rid
         con = db.connect()
         try:
-            db.set_request_state(con, rid, "done", "ok")
+            _set_request_state(con, rid, "done", "ok")
         finally:
             con.close()
 
@@ -26568,7 +26591,7 @@ limits:
         # #1366 should-fix 2b: a retirement outside the window does not count.
         old = db.add_request(con, "manager", "worker", "ancient", None, "peer",
                              "fire_and_forget", None, 0, None)
-        db.set_request_state(con, old, "withdrawn", None)
+        _set_request_state(con, old, "withdrawn", None)
         con.execute("UPDATE requests SET resolved_at = ? WHERE id = ?",
                     (int(time.time()) - 31 * 86400, old))
         gaps4 = actions.reason_gaps(con)
