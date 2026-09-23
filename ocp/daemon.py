@@ -531,6 +531,54 @@ def _session_changed(con, agent: str) -> bool:
     return bool(live) and live != db.get_notified_session(con, agent)
 
 
+# #1973, measured in daemon.out.log: a notify and a context handoff fired in
+# the same tick, against the same agent - the handoff read idle from a probe
+# taken before the notify landed, and typed /clear into the session the
+# notify had just started, which Claude Code then queued behind the turn.
+# `lock.terminal` alone does not close this: it only keeps two writers from
+# holding the terminal at once, and the notify had already released it by
+# the time the handoff took it. The screen itself lags a moment behind a
+# line that just landed - Orca's own idle probe can still read "idle" for a
+# beat after Enter is sent - so a *destructive* type (one that throws work
+# away if it lands mid-turn: a handoff's /clear or /exit) may not follow any
+# type at the same agent, from any path or process, within this long -
+# ordinary notifies are not held to it, since Claude Code only ever queues
+# unsent text behind a busy turn, it does not discard it.
+TYPE_SETTLE_S = 15
+
+
+def _type_gate(con, agent: str, handle: str | None, *, require_idle: bool = True,
+               require_settled: bool = False) -> str | None:
+    """The re-read every path that types at an agent's terminal must do once
+    its lock is actually held (#1973) - never trust a reading taken before
+    asking for the lock. None means clear to type; anything else is why not.
+
+    `require_idle` is False for a wake: a closed agent has no live process to
+    be mid-turn in, and the sub-paths that do meet a live one (a drifted
+    session, a resume) already probe it themselves, inline, where they act.
+    `orca.typeable_now`, the same probe every pre-lock check already uses -
+    not `idle_now` alone - so a dialog that opened in the gap refuses here
+    too, not only a turn that started.
+
+    `require_settled` is True only for a handoff's own gate: the settle
+    window above is what catches a stale idle reading that `typeable_now`,
+    read fresh a moment too soon, still cannot.
+    """
+    if require_settled:
+        last = db.get_cursor(con, f"typed_at:{agent}")
+        if last and int(time.time()) - last < TYPE_SETTLE_S:
+            return f"{agent} was typed at moments ago; letting the screen catch up"
+    if require_idle and handle and orca.available() and not orca.typeable_now(handle):
+        return f"{agent} is mid-turn or has a dialog open"
+    return None
+
+
+def _mark_typed(con, agent: str) -> None:
+    """Called after every successful type at `agent`'s terminal - the other
+    half of `_type_gate`'s settle window."""
+    db.set_cursor(con, f"typed_at:{agent}", int(time.time()))
+
+
 def deliver_queued(con, agent: str, log) -> bool:
     """Tell an agent about the head of its own queue (`db.head_of_queue`) -
     and only the head, per request #189. `ocp ask` writes a row and puts a
@@ -563,6 +611,8 @@ def deliver_queued(con, agent: str, log) -> bool:
     with lock.terminal(agent) as mine:
         if not mine:
             return False          # something else is mid-send; next tick
+        if _type_gate(con, agent, handle):
+            return False          # stale reading above; next tick
         return _tell(con, agent, head, depth, handle, log)
 
 
@@ -629,6 +679,8 @@ def nudge_forgotten_resolve(con, agent: str, row, now: int, log) -> bool:
     with lock.terminal(agent) as mine:
         if not mine:
             return False
+        if _type_gate(con, agent, handle):
+            return False
         ok, _ = orca.send(
             handle,
             f"#{head['id']} was delivered to you and is still open, and you have been "
@@ -636,6 +688,8 @@ def nudge_forgotten_resolve(con, agent: str, row, now: int, log) -> bool:
             + (f" with {behind} more waiting behind it" if behind else "")
             + f". If the work is done, `ocp resolve {head['id']} \"<verdict>\"`; if it is "
             f"not, say what you are waiting on.")
+        if ok:
+            _mark_typed(con, agent)
     if ok:
         db.set_cursor(con, f"nudge:{agent}", int(head["id"]))
         db.add_event(con, agent, "nudged", {"request_id": head["id"],
@@ -665,10 +719,15 @@ def notify_cancelled(con, row, verdict: str) -> tuple[bool, str]:
     with lock.terminal(agent) as mine:
         if not mine:
             return False, f"something else is typing at {agent}"
+        why = _type_gate(con, agent, handle)
+        if why:
+            return False, why
         ok, _ = orca.send(
             handle,
             f"#{row['id']} from {row['requester']} was cancelled: {verdict}. Stop work "
             f"on it; it is closed and needs no resolve. `ocp read {row['id']}` shows it.")
+        if ok:
+            _mark_typed(con, agent)
     return ok, "" if ok else "the send failed"
 
 
@@ -694,6 +753,7 @@ def _tell(con, agent: str, head, depth: int, handle: str, log) -> bool:
         f"`ocp read {head['id']}` shows it whole; answer with "
         f"`ocp resolve {head['id']} \"<verdict>\"`, or `ocp inbox` any time.")
     if ok:
+        _mark_typed(con, agent)
         db.set_cursor(con, f"notify:{agent}", int(head["id"]))
         db.set_notified_session(con, agent, _live_session(con, agent))
         db.add_event(con, agent, "notified", {"request_id": head["id"], "more_waiting": more})
@@ -745,8 +805,12 @@ def deliver_answers(con, agent: str, log) -> bool:
     with lock.terminal(agent) as mine:
         if not mine:
             return False
+        if _type_gate(con, agent, handle):
+            return False
         ok, _ = orca.send(
             handle, "Answers to what you asked:\n" + "\n".join(lines) + tail)
+        if ok:
+            _mark_typed(con, agent)
     if ok:
         db.mark_announced(con, [r["id"] for r in answered])
         db.add_event(con, agent, "answered", {"count": len(answered)})
@@ -839,7 +903,15 @@ def close_agent(con, agent: str, log, st) -> tuple[bool, str]:
     with lock.terminal(agent) as mine:
         if not mine:
             return False, "someone else is typing at this agent; not closing"
-        return _close_agent(con, agent, log, st)
+        # Not `_type_gate`: this is not one of #1973's named doors (notify,
+        # wake, a handoff's /clear or /exit, spawn, resume, a move) - it is a
+        # separate "give back idle memory" path with its own dialog handling
+        # already inline in `_close_agent`/`_end_session`, and `should_close`
+        # (its only caller) already refuses a RUNNING or HANDOFF agent.
+        ok, said = _close_agent(con, agent, log, st)
+        if ok:
+            _mark_typed(con, agent)
+        return ok, said
 
 
 def _close_agent(con, agent: str, log, st) -> tuple[bool, str]:
@@ -1102,7 +1174,17 @@ def wake_agent(con, agent: str, log) -> tuple[bool, str]:
             # A human's key and a tick can both land here, and this one holds
             # the terminal for as long as a session takes to appear.
             return False, "someone else is typing at this agent; not waking twice"
-        return _wake_agent(con, agent, log)
+        # Not `_type_gate`: a closed agent has no live process to be
+        # mid-turn in, so there is nothing for a fresh idle re-read to catch,
+        # and the sub-paths below that do meet a live one (a drifted
+        # session, a resume) already probe it themselves, inline, right
+        # where they act - the settle window matters at a genuinely
+        # destructive type (a handoff's /clear or /exit, or moving a
+        # PARKED agent), not here.
+        ok, said = _wake_agent(con, agent, log)
+        if ok:
+            _mark_typed(con, agent)
+        return ok, said
 
 
 def _wake_agent(con, agent: str, log, moved_to: str | None = None) -> tuple[bool, str]:
@@ -1757,6 +1839,7 @@ def perform_handoff(con, agent: str, trigger: triggers.Trigger, log,
         return True
 
     handle = db.get_terminal(con, agent)
+    settled = False
     if handle and orca.available():
         # A turn that ended on the usage limit and has stayed quiet for a while
         # is over, whatever the terminal's activity probe still says; sooner
@@ -1798,7 +1881,22 @@ def perform_handoff(con, agent: str, trigger: triggers.Trigger, log,
             log(f"  {agent}: {trigger.kind} fired but something else is typing at it "
                 f"- not handing off")
             return True
-        return _perform_handoff(con, agent, trigger, log, dest)
+        # #1973: the checks above (typeable_now, session_present) were read
+        # before this lock was taken - the exact gap the incident this fixes
+        # sits in. Re-read now that the terminal is actually held, or a
+        # delivery that landed in between reads as idle here too.
+        # require_idle mirrors `settled` exactly as the dialog-handling
+        # block above does: a settled usage-limit stop bypasses the probe on
+        # purpose, because the dialog it is stuck at does not clear by
+        # waiting, and this re-check must not reintroduce that wait.
+        why = _type_gate(con, agent, handle, require_idle=not settled, require_settled=True)
+        if why:
+            log(f"  {agent}: {trigger.kind} fired but {why} - not handing off")
+            return True
+        ok = _perform_handoff(con, agent, trigger, log, dest)
+        if ok:
+            _mark_typed(con, agent)
+        return ok
 
 
 # The triggers a move answers: the two walls, and a person's own order. Nothing
@@ -2379,7 +2477,14 @@ def supervise(con, agent: str, log, now: int, samples: dict,
         if movable and verdict.fired and verdict.kind in MOVABLE_TRIGGERS \
                 and _move_plan(con, agent, verdict.kind)[0]:
             with lock.terminal(agent) as mine:
-                moved = bool(mine) and _move_to_room(con, agent, verdict, log)[0]
+                # require_idle=False: PARKED means already closed, so there is
+                # no live process to be mid-turn in - require_settled=True is
+                # what actually applies here.
+                moved = bool(mine) and not _type_gate(con, agent, None, require_idle=False,
+                                                      require_settled=True) \
+                    and _move_to_room(con, agent, verdict, log)[0]
+                if moved:
+                    _mark_typed(con, agent)
             if moved:
                 actions.append(f"{agent}: moved off a parked account")
                 return

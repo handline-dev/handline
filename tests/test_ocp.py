@@ -12494,6 +12494,96 @@ def test_a_context_handoff_does_not_thrash_within_min_handoff_interval_s(home: P
         con.close()
 
 
+def test_a_delivery_and_a_handoff_in_the_same_tick_the_handoff_must_not_type(
+        home: Path) -> None:
+    """#1973, measured in daemon.out.log: a notify and a context handoff
+    fired in the same tick, against the same agent - the daemon logged
+    'told about #N' and then 'HANDOFF (context)' one line apart, and the
+    handoff's /clear landed on the session the notify had just started,
+    which Claude Code queued behind the turn instead of running.
+
+    `lock.terminal` alone does not close this: the notify had already
+    released the agent's lock by the time the handoff took it, so mutual
+    exclusion was never actually contested. And a fresh `typeable_now` read
+    taken right after the handoff does take the lock is not enough by
+    itself either - the screen can still say idle for a moment after Enter
+    lands, which is simulated here by leaving `typeable_now` stubbed True
+    throughout, exactly the stale reading the incident had. What has to
+    catch it is `_type_gate`'s settle window: nothing destructive may type
+    within TYPE_SETTLE_S of the last successful type at the same agent,
+    whatever a fresh probe claims."""
+    _daemon_home(home, 20)
+    con = db.connect()
+    typed: list[str] = []
+    real = (orcamod.available, orcamod.alive, orcamod.typeable_now, orcamod.send,
+            orcamod.clear_context)
+    try:
+        orcamod.available = lambda: True
+        orcamod.alive = lambda h: True
+        # The stale reading itself: idle before the notify, and left exactly
+        # as idle after it - the incident's own screen never told the truth
+        # in between, so nothing here may depend on it changing.
+        orcamod.typeable_now = lambda h: True
+        orcamod.send = lambda h, text, enter=True: (typed.append(text), (True, "sent"))[1]
+        orcamod.clear_context = lambda h, **kw: (typed.append("/clear"), (True, "context cleared"))[1]
+        sessions_are("backend")
+        db.set_terminal(con, "backend", "term_x", "wt")
+        db.add_request(con, "marina", "backend", "carry on", None, "peer", "async", None, 0, None)
+
+        ok = dmn.deliver_queued(con, "backend", lambda _m: None)
+        check("race: the delivery itself goes through", ok and len(typed) == 1, typed)
+
+        t = triggers.evaluate(10, 300_000)
+        check("race: setup - the trigger actually fires", t.fired, t.reason)
+        fired = dmn.perform_handoff(con, "backend", t, lambda _m: None)
+        check("race: the handoff in the same tick does not type - only the "
+              "delivery's own line is on the record",
+              typed == [typed[0]], typed)
+        check("race: and it is reported as deferred (True), not degraded (False)",
+              fired is True, fired)
+
+        # Past the settle window, the same trigger folds normally - this is
+        # not a guard that got stuck on.
+        db.set_cursor(con, "typed_at:backend", int(time.time()) - dmn.TYPE_SETTLE_S - 1)
+        con.execute("DELETE FROM handoff")     # MIN_HANDOFF_INTERVAL_S, not a real one
+        dmn.perform_handoff(con, "backend", t, lambda _m: None)
+        check("race: once settled, the same condition hands off",
+              "/clear" in typed, typed)
+    finally:
+        (orcamod.available, orcamod.alive, orcamod.typeable_now, orcamod.send,
+         orcamod.clear_context) = real
+        con.close()
+
+
+def test_the_settle_window_actually_enforces_with_require_idle_false(home: Path) -> None:
+    """/code-review catch on this branch: `_type_gate(..., require_idle=False,
+    require_settled=True)` - the shape the parked-move-to-room site (and,
+    until this fix, `wake_agent`) uses - must actually enforce the settle
+    window. With `require_settled` left at its default (False), the same
+    call is a silent no-op: neither gate checked, whatever a prior type just
+    did. This pins the True case directly, since driving it end to end
+    through `supervise` needs a PARKED agent with room elsewhere - a fuller
+    scenario the delivery/handoff race test above does not need."""
+    _daemon_home(home, 20)
+    con = db.connect()
+    try:
+        check("settle: clear to type with no prior mark",
+              dmn._type_gate(con, "backend", None, require_idle=False,
+                             require_settled=True) is None)
+        dmn._mark_typed(con, "backend")
+        check("settle: refuses right after a mark",
+              dmn._type_gate(con, "backend", None, require_idle=False,
+                             require_settled=True) is not None)
+        check("settle: require_settled=False (the old, buggy call) is a no-op instead",
+              dmn._type_gate(con, "backend", None, require_idle=False) is None)
+        db.set_cursor(con, "typed_at:backend", int(time.time()) - dmn.TYPE_SETTLE_S - 1)
+        check("settle: clear again once the window has passed",
+              dmn._type_gate(con, "backend", None, require_idle=False,
+                             require_settled=True) is None)
+    finally:
+        con.close()
+
+
 def test_every_call_site_actually_hands_supervise_the_per_agent_context_limit(
         home: Path) -> None:
     """should-fix 1 (#1762): the thrash test above proves triggers.evaluate
@@ -15199,6 +15289,7 @@ def test_an_agent_at_the_wall_moves_to_an_account_with_room(home: Path) -> None:
         db.set_agent_state(con, "keeper", dmn.IDLE)
         db.clear_closed(con, "keeper")
         con.execute("DELETE FROM handoff")     # MIN_HANDOFF_INTERVAL_S, not a real one
+        db.clear_cursor(con, "typed_at:keeper")  # #1973's settle window, not a real one either
         dmn.perform_handoff(con, "keeper", triggers.evaluate(100, 10), lambda _m: None)
         row = db.get_agent_state(con, "keeper")
         check("move: with no room anywhere it parks and waits, as before",
@@ -26191,6 +26282,10 @@ def main() -> int:
         run(lambda: test_a_parked_agent_is_unparked_by_its_own_context_limit(
             Path(td) / 'parkctxlimit'))
         run(lambda: test_a_context_handoff_does_not_thrash_within_min_handoff_interval_s(Path(td) / 'ctxthrash'))
+        run(lambda: test_a_delivery_and_a_handoff_in_the_same_tick_the_handoff_must_not_type(
+            Path(td) / 'deliverhandoffrace'))
+        run(lambda: test_the_settle_window_actually_enforces_with_require_idle_false(
+            Path(td) / 'settleenforce'))
         run(lambda: test_every_call_site_actually_hands_supervise_the_per_agent_context_limit(
             Path(td) / 'ctxsites'))
         run(lambda: test_a_usage_park_stays_parked_while_the_reading_is_at_the_wall(Path(td) / 'parklevel2'))
