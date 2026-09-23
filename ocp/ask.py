@@ -565,7 +565,7 @@ def cancel(rid: int) -> tuple[bool, str]:
     mid-work on it - is typed a notice with delivery's gates when it had been
     delivered. Whatever is behind it delivers next.
     """
-    from . import daemon
+    from . import daemon, hr
 
     con = db.connect()
     try:
@@ -576,6 +576,12 @@ def cancel(rid: int) -> tuple[bool, str]:
             return False, f"#{rid} is already {row['state']} - nothing to cancel"
         if row["requester"] == HUMAN and not row["delivered_at"]:
             return withdraw(rid, requester=HUMAN)
+        if hr.is_open_proposal(rid):
+            # Same family as #1908/#1919: CANCEL_VERDICT is not approve or
+            # reject either, so cancelling a proposal escalation would strand
+            # it exactly as an unguarded resolve or dismiss would.
+            return False, (f"#{rid} is a roster proposal - answer `approve` or "
+                           f"`reject`, it cannot be cancelled")
         target = row["target"]
         notify = row["requester"] != HUMAN
         # Closed here, in the one write that can move it out of 'queued', so

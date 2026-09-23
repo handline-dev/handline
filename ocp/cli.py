@@ -1929,6 +1929,13 @@ def cmd_resolve(args) -> int:
                 if refusal:
                     print(refusal)
                     return 1
+            if old["state"] == "queued" and hr.is_open_proposal(args.retires):
+                # #1908 should-fix: --retires closes `old` too, the same
+                # `answer`/`resolve` can - a proposal escalation retired this
+                # way is answered with "replaced by #N", not a decision.
+                print(f"#{args.retires} is a roster proposal - answer `approve` or "
+                      f"`reject`, it cannot be retired")
+                return 1
             if old["moot_by"] is not None:
                 print(f"#{args.retires} is already moot (by #{old['moot_by']})")
                 return 1

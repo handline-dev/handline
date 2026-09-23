@@ -14719,12 +14719,13 @@ edges:
         con.close()
 
 
-def test_ocp_resolve_on_an_open_proposal_also_needs_a_decision(home: Path) -> None:
-    """#1893 SF1: `answer()` (the bridge's key) is not the only door onto a
-    queued proposal escalation - `ocp resolve` reaches the same row when the
-    founder is its target, and only `answer()` had the guard. A verdict typed
-    there that is neither approve nor reject used to close the row anyway,
-    leaving the proposal stuck exactly as if the bridge had let it through."""
+def test_every_door_onto_an_open_proposal_also_needs_a_decision(home: Path) -> None:
+    """#1893 SF1, #1908, #1919: `answer()` (the bridge's key) is not the only
+    door onto a queued proposal escalation - `ocp resolve`, `--retires` and
+    `ask.cancel` each reach the same row, and only `answer()` had the guard.
+    A verdict, a retirement or a cancel typed there that is not a decision
+    used to close the row anyway, leaving the proposal stuck exactly as if
+    the bridge had let it through."""
     _daemon_home(home, 20)
     con = db.connect()
     try:
@@ -14754,6 +14755,40 @@ edges:
     check("resolve: approve still goes through", rc == 0, out)
     ok, said = hr.apply(pid)
     check("resolve: and apply carries it out", ok and "dohyun" in paths.list_agents(), said)
+
+    # #1908 should-fix: the same escalation can be closed a third way, through
+    # --retires on an unrelated resolve - "replaced by #N" is not a decision
+    # either.
+    ok, said = hr.propose("add", "yerin", requester="hr", why="a second pair",
+                          account="beta")
+    pid2 = said.split()[1]
+    rid2 = int(said.split("#")[1].split(".")[0])
+    ok, _, rid3 = askmod.ask(askmod.HUMAN, "unrelated question", requester="hr")
+    check("retires: the unrelated ask queued", ok and rid3 is not None)
+    rc, out = _cli(["resolve", str(rid3), "covered", "--retires", str(rid2)],
+                   as_agent=askmod.HUMAN)
+    check("retires: an open proposal refuses to be retired away",
+          rc == 1 and "approve" in out, out)
+    con = db.connect()
+    try:
+        check("retires: and stays queued", db.get_request(con, rid2)["state"] == "queued")
+    finally:
+        con.close()
+
+    # #1919: task #32's finding - ask.cancel is the same family, since
+    # CANCEL_VERDICT is not a decision either.
+    con = db.connect()
+    try:
+        said = actions.cancel(con, rid2)
+    finally:
+        con.close()
+    check("cancel: an open proposal refuses to be cancelled away",
+          "approve" in said, said)
+    con = db.connect()
+    try:
+        check("cancel: and stays queued", db.get_request(con, rid2)["state"] == "queued")
+    finally:
+        con.close()
 
 
 def test_growing_the_team_needs_a_person(home: Path) -> None:
@@ -27354,7 +27389,7 @@ def main() -> int:
             Path(td) / 'registervendor'))
         run(lambda: test_a_proposal_dismissed_in_the_bridge_is_never_stranded(
             Path(td) / 'hrdismiss'))
-        run(lambda: test_ocp_resolve_on_an_open_proposal_also_needs_a_decision(
+        run(lambda: test_every_door_onto_an_open_proposal_also_needs_a_decision(
             Path(td) / 'hrresolveguard'))
         run(lambda: test_hr_move_changes_an_agents_account(Path(td) / 'hrmove'))
         run(lambda: test_hr_move_does_not_touch_a_live_sessions_own_record(Path(td) / 'hrmovelive'))
