@@ -369,6 +369,49 @@ def close_task(con, tid: int, sha: str | None = None, reason: str | None = None,
     return True, f"task #{tid} closed ({mark})"
 
 
+def edit_task(con, tid: int, by: str, owner: str | None = None,
+              title: str | None = None) -> tuple[bool, str]:
+    """Change a task's owner and/or title. Only the task's opener or the
+    founder may - a task is not a request, it has no `target` a supervisor
+    could redirect, and #1914: every orcapipe task is owned by orcapipe
+    itself, members only link requests to it, so an owner change here is for
+    fixing who was named by mistake, not for handing work along.
+
+    Refused if neither field actually changes anything, so a no-op edit
+    cannot be used to touch edited_by/edited_at without saying what moved -
+    the same reason close_task refuses a task already closed.
+    """
+    row = db.get_task(con, tid)
+    if row is None:
+        return False, f"no task #{tid}"
+    if by != row["opened_by"] and by != askmod.HUMAN:
+        return False, (f"task #{tid} can only be edited by whoever opened it "
+                       f"({row['opened_by']}) or the founder")
+    if owner is None and title is None:
+        return False, "edit needs a new owner, a new title, or both"
+    changes: dict = {}
+    new_owner = None
+    if owner is not None and owner != row["owner"]:
+        if owner not in paths.list_agents():
+            return False, f"no agent named {owner}"
+        new_owner = owner
+        changes["owner"] = {"old": row["owner"], "new": new_owner}
+    new_title = None
+    if title is not None:
+        t = textsafe.oneline(title).strip()
+        if not t:
+            return False, "a task needs a title"
+        if t != row["title"]:
+            new_title = t
+            changes["title"] = {"old": row["title"], "new": new_title}
+    if not changes:
+        return False, f"task #{tid} already reads that way - nothing to edit"
+    db.edit_task(con, tid, by, owner=new_owner, title=new_title)
+    db.add_event(con, by, "edit_task", {"task_id": tid, **changes})
+    said = ", ".join(f"{k} {v['old']!r} -> {v['new']!r}" for k, v in changes.items())
+    return True, f"task #{tid} edited by {by}: {said}"
+
+
 def reason_gaps(con, window_days: int = 30) -> dict:
     """#1349/#1366: how many retirements carry no reason, counted from the
     exact shapes those verbs write - not a grep over free text, which is the
