@@ -23,6 +23,7 @@ import subprocess
 import sys
 import time
 from pathlib import Path
+from typing import Callable
 
 from . import actions
 
@@ -48,10 +49,17 @@ def _took(seconds: float) -> str:
 class Job:
     """One action running for the screen: what it is, who it is on, its process."""
 
-    def __init__(self, verb: str, target: str, what: str, proc, started: float) -> None:
+    def __init__(self, verb: str, target: str, what: str, proc, started: float,
+                 on_result: Callable[[bool, str], None] | None = None) -> None:
         self.verb, self.target, self.what, self.proc, self.started = verb, target, what, proc, started
         self.waits, self.longest = actions.WAITS[verb]
         self.stopped_at: float | None = None       # when `terminate()` was sent
+        # Called once, when `reap()` collects the answer, with whether it
+        # actually went and what it said - a screen that needs more than the
+        # line `reap()` already returns (the chat box restoring a draft that
+        # failed to send) hooks in here rather than every caller re-parsing
+        # `lines()`'s text back into a bool.
+        self.on_result = on_result
 
 
 class JobLine:
@@ -70,7 +78,8 @@ class Jobs:
         self.running: list[Job] = []
 
     def start(self, verb: str, target: str, what: str, args: tuple = (),
-              kwargs: dict | None = None) -> str:
+              kwargs: dict | None = None,
+              on_result: Callable[[bool, str], None] | None = None) -> str:
         """Begin `verb` in a process of its own. Returns a line only if it could
         not be begun - an empty string means it is on its way and will speak for
         itself once `reap()` collects it."""
@@ -94,7 +103,7 @@ class Jobs:
             proc.stdin = None          # closed here; `communicate` must not close it again
         except (OSError, ValueError) as e:
             return f"could not start {what}: {e}"
-        self.running.append(Job(verb, target, what, proc, time.time()))
+        self.running.append(Job(verb, target, what, proc, time.time(), on_result))
         return ""
 
     def reap(self) -> list[str]:
@@ -113,8 +122,18 @@ class Jobs:
                     self._signal(job, signal.SIGKILL)
                 continue
             self.running.remove(job)
+            if job.stopped_at is not None:
+                # The leader (`job.proc`) exiting on SIGTERM does not mean the
+                # group did: a grandchild that ignores SIGTERM, or is slow to
+                # clean up, keeps the pipes `communicate()` reads from open
+                # until it too is gone - SIGKILL the whole group once there is
+                # no leader left to relay a gentler signal to.
+                self._signal(job, signal.SIGKILL)
             out, err = job.proc.communicate()
-            said.append(self._said(job, code, out, err, now))
+            ok, text = self._said(job, code, out, err, now)
+            said.append(text)
+            if job.on_result:
+                job.on_result(ok, text)
         return said
 
     def _signal(self, job: Job, sig: int) -> None:
@@ -129,10 +148,13 @@ class Jobs:
         except ProcessLookupError:
             pass
 
-    def _said(self, job: Job, code: int, out: str, err: str, now: float) -> str:
+    def _said(self, job: Job, code: int, out: str, err: str, now: float) -> tuple[bool, str]:
+        """(ok, text). `ok` is `actions.perform`'s own bool (true for every
+        verb but `chat_reply` - see its docstring); a job stopped for running
+        past its bound answered nothing, so that is false outright."""
         if job.stopped_at is not None:
-            return (f"{job.what}: no answer after {_took(job.longest)} - stopped. It may have "
-                    "got part of the way; the row above is what is true.")
+            return False, (f"{job.what}: no answer after {_took(job.longest)} - stopped. It may "
+                           "have got part of the way; the row above is what is true.")
         answer = None
         for ln in reversed(out.splitlines()):
             try:
@@ -141,10 +163,10 @@ class Jobs:
             except ValueError:
                 continue
         if isinstance(answer, dict) and "said" in answer:
-            text = str(answer["said"])
-            return text if answer.get("ok") else f"{job.what} failed: {text}"
+            text, ok = str(answer["said"]), bool(answer.get("ok"))
+            return ok, (text if ok else f"{job.what} failed: {text}")
         tail = (err.strip().splitlines() or [f"exit {code}"])[-1]
-        return f"{job.what} failed: {tail}"
+        return False, f"{job.what} failed: {tail}"
 
     def lines(self, now: float | None = None) -> list[JobLine]:
         """One row per action that has been running long enough to be seen,

@@ -24,8 +24,8 @@ def main() -> int:
     signal.signal(signal.SIGPIPE, signal.SIG_IGN)
     try:
         req = json.loads(sys.stdin.read())
-        said = actions.perform(req["verb"], *req.get("args", []), **req.get("kwargs", {}))
-        out = {"ok": True, "said": said}
+        ok, said = actions.perform(req["verb"], *req.get("args", []), **req.get("kwargs", {}))
+        out = {"ok": ok, "said": said}
     except Exception as e:  # noqa: BLE001 - whatever went wrong is the answer
         out = {"ok": False, "said": f"{type(e).__name__}: {e}"}
     try:
