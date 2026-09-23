@@ -352,13 +352,11 @@ async def test_accounts_panel_cap_add_remove_and_open() -> None:
               screen.flash)
 
         await pilot.press("x")
-        await pilot.pause(0.1)
-        for ch in "nope":
-            await pilot.press(ch)
-        await pilot.press("enter")
         await pilot.pause(0.2)
-        check("accounts: removing one an agent is on refuses before the confirmation is even read",
-              "in use by" in screen.flash, screen.flash)
+        check("accounts: removing one an agent is on refuses through remove_plan, "
+              "before the human is ever asked to type its name",
+              "in use by" in screen.flash and not isinstance(app.screen, bt.TextPrompt),
+              screen.flash)
 
         await pilot.press("enter")
         await pilot.pause(0.2)
@@ -371,6 +369,50 @@ async def test_accounts_panel_cap_add_remove_and_open() -> None:
         await pilot.pause(0.1)
         check("accounts: any key closes it", isinstance(app.screen, bt.Dashboard),
               type(app.screen).__name__)
+
+
+async def test_accounts_remove_only_fires_on_the_typed_name() -> None:
+    """auditor #2016 SHOULD-FIX 2: the only remove check in the file uses an
+    in-use account, refused by remove_plan before confirm() is ever
+    consulted, so the typed-name check itself was never exercised. `beta` is
+    free (registered with `no_login`, so nothing here needs a real login
+    shell) - a wrong name must leave it, the exact name must remove it."""
+    _home("removefree")
+    from ocp import accounts as accountsmod
+    ok, msg = accountsmod.add_account("beta", lambda argv, env: 0, no_login=True)
+    assert ok, msg
+
+    app = bt.BridgeApp()
+    async with app.run_test(size=(120, 30)) as pilot:
+        await pilot.pause()
+        await pilot.press("left")          # AGENTS -> ACCOUNTS
+        await pilot.press("down")          # alpha -> beta (list_accounts is sorted)
+        await pilot.pause(0.1)
+        screen = app.screen
+
+        await pilot.press("x")
+        await pilot.pause(0.1)
+        check("accounts: x on a free account prompts for its name",
+              isinstance(app.screen, bt.TextPrompt), type(app.screen).__name__)
+        for ch in "betx":
+            await pilot.press(ch)
+        await pilot.press("enter")
+        await pilot.pause(0.2)
+        check("accounts: a wrong typed name leaves it",
+              "beta" in accountsmod.paths.list_accounts(),
+              str(accountsmod.paths.list_accounts()))
+        check("accounts: and says nothing was removed", "not removed" in screen.flash, screen.flash)
+
+        await pilot.press("x")
+        await pilot.pause(0.1)
+        for ch in "beta":
+            await pilot.press(ch)
+        await pilot.press("enter")
+        await pilot.pause(0.2)
+        check("accounts: the exact typed name removes it",
+              "beta" not in accountsmod.paths.list_accounts(),
+              str(accountsmod.paths.list_accounts()))
+        check("accounts: and says so", "removed account 'beta'" in screen.flash, screen.flash)
 
 
 async def test_messages_panel_open_reaches_the_agents_page() -> None:
@@ -437,7 +479,13 @@ async def test_messages_panel_acts_on_a_folded_row() -> None:
     (`"agent:<name>"`), not an id, and the ordinary row is folded - a report
     with nothing pinning it. Acting on it must look the id up fresh, the same
     way `tui._act_on` does, rather than trying to read the key as one."""
-    _home("msgfold")
+    # auditor #2016 BLOCKING: Enter on a folded row - the ordinary way to read
+    # a message - reaches the same int(target) crash, and its own path
+    # (message_place -> the agent's page) also drops curses' check that the
+    # page could actually be built before choosing it. Its own fixture: Enter
+    # closes a report (`opened_by_human`), and the dismiss scenario below
+    # needs its own two reports still queued and folded.
+    _home("msgfoldopen")
     agents.register("reviewer", "alpha")
     con = db.connect()
     try:
@@ -445,6 +493,28 @@ async def test_messages_panel_acts_on_a_folded_row() -> None:
     finally:
         con.close()
     from ocp import ask as askmod
+    askmod.ask("human", "opened report", requester="reviewer", fyi=True)
+
+    opener = bt.BridgeApp()
+    async with opener.run_test(size=(120, 30)) as pilot:
+        await pilot.pause()
+        await pilot.press("right")         # AGENTS -> MESSAGES
+        await pilot.pause(0.1)
+        await pilot.press("enter")
+        await pilot.pause(0.2)
+        check("messages: enter on a folded row does not crash the app",
+              opener.is_running, "app exited")
+        check("messages: it opens the sender's own page",
+              isinstance(opener.screen, bt.AgentDetail) and opener.screen.agent == "reviewer",
+              type(opener.screen).__name__)
+
+    _home("msgfold")
+    agents.register("reviewer", "alpha")
+    con = db.connect()
+    try:
+        db.set_terminal(con, "reviewer", "term_r", "wt")
+    finally:
+        con.close()
     askmod.ask("human", "first report", requester="reviewer", fyi=True)
     askmod.ask("human", "second report", requester="reviewer", fyi=True)
 
@@ -503,6 +573,7 @@ async def _run_all() -> None:
     await test_agent_page_box_keeps_a_draft_a_busy_target_refuses()
     await test_agent_page_box_restores_a_draft_the_send_failed()
     await test_accounts_panel_cap_add_remove_and_open()
+    await test_accounts_remove_only_fires_on_the_typed_name()
     await test_messages_panel_open_reaches_the_agents_page()
     await test_wake_on_a_stalled_agent_asks_first()
     await test_messages_panel_acts_on_a_folded_row()

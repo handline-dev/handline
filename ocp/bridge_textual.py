@@ -384,6 +384,18 @@ class Dashboard(JobsAware, Screen):
         self.flash = f"{name}: at most {text.strip()} agents mid-turn"
 
     async def _account_remove(self, name: str) -> None:
+        # `remove_plan` first, the same order the CLI and curses use: an
+        # account in use is refused before anyone is asked to type its name,
+        # not after - `remove_account` checks it again post-confirm, since
+        # that wait is on a person and an agent can start in the meantime.
+        con = db.connect()
+        try:
+            ok, why = accounts.remove_plan(name, con)
+        finally:
+            con.close()
+        if not ok:
+            self.flash = why
+            return
         typed = await self.app.push_screen_wait(
             TextPrompt(f"remove '{name}'? type its name to confirm:"))
         confirmed = typed == name
@@ -423,8 +435,10 @@ class Dashboard(JobsAware, Screen):
             actions.opened_by_human(con, rid)
             place = actions.message_place(con, rid)
             if place is not None:
-                self.app.push_screen(AgentDetail(place[0]))
-                return
+                d = tui._agent_page(con, place[0], tui.AGENTS)
+                if actions.CHAT_TAB in tui._tab_stems(d):    # not a page that could not be built
+                    self.app.push_screen(AgentDetail(place[0]))
+                    return
             detail = actions.message_detail(con, rid)
             if detail is None:
                 self.flash = f"#{rid} is gone"
