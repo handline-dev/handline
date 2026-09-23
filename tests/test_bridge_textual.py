@@ -741,7 +741,9 @@ async def test_dashboard_accounts_table_is_fed_by_accounts_data_and_follows_the_
         table = app.screen.query_one("#accounts", bt.DataTable)
         check("dashboard: the accounts table has the account's row",
               table.row_count == 1 and not table.show_cursor, (table.row_count, table.show_cursor))
-        while app.screen.panel != tui.ACCOUNTS:
+        for _ in range(6):
+            if app.screen.panel == tui.ACCOUNTS or not app.is_running:
+                break
             await pilot.press("tab")
         await pilot.pause(0.3)
         check("dashboard: on ACCOUNTS the table shows the cursor on the selected account",
@@ -819,6 +821,33 @@ async def test_dashboard_messages_table_is_fed_by_messages_data_and_follows_the_
         await pilot.pause(0.3)
         check("dashboard: on MESSAGES the table shows the cursor on the selected message",
               table.show_cursor and table.cursor_row == 0, (table.show_cursor, table.cursor_row))
+
+
+async def test_dashboard_stuck_table_is_fed_by_stuck_data_and_entering_it_is_safe() -> None:
+    """The STUCK panel is a DataTable fed by `tui.stuck_data`. Its rows about
+    the daemon or an account have no agent to act on (agent None, and more than
+    one row can share that), so they are drawn without a row key and entering
+    the panel - where the selection can be nothing - must not fail."""
+    _home("stuckdata")
+    con = db.connect()
+    try:
+        title, rows = tui.stuck_data(con)
+    finally:
+        con.close()
+    check("stuck_data: the daemon not running is a row with no agent to act on",
+          rows and rows[0].agent is None and "daemon" in rows[0].what + rows[0].why, rows)
+    check("stuck_data: with something stuck the title is plain", title == "STUCK", title)
+    app = bt.BridgeApp()
+    async with app.run_test(size=(110, 30)) as pilot:
+        await pilot.pause(0.3)
+        table = app.screen.query_one("#stuck", bt.DataTable)
+        for _ in range(6):
+            if app.screen.panel == tui.STUCK or not app.is_running:
+                break
+            await pilot.press("tab")
+        await pilot.pause(0.3)
+        check("dashboard: the stuck table has a row per stuck thing and entering it is safe",
+              app.is_running and table.row_count == len(rows), (app.is_running, table.row_count))
 
 
 async def test_task_checks_lists_and_acts_on_the_founders_own() -> None:
@@ -992,6 +1021,7 @@ async def _run_all() -> None:
     await test_dashboard_accounts_table_is_fed_by_accounts_data_and_follows_the_cursor()
     await test_dashboard_agents_table_is_fed_by_agents_data_and_follows_the_cursor()
     await test_dashboard_messages_table_is_fed_by_messages_data_and_follows_the_cursor()
+    await test_dashboard_stuck_table_is_fed_by_stuck_data_and_entering_it_is_safe()
     await test_text_prompt_line_keeps_a_multiline_paste_and_shows_escapes_inert()
     await test_read_only_page_shows_foreign_text_inert_and_scrolls_on_arrows()
 

@@ -289,7 +289,8 @@ class Dashboard(JobsAware, Screen):
     Dashboard #agents-box { height: auto; max-height: 50%; border: round $panel; }
     Dashboard #agents-box.focused { border: round cyan; }
     Dashboard #agents { height: auto; }
-    Dashboard #rest { height: 1fr; }
+    Dashboard #stuck-box { height: 1fr; border: round $panel; }
+    Dashboard #stuck-box.focused { border: round cyan; }
     Dashboard #foot { height: auto; }
     """
     _ACCT_COLS = [k for k in tui.ACCT_W if k != "name"]
@@ -307,7 +308,8 @@ class Dashboard(JobsAware, Screen):
         with Vertical(id="messages-box"):
             yield DataTable(id="messages", cursor_type="row", show_cursor=False)
             yield Static(id="message-notes")
-        yield Static(id="rest")
+        with Vertical(id="stuck-box"):
+            yield DataTable(id="stuck", cursor_type="row", show_cursor=False)
         yield Static(id="foot")
 
     def on_mount(self) -> None:
@@ -320,6 +322,9 @@ class Dashboard(JobsAware, Screen):
         messages_table = self.query_one("#messages", DataTable)
         messages_table.can_focus = False
         messages_table.add_columns("", "", "#", "from", "kind", "message")
+        stuck_table = self.query_one("#stuck", DataTable)
+        stuck_table.can_focus = False
+        stuck_table.add_columns("what", "for", "why")
         self._retime()
         self._redraw()
 
@@ -329,23 +334,16 @@ class Dashboard(JobsAware, Screen):
     def _redraw(self) -> None:
         size = self.size
         width, height = max(20, size.width), max(6, size.height)
-        header, panels, footer_keys = tui.build(width, self.sel, self.panel,
+        header, _, footer_keys = tui.build(width, self.sel, self.panel,
                                                 wait_budget=height - 4 - tui.PANEL_MIN)
         self.query_one("#header", Static).update(Text.from_ansi("\n".join(header)))
         self._draw_accounts()
         self._draw_agents()
         self._draw_messages()
-        rest = panels[3:]
-        room = max(1, self.query_one("#rest").size.height)
-        limits, hidden = tui._layout([0, 0, 0] + [len(p.rows) for p in rest], room)
-        body: list[str] = []
-        for p, lim in zip(rest, limits[3:]):
-            if lim != 0:
-                body += p.draw(limit=lim)
-        self.query_one("#rest", Static).update(Text.from_ansi("\n".join(body)))
+        self._draw_stuck()
         # task #72: `b` is a Textual-only global (tui.py's shared keybar
         # doesn't know it), so the hint is appended here rather than in tui.keybar.
-        keys = tui.keybar(self.panel, width, hidden, footer_keys)
+        keys = tui.keybar(self.panel, width, 0, footer_keys)
         hint = f" {tui.DIM}·{tui.R} {tui.BOLD}b{tui.R} {tui.DIM}checks{tui.R}"
         if tui.vlen(keys + hint) <= width:
             keys += hint
@@ -374,14 +372,29 @@ class Dashboard(JobsAware, Screen):
         selection, and is drawn only while that panel is the one the keys act on."""
         focused = self.panel == panel
         table.show_cursor = focused
-        if focused and self.sel.get(panel) in names:
-            table.move_cursor(row=names.index(self.sel[panel]))
+        want = self.sel.get(panel)
+        if focused and want is not None and want in names:
+            table.move_cursor(row=names.index(want))
         self.query_one(box).set_class(focused, "focused")
 
     def _notes(self, widget: str, notes: list[str]) -> None:
         w = self.query_one(widget, Static)
         w.update(Text.from_ansi("\n".join(f"{tui.DIM}{n}{tui.R}" for n in notes)))
         w.display = bool(notes)
+
+    def _draw_stuck(self) -> None:
+        con = db.connect()
+        try:
+            title, rows = tui.stuck_data(con)
+        finally:
+            con.close()
+        self.query_one("#stuck-box").border_title = title
+        table = self.query_one("#stuck", DataTable)
+        table.clear()
+        for r in rows:
+            table.add_row(Text(r.what, style="yellow"), Text(r.age, style="dim"),
+                          Text(r.why, style="dim"))
+        self._sync_cursor(table, "#stuck-box", tui.STUCK, [r.agent for r in rows])
 
     def _draw_messages(self) -> None:
         con = db.connect()
