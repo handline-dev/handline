@@ -45,7 +45,7 @@ from textual import events
 from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.screen import ModalScreen, Screen
-from textual.containers import VerticalScroll
+from textual.containers import Vertical, VerticalScroll
 from textual.message import Message
 from textual.widgets import DataTable, Footer, Input, Static, TabbedContent, TabPane, TextArea
 
@@ -276,30 +276,83 @@ class Dashboard(JobsAware, Screen):
         self.flash = ""
         tui._enter(self.panel, self.sel)
 
+    DEFAULT_CSS = """
+    Dashboard #header { height: auto; }
+    Dashboard #accounts-box { height: auto; max-height: 40%; border: round $panel; }
+    Dashboard #accounts-box.focused { border: round cyan; }
+    Dashboard #accounts { height: auto; }
+    Dashboard #acct-notes { height: auto; padding: 0 1; }
+    Dashboard #rest { height: 1fr; }
+    Dashboard #foot { height: auto; }
+    """
+    _ACCT_COLS = [k for k in tui.ACCT_W if k != "name"]
+
     def compose(self) -> ComposeResult:
-        yield Static(id="canvas")
+        yield Static(id="header")
+        with Vertical(id="accounts-box") as box:
+            box.border_title = "ACCOUNTS"
+            yield DataTable(id="accounts", cursor_type="row", show_cursor=False)
+            yield Static(id="acct-notes")
+        yield Static(id="rest")
+        yield Static(id="foot")
 
     def on_mount(self) -> None:
+        table = self.query_one("#accounts", DataTable)
+        table.can_focus = False
+        table.add_columns("account", *(tui.ACCT_HEAD[k] for k in self._ACCT_COLS), "")
         self._retime()
+        self._redraw()
+
+    def on_resize(self) -> None:
         self._redraw()
 
     def _redraw(self) -> None:
         size = self.size
         width, height = max(20, size.width), max(6, size.height)
-        job_lines = _job_lines_ansi(self.jobs, width)
-        text = tui.frame(width, max(1, height - len(job_lines)), self.sel, self.panel, self.flash)
-        text = text.replace(tui.CLEAR_EOL, "")
-        lines = text.split("\n")
+        header, panels, footer_keys = tui.build(width, self.sel, self.panel,
+                                                wait_budget=height - 4 - tui.PANEL_MIN)
+        self.query_one("#header", Static).update(Text.from_ansi("\n".join(header)))
+        self._draw_accounts()
+        rest = panels[1:]
+        room = max(1, self.query_one("#rest").size.height)
+        limits, hidden = tui._layout([0] + [len(p.rows) for p in rest], room)
+        body: list[str] = []
+        for p, lim in zip(rest, limits[1:]):
+            if lim != 0:
+                body += p.draw(limit=lim)
+        self.query_one("#rest", Static).update(Text.from_ansi("\n".join(body)))
         # task #72: `b` is a Textual-only global (tui.py's shared keybar
-        # doesn't know it, and the old curses bridge has no TaskChecks to
-        # open), so the hint is appended here rather than in tui.keybar.
+        # doesn't know it), so the hint is appended here rather than in tui.keybar.
+        keys = tui.keybar(self.panel, width, hidden, footer_keys)
         hint = f" {tui.DIM}·{tui.R} {tui.BOLD}b{tui.R} {tui.DIM}checks{tui.R}"
-        if lines and tui.vlen(lines[-1] + hint) <= width:
-            lines[-1] = lines[-1] + hint
-        if job_lines:
-            lines = lines[:-2] + job_lines + lines[-2:]
-        text = "\n".join(lines)
-        self.query_one("#canvas", Static).update(Text.from_ansi(text))
+        if tui.vlen(keys + hint) <= width:
+            keys += hint
+        foot = _job_lines_ansi(self.jobs, width)
+        foot.append(tui.fit(self.flash, width) if self.flash else "")
+        foot.append(keys)
+        self.query_one("#foot", Static).update(Text.from_ansi("\n".join(foot)))
+
+    def _draw_accounts(self) -> None:
+        con = db.connect()
+        try:
+            rows, notes = tui.accounts_data(con)
+        finally:
+            con.close()
+        table = self.query_one("#accounts", DataTable)
+        table.clear()
+        for r in rows:
+            table.add_row(Text.from_ansi(f"{tui.BOLD}{textsafe.oneline(r.name)}{tui.R}"),
+                          *(Text.from_ansi(r.cells[k]) for k in self._ACCT_COLS),
+                          Text.from_ansi(r.mark + r.next), key=r.name)
+        focused = self.panel == tui.ACCOUNTS
+        table.show_cursor = focused
+        names = [r.name for r in rows]
+        if focused and self.sel.get(tui.ACCOUNTS) in names:
+            table.move_cursor(row=names.index(self.sel[tui.ACCOUNTS]))
+        self.query_one("#accounts-box").set_class(focused, "focused")
+        notes_w = self.query_one("#acct-notes", Static)
+        notes_w.update(Text.from_ansi("\n".join(f"{tui.DIM}{n}{tui.R}" for n in notes)))
+        notes_w.display = bool(notes)
 
     def on_key(self, event: events.Key) -> None:
         k = key_token(event)

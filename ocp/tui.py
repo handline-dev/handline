@@ -36,6 +36,7 @@ import textwrap
 import time
 import tty
 from pathlib import Path
+from typing import NamedTuple
 
 from . import (accounts, actions, agents, ask as askmod, blocked as blockedmod, daemon, db,
                launch, load as loadmod, orca, paths, status, triggers, vendors)
@@ -357,6 +358,51 @@ def account_cells(name: str, st, now: float | None = None,
         "reset7": countdown(st.reset_7d),
         "runway": runway_text,
     }
+
+
+class AccountRow(NamedTuple):
+    name: str
+    cells: dict[str, str]    # `account_cells`, keyed like ACCT_W (no "name")
+    mark: str                # the tick: could the pick use it
+    next: str                # " next" on the one account work goes to, else ""
+
+
+def accounts_data(con) -> tuple[list[AccountRow], list[str]]:
+    """What the ACCOUNTS panel shows, before any of it is laid out: one row per
+    account and the notes under them (none registered, the team's outlook)."""
+    # The account with the most headroom: where work goes when an agent's
+    # own account is full. Only accounts that can start a session count.
+    # The reason each one sits where it does is on its own page (Enter).
+    loads = loadmod.read_all()
+    roster, unplaced = loadmod.roster(con)
+    global _LAST_NEXT
+    first, _ = status.pick_account(
+        [a for a in paths.list_accounts() if _logged_in(a)], load=loads,
+        prefer=_LAST_NEXT)
+    _LAST_NEXT = first
+    rows = []
+    for name in paths.list_accounts():
+        st = status.read(name)
+        # The tick beside the name says the pick could use it: not only
+        # that it is under the wall but that it has a slot and would last.
+        # No ranking: the one in hand is claude's; the page says the words.
+        allowed, _ = status.account_verdict(name, st, loads.get(name), [], _logged_in(name))
+        # The figure shown is the one decisions are made on, with a mark saying
+        # where it came from - a quiet window drawn as "?" while the daemon acts
+        # on 0% is the dashboard and the daemon disagreeing.
+        cells = account_cells(name, st, counts=roster.get(name, (0, 0)), unplaced=unplaced,
+                              at_cap=bool(loads.get(name) and loads[name].at_cap),
+                              ld=loads.get(name))
+        rows.append(AccountRow(
+            name, cells, f"{GRN}✔{R}" if allowed else f"{RED}✘{R}",
+            # Where work goes next is said in a word after the tick, not drawn
+            # in the gutter the selection cursor uses on every other panel.
+            f" {GRN}{BOLD}next{R}" if name == first else ""))
+    notes = [] if rows else ["no accounts registered"]
+    outlook = status.team_outlook()
+    if outlook:
+        notes.append(outlook)
+    return rows, notes
 
 
 def pct(v: int | None) -> str:
@@ -898,49 +944,17 @@ def build(width: int, sel: dict | None = None,
         cols = acct_cols(width)
         acc.add(f"{DIM}{'':<{ACCT_INDENT}}" + "".join(f"{ACCT_HEAD[k]:<{w[k]}}" for k in cols)
                 + R, heading=True)
-        # The account with the most headroom: where work goes when an agent's
-        # own account is full. Only accounts that can start a session count.
-        # The reason each one sits where it does is on its own page (Enter).
-        loads = loadmod.read_all()
-        roster, unplaced = loadmod.roster(con)
-        global _LAST_NEXT
-        first, _ = status.pick_account(
-            [a for a in paths.list_accounts() if _logged_in(a)], load=loads,
-            prefer=_LAST_NEXT)
-        _LAST_NEXT = first
-        for name in paths.list_accounts():
-            st = status.read(name)
-            # The tick beside the name says the pick could use it: not only
-            # that it is under the wall but that it has a slot and would last.
-            # No ranking: the one in hand is claude's; the page says the words.
-            allowed, _ = status.account_verdict(name, st, loads.get(name), [],
-                                                _logged_in(name))
-            mark = f"{GRN}✔{R}" if allowed else f"{RED}✘{R}"
-            # Where work goes next is said in a word after the tick, not drawn
-            # in the gutter the selection cursor uses on every other panel.
-            nxt = f" {GRN}{BOLD}next{R}" if name == first else ""
-            # Every cell is padded on its visible width: the bars carry escape
-            # sequences, so a plain :<n counts them and the columns drift out
-            # from under their own headings. The figure shown is the one
-            # decisions are made on, with a mark saying where it came from -
-            # a quiet window drawn as "?" while the daemon acts on 0% is the
-            # dashboard and the daemon disagreeing.
-            cells = account_cells(name, st, counts=roster.get(name, (0, 0)),
-                                  unplaced=unplaced,
-                                  at_cap=bool(loads.get(name) and loads[name].at_cap),
-                                  ld=loads.get(name))
+        rows, notes = accounts_data(con)
+        for r in rows:
             acc.add(
                 " " * ACCT_INDENT
-                + padfit(f"{BOLD}{name}{R}", w["name"])
-                + "".join(pad(cells[k], w[k]) for k in cols if k != "name")
-                + mark + nxt,
-                key=name,
+                + padfit(f"{BOLD}{r.name}{R}", w["name"])
+                + "".join(pad(r.cells[k], w[k]) for k in cols if k != "name")
+                + r.mark + r.next,
+                key=r.name,
             )
-        if not paths.list_accounts():
-            acc.add(f"{DIM}  no accounts registered{R}")
-        outlook = status.team_outlook()
-        if outlook:
-            acc.add(f"{DIM}  {outlook}{R}")
+        for note in notes:
+            acc.add(f"{DIM}  {note}{R}")
 
         # ---- agents --------------------------------------------------
         ag = Panel("AGENTS", width, focused=panel == AGENTS)
