@@ -13,6 +13,7 @@ Run: python3 tests/test_bridge_textual.py
 from __future__ import annotations
 
 import asyncio
+import json
 import os
 import shutil
 import subprocess
@@ -803,6 +804,131 @@ async def test_text_prompt_keeps_a_paste_instead_of_dropping_it() -> None:
           app.result == "line one\nline two", repr(app.result))
 
 
+async def test_task_checks_lists_and_acts_on_the_founders_own() -> None:
+    """Task #72 (founder #2154/#2155): the bridge's own 'done - waiting for
+    check' list (#71), reached with `b` from the dashboard - only the tasks
+    the founder is the asker of (`actions.task_asker`, the bridge always
+    acting as `actions.HUMAN`), never a task someone else opened and asks
+    for themselves. `c` closes the row under the cursor, `r` reopens it with
+    a typed one-line reason, and space + `C` close several at once."""
+    _home("checks")
+    con = db.connect()
+    try:
+        t_mine = db.new_task(con, "manager's own", "worker", "manager")
+        t_founder1 = db.new_task(con, "founder's first", "worker", "manager")
+        t_founder2 = db.new_task(con, "founder's second", "worker", "manager")
+        t_open = db.new_task(con, "not done yet", "worker", "manager")
+        r1 = db.add_request(con, actions.HUMAN, "manager", "please", None, None, None, None, 0, None)
+        db.link_request(con, t_founder1, r1)
+        r2 = db.add_request(con, actions.HUMAN, "manager", "please too", None, None, None, None, 0, None)
+        db.link_request(con, t_founder2, r2)
+        db.mark_task_done(con, t_mine, "shipped it")
+        db.mark_task_done(con, t_founder1, "shipped that too")
+        db.mark_task_done(con, t_founder2, "and this")
+    finally:
+        con.close()
+
+    app = bt.BridgeApp()
+    async with app.run_test(size=(100, 24)) as pilot:
+        await pilot.pause()
+        await pilot.press("b")
+        await pilot.pause()
+        screen = app.screen
+        check("checks: b opens the screen from the dashboard",
+              isinstance(screen, bt.TaskChecks), type(screen).__name__)
+        text = str(screen.query_one("#canvas").render())
+        check("checks: the founder's own done tasks are both listed",
+              f"#{t_founder1}" in text and f"#{t_founder2}" in text, text)
+        check("checks: not the manager's own, and not the still-open one",
+              f"#{t_mine} " not in text and f"#{t_open} " not in text, text)
+
+        await pilot.press("c")
+        await pilot.pause()
+        con = db.connect()
+        try:
+            row = db.get_task(con, t_founder1)
+        finally:
+            con.close()
+        check("checks: c closes the row under the cursor",
+              row["closed_by"] == actions.HUMAN, dict(row))
+        text = str(screen.query_one("#canvas").render())
+        check("checks: a closed row drops off the list",
+              f"#{t_founder1:<4}" not in text, text)
+
+        await pilot.press("r")
+        await pilot.pause()
+        for ch in "not really done":
+            await pilot.press(ch)
+        await pilot.press("enter")
+        await pilot.pause()
+        con = db.connect()
+        try:
+            row = db.get_task(con, t_founder2)
+        finally:
+            con.close()
+        check("checks: r reopens the row under the cursor",
+              row["done_evidence"] is None and row["closed_by"] is None, dict(row))
+        con = db.connect()
+        try:
+            payload = con.execute(
+                "SELECT payload FROM events WHERE kind = 'reopen_task' "
+                "ORDER BY id DESC LIMIT 1").fetchone()
+        finally:
+            con.close()
+        check("checks: the typed reason is recorded, not silently dropped",
+              payload and json.loads(payload["payload"])["reason"] == "not really done", payload)
+
+
+async def test_task_checks_closes_several_checked_at_once() -> None:
+    """Founder #2154's own worry: on a day with more of these than are worth
+    doing one at a time, space marks several rows and `C` closes them all in
+    one key, not one at a time."""
+    _home("checks2")
+    con = db.connect()
+    try:
+        tids = []
+        for i in range(3):
+            tid = db.new_task(con, f"founder's #{i}", "worker", "manager")
+            rid = db.add_request(con, actions.HUMAN, "manager", "please", None, None, None,
+                                 None, 0, None)
+            db.link_request(con, tid, rid)
+            db.mark_task_done(con, tid, f"shipped {i}")
+            tids.append(tid)
+    finally:
+        con.close()
+
+    app = bt.BridgeApp()
+    async with app.run_test(size=(100, 24)) as pilot:
+        await pilot.pause()
+        await pilot.press("b")
+        await pilot.pause()
+        screen = app.screen
+
+        await pilot.press("space")
+        await pilot.press("down")
+        await pilot.press("space")
+        await pilot.press("down")
+        await pilot.press("space")
+        await pilot.press("space")             # space again: unchecks the same row
+        await pilot.pause()
+        check("checks: space toggles - two stay checked, the third toggled back off",
+              len(screen.checked) == 2, screen.checked)
+
+        await pilot.press("C")
+        await pilot.pause()
+        con = db.connect()
+        try:
+            rows = {tid: db.get_task(con, tid) for tid in tids}
+        finally:
+            con.close()
+        check("checks: both checked rows closed, the third left alone",
+              rows[tids[0]]["closed_by"] == actions.HUMAN
+              and rows[tids[1]]["closed_by"] == actions.HUMAN
+              and rows[tids[2]]["closed_by"] is None,
+              {k: v["closed_by"] for k, v in rows.items()})
+        check("checks: checked is cleared once acted on", not screen.checked, screen.checked)
+
+
 async def _run_all() -> None:
     await test_dashboard_shows_a_registered_agent_and_moves_the_cursor()
     await test_help_key_names_every_agent_verb_the_footer_folds_out()
@@ -822,6 +948,8 @@ async def _run_all() -> None:
     await test_wake_on_a_stalled_agent_asks_first()
     await test_messages_panel_acts_on_a_folded_row()
     await test_text_prompt_keeps_a_paste_instead_of_dropping_it()
+    await test_task_checks_lists_and_acts_on_the_founders_own()
+    await test_task_checks_closes_several_checked_at_once()
 
 
 def main() -> int:

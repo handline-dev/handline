@@ -21737,10 +21737,6 @@ def test_a_module_that_returns_subprocess_text_as_a_message_imports_textsafe(hom
                        "and the user's own email, never text an agent wrote",
         "service.py": "launchctl's own error text - a macOS tool's output, not "
                       "anything an agent chose, and the least reachable of these",
-        "bridge_textual.py": "the `.stdout` here is sys.stdout.isatty() (task #54's "
-                             "--once/non-tty snapshot), not a subprocess result - "
-                             "_run_suspended's own subprocess.run() is read for its "
-                             "returncode only, never its stdout or stderr",
     }
     named, clean = [], []
     for f in sorted((ROOT / "ocp").glob("*.py")):
@@ -21754,7 +21750,8 @@ def test_a_module_that_returns_subprocess_text_as_a_message_imports_textsafe(hom
           "textsafe, or is exempt with a reason",
           not (set(named) - set(exempt)), str(sorted(set(named) - set(exempt))))
     check("boundary: an exempt module is not also one that already imports it - "
-          "the reason would be a lie", not (set(exempt) & set(clean)), str(exempt.keys() & set(clean)))
+          "the reason would be a lie",
+          not (set(exempt) & set(clean)), str(exempt.keys() & set(clean)))
     # Real files today, both directions: cli/hr/tui/textsafe pass on the merits
     # (hr never touches a subprocess at all; the other three do and are clean),
     # and orca.py/spawn.py/drift.py/fold.py/handoff.py are exactly the ones

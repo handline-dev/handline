@@ -46,7 +46,7 @@ from textual.app import App, ComposeResult
 from textual.screen import ModalScreen, Screen
 from textual.widgets import Static
 
-from . import accounts, actions, db, jobs as jobsmod, load as loadmod, orca, tui
+from . import accounts, actions, db, jobs as jobsmod, load as loadmod, orca, textsafe, tui
 
 # Textual hands a key event as a symbolic name (`event.key`) plus, for a
 # printable one, the character itself (`event.character`). tui.py's own key
@@ -266,9 +266,16 @@ class Dashboard(JobsAware, Screen):
         job_lines = _job_lines_ansi(self.jobs, width)
         text = tui.frame(width, max(1, height - len(job_lines)), self.sel, self.panel, self.flash)
         text = text.replace(tui.CLEAR_EOL, "")
+        lines = text.split("\n")
+        # task #72: `b` is a Textual-only global (tui.py's shared keybar
+        # doesn't know it, and the old curses bridge has no TaskChecks to
+        # open), so the hint is appended here rather than in tui.keybar.
+        hint = f" {tui.DIM}·{tui.R} {tui.BOLD}b{tui.R} {tui.DIM}checks{tui.R}"
+        if lines and tui.vlen(lines[-1] + hint) <= width:
+            lines[-1] = lines[-1] + hint
         if job_lines:
-            lines = text.split("\n")
-            text = "\n".join(lines[:-2] + job_lines + lines[-2:])
+            lines = lines[:-2] + job_lines + lines[-2:]
+        text = "\n".join(lines)
         self.query_one("#canvas", Static).update(Text.from_ansi(text))
 
     def on_key(self, event: events.Key) -> None:
@@ -278,6 +285,9 @@ class Dashboard(JobsAware, Screen):
         event.stop()
         if k in ("q", "Q", "\x03"):
             self.app.exit()
+            return
+        if k == "b":     # task #72: "done - waiting for check" - free on every panel
+            self.app.push_screen(TaskChecks())
             return
         moved = tui.navigate(self.panel, self.sel, k)
         if moved is not None:
@@ -518,6 +528,152 @@ class ReadOnly(ModalScreen[None]):
             return
         self.detail = nxt
         self._redraw()
+
+
+class TaskChecks(JobsAware, Screen):
+    """Task #72 (founder #2154/#2155): the founder's own 'done - waiting for
+    check' list (#71) - `db.tasks_needing_close` filtered to the ones
+    `actions.task_asker` says are his, the same set `cmd_task_board` prints
+    under that heading for `me == HUMAN` (the bridge always acts as the
+    founder - the same `actions.HUMAN` the MESSAGES panel already answers,
+    dismisses and delivers as). `c` closes the row under the cursor, `r`
+    reopens it with a typed one-line reason (#71's own rule for any undo),
+    and space/`C` mark and then close several at once, for a day with more
+    of these than are worth doing one at a time."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.cur = 0
+        self.checked: set[int] = set()
+        self.flash = ""
+        self.rows: list = []
+
+    def compose(self) -> ComposeResult:
+        yield Static(id="canvas")
+
+    def on_mount(self) -> None:
+        self._retime()
+        self._redraw()
+
+    def _rows(self, con) -> list:
+        return [t for t in db.tasks_needing_close(con)
+                if actions.task_asker(con, t) == actions.HUMAN]
+
+    def _redraw(self) -> None:
+        size = self.size
+        width, height = max(20, size.width), max(6, size.height)
+        con = db.connect()
+        try:
+            rows = self._rows(con)
+        finally:
+            con.close()
+        self.rows = rows
+        if rows:
+            self.cur = max(0, min(self.cur, len(rows) - 1))
+        job_lines = _job_lines_ansi(self.jobs, width)
+        rule = f"{tui.DIM}{'─' * width}{tui.R}"
+        keys = (f"{tui.BOLD}c{tui.R} {tui.DIM}close{tui.R} · "
+                f"{tui.BOLD}r{tui.R} {tui.DIM}reopen{tui.R} · "
+                f"{tui.BOLD}space{tui.R} {tui.DIM}check{tui.R} · "
+                f"{tui.BOLD}C{tui.R} {tui.DIM}close checked{tui.R} · "
+                f"{tui.BOLD}esc{tui.R} {tui.DIM}back{tui.R}")
+        lines = [f"{tui.BOLD}done - waiting for check{tui.R}", ""]
+        if not rows:
+            lines.append(f"{tui.DIM}nothing waiting.{tui.R}")
+        for i, t in enumerate(rows):
+            cursor = f"{tui.CYA}{tui.BOLD}›{tui.R}" if i == self.cur else " "
+            box = f"{tui.GRN}[x]{tui.R}" if t["id"] in self.checked else "[ ]"
+            parent = f" (under #{t['parent_task']})" if t["parent_task"] else ""
+            head = (f"{cursor} {box} #{t['id']:<4} "
+                    f"{textsafe.oneline(t['title'])}  [{t['owner']}]{parent}")
+            lines.append(tui.fit(head, width))
+            lines.append(tui.fit(f"        done: {textsafe.oneline(t['done_evidence'])}", width))
+        room = max(1, height - 2 - len(job_lines))
+        shown = lines[:room]
+        while len(shown) < room:
+            shown.append("")
+        tail = job_lines + [rule, keys]
+        if self.flash:
+            tail.append(tui.fit(f"{tui.YEL}{self.flash}{tui.R}", width))
+        text = "\n".join(shown + tail)
+        self.query_one("#canvas", Static).update(Text.from_ansi(text))
+
+    def on_key(self, event: events.Key) -> None:
+        k = key_token(event)
+        if k is None:
+            return
+        event.stop()
+        if k in ("q", "Q", "\x03"):    # the same global quit every screen answers to
+            self.app.exit()
+            return
+        if k == "\033":
+            self.app.pop_screen()
+            return
+        if k in ("\033[A", "\033[B"):
+            n = len(self.rows)
+            if n:
+                self.cur = max(0, min(n - 1, self.cur + (1 if k == "\033[B" else -1)))
+            self._redraw()
+            return
+        if k == " ":
+            if self.cur < len(self.rows):
+                self.checked.symmetric_difference_update({self.rows[self.cur]["id"]})
+            self._redraw()
+            return
+        if k in ("c", "r", "C"):
+            self.run_worker(self._act(k), exclusive=True, group="act")
+            return
+
+    async def _act(self, key: str) -> None:
+        if key == "C":
+            await self._close_checked()
+        else:
+            tid = self.rows[self.cur]["id"] if self.cur < len(self.rows) else None
+            if tid is None:
+                self.flash = "nothing waiting"
+            elif key == "c":
+                await self._close(tid)
+            else:
+                await self._reopen(tid)
+        self._redraw()
+
+    async def _close(self, tid: int) -> None:
+        con = db.connect()
+        try:
+            ok, msg = actions.close_task(con, tid, actions.HUMAN)
+        finally:
+            con.close()
+        self.flash = msg
+        self.checked.discard(tid)
+
+    async def _reopen(self, tid: int) -> None:
+        reason = await self.app.push_screen_wait(TextPrompt(f"reopen #{tid} - why:"))
+        if reason is None or not reason.strip():
+            self.flash = "left alone"
+            return
+        con = db.connect()
+        try:
+            ok, msg = actions.reopen_task(con, tid, actions.HUMAN, reason)
+        finally:
+            con.close()
+        self.flash = msg
+        self.checked.discard(tid)
+
+    async def _close_checked(self) -> None:
+        if not self.checked:
+            self.flash = "nothing checked - space marks a row"
+            return
+        ids = sorted(self.checked)
+        said = []
+        con = db.connect()
+        try:
+            for tid in ids:
+                ok, msg = actions.close_task(con, tid, actions.HUMAN)
+                said.append(msg)
+        finally:
+            con.close()
+        self.flash = "  ·  ".join(said)
+        self.checked.clear()
 
 
 class AgentDraft(tui.Composer):
