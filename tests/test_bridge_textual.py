@@ -579,6 +579,76 @@ async def test_messages_panel_open_reaches_the_agents_page() -> None:
         check("messages: the message itself is on it", "please review this" in text, text)
 
 
+async def test_agent_page_opens_pinned_to_the_newest_message() -> None:
+    """#2124: a conversation longer than one screen must open scrolled to the
+    newest message, not the oldest, and stay pinned to the bottom as replies
+    arrive - unless the founder scrolled up, in which case a new message must
+    not yank the page back down under them."""
+    _home("pin")
+    agents.register("reviewer", "alpha")
+    con = db.connect()
+    try:
+        db.set_terminal(con, "reviewer", "term_r", "wt")
+    finally:
+        con.close()
+    bt._DRAFTS.pop("reviewer", None)
+
+    def _say(i: int) -> None:
+        # `askmod.ask` is rate-limited (20/hour) - direct inserts build a
+        # conversation this long without tripping it.
+        con = db.connect()
+        try:
+            db.add_request(con, "reviewer", "human", f"message {i}", None,
+                           None, None, None, 0, None)
+        finally:
+            con.close()
+
+    for i in range(40):
+        _say(i)
+
+    class _HostApp(bt.App):
+        def __init__(self):
+            super().__init__()
+            self.jobs = jobsmod.Jobs()
+
+        def on_mount(self):
+            self.push_screen(bt.AgentDetail("reviewer"))
+
+    app = _HostApp()
+    async with app.run_test(size=(100, 20)) as pilot:
+        await pilot.pause()
+        screen = app.screen
+        text = str(screen.query_one("#canvas").render())
+        check("pin: it opens at the newest message, not the oldest",
+              "message 39" in text and "message 0" not in text, text)
+
+        await pilot.press("up")
+        await pilot.press("up")
+        await pilot.pause(0.1)
+        check("pin: an upward scroll un-pins it", screen.top is not None, str(screen.top))
+
+        _say(40)
+        await pilot.pause(0.2)
+        screen._redraw()
+        text = str(screen.query_one("#canvas").render())
+        check("pin: scrolled up, a new message does not yank the view back down",
+              "message 40" not in text, text)
+
+        await pilot.press("end")
+        await pilot.pause(0.1)
+        check("pin: `end` re-pins it", screen.top is None, str(screen.top))
+        text = str(screen.query_one("#canvas").render())
+        check("pin: re-pinned, the newest message is shown again",
+              "message 40" in text, text)
+
+        _say(41)
+        await pilot.pause(0.2)
+        screen._redraw()
+        text = str(screen.query_one("#canvas").render())
+        check("pin: still pinned, a fresh message follows it down",
+              "message 41" in text, text)
+
+
 async def test_wake_on_a_stalled_agent_asks_first() -> None:
     """auditor #2008 BLOCKING 2a: waking a STALLED agent needs a yes first in
     curses (`_needs_confirm`, founder #1620/#1631) - checking only `label in
@@ -713,6 +783,7 @@ async def _run_all() -> None:
     await test_accounts_remove_only_fires_on_the_typed_name()
     await test_read_only_page_scrolls_past_one_screen()
     await test_messages_panel_open_reaches_the_agents_page()
+    await test_agent_page_opens_pinned_to_the_newest_message()
     await test_wake_on_a_stalled_agent_asks_first()
     await test_messages_panel_acts_on_a_folded_row()
     await test_text_prompt_keeps_a_paste_instead_of_dropping_it()

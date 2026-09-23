@@ -584,7 +584,11 @@ class AgentDetail(JobsAware, Screen):
 
     def __init__(self, agent: str) -> None:
         super().__init__()
-        self.agent, self.top, self.flash = agent, 0, ""
+        # `top`: None means pinned to the newest message - the page opens
+        # there and follows it as replies arrive, until a scroll away from
+        # the bottom sets an explicit row and un-pins it (task #54, #2124).
+        self.agent, self.top, self.flash = agent, None, ""
+        self._top_now = 0
         self.commands: list[tuple[str, str]] = []
 
     @property
@@ -614,8 +618,10 @@ class AgentDetail(JobsAware, Screen):
         self.commands = cmds
         job_lines = _job_lines_ansi(self.jobs, width)
         room = self._room(height) - len(job_lines)
-        top = max(0, min(self.top, max(0, len(body) - room)))
-        self.top = top
+        max_top = max(0, len(body) - room)
+        top = max_top if self.top is None else max(0, min(self.top, max_top))
+        self._top_now = top
+        self.top = None if top >= max_top else top
         shown = body[top:top + room]
         while len(shown) < room:
             shown.append("")
@@ -646,16 +652,16 @@ class AgentDetail(JobsAware, Screen):
             self._redraw()
             return
         if k in ("\033[A", "\033[B"):
-            self.top = max(0, self.top + (1 if k == "\033[B" else -1))
+            self.top = max(0, self._top_now + (1 if k == "\033[B" else -1))
             self._redraw()
             return
         if k in ("\033[5~", "\033[6~"):
             room = self._room(max(10, self.size.height))
-            self.top = max(0, self.top + room * (1 if k == "\033[6~" else -1))
+            self.top = max(0, self._top_now + room * (1 if k == "\033[6~" else -1))
             self._redraw()
             return
         if k in ("\033[H", "\033[F") and not box.text:
-            self.top = 0 if k == "\033[H" else 1 << 30     # clamped in `_redraw`
+            self.top = 0 if k == "\033[H" else None    # None: pinned to the bottom
             self._redraw()
             return
         if k == "\x15":         # ctrl+u: clear the draft, kept for ctrl+y
