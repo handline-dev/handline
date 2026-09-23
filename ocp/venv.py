@@ -8,10 +8,11 @@ invocation runs under instead.
 
 `install` is the only thing that runs `python3 -m venv` or pip; it goes
 through `_run` alone so tests never spawn a real venv or touch the network.
-The venv's own bin/python3 is what bin/ocp's bash wrapper execs once this is
-switched on - that check has to happen in bash, before any of our python
-runs, so `is_stale` here is a second copy of the same sha256 comparison the
-wrapper makes, kept honest by a test that runs both and compares.
+The venv's own bin/python3 is what bin/ocp execs once it is ready, falling
+back to PATH's python3 otherwise (task #54) - that check has to happen in
+bash, before any of our python runs, so `status` here is a second copy of the
+same sha256 comparison the wrapper makes, kept honest by a test that runs
+both and compares.
 """
 from __future__ import annotations
 
@@ -51,8 +52,9 @@ def _run(args: list[str]) -> subprocess.CompletedProcess:
 def status(vdir: Path | None = None) -> tuple[bool, str]:
     """(ok, reason). False for a venv that does not exist, cannot be run, or
     was installed against a requirements.txt that has since changed - existing
-    is not the same as working, and a stale venv must refuse before a command
-    runs, not fail inside one."""
+    is not the same as working. This only reports; bin/ocp's own copy of the
+    same check is what decides whether to run the venv's python or fall back
+    to PATH's (founder #2069)."""
     vdir = vdir or venv_dir()
     py = venv_python(vdir)
     if not (py.is_file() and os.access(py, os.X_OK)):

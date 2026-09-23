@@ -1,5 +1,56 @@
-#!/usr/bin/env python3
-import os, sys
-sys.path.insert(0, os.path.join(os.path.dirname(os.path.realpath(__file__)), ".."))
-from ocp.cli import main
-sys.exit(main())
+#!/usr/bin/env bash
+# A bash wrapper, not a python shebang (founder ruling #1574/#1570): a python
+# shebang has already committed to an interpreter before any of our own code
+# runs, so nothing written in python can be the thing that picks one. bash is
+# the one thing macOS guarantees is there when python3 might not be right (a
+# Homebrew python3 with no PyYAML or rich, or a system one with neither).
+#
+# Task #54 (founder #2069): a missing or stale venv used to make this refuse
+# outright. It now falls back to PATH's python3 instead, the same interpreter
+# this file used to run under unconditionally - so ocp keeps working exactly
+# as it always did until the venv is ready, and `ocp venv install` itself
+# bootstraps under that same PATH python3. Do not turn the fallback back into
+# a refusal; ocp/venv.py's status() is still the one place that judges
+# ready-ness and its reasoning must stay in sync with the check below.
+set -euo pipefail
+
+home_dir="${OCP_HOME:-$HOME/.orcapipe}"
+venv="$home_dir/venv"
+py="$venv/bin/python3"
+
+# ocp/cli.py and ocp/service.py both describe the installed `ocp` as a
+# symlink into the repo, not a copy - so BASH_SOURCE (the symlink's own
+# path) has to be resolved to where the real bin/ocp lives before script_dir
+# is derived from it, or _ocp_entry.py and requirements.txt are looked for
+# beside the symlink instead of beside this file. No `readlink -f` on macOS,
+# so walk the links by hand.
+source="${BASH_SOURCE[0]}"
+while [ -L "$source" ]; do
+    target="$(readlink "$source")"
+    case "$target" in
+        /*) source="$target" ;;
+        *) source="$(dirname "$source")/$target" ;;
+    esac
+done
+script_dir="$(cd "$(dirname "$source")" && pwd)"
+reqs="$script_dir/../requirements.txt"
+stamp="$venv/.ocp_deps_sha256"
+
+ready=0
+if [ -x "$py" ] && [ -f "$reqs" ] && [ -f "$stamp" ]; then
+    want="$(shasum -a 256 "$reqs" | cut -d' ' -f1)"
+    have=""
+    # `read` returns 1 on a stamp with no trailing newline (EOF before the
+    # newline it looks for) even though it fills $have - under set -e that
+    # would exit the script right here, silently falling back to PATH's
+    # python3 without a real reason. `|| true` keeps that a plain "not ready"
+    # instead (review #1613's fix, carried over from bin/ocp-venv).
+    read -r have < "$stamp" || true
+    [ "$want" = "$have" ] && ready=1
+fi
+
+if [ "$ready" = 1 ]; then
+    exec "$py" "$script_dir/_ocp_entry.py" "$@"
+else
+    exec python3 "$script_dir/_ocp_entry.py" "$@"
+fi

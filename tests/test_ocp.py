@@ -2323,14 +2323,14 @@ def test_launch(home: Path) -> None:
     env = dict(os.environ, PATH=f"{bindir}:{os.environ['PATH']}", OCP_HOME=str(home))
 
     # Not logged in yet -> must refuse and name the human step.
-    r = subprocess.run([sys.executable, str(ROOT / "bin" / "ocp"), "launch", "launchtest"],
+    r = subprocess.run([str(ROOT / "bin" / "ocp"), "launch", "launchtest"],
                        capture_output=True, text=True, env=env)
     check("launch refuses when not logged in", r.returncode != 0)
     check("refusal names the login command", "claude /login" in (r.stdout + r.stderr))
 
     # Existence of the credential file is all we check - never its contents.
     (cfg / ".credentials.json").write_text("{}")
-    r = subprocess.run([sys.executable, str(ROOT / "bin" / "ocp"), "launch", "launchtest"],
+    r = subprocess.run([str(ROOT / "bin" / "ocp"), "launch", "launchtest"],
                        capture_output=True, text=True, env=env)
     check("launch execs claude once logged in", r.returncode == 0, r.stderr)
     check("launch sets CLAUDE_CONFIG_DIR to the account dir", f"CFG={cfg}" in r.stdout, r.stdout)
@@ -2340,37 +2340,37 @@ def test_launch(home: Path) -> None:
 
     # Over the 5h limit -> refuse, unless forced.
     write_status(home, "gamma", pct_5h=100)
-    r = subprocess.run([sys.executable, str(ROOT / "bin" / "ocp"), "launch", "launchtest"],
+    r = subprocess.run([str(ROOT / "bin" / "ocp"), "launch", "launchtest"],
                        capture_output=True, text=True, env=env)
     check("launch refuses over the 5h limit", r.returncode != 0, r.stdout)
-    r = subprocess.run([sys.executable, str(ROOT / "bin" / "ocp"), "launch", "launchtest", "--force"],
+    r = subprocess.run([str(ROOT / "bin" / "ocp"), "launch", "launchtest", "--force"],
                        capture_output=True, text=True, env=env)
     check("--force overrides the usage block", r.returncode == 0, r.stdout)
 
     # A missing status.json must NOT block first boot, or nothing could ever
     # start: status.json is written by the session we are trying to launch.
     (home / "accounts" / "gamma" / "status.json").unlink()
-    r = subprocess.run([sys.executable, str(ROOT / "bin" / "ocp"), "launch", "launchtest"],
+    r = subprocess.run([str(ROOT / "bin" / "ocp"), "launch", "launchtest"],
                        capture_output=True, text=True, env=env)
     check("missing status.json does not block first boot", r.returncode == 0, r.stdout)
 
     # Shared mcp.json: missing changes nothing, a valid one is passed through,
     # an invalid one (bad JSON, or JSON that is not {"mcpServers": {...}}) is
     # skipped (with a warning) rather than blocking launch.
-    r = subprocess.run([sys.executable, str(ROOT / "bin" / "ocp"), "launch", "launchtest"],
+    r = subprocess.run([str(ROOT / "bin" / "ocp"), "launch", "launchtest"],
                        capture_output=True, text=True, env=env)
     check("no shared mcp.json: no --mcp-config", "--mcp-config" not in r.stdout, r.stdout)
 
     mcp_json = home / "shared" / "mcp.json"
     mcp_json.parent.mkdir(parents=True, exist_ok=True)
     mcp_json.write_text('{"mcpServers": {"probe": {"command": "true"}}}')
-    r = subprocess.run([sys.executable, str(ROOT / "bin" / "ocp"), "launch", "launchtest"],
+    r = subprocess.run([str(ROOT / "bin" / "ocp"), "launch", "launchtest"],
                        capture_output=True, text=True, env=env)
     check("valid shared mcp.json is passed as --mcp-config",
           f"--mcp-config {mcp_json}" in r.stdout, r.stdout)
 
     mcp_json.write_text("{not json")
-    r = subprocess.run([sys.executable, str(ROOT / "bin" / "ocp"), "launch", "launchtest"],
+    r = subprocess.run([str(ROOT / "bin" / "ocp"), "launch", "launchtest"],
                        capture_output=True, text=True, env=env)
     check("invalid shared mcp.json does not block launch", r.returncode == 0, r.stdout)
     check("invalid shared mcp.json is skipped, not passed", "--mcp-config" not in r.stdout, r.stdout)
@@ -2380,13 +2380,13 @@ def test_launch(home: Path) -> None:
     # startup (exit 1, before the session starts) - the exact wall-off the
     # skip exists to avoid, so it must be treated as invalid, not passed through.
     mcp_json.write_text('{"servers": {"probe": {"command": "true"}}}')
-    r = subprocess.run([sys.executable, str(ROOT / "bin" / "ocp"), "launch", "launchtest"],
+    r = subprocess.run([str(ROOT / "bin" / "ocp"), "launch", "launchtest"],
                        capture_output=True, text=True, env=env)
     check("wrong-shape shared mcp.json does not block launch", r.returncode == 0, r.stdout)
     check("wrong-shape shared mcp.json is skipped, not passed", "--mcp-config" not in r.stdout, r.stdout)
 
     mcp_json.unlink()
-    r = subprocess.run([sys.executable, str(ROOT / "bin" / "ocp"), "launch", "launchtest"],
+    r = subprocess.run([str(ROOT / "bin" / "ocp"), "launch", "launchtest"],
                        capture_output=True, text=True, env=env)
     check("removing shared mcp.json leaves the launch unchanged", r.returncode == 0
           and "--mcp-config" not in r.stdout, r.stdout)
@@ -6080,7 +6080,7 @@ def test_two_processes_cannot_both_supervise_one_home(home: Path) -> None:
     try:
         check("lock: another process took the daemon lock",
               holder.stdout.readline().strip() == "True")
-        out = subprocess.run([sys.executable, str(ROOT / "bin" / "ocp"), "daemon",
+        out = subprocess.run([str(ROOT / "bin" / "ocp"), "daemon",
                               "--once"],
                              env=env, capture_output=True, text=True, timeout=120)
         check("daemon: the program itself refuses, not only a call to run()",
@@ -7422,7 +7422,7 @@ def test_the_suite_and_the_package_name_only_what_exists() -> None:
     here = Path(__file__).resolve()
     root = here.parent.parent
     for path in ([here] + sorted((root / "ocp").glob("*.py"))
-                 + [root / "bin" / "ocp", root / "libexec" / "ptyrun.py"]):
+                 + [root / "bin" / "_ocp_entry.py", root / "libexec" / "ptyrun.py"]):
         bad = sorted(_undefined_globals(path))
         check(f"names: {path.relative_to(root)} reads no name that is not defined",
               not bad, str(bad[:5]))
@@ -7730,7 +7730,7 @@ def test_a_vendor_with_no_driver_refuses_the_launch(home: Path) -> None:
     keep_handoff("zaitest", "# handoff · zaitest\n- carry on\n")
     env = dict(os.environ, PATH=f"{bindir}:{os.environ['PATH']}", OCP_HOME=str(home))
     env.pop("OCP_AGENT", None)
-    r = subprocess.run([sys.executable, str(ROOT / "bin" / "ocp"), "launch", "zaitest"],
+    r = subprocess.run([str(ROOT / "bin" / "ocp"), "launch", "zaitest"],
                        capture_output=True, text=True, env=env)
     out = r.stdout + r.stderr
     check("unknown vendor: the launch is refused", r.returncode != 0, out)
@@ -8716,7 +8716,7 @@ def test_launch_refuses_stale(home: Path) -> None:
     # stale, and the launch is the only thing that refreshes it, so refusing
     # here deadlocks the whole system after STALE_AFTER_S of quiet.
     write_status(home, "delta", pct_5h=20, collected_at=int(time.time()) - 100000)
-    r = subprocess.run([sys.executable, str(ROOT / "bin" / "ocp"), "launch", "st"],
+    r = subprocess.run([str(ROOT / "bin" / "ocp"), "launch", "st"],
                        capture_output=True, text=True, env=env)
     check("launch: a stale snapshot does not deadlock the launch",
           r.returncode == 0, r.stdout + r.stderr)
@@ -8725,7 +8725,7 @@ def test_launch_refuses_stale(home: Path) -> None:
 
     # A current reading over the limit still blocks.
     write_status(home, "delta", pct_5h=100)
-    r = subprocess.run([sys.executable, str(ROOT / "bin" / "ocp"), "launch", "st"],
+    r = subprocess.run([str(ROOT / "bin" / "ocp"), "launch", "st"],
                        capture_output=True, text=True, env=env)
     check("launch: a current over-limit reading still blocks", r.returncode != 0, r.stdout)
 
@@ -11297,7 +11297,7 @@ def test_installing_hooks_twice_does_not_double_them(home: Path) -> None:
 
     env = dict(os.environ, OCP_HOME=str(home), OCP_BIN="/usr/local/bin/ocp")
     for _ in range(2):
-        subprocess.run([sys.executable, str(ROOT / "bin" / "ocp"), "install-hooks"],
+        subprocess.run([str(ROOT / "bin" / "ocp"), "install-hooks"],
                        capture_output=True, text=True, env=env)
 
     data = json.loads(target.read_text())
@@ -23462,7 +23462,7 @@ def test_hooks_report_activity(home: Path) -> None:
 
     payload = json.dumps({"hook_event_name": "UserPromptSubmit", "session_id": "s",
                           "prompt": "do the thing"})
-    subprocess.run([sys.executable, str(ROOT / "bin" / "ocp"), "hook", "UserPromptSubmit"],
+    subprocess.run([str(ROOT / "bin" / "ocp"), "hook", "UserPromptSubmit"],
                    input=payload, capture_output=True, text=True, env=env)
 
     con = db.connect()
@@ -23476,7 +23476,7 @@ def test_hooks_report_activity(home: Path) -> None:
         db.set_agent_state(con, "hooky", dmn.STALLED, detail="needs a human")
     finally:
         con.close()
-    subprocess.run([sys.executable, str(ROOT / "bin" / "ocp"), "hook", "UserPromptSubmit"],
+    subprocess.run([str(ROOT / "bin" / "ocp"), "hook", "UserPromptSubmit"],
                    input=payload, capture_output=True, text=True, env=env)
     con = db.connect()
     try:
@@ -23491,7 +23491,7 @@ def test_hooks_report_activity(home: Path) -> None:
         db.set_agent_state(con, "hooky", dmn.HANDOFF, detail="handing off")
     finally:
         con.close()
-    subprocess.run([sys.executable, str(ROOT / "bin" / "ocp"), "hook", "SessionStart"],
+    subprocess.run([str(ROOT / "bin" / "ocp"), "hook", "SessionStart"],
                    input=json.dumps({"hook_event_name": "SessionStart", "session_id": "s"}),
                    capture_output=True, text=True, env=env)
     con = db.connect()
@@ -23506,7 +23506,7 @@ def test_hooks_report_activity(home: Path) -> None:
     # was taken out of service without anything saying so: three agents sat
     # RUNNING for over two hours, told about no request and holding their memory.
     def hook(name: str, **extra) -> None:
-        subprocess.run([sys.executable, str(ROOT / "bin" / "ocp"), "hook", name],
+        subprocess.run([str(ROOT / "bin" / "ocp"), "hook", name],
                        input=json.dumps({"hook_event_name": name, "session_id": "s", **extra}),
                        capture_output=True, text=True, env=env)
 
@@ -24255,7 +24255,7 @@ def test_clear_does_not_look_like_waking(home: Path) -> None:
         con.close()
 
     for event in ("SessionEnd", "SessionStart"):
-        subprocess.run([sys.executable, str(ROOT / "bin" / "ocp"), "hook", event],
+        subprocess.run([str(ROOT / "bin" / "ocp"), "hook", event],
                        input=json.dumps({"hook_event_name": event, "session_id": "new"}),
                        capture_output=True, text=True, env=env)
     con = db.connect()
@@ -24268,7 +24268,7 @@ def test_clear_does_not_look_like_waking(home: Path) -> None:
         con.close()
 
     # A real prompt still means real work.
-    subprocess.run([sys.executable, str(ROOT / "bin" / "ocp"), "hook", "UserPromptSubmit"],
+    subprocess.run([str(ROOT / "bin" / "ocp"), "hook", "UserPromptSubmit"],
                    input=json.dumps({"hook_event_name": "UserPromptSubmit",
                                      "session_id": "new", "prompt": "do it"}),
                    capture_output=True, text=True, env=env)
@@ -25057,23 +25057,32 @@ def test_jobs_lines_reports_state_honestly(home: Path) -> None:
 
 
 def test_venv(home: Path) -> None:
-    """ocp/venv.py's own docstring: `is_stale` is a second copy of the sha256
-    comparison bin/ocp-venv's bash wrapper makes, kept honest by a test that
-    runs both and compares. Both sides must read the same requirements.txt -
-    the real one, since neither status() nor the wrapper takes a path for it."""
+    """ocp/venv.py's own docstring: `status` is a second copy of the sha256
+    comparison bin/ocp's bash wrapper makes, kept honest by a test that runs
+    both and compares. Both sides must read the same requirements.txt - the
+    real one, since neither status() nor the wrapper takes a path for it.
+
+    Task #54 (founder #2069): a missing or stale venv used to make the
+    wrapper refuse outright (bin/ocp-venv, since deleted). It now falls back
+    to running under PATH's python3 instead, so `ocp venv status` still runs
+    - and still reports the venv as not ready - rather than the command
+    itself failing to start."""
     home.mkdir(parents=True, exist_ok=True)
     vdir = home / "venv"
-    wrapper = paths.repo_root() / "bin" / "ocp-venv"
+    wrapper = paths.repo_root() / "bin" / "ocp"
+
+    def run_wrapper(home_dir: Path):
+        return subprocess.run([str(wrapper), "venv", "status"], capture_output=True, text=True,
+                               env={**os.environ, "OCP_HOME": str(home_dir)}, timeout=30)
 
     def wrapper_ok(home_dir: Path) -> bool:
-        r = subprocess.run([str(wrapper), "venv", "status"], capture_output=True, text=True,
-                            env={**os.environ, "OCP_HOME": str(home_dir)}, timeout=30)
-        return r.returncode == 0
+        return run_wrapper(home_dir).returncode == 0
 
     ok, reason = venvmod.status(vdir)
     check("venv: status() refuses a venv that does not exist", not ok and "no venv" in reason, reason)
-    check("venv: the bash wrapper refuses the same missing venv",
-          not wrapper_ok(home), "wrapper disagreed with status() on a missing venv")
+    r = run_wrapper(home)
+    check("venv: the wrapper falls back to PATH python3 and agrees the venv is not ready",
+          r.returncode == 1 and "ready: False" in r.stdout, f"out={r.stdout!r} err={r.stderr!r}")
 
     calls = []
 
@@ -25119,32 +25128,34 @@ def test_venv(home: Path) -> None:
     # under set -e that used to exit the wrapper right there - silently,
     # before fail() ever ran. A ready venv must still report ready.
     stamp.write_text(good_hash)
-    r = subprocess.run([str(wrapper), "venv", "status"], capture_output=True, text=True, timeout=30,
-                        env={**os.environ, "OCP_HOME": str(home)})
+    r = run_wrapper(home)
     # The stand-in venv python is a no-op shell stub (fake_run wrote it, not
-    # a real python), so a reached-python rc 0 with no fail() message on
-    # stderr is what distinguishes this from the silent-exit regression -
-    # not stdout, which the stub never produces either way.
-    check("venv: the bash wrapper reaches python on a stamp with no trailing newline, not a silent exit",
-          r.returncode == 0 and r.stderr == "", f"rc={r.returncode} out={r.stdout!r} err={r.stderr!r}")
+    # a real python), so a reached-python rc 0 with no output is what
+    # distinguishes "the wrapper exec'd the venv" from the silent-exit
+    # regression, not the venv python's own (nonexistent) stdout.
+    check("venv: the wrapper reaches the venv python on a stamp with no trailing newline, not a silent exit",
+          r.returncode == 0 and r.stdout == "" and r.stderr == "",
+          f"rc={r.returncode} out={r.stdout!r} err={r.stderr!r}")
 
     # Auditor #1673 note 1: an empty stamp (the write_text truncate-then-write
     # race, or a crash between them) is the other half of #1613's regression -
-    # `read -r` on it also returns 1, and the fix must still surface it loud
-    # as stale, not swallow it the way the pre-fix line did.
+    # `read -r` on it also returns 1, and the fix must still surface it as
+    # stale (via the PATH python3 fallback), not swallow it the way the
+    # pre-fix line did.
     stamp.write_text("")
-    r = subprocess.run([str(wrapper), "venv", "status"], capture_output=True, text=True, timeout=30,
-                        env={**os.environ, "OCP_HOME": str(home)})
-    check("venv: the bash wrapper reports an empty stamp as stale, not a silent exit",
-          r.returncode != 0 and "stale" in r.stderr, f"rc={r.returncode} out={r.stdout!r} err={r.stderr!r}")
+    r = run_wrapper(home)
+    check("venv: the wrapper falls back and reports an empty stamp as stale, not a silent exit",
+          r.returncode == 1 and "ready: False" in r.stdout and "stale" in r.stdout,
+          f"rc={r.returncode} out={r.stdout!r} err={r.stderr!r}")
     stamp.write_text(good_hash + "\n")
 
     stamp.write_text("not a real hash\n")
     ok, reason = venvmod.status(vdir)
     check("venv: status() refuses a venv stamped against a different requirements.txt",
           not ok and "stale" in reason, reason)
-    check("venv: the bash wrapper refuses the same stale stamp",
-          not wrapper_ok(home), "wrapper disagreed with status() on a stale stamp")
+    r = run_wrapper(home)
+    check("venv: the wrapper falls back on the same stale stamp",
+          r.returncode == 1 and "stale" in r.stdout, f"out={r.stdout!r} err={r.stderr!r}")
 
     def fake_run_fails(args):
         calls.append(args)
@@ -25171,32 +25182,55 @@ def test_venv(home: Path) -> None:
     finally:
         venvmod.requirements_file = real_reqs_file
 
-    # Same case through the bash wrapper: copy it beside a venv with no
-    # requirements.txt one level up, so `script_dir/../requirements.txt`
-    # resolves to nothing - the wrapper must fail() with a clear reason, not
-    # `set -e` out on shasum's own raw error (review #1597 note 2).
+    # Same case through the bash wrapper: copy it, _ocp_entry.py and the ocp
+    # package itself beside a venv with no requirements.txt one level up, so
+    # `script_dir/../requirements.txt` resolves to nothing - the wrapper must
+    # fall back clean, not `set -e` out on shasum's own raw error (review
+    # #1597 note 2, carried over). A staging copy, not the repo's own
+    # requirements.txt, so a killed test can never leave the real file
+    # renamed away. The ocp package has to be copied too, not just imported
+    # via PYTHONPATH: repo_root() derives from the ocp package's own __file__,
+    # so importing the real package would make the fallback python3 see the
+    # real repo's requirements.txt and miss the case entirely.
     reqshome = home / "reqsmissing"
     (reqshome / "bin").mkdir(parents=True, exist_ok=True)
-    shutil.copy(wrapper, reqshome / "bin" / "ocp-venv")
+    shutil.copy(wrapper, reqshome / "bin" / "ocp")
     shutil.copy(paths.repo_root() / "bin" / "_ocp_entry.py", reqshome / "bin" / "_ocp_entry.py")
-    (reqshome / "bin" / "ocp-venv").chmod(0o755)
+    (reqshome / "bin" / "ocp").chmod(0o755)
+    shutil.copytree(paths.repo_root() / "ocp", reqshome / "ocp",
+                     ignore=shutil.ignore_patterns("__pycache__"))
     reqs_vdir = reqshome / "home" / "venv" / "bin"
     reqs_vdir.mkdir(parents=True)
     (reqs_vdir / "python3").write_text("#!/bin/sh\n")
     (reqs_vdir / "python3").chmod(0o755)
-    r = subprocess.run([str(reqshome / "bin" / "ocp-venv"), "venv", "status"],
+    r = subprocess.run([str(reqshome / "bin" / "ocp"), "venv", "status"],
                         capture_output=True, text=True, timeout=30,
                         env={**os.environ, "OCP_HOME": str(reqshome / "home")})
-    check("venv: the bash wrapper also fails clean (not a raw shasum error) on a missing requirements.txt",
-          r.returncode == 1 and "no requirements.txt" in r.stderr and "shasum" not in r.stderr, r.stderr)
+    check("venv: the bash wrapper falls back clean (not a raw shasum error) on a missing requirements.txt",
+          r.returncode == 1 and "no requirements.txt" in r.stdout and "shasum" not in r.stderr, f"out={r.stdout!r} err={r.stderr!r}")
 
-    # Review #1597 should-fix: the remedy the wrapper prints must still be
-    # runnable once this file is promoted to bin/ocp - "$script_dir/ocp" is
-    # then the very command that just refused.
-    r = subprocess.run([str(wrapper), "venv", "status"], capture_output=True, text=True, timeout=30,
-                        env={**os.environ, "OCP_HOME": str(home / "no-such-home")})
-    check("venv: the wrapper's own remedy is a bare `python3 ... _ocp_entry.py`, not itself",
-          "python3 " in r.stderr and str(wrapper) not in r.stderr, r.stderr)
+
+def test_bin_ocp_resolves_a_symlink(home: Path) -> None:
+    """ocp/cli.py and ocp/service.py both describe the installed `ocp` as a
+    symlink into the repo (~/.local/bin/ocp on the founder's own machine) -
+    the one path every real invocation runs through, and one every other
+    test in this suite skips by calling bin/ocp at its real location. Auditor
+    #2096 should-fix 1: an unresolved BASH_SOURCE broke exactly this, silently,
+    with the rest of the suite still green."""
+    home.mkdir(parents=True, exist_ok=True)
+    real_ocp = paths.repo_root() / "bin" / "ocp"
+
+    direct = home / "direct-link"
+    direct.symlink_to(real_ocp)
+    r = subprocess.run([str(direct), "--version"], capture_output=True, text=True, timeout=30)
+    check("symlink: a direct symlink to bin/ocp still finds _ocp_entry.py",
+          r.returncode == 0 and r.stdout.strip() == "ocp 0.1.0", f"out={r.stdout!r} err={r.stderr!r}")
+
+    chained = home / "chained-link"
+    chained.symlink_to(Path("direct-link"))  # relative, same directory
+    r = subprocess.run([str(chained), "--version"], capture_output=True, text=True, timeout=30)
+    check("symlink: a link to a link resolves the same way",
+          r.returncode == 0 and r.stdout.strip() == "ocp 0.1.0", f"out={r.stdout!r} err={r.stderr!r}")
 
 
 def test_run_recovers_from_an_uncaught_error() -> None:
@@ -27454,6 +27488,7 @@ def main() -> int:
             Path(td) / 'jobsgrandchild'))
         run(lambda: test_jobs_lines_reports_state_honestly(Path(td) / 'jobslines'))
         run(lambda: test_venv(Path(td) / 'venvhome'))
+        run(lambda: test_bin_ocp_resolves_a_symlink(Path(td) / 'symlinkhome'))
         run(lambda: test_run_recovers_from_an_uncaught_error())
         run(lambda: test_restore_world_pops_orca_env_vars_a_real_terminal_would_leave_set())
         run(lambda: test_run_restores_current_test_after_its_own_nested_run_calls(Path(td) / 'nestedrun'))
