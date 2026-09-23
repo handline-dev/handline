@@ -513,7 +513,7 @@ def cmd_task_list(args) -> int:
 
 def _fit100(line: str) -> str:
     """Plain text, one screen wide: what the room reading it over is stuck
-    with. 100, not 80 - the same width `status-sync.sh`'s board was read at."""
+    with."""
     return line if len(line) <= 100 else line[:99] + "…"
 
 

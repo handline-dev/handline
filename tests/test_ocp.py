@@ -24492,13 +24492,8 @@ def _link(tid: int, rid: int, state: str | None = None) -> None:
 
 
 def test_task_board_shows_who_holds_each_open_task(home: Path) -> None:
-    """task #36 (#1945): `ocp task board` ports status-sync.sh's own rules for
-    요청-현황.md rather than rederiving them - a still-queued request's target
-    is who holds it now; absent that, an open child task's own queued
-    request means the work moved down a level; absent that too, the last
-    linked request having come back `done` from someone else is my own turn
-    to read the result; and nothing linked, or the last exchange closed some
-    other way (withdrawn, rejected, replaced), is nobody holding it."""
+    """task #36 (#1945): exercises the four rules documented on
+    `cmd_task_board` itself."""
     _board_world(home)
     rc, out = _cli(["task", "board"])
     check("board: nothing open reads as nothing open",
@@ -24513,6 +24508,8 @@ def test_task_board_shows_who_holds_each_open_task(home: Path) -> None:
         t_parent = db.new_task(con, "parent task", "manager", "manager")
         t_child = db.new_task(con, "child does the work", "worker", "manager", t_parent)
         t_not_mine = db.new_task(con, "not mine", "worker", "manager")
+        t_human_to_me = db.new_task(con, "human resolved to me", "manager", "manager")
+        t_me_to_human = db.new_task(con, "I asked the founder", "manager", "manager")
     finally:
         con.close()
 
@@ -24520,6 +24517,8 @@ def test_task_board_shows_who_holds_each_open_task(home: Path) -> None:
     _link(t_back, _request("manager", "worker"), state="done")
     _link(t_closed_other, _request("manager", "worker"), state="withdrawn")
     _link(t_child, _request("manager", "worker"))
+    _link(t_human_to_me, _request(askmod.HUMAN, "manager"), state="done")
+    _link(t_me_to_human, _request("manager", askmod.HUMAN), state="done")
 
     rc, out = _cli(["task", "board"])
     check("board: rc 0", rc == 0, out)
@@ -24536,6 +24535,11 @@ def test_task_board_shows_who_holds_each_open_task(home: Path) -> None:
           _now_line(out, t_parent) == "now: sub-task: worker", out)
     check("board: a task owned by someone else is not on my board",
           f"#{t_not_mine} " not in out, out)
+    check("board: what record_human_resolve --task links (human's request, done to me) "
+          "is not read back as someone else's answer waiting on me",
+          _now_line(out, t_human_to_me) == "now: nobody holds it", out)
+    check("board: a request I sent the founder, done, is not read back as my own turn",
+          _now_line(out, t_me_to_human) == "now: nobody holds it", out)
 
     rc, out = _cli(["task", "board"], as_agent=None)
     check("board: with no identity and no tty, refused rather than guessed at",
