@@ -27,6 +27,9 @@ phase0/statusline-collect.sh  수집기 프로토타입 — Phase 1 에서 그�
 1. **credential 파일을 읽거나 쓰거나 복사하지 마라.** `.credentials.json`, Keychain, `.claude.json` 전부.
    계정 추가는 `CLAUDE_CONFIG_DIR=<dir> claude /login` 을 사람이 1회 실행하는 것뿐이다.
    refresh token 은 1회용 로테이션이라 복사본끼리 서로를 무효화한다 (§1)
+   유일한 예외 (#2010): opencode 계정의 `auth.json` 은 meter 경로에서 **메모리에 딱 한 번** 읽을 수 있다 -
+   usage 질문 하나를 위해서만. key 는 agent 에게 절대 닿지 않는다. agent 의 env, prompt, terminal,
+   log, db, ocp 가 쓰는 그 어떤 파일에도 나타나지 않는다.
 2. **검증 안 된 가정 위에 코딩하지 마라.** Phase 0 판정표(§12)에 **미확인**이 남아 있는 항목에
    의존하는 코드를 쓰지 마라. 먼저 프로브를 돌려라
 3. **로직을 SKILL.md 에 넣지 마라.** 전부 CLI 다. `SKILL.md` 는 20줄 이하의 스텁이고,

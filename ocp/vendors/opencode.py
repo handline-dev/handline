@@ -1,11 +1,15 @@
 """opencode, measured on 1.18.32 (design/03 §4.3)."""
 from __future__ import annotations
 
+import http.client
 import json
+import math
 import os
 import re
 import shutil
 import subprocess
+import time
+import urllib.request
 from pathlib import Path
 
 # `opencode auth list`'s closing line, "<n> credentials", whether or not it is
@@ -24,6 +28,18 @@ _BOX_BOTTOM = re.compile(r"^\s*\u2579\u2580{8,}")
 # How far above the last row the box's bottom edge may sit: two footer rows
 # in a session, four on the start screen.
 _FOOTER_ROWS = 6
+
+
+class _RefuseRedirect(urllib.request.HTTPRedirectHandler):
+    # urllib's default copies every request header - Authorization included -
+    # onto a redirect, to any host. The quota endpoint is asked with the
+    # account's key, so a redirect is refused outright: the answer it wants
+    # never lives anywhere else.
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        return None
+
+
+_OPENER = urllib.request.build_opener(_RefuseRedirect)
 
 
 
@@ -49,8 +65,111 @@ class Opencode:
         return _SESSION.match(command) is not None
 
     def meters(self) -> bool:
-        # It stores what was spent, never how much of a limit is left.
-        return False
+        # The coding-plan credential answers a usage endpoint, so ocp can read
+        # how much of the plan's limit is spent. A credential of some other
+        # provider never answers it - the same fail-closed "could not look"
+        # as a dead token is on any metered vendor.
+        return True
+
+    # The coding plan's quota endpoint, measured live against the console the
+    # founder reads (task #42, 2026-09-23): same totals, same reset instants,
+    # plan level included. Undocumented - like claude's usage endpoint - and
+    # the de-facto standard of every third-party quota reader.
+    QUOTA_URL = "https://api.z.ai/api/monitor/usage/quota/limit"
+    # Which window each limit row is: the unit code the endpoint keys them by.
+    FIVE_HOUR_UNIT, WEEK_UNIT = 3, 6
+
+    def usage_reading(self, config_dir: Path) -> tuple[int | None, int | None,
+                                                       int | None, int | None] | None:
+        """This account's (5h pct, 5h reset, week pct, week reset), or None
+        when it could not be asked - "could not look", never "nothing spent".
+        A 200 whose body carries no usable 5-hour percentage is could not
+        look too: recorded, it would read as a fresh null, and a fresh null
+        reads as quiet - an 87% account taking work on the strength of an
+        answer that named no figure.
+
+        The credential is read in memory for this one request (KICKOFF rule 1
+        as amended, #2010). The key is never returned, logged, or written: it
+        reaches no agent's env, prompt, terminal, logs, db, and no file ocp
+        writes. Reset instants are epoch seconds; the percentage arrives
+        sometimes as a float and is rounded down the way the endpoint's own
+        display does.
+        """
+        try:
+            doc = json.loads((config_dir / "opencode" / "auth.json").read_text())
+        except (OSError, json.JSONDecodeError):
+            return None
+        key = (doc.get("zai-coding-plan") or {}).get("key") if isinstance(doc, dict) else None
+        if not isinstance(key, str) or not key.strip():
+            return None
+        req = urllib.request.Request(
+            self.QUOTA_URL,
+            headers={"Authorization": f"Bearer {key}", "Accept-Language": "en-US,en"})
+        try:
+            with _OPENER.open(req, timeout=10) as resp:
+                if resp.status != 200:
+                    return None
+                payload = json.load(resp)
+        except (urllib.error.URLError, http.client.HTTPException, OSError,
+                json.JSONDecodeError, ValueError):
+            return None
+        if not isinstance(payload, dict):
+            return None
+        # Success and code are how the endpoint says the answer is an answer.
+        # Either one naming a failure - present but not success/200 - is not
+        # one, whatever else the body carries.
+        if payload.get("success") is False or payload.get("code") not in (None, 200):
+            return None
+        data = payload.get("data")
+        limits = data.get("limits") if isinstance(data, dict) else None
+        if not isinstance(limits, list):
+            return None
+        out: list[int | None] = [None, None, None, None]
+        corrupt = False
+        # A reset must never reach further out than eight days - the longest
+        # cycle is weekly, and 40 nines reads as a figure here while the first
+        # clock to format it downstream would overflow. A reset already past
+        # is not corrupt and not pending: an account idle since its window
+        # rolled reports that roll, and it reads as no reset, the same way
+        # claude's own endpoint reads a rolled-over window - a quiet account
+        # is never could-not-look on account of it.
+        reset_hi = time.time() * 1000 + 8 * 24 * 3600 * 1000
+        reset_past = time.time() * 1000 - 60_000
+
+        def figure(v, hi=None):
+            """The number as ocp can use it, or None. Python's json reads NaN,
+            Infinity and 1e400 as floats, and converting one raises outside
+            any try here - a daemon-killer from a body that named no usable
+            figure. A value that is present but not a finite number, or one
+            past hi, is not a figure, and it marks the answer, not just its
+            window."""
+            nonlocal corrupt
+            if v is None:
+                return None
+            if not (isinstance(v, (int, float)) and not isinstance(v, bool)
+                    and math.isfinite(v)) or (hi is not None and v > hi):
+                corrupt = True
+                return None
+            return v
+
+        for row in limits:
+            if not isinstance(row, dict):
+                continue
+            unit = row.get("unit")
+            if unit not in (self.FIVE_HOUR_UNIT, self.WEEK_UNIT):
+                continue
+            i = 0 if unit == self.FIVE_HOUR_UNIT else 2
+            pct = figure(row.get("percentage"))
+            reset = figure(row.get("nextResetTime"), hi=reset_hi)
+            if reset is not None and reset < reset_past:
+                reset = None
+            if pct is not None:
+                out[i] = max(0, min(100, int(pct)))
+            if reset is not None:
+                out[i + 1] = int(reset // 1000)
+        if corrupt or out[0] is None:
+            return None
+        return tuple(out)
 
     def is_resume(self, extra: list[str] | None) -> bool:
         return any(x in ("-s", "--session", "-c", "--continue") or x.startswith("--session=")
@@ -168,6 +287,9 @@ class Opencode:
         return []
 
     def never_touch(self) -> set[str]:
+        # Never created, linked or copied. Read in exactly one place, by the
+        # rule as amended (#2010): usage_reading reads auth.json in memory for
+        # its one request, and the key reaches no agent and no file ocp writes.
         return {"opencode"}
 
     def memory_root(self, config_dir: Path) -> Path | None:
