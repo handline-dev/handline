@@ -110,11 +110,11 @@ def _job_lines_ansi(jobs: jobsmod.Jobs, width: int) -> list[str]:
 
 
 def confirm_answer(key: str, character: str | None) -> bool | None:
-    """True for y, False for n or Escape, None for any other key: a wheel notch
+    """True for y, False for n, Escape or Ctrl+C, None for any other key: a wheel notch
     arrives as an arrow and must leave the question open."""
     if character in ("y", "Y"):
         return True
-    if character in ("n", "N") or key == "escape":
+    if character in ("n", "N") or key in ("escape", "ctrl+c"):
         return False
     return None
 
