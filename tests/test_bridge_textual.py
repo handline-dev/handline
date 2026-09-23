@@ -456,11 +456,11 @@ async def test_accounts_panel_cap_add_remove_and_open() -> None:
         await pilot.pause(0.2)
         check("accounts: enter opens a read-only page (account_detail)",
               isinstance(app.screen, bt.ReadOnly), type(app.screen).__name__)
-        text = str(app.screen.query_one("#readonly").render())
+        text = app.screen.title_text + "\n".join(r for _, rows in app.screen.sections for r in rows)
         check("accounts: it is that account's own detail",
               "account alpha" in text and "config" in text, text)
         check("accounts: it names its own named section as a tab, not flattened",
-              "AGENTS ON IT" in text, text)
+              any(h.startswith("AGENTS ON IT") for h, _ in app.screen.sections), app.screen.sections)
         await pilot.press("down")           # a scroll key: task #54 item 3, no longer any key
         await pilot.pause(0.1)
         check("accounts: a scroll key does not close it", isinstance(app.screen, bt.ReadOnly),
