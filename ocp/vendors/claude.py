@@ -87,6 +87,11 @@ class Claude:
     def idle_on_screen(self, tail: list[str]) -> bool:
         return True
 
+    def working_on_screen(self, tail: list[str]) -> bool | None:
+        # Orca reads claude's working state; the screen carries no turn
+        # marker ocp reads, so it is never the witness.
+        return None
+
     def screen_blocker(self, tail: list[str]):
         from .. import orca  # late: orca looks drivers up
         return orca.claude_screen_blocker(tail)

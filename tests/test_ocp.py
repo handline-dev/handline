@@ -8456,10 +8456,12 @@ def test_an_opencode_row_takes_its_state_word_from_orca(home: Path) -> None:
     no counterpart wired, so production writes IDLE at launch and the row
     sits there for the life of the session - an agent working right now reads
     IDLE. The state cell reads the pane's screen instead (tui-idle answers
-    idle mid-turn for opencode, measured), both ways: a screen mid-turn draws
-    RUNNING over the db's IDLE, an idle screen draws IDLE even if the db says
-    RUNNING. When the screen cannot be read, the db state stands. A claude
-    row is never screened: its hooks already said."""
+    idle mid-turn for opencode, measured), and only on positive evidence both
+    ways: the prompt box with "interrupt" in its footer is working, the box
+    without it is idle, and anything else - a closed agent's shell prompt, a
+    start screen - is no evidence, so the db state stands. A closed row is
+    never screened at all. A claude row is never screened: its hooks already
+    said."""
     home.mkdir(parents=True, exist_ok=True)
     os.environ["OCP_HOME"] = str(home)
     accounts.register("alpha")
@@ -8468,12 +8470,11 @@ def test_an_opencode_row_takes_its_state_word_from_orca(home: Path) -> None:
     agents.register("glm", "zai")
     _with_vendor("glm", "opencode")
     con = db.connect()
+    screens = {"term_oc": OC_WORKING}
     asked: list[list] = []
     real_screen = orcamod._screen
     orcamod._screen = lambda h: (asked.append([h]), {
-        "source": "screen",
-        "tail": OC_WORKING if h == "term_oc" else OC_IDLE,
-    })[1]
+        "source": "screen", "tail": screens[h]})[1]
     saved_seen = dict(tui._opencode_seen)
     tui._opencode_seen.clear()
 
@@ -8495,11 +8496,7 @@ def test_an_opencode_row_takes_its_state_word_from_orca(home: Path) -> None:
         check("opencode row: the claude row is never screened",
               asked == [["term_oc"]], str(asked))
 
-        asked.clear()
-        orcamod._screen = lambda h: (asked.append([h]), {
-            "source": "screen",
-            "tail": OC_IDLE if h == "term_oc" else OC_IDLE,
-        })[1]
+        screens["term_oc"] = OC_IDLE
         tui._opencode_seen.clear()
         check("opencode row: an idle screen reads IDLE",
               tui.screen_state(con, row("glm"))[0] == "IDLE")
@@ -8509,11 +8506,47 @@ def test_an_opencode_row_takes_its_state_word_from_orca(home: Path) -> None:
         check("opencode row: an idle screen keeps a RUNNING row honest",
               tui.screen_state(con, row("glm"))[0] == "IDLE")
 
+        # A shell prompt is evidence of neither: the db word stands. This is
+        # what a closed agent's pane shows (auditor #2157, measured live).
+        shell = ["Resume this session with:",
+                 "claude --resume 9f2289d7-3b45-4e86-9653-efb48c2d46da",
+                 "ron@Ron-MacBookAir  ~/orca/workspaces/orcapipe/orcapipe.glm "]
+        db.set_agent_state(con, "glm", dmn.IDLE)
+        con.execute("UPDATE agent_state SET closed_at = ? WHERE agent = 'glm'",
+                    (int(time.time()),))
+        con.commit()
+        screens["term_oc"] = shell
+        tui._opencode_seen.clear()
+        asked.clear()
+        check("opencode row: a closed agent's shell prompt is not work in progress",
+              tui.screen_state(con, row("glm"))[0] == "IDLE" and asked == [],
+              str(asked))
+
+        # A closed row is never screened at all, whatever its pane shows.
+        asked.clear()
+        screens["term_oc"] = OC_WORKING
+        tui._opencode_seen.clear()
+        tui.screen_state(con, row("glm"))
+        check("opencode row: a closed row is never screened",
+              asked == [], str(asked))
+        con.execute("UPDATE agent_state SET closed_at = NULL WHERE agent = 'glm'")
+        con.commit()
+
         orcamod._screen = lambda h: {"source": "stream", "tail": OC_WORKING}
         tui._opencode_seen.clear()
-        db.set_agent_state(con, "glm", dmn.IDLE)
         check("opencode row: an unreadable screen leaves the db state standing",
               tui.screen_state(con, row("glm"))[0] == "IDLE")
+
+        # The tri-state, at the driver: box + interrupt is working, box
+        # without it is idle, no box is no evidence.
+        drv = vendors.get("opencode")
+        check("opencode row: the driver's screen answer is three-valued",
+              drv.working_on_screen(OC_WORKING) is True
+              and drv.working_on_screen(OC_IDLE) is False
+              and drv.working_on_screen(shell) is None,
+              str((drv.working_on_screen(OC_WORKING),
+                   drv.working_on_screen(OC_IDLE),
+                   drv.working_on_screen(shell))))
 
         orcamod._screen = real_screen
         tui._opencode_seen.clear()

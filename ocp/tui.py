@@ -660,9 +660,10 @@ _opencode_seen: dict[str, tuple[float, bool | None]] = {}
 def _opencode_working(handle: str) -> bool | None:
     """What this pane's screen says: True working, False idle at its prompt.
 
-    None when the screen cannot be read - Orca down, or the handle is gone -
-    and the row keeps whatever the db state says. The distinction matters:
-    a dead session must not read IDLE at its prompt.
+    None when there is no evidence either way - a shell after /exit, a start
+    screen - or the screen cannot be read (Orca down, handle gone), and the
+    row keeps whatever the db state says. Positive evidence only: a closed
+    agent's shell prompt must not read as work in progress.
     """
     now = time.monotonic()
     hit = _opencode_seen.get(handle)
@@ -673,8 +674,7 @@ def _opencode_working(handle: str) -> bool | None:
     if not isinstance(tail, list) or term.get("source") != "screen":
         working = None
     else:
-        # idle_on_screen answers "idle"; the cell asks "working".
-        working = not orca._driver_for(handle).idle_on_screen(tail)
+        working = orca._driver_for(handle).working_on_screen(tail)
     if len(_opencode_seen) > 128:
         for k in [k for k, (at, _) in _opencode_seen.items() if now - at > OPENCODE_STATE_TTL_S]:
             del _opencode_seen[k]
@@ -713,11 +713,11 @@ def screen_state(con, row) -> tuple[str, str]:
     if state == daemon.STALLED:
         return "FATAL", oneline(detail)[:DETAIL_CAP]
     if state in (daemon.RUNNING, daemon.HANDOFF):
-        # An opencode row's word is the pane's (see _opencode_working).
+        # An opencode row's word is its pane's screen (see _opencode_working).
         # HANDOFF stays RUNNING - it is the daemon's protected mid-move, and
-        # moving is working. When the screen cannot be read, the db state
-        # stands, as it always did.
-        if state == daemon.RUNNING and row["terminal"] \
+        # moving is working. A closed row's word is the db's, and so is any
+        # row when the screen cannot be read.
+        if state == daemon.RUNNING and row["terminal"] and not row["closed_at"] \
                 and vendors.account_vendor(row["account"] or "") == "opencode" \
                 and _opencode_working(row["terminal"]) is False:
             return "IDLE", ""
@@ -739,8 +739,9 @@ def screen_state(con, row) -> tuple[str, str]:
         return "PENDING", until
     # An opencode agent never writes RUNNING - its hooks do not exist - so an
     # agent that IS working sits here in the db and the plain IDLE below would
-    # hide it. The same witness speaks first.
-    if state == daemon.IDLE and row["terminal"] \
+    # hide it. The same witness speaks first, but never for a closed agent:
+    # its pane is a shell prompt, and its word is the db's.
+    if state == daemon.IDLE and not row["closed_at"] and row["terminal"] \
             and vendors.account_vendor(row["account"] or "") == "opencode" \
             and _opencode_working(row["terminal"]) is True:
         return "RUNNING", ""

@@ -230,6 +230,17 @@ class Opencode:
         footer = self._footer(tail)
         return footer is not None and not any("interrupt" in r for r in footer)
 
+    def working_on_screen(self, tail: list[str]) -> bool | None:
+        """Whether the pane shows a turn in progress, with positive evidence
+        both ways: the prompt box drawn and its footer offering "interrupt"
+        is working; the box drawn without one is idle at its prompt. No box -
+        a shell after /exit, a start screen, a crashed session - is evidence
+        of neither, None, and the reader keeps its own state."""
+        footer = self._footer(tail)
+        if footer is None:
+            return None
+        return any("interrupt" in r for r in footer)
+
     def screen_blocker(self, tail: list[str]):
         """A permission request replaces the prompt box with its choices, the
         first already selected, so Enter answers it. Anything without the box
