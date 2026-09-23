@@ -6084,13 +6084,44 @@ def test_process_env_reads_a_gone_pid_as_unreadable(home: Path) -> None:
               obsmod.process_env(1) is None)
 
         obsmod.subprocess.run = ps(own, FakeResult(0, "/bin/ocp daemon\n"))
-        check("process_env: an environment that came back comes through",
-              obsmod.process_env(999991) == "/bin/ocp daemon OCP_HOME=/x\n")
+        check("process_env: an environment that came back comes through, "
+              "past its argv",
+              obsmod.process_env(999991) == " OCP_HOME=/x\n")
     finally:
         obsmod.subprocess.run = real_run
 
     check("process_env: root's launchd (pid 1) is unreadable on this machine",
           obsmod.process_env(1) is None)
+
+
+def test_env_of_is_not_fooled_by_an_env_looking_token_in_argv(home: Path) -> None:
+    """`ps eww` prints argv before the real environment, so an agent launched
+    with an argument that itself contains `NAME=value` text - a system prompt
+    passed with `--append-system-prompt`, say - puts that text ahead of the
+    real environment in the same line. Scanning the whole line for the first
+    `OCP_AGENT=` token, as `env_of` used to, reads the argv one and misnames
+    the agent; the daemon then sees the real one as gone and types its launch
+    command into the live session it is still running in. `env_of` must read
+    only what is actually the environment."""
+    real_run = obsmod.subprocess.run
+
+    class FakeResult:
+        def __init__(self, rc: int, out: str) -> None:
+            self.returncode, self.stdout = rc, out
+
+    cmd_line = "/bin/claude --append-system-prompt 'ship it, OCP_AGENT=orcapipe please'\n"
+    env_line = cmd_line.rstrip("\n") + " OCP_AGENT=keeper OCP_HOME=/x\n"
+
+    def ps(call, **k):
+        return FakeResult(0, env_line if call[1] == "eww" else cmd_line)
+
+    try:
+        obsmod.subprocess.run = ps
+        check("env_of: reads the real environment's OCP_AGENT, not argv's",
+              obsmod.env_of(4200, "OCP_AGENT") == "keeper",
+              str(obsmod.process_env(4200)))
+    finally:
+        obsmod.subprocess.run = real_run
 
 
 def test_two_processes_cannot_both_supervise_one_home(home: Path) -> None:
@@ -28150,6 +28181,7 @@ def main() -> int:
         run(lambda: test_an_exiting_daemon_leaves_the_live_ones_name(Path(td) / 'pidname'))
         run(lambda: test_one_daemon_is_counted_in_the_process_table(Path(td) / 'dmnps'))
         run(lambda: test_process_env_reads_a_gone_pid_as_unreadable(Path(td) / 'procenv'))
+        run(lambda: test_env_of_is_not_fooled_by_an_env_looking_token_in_argv(Path(td) / 'envargv'))
         run(lambda: test_a_refused_ask_is_not_a_new_message(Path(td) / 'refused'))
         run(lambda: test_a_refused_ask_is_never_announced_as_an_answer(Path(td) / 'noannounce'))
         run(lambda: test_a_refusal_is_not_read_back_as_an_answer(Path(td) / 'readref'))
