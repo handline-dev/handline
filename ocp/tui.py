@@ -573,6 +573,27 @@ def messages_data(con) -> tuple[str, list[MessageRow], list[str]]:
         [] if waiting else ["nothing waiting on you"]
 
 
+class StuckRow(NamedTuple):
+    agent: str | None   # who the cursor acts on; None for a row about an account
+    what: str
+    age: str            # how long it has sat, or ""
+    why: str
+
+
+def stuck_data(con) -> tuple[str, list[StuckRow]]:
+    """What the STUCK panel shows, before any of it is laid out: its title and
+    one row per thing that is not moving.
+
+    This was "in flight", and almost nothing ever is: a handoff takes seconds,
+    and what it actually drew was requests that had sat for a day and a half
+    because their target had no terminal to be told with. Traffic drawn as
+    traffic said the system was busy while it was stuck."""
+    blocked = actions.stuck(con)
+    rows = [StuckRow(b["agent"], oneline(b["what"]), age(b["age"]) if b["age"] else "",
+                     oneline(b["why"])) for b in blocked]
+    return ("STUCK" if blocked else "STUCK — nothing is waiting on anything"), rows
+
+
 def pct(v: int | None) -> str:
     return "  ?" if v is None else f"{v:>3}"
 
@@ -1188,18 +1209,12 @@ def build(width: int, sel: dict | None = None,
             ms.add(f"{DIM}  {note}{R}")
 
         # ---- stuck -----------------------------------------------------
-        # This was "in flight", and almost nothing ever is: a handoff takes
-        # seconds, and what it actually drew was requests that had sat for a
-        # day and a half because their target had no terminal to be told with.
-        # Traffic drawn as traffic said the system was busy while it was stuck.
-        blocked = actions.stuck(con)
-        fl = Panel("STUCK" if blocked else "STUCK — nothing is waiting on anything", width,
-                   focused=panel == STUCK)
+        title, rows = stuck_data(con)
+        fl = Panel(title, width, focused=panel == STUCK)
         fl.selected = sel.get(STUCK)
-        for b in blocked:
-            fl.add(pad(f"{YEL}{oneline(b['what'])}{R}", 34)
-                   + pad(f"{DIM}{age(b['age']) if b['age'] else ''}{R}", 7)
-                   + f"{DIM}{oneline(b['why'])}{R}", key=b["agent"])
+        for r in rows:
+            fl.add(pad(f"{YEL}{r.what}{R}", 34) + pad(f"{DIM}{r.age}{R}", 7)
+                   + f"{DIM}{r.why}{R}", key=r.agent)
 
         footer_agent = sel.get(AGENTS) if panel == AGENTS else \
             sel.get(STUCK) if panel == STUCK else None
