@@ -837,22 +837,44 @@ def cmd_spawn(args) -> int:
     return 0 if ok else 1
 
 
+def _import_bridge_textual():
+    """The one line that can raise - a name tests replace to force the
+    failure `_bridge_textual_module` classifies, without a real broken
+    import."""
+    from . import bridge_textual
+    return bridge_textual
+
+
+def _missing_bridge_package(e: ModuleNotFoundError) -> bool:
+    """Whether `e` is `textual` or `rich` itself not being on this
+    interpreter, not some other name a broken import behind them failed on."""
+    return bool(e.name) and e.name.split(".")[0] in ("textual", "rich")
+
+
+def _bridge_textual_module():
+    """`bridge_textual`, or None if `textual`/`rich` are missing (auditor
+    #2138 should-fix 1): any other `ModuleNotFoundError` is a real bug behind
+    the two, and must be seen rather than silently read as "the package is
+    missing" and served the old screen."""
+    try:
+        return _import_bridge_textual()
+    except ModuleNotFoundError as e:
+        if _missing_bridge_package(e):
+            return None
+        raise
+
+
 def cmd_bridge(args) -> int:
-    # Task #54: Textual is the default screen now, not an opt-in - `--curses`
-    # is the escape hatch back to the raw-termios one this replaces. `--textual`
-    # stays as the explicit ask that fails loud when the package is missing
-    # (`ocp venv install` puts it there), for a script that wants to know
-    # rather than silently get the other screen; the plain default degrades
-    # quietly instead; `ocp bridge` on a machine whose venv is not ready yet
-    # (bin/ocp's own PATH-python3 fallback, #2069) must still open something.
+    # Textual is the default screen (task #54); --curses opts back into the
+    # one it replaces, still needed until the venv is ready (bin/ocp's own
+    # PATH-python3 fallback, #2069).
     if args.curses:
         return tui.run(interval=args.interval, once=args.once)
-    try:
-        from . import bridge_textual
-    except ImportError as e:
+    bridge_textual = _bridge_textual_module()
+    if bridge_textual is None:
         if args.textual:
-            print(f"ocp bridge --textual needs the `textual` package: {e}\n"
-                  f"`ocp venv install` puts it in $OCP_HOME/venv (see requirements.txt).")
+            print("ocp bridge --textual needs the `textual` package.\n"
+                  "`ocp venv install` puts it in $OCP_HOME/venv (see requirements.txt).")
             return 1
         return tui.run(interval=args.interval, once=args.once)
     return bridge_textual.run(once=args.once)
@@ -1651,15 +1673,11 @@ def cmd_inbox(args) -> int:
         # is the screen: two places to do it is two places to keep in step, and
         # the one you are not looking at is the one holding the escalation. A
         # pipe still gets text - a script asking for the list is not a human
-        # asking for somewhere to sit. Task #54: the screen it opens on is
-        # Textual now, the same silent fall back to curses `cmd_bridge` has
-        # for a machine whose venv is not ready yet (#2069).
+        # asking for somewhere to sit. It opens on the same screen `cmd_bridge`
+        # does, with the same fallback (task #54, #2069).
         if sys.stdout.isatty() and not args.all and not args.wait:
-            try:
-                from . import bridge_textual
-            except ImportError:
-                return tui.run()
-            return bridge_textual.run()
+            bridge_textual = _bridge_textual_module()
+            return bridge_textual.run() if bridge_textual else tui.run()
         return _human_inbox(args.all)
     if args.all:
         rows = askmod.inbox(agent, unread_only=False)
@@ -2369,11 +2387,12 @@ def build_parser() -> argparse.ArgumentParser:
                        help="the screen the team is run from")
     p.add_argument("--interval", type=float, default=2.0)
     p.add_argument("--once", action="store_true", help="print one frame and exit")
-    p.add_argument("--textual", action="store_true",
-                   help="the default now (task #54) - fail loud rather than fall back "
-                        "silently if the `textual` package is missing")
-    p.add_argument("--curses", action="store_true",
-                   help="the raw-termios screen Textual replaced, for opting back out")
+    screen = p.add_mutually_exclusive_group()
+    screen.add_argument("--textual", action="store_true",
+                        help="the default now (task #54) - fail loud rather than fall back "
+                             "silently if the `textual` package is missing")
+    screen.add_argument("--curses", action="store_true",
+                        help="the raw-termios screen Textual replaced, for opting back out")
     p.set_defaults(fn=cmd_bridge)
 
     bs = sub.add_parser("base", help="the per-session fixed context").add_subparsers(

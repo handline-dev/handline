@@ -603,8 +603,25 @@ async def test_agent_page_opens_pinned_to_the_newest_message() -> None:
         finally:
             con.close()
 
-    for i in range(40):
+    # Only the newest `actions.CHAT_CHAINS` chains are ever drawn - one under
+    # that cap so the conversation is still longer than one screen but a new
+    # message does not also drop the oldest chain out of it (that reflow, on
+    # top of the pin itself, is not what this test is about).
+    n0 = actions.CHAT_CHAINS - 1
+    for i in range(n0):
         _say(i)
+
+    # auditor #2146 BLOCKING: an agent with anything queued for it (not part
+    # of its conversation with the human) has that listed under the
+    # conversation - pinning to the bottom of the whole page, not the
+    # conversation's own end (`conv_end`), opens on the queue instead.
+    con = db.connect()
+    try:
+        for i in range(12):
+            db.add_request(con, f"peer{i}", "reviewer", f"queued {i}", None,
+                           None, None, None, 0, None)
+    finally:
+        con.close()
 
     class _HostApp(bt.App):
         def __init__(self):
@@ -620,33 +637,35 @@ async def test_agent_page_opens_pinned_to_the_newest_message() -> None:
         screen = app.screen
         text = str(screen.query_one("#canvas").render())
         check("pin: it opens at the newest message, not the oldest",
-              "message 39" in text and "message 0" not in text, text)
+              f"message {n0 - 1}" in text and "message 0" not in text, text)
+        check("pin: not at the bottom of the queued-for-it section below it",
+              "queued 11" not in text, text)
 
         await pilot.press("up")
         await pilot.press("up")
         await pilot.pause(0.1)
         check("pin: an upward scroll un-pins it", screen.top is not None, str(screen.top))
 
-        _say(40)
+        _say(n0)                # still within CHAT_CHAINS - nothing drops out
         await pilot.pause(0.2)
         screen._redraw()
         text = str(screen.query_one("#canvas").render())
         check("pin: scrolled up, a new message does not yank the view back down",
-              "message 40" not in text, text)
+              f"message {n0}" not in text, text)
 
         await pilot.press("end")
         await pilot.pause(0.1)
         check("pin: `end` re-pins it", screen.top is None, str(screen.top))
         text = str(screen.query_one("#canvas").render())
         check("pin: re-pinned, the newest message is shown again",
-              "message 40" in text, text)
+              f"message {n0}" in text, text)
 
-        _say(41)
+        _say(n0 + 1)             # past CHAT_CHAINS now - pinned, so it does not matter
         await pilot.pause(0.2)
         screen._redraw()
         text = str(screen.query_one("#canvas").render())
         check("pin: still pinned, a fresh message follows it down",
-              "message 41" in text, text)
+              f"message {n0 + 1}" in text, text)
 
 
 async def test_wake_on_a_stalled_agent_asks_first() -> None:

@@ -39,8 +39,23 @@ def venv_python(vdir: Path | None = None) -> Path:
     return (vdir or venv_dir()) / "bin" / "python3"
 
 
+def _canonical_requirements(path: Path) -> bytes:
+    """What actually gets `pip install`ed - blank lines and comments change
+    nothing installed, so they must not flip the venv from ready to stale
+    (task #54, founder #2134: a comment-only requirements.txt edit left the
+    founder silently running PATH's python3). bin/ocp's bash wrapper runs the
+    same strip-then-filter over the same file before hashing it."""
+    kept = [line.strip() for line in path.read_text().splitlines()
+            if line.strip() and not line.strip().startswith("#")]
+    # Empty, not "\n": bash's `grep -v` emits zero bytes when nothing
+    # survives the filter (an all-comments or blank requirements.txt), and
+    # `shasum` of "\n" and of nothing hash differently - the two sides must
+    # agree on this edge too.
+    return ("\n".join(kept) + "\n").encode() if kept else b""
+
+
 def _sha256(path: Path) -> str:
-    return hashlib.sha256(path.read_bytes()).hexdigest()
+    return hashlib.sha256(_canonical_requirements(path)).hexdigest()
 
 
 def _run(args: list[str]) -> subprocess.CompletedProcess:
