@@ -126,6 +126,15 @@ class TextPrompt(ModalScreen[str | None]):
         else:
             self._redraw()
 
+    def on_paste(self, event: events.Paste) -> None:
+        # Textual delivers a paste as its own event, not as keys - `Composer`
+        # still needs it wrapped in its own bracketed-paste markers to tell it
+        # from typing (a pasted "y" must not confirm, a pasted newline must
+        # not send).
+        event.stop()
+        self.box.feed(tui.Composer.START + event.text + tui.Composer.END)
+        self._redraw()
+
 
 class Dashboard(Screen):
     """The main screen: `tui.build`'s four panels, tab- and arrow-navigable,
@@ -215,7 +224,7 @@ class Dashboard(Screen):
             if panel in (tui.AGENTS, tui.STUCK):
                 await self._act_agent(con, str(target), key)
             elif panel == tui.MESSAGES:
-                await self._act_message(con, int(target), key)
+                await self._act_message(con, target, key)
         finally:
             con.close()
 
@@ -258,13 +267,30 @@ class Dashboard(Screen):
                 return
             self.flash = self._start("move", name, f"moving {name} to {dest}", (name, dest))
             return
-        if label in tui.CONFIRM and not await self.app.push_screen_wait(
-                Confirm(f"{label} {name}")):
-            self.flash = "left alone"
-            return
+        if tui._needs_confirm(con, name, label):
+            if not await self.app.push_screen_wait(Confirm(f"{label} {name}")):
+                self.flash = "left alone"
+                return
+            ok, why = tui._confirmed_can(con, name, label)
+            if not ok:
+                self.flash = why
+                return
         self.flash = self._start(label, name, f"{jobsmod.GERUND.get(label, label)} {name}", (name,))
 
-    async def _act_message(self, con, rid: int, key: str) -> None:
+    async def _act_message(self, con, target, key: str) -> None:
+        # `target` is the row's stable key, not its id: a folded row's id is
+        # its latest thing, which can have changed since the row was
+        # selected, so it is looked up fresh rather than trusted from then
+        # (curses's own `_act_on` does the same).
+        row_m = next((m for m in actions.messages(con) if m["key"] == target), None)
+        if row_m is None:
+            self.flash = f"{target} is gone"
+            return
+        rid = row_m["id"]
+        row = con.execute("SELECT * FROM requests WHERE id = ?", (rid,)).fetchone()
+        if not row:
+            self.flash = f"#{rid} is gone"
+            return
         if key == "x":
             self.flash = self._start("dismiss", f"#{rid}", f"dismissing #{rid}", (rid,),
                                      {"me": actions.HUMAN})

@@ -22,7 +22,10 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
-from ocp import actions, agents, bridge_textual as bt, db, jobs as jobsmod, orca as orcamod, tui  # noqa: E402
+from textual import events  # noqa: E402
+from ocp import (actions, agents, bridge_textual as bt, daemon as daemonmod,  # noqa: E402
+                 db, jobs as jobsmod, orca as orcamod, tui)
+import test_ocp as t  # noqa: E402 - its `_daemon_home` fixture, not re-derived here
 
 PASS: list[str] = []
 FAIL: list[str] = []
@@ -140,10 +143,105 @@ async def test_text_prompt_composer_sends_and_cancels() -> None:
     check("prompt: escape cancels and sends nothing", cancelled is None, repr(cancelled))
 
 
+async def test_wake_on_a_stalled_agent_asks_first() -> None:
+    """auditor #2008 BLOCKING 2a: waking a STALLED agent needs a yes first in
+    curses (`_needs_confirm`, founder #1620/#1631) - checking only `label in
+    tui.CONFIRM` misses it, since `wake` is deliberately left off that set for
+    every other state."""
+    home = _home("wake")
+    agents.register("backend", "alpha")
+    con = db.connect()
+    try:
+        db.set_terminal(con, "backend", "term_x", "wt")
+        db.set_agent_state(con, "backend", daemonmod.STALLED)
+    finally:
+        con.close()
+    app = bt.BridgeApp()
+    async with app.run_test(size=(120, 30)) as pilot:
+        await pilot.pause()
+        screen = app.screen
+        await pilot.press("w")
+        await pilot.pause(0.2)
+        check("wake: a STALLED agent asks before clearing the stall",
+              isinstance(app.screen, bt.Confirm), type(app.screen).__name__)
+        await pilot.press("y")
+        deadline = asyncio.get_event_loop().time() + 5
+        while asyncio.get_event_loop().time() < deadline and screen.jobs.running:
+            await pilot.pause(0.1)
+        check("wake: confirming it clears the stall",
+              "STALLED -> QUEUED" in screen.flash, screen.flash)
+
+
+async def test_messages_panel_acts_on_a_folded_row() -> None:
+    """auditor #2008 BLOCKING 1: a folded row's key is `actions.fold_key`
+    (`"agent:<name>"`), not an id, and the ordinary row is folded - a report
+    with nothing pinning it. Acting on it must look the id up fresh, the same
+    way `tui._act_on` does, rather than trying to read the key as one."""
+    home = Path(tempfile.mkdtemp(prefix="ocp_bt_msgfold_"))
+    t._daemon_home(home, 20)
+    agents.register("reviewer", "alpha")
+    con = db.connect()
+    try:
+        db.set_terminal(con, "reviewer", "term_r", "wt")
+    finally:
+        con.close()
+    from ocp import ask as askmod
+    askmod.ask("human", "first report", requester="reviewer", fyi=True)
+    askmod.ask("human", "second report", requester="reviewer", fyi=True)
+
+    app = bt.BridgeApp()
+    async with app.run_test(size=(120, 30)) as pilot:
+        await pilot.pause()
+        await pilot.press("right")         # AGENTS -> MESSAGES
+        await pilot.pause(0.1)
+        screen = app.screen
+        check("messages: a folded row is on the panel and selected",
+              screen.sel.get(screen.panel) == "agent:reviewer", str(screen.sel))
+        await pilot.press("x")
+        await pilot.pause(0.2)
+        check("messages: acting on a folded row does not crash the app",
+              app.is_running, "app exited")
+        deadline = asyncio.get_event_loop().time() + 5
+        while asyncio.get_event_loop().time() < deadline and screen.jobs.running:
+            await pilot.pause(0.1)
+        check("messages: it dismissed the row's latest, not a literal 'agent:reviewer'",
+              "dismiss" in screen.flash.lower() or "#" in screen.flash, screen.flash)
+
+
+async def test_text_prompt_keeps_a_paste_instead_of_dropping_it() -> None:
+    """auditor #2008 BLOCKING 3: Textual delivers a paste as `events.Paste`,
+    not as keys, so a key-only port drops what was pasted. `Composer.feed`
+    needs it wrapped in its own bracketed-paste markers, the same shape a raw
+    terminal read already gives it."""
+    class _HostApp(bt.App):
+        def __init__(self):
+            super().__init__()
+            self.result = "<unset>"
+
+        async def on_mount(self):
+            self.run_worker(self._read())
+
+        async def _read(self):
+            self.result = await self.push_screen_wait(bt.TextPrompt("to backend:", multi=True))
+
+    app = _HostApp()
+    async with app.run_test(size=(80, 20)) as pilot:
+        await pilot.pause()
+        app.screen.post_message(events.Paste("line one\nline two"))
+        await pilot.pause(0.2)
+        await pilot.press("enter")
+        await pilot.pause(0.2)
+    check("prompt: a multi-line paste is sent whole, not dropped",
+          app.result == "line one\nline two", repr(app.result))
+
+
 async def _run_all() -> None:
     await test_dashboard_shows_a_registered_agent_and_moves_the_cursor()
     await test_an_action_runs_off_the_key_loop_and_the_screen_says_so()
     await test_text_prompt_composer_sends_and_cancels()
+    await test_wake_on_a_stalled_agent_asks_first()
+    await test_messages_panel_acts_on_a_folded_row()
+    await test_text_prompt_keeps_a_paste_instead_of_dropping_it()
 
 
 def main() -> int:

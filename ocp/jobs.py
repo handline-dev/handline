@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import json
 import os
+import signal
 import subprocess
 import sys
 import time
@@ -106,15 +107,27 @@ class Jobs:
             if code is None:
                 age = now - job.started
                 if job.stopped_at is None and age > job.longest:
-                    job.proc.terminate()
+                    self._signal(job, signal.SIGTERM)
                     job.stopped_at = now
                 elif job.stopped_at is not None and now - job.stopped_at > GRACE_S:
-                    job.proc.kill()
+                    self._signal(job, signal.SIGKILL)
                 continue
             self.running.remove(job)
             out, err = job.proc.communicate()
             said.append(self._said(job, code, out, err, now))
         return said
+
+    def _signal(self, job: Job, sig: int) -> None:
+        """Stops the whole process group `start_new_session` made `job.proc`
+        the leader of, not only that one process: a verb that runs something
+        of its own past the bound (fold's `claude -p`, an `orca` call) would
+        otherwise outlive the "declared bound is the stop" a screen shows -
+        and `communicate()` above would then block until that grandchild, not
+        `job.proc`, lets go of the pipes it inherited."""
+        try:
+            os.killpg(job.proc.pid, sig)
+        except ProcessLookupError:
+            pass
 
     def _said(self, job: Job, code: int, out: str, err: str, now: float) -> str:
         if job.stopped_at is not None:

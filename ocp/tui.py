@@ -133,6 +133,19 @@ def _needs_confirm(con, name: str, label: str) -> bool:
         return bool(row and row["state"] == daemon.STALLED)
     return label in CONFIRM
 
+
+def _confirmed_can(con, name: str, label: str) -> tuple[bool, str]:
+    """Re-runs `actions.can` after a confirm was answered yes: the daemon
+    ticks every two seconds, and a confirmation waits on a human for as long
+    as the human takes, so what was true when the key was pressed may not be
+    true once they answer. Shared by every front end so a yes is checked the
+    same way however it was asked; (False, why) means the label no longer
+    applies."""
+    allowed, why = actions.can(con, name, label)
+    if not allowed:
+        return False, f"{why} - it changed while you looked"
+    return True, ""
+
 # Kept off the footer even when they apply: reached for rarely enough that
 # they cost more room on every row than they earn. Still bound - dispatch
 # reads AGENT_KEYS whole - and named under the `?` the footer adds in their
@@ -2748,13 +2761,9 @@ def _act_on(panel: int, sel: dict, key: str, width: int, height: int,
             if _needs_confirm(con, name, label):
                 if not _confirm(f"{label} {name}", width, height):
                     return "left alone", None
-                # A confirmation waits on a human for as long as the human
-                # takes, and the daemon ticks every two seconds: work can
-                # arrive and a turn can start inside that wait. What was true
-                # when the key was pressed is not what this acts on.
-                allowed, why = actions.can(con, name, label)
-                if not allowed:
-                    return f"{why} - it changed while you looked", None
+                ok, why = _confirmed_can(con, name, label)
+                if not ok:
+                    return why, None
             _say(f"{label} {name}", width, height)
             return getattr(actions, label)(con, name), None
 
