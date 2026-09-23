@@ -43,8 +43,9 @@ import sys
 from rich.text import Text
 from textual import events
 from textual.app import App, ComposeResult
+from textual.binding import Binding
 from textual.screen import ModalScreen, Screen
-from textual.widgets import Static
+from textual.widgets import DataTable, Footer, Static
 
 from . import accounts, actions, db, jobs as jobsmod, load as loadmod, orca, textsafe, tui
 
@@ -541,88 +542,74 @@ class TaskChecks(JobsAware, Screen):
     and space/`C` mark and then close several at once, for a day with more
     of these than are worth doing one at a time."""
 
+    BINDINGS = [
+        Binding("c", "act('c')", "close"),
+        Binding("r", "act('r')", "reopen"),
+        Binding("space", "check", "check"),
+        Binding("C", "act('C')", "close checked"),
+        Binding("escape", "app.pop_screen", "back"),
+        Binding("q,ctrl+c", "app.quit", "quit", show=False),
+    ]
+    _STATUS_STYLE = {"normal": "dim", "slow": "yellow", "danger": "red"}
+
     def __init__(self) -> None:
         super().__init__()
-        self.cur = 0
         self.checked: set[int] = set()
         self.flash = ""
         self.rows: list = []
 
     def compose(self) -> ComposeResult:
-        yield Static(id="canvas")
+        yield Static("done - waiting for check", id="title")
+        yield DataTable(id="table", cursor_type="row", zebra_stripes=True)
+        yield Static(id="status")
+        yield Footer()
 
     def on_mount(self) -> None:
+        table = self.query_one(DataTable)
+        table.add_columns("", "#", "task", "owner", "done")
+        table.focus()
         self._retime()
         self._redraw()
+
+    @property
+    def cur(self) -> int:
+        return self.query_one(DataTable).cursor_row
 
     def _rows(self, con) -> list:
         return [t for t in db.tasks_needing_close(con)
                 if actions.task_asker(con, t) == actions.HUMAN]
 
     def _redraw(self) -> None:
-        size = self.size
-        width, height = max(20, size.width), max(6, size.height)
         con = db.connect()
         try:
-            rows = self._rows(con)
+            self.rows = self._rows(con)
         finally:
             con.close()
-        self.rows = rows
-        if rows:
-            self.cur = max(0, min(self.cur, len(rows) - 1))
-        job_lines = _job_lines_ansi(self.jobs, width)
-        rule = f"{tui.DIM}{'─' * width}{tui.R}"
-        keys = (f"{tui.BOLD}c{tui.R} {tui.DIM}close{tui.R} · "
-                f"{tui.BOLD}r{tui.R} {tui.DIM}reopen{tui.R} · "
-                f"{tui.BOLD}space{tui.R} {tui.DIM}check{tui.R} · "
-                f"{tui.BOLD}C{tui.R} {tui.DIM}close checked{tui.R} · "
-                f"{tui.BOLD}esc{tui.R} {tui.DIM}back{tui.R}")
-        lines = [f"{tui.BOLD}done - waiting for check{tui.R}", ""]
-        if not rows:
-            lines.append(f"{tui.DIM}nothing waiting.{tui.R}")
-        for i, t in enumerate(rows):
-            cursor = f"{tui.CYA}{tui.BOLD}›{tui.R}" if i == self.cur else " "
-            box = f"{tui.GRN}[x]{tui.R}" if t["id"] in self.checked else "[ ]"
+        table = self.query_one(DataTable)
+        row = table.cursor_row
+        table.clear()
+        for t in self.rows:
             parent = f" (under #{t['parent_task']})" if t["parent_task"] else ""
-            head = (f"{cursor} {box} #{t['id']:<4} "
-                    f"{textsafe.oneline(t['title'])}  [{t['owner']}]{parent}")
-            lines.append(tui.fit(head, width))
-            lines.append(tui.fit(f"        done: {textsafe.oneline(t['done_evidence'])}", width))
-        room = max(1, height - 2 - len(job_lines))
-        shown = lines[:room]
-        while len(shown) < room:
-            shown.append("")
-        tail = job_lines + [rule, keys]
+            cells = ("[x]" if t["id"] in self.checked else "[ ]", f"#{t['id']}",
+                     textsafe.oneline(t["title"]) + parent, t["owner"],
+                     textsafe.oneline(t["done_evidence"]))
+            table.add_row(*(Text(c) for c in cells), key=str(t["id"]))
+        if self.rows:
+            table.move_cursor(row=min(row, len(self.rows) - 1))
+        status = Text(no_wrap=True, overflow="ellipsis")
+        for jl in self.jobs.lines():
+            status.append(jl.text + "\n", self._STATUS_STYLE.get(jl.level, ""))
         if self.flash:
-            tail.append(tui.fit(f"{tui.YEL}{self.flash}{tui.R}", width))
-        text = "\n".join(shown + tail)
-        self.query_one("#canvas", Static).update(Text.from_ansi(text))
+            status.append(self.flash, "yellow")
+        self.query_one("#status", Static).update(status)
 
-    def on_key(self, event: events.Key) -> None:
-        k = key_token(event)
-        if k is None:
-            return
-        event.stop()
-        if k in ("q", "Q", "\x03"):    # the same global quit every screen answers to
-            self.app.exit()
-            return
-        if k == "\033":
-            self.app.pop_screen()
-            return
-        if k in ("\033[A", "\033[B"):
-            n = len(self.rows)
-            if n:
-                self.cur = max(0, min(n - 1, self.cur + (1 if k == "\033[B" else -1)))
-            self._redraw()
-            return
-        if k == " ":
-            if self.cur < len(self.rows):
-                self.checked.symmetric_difference_update({self.rows[self.cur]["id"]})
-            self._redraw()
-            return
-        if k in ("c", "r", "C"):
-            self.run_worker(self._act(k), exclusive=True, group="act")
-            return
+    def action_check(self) -> None:
+        if self.cur < len(self.rows):
+            self.checked.symmetric_difference_update({self.rows[self.cur]["id"]})
+        self._redraw()
+
+    def action_act(self, key: str) -> None:
+        self.run_worker(self._act(key), exclusive=True, group="act")
 
     async def _act(self, key: str) -> None:
         if key == "C":
