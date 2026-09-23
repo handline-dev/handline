@@ -27,7 +27,7 @@ sys.path.insert(0, str(ROOT))
 
 from textual import events  # noqa: E402
 from ocp import (actions, agents, bridge_textual as bt, daemon as daemonmod,  # noqa: E402
-                 db, jobs as jobsmod)
+                 db, jobs as jobsmod, tui)
 import test_ocp as t  # noqa: E402 - its `_daemon_home`/`DESIGN_TEAM` fixture, not re-derived here
 
 PASS: list[str] = []
@@ -49,13 +49,17 @@ def _home(tag: str) -> Path:
     return home
 
 
+def _screen_text(screen) -> str:
+    return "\n".join(str(w.render()) for w in screen.query(bt.Static))
+
+
 async def test_dashboard_shows_a_registered_agent_and_moves_the_cursor() -> None:
     _home("dash")
     app = bt.BridgeApp()
     async with app.run_test(size=(120, 30)) as pilot:
         await pilot.pause()
         screen = app.screen
-        text = str(screen.query_one("#canvas").render())
+        text = _screen_text(screen)
         check("dashboard: the registered agent is on the AGENTS panel",
               "backend" in text and "alpha" in text, text)
         await pilot.press("w")
@@ -110,7 +114,7 @@ async def test_an_action_runs_off_the_key_loop_and_the_screen_says_so() -> None:
             check("act: confirming starts the job and returns to the dashboard at once",
                   isinstance(app.screen, bt.Dashboard) and screen.jobs.running, "")
             await pilot.pause(0.5)     # past jobs.QUIET_S, so the running line is drawn
-            mid_text = str(screen.query_one("#canvas").render())
+            mid_text = _screen_text(screen)
             check("act: the running line names what it is and that it is running",
                   "closing backend" in mid_text, mid_text)
             before = dict(screen.sel)
@@ -714,6 +718,36 @@ async def test_text_prompt_line_keeps_a_multiline_paste_and_shows_escapes_inert(
           app.result == "xyz\tw", repr(app.result))
 
 
+async def test_dashboard_accounts_table_is_fed_by_accounts_data_and_follows_the_cursor() -> None:
+    """The ACCOUNTS panel is a DataTable fed by `tui.accounts_data` - the rows
+    (`alpha`, not logged in so its tick is a cross, and not the account work
+    goes next) - and its row cursor is the dashboard's own selection, shown
+    only while ACCOUNTS is the panel the keys act on."""
+    _home("acctdata")
+    con = db.connect()
+    try:
+        rows, notes = tui.accounts_data(con)
+    finally:
+        con.close()
+    check("accounts_data: one row per registered account, keyed by name",
+          [r.name for r in rows] == ["alpha"], rows)
+    check("accounts_data: a not-logged-in account carries the cross and not 'next'",
+          "\u2718" in rows[0].mark and rows[0].next == "", rows[0])
+    check("accounts_data: every column the panel draws has a cell",
+          set(rows[0].cells) == set(tui.ACCT_W) - {"name"}, sorted(rows[0].cells))
+    app = bt.BridgeApp()
+    async with app.run_test(size=(110, 26)) as pilot:
+        await pilot.pause(0.3)
+        table = app.screen.query_one("#accounts", bt.DataTable)
+        check("dashboard: the accounts table has the account's row",
+              table.row_count == 1 and not table.show_cursor, (table.row_count, table.show_cursor))
+        while app.screen.panel != tui.ACCOUNTS:
+            await pilot.press("tab")
+        await pilot.pause(0.3)
+        check("dashboard: on ACCOUNTS the table shows the cursor on the selected account",
+              table.show_cursor and table.cursor_row == 0, (table.show_cursor, table.cursor_row))
+
+
 async def test_task_checks_lists_and_acts_on_the_founders_own() -> None:
     """Task #72 (founder #2154/#2155): the bridge's own 'done - waiting for
     check' list (#71), reached with `b` from the dashboard - only the tasks
@@ -882,6 +916,7 @@ async def _run_all() -> None:
     await test_text_prompt_keeps_a_paste_instead_of_dropping_it()
     await test_task_checks_lists_and_acts_on_the_founders_own()
     await test_task_checks_closes_several_checked_at_once()
+    await test_dashboard_accounts_table_is_fed_by_accounts_data_and_follows_the_cursor()
     await test_text_prompt_line_keeps_a_multiline_paste_and_shows_escapes_inert()
     await test_read_only_page_shows_foreign_text_inert_and_scrolls_on_arrows()
 
