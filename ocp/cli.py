@@ -453,12 +453,24 @@ def cmd_task_new(args) -> int:
         if args.blocked_by is not None and db.get_task(con, args.blocked_by) is None:
             print(f"no task #{args.blocked_by}")
             return 1
-        tid = db.new_task(con, title, args.owner, me, args.parent)
-        if args.blocked_by is not None:
-            ok, msg = actions.add_block(con, tid, args.blocked_by, me)
-            if not ok:
-                print(msg)
-                return 1
+        # new_task and a refused add_block are one transaction (auditor's
+        # #2065 SHOULD-FIX C: add_block's own closed-blocker refusal used to
+        # land after the task row already existed, leaving a task nobody
+        # asked for - the same defect #2042 SHOULD-FIX 5 fixed for edit).
+        con.execute("BEGIN IMMEDIATE")
+        tid = None
+        try:
+            tid = db.new_task(con, title, args.owner, me, args.parent)
+            if args.blocked_by is not None:
+                ok, msg = actions.add_block(con, tid, args.blocked_by, me)
+                if not ok:
+                    con.execute("ROLLBACK")
+                    print(msg)
+                    return 1
+        except Exception:
+            con.execute("ROLLBACK")
+            raise
+        con.execute("COMMIT")
     finally:
         con.close()
     print(f"task #{tid} opened for {args.owner}")
@@ -486,9 +498,13 @@ def cmd_task_edit(args) -> int:
     one transaction, so a later part's refusal never leaves an earlier one
     applied (auditor's #2042 SHOULD-FIX 5: `--owner X --blocked-by <cycle>`
     used to rename the task and then refuse, exit 1 reading as nothing
-    happened). Stops at the first refusal rather than trying the rest, so
-    every message printed is for a part that actually took - never a change
-    about to be rolled back.
+    happened). Stops at the first refusal rather than trying the rest.
+
+    Messages are held and printed only once COMMIT or ROLLBACK has actually
+    happened (auditor's #2065 SHOULD-FIX B) - printing a part's message as
+    soon as it runs said a change had taken before the transaction as a
+    whole was known to hold; a later refusal then rolled it back while the
+    line claiming it stayed on the screen.
     """
     me = askmod.asking_agent()
     if me is None:
@@ -501,22 +517,28 @@ def cmd_task_edit(args) -> int:
     try:
         con.execute("BEGIN IMMEDIATE")
         ok = True
+        msgs: list[str] = []
         try:
             if args.owner is not None or args.title is not None:
                 ok, msg = actions.edit_task(con, args.task, me, owner=args.owner, title=args.title)
-                print(msg)
+                msgs.append(msg)
             if ok and args.blocked_by is not None:
                 ok, msg = actions.add_block(con, args.task, args.blocked_by, me)
-                print(msg)
+                msgs.append(msg)
             if ok and args.unblock is not None:
                 ok, msg = actions.unblock(con, args.task, args.unblock, me)
-                print(msg)
+                msgs.append(msg)
         except Exception:
             con.execute("ROLLBACK")
             raise
         con.execute("COMMIT" if ok else "ROLLBACK")
     finally:
         con.close()
+    # A refusal's own message is the last one appended (every part before it
+    # took, or there was only the one that failed) - the only one still true
+    # after a ROLLBACK, so only it is shown.
+    for msg in (msgs if ok else msgs[-1:]):
+        print(msg)
     return 0 if ok else 1
 
 

@@ -25307,6 +25307,23 @@ def test_task_blocked_by_another_task(home: Path) -> None:
     check("edit --blocked-by: refused blocking an already-closed task too - "
           "not just naming one as the blocker", rc == 1 and "closed" in out, out)
 
+    con = db.connect()
+    try:
+        before_count = con.execute("SELECT COUNT(*) c FROM tasks").fetchone()["c"]
+    finally:
+        con.close()
+    rc, out = _cli(["task", "new", "--owner", "worker", "late", "--blocked-by", str(t_third)])
+    check("task new --blocked-by: refused for an already-closed blocker too",
+          rc == 1 and "closed" in out, out)
+    con = db.connect()
+    try:
+        after_count = con.execute("SELECT COUNT(*) c FROM tasks").fetchone()["c"]
+        check("task new --blocked-by: no orphan task row left behind by the "
+              "refused block (auditor's #2065 SHOULD-FIX C)",
+              after_count == before_count, f"{before_count} -> {after_count}")
+    finally:
+        con.close()
+
     rc, out = _cli(["task", "edit", str(t_dep), "--blocked-by", str(t_dep)])
     check("edit --blocked-by: a task cannot block itself", rc == 1, out)
 
@@ -25321,6 +25338,9 @@ def test_task_blocked_by_another_task(home: Path) -> None:
                     "--blocked-by", str(t_dep)])
     check("edit: a combined --owner and a refused --blocked-by is refused "
           "as a whole", rc == 1, out)
+    check("edit: the output says nothing was edited, since the owner change "
+          "that would have said so was rolled back (auditor's #2065 "
+          "SHOULD-FIX B)", "edited" not in out, out)
     con = db.connect()
     try:
         check("edit: the owner change from the same call was rolled back, "
@@ -25337,6 +25357,17 @@ def test_task_blocked_by_another_task(home: Path) -> None:
     rc, out = _cli(["task", "edit", str(t_dep), "--blocked-by", str(t_blocker)], as_agent="worker")
     check("edit --blocked-by: refused for anyone but the opener or the founder "
           "(worker owns it, but manager opened it)", rc == 1, out)
+
+    rc, out = _cli(["task", "edit", str(t_dep), "--unblock", str(t_blocker)], as_agent="worker")
+    check("edit --unblock: refused for anyone but the opener or the founder "
+          "too (auditor's #2065 SHOULD-FIX A - no test drove this before)",
+          rc == 1, out)
+    con = db.connect()
+    try:
+        check("edit --unblock: the refused non-opener attempt left the block "
+              "row in place", db.blocks_on_ids(con, t_dep) == [t_blocker])
+    finally:
+        con.close()
 
     rc, out = _cli(["close", str(t_dep), "done"])
     check("close: closing the blocked task itself is refused while its "
@@ -25364,8 +25395,11 @@ def test_task_blocked_by_another_task(home: Path) -> None:
               len(reqs) == 1 and reqs[0]["requester"] == actions._UNBLOCK_REQUESTER
               and reqs[0]["requester"] not in ("manager", "worker", askmod.HUMAN),
               str([dict(r) for r in reqs]))
-        check("close: not left as a stale block row for a second notice to fire from",
-              db.task_blockers(con, t_dep) == [])
+        check("close: not left as a stale block row for a second notice to fire "
+              "from - queried against task_blocks directly (auditor's #2065 "
+              "SHOULD-FIX A: task_blockers filters closed blockers out, so it "
+              "cannot see the row this check is named for)",
+              db.blocks_on_ids(con, t_dep) == [])
         notice_rid = reqs[0]["id"]
     finally:
         con.close()
@@ -25417,8 +25451,9 @@ def test_task_blocked_by_another_task(home: Path) -> None:
     try:
         check("close: no self-targeted request was created for the same-owner case",
               db.task_requests(con, t_self_dep) == [])
-        check("close: the block row is still cleared even without a notice",
-              db.task_blockers(con, t_self_dep) == [])
+        check("close: the block row is still cleared even without a notice, "
+              "checked against task_blocks directly",
+              db.blocks_on_ids(con, t_self_dep) == [])
     finally:
         con.close()
 
