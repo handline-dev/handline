@@ -356,13 +356,19 @@ def withdraw(pid: str, me: str, con=None) -> tuple[bool, str]:
     own = con is None
     con = con or db.connect()
     try:
+        # Marked withdrawn before the row is closed: `_would_strand_a_proposal`
+        # reads `is_open_proposal` off this same file, and this call is the
+        # one legitimate way to close the row with something other than
+        # approve or reject - so it must already read as no-longer-open by
+        # the time the close below runs, or the chokepoint refuses its own
+        # escape valve.
+        prop["state"] = "withdrawn"
+        save(prop)
         if int(prop.get("request") or 0):
             row = db.get_request(con, int(prop["request"]))
             if row is not None and row["state"] == "queued":
                 db.close_if_queued(con, row["id"], "rejected", f"withdrawn by {me}",
                                    announced=True)
-        prop["state"] = "withdrawn"
-        save(prop)
         return True, f"proposal {pid} withdrawn"
     finally:
         if own:

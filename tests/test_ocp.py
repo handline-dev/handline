@@ -14720,12 +14720,13 @@ edges:
 
 
 def test_every_door_onto_an_open_proposal_also_needs_a_decision(home: Path) -> None:
-    """#1893 SF1, #1908, #1919, #1938: `answer()` (the bridge's key) is not
-    the only door onto a queued proposal escalation - `ocp resolve`,
-    `--retires`, `ask.cancel` and `--replaces` each reach the same row, and
-    only `answer()` had the guard. A verdict, a retirement, a cancel or a
-    replace typed there that is not a decision used to close the row anyway,
-    leaving the proposal stuck exactly as if the bridge had let it through."""
+    """#1893 SF1, #1908, #1919, #1938, #1943: `answer()` (the bridge's key)
+    is not the only door onto a queued proposal escalation - `ocp resolve`,
+    `--retires`, `ask.cancel`, `--replaces` and `ask.withdraw` each reach the
+    same row, and only `answer()` had the guard. A verdict, a retirement, a
+    cancel, a replace or a withdraw typed there that is not a decision used
+    to close the row anyway, leaving the proposal stuck exactly as if the
+    bridge had let it through."""
     _daemon_home(home, 20)
     con = db.connect()
     try:
@@ -14805,6 +14806,82 @@ edges:
     finally:
         con.close()
 
+    # #1943: a sixth door - the code review that found the chokepoint's
+    # should-fixes also found this one. The proposer owns its own escalation
+    # (it is the requester), so `ocp withdraw` - not `ocp hr withdraw` - is
+    # ownership-eligible too, and would close it as "withdrawn: ..." if the
+    # chokepoint let it.
+    ok, said = askmod.withdraw(rid2, requester="hr")
+    check("withdraw: an open proposal points at `hr withdraw` instead",
+          not ok and "hr withdraw" in said, said)
+    con = db.connect()
+    try:
+        check("withdraw: and stays queued", db.get_request(con, rid2)["state"] == "queued")
+    finally:
+        con.close()
+
+    # `hr withdraw` is the escape valve, and still works on the same row.
+    ok, said = hr.withdraw(pid2, "hr")
+    check("hr withdraw: the one real way out still works", ok, said)
+    con = db.connect()
+    try:
+        check("hr withdraw: and the row is finally closed",
+              db.get_request(con, rid2)["state"] != "queued")
+    finally:
+        con.close()
+
+
+def test_the_chokepoint_alone_refuses_every_door_onto_an_open_proposal(home: Path) -> None:
+    """#1943: the test above proves each door's own, friendlier check works.
+    This one proves the check those doors share does too - by calling the
+    three db.py functions that can move a request row out of 'queued'
+    directly, the way each door's own write eventually does, with none of
+    the doors' own checks anywhere in the call path to catch it first. If
+    this passed only because a door's check ran, deleting that check would
+    not fail it; deleting `_would_strand_a_proposal` instead does.
+
+    `close_if_queued` is `answer()`, `ocp resolve` and `ask.cancel`'s write.
+    `retire_queued` is `--retires`'s, and `--replaces`'s when the row being
+    replaced targets the founder - true of every proposal escalation, since
+    only the founder decides one. `retire_if_undelivered` is `--replaces`'s
+    write for a row targeting an agent instead; no proposal escalation ever
+    takes that path, but the function is part of the same family and gets
+    the same guard, so it is exercised here too."""
+    _daemon_home(home, 20)
+    con = db.connect()
+    try:
+        accounts.register("beta")
+        agents.register("hr", "beta")
+        (home / "team.yaml").write_text("""
+agents:
+  hr: { intake: serial }
+edges:
+  - { from: "*", to: "human", kind: escalate, creates_gate: true }
+""")
+        ok, said = hr.propose("add", "sooyoung", requester="hr", why="a third pair",
+                              account="beta")
+        rid = int(said.split("#")[1].split(".")[0])
+
+        check("close_if_queued: refuses a non-decision verdict on an open proposal",
+              db.close_if_queued(con, rid, "done", "looks good", announced=True) is False)
+        check("close_if_queued: and stays queued", db.get_request(con, rid)["state"] == "queued")
+
+        check("retire_queued: refuses to retire an open proposal away",
+              db.retire_queued(con, rid, "replaced", "replaced by #9999") is False)
+        check("retire_queued: and stays queued", db.get_request(con, rid)["state"] == "queued")
+
+        check("retire_if_undelivered: refuses an open proposal too",
+              db.retire_if_undelivered(con, rid, "replaced", "replaced") is False)
+        check("retire_if_undelivered: and stays queued",
+              db.get_request(con, rid)["state"] == "queued")
+
+        check("close_if_queued: a real decision still goes through",
+              db.close_if_queued(con, rid, "done", "approve") is True)
+        check("close_if_queued: and the row is no longer queued",
+              db.get_request(con, rid)["state"] == "done")
+    finally:
+        con.close()
+
 
 def test_growing_the_team_needs_a_person(home: Path) -> None:
     """A team that cannot grow has one way to take on more work: each agent
@@ -14860,7 +14937,13 @@ edges:
         ok, said = hr.apply(pid)
         check("hr: it cannot be applied before it is answered",
               not ok and "has not answered" in said, said)
-        askmod.resolve(rid[0], "hmm, maybe next week")
+        # #1943: `askmod.resolve` itself now refuses this verdict on an open
+        # proposal - db.set_request_state is the one closer with no guard
+        # (test scaffolding only, never a door in production), used here to
+        # reach the row hr.apply's own decision check exists for: one closed
+        # by something other than this fix, such as data from before it
+        # shipped.
+        db.set_request_state(con, rid[0], "done", "hmm, maybe next week")
         ok, said = hr.apply(pid)
         check("hr: nor on an answer that is not a decision",
               not ok and "not a decision" in said and "dohyun" not in paths.list_agents(),
@@ -27406,6 +27489,8 @@ def main() -> int:
             Path(td) / 'hrdismiss'))
         run(lambda: test_every_door_onto_an_open_proposal_also_needs_a_decision(
             Path(td) / 'hrresolveguard'))
+        run(lambda: test_the_chokepoint_alone_refuses_every_door_onto_an_open_proposal(
+            Path(td) / 'hrchokepoint'))
         run(lambda: test_hr_move_changes_an_agents_account(Path(td) / 'hrmove'))
         run(lambda: test_hr_move_does_not_touch_a_live_sessions_own_record(Path(td) / 'hrmovelive'))
         run(lambda: test_hr_move_leaves_account_alone_when_liveness_cannot_be_read(Path(td) / 'hrmoveunknown'))

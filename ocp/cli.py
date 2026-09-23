@@ -1979,7 +1979,9 @@ def cmd_resolve(args) -> int:
                 db.set_moot_by(con, args.retires, args.id)
                 msg += f", retiring #{args.retires}"
             else:
-                msg += f" (#{args.retires} left 'queued' before it could be retired)"
+                msg += (f" (#{args.retires} was not retired - it is still queued)"
+                        if db.is_still_queued(con, args.retires) else
+                        f" (#{args.retires} left 'queued' before it could be retired)")
         finally:
             con.close()
     print(msg)

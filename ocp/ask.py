@@ -371,6 +371,8 @@ def ask(target: str, body: str, files: str | None = None, requester: str | None 
             # the write itself is the gate, not a second look at delivered_at.
             retire = db.retire_queued if old["target"] == HUMAN else db.retire_if_undelivered
             if not retire(con, replaces, "replaced"):
+                if db.is_still_queued(con, replaces):
+                    return False, f"#{replaces} was not replaced - it is still queued", None
                 if old["target"] == HUMAN:
                     return False, f"#{replaces} was answered just now - nothing to replace", None
                 return False, (f"#{replaces} was delivered to {old['target']} just now - "
@@ -547,6 +549,22 @@ def withdraw(rid: int, requester: str | None = None,
         # own answer, in the founder's name on their own screen (#1348).
         verdict = f"withdrawn: {reason}" if reason else None
         if not db.retire_if_undelivered(con, rid, "withdrawn", verdict):
+            # `db.is_still_queued` alone would not tell the two failures
+            # here apart: `retire_if_undelivered`'s own race - a delivery
+            # landing between the read above and this write, the one its
+            # docstring exists to close - leaves the row queued too.
+            # `hr.is_open_proposal` is what actually happened.
+            from . import hr
+            if hr.is_open_proposal(rid):
+                # #1943: a roster proposal's own escalation is `requester`'s
+                # to withdraw here too - ordinary ownership, since it is
+                # `requester`'s own row - but the db.py chokepoint refuses
+                # this generic verdict on it the same way it refuses every
+                # other non-decision close. `hr withdraw` is the door built
+                # for it: it marks the proposal withdrawn first, which is
+                # what lets its own close through.
+                return False, (f"#{rid} is a roster proposal - `ocp hr withdraw` it "
+                               f"instead, not `ocp withdraw`")
             return False, too_late
         p = _inbox(row["target"]) / f"{rid:06d}.json"
         if p.exists():
@@ -599,6 +617,8 @@ def cancel(rid: int) -> tuple[bool, str]:
         # this loses instead of overwriting it - `_after_close` never runs
         # unless this call was the one that closed the row.
         if not db.close_if_queued(con, rid, "rejected", CANCEL_VERDICT, announced=not notify):
+            if db.is_still_queued(con, rid):
+                return False, f"#{rid} was not cancelled - it is still queued"
             return False, f"#{rid} was closed while this ran - nothing to cancel"
         said = []
         if row["delivered_at"]:
@@ -667,6 +687,12 @@ def resolve(rid: int, verdict: str, state: str = "done", notify: bool = True) ->
         # the first, whichever path either comes through.
         if not db.close_if_queued(con, rid, state, verdict, announced=not notify):
             fresh = db.get_request(con, rid)
+            if fresh["state"] == "queued":
+                # The chokepoint in db.close_if_queued refused this verdict
+                # rather than losing a race - a caller without its own,
+                # friendlier check (see actions.check_open_proposal) lands
+                # here.
+                return False, f"#{rid} was not resolved - it is still queued"
             return False, f"#{rid} is already {fresh['state']} - nothing to resolve"
         return True, _after_close(con, rid, row, state, notify)
     finally:

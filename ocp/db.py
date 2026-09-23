@@ -761,6 +761,38 @@ def mark_delivered(con, rid: int) -> bool:
     return cur.rowcount > 0
 
 
+def _would_strand_a_proposal(con, rid: int, state: str, verdict: str | None) -> bool:
+    """True when closing `rid` into `state` with `verdict` would answer a
+    queued roster-proposal escalation with something that is not approve or
+    reject - the one way `hr.apply` is ever left with a row it can no longer
+    check (#1770, #1893 SF1).
+
+    Called from inside every function below that can move a request row out
+    of 'queued', rather than at each door onto one of them (`ocp resolve`,
+    `--retires`, `ask.cancel`, `--replaces` and `answer()` all reached this
+    same gap in turn - #1908, #1919, #1938, #1943): a door added later gets
+    this for free instead of needing its own copy of the same check. `hr
+    withdraw` is not a door here - it marks its proposal file withdrawn
+    before it closes the row, so `is_open_proposal` is already false by the
+    time this runs.
+
+    Every request this system closes runs through one of these functions, so
+    `hr.is_open_proposal` - a glob and a YAML parse of the whole `hr/`
+    directory - would otherwise run on every one of them, not just the
+    founder-targeted rows a proposal escalation could ever be. A proposal
+    escalation is always `ocp ask human ...` (`hr.propose`), so a row aimed
+    anywhere else is checked here for free, off a column already in hand,
+    and the directory is never touched for it.
+    """
+    if state == "queued":
+        return False
+    from . import ask as askmod, hr
+    row = con.execute("SELECT target FROM requests WHERE id = ?", (rid,)).fetchone()
+    if row is None or row["target"] != askmod.HUMAN:
+        return False
+    return hr.is_open_proposal(rid) and hr.decision(verdict) == "unclear"
+
+
 def retire_queued(con, rid: int, state: str, verdict: str | None = None) -> bool:
     """Take a still-queued request out of the queue, delivered or not.
 
@@ -768,6 +800,8 @@ def retire_queued(con, rid: int, state: str, verdict: str | None = None) -> bool
     "delivered" only means it was drawn on a screen. Announced in the same
     write: the sender retired its own row and is not told it was answered.
     """
+    if _would_strand_a_proposal(con, rid, state, verdict):
+        return False
     now = int(time.time())
     cur = con.execute(
         "UPDATE requests SET state = ?, verdict = COALESCE(?, verdict), "
@@ -782,6 +816,8 @@ def close_if_queued(con, rid: int, state: str, verdict: str, announced: bool = F
     and its answer is not overwritten. `announced=True` is `resolve`'s
     `notify=False` case: stamped in this same write, for the reason
     `set_request_state` gives."""
+    if _would_strand_a_proposal(con, rid, state, verdict):
+        return False
     now = int(time.time())
     cur = con.execute(
         "UPDATE requests SET state = ?, verdict = ?, resolved_at = ?, "
@@ -797,6 +833,8 @@ def retire_if_undelivered(con, rid: int, state: str, verdict: str | None = None)
     (check delivered_at, then update) races a delivery landing in between;
     this closes that window in one statement.
     """
+    if _would_strand_a_proposal(con, rid, state, verdict):
+        return False
     cur = con.execute(
         "UPDATE requests SET state = ?, verdict = COALESCE(?, verdict), "
         "resolved_at = COALESCE(resolved_at, ?) "
@@ -940,6 +978,15 @@ def task_requests(con, tid: int) -> list:
 
 def get_request(con, rid: int):
     return con.execute("SELECT * FROM requests WHERE id = ?", (rid,)).fetchone()
+
+
+def is_still_queued(con, rid: int) -> bool:
+    """Whether `rid` is still 'queued' after one of the closers above
+    refused it - the only way a caller can tell its own guard (or the
+    chokepoint inside them) from a lost race to another close, since both
+    leave the closer returning False the same way (#1943)."""
+    row = get_request(con, rid)
+    return bool(row and row["state"] == "queued")
 
 
 def set_request_state(con, rid: int, state: str, verdict: str | None = None,
