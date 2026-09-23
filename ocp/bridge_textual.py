@@ -1118,9 +1118,6 @@ class AgentDetail(JobsAware, Screen):
             rid = waiting[0]
         else:
             rid = int(arg)
-            if rid not in waiting:
-                self.flash = f"#{rid} is not waiting for {name}"
-                return
         ok, plan = actions.cancel_plan(con, rid)
         if not ok:
             self.flash = plan

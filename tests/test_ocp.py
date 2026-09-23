@@ -20614,6 +20614,18 @@ def test_the_agent_head_is_trimmed_and_slash_commands_are_derived_not_kept(home:
         con.close()
 
 
+def test_a_draft_and_an_unknown_bar_are_not_changed_by_what_cannot_mean_them(home: Path) -> None:
+    """A wheel notch reaches the agent page's box as an arrow key and must
+    leave the draft as it was; an unknown reading is never drawn as an empty
+    gauge."""
+    box = tui.Composer(multi=True)
+    box.feed("half a mess")
+    box.feed("".join(("\033[A", "\033OA", "\033[B", "\033OB")) * 4)
+    check("wheel: a draft under composition is untouched", box.text == "half a mess")
+    check("tui: an unknown bar is not an empty bar",
+          tui.vlen(tui.bar(None, 10)) == 10 and "░" not in tui.bar(None, 10))
+
+
 def test_a_message_being_typed_is_shown_whole_and_inert(home: Path) -> None:
     """Text typed into the composer is drawn whole at any width, and a pasted
     escape is drawn as a picture, never handed to the terminal."""
@@ -27291,6 +27303,7 @@ def main() -> int:
         run(lambda: test_the_messenger_tab_carries_a_conversation_both_ways(Path(td) / 'chat'))
         run(lambda: test_the_cursor_follows_a_row_that_leaves_the_list(Path(td) / 'cursor'))
         run(lambda: test_each_account_guard_fails_under_its_own_mutation(Path(td) / 'guards'))
+        run(lambda: test_a_draft_and_an_unknown_bar_are_not_changed_by_what_cannot_mean_them(Path(td) / 'ar4f'))
         run(lambda: test_a_message_being_typed_is_shown_whole_and_inert(Path(td) / 'ar4g'))
         run(lambda: test_a_sweep_after_a_move_does_not_keep_the_old_accounts_session(Path(td) / 'ar4e'))
         run(lambda: test_agents_that_wall_together_respect_the_cap_and_a_start_is_not_its_own_rival(Path(td) / 'ar4b'))
