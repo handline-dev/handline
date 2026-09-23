@@ -421,10 +421,11 @@ def cmd_close(args) -> int:
 
 
 def cmd_task_done(args) -> int:
-    """Mark a task done (#71) - the owner's own evidence, not the end of it.
-    Exactly one of a sha, --request N, or a reason; `actions.mark_task_done`
-    is where that is actually enforced, so the parsing here only shapes
-    whatever was given into the right keyword."""
+    """Mark a task done (#71) - the builder's own evidence, not the end of
+    it. Exactly one of a sha, --request N, or a reason; `actions.mark_task_done`
+    is where both that and who counts as the builder are actually enforced,
+    so the parsing here only shapes whatever was given into the right
+    keyword."""
     me = askmod.asking_agent()
     if me is None:
         print(_who_refusal("mark a task done"))
@@ -2511,8 +2512,8 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--unblock", type=int, default=None,
                    help="remove that blocking task")
     p.set_defaults(fn=cmd_task_edit)
-    p = tk.add_parser("done", help="mark a task done (#71) - owner only, exactly one of "
-                                   "a sha, --request N, or a reason")
+    p = tk.add_parser("done", help="mark a task done (#71) - owner or a linked request's "
+                                   "target only, exactly one of a sha, --request N, or a reason")
     p.add_argument("task", type=int)
     p.add_argument("evidence", nargs="?", help="a merge sha on main, or a reason")
     p.add_argument("--request", type=int, default=None,

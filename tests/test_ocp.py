@@ -21390,7 +21390,7 @@ def test_no_command_prints_what_a_terminal_would_obey(home: Path) -> None:
         "close": "an agent's session is ended through Orca; the task half is driven by test_closing_a_task_needs_no_open_child_and_only_the_asker",
         "task new": "writes a row; prints its id and an owner already checked against the registry",
         "task link": "writes a row; prints two ids",
-        "task done": "writes a row; driven in test_marking_a_task_done_needs_evidence_and_only_the_owner, not this scene",
+        "task done": "writes a row; driven in test_marking_a_task_done_needs_evidence_and_only_the_owner_or_a_linked_target, not this scene",
         "task reopen": "writes a row; driven in test_reopening_a_done_task_needs_a_reason_and_only_the_asker, not this scene",
         "task edit": "writes a row; driven in "
                      "test_editing_a_task_needs_the_opener_or_the_founder_and_is_never_silent, "
@@ -26653,6 +26653,74 @@ def test_a_task_row_holds_its_fields_and_nothing_else(home: Path) -> None:
         con.close()
 
 
+def test_the_done_close_migration_upgrades_an_old_tasks_table(home: Path) -> None:
+    """Auditor's #2187 SHOULD-FIX 2: nothing built the pre-#71 schema and ran
+    the migration against it. Without the backfill this drives (`closed_by =
+    done_evidence, closed_at = done_at`), every existing closed task would
+    come back reading as done-but-not-closed - on the founder's board, every
+    one of them in the 'done - waiting for check' group."""
+    import sqlite3
+    home.mkdir(parents=True, exist_ok=True)
+    p = home / "old.sqlite"
+    old = sqlite3.connect(p)
+    old.execute("""
+        CREATE TABLE tasks (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          title TEXT NOT NULL, owner TEXT NOT NULL,
+          parent_task INTEGER, opened_by TEXT NOT NULL,
+          closed_by TEXT, closed_at INTEGER, closed_via TEXT,
+          edited_by TEXT, edited_at INTEGER, created_at INTEGER NOT NULL
+        )
+    """)
+    now = int(time.time())
+    old.execute(
+        "INSERT INTO tasks(title, owner, opened_by, closed_by, closed_at, closed_via, "
+        "created_at) VALUES (?,?,?,?,?,?,?)",
+        ("shipped it", "worker", "manager", "abc123def456", now - 100, "sha", now - 200))
+    old.execute(
+        "INSERT INTO tasks(title, owner, opened_by, created_at) VALUES (?,?,?,?)",
+        ("still open", "worker", "manager", now - 50))
+    old.commit()
+    old.close()
+
+    con = db.connect(p)
+    try:
+        cols = tuple(r["name"] for r in con.execute("PRAGMA table_info(tasks)"))
+        check("migration: the new column set, exactly", cols == db.TASK_FIELDS, str(cols))
+        rows = {r["title"]: r for r in con.execute("SELECT * FROM tasks").fetchall()}
+
+        closed = rows["shipped it"]
+        check("migration: the old evidence reads as done_evidence/done_via/done_at",
+              closed["done_evidence"] == "abc123def456" and closed["done_via"] == "sha"
+              and closed["done_at"] == now - 100, str(dict(closed)))
+        check("migration: closed_by is backfilled from the evidence, closed_at from done_at",
+              closed["closed_by"] == "abc123def456" and closed["closed_at"] == now - 100,
+              str(dict(closed)))
+        check("migration: it reads as closed", actions.task_state(con, closed) == "closed",
+              actions.task_state(con, closed))
+        check("migration: not in the done-waiting-for-check group - #2156 asked existing "
+              "closed tasks to stay closed", db.tasks_needing_close(con) == [])
+
+        open_row = rows["still open"]
+        check("migration: an old open row is untouched - done_evidence and closed_by both NULL",
+              open_row["done_evidence"] is None and open_row["closed_by"] is None,
+              str(dict(open_row)))
+        check("migration: it reads as waiting", actions.task_state(con, open_row) == "waiting",
+              actions.task_state(con, open_row))
+
+        # A second connect (every ocp command, and the daemon) re-runs the
+        # migration guard - it must be a no-op the second time, not a second
+        # rename onto columns that no longer exist.
+        con2 = db.connect(p)
+        try:
+            check("migration: idempotent - a second connect changes nothing",
+                  dict(db.get_task(con2, closed["id"])) == dict(closed))
+        finally:
+            con2.close()
+    finally:
+        con.close()
+
+
 def test_task_new_list_and_link(home: Path) -> None:
     _board_world(home)
     rc, out = _cli(["task", "new", "--owner", "worker", "build the board"])
@@ -27229,10 +27297,14 @@ def test_task_blocked_by_another_task(home: Path) -> None:
         con.close()
 
 
-def test_marking_a_task_done_needs_evidence_and_only_the_owner(home: Path) -> None:
+def test_marking_a_task_done_needs_evidence_and_only_the_owner_or_a_linked_target(
+        home: Path) -> None:
     """#71: mark_task_done takes exactly one of a sha (checked against
     main), a --request (must exist and be answered), or a reason - and only
-    the task's own owner may write it."""
+    the task's own owner, or the target of a request linked to it that is
+    open or done, may write it (auditor's #2187 SHOULD-FIX 1, orcapipe's
+    #2195 decision - #1914 means the owner alone would leave only orcapipe
+    itself able to mark anything done)."""
     _board_world(home)
     repo = home / "repo"
     repo.mkdir()
@@ -27271,6 +27343,44 @@ def test_marking_a_task_done_needs_evidence_and_only_the_owner(home: Path) -> No
         check("done: already done is refused", not ok and "already done" in msg, msg)
         ok, msg = actions.mark_task_done(con, 99, "worker", reason="x")
         check("done: no such task", not ok, msg)
+
+        # SHOULD-FIX 1: owner alone and target-alone are each sufficient
+        # (mutated separately, not just together) - t_o is owned by worker
+        # with no linked request at all, t_t is owned by manager (so worker
+        # is never the owner) with a request linking worker in.
+        t_o = db.new_task(con, "owner only, no link at all", "worker", "manager")
+        ok, msg = actions.mark_task_done(con, t_o, "worker", reason="owner works alone")
+        check("done: the owner marks it done with no linked request at all", ok, msg)
+
+        t_t = db.new_task(con, "target only, not the owner", "manager", "manager")
+        r_queued = db.add_request(con, "manager", "worker", "go", None, "supervisor",
+                                  "fire_and_forget", None, 0, None)
+        db.link_request(con, t_t, r_queued)
+        ok, msg = actions.mark_task_done(con, t_t, "worker", reason="target works alone")
+        check("done: the target of a still-queued linked request marks it done, "
+              "not the owner", ok, msg)
+
+        t_t2 = db.new_task(con, "target of a done request", "manager", "manager")
+        r_done = db.add_request(con, "manager", "worker", "go", None, "supervisor",
+                                "fire_and_forget", None, 0, None)
+        askmod.resolve(r_done, "shipped")
+        db.link_request(con, t_t2, r_done)
+        ok, msg = actions.mark_task_done(con, t_t2, "worker", reason="a done link works too")
+        check("done: the target of a done linked request marks it done too", ok, msg)
+
+        t_neither = db.new_task(con, "neither owner nor target", "manager", "manager")
+        ok, msg = actions.mark_task_done(con, t_neither, "worker", reason="not allowed")
+        check("done: refused - worker is neither the owner nor a linked target",
+              not ok and "owner" in msg and "target" in msg, msg)
+
+        t_withdrawn = db.new_task(con, "target of a withdrawn request", "manager", "manager")
+        r_withdrawn = db.add_request(con, "manager", "worker", "go", None, "supervisor",
+                                     "fire_and_forget", None, 0, None)
+        askmod.withdraw(r_withdrawn, requester="manager")
+        db.link_request(con, t_withdrawn, r_withdrawn)
+        ok, msg = actions.mark_task_done(con, t_withdrawn, "worker", reason="too late")
+        check("done: refused - a withdrawn linked request named nobody real for this",
+              not ok, msg)
 
         r = db.add_request(con, "manager", "worker", "go", None, "supervisor",
                            "fire_and_forget", None, 0, None)
@@ -28972,6 +29082,7 @@ def main() -> int:
         run(lambda: test_two_processes_cannot_both_supervise_one_home(Path(td) / 'twoproc'))
         run(lambda: test_the_screen_says_when_two_daemons_are_running(Path(td) / 'dmnwarn'))
         run(lambda: test_a_task_row_holds_its_fields_and_nothing_else(Path(td) / 'taskinv'))
+        run(lambda: test_the_done_close_migration_upgrades_an_old_tasks_table(Path(td) / 'taskmigrate'))
         run(lambda: test_task_new_list_and_link(Path(td) / 'tasknew'))
         run(lambda: test_editing_a_task_needs_the_opener_or_the_founder_and_is_never_silent(
             Path(td) / 'taskedit'))
@@ -28979,7 +29090,8 @@ def main() -> int:
         run(lambda: test_done_tasks_show_as_a_waiting_for_check_group(Path(td) / 'taskdonegroup'))
         run(lambda: test_task_blocked_by_another_task(Path(td) / 'taskblock'))
         run(lambda: test_resolving_the_founders_request_says_what_it_becomes(Path(td) / 'taskguard'))
-        run(lambda: test_marking_a_task_done_needs_evidence_and_only_the_owner(Path(td) / 'taskdone'))
+        run(lambda: test_marking_a_task_done_needs_evidence_and_only_the_owner_or_a_linked_target(
+            Path(td) / 'taskdone'))
         run(lambda: test_closing_a_task_needs_no_open_child_and_only_the_asker(Path(td) / 'taskclose'))
         run(lambda: test_close_task_refuses_without_an_identity_and_does_not_move_a_clock(Path(td) / 'taskcloseid'))
         run(lambda: test_reopening_a_done_task_needs_a_reason_and_only_the_asker(Path(td) / 'taskreopen'))

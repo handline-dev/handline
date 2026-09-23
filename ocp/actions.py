@@ -402,6 +402,17 @@ def _request_answered(row) -> bool:
     return bool(row["verdict"]) or row["state"] != "queued"
 
 
+def _task_done_targets(con, tid: int) -> set[str]:
+    """Who besides the task's owner may mark it done (#71 SHOULD-FIX 1,
+    orcapipe's #2195 decision): the target of any request linked to the
+    task that is still open (queued) or came back done - #1914 means every
+    orcapipe task is owned by orcapipe itself, so the owner alone would
+    leave only orcapipe able to mark anything done, never the builder
+    founder #2154 actually asked. A request some other way settled
+    (rejected, withdrawn, replaced, denied) named nobody real for this."""
+    return {r["target"] for r in db.task_requests(con, tid) if r["state"] in ("queued", "done")}
+
+
 def mark_task_done(con, tid: int, by: str, sha: str | None = None,
                    request_id: int | None = None, reason: str | None = None,
                    repo: Path | None = None) -> tuple[bool, str]:
@@ -411,12 +422,13 @@ def mark_task_done(con, tid: int, by: str, sha: str | None = None,
     a claim taken on trust), or a one-line fact for work that leaves no
     commit (a plan, a decision, a duplicate).
 
-    Only the task's own owner may - the one actually doing the work, never
-    the opener standing in for them. Refused if the task is already done or
-    already closed. Nothing here checks open child tasks or an open blocker
-    on this task itself - that gate belongs to `close_task` now: the asker
-    is the one who decides, at sign-off, whether what is underneath is
-    enough (#1008 stays enforced, one stage later).
+    Only the task's own owner, or the target of a request linked to it that
+    is open or done (`_task_done_targets`), may - the one actually doing the
+    work, never the opener standing in for them. Refused if the task is
+    already done or already closed. Nothing here checks open child tasks or
+    an open blocker on this task itself - that gate belongs to `close_task`
+    now: the asker is the one who decides, at sign-off, whether what is
+    underneath is enough (#1008 stays enforced, one stage later).
     """
     row = db.get_task(con, tid)
     if row is None:
@@ -425,8 +437,9 @@ def mark_task_done(con, tid: int, by: str, sha: str | None = None,
         return False, f"task #{tid} is already closed ({row['closed_by']})"
     if row["done_evidence"]:
         return False, f"task #{tid} is already done ({row['done_evidence']})"
-    if by != row["owner"]:
-        return False, f"task #{tid} can only be marked done by its owner ({row['owner']})"
+    if by != row["owner"] and by not in _task_done_targets(con, tid):
+        return False, (f"task #{tid} can only be marked done by its owner "
+                       f"({row['owner']}) or the target of a request linked to it")
     given = [x for x in (sha, request_id, reason) if x is not None]
     if len(given) != 1:
         return False, "done needs exactly one of a sha, --request, or a reason"

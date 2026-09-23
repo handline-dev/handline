@@ -104,12 +104,6 @@ CREATE TABLE IF NOT EXISTS tasks (
   -- hatch for a reason that happens to look like hex) would otherwise read
   -- as a sha.
   done_via     TEXT,
-  -- The asker's own sign-off (`ocp close`), final - see actions.task_asker
-  -- for who that is. An identity, not evidence: NULL is "still open"
-  -- (whether waiting, doing or done); written once, and only once
-  -- done_evidence is set - `close_task` refuses a task that is not done yet.
-  closed_by    TEXT,
-  closed_at    INTEGER,
   -- Who last edited the owner or title, and when - `ocp task edit`'s
   -- evidence, the same job closed_by/closed_at do for a close. NULL until
   -- the first edit; overwritten by each later one, so this is the latest
@@ -117,7 +111,17 @@ CREATE TABLE IF NOT EXISTS tasks (
   -- under kind 'edit_task', one row per edit.
   edited_by    TEXT,
   edited_at    INTEGER,
-  created_at   INTEGER NOT NULL
+  created_at   INTEGER NOT NULL,
+  -- The asker's own sign-off (`ocp close`), final - see actions.task_asker
+  -- for who that is. An identity, not evidence: NULL is "still open"
+  -- (whether waiting, doing or done); written once, and only once
+  -- done_evidence is set - `close_task` refuses a task that is not done yet.
+  -- Ordered last, after every other column: the #71 migration can only
+  -- ADD these two (SQLite has no "insert column here"), so a migrated
+  -- table and a fresh one agree on physical order only if CREATE TABLE
+  -- puts them last too.
+  closed_by    TEXT,
+  closed_at    INTEGER
 );
 CREATE TABLE IF NOT EXISTS task_requests (
   task_id     INTEGER NOT NULL REFERENCES tasks(id),
@@ -379,7 +383,16 @@ def _pre_schema_migrate(con) -> None:
         # No backfill, same reason as resolved_at above: when an old task was
         # actually closed is not recorded anywhere, so a closed row with none
         # is simply excluded from a windowed count rather than dated by guess.
-    if task_cols and "closed_via" not in task_cols:
+    # done_evidence is task #71's own sign that this table already went
+    # through the split below - once it has, closed_by holds an identity,
+    # not evidence, and closed_via is gone for good (renamed to done_via).
+    # Without this second half of the guard, a table #71 already migrated
+    # reads as "never had closed_via" forever (that column is never coming
+    # back), and every later connect() re-added it and rebuilt it from
+    # closed_by's new, unrelated contents - a real bug, caught by
+    # test_the_done_close_migration_upgrades_an_old_tasks_table's second
+    # connect(), not simulated.
+    if task_cols and "closed_via" not in task_cols and "done_evidence" not in task_cols:
         con.execute("ALTER TABLE tasks ADD COLUMN closed_via TEXT")
         # Best-effort backfill only, from the shape closed_by already holds
         # (actions.looks_like_sha, not reimported here to avoid a cycle - db
@@ -408,18 +421,38 @@ def _pre_schema_migrate(con) -> None:
         # and when, never evidence - so every existing closed task reads as
         # done-and-closed by whoever the evidence names, which is the only
         # identity this migration has to offer.
-        con.execute("ALTER TABLE tasks RENAME COLUMN closed_by TO done_evidence")
-        con.execute("ALTER TABLE tasks RENAME COLUMN closed_at TO done_at")
-        con.execute("ALTER TABLE tasks RENAME COLUMN closed_via TO done_via")
-        con.execute("ALTER TABLE tasks ADD COLUMN closed_by TEXT")
-        con.execute("ALTER TABLE tasks ADD COLUMN closed_at INTEGER")
-        # Best-effort backfill: closed_by should be an identity, and all this
-        # migration has for one is the evidence text itself - wrong for a
-        # sha close, but the field is otherwise NULL (reading as "still
-        # open"), which is worse for every task this rule was written for.
-        con.execute(
-            "UPDATE tasks SET closed_by = done_evidence, closed_at = done_at "
-            "WHERE done_evidence IS NOT NULL")
+        #
+        # Auditor's #2187 SHOULD-FIX 3: five separate autocommit statements,
+        # with no lock between them, left this migration strandable - a kill
+        # after the first RENAME, or another `connect()` (every ocp command,
+        # and the daemon) landing mid-way, would see done_evidence already
+        # present and skip the rest for good, leaving done_at/done_via
+        # missing and closed_at still holding the old times. BEGIN IMMEDIATE
+        # around the whole block makes it one commit or none - SQLite DDL is
+        # transactional - and re-reading _cols after the lock is held
+        # catches the case this connection's own `task_cols` (read before
+        # any lock) went stale: another connection finished the migration in
+        # between.
+        con.execute("BEGIN IMMEDIATE")
+        try:
+            if "done_evidence" not in _cols(con, "tasks"):
+                con.execute("ALTER TABLE tasks RENAME COLUMN closed_by TO done_evidence")
+                con.execute("ALTER TABLE tasks RENAME COLUMN closed_at TO done_at")
+                con.execute("ALTER TABLE tasks RENAME COLUMN closed_via TO done_via")
+                con.execute("ALTER TABLE tasks ADD COLUMN closed_by TEXT")
+                con.execute("ALTER TABLE tasks ADD COLUMN closed_at INTEGER")
+                # Best-effort backfill: closed_by should be an identity, and
+                # all this migration has for one is the evidence text itself
+                # - wrong for a sha close, but the field is otherwise NULL
+                # (reading as "still open"), which is worse for every task
+                # this rule was written for.
+                con.execute(
+                    "UPDATE tasks SET closed_by = done_evidence, closed_at = done_at "
+                    "WHERE done_evidence IS NOT NULL")
+            con.execute("COMMIT")
+        except Exception:
+            con.execute("ROLLBACK")
+            raise
 
 
 def _unhide_the_humans_answers(con) -> None:
@@ -893,8 +926,8 @@ def set_moot_by(con, rid: int, by: int) -> bool:
 # there is one place each fact lives and nothing to drift. Adding a column to
 # `tasks` means adding it here, and a test fails until both agree.
 TASK_FIELDS = ("id", "title", "owner", "parent_task", "opened_by",
-               "done_evidence", "done_at", "done_via", "closed_by", "closed_at",
-               "edited_by", "edited_at", "created_at")
+               "done_evidence", "done_at", "done_via",
+               "edited_by", "edited_at", "created_at", "closed_by", "closed_at")
 
 
 def new_task(con, title: str, owner: str, opened_by: str,
