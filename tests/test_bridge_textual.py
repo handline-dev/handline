@@ -831,6 +831,9 @@ async def test_task_checks_lists_and_acts_on_the_founders_own() -> None:
     app = bt.BridgeApp()
     async with app.run_test(size=(100, 24)) as pilot:
         await pilot.pause()
+        dash_text = str(app.screen.query_one("#canvas").render())
+        check("checks: the dashboard's own footer hints at b",
+              "b" in dash_text and "checks" in dash_text, dash_text)
         await pilot.press("b")
         await pilot.pause()
         screen = app.screen

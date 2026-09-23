@@ -266,9 +266,16 @@ class Dashboard(JobsAware, Screen):
         job_lines = _job_lines_ansi(self.jobs, width)
         text = tui.frame(width, max(1, height - len(job_lines)), self.sel, self.panel, self.flash)
         text = text.replace(tui.CLEAR_EOL, "")
+        lines = text.split("\n")
+        # task #72: `b` is a Textual-only global (tui.py's shared keybar
+        # doesn't know it, and the old curses bridge has no TaskChecks to
+        # open), so the hint is appended here rather than in tui.keybar.
+        hint = f" {tui.DIM}·{tui.R} {tui.BOLD}b{tui.R} {tui.DIM}checks{tui.R}"
+        if lines and tui.vlen(lines[-1] + hint) <= width:
+            lines[-1] = lines[-1] + hint
         if job_lines:
-            lines = text.split("\n")
-            text = "\n".join(lines[:-2] + job_lines + lines[-2:])
+            lines = lines[:-2] + job_lines + lines[-2:]
+        text = "\n".join(lines)
         self.query_one("#canvas", Static).update(Text.from_ansi(text))
 
     def on_key(self, event: events.Key) -> None:
@@ -539,6 +546,7 @@ class TaskChecks(JobsAware, Screen):
         self.cur = 0
         self.checked: set[int] = set()
         self.flash = ""
+        self.rows: list = []
 
     def compose(self) -> ComposeResult:
         yield Static(id="canvas")
@@ -559,6 +567,7 @@ class TaskChecks(JobsAware, Screen):
             rows = self._rows(con)
         finally:
             con.close()
+        self.rows = rows
         if rows:
             self.cur = max(0, min(self.cur, len(rows) - 1))
         job_lines = _job_lines_ansi(self.jobs, width)
@@ -601,23 +610,14 @@ class TaskChecks(JobsAware, Screen):
             self.app.pop_screen()
             return
         if k in ("\033[A", "\033[B"):
-            con = db.connect()
-            try:
-                n = len(self._rows(con))
-            finally:
-                con.close()
+            n = len(self.rows)
             if n:
                 self.cur = max(0, min(n - 1, self.cur + (1 if k == "\033[B" else -1)))
             self._redraw()
             return
         if k == " ":
-            con = db.connect()
-            try:
-                rows = self._rows(con)
-                if self.cur < len(rows):
-                    self.checked.symmetric_difference_update({rows[self.cur]["id"]})
-            finally:
-                con.close()
+            if self.cur < len(self.rows):
+                self.checked.symmetric_difference_update({self.rows[self.cur]["id"]})
             self._redraw()
             return
         if k in ("c", "r", "C"):
@@ -628,12 +628,7 @@ class TaskChecks(JobsAware, Screen):
         if key == "C":
             await self._close_checked()
         else:
-            con = db.connect()
-            try:
-                rows = self._rows(con)
-                tid = rows[self.cur]["id"] if self.cur < len(rows) else None
-            finally:
-                con.close()
+            tid = self.rows[self.cur]["id"] if self.cur < len(self.rows) else None
             if tid is None:
                 self.flash = "nothing waiting"
             elif key == "c":
