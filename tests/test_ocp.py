@@ -14897,12 +14897,33 @@ edges:
 
         # #2024: db.py once also held an unguarded state-setter, so the
         # docstring's "every function below" was false for it. That function
-        # moved to this file as `_set_request_state`, test-only - this pins
-        # it staying out, so a future unguarded setter added to db.py fails
-        # here rather than reading as covered by the check above.
-        check("chokepoint: db.py has no other function that can move a row "
-              "out of 'queued' unguarded",
-              not hasattr(db, "set_request_state"))
+        # moved to this file as `_set_request_state`, test-only. Auditor
+        # #2072 should-fix: pinning set_request_state's absence by name only
+        # catches that name coming back, not a new unguarded door under a
+        # different one - assert the property db.py must hold instead: every
+        # function that writes requests.state calls _would_strand_a_proposal
+        # first, and the three that do are named here so this cannot pass by
+        # finding none.
+        import ast
+        db_src = (ROOT / "ocp" / "db.py").read_text()
+        db_tree = ast.parse(db_src)
+        guarded_writers, unguarded_writers = set(), set()
+        for n in db_tree.body:
+            if not isinstance(n, ast.FunctionDef):
+                continue
+            seg = ast.get_source_segment(db_src, n) or ""
+            if "UPDATE requests SET state" not in seg:
+                continue
+            calls_guard = any(
+                isinstance(c, ast.Call) and isinstance(c.func, ast.Name)
+                and c.func.id == "_would_strand_a_proposal"
+                for c in ast.walk(n))
+            (guarded_writers if calls_guard else unguarded_writers).add(n.name)
+        check("chokepoint: every db.py function writing requests.state "
+              "calls _would_strand_a_proposal first",
+              not unguarded_writers and guarded_writers ==
+              {"retire_queued", "close_if_queued", "retire_if_undelivered"},
+              f"guarded={guarded_writers} unguarded={unguarded_writers}")
     finally:
         con.close()
 
