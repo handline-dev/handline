@@ -542,10 +542,12 @@ def _session_changed(con, agent: str) -> bool:
 # read "idle" for a beat after Enter is sent - so a *destructive* type (one
 # that throws work away if it lands mid-turn: a handoff's /clear or /exit)
 # may not follow any type at the same agent, from any path or process,
-# within this long - ordinary notifies are not held to it: a busy session
-# leaves typed text sitting unsent in its input box rather than discarding
-# it, whichever vendor is running it (design/03-vendor-driver.md), same as
-# the incident above shows for the one this was measured on.
+# within this long - ordinary notifies are not held to it: the vendor this
+# was measured on (#1973, Claude Code) keeps text typed mid-turn and runs it
+# after the turn ends, rather than discarding it, which is what the incident
+# above shows. A vendor that discards or interrupts on a mid-turn type would
+# need notifies held to the window too; that has not been measured for any
+# other vendor.
 TYPE_SETTLE_S = 15
 
 
