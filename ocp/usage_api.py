@@ -150,17 +150,12 @@ def refresh_credential(acct: str, timeout: int = REFRESH_TIMEOUT_S) -> bool:
         return False
 
 
-def _access_token(acct: str) -> str | None:
-    """The account's OAuth access token, for one request.
+def _access_token_detailed(acct: str) -> tuple[str | None, bool]:
+    """The account's OAuth access token, for one request, plus whether the
+    credential is actually gone.
 
     The only place in ocp that reads the secret. It is never returned to a
     caller outside this module, never logged and never written.
-    """
-    return _access_token_detailed(acct)[0]
-
-
-def _access_token_detailed(acct: str) -> tuple[str | None, bool]:
-    """`_access_token`, plus whether the credential is actually gone.
 
     `missing` is True only when the Keychain item itself is not there
     (`security` exits 44, `errSecItemNotFound`) or the item is there but

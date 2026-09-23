@@ -25447,6 +25447,14 @@ def test_read_claude_tells_a_dead_credential_apart_from_transient() -> None:
         reading, auth_failed = usage_api._read_claude("alpha", refresh=False)
         check("_read_claude: a timeout is transient, not a dead credential",
               reading is None and auth_failed is False, (reading, auth_failed))
+
+        # A Keychain item that is genuinely gone (#2194's NOTE 2) - never
+        # reaches urlopen, and carries the same auth_failed=True the 401/403
+        # cases above do.
+        usage_api._access_token_detailed = lambda acct: (None, True)
+        reading, auth_failed = usage_api._read_claude("alpha", refresh=False)
+        check("_read_claude: a missing credential is auth_failed=True",
+              reading is None and auth_failed is True, (reading, auth_failed))
     finally:
         usage_api._access_token_detailed, usage_api.urllib.request.urlopen = real_token, real_urlopen
 
