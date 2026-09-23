@@ -15,8 +15,10 @@ from __future__ import annotations
 import asyncio
 import os
 import shutil
+import subprocess
 import sys
 import tempfile
+import time
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -197,6 +199,94 @@ async def test_agent_page_box_sends_a_message_and_runs_slash_commands() -> None:
               f"{type(app.screen).__name__} draft={screen.box.text!r}")
 
 
+async def test_agent_page_box_keeps_a_draft_a_busy_target_refuses() -> None:
+    """auditor #2013 BLOCKING (new): `_deliver` used to clear the box whatever
+    `_start` returned. A busy target is refused before anything is started -
+    what was typed must stay, not vanish with nothing sent."""
+    _home("boxbusy")
+    agents.register("reviewer", "alpha")
+    con = db.connect()
+    try:
+        db.set_terminal(con, "reviewer", "term_r", "wt")
+    finally:
+        con.close()
+    bt._DRAFTS.pop("reviewer", None)   # a global keyed by name; other tests use "reviewer" too
+
+    class _HostApp(bt.App):
+        def __init__(self):
+            super().__init__()
+            self.jobs = jobsmod.Jobs()
+
+        def on_mount(self):
+            self.push_screen(bt.AgentDetail("reviewer"))
+
+    app = _HostApp()
+    async with app.run_test(size=(100, 30)) as pilot:
+        await pilot.pause()
+        screen = app.screen
+        # Occupies the target with a real (harmless, long-sleeping) process,
+        # not a stand-in `proc=None` - `reap()`'s own timer tick polls it on
+        # every redraw, stand-in or not.
+        stub = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(30)"],
+                                stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
+                                stderr=subprocess.PIPE, text=True)
+        busy = jobsmod.Job("chat_reply", "reviewer", "messaging reviewer", stub, time.time())
+        screen.jobs.running.append(busy)
+        try:
+            for ch in "second draft":
+                await pilot.press(ch)
+            await pilot.press("enter")
+            await pilot.pause(0.2)
+            check("page: a refused send keeps what was typed",
+                  screen.box.text == "second draft", repr(screen.box.text))
+            check("page: and says why", "one thing at a time on it" in screen.flash, screen.flash)
+        finally:
+            screen.jobs.running.remove(busy)
+            stub.kill()
+            stub.wait()
+
+
+async def test_agent_page_box_restores_a_draft_the_send_failed() -> None:
+    """auditor #2013 BLOCKING (new), the other half: a send that starts but
+    fails - a team routing refusal, here - must put the draft back rather
+    than leave the box empty with nothing having gone. Real `chat_reply`
+    through `ocp.actrun`, not a stub: `backend` has no edge from the human in
+    DESIGN_TEAM, so the refusal is genuine, not manufactured."""
+    _home("boxfail")
+    con = db.connect()
+    try:
+        db.set_terminal(con, "backend", "term_x", "wt")
+    finally:
+        con.close()
+    bt._DRAFTS.pop("backend", None)
+
+    class _HostApp(bt.App):
+        def __init__(self):
+            super().__init__()
+            self.jobs = jobsmod.Jobs()
+
+        def on_mount(self):
+            self.push_screen(bt.AgentDetail("backend"))
+
+    app = _HostApp()
+    async with app.run_test(size=(100, 30)) as pilot:
+        await pilot.pause()
+        screen = app.screen
+        for ch in "not routed":
+            await pilot.press(ch)
+        await pilot.press("enter")
+        await pilot.pause(0.1)
+        check("page: the box clears the moment the send is on its way",
+              screen.box.text == "", repr(screen.box.text))
+        deadline = asyncio.get_event_loop().time() + 8
+        while asyncio.get_event_loop().time() < deadline and not screen.flash:
+            await pilot.pause(0.1)
+        check("page: the real routing refusal comes back",
+              "failed" in screen.flash or "denied" in screen.flash, screen.flash)
+        check("page: and the draft is restored, not lost",
+              screen.box.text == "not routed", repr(screen.box.text))
+
+
 async def test_wake_on_a_stalled_agent_asks_first() -> None:
     """auditor #2008 BLOCKING 2a: waking a STALLED agent needs a yes first in
     curses (`_needs_confirm`, founder #1620/#1631) - checking only `label in
@@ -293,6 +383,8 @@ async def _run_all() -> None:
     await test_an_action_runs_off_the_key_loop_and_the_screen_says_so()
     await test_text_prompt_composer_sends_and_cancels()
     await test_agent_page_box_sends_a_message_and_runs_slash_commands()
+    await test_agent_page_box_keeps_a_draft_a_busy_target_refuses()
+    await test_agent_page_box_restores_a_draft_the_send_failed()
     await test_wake_on_a_stalled_agent_asks_first()
     await test_messages_panel_acts_on_a_folded_row()
     await test_text_prompt_keeps_a_paste_instead_of_dropping_it()

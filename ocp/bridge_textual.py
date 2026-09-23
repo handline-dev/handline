@@ -517,22 +517,44 @@ class AgentDetail(JobsAware, Screen):
             return
         self._redraw()
 
+    def on_paste(self, event: events.Paste) -> None:
+        event.stop()
+        box = self.box
+        box.feed(tui.Composer.START + event.text + tui.Composer.END)
+        _sync_matches(box, self.commands)
+        self._redraw()
+
     async def _deliver(self, body: str) -> None:
         """Send `body`, or run it when it names one of `self.commands` - a
         literal message that happens to type a real command's name runs it,
         the same tradeoff any chat command syntax makes. Dispatched through
         `jobs.Jobs` either way, so the box is free the moment it is handed
-        off, not once an answer comes back."""
+        off, not once an answer comes back.
+
+        The box is cleared only once `chat_reply` is actually on its way, not
+        on a refusal `_start` already caught (a busy target, `MAX_JOBS`), and
+        is restored if the job's own answer turns out to be a refusal - a
+        team routing decision, say - since typing it twice is worse than a
+        line saying it did not go."""
         box = self.box
         con = db.connect()
         try:
             known = dict(self.commands)
             if body.startswith("/") and body[1:] in known:
                 await self._run_command(con, body[1:], known[body[1:]])
+                box.text, box.pos, box.typed, box.cleared = "", 0, "", ""
             else:
-                self.flash = self._start("chat_reply", self.agent, f"messaging {self.agent}",
-                                         (self.agent, body))
-            box.text, box.pos, box.typed, box.cleared = "", 0, "", ""
+                agent = self.agent
+
+                def restore_if_refused(ok: bool, _text: str) -> None:
+                    if not ok and not self.box.text:
+                        self.box.text, self.box.pos = body, len(body)
+
+                refused = self._start("chat_reply", agent, f"messaging {agent}", (agent, body),
+                                      on_result=restore_if_refused)
+                self.flash = refused
+                if not refused:
+                    box.text, box.pos, box.typed, box.cleared = "", 0, "", ""
         finally:
             con.close()
         self._redraw()
