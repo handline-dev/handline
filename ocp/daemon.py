@@ -2373,6 +2373,18 @@ def supervise(con, agent: str, log, now: int, samples: dict,
     if db.in_flight_for(con, agent):
         return
 
+    # A turn still running when the park began can hit the usage wall on its
+    # own afterward, well before wake_at comes due - the dialog that puts on
+    # screen is not one a person is answering (`usage_limit_open`'s own
+    # promise), so nothing is lost by pressing past it here rather than
+    # leaving it up until the wake that would otherwise be the first thing to
+    # look (#2087).
+    if state in (PARKED, THROTTLED, DEGRADED) and row["terminal"] and not row["closed_at"] \
+            and orca.available():
+        with lock.terminal(agent) as mine:
+            if mine:
+                _past_dialog(con, agent, log, only_limit=True)
+
     # The live reading this tick judges the agent against, not the account a
     # resume would use: `account_reading` prefers a fresh report from the
     # agent's own running session over a column nothing has confirmed, so a

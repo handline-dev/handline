@@ -15992,6 +15992,32 @@ def test_an_agent_parks_through_the_usage_limit_dialog(home: Path) -> None:
         con.close()
 
 
+def test_a_parked_agent_gets_past_a_usage_limit_dialog_before_its_wake(home: Path) -> None:
+    """Founder #2087: a turn still running when a context handoff typed its
+    /clear can hit the usage wall on its own afterward, well after the park
+    already began - and wake_at, set for the reason the handoff recorded, can
+    be hours off from when that turn actually failed. Nothing else looks at a
+    parked agent's screen before its own wake_at comes due, so the dialog
+    would otherwise sit up for however long that is. Esc'd on the very next
+    tick instead, whatever wake_at says - and the park itself is untouched."""
+    con, term = _park_behind(home, LIMIT_DIALOG, ends_at_limit=False)
+    con.execute("DELETE FROM requests WHERE target = 'keeper'")
+    try:
+        wake = int(time.time()) + 3600
+        db.set_agent_state(con, "keeper", dmn.PARKED, wake_at=wake, detail="context; parked")
+        dmn.supervise(con, "keeper", lambda _m: None, int(time.time()), {}, [])
+        check("parked: the dialog is pressed past well before wake_at",
+              term.sent == [("\x1b", False)], str(term.sent))
+        row = db.get_agent_state(con, "keeper")
+        check("parked: the park itself is untouched - still due at its own wake_at",
+              row["state"] == dmn.PARKED and row["wake_at"] == wake, str(dict(row)))
+        ev = con.execute(
+            "SELECT payload FROM events WHERE agent = 'keeper' AND kind = 'dialog_declined'").fetchall()
+        check("parked: what was pressed is on the record", len(ev) == 1, str([dict(e) for e in ev]))
+    finally:
+        con.close()
+
+
 def test_a_close_gets_past_the_dialog_before_it_types_exit(home: Path) -> None:
     """Every path that ends a session - idle close, move, relaunch - goes
     through the one function, so the dialog is got past there and not only
@@ -27955,6 +27981,8 @@ def main() -> int:
         run(lambda: test_the_usage_limit_dialog_is_declined_with_the_key_that_was_measured(
             Path(td) / 'limitkey'))
         run(lambda: test_an_agent_parks_through_the_usage_limit_dialog(Path(td) / 'limitpark'))
+        run(lambda: test_a_parked_agent_gets_past_a_usage_limit_dialog_before_its_wake(
+            Path(td) / 'limitparked'))
         run(lambda: test_a_close_gets_past_the_dialog_before_it_types_exit(Path(td) / 'limitclose'))
         run(lambda: test_a_dialog_ocp_cannot_get_past_stalls_the_agent_with_the_reason(
             Path(td) / 'dialogstall'))
