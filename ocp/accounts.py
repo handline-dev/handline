@@ -547,6 +547,12 @@ def env_for(acct: str, agent: str | None = None) -> dict[str, str]:
         v = env.get(drv.config_dir_env())
         if v and vendors.account_named_by(v):
             del env[drv.config_dir_env()]
+    # opencode's session-config pair goes however it reads: OPENCODE_CONFIG_DIR
+    # adds a config dir beside the account's own, and OPENCODE_CONFIG_CONTENT
+    # is a whole config. An opencode launch is handed both back by its driver's
+    # launch_env; any other vendor's launch reads neither.
+    for k in ("OPENCODE_CONFIG_DIR", "OPENCODE_CONFIG_CONTENT"):
+        env.pop(k, None)
     env[vendors.for_account(acct).config_dir_env()] = str(vendors.config_dir(acct))
     env["OCP_HOME"] = str(paths.home())
     env["OCP_ACCOUNT"] = acct
