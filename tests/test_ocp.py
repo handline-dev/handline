@@ -24388,8 +24388,8 @@ def test_usage_api_reads_a_window_nothing_has_been_spent_in() -> None:
 # 2026-09-23): two CREDIT_LIMIT rows, unit 3 the 5-hour window and unit 6 the
 # weekly one, nextResetTime in epoch ms. The instants are built from the clock
 # at test time: usage_reading bounds a plausible reset against the live clock,
-# so a fixture set to fixed instants ages out of it and the suite goes red for
-# everyone a day later (#2054).
+# so a fixture set to fixed instants ages out of it within the hour and the
+# suite goes red for everyone (#2054).
 def zai_quota(now_ms: int) -> dict:
     return {
         "code": 200, "success": True, "msg": "Operation successful",
@@ -24517,8 +24517,9 @@ def test_the_zai_meter_reads_the_plan_and_hides_its_key(home: Path) -> None:
              "nextResetTime": now_ms - 90_000}]}}
         ).encode()
         r = usage_api.read("zai", refresh=False)
-        check("zai meter: a reset already past is no pending reset, not a corrupt answer",
-              r is not None and r.pct_5h == 87 and r.reset_5h is None, repr(r))
+        check("zai meter: a reset already past reads the rolled window quiet - 0/None, "
+              "never the ended window's 87",
+              r is not None and r.pct_5h == 0 and r.reset_5h is None, repr(r))
         body["raw"] = http.client.IncompleteRead(b"x", 10)
         check("zai meter: a body cut off mid-read is could-not-look, not a crash",
               usage_api.read("zai", refresh=False) is None)

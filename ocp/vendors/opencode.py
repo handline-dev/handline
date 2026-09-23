@@ -128,11 +128,12 @@ class Opencode:
         corrupt = False
         # A reset must never reach further out than eight days - the longest
         # cycle is weekly, and 40 nines reads as a figure here while the first
-        # clock to format it downstream would overflow. A reset already past
-        # is not corrupt and not pending: an account idle since its window
-        # rolled reports that roll, and it reads as no reset, the same way
-        # claude's own endpoint reads a rolled-over window - a quiet account
-        # is never could-not-look on account of it.
+        # clock to format it downstream would overflow; far future is corrupt.
+        # A reset already past means the window has rolled and the new one has
+        # nothing spent in it: that window reads pct 0 with no reset, the
+        # quiet-window shape claude's own endpoint answers - never the ended
+        # window's percentage, or an account idle at the wall would read full
+        # on every poll and never be placed.
         reset_hi = time.time() * 1000 + 8 * 24 * 3600 * 1000
         reset_past = time.time() * 1000 - 60_000
 
@@ -163,6 +164,7 @@ class Opencode:
             reset = figure(row.get("nextResetTime"), hi=reset_hi)
             if reset is not None and reset < reset_past:
                 reset = None
+                pct = 0
             if pct is not None:
                 out[i] = max(0, min(100, int(pct)))
             if reset is not None:
