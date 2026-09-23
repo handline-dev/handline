@@ -27469,23 +27469,28 @@ def _two_lanes(home: Path) -> None:
 teams:
   manager: [worker]
   boss: [reviewer]
+  halim: [lane.x]
 
 agents:
   manager:  { intake: dedicated }
   worker:   { intake: dedicated }
   boss:     { intake: dedicated }
   reviewer: { intake: dedicated }
+  lane.x:   { intake: dedicated }
 
 edges:
   - { from: "manager", to: "worker", relation: supervisor, response: fire_and_forget }
   - { from: "worker", to: "manager", relation: subordinate, response: fire_and_forget }
   - { from: "worker", to: "reviewer", relation: peer, response: fire_and_forget }
+  - { from: "worker", to: "lane.x", relation: peer, response: fire_and_forget }
+  - { from: "boss", to: "reviewer", relation: supervisor, response: fire_and_forget }
+  - { from: "boss", to: "lane.x", relation: supervisor, response: fire_and_forget }
 
 limits:
   max_chain_depth: 4
   ask_rate_per_hour: 50
 """)
-    for n in ("boss", "reviewer"):
+    for n in ("boss", "reviewer", "lane.x"):
         agents.register(n, "alpha")
 
 
@@ -27574,6 +27579,16 @@ def test_resolve_finding_opens_a_task_in_the_same_step(home: Path) -> None:
               out + str(dict(row5) if row5 else None))
     finally:
         con.close()
+    ok, _, ridx = askmod.ask("lane.x", "key differs from manager", requester="worker")
+    rc, out = _cli(["resolve", str(ridx), "PASS", "--finding", "fnd X"], as_agent="lane.x")
+    con = db.connect()
+    try:
+        rowx = con.execute("SELECT t.* FROM tasks t JOIN task_requests tr ON tr.task_id = t.id "
+                           "WHERE tr.request_id = ?", (ridx,)).fetchone()
+        check("finding: a lane whose key is not its manager's name still finds the manager",
+              rc == 0 and rowx and rowx["owner"] == "boss", out + str(dict(rowx) if rowx else None))
+    finally:
+        con.close()
     before = None
     con = db.connect()
     try:
@@ -27583,7 +27598,7 @@ def test_resolve_finding_opens_a_task_in_the_same_step(home: Path) -> None:
 
     ok, _, rid6 = askmod.ask("reviewer", "unmanaged lane", requester="worker")
     (home / "team.yaml").write_text((home / "team.yaml").read_text().replace(
-        "  boss: [reviewer]", "  ghost: [reviewer]"))
+        "from: \"boss\", to: \"reviewer\"", "from: \"ghost\", to: \"reviewer\""))
     rc, out = _cli(["resolve", str(rid6), "PASS", "--finding", "fnd D"], as_agent="reviewer")
     con = db.connect()
     try:

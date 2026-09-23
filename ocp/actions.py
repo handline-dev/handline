@@ -236,14 +236,17 @@ def record_human_resolve(con, rid: int, tasks: list[int] | None, no_task: str | 
 
 
 def finding_owner(me: str) -> str | None:
-    """The manager of the resolver's lane: the lane key `me` belongs to, or
-    `me` when it is itself a lane's manager. None when that is not a
-    registered agent, so a task never lands on a name nobody answers to."""
+    """The manager `me` answers to by the supervisor edges the daemon routes
+    on, or `me` when it is itself some agent's supervisor. None when that is
+    not a registered agent, so a task never lands on a name nobody answers to."""
     try:
         t = team.Team.load()
     except (FileNotFoundError, ConfigError):
         return None
-    owner = t.team_of(me) or (me if me in t.teams else None)
+    owner = supervisor_of(t, me)
+    if owner is None and any(e.get("relation") == "supervisor" and e.get("from") == me
+                             for e in t.edges):
+        owner = me
     return owner if owner in paths.list_agents() else None
 
 
@@ -251,7 +254,7 @@ def open_finding_tasks(con, rid: int, findings: list[str], owner: str) -> list[i
     """Task #73 (founder #2150, #2154 point 2): a finding the resolver is
     deferring rather than blocking the review on becomes a task in the same
     step, linked to the request it came out of. The task is owned and opened
-    by the resolver's lane manager (#1914), never by the resolver."""
+    by the resolver's manager (#1914), never by the resolver."""
     tids = []
     for title in findings:
         tid = db.new_task(con, textsafe.oneline(title).strip(), owner, owner)
