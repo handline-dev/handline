@@ -405,6 +405,104 @@ def accounts_data(con) -> tuple[list[AccountRow], list[str]]:
     return rows, notes
 
 
+class WallCell(NamedTuple):
+    account: str      # the account whose window the wake waits on
+    when: str         # the clock the wake lands at
+    mark: str         # "?" when the account is only assumed
+    elsewhere: bool   # worth naming: not the row's own account, or only assumed
+
+
+class AgentRow(NamedTuple):
+    name: str
+    twig: str                    # the indent and "└" under a supervisor, or ""
+    shown: str                   # the name, one line
+    under: int                   # reports not drawn under it
+    urgency: tuple[str, int, str] | None
+    state: str
+    until: str
+    error: str | None            # the config error, when the row has no cells
+    acct: str = ""
+    kind: str = ""
+    ctx: str = ""                # ANSI: yellow at its context limit
+    inbox: int = 0
+    fire: str = ""               # ANSI: a trigger about to fire
+    wall: WallCell | None = None
+
+
+def state_cell(s: str, until: str, width: int | None = None) -> str:
+    """The state word in its colour and, dimmed, what it is until; cut to `width`
+    columns when there is a column to fit."""
+    word = fit(s, width - 1 - (len(until) + 1 if until else 0)) if width else s
+    return (f"{(BOLD + STATE_COLOR[s]) if s in NEEDS_A_HUMAN else STATE_COLOR.get(s, '')}"
+            f"{word}{R}" + (f" {DIM}{until}{R}" if until else ""))
+
+
+def fold_suffix(under: int, urgency: tuple[str, int, str] | None) -> str:
+    """` +3` and its most urgent report, as `fold_marker` draws them with room."""
+    if not under:
+        return ""
+    count = f"{DIM} +{under}{R}"
+    if urgency:
+        glyph, n, colour = urgency
+        return f"{count} {colour}{glyph}{n}{R}"
+    return count
+
+
+def agents_data(con) -> tuple[list[AgentRow], list[str]]:
+    """What the AGENTS panel shows, before any of it is laid out: one row per
+    drawn agent, in tree order, and the notes under them."""
+    drawn_tree = _walk_tree()
+    # Model and effort are configuration and do not change while anyone is
+    # watching, which was the case for leaving them off. What changed is
+    # that they will not all be claude: with a second vendor coming, what
+    # an agent *is* stops being a constant of the screen and starts being
+    # the difference between two rows doing the same work at different
+    # prices. It sits beside the account for that reason - the two together
+    # are what a row costs.
+    state_rows = {n: db.get_agent_state(con, n) for n, _, _ in drawn_tree}
+    shown = {k: oneline(v) for k, v in shown_names(drawn_tree).items()}
+    rows = []
+    for name, depth, hidden in drawn_tree:
+        under = len(hidden)
+        # Indented under whoever routes work to it. Who an agent reports to
+        # decides where its report goes and who may assign to it, and it was
+        # written down in team.yaml all along - a flat list made the reader
+        # hold the routing table in their head to know what they were
+        # looking at.
+        twig = f"{DIM}{'  ' * (depth - 1)}└ {R}" if depth else ""
+        # How many of its reports are not drawn, and the most urgent thing
+        # among them.
+        urgency = hidden_urgency(con, hidden) if under else None
+        row = state_rows[name]
+        s, until = screen_state(con, row)
+        try:
+            acct, cfg = agents.placed(name, con)
+        except Exception as e:  # noqa: BLE001
+            rows.append(AgentRow(name, twig, shown[name], under, urgency, s, until, str(e)))
+            continue
+        st = status.read_for_agent(name, acct)
+        # Only when something is actually about to happen. Measured on a
+        # live team: nothing firing, six rows reading "— closed" - which
+        # the state column says already, with the same word - and two
+        # reading "—". A column that is empty or duplicated is a column
+        # that trains a reader not to look at it.
+        ctx_limit = status.effective_context_limit(cfg, st.model_id)
+        t = triggers.evaluate(st.trusted_pct_5h, st.trusted_ctx_used, ctx_limit=ctx_limit)
+        fire = f"{YEL}⚠ {t.kind}{R}" if t.fired and daemon.triggers_apply(row) else ""
+        ctxs = f"{pct(st.ctx_pct)}%"
+        if st.ctx_used is not None and st.ctx_used >= ctx_limit:
+            ctxs = YEL + ctxs + R
+        # Same predicate `ocp ps` and `ocp triggers` ask for this - so this
+        # screen cannot disagree with the daemon that actually acts on it.
+        w = daemon.would_wake(con, row) and launch.wake_wait(name, row, con)
+        wall = (WallCell(w.account, launch.wait_clock(w), "?" if w.assumed else "",
+                         w.account != acct or w.assumed) if w else None)
+        rows.append(AgentRow(name, twig, shown[name], under, urgency, s, until, None,
+                             oneline(acct), oneline(agents.kind(cfg)), ctxs,
+                             len(db.queued_for(con, name)), fire, wall))
+    return rows, [] if paths.list_agents() else ["no agents registered"]
+
+
 def pct(v: int | None) -> str:
     return "  ?" if v is None else f"{v:>3}"
 
@@ -961,59 +1059,18 @@ def build(width: int, sel: dict | None = None,
         ag.selected = sel.get(AGENTS)
         # No heading for the last column: it is empty unless something is about
         # to happen, and then it says what, in words.
-        drawn_tree = _walk_tree()
-        # Model and effort are configuration and do not change while anyone is
-        # watching, which was the case for leaving them off. What changed is
-        # that they will not all be claude: with a second vendor coming, what
-        # an agent *is* stops being a constant of the screen and starts being
-        # the difference between two rows doing the same work at different
-        # prices. It sits beside the account for that reason - the two together
-        # are what a row costs.
-        state_rows = {n: db.get_agent_state(con, n) for n, _, _ in drawn_tree}
-        cells = [screen_state(con, r) for r in state_rows.values()]
+        rows, notes = agents_data(con)
+        cells = [(r.state, r.until) for r in rows]
         state_w = _state_width(cells) if cells else 1 + len("state")
         kinds = _kind_fits(width, state_w)
         ag.add(f"{DIM}{'agent':<{NAME_W}}{'acct':<{ACCT_COL}}"
                + f"{'kind':<{KIND_W}}" * kinds
                + f"{'state':<{state_w}}{'ctx':>4}   {'in':<4}{R}", heading=True)
-        shown = {k: oneline(v) for k, v in shown_names(drawn_tree).items()}
-        for name, depth, hidden in drawn_tree:
-            under = len(hidden)
-            # Indented under whoever routes work to it. Who an agent reports to
-            # decides where its report goes and who may assign to it, and it was
-            # written down in team.yaml all along - a flat list made the reader
-            # hold the routing table in their head to know what they were
-            # looking at.
-            twig = f"{DIM}{'  ' * (depth - 1)}└ {R}" if depth else ""
-            # How many of its reports are not drawn, and the most urgent thing
-            # among them. Fitted around, not into, the name: cut off, the only
-            # sign a team is hidden disappears.
-            urgency = hidden_urgency(con, hidden) if under else None
-            try:
-                acct, cfg = agents.placed(name, con)
-            except Exception as e:  # noqa: BLE001
-                ag.add(pad(fit(twig + shown[name], NAME_W), NAME_W)
-                       + f"{RED}config error: {e}{R}", key=name)
+        for r in rows:
+            if r.error:
+                ag.add(pad(fit(r.twig + r.shown, NAME_W), NAME_W)
+                       + f"{RED}config error: {r.error}{R}", key=r.name)
                 continue
-            st = status.read_for_agent(name, acct)
-            row = state_rows[name]
-            s, until = screen_state(con, row)
-            # Only when something is actually about to happen. Measured on a
-            # live team: nothing firing, six rows reading "— closed" - which
-            # the state column says already, with the same word - and two
-            # reading "—". A column that is empty or duplicated is a column
-            # that trains a reader not to look at it.
-            ctx_limit = status.effective_context_limit(cfg, st.model_id)
-            t = triggers.evaluate(st.trusted_pct_5h, st.trusted_ctx_used, ctx_limit=ctx_limit)
-            fire = (f"{YEL}⚠ {t.kind}{R}"
-                    if t.fired and daemon.triggers_apply(row) else "")
-            state_cell = (f"{(BOLD + STATE_COLOR[s]) if s in NEEDS_A_HUMAN else STATE_COLOR.get(s, '')}"
-                          f"{fit(s, state_w - 1 - (len(until) + 1 if until else 0))}{R}"
-                          + (f" {DIM}{until}{R}" if until else ""))
-            ctxs = f"{pct(st.ctx_pct)}%"
-            if st.ctx_used is not None and st.ctx_used >= ctx_limit:
-                ctxs = YEL + ctxs + R
-            inbox = len(db.queued_for(con, name))
             # Padded on visible width, like the accounts panel: a state that
             # grew a "·closed" suffix used to push every column after it right.
             prefix = (
@@ -1021,49 +1078,33 @@ def build(width: int, sel: dict | None = None,
                 # twig, is wider than the column, and `pad` alone then pushes
                 # every column after it right - the same drift the "·closed"
                 # suffix caused.
-                pad(fold_marker(twig + f"{BOLD}{shown[name]}{R}", under, urgency), NAME_W)
-                + pad(oneline(acct), ACCT_COL)
-                + (pad(f"{DIM}{fit(oneline(agents.kind(cfg)), KIND_W - 1)}{R}", KIND_W)
-                   if kinds else "")
-                + pad(state_cell, state_w)
-                + pad(ctxs, CTX_COL)
-                + pad(str(inbox) if inbox else "·", IN_COL)
+                pad(fold_marker(r.twig + f"{BOLD}{r.shown}{R}", r.under, r.urgency), NAME_W)
+                + pad(oneline(r.acct), ACCT_COL)
+                + (pad(f"{DIM}{fit(oneline(r.kind), KIND_W - 1)}{R}", KIND_W) if kinds else "")
+                + pad(state_cell(r.state, r.until, state_w), state_w)
+                + pad(r.ctx, CTX_COL)
+                + pad(str(r.inbox) if r.inbox else "·", IN_COL)
             )
-            # Same predicate `ocp ps` and `ocp triggers` ask for this - so this
-            # screen cannot disagree with the daemon that actually acts on it -
-            # but drawn to fit the column instead of their full sentence: there
-            # is room here for the account and the clock, not "waiting for
-            # ...'s 5h window (...)" in full.
-            w = daemon.would_wake(con, row) and launch.wake_wait(name, row, con)
-            if w:
-                when = launch.wait_clock(w)
-                # The acct column already names it; only worth repeating when
-                # the wake would land elsewhere, or when it is only assumed -
-                # the acct column has no way to say that on its own - and only
-                # when there is room left for it beside the clock, which is
-                # never sacrificed.
-                mark = "?" if w.assumed else ""
+            if r.wall:
+                # Only when there is room left for the account beside the clock,
+                # which is never sacrificed.
                 room = width - PANEL_BORDERS - vlen(prefix)
-                who = (f"{w.account}{mark} " if (w.account != acct or w.assumed)
-                       and room >= vlen(f"⏳ {w.account}{mark} {when}") else "")
+                who = (f"{r.wall.account}{r.wall.mark} "
+                       if r.wall.elsewhere and room >= vlen(f"⏳ {r.wall.account}{r.wall.mark} "
+                                                            f"{r.wall.when}") else "")
                 # No room to name the account, but still assumed: the mark
                 # moves to the one thing left to put it on.
-                walled_cell = f"{YEL}⏳ {who}{when}{mark if not who else ''}{R}"
+                walled_cell = f"{YEL}⏳ {who}{r.wall.when}{r.wall.mark if not who else ''}{R}"
             else:
                 walled_cell = ""
-            ag.add(
-                prefix
-                # DIALOG and FATAL already say what they are in the state
-                # column, with their own detail beside them (screen_state()) -
-                # repeating it here would be the duplicated column the state
-                # column itself was cut down to avoid. A wall clears itself
-                # the moment the window rolls over, so it is the last thing
-                # shown here, not the first.
-                + (fire or walled_cell),
-                key=name,
-            )
-        if not paths.list_agents():
-            ag.add(f"{DIM}  no agents registered{R}")
+            # DIALOG and FATAL already say what they are in the state column,
+            # with their own detail beside them (screen_state()) - repeating it
+            # here would be the duplicated column the state column itself was
+            # cut down to avoid. A wall clears itself the moment the window
+            # rolls over, so it is the last thing shown here, not the first.
+            ag.add(prefix + (r.fire or walled_cell), key=r.name)
+        for note in notes:
+            ag.add(f"{DIM}  {note}{R}")
 
         # ---- messages ------------------------------------------------
         # What is waiting for the human, which is the one queue nothing else in

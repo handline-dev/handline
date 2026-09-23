@@ -59,9 +59,9 @@ async def test_dashboard_shows_a_registered_agent_and_moves_the_cursor() -> None
     async with app.run_test(size=(120, 30)) as pilot:
         await pilot.pause()
         screen = app.screen
-        text = _screen_text(screen)
+        row = screen.query_one("#agents", bt.DataTable).get_row("backend")
         check("dashboard: the registered agent is on the AGENTS panel",
-              "backend" in text and "alpha" in text, text)
+              "backend" in str(row[0]) and "alpha" in str(row[1]), row)
         await pilot.press("w")
         await pilot.pause(0.2)
         check("dashboard: a refused verb says why, as `actions.can` does",
@@ -748,6 +748,45 @@ async def test_dashboard_accounts_table_is_fed_by_accounts_data_and_follows_the_
               table.show_cursor and table.cursor_row == 0, (table.show_cursor, table.cursor_row))
 
 
+async def test_dashboard_agents_table_is_fed_by_agents_data_and_follows_the_cursor() -> None:
+    """The AGENTS panel is a DataTable fed by `tui.agents_data`: one row per
+    drawn agent with its account, kind, state and inbox as plain values, the
+    state word and the fold count built by `state_cell`/`fold_suffix`, and its
+    row cursor the dashboard's own selection."""
+    _home("agentdata")
+    con = db.connect()
+    try:
+        rows, notes = tui.agents_data(con)
+    finally:
+        con.close()
+    r = rows[0]
+    check("agents_data: one row per drawn agent, with its account and no error",
+          [x.name for x in rows] == ["backend"] and r.acct == "alpha" and r.error is None
+          and not notes, rows)
+    check("agents_data: the inbox is a count and the state a word",
+          r.inbox == 0 and r.state == tui.screen_state(db.connect(), db.get_agent_state(
+              db.connect(), "backend"))[0], r)
+    check("state_cell: a state a person must clear is bold in its own colour",
+          tui.state_cell("DIALOG", "").startswith(tui.BOLD + tui.STATE_COLOR["DIALOG"]))
+    check("state_cell: what it is until follows dimmed, and a width cuts only the word",
+          tui.state_cell("IDLE", "5m", 8).endswith(f" {tui.DIM}5m{tui.R}")
+          and tui._ANSI.sub("", tui.state_cell("RUNNING", "5m", 8)) == "RUN\u2026 5m",
+          repr(tui.state_cell("RUNNING", "5m", 8)))
+    check("fold_suffix: nothing under it is nothing, a fold is its count, urgency follows",
+          tui.fold_suffix(0, None) == ""
+          and tui._ANSI.sub("", tui.fold_suffix(3, None)) == " +3"
+          and tui._ANSI.sub("", tui.fold_suffix(3, ("\u26a0", 2, tui.RED))) == " +3 \u26a02")
+    app = bt.BridgeApp()
+    async with app.run_test(size=(110, 26)) as pilot:
+        await pilot.pause(0.3)
+        table = app.screen.query_one("#agents", bt.DataTable)
+        check("dashboard: on AGENTS the table shows the cursor on the selected agent",
+              table.show_cursor and table.cursor_row == 0, (table.show_cursor, table.cursor_row))
+        await pilot.press("tab")
+        await pilot.pause(0.3)
+        check("dashboard: leaving AGENTS hides the table's cursor", not table.show_cursor)
+
+
 async def test_task_checks_lists_and_acts_on_the_founders_own() -> None:
     """Task #72 (founder #2154/#2155): the bridge's own 'done - waiting for
     check' list (#71), reached with `b` from the dashboard - only the tasks
@@ -917,6 +956,7 @@ async def _run_all() -> None:
     await test_task_checks_lists_and_acts_on_the_founders_own()
     await test_task_checks_closes_several_checked_at_once()
     await test_dashboard_accounts_table_is_fed_by_accounts_data_and_follows_the_cursor()
+    await test_dashboard_agents_table_is_fed_by_agents_data_and_follows_the_cursor()
     await test_text_prompt_line_keeps_a_multiline_paste_and_shows_escapes_inert()
     await test_read_only_page_shows_foreign_text_inert_and_scrolls_on_arrows()
 

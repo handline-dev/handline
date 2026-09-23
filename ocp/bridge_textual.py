@@ -281,7 +281,10 @@ class Dashboard(JobsAware, Screen):
     Dashboard #accounts-box { height: auto; max-height: 40%; border: round $panel; }
     Dashboard #accounts-box.focused { border: round cyan; }
     Dashboard #accounts { height: auto; }
-    Dashboard #acct-notes { height: auto; padding: 0 1; }
+    Dashboard #acct-notes, Dashboard #agent-notes { height: auto; padding: 0 1; }
+    Dashboard #agents-box { height: auto; max-height: 50%; border: round $panel; }
+    Dashboard #agents-box.focused { border: round cyan; }
+    Dashboard #agents { height: auto; }
     Dashboard #rest { height: 1fr; }
     Dashboard #foot { height: auto; }
     """
@@ -293,6 +296,10 @@ class Dashboard(JobsAware, Screen):
             box.border_title = "ACCOUNTS"
             yield DataTable(id="accounts", cursor_type="row", show_cursor=False)
             yield Static(id="acct-notes")
+        with Vertical(id="agents-box") as box:
+            box.border_title = "AGENTS"
+            yield DataTable(id="agents", cursor_type="row", show_cursor=False)
+            yield Static(id="agent-notes")
         yield Static(id="rest")
         yield Static(id="foot")
 
@@ -300,6 +307,9 @@ class Dashboard(JobsAware, Screen):
         table = self.query_one("#accounts", DataTable)
         table.can_focus = False
         table.add_columns("account", *(tui.ACCT_HEAD[k] for k in self._ACCT_COLS), "")
+        agents_table = self.query_one("#agents", DataTable)
+        agents_table.can_focus = False
+        agents_table.add_columns("agent", "acct", "kind", "state", "ctx", "in", "")
         self._retime()
         self._redraw()
 
@@ -313,11 +323,12 @@ class Dashboard(JobsAware, Screen):
                                                 wait_budget=height - 4 - tui.PANEL_MIN)
         self.query_one("#header", Static).update(Text.from_ansi("\n".join(header)))
         self._draw_accounts()
-        rest = panels[1:]
+        self._draw_agents()
+        rest = panels[2:]
         room = max(1, self.query_one("#rest").size.height)
-        limits, hidden = tui._layout([0] + [len(p.rows) for p in rest], room)
+        limits, hidden = tui._layout([0, 0] + [len(p.rows) for p in rest], room)
         body: list[str] = []
-        for p, lim in zip(rest, limits[1:]):
+        for p, lim in zip(rest, limits[2:]):
             if lim != 0:
                 body += p.draw(limit=lim)
         self.query_one("#rest", Static).update(Text.from_ansi("\n".join(body)))
@@ -344,15 +355,48 @@ class Dashboard(JobsAware, Screen):
             table.add_row(Text.from_ansi(f"{tui.BOLD}{textsafe.oneline(r.name)}{tui.R}"),
                           *(Text.from_ansi(r.cells[k]) for k in self._ACCT_COLS),
                           Text.from_ansi(r.mark + r.next), key=r.name)
-        focused = self.panel == tui.ACCOUNTS
+        self._sync_cursor(table, "#accounts-box", tui.ACCOUNTS, [r.name for r in rows])
+        self._notes("#acct-notes", notes)
+
+    def _sync_cursor(self, table: DataTable, box: str, panel: int, names: list) -> None:
+        """A panel's table is display only: its row cursor is the dashboard's own
+        selection, and is drawn only while that panel is the one the keys act on."""
+        focused = self.panel == panel
         table.show_cursor = focused
-        names = [r.name for r in rows]
-        if focused and self.sel.get(tui.ACCOUNTS) in names:
-            table.move_cursor(row=names.index(self.sel[tui.ACCOUNTS]))
-        self.query_one("#accounts-box").set_class(focused, "focused")
-        notes_w = self.query_one("#acct-notes", Static)
-        notes_w.update(Text.from_ansi("\n".join(f"{tui.DIM}{n}{tui.R}" for n in notes)))
-        notes_w.display = bool(notes)
+        if focused and self.sel.get(panel) in names:
+            table.move_cursor(row=names.index(self.sel[panel]))
+        self.query_one(box).set_class(focused, "focused")
+
+    def _notes(self, widget: str, notes: list[str]) -> None:
+        w = self.query_one(widget, Static)
+        w.update(Text.from_ansi("\n".join(f"{tui.DIM}{n}{tui.R}" for n in notes)))
+        w.display = bool(notes)
+
+    def _draw_agents(self) -> None:
+        con = db.connect()
+        try:
+            rows, notes = tui.agents_data(con)
+        finally:
+            con.close()
+        table = self.query_one("#agents", DataTable)
+        table.clear()
+        for r in rows:
+            name = Text.from_ansi(r.twig + f"{tui.BOLD}{r.shown}{tui.R}"
+                                  + tui.fold_suffix(r.under, r.urgency))
+            if r.error:
+                table.add_row(name, "", "", Text(f"config error: {textsafe.oneline(r.error)}", style="red"),
+                              "", "", "", key=r.name)
+                continue
+            wall = ""
+            if r.wall:
+                who = f"{r.wall.account}{r.wall.mark} " if r.wall.elsewhere else ""
+                wall = f"{tui.YEL}⏳ {who}{r.wall.when}{r.wall.mark if not who else ''}{tui.R}"
+            table.add_row(name, Text(r.acct), Text(r.kind, style="dim"),
+                          Text.from_ansi(tui.state_cell(r.state, r.until)),
+                          Text.from_ansi(r.ctx), Text(str(r.inbox) if r.inbox else "·"),
+                          Text.from_ansi(r.fire or wall), key=r.name)
+        self._sync_cursor(table, "#agents-box", tui.AGENTS, [r.name for r in rows])
+        self._notes("#agent-notes", notes)
 
     def on_key(self, event: events.Key) -> None:
         k = key_token(event)
