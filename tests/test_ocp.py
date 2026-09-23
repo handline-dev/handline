@@ -11806,6 +11806,42 @@ def test_a_wake_does_not_claim_a_session_it_did_not_start(home: Path) -> None:
               not ok and len(sent) == 1, f"{why} {sent}")
         check("wake: and it is not counted, since it is not this wake's own",
               row["wake_failures"] == 0, str(dict(row)))
+
+        # Auditor #2071 should-fix: the pre-send check must not always read a
+        # live session as foreign. One that comes up here can be the previous
+        # attempt's own, come up late after its relaunch call already
+        # returned False - the same rule the post-send check above already
+        # applies.
+        table.clear()
+        sent.clear()
+        db.reset_counter(con, "backend", "wake_failures")
+        db.set_closed(con, "backend", "sess-def")
+        calls = {"n": 0}
+
+        def appears_after_its_own_attempt_took_the_prompt():
+            calls["n"] += 1
+            # 1: the first attempt's own pre-send check, empty. 2: the check
+            # after it fails, still empty - its launch already took the
+            # prompt. 3: the fresh start's pre-send check - that same
+            # attempt's own session has shown up since.
+            return {"backend": 4322} if calls["n"] >= 3 else {}
+        obsmod.live_sessions = appears_after_its_own_attempt_took_the_prompt
+        realr = orcamod.relaunch
+
+        def took_but_no_session_seen(h, cmd, **kw):
+            sent.append(cmd)
+            take_launched_prompt(cmd)
+            return False, "no session seen within the timeout"
+        orcamod.relaunch = took_but_no_session_seen
+        try:
+            ok, why = dmn.wake_agent(con, "backend", lambda _m: None)
+        finally:
+            orcamod.relaunch = realr
+        row = db.get_agent_state(con, "backend")
+        check("wake: a session that turns out to be its own attempt's is not called foreign",
+              not ok and why == "no session seen within the timeout", f"{why} {sent}")
+        check("wake: so it counts toward STALLED, like any other failed attempt",
+              row["wake_failures"] == 1, str(dict(row)))
     finally:
         (orcamod.available, orcamod.alive, orcamod.wait_idle, orcamod.send,
          dmn.WAKE_SESSION_TIMEOUT_S) = real
