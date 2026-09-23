@@ -1091,6 +1091,7 @@ def test_only_y_n_or_escape_answers_a_confirm() -> None:
 async def test_a_confirm_on_screen_ignores_an_arrow_and_answers_n() -> None:
     """auditor #2281: the wiring, not only the rule - a wheel notch leaves the
     pushed Confirm up and a later n answers it."""
+    _home("confirm")
     answers: list = []
     app = bt.BridgeApp()
     async with app.run_test(size=(120, 30)) as pilot:
