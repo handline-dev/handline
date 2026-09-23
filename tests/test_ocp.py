@@ -21343,6 +21343,59 @@ def test_the_agent_head_is_trimmed_and_slash_commands_are_derived_not_kept(home:
 
 
 
+def test_a_message_being_typed_is_sent_whole_and_shown_inert(home: Path) -> None:
+    """Text typed into the composer is never lost or sent short, and a pasted
+    escape is drawn as a picture, never handed to the terminal."""
+    import threading
+    import tty as ttymod
+
+    def plain(rows: list[str]) -> list[str]:
+        return [tui._ANSI.sub("", r) for r in rows]
+
+    box = tui.Composer(multi=True)
+    lost = []
+    for width in (80, 20, 7):
+        for n in range(0, 90):
+            box.text = ("ab cd " * 40)[:n]
+            box.pos = len(box.text)
+            rows = plain(box.shown("to reviewer:", width, 100))
+            if "".join(rows) != "to reviewer: " + box.text + "▏":
+                lost.append((width, n, rows[-2:]))
+    check("typing: at any length and width nothing is lost", not lost, str(lost[:2]))
+    box.text = "a\033[2Jb"
+    box.pos = len(box.text)
+    check("typing: a pasted escape is shown as a picture, never sent",
+          "\033[2J" not in "".join(box.shown("p:", 30, 5)))
+
+    master, slave = pty.openpty()
+    ttymod.setraw(slave)
+    real_in, real_out = sys.stdin, sys.stdout
+    sys.stdin, sys.stdout = os.fdopen(slave, "r", closefd=False), io.StringIO()
+    text = "the quick brown fox jumps over the lazy dog " * 4 + "end "
+    try:
+        os.write(master, text.encode())
+        threading.Timer(0.5, lambda: os.write(master, b"\r")).start()
+        got = tui._line("to reviewer:", 30, 24, multi=True)
+    finally:
+        sys.stdin, sys.stdout = real_in, real_out
+        os.close(master)
+        os.close(slave)
+    check("typing: the whole message is what is sent", got == text, repr(got))
+
+
+def test_the_wheel_changes_no_text_and_answers_no_dialog() -> None:
+    """A wheel notch reaches the prompt as an arrow key: it must leave a draft
+    as it was and must not answer a yes/no confirmation."""
+    up, down = ("\033[A", "\033OA"), ("\033[B", "\033OB")
+    box = tui.Composer(multi=True)
+    box.feed("half a mess")
+    box.feed("".join(up + down) * 4)
+    check("wheel: a draft under composition is untouched", box.text == "half a mess")
+    ask = tui._composer()
+    ask.feed("".join(up + down) * 4)
+    check("wheel: it does not answer a yes/no dialog", ask.typed == "")
+
+
 def test_slash_commands_autocomplete_and_run_the_highlighted_one(home: Path) -> None:
     """Founder (#1007, via #1008): '/~~~ 를 자동완성하는 기능' - typing '/'
     in the message composer lists what it could mean, ↑↓ changes which is
@@ -28530,6 +28583,8 @@ def main() -> int:
 
 
         run(lambda: test_a_span_ends_in_its_unit(Path(td) / 'ar4f'))
+        run(lambda: test_a_message_being_typed_is_sent_whole_and_shown_inert(Path(td) / 'ar4g'))
+        run(lambda: test_the_wheel_changes_no_text_and_answers_no_dialog())
         run(lambda: test_a_sweep_after_a_move_does_not_keep_the_old_accounts_session(Path(td) / 'ar4e'))
         run(lambda: test_agents_that_wall_together_respect_the_cap_and_a_start_is_not_its_own_rival(Path(td) / 'ar4b'))
         run(lambda: test_the_cap_is_set_from_the_command_line_and_the_bridge(Path(td) / 'ar5'))
