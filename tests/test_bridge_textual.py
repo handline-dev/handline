@@ -696,11 +696,11 @@ async def test_task_checks_lists_and_acts_on_the_founders_own() -> None:
         screen = app.screen
         check("checks: b opens the screen from the dashboard",
               isinstance(screen, bt.TaskChecks), type(screen).__name__)
-        text = str(screen.query_one("#canvas").render())
+        listed = [t["id"] for t in screen.rows]
         check("checks: the founder's own done tasks are both listed",
-              f"#{t_founder1}" in text and f"#{t_founder2}" in text, text)
+              t_founder1 in listed and t_founder2 in listed, listed)
         check("checks: not the manager's own, and not the still-open one",
-              f"#{t_mine} " not in text and f"#{t_open} " not in text, text)
+              t_mine not in listed and t_open not in listed, listed)
 
         await pilot.press("c")
         await pilot.pause()
@@ -711,9 +711,8 @@ async def test_task_checks_lists_and_acts_on_the_founders_own() -> None:
             con.close()
         check("checks: c closes the row under the cursor",
               row["closed_by"] == actions.HUMAN, dict(row))
-        text = str(screen.query_one("#canvas").render())
         check("checks: a closed row drops off the list",
-              f"#{t_founder1:<4}" not in text, text)
+              t_founder1 not in [t["id"] for t in screen.rows], screen.rows)
 
         await pilot.press("r")
         await pilot.pause()
