@@ -267,6 +267,16 @@ def ask(target: str, body: str, files: str | None = None, requester: str | None 
             if old["state"] != "queued":
                 return False, (f"#{replaces} is already {old['state']} - "
                                f"nothing to replace"), None
+            from . import hr
+            if hr.is_open_proposal(replaces):
+                # #1938 should-fix: the proposer is `old["requester"]`, so
+                # `--replaces` passes the ownership check above and would
+                # close the escalation with "replaced by #N" - not a
+                # decision, and the new row it queues is not linked to the
+                # proposal, so approving it enacts nothing. `hr withdraw`
+                # is the one way out; a corrected proposal is a fresh one.
+                return False, (f"#{replaces} is a roster proposal - `hr withdraw` it "
+                               f"and send a fresh proposal instead"), None
             # The human's rows are "delivered" when drawn on the bridge, and
             # nobody can withdraw or answer one on their behalf - so a
             # correction is the only way a stale escalation ever leaves.
@@ -361,6 +371,8 @@ def ask(target: str, body: str, files: str | None = None, requester: str | None 
             # the write itself is the gate, not a second look at delivered_at.
             retire = db.retire_queued if old["target"] == HUMAN else db.retire_if_undelivered
             if not retire(con, replaces, "replaced"):
+                if db.is_still_queued(con, replaces):
+                    return False, f"#{replaces} was not replaced - it is still queued", None
                 if old["target"] == HUMAN:
                     return False, f"#{replaces} was answered just now - nothing to replace", None
                 return False, (f"#{replaces} was delivered to {old['target']} just now - "
@@ -537,6 +549,22 @@ def withdraw(rid: int, requester: str | None = None,
         # own answer, in the founder's name on their own screen (#1348).
         verdict = f"withdrawn: {reason}" if reason else None
         if not db.retire_if_undelivered(con, rid, "withdrawn", verdict):
+            # `db.is_still_queued` alone would not tell the two failures
+            # here apart: `retire_if_undelivered`'s own race - a delivery
+            # landing between the read above and this write, the one its
+            # docstring exists to close - leaves the row queued too.
+            # `hr.is_open_proposal` is what actually happened.
+            from . import hr
+            if hr.is_open_proposal(rid):
+                # #1943: a roster proposal's own escalation is `requester`'s
+                # to withdraw here too - ordinary ownership, since it is
+                # `requester`'s own row - but the db.py chokepoint refuses
+                # this generic verdict on it the same way it refuses every
+                # other non-decision close. `hr withdraw` is the door built
+                # for it: it marks the proposal withdrawn first, which is
+                # what lets its own close through.
+                return False, (f"#{rid} is a roster proposal - `ocp hr withdraw` it "
+                               f"instead, not `ocp withdraw`")
             return False, too_late
         p = _inbox(row["target"]) / f"{rid:06d}.json"
         if p.exists():
@@ -565,7 +593,7 @@ def cancel(rid: int) -> tuple[bool, str]:
     mid-work on it - is typed a notice with delivery's gates when it had been
     delivered. Whatever is behind it delivers next.
     """
-    from . import daemon
+    from . import daemon, hr
 
     con = db.connect()
     try:
@@ -576,6 +604,12 @@ def cancel(rid: int) -> tuple[bool, str]:
             return False, f"#{rid} is already {row['state']} - nothing to cancel"
         if row["requester"] == HUMAN and not row["delivered_at"]:
             return withdraw(rid, requester=HUMAN)
+        if hr.is_open_proposal(rid):
+            # Same family as #1908/#1919: CANCEL_VERDICT is not approve or
+            # reject either, so cancelling a proposal escalation would strand
+            # it exactly as an unguarded resolve or dismiss would.
+            return False, (f"#{rid} is a roster proposal - answer `approve` or "
+                           f"`reject`, it cannot be cancelled")
         target = row["target"]
         notify = row["requester"] != HUMAN
         # Closed here, in the one write that can move it out of 'queued', so
@@ -583,6 +617,8 @@ def cancel(rid: int) -> tuple[bool, str]:
         # this loses instead of overwriting it - `_after_close` never runs
         # unless this call was the one that closed the row.
         if not db.close_if_queued(con, rid, "rejected", CANCEL_VERDICT, announced=not notify):
+            if db.is_still_queued(con, rid):
+                return False, f"#{rid} was not cancelled - it is still queued"
             return False, f"#{rid} was closed while this ran - nothing to cancel"
         said = []
         if row["delivered_at"]:
@@ -651,6 +687,12 @@ def resolve(rid: int, verdict: str, state: str = "done", notify: bool = True) ->
         # the first, whichever path either comes through.
         if not db.close_if_queued(con, rid, state, verdict, announced=not notify):
             fresh = db.get_request(con, rid)
+            if fresh["state"] == "queued":
+                # The chokepoint in db.close_if_queued refused this verdict
+                # rather than losing a race - a caller without its own,
+                # friendlier check (see actions.check_open_proposal) lands
+                # here.
+                return False, f"#{rid} was not resolved - it is still queued"
             return False, f"#{rid} is already {fresh['state']} - nothing to resolve"
         return True, _after_close(con, rid, row, state, notify)
     finally:

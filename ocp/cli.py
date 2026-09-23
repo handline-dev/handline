@@ -1266,6 +1266,13 @@ def cmd_hr(args) -> int:
         ok, said = hr.apply(args.id)
         print(said)
         return 0 if ok else 1
+    if args.hr_cmd == "withdraw":
+        if not me:
+            print(_who_refusal("withdraw"))
+            return 1
+        ok, said = hr.withdraw(args.id, me)
+        print(said)
+        return 0 if ok else 1
     if not me:
         print(_who_refusal("propos"))
         return 1
@@ -1889,6 +1896,10 @@ def cmd_resolve(args) -> int:
         if refusal:
             print(refusal)
             return 1
+        refusal = actions.check_open_proposal(args.id, row, verdict)
+        if refusal:
+            print(refusal)
+            return 1
         if args.retires is not None:
             old = db.get_request(con, args.retires)
             if old is None:
@@ -1918,6 +1929,13 @@ def cmd_resolve(args) -> int:
                 if refusal:
                     print(refusal)
                     return 1
+            if old["state"] == "queued" and hr.is_open_proposal(args.retires):
+                # #1908 should-fix: --retires closes `old` too, the same
+                # `answer`/`resolve` can - a proposal escalation retired this
+                # way is answered with "replaced by #N", not a decision.
+                print(f"#{args.retires} is a roster proposal - answer `approve` or "
+                      f"`reject`, it cannot be retired")
+                return 1
             if old["moot_by"] is not None:
                 print(f"#{args.retires} is already moot (by #{old['moot_by']})")
                 return 1
@@ -1961,7 +1979,9 @@ def cmd_resolve(args) -> int:
                 db.set_moot_by(con, args.retires, args.id)
                 msg += f", retiring #{args.retires}"
             else:
-                msg += f" (#{args.retires} left 'queued' before it could be retired)"
+                msg += (f" (#{args.retires} was not retired - it is still queued)"
+                        if db.is_still_queued(con, args.retires) else
+                        f" (#{args.retires} left 'queued' before it could be retired)")
         finally:
             con.close()
     print(msg)
@@ -2109,6 +2129,10 @@ def build_parser() -> argparse.ArgumentParser:
     q.set_defaults(name=None, why=None, account=None, team=None, repo=None,
                    model=None, effort=None)
     q = hrsub.add_parser("apply", help="carry out an approved proposal")
+    q.add_argument("id")
+    q.set_defaults(name=None, why=None, account=None, team=None, repo=None,
+                   model=None, effort=None)
+    q = hrsub.add_parser("withdraw", help="take back your own undecided proposal")
     q.add_argument("id")
     q.set_defaults(name=None, why=None, account=None, team=None, repo=None,
                    model=None, effort=None)

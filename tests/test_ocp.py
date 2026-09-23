@@ -187,6 +187,21 @@ def test_restore_world_pops_orca_env_vars_a_real_terminal_would_leave_set() -> N
           "ORCA_WORKTREE_ID" not in os.environ)
 
 
+def _set_request_state(con, rid: int, state: str, verdict: str | None = None,
+                       announced: bool = False) -> None:
+    """Force a request row to any state, for setup only - never a production
+    closer, so it carries none of `db.py`'s chokepoint guard (#2024): tests
+    that need to reach a row's own defense-in-depth past that guard (past
+    `_would_strand_a_proposal`, for one) use this to get there."""
+    now = int(time.time())
+    con.execute(
+        "UPDATE requests SET state = ?, verdict = COALESCE(?, verdict), "
+        "resolved_at = COALESCE(resolved_at, ?), "
+        "announced_at = COALESCE(announced_at, ?) WHERE id = ?",
+        (state, verdict, now if state != "queued" else None,
+         now if announced else None, rid))
+
+
 def relaunching_send(sent: list, table: dict[str, int]) -> object:
     """An orca.send that records, and starts a session when it is a relaunch.
 
@@ -3054,7 +3069,7 @@ def test_a_resolved_ask_does_not_stay_in_progress_across_a_park(home: Path) -> N
     # path only fires that event into a live session (design section 5).
     con = db.connect()
     try:
-        db.set_request_state(con, rid, "done", verdict="looks good", announced=True)
+        _set_request_state(con, rid, "done", verdict="looks good", announced=True)
     finally:
         con.close()
 
@@ -3118,7 +3133,7 @@ def test_reconcile_resolved_needs_an_explicit_reference_not_a_bare_number(home: 
         for _ in range(8):
             rid = db.add_request(con, "backend", "auditor", "x", None, "peer",
                                  "fire_and_forget", None, 0, None)
-            db.set_request_state(con, rid, "done", verdict="ok")
+            _set_request_state(con, rid, "done", verdict="ok")
 
         prose = ["Phase 4 daemon rewrite, step 2 of 7",
                 "rebase onto main, 3 conflicts left",
@@ -3159,11 +3174,11 @@ def test_reconcile_resolved_only_state_done_counts(home: Path) -> None:
         for state in ("denied", "withdrawn", "replaced", "rejected"):
             rid = db.add_request(con, "backend", "auditor", "x", None, "peer",
                                  "fire_and_forget", None, 0, None)
-            db.set_request_state(con, rid, state)
+            _set_request_state(con, rid, state)
             never_happened[state] = rid
         done_rid = db.add_request(con, "backend", "auditor", "y", None, "peer",
                                   "fire_and_forget", None, 0, None)
-        db.set_request_state(con, done_rid, "done", verdict="ok")
+        _set_request_state(con, done_rid, "done", verdict="ok")
         queued_rid = db.add_request(con, "backend", "auditor", "z", None, "peer",
                                     "fire_and_forget", None, 0, None)
 
@@ -3206,7 +3221,7 @@ def test_build_prompt_tells_the_model_not_to_write_a_started_by_reference_as_has
         for _ in range(8):
             rid = db.add_request(con, "backend", "auditor", "x", None, "peer",
                                  "fire_and_forget", None, 0, None)
-            db.set_request_state(con, rid, "done", verdict="ok")
+            _set_request_state(con, rid, "done", verdict="ok")
 
         started_by = ["Fix auditor's #5 BLOCKING finding", "per #3, rework the guard"]
         d = digest.Digest(date="2026-09-22", agent="backend", updated="09:00", folded_through=1,
@@ -3284,7 +3299,7 @@ def test_fold_degraded_path_also_reconciles_resolved_asks(home: Path) -> None:
 
     con = db.connect()
     try:
-        db.set_request_state(con, rid, "done", verdict="looks good", announced=True)
+        _set_request_state(con, rid, "done", verdict="looks good", announced=True)
         # A second, unrelated event so the fold is not the no-event path.
         db.add_event(con, "backend", "commit", {"sha": "abc", "subject": "more work"})
     finally:
@@ -6332,7 +6347,7 @@ def test_the_handoff_is_three_facts_read_without_a_model(home: Path) -> None:
 
         # A request nobody has been shown yet is not one in hand.
         db.add_request(con, "marina", "backend", "later", None, "peer", "async", None, 0, None)
-        db.set_request_state(con, rid, "done", "ok")
+        _set_request_state(con, rid, "done", "ok")
         check("handoff: no delivered request is a fact, not a gap",
               handoffmod.record(con, "backend") == []
               and "request: none in progress" in db.get_handoff(con, "backend"))
@@ -8908,7 +8923,7 @@ def test_an_open_head_request_on_an_idle_agent_is_nudged_then_shown(home: Path) 
                              "peer", "async", None, 0, None)
         check("nudge: an agent with an ask of its own outstanding is waiting, not forgetful",
               not nudge(now) and not sent, str(sent))
-        db.set_request_state(con, ask, "done", verdict="fine", announced=True)
+        _set_request_state(con, ask, "done", verdict="fine", announced=True)
 
         # The gates delivery has.
         dmn.wall_reason = lambda con_, agent, row=None: "at its 5h limit"
@@ -8974,7 +8989,7 @@ def test_an_open_head_request_on_an_idle_agent_is_nudged_then_shown(home: Path) 
         idle_for(dmn.FORGOTTEN_STUCK_S + 60)
         check("stuck: and is shown again once it has",
               any("idle on" in b["what"] for b in actions.stuck(con)))
-        db.set_request_state(con, head, "done", verdict="did it")
+        _set_request_state(con, head, "done", verdict="did it")
         check("stuck: resolving it clears the row",
               not any("idle on" in b["what"] for b in actions.stuck(con)))
     finally:
@@ -14305,7 +14320,7 @@ def test_an_answer_reaches_the_agent_that_asked(home: Path) -> None:
               str(sent[-1:])[:120])
         denied = db.add_request(con, "backend", "nobody", "unroutable", None,
                                 "peer", "async", None, 0, None)
-        db.set_request_state(con, denied, "denied", "unknown target")
+        _set_request_state(con, denied, "denied", "unknown target")
         dmn.deliver_answers(con, "backend", lambda _m: None)
         check("answered: an ask routing refused is not typed back at it",
               "unroutable" not in sent[-1] and "unknown target" not in sent[-1],
@@ -14648,6 +14663,289 @@ edges:
         tui.EXPANDED.clear()
 
 
+def test_a_proposal_dismissed_in_the_bridge_is_never_stranded(home: Path) -> None:
+    """Founder #689: "read" on a proposal escalation closed it with a verdict
+    that is neither approve nor reject, and the proposal stayed `proposed`
+    with a red row nothing could clear. The bridge's own dismiss now refuses a
+    proposal that is still open, and the proposer can withdraw it, which takes
+    it off the founder's list. The stranded state itself (a request closed by
+    an older build) is built by hand and cleared the same way."""
+    _daemon_home(home, 20)
+    con = db.connect()
+    try:
+        accounts.register("beta")
+        agents.register("hr", "beta")
+        (home / "team.yaml").write_text("""
+agents:
+  hr: { intake: serial }
+edges:
+  - { from: "*", to: "human", kind: escalate, creates_gate: true }
+""")
+        def rows():
+            return [w for w in actions.founder_waits(con) if w["kind"] == "proposal"]
+        ok, said = hr.propose("add", "dohyun", requester="hr", why="more hands",
+                              account="beta")
+        pid = said.split()[1]
+        rid = db.get_request(con, int(said.split("#")[1].split(".")[0]))["id"]
+        ok, msg = actions.dismiss(con, rid, me=actions.HUMAN)
+        check("dismiss: an open proposal cannot be read away",
+              not ok and "approve" in msg and db.get_request(con, rid)["state"] == "queued", msg)
+        check("dismiss: and stays on the founder's list", len(rows()) == 1, str(rows()))
+
+        # What an older build left behind: closed as "read - no reply".
+        askmod.resolve(rid, "read - no reply", state="done", notify=False)
+        check("stranded: the row is red with no way forward",
+              len(rows()) == 1 and rows()[0]["red"], str(rows()))
+        ok, said = hr.withdraw(pid, "marina")
+        check("withdraw: not another agent's to withdraw", not ok, said)
+        ok, said = hr.withdraw(pid, "hr")
+        check("withdraw: the proposer takes it back", ok and rows() == [], said)
+        check("withdraw: hr list shows it withdrawn",
+              hr.load_proposal(pid)["state"] == "withdrawn")
+        ok, said = hr.apply(pid)
+        check("withdraw: a withdrawn proposal is not applied", not ok
+              and "dohyun" not in paths.list_agents(), said)
+        ok, said = hr.withdraw(pid, "hr")
+        check("withdraw: and cannot be withdrawn twice", not ok, said)
+
+        # An approved but unapplied one, withdrawn: nothing enacts it after.
+        ok, said = hr.propose("add", "dohyun", requester="hr", why="third", account="beta")
+        pid3 = said.split()[1]
+        rid3 = int(said.split("#")[1].split(".")[0])
+        check("answer: an open proposal refuses a non-decision",
+              "approve" in actions.answer(con, rid3, "later")
+              and db.get_request(con, rid3)["state"] == "queued")
+        actions.answer(con, rid3, "approve")
+        ok, said = hr.withdraw(pid3, actions.HUMAN)
+        check("withdraw: the founder may withdraw an approved, unapplied proposal", ok, said)
+        ok, said = hr.apply(pid3)
+        check("withdraw: and apply then refuses it - approve, withdraw, apply enacts nothing",
+              not ok and "withdrawn" in said and "dohyun" not in paths.list_agents(), said)
+
+        # Withdrawn while still unanswered: the escalation closes with it.
+        ok, said = hr.propose("add", "dohyun", requester="hr", why="again", account="beta")
+        pid2 = said.split()[1]
+        rid2 = int(said.split("#")[1].split(".")[0])
+        ok, said = hr.withdraw(pid2, "hr")
+        check("withdraw: an unanswered one leaves the list and closes its escalation",
+              ok and rows() == [] and db.get_request(con, rid2)["state"] != "queued",
+              str(rows()))
+    finally:
+        con.close()
+
+
+def test_every_door_onto_an_open_proposal_also_needs_a_decision(home: Path) -> None:
+    """#1893 SF1, #1908, #1919, #1938, #1943: `answer()` (the bridge's key)
+    is not the only door onto a queued proposal escalation - `ocp resolve`,
+    `--retires`, `ask.cancel`, `--replaces` and `ask.withdraw` each reach the
+    same row, and only `answer()` had the guard. A verdict, a retirement, a
+    cancel, a replace or a withdraw typed there that is not a decision used
+    to close the row anyway, leaving the proposal stuck exactly as if the
+    bridge had let it through."""
+    _daemon_home(home, 20)
+    con = db.connect()
+    try:
+        accounts.register("beta")
+        agents.register("hr", "beta")
+        (home / "team.yaml").write_text("""
+agents:
+  hr: { intake: serial }
+edges:
+  - { from: "*", to: "human", kind: escalate, creates_gate: true }
+""")
+        ok, said = hr.propose("add", "dohyun", requester="hr", why="more hands",
+                              account="beta")
+        pid = said.split()[1]
+        rid = int(said.split("#")[1].split(".")[0])
+    finally:
+        con.close()
+    rc, out = _cli(["resolve", str(rid), "sounds good"], as_agent=askmod.HUMAN)
+    con = db.connect()
+    try:
+        check("resolve: an open proposal refuses a non-decision here too",
+              rc == 1 and "approve" in out and db.get_request(con, rid)["state"] == "queued",
+              out)
+    finally:
+        con.close()
+    rc, out = _cli(["resolve", str(rid), "approve"], as_agent=askmod.HUMAN)
+    check("resolve: approve still goes through", rc == 0, out)
+    ok, said = hr.apply(pid)
+    check("resolve: and apply carries it out", ok and "dohyun" in paths.list_agents(), said)
+
+    # #1908 should-fix: the same escalation can be closed a third way, through
+    # --retires on an unrelated resolve - "replaced by #N" is not a decision
+    # either.
+    ok, said = hr.propose("add", "yerin", requester="hr", why="a second pair",
+                          account="beta")
+    pid2 = said.split()[1]
+    rid2 = int(said.split("#")[1].split(".")[0])
+    ok, _, rid3 = askmod.ask(askmod.HUMAN, "unrelated question", requester="hr")
+    check("retires: the unrelated ask queued", ok and rid3 is not None)
+    rc, out = _cli(["resolve", str(rid3), "covered", "--retires", str(rid2)],
+                   as_agent=askmod.HUMAN)
+    check("retires: an open proposal refuses to be retired away",
+          rc == 1 and "approve" in out, out)
+    con = db.connect()
+    try:
+        check("retires: and stays queued", db.get_request(con, rid2)["state"] == "queued")
+    finally:
+        con.close()
+
+    # #1919: task #32's finding - ask.cancel is the same family, since
+    # CANCEL_VERDICT is not a decision either.
+    con = db.connect()
+    try:
+        said = actions.cancel(con, rid2)
+    finally:
+        con.close()
+    check("cancel: an open proposal refuses to be cancelled away",
+          "approve" in said, said)
+    con = db.connect()
+    try:
+        check("cancel: and stays queued", db.get_request(con, rid2)["state"] == "queued")
+    finally:
+        con.close()
+
+    # #1938 should-fix: a fifth door - the proposer's own `--replaces` passes
+    # the ownership check (old["requester"] == requester) and would close the
+    # escalation with "replaced by #N", a row the founder cannot tell apart
+    # from the original and that approving does not enact.
+    ok, said, rid4 = askmod.ask(askmod.HUMAN, "corrected: add yerin on gamma",
+                                requester="hr", replaces=rid2)
+    check("replaces: an open proposal refuses to be replaced away",
+          not ok and "withdraw" in said, said)
+    check("replaces: no new row was queued for it", rid4 is None, rid4)
+    con = db.connect()
+    try:
+        check("replaces: and stays queued", db.get_request(con, rid2)["state"] == "queued")
+    finally:
+        con.close()
+
+    # #1943: a sixth door - the code review that found the chokepoint's
+    # should-fixes also found this one. The proposer owns its own escalation
+    # (it is the requester), so `ocp withdraw` - not `ocp hr withdraw` - is
+    # ownership-eligible too, and would close it as "withdrawn: ..." if the
+    # chokepoint let it.
+    ok, said = askmod.withdraw(rid2, requester="hr")
+    check("withdraw: an open proposal points at `hr withdraw` instead",
+          not ok and "hr withdraw" in said, said)
+    con = db.connect()
+    try:
+        check("withdraw: and stays queued", db.get_request(con, rid2)["state"] == "queued")
+    finally:
+        con.close()
+
+    # `hr withdraw` is the escape valve, and still works on the same row.
+    ok, said = hr.withdraw(pid2, "hr")
+    check("hr withdraw: the one real way out still works", ok, said)
+    con = db.connect()
+    try:
+        check("hr withdraw: and the row is finally closed",
+              db.get_request(con, rid2)["state"] != "queued")
+    finally:
+        con.close()
+
+
+def test_the_chokepoint_alone_refuses_every_door_onto_an_open_proposal(home: Path) -> None:
+    """#1943: the test above proves each door's own, friendlier check works.
+    This one proves the check those doors share does too - by calling the
+    three db.py functions that can move a request row out of 'queued'
+    directly, the way each door's own write eventually does, with none of
+    the doors' own checks anywhere in the call path to catch it first. If
+    this passed only because a door's check ran, deleting that check would
+    not fail it; deleting `_would_strand_a_proposal` instead does.
+
+    `close_if_queued` is `answer()`, `ocp resolve` and `ask.cancel`'s write.
+    `retire_queued` is `--retires`'s, and `--replaces`'s when the row being
+    replaced targets the founder - true of every proposal escalation, since
+    only the founder decides one. `retire_if_undelivered` is `--replaces`'s
+    write for a row targeting an agent instead; no proposal escalation ever
+    takes that path, but the function is part of the same family and gets
+    the same guard, so it is exercised here too."""
+    _daemon_home(home, 20)
+    con = db.connect()
+    try:
+        accounts.register("beta")
+        agents.register("hr", "beta")
+        (home / "team.yaml").write_text("""
+agents:
+  hr: { intake: serial }
+edges:
+  - { from: "*", to: "human", kind: escalate, creates_gate: true }
+""")
+        ok, said = hr.propose("add", "sooyoung", requester="hr", why="a third pair",
+                              account="beta")
+        rid = int(said.split("#")[1].split(".")[0])
+
+        check("close_if_queued: refuses a non-decision verdict on an open proposal",
+              db.close_if_queued(con, rid, "done", "looks good", announced=True) is False)
+        check("close_if_queued: and stays queued", db.get_request(con, rid)["state"] == "queued")
+
+        check("retire_queued: refuses to retire an open proposal away",
+              db.retire_queued(con, rid, "replaced", "replaced by #9999") is False)
+        check("retire_queued: and stays queued", db.get_request(con, rid)["state"] == "queued")
+
+        check("retire_if_undelivered: refuses an open proposal too",
+              db.retire_if_undelivered(con, rid, "replaced", "replaced") is False)
+        check("retire_if_undelivered: and stays queued",
+              db.get_request(con, rid)["state"] == "queued")
+
+        check("close_if_queued: a real decision still goes through",
+              db.close_if_queued(con, rid, "done", "approve") is True)
+        check("close_if_queued: and the row is no longer queued",
+              db.get_request(con, rid)["state"] == "done")
+
+        # #2024: db.py once also held an unguarded state-setter, so the
+        # docstring's "every function below" was false for it. That function
+        # moved to this file as `_set_request_state`, test-only. Auditor
+        # #2072 should-fix: pinning set_request_state's absence by name only
+        # catches that name coming back, not a new unguarded door under a
+        # different one - assert the property db.py must hold instead: every
+        # function that writes requests.state calls _would_strand_a_proposal,
+        # and the three that do are named here so this cannot pass by
+        # finding none. Auditor #2094 should-fix: a raw substring match on
+        # the function's source missed a writer whose SET clause orders
+        # `state` after another column, and one written as two adjacent
+        # string literals (a style db.py already uses) - Python folds
+        # adjacent literals into one ast.Constant, so walk those instead of
+        # the source text, and isolate the SET clause before looking for
+        # `state =` in it, or a WHERE clause naming `state` (mark_delivered's
+        # and _pre_schema_migrate's) reads as a writer too.
+        import ast
+        import re
+        db_src = (ROOT / "ocp" / "db.py").read_text()
+        db_tree = ast.parse(db_src)
+        set_clause_re = re.compile(r"UPDATE\s+requests\s+SET\s+(.*?)(?:\bWHERE\b|$)",
+                                   re.S | re.I)
+        state_col_re = re.compile(r"(^|[\s,])state\s*=")
+        guarded_writers, unguarded_writers = set(), set()
+        for n in db_tree.body:
+            if not isinstance(n, ast.FunctionDef):
+                continue
+            writes_state = False
+            for c in ast.walk(n):
+                if not (isinstance(c, ast.Constant) and isinstance(c.value, str)):
+                    continue
+                m = set_clause_re.search(c.value)
+                if m and state_col_re.search(m.group(1)):
+                    writes_state = True
+                    break
+            if not writes_state:
+                continue
+            calls_guard = any(
+                isinstance(c, ast.Call) and isinstance(c.func, ast.Name)
+                and c.func.id == "_would_strand_a_proposal"
+                for c in ast.walk(n))
+            (guarded_writers if calls_guard else unguarded_writers).add(n.name)
+        check("chokepoint: every db.py function writing requests.state "
+              "calls _would_strand_a_proposal",
+              not unguarded_writers and guarded_writers ==
+              {"retire_queued", "close_if_queued", "retire_if_undelivered"},
+              f"guarded={guarded_writers} unguarded={unguarded_writers}")
+    finally:
+        con.close()
+
+
 def test_growing_the_team_needs_a_person(home: Path) -> None:
     """A team that cannot grow has one way to take on more work: each agent
     quietly making helpers that die with the session that made them. So growing
@@ -14702,7 +15000,12 @@ edges:
         ok, said = hr.apply(pid)
         check("hr: it cannot be applied before it is answered",
               not ok and "has not answered" in said, said)
-        askmod.resolve(rid[0], "hmm, maybe next week")
+        # #1943: `askmod.resolve` itself now refuses this verdict on an open
+        # proposal - `_set_request_state` (test-only, see #2024) bypasses that
+        # guard to reach the row hr.apply's own decision check exists for:
+        # one closed by something other than this fix, such as data from
+        # before it shipped.
+        _set_request_state(con, rid[0], "done", "hmm, maybe next week")
         ok, said = hr.apply(pid)
         check("hr: nor on an answer that is not a decision",
               not ok and "not a decision" in said and "dohyun" not in paths.list_agents(),
@@ -16819,7 +17122,7 @@ def test_a_report_to_the_founder_is_not_a_wait(home: Path) -> None:
                   db.get_request(con, f2)["verdict"] is None)
         finally:
             askmod.asking_agent = real_who
-        db.set_request_state(con, f2, "queued")
+        _set_request_state(con, f2, "queued")
         actions.opened_by_human(con, f2)
         row = db.get_request(con, f2)
         check("fyi: opening it closes it", row["state"] == "done")
@@ -20497,12 +20800,17 @@ def test_no_command_prints_what_a_terminal_would_obey(home: Path) -> None:
                                  None, "peer", "async", None, 0, None)
             con.execute("UPDATE requests SET state = 'done', verdict = ? WHERE id = ?",
                         (f"reject {c1p}", hrq))
+            # For `hr withdraw`: a still-open proposal, its escalation still queued.
+            wq = db.add_request(con, "reviewer", askmod.HUMAN, "roster: rename reviewer?",
+                                None, "peer", "async", None, 0, None)
             # For `task list`: a title is text somebody typed.
             db.link_request(con, db.new_task(con, f"title {p}", "reviewer", "orcapipe"), q)
         finally:
             con.close()
         hr.save({"id": "poisontest", "kind": "retire", "agent": "reviewer",
                 "requested_by": "reviewer", "why": "test", "request": hrq, "state": "pending"})
+        hr.save({"id": "withdrawtest", "kind": "rename", "agent": "reviewer", "to": "revisor",
+                "requested_by": "reviewer", "why": "test", "request": wq, "state": "proposed"})
         keep_handoff("reviewer", f"handoff {p}\n- item {p}")
         journal = foldmod.journal_path("reviewer", foldmod.today())
         journal.parent.mkdir(parents=True, exist_ok=True)
@@ -20562,6 +20870,8 @@ def test_no_command_prints_what_a_terminal_would_obey(home: Path) -> None:
                        None, "spawn --dry-run")],
             "drift": [(["drift", str(repo), "--no-fetch"], None, "drift --no-fetch")],
             "hr apply": [(["hr", "apply", "poisontest"], None, "hr apply")],
+            "hr withdraw": [(["hr", "withdraw", "withdrawtest"], {"OCP_AGENT": "reviewer"},
+                             "hr withdraw")],
             "guide": [["guide"]], "task list": [["task", "list"]],
             "top": [["top", "--once"]], "watch": [["watch", "--once"]], "bridge": [["bridge", "--once"]],
             "write-handoff": [["write-handoff", "reviewer"]],
@@ -23355,7 +23665,7 @@ def test_a_declared_root_gets_standing_consent(home: Path) -> None:
                        "peer", "fire_and_forget", None, 0, None)
         asked = db.add_request(con, "backend", "reviewer", "did it land?", None,
                                "peer", "async", None, 0, None)
-        db.set_request_state(con, asked, "done", "yes")
+        _set_request_state(con, asked, "done", "yes")
         db.set_agent_state(con, "backend", dmn.RUNNING)
         dmn.deliver_answers(con, "backend", lambda _m: None)
         dmn.deliver_queued(con, "backend", lambda _m: None)
@@ -23617,7 +23927,7 @@ def test_review_pingpong(home: Path) -> None:
         parent = rid
         con = db.connect()
         try:
-            db.set_request_state(con, rid, "done", "ok")
+            _set_request_state(con, rid, "done", "ok")
         finally:
             con.close()
 
@@ -26321,7 +26631,7 @@ limits:
         # #1366 should-fix 2b: a retirement outside the window does not count.
         old = db.add_request(con, "manager", "worker", "ancient", None, "peer",
                              "fire_and_forget", None, 0, None)
-        db.set_request_state(con, old, "withdrawn", None)
+        _set_request_state(con, old, "withdrawn", None)
         con.execute("UPDATE requests SET resolved_at = ? WHERE id = ?",
                     (int(time.time()) - 31 * 86400, old))
         gaps4 = actions.reason_gaps(con)
@@ -27238,6 +27548,12 @@ def main() -> int:
         run(lambda: test_hr_add_takes_the_vendor_from_the_named_account(Path(td) / 'hrvendor'))
         run(lambda: test_register_writes_vendor_onto_an_agent_that_already_exists(
             Path(td) / 'registervendor'))
+        run(lambda: test_a_proposal_dismissed_in_the_bridge_is_never_stranded(
+            Path(td) / 'hrdismiss'))
+        run(lambda: test_every_door_onto_an_open_proposal_also_needs_a_decision(
+            Path(td) / 'hrresolveguard'))
+        run(lambda: test_the_chokepoint_alone_refuses_every_door_onto_an_open_proposal(
+            Path(td) / 'hrchokepoint'))
         run(lambda: test_hr_move_changes_an_agents_account(Path(td) / 'hrmove'))
         run(lambda: test_hr_move_does_not_touch_a_live_sessions_own_record(Path(td) / 'hrmovelive'))
         run(lambda: test_hr_move_leaves_account_alone_when_liveness_cannot_be_read(Path(td) / 'hrmoveunknown'))

@@ -296,6 +296,8 @@ def apply(pid: str, con=None) -> tuple[bool, str]:
         return False, f"{pid} is not a proposal"
     if prop.get("state") == "applied":
         return False, f"proposal {pid} was already applied on {_when(prop.get('applied'))}"
+    if prop.get("state") == "withdrawn":
+        return False, f"proposal {pid} was withdrawn"
     own = con is None
     con = con or db.connect()
     try:
@@ -319,7 +321,7 @@ def apply(pid: str, con=None) -> tuple[bool, str]:
         if call != "approved":
             return False, (f"#{row['id']} was answered {(verdict or '').strip()[:60]!r}, "
                            f"which is not a decision. Ask the founder to answer "
-                           f"`approve` or `reject`.")
+                           f"`approve` or `reject`, or `ocp hr withdraw {pid}`.")
         doer = {"add": _add, "retire": _retire, "rename": _rename, "move": _move}[prop["kind"]]
         ok, said = doer(prop, con)
         if not ok:
@@ -332,6 +334,51 @@ def apply(pid: str, con=None) -> tuple[bool, str]:
     finally:
         if own:
             con.close()
+
+
+def withdraw(pid: str, me: str, con=None) -> tuple[bool, str]:
+    """The proposal's own author, or the founder, takes it back.
+
+    The way out of a proposal that will get no decision: an escalation closed
+    without approve or reject leaves `apply` refusing it and nothing else able
+    to end it. Anything still proposed can be withdrawn, an approved but
+    unapplied one included, and `apply` refuses a withdrawn one. A still-queued
+    escalation is closed with it and marked told: the proposer is not
+    messaged, whoever withdrew.
+    """
+    prop = load_proposal(pid)
+    if not prop:
+        return False, f"no proposal {pid}"
+    if me not in (prop.get("requested_by"), askmod.HUMAN):
+        return False, f"proposal {pid} is {prop.get('requested_by')}'s to withdraw, not yours"
+    if prop.get("state") != "proposed":
+        return False, f"proposal {pid} is already {prop.get('state')} - nothing to withdraw"
+    own = con is None
+    con = con or db.connect()
+    try:
+        # Marked withdrawn before the row is closed: `_would_strand_a_proposal`
+        # reads `is_open_proposal` off this same file, and this call is the
+        # one legitimate way to close the row with something other than
+        # approve or reject - so it must already read as no-longer-open by
+        # the time the close below runs, or the chokepoint refuses its own
+        # escape valve.
+        prop["state"] = "withdrawn"
+        save(prop)
+        if int(prop.get("request") or 0):
+            row = db.get_request(con, int(prop["request"]))
+            if row is not None and row["state"] == "queued":
+                db.close_if_queued(con, row["id"], "rejected", f"withdrawn by {me}",
+                                   announced=True)
+        return True, f"proposal {pid} withdrawn"
+    finally:
+        if own:
+            con.close()
+
+
+def is_open_proposal(rid: int) -> bool:
+    """Is request `rid` the escalation of a proposal still waiting on approve or reject?"""
+    return any(p.get("state") == "proposed" and int(p.get("request") or 0) == rid
+               for p in listing())
 
 
 def _when(ts) -> str:
