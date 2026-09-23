@@ -38,7 +38,7 @@ from . import (accounts, agents, ask as askmod, blocked, burnrate, collect, db, 
                fold as foldmod, handoff as handoffmod, launch, load, lock, measure,
                observe as obs, orca, paths, service, spawn as spawnmod, status, textsafe,
                tokenlog, triggers, trust, usage_api)
-from .yamlcompat import ConfigError, dump, load as load_yaml
+from .yamlcompat import ConfigError, dump
 
 # Section 8.2 states.
 IDLE, QUEUED, RUNNING, DONE = "IDLE", "QUEUED", "RUNNING", "DONE"
@@ -2751,20 +2751,15 @@ def poll_usage(con, log) -> None:
 DEV_MODE_KEY = "dev_mode"
 
 
-def _dev_config() -> dict:
-    try:
-        data = load_yaml(paths.config_file().read_text())
-    except (OSError, ConfigError):
-        return {}
-    return data if isinstance(data, dict) else {}
-
-
 def dev_mode_enabled() -> bool:
-    return bool(_dev_config().get(DEV_MODE_KEY))
+    return bool(load._config().get(DEV_MODE_KEY))
 
 
 def set_dev_mode(on: bool) -> None:
-    cfg = _dev_config()
+    # load._config()'s own read: same file `active_cap` writes to
+    # (load.set_cap), same failure if it fails to parse - not new risk here,
+    # just a second writer of it.
+    cfg = load._config()
     cfg[DEV_MODE_KEY] = bool(on)
     paths.config_file().write_text(dump(cfg))
 
@@ -2776,15 +2771,24 @@ def _watched_files(root: Path) -> list[Path]:
     files = sorted((root / "ocp").glob("*.py"))
     files.append(root / "bin" / "ocp")
     files.append(root / "requirements.txt")
-    return [f for f in files if f.exists()]
+    return files
 
 
 def _code_fingerprint(root: Path) -> tuple:
-    """mtime+size of every watched file - a stat() apiece, not a read, since
-    this runs every tick dev mode is on."""
-    return tuple(sorted(
-        (str(f.relative_to(root)), f.stat().st_mtime_ns, f.stat().st_size)
-        for f in _watched_files(root)))
+    """mtime+size of every watched file - one stat() apiece, not a read,
+    since this runs every tick dev mode is on. A file gone between listing
+    and stat()ing it - a merge in the main checkout unlinks and rewrites
+    files, and that is exactly when this runs - is left out of the
+    fingerprint rather than raised: still gone or written back by the next
+    tick, either way that tick's fingerprint differs from this one's."""
+    found = []
+    for f in _watched_files(root):
+        try:
+            st = f.stat()
+        except FileNotFoundError:
+            continue
+        found.append((str(f.relative_to(root)), st.st_mtime_ns, st.st_size))
+    return tuple(sorted(found))
 
 
 def _dev_import_check(log) -> bool:
@@ -2942,6 +2946,9 @@ def observe_burn(con, log) -> None:
 
 # ---------------------------------------------------------------- loop
 def run(once: bool = False, verbose: bool = True, max_ticks: int | None = None) -> int:
+    """`max_ticks` counts this process's own ticks. A dev-mode restart
+    (task #64) execs a fresh process, so a run that restarts mid-way starts
+    its count over at 0 and runs past `max_ticks` overall."""
     def log(msg: str) -> None:
         # Every line here can carry text an agent's own screen wrote - a
         # dialog's title among it - and this is stdout, tailed raw by whoever
@@ -2971,9 +2978,16 @@ def run(once: bool = False, verbose: bool = True, max_ticks: int | None = None) 
             log(f"daemon starting - already running{named}, exiting")
             return 1
         stopping = {"now": False}
+        # Separate from `stopping`: a restart also sets that flag to break
+        # the loop, and `signalled` is what tells the two apart afterward -
+        # a real SIGTERM/SIGINT must win over a restart whose 30s import
+        # check (bin/ocp --help, subprocess.run's own timeout) was still
+        # running when the signal arrived.
+        signalled = {"now": False}
 
         def stop(signum, _frame):
             stopping["now"] = True
+            signalled["now"] = True
             log(f"signal {signum} - stopping after this tick")
 
         for sig in (signal.SIGINT, signal.SIGTERM):
@@ -3002,9 +3016,21 @@ def run(once: bool = False, verbose: bool = True, max_ticks: int | None = None) 
                     service.rotate_logs()
                 except OSError as e:
                     log(f"log rotation failed: {e}")
-                if _dev_mode_should_restart(dev_state, log):
-                    stopping["now"] = True
-                    restarting = True
+                # Same reasoning as rotate_logs above: a tree mid-checkout
+                # (a merge in the main checkout unlinks and rewrites files
+                # while this is exactly what runs) must degrade dev mode,
+                # not the daemon.
+                try:
+                    should_restart = _dev_mode_should_restart(dev_state, log)
+                except Exception as e:  # noqa: BLE001
+                    log(f"dev-mode check failed: {e}")
+                    should_restart = False
+                if should_restart:
+                    if signalled["now"]:
+                        log("dev-mode: restart skipped - a stop signal arrived during the import check")
+                    else:
+                        stopping["now"] = True
+                        restarting = True
                 if once or (max_ticks and ticks >= max_ticks):
                     break
                 if not stopping["now"]:

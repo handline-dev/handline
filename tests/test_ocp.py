@@ -3917,6 +3917,65 @@ def test_dev_mode_restart_execs_after_the_lock_and_db_are_released(home: Path) -
         dmn._dev_mode_should_restart, dmn._dev_mode_restart = real_should, real_restart
 
 
+def test_dev_mode_check_failing_degrades_not_crashes(home: Path) -> None:
+    """auditor #2170 should-fix 1: `_dev_mode_should_restart` sits beside
+    `rotate_logs` in the loop, and must be guarded the same way - a file
+    gone between listing and stat()ing it (a merge in the main checkout is
+    exactly when this runs) must not end a daemon a human started by hand
+    the way an unguarded exception would."""
+    _daemon_home(home, 20)
+    real_should, real_sleep = dmn._dev_mode_should_restart, dmn.time.sleep
+
+    def raising_should(state, log):
+        raise RuntimeError("stub: vanished mid-stat")
+
+    dmn._dev_mode_should_restart = raising_should
+    dmn.time.sleep = lambda s: None  # two real ticks, not two real POLL_S waits
+    try:
+        out = _capture(lambda: check(
+            "dev-mode check failing: run() still exits cleanly, not with an exception",
+            dmn.run(once=False, verbose=True, max_ticks=2) == 0, ""))
+        check("dev-mode check failing: it ran both ticks it was asked for",
+              "stopped after 2 tick(s)" in out, out)
+        check("dev-mode check failing: it says why, not just that it failed",
+              "dev-mode check failed" in out and "vanished mid-stat" in out, out)
+    finally:
+        dmn._dev_mode_should_restart, dmn.time.sleep = real_should, real_sleep
+
+
+def test_dev_mode_restart_yields_to_a_signal_that_arrived_during_the_check(home: Path) -> None:
+    """auditor #2170 should-fix 2: `_dev_import_check` can run for up to 30s
+    (bin/ocp --help's own timeout). A real SIGTERM delivered to this process
+    while that stub stands in for it must still end the daemon - not be
+    overridden by the restart the check was in the middle of approving."""
+    _daemon_home(home, 20)
+    real_should, real_restart = dmn._dev_mode_should_restart, dmn._dev_mode_restart
+    restart_calls: list[bool] = []
+
+    def should_but_signal_first(state, log):
+        # Stands in for a signal landing mid-way through the real 30s
+        # subprocess call this replaces.
+        os.kill(os.getpid(), signal.SIGTERM)
+        return True
+
+    def fake_restart():
+        restart_calls.append(True)
+
+    dmn._dev_mode_should_restart, dmn._dev_mode_restart = should_but_signal_first, fake_restart
+    try:
+        out = _capture(lambda: check(
+            "dev-mode signal race: run() exits cleanly",
+            dmn.run(once=False, verbose=True, max_ticks=5) == 0, ""))
+        check("dev-mode signal race: it stopped at the signal, not at max_ticks",
+              "stopped after 1 tick(s)" in out, out)
+        check("dev-mode signal race: the restart it was approving never ran",
+              restart_calls == [], str(restart_calls))
+        check("dev-mode signal race: it says why the restart was skipped",
+              "restart skipped" in out, out)
+    finally:
+        dmn._dev_mode_should_restart, dmn._dev_mode_restart = real_should, real_restart
+
+
 def test_reconcile_still_propagates_a_fault_that_is_not_one_agents(home: Path) -> None:
     """The control for the guard above: a fault that belongs to reconcile()
     itself, not to any one agent's file, must still stop the daemon - a
@@ -28024,6 +28083,9 @@ def main() -> int:
             Path(td) / 'devmodefp_repo', Path(td) / 'devmodefp_home'))
         run(lambda: test_dev_mode_import_check_runs_the_real_entrypoint(Path(td) / 'devmodeimport'))
         run(lambda: test_dev_mode_restart_execs_after_the_lock_and_db_are_released(Path(td) / 'devmoderestart'))
+        run(lambda: test_dev_mode_check_failing_degrades_not_crashes(Path(td) / 'devmodedegrade'))
+        run(lambda: test_dev_mode_restart_yields_to_a_signal_that_arrived_during_the_check(
+            Path(td) / 'devmodesignalrace'))
         run(lambda: test_reconcile_still_propagates_a_fault_that_is_not_one_agents(Path(td) / 'reconsys'))
         run(lambda: test_reconcile_stalls_one_due_agents_unreadable_config_at_wake_too(Path(td) / 'reconwake'))
         run(lambda: test_daemon_handoff_timeout(Path(td) / 'd4'))
