@@ -39,6 +39,7 @@ from __future__ import annotations
 
 import subprocess
 import sys
+import time
 
 from rich.text import Text
 from textual import events
@@ -49,7 +50,7 @@ from textual.containers import Vertical, VerticalScroll
 from textual.message import Message
 from textual.widgets import DataTable, Footer, Input, Static, TabbedContent, TabPane, TextArea
 
-from . import accounts, actions, db, jobs as jobsmod, load as loadmod, orca, textsafe, tui
+from . import accounts, actions, db, jobs as jobsmod, load as loadmod, orca, status, textsafe, tui
 
 # Textual hands a key event as a symbolic name (`event.key`) plus, for a
 # printable one, the character itself (`event.character`). tui.py's own key
@@ -84,6 +85,29 @@ def key_token(event: events.Key) -> str | None:
 
 
 _LEVEL_COLOR = {"normal": tui.DIM, "slow": tui.YEL, "danger": tui.RED}
+_LEVEL_STYLE = {"normal": "dim", "slow": "yellow", "danger": "red"}
+
+
+def _header_text(head: tui.HeaderData) -> Text:
+    """The bar and, under it, what is stopped until the founder acts."""
+    out = Text()
+    out.append("ocp", "bold")
+    out.append(" · daemon ", "dim")
+    out.append(*(("running", "green") if head.running else ("NOT RUNNING", "red")))
+    out.append(f" · {head.clock}", "dim")
+    if head.legend:
+        out.append(f" · {status.SOURCE_LEGEND_SHORT}", "dim")
+    if head.waits:
+        now = time.time()
+        out.append(f"\n{tui.WAITING_ON_YOU}", "bold red")
+        out.append(f" ({len(head.waits)})", "dim")
+        shown = head.waits if len(head.waits) <= tui.WAITS_SHOWN + 1 else head.waits[:tui.WAITS_SHOWN]
+        for w in shown:
+            out.append(f"\n  {textsafe.oneline(w['who'])} · {textsafe.oneline(w['what'])} · "
+                       f"{tui.age(now - w['since'])}", "red" if w["red"] else "yellow")
+        if len(shown) < len(head.waits):
+            out.append(f"\n  … {len(head.waits) - len(shown)} more", "dim")
+    return out
 
 
 def _job_lines_ansi(jobs: jobsmod.Jobs, width: int) -> list[str]:
@@ -332,25 +356,34 @@ class Dashboard(JobsAware, Screen):
         self._redraw()
 
     def _redraw(self) -> None:
-        size = self.size
-        width, height = max(20, size.width), max(6, size.height)
-        header, _, footer_keys = tui.build(width, self.sel, self.panel,
-                                                wait_budget=height - 4 - tui.PANEL_MIN)
-        self.query_one("#header", Static).update(Text.from_ansi("\n".join(header)))
+        con = db.connect()
+        try:
+            head = tui.header_data(con)
+            target = self.sel.get(self.panel)
+            agent_keys = (tui.agent_footer_keys(con, str(target) if target is not None else None)
+                          if self.panel in (tui.AGENTS, tui.STUCK) else None)
+        finally:
+            con.close()
+        self.query_one("#header", Static).update(_header_text(head))
         self._draw_accounts()
         self._draw_agents()
         self._draw_messages()
         self._draw_stuck()
-        # task #72: `b` is a Textual-only global (tui.py's shared keybar
-        # doesn't know it), so the hint is appended here rather than in tui.keybar.
-        keys = tui.keybar(self.panel, width, 0, footer_keys)
-        hint = f" {tui.DIM}·{tui.R} {tui.BOLD}b{tui.R} {tui.DIM}checks{tui.R}"
-        if tui.vlen(keys + hint) <= width:
-            keys += hint
-        foot = _job_lines_ansi(self.jobs, width)
-        foot.append(tui.fit(self.flash, width) if self.flash else "")
-        foot.append(keys)
-        self.query_one("#foot", Static).update(Text.from_ansi("\n".join(foot)))
+        foot = Text()
+        for jl in self.jobs.lines():
+            foot.append(jl.text + "\n", _LEVEL_STYLE.get(jl.level, ""))
+        if self.flash:
+            foot.append(textsafe.oneline(self.flash) + "\n")
+        foot.append(f"{tui.PANEL_NAME[self.panel]}: ", "dim")
+        for i, (k, label) in enumerate(tui.panel_keys(self.panel, agent_keys)):
+            foot.append(" · " if i else "", "dim")
+            foot.append(k, "bold")
+            foot.append(f" {label}", "dim")
+        # task #72: `b` is a Textual-only global, so its hint is appended here.
+        foot.append(" · ←→ panel ↑↓ row · q quit · ", "dim")
+        foot.append("b", "bold")
+        foot.append(" checks", "dim")
+        self.query_one("#foot", Static).update(foot)
 
     def _draw_accounts(self) -> None:
         con = db.connect()

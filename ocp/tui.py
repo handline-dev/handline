@@ -594,6 +594,34 @@ def stuck_data(con) -> tuple[str, list[StuckRow]]:
     return ("STUCK" if blocked else "STUCK — nothing is waiting on anything"), rows
 
 
+class HeaderData(NamedTuple):
+    running: bool         # whether the daemon is running: whether anything here happens on its own
+    clock: str
+    legend: bool          # whether a mark the legend explains is on the screen
+    waits: list[dict]     # what is stopped until the founder acts, most urgent first
+
+
+def header_data(con) -> HeaderData:
+    """What the bar above the panels shows. The legend explains three marks and
+    earns its place only when one of them is on the screen."""
+    marks = set()
+    for a in paths.list_accounts():
+        st_ = status.read(a)
+        marks |= {status.mark(st_.pct_5h_source), status.mark(st_.pct_7d_source)}
+    return HeaderData(daemon.running_elsewhere(), time.strftime("%H:%M:%S"),
+                      any(m.strip() for m in marks), actions.founder_waits(con))
+
+
+def panel_keys(panel: int, agent_keys: list[tuple[str, str]] | None = None) -> list[tuple[str, str]]:
+    """The keys a panel answers to, as (key, label). `agent_keys` is
+    `agent_footer_keys` for the row under the cursor on AGENTS or STUCK, with a
+    `?` for the keys that filtering never shows at all (fold, move)."""
+    if agent_keys is not None:
+        return agent_keys + [("?", "help")]
+    return {ACCOUNTS: ACCOUNT_KEYS, AGENTS: AGENT_KEYS, MESSAGES: MESSAGE_KEYS,
+            STUCK: STUCK_KEYS}[panel]
+
+
 def pct(v: int | None) -> str:
     return "  ?" if v is None else f"{v:>3}"
 
