@@ -126,28 +126,28 @@ class Opencode:
             return None
         out: list[int | None] = [None, None, None, None]
         corrupt = False
-        # A reset is a plausible instant, not just a finite number: never
-        # further out than eight days - the longest cycle is weekly - and a
-        # minute into the past is still a window that rolled in flight. 40
-        # nines reads as a figure here and overflows the first clock that
-        # formats it downstream, so outside the window it is corrupt, like
-        # NaN.
-        reset_lo = time.time() * 1000 - 60_000
+        # A reset must never reach further out than eight days - the longest
+        # cycle is weekly, and 40 nines reads as a figure here while the first
+        # clock to format it downstream would overflow. A reset already past
+        # is not corrupt and not pending: an account idle since its window
+        # rolled reports that roll, and it reads as no reset, the same way
+        # claude's own endpoint reads a rolled-over window - a quiet account
+        # is never could-not-look on account of it.
         reset_hi = time.time() * 1000 + 8 * 24 * 3600 * 1000
+        reset_past = time.time() * 1000 - 60_000
 
-        def figure(v, lo=None, hi=None):
+        def figure(v, hi=None):
             """The number as ocp can use it, or None. Python's json reads NaN,
             Infinity and 1e400 as floats, and converting one raises outside
             any try here - a daemon-killer from a body that named no usable
-            figure. A value that is present but not a finite number inside
-            [lo, hi] is not a figure, and it marks the answer, not just its
+            figure. A value that is present but not a finite number, or one
+            past hi, is not a figure, and it marks the answer, not just its
             window."""
             nonlocal corrupt
             if v is None:
                 return None
             if not (isinstance(v, (int, float)) and not isinstance(v, bool)
-                    and math.isfinite(v)) or not (lo is None or v >= lo) \
-                    or not (hi is None or v <= hi):
+                    and math.isfinite(v)) or (hi is not None and v > hi):
                 corrupt = True
                 return None
             return v
@@ -160,7 +160,9 @@ class Opencode:
                 continue
             i = 0 if unit == self.FIVE_HOUR_UNIT else 2
             pct = figure(row.get("percentage"))
-            reset = figure(row.get("nextResetTime"), reset_lo, reset_hi)
+            reset = figure(row.get("nextResetTime"), hi=reset_hi)
+            if reset is not None and reset < reset_past:
+                reset = None
             if pct is not None:
                 out[i] = max(0, min(100, int(pct)))
             if reset is not None:

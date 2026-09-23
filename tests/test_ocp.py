@@ -24386,16 +24386,20 @@ def test_usage_api_reads_a_window_nothing_has_been_spent_in() -> None:
 
 # The endpoint's answer, measured live on the founder's own plan (task #42,
 # 2026-09-23): two CREDIT_LIMIT rows, unit 3 the 5-hour window and unit 6 the
-# weekly one, percentage already floor-rounded, nextResetTime in epoch ms.
-ZAI_QUOTA = {
-    "code": 200, "success": True, "msg": "Operation successful",
-    "data": {"level": "lite", "limits": [
-        {"type": "CREDIT_LIMIT", "unit": 3, "number": 5, "usage": 2000,
-         "currentValue": 271, "remaining": 1728, "percentage": 13,
-         "nextResetTime": 1790142946743},
-        {"type": "CREDIT_LIMIT", "unit": 6, "number": 1, "usage": 10000,
-         "currentValue": 271, "remaining": 9728, "percentage": 2,
-         "nextResetTime": 1790688600981}]}}
+# weekly one, nextResetTime in epoch ms. The instants are built from the clock
+# at test time: usage_reading bounds a plausible reset against the live clock,
+# so a fixture set to fixed instants ages out of it and the suite goes red for
+# everyone a day later (#2054).
+def zai_quota(now_ms: int) -> dict:
+    return {
+        "code": 200, "success": True, "msg": "Operation successful",
+        "data": {"level": "lite", "limits": [
+            {"type": "CREDIT_LIMIT", "unit": 3, "number": 5, "usage": 2000,
+             "currentValue": 271, "remaining": 1728, "percentage": 13,
+             "nextResetTime": now_ms + 3_600_000},
+            {"type": "CREDIT_LIMIT", "unit": 6, "number": 1, "usage": 10000,
+             "currentValue": 271, "remaining": 9728, "percentage": 2,
+             "nextResetTime": now_ms + 6 * 24 * 3600 * 1000}]}}
 
 
 def test_the_zai_meter_reads_the_plan_and_hides_its_key(home: Path) -> None:
@@ -24419,7 +24423,9 @@ def test_the_zai_meter_reads_the_plan_and_hides_its_key(home: Path) -> None:
     drv.binary = lambda: "/x/bin/opencode"
     drv.credential_present = lambda config_dir: True
     asked: list[str] = []
-    body = {"raw": json.dumps(ZAI_QUOTA).encode()}
+    now_ms = time.time() * 1000
+    reset5_ms, reset7_ms = now_ms + 3_600_000, now_ms + 6 * 24 * 3600 * 1000
+    body = {"raw": json.dumps(zai_quota(now_ms)).encode()}
 
     def fake_open(req, timeout=None):
         asked.append(req.headers.get("Authorization"))
@@ -24445,9 +24451,11 @@ def test_the_zai_meter_reads_the_plan_and_hides_its_key(home: Path) -> None:
 
         r = usage_api.read("zai", refresh=False)
         check("zai meter: the 5-hour window reads pct and reset",
-              r is not None and r.pct_5h == 13 and r.reset_5h == 1790142946, repr(r))
+              r is not None and r.pct_5h == 13
+              and r.reset_5h == reset5_ms // 1000, repr(r))
         check("zai meter: the weekly window reads pct and reset",
-              r is not None and r.pct_7d == 2 and r.reset_7d == 1790688600, repr(r))
+              r is not None and r.pct_7d == 2
+              and r.reset_7d == reset7_ms // 1000, repr(r))
         check("zai meter: the endpoint was asked with the credential, once",
               asked == ["Bearer SECRET-ZAI-KEY"], str(asked))
 
@@ -24473,7 +24481,8 @@ def test_the_zai_meter_reads_the_plan_and_hides_its_key(home: Path) -> None:
         check("zai meter: no 5-hour figure is could-not-look, not a weekly-only reading",
               usage_api.read("zai", refresh=False) is None)
         body["raw"] = json.dumps({"code": 200, "success": True, "data": {"limits": [
-            {"type": "CREDIT_LIMIT", "unit": 3, "percentage": 87.5, "nextResetTime": 1790142946743},
+            {"type": "CREDIT_LIMIT", "unit": 3, "percentage": 87.5,
+             "nextResetTime": reset5_ms},
             {"type": "CREDIT_LIMIT", "unit": 6, "percentage": 2.9}]}
         }).encode()
         r = usage_api.read("zai", refresh=False)
@@ -24503,10 +24512,17 @@ def test_the_zai_meter_reads_the_plan_and_hides_its_key(home: Path) -> None:
                       b'"nextResetTime": 9999999999999999999999999999999999999}]}}'
         check("zai meter: a reset outside any sane window is could-not-look, not a time bomb",
               usage_api.read("zai", refresh=False) is None)
+        body["raw"] = json.dumps({"code": 200, "success": True, "data": {"limits": [
+            {"type": "CREDIT_LIMIT", "unit": 3, "percentage": 87,
+             "nextResetTime": now_ms - 90_000}]}}
+        ).encode()
+        r = usage_api.read("zai", refresh=False)
+        check("zai meter: a reset already past is no pending reset, not a corrupt answer",
+              r is not None and r.pct_5h == 87 and r.reset_5h is None, repr(r))
         body["raw"] = http.client.IncompleteRead(b"x", 10)
         check("zai meter: a body cut off mid-read is could-not-look, not a crash",
               usage_api.read("zai", refresh=False) is None)
-        body["raw"] = json.dumps(ZAI_QUOTA).encode()
+        body["raw"] = json.dumps(zai_quota(now_ms)).encode()
 
         real_live = obsmod.live_sessions
         obsmod.live_sessions = lambda: {}
@@ -24558,7 +24574,7 @@ def test_the_quota_request_never_follows_a_redirect(home: Path) -> None:
                 self.send_response(200)
                 self.send_header("Content-Type", "application/json")
                 self.end_headers()
-                self.wfile.write(json.dumps(ZAI_QUOTA).encode())
+                self.wfile.write(json.dumps(zai_quota(time.time() * 1000)).encode())
             else:
                 self.send_response(301)
                 self.send_header("Location", f"/elsewhere?from={self.path}")
