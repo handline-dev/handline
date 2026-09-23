@@ -85,7 +85,7 @@ def ingest(con, acct: str, budget: int = BYTES_PER_TICK, now: int | None = None)
         root = vendors.for_account(acct).memory_root(vendors.config_dir(acct))
     except vendors.UnknownVendor:
         return 0
-    if not root.is_dir():
+    if root is None or not root.is_dir():
         return 0
     try:
         offsets = json.loads(db.get_meta(con, _OFFSETS + acct) or "{}")

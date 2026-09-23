@@ -202,6 +202,23 @@ Also measured: this account's usable models are `gpt-5.6-terra`,
 `gpt-5.6-luna`, `gpt-5.5`; the configured `gpt-5.6-sol` is refused on a
 ChatGPT account, so `launch_argv` must not inherit `config.toml`'s default.
 
+### 4.3 opencode - measured on 1.18.32 (`ocp/vendors/opencode.py`)
+
+| method | answer | |
+|---|---|---|
+| `binary` | `opencode` | ✅ |
+| `config_dir_env` | `XDG_DATA_HOME`, pointed at `<account>/xdg-data`; opencode keeps auth.json, its db and logs under `opencode/` inside it. `OPENCODE_CONFIG_DIR` moves nothing. Config and state stay shared | ✅ #1751 |
+| `is_session` | the command line starts with the binary, then an option or nothing; `run`, `serve`, `auth` and the rest are not sessions | ✅ `ps` of a live TUI |
+| `meters` | false: the db tallies spend, nothing says what is left | ✅ docs/vendor-extension-board §12.4 |
+| `is_resume` | `-s`/`--session`, `-c`/`--continue` | ✅ `--help` |
+| `launch_argv` | `-m provider/model` only. The TUI has no flag for effort, tool denial, MCP config or a system prompt | ⚠ live-session step |
+| `credential_present` | `opencode auth list` counts more than 0 credentials. The file alone does not answer: a logout leaves `{}` | ✅ |
+| `login/logout_argv` | `opencode auth login` / `logout`, each asking which provider | ✅ |
+| `identity`, `subscription_type` | none: a credential is per provider and names no account | ✅ |
+| `shared_items` / `never_touch` | `[]` / `{"opencode"}` | |
+| `memory_root` | none: no per-repo memory, and sessions are db rows, not transcript files | ✅ |
+| `clear/exit_command`, `read_dialog`, preamble, tool denial | not built | ✗ live-session step |
+
 ## 5. The collector's output contract - the part that matters most
 
 Two collectors, one schema. This is D2's reshape and it is what makes the
@@ -306,5 +323,6 @@ would raise. (#1691)
 
 - `read_dialog` for codex: needs a live TUI and a screen read.
 - Whether codex's `/new` re-reads the preamble file (D10's residue).
-- opencode: tier 2 in Orca (D7), but none of §4.2's answers are known for it.
+- opencode's live session: the preamble, tool denial, `/new` and `/exit`, and
+  Orca's idle reading (§4.3's ✗ and ⚠ rows).
 - Whether `identity` has a codex command, or must be read from `auth.json`.

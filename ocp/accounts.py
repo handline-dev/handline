@@ -315,7 +315,7 @@ def migrate_memory(from_acct: str, to_acct: str, project: str | None = None) -> 
     if vendors.account_vendor(to_acct) != drv.name:
         return []
     src_root = drv.memory_root(vendors.config_dir(from_acct))
-    if not src_root.is_dir():
+    if src_root is None or not src_root.is_dir():
         return []
     project_dirs = [src_root / project] if project else sorted(src_root.iterdir())
     carried = []

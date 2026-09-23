@@ -7729,7 +7729,8 @@ class SecondVendor:
     a literal left behind, or an account handed to the wrong kind of agent -
     both read the same as the right answer until a second vendor exists. Every
     answer differs from claude's. `logged_in` and `metered` are what the
-    account-picking tests flip."""
+    account-picking tests flip. Its binary is no real driver's either: a
+    command line both claimed would not show which of them answered."""
     name = "zai"
     min_version = (0,)
     config_dir_name = ".zai"
@@ -7738,14 +7739,14 @@ class SecondVendor:
         self.logged_in, self.metered = logged_in, metered
 
     def binary(self):
-        return "/opt/zai/bin/opencode"
+        return "/opt/zai/bin/glmcode"
     def config_dir_env(self):
         return "ZAI_HOME"
     def is_session(self, command):
         # Its own binary, and its own spelling of headless - neither word
         # appears in claude's answer, so a check that still carries claude's
         # literals answers no to every line below.
-        if "opencode" not in command:
+        if "glmcode" not in command:
             return False
         return " run " not in command and not command.endswith(" run")
     def meters(self):
@@ -7757,9 +7758,9 @@ class SecondVendor:
     def credential_present(self, config_dir):
         return self.logged_in
     def login_argv(self):
-        return ["opencode", "login"]
+        return ["glmcode", "login"]
     def logout_argv(self):
-        return ["opencode", "logout"]
+        return ["glmcode", "logout"]
     def identity(self, env):
         return None
     def subscription_type(self, env):
@@ -7891,17 +7892,17 @@ def test_a_second_vendors_live_session_is_seen_by_the_sweep(home: Path) -> None:
     _daemon_home(home, 20)
     with second_vendor(metered=True):
         check("is_session: a second vendor's own binary is a session",
-              obsmod.is_session("/opt/zai/bin/opencode --model glm-4.6"))
+              obsmod.is_session("/opt/zai/bin/glmcode --model glm-4.6"))
         check("is_session: claude's still is",
               obsmod.is_session("/usr/local/bin/claude --resume abc123"))
         check("is_session: the second vendor's own spelling of headless is not",
-              not obsmod.is_session("/opt/zai/bin/opencode run 'fold it'"))
+              not obsmod.is_session("/opt/zai/bin/glmcode run 'fold it'"))
         check("is_session: nor is claude's",
               not obsmod.is_session("/usr/local/bin/claude -p 'fold it'"))
         check("is_session: and nothing of ours is not a session either",
               not obsmod.is_session("/usr/bin/ssh somewhere"))
     check("is_session: with that driver gone its command line is not a session",
-          not obsmod.is_session("/opt/zai/bin/opencode --model glm-4.6"))
+          not obsmod.is_session("/opt/zai/bin/glmcode --model glm-4.6"))
 
     # And the invariant the miss actually broke: the daemon's own record of a
     # running agent. Real `live_sessions`, over a process table we supply.
@@ -7919,7 +7920,7 @@ def test_a_second_vendors_live_session_is_seen_by_the_sweep(home: Path) -> None:
             try:
                 db.set_terminal(con, "glm", "term_z", "wt")
                 db.set_agent_state(con, "glm", dmn.RUNNING, detail="working")
-                table = [(4301, "/opt/zai/bin/opencode --model glm-4.6")]
+                table = [(4301, "/opt/zai/bin/glmcode --model glm-4.6")]
                 obsmod.process_table = lambda: list(table)
                 obsmod.process_env = lambda pid: f"OCP_AGENT={'glm' if pid == 4301 else 'x'}"
                 check("vendor sweep: the premise - its pid is found",
@@ -8067,7 +8068,7 @@ def test_an_unmetered_account_is_pinned_never_picked_or_polled(home: Path) -> No
                   launch.find_room("glm") == "zeta", str(launch.find_room("glm")))
             argv, env = launch.build("glm")
             check("unmetered: and launches as its own vendor, into its own config dir",
-                  argv[0] == "/opt/zai/bin/opencode"
+                  argv[0] == "/opt/zai/bin/glmcode"
                   and env.get("ZAI_HOME") == str(vendors.config_dir("zeta")),
                   str((argv[:1], env.get("ZAI_HOME"))))
 
@@ -8180,6 +8181,129 @@ def test_an_account_records_its_vendor(home: Path) -> None:
               not accounts.logged_in("zeta") and status.pick_account(["zeta"], bootstrap=True)[0] is None)
 
 
+# `opencode auth list`'s whole output, measured on 1.18.32 with stdout a pipe.
+def _auth_list_out(n: int) -> str:
+    return (f"\x1b[0m\n\u250c  Credentials \x1b[90m/x/opencode/auth.json\n\u2502\n"
+            f"\u2514  {n} credentials\n\n")
+
+
+def test_the_opencode_driver(home: Path) -> None:
+    """The opencode driver's answers, each from what 1.18.32 was measured to
+    do (design/03 §4.3). Nothing here runs opencode: `auth list` is replaced
+    by its measured output and the binary by a path."""
+    os.environ["OCP_HOME"] = str(home)
+    drv = vendors.get("opencode")
+    drv.binary = lambda: "/x/bin/opencode"
+    runs: list[tuple[list, dict]] = []
+    listed = {"out": _auth_list_out(1)}
+
+    def fake_run(argv, **kw):
+        runs.append((argv, kw.get("env") or {}))
+        if isinstance(listed["out"], Exception):
+            raise listed["out"]
+        return subprocess.CompletedProcess(argv, 0, listed["out"], "")
+
+    real_run = subprocess.run
+    try:
+        accounts.register("alpha")
+        accounts.register("zai", vendor="opencode")
+        cdir = vendors.config_dir("zai")
+        check("opencode: its account's directory is XDG_DATA_HOME's, made at register",
+              cdir == paths.account_dir("zai") / "xdg-data" and cdir.is_dir(), str(cdir))
+        env = accounts.env_for("zai")
+        check("opencode: a session's environment names it in XDG_DATA_HOME",
+              env.get("XDG_DATA_HOME") == str(cdir) and "CLAUDE_CONFIG_DIR" not in env,
+              str(env.get("XDG_DATA_HOME")))
+        check("opencode: the login a human is handed is opencode's, under that directory",
+              accounts.login_command("zai") == f'XDG_DATA_HOME="{cdir}" opencode auth login',
+              accounts.login_command("zai"))
+        check("opencode: the account is unmetered", status.read("zai").unmetered)
+
+        # Logged in: the file first, then opencode's own count.
+        subprocess.run = fake_run
+        check("opencode: no auth.json is not logged in, and opencode is not asked",
+              not accounts.logged_in("zai") and runs == [], str(runs))
+        (cdir / "opencode").mkdir()
+        (cdir / "opencode" / "auth.json").write_text("{}")
+        check("opencode: one credential counted is logged in",
+              accounts.logged_in("zai"), str(runs))
+        check("opencode: and the count was asked of this account's directory",
+              runs and runs[-1][0] == ["/x/bin/opencode", "auth", "list"]
+              and runs[-1][1].get("XDG_DATA_HOME") == str(cdir), str(runs[-1:]))
+        listed["out"] = _auth_list_out(0)
+        check("opencode: the auth.json a logout leaves behind is not logged in",
+              not accounts.logged_in("zai"))
+        listed["out"] = subprocess.TimeoutExpired(["opencode"], 20)
+        check("opencode: nor is one opencode cannot answer for",
+              not accounts.logged_in("zai"))
+        listed["out"] = _auth_list_out(1)
+
+        # A session: the TUI's own command line, as `ps` shows it.
+        tui = "/Users/ron/.opencode/bin/opencode -m zai-coding-plan/glm-5.2"
+        for line, want in ((tui, True),
+                           ("opencode", True),
+                           ("/Users/ron/.opencode/bin/opencode -m m -s ses_1", True),
+                           ("/Users/ron/.opencode/bin/opencode run fix it", False),
+                           ("/Users/ron/.opencode/bin/opencode auth list", False),
+                           ("/Users/ron/.opencode/bin/opencode serve", False),
+                           (f"script -q /dev/null {tui}", False),
+                           ("/usr/local/bin/claude --append-system-prompt see "
+                            f"{tui}", False),
+                           ("/opt/x/myopencode -m m", False)):
+            check(f"opencode: is_session({line[:48]!r}) is {want}",
+                  drv.is_session(line) is want)
+        check("opencode: claude does not claim the TUI's line either",
+              not vendors.get("claude").is_session(tui))
+
+        for extra, want in ((["-s", "ses_1"], True), (["--session", "ses_1"], True),
+                            (["--session=ses_1"], True), (["-c"], True),
+                            (["--continue"], True), (["--fork"], False),
+                            (["-m", "x"], False), (None, False)):
+            check(f"opencode: is_resume({extra}) is {want}", drv.is_resume(extra) is want)
+
+        agents.register("glm", "zai", model="zai-coding-plan/glm-5.2")
+        _with_vendor("glm", "opencode")
+        argv, env = launch.build("glm")
+        check("opencode: a launch is the TUI with its model and nothing ocp cannot "
+              "express in its argv",
+              argv == ["/x/bin/opencode", "-m", "zai-coding-plan/glm-5.2"], str(argv))
+        check("opencode: into the account's own data directory",
+              env.get("XDG_DATA_HOME") == str(cdir) and env.get("OCP_AGENT") == "glm",
+              str(env.get("XDG_DATA_HOME")))
+        check("opencode: no model configured leaves the choice to opencode",
+              drv.launch_argv("/x/bin/opencode", None, "high", "Agent", ["--mcp-config", "m"],
+                              "a preamble") == ["/x/bin/opencode"])
+
+        # No memory root: everything that walks one finds nothing on this
+        # account, and still finds claude's.
+        accounts.register("zai2", vendor="opencode")
+        mem = paths.account_dir("alpha") / ".claude" / "projects" / "-tmp-a-b"
+        (mem / "memory").mkdir(parents=True)
+        (mem / "sess1.jsonl").write_text(_call_line("req_alpha", 10))
+        check("opencode: memory moves between two of its accounts carry nothing",
+              accounts.migrate_memory("zai", "zai2") == [])
+        check("opencode: a transcript is still found on claude's account past it",
+              handoffmod.find_transcript("sess1", "zai") == mem / "sess1.jsonl",
+              str(handoffmod.find_transcript("sess1", "zai")))
+        found = collect.locate("/tmp/a/b")
+        check("opencode: and the collector's search passes over it to claude's",
+              found is not None and found.account == "alpha", str(found))
+        check("opencode: a worktree move renames only claude's directory",
+              rehome._project_dirs(Path("/tmp/a/b"), Path("/tmp/c"))
+              == [(mem, mem.parent / "-tmp-c")],
+              str(rehome._project_dirs(Path("/tmp/a/b"), Path("/tmp/c"))))
+        from ocp import tokenlog
+        con = db.connect()
+        try:
+            check("opencode: the token log reads nothing for it",
+                  tokenlog.ingest(con, "zai") == 0)
+        finally:
+            con.close()
+    finally:
+        subprocess.run = real_run
+        del drv.binary
+
+
 def test_doctor_looks_for_the_vendors_executable_not_its_name(home: Path) -> None:
     """auditor's #1691: the tool check asks the driver for its executable. A
     vendor is not named after its binary (Z.ai runs through opencode), so a
@@ -8191,7 +8315,7 @@ def test_doctor_looks_for_the_vendors_executable_not_its_name(home: Path) -> Non
         doctor._check_tools(r)
         row = [x for x in r.rows if x[1].startswith("zai")]
         check("doctor: a vendor whose binary is installed is found, under the vendor's name",
-              row and row[0][0] == doctor.OK and row[0][2] == "/opt/zai/bin/opencode", str(r.rows))
+              row and row[0][0] == doctor.OK and row[0][2] == "/opt/zai/bin/glmcode", str(r.rows))
 
 
 def test_the_config_dir_and_its_layout_are_the_drivers_answers(home: Path) -> None:
@@ -8218,7 +8342,7 @@ def test_the_config_dir_and_its_layout_are_the_drivers_answers(home: Path) -> No
             check("accounts: and drops another vendor's variable inherited from the caller",
                   "CLAUDE_CONFIG_DIR" not in env, env.get("CLAUDE_CONFIG_DIR", ""))
             check("accounts: the login command is the driver's, with its variable",
-                  accounts.login_command("gamma") == f'ZAI_HOME="{cdir}" opencode login',
+                  accounts.login_command("gamma") == f'ZAI_HOME="{cdir}" glmcode login',
                   accounts.login_command("gamma"))
 
             # account_of_process: every vendor's variable is asked; the layout
@@ -8293,7 +8417,7 @@ def test_the_config_dir_and_its_layout_are_the_drivers_answers(home: Path) -> No
                 orcamod.create_terminal = real_ct
             check("actions: the trust command sets the driver's config-dir variable",
                   made and "ZAI_HOME=" in made[0] and "CLAUDE_CONFIG_DIR" not in made[0]
-                  and made[0].endswith(" /opt/zai/bin/opencode"), str(made))
+                  and made[0].endswith(" /opt/zai/bin/glmcode"), str(made))
 
             # And the name doctor prints, so its reader is told which variable to
             # go and set rather than claude's.
@@ -25261,6 +25385,7 @@ def main() -> int:
         run(lambda: test_an_account_records_its_vendor(Path(td) / 'vendorrecord'))
         run(lambda: test_the_config_dir_and_its_layout_are_the_drivers_answers(
             Path(td) / 'vendorcfg'))
+        run(lambda: test_the_opencode_driver(Path(td) / 'opencode'))
         run(lambda: test_launch_refuses_stale(Path(td) / 'stale'))
         run(lambda: test_shared_account_context_isolation(Path(td) / 'shared'))
         run(lambda: test_db_dedup_only_swallows_dedup(Path(td) / 'strict'))

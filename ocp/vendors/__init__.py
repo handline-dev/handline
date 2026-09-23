@@ -7,8 +7,9 @@ from pathlib import Path
 from .. import agents, paths
 from .base import Driver
 from .claude import Claude
+from .opencode import Opencode
 
-_REGISTRY: dict[str, Driver] = {d.name: d for d in (Claude(),)}
+_REGISTRY: dict[str, Driver] = {d.name: d for d in (Claude(), Opencode())}
 
 
 class UnknownVendor(ValueError):

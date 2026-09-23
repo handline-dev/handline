@@ -66,8 +66,9 @@ class Driver(Protocol):
         """Names inside an account's config dir ocp never creates, links,
         reads or copies - the vendor's own credential and machine state."""
 
-    def memory_root(self, config_dir: Path) -> Path:
-        """The folder holding one directory per repo, each with a memory/."""
+    def memory_root(self, config_dir: Path) -> Path | None:
+        """The folder holding one directory per repo, each with a memory/ and
+        the repo's session transcripts. None for a vendor that keeps neither."""
 
     def memory_project_dir(self, repo: str) -> str:
         """The name of `repo`'s directory under `memory_root`."""
