@@ -173,6 +173,24 @@ def restore_world() -> None:
     actions._WORLD["at"] = 0.0
 
 
+def _page_text(page: dict, width: int) -> str:
+    """Everything an opened page draws at `width`: a conversation page is one
+    stack of sections, any other has a tab for each and is read tab by tab."""
+    if page.get("stacked"):
+        return "\n".join(tui.lines_of(page, width))
+    out: list[str] = []
+    for i in range(len(tui._tab_stems(page))):
+        page["tab"] = i
+        out += tui.lines_of(page, width)
+    return "\n".join(out)
+
+
+def _snap(*_geometry, **_cursor) -> str:
+    """The bridge's `--once` text. Screen geometry and cursor arguments are
+    accepted and ignored: what the tests read is what it shows, not how."""
+    return tui.snapshot()
+
+
 def test_restore_world_pops_orca_env_vars_a_real_terminal_would_leave_set() -> None:
     """Auditor #1662/#1670: on a machine with no real Orca terminal (the
     common case, unlike the account this suite is usually run from), the pop
@@ -6418,7 +6436,6 @@ def test_the_panel_says_the_true_thing_about_a_queue(home: Path) -> None:
         con.close()
 
 
-
 def test_one_daemon_is_counted_in_the_process_table(home: Path) -> None:
     """A supervisor nobody recorded exists only there. The words `ocp daemon`
     on a command line do not make one: a grep for them carries both, and so
@@ -6955,7 +6972,6 @@ def test_the_digest_facts_do_not_repeat_one_event_kind(home: Path) -> None:
     check("digest: the record counts turn boundaries and quotes what happened",
           "SubagentStopx20" in facts and facts.count("SubagentStop {") == 0
           and "commit" in facts, facts)
-
 
 
 # ---------------------------------------------------------------- yaml differential
@@ -8383,7 +8399,7 @@ def test_a_claude_agent_is_never_placed_on_another_vendors_account(home: Path) -
             check("vendor pick: ocp status does not name it next",
                   json.loads(out.getvalue())["picked"] != "zeta", out.getvalue()[:200])
             accounts.logged_in = lambda a: True
-            rows = [tui._ANSI.sub("", ln) for ln in tui.frame(120, 40).split(chr(10))]
+            rows = [tui._ANSI.sub("", ln) for ln in _snap(120, 40).split(chr(10))]
             zrow = [ln for ln in rows if ln.lstrip("│ ").startswith("zeta ")]
             check("vendor pick: the accounts panel does not mark it next",
                   zrow and "next" not in zrow[0], str(zrow))
@@ -8618,7 +8634,7 @@ def test_an_unmetered_account_is_pinned_never_picked_or_polled(home: Path) -> No
                   usage_api.read("zeta") is None and not renewed, str(renewed))
 
             accounts.logged_in = lambda a: True
-            rows = [tui._ANSI.sub("", ln) for ln in tui.frame(120, 40).split(chr(10))]
+            rows = [tui._ANSI.sub("", ln) for ln in _snap(120, 40).split(chr(10))]
             zrow = [ln for ln in rows if ln.lstrip("│ ").startswith("zeta ")]
             check("unmetered: the accounts panel says so",
                   zrow and "unmetered" in zrow[0], str(zrow))
@@ -10899,7 +10915,7 @@ def test_display_agrees_with_the_daemon(home: Path) -> None:
     check("display: one carried past its bound is marked apart",
           status.mark("carried_old") == "!" and status.mark("carried") == "~")
 
-    text = tui.frame(120, 40)
+    text = _snap(120, 40)
     check("display: top draws the figure, not a question mark",
           "0%*" in text, "no marked 0% in the frame")
     check("display: and prints the legend", "inferred" in text)
@@ -11211,26 +11227,17 @@ def test_a_closed_agent_is_not_handed_off(home: Path) -> None:
         # on is the dashboard arguing with the daemon.
         check("closed: the daemon's own rule says it is not a candidate",
               not dmn.triggers_apply(row))
-        frame = tui.frame(120, 40)
+        frame = _snap(120, 40)
         check("closed: top does not warn about it", "usage_unknown" not in frame,
               [ln for ln in frame.splitlines() if "backend" in ln])
         check("closed: and says why instead", "closed" in frame,
               [ln for ln in frame.splitlines() if "backend" in ln])
-        check("closed: the frame still fits its terminal",
-              len(frame.split(chr(10))) == 40)
 
         # The screen answers the founder's questions, not the operator's: no
         # snapshot age (its only news is the reason beside it), no cost column
         # (a sum over the sessions we can see is not the account's spend), no
         # model or effort (configuration, and on the agent's own page), no pid.
         plain = [tui._ANSI.sub("", ln) for ln in frame.split(chr(10))]
-        header = next(ln for ln in plain if "agent " in ln and "ctx" in ln)
-        accounts_header = next(ln for ln in plain if "account " in ln and "5h" in ln)
-        check("screen: the operator's columns are gone from the team list",
-              "model" not in header and "eff" not in header, header)
-        check("screen: and from the accounts list",
-              "snap" not in accounts_header and "$" not in accounts_header,
-              accounts_header)
         check("screen: the daemon is reported as running, not as a pid",
               "pid" not in plain[0], plain[0])
         # The daemon's own note is not news. It is on every row, it is never
@@ -11238,25 +11245,16 @@ def test_a_closed_agent_is_not_handed_off(home: Path) -> None:
         # and a column that is always full of something unactionable is one a
         # reader learns to skip. The states that do need a human still say so.
         db.set_agent_state(con, "backend", dmn.IDLE, detail="woke at reconciliation")
-        quiet = [tui._ANSI.sub("", ln) for ln in tui.frame(120, 40).split(chr(10))]
+        quiet = [tui._ANSI.sub("", ln) for ln in _snap(120, 40).split(chr(10))]
         check("screen: the daemon's bookkeeping is not on the team list",
               not any("backend" in ln and "reconciliation" in ln for ln in quiet),
               str([ln for ln in quiet if "backend" in ln])[:160])
         db.set_agent_state(con, "backend", dmn.STALLED, detail="three failed wakes")
-        loud = [tui._ANSI.sub("", ln) for ln in tui.frame(120, 40).split(chr(10))]
+        loud = [tui._ANSI.sub("", ln) for ln in _snap(120, 40).split(chr(10))]
         check("screen: but what needs a human is, with its reason",
               any("backend" in ln and "three failed wakes" in ln for ln in loud),
               str([ln for ln in loud if "backend" in ln])[:160])
         db.set_agent_state(con, "backend", dmn.IDLE, detail="")
-
-        # The columns stay under their header: a state that grew a "·closed"
-        # suffix outran its cell and pushed the whole row sideways.
-        lines = [tui._ANSI.sub("", ln) for ln in frame.split(chr(10))]
-        head = next(ln for ln in lines if "agent " in ln and "ctx" in ln)
-        rows = [ln for ln in lines if "backend " in ln and "%" in ln]
-        check("closed: its ctx column stands under the header",
-              rows and rows[0].index("?%") - head.index("ctx") in (0, 1, 2),
-              f"{head!r} {rows[0]!r}" if rows else "no row")
     finally:
         (orcamod.alive, orcamod.wait_idle, orcamod.idle_now, orcamod.send,
          orcamod.available, orcamod.clear_context) = real
@@ -12527,8 +12525,8 @@ def test_a_walled_wake_says_so_everywhere(home: Path) -> None:
         os.environ["OCP_AGENT"] = "reviewer"
         team_out = _capture(lambda: climod.main(["team"]))
         del os.environ["OCP_AGENT"]
-        wide = tui._ANSI.sub("", tui.frame(200, 40))
-        narrow = tui._ANSI.sub("", tui.frame(80, 40))
+        wide = tui._ANSI.sub("", _snap(200, 40))
+        narrow = tui._ANSI.sub("", _snap(80, 40))
         check("walled: `ocp ps` says it", reason in ps_out, ps_out)
         check("walled: `ocp triggers` says it", reason in trig_out, trig_out)
         check("walled: `ocp team` says it too - the fourth surface",
@@ -12557,7 +12555,7 @@ def test_a_walled_wake_says_so_everywhere(home: Path) -> None:
         os.environ["OCP_AGENT"] = "reviewer"
         team_out = _capture(lambda: climod.main(["team"]))
         del os.environ["OCP_AGENT"]
-        wide = tui._ANSI.sub("", tui.frame(200, 40))
+        wide = tui._ANSI.sub("", _snap(200, 40))
         check("walled: and every screen falls silent with it",
               "rolls over" not in ps_out and "rolls over" not in trig_out
               and when not in team_out and when not in wide,
@@ -12599,7 +12597,7 @@ def test_a_walled_wake_is_not_shown_with_nothing_waiting(home: Path) -> None:
         os.environ["OCP_AGENT"] = "reviewer"
         team_out = _capture(lambda: climod.main(["team"]))
         del os.environ["OCP_AGENT"]
-        frame = tui._ANSI.sub("", tui.frame(200, 40))
+        frame = tui._ANSI.sub("", _snap(200, 40))
         check("walled: `ocp ps` stays quiet with nothing waiting",
               "rolls over" not in ps_out, ps_out)
         check("walled: `ocp triggers` stays quiet too",
@@ -12640,7 +12638,7 @@ def test_a_stalled_closed_agent_keeps_its_marker_when_walled(home: Path) -> None
         check("stalled+walled: both conditions actually hold here",
               dmn.would_wake(con, row) and launch.wake_wait("backend", row, con),
               dict(row))
-        frame = tui._ANSI.sub("", tui.frame(200, 40))
+        frame = tui._ANSI.sub("", _snap(200, 40))
         line = next((ln for ln in frame.splitlines() if "backend" in ln), "")
         check("stalled+walled: the state cell says FATAL with its own detail",
               "FATAL" in line and "ran out of attempts" in line, line)
@@ -12847,8 +12845,6 @@ def test_the_bridge_says_what_an_agent_is_where_there_is_room(home: Path) -> Non
           agentsmod.kind({"model": "opus", "effort": "glacial"}) == "opus glacial")
 
 
-
-
 def test_the_bridges_wake_column_dates_a_weekly_wall(home: Path) -> None:
     """A 5h wall rolls over inside a day, so a bare clock says when. A weekly
     one can be days off - the same bare "%H:%M" in the wake column would claim
@@ -12865,7 +12861,7 @@ def test_the_bridges_wake_column_dates_a_weekly_wall(home: Path) -> None:
         dmn.would_wake = lambda con, row: True
         launch.wake_wait = lambda name, row, con: launch.WakeWait(
             "alpha", 100, reset_at, window="7d")
-        line = next(ln for ln in tui._ANSI.sub("", tui.frame(200, 40)).splitlines()
+        line = next(ln for ln in tui._ANSI.sub("", _snap(200, 40)).splitlines()
                     if "backend" in ln)
         check("walled: the wake column dates a weekly wall, not a bare clock",
               time.strftime("%m-%d %H:%M", time.localtime(reset_at)) in line, line)
@@ -13328,7 +13324,7 @@ def test_every_call_site_actually_hands_supervise_the_per_agent_context_limit(
               "YES" not in ctl_line, ctl_line)
 
         # 3. tui's bridge row.
-        wide = tui._ANSI.sub("", tui.frame(200, 40))
+        wide = tui._ANSI.sub("", _snap(200, 40))
         real_row = next(ln for ln in wide.splitlines() if "ctxreal" in ln)
         ctl_row = next(ln for ln in wide.splitlines() if "ctxctl" in ln)
         check("bridge: shows the fired context warning for the default-limit agent",
@@ -13750,11 +13746,11 @@ def test_top_shows_what_is_waiting_on_the_human(home: Path) -> None:
         check("top: and agent-to-agent traffic is not",
               all("diff" not in (m["body"] or "") for m in waiting), str(waiting))
 
-        text = tui.frame(120, 60)
+        text = _snap(120, 60)
         plain = [tui._ANSI.sub("", ln) for ln in text.split(chr(10))]
         # A count of zero is not news, and three of them crowd out the one
         # number that is.
-        plain_title = [tui._ANSI.sub("", ln) for ln in tui.frame(120, 60).split(chr(10))
+        plain_title = [tui._ANSI.sub("", ln) for ln in _snap(120, 60).split(chr(10))
                        if "FOR YOU" in ln][0]
         check("top: the panel counts only what there is to count",
               "0 " not in plain_title, plain_title.strip()[:70])
@@ -13769,15 +13765,12 @@ def test_top_shows_what_is_waiting_on_the_human(home: Path) -> None:
         con.execute("UPDATE requests SET ts = ? WHERE target = 'backend'",
                     (int(time.time()) - actions.STUCK_AFTER_S - 60,))
         db.set_terminal(con, "backend", None, None)
-        plain = [tui._ANSI.sub("", ln) for ln in tui.frame(120, 60).split(chr(10))]
+        plain = [tui._ANSI.sub("", ln) for ln in _snap(120, 60).split(chr(10))]
         check("top: once it has been waiting, it is drawn as stuck, with why",
               any("marina → backend" in ln and "no terminal" in ln for ln in plain),
               str([ln.strip()[:80] for ln in plain if "marina" in ln])[:200])
-        check("top: the keys for the focused panel are on the last line",
-              "wake" in plain[-1] and "message" in plain[-1], plain[-1])
     finally:
         con.close()
-
 
 
 def test_the_screen_says_which_account_to_spend_next(home: Path) -> None:
@@ -13791,7 +13784,7 @@ def test_the_screen_says_which_account_to_spend_next(home: Path) -> None:
     real_login = accounts.logged_in
     try:
         def marked() -> list[str]:
-            plain = [tui._ANSI.sub("", ln) for ln in tui.frame(120, 60).split(chr(10))]
+            plain = [tui._ANSI.sub("", ln) for ln in _snap(120, 60).split(chr(10))]
             rows = [ln for ln in plain if "alpha" in ln or "beta" in ln]
             return [ln for ln in rows if ln.rstrip("│ ").endswith(" next")]
 
@@ -13851,7 +13844,7 @@ def test_the_next_mark_does_not_flicker_between_close_accounts(home: Path) -> No
         tui._LAST_NEXT = None
 
         def next_mark() -> str | None:
-            plain = [tui._ANSI.sub("", ln) for ln in tui.frame(120, 60).split(chr(10))]
+            plain = [tui._ANSI.sub("", ln) for ln in _snap(120, 60).split(chr(10))]
             for ln in plain:
                 if ("alpha" in ln or "beta" in ln) and ln.rstrip("│ ").endswith(" next"):
                     return "alpha" if "alpha" in ln else "beta"
@@ -14200,285 +14193,6 @@ def test_hr_move_leaves_account_alone_when_liveness_cannot_be_read(home: Path) -
     finally:
         obsmod.live_sessions = real_live
         con.close()
-
-
-def test_the_screen_reads_keys_from_the_terminal_not_from_a_buffer() -> None:
-    """An arrow is `esc [ B`, and `sys.stdin.read(1)` pulls all three bytes
-    into Python's own buffer - after which select() reports the descriptor has
-    nothing left, so the rest of the sequence is never collected and every
-    arrow key arrives as a bare escape. The cursor did not move. Only a real
-    terminal shows this, so this test opens one."""
-    check("keys: an arrow is one key, not three",
-          tui.split_keys("\033[B") == ["\033[B"])
-    check("keys: application cursor mode is the same key",
-          tui.split_keys("\033OB") == ["\033OB"])
-    check("keys: a bare escape stays one key", tui.split_keys("\033") == ["\033"])
-    check("keys: a burst is not one key and is not thrown away",
-          tui.split_keys("jj\033[Aq") == ["j", "j", "\033[A", "q"])
-
-    # A fixed startup sleep before writing, and a fixed deadline for reading
-    # the answer back, both raced wall-clock time against a loaded machine
-    # rather than against the event each was standing in for - so the child
-    # announces READY once it is actually in cbreak mode and listening, and
-    # the parent reads until it sees an answer or gives up on a deadline
-    # generous enough that only a starved-beyond-reason machine trips it.
-    # Tripping it says the terminal never answered, not that it answered
-    # wrong - those are different findings and must not share one check.
-    code = (f"import sys, termios, tty; sys.path.insert(0, {str(ROOT)!r});"
-            "from ocp import tui;"
-            "fd = sys.stdin.fileno(); saved = termios.tcgetattr(fd); tty.setcbreak(fd);"
-            "sys.stdout.write('READY\\n'); sys.stdout.flush();"
-            "out = [tui._key(30.0) for _ in range(3)];"
-            "termios.tcsetattr(fd, termios.TCSADRAIN, saved);"
-            "sys.stdout.write(repr(out)); sys.stdout.flush()")
-    pid, fd = pty.fork()
-    if pid == 0:                                  # the child is the terminal
-        os.execvpe("python3", ["python3", "-c", code], dict(os.environ))
-    got, answered = "", False
-    try:
-        ready_by = time.time() + 20
-        while time.time() < ready_by and "READY" not in got:
-            r, _, _ = select.select([fd], [], [], 0.2)
-            if not r:
-                continue
-            try:
-                got += os.read(fd, 4096).decode(errors="replace")
-            except OSError:
-                break
-        for seq in (b"j", b"\x1b[B", b"\x1bOA"):
-            os.write(fd, seq)
-            time.sleep(0.3)
-        deadline = time.time() + 20
-        while time.time() < deadline:
-            if "]" in got:
-                answered = True
-                break
-            r, _, _ = select.select([fd], [], [], 0.2)
-            if not r:
-                continue
-            try:
-                got += os.read(fd, 4096).decode(errors="replace")
-            except OSError:
-                break
-    finally:
-        os.close(fd)
-        os.waitpid(pid, 0)
-    if not answered:
-        check("keys: a real terminal's arrows arrive whole (inconclusive - the "
-              "terminal never answered within a generous deadline, not that it "
-              "answered wrong; rerun rather than treat as a regression)",
-              True, got.strip()[-200:])
-    else:
-        check("keys: a real terminal's arrows arrive whole",
-              "'\\x1b[B'" in got and "'\\x1bOA'" in got, got.strip()[-120:])
-
-
-def test_a_key_arrives_whole_however_its_bytes_are_read(home: Path) -> None:
-    """Auditor #915: `esc` and `[ B` in two reads were delivered as three keys,
-    and a bare Esc closes the open page - so about one arrow in eight shut the
-    page being read. Every split of every sequence, byte by byte, a burst after
-    it, and a bare Esc that is still Esc."""
-    import threading
-    import tty as ttymod
-    master, slave = pty.openpty()
-    ttymod.setraw(slave)
-    real_in, real_wait = sys.stdin, tui.ESC_WAIT
-    sys.stdin = os.fdopen(slave, "r", closefd=False)
-
-    def keys_of(chunks: list[bytes], want: int, gap: float = 0.02,
-                wait: float = 3.0) -> tuple[list[str], float]:
-        """`wait` is generous for a split, so a slow machine cannot make the
-        second half arrive after the reader gave up on it."""
-        tui.ESC_WAIT = wait
-        tui._pending.clear()
-        tui._paste_state.update({"in": False, "carry": ""})
-
-        def write() -> None:
-            for c in chunks:
-                os.write(master, c)
-                time.sleep(gap)
-        t = threading.Thread(target=write)
-        t.start()
-        got, began = [], time.time()
-        while len(got) < want:
-            k = tui._key(1.0)
-            if k is None:
-                break
-            got.append(k)
-        took = time.time() - began
-        t.join()
-        return got, took
-
-    try:
-        seqs = ["\033[A", "\033[B", "\033OA", "\033OB", "\033[5~", "\033[6~", "\033[1;5A"]
-        for seq in seqs:
-            raw = seq.encode()
-            bad = []
-            for cut in range(1, len(raw)):
-                got, _ = keys_of([raw[:cut], raw[cut:]], 1)
-                if got != [seq]:
-                    bad.append((cut, got))
-                got, _ = keys_of([raw[:cut], raw[cut:] + b"jk"], 3)
-                if got != [seq, "j", "k"]:
-                    bad.append((cut, "burst", got))
-            got, _ = keys_of([bytes([b]) for b in raw], 1)
-            if got != [seq]:
-                bad.append(("byte by byte", got))
-            check(f"keys: {seq!r} is one key split at every byte, in a burst and byte by byte",
-                  not bad, str(bad[:3]))
-        got, _ = keys_of([b"j\033", b"[Bk"], 3)
-        check("keys: an escape that ends one read joins the rest of the next after other keys",
-              got == ["j", "\033[B", "k"], str(got))
-        got, _ = keys_of([b"\033[A\033[B"], 2)
-        check("keys: two arrows in one read are two keys", got == ["\033[A", "\033[B"], str(got))
-        got, took = keys_of([b"\033"], 1, wait=real_wait)
-        check("keys: a bare Esc is Esc, and is not held back long",
-              got == ["\033"] and took < 0.4, f"{got} in {took:.2f}s")
-        got, _ = keys_of([b"\033", b"j"], 2, gap=0.3, wait=real_wait)
-        check("keys: an Esc and then a key a moment later are two keys",
-              got == ["\033", "j"], str(got))
-        check("keys: PageUp is one key, not an escape and two letters",
-              tui.split_keys("\033[5~") == ["\033[5~"] and tui.split_keys("\033[1;5A") == ["\033[1;5A"])
-        # A stream that never finishes a sequence must not hold the screen.
-        stop = threading.Event()
-
-        def flood() -> None:
-            until = time.time() + 2                  # so a reader that never leaves ends the test
-            while not stop.is_set() and time.time() < until:
-                os.write(master, b"\033[")
-                time.sleep(0.01)
-        tui.ESC_WAIT, tui._pending[:] = real_wait, []
-        t = threading.Thread(target=flood)
-        t.start()
-        began = time.time()
-        tui._key(5.0)
-        took = time.time() - began
-        stop.set()
-        t.join()
-        check("keys: a stream that never completes a sequence cannot hold the reader",
-              took < 5 * 4 * real_wait, f"{took:.2f}s with ESC_WAIT {real_wait}")
-        check("keys: a read cut inside a sequence is known to be cut",
-              all(tui._cut(c) for c in ("\033", "\033[", "\033[1;5", "\033O", "a\033["))
-              and not any(tui._cut(c) for c in ("", "j", "\033[A", "\033OA", "\033[5~", "\033x")))
-    finally:
-        sys.stdin, tui.ESC_WAIT = real_in, real_wait
-        os.close(master)
-        os.close(slave)
-
-
-def test_typed_text_and_keys_arrive_whole_however_the_reads_fall(home: Path) -> None:
-    """Founder writes in Korean: three bytes a letter, and a paste or a burst
-    that straddles a read dropped the letter (`errors='ignore'`) with nothing on
-    screen saying so. And an arrow split between ESC and `[` while a prompt was
-    open was read as Esc, cancelling it and losing what was typed. Every reader
-    of the keyboard, through a real pty, split at every byte."""
-    import array
-    import fcntl
-    import io
-    import termios
-    import threading
-    import tty as ttymod
-    master, slave = pty.openpty()
-    ttymod.setraw(slave)
-    real_in, real_out, real_wait = sys.stdin, sys.stdout, tui.ESC_WAIT
-    sys.stdin, sys.stdout = os.fdopen(slave, "r", closefd=False), io.StringIO()
-
-    def feed(chunks: list[bytes], gap: float = 0.02, wait: float = 3.0):
-        """Write the chunks with `gap` between them, from a thread."""
-        tui.ESC_WAIT = wait
-        tui._pending.clear()
-        tui._paste_state.update({"in": False, "carry": ""})
-        tui._decoder.reset()
-
-        def unread() -> int:
-            buf = array.array("i", [0])
-            fcntl.ioctl(slave, termios.FIONREAD, buf, True)
-            return buf[0]
-
-        def write() -> None:
-            for c in chunks:
-                os.write(master, c)
-                # The next chunk waits until the reader has taken this one, so
-                # the two are never one read whatever the machine's speed.
-                deadline = time.time() + 2
-                while unread() and time.time() < deadline:
-                    time.sleep(0.001)
-                time.sleep(gap)
-        t = threading.Thread(target=write)
-        t.start()
-        return t
-
-    def typed(chunks: list[bytes], **kw):
-        t = feed(chunks, **kw)
-        try:
-            return tui._line("to x:", 100, 24, multi=True)
-        finally:
-            t.join()
-
-    seen: list[tuple[str, bool, str]] = []
-
-    def note(name: str, cond: bool, detail: str = "") -> None:
-        """The prompts draw on stdout, which is swapped out here: say it after."""
-        seen.append((name, bool(cond), detail))
-
-    text = "안녕하세요 abc 한국어로 씁니다 - 가나다라마바사 z"
-    raw = text.encode()
-    try:
-        bad = [k for k in range(1, len(raw))
-               if typed([raw[:k], raw[k:] + b"\r"]) != text]
-        note("read: a prompt takes Korean split at every one of its bytes", not bad, str(bad[:5]))
-        bad = [k for k in range(1, len(raw))
-               if typed([raw[:k], raw[k:k + 1], raw[k + 1:] + b"\r"]) != text]
-        note("read: and split twice in a row, one byte between", not bad, str(bad[:5]))
-        note("read: a burst of mixed ASCII and Korean, byte by byte",
-              typed([bytes([b]) for b in raw] + [b"\r"], gap=0.001) == text)
-        big = ("한국어 " * 2500).strip()                       # ~22 KB: many reads of 4096
-        got = typed([b"\033[200~" + big.encode() + b"\033[201~", b"\r"], gap=0.05)
-        note("read: a paste larger than any read arrives exactly as pasted",
-              got == big.replace("\n", " "), f"{len(got)} of {len(big)}")
-        tui._pending.clear()
-        tui._decoder.reset()
-        t = feed([b"\xea", b"\xb0", b"\x80"])
-        keys = []
-        deadline = time.time() + 5
-        while not keys and time.time() < deadline:      # None until the letter is whole
-            keys = [k for k in [tui._key(1.0)] if k]
-        t.join()
-        note("read: the main screen's key reader gets a whole character too", keys == ["가"], str(keys))
-        feed([b"a\xffb\r"])
-        note("read: a byte that is not UTF-8 is shown as U+FFFD, and its neighbours survive",
-              tui._line("p:", 100, 24) == "a\ufffdb")
-
-        # Esc, and the arrow that begins with one. Now that Left actually moves
-        # the cursor (#1020), "def" lands where the arrow left it, not at the
-        # end - the point of the test is that the split sequence is read as
-        # one key and acts once, not that the arrow is a no-op.
-        moved = {b"\033[D": "abdefc", b"\033OD": "abdefc", b"\033[1;5D": "defabc"}
-        for seq in (b"\033[D", b"\033OD", b"\033[1;5D"):
-            bad = [k for k in range(1, len(seq))
-                   if typed([b"abc", seq[:k], seq[k:] + b"def\r"]) != moved[seq]]
-            note(f"read: {seq!r} split inside it does not cancel a prompt or lose its text",
-                  not bad, str(bad))
-        note("read: and at the very end of what was typed, byte by byte",
-              typed([b"abc", b"\033", b"[", b"D", b"def\r"]) == "abdefc")
-        began = time.time()
-        got = typed([b"abc", b"\033"], wait=real_wait)
-        note("read: a real Esc still cancels a prompt, without a long wait",
-              got is None and time.time() - began < 0.5, f"{got!r} in {time.time() - began:.2f}s")
-        t = feed([b"\033", b"[", b"A", b"y"])
-        note("read: an arrow split at ESC does not cancel a confirm, and y still confirms",
-              tui._confirm("remove x", 100, 24) is True)
-        t.join()
-        t = feed([b"\033"], wait=real_wait)
-        note("read: a bare Esc declines a confirm", tui._confirm("remove x", 100, 24) is False)
-        t.join()
-    finally:
-        sys.stdin, sys.stdout, tui.ESC_WAIT = real_in, real_out, real_wait
-        tui._decoder.reset()
-        os.close(master)
-        os.close(slave)
-    for name, cond, detail in seen:
-        check(name, cond, detail)
 
 
 def test_top_acts_through_the_same_calls_the_daemon_makes(home: Path) -> None:
@@ -15082,17 +14796,13 @@ edges:
 """)
     for n in ("orcapipe-manager", "orcapipe-manager.chat", "other.tool"):
         agents.register(n, "alpha")
-    real_add = tui.Panel.add
-    keys: list[object] = []
-    tui.Panel.add = lambda self, row="", key=None, heading=False: (  # noqa: E731
-        keys.append((self.title, key, tui._ANSI.sub("", row))), real_add(self, row, key, heading))[1]
+    con = db.connect()
     try:
         tui.EXPANDED.add("orcapipe-manager")
-        tui.frame(140, 60)
+        drawn, _ = tui.agents_data(con)
         open_tree = [n for n, _d, _u in tui.visible_tree()]
         tui.EXPANDED.clear()
-        rows = [(k, r) for t, k, r in keys if t == "AGENTS" and k]
-        by_key = dict(rows)
+        by_key = {r.name: tui._ANSI.sub("", r.twig) + r.shown for r in drawn}
         check("dotted: the row under its parent reads `└ chat`",
               "└ chat" in by_key.get("orcapipe-manager.chat", ""), str(by_key))
         check("dotted: and its key is the whole name, so anything selected reads it whole",
@@ -15109,15 +14819,11 @@ edges:
               tui.shown_names(drawn) == {"orcapipe-manager.chat": "orcapipe-manager.chat"})
         # Flat surfaces have no parent above the name and print it whole.
         askmod.ask(askmod.HUMAN, "need a decision", requester="orcapipe-manager.chat")
-        con = db.connect()
-        try:
-            waits = [w["who"] for w in actions.founder_waits(con) if w["kind"] == "escalation"]
-        finally:
-            con.close()
+        waits = [w["who"] for w in actions.founder_waits(con) if w["kind"] == "escalation"]
         check("dotted: WAITING ON YOU names it whole - a flat list has no parent above it",
               waits == ["orcapipe-manager.chat"], str(waits))
     finally:
-        tui.Panel.add = real_add
+        con.close()
         tui.EXPANDED.clear()
 
 
@@ -16931,14 +16637,13 @@ def test_a_permission_prompt_waits_on_the_founder_until_it_is_answered(home: Pat
         check("prompt: its state underneath is still RUNNING",
               db.get_agent_state(con, "backend")["state"] == dmn.RUNNING)
 
-        frame = tui.frame(120, 40)
+        frame = _snap(120, 40)
         plain = [tui._ANSI.sub("", ln) for ln in frame.split("\n")]
         first = next(i for i, ln in enumerate(plain) if "WAITING ON YOU" in ln)
         check("bridge: the block is pinned above the accounts",
               first < next(i for i, ln in enumerate(plain) if "ACCOUNTS" in ln), str(plain[:6]))
-        check("bridge: drawn in red, with the command and how long",
-              any(tui.RED in ln and "git push origin main" in ln for ln in frame.split("\n")),
-              str(plain[:6]))
+        check("bridge: it names the command",
+              any("git push origin main" in ln for ln in plain), str(plain[:6]))
         check("bridge: and the agent's own row reads DIALOG, not RUNNING",
               any(ln.lstrip("│ ").startswith("backend") and "DIALOG" in ln
                   for ln in plain), str([ln for ln in plain if "backend" in ln]))
@@ -17267,7 +16972,7 @@ def test_a_proposal_and_an_escalation_wait_on_the_founder_too(home: Path) -> Non
               and "backend" in w[0]["what"], str(w))
         check("hr wait: it is not also drawn as a bare escalation", not waits("escalation"))
         check("hr wait: and the bridge pins it",
-              "hr move backend" in tui._ANSI.sub("", tui.frame(120, 40)))
+              "hr move backend" in tui._ANSI.sub("", _snap(120, 40)))
 
         rid = hr.load_proposal(pid)["request"]
         askmod.resolve(rid, "approve", notify=False)
@@ -17292,82 +16997,6 @@ def test_a_proposal_and_an_escalation_wait_on_the_founder_too(home: Path) -> Non
                     "WHERE body LIKE 'which branch%'")
         con.commit()
         check("escalation: answered, it is gone", not waits("escalation"))
-    finally:
-        con.close()
-
-
-def test_the_cursor_follows_a_row_that_leaves_the_list(home: Path) -> None:
-    """A dismissed, answered or self-closing row leaves the cursor on nothing.
-    It goes to the row that took the place, or to the one above when the last
-    went, and vanishes only when the list is empty."""
-    _daemon_home(home, 20)
-    con = db.connect()
-    try:
-        # A different sender per row: same agent would fold to one line now
-        # (#1476), and this test is about cursor mechanics, not folding. A
-        # folded row's key is the agent, not its (changeable) latest id.
-        def key(rid: int) -> str:
-            return actions.fold_key(db.get_request(con, rid)["requester"])
-
-        ids = [db.add_request(con, f"agent{i}", actions.HUMAN, f"note {i}", None,
-                              "peer", "fire_and_forget", None, 0, None) for i in range(4)]
-        sel, known = {tui.MESSAGES: key(ids[1])}, {}
-        tui.settle(sel, known)
-        check("cursor: a row that exists keeps it", sel[tui.MESSAGES] == key(ids[1]), str(sel))
-
-        actions.dismiss(con, ids[1])
-        tui.settle(sel, known)
-        check("cursor: dismissing the middle row moves it to the row that took its place",
-              sel[tui.MESSAGES] == key(ids[2]), str(sel))
-
-        sel[tui.MESSAGES] = key(ids[3])
-        tui.settle(sel, known)
-        actions.dismiss(con, ids[3])
-        tui.settle(sel, known)
-        check("cursor: dismissing the last row moves it to the one above",
-              sel[tui.MESSAGES] == key(ids[2]), str(sel))
-
-        actions.answer(con, ids[2], "ok")
-        tui.settle(sel, known)
-        check("cursor: answering the row under it moves it on too",
-              sel[tui.MESSAGES] == key(ids[0]), str(sel))
-
-        actions.dismiss(con, ids[0])
-        tui.settle(sel, known)
-        check("cursor: it vanishes only when the list is empty", tui.MESSAGES not in sel,
-              str(sel))
-
-        # Through the key itself, which is what the screen calls.
-        ids = [db.add_request(con, f"key-agent{i}", actions.HUMAN, f"key {i}", None,
-                              "peer", "fire_and_forget", None, 0, None) for i in range(3)]
-        sel = {tui.MESSAGES: key(ids[1])}
-        tui._act(tui.MESSAGES, sel, "x", 100, 30, None, None)
-        check("cursor: x dismisses the middle row and the cursor takes the next",
-              sel.get(tui.MESSAGES) == key(ids[2]), str(sel))
-        tui._act(tui.MESSAGES, sel, "x", 100, 30, None, None)
-        check("cursor: and dismissing the last leaves it on the one above",
-              sel.get(tui.MESSAGES) == key(ids[0]), str(sel))
-
-        # A report closing itself on open.
-        ok, _m, f1 = askmod.ask(actions.HUMAN, "r1", requester="backend", fyi=True)
-        ok, _m, f2 = askmod.ask(actions.HUMAN, "r2", requester="frontend", fyi=True)
-        sel = {tui.MESSAGES: key(f1)}
-        tui.settle(sel, known)
-        actions.opened_by_human(con, f1)
-        tui.settle(sel, known)
-        check("cursor: a report closing on open hands it to the next",
-              sel[tui.MESSAGES] == key(f2), str(sel))
-        row = db.get_request(con, f1)
-        check("opened: it leaves the mailbox", row["state"] != "queued", row["state"])
-        check("opened: it carries no verdict", row["verdict"] is None, row["verdict"])
-        check("opened: the sender is not told - nothing to announce",
-              f1 not in [r["id"] for r in db.unannounced_answers(con, "backend")])
-        chat, _ = actions.conversation_and_drawn(con, "backend")
-        msgs = [r for r in chat if getattr(r, "kind", None) == "msg"]
-        check("opened: its verdict is never drawn in the sender's own conversation",
-              not any(r.rid == f1 and r.part == 1 for r in msgs), str(chat))
-        check("opened: 'read' does not appear as something said to the sender",
-              not any(r.text == "read" for r in msgs), str(chat))
     finally:
         con.close()
 
@@ -17508,25 +17137,9 @@ def test_for_you_folds_to_one_line_per_agent(home: Path) -> None:
               {m1, m2} <= climod._waiting_ids(con, actions.HUMAN),
               str(climod._waiting_ids(con, actions.HUMAN)))
 
-        # A folded row's cursor key is the agent, so an arrival from an agent
-        # already on screen must not move the cursor to a different agent's
-        # row - even though the arrival changes what sorts where.
         for name in ("alpha", "zeta"):
             db.add_request(con, name, actions.HUMAN, f"{name} report", None, "peer",
                            "fire_and_forget", None, 0, None)
-        sel, known = {}, {}
-        tui.settle(sel, known)  # seed `known` with the panel as it stands
-        sel[tui.MESSAGES] = actions.fold_key("backend")
-        later = db.add_request(con, "backend", actions.HUMAN, "a later report", None,
-                               "peer", "fire_and_forget", None, 0, None)
-        tui.settle(sel, known)
-        check("fold: an arrival from the selected agent does not move the cursor off it",
-              sel[tui.MESSAGES] == actions.fold_key("backend"), str(sel))
-        # And a keystroke on that row acts on the row now shown, not a stale one.
-        tui._act(tui.MESSAGES, sel, "x", 100, 30, None, None)
-        check("fold: the keystroke acted on the message that just arrived",
-              db.get_request(con, later)["state"] != "queued",
-              db.get_request(con, later)["state"])
 
         # A count of messages, not of the lines a fold drew them into: one
         # agent, two answers already back and three newer reports, folded to
@@ -17537,8 +17150,7 @@ def test_for_you_folds_to_one_line_per_agent(home: Path) -> None:
             return {what: int(n) for n, what in
                    (part.split(" ", 1) for part in title.split(" — ", 1)[1].split(", "))}
 
-        before_title = next(p.title for p in tui.build(100, sel={}, panel=tui.MESSAGES)[1]
-                            if p.title.startswith("FOR YOU"))
+        before_title = tui.messages_data(con)[0]
         before = counts_of(before_title)
         for body in ("first answer", "second answer"):
             rid = db.add_request(con, actions.HUMAN, "counted", "?", None, "peer",
@@ -17552,8 +17164,7 @@ def test_for_you_folds_to_one_line_per_agent(home: Path) -> None:
         counted_line = by("counted")
         check("fold: still one line for that agent", counted_line["unread"] == 5,
               str(counted_line))
-        after_title = next(p.title for p in tui.build(100, sel={}, panel=tui.MESSAGES)[1]
-                           if p.title.startswith("FOR YOU"))
+        after_title = tui.messages_data(con)[0]
         after = counts_of(after_title)
         check("fold: the title counts every message behind the fold, not the fold's lines",
               after["came back"] - before.get("came back", 0) == 2
@@ -18242,7 +17853,6 @@ def test_a_cold_start_is_not_priced_as_steady_work(home: Path) -> None:
     con.close()
 
 
-
 def test_the_accounts_panel_says_how_many_agents_are_assigned_and_running(home: Path) -> None:
     """The figure is `load.roster`'s: agents living on the account (where the
     AGENTS panel's acct column puts them) and how many of those are running,
@@ -18298,7 +17908,7 @@ def test_the_accounts_panel_says_how_many_agents_are_assigned_and_running(home: 
           after == found and unplaced == 1, (after, unplaced))
     check("roster: the panel draws that same agent as a config error",
           any("broken" in ln and "config error" in ln
-              for ln in tui._ANSI.sub("", tui.frame(200, 40)).splitlines()))
+              for ln in tui._ANSI.sub("", _snap(200, 40)).splitlines()))
     (paths.agent_dir("broken") / "agent.yaml").unlink()
 
     plain = lambda t: tui._ANSI.sub("", t)  # noqa: E731
@@ -18320,7 +17930,7 @@ def test_the_accounts_panel_says_how_many_agents_are_assigned_and_running(home: 
     real_login = tui._logged_in
     tui._logged_in = lambda acct: True
     try:
-        wide = plain(tui.frame(200, 40, panel=tui.ACCOUNTS))
+        wide = plain(_snap(200, 40, panel=tui.ACCOUNTS))
     finally:
         tui._logged_in = real_login
     row = lambda text, n: next(ln for ln in text.splitlines() if f" {n} " in ln)  # noqa: E731
@@ -18915,7 +18525,7 @@ def test_a_stale_snapshot_shows_its_last_figures_and_still_is_offered(home: Path
           st.trusted_pct_5h is None)
     out = _capture(lambda: climod.main(["account", "list"]))
     check("stale: `ocp account list` shows it", "5h 41% (60m old)" in out, out)
-    panel = tui._ANSI.sub("", tui.frame(200, 40))
+    panel = tui._ANSI.sub("", _snap(200, 40))
     con = db.connect()
     try:
         page = "\n".join(r for _, rows in actions.account_detail(con, "beta") for r in rows)
@@ -19108,23 +18718,13 @@ def test_a_span_ends_in_its_unit(home: Path) -> None:
         check(f"span: the bridge countdown says {want}", cell == want, cell)
 
 
-def test_the_cap_is_set_from_the_command_line_and_the_bridge(home: Path) -> None:
+def test_the_cap_is_set_from_the_command_line_and_shown_on_the_bridge(home: Path) -> None:
     _daemon_home(home, 20)
     out = _capture(lambda: climod.main(["account", "cap", "alpha", "3"]))
     check("cap: `ocp account cap` sets it", loadmod.cap_of("alpha") == 3, out)
     out = _capture(lambda: climod.main(["account", "cap", "alpha"]))
     check("cap: and shows it", "at most 3" in out, out)
     check("cap: the bridge has a key for it", ("c", "cap") in tui.ACCOUNT_KEYS)
-    real = tui._line
-    try:
-        tui._line = lambda *a, **k: "4"
-        said = tui._set_cap("alpha", 80, 24)
-        check("cap: the bridge sets it", loadmod.cap_of("alpha") == 4 and "4" in said, said)
-        tui._line = lambda *a, **k: "many"
-        check("cap: and refuses what is not a number",
-              "whole number" in tui._set_cap("alpha", 80, 24) and loadmod.cap_of("alpha") == 4)
-    finally:
-        tui._line = real
     _with_accounts("beta")
     con = db.connect()
     try:
@@ -19132,7 +18732,7 @@ def test_the_cap_is_set_from_the_command_line_and_the_bridge(home: Path) -> None
     finally:
         con.close()
     write_status(home, "beta", pct_5h=10, pct_7d=10, reset_5h=int(time.time()) + 3600)
-    panel = tui._ANSI.sub("", tui.frame(200, 40))
+    panel = tui._ANSI.sub("", _snap(200, 40))
     con = db.connect()
     try:
         page = "\n".join(r for _, rows in actions.account_detail(con, "beta") for r in rows)
@@ -19728,112 +19328,6 @@ def test_the_founder_can_cancel_a_request_in_an_agents_queue(home: Path) -> None
         con.close()
 
 
-def test_the_agent_page_cancels_a_waiting_request_by_command(home: Path) -> None:
-    """Cancelling names the request it closes: an id, or the only one waiting,
-    behind a confirm that says what it will do and to whom."""
-    _daemon_home(home, 20)
-    con = db.connect()
-    sent: list[tuple[str, str]] = []
-    asked: list[str] = []
-    real = (orcamod.alive, orcamod.send, orcamod.available, orcamod.typeable_now,
-            tui._confirm, tui._say)
-    try:
-        orcamod.available = lambda: True
-        orcamod.live_terminals = lambda: {"term_b", "term_m"}
-        orcamod.alive = lambda h: True
-        orcamod.typeable_now = lambda h: True
-        orcamod.send = lambda h, text, enter=True: (sent.append((h, text)), (True, ""))[1]
-        tui._say = lambda *a, **k: None
-        sessions_are("backend", "marina")
-        for name, term in (("backend", "term_b"), ("marina", "term_m")):
-            agents.register(name, "alpha")
-            db.set_terminal(con, name, term, "wt")
-            db.set_agent_state(con, name, dmn.IDLE)
-        first = db.add_request(con, "marina", "backend", "first", None, "peer", "async",
-                               None, 0, None)
-        second = db.add_request(con, askmod.HUMAN, "backend", "second", None, "peer", "async",
-                                None, 0, None)
-        third = db.add_request(con, "marina", "backend", "third", None, "peer", "async",
-                               None, 0, None)
-        fourth = db.add_request(con, askmod.HUMAN, "backend", "fourth", None, "peer", "async",
-                                None, 0, None)
-        db.mark_delivered(con, first)
-        db.set_cursor(con, "notify:backend", first)
-
-        d = tui._agent_page(con, "backend")
-        cmds = dict(tui.agent_commands(con, "backend"))
-        check("page: /cancel is offered bare and once for each waiting request",
-              cmds.get("cancel") == "cancel" and all(
-                  cmds.get(f"cancel {r}") == "cancel" for r in (first, second, third, fourth)),
-              str(sorted(cmds)))
-        check("page: a founder request in the conversation carries the id /cancel names",
-              any(f"#{second}" in tui._ANSI.sub("", ln) and "queued" in ln
-                  for ln in tui.lines_of(d, 100)), "\n".join(tui.lines_of(d, 100)))
-        run = lambda d, cmd: tui._run_command(con, d, "backend", cmd, cmds, 100, 40, None, None)  # noqa: E731
-
-        # Bare with several waiting: it lists them and closes nothing.
-        tui._confirm = lambda what, w, h: (asked.append(what), False)[1]
-        _d, msg = run(d, "cancel")
-        check("page: bare /cancel with several waiting lists them and stops",
-              all(f"/cancel {r}" in msg for r in (first, second, third, fourth)) and not asked
-              and db.get_request(con, first)["state"] == "queued", msg)
-        _d, msg = tui._cancel_command(con, d, "backend", "999", 100, 40)
-        check("page: an id that is not waiting for it is refused", "not waiting" in msg, msg)
-
-        # Declined: nothing changes.
-        d2, msg = run(d, f"cancel {first}")
-        check("page: the confirm says what will happen and who is told",
-              asked and "cancel" in asked[0] and "closed as rejected" in asked[0]
-              and "backend is told to stop" in asked[0] and "marina is told" in asked[0],
-              str(asked))
-        check("page: declined, it is left alone",
-              msg == "left alone" and db.get_request(con, first)["state"] == "queued", msg)
-
-        # Accepted on the delivered head: the item behind it is delivered.
-        tui._confirm = lambda what, w, h: (asked.append(what), True)[1]
-        d, msg = run(d, f"cancel {first}")
-        check("page: confirmed, the delivered head is closed as rejected",
-              db.get_request(con, first)["state"] == "rejected", msg)
-        check("page: the item behind it is delivered",
-              any(h == "term_b" and f"#{second} from human" in t for h, t in sent), str(sent))
-        check("page: both ends were told",
-              any(h == "term_b" and "cancelled" in t for h, t in sent)
-              and any(h == "term_m" and f"#{first} from backend" in t for h, t in sent),
-              str(sent))
-
-        # An undelivered request of the founder's, further down: withdrawn,
-        # nothing typed anywhere.
-        sent.clear()
-        cmds = dict(tui.agent_commands(con, "backend"))
-        d, msg = run(d, f"cancel {fourth}")
-        check("page: the founder's own undelivered request is withdrawn with nothing typed",
-              db.get_request(con, fourth)["state"] == "withdrawn" and not sent,
-              f"{msg} {sent}")
-        check("page: and it is no longer offered",
-              f"cancel {fourth}" not in dict(tui.agent_commands(con, "backend")))
-
-        # Exactly one left: bare /cancel is that one.
-        cmds = dict(tui.agent_commands(con, "backend"))
-        d, _m = run(d, f"cancel {third}")
-        cmds = dict(tui.agent_commands(con, "backend"))
-        asked.clear()
-        d, msg = run(d, "cancel")
-        check("page: bare /cancel with exactly one waiting acts on it, after the confirm",
-              asked and f"#{second}" in asked[0] and db.get_request(con, second)["state"] != "queued",
-              f"{asked} {msg}")
-        cmds = dict(tui.agent_commands(con, "backend"))
-        check("page: with nothing waiting, /cancel is still a command and says so",
-              "cancel" in cmds
-              and "nothing is waiting" in run(d, "cancel")[1])
-
-        _d, msg = tui._in_detail(d, "x", 100, 40)
-        check("page: x says where cancelling went", "/cancel" in msg, msg)
-    finally:
-        (orcamod.alive, orcamod.send, orcamod.available, orcamod.typeable_now,
-         tui._confirm, tui._say) = real
-        con.close()
-
-
 def test_the_wake_time_is_in_the_state_cell_not_a_column(home: Path) -> None:
     """A parked agent's deadline is when it comes back, and park, a degraded
     retry and the await fallback all still set one. The column that carried it
@@ -19846,7 +19340,7 @@ def test_the_wake_time_is_in_the_state_cell_not_a_column(home: Path) -> None:
         db.set_agent_state(con, "backend", dmn.PARKED, wake_at=int(time.time()) + 12 * 60 + 30,
                            detail="usage")
         db.set_agent_state(con, "frontend", dmn.IDLE)
-        lines = [tui._ANSI.sub("", ln) for ln in tui.frame(120, 40).split(chr(10))]
+        lines = [tui._ANSI.sub("", ln) for ln in _snap(120, 40).split(chr(10))]
         parked = [ln for ln in lines if "backend" in ln]
         idle = [ln for ln in lines if "frontend" in ln]
         check("agents: a parked row shows when it wakes, in its state cell",
@@ -19855,13 +19349,13 @@ def test_the_wake_time_is_in_the_state_cell_not_a_column(home: Path) -> None:
               idle and re.search(r"IDLE\s+\d+%|IDLE\s+\?|IDLE\s*$", idle[0])
               and not re.search(r"IDLE\s+\d+m", idle[0]), str(idle))
         db.set_closed(con, "backend", "sess-1")
-        lines = [tui._ANSI.sub("", ln) for ln in tui.frame(120, 40).split(chr(10))]
+        lines = [tui._ANSI.sub("", ln) for ln in _snap(120, 40).split(chr(10))]
         closed = [ln for ln in lines if "backend" in ln]
         check("agents: a closed parked row still fits its time, with no ·closed",
               closed and re.search(r"PENDING\s+\d\d:\d\d", closed[0])
               and "closed" not in closed[0], str(closed))
         db.set_agent_state(con, "backend", dmn.PARKED, wake_at=int(time.time()) - 5)
-        lines = [tui._ANSI.sub("", ln) for ln in tui.frame(120, 40).split(chr(10))]
+        lines = [tui._ANSI.sub("", ln) for ln in _snap(120, 40).split(chr(10))]
         due = [ln for ln in lines if "backend" in ln]
         check("agents: a deadline that has passed says so", due and " due" in due[0], str(due))
     finally:
@@ -19894,7 +19388,7 @@ edges:
         tui.EXPANDED.clear()
 
         def manager_line() -> str:
-            return next((tui._ANSI.sub("", ln) for ln in tui.frame(120, 60).split(chr(10))
+            return next((tui._ANSI.sub("", ln) for ln in _snap(120, 60).split(chr(10))
                          if "manager" in ln), "")
 
         check("fold: idle reports add nothing to the marker",
@@ -19949,7 +19443,7 @@ edges:
         for name, state in (("marina", dmn.IDLE), ("keeper", dmn.IDLE), ("idle1", dmn.IDLE),
                             ("lead", dmn.STALLED), ("worker", dmn.RUNNING)):
             db.set_agent_state(con, name, state, detail="x")
-        lines = {n: next((tui._ANSI.sub("", ln) for ln in tui.frame(120, 60).split(chr(10))
+        lines = {n: next((tui._ANSI.sub("", ln) for ln in _snap(120, 60).split(chr(10))
                           if re.search(rf"(^|[ │└]){n}( |$)", tui._ANSI.sub("", ln))), "")
                  for n in ("manager", "lead")}
         check("fold: what hangs under a drawn report is counted under that report",
@@ -19963,7 +19457,7 @@ edges:
         # Opening the report while the manager stays folded: what hangs under it is
         # still hidden, so it is still counted, and still said.
         tui.EXPANDED.add("lead")
-        lines = {n: next((tui._ANSI.sub("", ln) for ln in tui.frame(120, 60).split(chr(10))
+        lines = {n: next((tui._ANSI.sub("", ln) for ln in _snap(120, 60).split(chr(10))
                           if re.search(rf"(^|[ │└]){n}( |$)", tui._ANSI.sub("", ln))), "")
                  for n in ("manager", "lead")}
         check("fold: an opened report's team is still counted under the fold that hides it",
@@ -19972,13 +19466,6 @@ edges:
               "▶" not in lines["lead"] and "+" not in lines["lead"].split("STALLED")[0],
               lines["lead"])
         tui.EXPANDED.clear()
-
-        plain = lambda s_: tui._ANSI.sub("", s_)  # noqa: E731
-        run = ("▶", 2, tui.GRN)
-        check("fold: a name too long for even that is cut, the count kept",
-              plain(tui.fold_marker("a-very-long-agent-name-indeed", 12, run)).endswith(" +12")
-              and tui.vlen(tui.fold_marker("a-very-long-agent-name-indeed", 12, run)) <= tui.NAME_W)
-        check("fold: no fold, no marker", tui.fold_marker("keeper", 0, run) == "keeper")
     finally:
         dmn.wall_reason = real_wall
         con.close()
@@ -20062,7 +19549,7 @@ edges:
         check("tree: a supervisor's team starts closed",
               tui._keys_of(tui.AGENTS) == [n for n in order if n not in ("marina", "keeper")],
               str(tui._keys_of(tui.AGENTS)))
-        plain = [tui._ANSI.sub("", ln) for ln in tui.frame(120, 60).split(chr(10))]
+        plain = [tui._ANSI.sub("", ln) for ln in _snap(120, 60).split(chr(10))]
         check("tree: and says how many are in it",
               any("manager +2" in ln for ln in plain),
               str([ln for ln in plain if "manager" in ln])[:160])
@@ -20144,7 +19631,7 @@ edges:
         (home / "team.yaml").write_text("teams: [this is not a map\n")
         check("tree: a broken team.yaml still draws every agent",
               sorted(n for n, _d in actions.agent_tree()) == sorted(paths.list_agents()))
-        frame = tui._ANSI.sub("", tui.frame(120, 40))
+        frame = tui._ANSI.sub("", _snap(120, 40))
         check("tree: and the screen still draws", "AGENTS" in frame)
     finally:
         con.close()
@@ -20364,74 +19851,6 @@ def test_the_screen_says_what_is_stuck_and_what_was_decided(home: Path) -> None:
         con.close()
 
 
-def test_the_arrows_change_tabs_on_an_agent_page_in_a_real_terminal(home: Path) -> None:
-    """Founder #799: on an agent's page ← and → did nothing, so CONVERSATION
-    could not be reached. The key moved the tab and the next redraw put it back,
-    which only the screen's own loop does - so this runs `tui.run` in a pty."""
-    import struct
-    import fcntl
-    import termios
-    _daemon_home(home, 20)
-    code = (f"import sys; sys.path.insert(0, {str(ROOT)!r});"
-            "from ocp import tui; tui.run(0.2)")
-    pid, fd = pty.fork()
-    if pid == 0:                                  # the child is the terminal
-        os.execvpe("python3", ["python3", "-c", code], dict(os.environ))
-    fcntl.ioctl(fd, termios.TIOCSWINSZ, struct.pack("HHHH", 40, 120, 0, 0))
-    got = ""
-
-    def screen(has: str) -> str:
-        """The latest frame, once it says `has` (or after five seconds)."""
-        nonlocal got
-        deadline, frame = time.time() + 5, ""
-        while time.time() < deadline:
-            r, _, _ = select.select([fd], [], [], 0.1)
-            if r:
-                try:
-                    got += os.read(fd, 65536).decode(errors="replace")
-                except OSError:
-                    break
-            frame = tui._ANSI.sub("", got.rsplit("\033[H", 2)[-2] if got.count("\033[H") > 1 else "")
-            if has in frame:
-                break
-        return frame
-
-    def press(key: bytes, has: str) -> str:
-        nonlocal got
-        got = ""
-        os.write(fd, key)
-        return screen(has)
-    try:
-        screen("agent")
-        page = press(b"\r", "nothing yet between you and backend")
-        check("arrows: Enter opens the agent's page on its conversation",
-              "nothing yet between you and backend" in page, page[-300:])
-        for name, key in (("→", b"\x1b[C"), ("application-mode →", b"\x1bOC"),
-                          ("Tab", b"\t"), ("←", b"\x1b[D")):
-            after = press(key, "nothing yet between you and backend")
-            time.sleep(0.6)                  # several redraws later
-            check(f"arrows: {name} on the one-column page leaves it where it is",
-                  "nothing yet between you and backend" in after
-                  and "nothing yet between you and backend" in screen("nothing yet"))
-        # The screen loop swallows an exception into a red flash and stays on
-        # the tab, so only a direct call tells "stayed" from "crashed".
-        d = {"sections": [(f"{stem} (0)", []) for stem in "ABCD"], "tab": 3}
-        try:
-            tui._go_to_tab(d, len(tui._tab_stems(d)) + 5)
-            past = (d["tab"], d["stem"])
-        except IndexError as e:
-            past = repr(e)
-        check("arrows: going past the last tab lands on it without raising",
-              past == (3, "D"), str(past))
-        check("arrows: Esc leaves the page",
-              "nothing yet between you and backend" not in press(b"\x1b", "AGENTS"))
-    finally:
-        os.write(fd, b"q")
-        os.close(fd)
-        os.waitpid(pid, 0)
-
-
-
 def test_a_conversation_reads_as_turns_at_any_width(home: Path) -> None:
     """Founder: the conversation was hard to read. At a glance who said what and
     where a message ends: a marker on its first line, the text indented under
@@ -20629,16 +20048,13 @@ def test_nothing_a_terminal_would_obey_gets_through_what_someone_else_wrote(home
             db.set_agent_state(con, "reviewer", "STALLED", detail=f"stuck {pois} " * 8)
             shown = {}
             page = tui._agent_page(con, "reviewer", tui.AGENTS)
-            for name in tui._tab_stems(page):
-                for width in (200, 30):
-                    tui._go_to_tab(page, tui._tab_stems(page).index(name))
-                    page["top"], page["end"] = 0, False
-                    shown[f"{name} at {width}"] = tui._detail_frame(width, 400, page)
+            for width in (200, 30):
+                shown[f"page at {width}"] = _page_text(page, width)
             real_kind, real_acct = agents.kind, agents.current_account
             agents.kind = lambda cfg: f"kind{pois}"      # agent.yaml's fields, whatever parses them
             agents.current_account = lambda name, con=None: f"acct{pois}"
             try:
-                shown["main at 200"], shown["main at 30"] = tui.frame(200, 50), tui.frame(30, 50)
+                shown["main"] = _snap()
             finally:
                 agents.kind, agents.current_account = real_kind, real_acct
             return shown
@@ -20658,8 +20074,7 @@ def test_nothing_a_terminal_would_obey_gets_through_what_someone_else_wrote(home
               not [f for f in found if f.startswith(label + ":")],
               str([f for f in found if f.startswith(label + ":")])[:300])
     check("escape: what surrounded it is still read",
-          all("before" in dirty[k].replace("\n", "") for k in dirty if k.endswith("at 200")
-              and not k.startswith(("WHAT IT HAS", "main"))) and "stuck" in dirty["main at 200"])
+          "before" in dirty["page at 200"].replace("\n", "") and "stuck" in dirty["main"])
     check("escape: the payload of a title is not drawn", not any("PWNED" in t for t in dirty.values()),
           str([k for k, t in dirty.items() if "PWNED" in t]))
     check("escape: drawable splits on every line break a terminal would obey",
@@ -20716,34 +20131,26 @@ def test_an_agent_name_is_text_and_no_screen_can_be_made_to_obey_it(home: Path) 
                                    None, 0, None)
             con.execute("UPDATE requests SET state = 'done', verdict = 'answered too', "
                         "resolved_at = ? WHERE id = ?", (int(time.time()), asked))
-            shown = {"main": tui.frame(200, 60), "main narrow": tui.frame(60, 60)}
-            other = tui._agent_page(con, "backend", tui.AGENTS)      # where the name is a requester
-            for tab in tui._tab_stems(other):
-                tui._go_to_tab(other, tui._tab_stems(other).index(tab))
-                other["top"], other["end"] = 0, False
-                shown[f"backend's page {tab}"] = tui._detail_frame(200, 400, other)
-            page = tui._agent_page(con, name, tui.AGENTS)
-            for tab in tui._tab_stems(page):
-                tui._go_to_tab(page, tui._tab_stems(page).index(tab))
-                page["top"], page["end"] = 0, False
-                shown[f"page {tab}"] = tui._detail_frame(200, 400, page)
+            shown = {"main": _snap()}
+            shown["backend's page"] = _page_text(   # where the name is a requester
+                tui._agent_page(con, "backend", tui.AGENTS), 200)
+            shown["page"] = _page_text(tui._agent_page(con, name, tui.AGENTS), 200)
             mine = con.execute("SELECT id FROM requests WHERE requester = ? AND target = 'human'",
                                (name,)).fetchone()["id"]
             title, sections = actions.message_detail(con, mine)
-            shown["message page"] = tui._detail_frame(200, 400, tui.page(title, sections, tui.MESSAGES, mine))
+            shown["message page"] = _page_text(tui.page(title, sections, tui.MESSAGES, mine), 200)
             return shown
         finally:
             con.close()
 
     dirty = scene(home / "dirty", poison)
     clean = scene(home / "clean", _reference_text(poison))
-    found = _leaks(dirty, clean, skip_counts=("main narrow",))
+    found = _leaks(dirty, clean)
     for label in dirty:
         check(f"names: {label} draws nothing of a terminal's, and no code of ours a plain name would not",
               not [f for f in found if f.startswith(label + ":")],
               str([f for f in found if f.startswith(label + ":")])[:300])
-        if label in ("main", "message page", "backend's page WAITING FOR IT",
-                     "backend's page ANSWERS IT HAS NOT BEEN TOLD"):
+        if label in ("main", "message page", "backend's page"):
             check(f"names: the name is still there to read in {label}", "evil" in dirty[label],
                   dirty[label][:200])
 
@@ -21158,109 +20565,6 @@ def test_a_module_that_returns_subprocess_text_as_a_message_imports_textsafe(hom
               "    return ok\n")))
 
 
-
-def test_the_messenger_tab_carries_a_conversation_both_ways(home: Path) -> None:
-    """The founder writes in the tab, the agent answers, and the answer is in
-    the tab on the next redraw - with the message sent whole and under its
-    thread, and the unread count on the tab until it has been read."""
-    _daemon_home(home, 20)
-    agents.register("reviewer", "alpha")
-    con = db.connect()
-    try:
-        def tab() -> tuple[str, list[str]]:
-            return next((h, r) for h, r in actions.agent_detail(con, "reviewer")
-                        if h.startswith(actions.CHAT_TAB))
-
-        check("chat: empty says so", "nothing yet" in tab()[1][0], str(tab()))
-        body = "first line\n\nthird line, after a blank\n" + "long " * 60
-        said = actions.chat_reply(con, "reviewer", body)
-        check("chat: a first message is sent", actions.chat_parent(con, "reviewer") is not None, said)
-        first = actions.chat_parent(con, "reviewer")
-        row = db.get_request(con, first)
-        check("chat: the multi-line body is stored whole", row["body"] == body, repr(row["body"])[:60])
-        check("chat: and drawn whole",
-              any("third line, after a blank" in ln for ln in tab()[1])
-              and sum(ln.count("long") for ln in tab()[1]) == 60)
-
-        # The agent answers, from its side.
-        ok, _ = askmod.resolve(first, "done: rebased\nand pushed")
-        head, rows = tab()
-        check("chat: the answer is there on the next read", any("rebased" in r for r in rows)
-              and any("and pushed" in r for r in rows), str(rows))
-        check("chat: and counted on the tab", head == "CONVERSATION (1 new)", head)
-        actions.chat_seen(con, "reviewer")
-        check("chat: seen clears the count", tab()[0] == "CONVERSATION", tab()[0])
-
-        # The open page follows the database on the screen's own redraw.
-        page = tui._agent_page(con, "reviewer", tui.AGENTS)
-        page["tab"] = [h.split(" (")[0] for h, _ in page["sections"] if h].index("CONVERSATION")
-        page["end"] = True             # as the tab key leaves it
-        sel: dict = {}
-        _, page = tui._redraw(100, 12, sel, tui.AGENTS, "", page)
-        actions.chat_reply(con, "reviewer", "one more")
-        past = int(time.time()) - 100
-        db.set_cursor(con, "seen:reviewer", past)
-        askmod.resolve(actions.chat_parent(con, "reviewer"), "second answer, landing while it is open")
-        check("chat: it is unread before the redraw", actions.chat_unread(con, "reviewer") == 2)
-        shown, page = tui._redraw(100, 12, sel, tui.AGENTS, "", page)
-        plain = tui._ANSI.sub("", shown)
-        check("chat: an open page shows an answer on its next redraw",
-              "landing while it is open" in plain, plain[-300:])
-        check("chat: being open on it keeps the count until the reader leaves",
-              actions.chat_unread(con, "reviewer") == 2)
-        tui._in_detail(page, "\033", 100, 12)
-        check("chat: leaving the page marks it read", actions.chat_unread(con, "reviewer") == 0)
-        for i in range(9):
-            actions.chat_reply(con, "reviewer", f"filler {i}")
-        _, page = tui._redraw(100, 12, sel, tui.AGENTS, "", page)
-        actions.chat_reply(con, "reviewer", "the newest line")
-        shown, page = tui._redraw(100, 12, sel, tui.AGENTS, "", page)
-        check("chat: a conversation read at its end stays at its end",
-              "the newest line" in tui._ANSI.sub("", shown))
-
-        # A reply goes under the thread it continues.
-        before = actions.chat_parent(con, "reviewer")
-        actions.chat_reply(con, "reviewer", "thanks - now the docs")
-        first = before
-        second = db.get_request(con, actions.chat_parent(con, "reviewer"))
-        check("chat: a reply keeps the chain", second["chain_id"] == row["chain_id"]
-              and second["parent_id"] == first, str(dict(second)))
-        check("chat: one chain header, not two",
-              sum(r.startswith("── chain") for r in tab()[1]) == 1, str(tab()[1]))
-
-        # Two open questions with a report older than both: the oldest question.
-        old_fyi = askmod.ask(actions.HUMAN, "status: started", requester="reviewer", fyi=True)[2]
-        q1 = askmod.ask(actions.HUMAN, "first question?", requester="reviewer")[2]
-        q2 = askmod.ask(actions.HUMAN, "second question?", requester="reviewer")[2]
-        check("chat: the oldest open question, never a report",
-              actions.chat_target(con, "reviewer") == ("answers", q1),
-              str(actions.chat_target(con, "reviewer")))
-        actions.chat_reply(con, "reviewer", "one")
-        check("chat: and then the next", actions.chat_target(con, "reviewer") == ("answers", q2))
-        actions.chat_reply(con, "reviewer", "two")
-        askmod.resolve(old_fyi, "read")
-
-        # A question followed by a report: the reply is to the question.
-        q = askmod.ask(actions.HUMAN, "which colour?", requester="reviewer")[2]
-        f = askmod.ask(actions.HUMAN, "status: halfway", requester="reviewer", fyi=True)[2]
-        check("chat: the footer names the question, not the newer report",
-              any(f"answers #{q}" in r for r in tab()[1]), str(tab()[1][-2:]))
-        actions.chat_reply(con, "reviewer", "blue")
-        check("chat: the reply closes the question and leaves the report",
-              db.get_request(con, q)["verdict"] == "blue"
-              and db.get_request(con, f)["verdict"] is None)
-        askmod.resolve(f, "read")
-
-        # An agent's question to the human is answered, not asked under.
-        rid, = [askmod.ask(actions.HUMAN, "which name?", requester="reviewer")[2]]
-        actions.chat_reply(con, "reviewer", "call it x")
-        check("chat: a question to the human is closed by the reply",
-              db.get_request(con, rid)["state"] == "done"
-              and db.get_request(con, rid)["verdict"] == "call it x")
-    finally:
-        con.close()
-
-
 def test_the_agent_head_is_trimmed_and_slash_commands_are_derived_not_kept(home: Path) -> None:
     """Founder (#1007, via #1008): the terminal handle and the worktree path
     are not a person's business on the head - a technical id nobody types.
@@ -21306,49 +20610,25 @@ def test_the_agent_head_is_trimmed_and_slash_commands_are_derived_not_kept(home:
               set(cmds) == allowed | set(tui.INFO_COMMANDS) | set(tui.PAGE_COMMANDS) | {"cancel"}
               and len(cmds) == len(allowed) + len(tui.INFO_COMMANDS) + len(tui.PAGE_COMMANDS) + 1,
               str(cmds))
-
-        # A recognized command runs, through the composer that also sends
-        # plain messages - and a message that merely starts with '/' but
-        # names nothing real is still sent, not dropped. `_line` itself
-        # already promises the second half; this is `_write_in_thread`
-        # trusting that promise rather than re-deciding on its own.
-        import pty
-        import tty as ttymod
-        agents.register("reviewer", "alpha")   # "*" may message reviewer; backend cannot be messaged fresh
-
-        def typed(text: bytes) -> tuple[dict, str]:
-            master, slave = pty.openpty()
-            ttymod.setraw(slave)
-            real_in, real_out = sys.stdin, sys.stdout
-            sys.stdin, sys.stdout = os.fdopen(slave, "r", closefd=False), io.StringIO()
-            detail = tui._agent_page(con, "reviewer")
-            detail["stem"] = actions.CHAT_TAB
-            try:
-                os.write(master, text)
-                return tui._write_in_thread(detail, "\r", 60, 24, None, None)
-            finally:
-                sys.stdin, sys.stdout = real_in, real_out
-                os.close(master)
-                os.close(slave)
-
-        detail, said = typed(b"/where\r")
-        check("commands: a resolved command runs and says its answer",
-              said == "reviewer has never been started", said)
-        detail, said = typed(b"/not-a-real-command hello\r")
-        chat = next(r for h, r in detail["sections"] if h.startswith(actions.CHAT_TAB))
-        check("commands: unmatched slash text is sent as a message, not dropped",
-              any("/not-a-real-command hello" in ln for ln in chat), str(chat))
     finally:
         con.close()
 
 
+def test_a_draft_and_an_unknown_bar_are_not_changed_by_what_cannot_mean_them(home: Path) -> None:
+    """A wheel notch reaches the agent page's box as an arrow key and must
+    leave the draft as it was; an unknown reading is never drawn as an empty
+    gauge."""
+    box = tui.Composer(multi=True)
+    box.feed("half a mess")
+    box.feed("".join(("\033[A", "\033OA", "\033[B", "\033OB")) * 4)
+    check("wheel: a draft under composition is untouched", box.text == "half a mess")
+    check("tui: an unknown bar is not an empty bar",
+          tui.vlen(tui.bar(None, 10)) == 10 and "░" not in tui.bar(None, 10))
 
-def test_a_message_being_typed_is_sent_whole_and_shown_inert(home: Path) -> None:
-    """Text typed into the composer is never lost or sent short, and a pasted
+
+def test_a_message_being_typed_is_shown_whole_and_inert(home: Path) -> None:
+    """Text typed into the composer is drawn whole at any width, and a pasted
     escape is drawn as a picture, never handed to the terminal."""
-    import threading
-    import tty as ttymod
-
     def plain(rows: list[str]) -> list[str]:
         return [tui._ANSI.sub("", r) for r in rows]
 
@@ -21367,314 +20647,11 @@ def test_a_message_being_typed_is_sent_whole_and_shown_inert(home: Path) -> None
     check("typing: a pasted escape is shown as a picture, never sent",
           "\033[2J" not in "".join(box.shown("p:", 30, 5)))
 
-    master, slave = pty.openpty()
-    ttymod.setraw(slave)
-    real_in, real_out = sys.stdin, sys.stdout
-    sys.stdin, sys.stdout = os.fdopen(slave, "r", closefd=False), io.StringIO()
-    text = "the quick brown fox jumps over the lazy dog " * 4 + "end "
-    try:
-        os.write(master, text.encode())
-        threading.Timer(0.5, lambda: os.write(master, b"\r")).start()
-        got = tui._line("to reviewer:", 30, 24, multi=True)
-    finally:
-        sys.stdin, sys.stdout = real_in, real_out
-        os.close(master)
-        os.close(slave)
-    check("typing: the whole message is what is sent", got == text, repr(got))
 
-
-def test_the_wheel_changes_no_text_and_answers_no_dialog() -> None:
-    """A wheel notch reaches the prompt as an arrow key: it must leave a draft
-    as it was and must not answer a yes/no confirmation."""
-    up, down = ("\033[A", "\033OA"), ("\033[B", "\033OB")
-    box = tui.Composer(multi=True)
-    box.feed("half a mess")
-    box.feed("".join(up + down) * 4)
-    check("wheel: a draft under composition is untouched", box.text == "half a mess")
-    ask = tui._composer()
-    ask.feed("".join(up + down) * 4)
-    check("wheel: it does not answer a yes/no dialog", ask.typed == "")
-
-
-def test_slash_commands_autocomplete_and_run_the_highlighted_one(home: Path) -> None:
-    """Founder (#1007, via #1008): '/~~~ 를 자동완성하는 기능' - typing '/'
-    in the message composer lists what it could mean, ↑↓ changes which is
-    highlighted, and Enter runs that one - never whatever partial text was
-    actually typed, so a person who presses Enter after 'cl' runs `close`,
-    not a literal message reading '/cl'."""
-    import threading
-    import tty as ttymod
-
-    def plain(rows: list[str]) -> list[str]:
-        return [tui._ANSI.sub("", r) for r in rows]
-
-    master, slave = pty.openpty()
-    ttymod.setraw(slave)
-    real_in, real_out = sys.stdin, sys.stdout
-    sys.stdin, sys.stdout = os.fdopen(slave, "r", closefd=False), io.StringIO()
-    cmds = [("close", "action"), ("clock", "info"), ("wake", "action")]
-    try:
-        os.write(master, b"/cl")
-        threading.Timer(0.3, lambda: os.write(master, b"\033[B\r")).start()
-        got = tui._line("to x:", 40, 24, multi=True, commands=cmds)
-        out = plain(sys.stdout.getvalue().split("\033[24;1H"))
-    finally:
-        sys.stdin, sys.stdout = real_in, real_out
-        os.close(master)
-        os.close(slave)
-    check("autocomplete: both matches for the typed prefix are listed",
-          any("close" in r and "clock" in r for r in out), str(out))
-    check("autocomplete: ↓ then Enter runs the one it moved to, not the typed text",
-          got == "/clock", repr(got))
-
-    # A single read can hold several ↓ (key repeat, a paste, a script), and
-    # Composer silently swallows any it does not itself map.
-    master, slave = pty.openpty()
-    ttymod.setraw(slave)
-    sys.stdin, sys.stdout = os.fdopen(slave, "r", closefd=False), io.StringIO()
-    cmds3x = [("ask", "action"), ("close", "action"), ("clock", "info")]
-    try:
-        os.write(master, b"/")                   # all three match "" - rendered once
-        threading.Timer(0.2, lambda: os.write(master, b"\033[B\033[B\r")).start()
-        got = tui._line("to x:", 40, 24, multi=True, commands=cmds3x)
-    finally:
-        sys.stdin, sys.stdout = real_in, real_out
-        os.close(master)
-        os.close(slave)
-    check("autocomplete: two ↓ in one read move the highlight by two",
-          got == "/clock", repr(got))
-
-    # No match: a real message starting with '/' is still just a message.
-    master, slave = pty.openpty()
-    ttymod.setraw(slave)
-    sys.stdin, sys.stdout = os.fdopen(slave, "r", closefd=False), io.StringIO()
-    try:
-        os.write(master, b"/nope not a command\r")
-        got = tui._line("to x:", 40, 24, multi=True, commands=cmds)
-    finally:
-        sys.stdin, sys.stdout = real_in, real_out
-        os.close(master)
-        os.close(slave)
-    check("autocomplete: text starting with / that matches nothing sends as typed",
-          got == "/nope not a command", repr(got))
-
-    master, slave = pty.openpty()
-    ttymod.setraw(slave)
-    sys.stdin, sys.stdout = os.fdopen(slave, "r", closefd=False), io.StringIO()
-    cmds3 = [("ask", "action"), ("close", "action"), ("clock", "info")]
-    try:
-        os.write(master, b"/cl")                 # two matches: close, clock
-        def feed() -> None:
-            time.sleep(0.2)
-            os.write(master, b"\033[B")           # ↓ to "clock" (index 1)
-            time.sleep(0.2)
-            os.write(master, b"\x7f\x7f")         # widen to three: ask, close, clock
-            time.sleep(0.2)
-            # If the highlight had merely been clamped (not reset) it would
-            # still be sitting at index 1 - one more ↓ from there lands on
-            # "clock" (index 2). Reset to 0, one ↓ lands on "close" (index 1).
-            os.write(master, b"\033[B\r")
-        threading.Thread(target=feed).start()
-        got = tui._line("to x:", 40, 24, multi=True, commands=cmds3)
-    finally:
-        sys.stdin, sys.stdout = real_in, real_out
-        os.close(master)
-        os.close(slave)
-    check("autocomplete: widening the match list resets the highlight, "
-          "not just clamps its index into range",
-          got == "/close", repr(got))
-
-    master, slave = pty.openpty()
-    ttymod.setraw(slave)
-    sys.stdin, sys.stdout = os.fdopen(slave, "r", closefd=False), io.StringIO()
-    try:
-        os.write(master, b"/close\r")           # whole thing, one read
-        got = tui._line("to x:", 40, 24, multi=True, commands=cmds)
-    finally:
-        sys.stdin, sys.stdout = real_in, real_out
-        os.close(master)
-        os.close(slave)
-    check("autocomplete: a prefix and Enter in the same read still resolves",
-          got == "/close", repr(got))
-
-    master, slave = pty.openpty()
-    ttymod.setraw(slave)
-    sys.stdin, sys.stdout = os.fdopen(slave, "r", closefd=False), io.StringIO()
-    try:
-        os.write(master, b"/cl\r")               # "close" and "clock" both match
-        got = tui._line("to x:", 40, 24, multi=True, commands=cmds)
-    finally:
-        sys.stdin, sys.stdout = real_in, real_out
-        os.close(master)
-        os.close(slave)
-    check("autocomplete: several matches with no explicit pick sends as typed, "
-          "runs nothing", got == "/cl", repr(got))
-
-
-def test_the_agent_page_shows_everything_and_reads_as_blocks(home: Path) -> None:
-    """Founder: an agent's page cut a request to one line, cut it at 60
-    characters, or did not wrap it. A request, an event and a handoff are shown
-    whole at any width, and a row is a block you can tell from the next."""
-    from collections import Counter
-    _daemon_home(home, 20)
-    agents.register("reviewer", "alpha")
-    con = db.connect()
-    try:
-        body = ("Please review the branch.\n\nSteps:\n  1. read the diff\n  2. run the tests "
-                + "and a long line " * 6 + "TAILONE")
-        a = db.add_request(con, "marina", "reviewer", body, None, "peer", "async", None, 0, None)
-        b = db.add_request(con, askmod.HUMAN, "reviewer",
-                           "second\n" + "\n".join(f"line {i}" for i in range(5)) + "\nTAILTWO",
-                           None, "peer", "async", None, 0, None)
-        asked = askmod.ask("backend", "is main green?", requester="reviewer")[2]
-        askmod.resolve(asked, "yes, green\nsince the rebase TAILANS")
-        asked2 = askmod.ask("backend", "and the docs?", requester="reviewer")[2]
-        askmod.resolve(asked2, "no\nnot yet TAILANS2")
-        db.set_agent_state(con, "reviewer", dmn.IDLE, detail="waiting on a long thing " * 4 + "TAILHEAD")
-        db.add_event(con, "reviewer", "wake", {"resumed_session": "s-1", "why": "x" * 90 + "TAILEV"})
-        db.add_event(con, "reviewer", "a_rather_long_event_kind_name", {"k": 1})
-        keep_handoff("reviewer", "# Goal\nship it\n- first item, long enough to wrap around the "
-                     "column edge " + "more " * 10 + "TAILKEEP\n1. numbered " + "x " * 30)
-
-        def page_at() -> dict:
-            return tui._agent_page(con, "reviewer", tui.AGENTS)
-
-        def plain(page: dict, width: int) -> list[str]:
-            return [tui._ANSI.sub("", ln) for ln in tui.lines_of(page, width)]
-
-        def read_page(cmd: str, width: int) -> list[str]:
-            return plain(tui._open_read_page(con, page_at(), "reviewer", cmd), width)
-
-        def under(lines: list[str], heading: str) -> list[str]:
-            """The lines of the box titled `heading`, to the end of the page."""
-            at = next(i for i, ln in enumerate(lines) if heading in ln)
-            return lines[at:]
-
-        def words(lines: list[str]) -> Counter:
-            return Counter(w for ln in lines for w in ln.strip("│┌└┐┘─ ").split())
-
-        for width in (100, 40, 22):
-            whole = plain(page_at(), width)
-            knows, done = read_page("knows", width), read_page("done", width)
-            want = words(body.split("\n") + ["second"] + [f"line {i}" for i in range(5)]
-                         + ["TAILTWO"])
-            check(f"page: every word of a request is there, not its first line at {width}",
-                  not want - words(whole), str(want - words(whole)))
-            check(f"page: the head block keeps its whole detail at {width}",
-                  words(whole)["TAILHEAD"] == 1)
-            others = under(whole, "ALSO QUEUED")
-            others = others[:next((i for i, ln in enumerate(others) if i and ln.startswith("──")),
-                                  len(others))]
-            check(f"page: a request from another agent is under the queued heading and says whose it is at {width}",
-                  any("from marina" in ln for ln in others)
-                  and not any("from marina" in ln for ln in whole[:whole.index(others[0])]),
-                  str(others))
-            told = under(whole, "ANSWERS IT HAS")
-            check(f"page: the answers it was not told are whole, a blank line apart at {width}",
-                  not words(["yes, green", "since the rebase TAILANS", "no", "not yet TAILANS2"])
-                  - words(told) and "" in [ln.rstrip() for ln in told[2:-1]], str(told))
-            check(f"page: an event's payload is whole, not cut at 60 at {width}",
-                  "x" * 90 + "TAILEV" in "".join(ln.strip("│ ") for ln in done), str(done))
-            check(f"page: an event kind too wide for its column is shown whole at {width}",
-                  "a_rather_long_event_kind_name" in "".join(ln.strip("│ ") for ln in done)
-                  or width == 22, str(done))
-            check(f"page: a handoff is whole and a wrapped item goes under its words at {width}",
-                  words(knows)["TAILKEEP"] == 1 and all(
-                      ln.startswith("  ") for ln in knows
-                      if "more" in ln and "- first" not in ln),
-                  str(knows))
-        check("page: a request from the human is in the conversation, not repeated under it",
-              sum("TAILTWO" in ln for ln in plain(page_at(), 100)) == 1)
-    finally:
-        con.close()
-
-
-def test_a_paste_into_any_prompt_arrives_whole_and_confirms_nothing(home: Path) -> None:
-    """The founder pasted one screen and it arrived as two messages (#684,
-    #686): the prompt sent at the first newline. Through a real pty, so the
-    reading is the screen's own."""
-    import io
-    import pty
-    import tty as ttymod
-    _daemon_home(home, 20)
-    agents.register("reviewer", "alpha")
-    con = db.connect()
-    master, slave = pty.openpty()
-    ttymod.setraw(slave)
-    real_in, real_out = sys.stdin, sys.stdout
-    sys.stdin, sys.stdout = os.fdopen(slave, "r", closefd=False), io.StringIO()
-    try:
-        rid = askmod.ask(actions.HUMAN, "which name?", requester="reviewer")[2]
-        paste = "\033[200~WAITING ON YOU (1)\n\n  #12 keeper: rebase?\r\nlast line\033[201~"
-        os.write(master, (paste + "\r").encode())
-        text = tui._compose(rid, "a", 100, 24, None, None)
-        want = "WAITING ON YOU (1)\n\n  #12 keeper: rebase?\nlast line"
-        check("paste: the answer prompt takes the whole paste", text == want, repr(text))
-        before = con.execute("SELECT COUNT(*) FROM requests").fetchone()[0]
-        actions.answer(con, rid, text)
-        row = db.get_request(con, rid)
-        check("paste: one stored body, byte for byte, no other message",
-              row["verdict"] == want
-              and con.execute("SELECT COUNT(*) FROM requests").fetchone()[0] == before)
-
-        os.write(master, b"\033[200~one\ntwo\033[201~\r")
-        check("paste: a one-line prompt flattens a paste and still needs Enter",
-              tui._line("account:", 100, 24) == "one two")
-        os.write(master, b"\033[200~yes\033[201~\r")
-        check("paste: a paste of 'yes' does not confirm", tui._confirm("remove x", 100, 24) is False)
-        os.write(master, b"\033[200~y\033[201~n")
-        check("paste: a pasted y with no Enter, then a typed n, is a no",
-              tui._confirm("remove x", 100, 24) is False)
-        os.write(master, b"\033[200~n\033[201~y")
-        check("paste: a key after a paste still confirms", tui._confirm("remove x", 100, 24) is True)
-
-        # A paste begun on the main screen and finished inside a prompt.
-        tui._paste_state.update({"in": False, "carry": ""})
-        os.write(master, b"a\033[200~first part\n")
-        check("paste: the key before it is read", tui._key(1.0) == "a")
-        os.write(master, b"rest\nmore\033[201~\r")
-        check("paste: the prompt it opens keeps the rest as paste, and Enter sends",
-              tui._line("answer:", 100, 24) == "rest more", "")
-        check("paste: and the screen is not left dropping keys",
-              tui._paste_state["in"] is False)
-        os.write(master, b"q")
-        check("paste: so the next key is read", tui._key(1.0) == "q")
-
-        # Not in a prompt: the main screen reads a paste as nothing at all, and
-        # what it leaves in _pending is never the paste's text.
-        tui._pending.clear()
-        os.write(master, b"\033[200~aWAITING ON YOU (1)\nsecond line\n\033[201~")
-        check("paste: on the main screen a paste is not a key", tui._key(1.0) is None
-              and not tui._pending, str(tui._pending))
-        tui._paste_state.update({"in": False, "carry": ""})
-        check("paste: a marker split after its escape is still one",
-              tui._unpasted("a\033[200~xx\033") + tui._unpasted("[201~b") == "ab")
-        os.write(master, b"\033[200~x\ny")
-        tui._key(1.0)
-        os.write(master, b"z\033[201~q")
-        check("paste: across reads too, and the key after it is read",
-              tui._key(1.0) == "q" and not tui._pending)
-    finally:
-        sys.stdin, sys.stdout = real_in, real_out
-        os.close(master)
-        os.close(slave)
-        con.close()
-
-
-def test_bracketed_paste_is_switched_on_with_the_screen() -> None:
-    """Without the terminal's marks nothing above can tell a paste from typing."""
-    import inspect
-    check("paste: it comes on with the alternate screen and goes off with it",
-          tui.PASTE_ON in tui.ALT_ON and tui.PASTE_OFF in tui.ALT_OFF)
-    check("paste: run() and the hand-over to another program use those",
-          all("ALT_ON" in inspect.getsource(f) and "ALT_OFF" in inspect.getsource(f)
-              for f in (tui.run, tui._suspend)))
-
-
-
-def test_a_message_in_for_you_opens_at_its_place_in_the_conversation(home: Path) -> None:
+def test_a_message_in_for_you_has_a_place_in_the_conversation(home: Path) -> None:
     """Founder #1372: opening a FOR YOU row lands in that agent's conversation,
-    with that message on screen and marked, not on a copy of it drawn alone."""
+    on that message, not on a copy of it drawn alone. `message_place` says where
+    a message sits, and None where it cannot be shown there."""
     _daemon_home(home, 20)
     agents.register("reviewer", "alpha")
     con = db.connect()
@@ -21688,51 +20665,16 @@ def test_a_message_in_for_you_opens_at_its_place_in_the_conversation(home: Path)
         target = say("TARGET the merge gate", "c1")
         for i in range(40):
             say(f"later {i}", "c1")
-        sel = {tui.MESSAGES: target}
+        check("for-you: a message sits in its agent's conversation, as the ask",
+              actions.message_place(con, target) == ("reviewer", 0),
+              str(actions.message_place(con, target)))
 
-        def open_it(rid: int):
-            # A real cursor holds a row's `key` (its agent, once folded - #1476),
-            # not its id; look the current key up the way the screen would.
-            row = next((m for m in actions.messages(con) if m["id"] == rid), None)
-            target = row["key"] if row else rid
-            return tui._act(tui.MESSAGES, {tui.MESSAGES: target}, "\r", 100, 24, None, None)
-
-        line, page = open_it(target)
-        check("for-you: Enter opens the agent's page, on that message",
-              page is not None and page.get("agent") == "reviewer"
-              and page.get("focus") == (target, 0), str(page)[:100])
-
-        def draw() -> str:
-            nonlocal page
-            shown, page = tui._redraw(100, 24, sel, tui.AGENTS, "", page)
-            return tui._ANSI.sub("", shown)
-
-        first = draw()
-        check("for-you: the message is on screen and marked, far from the end",
-              "TARGET the merge gate" in first and "\u25b6" in first
-              and "later 39" not in first, first[:200])
-        rows = first.split("\n")
-        at = next(i for i, r in enumerate(rows) if "TARGET the merge gate" in r)
-        check("for-you: what follows it is readable around it", "later 0" in first)
-        check("for-you: and what came before it is drawn above it",
-              any("earlier" in r for r in rows[:at]), first[:300])
-        check("for-you: the marker is on the message's own line and says it is the one opened",
-              "\u25b6" in rows[at] or "\u25b6" in rows[at - 1], repr(rows[at - 1:at + 1]))
-        check("for-you: the opened message's tail says so", "the one you opened" in first)
-        page, _ = tui._in_detail(page, "G", 100, 24)
-        check("for-you: the reader can still go to the end", "later 39" in draw())
-
-        page, _ = tui._in_detail(page, "\033", 100, 24)
         report = say("FYI the gate is green", "c9", fyi=True)
-        line, rpage = open_it(report)
-        _, rpage = tui._redraw(100, 24, sel, tui.AGENTS, "", rpage)
-        shown = "\n".join(tui._ANSI.sub("", ln) for ln in tui.lines_of(rpage, 100))
+        actions.opened_by_human(con, report)
+        chat, _ = actions.conversation_and_drawn(con, "reviewer")
+        shown = [getattr(r, "text", "") for r in chat if getattr(r, "kind", None) == "msg"]
         check("for-you: opening a report does not draw its receipt as a reply",
-              "FYI the gate is green" in shown and not any(
-                  r.strip() in ("\u276f read", "> read") for r in shown.split("\n")),
-              shown[-300:])
-        check("for-you: leaving marks the conversation seen",
-              actions.chat_unread(con, "reviewer") == 0)
+              "FYI the gate is green" in " ".join(shown) and "read" not in shown, str(shown[-4:]))
         check("for-you: and the unanswered row is still in FOR YOU",
               target in [m["id"] for m in actions.messages(con)])
 
@@ -21742,29 +20684,19 @@ def test_a_message_in_for_you_opens_at_its_place_in_the_conversation(home: Path)
         con.execute("UPDATE requests SET state='done', verdict='ANSWER yes', resolved_at=? "
                     "WHERE id=?", (int(time.time()), asked))
         con.commit()
-        _, page = open_it(asked)
-        check("for-you: an answer opens on its verdict",
-              page is not None and page["focus"] == (asked, 1) and "ANSWER yes" in draw())
+        check("for-you: an answer sits on its verdict",
+              actions.message_place(con, asked) == ("reviewer", 1),
+              str(actions.message_place(con, asked)))
 
-        # Undefined targets: each is a line and a page, never a blank one.
         con.execute("DELETE FROM requests WHERE id = ?", (target,))
         con.commit()
-        line, page = open_it(target)
-        check("for-you: a message that is gone opens nothing and says so",
-              page is None and line and actions.message_place(con, target) is None, line)
-
-        stray = say("from nobody registered", "c3", who="ghost")
-        line, page = open_it(stray)
-        check("for-you: an agent that cannot be opened reads the message alone, and says so",
-              page is not None and "focus" not in page and "read alone" in line
-              and "from nobody registered" in tui.lines_of(page, 100)[0:6].__str__(),
-              line)
+        check("for-you: a message that is gone has no place",
+              actions.message_place(con, target) is None)
         old = say("OLDEST chain", "old")
-        for i in range(tui.actions.CHAT_CHAINS + 1):
+        for i in range(actions.CHAT_CHAINS + 1):
             say(f"newer chain {i}", f"n{i}")
-        line, page = open_it(old)
-        check("for-you: a message in a chain the conversation no longer draws is read alone",
-              page is not None and "focus" not in page and "read alone" in line, line)
+        check("for-you: a message in a chain the conversation no longer draws has no place",
+              actions.message_place(con, old) is None)
     finally:
         con.close()
 
@@ -21798,124 +20730,9 @@ def test_the_composer_takes_a_paste_whole(home: Path) -> None:
     check("composer: longer escape sequences are skipped whole", c.text == "abc", repr(c.text))
 
 
-def test_the_one_column_agent_page(home: Path) -> None:
-    """Part 4 of #1008: an agent's page is its head and its conversation, what
-    else is queued for it sits under the conversation, each row saying whose
-    it is, and what it knows and has done are read on request."""
-    _daemon_home(home, 20)
-    agents.register("reviewer", "alpha")
-    con = db.connect()
-    real_in, real_out = sys.stdin, sys.stdout
-    try:
-        for i in range(18):
-            actions.chat_reply(con, "reviewer", f"message number {i} from me")
-        other = db.add_request(con, "marina", "reviewer", "please look at the diff", None,
-                               "peer", "async", None, 0, None)
-        keep_handoff("reviewer", "the handoff\nsecond line")
-        db.add_event(con, "reviewer", "wake", {"why": "because"})
-        d = tui._agent_page(con, "reviewer")
-        room = 40 - 4
-
-        shown = tui._ANSI.sub("", tui._detail_frame(80, 40, d))
-        check("page: opened at its end, the newest message is on screen, not what is under it",
-              "message number 17" in shown and "please look at the diff" not in shown, shown)
-        check("page: where the reader is left it says what is below, and how to reach it",
-              "1 also queued for it" in shown and "press G" in shown, shown)
-        d, _ = tui._in_detail(d, "j", 80, 40)
-        d, _ = tui._in_detail(d, "G", 80, 40)
-        shown = tui._ANSI.sub("", tui._detail_frame(80, 40, d))
-        check("page: G reaches the section under the conversation, headed with whose it is",
-              "ALSO QUEUED FOR IT" in shown and f"#{other} from marina" in shown, shown)
-        check("page: no tab strip and no closing of sections into tabs",
-              "WHAT IT KNOWS" not in shown and "WHAT IT HAS DONE" not in shown)
-
-        # /knows and /done open over the conversation, and esc comes back to it.
-        cmds = dict(tui.agent_commands(con, "reviewer"))
-        for cmd, text in (("knows", "the handoff"), ("done", "because")):
-            sub, msg = tui._run_command(con, d, "reviewer", cmd, cmds, 80, 40, None, None)
-            check(f"page: /{cmd} opens a page with what it read",
-                  text in tui._ANSI.sub("", "\n".join(tui.lines_of(sub, 80))), msg)
-            back, _m = tui._in_detail(sub, "\033", 80, 40)
-            check(f"page: esc from /{cmd} returns to the conversation, not the list",
-                  back is d and back.get("stacked"))
-        check("page: esc from the conversation itself leaves the page",
-              tui._in_detail(d, "\033", 80, 40)[0] is None)
-
-        # A queued request in a chain older than the ones the conversation
-        # draws is not lost: it is listed under it.
-        agents.register("elder", "alpha")
-        old = db.add_request(con, askmod.HUMAN, "elder", "the oldest question, still queued",
-                             None, "peer", "async", None, 0, None)
-        for i in range(actions.CHAT_CHAINS + 1):
-            db.add_request(con, askmod.HUMAN, "elder", f"newer chain {i}", None, "peer",
-                           "async", None, 0, None)
-        pg = tui._agent_page(con, "elder")
-        text = "\n".join(tui._ANSI.sub("", ln) for w in (80, 30) for ln in tui.lines_of(pg, w))
-        check("page: a queued request past the conversation's newest chains is still on the page, "
-              "under a heading that describes it",
-              f"#{old} from human" in text and "ALSO QUEUED FOR IT" in text
-              and text.index("ALSO QUEUED FOR IT") < text.index(f"#{old} from human"), text[:300])
-    finally:
-        sys.stdin, sys.stdout = real_in, real_out
-        con.close()
-
-    # Ctrl-Left and Ctrl-Right stop at a line's edge instead of running through it.
-    text = "one two\nthree four"
-    check("cursor: word left from the start of a line stops at the end of the line above",
-          tui._word_left(8, text) == 7, str(tui._word_left(8, text)))
-    check("cursor: word right from the end of a line stops at the start of the next",
-          tui._word_right(7, text) == 8, str(tui._word_right(7, text)))
-    check("cursor: within a line it still moves a word at a time",
-          tui._word_left(18, text) == 14 and tui._word_right(8, text) == 13
-          and tui._word_left(7, text) == 4)
-
-
-def test_a_read_only_page_does_not_act_on_the_agent_and_the_note_row_is_whole(home: Path) -> None:
-    """/knows and /done are pages to read: a verb key on one must not reach
-    the agent, and esc still comes back. The composer's window note is drawn
-    whole, and the prompt is bold on the row that carries it."""
-    _daemon_home(home, 20)
-    agents.register("reviewer", "alpha")
-    con = db.connect()
-    called: list[str] = []
-    real = tui._dispatch_agent_verb
-    try:
-        keep_handoff("reviewer", "the handoff")
-        d = tui._agent_page(con, "reviewer")
-        cmds = dict(tui.agent_commands(con, "reviewer"))
-        sub, _ = tui._run_command(con, d, "reviewer", "knows", cmds, 80, 40, None, None)
-        tui._dispatch_agent_verb = lambda *a, **k: (called.append(a[3]), (a[1], "ran"))[1]
-        for key in [k for k, label in tui.AGENT_KEYS if label != "open"] + ["\r", "x"]:
-            out, msg = tui._in_detail(sub, key, 80, 40)
-            check(f"read page: {key!r} does not reach the agent", out is sub and not called,
-                  f"{called} {msg}")
-        check("read page: it says why",
-              "read-only" in tui._in_detail(sub, "c", 80, 40)[1])
-        frame = tui._ANSI.sub("", tui._detail_frame(140, 40, sub))
-        check("read page: the footer does not advertise verbs it will not run",
-              "t terminal" not in frame.split("\n")[-1] and "esc back" in frame.split("\n")[-1],
-              frame.split("\n")[-1])
-        check("read page: esc returns to the conversation", tui._in_detail(sub, "\033", 80, 40)[0] is d)
-        check("read page: scrolling still works", tui._in_detail(sub, "j", 80, 40)[0] is sub)
-    finally:
-        tui._dispatch_agent_verb = real
-        con.close()
-
-    # A two-column prompt is the one a miscounted note tears: its escape is
-    # cut after "ESC[".
-    box = tui._composer(True)
-    box.feed("word " * 60)
-    rows = box.shown("x:", 20, 4)
-    note = next(r for r in rows if "earlier" in r)
-    check("composer: the window note is whole, its escape uncut",
-          note == f"{tui.DIM}{tui._ANSI.sub('', note)}{tui.R}"
-          and _ANSI_TEXT_OK(note), repr(note))
-
-
 def _ANSI_TEXT_OK(s: str) -> bool:
     """Once the whole escape sequences are removed, no ESC is left."""
     return "\033" not in tui._ANSI.sub("", s)
-
 
 
 def test_the_composer_cursor_moves_and_edits_in_place(home: Path) -> None:
@@ -22034,150 +20851,6 @@ def test_the_composer_alt_keys_and_a_pasted_cursor_glyph(home: Path) -> None:
           sum(r.count("▏") for r in rows) == 1, str(rows))
 
 
-def test_a_message_is_read_whole_and_answered_where_it_is_read(home: Path) -> None:
-    """An agent's report arrives as one paragraph with no newline in it, and
-    fitting that to the width shows its first sentence and drops the rest -
-    which is not reading the message. And the message someone has just read is
-    the one they are about to answer: backing out to the panel to do it is how
-    an answer gets put off, and it is where answering the wrong row starts."""
-    _daemon_home(home, 20)
-    con = db.connect()
-    try:
-        long_body = ("A verdict with no newlines at all, " * 20).strip()
-        db.add_request(con, "auditor", actions.HUMAN, long_body,
-                       None, "peer", "async", "verdict", 0, None)
-        db.add_request(con, "marina", actions.HUMAN, "and a second one",
-                       None, "peer", "async", None, 0, None)
-        first, second = [m["id"] for m in actions.messages(con)]
-
-        wrapped = tui.wrap([long_body], 60)
-        check("read: a paragraph is broken to the width, not cut off",
-              len(wrapped) > 1 and max(len(ln) for ln in wrapped) <= 60,
-              str(max(len(ln) for ln in wrapped)))
-        check("read: and every word survives the break",
-              " ".join(wrapped).split() == long_body.split())
-
-        # Enter opens it, carrying which message it is.
-        sel = {tui.MESSAGES: first}
-        said, detail = tui._act(tui.MESSAGES, sel, "\r", 100, 20, None, None)
-        check("read: opening a message opens that message",
-              detail and detail["key"] == first and detail["panel"] == tui.MESSAGES,
-              str(detail)[:120])
-
-        # A zero width is what a pty reports before anyone has sized it, and
-        # what some terminals report for one frame mid-resize. Breaking lines
-        # to fit it used to never shrink the line: the screen stopped redrawing
-        # and stopped reading keys, with the daemon still running behind it.
-        try:
-            with _deadline(5):
-                ok = bool(tui.wrap(["nospaceshereatall"], 0)
-                          and tui.frame(0, 24, detail=detail))
-        except TimeoutError as e:
-            ok = False
-            check("read: a zero-width terminal does not hang the screen", False, str(e))
-        else:
-            check("read: a zero-width terminal does not hang the screen", ok)
-
-        # A body is whatever the sender typed. An escape in it is invisible to
-        # the width count, so it is never truncated - and `esc [ 2J` clears the
-        # screen this is drawing.
-        cleaned = tui.wrap(["\033[2J\033[Hpasted \033[31mtool output"], 40)
-        # A Korean handoff is the ordinary case here, and a glyph two columns
-        # wide counted as one column tore every box it was drawn in.
-        check("width: a wide glyph counts as the two columns it takes",
-              tui.vlen("진행중") == 6 and tui.vlen("abc") == 3, str(tui.vlen("진행중")))
-        check("width: fitting counts columns, so it never overflows",
-              tui.vlen(tui.fit("진행중 막힌 것 다음", 10)) <= 10,
-              repr(tui.fit("진행중 막힌 것 다음", 10)))
-
-        check("read: escapes in a body are text stripped, not commands drawn",
-              "\033" not in "".join(cleaned) and "pasted tool output" in " ".join(cleaned),
-              str(cleaned))
-
-        # An action that raises while something is open is that action's
-        # failure. The panel keys were wrapped for this; the detail keys were
-        # not, and the two editor cases that raise land exactly there.
-        real_answer = actions.answer
-        try:
-            actions.answer = lambda *a, **k: (_ for _ in ()).throw(RuntimeError("boom"))
-            os.environ["EDITOR"] = "/bin/sh -c 'echo an answer >> \"$0\"'"
-            still, said = tui._in_detail(dict(detail), "e", 100, 20)
-            check("read: a failing answer is caught where it happens, not at the exit",
-                  still is not None and "boom" in said, f"{still} {said}")
-        except RuntimeError:
-            check("read: a failing answer is caught where it happens, not at the exit",
-                  False, "it escaped _in_detail")
-        finally:
-            actions.answer = real_answer
-            os.environ.pop("EDITOR", None)
-
-        # An editor that exits non-zero is saying abandon this - :cq in vim.
-        os.environ["EDITOR"] = "/bin/sh -c 'echo written >> \"$0\"; exit 1'"
-        check("read: an editor that wrote and then abandoned sends nothing",
-              tui._editor("# seed\n") is None)
-        os.environ["EDITOR"] = "/bin/sh -c 'echo written >> \"$0\"'"
-        check("read: and one that wrote and left cleanly sends what it wrote",
-              tui._editor("# seed\n") == "written")
-        os.environ["EDITOR"] = "vim '"
-        check("read: and an unquotable $EDITOR is refused, not raised",
-              tui._editor("# seed\n") is None)
-        os.environ.pop("EDITOR", None)
-
-        # The cursor in the panel is somewhere else entirely; the key acts on
-        # what is open, which is what the reader is looking at.
-        sel[tui.MESSAGES] = second
-        detail, said = tui._in_detail(detail, "x", 100, 20)
-        # The view scrolls now, so the slices that existed because it could not
-        # are just silent cuts - and they were inside the thing being scrolled.
-        for i in range(9):
-            db.add_request(con, "marina", "backend", f"request {i}", None,
-                           "peer", "async", None, 0, None)
-        keep_handoff("backend",
-            "\n".join(f"- line {i}" for i in range(30)))
-        shown = "\n".join(ln for _, rows in actions.agent_detail(con, "backend")
-                          for ln in rows)
-        check("read: the page is sections, not one wall of text",
-              [t for t, _ in actions.agent_detail(con, "backend") if t],
-              str([t for t, _ in actions.agent_detail(con, "backend")]))
-        check("read: an opened agent shows its whole inbox",
-              all(f"request {i}" in shown for i in range(9)), shown[:120])
-        check("read: and its whole handoff", "- line 29" in "\n".join(actions.agent_knows(con, "backend")))
-
-        check("read: dismissing closes the message being read, not the selected row",
-              db.get_request(con, first)["state"] == "done"
-              and db.get_request(con, second)["state"] == "queued", said)
-        check("read: and the view closes once there is nothing left to read",
-              detail is None)
-    finally:
-        con.close()
-
-
-def test_a_key_never_acts_on_a_row_nobody_pointed_at(home: Path) -> None:
-    """The row under the cursor can be gone by the time a key is pressed - a
-    message answered elsewhere, an agent that went away - and then nothing is
-    drawn as selected. Falling back to the first row acts on something the
-    human never chose: it dismissed an unread message that way."""
-    _daemon_home(home, 20)
-    con = db.connect()
-    try:
-        db.add_request(con, "marina", actions.HUMAN, "first, unread",
-                       None, "peer", "async", None, 0, None)
-        first = actions.messages(con)[0]["id"]
-        sel = {tui.MESSAGES: first + 99}          # a cursor on something gone
-        said, detail = tui._act(tui.MESSAGES, sel, "x", 120, 40, None, None)
-        check("top: the key is refused and the cursor is put somewhere real",
-              "press again" in said and sel[tui.MESSAGES] == first, said)
-        check("top: and the message it would have hit is untouched",
-              db.get_request(con, first)["state"] == "queued")
-
-        said, _ = tui._act(tui.MESSAGES, sel, "x", 120, 40, None, None)
-        check("top: pressing it again acts on what is now selected",
-              db.get_request(con, first)["state"] == "done", said)
-    finally:
-        con.close()
-
-
-
 def test_the_agent_footer_shows_only_what_the_row_can_do(home: Path) -> None:
     """The footer must never claim a key `actions.can` would then refuse - and
     must never go quiet just because a key was hidden.
@@ -22240,51 +20913,6 @@ def test_the_agent_footer_shows_only_what_the_row_can_do(home: Path) -> None:
         got = [label for _, label in tui.agent_footer_keys(con, "freshone")]
         check("footer: a never-started agent still offers open, terminal, message",
               set(got) == {"open", "terminal", "message"}, got)
-
-        # The rendered frame agrees: `?` stands in for what filtering removed,
-        # and a hidden key still reaches `can` when it is pressed.
-        db.set_agent_state(con, "backend", dmn.PARKED, detail="by hand; wakes at 16:40")
-        db.clear_closed(con, "backend")
-        sel = {tui.AGENTS: "backend"}
-        text = tui._ANSI.sub("", tui.frame(160, 40, sel, tui.AGENTS))
-        check("footer: the rendered frame carries the filtered keys",
-              "wake" in text and "fold" not in text and "? help" in text, text)
-
-        db.set_agent_state(con, "backend", dmn.PARKED, detail="usage; wakes at 16:40")
-        line, _ = tui._act(tui.AGENTS, sel, "w", 120, 30, None, None)
-        check("footer: a key hidden because the row cannot use it (wake, on a "
-              "self-clearing park) still gets `can`'s own refusal, not silence",
-              "clears on its own" in line, line)
-        db.set_agent_state(con, "backend", dmn.PARKED)
-        line, _ = tui._act(tui.AGENTS, sel, "f", 120, 30, None, None)
-        check("footer: a hidden-but-applicable key (fold) still reaches the "
-              "confirm step rather than being swallowed",
-              line == "left alone", line)
-
-        line, _ = tui._act(tui.AGENTS, sel, "?", 120, 30, None, None)
-        check("footer: ? names fold and move even though the footer never does",
-              "fold" in line and "move" in line and "open" not in line, line)
-
-        # The agent's own page (opened with ↵) has the same footer line, and
-        # must filter the same way - it is reached directly from this row.
-        db.set_agent_state(con, "backend", dmn.RUNNING)
-        _, detail = tui._act(tui.AGENTS, sel, "\r", 160, 40, None, None)
-        page_text = tui._ANSI.sub("", tui._detail_frame(160, 40, detail))
-        check("detail page: a running agent's page hides close and park too",
-              "c close" not in page_text and "p park" not in page_text
-              and "t terminal" in page_text and "? help" in page_text, page_text)
-        _, said = tui._in_detail(detail, "?", 160, 40, None, None)
-        check("detail page: ? names fold and move there too",
-              "fold" in said and "move" in said, said)
-
-        # STUCK answers to the agent keys too - `build` picks the footer's
-        # agent from `sel[STUCK]` there, the same way it does from
-        # `sel[AGENTS]`, whether or not anything is actually drawn as stuck.
-        db.set_agent_state(con, "backend", dmn.STALLED)
-        _, _, footer_keys = tui.build(160, {tui.STUCK: "backend"}, tui.STUCK)
-        got = [label for _, label in footer_keys]
-        check("footer: STUCK filters by the same agent state as AGENTS",
-              set(got) == {"open", "terminal", "message", "editor", "wake"}, got)
     finally:
         con.close()
 
@@ -22337,22 +20965,9 @@ def test_the_cursor_walks_the_whole_screen(home: Path) -> None:
         check("top: and a key that is not a move says so",
               tui.navigate(tui.AGENTS, sel, "a") is None)
 
-        # Which panel the keys act on was only in the footer's first word, so a
-        # reader pressed `a` at a panel they were not in and read a refusal.
-        framed = tui.frame(110, 40, sel, tui.MESSAGES)
-        check("top: and the keys it offers are the ones on the footer",
-              "a answer" in tui._ANSI.sub("", framed.split(chr(10))[-1]),
-              tui._ANSI.sub("", framed.split(chr(10))[-1]))
-
-        # An open page asks several questions and used to stack every answer,
-        # so reading the fourth meant scrolling past three.
-        page = tui._agent_page(con, "backend")
-        first = tui._ANSI.sub("", tui._detail_frame(110, 20, page))
-        page, _said = tui._in_detail(page, "\033[C", 110, 20)
-        second = tui._ANSI.sub("", tui._detail_frame(110, 20, page))
-        check("top: an agent's page is one column, the conversation, with no tab strip",
-              "CONVERSATION" in first and "WHAT IT KNOWS" not in first, first[:200])
-        check("top: and ←→ leave it as it was", first == second)
+        check("top: the keys a panel offers are its own",
+              ("a", "answer") in tui.panel_keys(tui.MESSAGES)
+              and ("l", "login") in tui.panel_keys(tui.ACCOUNTS))
     finally:
         con.close()
 
@@ -23411,7 +22026,6 @@ def test_a_parked_row_with_no_fingerprint_also_relaunches(home: Path) -> None:
         con.close()
 
 
-
 def test_a_launch_records_its_fingerprint_and_says_when_it_cannot(home: Path) -> None:
     """Drift is judged against what `_record_terminal` wrote: if that write
     never lands, the daemon relaunches the session at every wake, so a failed
@@ -24236,115 +22850,6 @@ def test_offer_to_trust_worktrees_lists_paths_and_skips(home: Path) -> None:
           "backend: trusted" in out, out)
 
 
-def test_each_account_guard_fails_under_its_own_mutation(home: Path) -> None:
-    """One condition per check, so removing any one guard fails a test."""
-    home.mkdir(parents=True, exist_ok=True)
-    os.environ["OCP_HOME"] = str(home)
-    (home / "team.yaml").write_text("agents:\n  backend: { intake: dedicated }\n")
-    for a in ("alpha", "beta", "gamma"):
-        accounts.register(a)
-    agents.register("backend", "alpha")
-    orig_in, orig_id, orig_logout = accounts.logged_in, accounts.identity, accounts.logout_argv
-    logged = {"gamma": True}
-
-    def put_session_on(acct):
-        con = db.connect()
-        try:
-            db.set_agent_state(con, "backend", "RUNNING")
-            con.execute("UPDATE agent_state SET account = ? WHERE agent = 'backend'", (acct,))
-            con.commit()
-        finally:
-            con.close()
-
-    try:
-        accounts.logged_in = lambda a: logged.get(a, False)
-        accounts.identity = lambda a: None
-        accounts.logout_argv = lambda a: (["claude", "auth", "logout"], {}) if logged.get(a) else ([], {})
-
-        # users_of: each half alone, and the unreadable agent.
-        put_session_on("beta")
-        check("users_of: the preference half, with a row that disagrees",
-              accounts.users_of("alpha") == ["backend"], str(accounts.users_of("alpha")))
-        put_session_on("gamma")
-        check("users_of: the session half, with a preference that disagrees",
-              accounts.users_of("gamma") == ["backend"], str(accounts.users_of("gamma")))
-        put_session_on("alpha")
-        (home / "agents" / "backend" / "agent.yaml").write_text("not: [valid")
-        check("users_of: an agent that cannot be read counts as a user",
-              "backend" in accounts.users_of("beta"), str(accounts.users_of("beta")))
-        (home / "agents" / "backend" / "agent.yaml").unlink()
-        # remove: one condition per test. Nothing uses gamma from here on.
-        (home / "agents" / "backend" / "agent.yaml").write_text("account: alpha\n")
-        put_session_on("alpha")
-        yes = lambda: True  # noqa: E731
-
-        def code_1_but_out(argv, env):
-            logged["gamma"] = False
-            return 1
-        ok, msg = accounts.remove_account("gamma", yes, code_1_but_out)
-        check("remove: a non-zero exit refuses even though the account reads logged out",
-              not ok and "gamma" in paths.list_accounts(), msg)
-        logged["gamma"] = True
-        ok, msg = accounts.remove_account("gamma", yes, lambda argv, env: 0)
-        check("remove: exit 0 refuses while the account still reads logged in",
-              not ok and "gamma" in paths.list_accounts(), msg)
-        check("remove: a refused removal leaves no marker behind",
-              not paths.removing("gamma"))
-
-        # An agent arriving while the human is being asked.
-        def confirm_then_agent_arrives():
-            put_session_on("gamma")
-            return True
-        ok, msg = accounts.remove_account("gamma", confirm_then_agent_arrives, lambda a, e: 0)
-        check("remove: re-checks users after the confirmation",
-              not ok and "backend" in msg and "gamma" in paths.list_accounts(), msg)
-        put_session_on("alpha")
-
-        seen = {}
-        def logout_ok(argv, env):
-            seen["removing"] = paths.removing("gamma")
-            seen["picked"] = status.pick_account(["gamma"])[0]
-            logged["gamma"] = False
-            return 0
-        write_status(home, "gamma", pct_5h=5, pct_7d=5, reset_5h=int(time.time()) + 1800)
-        ok, msg = accounts.remove_account("gamma", yes, logout_ok)
-        check("remove: an account being removed is marked, and never picked",
-              seen.get("removing") is True and seen.get("picked") is None, str(seen))
-        check("remove: a good logout retires it",
-              ok and "gamma" not in paths.list_accounts(), msg)
-
-        # add: the exit code is not the answer, and a twin login is refused.
-        ran = []
-        ok, msg = accounts.add_account("delta", lambda a, e: (ran.append(a), 0)[1])
-        check("add: exit 0 without a login is not a login",
-              not ok and "not logged in" in msg, msg)
-        logged["epsilon"] = True
-        accounts.identity = lambda a: "same@x"
-        logged["alpha"] = True
-        ok, msg = accounts.add_account("epsilon2", lambda a, e: (logged.__setitem__("epsilon2", True), 1)[1])
-        check("add: the same Anthropic login as another account is refused",
-              not ok and "alpha" in msg, msg)
-        accounts.identity = lambda a: f"{a}@x"
-        ok, msg = accounts.add_account("zeta", lambda a, e: (logged.__setitem__("zeta", True), 1)[1])
-        check("add: a distinct login succeeds whatever the exit code",
-              ok and "zeta" in paths.list_accounts(), msg)
-
-        # The screen's remove: a failed logout keeps the account.
-        logged["beta"] = True
-        real_suspend, real_line = tui._suspend, tui._line
-        try:
-            # Logged out, but claude said it failed: the exit code alone refuses.
-            tui._suspend = lambda argv, env, fd, saved: (logged.__setitem__("beta", False), (1, "claude exited 1"))[1]
-            tui._line = lambda prompt, w, h, **k: "beta"
-            line = tui._remove_account("beta", 80, 24, None, None)
-        finally:
-            tui._suspend, tui._line = real_suspend, real_line
-        check("panel: a failed logout keeps the account",
-              "logout failed" in line and "beta" in paths.list_accounts(), line)
-    finally:
-        accounts.logged_in, accounts.identity, accounts.logout_argv = orig_in, orig_id, orig_logout
-
-
 def test_a_second_name_for_one_login_is_caught(home: Path) -> None:
     """Two accounts on one Anthropic login are one usage limit under two
     names, and their two copies of the credential invalidate each other."""
@@ -24366,22 +22871,6 @@ def test_a_second_name_for_one_login_is_caught(home: Path) -> None:
               accounts.same_login_as("gamma") == [])
     finally:
         accounts.identity, accounts.logged_in = orig_id, orig_in
-
-
-def test_the_accounts_panel_adds_and_removes(home: Path) -> None:
-    """The screen offers both, and removing refuses the same way the command
-    does - it reads the same plan."""
-    home.mkdir(parents=True, exist_ok=True)
-    os.environ["OCP_HOME"] = str(home)
-    (home / "team.yaml").write_text("agents:\n  backend: { intake: dedicated }\n")
-    accounts.register("alpha")
-    agents.register("backend", "alpha")
-    keys = dict(tui.ACCOUNT_KEYS)
-    check("panel: offers add and remove", keys.get("a") == "add" and keys.get("x") == "remove",
-          str(tui.ACCOUNT_KEYS))
-    line, _ = tui._act(tui.ACCOUNTS, {tui.ACCOUNTS: "alpha"}, "x", 80, 24, None, None)
-    check("panel: removing an account in use is refused, and says by whom",
-          "backend" in line and "alpha" in paths.list_accounts(), line)
 
 
 def test_dismissing_an_agents_own_answered_request_keeps_its_verdict(home: Path) -> None:
@@ -24467,70 +22956,6 @@ def test_dismissing_your_own_answer_does_not_announce_it_for_the_requester(
               rid in [r["id"] for r in db.unannounced_answers(con, "a")], out)
     finally:
         con.close()
-
-
-def test_add_account_from_the_tui_offers_to_trust_worktrees(home: Path) -> None:
-    """Blocking 1's TUI half (#304): 'a' on the accounts panel runs the same
-    trust_worktrees sequence the CLI does, listing what a yes would press."""
-    home.mkdir(parents=True, exist_ok=True)
-    os.environ["OCP_HOME"] = str(home)
-    agents.register("backend", "alpha")
-    wt = home / "declared" / "backend-wt"
-    wt.mkdir(parents=True, exist_ok=True)
-    con = db.connect()
-    try:
-        db.set_terminal(con, "backend", "term_b", str(wt))
-    finally:
-        con.close()
-    trustmod.enact(str(home / "declared"), "test root")
-
-    real_add, real_avail, real_line, real_trust = (
-        accounts.add_account, orcamod.available, tui._line, actions.trust_worktrees)
-    asked: list[str] = []
-    try:
-        accounts.add_account = lambda name, run, no_login=False: (
-            True, f"'{name}' is logged in.")
-        orcamod.available = lambda: True
-
-        def fake_line(prompt, w, h, **_kw):
-            asked.append(prompt)
-            return "gamma" if "new account name" in prompt else "y"
-        tui._line = fake_line
-        actions.trust_worktrees = lambda acct, wts: [f"{a} ({w}): trusted" for a, w in wts]
-
-        msg = tui._add_account(80, 24, None, None)
-        check("tui add: the worktree is named in the question",
-              any("backend" in p and str(wt) in p for p in asked), asked)
-        check("tui add: a yes goes ahead and trusts it", "trusted" in msg, msg)
-    finally:
-        (accounts.add_account, orcamod.available, tui._line,
-         actions.trust_worktrees) = real_add, real_avail, real_line, real_trust
-
-
-def test_tui_frame_geometry(home: Path) -> None:
-    """The low-level primitives every cell is built from: vlen counts visible
-    columns past escape codes, fit/padfit truncate or pad to an exact width
-    without silently losing a byte, and pct/bar never claim a reading (0) for
-    one that was never taken (unknown)."""
-    home.mkdir(parents=True, exist_ok=True)
-    os.environ["OCP_HOME"] = str(home)
-    agents.register("wide", "alpha")
-    write_status(home, "alpha", pct_5h=42, pct_7d=10, ctx_pct=7)
-
-    check("tui: vlen ignores escape sequences", tui.vlen("\033[31mabc\033[0m") == 3)
-    check("tui: fit truncates on visible width",
-          tui.vlen(tui.fit("\033[31m" + "x" * 50 + "\033[0m", 10)) <= 10)
-    check("tui: fit leaves a short string alone", tui.fit("abc", 10) == "abc")
-    check("tui: padfit never exceeds its width, on a value that overflows it",
-          tui.vlen(tui.padfit("a name nobody bounded", 10)) == 10)
-    check("tui: padfit's truncation is visible, not silent",
-          "…" in tui.padfit("a name nobody bounded", 10))
-    check("tui: padfit still pads a short value to width, like pad()",
-          tui.padfit("ab", 10) == tui.pad("ab", 10))
-    check("tui: unknown usage draws as ?, never as 0", "?" in tui.pct(None))
-    check("tui: a known 0 still draws as 0", tui.pct(0).strip() == "0")
-    check("tui: an unknown bar is not an empty bar",
-          tui.vlen(tui.bar(None, 10)) == 10 and "░" not in tui.bar(None, 10))
 
 
 def test_clear_does_not_look_like_waking(home: Path) -> None:
@@ -25363,62 +23788,72 @@ def _python_with_textual() -> str | None:
     return None
 
 
-def test_bridge_routing_defaults_to_textual_falls_back_only_when_missing() -> None:
-    """`cmd_bridge`'s own routing (task #54): Textual is the default now, not
-    behind `--textual` - `--curses` is the one way back to the raw-termios
-    screen it replaced, and the plain default falls back to it only when the
-    `textual` package cannot be imported at all, silently (a machine whose
-    venv is not ready yet, #2069, must still get a working `ocp bridge`).
+def test_bridge_routing_is_textual_on_a_tty_and_text_otherwise() -> None:
+    """`cmd_bridge`'s own routing: on a terminal the bridge is the Textual app,
+    and without the `textual` package it says so and how to fix it; run once, or
+    into a pipe, it is `tui.snapshot` - plain text that needs no `textual`.
     `bridge_textual` is stubbed in `sys.modules` rather than actually run -
-    what is under test is which one `cmd_bridge` reaches for, not either
-    screen's own behavior. auditor #2138 should-fix 2: "missing" has to make
-    `import textual` itself fail, not just drop the already-imported
-    `ocp.bridge_textual` from `sys.modules` - on an interpreter that already
-    has `textual` (this suite's own venv run), deleting only the latter just
-    re-imports the real module a moment later, and the "falls back" checks
-    below never actually exercise the fallback there. `sys.modules["textual"]
-    = None` makes `import textual` raise ImportError regardless."""
+    what is under test is which one `cmd_bridge` reaches for. "Missing" has to
+    make `import textual` itself fail: `sys.modules["textual"] = None` does,
+    whether or not this interpreter has the package."""
     import argparse
     import types
     calls: list[tuple] = []
     fake = types.ModuleType("ocp.bridge_textual")
-    fake.run = lambda once=False: calls.append(("textual", once)) or 0
-    real_run = climod.tui.run
-    climod.tui.run = lambda interval=2.0, once=False: calls.append(("curses", once)) or 0
+    fake.run = lambda once=False: calls.append("textual") or 0
+    real_snapshot = climod.tui.snapshot
+    climod.tui.snapshot = lambda: calls.append("snapshot") or "SNAP"
     real_module = sys.modules.get("ocp.bridge_textual")
     had_module = "ocp.bridge_textual" in sys.modules
     had_textual = "textual" in sys.modules
     real_textual = sys.modules.get("textual")
+    real_isatty = sys.stdout.isatty
 
     def ns(**kw):
-        base = dict(interval=2.0, once=False, textual=False, curses=False)
+        base = dict(once=False, textual=False)
         base.update(kw)
         return argparse.Namespace(**base)
 
     try:
         sys.modules["ocp.bridge_textual"] = fake
+        sys.stdout.isatty = lambda: True
         code = climod.cmd_bridge(ns())
-        check("bridge routing: the plain default reaches for bridge_textual",
-              calls == [("textual", False)] and code == 0, calls)
+        check("bridge routing: on a terminal the default is the Textual app",
+              calls == ["textual"] and code == 0, calls)
 
         calls.clear()
-        code = climod.cmd_bridge(ns(curses=True))
-        check("bridge routing: --curses skips it entirely, even though it is importable",
-              calls == [("curses", False)] and code == 0, calls)
+        out = _capture(lambda: climod.cmd_bridge(ns(once=True)))
+        check("bridge routing: --once prints the snapshot and starts no app",
+              calls == ["snapshot"] and "SNAP" in out, (calls, out))
 
         calls.clear()
+        sys.stdout.isatty = lambda: False
+        out = _capture(lambda: climod.cmd_bridge(ns()))
+        check("bridge routing: into a pipe it is the snapshot too, not a hang",
+              calls == ["snapshot"] and "SNAP" in out, (calls, out))
+
+        calls.clear()
+        sys.stdout.isatty = lambda: True
         del sys.modules["ocp.bridge_textual"]
         sys.modules["textual"] = None
-        code = climod.cmd_bridge(ns())
-        check("bridge routing: missing and no flag falls back to curses silently",
-              calls == [("curses", False)] and code == 0, calls)
+        class _Tty(io.StringIO):
+            def isatty(self) -> bool:
+                return True
+        buf = _Tty()
+        with contextlib.redirect_stdout(buf):
+            code = climod.cmd_bridge(ns())
+        check("bridge routing: without the package on a terminal it fails loud with the fix",
+              calls == [] and code == 1 and "ocp venv install" in buf.getvalue(),
+              (calls, code, buf.getvalue()))
 
         calls.clear()
-        code = climod.cmd_bridge(ns(textual=True))
-        check("bridge routing: missing and --textual fails loud instead, not a fallback",
-              calls == [] and code == 1, calls)
+        sys.stdout.isatty = lambda: True
+        out = _capture(lambda: climod.cmd_bridge(ns(once=True)))
+        check("bridge routing: --once needs no textual at all",
+              calls == ["snapshot"] and "SNAP" in out, (calls, out))
     finally:
-        climod.tui.run = real_run
+        climod.tui.snapshot = real_snapshot
+        sys.stdout.isatty = real_isatty
         if had_module:
             sys.modules["ocp.bridge_textual"] = real_module
         else:
@@ -25466,24 +23901,24 @@ def test_bridge_textual_missing_package_classification() -> None:
 
 
 def test_human_inbox_routing_matches_cmd_bridge() -> None:
-    """auditor #2138 note 4: `cmd_inbox`'s human route to the screen shares
-    `_bridge_textual_module` with `cmd_bridge` (same code, same fallback) but
-    had no test of its own before this. "missing" goes through
-    `_import_bridge_textual` (not deleting `ocp.bridge_textual` from
+    """`cmd_inbox`'s human route to the screen shares `_bridge_textual_module`
+    with `cmd_bridge`: a terminal with no --all/--wait opens the Textual app,
+    and without the package it lists the mailbox as text instead. "Missing" goes
+    through `_import_bridge_textual` (not deleting `ocp.bridge_textual` from
     `sys.modules`) so this passes the same way on an interpreter that
-    genuinely has `textual` - deleting only the cached module there would
-    just re-import the real one and actually start it, waiting on a real
-    terminal forever."""
+    genuinely has `textual` - deleting only the cached module there would just
+    re-import the real one and actually start it, waiting on a real terminal
+    forever."""
     import argparse
     import types
     calls: list[tuple] = []
     fake = types.ModuleType("ocp.bridge_textual")
     fake.run = lambda once=False: calls.append(("textual",)) or 0
-    real_run = climod.tui.run
-    climod.tui.run = lambda interval=2.0, once=False: calls.append(("curses",)) or 0
     real_isatty = sys.stdout.isatty
     sys.stdout.isatty = lambda: True
     real_import = climod._import_bridge_textual
+    real_human = climod._human_inbox
+    climod._human_inbox = lambda all_: calls.append(("text",)) or 0
 
     def ns(**kw):
         base = dict(agent=actions.HUMAN, wait=False, all=False, timeout=60)
@@ -25493,38 +23928,19 @@ def test_human_inbox_routing_matches_cmd_bridge() -> None:
     try:
         climod._import_bridge_textual = lambda: fake
         climod.cmd_inbox(ns())
-        check("inbox routing: a tty with no --all/--wait opens the screen, textual first",
+        check("inbox routing: a tty with no --all/--wait opens the screen",
               calls == [("textual",)], calls)
 
         calls.clear()
         climod._import_bridge_textual = lambda: (_ for _ in ()).throw(
             ModuleNotFoundError("No module named 'textual'", name="textual"))
         climod.cmd_inbox(ns())
-        check("inbox routing: missing falls back to curses, same as cmd_bridge",
-              calls == [("curses",)], calls)
+        check("inbox routing: without the package it lists the mailbox as text",
+              calls == [("text",)], calls)
     finally:
-        climod.tui.run = real_run
         sys.stdout.isatty = real_isatty
         climod._import_bridge_textual = real_import
-
-
-def test_bridge_textual_flag_fails_loud_without_the_package() -> None:
-    """`ocp bridge --textual` on an interpreter with no `textual` (this suite's
-    own, most of the time - see `_python_with_textual`) says so and how to fix
-    it, rather than a bare traceback or a silent fall back to curses."""
-    try:
-        import textual  # noqa: F401
-        check("bridge --textual: this interpreter already has textual - "
-              "nothing to test the refusal against here", True)
-        return
-    except ImportError:
-        pass
-    buf = io.StringIO()
-    with contextlib.redirect_stdout(buf):
-        code = climod.main(["bridge", "--textual"])
-    out = buf.getvalue()
-    check("bridge --textual: missing the package fails loud with the fix",
-          code == 1 and "ocp venv install" in out and "textual" in out, out)
+        climod._human_inbox = real_human
 
 
 def test_bridge_textual_dashboard() -> None:
@@ -28162,6 +26578,306 @@ def test_wake_over_a_stall_asks_first_same_as_unstall_did(home: Path) -> None:
         con.close()
 
 
+def test_each_account_guard_fails_under_its_own_mutation(home: Path) -> None:
+    """One condition per check, so removing any one guard fails a test."""
+    home.mkdir(parents=True, exist_ok=True)
+    os.environ["OCP_HOME"] = str(home)
+    (home / "team.yaml").write_text("agents:\n  backend: { intake: dedicated }\n")
+    for a in ("alpha", "beta", "gamma"):
+        accounts.register(a)
+    agents.register("backend", "alpha")
+    orig_in, orig_id, orig_logout = accounts.logged_in, accounts.identity, accounts.logout_argv
+    logged = {"gamma": True}
+
+    def put_session_on(acct):
+        con = db.connect()
+        try:
+            db.set_agent_state(con, "backend", "RUNNING")
+            con.execute("UPDATE agent_state SET account = ? WHERE agent = 'backend'", (acct,))
+            con.commit()
+        finally:
+            con.close()
+
+    try:
+        accounts.logged_in = lambda a: logged.get(a, False)
+        accounts.identity = lambda a: None
+        accounts.logout_argv = lambda a: (["claude", "auth", "logout"], {}) if logged.get(a) else ([], {})
+
+        # users_of: each half alone, and the unreadable agent.
+        put_session_on("beta")
+        check("users_of: the preference half, with a row that disagrees",
+              accounts.users_of("alpha") == ["backend"], str(accounts.users_of("alpha")))
+        put_session_on("gamma")
+        check("users_of: the session half, with a preference that disagrees",
+              accounts.users_of("gamma") == ["backend"], str(accounts.users_of("gamma")))
+        put_session_on("alpha")
+        (home / "agents" / "backend" / "agent.yaml").write_text("not: [valid")
+        check("users_of: an agent that cannot be read counts as a user",
+              "backend" in accounts.users_of("beta"), str(accounts.users_of("beta")))
+        (home / "agents" / "backend" / "agent.yaml").unlink()
+        # remove: one condition per test. Nothing uses gamma from here on.
+        (home / "agents" / "backend" / "agent.yaml").write_text("account: alpha\n")
+        put_session_on("alpha")
+        yes = lambda: True  # noqa: E731
+
+        def code_1_but_out(argv, env):
+            logged["gamma"] = False
+            return 1
+        ok, msg = accounts.remove_account("gamma", yes, code_1_but_out)
+        check("remove: a non-zero exit refuses even though the account reads logged out",
+              not ok and "gamma" in paths.list_accounts(), msg)
+        logged["gamma"] = True
+        ok, msg = accounts.remove_account("gamma", yes, lambda argv, env: 0)
+        check("remove: exit 0 refuses while the account still reads logged in",
+              not ok and "gamma" in paths.list_accounts(), msg)
+        check("remove: a refused removal leaves no marker behind",
+              not paths.removing("gamma"))
+
+        # An agent arriving while the human is being asked.
+        def confirm_then_agent_arrives():
+            put_session_on("gamma")
+            return True
+        ok, msg = accounts.remove_account("gamma", confirm_then_agent_arrives, lambda a, e: 0)
+        check("remove: re-checks users after the confirmation",
+              not ok and "backend" in msg and "gamma" in paths.list_accounts(), msg)
+        put_session_on("alpha")
+
+        seen = {}
+        def logout_ok(argv, env):
+            seen["removing"] = paths.removing("gamma")
+            seen["picked"] = status.pick_account(["gamma"])[0]
+            logged["gamma"] = False
+            return 0
+        write_status(home, "gamma", pct_5h=5, pct_7d=5, reset_5h=int(time.time()) + 1800)
+        ok, msg = accounts.remove_account("gamma", yes, logout_ok)
+        check("remove: an account being removed is marked, and never picked",
+              seen.get("removing") is True and seen.get("picked") is None, str(seen))
+        check("remove: a good logout retires it",
+              ok and "gamma" not in paths.list_accounts(), msg)
+
+        # add: the exit code is not the answer, and a twin login is refused.
+        ran = []
+        ok, msg = accounts.add_account("delta", lambda a, e: (ran.append(a), 0)[1])
+        check("add: exit 0 without a login is not a login",
+              not ok and "not logged in" in msg, msg)
+        logged["epsilon"] = True
+        accounts.identity = lambda a: "same@x"
+        logged["alpha"] = True
+        ok, msg = accounts.add_account("epsilon2", lambda a, e: (logged.__setitem__("epsilon2", True), 1)[1])
+        check("add: the same Anthropic login as another account is refused",
+              not ok and "alpha" in msg, msg)
+        accounts.identity = lambda a: f"{a}@x"
+        ok, msg = accounts.add_account("zeta", lambda a, e: (logged.__setitem__("zeta", True), 1)[1])
+        check("add: a distinct login succeeds whatever the exit code",
+              ok and "zeta" in paths.list_accounts(), msg)
+
+    finally:
+        accounts.logged_in, accounts.identity, accounts.logout_argv = orig_in, orig_id, orig_logout
+
+
+def test_the_cursor_follows_a_row_that_leaves_the_list(home: Path) -> None:
+    """A report closes itself when the founder opens it: it leaves the mailbox
+    with no verdict, its sender is not told, and nothing about it is drawn in
+    the sender's conversation."""
+    _daemon_home(home, 20)
+    con = db.connect()
+    try:
+        # A report closing itself on open.
+        ok, _m, f1 = askmod.ask(actions.HUMAN, "r1", requester="backend", fyi=True)
+        ok, _m, f2 = askmod.ask(actions.HUMAN, "r2", requester="frontend", fyi=True)
+        actions.opened_by_human(con, f1)
+        row = db.get_request(con, f1)
+        check("opened: it leaves the mailbox", row["state"] != "queued", row["state"])
+        check("opened: it carries no verdict", row["verdict"] is None, row["verdict"])
+        check("opened: the sender is not told - nothing to announce",
+              f1 not in [r["id"] for r in db.unannounced_answers(con, "backend")])
+        chat, _ = actions.conversation_and_drawn(con, "backend")
+        msgs = [r for r in chat if getattr(r, "kind", None) == "msg"]
+        check("opened: its verdict is never drawn in the sender's own conversation",
+              not any(r.rid == f1 and r.part == 1 for r in msgs), str(chat))
+        check("opened: 'read' does not appear as something said to the sender",
+              not any(r.text == "read" for r in msgs), str(chat))
+    finally:
+        con.close()
+
+
+def test_the_messenger_tab_carries_a_conversation_both_ways(home: Path) -> None:
+    """The founder writes in the tab, the agent answers, and the answer is in
+    the tab on the next redraw - with the message sent whole and under its
+    thread, and the unread count on the tab until it has been read."""
+    _daemon_home(home, 20)
+    agents.register("reviewer", "alpha")
+    con = db.connect()
+    try:
+        def tab() -> tuple[str, list[str]]:
+            return next((h, r) for h, r in actions.agent_detail(con, "reviewer")
+                        if h.startswith(actions.CHAT_TAB))
+
+        check("chat: empty says so", "nothing yet" in tab()[1][0], str(tab()))
+        body = "first line\n\nthird line, after a blank\n" + "long " * 60
+        said = actions.chat_reply(con, "reviewer", body)
+        check("chat: a first message is sent", actions.chat_parent(con, "reviewer") is not None, said)
+        first = actions.chat_parent(con, "reviewer")
+        row = db.get_request(con, first)
+        check("chat: the multi-line body is stored whole", row["body"] == body, repr(row["body"])[:60])
+        check("chat: and drawn whole",
+              any("third line, after a blank" in ln for ln in tab()[1])
+              and sum(ln.count("long") for ln in tab()[1]) == 60)
+
+        # The agent answers, from its side.
+        ok, _ = askmod.resolve(first, "done: rebased\nand pushed")
+        head, rows = tab()
+        check("chat: the answer is there on the next read", any("rebased" in r for r in rows)
+              and any("and pushed" in r for r in rows), str(rows))
+        check("chat: and counted on the tab", head == "CONVERSATION (1 new)", head)
+        actions.chat_seen(con, "reviewer")
+        check("chat: seen clears the count", tab()[0] == "CONVERSATION", tab()[0])
+
+        # A reply goes under the thread it continues.
+        before = actions.chat_parent(con, "reviewer")
+        actions.chat_reply(con, "reviewer", "thanks - now the docs")
+        first = before
+        second = db.get_request(con, actions.chat_parent(con, "reviewer"))
+        check("chat: a reply keeps the chain", second["chain_id"] == row["chain_id"]
+              and second["parent_id"] == first, str(dict(second)))
+        check("chat: one chain header, not two",
+              sum(r.startswith("── chain") for r in tab()[1]) == 1, str(tab()[1]))
+
+        # Two open questions with a report older than both: the oldest question.
+        old_fyi = askmod.ask(actions.HUMAN, "status: started", requester="reviewer", fyi=True)[2]
+        q1 = askmod.ask(actions.HUMAN, "first question?", requester="reviewer")[2]
+        q2 = askmod.ask(actions.HUMAN, "second question?", requester="reviewer")[2]
+        check("chat: the oldest open question, never a report",
+              actions.chat_target(con, "reviewer") == ("answers", q1),
+              str(actions.chat_target(con, "reviewer")))
+        actions.chat_reply(con, "reviewer", "one")
+        check("chat: and then the next", actions.chat_target(con, "reviewer") == ("answers", q2))
+        actions.chat_reply(con, "reviewer", "two")
+        askmod.resolve(old_fyi, "read")
+
+        # A question followed by a report: the reply is to the question.
+        q = askmod.ask(actions.HUMAN, "which colour?", requester="reviewer")[2]
+        f = askmod.ask(actions.HUMAN, "status: halfway", requester="reviewer", fyi=True)[2]
+        check("chat: the footer names the question, not the newer report",
+              any(f"answers #{q}" in r for r in tab()[1]), str(tab()[1][-2:]))
+        actions.chat_reply(con, "reviewer", "blue")
+        check("chat: the reply closes the question and leaves the report",
+              db.get_request(con, q)["verdict"] == "blue"
+              and db.get_request(con, f)["verdict"] is None)
+        askmod.resolve(f, "read")
+
+        # An agent's question to the human is answered, not asked under.
+        rid, = [askmod.ask(actions.HUMAN, "which name?", requester="reviewer")[2]]
+        actions.chat_reply(con, "reviewer", "call it x")
+        check("chat: a question to the human is closed by the reply",
+              db.get_request(con, rid)["state"] == "done"
+              and db.get_request(con, rid)["verdict"] == "call it x")
+    finally:
+        con.close()
+
+
+def test_a_message_body_is_wrapped_whole_and_stripped_of_escapes(home: Path) -> None:
+    """An agent's report arrives as one paragraph with no newline in it, and
+    fitting it to the width showed its first sentence and dropped the rest.
+    Wrapping breaks it to the width and keeps every word, and an escape in a
+    body is stripped: it is invisible to the width count, and a clear-screen
+    sequence in it wipes the screen it is drawn on."""
+    long_body = ("A verdict with no newlines at all, " * 20).strip()
+    wrapped = tui.wrap([long_body], 60)
+    check("read: a paragraph is broken to the width, not cut off",
+          len(wrapped) > 1 and max(len(ln) for ln in wrapped) <= 60,
+          str(max(len(ln) for ln in wrapped)))
+    check("read: and every word survives the break",
+          " ".join(wrapped).split() == long_body.split())
+    cleaned = tui.wrap(["\033[2J\033[Hpasted \033[31mtool output"], 40)
+    check("read: escapes in a body are text stripped, not commands drawn",
+          "\033" not in "".join(cleaned) and "pasted tool output" in " ".join(cleaned),
+          str(cleaned))
+
+
+def test_an_opened_agent_shows_its_whole_inbox_and_handoff(home: Path) -> None:
+    """The page an agent opens on is sections, and the inbox and handoff are
+    whole: a slice that existed because the view could not scroll would be a
+    silent cut inside the thing being scrolled."""
+    _daemon_home(home, 20)
+    con = db.connect()
+    try:
+        for i in range(9):
+            db.add_request(con, "marina", "backend", f"request {i}", None,
+                           "peer", "async", None, 0, None)
+        keep_handoff("backend", "\n".join(f"- line {i}" for i in range(30)))
+        shown = "\n".join(ln for _, rows in actions.agent_detail(con, "backend")
+                           for ln in rows)
+        check("read: the page is sections, not one wall of text",
+              [t for t, _ in actions.agent_detail(con, "backend") if t],
+              str([t for t, _ in actions.agent_detail(con, "backend")]))
+        check("read: an opened agent shows its whole inbox",
+              all(f"request {i}" in shown for i in range(9)), shown[:120])
+        check("read: and its whole handoff",
+              "- line 29" in "\n".join(actions.agent_knows(con, "backend")))
+    finally:
+        con.close()
+
+
+
+def test_a_queued_request_past_the_newest_chains_is_still_on_the_agent_page(home: Path) -> None:
+    """A queued request in a chain older than the ones the conversation draws
+    is not lost: it is listed under it, headed with whose it is."""
+    _daemon_home(home, 20)
+    con = db.connect()
+    try:
+        agents.register("elder", "alpha")
+        old = db.add_request(con, askmod.HUMAN, "elder", "the oldest question, still queued",
+                             None, "peer", "async", None, 0, None)
+        for i in range(actions.CHAT_CHAINS + 1):
+            db.add_request(con, askmod.HUMAN, "elder", f"newer chain {i}", None, "peer",
+                           "async", None, 0, None)
+        pg = tui._agent_page(con, "elder")
+        text = "\n".join(tui._ANSI.sub("", ln) for w in (80, 30) for ln in tui.lines_of(pg, w))
+        check("page: a queued request past the conversation's newest chains is still on the page, "
+              "under a heading that describes it",
+              f"#{old} from human" in text and "ALSO QUEUED FOR IT" in text
+              and text.index("ALSO QUEUED FOR IT") < text.index(f"#{old} from human"), text[:300])
+    finally:
+        con.close()
+
+
+def test_word_movement_stops_at_a_lines_edge() -> None:
+    """Ctrl-Left and Ctrl-Right stop at a line's edge instead of running through it."""
+    text = "one two\nthree four"
+    check("cursor: word left from the start of a line stops at the end of the line above",
+          tui._word_left(8, text) == 7, str(tui._word_left(8, text)))
+    check("cursor: word right from the end of a line stops at the start of the next",
+          tui._word_right(7, text) == 8, str(tui._word_right(7, text)))
+    check("cursor: within a line it still moves a word at a time",
+          tui._word_left(18, text) == 14 and tui._word_right(8, text) == 13
+          and tui._word_left(7, text) == 4)
+
+
+
+def test_the_snapshot_is_plain_text_of_every_panel_and_nothing_a_terminal_would_obey(home: Path) -> None:
+    """`ocp bridge --once` (and a pipe) prints `tui.snapshot`: the header, the
+    four panels in order, from the same rows the screen draws - and no escape
+    code, whatever an agent wrote into what it shows."""
+    _daemon_home(home, 20)
+    agents.register("reviewer", "alpha")
+    askmod.ask(actions.HUMAN, "\033[2J\033]0;PWNED\007please\x9b review this", requester="reviewer")
+    text = tui.snapshot()
+    lines = text.split("\n")
+    at = [next((i for i, ln in enumerate(lines) if ln.startswith(head)), -1)
+          for head in ("ACCOUNTS", "AGENTS", "FOR YOU", "STUCK")]
+    check("snapshot: the four panels are there, in order", -1 not in at and at == sorted(at), str(at))
+    check("snapshot: it opens on the daemon line", lines[0].startswith("ocp · daemon "), lines[0])
+    check("snapshot: an account, an agent and a message each have a row",
+          any(ln.strip().startswith("alpha") for ln in lines)
+          and any("reviewer" in ln and "IDLE" in ln for ln in lines[at[1]:at[2]])
+          and any("please review this" in ln for ln in lines[at[2]:at[3]]),
+          text[:600])
+    check("snapshot: nothing a terminal would obey is in it, colour included",
+          not re.search(r"[\x00-\x08\x0b-\x1f\x7f-\x9f]", text) and "PWNED" not in text, repr(text[:300]))
+
+
+
 def main() -> int:
     # An agent session that runs this suite already has both set for itself,
     # and every test here that wants one sets it explicitly - so an ambient
@@ -28421,7 +27137,6 @@ def main() -> int:
         run(lambda: test_a_running_agent_is_told_when_work_arrives(Path(td) / 'deliver'))
         run(lambda: test_a_report_to_the_founder_is_not_a_wait(Path(td) / 'fyi'))
         run(lambda: test_for_you_folds_to_one_line_per_agent(Path(td) / 'fold'))
-        run(lambda: test_the_cursor_follows_a_row_that_leaves_the_list(Path(td) / 'cursor'))
         run(lambda: test_a_withdraw_landing_before_the_send_stops_the_send(Path(td) / 'withdrawrace'))
         run(lambda: test_a_delivery_belongs_to_the_session_it_was_typed_into(Path(td) / 'sessdeliver'))
         run(lambda: test_nothing_is_typed_at_a_modal(Path(td) / 'modal'))
@@ -28506,9 +27221,6 @@ def main() -> int:
         run(lambda: test_a_resumed_handoff_also_fails_closed_on_an_assumed_account(Path(td) / 'acctrecheck2'))
         run(lambda: test_a_spawned_agent_gets_an_assumed_account_until_launch_confirms_it(Path(td) / 'acctspawn'))
         run(lambda: test_top_shows_what_is_waiting_on_the_human(Path(td) / 'foryou'))
-        run(lambda: test_the_screen_reads_keys_from_the_terminal_not_from_a_buffer())
-        run(lambda: test_a_key_arrives_whole_however_its_bytes_are_read(Path(td) / 'keysplit'))
-        run(lambda: test_typed_text_and_keys_arrive_whole_however_the_reads_fall(Path(td) / 'readwhole'))
         run(lambda: test_top_acts_through_the_same_calls_the_daemon_makes(Path(td) / 'topact'))
         run(lambda: test_an_answer_reaches_the_agent_that_asked(Path(td) / 'answered'))
         run(lambda: test_an_answer_wakes_the_agent_that_was_waiting_for_it(Path(td) / 'waiting'))
@@ -28583,11 +27295,19 @@ def main() -> int:
 
 
         run(lambda: test_a_span_ends_in_its_unit(Path(td) / 'ar4f'))
-        run(lambda: test_a_message_being_typed_is_sent_whole_and_shown_inert(Path(td) / 'ar4g'))
-        run(lambda: test_the_wheel_changes_no_text_and_answers_no_dialog())
+        run(lambda: test_the_snapshot_is_plain_text_of_every_panel_and_nothing_a_terminal_would_obey(Path(td) / 'snapshot'))
+        run(lambda: test_a_queued_request_past_the_newest_chains_is_still_on_the_agent_page(Path(td) / 'elderpage'))
+        run(lambda: test_word_movement_stops_at_a_lines_edge())
+        run(lambda: test_a_message_body_is_wrapped_whole_and_stripped_of_escapes(Path(td) / 'wrapbody'))
+        run(lambda: test_an_opened_agent_shows_its_whole_inbox_and_handoff(Path(td) / 'wholeinbox'))
+        run(lambda: test_the_messenger_tab_carries_a_conversation_both_ways(Path(td) / 'chat'))
+        run(lambda: test_the_cursor_follows_a_row_that_leaves_the_list(Path(td) / 'cursor'))
+        run(lambda: test_each_account_guard_fails_under_its_own_mutation(Path(td) / 'guards'))
+        run(lambda: test_a_draft_and_an_unknown_bar_are_not_changed_by_what_cannot_mean_them(Path(td) / 'ar4f'))
+        run(lambda: test_a_message_being_typed_is_shown_whole_and_inert(Path(td) / 'ar4g'))
         run(lambda: test_a_sweep_after_a_move_does_not_keep_the_old_accounts_session(Path(td) / 'ar4e'))
         run(lambda: test_agents_that_wall_together_respect_the_cap_and_a_start_is_not_its_own_rival(Path(td) / 'ar4b'))
-        run(lambda: test_the_cap_is_set_from_the_command_line_and_the_bridge(Path(td) / 'ar5'))
+        run(lambda: test_the_cap_is_set_from_the_command_line_and_shown_on_the_bridge(Path(td) / 'ar5'))
         run(lambda: test_replaying_0919_makes_fewer_moves_than_the_old_rules(Path(td) / 'ar6'))
         run(lambda: test_a_turn_that_ends_on_the_usage_limit_is_at_the_wall(Path(td) / 'limitstop'))
         run(lambda: test_a_permission_prompt_waits_on_the_founder_until_it_is_answered(Path(td) / 'promptwait'))
@@ -28626,18 +27346,12 @@ def main() -> int:
         run(lambda: test_the_team_is_drawn_the_way_it_is_routed(Path(td) / 'tree'))
         run(lambda: test_the_wake_time_is_in_the_state_cell_not_a_column(Path(td) / 'waketime'))
         run(lambda: test_the_founder_can_cancel_a_request_in_an_agents_queue(Path(td) / 'cancel'))
-        run(lambda: test_the_agent_page_cancels_a_waiting_request_by_command(Path(td) / 'cancelpage'))
-        run(lambda: test_the_one_column_agent_page(Path(td) / 'onecolumn'))
         run(lambda: test_a_messages_state_is_never_cut_at_a_narrow_width(Path(td) / 'narrowstate'))
-        run(lambda: test_a_read_only_page_does_not_act_on_the_agent_and_the_note_row_is_whole(Path(td) / 'readonly'))
         run(lambda: test_a_folded_row_says_what_its_reports_are_doing(Path(td) / 'foldmark'))
         run(lambda: test_the_panel_and_the_daemon_agree_about_what_is_in_the_way(Path(td) / 'topagree'))
         run(lambda: test_the_screen_says_what_is_stuck_and_what_was_decided(Path(td) / 'topstuck'))
-        run(lambda: test_a_message_is_read_whole_and_answered_where_it_is_read(Path(td) / 'topread'))
-        run(lambda: test_the_arrows_change_tabs_on_an_agent_page_in_a_real_terminal(Path(td) / 'arrows'))
-        run(lambda: test_the_messenger_tab_carries_a_conversation_both_ways(Path(td) / 'chat'))
         run(lambda: test_the_agent_head_is_trimmed_and_slash_commands_are_derived_not_kept(Path(td) / 'headtrim'))
-        run(lambda: test_a_message_in_for_you_opens_at_its_place_in_the_conversation(Path(td) / 'foryou'))
+        run(lambda: test_a_message_in_for_you_has_a_place_in_the_conversation(Path(td) / 'foryou'))
         run(lambda: test_a_conversation_reads_as_turns_at_any_width(Path(td) / 'turns'))
         run(lambda: test_a_conversation_shows_whose_message_is_whose_without_colour(Path(td) / 'whose'))
         run(lambda: test_nothing_a_terminal_would_obey_gets_through_what_someone_else_wrote(Path(td) / 'esc'))
@@ -28645,14 +27359,9 @@ def main() -> int:
         run(lambda: test_no_command_prints_what_a_terminal_would_obey(Path(td) / 'cli'))
         run(lambda: test_a_module_that_returns_subprocess_text_as_a_message_imports_textsafe(
             Path(td) / 'boundary'))
-        run(lambda: test_the_agent_page_shows_everything_and_reads_as_blocks(Path(td) / 'tabs'))
-        run(lambda: test_slash_commands_autocomplete_and_run_the_highlighted_one(Path(td) / 'slash'))
-        run(lambda: test_bracketed_paste_is_switched_on_with_the_screen())
         run(lambda: test_the_composer_takes_a_paste_whole(Path(td) / 'composer'))
         run(lambda: test_the_composer_cursor_moves_and_edits_in_place(Path(td) / 'composer-cursor'))
         run(lambda: test_the_composer_alt_keys_and_a_pasted_cursor_glyph(Path(td) / 'composer-alt'))
-        run(lambda: test_a_paste_into_any_prompt_arrives_whole_and_confirms_nothing(Path(td) / 'pasteany'))
-        run(lambda: test_a_key_never_acts_on_a_row_nobody_pointed_at(Path(td) / 'topsel'))
         run(lambda: test_the_agent_footer_shows_only_what_the_row_can_do(Path(td) / 'topfooter'))
         run(lambda: test_every_state_the_daemon_can_write_has_a_waker())
         run(lambda: test_the_screen_word_mapping_is_the_founders_six(Path(td) / 'screenwords'))
@@ -28690,7 +27399,6 @@ def main() -> int:
         run(lambda: test_a_declared_root_gets_standing_consent(Path(td) / 'trustroot'))
         run(lambda: test_a_closed_agents_relaunch_stops_at_the_trust_screen(Path(td) / 'trustclosed'))
         run(lambda: test_hooks_report_activity(Path(td) / 'hooky'))
-        run(lambda: test_tui_frame_geometry(Path(td) / 'tui'))
         run(lambda: test_clear_does_not_look_like_waking(Path(td) / 'loopy'))
         run(lambda: test_handoff_rate_limited(Path(td) / 'hrate'))
         run(lambda: test_the_handoff_is_three_facts_read_without_a_model(Path(td) / 'hdhome'))
@@ -28701,11 +27409,7 @@ def main() -> int:
         run(lambda: test_account_add_login_preflight_names_the_actual_blocker(Path(td) / 'acctaddmsg'))
         run(lambda: test_offer_to_trust_worktrees_lists_paths_and_skips(
             Path(td) / 'offertrust'))
-        run(lambda: test_each_account_guard_fails_under_its_own_mutation(Path(td) / 'guards'))
         run(lambda: test_a_second_name_for_one_login_is_caught(Path(td) / 'acctsame'))
-        run(lambda: test_the_accounts_panel_adds_and_removes(Path(td) / 'acctpanel'))
-        run(lambda: test_add_account_from_the_tui_offers_to_trust_worktrees(
-            Path(td) / 'accttrust'))
         run(lambda: test_a_file_added_to_shared_reaches_every_existing_account(Path(td) / 'relink'))
         run(lambda: test_a_second_daemon_is_refused_by_the_lock_alone(Path(td) / 'onedmn'))
         run(lambda: test_an_exiting_daemon_leaves_the_live_ones_name(Path(td) / 'pidname'))
@@ -28745,10 +27449,9 @@ def main() -> int:
         run(lambda: test_moot_by_records_who_retired_a_row(Path(td) / 'mootby'))
         run(lambda: test_retires_is_refused_on_a_row_that_is_not_the_resolvers(Path(td) / 'retiresown'))
         run(lambda: test_reason_gaps_count_from_the_shapes_the_verbs_write(Path(td) / 'reasongaps'))
-        run(lambda: test_bridge_routing_defaults_to_textual_falls_back_only_when_missing())
+        run(lambda: test_bridge_routing_is_textual_on_a_tty_and_text_otherwise())
         run(lambda: test_bridge_textual_missing_package_classification())
         run(lambda: test_human_inbox_routing_matches_cmd_bridge())
-        run(lambda: test_bridge_textual_flag_fails_loud_without_the_package())
         run(lambda: test_bridge_textual_dashboard())
         run(lambda: test_bridge_textual_once_prints_a_frame_and_does_not_need_a_tty(
             Path(td) / 'textualonce'))

@@ -1,44 +1,39 @@
-"""ocp bridge, ported to Textual (task #45).
+"""ocp bridge: the Textual app the team is run from.
 
-Two screens so far: the dashboard (`tui.build`'s four panels - ACCOUNTS,
-AGENTS, MESSAGES, STUCK - the same screen `tui.frame` draws for curses) and an
-agent's own page (its conversation and the box chat-box put there). Both draw
-from the same data functions curses does (`tui.build`, `tui.navigate`,
-`tui._agent_page`, `tui.lines_of`, `actions.can`, ...) - "it draws; it does
-not decide" (tui.py's own rule) holds here too, so the two front ends cannot
-disagree about what a row or a page means. What changes is the interaction
-layer: raw termios reads and writes become Textual's event loop, and a key
-that acts no longer blocks it.
+Three screens: the dashboard (four DataTables - ACCOUNTS, AGENTS, FOR YOU,
+STUCK - fed by `tui.accounts_data`, `agents_data`, `messages_data` and
+`stuck_data`), an agent's own page (its conversation and the box that sends to
+it), and the founder's "done - waiting for check" list. They draw what the data
+functions in `tui.py` and `actions` say and decide nothing themselves, so a row
+or a page means the same here as in `ocp status` and the daemon.
 
-That is `jobs.py`, taken over from the unmerged `buddyron/bridge-working`
-branch (task #16 / #1615) as a requirement of this port: every verb a key or a
-slash command can run hands its verb to `ocp.actrun` and returns at once, so a
-screen keeps redrawing and reading keys while an action is in flight, with a
-line saying what is running and for how long.
+Every verb a key or a slash command can run hands its work to `ocp.actrun`
+through `jobs.Jobs` and returns at once, so a screen keeps redrawing and reading
+keys while an action is in flight, with a line saying what is running and for
+how long.
 
-The agent's page's box is `buddyron/chat-box-is-the-composer` (task #16),
-taken over the same way: typing lands in it, Enter sends, and a message
-starting with '/' is a command - `/knows`, `/done`, `/cancel <id>`, and every
-`AGENT_KEYS` verb the row keys still bind on the dashboard.
+The agent's page's box takes typing, Enter sends, and a message starting with
+'/' is a command - `/knows`, `/done`, `/cancel <id>`, and every `AGENT_KEYS`
+verb the row keys bind on the dashboard.
 
 ACCOUNTS' login and add hand the whole terminal to another program - a human
-typing a login code into claude's own screen, same as curses's `_suspend` -
-through Textual's own `App.suspend()` rather than `jobs.Jobs`: it is
-interactive, not something to run and report on later.
+typing a login code into claude's own screen - through Textual's own
+`App.suspend()` rather than `jobs.Jobs`: it is interactive, not something to
+run and report on later.
 
-`?` on an AGENTS/STUCK row goes through the same `tui.agent_help_line` curses
-uses, and a row opened read-only (`/knows`, `/done`, ACCOUNTS) is a `ReadOnly`
-page of Textual widgets. ACCOUNTS' "next" tick-mark needs
-nothing of its own: it is computed inside `tui.build`, which `tui.frame`
-already calls unconditionally.
+`?` on an AGENTS/STUCK row names every `AGENT_KEYS` verb (`tui.agent_help_line`),
+and a row opened read-only (`/knows`, `/done`, ACCOUNTS) is a `ReadOnly` page.
+Run once or into a pipe, `ocp bridge` is `tui.snapshot`, plain text, and does not
+start this app.
 
-Not yet ported: opening an ACCOUNTS row into a page of its own with actions
-on it, beyond the read-only summary above.
+Not yet built: opening an ACCOUNTS row into a page of its own with actions on
+it, beyond the read-only summary above.
 """
 from __future__ import annotations
 
 import subprocess
 import sys
+import time
 
 from rich.text import Text
 from textual import events
@@ -49,7 +44,7 @@ from textual.containers import Vertical, VerticalScroll
 from textual.message import Message
 from textual.widgets import DataTable, Footer, Input, Static, TabbedContent, TabPane, TextArea
 
-from . import accounts, actions, db, jobs as jobsmod, load as loadmod, orca, textsafe, tui
+from . import accounts, actions, db, jobs as jobsmod, load as loadmod, orca, status, textsafe, tui
 
 # Textual hands a key event as a symbolic name (`event.key`) plus, for a
 # printable one, the character itself (`event.character`). tui.py's own key
@@ -84,6 +79,29 @@ def key_token(event: events.Key) -> str | None:
 
 
 _LEVEL_COLOR = {"normal": tui.DIM, "slow": tui.YEL, "danger": tui.RED}
+_LEVEL_STYLE = {"normal": "dim", "slow": "yellow", "danger": "red"}
+
+
+def _header_text(head: tui.HeaderData) -> Text:
+    """The bar and, under it, what is stopped until the founder acts."""
+    out = Text()
+    out.append("ocp", "bold")
+    out.append(" · daemon ", "dim")
+    out.append(*(("running", "green") if head.running else ("NOT RUNNING", "red")))
+    out.append(f" · {head.clock}", "dim")
+    if head.legend:
+        out.append(f" · {status.SOURCE_LEGEND_SHORT}", "dim")
+    if head.waits:
+        now = time.time()
+        out.append(f"\n{tui.WAITING_ON_YOU}", "bold red")
+        out.append(f" ({len(head.waits)})", "dim")
+        shown = head.waits if len(head.waits) <= tui.WAITS_SHOWN + 1 else head.waits[:tui.WAITS_SHOWN]
+        for w in shown:
+            out.append(f"\n  {textsafe.oneline(w['who'])} · {textsafe.oneline(w['what'])} · "
+                       f"{tui.age(now - w['since'])}", "red" if w["red"] else "yellow")
+        if len(shown) < len(head.waits):
+            out.append(f"\n  … {len(head.waits) - len(shown)} more", "dim")
+    return out
 
 
 def _job_lines_ansi(jobs: jobsmod.Jobs, width: int) -> list[str]:
@@ -185,7 +203,7 @@ class JobsAware:
     action started from the dashboard is still there, still running, if the
     human moves to an agent's own page while it goes."""
 
-    REFRESH_S = 2.0        # matches curses `run`'s own default interval
+    REFRESH_S = 2.0
     BUSY_REFRESH_S = 0.25  # while a job is running, quick enough to notice it end
     flash = ""
 
@@ -215,17 +233,16 @@ class JobsAware:
 
 async def dispatch_agent_verb(screen: JobsAware, con, name: str, label: str) -> None:
     """Run one `AGENT_KEYS` verb against `name`, whichever screen it was
-    pressed or typed on - `tui._dispatch_agent_verb`'s decisions (what asks
-    first, what needs a prompt), a modal and `jobs.Jobs` in place of curses's
-    blocking prompt and in-place call."""
+    pressed or typed on: what asks first and what needs a prompt is decided
+    here, the work goes through `jobs.Jobs`."""
     allowed, why = actions.can(con, name, label)
     if not allowed:
         screen.flash = why
         return
     if label in ("message", "editor"):
-        # "editor" is curses's $EDITOR spawn - one more way to write the same
-        # message, not a different action (`actions.can` has no case for it
-        # either). The modal composer stands in for both here.
+        # "editor" is one more way to write the same message, not a different
+        # action (`actions.can` has no case for it either): the modal composer
+        # stands in for both.
         body = await screen.app.push_screen_wait(TextPrompt(f"message {name}:", multi=True))
         if body is None:
             screen.flash = "nothing sent: try again to retry"
@@ -265,9 +282,8 @@ async def dispatch_agent_verb(screen: JobsAware, con, name: str, label: str) -> 
 
 
 class Dashboard(JobsAware, Screen):
-    """The main screen: `tui.build`'s four panels, tab- and arrow-navigable,
-    with the row actions dispatched through `jobs.Jobs` rather than run in
-    place."""
+    """The main screen: four panels, tab- and arrow-navigable, with the row
+    actions dispatched through `jobs.Jobs` rather than run in place."""
 
     def __init__(self) -> None:
         super().__init__()
@@ -332,25 +348,34 @@ class Dashboard(JobsAware, Screen):
         self._redraw()
 
     def _redraw(self) -> None:
-        size = self.size
-        width, height = max(20, size.width), max(6, size.height)
-        header, _, footer_keys = tui.build(width, self.sel, self.panel,
-                                                wait_budget=height - 4 - tui.PANEL_MIN)
-        self.query_one("#header", Static).update(Text.from_ansi("\n".join(header)))
+        con = db.connect()
+        try:
+            head = tui.header_data(con)
+            target = self.sel.get(self.panel)
+            agent_keys = (tui.agent_footer_keys(con, str(target) if target is not None else None)
+                          if self.panel in (tui.AGENTS, tui.STUCK) else None)
+        finally:
+            con.close()
+        self.query_one("#header", Static).update(_header_text(head))
         self._draw_accounts()
         self._draw_agents()
         self._draw_messages()
         self._draw_stuck()
-        # task #72: `b` is a Textual-only global (tui.py's shared keybar
-        # doesn't know it), so the hint is appended here rather than in tui.keybar.
-        keys = tui.keybar(self.panel, width, 0, footer_keys)
-        hint = f" {tui.DIM}·{tui.R} {tui.BOLD}b{tui.R} {tui.DIM}checks{tui.R}"
-        if tui.vlen(keys + hint) <= width:
-            keys += hint
-        foot = _job_lines_ansi(self.jobs, width)
-        foot.append(tui.fit(self.flash, width) if self.flash else "")
-        foot.append(keys)
-        self.query_one("#foot", Static).update(Text.from_ansi("\n".join(foot)))
+        foot = Text()
+        for jl in self.jobs.lines():
+            foot.append(jl.text + "\n", _LEVEL_STYLE.get(jl.level, ""))
+        if self.flash:
+            foot.append(textsafe.oneline(self.flash) + "\n")
+        foot.append(f"{tui.PANEL_NAME[self.panel]}: ", "dim")
+        for i, (k, label) in enumerate(tui.panel_keys(self.panel, agent_keys)):
+            foot.append(" · " if i else "", "dim")
+            foot.append(k, "bold")
+            foot.append(f" {label}", "dim")
+        # task #72: `b` is a Textual-only global, so its hint is appended here.
+        foot.append(" · ←→ panel ↑↓ row · q quit · ", "dim")
+        foot.append("b", "bold")
+        foot.append(" checks", "dim")
+        self.query_one("#foot", Static).update(foot)
 
     def _draw_accounts(self) -> None:
         con = db.connect()
@@ -563,7 +588,7 @@ class Dashboard(JobsAware, Screen):
         self.flash = f"{name}: at most {text.strip()} agents mid-turn"
 
     async def _account_remove(self, name: str) -> None:
-        # `remove_plan` first, the same order the CLI and curses use: an
+        # `remove_plan` first, the same order the CLI uses: an
         # account in use is refused before anyone is asked to type its name,
         # not after - `remove_account` checks it again post-confirm, since
         # that wait is on a person and an agent can start in the meantime.
@@ -592,9 +617,8 @@ class Dashboard(JobsAware, Screen):
             self.app.push_screen(AgentDetail(name))
             return
         if key == "?":
-            # The keybar (tui.keybar, drawn by tui.frame under this screen
-            # unchanged) folds fold/move out of a filtered row's own footer -
-            # `?` is the one place every AGENT_KEYS verb is named, curses or not.
+            # The footer (`tui.panel_keys`) folds fold/move out of a filtered
+            # row's own keys - `?` is the one place every AGENT_KEYS verb is named.
             self.flash = tui.agent_help_line()
             return
         label = dict(tui.AGENT_KEYS).get(key)
@@ -606,7 +630,7 @@ class Dashboard(JobsAware, Screen):
         # `target` is the row's stable key, not its id: a folded row's id is
         # its latest thing, which can have changed since the row was
         # selected, so it is looked up fresh rather than trusted from then
-        # (curses's own `_act_on` does the same).
+        # (the row's id is what the action is given).
         row_m = next((m for m in actions.messages(con) if m["key"] == target), None)
         if row_m is None:
             self.flash = f"{target} is gone"
@@ -889,8 +913,8 @@ def _resolved(box: AgentDraft) -> str:
 
 
 def _conversation_lines(con, name: str, width: int) -> tuple[list[str], int]:
-    """The conversation, formatted and wrapped exactly as curses draws it
-    (`tui._agent_page`, `tui.lines_of` - the tested turn-by-turn layout), and
+    """The conversation, formatted and wrapped by `tui._agent_page` and
+    `tui.lines_of` (the turn-by-turn layout), and
     where it ends - `conv_end`, the newest line of the conversation itself,
     not of whatever `agent_detail` lists under it (queued-for-it rows,
     untold answers). Pinning to `len(body)` pins to the bottom of that list
@@ -945,16 +969,15 @@ class AgentDetail(JobsAware, Screen):
         job_lines = _job_lines_ansi(self.jobs, width)
         room = self._room(height) - len(job_lines)
         max_top = max(0, len(body) - room)
-        # `tui._detail_frame`'s own pin: the end of the conversation, not of
-        # whatever `agent_detail` lists under it (auditor #2146 BLOCKING).
+        # The pin is the end of the conversation, not of whatever `agent_detail`
+        # lists under it (auditor #2146 BLOCKING).
         pin = min(max_top, max(0, conv_end - room))
         top = pin if self.top is None else max(0, min(self.top, max_top))
         self._top_now = top
-        # `== pin`, not `>= pin` (auditor #2171 BLOCKING 1): curses re-pins
-        # only on the exact spot (`tui._detail_frame`: `end = top == pin`) -
-        # `>=` re-pinned on any scroll past it too, so a look at what is
-        # queued under the conversation snapped back to `pin` on the very
-        # next redraw, a timer tick away.
+        # `== pin`, not `>= pin` (auditor #2171 BLOCKING 1): the view re-pins only
+        # on the exact spot - `>=` re-pinned on any scroll past it too, so a look
+        # at what is queued under the conversation snapped back to `pin` on the
+        # very next redraw, a timer tick away.
         self.top = None if top == pin else top
         shown = body[top:top + room]
         while len(shown) < room:
@@ -1095,9 +1118,6 @@ class AgentDetail(JobsAware, Screen):
             rid = waiting[0]
         else:
             rid = int(arg)
-            if rid not in waiting:
-                self.flash = f"#{rid} is not waiting for {name}"
-                return
         ok, plan = actions.cancel_plan(con, rid)
         if not ok:
             self.flash = plan
@@ -1123,11 +1143,10 @@ class BridgeApp(App):
 
 
 def run(once: bool = False) -> int:
-    """`once`, or stdout not a tty (a script or a pipe): `tui.run`'s own
-    non-interactive snapshot, not a Textual app - the same one `ocp bridge
-    --curses --once` prints, so the two front ends cannot show a different
-    picture of the same state."""
+    """`once`, or stdout not a tty (a script or a pipe): `tui.snapshot`, plain
+    text, not a Textual app."""
     if once or not sys.stdout.isatty():
-        return tui.run(once=True)
+        print(tui.snapshot())
+        return 0
     BridgeApp().run()
     return 0

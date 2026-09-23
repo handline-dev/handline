@@ -7,8 +7,9 @@
 #
 # Task #54 (founder #2069): a missing or stale venv used to make this refuse
 # outright. It now falls back to PATH's python3 instead, the same interpreter
-# this file used to run under unconditionally - so ocp keeps working exactly
-# as it always did until the venv is ready, and `ocp venv install` itself
+# this file used to run under unconditionally - so every verb but a tty
+# `ocp bridge` (which prints the venv fix and exits 1) keeps working until the
+# venv is ready, and `ocp venv install` itself
 # bootstraps under that same PATH python3. Do not turn the fallback back into
 # a refusal; ocp/venv.py's status() is still the one place that judges
 # ready-ness and its reasoning must stay in sync with the check below.

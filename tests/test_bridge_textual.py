@@ -850,6 +850,83 @@ async def test_dashboard_stuck_table_is_fed_by_stuck_data_and_entering_it_is_saf
               app.is_running and table.row_count == len(rows), (app.is_running, table.row_count))
 
 
+async def test_a_key_never_acts_on_a_row_nobody_pointed_at() -> None:
+    """A selection can be stale - the row it named left the list - and a key
+    pressed then must do nothing, not act on whatever is under it now."""
+    _home("stalekey")
+    agents.register("reviewer", "alpha")
+    from ocp import ask as askmod
+    askmod.ask("human", "first thing", requester="reviewer")
+    con = db.connect()
+    try:
+        before = [m["id"] for m in actions.messages(con)]
+    finally:
+        con.close()
+    app = bt.BridgeApp()
+    async with app.run_test(size=(110, 30)) as pilot:
+        await pilot.pause(0.3)
+        await pilot.press("right")         # AGENTS -> MESSAGES
+        await pilot.pause(0.2)
+        app.screen.sel[tui.MESSAGES] = "agent:nobody-is-called-this"
+        await pilot.press("x")             # dismiss
+        await pilot.pause(0.5)
+        con = db.connect()
+        try:
+            states = [db.get_request(con, rid)["state"] for rid in before]
+        finally:
+            con.close()
+        check("dashboard: a key on a selection that names no row acts on nothing",
+              states == ["queued"] * len(before) and not app.screen.jobs.running, (states, before))
+
+
+async def test_the_agent_page_cancel_command_names_what_it_closes() -> None:
+    """`/cancel` needs to know which request: bare with several waiting it lists
+    them and closes nothing."""
+    _home("cancelcmd")
+    bt._DRAFTS.pop("reviewer", None)       # a draft kept by an earlier test
+    agents.register("reviewer", "alpha")
+    con = db.connect()
+    try:
+        db.set_terminal(con, "reviewer", "term_r", "wt")
+        ids = [db.add_request(con, "marina", "reviewer", f"job {i}", None, "peer", "async",
+                              None, 0, None) for i in range(2)]
+    finally:
+        con.close()
+
+    class _HostApp(bt.App):
+        def __init__(self):
+            super().__init__()
+            self.jobs = jobsmod.Jobs()
+
+        def on_mount(self):
+            self.push_screen(bt.AgentDetail("reviewer"))
+
+    app = _HostApp()
+    async with app.run_test(size=(100, 30)) as pilot:
+        await pilot.pause()
+        screen = app.screen
+
+        async def command(text: str) -> str:
+            screen.flash = ""
+            for ch in text:
+                await pilot.press("slash" if ch == "/" else ("space" if ch == " " else ch))
+            await pilot.press("enter")
+            deadline = asyncio.get_event_loop().time() + 5
+            while asyncio.get_event_loop().time() < deadline and not screen.flash:
+                await pilot.pause(0.1)
+            return screen.flash
+
+        said = await command("/cancel")
+        check("cancel: bare with several waiting lists them and closes nothing",
+              all(f"/cancel {r}" in said for r in ids), said)
+        con = db.connect()
+        try:
+            states = [db.get_request(con, r)["state"] for r in ids]
+        finally:
+            con.close()
+        check("cancel: and both requests are still queued", states == ["queued", "queued"], states)
+
+
 async def test_task_checks_lists_and_acts_on_the_founders_own() -> None:
     """Task #72 (founder #2154/#2155): the bridge's own 'done - waiting for
     check' list (#71), reached with `b` from the dashboard - only the tasks
@@ -1022,6 +1099,8 @@ async def _run_all() -> None:
     await test_dashboard_agents_table_is_fed_by_agents_data_and_follows_the_cursor()
     await test_dashboard_messages_table_is_fed_by_messages_data_and_follows_the_cursor()
     await test_dashboard_stuck_table_is_fed_by_stuck_data_and_entering_it_is_safe()
+    await test_a_key_never_acts_on_a_row_nobody_pointed_at()
+    await test_the_agent_page_cancel_command_names_what_it_closes()
     await test_text_prompt_line_keeps_a_multiline_paste_and_shows_escapes_inert()
     await test_read_only_page_shows_foreign_text_inert_and_scrolls_on_arrows()
 

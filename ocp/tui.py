@@ -1,12 +1,13 @@
-"""ocp bridge - the screen the team is run from (design section 11).
+"""What the bridge shows (design section 11): its panels' rows, header and keys as
+data, and `snapshot`, the same as plain text. `bridge_textual` draws them.
 
 A join view over the same state the daemon decides on, so the two cannot
 disagree: if a number looks wrong here, the daemon is acting on that same wrong
-number. It draws; it does not decide. What a key does is a call into `actions`,
-which calls the same function the daemon or the CLI calls - so the screen can
-act without ever holding an opinion of its own.
+number. It reports; it does not decide. What a key does is a call into
+`actions`, which calls the same function the daemon or the CLI calls - so the
+screen can act without ever holding an opinion of its own.
 
-Two drawing rules are deliberate. Every figure carries a mark for where it came
+Two rules are deliberate. Every figure carries a mark for where it came
 from - inferred, carried, or carried past its bound - so an inference is never
 drawn as a measurement, and what we genuinely do not know is drawn as "?" and
 never as 0. The one unmarked case is a figure held at the window's high-water
@@ -14,28 +15,11 @@ mark: a real number reported by an earlier payload than the one on screen. And
 an account's usage and an agent's context come from different files - rate
 limits belong to the account, context to the session - so they are shown as
 what they are rather than blended into one number.
-
-It runs on the alternate screen, so quitting leaves the scrollback as it was -
-and hands that screen back whole for anything a human has to type into, which
-is why logging in works from here at all.
 """
 from __future__ import annotations
 
-import codecs
-import json
-import os
 import re
-import select
-import shlex
-import shutil
-import subprocess
-import sys
-import tempfile
-import termios
-import textwrap
 import time
-import tty
-from pathlib import Path
 from typing import NamedTuple
 
 from . import (accounts, actions, agents, ask as askmod, blocked as blockedmod, daemon, db,
@@ -43,19 +27,9 @@ from . import (accounts, actions, agents, ask as askmod, blocked as blockedmod, 
 from . import waiting as promptwait
 from .textsafe import cwidth, drawable, oneline, wrap
 
-# Bracketed paste goes on and off with the screen: the terminal then marks
-# where a paste begins and ends everywhere in the bridge, not only in a prompt,
-# so a paste can be told from typing wherever it lands. The editor and `claude`
-# are handed the terminal with it off.
-PASTE_ON, PASTE_OFF = "\033[?2004h", "\033[?2004l"
-ALT_ON, ALT_OFF = "\033[?1049h" + PASTE_ON, PASTE_OFF + "\033[?1049l"
-CUR_OFF, CUR_ON = "\033[?25l", "\033[?25h"
-HOME = "\033[H"
-CLEAR_EOL = "\033[K"
-
 R = "\033[0m"
 DIM, BOLD = "\033[2m", "\033[1m"
-RED, YEL, GRN, CYA, BLU = ("\033[31m", "\033[33m", "\033[32m", "\033[36m", "\033[34m")
+RED, YEL, GRN, CYA = "\033[31m", "\033[33m", "\033[32m", "\033[36m"
 
 _ANSI = re.compile(r"\033\[[0-9;?]*[a-zA-Z]")
 
@@ -81,21 +55,7 @@ WAITS_SHOWN = 5   # rows of the pinned block; the rest are counted, not drawn
 # agent keys - pressing them where the problem is read beats finding the same
 # name again in the list above.
 ACCOUNTS, AGENTS, MESSAGES, STUCK = 0, 1, 2, 3
-NAME_W = 22   # fits `└ orcapipe-manager +2`
-# The widest a precise span prints ("59m59s") - an asserted ceiling, checked
-# by test_a_span_ends_in_its_unit_and_fits_its_columns, not a width anything
-# draws with. Not the agent state cell either: that carries a clock time
-# ("PENDING 14:32") sized per frame from what the rows print (`_state_width`).
-COUNTDOWN_W = 6   # `status.span(precise)`: 12m05s, 5h03m, 6d23h
-# What an agent *is* - its model, its effort, and one day which tool it is at
-# all - against what is happening to it now. The second wins a narrow screen:
-# the kind of an agent is on its own page too and does not change while anyone
-# is watching, while the wake cell's account has nowhere else to be said. So
-# the column appears only where it costs that cell nothing (see `_kind_fits`).
-KIND_W = 13
-ACCT_COL = 8
 CTX_COL, IN_COL = 7, 4
-PANEL_BORDERS = 4   # the box's two edges and its gutter, as `room` below counts them
 PANELS = (ACCOUNTS, AGENTS, MESSAGES, STUCK)
 PANEL_NAME = {ACCOUNTS: "accounts", AGENTS: "agents", MESSAGES: "messages",
               STUCK: "stuck"}
@@ -244,16 +204,6 @@ def pad(s: str, width: int) -> str:
     return s + " " * max(0, width - vlen(s))
 
 
-def padfit(s: str, width: int) -> str:
-    """pad(), but a value wider than the column is cut to fit first (with
-    fit()'s ellipsis) instead of shoving whatever comes after it.
-
-    A backstop for a free-text cell (an account name, a `why`), not licence
-    for a bounded one to skip being measured - a value with a known worst
-    case should never reach the ellipsis at all."""
-    return pad(fit(s, width), width)
-
-
 def bar(pct: int | None, width: int = 10, last_seen: bool = False) -> str:
     """`last_seen` draws the fill at the value but with no colour: the figure is
     what an account was last seen at, not a gauge anyone is reading now."""
@@ -276,22 +226,6 @@ ACCT_W = {"name": 10, "five": 17, "reset5": 7, "agents": 11, "seven": 12, "reset
 ACCT_HEAD = {"name": "account", "five": "5h usage", "reset5": "reset", "agents": "agents ▶",
              "seven": "7d", "reset7": "7d rst", "runway": "runway (est.)"}
 ACCT_BAR_W = {"five": 10, "seven": 5}
-ACCT_INDENT = 2   # before the name, on the heading and every row
-ACCT_TAIL = 6     # after the last column: the tick, and " next" on one row
-
-
-def acct_cols(width: int) -> list[str]:
-    """The ACCOUNTS columns drawn at `width`: ACCT_W's order, cut from the end,
-    a whole column at a time, until the row fits with the indent and the tick
-    and "next" after it inside the panel's borders. What is last in ACCT_W is
-    what matters least, so where a column sits is also when it goes. The name
-    stays. Heading and rows both draw what this returns, and a row pushed past
-    the panel would be cut at its end, which is where the tick and "next" are."""
-    cols = list(ACCT_W)
-    while len(cols) > 1 and (ACCT_INDENT + sum(ACCT_W[k] for k in cols) + ACCT_TAIL
-                             > width - PANEL_BORDERS):
-        cols.pop()
-    return cols
 
 
 def _gauge(value: int | None, width: int, src: str) -> str:
@@ -594,6 +528,80 @@ def stuck_data(con) -> tuple[str, list[StuckRow]]:
     return ("STUCK" if blocked else "STUCK — nothing is waiting on anything"), rows
 
 
+class HeaderData(NamedTuple):
+    running: bool         # whether the daemon is running: whether anything here happens on its own
+    clock: str
+    legend: bool          # whether a mark the legend explains is on the screen
+    waits: list[dict]     # what is stopped until the founder acts, most urgent first
+
+
+def header_data(con) -> HeaderData:
+    """What the bar above the panels shows. The legend explains three marks and
+    earns its place only when one of them is on the screen."""
+    marks = set()
+    for a in paths.list_accounts():
+        st_ = status.read(a)
+        marks |= {status.mark(st_.pct_5h_source), status.mark(st_.pct_7d_source)}
+    return HeaderData(daemon.running_elsewhere(), time.strftime("%H:%M:%S"),
+                      any(m.strip() for m in marks), actions.founder_waits(con))
+
+
+def panel_keys(panel: int, agent_keys: list[tuple[str, str]] | None = None) -> list[tuple[str, str]]:
+    """The keys a panel answers to, as (key, label). `agent_keys` is
+    `agent_footer_keys` for the row under the cursor on AGENTS or STUCK, with a
+    `?` for the keys that filtering never shows at all (fold, move)."""
+    if agent_keys is not None:
+        return agent_keys + [("?", "help")]
+    return {ACCOUNTS: ACCOUNT_KEYS, AGENTS: AGENT_KEYS, MESSAGES: MESSAGE_KEYS,
+            STUCK: STUCK_KEYS}[panel]
+
+
+def snapshot() -> str:
+    """The bridge as plain text, once: what `ocp bridge --once` prints, and what
+    a pipe or a script gets. Every panel's rows from the same data functions the
+    screen draws from, their cells joined by two spaces and stripped of colour."""
+    plain = lambda cell: _ANSI.sub("", cell)  # noqa: E731
+    con = db.connect()
+    try:
+        head = header_data(con)
+        accounts_, acct_notes = accounts_data(con)
+        agents_, agent_notes = agents_data(con)
+        title, messages_, message_notes = messages_data(con)
+        stuck_title, stuck_ = stuck_data(con)
+    finally:
+        con.close()
+    now = time.time()
+    out = [f"ocp · daemon {'running' if head.running else 'NOT RUNNING'} · {head.clock}"
+           + (f" · {status.SOURCE_LEGEND_SHORT}" if head.legend else "")]
+    if head.waits:
+        out.append(f"{WAITING_ON_YOU} ({len(head.waits)})")
+        out += [f"  {oneline(w['who'])} · {oneline(w['what'])} · {age(now - w['since'])}"
+                for w in head.waits]
+    out += ["", "ACCOUNTS"]
+    for r in accounts_:
+        out.append("  " + "  ".join([oneline(r.name)] + [plain(r.cells[k]) for k in ACCT_W if k != "name"]
+                                    + [plain(r.mark + r.next)]))
+    out += [f"  {n}" for n in acct_notes]
+    out += ["", "AGENTS"]
+    for r in agents_:
+        if r.error:
+            out.append(f"  {plain(r.twig)}{r.shown}  config error: {oneline(r.error)}")
+            continue
+        wall = f"  ⏳ {r.wall.account}{r.wall.mark} {r.wall.when}" if r.wall else ""
+        out.append(f"  {plain(r.twig)}{r.shown}{plain(fold_suffix(r.under, r.urgency))}  {r.acct}  "
+                   f"{r.kind}  {plain(state_cell(r.state, r.until))}  {plain(r.ctx)}  "
+                   f"{r.inbox or '·'}{'  ' + plain(r.fire) if r.fire else ''}{wall}")
+    out += [f"  {n}" for n in agent_notes]
+    out += ["", title]
+    for r in messages_:
+        out.append(f"  {r.when}  {plain(message_mark(r.flavour)[0])}  #{r.id}  {r.sender}  "
+                   f"{r.kind}  {r.first}{plain(r.behind)}")
+    out += [f"  {n}" for n in message_notes]
+    out += ["", stuck_title]
+    out += [f"  {r.what}  {r.age}  {r.why}".rstrip() for r in stuck_]
+    return "\n".join(out)
+
+
 def pct(v: int | None) -> str:
     return "  ?" if v is None else f"{v:>3}"
 
@@ -639,21 +647,6 @@ def hidden_urgency(con, names: list[str]) -> tuple[str, int, str] | None:
     worst = min(found)
     colours = found[worst]
     return ("▶" if worst == 2 else "!", len(colours), RED if RED in colours else colours[0])
-
-
-def fold_marker(name_cell: str, under: int, urgency: tuple[str, int, str] | None) -> str:
-    """The name and what its fold says: ` +3`, and ` ▶2` after it while the
-    column has room. The count of what is hidden is never the thing that goes;
-    the aggregate goes before it does, and the name is cut last."""
-    if not under:
-        return name_cell
-    count = f"{DIM} +{under}{R}"
-    if urgency:
-        glyph, n, colour = urgency
-        full = f"{count} {colour}{glyph}{n}{R}"
-        if vlen(name_cell) + vlen(full) <= NAME_W:
-            return name_cell + full
-    return fit(name_cell, NAME_W - vlen(count)) + count
 
 
 # Supervisors whose reports are drawn. Closed by default: the screen is for
@@ -986,246 +979,6 @@ def screen_state(con, row) -> tuple[str, str]:
     return "IDLE", ""
 
 
-def _state_width(cells: list[tuple[str, str]]) -> int:
-    """The state column: the longest word plus its extra that the rows print,
-    and one column between it and ctx.
-
-    Measured per frame, from what is actually drawn - the rows are aligned
-    with each other, which is the drift that matters, and a column wide for
-    the sake of a word nobody is in pushes ctx off the screen. Unlike the
-    countdown this replaced, screen_state()'s own extra is a fixed string for
-    as long as the row does not change - a clock time, not a ticking span -
-    so sizing to what is actually there does not itself jitter frame to frame.
-    """
-    return 1 + max(len("state"),
-                   *(len(s) + (1 + len(until) if until else 0) for s, until in cells))
-
-
-def _kind_fits(width: int, state_w: int) -> bool:
-    """Is there room for the kind column without costing the wake cell.
-
-    The row is the columns drawn plus that cell, which names the account it
-    would wake on when it is not the agent's own: the longest account name is
-    what must still fit. `width` is the panel's, which is the screen's.
-    """
-    longest = max((len(a) for a in paths.list_accounts()), default=0)
-    wake = vlen(f"⏳ {'x' * longest}? 00:00")
-    drawn = NAME_W + ACCT_COL + KIND_W + state_w + CTX_COL + IN_COL
-    return width - PANEL_BORDERS - drawn >= wake
-
-
-def wait_lines(waits: list[dict], width: int, budget: int | None = None) -> list[str]:
-    """The block pinned above everything else: what is stopped until the founder
-    acts. Nothing when nothing is.
-
-    `budget` is the most lines it may take: the heading always shows, with the
-    count, and what does not fit is counted rather than drawn - a short window
-    keeps its mailbox.
-    """
-    if not waits:
-        return []
-    now = time.time()
-    out = [f"{BOLD}{RED}{WAITING_ON_YOU}{R} {DIM}({len(waits)}){R}"]
-    room = min(WAITS_SHOWN + 1, len(waits) if budget is None else max(0, budget - 1))
-    shown = len(waits) if len(waits) <= room else max(0, room - 1)
-    for w in waits[:shown]:
-        colour = RED if w["red"] else YEL
-        out.append(fit(f"{colour}  {oneline(w['who'])} · {oneline(w['what'])} · "
-                       f"{age(now - w['since'])}{R}", width))
-    if shown < len(waits) and room:
-        out.append(f"{DIM}  … {len(waits) - shown} more{R}")
-    return out
-
-
-def keybar(panel: int, width: int, hidden: int = 0,
-           agent_keys: list[tuple[str, str]] | None = None) -> str:
-    """The keys this panel answers to, in as much room as there is.
-
-    Half an action's name is worse than no name: `u u…` tells a reader nothing
-    and looks like a bug. So the line sheds whole pieces - the navigation
-    first, since it is the same on every panel, then keys from the end - and
-    says how many it dropped.
-
-    `agent_keys` is `agent_footer_keys`'s output for the row under the cursor,
-    on AGENTS or STUCK: what `build` computed while it still had the row open,
-    so this does not reopen the database to ask the same question again. A `?`
-    is appended there for the keys that filtering never shows at all (fold,
-    move) - the one thing on this line that is not itself an action.
-    """
-    if agent_keys is not None:
-        keys = agent_keys + [("?", "help")]
-    else:
-        keys = {ACCOUNTS: ACCOUNT_KEYS, AGENTS: AGENT_KEYS, MESSAGES: MESSAGE_KEYS,
-                STUCK: STUCK_KEYS}[panel]
-    # A panel that is not drawn and a panel with nothing in it look the same to
-    # a reader, so that notice is part of the head and is never what gets
-    # dropped to make room.
-    note = f"{YEL}{hidden} panel(s) need a taller window{R} {DIM}·{R} " if hidden else ""
-    head = f"{DIM}{PANEL_NAME[panel]}:{R} " + note
-    # Two lengths. Which arrows move between panels and which move inside one
-    # is the one thing on this line a reader cannot guess by pressing keys, so
-    # it shrinks before it goes, and it goes before an action does only when
-    # even the short form will not fit.
-    nav = f" {DIM}· ←→ panel ↑↓ row · q quit{R}"
-    nav_short = f" {DIM}· ←→ ↑↓ q{R}"
-    sep = f" {DIM}·{R} "
-    parts = [f"{BOLD}{k}{R} {DIM}{label}{R}" for k, label in keys]
-    full = head + sep.join(parts)
-    for tail in (nav, nav_short, ""):
-        if vlen(full + tail) <= width:
-            return full + tail
-    for n in range(len(parts) - 1, 0, -1):
-        line = head + sep.join(parts[:n]) + f" {DIM}+{len(parts) - n} more{R}"
-        if vlen(line + nav_short) <= width:
-            return line + nav_short
-        if vlen(line) <= width:
-            return line
-    return fit(head, width)
-
-
-def build(width: int, sel: dict | None = None,
-          panel: int | None = None,
-          wait_budget: int | None = None
-          ) -> tuple[list[str], list[Panel], list[tuple[str, str]] | None]:
-    """Return (header lines, panels, footer agent keys) for one frame.
-
-    `sel` is {panel: key}: which row carries the cursor in each panel, so the
-    caller can keep a cursor across redraws without this knowing how it moves.
-
-    The third value is `agent_footer_keys` for the row under the cursor when
-    `panel` is AGENTS or STUCK, computed here while the database connection
-    and that row are already open - `keybar` takes it rather than reopening
-    both to ask the same question again. None on every other panel, where the
-    footer's keys do not depend on a row at all.
-    """
-    sel = sel or {}
-    con = db.connect()
-    try:
-        # Whether the daemon is running decides whether anything on this screen
-        # will happen on its own. Which pid it is decides how to kill it, which
-        # is a question for whoever is debugging it - `ocp ps` has it.
-        state = (f"{GRN}running{R}" if daemon.running_elsewhere()
-                 else f"{RED}NOT RUNNING{R}")
-        # The legend earns its place only if it fits whole. Truncated, it cuts
-        # the last marks off entirely and glosses the first one mid-word, which
-        # is worse than not drawing it - and every mark it explains is also
-        # explained by `ocp status`.
-        bar_ = (f"{BOLD}ocp{R} {DIM}·{R} daemon {state} {DIM}·{R} "
-                f"{time.strftime('%H:%M:%S')}")
-        # The legend explains three marks. It was drawn whether or not any of
-        # them was on the screen, which is most of the time.
-        marks = set()
-        for a in paths.list_accounts():
-            st_ = status.read(a)
-            marks |= {status.mark(st_.pct_5h_source), status.mark(st_.pct_7d_source)}
-        # Not "5h": both usage columns carry these marks now.
-        with_legend = f"{bar_}{DIM} · {status.SOURCE_LEGEND_SHORT}{R}"
-        show_legend = any(m.strip() for m in marks) and vlen(with_legend) <= width
-        header = [fit(with_legend if show_legend else bar_, width)]
-        # Above the accounts, above everything: it is the one thing on this
-        # screen that stops until a person acts.
-        header += wait_lines(actions.founder_waits(con), width, wait_budget) + [""]
-
-        # ---- accounts ------------------------------------------------
-        acc = Panel("ACCOUNTS", width, focused=panel == ACCOUNTS)
-        acc.selected = sel.get(ACCOUNTS)
-        w = ACCT_W
-        cols = acct_cols(width)
-        acc.add(f"{DIM}{'':<{ACCT_INDENT}}" + "".join(f"{ACCT_HEAD[k]:<{w[k]}}" for k in cols)
-                + R, heading=True)
-        rows, notes = accounts_data(con)
-        for r in rows:
-            acc.add(
-                " " * ACCT_INDENT
-                + padfit(f"{BOLD}{r.name}{R}", w["name"])
-                + "".join(pad(r.cells[k], w[k]) for k in cols if k != "name")
-                + r.mark + r.next,
-                key=r.name,
-            )
-        for note in notes:
-            acc.add(f"{DIM}  {note}{R}")
-
-        # ---- agents --------------------------------------------------
-        ag = Panel("AGENTS", width, focused=panel == AGENTS)
-        ag.selected = sel.get(AGENTS)
-        # No heading for the last column: it is empty unless something is about
-        # to happen, and then it says what, in words.
-        rows, notes = agents_data(con)
-        cells = [(r.state, r.until) for r in rows]
-        state_w = _state_width(cells) if cells else 1 + len("state")
-        kinds = _kind_fits(width, state_w)
-        ag.add(f"{DIM}{'agent':<{NAME_W}}{'acct':<{ACCT_COL}}"
-               + f"{'kind':<{KIND_W}}" * kinds
-               + f"{'state':<{state_w}}{'ctx':>4}   {'in':<4}{R}", heading=True)
-        for r in rows:
-            if r.error:
-                ag.add(pad(fit(r.twig + r.shown, NAME_W), NAME_W)
-                       + f"{RED}config error: {r.error}{R}", key=r.name)
-                continue
-            # Padded on visible width, like the accounts panel: a state that
-            # grew a "·closed" suffix used to push every column after it right.
-            prefix = (
-                # Fitted before it is padded: a long name, or a deep enough
-                # twig, is wider than the column, and `pad` alone then pushes
-                # every column after it right - the same drift the "·closed"
-                # suffix caused.
-                pad(fold_marker(r.twig + f"{BOLD}{r.shown}{R}", r.under, r.urgency), NAME_W)
-                + pad(oneline(r.acct), ACCT_COL)
-                + (pad(f"{DIM}{fit(oneline(r.kind), KIND_W - 1)}{R}", KIND_W) if kinds else "")
-                + pad(state_cell(r.state, r.until, state_w), state_w)
-                + pad(r.ctx, CTX_COL)
-                + pad(str(r.inbox) if r.inbox else "·", IN_COL)
-            )
-            if r.wall:
-                # Only when there is room left for the account beside the clock,
-                # which is never sacrificed.
-                room = width - PANEL_BORDERS - vlen(prefix)
-                who = (f"{r.wall.account}{r.wall.mark} "
-                       if r.wall.elsewhere and room >= vlen(f"⏳ {r.wall.account}{r.wall.mark} "
-                                                            f"{r.wall.when}") else "")
-                # No room to name the account, but still assumed: the mark
-                # moves to the one thing left to put it on.
-                walled_cell = f"{YEL}⏳ {who}{r.wall.when}{r.wall.mark if not who else ''}{R}"
-            else:
-                walled_cell = ""
-            # DIALOG and FATAL already say what they are in the state column,
-            # with their own detail beside them (screen_state()) - repeating it
-            # here would be the duplicated column the state column itself was
-            # cut down to avoid. A wall clears itself the moment the window
-            # rolls over, so it is the last thing shown here, not the first.
-            ag.add(prefix + (r.fire or walled_cell), key=r.name)
-        for note in notes:
-            ag.add(f"{DIM}  {note}{R}")
-
-        # ---- messages ------------------------------------------------
-        title, rows, notes = messages_data(con)
-        ms = Panel(title, width, focused=panel == MESSAGES)
-        ms.selected = sel.get(MESSAGES)
-        for r in rows:
-            mark, name = message_mark(r.flavour)
-            ms.add(f"{DIM}{r.when}{R} {mark} {CYA}#{r.id:<5}{R}{name.format(r.sender)}"
-                   f"{pad(r.kind, 11)}{r.first}{r.behind}", key=r.key)
-        for note in notes:
-            ms.add(f"{DIM}  {note}{R}")
-
-        # ---- stuck -----------------------------------------------------
-        title, rows = stuck_data(con)
-        fl = Panel(title, width, focused=panel == STUCK)
-        fl.selected = sel.get(STUCK)
-        for r in rows:
-            fl.add(pad(f"{YEL}{r.what}{R}", 34) + pad(f"{DIM}{r.age}{R}", 7)
-                   + f"{DIM}{r.why}{R}", key=r.agent)
-
-        footer_agent = sel.get(AGENTS) if panel == AGENTS else \
-            sel.get(STUCK) if panel == STUCK else None
-        footer_keys = (agent_footer_keys(con, str(footer_agent) if footer_agent is not None else None)
-                       if panel in (AGENTS, STUCK) else None)
-
-        return header, [acc, ag, ms, fl], footer_keys
-    finally:
-        con.close()
-
-
 def page(title: str, sections: list[tuple[str, list[str]]],
          panel: int = AGENTS, key: object = None) -> dict:
     """A detail page laid out as the screen's own panels, not as a wall of text.
@@ -1262,15 +1015,6 @@ def _agent_page(con, name: str, panel: int = AGENTS, title: str | None = None,
 def _tab_stems(detail: dict) -> list[str]:
     """The names of a page's tabs, without the counts in their headings."""
     return [h.split(" (")[0] for h, _ in detail.get("sections") or [] if h]
-
-
-def _go_to_tab(detail: dict, at: int) -> None:
-    """Put the reader on tab `at`. The page follows the reader by the tab's
-    name (`stem`), so moving the number alone is undone by the next refresh."""
-    stems = _tab_stems(detail)
-    at = max(0, min(at, len(stems) - 1))
-    detail["tab"], detail["stem"] = at, stems[at] if stems else ""
-    detail["top"], detail["end"] = 0, True
 
 
 def lines_of(detail: dict, width: int) -> list[str]:
@@ -1558,161 +1302,6 @@ def opened(title: str, lines: list[str], panel: int = AGENTS, key: object = None
     return {"title": title, "lines": lines, "panel": panel, "key": key, "top": 0}
 
 
-def frame(width: int, height: int, sel: dict | None = None, panel: int = AGENTS,
-          flash: str = "", detail: dict | None = None) -> str:
-    if detail is not None:
-        return _detail_frame(width, height, detail, flash)
-    # The pinned block takes what is left after the bar, the blank line, the
-    # two footer rows and the smallest box the mailbox can be drawn in.
-    header, panels, footer_keys = build(width, sel, panel, wait_budget=height - 4 - PANEL_MIN)
-    room = height - len(header) - 2                    # the two footer rows
-    limits, hidden = _layout([len(p.rows) for p in panels], room)
-    body: list[str] = []
-    for p, lim in zip(panels, limits):
-        if lim == 0:
-            continue
-        body += p.draw(limit=lim)
-    foot = [fit(flash, width) if flash else "", keybar(panel, width, hidden, footer_keys)]
-    lines = header + body
-    lines = lines[:max(0, height - len(foot))]
-    while len(lines) < height - len(foot):
-        lines.append("")
-    lines = (lines + foot)[:height]
-    return "\n".join(line + CLEAR_EOL for line in lines)
-
-
-# A panel that cannot have a border, one real row, its "… N more" marker and
-# its other border says nothing at all - and an empty box reads as "nothing
-# here" while the thing it would have shown is what the reader is looking for.
-# Three was not enough: the one row a panel got was overwritten by its own
-# marker, so the screen drew four boxes with no content between them.
-PANEL_MIN = 4
-
-
-# Which panels a short window keeps, most important first. Drawn in their own
-# order, dropped in this one: what is waiting on a human is the last thing to
-# go, and the accounts are the first - they are two rows that rarely change,
-# and `ocp status` has them.
-DROP_LAST = (MESSAGES, STUCK, AGENTS, ACCOUNTS)
-
-
-def _layout(want: list[int], room: int) -> tuple[list[int | None], int]:
-    """How many rows each panel may draw, and how many panels do not fit.
-
-    Everything fits, or every panel that is drawn at all gets one row and then
-    they grow together a row at a time - so a long list cannot starve a short
-    one, and the screen never draws a box it has nothing to put in.
-    """
-    if sum(w + 2 for w in want) <= room:
-        return [None] * len(want), 0
-    keep = len(want)
-    while keep and keep * PANEL_MIN > room:
-        keep -= 1
-    kept = set(DROP_LAST[:keep])
-    # Two rows each to begin with: one to say something, one for the marker
-    # that says how much is not being said.
-    limits = [2 if i in kept else 0 for i in range(len(want))]
-    left = room - keep * PANEL_MIN
-    while left > 0 and any(limits[i] < want[i] for i in kept):
-        for i in range(len(want)):
-            if left <= 0:
-                break
-            if i in kept and limits[i] < want[i]:
-                limits[i] += 1
-                left -= 1
-    return [None if limits[i] >= want[i] and limits[i] else limits[i]
-            for i in range(len(want))], len(want) - keep
-
-
-# The box costs 3 rows and the page keeps 5 rows of body beside the 4 of title,
-# flash and keys: with fewer body rows than that the box is not worth its 3.
-# The page has its own floor below this - at height 4 and under the keys line
-# is gone whatever the box does.
-INPUT_BOX_MIN = 12
-
-
-def _has_input_box(detail: dict, height: int) -> bool:
-    """An agent page ends in an input box unless the composer is open or the
-    box would leave fewer than 5 rows of body: then the page keeps the rows and
-    the keys line stays."""
-    return bool(detail.get("stacked")) and not detail.get("composing") and height >= INPUT_BOX_MIN
-
-
-def _page_room(detail: dict, height: int) -> int:
-    """How many rows of the page a screen of `height` shows: what the title,
-    the flash and the keys leave, less the input box when the page has one."""
-    return max(1, height - 4 - (3 if _has_input_box(detail, height) else 0))
-
-
-def _detail_frame(width: int, height: int, detail: dict, flash: str = "") -> str:
-    """One thing, opened, with what is off the bottom said rather than cut.
-
-    The panels shorten a list and count what they held back; a message is not a
-    list, so this wraps and scrolls instead - and a message read half way is
-    exactly the one someone is about to answer, which is why it can be answered
-    from here.
-    """
-    if detail.get("refresh_error") and not flash:
-        flash = f"{RED}page not refreshed - {detail['refresh_error']}{R}"
-    body = lines_of(detail, width)
-    # An agent's page ends in the input the Claude Code screen has: a rule, the
-    # prompt line, a rule. It is where the composer opens, so while one is open
-    # the composer is that box and this one is not drawn.
-    boxed = _has_input_box(detail, height)
-    room = _page_room(detail, height)
-    last = max(0, len(body) - room)
-    if detail.pop("focus_pending", None) and "focus_span" in detail:
-        # Opened at a message: it goes on screen with what is around it, and
-        # the page is not held to its end, which is where the frame would
-        # otherwise put a conversation.
-        a, b = detail["focus_span"]
-        detail["top"] = max(0, a - max(0, room - (b - a)) // 2)
-        detail["end"] = False
-    top = max(0, min(detail.get("top", 0), last))
-    # A conversation read at its end stays there: the page's end, or - when
-    # sections sit under it - the end of the conversation, which is the newest
-    # line and not whatever is listed below it.
-    pin = min(last, max(0, detail.get("conv_end", len(body)) - room))
-    if detail.get("stem") == actions.CHAT_TAB and detail.get("end"):
-        top = pin
-    detail["top"] = top
-    detail["end"] = top == pin
-    shown = body[top:top + room]
-    while len(shown) < room:
-        shown.append("")
-    where = (f"{DIM}  line {top + 1}-{min(len(body), top + room)} of {len(body)}{R}"
-             if len(body) > room else "")
-    keys = "esc back · ←→ section · ↑↓ scroll"
-    if detail.get("sections") is None or not [h for h, _ in detail["sections"] if h]:
-        keys = "esc back · ↑↓ scroll · space page"
-    if detail.get("stem") == actions.CHAT_TAB:
-        keys = "esc back · ↑↓ scroll · ↵ write (/ for commands) · e in $EDITOR"
-    if detail.get("read_only"):
-        pass                           # nothing here acts on the agent
-    elif detail.get("panel") == MESSAGES:
-        keys += " · a answer · e answer in $EDITOR · x dismiss"
-    elif detail.get("panel") in (AGENTS, STUCK):
-        # A connection per render, unlike `build`'s one-per-frame: this page
-        # is already reopening the agent's own rows on every redraw
-        # (`_refreshed`), so a second connection here costs nothing this
-        # screen was not already paying.
-        con = db.connect()
-        try:
-            agent_keys = agent_footer_keys(con, detail.get("agent"))
-        finally:
-            con.close()
-        keys += " · " + " · ".join(f"{k} {label}" for k, label in agent_keys
-                                   if label != "open") + " · ? help"
-    rule = f"{DIM}{'─' * width}{R}"
-    prompt = fit(f"{CYA}{BOLD}\u276f{R} {DIM}write to {oneline(str(detail.get('agent')))}"
-                 f" · / for commands{R}", width)
-    lines = ([fit(f"{BOLD}{oneline(detail['title'])}{R}{where}", width), ""]
-             + [fit(ln, width) for ln in shown]
-             + ([rule, prompt, rule] if boxed else [])
-             + [fit(flash, width) if flash else "", fit(f"{DIM}{keys} · q quit{R}", width)])
-    return "\n".join(line + CLEAR_EOL for line in lines[:height])
-
-
 def move(keys: list, current, delta: int):
     """The next key in a panel's list, or None when that is off its end."""
     if not keys:
@@ -1721,28 +1310,6 @@ def move(keys: list, current, delta: int):
         return keys[0]
     i = keys.index(current) + delta
     return keys[i] if 0 <= i < len(keys) else None
-
-
-def settle(sel: dict, known: dict) -> None:
-    """Keep every panel's cursor on a row that exists.
-
-    A row leaves a list under the cursor - dismissed, answered, a report closing
-    on open - and a cursor keyed on it is then on nothing, drawn as nowhere.
-    It goes to the row that took the place, or to the one above when the last
-    row went, and is dropped only when the list is empty. `known` is each
-    panel's keys as of the last call, which is what says where the row was.
-    """
-    for panel in PANELS:
-        keys = _keys_of(panel)
-        cur = sel.get(panel)
-        if cur is not None and cur not in keys:
-            was = known.get(panel, [])
-            at = was.index(cur) if cur in was else 0
-            if keys:
-                sel[panel] = keys[min(at, len(keys) - 1)]
-            else:
-                del sel[panel]
-        known[panel] = keys
 
 
 def step(panel: int, sel: dict, delta: int) -> int:
@@ -1766,126 +1333,6 @@ def step(panel: int, sel: dict, delta: int) -> int:
             sel[panel] = keys[0] if delta > 0 else keys[-1]
             return panel
     return panel
-
-
-# Keys read ahead of the one being handled. One read can return several - a
-# held-down arrow, or two keys typed inside a frame - and dropping the rest
-# loses keypresses the human made.
-_pending: list[str] = []
-
-
-def split_keys(data: str) -> list[str]:
-    """One read of the terminal, split into the keys it contains.
-
-    An arrow is three bytes, `esc [ A`, or `esc O A` where the terminal has
-    switched to application cursor keys; PageUp and a modified arrow are longer
-    (`esc [ 5 ~`, `esc [ 1 ; 5 A`). A bare escape is one byte and means the
-    human backed out.
-    """
-    out, i = [], 0
-    while i < len(data):
-        m = _CSI.match(data, i) if data[i] == "\033" else None
-        out.append(m.group() if m else data[i])
-        i = m.end() if m else i + 1
-    return out
-
-
-def _cut(data: str) -> bool:
-    """Whether `data` ends part way through an escape sequence - or on an
-    escape that may be the start of one."""
-    i = data.rfind("\033")
-    return i >= 0 and (i == len(data) - 1 or bool(_CSI_CUT.fullmatch(data[i:])))
-
-
-# How long a read that ends inside an escape sequence waits for the rest. An
-# arrow can reach us as `esc` and then `[ B`, and that first byte is what a
-# bare Esc looks like: the two are told apart only by whether more follows, so
-# the wait is the price of Esc - short enough that it cannot be felt. 50 ms is
-# right for a local terminal (a split arrow joined at gaps up to about 45 ms).
-# Over a link whose jitter exceeds it an arrow arrives as Esc, as in every
-# terminal program; raise it here if the bridge is ever driven over one. The
-# whole join is bounded to a few waits, so a stream that never completes a
-# sequence cannot hold the screen.
-ESC_WAIT = 0.05
-
-
-_paste_state = {"in": False, "carry": ""}
-
-
-def _unpasted(data: str) -> str:
-    """One read of the terminal without the text that was pasted into it.
-
-    Outside a prompt a paste is not a command: read as keys, its first newline
-    is Enter and its letters are shortcuts (`a`, then a line of text, was how a
-    pasted screen became a message). The terminal marks a paste, so it is
-    dropped whole - across reads too, since a long paste arrives in pieces.
-    A prompt reads the marks itself (Composer) and keeps what is pasted.
-    """
-    st = _paste_state
-    text, st["carry"], out = st["carry"] + data, "", ""
-    start, end = Composer.START, Composer.END
-    while text:
-        mark = end if st["in"] else start
-        i = text.find(mark)
-        if i >= 0:
-            out += "" if st["in"] else text[:i]
-            text, st["in"] = text[i + len(mark):], not st["in"]
-            continue
-        # A mark cut off by the end of the read is carried to the next one. A
-        # lone escape is not: outside a paste it is the human backing out.
-        keep = next((k for k in range(min(len(mark) - 1, len(text)), 0, -1)
-                     if mark.startswith(text[-k:]) and (k > 1 or st["in"])), 0)
-        if not st["in"]:
-            out += text[:len(text) - keep]
-        st["carry"] = text[len(text) - keep:] if keep else ""
-        break
-    return out
-
-
-# The terminal's bytes as text, kept across reads: a character cut by the end of
-# one read (a Korean letter is three bytes) is held until the rest arrives, not
-# dropped. A byte that is not UTF-8 at all is drawn as U+FFFD, so it shows. A
-# lead byte whose continuation never comes stays held until the next byte, and
-# then surfaces as one U+FFFD glued to it - possibly in the next prompt's text.
-# It is visible, and it needs a byte that is never finished; that is left as is.
-_decoder = codecs.getincrementaldecoder("utf-8")(errors="replace")
-
-
-def _read(fd: int) -> str:
-    """One read of the terminal as text. Every place that reads the keyboard
-    reads through here, so a character and a key are each delivered whole
-    whatever the bytes' boundaries: a read that ends inside an escape sequence
-    waits for the rest (`ESC_WAIT`)."""
-    data = _decoder.decode(os.read(fd, 4096))
-    end = time.monotonic() + 4 * ESC_WAIT
-    while _cut(data) and time.monotonic() < end and select.select([fd], [], [], ESC_WAIT)[0]:
-        data += _decoder.decode(os.read(fd, 4096))
-    return data
-
-
-def _key(timeout: float) -> str | None:
-    if not sys.stdin.isatty():
-        time.sleep(timeout)
-        return None
-    if _pending:
-        return _pending.pop(0)
-    fd = sys.stdin.fileno()
-    if not select.select([fd], [], [], timeout)[0]:
-        return None
-    # Read the descriptor, not the buffered stream. `sys.stdin.read(1)` pulls
-    # the whole escape sequence into Python's own buffer, and then select()
-    # reports the fd has nothing left - so every arrow key arrived here as a
-    # bare escape with its `[B` still sitting in the buffer.
-    try:
-        data = _read(fd)
-    except OSError:
-        return None
-    data = _unpasted(data)
-    if not data:
-        return None
-    keys = split_keys(data)
-    _pending.extend(keys[1:])
-    return keys[0]
 
 
 # An escape sequence: `esc [` and parameters up to a final byte, or `esc O x`.
@@ -2098,388 +1545,6 @@ def _wrap_typed(text: str, width: int) -> list[str]:
     return out
 
 
-def _composer(multi: bool = False) -> Composer:
-    """A prompt's reader, starting where the screen's own reader left off.
-
-    A read can end in the middle of a paste that _key began skipping. There is
-    one paste state, and it moves to the prompt: left behind, the screen would
-    go on dropping keys and the prompt would take the rest of the paste as typing.
-    """
-    box = Composer(multi)
-    st = _paste_state
-    box.pasting, box._carry = st["in"], st["carry"]
-    st["in"], st["carry"] = False, ""
-    return box
-
-
-_UP_DOWN = re.compile(r"\033(?:\[[AB]|O[AB])")
-
-
-def _line(prompt: str, width: int, height: int, multi: bool = False,
-          under=None, commands: list[tuple[str, str]] | None = None) -> str | None:
-    """Read a message with the screen still up. None when the human backs out.
-
-    Every prompt reads through here, so a paste is one paste in all of them:
-    text arrives whole, and only a key the human presses sends it. `multi` is
-    for prompts whose text goes to an agent; the rest take one line.
-
-    What is typed is shown whole, on as many rows as it takes (at most half the
-    screen). The rows come out of the bottom of the screen, so `under(h)` - the
-    screen as it draws at height h - is painted above them; without it they
-    cover what was there until the prompt closes.
-
-    `commands`, when given, turns a leading '/' into autocomplete: matching
-    names are listed under the composer, ↑↓ (otherwise unbound here -
-    Composer has no vertical move) changes which is highlighted, and Enter
-    sends the highlighted name whole, as '/name'. It resolves that way only
-    when exactly one name matches or the human picked one with ↑↓ - never by
-    defaulting to whichever sorts first among several, since one may be a
-    mutating verb. Anything else - no match, or several with no pick - sends
-    the typed text as a plain message; a real message may start with '/'."""
-    if not sys.stdin.isatty():
-        return None
-    fd = sys.stdin.fileno()
-    box = _composer(multi)
-    data = "".join(_pending)           # keys already read ahead of this prompt
-    _pending.clear()
-    painted = 1                        # rows the prompt has, as the screen was drawn
-    sel = 0                            # highlighted row in the command list, if one is shown
-    matches: list[str] = []            # what is currently displayed, from the last render
-    picked = False                     # the human moved the highlight, deliberately
-    while True:
-        # Every leading arrow, not just the first - one read can hold several
-        # (key repeat, a paste, a script), and Composer silently swallows an
-        # arrow it does not itself map, so a second one left in `data` would
-        # otherwise move the highlight by one row instead of two.
-        while matches and data:
-            m = _UP_DOWN.match(data)
-            if not m:
-                break
-            sel = max(0, min(len(matches) - 1,
-                             sel + (1 if m.group() in ("\033[B", "\033OB") else -1)))
-            picked = True
-            data = data[m.end():]
-        done = box.feed(data) if data else None
-        if done == "cancel":
-            return None
-        # Recomputed from the text as it now stands - a burst that types a
-        # prefix and presses Enter in the same read (a paste, a fast typist,
-        # a script) reaches `done == "send"` in this same call, and `matches`
-        # from before the feed would still be the empty list from before
-        # anything was typed, sending the raw prefix as a literal message
-        # instead of resolving it.
-        new_matches = ([n for n, _ in commands if n.startswith(box.text[1:])]
-                       if commands is not None and box.text.startswith("/") else [])
-        # The highlight only survives typing that leaves the same list in the
-        # same order - clamping alone would keep index 1 pointed at whatever
-        # is now there, silently retargeting it to a different command.
-        if new_matches != matches:
-            sel, picked = 0, False
-        matches = new_matches
-        if done == "send":
-            # Several matches and no explicit pick is not "run the one that
-            # happens to sort first" - a command name is a verb, one of them
-            # possibly a mutating one, and a typo left ambiguous is not a
-            # human choosing it.
-            if len(matches) == 1 or (matches and picked):
-                return f"/{matches[sel]}"
-            return box.text.strip("\n") if multi else box.text.strip()
-        rows = box.shown(prompt, width, max(1, height // 2))
-        if matches:
-            rows = rows + [f"{DIM}  " + "  ".join(
-                (f"{R}▸{DIM}" if i == sel else " ") + n for i, n in enumerate(matches)) + R]
-        top = height - len(rows) + 1
-        if under and len(rows) != painted:
-            sys.stdout.write(HOME + under(top))
-        painted = len(rows)
-        sys.stdout.write("".join(f"\033[{top + i};1H" + CLEAR_EOL + row
-                                 for i, row in enumerate(rows)))
-        sys.stdout.flush()
-        data = ""
-        if not select.select([fd], [], [], 30.0)[0]:
-            continue
-        try:
-            data = _read(fd)
-        except OSError:
-            return None
-
-
-def _confirm(what: str, width: int, height: int) -> bool:
-    """Ask yes or no over the bottom of the screen; only a typed y confirms.
-
-    It takes no `under`, unlike `_line`, and that is safe for one reason: its
-    row count is fixed by `textwrap.wrap(what)[:3]` and drawn once, before it
-    reads anything, and it never draws what is typed - so a paste cannot make it
-    grow over the page.
-    """
-    if not sys.stdin.isatty():
-        return False
-    # What will happen and who is told can be longer than one line, and a
-    # question whose answer is cut off is one nobody can answer.
-    rows = textwrap.wrap(f"{what}?", max(10, width - 8))[:3] or [f"{what}?"]
-    out = "".join(f"\033[{height - len(rows) + 1 + i};1H" + CLEAR_EOL
-                  + fit(f"{YEL}{ln}{R}" + (f" {DIM}y / n{R}" if i == len(rows) - 1 else ""),
-                        width)
-                  for i, ln in enumerate(rows))
-    sys.stdout.write(out)
-    sys.stdout.flush()
-    # Read through a Composer so that what is pasted is not read as keys: a
-    # paste with a "y" in it must not confirm a destructive action.
-    fd = sys.stdin.fileno()
-    box = _composer()
-    data = "".join(_pending)
-    _pending.clear()
-    while True:
-        if data and box.feed(data) is not None:
-            return False               # Enter or escape is not a yes
-        if box.typed:
-            return box.typed[0] in ("y", "Y")
-        data = ""
-        if not select.select([fd], [], [], 30.0)[0]:
-            continue
-        try:
-            data = _read(fd)
-        except OSError:
-            return False
-
-
-def _suspend(argv: list[str], env: dict, fd, saved) -> tuple[int | None, str]:
-    """Hand the whole terminal to another program, then take it back.
-
-    Logging in is a human typing a code into claude's own screen: nothing about
-    that can happen behind an alternate screen with the cursor hidden.
-    """
-    # Only a screen that is up has to be taken down. Without a terminal there
-    # is no alternate screen to leave, and writing the escapes anyway puts them
-    # in whatever is reading our output.
-    on_screen = sys.stdout.isatty()
-    if on_screen:
-        sys.stdout.write(CUR_ON + ALT_OFF)
-        sys.stdout.flush()
-    if saved:
-        termios.tcsetattr(fd, termios.TCSADRAIN, saved)
-    code, out = None, ""
-    try:
-        r = subprocess.run(argv, env=env)
-        code, out = r.returncode, f"{argv[0]} exited {r.returncode}"
-    except (OSError, subprocess.SubprocessError) as e:
-        out = f"could not run {argv[0]}: {e}"
-    finally:
-        if saved:
-            tty.setcbreak(fd)
-        if on_screen:
-            sys.stdout.write(ALT_ON + CUR_OFF)
-            sys.stdout.flush()
-    return code, out
-
-
-def run(interval: float = 2.0, once: bool = False) -> int:
-    if once or not sys.stdout.isatty():
-        # No cursor and no interaction: `sel` is deliberately left empty, so
-        # the footer falls back to the unfiltered common set rather than
-        # picking one agent among many to filter by. There is no single row
-        # this snapshot is "about" the way an interactive cursor names one.
-        size = shutil.get_terminal_size((100, 40))
-        print(frame(min(size.columns, 200), size.lines))
-        return 0
-
-    fd = sys.stdin.fileno()
-    saved = termios.tcgetattr(fd) if sys.stdin.isatty() else None
-    panel, sel, flash, detail = AGENTS, {}, "", None
-    _enter(panel, sel)
-    known: dict = {}
-    try:
-        if saved:
-            tty.setcbreak(fd)
-        sys.stdout.write(ALT_ON + CUR_OFF)
-        while True:
-            settle(sel, known)
-            size = shutil.get_terminal_size((100, 40))
-            width, height = size.columns, size.lines
-            shown, detail = _redraw(width, height, sel, panel, flash, detail)
-            sys.stdout.write(HOME + shown)
-            sys.stdout.flush()
-            k = _key(interval)
-            if k is None:
-                continue
-            if k in ("q", "Q", "\x03"):
-                return 0
-            if detail is not None:
-                try:
-                    detail, flash = _in_detail(detail, k, width, height, fd, saved)
-                except Exception as e:  # noqa: BLE001
-                    flash = f"{RED}{type(e).__name__}: {e}{R}"
-                continue
-            flash = ""
-            moved = navigate(panel, sel, k)
-            if moved is not None:
-                panel = moved
-                continue
-            try:
-                flash, detail = _act(panel, sel, k, width, height, fd, saved)
-            except Exception as e:  # noqa: BLE001
-                # One action failing is that action's failure, not the end of
-                # the screen - the daemon wraps each agent for the same reason.
-                flash = f"{RED}{type(e).__name__}: {e}{R}"
-    except KeyboardInterrupt:
-        return 0
-    finally:
-        sys.stdout.write(CUR_ON + ALT_OFF)
-        sys.stdout.flush()
-        if saved:
-            termios.tcsetattr(fd, termios.TCSADRAIN, saved)
-
-
-def _redraw(width: int, height: int, sel: dict, panel: int, flash: str,
-            detail: dict | None) -> tuple[str, dict | None]:
-    """One tick of the screen: the open page brought up to date, then drawn."""
-    detail = _refreshed(detail)
-    return frame(width, height, sel, panel, flash, detail), detail
-
-
-def _refreshed(detail: dict | None) -> dict | None:
-    """An open agent page as the database has it now.
-
-    The screen redraws every interval, and a page laid out once would show a
-    conversation as it was when it was opened - an answer landing while it is
-    read would not appear until the reader backed out and came back.
-    """
-    if not detail or not detail.get("agent"):
-        return detail
-    con = db.connect()
-    try:
-        return _agent_page(con, detail["agent"], detail["panel"], detail["title"], detail)
-    except Exception as e:  # noqa: BLE001
-        # The last page stays up, and says it is not current.
-        detail["refresh_error"] = f"{type(e).__name__}: {e}"
-        return detail
-    finally:
-        con.close()
-
-
-# A wheel notch on the alternate screen reaches us as ↑/↓ (Orca's terminal sends
-# it with no mode set), so the wheel is these keys. On a page with nothing to
-# move it changes nothing that outlasts the frame: _detail_frame clamps `top`
-# and recomputes `end` every draw, which is not visible from the handler.
-SCROLL_KEYS = ("j", "\033[B", "\033OB", "k", "\033[A", "\033OA",
-               " ", "\033[6~", "b", "\033[5~", "g", "G")
-
-
-def _in_detail(detail: dict, k: str, width: int, height: int,
-               fd=None, saved=None) -> tuple[dict | None, str]:
-    """One keypress while something is open. Returns (what is open now, line).
-
-    Closing is not the only thing a reader wants to do with a message: the one
-    they have just read is the one they are about to answer, and making them
-    back out to the panel to do it is how an answer gets put off.
-    """
-    room = _page_room(detail, height)
-    if k in ("\033", "\x1b"):
-        if detail.get("stacked"):
-            con = db.connect()
-            try:
-                actions.chat_seen(con, str(detail["agent"]))
-            finally:
-                con.close()
-        return detail.get("parent"), ""
-    if k in ("\033[C", "\033OC", "\t", "\033[D", "\033OD", "\033[Z"):
-        if not detail.get("stacked") and _tab_stems(detail):
-            fwd = k in ("\033[C", "\033OC", "\t")
-            _go_to_tab(detail, detail.get("tab", 0) + (1 if fwd else -1))
-        return detail, ""
-    if detail.get("stem") == actions.CHAT_TAB and k in ("\r", "\n", "e", "m"):
-        return _write_in_thread(detail, k, width, height, fd, saved)
-    if k == "x" and detail.get("agent"):
-        return detail, "cancelling is /cancel <id>: press ↵ and type / for the commands"
-    if k in SCROLL_KEYS:
-        # The frame pins a conversation to its end while `end` is set, so a
-        # reader who scrolls has to clear it; the frame sets it again when
-        # they come back to the bottom.
-        detail["end"] = False
-    if k in ("j", "\033[B", "\033OB"):
-        detail["top"] += 1
-        return detail, ""
-    if k in ("k", "\033[A", "\033OA"):
-        detail["top"] = max(0, detail["top"] - 1)
-        return detail, ""
-    if k in (" ", "\033[6~"):
-        detail["top"] += room
-        return detail, ""
-    if k in ("b", "\033[5~"):
-        detail["top"] = max(0, detail["top"] - room)
-        return detail, ""
-    if k == "g":
-        detail["top"] = 0
-        return detail, ""
-    if k == "G":
-        detail["top"] = max(0, len(lines_of(detail, width)) - room)
-        return detail, ""
-    if detail.get("read_only"):
-        return detail, "read-only - esc goes back to the conversation"
-    if detail.get("panel") in (AGENTS, STUCK):
-        # An agent's page is opened to decide something about that agent, and
-        # making the reader back out to the list to press the key is how a
-        # decision gets put off.
-        if k == "?":
-            return detail, agent_help_line()
-        label = dict(AGENT_KEYS).get(k)
-        if not label or label == "open":
-            return detail, ""
-        name = str(detail["key"])
-        con = db.connect()
-        try:
-            return _dispatch_agent_verb(con, detail, name, label, width, height, fd, saved)
-        finally:
-            con.close()
-    if detail.get("panel") != MESSAGES or k not in ("a", "e", "x"):
-        return detail, ""
-
-    rid = int(detail["key"])
-    con = db.connect()
-    try:
-        return _answer_key(con, detail, rid, k, width, height, fd, saved)
-    except Exception as e:  # noqa: BLE001
-        # Answering can fail in ways reading cannot - an editor that will not
-        # start, a request resolved from elsewhere between the read and the
-        # reply. That is this key's failure, not the screen's.
-        return detail, f"{RED}{type(e).__name__}: {e}{R}"
-    finally:
-        con.close()
-
-
-def _dispatch_agent_verb(con, detail: dict, name: str, label: str, width: int, height: int,
-                         fd, saved) -> tuple[dict, str]:
-    """Run one AGENT_KEYS verb against `name` - the body both a keypress and a
-    slash command funnel through, so a command cannot drift from what its
-    keybinding does. `can` has already been asked by neither caller; it is
-    asked here, once, so there is exactly one place that can say no."""
-    allowed, why = actions.can(con, name, label)
-    if not allowed:
-        return detail, why
-    if label in ("message", "editor"):
-        body = _compose_message(name, label, width, height, fd, saved,
-                                under=lambda h: _detail_frame(width, h, dict(detail, composing=True)))
-        return detail, (actions.message(con, name, body) if body is not None
-                        else _nothing_sent("e" if label == "editor" else "m"))
-    if label == "terminal" and _needs_a_terminal(con, name):
-        repo = _line(f"{name} has nowhere to run - repo to start it in "
-                     f"[{os.getcwd()}]:", width, height,
-                     under=lambda h: _detail_frame(width, h, dict(detail, composing=True)))
-        if repo is None:
-            return detail, "not started"
-        _say(f"starting {name}", width, height)
-        return detail, actions.terminal(con, name, repo.strip() or os.getcwd())
-    if label == "move":
-        return detail, _move_agent(con, name, width, height,
-                                   under=lambda h: _detail_frame(width, h, dict(detail, composing=True)))
-    if _needs_confirm(con, name, label) and not _confirm(f"{label} {name}", width, height):
-        return detail, "left alone"
-    _say(f"{label} {name}", width, height)
-    said = getattr(actions, label)(con, name)
-    # What it says about itself has just changed.
-    return _agent_page(con, name, detail["panel"], detail["title"], detail), said
-
-
 def _run_info_command(con, detail: dict, name: str, cmd: str) -> tuple[dict, str]:
     """The read-only slash commands: nothing to decide, so no `can` gate - the
     terminal handle and worktree path the head used to show."""
@@ -2488,189 +1553,6 @@ def _run_info_command(con, detail: dict, name: str, cmd: str) -> tuple[dict, str
     if cmd == "worktree":
         return detail, actions.agent_worktree(con, name)
     return detail, f"/{cmd}: not wired"        # unreachable while INFO_COMMANDS names all of it
-
-
-def _open_read_page(con, detail: dict, name: str, cmd: str) -> dict:
-    """/knows and /done: a read-only page over the conversation, which esc returns to."""
-    if cmd == "knows":
-        d = page(f"what {name} knows", [("", actions.agent_knows(con, name))],
-                 detail["panel"], name)
-        d["notes"] = True
-    else:
-        d = page(f"what {name} has done", [("", actions.agent_done(con, name))],
-                 detail["panel"], name)
-    d["parent"], d["read_only"] = detail, True
-    return d
-
-
-def _run_command(con, detail: dict, name: str, cmd: str, cmds: dict[str, str],
-                 width: int, height: int, fd, saved) -> tuple[dict, str]:
-    """A slash command typed in the composer, already resolved to a canonical
-    name by `_line`'s own autocomplete - never raw text a person half-typed.
-    `cmds` is the caller's own `agent_commands` read, not asked again here."""
-    kind = cmds.get(cmd)
-    if kind == "info":
-        return _run_info_command(con, detail, name, cmd)
-    if kind == "page":
-        return _open_read_page(con, detail, name, cmd), ""
-    if kind == "cancel":
-        return _cancel_command(con, detail, name, cmd.partition(" ")[2], width, height)
-    return _dispatch_agent_verb(con, detail, name, cmd, width, height, fd, saved)
-
-
-def _write_in_thread(detail: dict, k: str, width: int, height: int,
-                     fd, saved) -> tuple[dict, str]:
-    """The composer under a conversation: what is typed goes under its thread,
-    unless it is a slash command - the same conversation, the same composer,
-    a second kind of thing it can send."""
-    name = str(detail["key"])
-    con = db.connect()
-    try:
-        allowed, why = actions.can(con, name, "message")
-        if not allowed:
-            return detail, why
-        cmds = agent_commands(con, name)
-        if k == "e":
-            body = _editor(f"# a message to {name}. Lines starting with # are dropped.\n",
-                           fd, saved)
-        else:
-            body = _line(f"to {name}:", width, height, multi=True,
-                         under=lambda h: _detail_frame(width, h, dict(detail, composing=True)),
-                         commands=cmds)
-        if body is None:
-            return detail, _nothing_sent(k)
-        cmds = dict(cmds)
-        # `_line`'s own contract: text starting with '/' that matched nothing
-        # comes back exactly as typed, so it is not necessarily a resolved
-        # command - only a body that names one of `cmds` is. A literal
-        # message that happens to type a real command's name runs it, the
-        # same tradeoff any chat command syntax makes.
-        if k != "e" and body.startswith("/") and body[1:] in cmds:
-            return _run_command(con, detail, name, body[1:], cmds, width, height, fd, saved)
-        said = actions.chat_reply(con, name, body)
-        detail["end"] = True
-        return _agent_page(con, name, detail["panel"], detail["title"], detail), said
-    finally:
-        con.close()
-
-
-def _cancel_command(con, detail: dict, name: str, arg: str, width: int, height: int
-                    ) -> tuple[dict, str]:
-    """/cancel [id]: say what it will do and to whom, ask, then take the request
-    out of the queue - withdrawn if it was not delivered, closed as rejected if
-    the agent is sitting on it. Bare, it acts only when exactly one request is
-    waiting; with several it lists them and stops, since the id is what says
-    what dies."""
-    waiting = actions.waiting_ids(con, name)
-    if not arg:
-        if len(waiting) != 1:
-            return detail, ("nothing is waiting for it" if not waiting else
-                            "several are waiting - " + " · ".join(f"/cancel {r}" for r in waiting))
-        rid = waiting[0]
-    else:
-        rid = int(arg)
-        if rid not in waiting:
-            return detail, f"#{rid} is not waiting for {name}"
-    ok, plan = actions.cancel_plan(con, rid)
-    if not ok:
-        return detail, plan
-    if not _confirm(plan, width, height):
-        return detail, "left alone"
-    _say(f"cancelling #{rid}", width, height)
-    said = actions.cancel(con, rid)
-    return _agent_page(con, name, detail["panel"], detail["title"], detail), said
-
-
-def _answer_key(con, detail: dict, rid: int, k: str, width: int, height: int,
-                fd, saved) -> tuple[dict | None, str]:
-    if k == "x":
-        _, said = actions.dismiss(con, rid, me=actions.HUMAN)
-        return None, said
-    text = _compose(rid, k, width, height, fd, saved,
-                    under=lambda h: _detail_frame(width, h, dict(detail, composing=True)))
-    if text is None:
-        return detail, _nothing_sent(k)
-    _say(f"answering #{rid}", width, height)
-    return None, actions.answer(con, rid, text)
-
-
-def _compose_message(agent: str, label: str, width: int, height: int,
-                     fd, saved, under=None) -> str | None:
-    """An order, typed on the line or written in $EDITOR. None means none.
-
-    The line is enough to say "rebase onto main"; it is not enough to say what
-    to do and why not to do the other thing, and an order that needs a
-    paragraph was being written somewhere else and pasted - or cut down to fit.
-    """
-    if label == "editor":
-        return _editor(f"# a message to {agent}. Lines starting with # are dropped.\n",
-                       fd, saved)
-    return _line(f"message to {agent}:", width, height, multi=True, under=under)
-
-
-def _compose(rid: int, key: str, width: int, height: int, fd, saved,
-             under=None) -> str | None:
-    """An answer, typed on the line or written in $EDITOR. None means none."""
-    if key == "e":
-        return _editor(f"# answering #{rid}. Lines starting with # are dropped.\n",
-                       fd, saved)
-    return _line(f"answer #{rid}:", width, height, multi=True, under=under)
-
-
-def _nothing_sent(key: str) -> str:
-    if key == "e" and not (os.environ.get("EDITOR") or os.environ.get("VISUAL")):
-        return "nothing sent - $EDITOR is not set"
-    return "nothing sent"
-
-
-def _editor(seed: str, fd=None, saved=None) -> str | None:
-    """Write a long answer where long answers are written.
-
-    A one-line prompt is enough to say yes; it is not enough to say why, and an
-    answer to an escalation is usually the why. None when nothing was written,
-    so backing out of the editor sends nothing.
-    """
-    editor = os.environ.get("EDITOR") or os.environ.get("VISUAL")
-    if not editor:
-        return None
-    try:
-        argv = shlex.split(editor)
-    except ValueError:
-        return None                    # $EDITOR with an unclosed quote
-    fd_, path = tempfile.mkstemp(prefix="ocp-answer-", suffix=".md")
-    os.close(fd_)
-    Path(path).write_text(seed)
-    try:
-        # `saved` is the terminal as the human's shell had it. Handing an
-        # editor the cbreak mode this screen runs in gives it a terminal in a
-        # state it did not ask for and does not put back.
-        code, _out = _suspend([*argv, path], dict(os.environ), fd, saved)
-        if code != 0:
-            # Non-zero is how an editor says "abandon this" - `:cq` in vim, and
-            # what `git commit` honours. Sending the buffer anyway would send
-            # half an answer.
-            return None
-        body = "\n".join(ln for ln in Path(path).read_text().splitlines()
-                         if not ln.startswith("#")).strip()
-        return body or None
-    except OSError:
-        return None                    # the editor removed the file under us
-    finally:
-        Path(path).unlink(missing_ok=True)
-
-
-def _say(what: str, width: int, height: int) -> None:
-    """Put one line on the bottom row now, without waiting for a redraw.
-
-    An action can take half a minute - waking waits for a session to appear,
-    parking clears a session - and a screen still showing the frame from before
-    the keypress, or the confirmation that was just answered, reads as a hang.
-    The next redraw repaints every row, so this cannot outlive its action.
-    """
-    if not sys.stdout.isatty():
-        return                      # no screen to put it on
-    sys.stdout.write(f"\033[{height};1H" + CLEAR_EOL + fit(f"{DIM}{what}…{R}", width))
-    sys.stdout.flush()
 
 
 # Keys that move the cursor rather than act on what it is on. One function
@@ -2756,203 +1638,3 @@ def _keys_of(panel: int) -> list:
     finally:
         con.close()
 
-
-def _move_agent(con, name: str, width: int, height: int, under=None) -> str:
-    """Ask where, confirm (it ends a session), then the daemon's own move."""
-    dest = _line(f"move {name} to which account:", width, height, under=under)
-    if not dest:
-        return "not moved"
-    dest = dest.strip()
-    if not _confirm(f"move {name} to {dest} - records its handoff, ends its session, "
-                    f"and makes {dest} its preferred account", width, height):
-        return "left alone"
-    # A confirmation waits on a person; what was true at the keypress may not be.
-    allowed, why = actions.can(con, name, "move")
-    if not allowed:
-        return f"{why} - it changed while you looked"
-    _say(f"moving {name} to {dest}", width, height)
-    return actions.move(con, name, dest)
-
-
-def _add_account(width: int, height: int, fd, saved, under=None) -> str:
-    """Name it, then the same sequence as `ocp account add`."""
-    name = _line("new account name:", width, height, under=under)
-    if not name:
-        return "not added"
-    ok, msg = accounts.add_account(
-        name, lambda argv, env: _suspend(argv, env, fd, saved)[0])
-    if not ok or not orca.available():
-        return msg
-    # 156 item 1c, from the screen too: the CLI and the TUI share the one
-    # trusting sequence, `actions.trust_worktrees`.
-    declared, skipped = actions.eligible_worktrees()
-    if not declared:
-        return msg
-    listed = ", ".join(f"{a} ({w})" for a, w in declared)
-    prompt = f"trust {listed}? y/N"
-    if skipped:
-        prompt += f" (skipping {len(skipped)} outside declared roots)"
-    if _line(prompt, width, height).strip().lower() in ("y", "yes"):
-        return msg + " · " + "; ".join(actions.trust_worktrees(name, declared))
-    return msg
-
-
-def _set_cap(name: str, width: int, height: int, under=None) -> str:
-    """The most agents that may be mid-turn on this account at once."""
-    text = _line(f"most agents mid-turn on {name} at once [{loadmod.cap_of(name)}]:",
-                 width, height, under=under)
-    if not text or not text.strip():
-        return "cap unchanged"
-    try:
-        loadmod.set_cap(name, int(text.strip()))
-    except ValueError:
-        return "a cap is a whole number, at least 1"
-    return f"{name}: at most {text.strip()} agents mid-turn"
-
-
-def _remove_account(name: str, width: int, height: int, fd, saved, under=None) -> str:
-    """The same sequence as `ocp account remove`, confirmed by typing its name."""
-    con = db.connect()
-    try:
-        ok, msg = accounts.remove_account(
-            name, lambda: _line(f"remove '{name}'? type its name to confirm:",
-                                width, height, under=under) == name,
-            lambda argv, env: _suspend(argv, env, fd, saved)[0], con)
-    finally:
-        con.close()
-    return msg
-
-
-def _act(panel: int, sel: dict, key: str, width: int, height: int,
-         fd, saved) -> tuple[str, list[str] | None]:
-    """One keypress on the selected row, leaving the cursor on a row that exists."""
-    before = {panel: _keys_of(panel)}
-    try:
-        return _act_on(panel, sel, key, width, height, fd, saved)
-    finally:
-        settle(sel, before)
-
-
-def _act_on(panel: int, sel: dict, key: str, width: int, height: int,
-            fd, saved) -> tuple[str, list[str] | None]:
-    """One keypress on the selected row. Returns (line to show, detail or None)."""
-    keys = _keys_of(panel)
-    target = sel.get(panel)
-    # Adding needs no row under the cursor: the first account is added to an
-    # empty panel.
-    if panel == ACCOUNTS and key == "a":
-        return _add_account(width, height, fd, saved,
-                            under=lambda h: frame(width, h, sel, panel)), None
-    if not keys:
-        return "nothing to act on", None
-    if target not in keys:
-        # The row under the cursor is gone - a message answered elsewhere, an
-        # agent that went away - and nothing is drawn as selected. Acting on
-        # the first row would act on something the human never pointed at: it
-        # dismissed an unread message that way.
-        sel[panel] = keys[0]
-        return "selection moved - press again", None
-
-    if panel == ACCOUNTS and key in ("\r", "\n"):
-        con = db.connect()
-        try:
-            return "", page(f"account {target}",
-                            actions.account_detail(con, str(target), _logged_in),
-                            ACCOUNTS, target)
-        finally:
-            con.close()
-    if panel == ACCOUNTS and key == "l":
-        line, argv, env = actions.login_argv(str(target))
-        if not argv:
-            return line, None
-        return _suspend(argv, env, fd, saved)[1], None
-    if panel == ACCOUNTS and key == "x":
-        return _remove_account(str(target), width, height, fd, saved,
-                               under=lambda h: frame(width, h, sel, panel)), None
-    if panel == ACCOUNTS and key == "c":
-        return _set_cap(str(target), width, height,
-                        under=lambda h: frame(width, h, sel, panel)), None
-
-    con = db.connect()
-    try:
-        if panel in (AGENTS, STUCK):
-            name = str(target)
-            if key in ("\r", "\n"):
-                return "", _agent_page(con, name, panel)
-            if key == "?":
-                # Every key AGENT_KEYS binds, not only the ones the footer
-                # shows for this row: `?` is the one place fold and move (and
-                # whatever the row's own state hides) are named at all.
-                return agent_help_line(), None
-            label = dict(AGENT_KEYS).get(key)
-            if not label:
-                return "", None
-            allowed, why = actions.can(con, name, label)
-            if not allowed:
-                return why, None
-            if label == "terminal" and _needs_a_terminal(con, name):
-                # Going to an agent that has nowhere to run means making it
-                # somewhere first, and the only thing that cannot be worked out
-                # from here is which repo.
-                repo = _line(f"{name} has nowhere to run - repo to start it in "
-                             f"[{os.getcwd()}]:", width, height,
-                             under=lambda h: frame(width, h, sel, panel))
-                if repo is None:
-                    return "not started", None
-                _say(f"starting {name}", width, height)
-                return actions.terminal(con, name, repo.strip() or os.getcwd()), None
-            if label in ("message", "editor"):
-                body = _compose_message(name, label, width, height, fd, saved,
-                                        under=lambda h: frame(width, h, sel, panel))
-                return (actions.message(con, name, body) if body is not None
-                        else _nothing_sent("e" if label == "editor" else "m")), None
-            if label == "move":
-                return _move_agent(con, name, width, height,
-                                   under=lambda h: frame(width, h, sel, panel)), None
-            if _needs_confirm(con, name, label):
-                if not _confirm(f"{label} {name}", width, height):
-                    return "left alone", None
-                ok, why = _confirmed_can(con, name, label)
-                if not ok:
-                    return why, None
-            _say(f"{label} {name}", width, height)
-            return getattr(actions, label)(con, name), None
-
-        if panel == MESSAGES:
-            # `target` is the row's stable key, not its id: a folded row's id
-            # is its latest thing, which can have changed since the row was
-            # selected, so it is looked up fresh rather than trusted from then.
-            row_m = next((m for m in actions.messages(con) if m["key"] == target), None)
-            if row_m is None:
-                return f"{target} is gone", None
-            rid = row_m["id"]
-            row = con.execute("SELECT * FROM requests WHERE id = ?", (rid,)).fetchone()
-            if not row:
-                return f"#{rid} is gone", None
-            if key in ("\r", "\n"):
-                actions.opened_by_human(con, rid)
-                place = actions.message_place(con, rid)
-                if place is not None:
-                    d = _agent_page(con, place[0], AGENTS)
-                    if actions.CHAT_TAB in _tab_stems(d):     # not a page that could not be built
-                        d["focus"], d["focus_pending"] = (rid, place[1]), True
-                        return "", d
-                detail = actions.message_detail(con, rid)
-                if detail is None:
-                    return f"#{rid} is gone", None
-                title, sections = detail
-                return (f"#{rid} is not in a conversation that can be drawn - read alone",
-                        page(title, sections, MESSAGES, rid))
-            if key in ("a", "e"):
-                text = _compose(rid, key, width, height, fd, saved,
-                                under=lambda h: frame(width, h, sel, panel))
-                if text is None:
-                    return _nothing_sent(key), None
-                _say(f"answering #{rid}", width, height)
-                return actions.answer(con, rid, text), None
-            if key == "x":
-                _, said = actions.dismiss(con, rid, me=actions.HUMAN)
-                return said, None
-        return "", None
-    finally:
-        con.close()
