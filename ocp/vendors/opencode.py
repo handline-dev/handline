@@ -6,6 +6,7 @@ import os
 import re
 import shutil
 import subprocess
+import urllib.request
 from pathlib import Path
 
 # `opencode auth list`'s closing line, "<n> credentials", whether or not it is
@@ -49,8 +50,65 @@ class Opencode:
         return _SESSION.match(command) is not None
 
     def meters(self) -> bool:
-        # It stores what was spent, never how much of a limit is left.
-        return False
+        # The coding-plan credential answers a usage endpoint, so ocp can read
+        # how much of the plan's limit is spent. A credential of some other
+        # provider never answers it - the same fail-closed "could not look"
+        # as a dead token is on any metered vendor.
+        return True
+
+    # The coding plan's quota endpoint, measured live against the console the
+    # founder reads (task #42, 2026-09-23): same totals, same reset instants,
+    # plan level included. Undocumented - like claude's usage endpoint - and
+    # the de-facto standard of every third-party quota reader.
+    QUOTA_URL = "https://api.z.ai/api/monitor/usage/quota/limit"
+    # Which window each limit row is: the unit code the endpoint keys them by.
+    FIVE_HOUR_UNIT, WEEK_UNIT = 3, 6
+
+    def usage_reading(self, config_dir: Path) -> tuple[int | None, int | None,
+                                                       int | None, int | None] | None:
+        """This account's (5h pct, 5h reset, week pct, week reset), or None
+        when it could not be asked - "could not look", never "nothing spent".
+
+        The credential is read in memory for this one request (KICKOFF rule 1
+        as amended, #2010). The key is never returned, logged, or written: it
+        reaches no agent's env, prompt, terminal, logs, db, and no file ocp
+        writes. Reset instants are epoch seconds; the percentage comes as the
+        whole number the endpoint already floor-rounded.
+        """
+        try:
+            doc = json.loads((config_dir / "opencode" / "auth.json").read_text())
+        except (OSError, json.JSONDecodeError):
+            return None
+        key = (doc.get("zai-coding-plan") or {}).get("key") if isinstance(doc, dict) else None
+        if not isinstance(key, str) or not key.strip():
+            return None
+        req = urllib.request.Request(
+            self.QUOTA_URL,
+            headers={"Authorization": f"Bearer {key}", "Accept-Language": "en-US,en"})
+        try:
+            with urllib.request.urlopen(req, timeout=10) as resp:
+                if resp.status != 200:
+                    return None
+                payload = json.load(resp)
+        except (urllib.error.URLError, OSError, json.JSONDecodeError, ValueError):
+            return None
+        limits = (payload.get("data") or {}).get("limits") if isinstance(payload, dict) else None
+        if not isinstance(limits, list):
+            return None
+        out: list[int | None] = [None, None, None, None]
+        for row in limits:
+            if not isinstance(row, dict):
+                continue
+            unit = row.get("unit")
+            pct, reset = row.get("percentage"), row.get("nextResetTime")
+            if unit not in (self.FIVE_HOUR_UNIT, self.WEEK_UNIT):
+                continue
+            i = 0 if unit == self.FIVE_HOUR_UNIT else 2
+            if isinstance(pct, int) and not isinstance(pct, bool):
+                out[i] = max(0, min(100, pct))
+            if isinstance(reset, (int, float)) and not isinstance(reset, bool):
+                out[i + 1] = int(reset // 1000)
+        return tuple(out)
 
     def is_resume(self, extra: list[str] | None) -> bool:
         return any(x in ("-s", "--session", "-c", "--continue") or x.startswith("--session=")
@@ -168,6 +226,9 @@ class Opencode:
         return []
 
     def never_touch(self) -> set[str]:
+        # Never created, linked or copied. Read in exactly one place, by the
+        # rule as amended (#2010): usage_reading reads auth.json in memory for
+        # its one request, and the key reaches no agent and no file ocp writes.
         return {"opencode"}
 
     def memory_root(self, config_dir: Path) -> Path | None:

@@ -90,7 +90,11 @@ class Driver(Protocol):
 
     def never_touch(self) -> set[str]:
         """Names inside an account's config dir ocp never creates, links,
-        reads or copies - the vendor's own credential and machine state."""
+        reads or copies - the vendor's own credential and machine state. The
+        one exception, KICKOFF rule 1 as amended (#2010): a driver's meter
+        path may read the account's credential in memory for its one usage
+        request, and the secret must reach no agent - not in an agent's env,
+        prompt, terminal, logs, db, or any file ocp writes."""
 
     def memory_root(self, config_dir: Path) -> Path | None:
         """The folder holding one directory per repo, each with a memory/ and

@@ -42,6 +42,7 @@ from dataclasses import dataclass
 
 from . import accounts, paths, vendors
 from .vendors import claude as claudemod
+from .vendors import opencode as ocmod
 
 USAGE_URL = "https://api.anthropic.com/api/oauth/usage"
 # What Claude Code itself sends. The endpoint is part of its OAuth surface, not
@@ -179,14 +180,29 @@ def read(acct: str, refresh: bool = True) -> Reading | None:
 
     `refresh=False` skips the renewal, for a caller that already knows the
     token is live - an account with a session running on it, say, where Claude
-    Code is renewing it anyway and two writers would race.
+    Code is renewing it anyway and two writers would race. (It means nothing
+    to a vendor whose credential does not expire; it is simply ignored.)
 
-    Claude's endpoint, asked with claude's credential: any other vendor's
-    account is not asked, and its `claude auth status` would run against no
-    config dir of its own - the default login's.
+    Each vendor is asked at its own endpoint with its own credential, read in
+    memory for the one request by the driver's meter path (KICKOFF rule 1 as
+    amended, #2010). A vendor with no meter path is not asked.
     """
-    if vendors.account_vendor(acct) != claudemod.Claude.name:
-        return None
+    vendor = vendors.account_vendor(acct)
+    if vendor == claudemod.Claude.name:
+        return _read_claude(acct, refresh)
+    if vendor == ocmod.Opencode.name:
+        drv = vendors.get(vendor)
+        windows = drv.usage_reading(vendors.config_dir(acct))
+        if windows is None:
+            return None
+        pct_5h, reset_5h, pct_7d, reset_7d = windows
+        return Reading(account=acct, pct_5h=pct_5h, reset_5h=reset_5h,
+                       pct_7d=pct_7d, reset_7d=reset_7d, at=int(time.time()))
+    return None
+
+
+def _read_claude(acct: str, refresh: bool) -> Reading | None:
+    """Claude's endpoint, asked with claude's credential."""
     if refresh:
         refresh_credential(acct)
     token = _access_token(acct)
