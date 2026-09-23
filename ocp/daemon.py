@@ -1924,8 +1924,8 @@ def perform_handoff(con, agent: str, trigger: triggers.Trigger, log,
         if why:
             log(f"  {agent}: {trigger.kind} fired but {why} - not handing off")
             return True
-        ok = _perform_handoff(con, agent, trigger, log, dest)
-        if ok:
+        ok, typed = _perform_handoff(con, agent, trigger, log, dest)
+        if typed:
             _mark_typed(con, agent)
         return ok
 
@@ -2165,7 +2165,15 @@ def _move_to_room(con, agent: str, trigger: triggers.Trigger, log,
 
 
 def _perform_handoff(con, agent: str, trigger: triggers.Trigger, log,
-                     dest: str | None = None) -> bool:
+                     dest: str | None = None) -> tuple[bool, bool]:
+    """(ok, typed). `ok` is whether the record landed - the streak's own
+    signal, unrelated to whether anything was typed. `typed` is the settle
+    window's: a move types /exit whenever it happens at all, the fall-through
+    path types /clear only when `_reclaim_context` says so, and the early
+    "forced move did not happen" return types nothing. A caller that marks
+    typed on `ok` instead marks it on a failed clear that never touched the
+    terminal, and the next attempt is then held off by a settle window
+    nothing here earned (#2064)."""
     hid = uuid.uuid4().hex[:12]
     st = status.read(agents.current_account(agent, con)) if agent in paths.list_agents() else None
     deadline = int(time.time()) + HANDOFF_DEADLINE_S
@@ -2194,7 +2202,7 @@ def _perform_handoff(con, agent: str, trigger: triggers.Trigger, log,
             # whole of this handoff - the streak ends here (see
             # _record_handoff for why it no longer resets itself).
             db.reset_counter(con, agent, "throttle_count")
-        return ok
+        return ok, True
     landed = db.get_agent_state(con, agent)
     if trigger.kind == "forced" and landed and not landed["closed_at"]:
         # Nothing was ended, so there is nothing to park: the session is live
@@ -2205,7 +2213,7 @@ def _perform_handoff(con, agent: str, trigger: triggers.Trigger, log,
         db.advance_handoff(con, hid, "released", state="degraded",
                            detail="forced move did not happen")
         db.set_agent_state(con, agent, IDLE, detail="forced move did not happen")
-        return False
+        return False, False
 
     # Return the context. Recording a handoff is only half of a handoff;
     # without this the context never drops, and a context trigger fires again
@@ -2287,7 +2295,7 @@ def _perform_handoff(con, agent: str, trigger: triggers.Trigger, log,
                                       "account_source": reading.source})
     db.bump_counter(con, agent, "continuations")  # 8.5: handoff is not a failure
     log(f"  {agent}: PARKED until {time.strftime('%Y-%m-%d %H:%M', time.localtime(wake))}")
-    return ok
+    return ok, cleared
 
 
 # ---------------------------------------------------------------- tick
