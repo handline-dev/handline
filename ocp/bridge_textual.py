@@ -281,7 +281,11 @@ class Dashboard(JobsAware, Screen):
     Dashboard #accounts-box { height: auto; max-height: 40%; border: round $panel; }
     Dashboard #accounts-box.focused { border: round cyan; }
     Dashboard #accounts { height: auto; }
-    Dashboard #acct-notes, Dashboard #agent-notes { height: auto; padding: 0 1; }
+    Dashboard #acct-notes, Dashboard #agent-notes, Dashboard #message-notes {
+        height: auto; padding: 0 1; }
+    Dashboard #messages-box { height: auto; max-height: 40%; border: round $panel; }
+    Dashboard #messages-box.focused { border: round cyan; }
+    Dashboard #messages { height: auto; }
     Dashboard #agents-box { height: auto; max-height: 50%; border: round $panel; }
     Dashboard #agents-box.focused { border: round cyan; }
     Dashboard #agents { height: auto; }
@@ -300,6 +304,9 @@ class Dashboard(JobsAware, Screen):
             box.border_title = "AGENTS"
             yield DataTable(id="agents", cursor_type="row", show_cursor=False)
             yield Static(id="agent-notes")
+        with Vertical(id="messages-box"):
+            yield DataTable(id="messages", cursor_type="row", show_cursor=False)
+            yield Static(id="message-notes")
         yield Static(id="rest")
         yield Static(id="foot")
 
@@ -310,6 +317,9 @@ class Dashboard(JobsAware, Screen):
         agents_table = self.query_one("#agents", DataTable)
         agents_table.can_focus = False
         agents_table.add_columns("agent", "acct", "kind", "state", "ctx", "in", "")
+        messages_table = self.query_one("#messages", DataTable)
+        messages_table.can_focus = False
+        messages_table.add_columns("", "", "#", "from", "kind", "message")
         self._retime()
         self._redraw()
 
@@ -324,11 +334,12 @@ class Dashboard(JobsAware, Screen):
         self.query_one("#header", Static).update(Text.from_ansi("\n".join(header)))
         self._draw_accounts()
         self._draw_agents()
-        rest = panels[2:]
+        self._draw_messages()
+        rest = panels[3:]
         room = max(1, self.query_one("#rest").size.height)
-        limits, hidden = tui._layout([0, 0] + [len(p.rows) for p in rest], room)
+        limits, hidden = tui._layout([0, 0, 0] + [len(p.rows) for p in rest], room)
         body: list[str] = []
-        for p, lim in zip(rest, limits[2:]):
+        for p, lim in zip(rest, limits[3:]):
             if lim != 0:
                 body += p.draw(limit=lim)
         self.query_one("#rest", Static).update(Text.from_ansi("\n".join(body)))
@@ -371,6 +382,24 @@ class Dashboard(JobsAware, Screen):
         w = self.query_one(widget, Static)
         w.update(Text.from_ansi("\n".join(f"{tui.DIM}{n}{tui.R}" for n in notes)))
         w.display = bool(notes)
+
+    def _draw_messages(self) -> None:
+        con = db.connect()
+        try:
+            title, rows, notes = tui.messages_data(con)
+        finally:
+            con.close()
+        self.query_one("#messages-box").border_title = title
+        table = self.query_one("#messages", DataTable)
+        table.clear()
+        for r in rows:
+            glyph, _ = tui.message_mark(r.flavour)
+            table.add_row(Text(r.when, style="dim"), Text.from_ansi(glyph),
+                          Text(f"#{r.id}", style="cyan"),
+                          Text(r.sender, style="dim" if r.flavour == "read" else "bold"),
+                          Text(r.kind), Text.from_ansi(r.first + r.behind), key=r.key)
+        self._sync_cursor(table, "#messages-box", tui.MESSAGES, [r.key for r in rows])
+        self._notes("#message-notes", notes)
 
     def _draw_agents(self) -> None:
         con = db.connect()
