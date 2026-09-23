@@ -77,22 +77,31 @@ def _ps_command(pid: int, flags: str) -> str | None:
 
 
 def process_env(pid: int) -> str | None:
-    """The raw `ps eww` line for pid - its command plus its environment.
+    """pid's own environment, past its argv - never argv itself, which a
+    caller controls and can put an env-looking token inside (a launch
+    argument such as `--append-system-prompt` carrying literal text like
+    `OCP_AGENT=x`), and which `ocp launch` reads to name the real agent.
 
+    `ps eww` prints argv followed by the environment; `ps ww` prints argv
+    alone. The two share the exact same argv rendering, so `eww`'s output
+    with that shared prefix cut off is the environment and nothing else.
     None whenever no environment came back: the process is gone (`ps` exits
-    non-zero, empty stdout), or it is another user's - `ps` prints their command
-    at rc 0 but withholds their environment, so the line is byte-identical to
-    plain `ps ww`. An environment was read only when `eww` says more than `ww`
-    does; comparing the two is exact where looking for `NAME=` tokens is not,
-    since a command line can carry those itself. None is "I don't know", never
-    "the variable was not set".
+    non-zero, empty stdout), it is another user's - `ps` prints their command
+    at rc 0 but withholds their environment, so the two calls come back
+    byte-identical - or the prefix does not match, which this refuses rather
+    than guess at where argv ends. None is "I don't know", never "the
+    variable was not set".
     """
+    argv = _ps_command(pid, "ww")
     with_env = _ps_command(pid, "eww")
-    if with_env is None:
+    if argv is None or with_env is None:
         return None
-    if with_env == _ps_command(pid, "ww"):
+    if with_env == argv:
         return None
-    return with_env
+    prefix = argv.rstrip("\n")
+    if not with_env.startswith(prefix):
+        return None
+    return with_env[len(prefix):]
 
 
 def env_of(pid: int, name: str) -> str | None:
