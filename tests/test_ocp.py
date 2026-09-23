@@ -8503,11 +8503,13 @@ def test_an_opencode_session_under_ocp(home: Path) -> None:
 
 def test_a_launch_does_not_inherit_an_opencode_sessions_config(home: Path) -> None:
     """#43: accounts.env_for starts from the launching process's environment,
-    and an opencode session's own tools carry OPENCODE_CONFIG_CONTENT and
-    OPENCODE_CONFIG_DIR - the first another session's whole config (preamble,
-    denials), kept by a claude launch; the second a config dir added beside
-    the account's own, kept by an opencode launch. env_for drops the pair;
-    the opencode driver hands its own value back at launch."""
+    and an opencode session's own tools carry OPENCODE_CONFIG_CONTENT - another
+    session's whole config, preamble and denials, which a claude launch would
+    keep. env_for drops that one variable. An inherited OPENCODE_CONFIG_DIR
+    stays, whatever the launch's vendor: Orca sets it in every terminal it
+    opens for its opencode status plugin (busy/idle), and dropping it would
+    strip that plugin from every relaunch. The opencode launch's own
+    OPENCODE_CONFIG_CONTENT comes back from its driver's launch_env."""
     home.mkdir(parents=True, exist_ok=True)
     os.environ["OCP_HOME"] = str(home)
     accounts.register("alpha")
@@ -8523,18 +8525,20 @@ def test_a_launch_does_not_inherit_an_opencode_sessions_config(home: Path) -> No
     saved = {k: os.environ.get(k) for k in ("OPENCODE_CONFIG_CONTENT", "OPENCODE_CONFIG_DIR")}
     try:
         os.environ["OPENCODE_CONFIG_CONTENT"] = '{"instructions": ["/someone-else/preamble.md"]}'
-        os.environ["OPENCODE_CONFIG_DIR"] = "/user-own/opencode-extra"
+        os.environ["OPENCODE_CONFIG_DIR"] = "/orca/opencode-hooks/shared"
 
         env = launch.build("backend")[1]
-        check("launch: a claude launch carries neither inherited opencode variable",
-              "OPENCODE_CONFIG_CONTENT" not in env and "OPENCODE_CONFIG_DIR" not in env,
+        check("launch: a claude launch drops the inherited config, keeps the dir",
+              "OPENCODE_CONFIG_CONTENT" not in env
+              and env.get("OPENCODE_CONFIG_DIR") == "/orca/opencode-hooks/shared",
               str({k: env.get(k) for k in ("OPENCODE_CONFIG_CONTENT", "OPENCODE_CONFIG_DIR")}))
 
         env = launch.build("glm")[1]
         own = odrv.launch_env(launch.context_for("glm"), launch.DISALLOWED_TOOLS,
                               paths.agent_dir("glm"))["OPENCODE_CONFIG_CONTENT"]
-        check("launch: an opencode launch keeps only its driver's own config",
-              "OPENCODE_CONFIG_DIR" not in env and env["OPENCODE_CONFIG_CONTENT"] == own,
+        check("launch: an opencode launch keeps the dir and its driver's own config",
+              env.get("OPENCODE_CONFIG_DIR") == "/orca/opencode-hooks/shared"
+              and env["OPENCODE_CONFIG_CONTENT"] == own,
               str({k: env.get(k) for k in ("OPENCODE_CONFIG_CONTENT", "OPENCODE_CONFIG_DIR")}))
     finally:
         del cdrv.binary, odrv.binary, odrv.credential_present
