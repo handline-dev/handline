@@ -12597,6 +12597,7 @@ def test_the_post_lock_idle_reread_actually_gates(home: Path) -> None:
               "after, and types nothing", not ok and not typed, typed)
 
         calls[:] = [True, False]
+        typed.clear()      # stands on its own; the first half's own failure must not carry over
         t = triggers.evaluate(10, 300_000)
         check("reread: setup - the trigger actually fires", t.fired, t.reason)
         fired = dmn.perform_handoff(con, "backend", t, lambda _m: None)
