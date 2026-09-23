@@ -117,9 +117,9 @@ def encode_cwd(account: str, cwd: str | Path) -> str:
     return vendors.for_account(account).memory_project_dir(str(cwd))
 
 
-def project_dir(account: str, cwd: str | Path) -> Path:
-    return (vendors.for_account(account).memory_root(vendors.config_dir(account))
-            / encode_cwd(account, cwd))
+def project_dir(account: str, cwd: str | Path) -> Path | None:
+    root = vendors.for_account(account).memory_root(vendors.config_dir(account))
+    return None if root is None else root / encode_cwd(account, cwd)
 
 
 @dataclass(frozen=True)
@@ -154,7 +154,8 @@ def locate(cwd: str | Path, accounts: list[str] | None = None) -> Located | None
     best: Located | None = None
     for acct in (accounts if accounts is not None else paths.list_accounts()):
         try:
-            entries = list(project_dir(acct, cwd).glob("*.jsonl"))
+            d = project_dir(acct, cwd)
+            entries = list(d.glob("*.jsonl")) if d else []
         except (OSError, vendors.UnknownVendor):
             continue
         for f in entries:

@@ -184,8 +184,10 @@ def unlinked() -> list[tuple[str, str]]:
 
 
 def logged_in(acct: str) -> bool:
-    """Whether this account has credentials, checked by existence only. An
-    account whose vendor has no driver cannot be driven, so it is not."""
+    """Whether this account has credentials, as its driver's
+    `credential_present` answers: a file's existence for claude, a run of
+    `opencode auth list` (about 0.6s) for opencode. An account whose vendor
+    has no driver cannot be driven, so it is not."""
     try:
         drv = vendors.for_account(acct)
     except vendors.UnknownVendor:
@@ -315,7 +317,7 @@ def migrate_memory(from_acct: str, to_acct: str, project: str | None = None) -> 
     if vendors.account_vendor(to_acct) != drv.name:
         return []
     src_root = drv.memory_root(vendors.config_dir(from_acct))
-    if not src_root.is_dir():
+    if src_root is None or not src_root.is_dir():
         return []
     project_dirs = [src_root / project] if project else sorted(src_root.iterdir())
     carried = []
@@ -539,8 +541,12 @@ def env_for(acct: str, agent: str | None = None) -> dict[str, str]:
     env = dict(os.environ)
     # Another vendor's variable inherited from whoever launched this would
     # name a second account on the same process (`observe.account_of_process`).
+    # Only one pointing into an account goes: XDG_DATA_HOME is also the user's
+    # own, and claude reads it.
     for drv in vendors.known():
-        env.pop(drv.config_dir_env(), None)
+        v = env.get(drv.config_dir_env())
+        if v and vendors.account_named_by(v):
+            del env[drv.config_dir_env()]
     env[vendors.for_account(acct).config_dir_env()] = str(vendors.config_dir(acct))
     env["OCP_HOME"] = str(paths.home())
     env["OCP_ACCOUNT"] = acct

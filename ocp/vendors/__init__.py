@@ -7,8 +7,9 @@ from pathlib import Path
 from .. import agents, paths
 from .base import Driver
 from .claude import Claude
+from .opencode import Opencode
 
-_REGISTRY: dict[str, Driver] = {d.name: d for d in (Claude(),)}
+_REGISTRY: dict[str, Driver] = {d.name: d for d in (Claude(), Opencode())}
 
 
 class UnknownVendor(ValueError):
@@ -61,6 +62,17 @@ def for_account(acct: str) -> Driver:
 def config_dir(acct: str) -> Path:
     """The directory the account's `config_dir_env` names."""
     return paths.account_dir(acct) / for_account(acct).config_dir_name
+
+
+def account_named_by(value: str) -> str | None:
+    """The account a config-dir variable's value points into, or None for a
+    directory that is not one of ours. Every account's config dir sits under
+    `paths.accounts_dir()`, whatever its vendor calls it."""
+    try:
+        rel = Path(value).resolve().relative_to(paths.accounts_dir().resolve())
+    except (ValueError, OSError):
+        return None
+    return rel.parts[0] if rel.parts else None
 
 
 def of_vendor(names: list[str], vendor: str) -> list[str]:

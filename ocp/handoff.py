@@ -67,6 +67,8 @@ def find_transcript(session: str, account: str) -> Path | None:
             root = vendors.for_account(acct).memory_root(vendors.config_dir(acct))
         except vendors.UnknownVendor:
             continue
+        if root is None:
+            continue
         for f in root.glob(f"*/{session}.jsonl"):
             return f
     return None
