@@ -1,7 +1,9 @@
 """opencode, measured on 1.18.32 (design/03 §4.3)."""
 from __future__ import annotations
 
+import http.client
 import json
+import math
 import os
 import re
 import shutil
@@ -107,7 +109,8 @@ class Opencode:
                 if resp.status != 200:
                     return None
                 payload = json.load(resp)
-        except (urllib.error.URLError, OSError, json.JSONDecodeError, ValueError):
+        except (urllib.error.URLError, http.client.HTTPException, OSError,
+                json.JSONDecodeError, ValueError):
             return None
         if not isinstance(payload, dict):
             return None
@@ -116,23 +119,42 @@ class Opencode:
         # one, whatever else the body carries.
         if payload.get("success") is False or payload.get("code") not in (None, 200):
             return None
-        limits = (payload.get("data") or {}).get("limits")
+        data = payload.get("data")
+        limits = data.get("limits") if isinstance(data, dict) else None
         if not isinstance(limits, list):
             return None
         out: list[int | None] = [None, None, None, None]
+        corrupt = False
+
+        def figure(v):
+            """The number as ocp can use it, or None. Python's json reads NaN,
+            Infinity and 1e400 as floats, and converting one raises outside
+            any try here - a daemon-killer from a body that named no usable
+            figure. A value that is present but not a finite number is not a
+            figure, and it marks the answer, not just its window."""
+            nonlocal corrupt
+            if v is None:
+                return None
+            if not (isinstance(v, (int, float)) and not isinstance(v, bool)
+                    and math.isfinite(v)):
+                corrupt = True
+                return None
+            return v
+
         for row in limits:
             if not isinstance(row, dict):
                 continue
             unit = row.get("unit")
-            pct, reset = row.get("percentage"), row.get("nextResetTime")
             if unit not in (self.FIVE_HOUR_UNIT, self.WEEK_UNIT):
                 continue
             i = 0 if unit == self.FIVE_HOUR_UNIT else 2
-            if isinstance(pct, (int, float)) and not isinstance(pct, bool):
+            pct = figure(row.get("percentage"))
+            reset = figure(row.get("nextResetTime"))
+            if pct is not None:
                 out[i] = max(0, min(100, int(pct)))
-            if isinstance(reset, (int, float)) and not isinstance(reset, bool):
+            if reset is not None:
                 out[i + 1] = int(reset // 1000)
-        if out[0] is None:
+        if corrupt or out[0] is None:
             return None
         return tuple(out)
 

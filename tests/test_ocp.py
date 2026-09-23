@@ -24481,6 +24481,20 @@ def test_the_zai_meter_reads_the_plan_and_hides_its_key(home: Path) -> None:
         }).encode()
         check("zai meter: a code naming a failure is could-not-look",
               usage_api.read("zai", refresh=False) is None)
+        # json accepts NaN, Infinity and 1e400; none is a figure, and each
+        # raised outside any try before the isfinite gate (#2037 blocker).
+        body["raw"] = b'{"code": 200, "success": true, "data": {"limits": [' \
+                      b'{"type": "CREDIT_LIMIT", "unit": 3, "percentage": NaN}]}}'
+        check("zai meter: a NaN percentage is could-not-look, not a crash",
+              usage_api.read("zai", refresh=False) is None)
+        body["raw"] = b'{"code": 200, "success": true, "data": {"limits": [' \
+                      b'{"type": "CREDIT_LIMIT", "unit": 3, "percentage": 87, ' \
+                      b'"nextResetTime": NaN}]}}'
+        check("zai meter: a NaN reset is could-not-look, not a crash",
+              usage_api.read("zai", refresh=False) is None)
+        body["raw"] = b'{"code": 200, "success": true, "data": "limits"}'
+        check("zai meter: a data field that is not a dict is could-not-look, not a crash",
+              usage_api.read("zai", refresh=False) is None)
         body["raw"] = json.dumps(ZAI_QUOTA).encode()
 
         real_live = obsmod.live_sessions
@@ -24527,8 +24541,9 @@ def test_the_quota_request_never_follows_a_redirect(home: Path) -> None:
 
     class Handler(http.server.BaseHTTPRequestHandler):
         def do_GET(self):
-            hits.append(self.path)
-            if self.path == "/elsewhere":
+            path = self.path.split("?")[0]
+            hits.append(path)
+            if path == "/elsewhere":
                 self.send_response(200)
                 self.send_header("Content-Type", "application/json")
                 self.end_headers()
