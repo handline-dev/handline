@@ -38,8 +38,8 @@ from zoneinfo import ZoneInfo
 
 from . import (accounts, agents, ask as askmod, blocked, burnrate, collect, db, events,
                fold as foldmod, handoff as handoffmod, launch, load, lock, measure,
-               observe as obs, orca, paths, service, spawn as spawnmod, status, textsafe,
-               tokenlog, triggers, trust, usage_api)
+               observe as obs, orca, paths, recover as recovermod, service,
+               spawn as spawnmod, status, textsafe, tokenlog, triggers, trust, usage_api)
 from .yamlcompat import ConfigError, dump
 
 # Section 8.2 states.
@@ -2754,12 +2754,34 @@ def poll_usage(con, log) -> None:
             db.set_cursor(con, f"usage-refresh:{acct}", now + USAGE_REFRESH_COOLDOWN_S)
             reading = usage_api.read(acct, refresh=True)
         if reading is None:
+            # #1885: a dead token reads as None forever without a real turn to
+            # renew it. recover() records on success itself, so a success here
+            # is handled exactly like an ordinary successful reading below.
+            ok, msg = recovermod.recover(acct)
+            if ok:
+                db.set_meta(con, f"usage-fail:{acct}", None)
+                db.set_cursor(con, f"usage-poll:{acct}", now + USAGE_POLL_S)
+                log(f"  usage: {msg}")
+                return
             streak = int(db.get_meta(con, f"usage-fail:{acct}") or 0) + 1
             db.set_meta(con, f"usage-fail:{acct}", str(streak))
             backoff = min(USAGE_POLL_S * 2 ** (streak - 1), USAGE_FAIL_BACKOFF_CAP_S)
             db.set_cursor(con, f"usage-poll:{acct}", now + backoff)
             log(f"  usage: {acct}: could not ask (next try in {backoff}s)")
             continue
+        if why == "its 5h window has ended":
+            # A stale reading can still report success right up to the
+            # boundary (#1885, task #76): nothing else forces the account to
+            # actually roll over to its new window, so spend the same real
+            # turn recover() spends on a dead token. A refusal here (off,
+            # already needs re-login, at the 7d wall) is not a failure of
+            # this poll - the plain reading just fetched still stands.
+            ok, msg = recovermod.recover(acct)
+            if ok:
+                db.set_meta(con, f"usage-fail:{acct}", None)
+                db.set_cursor(con, f"usage-poll:{acct}", now + USAGE_POLL_S)
+                log(f"  usage: {msg}")
+                return
         db.set_meta(con, f"usage-fail:{acct}", None)
         db.set_cursor(con, f"usage-poll:{acct}", now + USAGE_POLL_S)
         usage_api.record(reading)
