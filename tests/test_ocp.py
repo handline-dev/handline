@@ -36,7 +36,8 @@ from ocp import (accounts, actions, agents, ask as askmod, blocked as blockedmod
                  digest,
                  doctor, drift, events as evmod, fold as foldmod,
                  handoff as handoffmod, jobs as jobsmod, launch, load as loadmod, lock, measure,
-                 observe as obsmod, orca as orcamod, paths, rehome, replay as replaymod, service,
+                 observe as obsmod, orca as orcamod, paths, recover as recovermod, rehome,
+                 replay as replaymod, service,
                  spawn as spawnmod,
                  status, team, textsafe, triggers, trust as trustmod, tui, usage_api, vendors,
                  venv as venvmod, waiting,
@@ -21368,6 +21369,9 @@ def test_no_command_prints_what_a_terminal_would_obey(home: Path) -> None:
         "account add": "interactive login", "account remove": "interactive logout and a confirm",
         "account register": "creates an account directory; prints its path",
         "account cap": "writes a cap; prints numbers",
+        "account recover": "writes a per-account setting; prints where it stands, or "
+                           "with --now calls recover.recover() against a real login "
+                           "(recover.py's own mechanism is driven in test_recover_*)",
         "usage": "calls the usage endpoint and the Keychain against a real login "
                  "(usage_api's own parsing is driven above, without either)",
         "agent move": "a confirm, and Orca", "agent register": "writes agent.yaml; a name with a control byte is refused before it prints",
@@ -25486,10 +25490,10 @@ def test_usage_api_reads_a_window_nothing_has_been_spent_in() -> None:
                 usage_api.USAGE_URL, state["status"], "no", {}, None)
         return R()
 
-    real = (usage_api.refresh_credential, usage_api._access_token,
+    real = (usage_api.refresh_credential, usage_api._access_token_detailed,
             usage_api.urllib.request.urlopen, usage_api.json.load)
     usage_api.refresh_credential = fake_refresh
-    usage_api._access_token = lambda acct: state["token"]
+    usage_api._access_token_detailed = lambda acct: (state["token"], state["token"] is None)
     usage_api.urllib.request.urlopen = fake_fetch
     usage_api.json.load = lambda r: json.loads(r.read())
     try:
@@ -25526,8 +25530,96 @@ def test_usage_api_reads_a_window_nothing_has_been_spent_in() -> None:
         check("usage_api: no credential is 'could not look', not 0%",
               usage_api.read("alpha", refresh=False) is None, "expected None")
     finally:
-        (usage_api.refresh_credential, usage_api._access_token,
+        (usage_api.refresh_credential, usage_api._access_token_detailed,
          usage_api.urllib.request.urlopen, usage_api.json.load) = real
+
+
+def test_read_claude_tells_a_dead_credential_apart_from_transient() -> None:
+    """`_read_claude`'s own classification (#2186's BLOCKING): drives it
+    directly, past `recover`'s stub of `read_detailed`, since that stub is
+    the reason #2178's bug (every failure marked needs-relogin) still passed
+    the whole suite once before. 401/403 -> auth_failed True; a 429, a 5xx
+    and a timeout -> False, because none of those three say the credential
+    itself was refused."""
+    real_token, real_urlopen = usage_api._access_token_detailed, usage_api.urllib.request.urlopen
+    usage_api._access_token_detailed = lambda acct: ("t", False)
+    try:
+        for code, want in ((401, True), (403, True), (429, False), (503, False)):
+            def fake_fetch(req, timeout=None, _code=code):
+                raise usage_api.urllib.error.HTTPError(
+                    usage_api.USAGE_URL, _code, "no", {}, None)
+            usage_api.urllib.request.urlopen = fake_fetch
+            reading, auth_failed = usage_api._read_claude("alpha", refresh=False)
+            check(f"_read_claude: HTTPError {code} classifies auth_failed={want}",
+                  reading is None and auth_failed is want, (reading, auth_failed))
+
+        def fake_timeout(req, timeout=None):
+            raise usage_api.urllib.error.URLError("timed out")
+        usage_api.urllib.request.urlopen = fake_timeout
+        reading, auth_failed = usage_api._read_claude("alpha", refresh=False)
+        check("_read_claude: a timeout is transient, not a dead credential",
+              reading is None and auth_failed is False, (reading, auth_failed))
+
+        # A Keychain item that is genuinely gone (#2194's NOTE 2) - never
+        # reaches urlopen, and carries the same auth_failed=True the 401/403
+        # cases above do.
+        usage_api._access_token_detailed = lambda acct: (None, True)
+        reading, auth_failed = usage_api._read_claude("alpha", refresh=False)
+        check("_read_claude: a missing credential is auth_failed=True",
+              reading is None and auth_failed is True, (reading, auth_failed))
+    finally:
+        usage_api._access_token_detailed, usage_api.urllib.request.urlopen = real_token, real_urlopen
+
+
+def test_access_token_detailed_tells_missing_apart_from_could_not_read() -> None:
+    """`_access_token_detailed` (#2186's SHOULD-FIX 1): `security` exit 44 or
+    a parsed item with no accessToken is the credential genuinely gone; every
+    other shape of failure is 'could not read it', not 'it is not there'."""
+    real_run = usage_api.subprocess.run
+
+    def fake_run(returncode: int, stdout: str):
+        class R:
+            pass
+        r = R()
+        r.returncode, r.stdout = returncode, stdout
+        return lambda *a, **k: r
+
+    try:
+        usage_api.subprocess.run = fake_run(44, "")
+        token, missing = usage_api._access_token_detailed("alpha")
+        check("access_token: exit 44 (item not found) is missing=True",
+              token is None and missing is True, (token, missing))
+
+        usage_api.subprocess.run = fake_run(1, "")
+        token, missing = usage_api._access_token_detailed("alpha")
+        check("access_token: any other nonzero exit is missing=False (could not read)",
+              token is None and missing is False, (token, missing))
+
+        usage_api.subprocess.run = fake_run(
+            0, '{"claudeAiOauth": {"accessToken": ""}}')
+        token, missing = usage_api._access_token_detailed("alpha")
+        check("access_token: a parsed item with an empty token is missing=True",
+              token is None and missing is True, (token, missing))
+
+        usage_api.subprocess.run = fake_run(0, "not json")
+        token, missing = usage_api._access_token_detailed("alpha")
+        check("access_token: malformed stdout is missing=False (could not read)",
+              token is None and missing is False, (token, missing))
+
+        def raise_timeout(*a, **k):
+            raise usage_api.subprocess.TimeoutExpired(cmd="security", timeout=15)
+        usage_api.subprocess.run = raise_timeout
+        token, missing = usage_api._access_token_detailed("alpha")
+        check("access_token: a timed-out security call is missing=False",
+              token is None and missing is False, (token, missing))
+
+        usage_api.subprocess.run = fake_run(
+            0, '{"claudeAiOauth": {"accessToken": "tok"}}')
+        token, missing = usage_api._access_token_detailed("alpha")
+        check("access_token: a real token is returned, missing=False",
+              token == "tok" and missing is False, (token, missing))
+    finally:
+        usage_api.subprocess.run = real_run
 
 
 # The endpoint's answer, measured live on the founder's own plan (task #42,
@@ -25805,6 +25897,159 @@ def test_usage_api_record_stands_in_for_a_probe(home: Path) -> None:
     check("record: and the account reads assignable again",
           status.read("alpha", path=p_).assignable()[0],
           str(status.read("alpha", path=p_).assignable()))
+
+
+def test_usage_recover_is_a_per_account_switch(home: Path) -> None:
+    """load.py's own idiom (`cap_of`/`set_cap`), for #1885: on by default,
+    off only where config.yaml names the account, and every other account and
+    setting untouched by flipping one."""
+    home.mkdir(parents=True, exist_ok=True)
+    os.environ["OCP_HOME"] = str(home)
+    check("usage recover: on by default, nothing written yet",
+          loadmod.usage_recover_enabled("omega"))
+    loadmod.set_cap("omega", 3)
+    loadmod.set_usage_recover("omega", False)
+    check("usage recover: off once turned off", not loadmod.usage_recover_enabled("omega"))
+    check("usage recover: a different account is untouched",
+          loadmod.usage_recover_enabled("sigma"))
+    check("usage recover: turning it off does not disturb another setting",
+          loadmod.cap_of("omega") == 3)
+    loadmod.set_usage_recover("omega", True)
+    check("usage recover: turning it back on removes the key rather than storing true",
+          "usage_recover_omega" not in yamlcompat.load(paths.config_file().read_text()),
+          paths.config_file().read_text())
+    check("usage recover: back on", loadmod.usage_recover_enabled("omega"))
+
+
+def test_recover_marks_and_clears_needs_relogin(home: Path) -> None:
+    """The one file this writes, and the one thing that reads it: `recover`
+    itself, not fail-closed (status.py never looks at this mark - an account
+    stays refused there by the ordinary staleness rule either way)."""
+    home.mkdir(parents=True, exist_ok=True)
+    os.environ["OCP_HOME"] = str(home)
+    check("recover: not marked to start", not recovermod.needs_relogin("omega"))
+    recovermod.mark_relogin("omega", "still 401 after a real turn")
+    check("recover: marked", recovermod.needs_relogin("omega"))
+    check("recover: the reason is on disk",
+          "401" in (paths.account_dir("omega") / "needs_relogin").read_text())
+    recovermod.clear_relogin("omega")
+    check("recover: cleared", not recovermod.needs_relogin("omega"))
+    # Clearing twice is not an error - the CLI's --clear-relogin has no way to
+    # know in advance whether the mark is even there.
+    recovermod.clear_relogin("omega")
+
+
+def test_recover_spends_one_turn_and_rereads(home: Path) -> None:
+    """#1885's mechanism end to end, standing in for the network, the
+    Keychain and the CLI the same way `test_usage_api_reads_a_window...`
+    already does - `recover` is a caller of `fold.run_model` and
+    `usage_api.read_detailed`, never the network itself.
+    """
+    home.mkdir(parents=True, exist_ok=True)
+    os.environ["OCP_HOME"] = str(home)
+    (paths.account_dir("omega") / ".claude").mkdir(parents=True, exist_ok=True)
+
+    real_run_model, real_read_detailed, real_record = (
+        foldmod.run_model, usage_api.read_detailed, usage_api.record)
+    real_logged_in, real_vendor = accounts.logged_in, vendors.account_vendor
+    accounts.logged_in = lambda acct: True
+    vendors.account_vendor = lambda acct: "claude"
+    calls = {"run_model": [], "recorded": []}
+    try:
+        # --- happy path: the turn runs, the re-read succeeds -------------
+        foldmod.run_model = lambda prompt, acct, model: (
+            calls["run_model"].append((prompt, acct, model)) or (True, "hi yourself"))
+        usage_api.read_detailed = lambda acct, refresh=True: (usage_api.Reading(
+            account=acct, pct_5h=1, reset_5h=int(time.time()) + 18000,
+            pct_7d=10, reset_7d=None, at=int(time.time())), False)
+        usage_api.record = lambda reading: calls["recorded"].append(reading) or True
+        ok, msg = recovermod.recover("omega")
+        check("recover: a working turn and a clean re-read succeed", ok, msg)
+        check("recover: it is haiku, one line, on the account asked for",
+              calls["run_model"] == [(recovermod.RECOVER_PROMPT, "omega", recovermod.RECOVER_MODEL)],
+              str(calls["run_model"]))
+        check("recover: the fresh reading is recorded",
+              len(calls["recorded"]) == 1 and calls["recorded"][0].pct_5h == 1,
+              str(calls["recorded"]))
+        check("recover: no needs-relogin mark is left behind",
+              not recovermod.needs_relogin("omega"))
+
+        # --- the turn runs but the credential is still refused (401/403) ---
+        calls["run_model"].clear()
+        calls["recorded"].clear()
+        usage_api.read_detailed = lambda acct, refresh=True: (None, True)
+        ok, msg = recovermod.recover("omega")
+        check("recover: still refused after a real turn is a failure", not ok, msg)
+        check("recover: marks needs re-login so the next tick does not retry forever",
+              recovermod.needs_relogin("omega"))
+        check("recover: nothing is recorded from a reading that never came",
+              calls["recorded"] == [])
+        recovermod.clear_relogin("omega")
+
+        # --- the turn runs but the read fails transiently (timeout/429/5xx) -
+        calls["run_model"].clear()
+        calls["recorded"].clear()
+        usage_api.read_detailed = lambda acct, refresh=True: (None, False)
+        ok, msg = recovermod.recover("omega")
+        check("recover: a transient failure after a real turn is still a failure",
+              not ok, msg)
+        check("recover: a transient failure leaves no needs-relogin mark - "
+              "nothing here said the credential itself was refused",
+              not recovermod.needs_relogin("omega"))
+        check("recover: nothing is recorded from a reading that never came",
+              calls["recorded"] == [])
+
+        # --- marked: refuses before spending anything ----------------------
+        recovermod.mark_relogin("omega", "still 401 after a real turn")
+        calls["run_model"].clear()
+        ok, msg = recovermod.recover("omega")
+        check("recover: a marked account is refused without a turn",
+              not ok and calls["run_model"] == [], msg)
+        recovermod.clear_relogin("omega")
+
+        # --- turned off: refuses before spending anything -------------------
+        loadmod.set_usage_recover("omega", False)
+        ok, msg = recovermod.recover("omega")
+        check("recover: turned off refuses without a turn",
+              not ok and calls["run_model"] == [], msg)
+        loadmod.set_usage_recover("omega", True)
+
+        # --- not a claude account: refuses ----------------------------------
+        vendors.account_vendor = lambda acct: "opencode"
+        ok, msg = recovermod.recover("omega")
+        check("recover: a non-claude account is refused, not asked to auth", not ok, msg)
+        vendors.account_vendor = lambda acct: "claude"
+
+        # --- not logged in: refuses ------------------------------------------
+        accounts.logged_in = lambda acct: False
+        ok, msg = recovermod.recover("omega")
+        check("recover: not logged in is refused before spending a turn",
+              not ok and calls["run_model"] == [], msg)
+        accounts.logged_in = lambda acct: True
+
+        # --- the run itself fails: no re-read, no record ----------------------
+        foldmod.run_model = lambda prompt, acct, model: (False, "boom")
+        usage_api.record = lambda reading: calls["recorded"].append(reading) or True
+        ok, msg = recovermod.recover("omega")
+        check("recover: a failed turn is reported and nothing is recorded",
+              not ok and "boom" in msg and calls["recorded"] == [], msg)
+
+        # --- at the 7d wall: refuses before spending anything ------------------
+        real_record(usage_api.Reading(
+            account="omega", pct_5h=1, reset_5h=int(time.time()) + 18000,
+            pct_7d=status.PCT_7D_BLOCK, reset_7d=int(time.time()) + 500000,
+            at=int(time.time())))
+        calls["run_model"].clear()
+        foldmod.run_model = lambda prompt, acct, model: (
+            calls["run_model"].append((prompt, acct, model)) or (True, "hi yourself"))
+        ok, msg = recovermod.recover("omega")
+        check("recover: a 7d account at the wall is not spent on",
+              not ok and calls["run_model"] == [], msg)
+    finally:
+        foldmod.run_model, usage_api.read_detailed, usage_api.record = (
+            real_run_model, real_read_detailed, real_record)
+        accounts.logged_in, vendors.account_vendor = real_logged_in, real_vendor
+        recovermod.clear_relogin("omega")
 
 
 TEST_FILTER: str | None = None  # set by -k; substring match on the test name
@@ -28276,9 +28521,14 @@ def main() -> int:
             Path(td) / 'replayweek'))
         run(lambda: test_replay_burn_is_the_daemons_burn(Path(td) / 'replayburn'))
         run(lambda: test_usage_api_reads_a_window_nothing_has_been_spent_in())
+        run(lambda: test_read_claude_tells_a_dead_credential_apart_from_transient())
+        run(lambda: test_access_token_detailed_tells_missing_apart_from_could_not_read())
         run(lambda: test_the_zai_meter_reads_the_plan_and_hides_its_key(Path(td) / 'zaimeter'))
         run(lambda: test_the_quota_request_never_follows_a_redirect(Path(td) / 'zairedir'))
         run(lambda: test_usage_api_record_stands_in_for_a_probe(Path(td) / 'usagerec'))
+        run(lambda: test_usage_recover_is_a_per_account_switch(Path(td) / 'recoverswitch'))
+        run(lambda: test_recover_marks_and_clears_needs_relogin(Path(td) / 'recovermark'))
+        run(lambda: test_recover_spends_one_turn_and_rereads(Path(td) / 'recoverturn'))
         run(lambda: test_the_pull_reads_the_context_the_statusline_used_to_push(
             Path(td) / 'pull'))
         run(lambda: test_a_cleared_session_reads_zero_and_an_unsearchable_one_reads_unknown(

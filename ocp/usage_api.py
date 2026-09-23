@@ -150,25 +150,35 @@ def refresh_credential(acct: str, timeout: int = REFRESH_TIMEOUT_S) -> bool:
         return False
 
 
-def _access_token(acct: str) -> str | None:
-    """The account's OAuth access token, for one request.
+def _access_token_detailed(acct: str) -> tuple[str | None, bool]:
+    """The account's OAuth access token, for one request, plus whether the
+    credential is actually gone.
 
     The only place in ocp that reads the secret. It is never returned to a
     caller outside this module, never logged and never written.
+
+    `missing` is True only when the Keychain item itself is not there
+    (`security` exits 44, `errSecItemNotFound`) or the item is there but
+    carries no `accessToken` - the credential really is gone. Every other
+    failure (a timeout, a Keychain daemon hiccup, a malformed stdout) is
+    "could not read it", not "it is not there", and carries missing=False -
+    the same distinction `_read_claude` makes for the HTTPS side.
     """
     service = claudemod.keychain_service(paths.account_claude(acct))
     try:
         r = subprocess.run(["security", "find-generic-password", "-w", "-s", service],
                            capture_output=True, text=True, timeout=15)
     except (OSError, subprocess.SubprocessError):
-        return None
+        return None, False
     if r.returncode != 0:
-        return None
+        return None, r.returncode == 44
     try:
         token = (json.loads(r.stdout).get("claudeAiOauth") or {}).get("accessToken")
     except (json.JSONDecodeError, AttributeError):
-        return None
-    return token if isinstance(token, str) and token.strip() else None
+        return None, False
+    if isinstance(token, str) and token.strip():
+        return token, False
+    return None, True
 
 
 def read(acct: str, refresh: bool = True) -> Reading | None:
@@ -187,6 +197,18 @@ def read(acct: str, refresh: bool = True) -> Reading | None:
     memory for the one request by the driver's meter path (KICKOFF rule 1 as
     amended, #2010). A vendor with no meter path is not asked.
     """
+    return read_detailed(acct, refresh)[0]
+
+
+def read_detailed(acct: str, refresh: bool = True) -> tuple[Reading | None, bool]:
+    """`read`, plus whether a failure was the credential itself being refused.
+
+    The second element is only ever True for the claude vendor, and only for
+    a 401/403 or a Keychain item that is genuinely gone - the one class of
+    failure a caller like `recover.recover` needs to tell apart from a
+    timeout, a DNS blip, a Keychain read that merely failed, or a 429/5xx
+    right after a real turn, none of which say the credential is dead.
+    """
     vendor = vendors.account_vendor(acct)
     if vendor == claudemod.Claude.name:
         return _read_claude(acct, refresh)
@@ -194,38 +216,51 @@ def read(acct: str, refresh: bool = True) -> Reading | None:
         drv = vendors.get(vendor)
         windows = drv.usage_reading(vendors.config_dir(acct))
         if windows is None:
-            return None
+            return None, False
         pct_5h, reset_5h, pct_7d, reset_7d = windows
         return Reading(account=acct, pct_5h=pct_5h, reset_5h=reset_5h,
-                       pct_7d=pct_7d, reset_7d=reset_7d, at=int(time.time()))
-    return None
+                       pct_7d=pct_7d, reset_7d=reset_7d, at=int(time.time())), False
+    return None, False
 
 
-def _read_claude(acct: str, refresh: bool) -> Reading | None:
-    """Claude's endpoint, asked with claude's credential."""
+def _read_claude(acct: str, refresh: bool) -> tuple[Reading | None, bool]:
+    """Claude's endpoint, asked with claude's credential.
+
+    The second element of the return is True only for a 401/403 (`urlopen`
+    raises `HTTPError`, a `URLError` subclass, for any non-2xx status - it
+    never reaches the `resp.status` check below) or a credential the
+    Keychain itself says is gone (`_access_token_detailed`'s `missing`).
+    Every other failure (timeout, DNS, a 429/5xx, a malformed body, a
+    Keychain read that merely failed rather than came back empty) is
+    transient and carries False. `recover.recover` is the only reader of
+    this: it marks needs-relogin, so it stops retrying, only on True -
+    fail-closed itself never looks at that mark.
+    """
     if refresh:
         refresh_credential(acct)
-    token = _access_token(acct)
+    token, missing = _access_token_detailed(acct)
     if not token:
-        return None
+        return None, missing
     req = urllib.request.Request(
         USAGE_URL, headers={"Authorization": f"Bearer {token}", **USAGE_HEADERS})
     try:
         with urllib.request.urlopen(req, timeout=HTTP_TIMEOUT_S) as resp:
             if resp.status != 200:
-                return None
+                return None, False
             payload = json.load(resp)
+    except urllib.error.HTTPError as e:
+        return None, e.code in (401, 403)
     except (urllib.error.URLError, OSError, json.JSONDecodeError, ValueError):
-        return None
+        return None, False
     if not isinstance(payload, dict):
-        return None
+        return None, False
     five, seven = payload.get(FIVE_HOUR), payload.get(SEVEN_DAY)
     return Reading(
         account=acct,
         pct_5h=_pct(five), reset_5h=_reset(five),
         pct_7d=_pct(seven), reset_7d=_reset(seven),
         at=int(time.time()),
-    )
+    ), False
 
 
 def record(reading: Reading, path=None) -> bool:
