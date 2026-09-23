@@ -26261,8 +26261,12 @@ def test_venv(home: Path) -> None:
     try:
         venvmod.requirements_file = lambda: iso_reqs
 
+        # `stamp` is left as install() wrote it, for iso_reqs's unedited
+        # content - re-stamping from the edited file here would only prove
+        # the two sides hash the same edited bytes as each other, not that
+        # a comment edit leaves an install stamped for the original content
+        # still reading as ready (auditor #2181 BLOCKING).
         iso_reqs.write_text("# a comment nobody installs\n" + iso_reqs.read_text() + "# another one\n")
-        stamp.write_text(venvmod._sha256(iso_reqs) + "\n")
         ok, reason = venvmod.status(vdir)
         check("venv: status() ignores a comment-only requirements.txt edit", ok, reason)
         r = run_iso_wrapper()
