@@ -1202,6 +1202,7 @@ def _wake_agent(con, agent: str, log, moved_to: str | None = None) -> tuple[bool
         # in a bare shell whenever the session dies first, and the shell runs
         # it line by line.
         resumed = False
+        foreign = False
         # Past the cache's life a resume costs the whole transcript and a
         # fresh start costs the handoff; the record stays on the row for the
         # launch to inject.
@@ -1231,7 +1232,16 @@ def _wake_agent(con, agent: str, log, moved_to: str | None = None) -> tuple[bool
             if ok:
                 resumed = resume
                 break
+            taken = not pf.exists()
             pf.unlink(missing_ok=True)
+            # A session owns the terminal now, and the next attempt's command
+            # would be typed into it as a prompt. It is this launch's own, come
+            # up late, only if the launch took the prompt.
+            if (obs.live_sessions() or {}).get(agent):
+                foreign = not taken
+                if foreign:
+                    why = "a session it did not start is running"
+                break
         if not ok:
             if took:
                 # A record no session was handed would be typed at whichever
@@ -1242,6 +1252,12 @@ def _wake_agent(con, agent: str, log, moved_to: str | None = None) -> tuple[bool
             # arriving, or the next restart - has nothing else to use.
             db.add_event(con, agent, "wake_failed", {"resume_session": session,
                                                      "why": why})
+            if foreign:
+                # The agent is running, so this is no failed wake to count
+                # toward STALLED; the sweep sees the session and clears the
+                # closed mark.
+                log(f"  {agent}: {why}; typed nothing more")
+                return False, why
             db.bump_counter(con, agent, "wake_failures")
             log(f"  {agent}: {why}; still closed")
             fresh = db.get_agent_state(con, agent)

@@ -11621,7 +11621,9 @@ def test_a_wake_does_not_claim_a_session_it_did_not_start(home: Path) -> None:
     by hand started the agent's session a moment later. Seeing that session,
     the wake logged "relaunched with its wake prompt" for a prompt nothing had
     taken. A session is the wake's only once its launch has taken the prompt
-    file, and a refused launch leaves the file where it was.
+    file, and a refused launch leaves the file where it was. Once one is
+    running, nothing more is typed: a fallback launch would land in it as a
+    prompt.
     """
     _daemon_home(home, 20)
     con = db.connect()
@@ -11654,7 +11656,42 @@ def test_a_wake_does_not_claim_a_session_it_did_not_start(home: Path) -> None:
         check("wake: and the prompt nothing took is removed",
               not any((home / "wake").glob("backend*")),
               str(list((home / "wake").glob("*"))))
-        check("wake: the failure is counted", row["wake_failures"] == 1, str(dict(row)))
+        check("wake: and a running agent is not counted toward STALLED",
+              row["wake_failures"] == 0, str(dict(row)))
+
+        # With a resume id there is a fresh start to fall back to, and its
+        # command would be typed into the session already running.
+        table.clear()
+        sent.clear()
+        db.set_closed(con, "backend", "sess-abc")
+        ok, why = dmn.wake_agent(con, "backend", lambda _m: None)
+        row = db.get_agent_state(con, "backend")
+        check("wake: nothing is typed into a session it did not start",
+              not ok and [" launch " in t for t in sent] == [True], f"{why} {sent}")
+        check("wake: and that one is not counted either",
+              row["wake_failures"] == 0, str(dict(row)))
+
+        # Its own session, come up after the wait gave up, is no reason to
+        # type the fallback into it either - but it is a counted failure.
+        table.clear()
+        sent.clear()
+        db.set_closed(con, "backend", "sess-abc")
+        realr = orcamod.relaunch
+
+        def own_but_late(h, cmd, **kw):
+            sent.append(cmd)
+            take_launched_prompt(cmd)
+            table["backend"] = 4301
+            return False, "no session seen within the timeout"
+        orcamod.relaunch = own_but_late
+        try:
+            ok, why = dmn.wake_agent(con, "backend", lambda _m: None)
+        finally:
+            orcamod.relaunch = realr
+        row = db.get_agent_state(con, "backend")
+        check("wake: nothing more is typed into its own late session",
+              not ok and len(sent) == 1, f"{why} {sent}")
+        check("wake: and that one is counted", row["wake_failures"] == 1, str(dict(row)))
     finally:
         (orcamod.available, orcamod.alive, orcamod.wait_idle, orcamod.send,
          dmn.WAKE_SESSION_TIMEOUT_S) = real
@@ -17446,6 +17483,7 @@ def test_a_move_still_records_a_session_the_wait_missed_but_a_hook_saw(home: Pat
         def relaunch_but_miss(h, cmd, **kw):
             # The session starts and its hook fires, but the wait `_wake_agent`
             # gave it read as a timeout - what `relaunch` reports is "not woke".
+            take_launched_prompt(cmd)
             _SESSION_TABLE["t"]["mover"] = 4242
             evmod._mark_activity(con, "mover", "UserPromptSubmit")
             return False, "no session seen within the timeout"
@@ -17503,6 +17541,7 @@ def test_stalled_survives_a_hook_that_fires_after_the_third_failed_wake(home: Pa
         def relaunch_fails_but_late(h, cmd, **kw):
             # The session comes up late - after `_wake_agent` has already
             # given up on this, its third, attempt - and its hook fires anyway.
+            take_launched_prompt(cmd)
             _SESSION_TABLE["t"]["mover"] = 4242
             evmod._mark_activity(con, "mover", "UserPromptSubmit")
             return False, "no session seen within the timeout"
