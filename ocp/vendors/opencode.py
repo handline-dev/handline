@@ -1,6 +1,7 @@
 """opencode, measured on 1.18.32 (design/03 §4.3)."""
 from __future__ import annotations
 
+import json
 import os
 import re
 import shutil
@@ -14,6 +15,16 @@ _CREDENTIALS = re.compile(r"\b(\d+) credentials\b")
 # by nothing: the TUI. A subcommand word in that place (`run`, `serve`,
 # `auth`, ...) is a headless or one-shot run.
 _SESSION = re.compile(r"^(?:\S*/)?opencode(?:\s+-|$)")
+# ocp's disallowed tools, by claude's names, as opencode's permission keys.
+# Only Agent has a counterpart: opencode has no SendMessage, ScheduleWakeup
+# or CronCreate to deny.
+_TOOLS = {"Agent": "task"}
+# The bottom edge of the prompt box; the rows under it are the footer.
+_BOX_BOTTOM = re.compile(r"^\s*\u2579\u2580{8,}")
+# How far above the last row the box's bottom edge may sit: two footer rows
+# in a session, four on the start screen.
+_FOOTER_ROWS = 6
+
 
 
 class Opencode:
@@ -55,6 +66,67 @@ class Opencode:
         if model:
             argv += ["-m", str(model)]
         return argv
+
+    def launch_env(self, preamble: str | None, disallowed: str, state_dir: Path) -> dict[str, str]:
+        """A config of its own for this session, in OPENCODE_CONFIG_CONTENT,
+        merged over the shared one. The preamble goes in as an instructions
+        file, added to opencode's system prompt and read again for every
+        session in the process, a /new's included. A denied tool is taken out
+        of the model's tool list, not refused when called."""
+        cfg: dict = {}
+        if preamble:
+            state_dir.mkdir(parents=True, exist_ok=True)
+            f = state_dir / "opencode-preamble.md"
+            f.write_text(preamble)
+            cfg["instructions"] = [str(f)]
+        deny = {_TOOLS[t]: "deny" for t in disallowed.split(",") if t in _TOOLS}
+        if deny:
+            cfg["permission"] = deny
+        return {"OPENCODE_CONFIG_CONTENT": json.dumps(cfg)}
+
+    def prompt_argv(self, prompt: str) -> list[str]:
+        # A positional is the project directory; --prompt submits on start.
+        return ["--prompt", prompt]
+
+    def clear_command(self) -> str:
+        return "/new"
+
+    def exit_command(self) -> str:
+        return "/exit"
+
+    idle_from_screen = True
+
+    def _footer(self, tail: list[str]) -> list[str] | None:
+        """The rows under the prompt box, or None when no box is drawn."""
+        rows = [str(x) for x in tail[-_FOOTER_ROWS:]]
+        edge = next((i for i in range(len(rows) - 1, -1, -1) if _BOX_BOTTOM.match(rows[i])), None)
+        return None if edge is None else rows[edge + 1:]
+
+    def idle_on_screen(self, tail: list[str]) -> bool:
+        """The prompt box is drawn and its footer offers no interrupt: a turn
+        in progress puts "esc interrupt" there, in place of the directory and
+        "ctrl+p commands"."""
+        footer = self._footer(tail)
+        return footer is not None and not any("interrupt" in r for r in footer)
+
+    def screen_blocker(self, tail: list[str]):
+        """A permission request replaces the prompt box with its choices, the
+        first already selected, so Enter answers it. Anything without the box
+        cannot be typed into safely."""
+        from .. import orca, textsafe  # late: orca looks drivers up
+        rows = [str(x) for x in tail]
+        low = max(0, len(rows) - _FOOTER_ROWS)
+        ask = next((i for i in range(len(rows) - 1, low - 1, -1)
+                    if "enter confirm" in rows[i]), None)
+        if ask is not None:
+            lines = [textsafe.oneline(x.strip(" \u2503")) for x in rows[:ask]]
+            title = next((i for i in range(len(lines) - 1, -1, -1)
+                          if lines[i].startswith("\u25b3")), None)
+            shown = [ln for ln in (lines[title:] if title is not None else lines[-3:]) if ln]
+            return orca.Blocker(orca.MODAL, " / ".join(shown[:3])[:orca.DETAIL_CHARS])
+        if self._footer(tail) is None:
+            return orca.Blocker(orca.UNREADABLE)
+        return None
 
     def credential_present(self, config_dir: Path) -> bool:
         """Asked of `opencode auth list`, which counts the credentials under

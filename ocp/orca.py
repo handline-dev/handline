@@ -76,7 +76,34 @@ def wait_idle(handle: str, timeout_ms: int = IDLE_TIMEOUT_MS) -> bool:
 
     `ok` only says the wait command ran; `result.wait.satisfied` is the answer.
     Reading `ok` alone treats a timeout as "idle" and clears mid-turn.
+
+    For a vendor whose working state Orca does not read (`idle_from_screen`),
+    Orca's yes is only a precondition, and the screen is read until it agrees
+    or the time is up.
     """
+    deadline = time.monotonic() + timeout_ms / 1000
+    if not _orca_idle(handle, timeout_ms):
+        return False
+    drv = _driver_for(handle)
+    if not drv.idle_from_screen:
+        return True
+    while True:
+        term = _screen(handle)
+        tail = term.get("tail") if term else None
+        if isinstance(tail, list) and term.get("source") == "screen" \
+                and drv.idle_on_screen(tail):
+            return True
+        left = deadline - time.monotonic()
+        if left <= 0:
+            return False
+        time.sleep(min(SCREEN_POLL_S, left))
+
+
+# How often `wait_idle` rereads a screen that does not yet show idle.
+SCREEN_POLL_S = 1.0
+
+
+def _orca_idle(handle: str, timeout_ms: int) -> bool:
     ok, out = _run(
         ["terminal", "wait", "--terminal", handle, "--for", "tui-idle",
          "--timeout-ms", str(timeout_ms), "--json"],
@@ -88,6 +115,25 @@ def wait_idle(handle: str, timeout_ms: int = IDLE_TIMEOUT_MS) -> bool:
         return bool(json.loads(out)["result"]["wait"]["satisfied"])
     except (json.JSONDecodeError, KeyError, TypeError):
         return False
+
+
+def _driver_for(handle: str):
+    """The driver of the agent ocp recorded in this terminal, or the default
+    vendor's for one it did not launch (a probe, a human's own)."""
+    # Late: vendors and db sit above this module.
+    import sqlite3
+    from . import agents, db, vendors
+    try:
+        con = db.connect()
+        try:
+            agent = db.agent_of_terminal(con, handle)
+        finally:
+            con.close()
+        if agent:
+            return vendors.for_agent(agent)
+    except (OSError, sqlite3.Error, agents.ConfigError, vendors.UnknownVendor):
+        pass
+    return vendors.get(agents.DEFAULT_VENDOR)
 
 
 def send(handle: str, text: str, enter: bool = True) -> tuple[bool, str]:
@@ -673,6 +719,11 @@ def screen_blocker(handle: str) -> Blocker | None:
     # conversation, not what is drawn now.
     if not isinstance(tail, list) or term.get("source") != "screen":
         return Blocker(UNREADABLE)
+    return _driver_for(handle).screen_blocker(tail)
+
+
+def claude_screen_blocker(tail: list) -> Blocker | None:
+    """`screen_blocker` on Claude Code's layout, from rows already read."""
     footer = _footer_row(tail)
     if footer is not None:
         dialog = parse_dialog(tail, footer)
@@ -870,10 +921,11 @@ def clear_context(handle: str, wait: bool = True,
     if wait and not wait_idle(handle, timeout_ms):
         return False, "agent is mid-turn; not clearing"
     blocked = screen_blocker(handle)          # one read, not modal_open() twice
+    cmd = _driver_for(handle).clear_command()
     if blocked:
-        return False, f"{blocked.reason()}; not typing /clear at it"
-    ok, out = send(handle, "/clear")
-    return ok, "context cleared" if ok else f"could not send /clear: {out[:200]}"
+        return False, f"{blocked.reason()}; not typing {cmd} at it"
+    ok, out = send(handle, cmd)
+    return ok, "context cleared" if ok else f"could not send {cmd}: {out[:200]}"
 
 
 def close_session(handle: str, wait: bool = True,
@@ -897,10 +949,11 @@ def close_session(handle: str, wait: bool = True,
     if wait and not wait_idle(handle, timeout_ms):
         return False, "agent is mid-turn; not closing"
     blocked = screen_blocker(handle)          # one read, not modal_open() twice
+    cmd = _driver_for(handle).exit_command()
     if blocked:
-        return False, f"{blocked.reason()}; not typing /exit at it"
-    ok, out = send(handle, "/exit")
-    return ok, "/exit typed" if ok else f"could not send /exit: {out[:200]}"
+        return False, f"{blocked.reason()}; not typing {cmd} at it"
+    ok, out = send(handle, cmd)
+    return ok, f"{cmd} typed" if ok else f"could not send {cmd}: {out[:200]}"
 
 
 def relaunch(handle: str, command: str, timeout_ms: int = IDLE_TIMEOUT_MS,

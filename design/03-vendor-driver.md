@@ -171,7 +171,8 @@ class Driver(Protocol):
 | `shared_items` | `accounts.LINKED` |
 | `memory_dir` | `accounts.memory_project_dir` |
 | `preamble_file` | new - `("CLAUDE.local.md", ADDITIVE)` |
-| `clear/exit_command` | the literals in `orca.clear_context` / `close_session` |
+| `clear/exit_command` | `/clear` / `/exit`, moved out of `orca.clear_context` / `close_session` |
+| `screen_blocker` | `orca.claude_screen_blocker`; `idle_from_screen` false, Orca's tui-idle alone |
 | `read_dialog` | `orca.parse_dialog` |
 | `declining_key` | `orca.declining_key` |
 | `install_collector` | nothing to install - `ocp/collect.py` reads the transcript (D11) |
@@ -211,13 +212,18 @@ ChatGPT account, so `launch_argv` must not inherit `config.toml`'s default.
 | `is_session` | the command line starts with the binary, then an option or nothing; `run`, `serve`, `auth` and the rest are not sessions | ✅ `ps` of a live TUI |
 | `meters` | false: the db tallies spend, nothing says what is left | ✅ docs/vendor-extension-board §12.4 |
 | `is_resume` | `-s`/`--session`, `-c`/`--continue` | ✅ `--help` |
-| `launch_argv` | `-m provider/model` only. The TUI has no flag for effort, tool denial, MCP config or a system prompt | ⚠ live-session step |
+| `launch_argv` | `-m provider/model` only. The TUI has no flag for effort, tool denial, MCP config or a system prompt | ✅ |
+| `launch_env` | `OPENCODE_CONFIG_CONTENT`: the preamble as an `instructions` file (`<agent>/opencode-preamble.md`), added to the system prompt and reread for every session, a `/new`'s included; `Agent` denied as `permission.task`, which takes the tool out of the model's list. SendMessage, ScheduleWakeup and CronCreate have no opencode tool | ✅ #1926, a live session named the file's codeword and had no task tool |
+| `prompt_argv` | `--prompt <text>`, submitted on start. A positional is the project directory | ✅ #1926 |
 | `credential_present` | `opencode auth list` counts more than 0 credentials. The file alone does not answer: a logout leaves `{}` | ✅ |
 | `login/logout_argv` | `opencode auth login` / `logout`, each asking which provider | ✅ |
 | `identity`, `subscription_type` | none: a credential is per provider and names no account | ✅ |
 | `shared_items` / `never_touch` | `[]` / `{"opencode"}` | |
 | `memory_root` | none: no per-repo memory, and sessions are db rows, not transcript files | ✅ |
-| `clear/exit_command`, `read_dialog`, preamble, tool denial | not built | ✗ live-session step |
+| `clear/exit_command` | `/new` (new session id, start screen) / `/exit` (process ends, shell stays) | ✅ #1926 |
+| idle | Orca's `tui-idle` is satisfied throughout an opencode turn, from `--prompt` or typed; it does read a permission request as blocked. `idle_from_screen`: idle is the prompt box drawn with no "esc interrupt" under it | ✅ #1926 |
+| `screen_blocker` | a permission request (footer "enter confirm", "Allow once" selected) is MODAL; a screen with no prompt box is UNREADABLE | ✅ #1926 |
+| MCP config, effort, hook events | not built: no `ocp hook` events, so a first task's delivery is not confirmed and no context is collected | ✗ |
 
 ## 5. The collector's output contract - the part that matters most
 
@@ -323,6 +329,6 @@ would raise. (#1691)
 
 - `read_dialog` for codex: needs a live TUI and a screen read.
 - Whether codex's `/new` re-reads the preamble file (D10's residue).
-- opencode's live session: the preamble, tool denial, `/new` and `/exit`, and
-  Orca's idle reading (§4.3's ✗ and ⚠ rows).
+- opencode's hook events (an opencode plugin posting to `ocp hook`, as Orca's
+  own status plugin does) and its context collector (§4.3's ✗ row).
 - Whether `identity` has a codex command, or must be read from `auth.json`.
