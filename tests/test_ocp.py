@@ -23234,6 +23234,72 @@ def test_handoff_reclaims_context(home: Path) -> None:
         con.close()
 
 
+def test_a_context_handoff_never_parks(home: Path) -> None:
+    """Founder #1903: a context handoff is not a usage wall, so once the
+    clear is done there is nothing left to wait out - the agent must come
+    back running or ready right away, whatever its account's usage window
+    says, not sit PARKED until reset_5h the way a usage trigger would.
+    """
+    _daemon_home(home, 20)
+    con = db.connect()
+    real_clear, real_alive, real_idle = orcamod.clear_context, orcamod.alive, orcamod.idle_now
+    try:
+        # A recorded (non-assumed) reading on an account with room to spare -
+        # the case the auditor hit sitting PARKED 09:25-11:30 at 19%.
+        db.set_account(con, "backend", "alpha")
+        write_status(home, "alpha", pct_5h=19, pct_7d=10, ctx_pct=5,
+                     reset_5h=int(time.time()) + 9000)
+        orcamod.available = lambda: True
+        orcamod.alive = lambda h: True
+        orcamod.idle_now = lambda h: True
+        orcamod.clear_context = lambda h, wait=True, timeout_ms=0: (True, "context cleared")
+        readable_agent(con, home, "backend")
+        sessions_are("backend")
+
+        t = triggers.Trigger(True, "context", "context 700,000 >= 120,000")
+        dmn.perform_handoff(con, "backend", t, lambda _m: None)
+        row = db.get_agent_state(con, "backend")
+        check("context handoff: never PARKED", row["state"] != dmn.PARKED, str(dict(row)))
+        check("context handoff: no future wake_at", not row["wake_at"], str(dict(row)))
+        check("context handoff: left running or ready",
+              row["state"] in (dmn.IDLE, dmn.QUEUED), str(dict(row)))
+    finally:
+        orcamod.clear_context, orcamod.alive = real_clear, real_alive
+        orcamod.idle_now = real_idle
+        con.close()
+
+
+def test_a_usage_5h_handoff_still_parks_until_reset(home: Path) -> None:
+    """The one trigger #1903 keeps waiting for: a usage wall does not clear
+    until its own window rolls over, whatever a context handoff now does.
+    """
+    _daemon_home(home, 100)
+    con = db.connect()
+    real_clear, real_alive, real_idle = orcamod.clear_context, orcamod.alive, orcamod.idle_now
+    try:
+        db.set_account(con, "backend", "alpha")
+        reset_at = int(time.time()) + 9000
+        write_status(home, "alpha", pct_5h=100, pct_7d=10, ctx_pct=5, reset_5h=reset_at)
+        orcamod.available = lambda: True
+        orcamod.alive = lambda h: True
+        orcamod.idle_now = lambda h: True
+        orcamod.clear_context = lambda h, wait=True, timeout_ms=0: (True, "context cleared")
+        sessions_are("backend")
+
+        t = triggers.evaluate(100, 5)
+        check("usage_5h fixture: fires the usage trigger", t.kind == "usage", t.kind)
+        dmn.perform_handoff(con, "backend", t, lambda _m: None)
+        row = db.get_agent_state(con, "backend")
+        check("usage_5h handoff: still parks", row["state"] == dmn.PARKED, str(dict(row)))
+        check("usage_5h handoff: wakes at the account's own reset",
+              row["wake_at"] is not None and abs(row["wake_at"] - reset_at) < 5,
+              str(dict(row)))
+    finally:
+        orcamod.clear_context, orcamod.alive = real_clear, real_alive
+        orcamod.idle_now = real_idle
+        con.close()
+
+
 def test_a_hand_park_against_an_assumed_account_stays_forceable(home: Path) -> None:
     """`actions.park` (the screen's `p`) is #1620/#1625's one park a person may
     force early - but an agent with no recorded or reported account reads as
@@ -27737,6 +27803,8 @@ def main() -> int:
         run(lambda: test_confirm_trust_presses_down_then_enter())
         run(lambda: test_clear_refuses_mid_turn())
         run(lambda: test_handoff_reclaims_context(Path(td) / 'reclaim'))
+        run(lambda: test_a_context_handoff_never_parks(Path(td) / 'ctxnopark'))
+        run(lambda: test_a_usage_5h_handoff_still_parks_until_reset(Path(td) / 'usage5hpark'))
         run(lambda: test_a_hand_park_against_an_assumed_account_stays_forceable(Path(td) / 'handpark'))
         run(lambda: test_wake_injects_handoff(Path(td) / 'wake'))
         run(lambda: test_a_drifted_launch_relaunches_instead_of_waking_in_place(Path(td) / 'driftwake'))
