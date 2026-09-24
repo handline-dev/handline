@@ -1138,6 +1138,23 @@ def test_a_message_of_yours_sits_where_the_agent_read_it_and_a_line_ahead_of_the
           type(spare[-1]).__name__ == "QueueLine" and not spare[-1].rule and len(spare) == 3)
 
 
+def test_a_queued_message_says_why_it_has_not_reached_the_agent() -> None:
+    from ocp import ask as askmod
+    _home("qwhy")
+    con = db.connect()
+    try:
+        ok, _, first = askmod.ask("backend", "one", requester="reviewer")
+        ok, _, second = askmod.ask("backend", "two", requester=actions.HUMAN)
+        con.execute("UPDATE agent_state SET state = 'RUNNING', terminal = 'x' WHERE agent = 'backend'")
+        con.commit()
+        check("chat: the head of the queue is waiting on the agent",
+              "mid-turn" in actions.queue_reason(con, "backend", first), actions.queue_reason(con, "backend", first))
+        check("chat: the one behind it says what is ahead",
+              f"#{first} is ahead" in actions.queue_reason(con, "backend", second))
+    finally:
+        con.close()
+
+
 def test_the_context_setting_is_in_thousands_and_shows_its_share_of_the_window() -> None:
     from ocp import chat_page as cp
     _home("ctxset")
@@ -1755,6 +1772,7 @@ async def _run_all() -> None:
     await test_the_home_accounts_row_shows_the_alias()
     test_a_message_of_yours_sits_where_the_agent_read_it_and_a_line_ahead_of_the_queue()
     test_the_context_setting_is_in_thousands_and_shows_its_share_of_the_window()
+    test_a_queued_message_says_why_it_has_not_reached_the_agent()
     test_account_settings_alias_and_default_cap()
 
 

@@ -396,7 +396,8 @@ class ChatMessage(Vertical):
             parts.append(Static(note, classes="qstate"))
         if m.get("queued"):
             parts.append(Horizontal(
-                Static("delivered, not answered yet" if m.get("delivered") else "queued, not delivered",
+                Static("delivered, not answered yet" if m.get("delivered") else
+                       "queued, not delivered" + (f" - {safe(m['why'])}" if m.get("why") else ""),
                        classes="qstate"),
                 Button("✕ cancel", classes="cancel", compact=True),
                 classes="qrow"))
@@ -942,6 +943,7 @@ class ChatPage(Screen):
             self.agent_state = state
             for line in self.query(QueueLine):
                 line.working = state[0] == "RUNNING"
+            self._sig = None                # the reason a message waits follows the agent's state
             self.query_one("#status", Static).update(self._status())
 
     def refresh_pools(self) -> None:
@@ -996,7 +998,16 @@ class ChatPage(Screen):
         keep = (self.replying.m["rid"], self.replying.m["part"]) if self.replying else None
         pane = self.query_one("#transcript", VerticalScroll)
         pane.remove_children()
-        widgets = transcript_widgets(messages_of(rows, self.agent), self.agent_state[0] == "RUNNING")
+        msgs = messages_of(rows, self.agent)
+        waiting = [m for m in msgs if m["queued"] and not m["delivered"]]
+        if waiting:
+            con = db.connect()
+            try:
+                for m in waiting:
+                    m["why"] = actions.queue_reason(con, self.agent, m["rid"])
+            finally:
+                con.close()
+        widgets = transcript_widgets(msgs, self.agent_state[0] == "RUNNING")
         pane.mount(*widgets)
         pane.scroll_end(animate=False)
         self.replying = None

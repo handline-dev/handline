@@ -1327,6 +1327,14 @@ _WORLD: dict = {"at": 0.0, "sessions": None, "handles": None}
 WORLD_FRESH_S = 10
 
 
+def queue_reason(con, agent: str, rid: int) -> str:
+    """Why request `rid`, queued for `agent`, has not reached it, for the chat page."""
+    head = db.head_of_queue(con, agent)
+    if head and int(head["id"]) != rid:
+        return f"#{head['id']} is ahead of it in {agent}'s queue"
+    return _delivery_block(con, agent, *_world())[0] or f"{agent} will read it when it is free"
+
+
 def _world(ttl: int = WORLD_FRESH_S) -> tuple[dict | None, set | None]:
     """Orca's terminals and the running sessions, at most `ttl` seconds old.
 
