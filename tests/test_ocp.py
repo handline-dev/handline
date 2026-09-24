@@ -25382,6 +25382,15 @@ def test_resolve_hold_keeps_the_work_open_and_owned(home: Path) -> None:
         db.add_block(con, t_parent, t_blocker)
     finally:
         con.close()
+    con = db.connect()
+    try:
+        t_lone = db.new_task(con, "lone parent", "worker", "manager")
+        db.new_task(con, "lone child", "worker", "manager", parent_task=t_lone)
+    finally:
+        con.close()
+    rc, out = _cli(["task", "board"], as_agent="worker")
+    check("hold: a child nobody asked anything of is no hold",
+          _now_line(out, t_lone) == "now: nobody holds it", out)
     rc, out = _cli(["task", "board"], as_agent="worker")
     check("hold: a plain child is no hold, and a blocker outranks a real one",
           _now_line(out, t_parent) == f"now: waiting on #{t_blocker}", out)
