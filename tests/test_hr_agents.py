@@ -1202,6 +1202,12 @@ def test_an_account_records_its_vendor(home: Path) -> None:
     check("vendor record: an agent whose vendor cannot be read is placed nowhere",
           picked is None and dict(ranked)["alpha"].startswith("agent.yaml unreadable"),
           str((picked, ranked)))
+    agents.agent_file("broken").write_bytes(b"role: \xff\xfe\n")
+    try:
+        agents.read("broken")
+        check("agents.read: a non-UTF-8 agent.yaml is a ConfigError", False, "read")
+    except ConfigError as e:
+        check("agents.read: a non-UTF-8 agent.yaml is a ConfigError", "UTF-8" in str(e), str(e))
     with second_vendor():
         accounts.register("zeta", vendor="zai")
         check("vendor record: a second vendor is written down",
