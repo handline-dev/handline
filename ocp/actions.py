@@ -263,6 +263,32 @@ def open_finding_tasks(con, rid: int, findings: list[str], owner: str) -> list[i
     return tids
 
 
+def hold_refusal(con, blocks_on: list[int]) -> str | None:
+    """The reason a hold cannot wait on these tasks, or None."""
+    for b in blocks_on:
+        t = db.get_task(con, b)
+        if t is None:
+            return f"no task #{b} to wait on"
+        if t["closed_by"]:
+            return f"task #{b} is already closed - a hold cannot wait on it"
+    return None
+
+
+def open_hold_task(con, rid: int, title: str, holder: str, blocks_on: list[int]) -> list[int]:
+    """An answer that puts the work on hold keeps it as an open task owned by
+    the one holding it, linked to the request and under the task that request
+    belongs to, so the parent cannot close over it. Waiting on other tasks is
+    the same block edge `ocp task link --blocks-on` writes: closing the last
+    one notifies the holder."""
+    linked = [t for t in db.tasks_for_request(con, rid) if not t["closed_by"]]
+    tid = db.new_task(con, textsafe.oneline(title).strip(), holder, holder,
+                      parent_task=linked[0]["id"] if linked else None)
+    db.link_request(con, tid, rid)
+    for b in blocks_on:
+        db.add_block(con, tid, b)
+    return [tid]
+
+
 def dismiss(con, rid: int, me: str | None = None, reason: str | None = None,
             tasks: list[int] | None = None, no_task: str | None = None) -> tuple[bool, str]:
     """Take one row off the mailbox without replying to it. A `reason` is
