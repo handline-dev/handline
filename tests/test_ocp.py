@@ -25361,6 +25361,9 @@ def test_resolve_hold_keeps_the_work_open_and_owned(home: Path) -> None:
               [b["id"] for b in db.task_blockers(con, h["id"])] == [t_blocker])
         check("hold: the verdict names the task",
               f"#{h['id']}" in db.get_request(con, rid)["verdict"])
+        edge = con.execute("SELECT payload FROM events WHERE kind = 'block_task'").fetchall()
+        check("hold: its wait is recorded as a block_task event",
+              any(json.loads(e["payload"]).get("task_id") == h["id"] for e in edge), str(edge))
         ok, msg = actions.close_task(con, t_parent, "manager")
         check("hold: the parent cannot close over it", not ok, msg)
     finally:
@@ -25401,6 +25404,12 @@ def test_resolve_hold_keeps_the_work_open_and_owned(home: Path) -> None:
     finally:
         con.close()
 
+    con = db.connect()
+    try:
+        t_grand = db.new_task(con, "grandparent", "worker", "manager")
+        con.execute("UPDATE tasks SET parent_task = ? WHERE id = ?", (t_grand, t_parent))
+    finally:
+        con.close()
     ok, _, rid2 = askmod.ask("manager", "second", requester="worker")
     con = db.connect()
     try:
@@ -25410,6 +25419,8 @@ def test_resolve_hold_keeps_the_work_open_and_owned(home: Path) -> None:
     for label, argv, want in (
             ("a blocker that is already closed", ["--hold", "z", "--on", str(t_blocker)], "closed"),
             ("waiting on the task it sits under", ["--hold", "z", "--on", str(t_parent)], "sits under"),
+            ("waiting on the grandparent it sits under", ["--hold", "z", "--on", str(t_grand)],
+             "sits under"),
             ("--state rejected", ["--hold", "z", "--state", "rejected"], "rejected"),
             ("a blank title", ["--hold", "  "], "title")):
         rc, out = _cli(["resolve", str(rid2), "later", *argv], as_agent="manager")
