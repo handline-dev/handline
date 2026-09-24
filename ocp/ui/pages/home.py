@@ -10,7 +10,7 @@ from textual.errors import NoWidget
 from textual.widgets._data_table import CellDoesNotExist
 from textual.widgets import DataTable, Static, Tabs
 
-from ... import db, tui
+from ... import db, status, tui
 from ...bridge_textual import Dashboard, key_token
 from ..components.page_header import page_header
 from ..components.proposals import ProposalsView, open_proposals
@@ -51,6 +51,7 @@ class HomePage(Dashboard):
     # What is stuck is said on the agent's row, on the account's mark and in the header's
     # daemon word, so the STUCK panel is not drawn and the keys skip it.
     PANELS = (tui.ACCOUNTS, tui.AGENTS, tui.MESSAGES)
+    SHOW_LEGEND = False   # it explains the ACCOUNTS figures, so it sits on that panel
     SHOW_WAITS = False   # what waits on the founder shows on the rows it is about
     FOUNDER_VIEW = True
     BLINK_S = 0.6
@@ -197,6 +198,8 @@ class HomePage(Dashboard):
 
     def _redraw(self) -> None:
         super()._redraw()
+        self.query_one("#accounts-box").border_subtitle = (
+            status.SOURCE_LEGEND_SHORT if self.head.legend else "")
         self._count_hr()
         if self.tab == "hr":
             self.query_one("#hr_view", ProposalsView).refresh_rows()
