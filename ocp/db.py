@@ -123,7 +123,13 @@ CREATE TABLE IF NOT EXISTS tasks (
   -- TABLE - nothing in ocp reads a task's columns by position, so that's
   -- fine; TASK_FIELDS is compared as a set, never as an order.
   closed_by    TEXT,
-  closed_at    INTEGER
+  closed_at    INTEGER,
+  -- A discard (task #85): the asker throwing the task away before it is
+  -- done. It also writes closed_by/closed_at, so every open-task query, block
+  -- and guard already treats it as gone; these two say it was thrown away, by
+  -- whom and why (closed_at is when) - never signed off as finished work.
+  discarded_by  TEXT,
+  discard_reason TEXT
 );
 CREATE TABLE IF NOT EXISTS task_requests (
   task_id     INTEGER NOT NULL REFERENCES tasks(id),
@@ -548,6 +554,10 @@ def mark_announced(con, ids: list[int]) -> None:
 
 
 def _add_missing_columns(con) -> None:
+    task_cols = _cols(con, "tasks")
+    for col in ("discarded_by", "discard_reason"):
+        if col not in task_cols:
+            con.execute(f"ALTER TABLE tasks ADD COLUMN {col} TEXT")
     state_cols = _cols(con, "agent_state")
     for col in ("failed_attempts", "continuations", "throttle_count", "wake_failures"):
         if col not in state_cols:
@@ -929,7 +939,8 @@ def set_moot_by(con, rid: int, by: int) -> bool:
 # `tasks` means adding it here, and a test fails until both agree.
 TASK_FIELDS = ("id", "title", "owner", "parent_task", "opened_by",
                "done_evidence", "done_at", "done_via",
-               "edited_by", "edited_at", "created_at", "closed_by", "closed_at")
+               "edited_by", "edited_at", "created_at", "closed_by", "closed_at",
+               "discarded_by", "discard_reason")
 
 
 def new_task(con, title: str, owner: str, opened_by: str,
@@ -986,6 +997,17 @@ def close_task(con, tid: int, closed_by: str) -> bool:
     cur = con.execute(
         "UPDATE tasks SET closed_by = ?, closed_at = ? WHERE id = ? AND closed_by IS NULL",
         (closed_by, int(time.time()), tid))
+    return cur.rowcount > 0
+
+
+def discard_task(con, tid: int, by: str, reason: str) -> bool:
+    """Discard a task that is not done, atomically. True only if this call
+    was the one that ended it. Written as a close too (see `tasks`), so it
+    leaves every open set the same way a close does."""
+    cur = con.execute(
+        "UPDATE tasks SET closed_by = ?, closed_at = ?, discarded_by = ?, "
+        "discard_reason = ? WHERE id = ? AND closed_by IS NULL AND done_evidence IS NULL",
+        (by, int(time.time()), by, reason, tid))
     return cur.rowcount > 0
 
 
