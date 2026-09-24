@@ -149,7 +149,7 @@ def test_launch(home: Path) -> None:
     )
     stub.chmod(0o755)
 
-    agents.register("launchtest", "gamma", model="sonnet")
+    agents.register("launchtest", model="sonnet")
     cfg = home / "accounts" / "gamma" / ".claude"
     cfg.mkdir(parents=True, exist_ok=True)
 
@@ -176,9 +176,12 @@ def test_launch(home: Path) -> None:
     r = subprocess.run([str(ROOT / "bin" / "ocp"), "launch", "launchtest"],
                        capture_output=True, text=True, env=env)
     check("launch refuses over the 5h limit", r.returncode != 0, r.stdout)
+    check("the refusal names the account that frees up first",
+          "waiting for gamma's 5h window" in r.stderr, r.stderr)
     r = subprocess.run([str(ROOT / "bin" / "ocp"), "launch", "launchtest", "--force"],
                        capture_output=True, text=True, env=env)
-    check("--force overrides the usage block", r.returncode == 0, r.stdout)
+    check("--force does not place an agent where no account has room",
+          r.returncode != 0, r.stdout)
 
     # A missing status.json must NOT block first boot, or nothing could ever
     # start: status.json is written by the session we are trying to launch.
@@ -356,7 +359,7 @@ def test_a_vendor_with_no_driver_refuses_the_launch(home: Path) -> None:
     stub = bindir / "claude"
     stub.write_text('#!/bin/sh\necho EXECED\n')
     stub.chmod(0o755)
-    agents.register("zaitest", "gamma")
+    agents.register("zaitest")
     with agents.agent_file("zaitest").open("a") as f:
         f.write("vendor: nosuch\n")
     cfg = home / "accounts" / "gamma" / ".claude"
@@ -395,33 +398,66 @@ def test_doctor_looks_for_the_vendors_executable_not_its_name(home: Path) -> Non
               row and row[0][0] == doctor.OK and row[0][2] == "/opt/zai/bin/glmcode", str(r.rows))
 
 
+def test_a_launch_given_a_destination_lands_there_not_where_the_pick_would(home: Path) -> None:
+    """A move names its destination. The relaunch has to carry it: the pick over
+    every account would send the session to the roomier one."""
+    _daemon_home(home, 20)
+    accounts.register("beta")
+    agents.register("keeper")
+    credentialed(home, "alpha", "beta")
+    now = int(time.time())
+    write_status(home, "alpha", pct_5h=5, pct_7d=5, reset_7d=now + 90000, reset_5h=now + 1800)
+    write_status(home, "beta", pct_5h=60, pct_7d=10, reset_7d=now + 90000, reset_5h=now + 1800)
+    check("dest: the pick alone chooses the roomier account",
+          launch.find_room("keeper") == "alpha", str(launch.find_room("keeper")))
+    env = launch.build("keeper", account="beta")[1]
+    check("dest: a launch given beta starts on beta", env.get("OCP_ACCOUNT") == "beta", str(env))
+    cmd = launch.command_for("keeper", account="beta")
+    check("dest: the command a move relaunches with names it",
+          cmd.endswith("launch keeper --account beta"), cmd)
+    check("dest: an ordinary launch's command does not",
+          "--account" not in launch.command_for("keeper"))
+    write_status(home, "beta", pct_5h=100, pct_7d=10, reset_7d=now + 90000, reset_5h=now + 1800)
+    try:
+        launch.build("keeper", account="beta")
+        check("dest: a destination at the wall is still refused", False, "built")
+    except SystemExit as e:
+        check("dest: a destination at the wall is still refused", "refusing to start" in str(e), str(e))
+
+
 def test_an_agent_is_never_launched_on_another_vendors_account(home: Path) -> None:
-    """The last line before the exec: whatever chose the account - agent.yaml,
-    a resume, a stale record - a session is the agent's vendor's binary
-    against that account's credentials, so a mismatch refuses, in words."""
+    """The pick never offers another vendor's account, and the last line before
+    the exec still refuses a resume whose recorded account is one: a session is
+    the agent's vendor's binary against that account's credentials."""
     os.environ["OCP_HOME"] = str(home)
     with second_vendor():
         accounts.register("alpha")
         (paths.account_dir("alpha") / ".claude" / ".credentials.json").write_text("{}")
         accounts.register("zeta", vendor="zai")
-        agents.register("backend", "zeta")
-        agents.register("glm", "alpha")
-        _with_vendor("glm", "zai")
-        for agent, want in (("backend", "agent 'backend' is a claude agent and account "
-                                        "'zeta' is a zai account"),
-                            ("glm", "agent 'glm' is a zai agent and account "
-                                    "'alpha' is a claude account")):
-            try:
-                launch.build(agent)
-                check(f"launch: {agent} on the other vendor's account is refused", False, "built")
-            except SystemExit as e:
-                check(f"launch: {agent} on the other vendor's account is refused",
-                      want in str(e), str(e))
+        agents.register("backend")
+        agents.register("glm", vendor="zai")
+        check("pick: a claude agent is placed on the claude account",
+              launch.find_room("backend") == "alpha", str(launch.find_room("backend")))
+        check("pick: a zai agent is not placed on the claude account",
+              launch.find_room("glm") != "alpha", str(launch.find_room("glm")))
+        con = db.connect()
+        try:
+            db.set_account(con, "backend", "zeta")
+        finally:
+            con.close()
+        try:
+            launch.build("backend", ["--resume", "s1"])
+            check("launch: a resume on the other vendor's account is refused", False, "built")
+        except SystemExit as e:
+            check("launch: a resume on the other vendor's account is refused",
+                  "agent 'backend' is a claude agent and account 'zeta' is a zai account"
+                  in str(e), str(e))
+        agents.register("orphan", vendor="opencode")
         r = doctor.Report()
         doctor._check_agents(r)
         names = [n for _lv, n, _d in r.rows]
-        check("doctor: names the agent on the other vendor's account",
-              "agent backend: a claude agent on zai account 'zeta'" in names, str(names))
+        check("doctor: an agent whose vendor has no account is named",
+              "agent orphan: no opencode account is registered" in names, str(names))
 
 
 def test_a_launch_does_not_inherit_an_opencode_sessions_config(home: Path) -> None:
@@ -436,8 +472,8 @@ def test_a_launch_does_not_inherit_an_opencode_sessions_config(home: Path) -> No
     use_home(home)
     accounts.register("alpha")
     accounts.register("zai", vendor="opencode")
-    agents.register("backend", "alpha")
-    agents.register("glm", "zai", model="zai-coding-plan/glm-5.3-flash")
+    agents.register("backend")
+    agents.register("glm", model="zai-coding-plan/glm-5.3-flash")
     _with_vendor("glm", "opencode")
     (vendors.config_dir("alpha") / ".credentials.json").write_text("{}")
     cdrv, odrv = vendors.get("claude"), vendors.get("opencode")
@@ -477,7 +513,7 @@ def test_launch_refuses_stale(home: Path) -> None:
     bindir.mkdir(parents=True, exist_ok=True)
     (bindir / "claude").write_text("#!/bin/sh\necho started\n")
     (bindir / "claude").chmod(0o755)
-    agents.register("st", "delta")
+    agents.register("st")
     cfg = home / "accounts" / "delta" / ".claude"
     cfg.mkdir(parents=True, exist_ok=True)
     (cfg / ".credentials.json").write_text("{}")
@@ -683,7 +719,7 @@ def test_launch_judges_on_the_figure_it_may_act_on(home: Path) -> None:
     floor at the wall is at the wall. Reading the raw field let a launch start
     on an account a carry had just placed at 100%."""
     use_home(home)
-    agents.register("late", "alpha")
+    agents.register("late")
     now = int(time.time())
     write_status(home, "alpha", pct_5h=100, reset_5h=now + 1800,
                  rl_carried=True, rl_at=now - 300)
@@ -784,7 +820,7 @@ def test_spawn_survives_its_own_main_path(home: Path) -> None:
     spawn() past terminal-create, so the suite walked around the crash."""
     os.environ["OCP_HOME"] = str(home)
     home.mkdir(parents=True, exist_ok=True)
-    agents.register("spawny", "alpha")
+    agents.register("spawny")
 
     calls: list[list[str]] = []
 
@@ -822,6 +858,60 @@ def test_spawn_survives_its_own_main_path(home: Path) -> None:
         spawnmod._run, spawnmod.prompt_landed, orcamod.wait_idle, spawnmod.shutil.which = real
 
 
+def test_spawn_keeps_the_worktree_an_agent_still_has(home: Path) -> None:
+    """`worktree create --name keeper` on a name already taken makes keeper-2
+    beside it, stranding the branch and whatever is uncommitted in the first.
+    With the terminal record gone but the checkout on disk, spawn must start
+    the agent in the checkout it has and create nothing."""
+    os.environ["OCP_HOME"] = str(home)
+    home.mkdir(parents=True, exist_ok=True)
+    agents.register("keeper", "alpha")
+    wt = home / "keeper-wt"
+    wt.mkdir()
+
+    calls: list[list[str]] = []
+
+    def fake_run(args, cwd=None):
+        calls.append(args)
+        if args[:3] == ["orca", "worktree", "create"]:
+            return 0, json.dumps({"result": {"worktree": {"path": "/tmp/keeper-2"}}}), ""
+        if args[:3] == ["orca", "terminal", "create"]:
+            return 0, json.dumps({"result": {"terminal": {"handle": "term_k"}}}), ""
+        return 0, "", ""
+
+    real = (spawnmod._run, spawnmod.shutil.which, orcamod.run_current, orcamod.run_create)
+    con = db.connect()
+    try:
+        spawnmod.shutil.which = lambda _n: "/usr/bin/orca"
+        spawnmod._run = fake_run
+        orcamod.run_current = lambda: None
+        orcamod.run_create = lambda objective: None
+        # The selector `ocp launch` records, not a plain path.
+        db.set_terminal(con, "keeper", None, f"abc123::{wt}")
+
+        ok, msg = spawnmod.spawn("keeper", ROOT, base="main", dry_run=True)
+        check("spawn: a dry run names the worktree it would keep", ok and str(wt) in msg, msg)
+        check("spawn: and plans no worktree create", "worktree create" not in msg, msg)
+
+        ok, msg = spawnmod.spawn("keeper", ROOT, base="main")
+        check("spawn: an agent with a worktree and no terminal starts", ok, msg)
+        check("spawn: no second worktree is created",
+              not any(a[:3] == ["orca", "worktree", "create"] for a in calls), str(calls))
+        check("spawn: the terminal opens in the worktree it had",
+              [f"path:{wt}"] == [a[a.index("--worktree") + 1] for a in calls
+                                 if a[:3] == ["orca", "terminal", "create"]], str(calls))
+
+        # Gone from disk, there is nothing to keep: a fresh one is made.
+        calls.clear()
+        db.set_terminal(con, "keeper", None, f"abc123::{wt}-missing")
+        ok, msg = spawnmod.spawn("keeper", ROOT, base="main")
+        check("spawn: a worktree that is gone is made anew",
+              any(a[:3] == ["orca", "worktree", "create"] for a in calls), str(calls))
+    finally:
+        con.close()
+        spawnmod._run, spawnmod.shutil.which, orcamod.run_current, orcamod.run_create = real
+
+
 def test_installing_hooks_twice_does_not_double_them(home: Path) -> None:
     """`ocp` is on PATH as a symlink into the repo, so one installation spells
     itself two ways. Matching the exact string added a second entry the first
@@ -855,6 +945,39 @@ def test_installing_hooks_twice_does_not_double_them(home: Path) -> None:
           str(data["hooks"].get("PreToolUse")))
     check("hooks: the prompt and idle witnesses are among them",
           {"PermissionRequest", "TeammateIdle"} <= evmod.CAPTURED)
+
+
+def test_init_installs_the_hooks_and_lets_agents_write_the_home(home: Path) -> None:
+    """A fresh home needs both before an agent can run in a sandbox: ocp's state
+    hooks, and write access to the whole home (SQLite makes its own files there,
+    and `ask` writes agents/, locks/ and wake/), which no denyWrite may cover."""
+    use_home(home)
+    target = home / "shared" / ".claude" / "settings.json"
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text(json.dumps({"sandbox": {"enabled": True, "filesystem": {
+        "allowWrite": ["/elsewhere", str(home / "db.sqlite"), str(home / "locks" / "x")],
+        "denyWrite": [str(home.parent), str(home), "/backups"]}}}))
+    env = dict(os.environ, OCP_HOME=str(home), OCP_BIN="/usr/local/bin/ocp")
+    outs = [subprocess.run([str(ROOT / "bin" / "ocp"), "init"], capture_output=True, text=True,
+                           env=env).stdout for _ in range(2)]
+    data = json.loads(target.read_text())
+    fs = data["sandbox"]["filesystem"]
+    check("init: the hooks ocp install-hooks writes are there",
+          {ev for ev in data["hooks"]
+           if any(" hook " in h.get("command", "") for g in data["hooks"][ev]
+                  for h in g.get("hooks", []))} >= set(evmod.CAPTURED | evmod.ANSWERS),
+          str(sorted(data.get("hooks", {}))))
+    check("init: the whole home is writable, once, and per-file entries under it are gone",
+          fs["allowWrite"] == ["/elsewhere", str(home)], str(fs))
+    check("init: a denyWrite that is exactly the home is removed; a parent's and another are kept",
+          fs["denyWrite"] == [str(home.parent), "/backups"], str(fs))
+    check("init: and the parent's deny is named, each time, for the founder to decide",
+          all(f"denyWrite '{home.parent}' holds" in o for o in outs), str(outs))
+    check("init: the rest of the sandbox block is left alone", data["sandbox"]["enabled"] is True)
+    r = subprocess.run([str(ROOT / "bin" / "ocp"), "hook", "install"], capture_output=True,
+                       text=True, env=env, stdin=subprocess.DEVNULL, timeout=20)
+    check("hook install: points to install-hooks instead of reading stdin",
+          r.returncode != 0 and "ocp install-hooks" in r.stderr, r.stdout + r.stderr)
 
 
 def test_doctor_says_when_the_record_and_the_process_table_disagree(home: Path) -> None:
@@ -1072,7 +1195,7 @@ def test_jobs_refuses_a_busy_target_and_a_full_queue(home: Path) -> None:
     a fifth action while `MAX_JOBS` already run is refused for the same reason
     a screen has no room to show more than a few at once."""
     _daemon_home(home, 20)
-    agents.register("reviewer", "alpha")
+    agents.register("reviewer")
     jobs = jobsmod.Jobs()
     now = time.time()
     busy = jobsmod.Job("close", "reviewer", "closing reviewer", None, now - 4)
@@ -1096,7 +1219,7 @@ def test_jobs_stops_a_hung_action_at_its_declared_bound_not_past_it(home: Path) 
     screen says and when it acts agree - checked against the wall clock, not
     trusted from the source."""
     _daemon_home(home, 20)
-    agents.register("reviewer", "alpha")
+    agents.register("reviewer")
     stub = home / "stub_hang.py"
     stub.write_text("import time\nwhile True:\n    time.sleep(60)\n")
     real_command, real_wait, real_grace = jobsmod.ACT_COMMAND, actions.WAITS.get("dismiss"), jobsmod.GRACE_S
@@ -1144,7 +1267,7 @@ def test_jobs_kills_the_group_when_a_grandchild_outlives_the_leader(home: Path) 
     gone and the job had been stopped - checked here against the wall clock,
     not trusted from the source."""
     _daemon_home(home, 20)
-    agents.register("reviewer", "alpha")
+    agents.register("reviewer")
     stub = home / "stub_grandchild.py"
     stub.write_text(
         "import subprocess, sys, time\n"
@@ -1481,6 +1604,7 @@ def main() -> int:
         run(lambda: test_the_relabel_recovery_command_quotes_what_it_names(Path(td) / 'relabelquote'))
         run(lambda: test_a_vendor_with_no_driver_refuses_the_launch(Path(td) / 'novendor'))
         run(lambda: test_doctor_looks_for_the_vendors_executable_not_its_name(Path(td) / 'doctorbin'))
+        run(lambda: test_a_launch_given_a_destination_lands_there_not_where_the_pick_would(Path(td) / 'destlaunch'))
         run(lambda: test_an_agent_is_never_launched_on_another_vendors_account(Path(td) / 'vendorlaunch'))
         run(lambda: test_a_launch_does_not_inherit_an_opencode_sessions_config(Path(td) / 'ocleak'))
         run(lambda: test_launch_refuses_stale(Path(td) / 'stale'))
@@ -1494,7 +1618,9 @@ def main() -> int:
         run(lambda: test_doctor_agrees_with_the_pick_about_an_account_with_an_agent_mid_turn(
             Path(td) / 'docactive'))
         run(lambda: test_spawn_survives_its_own_main_path(Path(td) / 'spawnmain'))
+        run(lambda: test_spawn_keeps_the_worktree_an_agent_still_has(Path(td) / 'spawnkeep'))
         run(lambda: test_installing_hooks_twice_does_not_double_them(Path(td) / 'hookdup'))
+        run(lambda: test_init_installs_the_hooks_and_lets_agents_write_the_home(Path(td) / 'initw'))
         run(lambda: test_doctor_says_when_the_record_and_the_process_table_disagree(Path(td) / 'docsess'))
         run(lambda: test_doctor_and_ps_report_a_drifted_launch(Path(td) / 'docdrift'))
         run(lambda: test_a_file_added_to_shared_reaches_every_existing_account(Path(td) / 'relink'))

@@ -1,7 +1,7 @@
 """team.yaml routing policy (team model sections 2-4, 6).
 
 An agent only ever knows a target and a message. Everything else - whether the
-edge is allowed, the intake mode, the priority, the account, what happens to
+edge is allowed, the priority, the account, what happens to
 the requester - is decided here, deterministically, with no model involved
 (KICKOFF rule 4).
 
@@ -20,7 +20,6 @@ from .yamlcompat import ConfigError, load
 DEFAULT_MAX_CHAIN_DEPTH = 4
 DEFAULT_ASK_RATE_PER_HOUR = 20
 
-VALID_INTAKE = {"serial", "ephemeral", "dedicated"}
 # blocking is deliberately absent (team model section 2, axis 3): a requester
 # holding an account while it waits is the most expensive idle in a system
 # with a fixed number of accounts.
@@ -40,7 +39,6 @@ class Decision:
     relation: str | None = None
     response: str = "async"
     kind: str | None = None
-    intake: str | None = None
     creates_gate: bool = False
     chain_depth: int = 0
 
@@ -71,11 +69,6 @@ class Team:
         for name, cfg in self.agents.items():
             if not isinstance(cfg, dict):
                 raise ConfigError(f"agents.{name} is not a map")
-            intake = cfg.get("intake", "dedicated")
-            if intake not in VALID_INTAKE:
-                raise ConfigError(
-                    f"agents.{name}.intake={intake!r} is not one of {sorted(VALID_INTAKE)}"
-                )
         for i, e in enumerate(self.edges):
             if not isinstance(e, dict):
                 raise ConfigError(f"edges[{i}] is not a map")
@@ -158,9 +151,6 @@ class Team:
             if "*" not in str(e.get("to", ""))
         )
 
-    def intake_of(self, agent: str) -> str:
-        return (self.agents.get(agent) or {}).get("intake", "dedicated")
-
     # ------------------------------------------------------------ routing
     def route(self, requester: str, target: str, chain_depth: int = 0) -> Decision:
         if requester == target:
@@ -195,7 +185,6 @@ class Team:
                     relation=e.get("relation"),
                     response=e.get("response", "async"),
                     kind=e.get("kind"),
-                    intake=self.intake_of(target),
                     creates_gate=bool(e.get("creates_gate")),
                     chain_depth=chain_depth,
                 )
@@ -221,9 +210,9 @@ teams:
   ops: [archivist]
 
 agents:
-  backend:   { intake: dedicated }
-  reviewer:  { intake: serial }
-  archivist: { intake: ephemeral }
+  backend:   {}
+  reviewer:  {}
+  archivist: {}
 
 edges:
   - { from: "*", to: "reviewer", relation: peer, response: async }

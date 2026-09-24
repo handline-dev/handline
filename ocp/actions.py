@@ -374,20 +374,13 @@ def dismiss(con, rid: int, me: str | None = None, reason: str | None = None,
         # Linked before the row is closed: a failure between the two leaves a
         # link on a still-queued row, never an answered row attached to nothing.
         record_human_resolve(con, rid, tasks, no_task, me)
-    if row["response"] != "async":
-        # Nobody is waiting on this one, so nobody is told: no push_answer, no
-        # wake. Typing "read" at an agent as though it were an answer costs it
-        # a turn to discover that it is not one - manager was mid-sentence
-        # when a dismissal arrived as "#60 from human: read". resolve() itself
-        # stamps announced_at, in the same write as the state change.
-        ok, msg = askmod.resolve(rid, None, state="done", notify=False,
-                                 dismissed_by=by, dismissed_reason=reason)
-        return ok, f"{msg} (dismissed; {row['requester']} is not waiting on it)"
-    # An `async` sender parked on a reply and nothing else will ever unpark it,
-    # so it is told - and what it is told says it was read, not answered.
-    ok, msg = askmod.resolve(rid, None, state="done", dismissed_by=by,
-                             dismissed_reason=reason)
-    return ok, msg
+    # Closed, not announced: a dismissal is not an answer, so nothing is typed
+    # at the asker. An async asker that was parked goes back to idle
+    # (`_after_close`), and resolve() stamps announced_at in the same write as
+    # the state change.
+    ok, msg = askmod.resolve(rid, None, state="done", notify=False,
+                             dismissed_by=by, dismissed_reason=reason)
+    return ok, f"{msg} (dismissed; {row['requester']} is not told)"
 
 
 def waiting_ids(con, agent: str) -> list[int]:
@@ -1295,11 +1288,8 @@ def _delivery_block(con, agent: str, sessions: dict | None,
         return f"{agent} has no terminal - nothing can be typed to it (t starts one)", False
     if handles is not None and handle not in handles:
         return f"{agent}'s terminal is gone - Orca no longer has it", False
-    try:
-        acct = agents.current_account(agent, con)
-        pct = status.read(acct).trusted_pct_5h
-    except Exception:  # noqa: BLE001
-        acct, pct = "?", None
+    acct = agents.current_account(agent, con)
+    pct = status.read(acct).trusted_pct_5h if acct else None
     if row["closed_at"]:
         if pct is not None and pct >= status.PCT_5H_BLOCK:
             return (f"{agent} is closed and {acct} is at {pct}% - it cannot be "
@@ -1645,8 +1635,7 @@ def can(con, agent: str, key: str) -> tuple[bool, str]:
         return (False, busy_why) if busy else (True, "")
     if key == "move":
         if closed or not row["terminal"]:
-            return False, (f"{agent} has no live session to move - it starts on its "
-                           f"preferred account")
+            return False, f"{agent} has no live session to move"
         if state in (daemon.HANDOFF, daemon.STALLED):
             return False, f"{agent} is {state}"
         return True, ""
@@ -1927,13 +1916,7 @@ def agent_detail(con, agent: str, hint: bool = True) -> list[tuple[str, list[str
     except Exception as e:  # noqa: BLE001
         return [("", [f"config error: {e}"])]
     st = status.read_for_agent(agent, acct)
-    # Where it is, and - when they differ - where it would rather be. agent.yaml
-    # is a preference: a session started while that account was at the wall is
-    # on another one, and a reader who only saw the preference would be watching
-    # an account the agent is not spending on.
-    prefers = agents.account_of(agent)
-    where = acct if acct == prefers else f"{acct} (prefers {prefers})"
-    head = [Fact(("account", where), ("model", str(cfg.get("model"))),
+    head = [Fact(("account", acct or "-"), ("model", str(cfg.get("model"))),
                  ("effort", cfg.get("effort") or agents.DEFAULT_EFFORT),
                  ("ctx", "?" if st.ctx_pct is None else str(st.ctx_pct) + "%"))]
     if row:
@@ -2031,7 +2014,7 @@ def account_facts(con, acct: str, logged_in=None) -> dict:
     allowed, why = status.account_verdict(acct, st, loads.get(acct), ranked, is_in)
     rows = []
     for a in paths.list_agents():
-        if _account_of(a, con) == acct:
+        if agents.current_account(a, con) == acct:
             row = db.get_agent_state(con, a)
             rows.append((a, (row["state"] if row else "never started")
                          + (" ·closed" if row and row["closed_at"] else ""),
@@ -2082,19 +2065,6 @@ def set_default_cap(text: str) -> tuple[bool, str]:
     except ValueError:
         return False, "the default cap is a whole number, at least 1"
     return True, f"default cap {n}"
-
-
-def _account_of(agent: str, con=None) -> str | None:
-    """Where this agent's session is, for the list of who is on an account.
-
-    The live account, like every other runtime reading: an agent that moved is
-    on the account it moved to, and listing it under the one it left puts it a
-    keystroke away from its own page saying otherwise.
-    """
-    try:
-        return agents.current_account(agent, con)
-    except Exception:  # noqa: BLE001 - an unreadable agent belongs to no account here
-        return None
 
 
 def eligible_worktrees() -> tuple[list[tuple[str, str]], list[tuple[str, str]]]:

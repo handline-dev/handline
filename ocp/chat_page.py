@@ -185,7 +185,7 @@ def settings_of(agent: str) -> dict:
     """An agent's configuration as the settings tab shows it: what its agent
     file says, and the account its session is actually on."""
     cfg = agents.read(agent)
-    return {"account": str(cfg.get("account") or ""), "session_account": agents.current_account(agent),
+    return {"session_account": agents.current_account(agent) or "",
             "vendor": str(cfg.get("vendor") or agents.DEFAULT_VENDOR),
             "enabled": bool(cfg.get("enabled", True)),
             "model": str(cfg.get("model") or agents.DEFAULT_MODEL),
@@ -225,12 +225,11 @@ def settings_changes(current: dict, form: dict) -> list[tuple[str, str, str]]:
 
 def save_settings(agent: str, changes: list[tuple[str, str, str]]) -> tuple[bool, str]:
     """Write `changes` to the agent's file through the same call `ocp agent
-    register` uses, which keeps every other field as it is - the account is
-    read again here, so a move made while the tab was open is not undone. A
-    running session is not restarted."""
+    register` uses, which keeps every other field as it is. A running session
+    is not restarted."""
     new = {k: v for k, _, v in changes}
     try:
-        agents.register(agent, str(agents.read(agent).get("account") or ""), model=new.get("model"), effort=new.get("effort"),
+        agents.register(agent, model=new.get("model"), effort=new.get("effort"),
                         weight=new.get("weight"), repo=new.get("repo"))
     except (ValueError, agents.ConfigError, OSError) as e:
         return False, f"not saved: {e}"
@@ -770,7 +769,7 @@ class ChatPage(Screen):
         yield TaskTable(id="task_table", cursor_type="row", zebra_stripes=True)
         with Vertical(id="settings_view"):
             with VerticalScroll(id="settings_pane"):
-                for key, label in (("account", "account"), ("session_account", "session runs on"),
+                for key, label in (("session_account", "session runs on"),
                                    ("vendor", "vendor"), ("enabled", "enabled")):
                     with Horizontal(classes="frow"):
                         yield Static(label, classes="flabel")
@@ -1171,7 +1170,7 @@ class ChatPage(Screen):
             msg.update(Text(f"cannot read this agent's settings: {safe(e)}", style="red"))
             return
         msg.update("")
-        for key in ("account", "session_account", "vendor"):
+        for key in ("session_account", "vendor"):
             self.query_one(f"#s_{key}", Static).update(Text(safe(cfg[key])))
         self.query_one("#s_enabled", Static).update("yes" if cfg["enabled"] else "no")
         self.query_one("#s_model", Input).value = safe(cfg["model"])

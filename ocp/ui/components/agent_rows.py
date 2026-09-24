@@ -7,6 +7,7 @@ from __future__ import annotations
 import time
 from typing import NamedTuple
 
+from ...yamlcompat import ConfigError
 from ... import actions, agents, blocked, daemon, db, load as loadmod, textsafe, tui
 
 
@@ -98,8 +99,8 @@ def collect(con, rows: list[tui.AgentRow]) -> dict[str, Extra]:
         if r.error:
             continue
         try:
-            _acct, cfg = agents.placed(r.name, con)
-        except Exception:  # noqa: BLE001
+            cfg = agents.read(r.name)
+        except (OSError, ConfigError):
             cfg = {}
         fb = founder_block(con, r.name)
         block = textsafe.oneline(blocked.headline(fb["kind"], fb["detail"]))[:tui.DETAIL_CAP] if fb else ""

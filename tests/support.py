@@ -67,6 +67,12 @@ PASS, FAIL = [], []
 # process table would otherwise wait out the real minute before failing.
 dmn.END_WAIT_S, dmn.END_POLL_S = 0.3, 0.05
 
+# No test reaches the machine's Keychain or the usage endpoint: asked for a
+# reading, it gets "could not look". A test that drives usage_api sets its own.
+REAL_ACCESS_TOKEN = usage_api._access_token_detailed
+usage_api._access_token_detailed = lambda acct: (None, False)
+usage_api.refresh_credential = lambda acct, timeout=0: False
+
 # Every test that needs an Orca stands in for one, and a restore tuple that
 # forgot a name used to leak that stand-in into every test after it. Captured
 # once, put back by _daemon_home, so no test inherits another's world.
@@ -153,8 +159,12 @@ def _guarded_popen_init(self, args, *a, **kw):
     _REAL_POPEN_INIT(self, args, *a, **kw)
 
 
+REAL_LOGGED_IN = accounts.logged_in
+
+
 def restore_world() -> None:
     subprocess.Popen.__init__ = _guarded_popen_init
+    accounts.logged_in = REAL_LOGGED_IN
     for n, f in REAL_ORCA.items():
         setattr(orcamod, n, f)
     # This process itself may be running inside an Orca-launched terminal -
@@ -446,13 +456,13 @@ teams:
   ops:     [archivist]
 
 agents:
-  product:    { intake: dedicated, model: mid,   weight: light }
-  backend:    { intake: dedicated, model: high,  weight: heavy }
-  frontend:   { intake: dedicated, model: high,  weight: heavy }
-  marketing:  { intake: dedicated, model: mid,   weight: light }
-  analytics:  { intake: dedicated, model: mid,   weight: light }
-  archivist:  { intake: ephemeral, model: cheap, weight: light }
-  reviewer:   { intake: serial,    model: mid,   weight: light, reviews: [eng, growth, product] }
+  product:    { model: mid,   weight: light }
+  backend:    { model: high,  weight: heavy }
+  frontend:   { model: high,  weight: heavy }
+  marketing:  { model: mid,   weight: light }
+  analytics:  { model: mid,   weight: light }
+  archivist:  { model: cheap, weight: light }
+  reviewer:   { model: mid,   weight: light, reviews: [eng, growth, product] }
 
 edges:
   - { from: "*",         to: "reviewer",     relation: peer,  response: async }
@@ -477,7 +487,7 @@ def _reconcile_world(home: Path) -> None:
     home.mkdir(parents=True, exist_ok=True)
     os.environ["OCP_HOME"] = str(home)
     (home / "team.yaml").write_text(DESIGN_TEAM)
-    agents.register("backend", "alpha")
+    agents.register("backend")
 
 
 # ---------------------------------------------------------------- daemon
@@ -486,7 +496,7 @@ def _daemon_home(home: Path, pct: int | None) -> None:
     home.mkdir(parents=True, exist_ok=True)
     os.environ["OCP_HOME"] = str(home)
     (home / "team.yaml").write_text(DESIGN_TEAM)
-    agents.register("backend", "alpha")
+    agents.register("backend")
     write_status(home, "alpha", pct_5h=pct, pct_7d=10, ctx_pct=5,
                  reset_5h=int(time.time()) + 1800)
     # An agent the daemon acts on has somewhere to run: nothing is folded,
@@ -495,6 +505,7 @@ def _daemon_home(home: Path, pct: int | None) -> None:
     con = db.connect()
     try:
         db.set_terminal(con, "backend", "term_x", "wt")
+        db.set_account(con, "backend", "alpha")
         # It has been heard from a moment ago, so a closed session's cache is
         # warm: an agent with no clock at all is treated as cold.
         db.add_event(con, "backend", "Stop", {})
@@ -506,10 +517,6 @@ def _daemon_home(home: Path, pct: int | None) -> None:
     # fixture down.
     orcamod.available = lambda: False
     obsmod.live_sessions = lambda: None
-
-
-def _pt_epoch(y: int, m: int, d: int, h: int, mi: int) -> int:
-    return int(datetime(y, m, d, h, mi, tzinfo=dmn.QUIET_HOURS_TZ).timestamp())
 
 
 def _hold_daemon_lock_in_another_process(env: dict, write_name: bool = True):
@@ -1085,7 +1092,7 @@ class SecondVendor:
     def meters(self):
         return self.metered
     def is_resume(self, extra):
-        return False
+        return "--resume" in (extra or [])
     def launch_argv(self, exe, model, effort, disallowed, mcp, preamble):
         return [exe]
     def launch_env(self, preamble, disallowed, state_dir):
@@ -1222,7 +1229,7 @@ def _park_behind(home: Path, tail, ends_at_limit: bool = True, **term_kw):
     """keeper is at its 5h wall with no account to go to, behind `tail`."""
     _daemon_home(home, 20)
     con = db.connect()
-    agents.register("keeper", "alpha")
+    agents.register("keeper")
     db.set_account(con, "keeper", "alpha")
     write_status(home, "alpha", pct_5h=100, pct_7d=20, ctx_pct=5, reset_5h=int(time.time()) + 3 * 3600)
     keep_handoff("keeper", "# handoff · keeper\n## next\n- carry on\n")
@@ -1279,7 +1286,7 @@ def _with_accounts(*names: str) -> None:
 
 def _running_on(con, acct: str, *names: str) -> None:
     for n in names:
-        agents.register(n, acct)
+        agents.register(n)
         db.set_account(con, n, acct)
         db.set_agent_state(con, n, dmn.RUNNING)
 
@@ -1405,12 +1412,12 @@ def _two_agents_one_slot(home: Path, cap: int = 2) -> None:
     home.mkdir(parents=True, exist_ok=True)
     os.environ["OCP_HOME"] = str(home)
     (home / "team.yaml").write_text(
-        "agents:\n  a: { intake: dedicated }\n  b: { intake: dedicated }\n"
+        "agents:\n  a: {}\n  b: {}\n"
         'edges:\n  - { from: "*", to: "*", relation: peer, response: fire_and_forget }\n'
         f"limits:\n  max_chain_depth: 99\n  ask_rate_per_hour: {cap}\n"
     )
-    agents.register("a", "alpha")
-    agents.register("b", "alpha")
+    agents.register("a")
+    agents.register("b")
 
 
 # The endpoint's answer, measured live on the founder's own plan (task #42,
@@ -1508,8 +1515,8 @@ def _board_world(home: Path) -> None:
     os.environ["OCP_HOME"] = str(home)
     (home / "team.yaml").write_text("""
 agents:
-  manager: { intake: dedicated }
-  worker:  { intake: dedicated }
+  manager: {}
+  worker:  {}
 
 edges:
   - { from: "manager", to: "worker", relation: supervisor, response: fire_and_forget }
@@ -1520,7 +1527,7 @@ limits:
   ask_rate_per_hour: 50
 """)
     for n in ("manager", "worker"):
-        agents.register(n, "alpha")
+        agents.register(n)
 
 
 def _cli(argv: list[str], as_agent: str | None = "manager") -> tuple[int, str]:
@@ -1597,11 +1604,11 @@ teams:
   halim: [lane.x]
 
 agents:
-  manager:  { intake: dedicated }
-  worker:   { intake: dedicated }
-  boss:     { intake: dedicated }
-  reviewer: { intake: dedicated }
-  lane.x:   { intake: dedicated }
+  manager:  {}
+  worker:   {}
+  boss:     {}
+  reviewer: {}
+  lane.x:   {}
 
 edges:
   - { from: "manager", to: "worker", relation: supervisor, response: fire_and_forget }
@@ -1616,7 +1623,7 @@ limits:
   ask_rate_per_hour: 50
 """)
     for n in ("boss", "reviewer", "lane.x"):
-        agents.register(n, "alpha")
+        agents.register(n)
 
 
 def write_labels(path: str) -> None:
@@ -1855,7 +1862,6 @@ __all__ = [
     'DESIGN_TEAM',
     '_reconcile_world',
     '_daemon_home',
-    '_pt_epoch',
     '_hold_daemon_lock_in_another_process',
     'EXIT_DIALOG',
     'PASTED_DRAFT',
@@ -1914,6 +1920,7 @@ __all__ = [
     '_raises',
     '_session_file',
     '_park_via_handoff',
+    'REAL_ACCESS_TOKEN',
     '_process_on',
     'LIMIT_DIALOG',
     '_park_behind',

@@ -364,7 +364,7 @@ def test_display_agrees_with_the_daemon(home: Path) -> None:
     "pct_5h 0%", which is the dashboard arguing with the daemon.
     """
     use_home(home)
-    agents.register("quietone", "alpha")
+    agents.register("quietone")
     write_status(home, "alpha", pct_5h=None, pct_7d=10, ctx_pct=5)
     st = status.read("alpha")
     check("display: the account is quiet", st.pct_5h_source == "quiet")
@@ -416,7 +416,7 @@ def test_a_control_byte_is_never_accepted_as_an_identifier(home: Path) -> None:
     os.environ.pop("ORCA_TERMINAL_HANDLE", None)
     os.environ.pop("ORCA_WORKTREE_ID", None)
     home.mkdir(parents=True, exist_ok=True)
-    agents.register("spawny", "alpha")
+    agents.register("spawny")
     csi = "\u009b31m"
     # Both exist on disk: the reported trace is start_in getting past its own
     # "its worktree is gone" and reaching "started in {worktree}".
@@ -582,7 +582,7 @@ def test_top_shows_what_is_waiting_on_the_human(home: Path) -> None:
     _daemon_home(home, 20)
     con = db.connect()
     try:
-        agents.register("marina", "alpha")
+        agents.register("marina")
         db.add_request(con, "marina", actions.HUMAN, "which sea variant ships?",
                        None, "peer", "async", None, 0, None)
         db.add_request(con, "marina", "backend", "look at this diff",
@@ -849,16 +849,16 @@ def test_a_report_shows_its_name_without_its_parents_and_keeps_the_whole_key(hom
     _daemon_home(home, 20)
     (home / "team.yaml").write_text("""
 agents:
-  orcapipe-manager: { intake: dedicated }
-  orcapipe-manager.chat: { intake: dedicated }
-  other.tool: { intake: dedicated }
+  orcapipe-manager: {}
+  orcapipe-manager.chat: {}
+  other.tool: {}
 edges:
   - { from: "orcapipe-manager", to: "orcapipe-manager.chat", relation: supervisor, response: fire_and_forget }
   - { from: "orcapipe-manager", to: "other.tool", relation: supervisor, response: fire_and_forget }
   - { from: "*", to: "human", kind: escalate, creates_gate: true }
 """)
     for n in ("orcapipe-manager", "orcapipe-manager.chat", "other.tool"):
-        agents.register(n, "alpha")
+        agents.register(n)
     con = db.connect()
     try:
         tui.EXPANDED.add("orcapipe-manager")
@@ -901,17 +901,16 @@ def test_a_proposal_dismissed_in_the_bridge_is_never_stranded(home: Path) -> Non
     con = db.connect()
     try:
         accounts.register("beta")
-        agents.register("hr", "beta")
+        agents.register("hr")
         (home / "team.yaml").write_text("""
 agents:
-  hr: { intake: serial }
+  hr: {}
 edges:
   - { from: "*", to: "human", kind: escalate, creates_gate: true }
 """)
         def rows():
             return [w for w in actions.founder_waits(con) if w["kind"] == "proposal"]
-        ok, said = hr.propose("add", "dohyun", requester="hr", why="more hands",
-                              account="beta")
+        ok, said = hr.propose("add", "dohyun", requester="hr", why="more hands")
         pid = said.split()[1]
         rid = db.get_request(con, int(said.split("#")[1].split(".")[0]))["id"]
         ok, msg = actions.dismiss(con, rid, me=actions.HUMAN)
@@ -936,7 +935,7 @@ edges:
         check("withdraw: and cannot be withdrawn twice", not ok, said)
 
         # Withdrawn while still unanswered: the escalation closes with it.
-        ok, said = hr.propose("add", "dohyun", requester="hr", why="again", account="beta")
+        ok, said = hr.propose("add", "dohyun", requester="hr", why="again")
         pid2 = said.split()[1]
         rid2 = int(said.split("#")[1].split(".")[0])
         ok, said = hr.withdraw(pid2, "hr")
@@ -946,7 +945,7 @@ edges:
 
         # Answered first, withdrawn after: the founder's answer stands and the
         # withdraw refuses, leaving apply to read it (task #32).
-        ok, said = hr.propose("add", "dohyun", requester="hr", why="third", account="beta")
+        ok, said = hr.propose("add", "dohyun", requester="hr", why="third")
         pid3 = said.split()[1]
         rid3 = int(said.split("#")[1].split(".")[0])
         check("answer: an open proposal refuses a non-decision",
@@ -1122,7 +1121,7 @@ def test_the_snapshot_is_plain_text_of_every_panel_and_nothing_a_terminal_would_
     four panels in order, from the same rows the screen draws - and no escape
     code, whatever an agent wrote into what it shows."""
     _daemon_home(home, 20)
-    agents.register("reviewer", "alpha")
+    agents.register("reviewer")
     askmod.ask(actions.HUMAN, "\033[2J\033]0;PWNED\007please\x9b review this", requester="reviewer")
     text = tui.snapshot()
     lines = text.split("\n")
@@ -1146,7 +1145,7 @@ def test_a_queued_request_past_the_newest_chains_is_still_on_the_agent_page(home
     _daemon_home(home, 20)
     con = db.connect()
     try:
-        agents.register("elder", "alpha")
+        agents.register("elder")
         old = db.add_request(con, askmod.HUMAN, "elder", "the oldest question, still queued",
                              None, "peer", "async", None, 0, None)
         for i in range(actions.CHAT_CHAINS + 1):
@@ -1212,7 +1211,7 @@ def test_the_messenger_tab_carries_a_conversation_both_ways(home: Path) -> None:
     the tab on the next redraw - with the message sent whole and under its
     thread, and the unread count on the tab until it has been read."""
     _daemon_home(home, 20)
-    agents.register("reviewer", "alpha")
+    agents.register("reviewer")
     con = db.connect()
     try:
         def tab() -> tuple[str, list[str]]:
@@ -1311,10 +1310,10 @@ def test_the_cursor_follows_a_row_that_leaves_the_list(home: Path) -> None:
 def test_each_account_guard_fails_under_its_own_mutation(home: Path) -> None:
     """One condition per check, so removing any one guard fails a test."""
     use_home(home)
-    (home / "team.yaml").write_text("agents:\n  backend: { intake: dedicated }\n")
+    (home / "team.yaml").write_text("agents:\n  backend: {}\n")
     for a in ("alpha", "beta", "gamma"):
         accounts.register(a)
-    agents.register("backend", "alpha")
+    agents.register("backend")
     orig_in, orig_id, orig_logout = accounts.logged_in, accounts.identity, accounts.logout_argv
     logged = {"gamma": True}
 
@@ -1332,17 +1331,14 @@ def test_each_account_guard_fails_under_its_own_mutation(home: Path) -> None:
         accounts.identity = lambda a: None
         accounts.logout_argv = lambda a: (["claude", "auth", "logout"], {}) if logged.get(a) else ([], {})
 
-        # users_of: each half alone, and the unreadable agent.
+        # users_of: where the session is, and nowhere else.
         put_session_on("beta")
-        check("users_of: the preference half, with a row that disagrees",
-              accounts.users_of("alpha") == ["backend"], str(accounts.users_of("alpha")))
-        put_session_on("gamma")
-        check("users_of: the session half, with a preference that disagrees",
-              accounts.users_of("gamma") == ["backend"], str(accounts.users_of("gamma")))
-        put_session_on("alpha")
-        (home / "agents" / "backend" / "agent.yaml").write_text("not: [valid")
-        check("users_of: an agent that cannot be read counts as a user",
-              "backend" in accounts.users_of("beta"), str(accounts.users_of("beta")))
+        check("users_of: the account its session is on",
+              accounts.users_of("beta") == ["backend"] and accounts.users_of("alpha") == [],
+              str((accounts.users_of("beta"), accounts.users_of("alpha"))))
+        (home / "agents" / "backend" / "agent.yaml").write_text("account: alpha\n")
+        check("users_of: an account named in agent.yaml is ignored",
+              accounts.users_of("alpha") == [], str(accounts.users_of("alpha")))
         (home / "agents" / "backend" / "agent.yaml").unlink()
         # remove: one condition per test. Nothing uses gamma from here on.
         (home / "agents" / "backend" / "agent.yaml").write_text("account: alpha\n")
@@ -1464,17 +1460,18 @@ def test_the_accounts_panel_says_how_many_agents_are_assigned_and_running(home: 
     _daemon_home(home, 20)
     accounts.register("beta")
     accounts.register("gamma")
-    agents.register("frontend", "alpha")
-    agents.register("worker", "beta")
-    agents.register("mover", "beta")
+    agents.register("frontend")
+    agents.register("worker")
+    agents.register("mover")
     con = db.connect()
     try:
         db.set_agent_state(con, "backend", dmn.RUNNING, detail="working")
         db.set_agent_state(con, "frontend", dmn.IDLE)
+        db.set_account(con, "frontend", "alpha")
         # RUNNING but closed: a session that is not there is not running.
         db.set_agent_state(con, "worker", dmn.RUNNING)
         db.set_closed(con, "worker", None)
-        # Preferred beta, but its session is on alpha: it lives on alpha.
+        db.set_account(con, "worker", "beta")
         db.set_agent_state(con, "mover", dmn.IDLE)
         db.set_account(con, "mover", "alpha")
         found, unplaced = loadmod.roster(con)
@@ -1484,21 +1481,19 @@ def test_the_accounts_panel_says_how_many_agents_are_assigned_and_running(home: 
           found == {"alpha": (3, 1), "beta": (1, 0)} and unplaced == 0, (found, unplaced))
     check("roster: an account nobody lives on is absent, not a guess",
           "gamma" not in found)
-    # An agent with no readable account cannot be counted under any: it is
-    # returned on its own, so the panel can call every figure a floor.
-    agents.register("ghost", "alpha")
-    (paths.agent_dir("ghost") / "agent.yaml").write_text("model: sonnet\n")
+    # An agent that has never run is on no account, and that is not a floor.
+    agents.register("ghost")
     con = db.connect()
     try:
         after, unplaced = loadmod.roster(con)
     finally:
         con.close()
-    check("roster: an agent with no account is unplaced, and counted nowhere",
-          after == found and unplaced == 1, (after, unplaced))
+    check("roster: an agent that has never run is counted nowhere, and is not unplaced",
+          after == found and unplaced == 0, (after, unplaced))
     (paths.agent_dir("ghost") / "agent.yaml").unlink()
     # The database recorded where it is, but its config cannot be read: the
     # AGENTS panel draws it as a config error, so it is placed nowhere either.
-    agents.register("broken", "alpha")
+    agents.register("broken")
     con = db.connect()
     try:
         db.set_account(con, "broken", "alpha")
@@ -1555,10 +1550,10 @@ teams:
   dev: [marina, keeper]
 
 agents:
-  manager: { intake: dedicated }
-  marina:  { intake: dedicated }
-  keeper:  { intake: dedicated }
-  scout:   { intake: serial }
+  manager: {}
+  marina:  {}
+  keeper:  {}
+  scout:   {}
 
 edges:
   - { from: "manager", to: "dev.*", relation: supervisor, response: fire_and_forget }
@@ -1566,7 +1561,7 @@ edges:
   - { from: "*", to: "human", kind: escalate, creates_gate: true }
 """)
         for name in ("manager", "marina", "keeper", "scout"):
-            agents.register(name, "alpha")
+            agents.register(name)
         tree = actions.agent_tree()
         depth = dict(tree)
         check("tree: every registered agent is drawn, none twice",
@@ -1670,7 +1665,7 @@ teams:
   dev: [marina]
 
 agents:
-  marina: { intake: dedicated }
+  marina: {}
 
 edges:
   - { from: "ghost", to: "dev.*", relation: supervisor, response: fire_and_forget }
@@ -1684,8 +1679,8 @@ edges:
 teams: {}
 
 agents:
-  marina: { intake: dedicated }
-  keeper: { intake: dedicated }
+  marina: {}
+  keeper: {}
 
 edges:
   - { from: "marina", to: "keeper", relation: supervisor, response: fire_and_forget }
@@ -1715,7 +1710,7 @@ def test_the_wake_time_is_in_the_state_cell_not_a_column(home: Path) -> None:
     con = db.connect()
     try:
         for name in ("backend", "frontend"):
-            agents.register(name, "alpha")
+            agents.register(name)
         db.set_agent_state(con, "backend", dmn.PARKED, wake_at=int(time.time()) + 12 * 60 + 30,
                            detail="usage")
         db.set_agent_state(con, "frontend", dmn.IDLE)
@@ -1754,16 +1749,17 @@ def test_a_folded_row_says_what_its_reports_are_doing(home: Path) -> None:
 teams:
   dev: [marina, keeper]
 agents:
-  manager: { intake: dedicated }
-  marina:  { intake: dedicated }
-  keeper:  { intake: dedicated }
+  manager: {}
+  marina:  {}
+  keeper:  {}
 edges:
   - { from: "manager", to: "dev.*", relation: supervisor, response: fire_and_forget }
   - { from: "human", to: "*", relation: supervisor, response: fire_and_forget }
   - { from: "*", to: "human", kind: escalate, creates_gate: true }
 """)
         for name in ("manager", "marina", "keeper"):
-            agents.register(name, "alpha")
+            agents.register(name)
+        db.set_account(con, "manager", "alpha")
         tui.EXPANDED.clear()
 
         def manager_line() -> str:
@@ -1807,10 +1803,10 @@ teams:
   dev: [idle1, lead]
   sub: [worker]
 agents:
-  manager: { intake: dedicated }
-  idle1:   { intake: dedicated }
-  lead:    { intake: dedicated }
-  worker:  { intake: dedicated }
+  manager: {}
+  idle1:   {}
+  lead:    {}
+  worker:  {}
 edges:
   - { from: "manager", to: "dev.*", relation: supervisor, response: fire_and_forget }
   - { from: "lead", to: "sub.*", relation: supervisor, response: fire_and_forget }
@@ -1818,7 +1814,7 @@ edges:
   - { from: "*", to: "human", kind: escalate, creates_gate: true }
 """)
         for name in ("idle1", "lead", "worker"):
-            agents.register(name, "alpha")
+            agents.register(name)
         for name, state in (("marina", dmn.IDLE), ("keeper", dmn.IDLE), ("idle1", dmn.IDLE),
                             ("lead", dmn.STALLED), ("worker", dmn.RUNNING)):
             db.set_agent_state(con, name, state, detail="x")
@@ -1978,7 +1974,7 @@ def test_the_screen_says_what_is_stuck_and_what_was_decided(home: Path) -> None:
     was_running = dmn.running_elsewhere
     try:
         dmn.running_elsewhere = lambda: 4242      # the panel's ordinary world
-        agents.register("marina", "alpha")
+        agents.register("marina")
         db.set_terminal(con, "backend", None, None)
         db.add_request(con, "marina", "backend", "please look", None,
                        "peer", "async", None, 0, None)
@@ -2075,7 +2071,7 @@ def test_the_agent_head_is_trimmed_and_slash_commands_are_derived_not_kept(home:
     getters, or the day one drifts from the other a command offers what the
     keybinding refuses, or hides what it allows."""
     _daemon_home(home, 20)
-    agents.register("backend", "alpha")
+    agents.register("backend")
     con = db.connect()
     try:
         head = "\n".join(ln for h, rows in actions.agent_detail(con, "backend") if not h
@@ -2119,7 +2115,7 @@ def test_a_message_in_for_you_has_a_place_in_the_conversation(home: Path) -> Non
     on that message, not on a copy of it drawn alone. `message_place` says where
     a message sits, and None where it cannot be shown there."""
     _daemon_home(home, 20)
-    agents.register("reviewer", "alpha")
+    agents.register("reviewer")
     con = db.connect()
     try:
         def say(text: str, chain: str | None, who: str = "reviewer", fyi: bool = False) -> int:
@@ -2189,7 +2185,7 @@ def test_nothing_a_terminal_would_obey_gets_through_what_someone_else_wrote(home
         shout = " ".join(f"<{name}>before{say(bad)}after" for name, bad in attacks.items())
         pois = say(poison)
         _daemon_home(where, 20)
-        agents.register("reviewer", "alpha")
+        agents.register("reviewer")
         con = db.connect()
         try:
             actions.chat_reply(con, "reviewer", shout)
@@ -2262,12 +2258,12 @@ def test_an_agent_name_is_text_and_no_screen_can_be_made_to_obey_it(home: Path) 
     _daemon_home(home / "refuse", 20)
     for bad in ("a\033]0;T\007b", "a\nb", "a\x9bb", "a\x7fb", "a\x00b", "a\u2028b", "", ".x", "a/b"):
         try:
-            agents.register(bad, "alpha")
+            agents.register(bad)
             refused = False
         except ValueError:
             refused = True
         check(f"names: {bad!r} is not a name", refused)
-    agents.register("백엔드-2", "alpha")
+    agents.register("백엔드-2")
     check("names: a Korean name still is one", "백엔드-2" in paths.list_agents())
 
     poison = "ev\033]0;T\007il\033[0m\033[2m\033[7m\033[K\x9b1m"
@@ -2343,7 +2339,7 @@ def test_no_command_prints_what_a_terminal_would_obey(home: Path) -> None:
         # the fix rather than dump's unrelated guard.
         c1p = "\x9b1mMARKED\x9b0m" if hostile else _reference_text("\x9b1mMARKED\x9b0m")
         _daemon_home(where, 20)
-        agents.register("reviewer", "alpha")
+        agents.register("reviewer")
         con = db.connect()
         try:
             q = db.add_request(con, "marina", "reviewer", f"body {p} end\n\tsecond {p}", None,
@@ -2522,7 +2518,8 @@ def test_no_command_prints_what_a_terminal_would_obey(home: Path) -> None:
         "hooks sync": "rewrites the shared settings", "hooks status": "reads the shared settings; prints paths",
         "install-hooks": "writes the shared settings",
         "hr add": "writes a proposal; prints its id", "hr retire": "writes a proposal; prints its id",
-        "hr rename": "writes a proposal; prints its id", "hr move": "writes a proposal; prints its id",
+        "hr rename": "writes a proposal; prints its id",
+        "hr link": "writes a proposal; prints its id", "hr unlink": "writes a proposal; prints its id",
         "team init": "writes team.yaml",
         "cancel": "founder-only; its return strings hold ids and names (read in actions.cancel, ask.cancel)",
         "dismiss": "needs a human identity; returns ids (read in actions.dismiss)",
@@ -2531,8 +2528,6 @@ def test_no_command_prints_what_a_terminal_would_obey(home: Path) -> None:
         "service status": "launchd; prints a pid",
         "dev-mode": "writes a config flag; prints on/off - driven in "
                     "test_dev_mode_config_round_trips, not this scene",
-        "quiet-hours": "writes a config flag; prints on/off - driven in "
-                       "test_quiet_hours_config_round_trips, not this scene",
         "close": "an agent's session is ended through Orca; the task half is driven by test_closing_a_task_needs_no_open_child_and_only_the_asker",
         "task new": "writes a row; prints its id and an owner already checked against the registry",
         "task link": "writes a row; prints two ids",
@@ -2983,7 +2978,7 @@ def test_the_cursor_walks_the_whole_screen(home: Path) -> None:
     _daemon_home(home, 20)
     con = db.connect()
     try:
-        agents.register("marina", "alpha")
+        agents.register("marina")
         db.add_request(con, "marina", actions.HUMAN, "which variant ships?",
                        None, "peer", "async", None, 0, None)
         sel: dict = {}

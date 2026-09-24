@@ -92,14 +92,16 @@ def test_ask_flow(home: Path) -> None:
     use_home(home)
     (home / "team.yaml").write_text(DESIGN_TEAM)
     for name in ("backend", "reviewer", "archivist", "marketing"):
-        agents.register(name, "alpha")
+        agents.register(name)
 
     ok, msg, rid = askmod.ask("reviewer", "review this", requester="backend")
     check("ask: allowed edge queues", ok and rid is not None, msg)
     inbox_file = home / "agents" / "reviewer" / "inbox" / f"{rid:06d}.json"
     check("ask: writes an inbox file", inbox_file.exists())
     payload = json.loads(inbox_file.read_text())
-    check("ask: inbox payload carries routing", payload["intake"] == "serial", str(payload))
+    check("ask: inbox payload carries routing",
+          payload["response"] == "async" and "intake" not in payload, str(payload))
+    check("ask: the queued line names no intake", "intake" not in msg, msg)
 
     ok, msg, _ = askmod.ask("marketing", "do this", requester="backend")
     check("ask: denied edge refuses", not ok and "product" in msg, msg)
@@ -167,7 +169,7 @@ def test_one_request_at_a_time(home: Path) -> None:
     use_home(home)
     (home / "team.yaml").write_text(DESIGN_TEAM)
     for name in ("backend", "reviewer"):
-        agents.register(name, "alpha")
+        agents.register(name)
     con = db.connect()
     try:
         ok, msg, first = askmod.ask("reviewer", "task one", requester="backend")
@@ -312,7 +314,7 @@ def test_replace_and_merge_respect_delivered_at(home: Path) -> None:
     use_home(home)
     (home / "team.yaml").write_text(DESIGN_TEAM)
     for name in ("backend", "reviewer"):
-        agents.register(name, "alpha")
+        agents.register(name)
     con = db.connect()
     try:
         ok, msg, rid = askmod.ask("reviewer", "please look", requester="backend",
@@ -388,12 +390,12 @@ def test_retire_if_undelivered_is_the_gate_against_the_delivery_race(home: Path)
 def test_ask_rate_limit(home: Path) -> None:
     use_home(home)
     (home / "team.yaml").write_text(
-        "agents:\n  a: { intake: dedicated }\n  b: { intake: dedicated }\n"
+        "agents:\n  a: {}\n  b: {}\n"
         'edges:\n  - { from: "*", to: "*", relation: peer, response: fire_and_forget }\n'
         "limits:\n  max_chain_depth: 99\n  ask_rate_per_hour: 3\n"
     )
-    agents.register("a", "alpha")
-    agents.register("b", "alpha")
+    agents.register("a")
+    agents.register("b")
     results = [askmod.ask("b", f"n{i}", requester="a")[0] for i in range(5)]
     check("rate limit: allows up to the cap", results[:3] == [True, True, True], str(results))
     check("rate limit: refuses past the cap", results[3:] == [False, False], str(results))
@@ -405,7 +407,7 @@ def test_cycle_and_escalation(home: Path) -> None:
     use_home(home)
     (home / "team.yaml").write_text(DESIGN_TEAM)
     for n in ("backend", "reviewer", "product", "marketing", "archivist"):
-        agents.register(n, "alpha")
+        agents.register(n)
 
     # A -> B, then B -> A inside the same chain is a cycle.
     ok, _, first = askmod.ask("reviewer", "please review", requester="backend")
@@ -433,7 +435,7 @@ def test_review_pingpong(home: Path) -> None:
     use_home(home)
     (home / "team.yaml").write_text(DESIGN_TEAM)
     for n in ("backend", "reviewer", "product"):
-        agents.register(n, "alpha")
+        agents.register(n)
 
     parent = None
     outcomes = []
@@ -464,12 +466,12 @@ def test_rate_limit_throttles(home: Path) -> None:
     rather than needing a human the way a task defect does (section 8.6)."""
     use_home(home)
     (home / "team.yaml").write_text(
-        "agents:\n  a: { intake: dedicated }\n  b: { intake: dedicated }\n"
+        "agents:\n  a: {}\n  b: {}\n"
         'edges:\n  - { from: "*", to: "*", relation: peer, response: fire_and_forget }\n'
         "limits:\n  max_chain_depth: 99\n  ask_rate_per_hour: 2\n"
     )
-    agents.register("a", "alpha")
-    agents.register("b", "alpha")
+    agents.register("a")
+    agents.register("b")
     for i in range(3):
         ok, msg, _ = askmod.ask("b", f"n{i}", requester="a")
     check("rate limit: the over-cap ask is refused", not ok, msg)
@@ -493,7 +495,7 @@ def test_a_resolved_ask_does_not_stay_in_progress_across_a_park(home: Path) -> N
     directly rather than wait for an event that may never name the id."""
     use_home(home)
     (home / "team.yaml").write_text(DESIGN_TEAM)
-    agents.register("backend", "alpha")
+    agents.register("backend")
 
     con = db.connect()
     try:
@@ -747,7 +749,7 @@ def test_ask_respects_terminal_state(home: Path) -> None:
     use_home(home)
     (home / "team.yaml").write_text(DESIGN_TEAM)
     for n in ("backend", "reviewer"):
-        agents.register(n, "alpha")
+        agents.register(n)
     con = db.connect()
     try:
         db.set_agent_state(con, "backend", "STALLED", detail="needs a human")
@@ -891,7 +893,7 @@ def test_blocked_agents_come_due_in_one_request(home: Path) -> None:
     request, and it closes when the last of them clears, not the first."""
     con = _blocked_world(home)
     for name in ("worker", "reviewer"):
-        agents.register(name, "alpha")
+        agents.register(name)
         db.set_terminal(con, name, f"term_{name}", "wt")
         db.set_agent_state(con, name, dmn.IDLE)
         db.add_request(con, "marina", name, "carry on", None, "peer", "async", None, 0, None)
@@ -992,7 +994,7 @@ def test_an_open_head_request_on_an_idle_agent_is_nudged_then_shown(home: Path) 
         orcamod.typeable_now = lambda h: True
         orcamod.send = lambda h, text, enter=True: (sent.append(text), (True, ""))[1]
         sessions_are("backend")
-        agents.register("backend", "alpha")
+        agents.register("backend")
         db.set_terminal(con, "backend", "term_x", "wt")
         db.set_agent_state(con, "backend", dmn.IDLE, detail="finished its turn")
         now = int(time.time())
@@ -1165,7 +1167,7 @@ def test_a_forgotten_report_notice_is_nudged_to_dismiss_not_resolve(home: Path) 
         orcamod.typeable_now = lambda h: True
         orcamod.send = lambda h, text, enter=True: (sent.append(text), (True, ""))[1]
         sessions_are("backend")
-        agents.register("backend", "alpha")
+        agents.register("backend")
         db.set_terminal(con, "backend", "term_x", "wt")
         db.set_agent_state(con, "backend", dmn.IDLE, detail="finished its turn")
         now = int(time.time())
@@ -1219,6 +1221,7 @@ def test_a_cold_wake_with_no_handoff_still_tells_the_agent_its_transcript_and_re
     the cache is gone: the fresh session is still handed the request in hand and
     the transcript's path, found by the session id on the row."""
     _daemon_home(home, 20)
+    credentialed(home, "alpha")
     con = db.connect()
     sent: list[str] = []
     seen: list[str] = []
@@ -1392,6 +1395,44 @@ def test_an_answer_reaches_the_agent_that_asked(home: Path) -> None:
         con.close()
 
 
+def test_an_answer_line_says_what_it_answers(home: Path) -> None:
+    """`#85 from human: done` cannot be placed by an agent that has asked
+    several things; the start of its own question rides along."""
+    _daemon_home(home, 20)
+    con = db.connect()
+    try:
+        def answered(body: str, verdict: str = "done"):
+            rid = db.add_request(con, "backend", "reviewer", body, None,
+                                 "peer", "async", None, 0, None)
+            askmod.resolve(rid, verdict)
+            return [r for r in db.unannounced_answers(con, "backend") if r["id"] == rid][0]
+
+        line, more = dmn.answer_line(answered("T18 main 반영, supervisor 재시작"))
+        rid = int(line.split()[0][1:])
+        check("answer line: a short question is quoted whole, then who answered and what",
+              line == f"#{rid} (you asked: T18 main 반영, supervisor 재시작) reviewer: done", line)
+        check("answer line: and nothing more to read", more is False)
+
+        line, _ = dmn.answer_line(answered("q" * 100))
+        check("answer line: a long question is cut at the limit with an ellipsis",
+              f"(you asked: {'q' * dmn.ASKED_SHOWN}…)" in line and "q" * (dmn.ASKED_SHOWN + 1) not in line,
+              line)
+
+        line, _ = dmn.answer_line(answered("first line\n\nsecond\tline \x1b[31mred"))
+        check("answer line: a multi-line question is one line, controls blanked",
+              "\n" not in line and "\x1b" not in line and "first line" in line, repr(line))
+
+        line, _ = dmn.answer_line(answered("", "ok"))
+        check("answer line: no question, no empty parenthesis",
+              "you asked" not in line and line.endswith("reviewer: ok"), line)
+
+        line, more = dmn.answer_line(answered("why?", "v" * 200))
+        check("answer line: a long verdict is still cut and flagged as having more",
+              more and line.endswith("reviewer: " + "v" * 160) and "(you asked: why?)" in line, line)
+    finally:
+        con.close()
+
+
 def test_an_answer_wakes_the_agent_that_was_waiting_for_it(home: Path) -> None:
     """An agent that asked something, parked on the reply and was then closed
     is waiting on an answer, not on work - and resolving its request writes
@@ -1534,7 +1575,7 @@ def test_inbox_and_withdraw_cli(home: Path) -> None:
     """`ocp inbox` shows the head and a count, not the whole queue (request
     #189); `ocp withdraw` takes back an undelivered request of your own."""
     _daemon_home(home, 20)
-    agents.register("reviewer", "alpha")
+    agents.register("reviewer")
     con = db.connect()
     try:
         rid1 = db.add_request(con, "backend", "reviewer", "task one", None,
@@ -1654,32 +1695,31 @@ def test_growing_the_team_needs_a_person(home: Path) -> None:
     con = db.connect()
     try:
         accounts.register("beta")
-        agents.register("manager", "alpha")
+        agents.register("manager")
         (home / "team.yaml").write_text("""
 teams:
   dev: [marina]
 agents:
-  manager: { intake: dedicated }
-  marina:  { intake: dedicated }
-  hr:      { intake: serial }
+  manager: {}
+  marina:  {}
+  hr:      {}
 edges:
   - { from: "manager", to: "dev.*", relation: supervisor, response: fire_and_forget }
   - { from: "*", to: "hr", relation: peer, response: async }
   - { from: "*", to: "human", kind: escalate, creates_gate: true }
   - { from: "human", to: "*", relation: supervisor, response: fire_and_forget }
 """)
-        agents.register("marina", "beta")
-        agents.register("hr", "beta")
+        agents.register("marina")
+        agents.register("hr")
 
         # Nothing happens on the proposal itself.
         ok, said = hr.propose("add", "dohyun", requester="hr", why="two branches are "
-                              "waiting on one developer", account="beta", team_name="dev",
+                              "waiting on one developer", team_name="dev",
                               repo=str(home / "harbor"))
         pid = said.split()[1]
         # A why the record cannot hold is refused before anything is raised.
         before = len(actions.messages(con))
-        ok2, said2 = hr.propose("add", "twoline", requester="hr", why="one\ntwo",
-                                account="beta", team_name="dev", repo=str(home / "harbor"))
+        ok2, said2 = hr.propose("add", "twoline", requester="hr", why="one\ntwo", team_name="dev", repo=str(home / "harbor"))
         check("hr: a why with a line break is refused, and nothing reaches the founder",
               not ok2 and "nothing was raised" in said2
               and len(actions.messages(con)) == before
@@ -1774,8 +1814,8 @@ edges:
 teams:
   dev: [marina]
 agents:
-  harbor-manager: { intake: dedicated }
-  marina:         { intake: dedicated }
+  harbor-manager: {}
+  marina:         {}
 edges:
   - from: harbor-manager
     to: marina
@@ -1794,8 +1834,7 @@ edges:
               "harbor-manager" in paths.list_agents() and "boss" not in paths.list_agents())
 
         # A rejection is recorded and never applied.
-        ok, said = hr.propose("add", "seoyun", requester="hr", why="third lane",
-                              account="beta", team_name="dev")
+        ok, said = hr.propose("add", "seoyun", requester="hr", why="third lane", team_name="dev")
         pid3 = said.split()[1]
         rid3 = [m["id"] for m in actions.messages(con) if "seoyun" in (m["body"] or "")]
         askmod.resolve(rid3[0], "reject - one lane at a time")
@@ -1804,10 +1843,6 @@ edges:
               not ok and "rejected" in said and "seoyun" not in paths.list_agents(), said)
         check("hr: and the file says so",
               hr.load_proposal(pid3)["state"] == "rejected", str(hr.load_proposal(pid3)))
-
-        # An edit that would break the routing table is not written at all.
-        check("hr: a proposal for an account nobody logged in is refused up front",
-              not hr.propose("add", "x", requester="hr", why="w", account="nope")[0])
     finally:
         con.close()
 
@@ -1836,13 +1871,13 @@ def test_the_founder_does_not_approve_their_own_request(home: Path) -> None:
 teams:
   dev: [marina]
 agents:
-  marina:  { intake: dedicated }
+  marina:  {}
 edges:
   - { from: "*", to: "human", kind: escalate, creates_gate: true }
   - { from: "human", to: "*", relation: supervisor, response: fire_and_forget }
 """)
-        agents.register("marina", "beta")
-        hire = ["hr", "add", "dohyun", "--account", "beta", "--team", "dev",
+        agents.register("marina")
+        hire = ["hr", "add", "dohyun", "--team", "dev",
                 "--model", "opus", "--effort", "high",
                 "--why", "a second pair of hands on the sea work"]
 
@@ -1884,7 +1919,7 @@ edges:
         # A change that fails halfway is recorded as having failed, and leaves
         # no agent the routing table does not know.
         (home / "team.yaml").write_text("teams:\n  dev: [marina]\n")
-        ok, said = hr.enact("add", "halfborn", why="w", account="beta", team_name="dev")
+        ok, said = hr.enact("add", "halfborn", why="w", team_name="dev")
         rec = [p_ for p_ in hr.listing() if p_["agent"] == "halfborn"]
         check("hr: a refused edit registers nobody",
               not ok and "halfborn" not in paths.list_agents(), said)
@@ -1892,10 +1927,10 @@ edges:
               len(rec) == 1 and rec[0]["state"] == "failed", str(rec))
 
         check("hr: and the founder is refused the same nonsense an agent is",
-              not hr.enact("add", "x", why="w", account="nope")[0]
+              not hr.enact("add", "x", why="w")[0]
               and not hr.enact("retire", "nobody", why="w")[0]
-              and not hr.enact("add", "y", why="", account="beta")[0]
-              and not hr.enact("add", "z", why="w", account="beta", effort="ultra")[0])
+              and not hr.enact("add", "y", why="")[0]
+              and not hr.enact("add", "z", why="w", effort="ultra")[0])
     finally:
         sys.stdin = real_stdin
         os.environ.pop("OCP_AGENT", None)
@@ -1972,13 +2007,11 @@ def test_a_dismissal_is_a_state_and_never_reads_as_words(home: Path) -> None:
               detail == "dismissed - dup of #9", detail)
         w = db.add_request(con, "worker", "manager", "q5", None, "peer", "async", None, 0, None)
         actions.dismiss(con, w, me="manager", reason="not now")
-        untold = [str(x) for _, ls in actions.agent_detail(con, "worker") for x in ls]
-        check("dismissed: an agent's untold answers read the label",
-              any("dismissed by manager - not now" in x for x in untold)
-              and not any("read - no reply" in x for x in untold), str(untold))
-        line, _ = dmn.answer_line(db.unannounced_answers(con, "worker")[0])
-        check("dismissed: what is typed at the asker is the label",
-              line.endswith("dismissed by manager - not now"), line)
+        check("dismissed: nothing is left to tell the asker",
+              not db.unannounced_answers(con, "worker"),
+              str([dict(r) for r in db.unannounced_answers(con, "worker")]))
+        check("dismissed: the label is still how the row reads",
+              db.shown_verdict(db.get_request(con, w)) == "dismissed by manager - not now")
         con.execute("UPDATE requests SET resolved_at = ? WHERE id = ?", (int(time.time()), w))
         rc, out = _cli(["resolve", str(new), "hello"], as_agent="manager")
         check("dismissed: resolving it again names the state, not a quote",
@@ -2085,16 +2118,16 @@ def test_a_withdraw_and_the_founders_answer_settle_to_one_outcome(home: Path) ->
     has marked it withdrawn."""
     _daemon_home(home, 20)
     accounts.register("beta")
-    agents.register("hr", "beta")
+    agents.register("hr")
     (home / "team.yaml").write_text("""
 agents:
-  hr: { intake: serial }
+  hr: {}
 edges:
   - { from: "*", to: "human", kind: escalate, creates_gate: true }
 """)
 
     def propose(name):
-        ok, said = hr.propose("add", name, requester="hr", why="hands", account="beta")
+        ok, said = hr.propose("add", name, requester="hr", why="hands")
         return said.split()[1], int(said.split("#")[1].split(".")[0])
 
     def founder(rid, verdict, out):
@@ -2535,8 +2568,7 @@ def test_a_proposal_and_an_escalation_wait_on_the_founder_too(home: Path) -> Non
         def waits(kind):
             return [w for w in actions.founder_waits(con) if w["kind"] == kind]
 
-        ok, said = hr.propose("move", "backend", requester="backend", why="beta is quieter",
-                              account="beta")
+        ok, said = hr.propose("retire", "backend", requester="backend", why="done with it")
         pid = said.split()[1]
         w = waits("proposal")
         check("hr wait: a raised proposal is waiting on the founder, in red",
@@ -2544,7 +2576,7 @@ def test_a_proposal_and_an_escalation_wait_on_the_founder_too(home: Path) -> Non
               and "backend" in w[0]["what"], str(w))
         check("hr wait: it is not also drawn as a bare escalation", not waits("escalation"))
         check("hr wait: and the bridge pins it",
-              "hr move backend" in tui._ANSI.sub("", _snap(120, 40)))
+              "hr retire backend" in tui._ANSI.sub("", _snap(120, 40)))
 
         rid = hr.load_proposal(pid)["request"]
         askmod.resolve(rid, "approve", notify=False)
@@ -2554,8 +2586,8 @@ def test_a_proposal_and_an_escalation_wait_on_the_founder_too(home: Path) -> Non
         ok, said = hr.apply(pid)
         check("hr wait: applied, it is gone", ok and not waits("proposal"), said)
 
-        agents.register("marina", "beta")
-        ok, said = hr.propose("move", "marina", requester="marina", why="w", account="alpha")
+        agents.register("marina")
+        ok, said = hr.propose("retire", "marina", requester="marina", why="w")
         askmod.resolve(hr.load_proposal(said.split()[1])["request"], "reject", notify=False)
         check("hr wait: refused, it is gone", not waits("proposal"), str(waits("proposal")))
 
@@ -2579,7 +2611,7 @@ def test_ask_and_resolve_do_not_type_at_an_agent_at_the_wall(home: Path) -> None
     whose turn ended on the usage limit, or that a usage trigger parked, starts
     a turn that fails at once and the whole park cycle over again."""
     _daemon_home(home, 20)
-    agents.register("product", "alpha")
+    agents.register("product")
     os.environ["OCP_AGENT"], os.environ["OCP_ACCOUNT"] = "backend", "alpha"
     con = db.connect()
     sent: list[str] = []
@@ -2668,7 +2700,8 @@ def test_a_move_still_records_a_session_the_wait_missed_but_a_hook_saw(home: Pat
     _daemon_home(home, 20)
     _with_accounts("alpha", "beta")
     con = db.connect()
-    agents.register("mover", "alpha")
+    agents.register("mover")
+    write_status(home, "alpha", pct_5h=100, pct_7d=10, reset_5h=int(time.time()) + 3 * 3600)
     write_status(home, "beta", pct_5h=10, pct_7d=10, reset_5h=int(time.time()) + 3600)
     real = (orcamod.available, orcamod.alive, orcamod.close_session, orcamod.relaunch,
             orcamod.idle_now, dmn.wait_for_session)
@@ -2680,6 +2713,7 @@ def test_a_move_still_records_a_session_the_wait_missed_but_a_hook_saw(home: Pat
         db.set_account(con, "mover", "alpha")
         db.set_agent_state(con, "mover", dmn.PARKED, detail="parked earlier")
         db.bump_counter(con, "mover", "wake_failures")
+        db.add_request(con, "marina", "mover", "carry on", None, "peer", "async", None, 0, None)
         keep_handoff("mover", "# handoff · mover\n## 다음\n- carry on\n")
 
         def relaunch_but_miss(h, cmd, **kw):
@@ -2716,7 +2750,7 @@ def test_a_wait_returns_when_the_answer_lands_not_when_it_gives_up(home: Path) -
     import threading
     from ocp import cli
     _daemon_home(home, 20)
-    agents.register("reviewer", "alpha")
+    agents.register("reviewer")
     ok, _, rid = askmod.ask("reviewer", "audit branch keeper", requester=actions.HUMAN)
     check("wait: the order is sent", ok)
 
@@ -2759,7 +2793,7 @@ def test_an_answer_to_the_human_is_in_the_human_mailbox(home: Path) -> None:
     _daemon_home(home, 20)
     con = db.connect()
     try:
-        agents.register("reviewer", "alpha")
+        agents.register("reviewer")
         ok, said, rid = askmod.ask("reviewer", "audit branch keeper",
                                    requester=actions.HUMAN)
         check("mailbox: the human's own order is sent", ok, said)
@@ -2841,10 +2875,8 @@ def test_an_answer_to_the_human_is_in_the_human_mailbox(home: Path) -> None:
               db.get_agent_state(con, actions.HUMAN) is None,
               str(dict(db.get_agent_state(con, actions.HUMAN) or {})))
 
-        # Dismissing is not answering. A sender that parked on a reply has to
-        # be unparked, but one that fired and forgot is not told: typing "read"
-        # at an agent as though it were an answer costs it a turn to find out
-        # it is not one.
+        # Dismissing is not answering: no sender is told, parked or not.
+        # Typing "dismissed" at an agent costs it a turn for nothing.
         ff = db.add_request(con, "reviewer", actions.HUMAN, "FYI, shipped it", None,
                             "peer", "fire_and_forget", None, 0, None)
         actions.dismiss(con, ff)
@@ -2855,8 +2887,9 @@ def test_an_answer_to_the_human_is_in_the_human_mailbox(home: Path) -> None:
         parked = db.add_request(con, "reviewer", actions.HUMAN, "which one ships?", None,
                                 "peer", "async", None, 0, None)
         actions.dismiss(con, parked)
-        check("mailbox: but one that parked on a reply is still told",
-              parked in [r["id"] for r in db.unannounced_answers(con, "reviewer")],
+        check("mailbox: nor is one that parked on a reply - the close is all it gets",
+              db.get_request(con, parked)["announced_at"] is not None
+              and parked not in [r["id"] for r in db.unannounced_answers(con, "reviewer")],
               str(dict(db.get_request(con, parked))))
 
         # #185: `resolve` used to call push_answer unconditionally, so a
@@ -2870,7 +2903,7 @@ def test_an_answer_to_the_human_is_in_the_human_mailbox(home: Path) -> None:
         dmn.wake_agent = lambda con_, a, log_: (woken.append(a), (True, "woken"))[1]
         dmn.deliver_answers = lambda con_, a, log_: (delivered.append(a), True)[1]
         try:
-            agents.register("marina", "alpha")
+            agents.register("marina")
             db.set_terminal(con, "marina", "term_marina", None)
             ff_open = db.add_request(con, "marina", actions.HUMAN, "FYI, open", None,
                                      "peer", "fire_and_forget", None, 0, None)
@@ -2888,8 +2921,20 @@ def test_an_answer_to_the_human_is_in_the_human_mailbox(home: Path) -> None:
             parked2 = db.add_request(con, "marina", actions.HUMAN, "which one?", None,
                                      "peer", "async", None, 0, None)
             actions.dismiss(con, parked2)
-            check("mailbox: but an async dismissal still wakes its parked requester",
-                  woken == ["marina"], f"woken={woken} delivered={delivered}")
+            check("mailbox: nor is a parked one told; with nothing else waiting it is idle",
+                  not woken and not delivered
+                  and db.get_agent_state(con, "marina")["state"] == dmn.IDLE,
+                  f"woken={woken} delivered={delivered}")
+            other = db.add_request(con, "marina", "reviewer", "another?", None,
+                                   "peer", "async", None, 0, None)
+            db.close_if_queued(con, other, "done", "yes")
+            parked3 = db.add_request(con, "marina", actions.HUMAN, "which now?", None,
+                                     "peer", "async", None, 0, None)
+            actions.dismiss(con, parked3)
+            check("mailbox: with another answer untold it reads QUEUED, and only for that",
+                  db.get_agent_state(con, "marina")["state"] == dmn.QUEUED
+                  and [r["id"] for r in db.unannounced_answers(con, "marina")] == [other],
+                  str(dict(db.get_agent_state(con, "marina"))))
 
             # #264: resolve(notify=False) committed 'done' with announced_at
             # still NULL, and dismiss stamped it afterwards with its own
@@ -2918,7 +2963,7 @@ def test_an_answer_to_the_human_is_in_the_human_mailbox(home: Path) -> None:
             real_deliver_queued = dmn.deliver_queued
             dmn.deliver_queued = lambda con_, a, log_: (pushed.append(a), True)[1]
             try:
-                agents.register("nora", "beta")
+                agents.register("nora")
                 db.set_terminal(con, "nora", "term_nora", None)
                 head_rid = db.add_request(con, "marina", "nora", "first", None,
                                           "peer", "fire_and_forget", None, 0, None)
@@ -2989,7 +3034,7 @@ def test_the_founder_can_cancel_a_request_in_an_agents_queue(home: Path) -> None
         orcamod.send = lambda h, text, enter=True: (sent.append((h, text)), (True, ""))[1]
         sessions_are("backend", "marina")
         for name, term in (("backend", "term_b"), ("marina", "term_m")):
-            agents.register(name, "alpha")
+            agents.register(name)
             db.set_terminal(con, name, term, "wt")
             db.set_agent_state(con, name, dmn.IDLE)
 
@@ -3018,7 +3063,7 @@ def test_the_founder_can_cancel_a_request_in_an_agents_queue(home: Path) -> None
               any(h == "term_b" and f"#{head}" in t and "cancelled" in t and "Stop work" in t
                   for h, t in sent), str(sent))
         check("cancel: the requester is told through the answer path",
-              any(h == "term_m" and f"#{head} from backend: withdrawn by the founder" in t
+              any(h == "term_m" and f"#{head} (you asked: " in t and ") backend: withdrawn by the founder" in t
                   for h, t in sent), str(sent))
         check("cancel: the item behind it is now the head and is delivered",
               db.head_of_queue(con, "backend")["id"] == mine
@@ -4753,7 +4798,7 @@ def test_task_ids_are_checked_before_any_answer_and_short_shas_are_resolved(home
     check("board: --all shows what closed each task",
           "CLOSED by manager" in out and "DONE: " + full in out and "DONE: deadbeef" in out, out)
     try:
-        agents.register("7", "alpha")
+        agents.register("7")
         refused = False
     except Exception:
         refused = True
@@ -4922,9 +4967,9 @@ def test_retires_is_refused_on_a_row_that_is_not_the_resolvers(home: Path) -> No
     use_home(home)
     (home / "team.yaml").write_text("""
 agents:
-  reviewer: { intake: dedicated }
-  backend:  { intake: dedicated }
-  frontend: { intake: dedicated }
+  reviewer: {}
+  backend:  {}
+  frontend: {}
 
 edges:
   - { from: "*",         to: "human", kind: escalate,  creates_gate: true }
@@ -4938,7 +4983,7 @@ limits:
   ask_rate_per_hour: 50
 """)
     for n in ("reviewer", "backend", "frontend"):
-        agents.register(n, "alpha")
+        agents.register(n)
     con = db.connect()
     try:
         founders = db.add_request(con, askmod.HUMAN, "reviewer", "founder's own",
@@ -5086,8 +5131,8 @@ def test_reason_gaps_count_from_the_shapes_the_verbs_write(home: Path) -> None:
         # (ask.py's own retire, not a hand-built row) is what is measured.
         (home / "team.yaml").write_text("""
 agents:
-  manager: { intake: dedicated }
-  worker:  { intake: dedicated }
+  manager: {}
+  worker:  {}
 
 edges:
   - { from: "manager", to: "worker", relation: supervisor, response: fire_and_forget }
@@ -5128,7 +5173,7 @@ def test_jobs_runs_the_real_actrun_and_answers_or_refuses(home: Path) -> None:
     `actions.perform` and answers as JSON, and refuses anything that is not one
     of `actions.ASYNC_VERBS`. Every verb has something to say while it runs."""
     _daemon_home(home, 20)
-    agents.register("reviewer", "alpha")
+    agents.register("reviewer")
     check("jobs: every verb the screen may run has what it waits for and how long",
           set(actions.ASYNC_VERBS) == set(actions.WAITS)
           and all(isinstance(v[1], int) and v[1] > 0 for v in actions.WAITS.values()),
@@ -5224,6 +5269,7 @@ def main() -> int:
         run(lambda: test_spawn_confirms_the_task_landed(Path(td) / 'spawnland'))
         run(lambda: test_a_cold_wake_with_no_handoff_still_tells_the_agent_its_transcript_and_request(Path(td) / 'coldnone2'))
         run(lambda: test_an_answer_reaches_the_agent_that_asked(Path(td) / 'answered'))
+        run(lambda: test_an_answer_line_says_what_it_answers(Path(td) / 'ansline'))
         run(lambda: test_an_answer_wakes_the_agent_that_was_waiting_for_it(Path(td) / 'waiting'))
         run(lambda: test_a_request_can_be_read_whole(Path(td) / 'readone'))
         run(lambda: test_ask_and_resolve_take_their_text_from_a_file_too(Path(td) / 'askfile'))

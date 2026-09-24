@@ -3,7 +3,7 @@
     ocp ask <target> "<request>" [--files a.ts,b.ts]
 
 The agent supplies a target and a message. Everything else is decided here:
-whether the edge is allowed, the intake mode, chain depth, rate limiting, and
+whether the edge is allowed, chain depth, rate limiting, and
 what happens to the requester. No model is involved in any of it.
 
 A denied ask returns the reason, so the agent learns the policy rather than
@@ -99,7 +99,6 @@ def deliver(rid: int, requester: str, target: str, body: str,
         "relation": decision.relation,
         "kind": decision.kind,
         "response": decision.response,
-        "intake": decision.intake,
         "chain_depth": decision.chain_depth,
         "files": [f for f in (files or "").split(",") if f],
         "body": body,
@@ -421,8 +420,7 @@ def ask(target: str, body: str, files: str | None = None, requester: str | None 
                                wake_at=int(time.time()) + AWAIT_FALLBACK_S,
                                detail=await_reply_detail(rid, target))
 
-        note = f"queued as #{rid} for {target} (intake={decision.intake}, " \
-               f"response={decision.response}, {note})"
+        note = f"queued as #{rid} for {target} (response={decision.response}, {note})"
         if old is not None:
             note = f"replaces #{replaces}; {note}"
         if decision.creates_gate and not fyi:
@@ -660,8 +658,9 @@ def _after_close(con, rid: int, row, state: str, notify: bool) -> str:
             "SELECT COUNT(*) c FROM requests WHERE requester = ? AND state = 'queued' "
             "AND response = 'async'", (row["requester"],)).fetchone()["c"]
         if outstanding == 0:
-            db.set_agent_state(con, row["requester"], "QUEUED", wake_at=None,
-                               detail=f"request {rid} resolved: {state}")
+            # QUEUED only if something is queued or untold: a quiet dismissal
+            # leaves neither, and the asker just goes back to idle.
+            daemon._queued_or_idle(con, row["requester"], f"request {rid} resolved: {state}")
     p = _inbox(row["target"]) / f"{rid:06d}.json"
     if p.exists():
         p.unlink()

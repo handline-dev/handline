@@ -104,8 +104,7 @@ def register(acct: str, force: bool = False, vendor: str | None = None) -> Path:
     briefly the default vendor's; a vendor with no driver is refused."""
     if not acct or "/" in acct or acct.startswith("."):
         raise ValueError(f"bad account name: {acct!r}")
-    # It is written as `account: <name>` in every agent.yaml and as a key in
-    # config.yaml, so it must be text there.
+    # It is a key in config.yaml, so it must be text there.
     if not is_plain_text(acct):
         raise ValueError(f"bad account name: {acct!r}. It would not be read back as text "
                          "from the YAML files it is written into; choose another.")
@@ -393,41 +392,32 @@ def same_login_as(acct: str) -> list[str]:
 
 
 def users_of(acct: str, con=None) -> list[str]:
-    """Agents that would lose their account if this one went away.
-
-    Both halves of "on this account": a session that actually went there, and
-    agent.yaml naming it as the preference. They differ when the preferred
-    account had no room, and removing either one strands an agent. An agent
-    that cannot be read is counted as a user: what is unknown is not free.
-    """
-    from . import agents
-
-    def on(name: str) -> bool:
-        for get in (lambda: agents.current_account(name, con),
-                    lambda: agents.account_of(name)):
-            try:
-                if get() == acct:
-                    return True
-            except Exception:  # noqa: BLE001 - unreadable means in use
-                return True
-        return False
-
-    return [name for name in paths.list_agents() if on(name)]
+    """Agents with a session open on this account. A closed agent is not one:
+    it has no session to strand, and its next start is a fresh pick."""
+    from . import db
+    own = con is None
+    c = con or db.connect()
+    try:
+        return [name for name in paths.list_agents()
+                if agents.current_account(name, c) == acct
+                and not (db.get_agent_state(c, name) or {})["closed_at"]]
+    finally:
+        if own:
+            c.close()
 
 
 def remove_plan(acct: str, con=None) -> tuple[bool, str]:
     """Whether this account may be removed, and the line to say about it.
 
-    Refused while any agent is on it. Moving them is a roster decision with
-    somewhere to go - which account, and whether that one has room - and a
-    removal that made it silently would leave an agent whose next start fails.
+    Refused while an agent has a session open on it: removing the account
+    strands that session, and closing it (the bridge's `c`) frees the account.
     """
     if acct not in paths.list_accounts():
         return False, f"no account '{acct}'"
     users = users_of(acct, con)
     if users:
-        return False, (f"account '{acct}' is in use by {', '.join(users)} - move "
-                       f"{'it' if len(users) == 1 else 'them'} to another account first")
+        return False, (f"account '{acct}' has a session open for {', '.join(users)} - "
+                       f"close {'it' if len(users) == 1 else 'them'} in the bridge (c) first")
     return True, ""
 
 
@@ -502,6 +492,11 @@ def remove_account(name: str, confirm, run, con=None) -> tuple[bool, str]:
         try:
             for kind in ("usage-poll", "usage-refresh", "login-check"):
                 db.clear_cursor(c, f"{kind}:{name}")
+            # A closed agent's resume id lived under the directory just moved
+            # aside: it starts fresh on whatever account has room.
+            c.execute("UPDATE agent_state SET account = NULL, account_source = NULL, "
+                      "resume_session = NULL WHERE account = ?", (name,))
+            c.commit()
         finally:
             if own:
                 c.close()
