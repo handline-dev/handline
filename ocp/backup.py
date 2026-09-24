@@ -5,7 +5,8 @@ every five minutes, outside any agent's sandbox, and writes into a folder
 beside OCP_HOME that agents cannot write to either.
 
 accounts/*/.claude is never copied: it holds logins and transcripts, and
-credentials are never copied (KICKOFF rule 1). venv is rebuilt by `ocp venv`.
+credentials are never copied (KICKOFF rule 1). venv is rebuilt by `ocp venv`;
+logs/ and locks/ are left out.
 The database is copied with SQLite's backup API, so a snapshot taken while the
 daemon writes is still consistent.
 """
@@ -38,7 +39,9 @@ def backup_dir(home: Path | None = None) -> Path:
 
 def _skipped(rel: Path) -> bool:
     parts = rel.parts
-    return (parts[:1] == ("venv",) or (len(parts) >= 3 and parts[0] == "accounts" and parts[2] == ".claude")
+    # logs/ and locks/ change on every run (this job's own log among them), so
+    # counting them would make every run a change.
+    return (parts[:1] in (("venv",), ("logs",), ("locks",)) or (len(parts) >= 3 and parts[0] == "accounts" and parts[2] == ".claude")
             or (len(parts) == 1 and parts[0] in DB_NAMES))
 
 
@@ -65,6 +68,8 @@ def _copy_db(home: Path, dest: Path) -> None:
 def _fingerprint(home: Path, db_copy: Path | None) -> str:
     h = hashlib.sha256()
     for rel in _files(home):
+        if rel.name == "status.json":
+            continue  # rewritten by every live session; kept in the snapshot, not a change
         st = (home / rel).stat()
         h.update(f"{rel}\0{st.st_size}\0{st.st_mtime_ns}\n".encode())
     if db_copy is not None:

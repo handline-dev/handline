@@ -70,6 +70,22 @@ def test_an_unchanged_home_writes_no_second_snapshot(home: Path) -> None:
           backupmod.snapshot(home, dest, now=1_000_900) is not None)
 
 
+def test_logs_locks_and_status_files_are_not_a_change(home: Path) -> None:
+    _world(home)
+    (home / "logs").mkdir()
+    (home / "logs" / "backup.log").write_text("wrote ...\n")
+    (home / "locks").mkdir()
+    (home / "locks" / "daemon.lock").write_text("123")
+    dest = home.parent / "bk"
+    names = _names(backupmod.snapshot(home, dest, now=1_000_000))
+    check("backup: logs/ and locks/ are not in a snapshot",
+          not any(n.startswith(("logs", "locks")) for n in names), str(names))
+    (home / "logs" / "backup.log").write_text("wrote ...\nunchanged ...\n")
+    (home / "locks" / "daemon.lock").write_text("456")
+    (home / "accounts" / "alpha" / "status.json").write_text('{"pct_5h": 9}')
+    check("backup: a log line, a lock and a status.json alone write no snapshot",
+          backupmod.snapshot(home, dest, now=1_000_300) is None)
+
 def test_prune_keeps_the_last_day_then_one_a_day(home: Path) -> None:
     dest = home / "bk"
     dest.mkdir(parents=True)
@@ -104,6 +120,7 @@ def main() -> int:
     def tests(td):
         run(lambda: test_a_snapshot_holds_the_state_and_never_a_login(Path(td) / 'b1' / 'home'))
         run(lambda: test_an_unchanged_home_writes_no_second_snapshot(Path(td) / 'b2' / 'home'))
+        run(lambda: test_logs_locks_and_status_files_are_not_a_change(Path(td) / 'b5' / 'home'))
         run(lambda: test_prune_keeps_the_last_day_then_one_a_day(Path(td) / 'b3'))
         run(lambda: test_the_backups_live_beside_the_home_not_in_it(Path(td) / 'b4' / 'home'))
     return run_area(tests)
