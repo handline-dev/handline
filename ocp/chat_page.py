@@ -169,7 +169,7 @@ def task_detail(con, tid: int) -> dict | None:
             "children": kids, "requests": reqs, "asker": actions.task_asker(con, t),
             "can_close": state == "done" and mine,
             "can_reopen": state == "done" and mine,
-            "can_discard": state in ("waiting", "doing") and mine}
+            "can_discard": state == "waiting" and mine}
 
 
 EDITABLE = ("model", "effort", "weight", "repo")
@@ -601,8 +601,8 @@ class ActionBar(Horizontal):
 
 class TaskDetail(Screen):
     """One task: its title and state, who has it, what it grew out of, its
-    sub-tasks and requests, and the two calls the human may make on it - close
-    a done task, send it back with a reason, or discard one that is not done."""
+    sub-tasks and requests, and the calls the human may make on it - close
+    a done task, send it back with a reason, or discard one nothing is running on."""
     BINDINGS = [Binding("escape", "app.pop_screen", "back"),
                 Binding("c", "close_task", "close"),
                 Binding("r", "reopen_task", "reopen"),
@@ -714,7 +714,7 @@ class TaskDetail(Screen):
 
     def action_discard_task(self) -> None:
         if not (self.d and self.d["can_discard"]):
-            self.query_one("#t_flash", Static).update("only a task that you asked for and that is not done can be discarded")
+            self.query_one("#t_flash", Static).update("only a task that you asked for, with nothing running on it, can be discarded")
             return
 
         def answered(reason: str | None) -> None:
@@ -1272,14 +1272,19 @@ class ChatPage(Screen):
             if rec.cancelled:
                 continue
             # The lock is the worker's: holding it, the flag cannot be read
-            # after the worker has checked it and before it has started.
-            if rec.started or not self._send_lock.acquire(blocking=False):
+            # after the worker has checked it and before it has started, so
+            # `started` is read again under it.
+            handed = rec.started or not self._send_lock.acquire(blocking=False)
+            if not handed:
+                try:
+                    handed = rec.started
+                    if not handed:
+                        rec.cancelled = True
+                finally:
+                    self._send_lock.release()
+            if handed:
                 self.sub_title = f"agent {self.agent} · being handed over - cannot be taken back yet"
                 return True
-            try:
-                rec.cancelled = True
-            finally:
-                self._send_lock.release()
             self.sending -= 1
             self.pending.remove(rec)
             rec.widget.remove()
