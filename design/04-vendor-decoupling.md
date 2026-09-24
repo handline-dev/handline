@@ -130,6 +130,6 @@ Steps 1-4 are independent of each other and could run in parallel branches;
 - **Window model dual-write:** one release of both key sets in step 7, or a
   hard cut. Recommend the dual write; the cost is a release of duplicated keys.
 - **Optional capability Protocols vs one growing `Driver`:** recommended above
-  because `Driver` is already 25 methods and three of the new ones apply to
+  because `Driver` is already 22 methods and three of the new ones apply to
   claude only in practice. If the founder prefers a single Protocol with
   no-op defaults, steps 4-6 keep their shape and only the type changes.
