@@ -346,9 +346,9 @@ class QueueLine(Static):
 
     SPINNER = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"
 
-    def __init__(self, working: bool, rule: bool = True) -> None:
+    def __init__(self, working: bool, rule: bool = True, why: str = "") -> None:
         super().__init__(classes="queueline")
-        self.working, self.rule, self._frame = working, rule, 0
+        self.working, self.rule, self.why, self._frame = working, rule, why, 0
 
     def on_mount(self) -> None:
         self.set_interval(0.1, self._tick)
@@ -362,12 +362,16 @@ class QueueLine(Static):
         mid = f" {self.SPINNER[self._frame % len(self.SPINNER)]} working " if self.working else ""
         if not self.rule:
             return Text(mid, style="dim")
+        if self.why:
+            room = max(self.size.width - len(mid) - 12, 0)
+            why = safe(self.why)
+            mid += f"· {why if len(why) <= room else why[:max(room - 1, 0)] + '…'} "
         side = max(self.size.width - len(mid), 0)
         left = side // 2
         return Text("─" * left + mid + "─" * (side - left), style="dim")
 
 
-def transcript_widgets(msgs: list[dict], working: bool) -> list:
+def transcript_widgets(msgs: list[dict], working: bool, why: str = "") -> list:
     """The messages as widgets, the queue line ahead of the first message the
     agent has not read yet; with none unread, a spare row at the bottom that
     only shows the spinner."""
@@ -375,7 +379,7 @@ def transcript_widgets(msgs: list[dict], working: bool) -> list:
     line = False
     for m in msgs:
         if m.get("queued") and not m.get("delivered") and not line:
-            out.append(QueueLine(working))
+            out.append(QueueLine(working, why=why))
             line = True
         out.append(ChatMessage(m))
     if not line:
@@ -396,8 +400,7 @@ class ChatMessage(Vertical):
             parts.append(Static(note, classes="qstate"))
         if m.get("queued"):
             parts.append(Horizontal(
-                Static("delivered, not answered yet" if m.get("delivered") else
-                       "queued, not delivered" + (f" - {safe(m['why'])}" if m.get("why") else ""),
+                Static("delivered, not answered yet" if m.get("delivered") else "queued, not delivered",
                        classes="qstate"),
                 Button("✕ cancel", classes="cancel", compact=True),
                 classes="qrow"))
@@ -1000,14 +1003,14 @@ class ChatPage(Screen):
         pane.remove_children()
         msgs = messages_of(rows, self.agent)
         waiting = [m for m in msgs if m["queued"] and not m["delivered"]]
+        why = ""
         if waiting:
             con = db.connect()
             try:
-                for m in waiting:
-                    m["why"] = actions.queue_reason(con, self.agent, m["rid"])
+                why = actions.queue_reason(con, self.agent, waiting[0]["rid"])
             finally:
                 con.close()
-        widgets = transcript_widgets(msgs, self.agent_state[0] == "RUNNING")
+        widgets = transcript_widgets(msgs, self.agent_state[0] == "RUNNING", why)
         pane.mount(*widgets)
         pane.scroll_end(animate=False)
         self.replying = None
