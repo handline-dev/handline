@@ -666,18 +666,28 @@ def track_background_work(con, agent: str, row) -> None:
     A session with such work is not idle: the display shows it working, and
     nothing that acts on idleness (the resolve nudge, the idle close) acts on
     it. The session reports this, so it is read every tick, never assumed from
-    a clock. When the footer stops reporting it, the end is the session's own
-    activity, so the idle clock starts there and not at its last hook event."""
+    a clock. When the footer stops reporting it, the idle clock starts there
+    (`idle_since`), not at its last hook event; the end is not a model turn, so
+    it stays out of `db.last_activity`, which the prompt cache is judged by."""
     if not row or row["state"] in (RUNNING, HANDOFF, STALLED) or row["closed_at"] \
             or not row["terminal"] or not orca.available():
         return
     running = orca.background_work(row["terminal"])
     key = f"bgwork:{agent}"
+    if running is None:
+        return                # unreadable is not "ended"
     if running and not db.get_cursor(con, key):
         db.set_cursor(con, key, 1)
     elif not running and db.get_cursor(con, key):
         db.clear_cursor(con, key)
         db.add_event(con, agent, "background_work_ended", {})
+
+
+def idle_since(con, agent: str) -> int | None:
+    """When this agent last did anything, or its background work last ended."""
+    times = [t for t in (db.last_activity(con, agent),
+                         db.last_event_ts(con, agent, "background_work_ended")) if t is not None]
+    return max(times) if times else None
 
 
 def has_background_work(con, agent: str) -> bool:
@@ -708,7 +718,7 @@ def forgotten_resolve(con, agent: str, row, now: int) -> dict | None:
         return None
     if db.open_asks_of(con, agent) or db.unannounced_answers(con, agent):
         return None
-    idle = now - max(int(head["delivered_at"]), db.last_activity(con, agent) or 0)
+    idle = now - max(int(head["delivered_at"]), idle_since(con, agent) or 0)
     return {"head": head, "idle_s": idle, "behind": db.queue_depth(con, agent) - 1}
 
 
@@ -908,7 +918,7 @@ def should_close(con, agent: str, state: str, row, now: int, st) -> bool:
     failed = db.last_event_ts(con, agent, "close_failed")
     if failed is not None and now - failed < IDLE_CLOSE_S:
         return False          # /exit did not end it; asking every tick types it every tick
-    last = db.last_activity(con, agent)
+    last = idle_since(con, agent)
     if last is None:
         return False          # nothing has ever been seen from it - leave it alone
     return (now - last) >= IDLE_CLOSE_S

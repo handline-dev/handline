@@ -838,19 +838,20 @@ _BG_COUNT = re.compile(r"^\d+\s+[A-Za-z][A-Za-z ]*$")
 _BG_HINT = "to manage"
 
 
-def background_work(handle: str) -> str:
+def background_work(handle: str) -> str | None:
     """What the session itself says is still running behind its prompt - "2
-    monitors", "1 shell" - or "" when it says nothing, or cannot be read.
+    monitors", "1 shell" - or "" when it says nothing, or None when its screen
+    could not be read (no composer to read the hint row under).
 
     Read from the hint row under the composer, the session's own count, never
     from a timer or from what ocp last typed."""
     term = _screen(handle)
     tail = term.get("tail") if term else None
     if not isinstance(tail, list) or term.get("source") != "screen":
-        return ""
+        return None
     box = _composer_box(tail)
     if box is None:
-        return ""
+        return None
     for row in tail[box[1] + 1:]:
         row = str(row)
         if _BG_HINT not in row:

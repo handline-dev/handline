@@ -6122,6 +6122,23 @@ def test_an_agent_with_background_work_is_not_idle_until_it_ends(home: Path) -> 
         dmn.track_background_work(con, "backend", row)
         check("background: while work runs it is not idle-closed",
               not dmn.should_close(con, "backend", dmn.IDLE, row, now, st))
+        # A read that fails while work runs is not the work ending.
+        bg[0] = None
+        events_before = db.last_event_ts(con, "backend", "background_work_ended")
+        dmn.track_background_work(con, "backend", row)
+        check("background: an unreadable screen leaves the mark and writes no end",
+              dmn.has_background_work(con, "backend")
+              and db.last_event_ts(con, "backend", "background_work_ended") == events_before)
+        # The end restarts the idle clocks but is not a model turn: a dead prompt
+        # cache must not read warm because a monitor finished.
+        bg[0] = ""
+        con.execute("UPDATE events SET ts = ? WHERE agent = 'backend'", (now - 2 * 3600,))
+        dmn.track_background_work(con, "backend", row)
+        check("background: the end is on the idle clock",
+              dmn.idle_since(con, "backend") >= now - 5)
+        check("background: but not on the activity clock the prompt cache is judged by",
+              db.last_activity(con, "backend") <= now - 2 * 3600 + 5
+              and dmn.cache_expired(con, "backend", "sess", now))
     finally:
         for n, f in real.items():
             setattr(orcamod, n, f)
@@ -6144,8 +6161,8 @@ def test_a_close_never_stops_background_work(home: Path) -> None:
           _bg_of(COMPOSER_EMPTY[:-1] + ["  ⏵⏵ auto mode on · ← for agents · ↓ to manage"]) == "background tasks")
     check("background_work: an ordinary idle composer says nothing",
           _bg_of(COMPOSER_EMPTY) == "", _bg_of(COMPOSER_EMPTY))
-    check("background_work: a screen that cannot be read says nothing",
-          _bg_of(None) == "")
+    check("background_work: a screen that cannot be read says None, not that nothing runs",
+          _bg_of(None) is None and _bg_of(["no composer here"]) is None)
 
     con, term, ok, why = _close_at(home, EXIT_DIALOG, screen=composer_bg)
     check("close: a session with background work is refused before anything is typed",
@@ -6180,7 +6197,7 @@ def test_a_close_never_stops_background_work(home: Path) -> None:
     con.close()
 
 
-def _bg_of(tail) -> str:
+def _bg_of(tail):
     restore_world()
     orcamod._screen = lambda h: None if tail is None else _screen_of(tail)
     try:
@@ -11691,7 +11708,7 @@ def test_only_the_agents_own_events_move_its_activity_clock(home: Path) -> None:
     individually, not just asserted in bulk."""
     daemon_kinds = {"account_mismatch", "answered", "close", "close_failed", "close_task",
                     "mark_task_done", "reopen_task", "discard_task",
-                    "cold_start", "dialog_declined", "edit_task",
+                    "cold_start", "dialog_declined", "edit_task", "background_work_ended",
                     "block_task", "unblock_task", "task_unblocked",
                     "fold", "fold_failed",
                     "forced_move", "handoff", "memory_migrated", "moved_account", "nudged",
