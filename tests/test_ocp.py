@@ -57,7 +57,7 @@ dmn.END_WAIT_S, dmn.END_POLL_S = 0.3, 0.05
 REAL_ORCA = {n: getattr(orcamod, n) for n in (
     "available", "alive", "live_terminals", "wait_idle", "idle_now", "send",
     "clear_context", "close_session", "relaunch", "resume_with", "modal_open",
-    "screen_blocker", "_screen", "decline_dialog", "choose_exit")}
+    "screen_blocker", "_screen", "decline_dialog", "background_work")}
 REAL_OBSERVE = {n: getattr(obsmod, n) for n in ("live_sessions", "live_terminals")
                 if hasattr(obsmod, n)}
 
@@ -6029,86 +6029,58 @@ class _ExitTerm:
         return True, ""
 
 
-def _close_at(home: Path, dialog, exits_on="1", torn=0):
+def _close_at(home: Path, dialog, exits_on="1", torn=0, screen=None):
     restore_world()
     con = _blocked_world(home)
     db.set_terminal(con, "backend", "term_x", "wt")
     table = sessions_are("backend")
     term = _ExitTerm(dialog, exits_on, table)
     term.torn = torn
+    if screen is not None:
+        term.screen = list(screen)
     term.install()
     st = types.SimpleNamespace(session_id="sess-1", ctx_pct=8)
     ok, why = dmn._end_session(con, "backend", lambda m: None, st, resume="sess-1")
     return con, term, ok, why
 
 
-def test_a_close_answers_the_dialog_that_offers_to_exit(home: Path) -> None:
-    """ocp ending a session chooses 'Exit and stop tasks' by its label; declining
-    the dialog would keep the session, so Esc is never what ends a close."""
-    con, term, ok, why = _close_at(home, EXIT_DIALOG)
-    check("exit: the dialog /exit raised is answered by its exit option and the session ends",
-          ok and ("1", False) in term.sent and "\x1b" not in [t for t, _ in term.sent], f"{ok} {why} {term.sent}")
-    check("exit: it is on the record", con.execute("SELECT 1 FROM events WHERE agent = 'backend' AND kind = 'dialog_exit_chosen'").fetchone() is not None)
+def test_a_close_never_stops_background_work(home: Path) -> None:
+    """Task #31: a session whose own footer counts work still running behind its
+    prompt is not idle. No close types `/exit` at it, and ocp never chooses
+    'Exit and stop tasks' - the dialog that offers it is declined."""
+    bg_hint = "  ⏵⏵ auto mode on · 2 monitors · ← for agents · ↓ to manage"
+    composer_bg = COMPOSER_EMPTY[:-1] + [bg_hint]
+    check("background_work: reads the session's own count from the hint row",
+          _bg_of(composer_bg) == "2 monitors", _bg_of(composer_bg))
+    check("background_work: a shell count is read the same way",
+          _bg_of(COMPOSER_EMPTY[:-1] + ["  ⏵⏵ auto mode on · 1 shell · ← for agents · ↓ to manage"]) == "1 shell")
+    check("background_work: several kinds are all named",
+          _bg_of(COMPOSER_EMPTY[:-1] + ["  ⏵⏵ auto mode on · 1 shell · 2 monitors · ↓ to manage"]) == "1 shell, 2 monitors")
+    check("background_work: 'to manage' with no count still says there is work",
+          _bg_of(COMPOSER_EMPTY[:-1] + ["  ⏵⏵ auto mode on · ← for agents · ↓ to manage"]) == "background tasks")
+    check("background_work: an ordinary idle composer says nothing",
+          _bg_of(COMPOSER_EMPTY) == "", _bg_of(COMPOSER_EMPTY))
+    check("background_work: a screen that cannot be read says nothing",
+          _bg_of(None) == "")
+
+    con, term, ok, why = _close_at(home, EXIT_DIALOG, screen=composer_bg)
+    check("close: a session with background work is refused before anything is typed",
+          not ok and term.sent == [] and "background work is running (2 monitors)" in why, f"{ok} {why} {term.sent}")
+    check("close: a refusal for background work is not a failure to close",
+          con.execute("SELECT 1 FROM events WHERE agent = 'backend' AND kind = 'close_failed'").fetchone() is None
+          and blockedmod.dialog_note(con, "backend") == "")
     con.close()
 
-    swapped = [ln.replace("1. Exit and stop tasks", "1. Move to background and exit")
-               .replace("2. Move to background and exit", "2. Exit and stop tasks") for ln in EXIT_DIALOG]
-    con, term, ok, why = _close_at(home / "b", swapped, exits_on="2")
-    check("exit: the option is found by its label when it is not first, and that key is the one pressed",
-          ok and ("2", False) in term.sent and ("1", False) not in term.sent, f"{ok} {why} {term.sent}")
-    con.close()
-
-    only_background = [ln for ln in EXIT_DIALOG if "Exit and stop tasks" not in ln]
-    only_background = [ln.replace("2. Move", "1. Move").replace("3. Stay", "2. Stay") for ln in only_background]
-    con, term, ok, why = _close_at(home / "c", only_background)
+    con, term, ok, why = _close_at(home / "b", EXIT_DIALOG)
     keys = [t for t, _ in term.sent if t != "/exit"]
-    check("exit: with no stop-tasks option nothing is chosen - no digit, and the close is reported failed",
-          not ok and not [k for k in keys if k.isdigit()], f"{ok} {why} {term.sent}")
-    con.close()
-
-    check("exit: a dialog that offers no such option is given up on at once, not polled for the budget",
-          term.reads < 10, str(term.reads))
-    twice = [ln.replace("2. Move to background and exit", "2. Exit and stop tasks") for ln in EXIT_DIALOG]
-    con, term, ok, why = _close_at(home / "g", twice)
-    check("exit: two options with that label press nothing",
-          not ok and not [t for t, _ in term.sent if t.isdigit()], f"{ok} {why} {term.sent}")
-    con.close()
-
-    for n in (1, 2, 3):
-        con, term, ok, why = _close_at(home / f"h{n}", EXIT_DIALOG, torn=n)
-        check(f"exit: {n} torn read(s) of the dialog are read again, not given up on",
-              ok and ("1", False) in term.sent, f"{ok} {why} {term.sent}")
-        con.close()
-
-    no_confirm = EXIT_DIALOG[:-1] + ["   Esc to cancel"]
-    con, term, ok, why = _close_at(home / "d", no_confirm)
-    check("exit: a footer that does not say Enter confirms is not pressed",
-          not ok and not [t for t, _ in term.sent if t.isdigit()], f"{ok} {why} {term.sent}")
-    con.close()
-
-    # Already on screen before ocp types anything: chosen, and no /exit follows it.
-    restore_world()
-    con = _blocked_world(home / "e")
-    db.set_terminal(con, "backend", "term_x", "wt")
-    table = sessions_are("backend")
-    term = _ExitTerm(EXIT_DIALOG, "1", table)
-    term.screen = list(EXIT_DIALOG)
-    term.install()
-    st = types.SimpleNamespace(session_id="sess-1", ctx_pct=8)
-    ok, why = dmn._end_session(con, "backend", lambda m: None, st, resume="sess-1")
-    check("exit: a dialog already up is chosen, and no /exit is typed after it",
-          ok and term.sent == [("1", False)], f"{ok} {why} {term.sent}")
-    con.close()
-
-    restore_world()
-    con = _blocked_world(home / "i")
-    db.set_terminal(con, "backend", "term_x", "wt")
-    term = _ExitTerm(EXIT_DIALOG, "9", sessions_are("backend"))
-    term.screen = list(EXIT_DIALOG)
-    term.install()
-    ok, why = dmn._end_session(con, "backend", lambda m: None, st, resume="sess-1")
-    check("exit: a chosen exit the session survives says it was chosen, not that /exit was typed",
-          not ok and why.startswith("'Exit and stop tasks' was chosen") and "/exit" not in why, why)
+    check("close: a dialog /exit raises anyway is declined with Esc, never a digit",
+          not ok and keys == ["\x1b"], f"{ok} {why} {term.sent}")
+    check("close: and says the session was kept",
+          "session kept" in why and dmn.session_present("backend"), why)
+    check("close: and is recorded, so the next tick does not type /exit again",
+          con.execute("SELECT 1 FROM events WHERE agent = 'backend' AND kind = 'close_failed'").fetchone() is not None)
+    check("close: the choice to stop tasks is never on the record",
+          con.execute("SELECT 1 FROM events WHERE agent = 'backend' AND kind = 'dialog_exit_chosen'").fetchone() is None)
     con.close()
 
     # Where ocp is not ending a session the dialog is still only declined.
@@ -6119,9 +6091,18 @@ def test_a_close_answers_the_dialog_that_offers_to_exit(home: Path) -> None:
     term.screen = list(EXIT_DIALOG)
     term.install()
     blockedmod.past_dialog(con, "backend", lambda m: None)
-    check("exit: past_dialog (the clear path) still presses Esc, never a digit",
+    check("exit: past_dialog (the clear path) presses Esc, never a digit",
           term.sent == [("\x1b", False)], str(term.sent))
     con.close()
+
+
+def _bg_of(tail) -> str:
+    restore_world()
+    orcamod._screen = lambda h: None if tail is None else _screen_of(tail)
+    try:
+        return orcamod.background_work("term_x")
+    finally:
+        restore_world()
 
 
 def test_ocp_presses_only_the_key_that_declines(home: Path) -> None:
@@ -6336,11 +6317,6 @@ def test_the_live_trust_screen_is_never_pressed(home: Path) -> None:
           seen is not None and seen.kind == orcamod.MODAL, str(seen))
     outcome, _title, why = orcamod.decline_dialog("term_x")
     check("live trust: decline_dialog presses nothing, and says why",
-          outcome == orcamod.NOT_PRESSED and why and term.sent == [], f"{outcome} {why} {term.sent}")
-    term = _Terminal(tail)
-    term.install()
-    outcome, _title, why = orcamod.choose_exit("term_x")
-    check("live trust: choose_exit presses nothing, and says why",
           outcome == orcamod.NOT_PRESSED and why and term.sent == [], f"{outcome} {why} {term.sent}")
 
     con, term = _decline_world(home, tail)
@@ -11631,7 +11607,7 @@ def test_only_the_agents_own_events_move_its_activity_clock(home: Path) -> None:
     individually, not just asserted in bulk."""
     daemon_kinds = {"account_mismatch", "answered", "close", "close_failed", "close_task",
                     "mark_task_done", "reopen_task", "discard_task",
-                    "cold_start", "dialog_declined", "dialog_exit_chosen", "edit_task",
+                    "cold_start", "dialog_declined", "edit_task",
                     "block_task", "unblock_task", "task_unblocked",
                     "fold", "fold_failed",
                     "forced_move", "handoff", "memory_migrated", "moved_account", "nudged",
@@ -27670,7 +27646,7 @@ def main() -> int:
         run(lambda: test_a_failed_close_says_why_and_records_the_dialog(Path(td) / 'blk6'))
         run(lambda: test_a_close_refused_by_a_dialog_is_said_once_not_every_tick(Path(td) / 'blk11'))
         run(lambda: test_ocp_presses_only_the_key_that_declines(Path(td) / 'dcl0'))
-        run(lambda: test_a_close_answers_the_dialog_that_offers_to_exit(Path(td) / 'dcl0x'))
+        run(lambda: test_a_close_never_stops_background_work(Path(td) / 'dcl0x'))
         run(lambda: test_a_dialog_ocp_can_decline_is_cleared_and_reported(Path(td) / 'dcl1'))
         run(lambda: test_ocps_own_exit_dialog_is_pressed_at_once_and_a_working_agent_never(Path(td) / 'dcl2'))
         run(lambda: test_the_live_trust_screen_is_never_pressed(Path(td) / 'livetrust'))

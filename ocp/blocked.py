@@ -195,14 +195,12 @@ def past_dialog(con, agent: str, log, now: int | None = None,
     the exit is ocp's own and no person is answering a dialog it is about to
     dismiss.
 
-    That warrant holds where the caller is committed to ending the session.
-    The close tries `choose_exit` before this, so Esc there is only what is
-    left when no 'Exit and stop tasks' option was; the /clear path does not
-    end the session and never chooses it. A
-    caller that is only deciding whether to begin passes `only_limit`: then
-    nothing is pressed for a dialog that waiting may clear because a person is
-    answering it (a permission prompt on a working agent), and it reads as no
-    obstacle at all."""
+    Esc is what ocp presses on any dialog, including the exit dialog that
+    offers to stop background work: ocp never chooses to stop a session's
+    running work. A caller that is only deciding whether to begin passes
+    `only_limit`: then nothing is pressed for a dialog that waiting may clear
+    because a person is answering it (a permission prompt on a working agent),
+    and it reads as no obstacle at all."""
     handle = db.get_terminal(con, agent)
     seen = orca.screen_blocker(handle) if handle else None
     if seen is None or seen.kind != orca.MODAL:
@@ -222,25 +220,6 @@ def past_dialog(con, agent: str, log, now: int | None = None,
     db.add_event(con, agent, "dialog_declined", {"title": title, "key": "Esc", "work": "exit"})
     log(f'  {agent}: pressed Esc on "{title}" to get to its exit')
     return "", ""
-
-
-def choose_exit(con, agent: str, log) -> str:
-    """Choose 'Exit and stop tasks' on this agent's dialog, when there is one.
-    `orca.CHOSEN` when the key was sent, `orca.NO_OPTION` when a dialog that
-    parses offers none, else `orca.NOT_PRESSED` (nothing readable: read again).
-
-    Only for a caller that has decided to end the session: there, declining a
-    dialog that offers to end it is choosing to keep the session. Nothing else
-    calls this - the sweep may be facing a person's own answer - and a dialog
-    without that option is left to `past_dialog`'s rules."""
-    handle = db.get_terminal(con, agent)
-    if not handle:
-        return orca.NOT_PRESSED
-    outcome, title, _why = orca.choose_exit(handle)
-    if outcome == orca.CHOSEN:
-        db.add_event(con, agent, "dialog_exit_chosen", {"title": title})
-        log(f'  {agent}: chose "Exit and stop tasks" on "{title}"')
-    return outcome
 
 
 def dialog_note(con, agent: str) -> str:

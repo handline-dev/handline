@@ -980,22 +980,24 @@ def _close_agent(con, agent: str, log, st) -> tuple[bool, str]:
     return ok, why
 
 
-def _answer_exit_dialog(con, agent: str, log) -> None:
-    """The `/exit` just typed can raise a dialog (background work is running)
-    that offers to exit: choose it, once. Stops when the session is gone, when
-    the choice is made, or when a dialog with no such option is up - that one is
-    left to the failed-close path - and gives up after EXIT_DIALOG_WAIT_S."""
+def _decline_exit_dialog(con, agent: str, log) -> bool:
+    """The `/exit` just typed can raise a dialog offering to stop background
+    work: decline it (Esc keeps the session), never choose it. True when one
+    was declined; a dialog that would not be, or none, is left to the
+    session-still-running report. Stops when the session is gone, or after
+    EXIT_DIALOG_WAIT_S."""
     # END_WAIT_S bounds it too, which is what lets the suite run it in tenths of a second.
     deadline = time.time() + min(EXIT_DIALOG_WAIT_S, END_WAIT_S)
+    handle = db.get_terminal(con, agent)
     while time.time() < deadline:
         sessions = obs.live_sessions()
         if sessions is not None and not sessions.get(agent):
-            return
-        # One read decides: a footer with nothing readable above it is a torn
-        # read and is read again, not given up on.
-        if blocked.choose_exit(con, agent, log) in (orca.CHOSEN, orca.NO_OPTION):
-            return
+            return False
+        seen = orca.screen_blocker(handle) if handle else None
+        if seen is not None and seen.kind == orca.MODAL:
+            return not blocked.past_dialog(con, agent, log)[0]
         time.sleep(END_POLL_S)
+    return False
 
 
 def _end_session(con, agent: str, log, st, resume: str | None) -> tuple[bool, str]:
@@ -1018,15 +1020,16 @@ def _end_session(con, agent: str, log, st, resume: str | None) -> tuple[bool, st
         # There is nothing to reclaim either; the memory came back when the
         # session did whatever it did.
         return False, "no session process; nothing to close"
+    # Work the session says it still runs is not ours to stop: an agent with
+    # background work is not idle, whichever path is closing it.
+    running = orca.background_work(handle)
+    if running:
+        return False, f"background work is running ({running}); not closing"
     # A dialog on screen is what `/exit` would answer instead of ending anything.
     # Past it first, so the close is one act and not a refusal the next tick
     # meets again; when it cannot be, the refusal says why.
-    # A dialog that offers to end the session is answered by ending it: declining
-    # it would keep the session ocp has decided to end. The exit is then already
-    # under way, and typing `/exit` at it would reach the shell.
-    chosen = blocked.choose_exit(con, agent, log) == orca.CHOSEN
-    stuck = "" if chosen else _past_dialog(con, agent, log)
-    ok, why = (True, "exit chosen at its dialog") if chosen else orca.close_session(handle)
+    stuck = _past_dialog(con, agent, log)
+    ok, why = orca.close_session(handle)
     if not ok and stuck:
         why = f"{why} ({stuck})"
     if not ok:
@@ -1037,18 +1040,21 @@ def _end_session(con, agent: str, log, st, resume: str | None) -> tuple[bool, st
         # own next pass over this agent.
         blocked.note_close_failure(con, agent, log)
         return False, why
+    # A dialog that offers to stop background work only appears now; declining
+    # it is the answer, so this is a refusal and not a failed close.
+    if _decline_exit_dialog(con, agent, log):
+        why = "background work is running; the exit dialog was declined, session kept"
+        db.add_event(con, agent, "close_failed", {"why": why, "pid": None})
+        return False, why
     # Typed is not ended: the `/exit` can be eaten or slow, and a closed row
     # over a live process is cleared by the sweep, while a relaunch typed at
     # that terminal reaches the old session as a prompt. A session that does
     # not end is reported, neither retried (a second `/exit` goes to whatever
     # ate the first) nor killed (that skips its own shutdown); the sweep
     # records the close if it does end later.
-    if not chosen:
-        _answer_exit_dialog(con, agent, log)
     if not _wait_session_gone(agent):
         pid = (obs.live_sessions() or {}).get(agent)
-        did = "'Exit and stop tasks' was chosen" if chosen else "/exit was typed"
-        why = (f"{did} but the session is still running"
+        why = (f"/exit was typed but the session is still running"
                f"{f' (pid {pid})' if pid else ''} after {END_WAIT_S}s; not marked closed")
         db.add_event(con, agent, "close_failed", {"why": why, "pid": pid})
         blocked.note_close_failure(con, agent, log)
