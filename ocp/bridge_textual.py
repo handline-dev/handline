@@ -840,8 +840,8 @@ class TaskChecks(JobsAware, Screen):
         row = table.cursor_row
         table.clear()
         for t in self.rows:
-            parent = f" (under #{t['parent_task']})" if t["parent_task"] else ""
-            cells = ("[x]" if t["id"] in self.checked else "[ ]", f"#{t['id']}",
+            parent = f" (under {actions.task_ref(t['parent_task'])})" if t["parent_task"] else ""
+            cells = ("[x]" if t["id"] in self.checked else "[ ]", actions.task_ref(t['id']),
                      textsafe.oneline(t["title"]) + parent, t["owner"],
                      textsafe.oneline(t["done_evidence"]))
             table.add_row(*(Text(c) for c in cells), key=str(t["id"]))
@@ -885,7 +885,7 @@ class TaskChecks(JobsAware, Screen):
         self.checked.discard(tid)
 
     async def _reopen(self, tid: int) -> None:
-        reason = await self.app.push_screen_wait(TextPrompt(f"reopen #{tid} - why:"))
+        reason = await self.app.push_screen_wait(TextPrompt(f"reopen {actions.task_ref(tid)} - why:"))
         if reason is None or not reason.strip():
             self.flash = "left alone"
             return

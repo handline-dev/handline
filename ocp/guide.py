@@ -65,7 +65,7 @@ its session lives on.""",
   ocp inbox --all                 the whole queue and its history
   ocp read <id>                   one of them whole
   ocp resolve <id> "<verdict>"    answer one (the founder's requests also need
-                                   --task N [N ...] or --no-task "reason")
+                                   --task T<n> [T<n> ...] or --no-task "reason")
   ocp resolve <id> "..." --retires <old id>   also takes that older, still-queued
                                    request out of its queue as superseded (a duplicate ask)
   ocp resolve <id> "..." --finding "<title>" [--finding "<title>" ...]   a finding
@@ -137,9 +137,10 @@ exchange as one thread; the screen's answer key does it for you.""",
 
     "memory": """closing an idle session
   ocp close <agent>                end the session, keep the terminal
-  (`ocp close <task number>` closes a task on the board instead - the
-   asker's sign-off, once `ocp task done <task number> <sha, --request N,
-   or a reason>` says the owner is finished; #71)
+  (`ocp close T<n>` closes a task on the board instead - the asker's
+   sign-off, once `ocp task done T<n> <sha, --request N, or a reason>` says
+   the owner is finished; #71. A task is always written T<n>; a bare number
+   is a request)
   ocp resume <agent>               put it back, resuming the same session
 
 A session that is not being used holds 250-500MB and spends no tokens at all.

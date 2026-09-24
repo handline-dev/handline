@@ -2980,17 +2980,20 @@ def test_a_second_done_or_close_loses_the_race(home: Path) -> None:
 
 def test_close_says_what_it_read_and_never_guesses(home: Path) -> None:
     _board_world(home)
-    rc, out = _cli(["close", "42", "fine"])
-    check("close: a number that is no task says no such task, and closes no session",
-          rc == 1 and "no task #42" in out, out)
+    rc, out = _cli(["close", "T42", "fine"])
+    check("close: a task number that is no task says no such task, and closes no session",
+          rc == 1 and "no task T42" in out, out)
+    rc, out = _cli(["close", "T42"])
+    check("close: and the same with no evidence", rc == 1 and "no task T42" in out, out)
     rc, out = _cli(["close", "42"])
-    check("close: and the same with no evidence", rc == 1 and "no task #42" in out, out)
+    check("close: a bare number is refused with both readings, closing nothing",
+          rc == 1 and "task 42 or request 42" in out, out)
     _cli(["task", "new", "--owner", "worker", "t"])
-    rc, out = _cli(["close", "1", "fine"])
-    check("close: a real task with evidence says it read a task and why it refused "
+    rc, out = _cli(["close", "T1", "fine"])
+    check("close: a real task with evidence says why it refused "
           "(#71: evidence belongs to `ocp task done` now)",
-          rc == 1 and "as task #1" in out and "task done" in out, out)
-    rc, out = _cli(["close", "1"])
+          rc == 1 and "task T1" in out and "task done" in out, out)
+    rc, out = _cli(["close", "T1"])
     check("close: a real task not done yet is refused too", rc == 1 and "not done" in out, out)
     rc, out = _cli(["close", "worker", "abc1234"])
     check("close: evidence on a name says it read an agent, and closed nothing",

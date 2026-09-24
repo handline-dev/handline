@@ -813,11 +813,15 @@ def test_the_menu_offers_what_the_text_could_become() -> None:
     check("menu: a slash lists every page command",
           names("/") == ["/chat", "/all", "/task", "/sort", "/settings", "/back"], str(names("/")))
     check("menu: a slash narrows by the letters typed", names("/ta") == ["/task"], str(names("/ta")))
-    check("menu: /task lists the tasks, newest change first", names("/task ") == ["#84", "#85", "#7"])
-    check("menu: /task narrows by a word of the title", names("/task audit") == ["#7"])
-    check("menu: /task narrows by the digits of the number", names("/task 8") == ["#84", "#85"])
+    check("menu: /task lists the tasks, newest change first", names("/task ") == ["T84", "T85", "T7"])
+    check("menu: /task narrows by a word of the title", names("/task audit") == ["T7"])
+    check("menu: /task narrows by the digits of the number", names("/task 8") == ["T84", "T85"])
     check("menu: /sort names the columns", names("/sort ti") == ["title"], str(names("/sort ti")))
-    check("menu: a hash lists tasks then requests", names("see #") == ["#84", "#85", "#7", "#2305", "#2289"])
+    check("menu: a hash lists tasks then requests", names("see #") == ["T84", "T85", "T7", "#2305", "#2289"])
+    check("menu: /task also takes the T form, and a task inserts as T<n> but a request as its bare number",
+          names("/task t8") == ["T84", "T85"]
+          and [x.arg for x in cp.suggest("see #", tasks, reqs)][:1] == ["T84"]
+          and [x.arg for x in cp.suggest("see #", tasks, reqs)][3:4] == ["2305"])
     check("menu: a hash narrows by the digits after it", names("see #23") == ["#2305"])
     check("menu: a hash not after a space, or with letters, offers nothing",
           names("a#2") == [] and names("a #zz") == [])
@@ -827,7 +831,20 @@ def test_the_menu_offers_what_the_text_could_become() -> None:
     check("menu: Tab on a task fills the command, Enter opens it",
           pick.tab == "/task 84" and pick.action == "open" and pick.arg == "84")
     ref = cp.suggest("see #", tasks, reqs)[0]
-    check("menu: a reference inserts only the number", ref.action == "insert" and ref.arg == "84")
+    check("menu: a task reference inserts T<n>", ref.action == "insert" and ref.arg == "T84")
+
+
+def test_the_task_pages_write_a_task_as_T_and_a_request_as_a_bare_number() -> None:
+    from ocp import chat_page as cp
+    d = {"id": 1, "title": "t", "state": "doing", "owner": "o", "opened_by": "o", "created_at": 1,
+         "parent": (9, "up"), "done": None, "closed": None, "asker": "o",
+         "children": [(2, "kid", "waiting")], "requests": [(3, "a", "b", "queued", "line")]}
+    page = cp.task_page(d)
+    check("page: the badge and the parent and the sub-tasks say T<n>",
+          "T1" in page["badge"].plain and "T9" in page["meta"].plain
+          and page["kids"][0].plain.startswith("T2"), str((page["badge"].plain, page["meta"].plain)))
+    check("page: a request under it is still a bare #<n>", page["reqs"][0].plain.startswith("#3"))
+    check("table: the task column says T<n>", cp.task_cells((5, "owns", "waiting", "t", "o", 1))[0] == "T5")
 
 
 def test_the_typed_history_keeps_the_newest_and_never_repeats() -> None:
@@ -1040,6 +1057,7 @@ def test_what_an_agent_wrote_is_drawn_inert_on_every_part_of_the_page() -> None:
 async def _run_all() -> None:
     test_only_y_n_or_escape_answers_a_confirm()
     test_the_menu_offers_what_the_text_could_become()
+    test_the_task_pages_write_a_task_as_T_and_a_request_as_a_bare_number()
     test_the_typed_history_keeps_the_newest_and_never_repeats()
     test_the_chat_is_paged_and_hides_what_never_reached_the_agent()
     test_a_reply_closes_a_waiting_question_or_starts_a_new_request()
