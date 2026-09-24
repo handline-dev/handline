@@ -231,7 +231,7 @@ async def test_accounts_panel_cap_add_remove_and_open() -> None:
         await pilot.pause(0.2)
         check("accounts: removing one an agent is on refuses through remove_plan, "
               "before the human is ever asked to type its name",
-              "in use by" in screen.flash and not isinstance(app.screen, TextPrompt),
+              "session open" in screen.flash and not isinstance(app.screen, TextPrompt),
               screen.flash)
 
         await pilot.press("enter")
@@ -296,7 +296,7 @@ async def test_messages_panel_open_reaches_the_agents_page() -> None:
     row does when the message belongs to one - `actions.message_place`,
     reused rather than a separate detail view for the common case."""
     home = _home("msgopen")
-    agents.register("reviewer", "alpha")
+    agents.register("reviewer")
     con = db.connect()
     try:
         db.set_terminal(con, "reviewer", "term_r", "wt")
@@ -367,7 +367,7 @@ async def test_wake_on_a_stalled_agent_asks_first() -> None:
     tui.CONFIRM` misses it, since `wake` is deliberately left off that set for
     every other state."""
     home = _home("wake")
-    agents.register("backend", "alpha")
+    agents.register("backend")
     con = db.connect()
     try:
         db.set_terminal(con, "backend", "term_x", "wt")
@@ -402,7 +402,7 @@ async def test_messages_panel_acts_on_a_folded_row() -> None:
     # closes a report (`opened_by_human`), and the dismiss scenario below
     # needs its own two reports still queued and folded.
     _home("msgfoldopen")
-    agents.register("reviewer", "alpha")
+    agents.register("reviewer")
     con = db.connect()
     try:
         db.set_terminal(con, "reviewer", "term_r", "wt")
@@ -425,7 +425,7 @@ async def test_messages_panel_acts_on_a_folded_row() -> None:
               type(opener.screen).__name__)
 
     _home("msgfold")
-    agents.register("reviewer", "alpha")
+    agents.register("reviewer")
     con = db.connect()
     try:
         db.set_terminal(con, "reviewer", "term_r", "wt")
@@ -576,7 +576,7 @@ async def test_dashboard_messages_table_is_fed_by_messages_data() -> None:
     counts what is waiting, a row per message (sender, kind, its first line
     with nothing a terminal would obey in it)."""
     _home("msgdata")
-    agents.register("reviewer", "alpha")
+    agents.register("reviewer")
     from ocp import ask as askmod
     askmod.ask("human", "\n\033[2Jplease \033]8;;http://evil.example\033\\review\033]8;;\033\\ this",
                requester="reviewer")
@@ -619,7 +619,7 @@ async def test_a_key_never_acts_on_a_row_nobody_pointed_at() -> None:
     """A selection can be stale - the row it named left the list - and a key
     pressed then must do nothing, not act on whatever is under it now."""
     _home("stalekey")
-    agents.register("reviewer", "alpha")
+    agents.register("reviewer")
     from ocp import ask as askmod
     askmod.ask("human", "first thing", requester="reviewer")
     con = db.connect()
@@ -890,7 +890,7 @@ def test_the_typed_history_keeps_the_newest_and_never_repeats() -> None:
 def test_the_chat_is_paged_and_hides_what_never_reached_the_agent() -> None:
     from ocp import ask as askmod, chat_page as cp
     _home("chat")
-    agents.register("reviewer", "alpha")
+    agents.register("reviewer")
     con = db.connect()
     try:
         for body in ("one", "two", "three"):
@@ -925,7 +925,7 @@ def test_the_chat_is_paged_and_hides_what_never_reached_the_agent() -> None:
 def test_a_reply_closes_a_waiting_question_or_starts_a_new_request() -> None:
     from ocp import ask as askmod, chat_page as cp
     _home("reply")
-    agents.register("reviewer", "alpha")
+    agents.register("reviewer")
     con = db.connect()
     try:
         ok, _, rid = askmod.ask("human", "merge it?", requester="reviewer")
@@ -957,7 +957,7 @@ def test_a_reply_closes_a_waiting_question_or_starts_a_new_request() -> None:
 def test_the_tasks_table_lists_owned_and_opened_and_sorts() -> None:
     from ocp import chat_page as cp
     _home("tasks")
-    agents.register("reviewer", "alpha")
+    agents.register("reviewer")
     con = db.connect()
     try:
         a = db.new_task(con, "bravo", "backend", "orcapipe")
@@ -993,7 +993,7 @@ def test_the_tasks_table_lists_owned_and_opened_and_sorts() -> None:
 def test_the_task_page_offers_discard_only_on_the_founders_waiting_task() -> None:
     from ocp import ask as askmod, chat_page as cp
     _home("discardable")
-    agents.register("reviewer", "alpha")
+    agents.register("reviewer")
     con = db.connect()
     try:
         mine = db.new_task(con, "mine", "backend", actions.HUMAN)
@@ -1020,7 +1020,7 @@ def test_the_settings_form_checks_and_saves_only_what_changed() -> None:
     from ocp import chat_page as cp
     home = _home("settings")
     cfg = cp.settings_of("backend")
-    check("settings: the agent file is read", cfg["account"] and cfg["effort"] in agents.VALID_EFFORT
+    check("settings: the agent file is read", cfg["effort"] in agents.VALID_EFFORT
           and cfg["model"] and cfg["weight"] in cp.WEIGHTS, str(cfg))
     form = {k: cfg[k] for k in cp.EDITABLE}
     check("settings: an untouched form has no changes", cp.settings_changes(cfg, form) == [])
@@ -1041,11 +1041,11 @@ def test_the_settings_form_checks_and_saves_only_what_changed() -> None:
     check("settings: a save writes the changed fields", ok and now["model"] == "opus"
           and now["effort"] == "high" and now["repo"] == str(repo), said)
     check("settings: and leaves the rest of the file as it was",
-          now["account"] == cfg["account"] and now["weight"] == cfg["weight"] and now.get("enabled") is True)
-    agents.register("backend", "beta")
+          now["weight"] == cfg["weight"] and now.get("enabled") is True)
+    agents.register("backend", weight="heavy")
     ok, said = cp.save_settings("backend", [("effort", now["effort"], "low")])
-    check("settings: a save leaves an account moved since the tab was read",
-          ok and agents.read("backend")["account"] == "beta", said)
+    check("settings: a save leaves a field changed since the tab was read",
+          ok and agents.read("backend")["weight"] == "heavy", said)
 
 
 def test_what_an_agent_wrote_is_drawn_inert_on_every_part_of_the_page() -> None:
@@ -1170,12 +1170,26 @@ def test_agent_rows_short_model_cache_and_founder_block() -> None:
         con.close()
 
 
+def test_agent_rows_collect_carries_the_agents_own_model_and_effort() -> None:
+    from ocp.ui.components import agent_rows as ar
+    _home("collectcfg")
+    agents.register("opusy", model="claude-opus-5-5", effort="high")
+    con = db.connect()
+    try:
+        row = tui.AgentRow("opusy", "", "opusy", False, None, "IDLE", "", None)
+        extra = ar.collect(con, [row])["opusy"]
+        check("agent_rows: collect shows the agent's own model and effort, not the defaults",
+              extra[0] == ar.kind_short(agents.read("opusy")) and "opus" in extra[0], str(extra))
+    finally:
+        con.close()
+
+
 def test_fold_urgency_ranks_what_a_fold_hides() -> None:
     from ocp import ask as askmod
     from ocp.ui.components import agent_rows as ar
     _home("foldurg")
     for n in ("w1", "w2", "w3", "w4"):
-        agents.register(n, "alpha")
+        agents.register(n)
     con = db.connect()
     try:
         check("fold_urgency: nothing to say is None", ar.fold_urgency(con, ["w1", "w2"], {}) is None)
@@ -1203,7 +1217,7 @@ def test_agent_rows_collect_says_why_a_row_needs_the_founder() -> None:
     from ocp import ask as askmod
     from ocp.ui.components import agent_rows as ar
     _home("collect")
-    agents.register("reviewer", "alpha")
+    agents.register("reviewer")
     askmod.ask("human", "please look", requester="reviewer")
     con = db.connect()
     try:
@@ -1224,12 +1238,12 @@ def test_open_proposals_lists_only_what_is_the_founders_move() -> None:
     from ocp import ask as askmod
     from ocp.ui.components import proposals as pr
     home = _home("openprops")
-    agents.register("hr", "alpha")
+    agents.register("hr")
     con = db.connect()
     try:
         pids = {}
         for name in ("queued", "unclear", "approved", "rejected"):
-            ok, said = hr.propose("add", name, requester="hr", why=f"why {name}", account="alpha")
+            ok, said = hr.propose("add", name, requester="hr", why=f"why {name}")
             check(f"proposals: {name} was raised", ok, said)
             pids[name] = int(said.split("#")[1].split(".")[0])
         # `resolve` refuses a non-decision on a proposal now; one closed that way by an
@@ -1252,7 +1266,7 @@ def test_open_proposals_lists_only_what_is_the_founders_move() -> None:
               == sorted(p["asked"] for p in pr.open_proposals(con)))
         ids = []
         for name in ("tie1", "tie2", "tie3", "tie4"):
-            ok, said = hr.propose("add", name, requester="hr", why="w", account="alpha")
+            ok, said = hr.propose("add", name, requester="hr", why="w")
             ids.append(int(said.split("#")[1].split(".")[0]))
         con.execute("UPDATE requests SET ts = 1000 WHERE id IN (%s)" % ",".join(map(str, ids)))
         tied = [p["rid"] for p in pr.open_proposals(con) if p["rid"] in ids]
@@ -1396,7 +1410,7 @@ async def test_home_tab_bar_focus_mouse_and_columns() -> None:
                   "inferred" not in screen.query_one("#accounts-box").border_subtitle)
 
         # a mouse press picks the row under the pointer
-        agents.register("second", "alpha")
+        agents.register("second")
         screen._redraw()
         await pilot.pause(0.1)
         agents_table = screen.query_one("#agents", DataTable)
@@ -1422,8 +1436,8 @@ async def test_hr_tab_approve_reject_withdraw_and_the_red_dot() -> None:
     from ocp import ask as askmod
     from ocp.ui.components.proposals import ProposalsView
     _home("hrtab")
-    agents.register("hr", "alpha")
-    ok, said = hr.propose("add", "newbie", requester="hr", why="more hands", account="alpha")
+    agents.register("hr")
+    ok, said = hr.propose("add", "newbie", requester="hr", why="more hands")
     check("hr tab: a proposal was raised", ok, said)
     rid = int(said.split("#")[1].split(".")[0])
     app = bt.BridgeApp()
@@ -1480,9 +1494,9 @@ async def test_hr_tab_approve_reject_withdraw_and_the_red_dot() -> None:
         screen._redraw()
         check("hr tab: the dot goes with it", "●" not in tabs.get_tab("hr").label.plain)
 
-    ok, said = hr.propose("add", "second", requester="hr", why="w", account="alpha")
+    ok, said = hr.propose("add", "second", requester="hr", why="w")
     rid2 = int(said.split("#")[1].split(".")[0])
-    ok, said = hr.propose("add", "third", requester="hr", why="w", account="alpha")
+    ok, said = hr.propose("add", "third", requester="hr", why="w")
     rid3 = int(said.split("#")[1].split(".")[0])
     con = db.connect()
     try:
@@ -1560,6 +1574,7 @@ async def _run_all() -> None:
     await test_read_only_page_shows_foreign_text_inert()
     test_gauge_elapsed_fraction_bar_and_usage_cells()
     test_agent_rows_short_model_cache_and_founder_block()
+    test_agent_rows_collect_carries_the_agents_own_model_and_effort()
     test_fold_urgency_ranks_what_a_fold_hides()
     test_agent_rows_collect_says_why_a_row_needs_the_founder()
     test_open_proposals_lists_only_what_is_the_founders_move()

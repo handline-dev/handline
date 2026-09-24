@@ -40,7 +40,7 @@ from .yamlcompat import ConfigError, dump, is_plain_text, load
 APPROVE = ("approve", "approved", "yes", "ok", "go", "승인")
 REJECT = ("reject", "rejected", "no", "deny", "denied", "반려")
 
-KINDS = ("add", "retire", "rename", "move")
+KINDS = ("add", "retire", "rename")
 
 
 def dir_() -> Path:
@@ -97,7 +97,7 @@ def listing(unreadable: list[str] | None = None) -> list[dict]:
     return out
 
 
-def _draft(kind: str, name: str, requester: str, why: str, account: str | None,
+def _draft(kind: str, name: str, requester: str, why: str,
            team_name: str | None, repo: str | None, model: str | None,
            to: str | None, effort: str | None = None,
            vendor: str | None = None) -> tuple[dict, str]:
@@ -114,7 +114,7 @@ def _draft(kind: str, name: str, requester: str, why: str, account: str | None,
     registered = paths.list_agents()
     if kind == "add" and name in registered:
         return {}, f"{name} is already an agent"
-    if kind in ("retire", "rename", "move") and name not in registered:
+    if kind in ("retire", "rename") and name not in registered:
         return {}, f"{name} is not an agent"
     if kind == "rename":
         if not to or "/" in to or to.startswith("."):
@@ -127,27 +127,11 @@ def _draft(kind: str, name: str, requester: str, why: str, account: str | None,
         return {}, f"bad team name: {team_name!r}. {agents.NOT_TEXT}"
     if effort and effort not in agents.VALID_EFFORT:
         return {}, f"effort must be one of {', '.join(agents.VALID_EFFORT)}"
-    if kind in ("add", "move"):
-        if not account:
-            return {}, f"a {kind} needs an account (--account)"
-        if account not in paths.list_accounts():
-            return {}, (f"account '{account}' is not registered. A human logs an "
-                        f"account in once; ocp never touches credentials.")
-        if kind == "move" and account == agents.account_of(name):
-            return {}, f"{name} already prefers account '{account}'"
-
-    # #1964 (task #41): an add's vendor is not a choice, it is what the named account
-    # already is - a claude agent registered onto an opencode account would
-    # launch as the wrong binary against the wrong credentials. Taken from
-    # the account, not typed, so `hr apply` always has one to write; a
-    # --vendor given anyway is only ever a check against that, never a way
-    # to override it.
-    add_vendor = None
-    if kind == "add":
-        add_vendor = vendors.account_vendor(account)
-        if vendor and vendor != add_vendor:
-            return {}, (f"--vendor {vendor} disagrees with account '{account}', which "
-                        f"is a {add_vendor} account")
+    if vendor:
+        try:
+            vendors.get(vendor)
+        except vendors.UnknownVendor as e:
+            return {}, str(e)
 
     prop = {
         "id": uuid.uuid4().hex[:8],
@@ -158,20 +142,19 @@ def _draft(kind: str, name: str, requester: str, why: str, account: str | None,
         "created": int(time.time()),
         "state": "proposed",
     }
-    for key, value in (("account", account), ("team", team_name), ("repo", repo),
-                       ("model", model), ("effort", effort), ("to", to),
-                       ("vendor", add_vendor)):
+    for key, value in (("team", team_name), ("repo", repo), ("model", model),
+                       ("effort", effort), ("to", to), ("vendor", vendor)):
         if value:
             prop[key] = value
     return prop, ""
 
 
-def propose(kind: str, name: str, requester: str, why: str, account: str | None = None,
+def propose(kind: str, name: str, requester: str, why: str,
             team_name: str | None = None, repo: str | None = None,
             model: str | None = None, to: str | None = None,
             effort: str | None = None, vendor: str | None = None) -> tuple[bool, str]:
     """Write the proposal down and raise it to the founder. Nothing changes yet."""
-    prop, err = _draft(kind, name, requester, why, account, team_name, repo, model,
+    prop, err = _draft(kind, name, requester, why, team_name, repo, model,
                        to, effort, vendor)
     if err:
         return False, err
@@ -190,7 +173,7 @@ def propose(kind: str, name: str, requester: str, why: str, account: str | None 
                   f"founder answers it; then `ocp hr apply {prop['id']}`.")
 
 
-def enact(kind: str, name: str, why: str, account: str | None = None,
+def enact(kind: str, name: str, why: str,
           team_name: str | None = None, repo: str | None = None,
           model: str | None = None, to: str | None = None,
           effort: str | None = None, con=None,
@@ -205,7 +188,7 @@ def enact(kind: str, name: str, why: str, account: str | None = None,
     The file is written before anything changes, as a proposal's is, so a
     change that fails halfway still leaves a record of what was attempted.
     """
-    prop, err = _draft(kind, name, "human", why, account, team_name, repo, model,
+    prop, err = _draft(kind, name, "human", why, team_name, repo, model,
                        to, effort, vendor)
     if err:
         return False, err
@@ -214,7 +197,7 @@ def enact(kind: str, name: str, why: str, account: str | None = None,
     own = con is None
     con = con or db.connect()
     try:
-        doer = {"add": _add, "retire": _retire, "rename": _rename, "move": _move}[kind]
+        doer = {"add": _add, "retire": _retire, "rename": _rename}[kind]
         try:
             ok, said = doer(prop, con)
         except Exception as e:  # noqa: BLE001 - recorded, then raised on
@@ -242,8 +225,8 @@ def _escalation(prop: dict) -> str:
     lines = [f"[roster] {prop['kind']} {prop['agent']} - asked by {prop['requested_by']}",
              "", prop["why"], ""]
     if prop["kind"] == "add":
-        lines += [f"It would be registered on account {prop.get('account')}"
-                  + (f", in team {prop['team']}" if prop.get("team") else "")
+        lines += ["It would be registered"
+                  + (f" in team {prop['team']}" if prop.get("team") else "")
                   + (f", working in {prop['repo']}" if prop.get("repo") else "")
                   + (f", model {prop['model']}" if prop.get("model") else "")
                   + (f", vendor {prop['vendor']}"
@@ -256,13 +239,6 @@ def _escalation(prop: dict) -> str:
                   f"ever sent or received move with the name.",
                   "It has to be closed first - an identity cannot change under a "
                   "running session."]
-    elif prop["kind"] == "move":
-        lines += [f"{prop['agent']} would prefer account {prop.get('account')} instead "
-                  f"of its current one. Nothing about it in team.yaml changes.",
-                  "A session already running keeps the account it started with until "
-                  "it ends; this is where its *next* one lands, and a resume id "
-                  "recorded on the account it is leaving is dropped, because it means "
-                  "nothing on the new one."]
     else:
         lines += [f"{prop['agent']} would be taken out of team.yaml and its folder "
                   f"moved to agents/archive/. Its journal and handoffs are kept.",
@@ -323,7 +299,7 @@ def apply(pid: str, con=None) -> tuple[bool, str]:
                            f"{(db.shown_verdict(row) or '').strip()[:60]!r}, "
                            f"which is not a decision. Ask the founder to answer "
                            f"`approve` or `reject`, or `ocp hr withdraw {pid}`.")
-        doer = {"add": _add, "retire": _retire, "rename": _rename, "move": _move}[prop["kind"]]
+        doer = {"add": _add, "retire": _retire, "rename": _rename}[prop["kind"]]
         ok, said = doer(prop, con)
         if not ok:
             return False, said
@@ -427,55 +403,14 @@ def _add(prop: dict, con) -> tuple[bool, str]:
     ok, said = _in_team_yaml(name, prop.get("team"), add=True)
     if not ok:
         return False, said
-    # An old proposal saved before vendor was recorded has no vendor key, but
-    # the account's vendor is fixed (accounts.register refuses a change), so
-    # it is still exact to derive it now rather than register as claude.
-    agents.register(name, prop["account"], model=prop.get("model"),
+    agents.register(name, model=prop.get("model"),
                     effort=prop.get("effort"), repo=prop.get("repo"),
-                    vendor=prop.get("vendor") or vendors.account_vendor(prop["account"]),
+                    vendor=prop.get("vendor"),
                     role=f"Added on {_when(prop.get('created'))} at "
                          f"{prop['requested_by']}'s request: {prop['why']}")
-    return True, (f"{name} is an agent: account {prop['account']}"
+    return True, (f"{name} is an agent"
                   + (f", team {prop['team']}" if prop.get("team") else "")
                   + f". {said}")
-
-
-def _move(prop: dict, con) -> tuple[bool, str]:
-    """Change which account an agent's *next* session prefers.
-
-    A resume id belongs to one account's config directory (#154's loop was
-    exactly that, run on the wrong one). `agent_state.account` is a live
-    session's own record of where it actually is, written at exec - a
-    session already running is still spending the old account, and every
-    usage read (triggers, handoff, wake, `ocp ps`) has to keep seeing that
-    truth until the session ends, not the preference it is about to become.
-    """
-    from . import observe as obs
-
-    name, new_account = prop["agent"], prop["account"]
-    agents.register(name, new_account)
-    live = obs.live_sessions()
-    if live is None:
-        # Can't tell (ps/env unreadable) - "not running" is the wrong guess to
-        # make here: it is exactly what would clear agent_state.account out
-        # from under a session that is actually live, on the very machines
-        # where this read fails. Assume live and leave the row alone.
-        return True, (f"{name} now prefers account '{new_account}' for its next session. "
-                      f"Whether one is running now could not be checked, so its account "
-                      f"record is left alone; if one is live it keeps spending what it "
-                      f"already has.")
-    if live.get(name):
-        return True, (f"{name} now prefers account '{new_account}' for its next session. "
-                      f"A session is running now and keeps the account it started on "
-                      f"until it ends.")
-    # Not live: nothing is currently "the account this session is on", so
-    # clearing it lets the preference just written answer that question until
-    # a session records its own. The resume id goes with it - it belongs to
-    # the account being left.
-    con.execute(
-        "UPDATE agent_state SET account = NULL, resume_session = NULL WHERE agent = ?",
-        (name,))
-    return True, f"{name} now prefers account '{new_account}'. Its next session lands there."
 
 
 def _retire(prop: dict, con) -> tuple[bool, str]:

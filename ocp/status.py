@@ -622,13 +622,16 @@ def read(acct: str, path: Path | None = None) -> AccountStatus:
     return st
 
 
-def read_for_agent(agent: str, account: str) -> AccountStatus:
-    """Usage as it applies to one agent.
+def read_for_agent(agent: str, account: str | None) -> AccountStatus:
+    """Usage as it applies to one agent. An agent on no account has run
+    nothing, so nothing about it is known.
 
     Rate limits come from the account, because that is what they belong to.
     Context comes from the agent's own session file when it has one, so two
     agents sharing an account are not judged by each other's context.
     """
+    if not account:
+        return AccountStatus(account="")
     acct_status = read(account)
     agent_file = paths.agent_status_file(agent)
     if not agent_file.exists():

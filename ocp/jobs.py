@@ -36,7 +36,7 @@ MAX_JOBS = 4
 # What the line says an action is doing, by the key's name for it (agent verbs
 # that are not already a gerund).
 GERUND = {"wake": "waking", "close": "closing", "park": "parking", "fold": "folding",
-          "unstall": "unstalling", "terminal": "going to", "move": "moving",
+          "unstall": "unstalling", "terminal": "going to",
           "cancel": "cancelling", "dismiss": "dismissing", "answer": "answering",
           "message": "messaging", "chat_reply": "messaging"}
 

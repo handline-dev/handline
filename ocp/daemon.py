@@ -329,15 +329,11 @@ def resume_handoff(con, row, log) -> None:
     if step in ("requested", "recorded", "folded"):
         db.advance_handoff(con, hid, "extracted")
 
-    reading = None
-    try:
-        reading = agents.account_reading(agent, con)
-    except Exception:  # noqa: BLE001 - a missing account must not wedge the resume
-        pass
-    # Same rule as a fresh park's ceiling (see _perform_handoff), and the same
-    # three reasons: an unknown account, or a forced move - which never hits
-    # a usage wall, whatever account it names - is the move machinery still
-    # working, not a wall to sleep out.
+    reading = agents.account_reading(agent, con)
+    # Same rule as a fresh park's ceiling (see _perform_handoff): an unknown
+    # account, or a forced move - which never hits a usage wall, whatever
+    # account it names - is the move machinery still working, not a wall to
+    # sleep out.
     kind = row["trigger_kind"] or ""
     short_retry = reading is None or reading.source == "assumed" or kind == "forced"
     if short_retry:
@@ -1273,6 +1269,10 @@ def _start_for_work(con, agent: str, log) -> str:
                          + ([f"{answers} answer(s)"] if answers else [])) or "work"
         return (f"{agent}: {what} waiting and it has no terminal - set `repo:` in "
                 f"its agent.yaml, or start it by hand (t)")
+    # With no room `ocp launch` would refuse in the new terminal, and the
+    # refusal would count against the agent though it is the accounts that are full.
+    if not launch.choose_account(agent, con=con):
+        return f"{agent}: not started - {launch.no_room(agent)}"
     row = db.get_agent_state(con, agent)
     if row and int(row["wake_failures"]) >= MAX_FAILED_ATTEMPTS:
         return f"{agent}: not started again - {row['wake_failures']} attempts have failed"
@@ -1286,15 +1286,6 @@ def _start_for_work(con, agent: str, log) -> str:
     fresh = db.get_agent_state(con, agent)
     if fresh and fresh["terminal"]:
         db.reset_counter(con, agent, "wake_failures")
-        # A guess, not a fact: the child process this just started re-runs
-        # `choose_account` itself, with fresher information, and that is what
-        # actually decides where the session lands - `_record_terminal`
-        # overwrites this the moment it reports in. Without it the row sits
-        # null until then, which is exactly the window a null column reads as
-        # a bare config preference in; this at least names a real candidate,
-        # marked as one.
-        db.set_account(con, agent, launch.choose_account(agent, resuming=False, con=con),
-                       source="assumed")
         db.add_event(con, agent, "started_for_work", {"repo": repo})
         log(f"  {agent}: started in {repo} - work was waiting for it")
         return f"{agent}: started for work waiting - {said.splitlines()[0]}"
@@ -1361,6 +1352,9 @@ def _wake_agent(con, agent: str, log, moved_to: str | None = None) -> tuple[bool
                 row = db.get_agent_state(con, agent)
                 closed = bool(row and row["closed_at"])
     if closed:
+        # Before anything is typed: an agent.yaml that will not read is this
+        # agent's ConfigError, which the callers stall by name.
+        agents.read(agent)
         # `ocp launch` refuses at the 5h wall, and the daemon can read that
         # before it types anything. Trying anyway would spend the wake timeout
         # to be told what we already knew, and count a streak against an agent
@@ -1415,7 +1409,7 @@ def _wake_agent(con, agent: str, log, moved_to: str | None = None) -> tuple[bool
         # The shell is still there; put the agent back into it. Resuming the
         # same session is what makes closing cheap, so it is tried first and
         # a fresh start is the fallback, not the plan.
-        base = launch.command_for(agent)
+        base = launch.command_for(agent, account=moved_to)
         # Resuming the session is what makes closing cheap, so it is tried
         # first - but a resume can be the very thing that fails: an id whose
         # transcript was pruned, or a worktree moved out from under it, gives
@@ -1432,6 +1426,12 @@ def _wake_agent(con, agent: str, log, moved_to: str | None = None) -> tuple[bool
         # fresh start costs the handoff; the record stays on the row for the
         # launch to inject.
         cold = moved_to is None and cache_expired(con, agent, session, int(time.time()))
+        # A fresh start goes where there is room. With none, `ocp launch` would
+        # refuse and the refusal would count against the agent's wake attempts,
+        # though it is the accounts that are full.
+        if moved_to is None and (cold or not session) \
+                and not launch.choose_account(agent, con=con):
+            return False, launch.no_room(agent)
         took = False
         if cold and not db.get_handoff(con, agent):
             # The close that would have taken it failed, and the snapshot no
@@ -1620,7 +1620,7 @@ def _escalate_trust_prompt(con, agent: str, handle: str, log,
         return False, row["detail"]
     acct = agents.current_account(agent, con)
     why = (f"{agent}'s terminal is showing claude's {TRUST_STALL} for "
-           f"{shown or 'an unreadable folder'} (account {acct}, recorded "
+           f"{shown or 'an unreadable folder'} (account {acct or 'none'}, recorded "
            f"worktree {recorded or 'unknown'}) - nothing was typed into it")
     askmod.escalate(con, agent, f"[trust] {why}", why)
     db.set_agent_state(con, agent, STALLED, wake_at=None, detail=why[:300])
@@ -1693,9 +1693,8 @@ def reconcile(con, log) -> list[str]:
         try:
             resume_handoff(con, row, log)
         except (ConfigError, UnicodeDecodeError, OSError) as e:
-            # Reached through account_of when agent_state.account is not yet
-            # recorded: one agent's unreadable agent.yaml must not leave every
-            # other in-flight handoff - and every due wake below it - unresolved.
+            # One agent's unreadable agent.yaml must not leave every other
+            # in-flight handoff - and every due wake below it - unresolved.
             _stall_agent(con, agent, log, actions, e,
                                        f"could not resume handoff from step '{step}'")
             continue
@@ -1757,7 +1756,7 @@ def _resumable_session(con, agent: str) -> str | None:
     not in doubt. Losing it loses the only pointer to that agent's context,
     and memory comes back where context does not.
     """
-    own = status.read(agents.current_account(agent, con), paths.agent_status_file(agent))
+    own = status.read(agents.current_account(agent, con) or "", paths.agent_status_file(agent))
     session = None if own.error else own.session_id
     # A session id lives under the account its session ran on. If the agent
     # has moved since - its new session not yet visible - the id in its
@@ -1930,9 +1929,8 @@ def force_move(con, agent: str, dest: str, by: str, log) -> tuple[bool, str]:
 
     Record the handoff, end the session with no resume id, start fresh on
     `dest`, record the account: the path a usage wall takes with the
-    destination fixed. Nothing is ended unless `dest` takes one more agent. The
-    preference in agent.yaml follows first, since the launch chooses by it, and
-    is put back if the move does not happen. `by` is recorded on the event.
+    destination fixed. Nothing is ended unless `dest` takes one more agent.
+    `by` is recorded on the event.
     """
     if agent not in paths.list_agents():
         return False, f"no agent '{agent}'"
@@ -1943,26 +1941,16 @@ def force_move(con, agent: str, dest: str, by: str, log) -> tuple[bool, str]:
         return False, f"{agent} is already on {dest}"
     row = db.get_agent_state(con, agent)
     if not row or not row["terminal"] or row["closed_at"]:
-        return False, (f"{agent} has no live session to move - `ocp agent register` "
-                       f"the account for its next start")
+        return False, f"{agent} has no live session to move"
     if row["state"] in (HANDOFF, STALLED):
         return False, f"{agent} is {row['state']}"
     room, why = _forced_plan(con, agent, dest)
     if room is None:
         return False, f"{why} - not moving {agent} there"
-    prefer = agents.account_of(agent)
     trigger = triggers.Trigger(True, "forced", f"forced by {by}: {here} -> {dest}")
-    agents.register(agent, dest)
-    try:
-        perform_handoff(con, agent, trigger, log, dest=dest)
-    except BaseException:
-        agents.register(agent, prefer)
-        raise
+    perform_handoff(con, agent, trigger, log, dest=dest)
     landed = db.get_agent_state(con, agent)
-    # The raw record, not current_account: that falls back to the preference,
-    # which was just rewritten to dest and would report a move that never happened.
     if not landed or landed["account"] != dest:
-        agents.register(agent, prefer)
         return False, (f"{agent} did not move (mid-turn, or the new session did not "
                        f"start on {dest}) - it stays on {here}")
     db.add_event(con, agent, "forced_move", {"from": here, "to": dest, "by": by})
@@ -2099,6 +2087,8 @@ def _move_plan(con, agent: str, kind: str) -> tuple[str | None, str]:
     capped or walled: the work then waits in the queue.
     """
     here = agents.current_account(agent, con)
+    if here is None:
+        return None, "no account is recorded for it"
     now = time.time()
     reset = status.read(here)
     reset = reset.reset_7d if kind == "usage_7d" else reset.reset_5h
@@ -2294,12 +2284,12 @@ def _perform_handoff(con, agent: str, trigger: triggers.Trigger, log,
     signal, unrelated to whether anything was typed. `typed` is the settle
     window's: a move types /exit whenever it happens at all, the fall-through
     path types /clear only when `_reclaim_context` says so, and the early
-    "forced move did not happen" return types nothing. A caller that marks
-    typed on `ok` instead marks it on a failed clear that never touched the
-    terminal, and the next attempt is then held off by a settle window
-    nothing here earned (#2064)."""
+    "forced move did not happen" return types nothing. A caller that marks typed on `ok` instead marks it on a failed clear that
+    never touched the terminal, and the next attempt is then held off by a
+    settle window nothing here earned (#2064)."""
     hid = uuid.uuid4().hex[:12]
-    st = status.read(agents.current_account(agent, con)) if agent in paths.list_agents() else None
+    acct = agents.current_account(agent, con)
+    st = status.read(acct) if acct and agent in paths.list_agents() else None
     deadline = int(time.time()) + HANDOFF_DEADLINE_S
     db.start_handoff(con, hid, agent, st.session_id if st else None, trigger.kind,
                      deadline)
@@ -2338,7 +2328,6 @@ def _perform_handoff(con, agent: str, trigger: triggers.Trigger, log,
                            detail="forced move did not happen")
         db.set_agent_state(con, agent, IDLE, detail="forced move did not happen")
         return False, False
-
     # Return the context. Recording a handoff is only half of a handoff;
     # without this the context never drops, and a context trigger fires again
     # next tick and the agent hands off forever. /clear keeps the terminal,
@@ -2357,11 +2346,12 @@ def _perform_handoff(con, agent: str, trigger: triggers.Trigger, log,
 
     # Park until the usage window rolls over - or longer, if this agent keeps
     # degrading, so a broken one is not retried at full cadence forever. Never
-    # against an assumed account's rollover: that ceiling belongs to whatever
-    # account agent.yaml happens to prefer, not to the one this agent may
-    # actually be spending, so it earns only a short re-look instead.
+    # against an assumed account's rollover: that ceiling belongs to a guess,
+    # not to the account this agent may actually be spending, so it earns only
+    # a short re-look instead.
     reading = agents.account_reading(agent, con)
-    short_retry = reading.source == "assumed" or trigger.kind == "forced" or retry_soon
+    short_retry = reading is None or reading.source == "assumed" \
+        or trigger.kind == "forced" or retry_soon
     if short_retry:
         # A forced move that ended the session and did not start it is not a
         # wall: the account it left had room, so there is no window to wait out.
@@ -2415,8 +2405,8 @@ def _perform_handoff(con, agent: str, trigger: triggers.Trigger, log,
     # than needing the live row it was computed from, which has moved on by
     # the time anyone reads this.
     db.add_event(con, agent, "park", {"kind": trigger.kind, "wake_at": wake,
-                                      "account": reading.account,
-                                      "account_source": reading.source})
+                                      "account": reading.account if reading else None,
+                                      "account_source": reading.source if reading else None})
     db.bump_counter(con, agent, "continuations")  # 8.5: handoff is not a failure
     log(f"  {agent}: PARKED until {time.strftime('%Y-%m-%d %H:%M', time.localtime(wake))}")
     return ok, cleared
@@ -2448,7 +2438,7 @@ def _confirmed_reading(con, agent: str, reading, log):
     column is set right, which lets the agent's next park or move start from
     where it really is."""
     actual = _running_account(agent)
-    if actual is None or actual == reading.account:
+    if reading is None or actual is None or actual == reading.account:
         return reading
     log(f"  {agent}: recorded on {reading.account} but its process is on "
         f"{actual} - judging it there")
@@ -2517,11 +2507,11 @@ def supervise(con, agent: str, log, now: int, samples: dict,
 
     # The live reading this tick judges the agent against, not the account a
     # resume would use: `account_reading` prefers a fresh report from the
-    # agent's own running session over a column nothing has confirmed, so a
-    # spawn's assumed guess (or a bare config preference) never stands in for
-    # a running session's actual account when there is better evidence of it.
+    # agent's own running session over a column nothing has confirmed, so an
+    # assumed guess never stands in for a running session's actual account
+    # when there is better evidence of it. None when nothing says where it is.
     reading = _confirmed_reading(con, agent, agents.account_reading(agent, con), log)
-    acct = reading.account
+    acct = reading.account if reading else None
     st = status.read_for_agent(agent, acct)
     ctx_limit = status.effective_context_limit(agents.read(agent), st.model_id)
 
@@ -2698,17 +2688,17 @@ def supervise(con, agent: str, log, now: int, samples: dict,
     # Un-parks a usage park - PARKED only, and only when the handoff that put
     # it there named a usage trigger, read off that handoff since nothing on
     # the row itself says why - the moment that same reading, evaluated the
-    # way the park itself was, no longer fires. Never on an assumed account:
-    # `reading` above is a guess exactly when there is neither a recorded nor
-    # a fresh reported account to act on, and a guess is not evidence enough
-    # to wake this agent into.
+    # way the park itself was, no longer fires. Never on an assumed or unknown
+    # account: `reading` above is a guess exactly when there is neither a
+    # recorded nor a fresh reported account to act on, and a guess is not
+    # evidence enough to wake this agent into.
     # A quiet-hours park reads the same as a recovered usage park to this
     # branch - it only knows the last *handoff's* trigger, not why this park
     # was actually written - and without `quiet_blocked` a prior usage
     # handoff flips it QUEUED/PARKED every other tick for the rest of the
     # window (auditor #2211).
     if not woke_now and not quiet_blocked and row and row["terminal"] and not row["closed_at"] \
-            and state == PARKED and reading.source != "assumed" \
+            and state == PARKED and reading and reading.source != "assumed" \
             and orca.available() and orca.alive(row["terminal"]):
         last = db.last_handoff(con, agent)
         verdict = triggers.evaluate(st.trusted_pct_5h, st.trusted_ctx_used,

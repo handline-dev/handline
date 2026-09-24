@@ -196,9 +196,8 @@ CREATE TABLE IF NOT EXISTS agent_state (
   -- and hand it back its own handoff without destroying the agent.
   terminal        TEXT,
   worktree        TEXT,
-  -- Which account the session in that terminal is actually on. agent.yaml says
-  -- which one it prefers; this says where it went, and they differ whenever
-  -- the preferred one had no room when the session was made.
+  -- Which account the session in that terminal is actually on, as chosen when
+  -- the session was made.
   account         TEXT
 );
 

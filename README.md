@@ -23,9 +23,9 @@ while an agent is on it. Both are also `a` and `x` in the accounts panel.
 single use, so two copies of one credential invalidate each other.
 
 ```bash
-ocp agent register backend   --account alpha --model sonnet
-ocp agent register reviewer  --account beta  --model opus
-ocp agent register archivist --account beta  --model haiku
+ocp agent register backend   --model sonnet
+ocp agent register reviewer  --model opus
+ocp agent register archivist --model haiku
 ocp team init && ocp doctor
 ```
 

@@ -198,23 +198,21 @@ def _check_accounts(r: Report) -> None:
 def _check_agents(r: Report) -> None:
     names = paths.list_agents()
     if not names:
-        r.add(WARN, "no agents registered", "ocp agent register <name> --account <account>")
+        r.add(WARN, "no agents registered", "ocp agent register <name>")
         return
-    known = set(paths.list_accounts())
+    have = {vendors.account_vendor(a) for a in paths.list_accounts()}
     for n in names:
         try:
-            acct = agents.account_of(n)
+            vendor = vendors.agent_vendor(n)
+            vendors.get(vendor)
         except Exception as e:  # noqa: BLE001 - config errors are reported as-is
             r.add(FAIL, f"agent {n}: agent.yaml error", str(e))
             continue
-        if acct not in known:
-            r.add(FAIL, f"agent {n}: account '{acct}' is not registered")
-        elif vendors.agent_vendor(n) != vendors.account_vendor(acct):
-            r.add(FAIL, f"agent {n}: a {vendors.agent_vendor(n)} agent on "
-                        f"{vendors.account_vendor(acct)} account '{acct}'",
-                  "its launch is refused; name an account of its own vendor")
+        if vendor not in have:
+            r.add(FAIL, f"agent {n}: no {vendor} account is registered",
+                  f"its launch is refused; `ocp account add <name> --vendor {vendor}`")
         else:
-            r.add(OK, f"agent {n} -> account {acct}")
+            r.add(OK, f"agent {n}")
         for fn, size, budget, over in agents.budget_report(n):
             if over:
                 r.add(WARN, f"agent {n}: {fn} over budget",
@@ -311,7 +309,8 @@ def _check_session_matches_the_record(r: Report) -> None:
                 continue
             if handles is None or handle not in handles:
                 continue
-            own = status.read(agents.account_of(agent), paths.agent_status_file(agent))
+            own = status.read(agents.current_account(agent, con) or "",
+                              paths.agent_status_file(agent))
             if own.error or own.stale or own.collected_at is None:
                 continue
             closed = row["closed_at"]

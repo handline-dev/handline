@@ -35,10 +35,9 @@ def test_yaml() -> None:
 # ---------------------------------------------------------------- agents
 def test_agents(home: Path) -> None:
     os.environ["OCP_HOME"] = str(home)
-    agents.register("backend", "alpha", model="sonnet")
-    check("agent registers", agents.account_of("backend") == "alpha")
-    agents.register("backend", "beta")
-    check("re-register moves the account", agents.account_of("backend") == "beta")
+    agents.register("backend", model="sonnet")
+    check("agent registers with no account", "account" not in agents.read("backend"))
+    agents.register("backend")
     cfg = agents.read("backend")
     check("re-register preserves other fields", cfg.get("model") == "sonnet", str(cfg))
     d = home / "agents" / "backend"
@@ -287,7 +286,7 @@ def test_agents_read_refuses_a_value_a_hand_edit_wrote_with_a_control_character(
         check("agents.read: names the key", "'repo'" in str(e), str(e))
 
     # Control: a clean agent.yaml still reads.
-    agents.register("clean", "alpha")
+    agents.register("clean")
     data = agents.read("clean")
     check("agents.read: a clean file still reads", isinstance(data, dict) and data, str(data))
 
@@ -308,32 +307,32 @@ def test_a_name_that_yaml_would_not_read_as_text_is_refused_where_it_is_typed(ho
     refused = []
     for n in bad:
         try:
-            agents.register(n, "alpha")
+            agents.register(n)
             refused.append(n)
         except ValueError:
             pass
     check("names: agents.register turns each away and creates nothing",
           not refused and not any((paths.agent_dir(n)).exists() for n in bad), str(refused))
     for n in good:
-        agents.register(n, "alpha")
+        agents.register(n)
     check("names: and takes each ordinary one", set(good) <= set(paths.list_agents()))
     # auditor #1774: is_plain_text passes a tab, so only register's own
     # unsafe-character check stands between it and the roster.
     try:
-        agents.register("a\tb", "alpha")
+        agents.register("a\tb")
         check("names: agents.register turns away a name holding a tab", False, "registered")
     except ValueError as e:
         check("names: agents.register turns away a name holding a tab",
               "bad agent name" in str(e) and not paths.agent_dir("a\tb").exists(), str(e))
     for kind in ("add", "rename"):
-        ok, said = hr._draft(kind, "no" if kind == "add" else "harbor", "x", "why", "alpha",
+        ok, said = hr._draft(kind, "no" if kind == "add" else "harbor", "x", "why",
                              None, None, None, "on" if kind == "rename" else None)
         check(f"names: hr {kind} is refused before anything is raised or written",
               ok == {} and "bad agent name" in said and "choose another" in said, str((ok, said)))
     con = db.connect()
     try:
         before = len(actions.messages(con))
-        ok, said = hr.propose("add", "no", requester="harbor", why="w", account="alpha")
+        ok, said = hr.propose("add", "no", requester="harbor", why="w")
         check("names: hr.propose of one queues nothing for the founder",
               not ok and len(actions.messages(con)) == before, said)
     finally:
@@ -352,7 +351,7 @@ def test_a_name_that_yaml_would_not_read_as_text_is_refused_where_it_is_typed(ho
     before = paths.team_file().read_text()
     listed = yamlcompat.parse(team.STARTER)
     mover = next(iter(listed["agents"]))
-    ok, said = hr._draft("add", "dev1", "x", "why", "alpha", "no", None, None, None)
+    ok, said = hr._draft("add", "dev1", "x", "why", "no", None, None, None)
     check("names: hr add of an agent into a team called no is refused at the proposal",
           ok == {} and "bad team name" in said and "choose another" in said, str((ok, said)))
     done, said = hr._in_team_yaml("dev1", "no", add=True)
@@ -452,7 +451,7 @@ edges:
   - { from: "*", to: "human", kind: escalate, creates_gate: true }
   - { from: "human", to: "*", relation: supervisor, response: fire_and_forget }
 """)
-    agents.register("oldname", "alpha")
+    agents.register("oldname")
     wt = home / "trees" / "oldname"
     wt.mkdir(parents=True)
     con = db.connect()
@@ -498,7 +497,7 @@ edges:
 
         # Nothing recorded, or a folder that is gone: nothing to label, no call made.
         n = len(fake.calls)
-        agents.register("bare", "alpha")
+        agents.register("bare")
         db.set_terminal(con, "marina", "term_y", f"repo-id::{home / 'gone'}")
         check("label: an agent with no worktree, or a folder that is gone, is left alone",
               hr.label(con, "bare") == (True, "") and hr.label(con, "marina") == (True, "")
@@ -535,7 +534,7 @@ def test_a_renamed_agents_worktree_follows_it_with_its_work_and_memory(home: Pat
         (proj / "memory").mkdir(parents=True)
         (proj / "memory" / "note.md").write_text(f"remember {acct}\n")
         (proj / "sess-1.jsonl").write_text("{}\n")
-    agents.register("harbor.marina", "alpha")
+    agents.register("harbor.marina")
     con = db.connect()
     real_live = obsmod.live_sessions
     try:
@@ -723,7 +722,7 @@ def test_hr_rehome_cli_moves_the_folder(home: Path) -> None:
     subprocess.run(["git", "worktree", "add", "-q", "-b", "w", str(old_wt)],
                    cwd=repo, check=True)
     new_wt = home / "wts" / "newname"
-    agents.register("newname", "alpha")
+    agents.register("newname")
     con = db.connect()
     try:
         db.set_terminal(con, "newname", "term_x", str(old_wt))
@@ -754,20 +753,20 @@ def test_agent_yaml_is_written_by_dump_so_what_was_typed_reads_back(home: Path) 
     something else, so each value reads back as the text that was typed."""
     restore_world()
     use_home(home)
-    agents.register("plain", "alpha")
-    agents.register("full", "alpha", model="opus", effort="high", weight="heavy",
+    agents.register("plain")
+    agents.register("full", model="opus", effort="high", weight="heavy",
                     repo="/Users/ron/some repo")
     check("agent.yaml: the ordinary file is byte for byte what it was",
           agents.agent_file("plain").read_text()
-          == f"name: plain\naccount: alpha\nmodel: {agents.DEFAULT_MODEL}\n"
+          == f"name: plain\nmodel: {agents.DEFAULT_MODEL}\n"
              f"effort: {agents.DEFAULT_EFFORT}\nweight: light\nenabled: true\n"
           and agents.agent_file("full").read_text()
-          == "name: full\naccount: alpha\nmodel: opus\neffort: high\nweight: heavy\n"
+          == "name: full\nmodel: opus\neffort: high\nweight: heavy\n"
              "enabled: true\nrepo: /Users/ron/some repo\n")
     typed = [("model", "2026-09-20"), ("model", "no"), ("model", "4.5"), ("weight", "on"),
              ("repo", "1_000")]
     for i, (field, value) in enumerate(typed):
-        agents.register(f"agent{i}", "alpha", **{field: value})
+        agents.register(f"agent{i}", **{field: value})
         cfg = agents.read(f"agent{i}")
         check(f"agent.yaml: --{field} {value} reads back as that text",
               cfg[field] == value and cfg["enabled"] is True and cfg["name"] == f"agent{i}",
@@ -778,7 +777,7 @@ def test_agent_yaml_is_written_by_dump_so_what_was_typed_reads_back(home: Path) 
                   pyyaml.safe_load(agents.agent_file(f"agent{i}").read_text()) == cfg)
     # What the replay does: apply builds the agent from the saved proposal's fields.
     paths.team_file().write_text(team.STARTER)
-    ok, said = hr._add({"agent": "replayed", "account": "alpha", "model": "4.5",
+    ok, said = hr._add({"agent": "replayed", "model": "4.5",
                         "effort": "high", "repo": "1_000", "why": "w",
                         "requested_by": "human", "created": int(time.time())}, None)
     cfg = agents.read("replayed")
@@ -786,28 +785,21 @@ def test_agent_yaml_is_written_by_dump_so_what_was_typed_reads_back(home: Path) 
           ok and cfg["model"] == "4.5" and cfg["repo"] == "1_000" and cfg["effort"] == "high",
           f"{said} {cfg}")
     try:
-        agents.register("ctrl", "alpha", model="a\nb")
+        agents.register("ctrl", model="a\nb")
         check("agent.yaml: a control character is refused", False)
     except yamlcompat.ConfigError:
         check("agent.yaml: a control character is refused, and leaves no folder behind",
               not paths.agent_dir("ctrl").exists())
     # A refusal leaves nothing behind: the effort is checked before the folder is made.
     try:
-        agents.register("badeffort", "alpha", effort="bogus")
+        agents.register("badeffort", effort="bogus")
         check("agent.yaml: an effort that is not one of ours is refused", False)
     except ValueError:
         check("agent.yaml: an effort that is not one of ours is refused, and leaves no folder",
               not paths.agent_dir("badeffort").exists())
-    # The account needs no guard of its own: dump quotes it, so an account called
-    # no or 1 is the text it was typed as.
-    agents.register("acctno", "no")
-    agents.register("acct1", "1")
-    check("agent.yaml: an account called no or 1 reads back as that text",
-          agents.read("acctno")["account"] == "no" and agents.read("acct1")["account"] == "1",
-          str((agents.read("acctno")["account"], agents.read("acct1")["account"])))
-    agents.register("plain", "beta", model="4.5")
+    agents.register("plain", model="4.5")
     check("agent.yaml: registering again updates through the same writer",
-          agents.read("plain")["account"] == "beta" and agents.read("plain")["model"] == "4.5")
+          agents.read("plain")["model"] == "4.5")
 
 
 def test_yaml_booleans() -> None:
@@ -907,9 +899,6 @@ def test_a_claude_agent_is_never_placed_on_another_vendors_account(home: Path) -
                 plan = dmn._move_plan(con, "backend", "usage_5h")
                 check("vendor pick: the daemon's move off the wall does not go there",
                       plan[0] is None and "zeta: a zai account, not claude" in plan[1], str(plan))
-                check("vendor pick: nor does a person's forced move",
-                      dmn._forced_plan(con, "backend", "zeta")[0] is None,
-                      str(dmn._forced_plan(con, "backend", "zeta")))
                 # The page and the panel carry no agent, so their verdict is
                 # the account's own: judged for the vendor whose sessions are
                 # the only ones that can ever run here (#1815). Drawn as a
@@ -945,7 +934,7 @@ def test_a_claude_agent_is_never_placed_on_another_vendors_account(home: Path) -
 
             # The control: a zai agent is placed there, so the filter is on
             # the vendor, not on the account.
-            agents.register("glm", "zeta")
+            agents.register("glm")
             _with_vendor("glm", "zai")
             check("vendor pick: a zai agent is placed on the zai account",
                   launch.find_room("glm") == "zeta"
@@ -1028,7 +1017,7 @@ def test_a_second_vendors_live_session_is_seen_by_the_sweep(home: Path) -> None:
     with second_vendor(metered=True):
         try:
             accounts.register("zeta", vendor="zai")
-            agents.register("glm", "zeta")
+            agents.register("glm")
             _with_vendor("glm", "zai")
             con = db.connect()
             try:
@@ -1093,7 +1082,7 @@ def test_an_accounts_verdict_is_asked_for_its_own_vendor(home: Path) -> None:
         check("verdict: and that ranking's words are the ones drawn",
               ok and why == dict(ranked)["zeta"], str((ok, why)))
 
-        agents.register("glm", "zeta")
+        agents.register("glm")
         _with_vendor("glm", "zai")
         _, ranked2 = status.pick_account(["alpha", "zeta"], agent="glm", vendor="claude")
         check("verdict: an agent's own vendor wins over a vendor named beside it",
@@ -1131,7 +1120,7 @@ def test_an_unmetered_account_is_pinned_never_picked_or_polled(home: Path) -> No
             (paths.account_dir("alpha") / ".claude" / ".credentials.json").write_text("{}")
             accounts.register("zeta", vendor="zai")
             accounts.register("zeta2", vendor="zai")
-            agents.register("glm", "zeta")
+            agents.register("glm")
             _with_vendor("glm", "zai")
             st = status.read("zeta")
             check("unmetered: read as its own state, not as no reading yet",
@@ -1141,9 +1130,15 @@ def test_an_unmetered_account_is_pinned_never_picked_or_polled(home: Path) -> No
             check("unmetered: never picked, not even as a bootstrap last resort",
                   picked is None and dict(ranked)["zeta2"] == status.UNMETERED_WHY,
                   str((picked, ranked)))
-            check("unmetered: the agent that names it still starts there",
-                  launch.find_room("glm") == "zeta", str(launch.find_room("glm")))
-            argv, env = launch.build("glm")
+            check("unmetered: nor is it a place a new session is put",
+                  launch.find_room("glm") is None, str(launch.find_room("glm")))
+            con = db.connect()
+            try:
+                db.set_account(con, "glm", "zeta")
+                con.commit()
+            finally:
+                con.close()
+            argv, env = launch.build("glm", ["--resume", "x"])
             check("unmetered: and launches as its own vendor, into its own config dir",
                   argv[0] == "/opt/zai/bin/glmcode"
                   and env.get("ZAI_HOME") == str(vendors.config_dir("zeta")),
@@ -1201,7 +1196,7 @@ def test_an_account_records_its_vendor(home: Path) -> None:
         check("vendor record: a vendor with no driver is refused, making nothing",
               "no driver for vendor 'nosuch'" in str(e) and "nope" not in paths.list_accounts(),
               str(e))
-    agents.register("broken", "alpha")
+    agents.register("broken")
     agents.agent_file("broken").write_text("- not a map\n")
     picked, ranked = status.pick_account(["alpha"], agent="broken")
     check("vendor record: an agent whose vendor cannot be read is placed nowhere",
@@ -1328,7 +1323,7 @@ def test_the_opencode_driver(home: Path) -> None:
                             (["-m", "x"], False), (None, False)):
             check(f"opencode: is_resume({extra}) is {want}", drv.is_resume(extra) is want)
 
-        agents.register("glm", "zai", model="zai-coding-plan/glm-5.2")
+        agents.register("glm", model="zai-coding-plan/glm-5.2")
         _with_vendor("glm", "opencode")
         argv, env = launch.build("glm")
         check("opencode: a launch is the TUI with its model and nothing ocp cannot "
@@ -1384,9 +1379,9 @@ def test_a_clear_looks_the_vendor_up_once_and_refuses_in_its_own_words(home: Pat
     try:
         accounts.register("alpha")
         accounts.register("zai", vendor="opencode")
-        agents.register("glm", "zai", model="zai-coding-plan/glm-5.3-flash")
+        agents.register("glm", model="zai-coding-plan/glm-5.3-flash")
         _with_vendor("glm", "opencode")
-        agents.register("backend", "alpha")
+        agents.register("backend")
         db.set_terminal(con, "glm", "term_oc", "wt")
         db.set_terminal(con, "backend", "term_cl", "wt")
 
@@ -1442,9 +1437,9 @@ def test_an_opencode_session_under_ocp(home: Path) -> None:
     try:
         accounts.register("alpha")
         accounts.register("zai", vendor="opencode")
-        agents.register("glm", "zai", model="zai-coding-plan/glm-5.3-flash")
+        agents.register("glm", model="zai-coding-plan/glm-5.3-flash")
         _with_vendor("glm", "opencode")
-        agents.register("backend", "alpha")
+        agents.register("backend")
         (vendors.config_dir("alpha") / ".credentials.json").write_text("{}")
         paths.agent_dir("glm").joinpath("ROLE.md").write_text("Build the thing.\n")
 
@@ -1575,8 +1570,8 @@ def test_an_opencode_row_takes_its_state_word_from_orca(home: Path) -> None:
     use_home(home)
     accounts.register("alpha")
     accounts.register("zai", vendor="opencode")
-    agents.register("backend", "alpha")
-    agents.register("glm", "zai")
+    agents.register("backend")
+    agents.register("glm")
     _with_vendor("glm", "opencode")
     con = db.connect()
     screens = {"term_oc": OC_WORKING}
@@ -1679,8 +1674,8 @@ def test_shared_account_context_isolation(home: Path) -> None:
     and each agent's comes from the transcript its own session is writing.
     """
     use_home(home)
-    agents.register("ag_a", "shared")
-    agents.register("ag_b", "shared")
+    agents.register("ag_a")
+    agents.register("ag_b")
     accounts.register("shared")
     now = int(time.time())
     write_status(home, "shared", pct_5h=30, pct_7d=12, reset_5h=now + 1800,
@@ -1712,7 +1707,7 @@ def test_shared_account_context_isolation(home: Path) -> None:
     check("shared account: the other agent's does not", not tb.fired, tb.reason)
 
     # An agent with no session file of its own must not borrow one.
-    agents.register("ag_c", "shared")
+    agents.register("ag_c")
     c = status.read_for_agent("ag_c", "shared")
     check("shared account: an agent with no session file falls back to the account",
           c.pct_5h == 30)
@@ -1720,60 +1715,41 @@ def test_shared_account_context_isolation(home: Path) -> None:
 
 def test_agent_rewrite_uses_parser(home: Path) -> None:
     use_home(home)
-    agents.register("rw", "alpha", model="opus")
+    agents.register("rw", model="opus")
     # A spacing variant that prefix-matching would have duplicated.
-    agents.agent_file("rw").write_text("name: rw\naccount : alpha\nmodel: opus\n")
-    agents.register("rw", "beta")
+    agents.agent_file("rw").write_text("name: rw\nmodel : opus\n")
+    agents.register("rw", effort="high")
     cfg = agents.read("rw")
-    check("agents: re-register moves the account through the parser",
-          cfg.get("account") == "beta", str(cfg))
+    check("agents: re-register goes through the parser", cfg.get("effort") == "high", str(cfg))
     text = agents.agent_file("rw").read_text()
-    check("agents: no duplicate account key is left behind",
-          text.count("account") == 1, text)
+    check("agents: no duplicate model key is left behind", text.count("model") == 1, text)
     check("agents: other fields survive the rewrite", cfg.get("model") == "opus", str(cfg))
 
 
-def test_hr_add_takes_the_vendor_from_the_named_account(home: Path) -> None:
-    """#1964 (task #41, founder #1880): `hr add` wrote no vendor into
-    agent.yaml, so a claude agent registered onto an opencode account could
-    not launch (`ocp launch` refuses the mismatch) - a human had to add
-    `vendor: opencode` to agent.yaml by hand. The vendor is read from the
-    account named, not typed; a --vendor that disagrees is refused before
-    anything is written."""
+def test_hr_add_writes_the_vendor_it_was_given(home: Path) -> None:
+    """`hr add` writes `vendor:` into agent.yaml only when --vendor names a
+    non-default one, both when the founder adds and when a proposal is applied."""
     _daemon_home(home, 20)
     accounts.register("alpha")
     accounts.register("zai", vendor="opencode")
     con = db.connect()
     try:
-        ok, said = hr.enact("add", "claudey", why="w", account="alpha")
-        check("hr add: succeeds on a claude account", ok, said)
+        ok, said = hr.enact("add", "claudey", why="w")
+        check("hr add: succeeds with no vendor", ok, said)
         cfg = yamlcompat.load(agents.agent_file("claudey").read_text())
         check("hr add: no vendor key for the default vendor, same as every "
               "existing agent.yaml", "vendor" not in cfg, str(cfg))
-        check("hr add: agent_vendor still reads it as claude",
+        check("hr add: agent_vendor reads it as claude",
               vendors.agent_vendor("claudey") == "claude")
 
-        ok, said = hr.enact("add", "glm", why="w", account="zai")
-        check("hr add: succeeds on an opencode account", ok, said)
+        ok, said = hr.enact("add", "glm", why="w", vendor="opencode")
+        check("hr add: succeeds with --vendor opencode", ok, said)
         cfg = yamlcompat.load(agents.agent_file("glm").read_text())
-        check("hr add: the account's vendor is written", cfg.get("vendor") == "opencode",
-              str(cfg))
+        check("hr add: the vendor is written", cfg.get("vendor") == "opencode", str(cfg))
         check("hr add: agent_vendor reads it as opencode",
               vendors.agent_vendor("glm") == "opencode")
+        check("hr add: no account is written", "account" not in cfg, str(cfg))
 
-        ok, said = hr.enact("add", "wrong", why="w", account="zai", vendor="claude")
-        check("hr add: a --vendor that disagrees with the account is refused",
-              not ok and "disagrees" in said, said)
-        check("hr add: refused, nothing was registered", "wrong" not in paths.list_agents())
-        check("hr add: refused, no proposal file left behind for the draft",
-              not [p_ for p_ in hr.listing() if p_["agent"] == "wrong"])
-
-        ok, said = hr.enact("add", "agree", why="w", account="zai", vendor="opencode")
-        check("hr add: a --vendor that agrees with the account is not refused", ok, said)
-
-        # A proposal (an agent asking, not the founder) raises with the
-        # vendor named, so the founder is not asked to approve a fact about
-        # the account they cannot see.
         (home / "team.yaml").write_text("""
 agents:
   marina: { intake: dedicated }
@@ -1781,9 +1757,9 @@ edges:
   - { from: "*", to: "human", kind: escalate, creates_gate: true }
   - { from: "human", to: "*", relation: supervisor, response: fire_and_forget }
 """)
-        agents.register("marina", "alpha")
-        ok, said = hr.propose("add", "glm2", requester="marina", why="w", account="zai")
-        check("hr add: a proposal on an opencode account raises", ok, said)
+        agents.register("marina")
+        ok, said = hr.propose("add", "glm2", requester="marina", why="w", vendor="opencode")
+        check("hr add: a proposal with a vendor raises", ok, said)
         pid = said.split()[1]
         prop = hr.load_proposal(pid)
         check("hr add: the proposal itself records the vendor",
@@ -1791,8 +1767,6 @@ edges:
         req = db.get_request(con, prop["request"])
         check("hr add: the escalation names the vendor to the founder",
               "vendor opencode" in req["body"], req["body"])
-
-        # Applying it writes the same thing enact does.
         con.execute("UPDATE requests SET state = 'done', verdict = 'approve' WHERE id = ?",
                    (prop["request"],))
         ok, said = hr.apply(pid, con)
@@ -1800,24 +1774,6 @@ edges:
         cfg = yamlcompat.load(agents.agent_file("glm2").read_text())
         check("hr add: apply writes the vendor the proposal recorded",
               cfg.get("vendor") == "opencode", str(cfg))
-
-        # auditor #1971's should-fix: a proposal saved before vendor was
-        # recorded has no vendor key. It must still apply with the account's
-        # real vendor, not silently as claude.
-        ok, said = hr.propose("add", "glm3", requester="marina", why="w", account="zai")
-        pid3 = said.split()[1]
-        prop3 = hr.load_proposal(pid3)
-        del prop3["vendor"]
-        hr.save(prop3)
-        con.execute("UPDATE requests SET state = 'done', verdict = 'approve' WHERE id = ?",
-                   (prop3["request"],))
-        ok, said = hr.apply(pid3, con)
-        check("hr add: an old proposal with no vendor key still applies", ok, said)
-        cfg = yamlcompat.load(agents.agent_file("glm3").read_text())
-        check("hr add: it takes the vendor from the account, not claude",
-              cfg.get("vendor") == "opencode", str(cfg))
-        check("hr add: agent_vendor reads it as opencode",
-              vendors.agent_vendor("glm3") == "opencode")
     finally:
         con.close()
 
@@ -1830,11 +1786,11 @@ def test_register_writes_vendor_onto_an_agent_that_already_exists(home: Path) ->
     a later call - hr's own re-register among them."""
     _daemon_home(home, 20)
     accounts.register("alpha")
-    agents.register("late", "alpha")
+    agents.register("late")
     cfg = yamlcompat.load(agents.agent_file("late").read_text())
     check("register existing: no vendor key yet", "vendor" not in cfg, str(cfg))
 
-    agents.register("late", "alpha", vendor="opencode")
+    agents.register("late", vendor="opencode")
     cfg = yamlcompat.load(agents.agent_file("late").read_text())
     check("register existing: a later call writes the vendor onto the "
           "already-registered agent", cfg.get("vendor") == "opencode", str(cfg))
@@ -1847,7 +1803,7 @@ def test_a_dismissed_escalation_is_refused_by_its_state_not_as_a_quote(home: Pat
     named as dismissed when apply refuses it, not as an empty answer."""
     _daemon_home(home, 20)
     accounts.register("beta")
-    agents.register("hr", "beta")
+    agents.register("hr")
     (home / "team.yaml").write_text("""
 agents:
   hr: { intake: serial }
@@ -1856,7 +1812,7 @@ edges:
 """)
     con = db.connect()
     try:
-        ok, said = hr.propose("add", "zed", requester="hr", why="hands", account="beta")
+        ok, said = hr.propose("add", "zed", requester="hr", why="hands")
         pid, rid = said.split()[1], int(said.split("#")[1].split(".")[0])
         con.execute("UPDATE requests SET state = 'done', dismissed_by = 'ghost', "
                     "dismissed_reason = 'not now' WHERE id = ?", (rid,))
@@ -1879,15 +1835,14 @@ def test_every_door_onto_an_open_proposal_also_needs_a_decision(home: Path) -> N
     con = db.connect()
     try:
         accounts.register("beta")
-        agents.register("hr", "beta")
+        agents.register("hr")
         (home / "team.yaml").write_text("""
 agents:
   hr: { intake: serial }
 edges:
   - { from: "*", to: "human", kind: escalate, creates_gate: true }
 """)
-        ok, said = hr.propose("add", "dohyun", requester="hr", why="more hands",
-                              account="beta")
+        ok, said = hr.propose("add", "dohyun", requester="hr", why="more hands")
         pid = said.split()[1]
         rid = int(said.split("#")[1].split(".")[0])
     finally:
@@ -1908,8 +1863,7 @@ edges:
     # #1908 should-fix: the same escalation can be closed a third way, through
     # --retires on an unrelated resolve - "replaced by #N" is not a decision
     # either.
-    ok, said = hr.propose("add", "yerin", requester="hr", why="a second pair",
-                          account="beta")
+    ok, said = hr.propose("add", "yerin", requester="hr", why="a second pair")
     pid2 = said.split()[1]
     rid2 = int(said.split("#")[1].split(".")[0])
     ok, _, rid3 = askmod.ask(askmod.HUMAN, "unrelated question", requester="hr")
@@ -1999,15 +1953,14 @@ def test_the_chokepoint_alone_refuses_every_door_onto_an_open_proposal(home: Pat
     con = db.connect()
     try:
         accounts.register("beta")
-        agents.register("hr", "beta")
+        agents.register("hr")
         (home / "team.yaml").write_text("""
 agents:
   hr: { intake: serial }
 edges:
   - { from: "*", to: "human", kind: escalate, creates_gate: true }
 """)
-        ok, said = hr.propose("add", "sooyoung", requester="hr", why="a third pair",
-                              account="beta")
+        ok, said = hr.propose("add", "sooyoung", requester="hr", why="a third pair")
         rid = int(said.split("#")[1].split(".")[0])
 
         check("close_if_queued: refuses a non-decision verdict on an open proposal",
@@ -2076,129 +2029,6 @@ edges:
               {"retire_queued", "close_if_queued", "retire_if_undelivered"},
               f"guarded={guarded_writers} unguarded={unguarded_writers}")
     finally:
-        con.close()
-
-
-def test_hr_move_changes_an_agents_account(home: Path) -> None:
-    """Request #154/#156: there was no command to change an agent's account -
-    a human edited agent.yaml by hand, and the loop #154 traced started with a
-    resume id recorded on the account being left, which `--resume` on the new
-    one cannot use (#154 item 4)."""
-    _daemon_home(home, 20)
-    accounts.register("beta")
-    con = db.connect()
-    real_live = obsmod.live_sessions
-    try:
-        db.set_account(con, "backend", "alpha")
-        db.set_closed(con, "backend", "sess-1")
-        # _daemon_home's default live_sessions is None (an unreadable table),
-        # which _move now treats as "can't tell, leave it alone" - this test
-        # wants the genuinely-not-running case, so it says so explicitly.
-        obsmod.live_sessions = lambda: {}
-
-        ok, said = hr.enact("move", "backend", why="alpha is at the wall", account="beta")
-        check("hr move: the founder's own move lands without a proposal", ok, said)
-        check("hr move: agent.yaml now prefers the new account",
-              agents.account_of("backend") == "beta", agents.account_of("backend"))
-        row = db.get_agent_state(con, "backend")
-        check("hr move: a closed agent's state row is cleared, not overwritten - "
-              "the preference just written answers 'where does it run' until a "
-              "session records its own",
-              row["account"] is None, str(dict(row)))
-        check("hr move: current_account falls back to the new preference",
-              agents.current_account("backend", con) == "beta",
-              agents.current_account("backend", con))
-        check("hr move: a resume id from the old account is dropped - it means "
-              "nothing on the new one",
-              row["resume_session"] is None, str(dict(row)))
-
-        check("hr move: an unregistered account is refused",
-              not hr.enact("move", "backend", why="w", account="nope")[0])
-        check("hr move: an agent that already prefers its target is refused",
-              not hr.enact("move", "backend", why="w", account="beta")[0])
-        check("hr move: an unknown agent is refused",
-              not hr.enact("move", "nobody", why="w", account="beta")[0])
-
-        # An agent may propose its own move; only the founder's own action
-        # applies it without a gate to approve.
-        ok, said = hr.propose("move", "backend", requester="backend",
-                              why="beta is quieter", account="alpha")
-        check("hr move: an agent may propose moving itself", ok, said)
-        check("hr move: but proposing changes nothing until it is applied",
-              agents.account_of("backend") == "beta", agents.account_of("backend"))
-    finally:
-        obsmod.live_sessions = real_live
-        con.close()
-
-
-def test_hr_move_does_not_touch_a_live_sessions_own_record(home: Path) -> None:
-    """Review of buddyron/bootstrap-and-hr-move: moving an agent while its
-    session is running used to rewrite agent_state.account under it, which
-    recreated the exact #154 mismatch this command exists to fix - every
-    usage read believed the new account while the session kept spending the
-    old one, and a later close recorded a resume id that belonged to the old
-    account under what current_account now called the new one."""
-    _daemon_home(home, 20)
-    accounts.register("beta")
-    con = db.connect()
-    real_live = obsmod.live_sessions
-    try:
-        db.set_account(con, "backend", "alpha")
-        obsmod.live_sessions = lambda: {"backend": 4242}
-
-        ok, said = hr.enact("move", "backend", why="beta has room", account="beta")
-        check("hr move (live): still succeeds - it changes the preference, not "
-              "the running session", ok, said)
-        check("hr move (live): agent.yaml takes the new preference",
-              agents.account_of("backend") == "beta", agents.account_of("backend"))
-        row = db.get_agent_state(con, "backend")
-        check("hr move (live): the live session's own account record is untouched",
-              row["account"] == "alpha", str(dict(row)))
-        check("hr move (live): current_account still reports where the session "
-              "actually is, not the new preference",
-              agents.current_account("backend", con) == "alpha",
-              agents.current_account("backend", con))
-
-        # Once the session ends and is closed with a resume id, that id
-        # belongs to alpha - current_account must keep saying alpha until
-        # the close is recorded, or a wake would try --resume on beta.
-        db.set_closed(con, "backend", "sess-live")
-        check("hr move (live): closing after the fact still resumes on the "
-              "account the session actually ran on",
-              agents.current_account("backend", con) == "alpha",
-              agents.current_account("backend", con))
-    finally:
-        obsmod.live_sessions = real_live
-        con.close()
-
-
-def test_hr_move_leaves_account_alone_when_liveness_cannot_be_read(home: Path) -> None:
-    """Review of buddyron/bootstrap-and-hr-move, should-fix #3: live_sessions()
-    returns None when the process table can't be read - treating that as 'not
-    running' clears agent_state.account under a session that may actually be
-    live, on exactly the machines where this read fails."""
-    _daemon_home(home, 20)
-    accounts.register("beta")
-    con = db.connect()
-    real_live = obsmod.live_sessions
-    try:
-        db.set_account(con, "backend", "alpha")
-        obsmod.live_sessions = lambda: None
-
-        ok, said = hr.enact("move", "backend", why="beta has room", account="beta")
-        check("hr move (unknown liveness): still succeeds", ok, said)
-        check("hr move (unknown liveness): agent.yaml takes the new preference",
-              agents.account_of("backend") == "beta", agents.account_of("backend"))
-        row = db.get_agent_state(con, "backend")
-        check("hr move (unknown liveness): the account record is left alone, not "
-              "cleared, since a live session cannot be ruled out",
-              row["account"] == "alpha", str(dict(row)))
-        check("hr move (unknown liveness): current_account keeps reporting the "
-              "account actually on record",
-              agents.current_account("backend", con) == "alpha",
-              agents.current_account("backend", con))
-    finally:
-        obsmod.live_sessions = real_live
         con.close()
 
 
@@ -2290,7 +2120,7 @@ def test_an_account_is_added_and_removed_from_ocp(home: Path) -> None:
     (home / "team.yaml").write_text("agents:\n  backend: { intake: dedicated }\n")
     for a in ("alpha", "beta", "gamma"):
         accounts.register(a)
-    agents.register("backend", "alpha")
+    agents.register("backend")
 
     def run_cli(*argv):
         buf, err = io.StringIO(), io.StringIO()
@@ -2303,10 +2133,7 @@ def test_an_account_is_added_and_removed_from_ocp(home: Path) -> None:
     rc, out = run_cli("account", "add", "delta", "--no-login")
     check("account add: refuses a name that exists", rc == 1, out)
 
-    # An agent that prefers it, and one whose session actually went there.
-    rc, out = run_cli("account", "remove", "alpha", "--yes")
-    check("account remove: refused while an agent prefers it",
-          rc == 1 and "backend" in out and "alpha" in paths.list_accounts(), out)
+    # An agent whose session actually went there.
     con = db.connect()
     try:
         db.set_agent_state(con, "backend", "RUNNING")
@@ -2317,6 +2144,26 @@ def test_an_account_is_added_and_removed_from_ocp(home: Path) -> None:
     rc, out = run_cli("account", "remove", "beta", "--yes")
     check("account remove: refused while an agent's session is on it",
           rc == 1 and "backend" in out and "beta" in paths.list_accounts(), out)
+    check("account remove: and the refusal names the action that frees it",
+          "close" in out and "bridge" in out, out)
+    # A closed agent has no session to strand: it stops holding the account, and
+    # once the account is removed its dead resume id goes with it.
+    con = db.connect()
+    try:
+        db.set_closed(con, "backend", "sess-old")
+        con.commit()
+    finally:
+        con.close()
+    rc, out = run_cli("account", "remove", "beta", "--yes")
+    con = db.connect()
+    try:
+        row = db.get_agent_state(con, "backend")
+        check("account remove: an account whose only user is closed is removed",
+              rc == 0 and "beta" not in paths.list_accounts(), out)
+        check("account remove: and the closed agent's record of it is cleared",
+              row["account"] is None and row["resume_session"] is None, dict(row))
+    finally:
+        con.close()
 
     # A logout that does not take leaves the account where it is: moving the
     # directory would change the name its credential is filed under.
@@ -2439,7 +2286,7 @@ def main() -> int:
         run(lambda: test_an_opencode_row_takes_its_state_word_from_orca(Path(td) / 'ocrow'))
         run(lambda: test_shared_account_context_isolation(Path(td) / 'shared'))
         run(lambda: test_agent_rewrite_uses_parser(Path(td) / 'rw'))
-        run(lambda: test_hr_add_takes_the_vendor_from_the_named_account(Path(td) / 'hrvendor'))
+        run(lambda: test_hr_add_writes_the_vendor_it_was_given(Path(td) / 'hrvendor'))
         run(lambda: test_register_writes_vendor_onto_an_agent_that_already_exists(
             Path(td) / 'registervendor'))
         run(lambda: test_a_dismissed_escalation_is_refused_by_its_state_not_as_a_quote(
@@ -2448,9 +2295,6 @@ def main() -> int:
             Path(td) / 'hrresolveguard'))
         run(lambda: test_the_chokepoint_alone_refuses_every_door_onto_an_open_proposal(
             Path(td) / 'hrchokepoint'))
-        run(lambda: test_hr_move_changes_an_agents_account(Path(td) / 'hrmove'))
-        run(lambda: test_hr_move_does_not_touch_a_live_sessions_own_record(Path(td) / 'hrmovelive'))
-        run(lambda: test_hr_move_leaves_account_alone_when_liveness_cannot_be_read(Path(td) / 'hrmoveunknown'))
         run(lambda: test_agents_that_wall_together_respect_the_cap_and_a_start_is_not_its_own_rival(Path(td) / 'ar4b'))
         run(lambda: test_login_points_at_the_account_and_touches_no_credential(Path(td) / 'login'))
         run(lambda: test_an_account_is_added_and_removed_from_ocp(Path(td) / 'acctaddrm'))

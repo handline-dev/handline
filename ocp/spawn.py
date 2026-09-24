@@ -163,7 +163,7 @@ def spawn(agent: str, repo: Path, base: str = "main", prompt: str | None = None,
     if not shutil.which("orca"):
         return False, "orca is not on PATH"
     try:
-        agents.account_of(agent)
+        agents.read(agent)
     except Exception as e:  # noqa: BLE001
         return False, str(e)
 
