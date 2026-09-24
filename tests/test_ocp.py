@@ -15108,6 +15108,23 @@ edges:
             check("race 2: apply enacts nothing", not ok and "racer2" not in paths.list_agents(), said)
         finally:
             con.close()
+
+        # 3. The close cannot go through: nothing is withdrawn, and the file
+        # is put back so the proposal is still open.
+        pid3, rid3 = propose("racer3")
+        orig_close = db.close_if_queued
+        db.close_if_queued = lambda *a, **k: False
+        try:
+            ok, said = hr.withdraw(pid3, "hr")
+        finally:
+            db.close_if_queued = orig_close
+        con = db.connect()
+        try:
+            check("race 3: a close that fails withdraws nothing",
+                  not ok and hr.load_proposal(pid3)["state"] == "proposed"
+                  and db.get_request(con, rid3)["state"] == "queued", said)
+        finally:
+            con.close()
     finally:
         hr.load_proposal, hr.save = orig_load, orig_save
 
