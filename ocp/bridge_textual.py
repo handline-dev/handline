@@ -40,9 +40,9 @@ from textual import events
 from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.screen import ModalScreen, Screen
-from textual.containers import Vertical, VerticalScroll
+from textual.containers import Horizontal, Vertical, VerticalScroll
 from textual.message import Message
-from textual.widgets import DataTable, Footer, Input, Static, TabbedContent, TabPane, TextArea
+from textual.widgets import Button, DataTable, Footer, Input, Static, TabbedContent, TabPane, TextArea
 
 from . import accounts, actions, db, jobs as jobsmod, load as loadmod, orca, status, textsafe, tui
 
@@ -120,15 +120,46 @@ def confirm_answer(key: str, character: str | None) -> bool | None:
 
 
 class Confirm(ModalScreen[bool]):
-    """Yes or no, over the screen under it - only a typed y confirms, and only
-    y, n or Escape answers; every other key leaves the question open."""
+    """A yes/no question in a box in the middle of the screen, over what is
+    under it. `question` is the one line asked; `detail` is what answering yes
+    will do, in as many lines as it takes; `yes` and `no` label the buttons
+    (the key each answers to is shown beside it); `danger` paints Yes red for
+    something that cannot be undone.
 
-    def __init__(self, question: str) -> None:
+    Only a typed y (or a click on Yes) confirms, and only y, n or Escape (or a
+    click) answers; every other key leaves the question open, so a wheel notch
+    or a stray arrow never answers it. Dismisses with True or False."""
+
+    DEFAULT_CSS = """
+    Confirm { align: center middle; background: $background 60%; }
+    Confirm #dialog { width: 64; max-width: 90%; height: auto; padding: 1 2;
+                      border: thick $primary; background: $panel; }
+    Confirm #dialog.danger { border: thick $error; }
+    Confirm #question { text-style: bold; }
+    Confirm #detail { margin-top: 1; color: $text-muted; }
+    Confirm #buttons { height: 1; margin-top: 1; align-horizontal: right; }
+    Confirm Button { margin-left: 2; }
+    """
+
+    def __init__(self, question: str, detail: str = "", yes: str = "Yes", no: str = "No",
+                 danger: bool = False) -> None:
         super().__init__()
-        self.question = question
+        self.question, self.detail, self.yes, self.no, self.danger = question, detail, yes, no, danger
 
     def compose(self) -> ComposeResult:
-        yield Static(Text(f"{self.question}? y / n", style="yellow"))
+        asked = self.question if self.question.rstrip().endswith(("?", ".", ":")) else self.question + "?"
+        with Vertical(id="dialog", classes="danger" if self.danger else ""):
+            yield Static(Text(textsafe.oneline(asked)), id="question")
+            if self.detail:
+                yield Static(Text("\n".join(textsafe.drawable(self.detail))), id="detail")
+            with Horizontal(id="buttons"):
+                yield Button(f"{self.no}  n", id="no", compact=True)
+                yield Button(f"{self.yes}  y", id="yes", compact=True,
+                             variant="error" if self.danger else "warning")
+
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        event.stop()
+        self.dismiss(event.button.id == "yes")
 
     def on_key(self, event: events.Key) -> None:
         event.stop()
@@ -183,7 +214,12 @@ class TextPrompt(ModalScreen[str | None]):
     BINDINGS = [Binding("escape", "dismiss(None)", "cancel"),
                 Binding("ctrl+c", "dismiss(None)", "cancel", show=False)]
     DEFAULT_CSS = """
-    TextPrompt #prompt { dock: top; height: auto; }
+    TextPrompt { align: center middle; background: $background 60%; }
+    TextPrompt #dialog { width: 72; max-width: 90%; height: auto; padding: 1 2;
+                         border: thick $primary; background: $panel; }
+    TextPrompt #prompt { height: auto; margin-bottom: 1; }
+    TextPrompt #box { height: auto; min-height: 3; max-height: 12; }
+    TextPrompt #hint { margin-top: 1; color: $text-muted; }
     """
 
     def __init__(self, prompt: str, multi: bool = False) -> None:
@@ -191,9 +227,11 @@ class TextPrompt(ModalScreen[str | None]):
         self.prompt, self.multi = prompt, multi
 
     def compose(self) -> ComposeResult:
-        yield Static(Text(self.prompt, style="bold"), id="prompt")
-        yield _TextBox(id="box") if self.multi else _LineBox(id="box")
-        yield Footer()
+        with Vertical(id="dialog"):
+            yield Static(Text(textsafe.oneline(self.prompt), style="bold"), id="prompt")
+            yield _TextBox(id="box") if self.multi else _LineBox(id="box")
+            yield Static("enter sends" + (" · shift+enter new line" if self.multi else "")
+                         + " · esc cancels", id="hint")
 
     def on_mount(self) -> None:
         self.query_one("#box").focus()
