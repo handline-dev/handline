@@ -28,7 +28,7 @@ ORCA_MARKERS = ("orca/agent-hooks", ".orca/agent-hooks", "ORCA_AGENT_HOOK", "orc
 
 def source_settings() -> Path:
     """Where Orca installs its hooks: the user's default profile."""
-    return Path.home() / ".claude" / "settings.json"
+    return paths.user_home() / ".claude" / "settings.json"
 
 
 def target_settings() -> Path:

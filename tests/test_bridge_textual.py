@@ -14,7 +14,6 @@ from __future__ import annotations
 import asyncio
 import json
 import os
-import shutil
 import subprocess
 import sys
 import tempfile
@@ -44,7 +43,7 @@ def _home(tag: str) -> Path:
     Stop event) this screen has no use for: registers `backend` on `alpha`
     with a terminal, and a real team.yaml so `actions.chat_reply`/`ask` have
     somewhere to route through."""
-    home = Path(tempfile.mkdtemp(prefix=f"ocp_bt_{tag}_"))
+    home = Path(tempfile.mkdtemp(prefix=f"ocp_bt_{tag}_", dir=t.TEST_ROOT))
     t._daemon_home(home, 20)
     return home
 
@@ -1091,13 +1090,7 @@ async def _run_all() -> None:
 
 def main() -> int:
     os.environ.pop("OCP_AGENT", None)
-    try:
-        asyncio.run(_run_all())
-    finally:
-        # Leave no stray OCP_HOME for whatever imports this module next.
-        home = os.environ.pop("OCP_HOME", None)
-        if home:
-            shutil.rmtree(home, ignore_errors=True)
+    asyncio.run(_run_all())
     print(f"\n{len(PASS)} passed, {len(FAIL)} failed")
     for f in FAIL:
         print(f"  FAILED: {f}")

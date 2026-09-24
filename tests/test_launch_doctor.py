@@ -10,6 +10,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import support  # noqa: E402
 from support import *  # noqa: E402,F401,F403
+from ocp import hooks  # noqa: E402
 
 
 
@@ -1216,6 +1217,38 @@ def test_jobs_lines_reports_state_honestly(home: Path) -> None:
           len(rows) == 4 and "+ 2 more running" in rows[-1].text, str([r.text for r in rows]))
 
 
+def test_a_test_never_reaches_the_real_home(home: Path) -> None:
+    """support.py stands a temp directory in for the user's home before ocp is
+    imported, and paths.home() refuses the real ~/.orcapipe while it does."""
+    real = paths._real_user_home() / ".orcapipe"
+    check("paths: under the suite the user's home is the stand-in",
+          paths.user_home() == TEST_ROOT, str(paths.user_home()))
+    check("paths: the default home is inside the stand-in",
+          TEST_ROOT in paths.default_home().parents, str(paths.default_home()))
+    check("paths: hooks and the launchd plist resolve inside the stand-in",
+          TEST_ROOT in hooks.source_settings().parents
+          and TEST_ROOT in service.plist_path().parents)
+    before = os.environ.get("OCP_HOME")
+    try:
+        for label, value in (("the real home", real), ("a folder inside it", real / "agents")):
+            os.environ["OCP_HOME"] = str(value)
+            try:
+                paths.home()
+                check(f"paths: OCP_HOME at {label} is refused under the suite", False)
+            except paths.RealHomeInTest:
+                check(f"paths: OCP_HOME at {label} is refused under the suite", True)
+        os.environ.pop("OCP_HOME")
+        check("paths: no OCP_HOME falls back to the stand-in, not the real home",
+              paths.home() == TEST_ROOT / ".orcapipe", str(paths.home()))
+        os.environ["OCP_HOME"] = str(home)
+        check("paths: a test's own OCP_HOME is used as given", paths.home() == home)
+    finally:
+        if before is None:
+            os.environ.pop("OCP_HOME", None)
+        else:
+            os.environ["OCP_HOME"] = before
+
+
 def test_venv(home: Path) -> None:
     """ocp/venv.py's own docstring: `status` is a second copy of the sha256
     comparison bin/ocp's bash wrapper makes, kept honest by a test that runs
@@ -1472,6 +1505,7 @@ def main() -> int:
             Path(td) / 'jobsgrandchild'))
         run(lambda: test_jobs_lines_reports_state_honestly(Path(td) / 'jobslines'))
         run(lambda: test_venv(Path(td) / 'venvhome'))
+        run(lambda: test_a_test_never_reaches_the_real_home(Path(td) / 'realhome'))
     return run_area(tests)
 
 
