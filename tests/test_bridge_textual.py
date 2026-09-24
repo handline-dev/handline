@@ -1152,7 +1152,7 @@ def test_a_queued_message_says_why_it_has_not_reached_the_agent() -> None:
         check("chat: the head of the queue is waiting on the agent",
               "mid-turn" in actions.queue_reason(con, "backend", first), actions.queue_reason(con, "backend", first))
         check("chat: the one behind it says what is ahead",
-              f"#{first} is ahead" in actions.queue_reason(con, "backend", second))
+              f"behind #{first}" == actions.queue_reason(con, "backend", second))
         actions.send_now(con, second)
         check("chat: send now puts it ahead of what was ahead", db.head_of_queue(con, "backend")["id"] == second)
     finally:

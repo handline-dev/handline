@@ -1332,8 +1332,9 @@ def queue_reason(con, agent: str, rid: int) -> str:
     """Why request `rid`, queued for `agent`, has not reached it, for the chat page."""
     head = db.head_of_queue(con, agent)
     if head and int(head["id"]) != rid:
-        return f"#{head['id']} is ahead of it in {agent}'s queue"
-    return _delivery_block(con, agent, *_world())[0] or f"{agent} will read it when it is free"
+        return f"behind #{head['id']}"
+    why = _delivery_block(con, agent, *_world())[0].split(" - ")[0].split(" (")[0]
+    return why.removeprefix(f"{agent} ") or "waiting for the agent"
 
 
 def _world(ttl: int = WORLD_FRESH_S) -> tuple[dict | None, set | None]:
