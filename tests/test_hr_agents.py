@@ -70,14 +70,13 @@ def test_team_routing() -> None:
     check("route: escalation target is routable", d.allowed and d.creates_gate, d.reason)
     check("route: escalation kind preserved", d.kind == "escalate")
 
-    check("route: intake comes from the target", t.route("backend", "reviewer").intake == "serial")
     check("route: fire_and_forget preserved",
           t.route("backend", "archivist").response == "fire_and_forget")
     check("route: chain depth limit", not t.route("backend", "reviewer", chain_depth=4).allowed)
 
     # A deny must win even though an earlier wildcard edge would match.
     t2 = team.Team(yamlcompat.parse(
-        "agents:\n  a: { intake: dedicated }\n  b: { intake: dedicated }\n"
+        "agents:\n  a: {}\n  b: {}\n"
         'edges:\n  - { from: "*", to: "*", relation: peer }\n'
         'deny:\n  - { from: "a", to: "b", reason: "no" }\n'
     ))
@@ -337,9 +336,9 @@ def test_a_name_that_yaml_would_not_read_as_text_is_refused_where_it_is_typed(ho
               not ok and len(actions.messages(con)) == before, said)
     finally:
         con.close()
-    text = "agents:\n  harbor: { intake: dedicated }\n"
+    text = "agents:\n  harbor: {}\n"
     check("names: the line hr writes for an agent called no would make team.yaml unloadable",
-          _refused(text + "  no: { intake: dedicated }\n"))
+          _refused(text + "  no: {}\n"))
     try:
         hr._add_text(text, "no", None)
         check("names: so the writer refuses to write it", False)
@@ -445,8 +444,8 @@ def test_a_rename_names_the_agents_orca_worktree(home: Path) -> None:
 teams:
   dev: [oldname]
 agents:
-  oldname: { intake: dedicated }
-  marina:  { intake: dedicated }
+  oldname: {}
+  marina:  {}
 edges:
   - { from: "*", to: "human", kind: escalate, creates_gate: true }
   - { from: "human", to: "*", relation: supervisor, response: fire_and_forget }
@@ -812,8 +811,10 @@ def test_yaml_booleans() -> None:
 
 
 def test_team_validation() -> None:
+    old = team.Team(yamlcompat.parse("agents:\n  a: { intake: nonsense, model: mid }\n"))
+    check("team validation: an old team.yaml's intake key is ignored, not an error",
+          "a" in old.agents and not hasattr(old.route("a", "a"), "intake"))
     for bad, label in [
-        ("agents:\n  a: { intake: nonsense }\n", "bad intake rejected"),
         ('edges:\n  - { from: "a", to: "b", response: blocking }\n',
          "blocking response rejected"),
         ('edges:\n  - { to: "b" }\n', "edge without 'from' rejected"),
@@ -828,7 +829,7 @@ def test_team_validation() -> None:
 def test_team_deny_validation() -> None:
     """A malformed deny silently *allows*, so it must fail to load."""
     base = ("teams:\n  eng: [backend]\n  growth: [marketing]\n"
-            "agents:\n  backend: { intake: dedicated }\n  marketing: { intake: dedicated }\n"
+            "agents:\n  backend: {}\n  marketing: {}\n"
             'edges:\n  - { from: "*", to: "*", relation: peer }\n')
     for deny, label in [
         ('deny:\n  - { form: "backend", to: "marketing", reason: "typo key" }\n',
@@ -846,7 +847,7 @@ def test_team_deny_validation() -> None:
     try:
         team.Team(yamlcompat.parse(
             "teams:\n  eng: [backend]\n"
-            "agents:\n  backend: { intake: dedicated }\n"
+            "agents:\n  backend: {}\n"
             'edges:\n  - { from: "nosuch.*", to: "backend" }\n'))
         check("team: rejects an unknown team in an edge", False, "loaded")
     except yamlcompat.ConfigError:
@@ -1752,7 +1753,7 @@ def test_hr_add_writes_the_vendor_it_was_given(home: Path) -> None:
 
         (home / "team.yaml").write_text("""
 agents:
-  marina: { intake: dedicated }
+  marina: {}
 edges:
   - { from: "*", to: "human", kind: escalate, creates_gate: true }
   - { from: "human", to: "*", relation: supervisor, response: fire_and_forget }
@@ -1806,7 +1807,7 @@ def test_a_dismissed_escalation_is_refused_by_its_state_not_as_a_quote(home: Pat
     agents.register("hr")
     (home / "team.yaml").write_text("""
 agents:
-  hr: { intake: serial }
+  hr: {}
 edges:
   - { from: "*", to: "human", kind: escalate, creates_gate: true }
 """)
@@ -1838,7 +1839,7 @@ def test_every_door_onto_an_open_proposal_also_needs_a_decision(home: Path) -> N
         agents.register("hr")
         (home / "team.yaml").write_text("""
 agents:
-  hr: { intake: serial }
+  hr: {}
 edges:
   - { from: "*", to: "human", kind: escalate, creates_gate: true }
 """)
@@ -1956,7 +1957,7 @@ def test_the_chokepoint_alone_refuses_every_door_onto_an_open_proposal(home: Pat
         agents.register("hr")
         (home / "team.yaml").write_text("""
 agents:
-  hr: { intake: serial }
+  hr: {}
 edges:
   - { from: "*", to: "human", kind: escalate, creates_gate: true }
 """)
@@ -2117,7 +2118,7 @@ def test_an_account_is_added_and_removed_from_ocp(home: Path) -> None:
     """Adding and removing an account are ocp commands, and removing one
     cannot strand an agent, orphan a credential, or lose what was spent."""
     use_home(home)
-    (home / "team.yaml").write_text("agents:\n  backend: { intake: dedicated }\n")
+    (home / "team.yaml").write_text("agents:\n  backend: {}\n")
     for a in ("alpha", "beta", "gamma"):
         accounts.register(a)
     agents.register("backend")

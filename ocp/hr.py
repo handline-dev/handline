@@ -641,7 +641,7 @@ def _add_text(text: str, name: str, team_name: str | None) -> str:
     head, end = _block(lines, "agents:")
     if any(re.match(rf"\s*{re.escape(name)}\s*:", ln) for ln in lines[head + 1:end]):
         raise ConfigError(f"{name} is already in team.yaml")
-    lines.insert(end, f"  {name}: {{ intake: dedicated }}")
+    lines.insert(end, f"  {name}: {{}}")
     text = "\n".join(lines) + "\n"
     return _join_team(text, name, team_name) if team_name else text
 
@@ -670,7 +670,7 @@ def _rename_text(text: str, old: str, new: str, team_name: str | None) -> str:
 
     Everywhere means the edges too. A rename that moved only the team entry
     left `from: "manager"` naming nobody, and the renamed manager with no
-    edge to the reports it supervises. Its intake stays what it was.
+    edge to the reports it supervises.
     """
     _text_only("agent", new)
     word = re.escape(old)

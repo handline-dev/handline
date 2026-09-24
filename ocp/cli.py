@@ -1703,7 +1703,7 @@ def cmd_team_check(args) -> int:
     registered = set(paths.list_agents())
     for n in names:
         mark = "ok" if n in registered else "not registered with ocp"
-        print(f"  {n:<14} intake={t.intake_of(n):<10} {mark}")
+        print(f"  {n:<14} {mark}")
     if args.matrix:
         print("\nrouting matrix (rows ask columns):")
         width = max(len(n) for n in names) + 2
