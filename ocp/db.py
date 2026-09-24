@@ -1325,6 +1325,8 @@ AGENT_ACTIVITY_KINDS = frozenset({
     "no_task",
     "UserPromptSubmit", "Stop", "StopFailure", "SubagentStop", "PostCompact",
     "PermissionRequest", "TeammateIdle",
+    # The session's own footer stopped reporting background work (daemon.track_background_work).
+    "background_work_ended",
 })
 
 

@@ -951,7 +951,11 @@ def screen_state(con, row) -> tuple[str, str]:
             return "IDLE", ""
         return "RUNNING", ""
     if state == daemon.QUEUED:
-        return ("MOVING", "") if detail.startswith(daemon.MOVING_MARK) else ("PENDING", "")
+        if detail.startswith(daemon.MOVING_MARK):
+            return "MOVING", ""
+        if daemon.has_background_work(con, row["agent"]):
+            return "RUNNING", "background work"
+        return "PENDING", ""
     if state in (daemon.PARKED, daemon.DEGRADED, daemon.THROTTLED):
         if detail.startswith(askmod.AWAIT_REPLY_MARK):
             return "IDLE", oneline(detail[len(askmod.AWAIT_REPLY_MARK):])[:DETAIL_CAP]
@@ -973,10 +977,10 @@ def screen_state(con, row) -> tuple[str, str]:
             and vendors.account_vendor(row["account"] or "") == "opencode" \
             and _opencode_working(row["terminal"]) is True:
         return "RUNNING", ""
-    # An IDLE row the daemon marked with work still running behind the prompt
-    # is not idle, whatever the hooks last said.
-    if state == daemon.IDLE and daemon.has_background_work(row):
-        return "RUNNING", oneline(detail[len(daemon.BACKGROUND_MARK):])[:DETAIL_CAP]
+    # A row the daemon marked with work still running behind the prompt is not
+    # idle, whatever the hooks last said.
+    if state == daemon.IDLE and daemon.has_background_work(con, row["agent"]):
+        return "RUNNING", "background work"
     # IDLE, and anything not written above (section 8.4's own DONE, never
     # actually written - see daemon.WAKER): shown as IDLE rather than a raw
     # internal name a person was never meant to read.

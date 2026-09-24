@@ -6046,16 +6046,19 @@ def _close_at(home: Path, dialog, exits_on="1", torn=0, screen=None):
 
 def test_an_agent_with_background_work_is_not_idle_until_it_ends(home: Path) -> None:
     """Task #31: a Stop with work still running behind the prompt leaves the row
-    IDLE in the db, and everything that acts on idleness believed it. The
-    session's own footer count marks the row, and the mark drives all of it."""
+    IDLE (or QUEUED) in the db, and everything that acts on idleness believed
+    it. The session's own footer count marks the agent, and the mark drives all
+    of it, in either state."""
     _daemon_home(home, 20)
     con = db.connect()
-    real = (orcamod.available, orcamod.alive, orcamod.typeable_now, orcamod.send,
-            orcamod.clear_context)
+    names = ("available", "alive", "typeable_now", "send", "clear_context",
+             "background_work", "live_terminals")
+    real = {n: getattr(orcamod, n) for n in names}
     sent: list[str] = []
     cleared: list[str] = []
     bg = ["3 monitors"]
     sessions_are("backend")
+    st = types.SimpleNamespace(session_id="s")
     try:
         orcamod.available = lambda: True
         orcamod.live_terminals = lambda: {"term_x"}
@@ -6075,40 +6078,52 @@ def test_an_agent_with_background_work_is_not_idle_until_it_ends(home: Path) -> 
                     (now - dmn.IDLE_CLOSE_S - 60,))
         con.execute("UPDATE requests SET delivered_at = ? WHERE id = ?",
                     (now - dmn.NUDGE_AFTER_S - 60, head))
+
+        for state, detail in ((dmn.IDLE, "finished its turn"), (dmn.QUEUED, "moved alpha -> beta")):
+            db.clear_cursor(con, "bgwork:backend")
+            db.clear_cursor(con, "nudge:backend")
+            db.clear_cursor(con, "nudge_try:backend")
+            db.set_agent_state(con, "backend", state, detail=detail)
+            del sent[:]
+            bg[0] = "3 monitors"
+            dmn.supervise(con, "backend", lambda _m: None, now, {}, [])
+            row = db.get_agent_state(con, "backend")
+            word = tui.screen_state(con, row)[0]
+            if state == dmn.IDLE:
+                check(f"background {state}: the row is shown working",
+                      word == "RUNNING", word)
+            check(f"background {state}: no resolve nudge is typed at it",
+                  not dmn.nudge_forgotten_resolve(con, "backend", row, now, lambda _m: None)
+                  and not sent, str(sent))
+            ok, why = dmn._reclaim_context(con, "backend", lambda _m: None)
+            check(f"background {state}: /clear is not typed at it either",
+                  not ok and not cleared and "3 monitors" in why, f"{why} {cleared}")
+            bg[0] = ""
+            dmn.track_background_work(con, "backend", db.get_agent_state(con, "backend"))
+            row = db.get_agent_state(con, "backend")
+            check(f"background {state}: not nudged the tick its work ends - the idle clock starts there",
+                  not dmn.nudge_forgotten_resolve(con, "backend", row, now, lambda _m: None)
+                  and not sent, str(sent))
+            later = int(time.time()) + dmn.NUDGE_AFTER_S + 60
+            check(f"background {state}: and nudged like any idle agent once it has been idle",
+                  dmn.nudge_forgotten_resolve(con, "backend", row, later, lambda _m: None) and sent,
+                  str(sent))
+
         db.set_agent_state(con, "backend", dmn.IDLE, detail="finished its turn")
-
-        dmn.supervise(con, "backend", lambda _m: None, now, {}, [])
-        row = db.get_agent_state(con, "backend")
-        word, what = tui.screen_state(con, row)
-        check("background: the row is shown working, and says what runs",
-              word == "RUNNING" and what == "3 monitors", f"{word} {what}")
-        check("background: no resolve nudge is typed at it",
-              not dmn.nudge_forgotten_resolve(con, "backend", row, now, lambda _m: None)
-              and not sent, str(sent))
-        ok, why = dmn._reclaim_context(con, "backend", lambda _m: None)
-        check("background: /clear is not typed at it either",
-              not ok and not cleared and "3 monitors" in why, f"{why} {cleared}")
-
-        bg[0] = ""
-        dmn.track_background_work(con, "backend", db.get_agent_state(con, "backend"))
-        row = db.get_agent_state(con, "backend")
-        check("background: once the work ends the row is IDLE again",
-              tui.screen_state(con, row)[0] == "IDLE", str(dict(row)))
-        check("background: and nudged like any idle agent",
-              dmn.nudge_forgotten_resolve(con, "backend", row, now, lambda _m: None) and sent,
-              str(sent))
         # Nothing queued for it now, so only the work itself can keep it open.
         con.execute("UPDATE requests SET state = 'done'")
-        st = types.SimpleNamespace(session_id="s")
-        check("background: it is idle-closable again",
+        db.add_event(con, "backend", "Stop", {})
+        con.execute("UPDATE events SET ts = ? WHERE agent = 'backend'", (now - dmn.IDLE_CLOSE_S - 60,))
+        row = db.get_agent_state(con, "backend")
+        check("background: it is idle-closable with no work running",
               dmn.should_close(con, "backend", dmn.IDLE, row, now, st))
         bg[0] = "1 shell"
         dmn.track_background_work(con, "backend", row)
         check("background: while work runs it is not idle-closed",
-              not dmn.should_close(con, "backend", dmn.IDLE, db.get_agent_state(con, "backend"), now, st))
+              not dmn.should_close(con, "backend", dmn.IDLE, row, now, st))
     finally:
-        (orcamod.available, orcamod.alive, orcamod.typeable_now, orcamod.send,
-         orcamod.clear_context) = real
+        for n, f in real.items():
+            setattr(orcamod, n, f)
         con.close()
 
 

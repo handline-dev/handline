@@ -659,32 +659,29 @@ FORGOTTEN_STUCK_S = STUCK_RUNNING_S
 NUDGE_RETRY_S = 60
 
 
-BACKGROUND_MARK = "background work: "
-
-
 def track_background_work(con, agent: str, row) -> None:
-    """Keep an open IDLE session's row saying what its own footer says still
-    runs behind its prompt, and stop saying it when that ends.
+    """Record whether an open session's own footer reports work still running
+    behind its prompt, in whatever state it is waiting.
 
-    IDLE with the mark is not idle: the display shows it working, and nothing
-    that acts on idleness (the resolve nudge, the idle close) acts on it. The
-    session reports this, so it is read every tick, never assumed from a clock."""
-    if not row or row["state"] != IDLE or row["closed_at"] or not row["terminal"] \
-            or not orca.available():
+    A session with such work is not idle: the display shows it working, and
+    nothing that acts on idleness (the resolve nudge, the idle close) acts on
+    it. The session reports this, so it is read every tick, never assumed from
+    a clock. When the footer stops reporting it, the end is the session's own
+    activity, so the idle clock starts there and not at its last hook event."""
+    if not row or row["state"] in (RUNNING, HANDOFF, STALLED) or row["closed_at"] \
+            or not row["terminal"] or not orca.available():
         return
     running = orca.background_work(row["terminal"])
-    detail = row["detail"] or ""
-    if running:
-        if detail != BACKGROUND_MARK + running:
-            db.set_agent_state(con, agent, IDLE, wake_at=row["wake_at"],
-                               detail=BACKGROUND_MARK + running)
-    elif detail.startswith(BACKGROUND_MARK):
-        db.set_agent_state(con, agent, IDLE, wake_at=row["wake_at"],
-                           detail="background work ended")
+    key = f"bgwork:{agent}"
+    if running and not db.get_cursor(con, key):
+        db.set_cursor(con, key, 1)
+    elif not running and db.get_cursor(con, key):
+        db.clear_cursor(con, key)
+        db.add_event(con, agent, "background_work_ended", {})
 
 
-def has_background_work(row) -> bool:
-    return bool(row) and (row["detail"] or "").startswith(BACKGROUND_MARK)
+def has_background_work(con, agent: str) -> bool:
+    return bool(db.get_cursor(con, f"bgwork:{agent}"))
 
 
 def forgotten_resolve(con, agent: str, row, now: int) -> dict | None:
@@ -703,7 +700,7 @@ def forgotten_resolve(con, agent: str, row, now: int) -> dict | None:
     """
     if not row or row["state"] not in (IDLE, QUEUED) or row["closed_at"] or not row["terminal"]:
         return None
-    if has_background_work(row):
+    if has_background_work(con, agent):
         return None           # not idle: work it started is still running
     head = db.head_of_queue(con, agent)
     if not head or not head["delivered_at"] \
@@ -902,7 +899,7 @@ def should_close(con, agent: str, state: str, row, now: int, st) -> bool:
     # `deliver_queued` runs before this in the same tick, so a PARKED agent
     # that reaches here was not delivered to (quiet-hours re-park, or walled by
     # `wall_reason`); its queue is no reason to hold the session open.
-    if has_background_work(row):
+    if has_background_work(con, agent):
         return False          # not idle: work is still running behind the prompt
     if db.queued_for(con, agent) and state != PARKED:
         return False          # work is waiting; closing would only delay it
