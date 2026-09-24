@@ -26,6 +26,7 @@ from textual.widgets.option_list import Option
 
 from . import actions, agents, ask as askmod, db, paths, textsafe, tui
 from .bridge_textual import Confirm, TextPrompt, _TextBox
+from .ui.components.action_bar import ActionBar
 from .ui.components.page_header import page_header
 
 # States of a request that never reached its target: withdrawn, replaced, denied.
@@ -590,16 +591,6 @@ STATE_STYLE = {"waiting": "black on yellow", "doing": "white on blue",
 
 def _when(ts) -> str:
     return time.strftime("%Y-%m-%d %H:%M", time.localtime(ts)) if ts else ""
-
-
-class ActionBar(Horizontal):
-    """The row of action buttons every page keeps at its bottom, under the
-    scrolling part and the line that says what came of the last action."""
-
-    DEFAULT_CSS = """
-    ActionBar { height: 1; padding: 0 2; margin-bottom: 1; }
-    ActionBar Button { width: auto; min-width: 0; margin-right: 2; }
-    """
 
 
 class TaskDetail(Screen):

@@ -12,11 +12,16 @@ from textual.widgets import DataTable, Static, Tabs
 from ... import db, tui
 from ...bridge_textual import Dashboard, key_token
 from ..components.page_header import page_header
+from ..components.proposals import ProposalsView
 
 _PANEL_OF_TABLE = {"accounts": tui.ACCOUNTS, "agents": tui.AGENTS,
                    "messages": tui.MESSAGES, "stuck": tui.STUCK}
-# The Dashboard's own widgets: what the Home tab shows and the Settings tab hides.
-_HOME_WIDGETS = ("#header", "#accounts-box", "#agents-box", "#messages-box", "#stuck-box", "#foot")
+# Each tab's widgets: what it shows and the others hide. Home's are the Dashboard's own.
+_TAB_WIDGETS = {
+    "home": ("#header", "#accounts-box", "#agents-box", "#messages-box", "#stuck-box", "#foot"),
+    "hr": ("#hr_view",),
+    "settings": ("#settings_view",),
+}
 
 
 class HomePage(Dashboard):
@@ -29,7 +34,7 @@ class HomePage(Dashboard):
 
     def __init__(self) -> None:
         super().__init__()
-        self.showing_settings = False
+        self.tab = "home"
 
     AGENT_COLUMNS = ("agent", "acct", "model", "state", "cache", "ctx", "in", "")
 
@@ -43,29 +48,40 @@ class HomePage(Dashboard):
         return cells
 
     def compose(self) -> ComposeResult:
-        yield from page_header([("Home", "home"), ("Settings", "settings")])
+        yield from page_header([("Home", "home"), ("HR", "hr"), ("Settings", "settings")])
         yield from super().compose()
+        yield ProposalsView(id="hr_view")
         yield Static("Settings", id="settings_view")
 
     def on_mount(self) -> None:
         self.sub_title = "home"
+        self.query_one("#hr_view").display = False
         self.query_one("#settings_view").display = False
 
     def on_tabs_tab_activated(self, event: Tabs.TabActivated) -> None:
-        self.showing_settings = event.tab.id == "settings"
-        for sel in _HOME_WIDGETS:
-            self.query_one(sel).display = not self.showing_settings
-        self.query_one("#settings_view").display = self.showing_settings
-        self.set_focus(None)
+        self.tab = event.tab.id
+        for tab, widgets in _TAB_WIDGETS.items():
+            for sel in widgets:
+                self.query_one(sel).display = tab == self.tab
+        if self.tab == "hr":
+            self.query_one("#hr_view", ProposalsView).refresh_rows()
+            self.query_one("#hr_table").focus()
+        else:
+            self.set_focus(None)
+
+    def _redraw(self) -> None:
+        super()._redraw()
+        if self.tab == "hr":
+            self.query_one("#hr_view", ProposalsView).refresh_rows()
 
     def on_key(self, event: events.Key) -> None:
-        """On Settings only `q` does anything; the Dashboard's row keys would act on
-        rows that are not on screen."""
-        if not self.showing_settings:
+        """Off the Home tab only `q` is the page's: the Dashboard's row keys would act
+        on rows that are not on screen, and the tab's own keys are its widgets'."""
+        if self.tab == "home":
             return
         event.prevent_default()
-        event.stop()
         if key_token(event) in ("q", "Q", "\x03"):
+            event.stop()
             self.app.exit()
 
     def _row_key(self, table: DataTable, panel: int, row: int):
