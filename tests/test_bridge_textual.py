@@ -269,14 +269,25 @@ async def test_the_account_page_shows_the_account_and_sets_its_cap() -> None:
                   "alpha" in text and "claude" in text and "me@example.com" in text, text)
             check("account page: and says whether it is logged in and how full it is",
                   "logged in" in text.lower() and "5h" in text and "7d" in text, text)
-            page.query_one("#scope", Tabs).active = "agents"
+            check("account page: it opens with the tab bar focused", isinstance(page.focused, Tabs), page.focused)
+            await pilot.press("right")
             await pilot.pause(0.2)
             table = page.query_one("#a_agents", DataTable)
+            check("account page: right on the bar changes tab, down goes into it, up comes back",
+                  table.display, "")
+            await pilot.press("down")
+            check("account page: down enters the agents table", page.focused is table, page.focused)
+            await pilot.press("up")
+            check("account page: up from its first row returns to the bar", isinstance(page.focused, Tabs), page.focused)
+            await pilot.press("right", "down", "down")
+            check("account page: in settings the arrows walk the fields", page.focused is page.query_one("#a_cap", Input),
+                  page.focused)
+            await pilot.press("up", "up", "left")     # back to the bar, then to the Agents tab
+            await pilot.pause(0.2)
             check("account page: the agents tab lists who runs on the account",
                   table.display and [k.value for k in table.rows] == ["backend"], [k.value for k in table.rows])
             check("account page: the overview is hidden behind it", not page.query_one("#detail_pane").display)
-            table.focus()
-            await pilot.press("enter")
+            await pilot.press("down", "enter")
             await pilot.pause(0.4)
             check("account page: Enter on an agent opens its chat page", isinstance(app.screen, ChatPage),
                   type(app.screen).__name__)

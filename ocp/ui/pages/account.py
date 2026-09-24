@@ -77,6 +77,7 @@ class AccountPage(AccountActions, Screen):
         self.sub_title = f"account {self.account}"
         self.query_one("#a_agents", DataTable).add_columns("agent", "state", "detail")
         self._show_tab("overview")
+        self.query_one("#scope", Tabs).focus()
         self._load()
         self.set_interval(2.0, self._load)
         self.run_worker(self._ask_email, thread=True, exclusive=True, group="email")
@@ -217,8 +218,33 @@ class AccountPage(AccountActions, Screen):
             self.run_worker(self._run(self._account_login if bid == "a_login" else self._account_remove),
                             exclusive=True, group="account")
 
+    def _enter_tab(self) -> None:
+        """Take the focus from the tab bar into the tab's content."""
+        tab = self.query_one("#scope", Tabs).active
+        target = {"agents": "#a_agents", "settings": "#a_name", "overview": "#detail_pane"}[tab]
+        self.query_one(target).focus()
+
     def on_key(self, event: events.Key) -> None:
-        if isinstance(self.focused, Input):
+        """The page works from the keyboard alone: it opens on the tab bar, where ←→ change
+        tab; ↓ goes into the tab, and ↑ from its first row or field comes back up. In the
+        settings ↑↓ walk the fields and buttons."""
+        tabs = self.query_one("#scope", Tabs)
+        focused = self.focused
+        if isinstance(focused, Tabs):
+            if event.key == "down":
+                event.stop()
+                self._enter_tab()
+            return
+        top = (isinstance(focused, DataTable) and focused.cursor_row == 0) \
+            or focused is self.query_one("#a_name") or focused is self.query_one("#detail_pane")
+        if event.key == "up" and top:
+            event.stop()
+            tabs.focus()
+        elif event.key in ("up", "down") and self.query_one("#a_settings").display \
+                and (isinstance(focused, (Input, Button))):
+            event.stop()
+            (self.focus_next if event.key == "down" else self.focus_previous)()
+        if isinstance(focused, Input):
             return
         if self.query_one("#a_settings").display and event.character in ("l", "x"):
             event.stop()
