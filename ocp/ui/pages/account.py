@@ -1,5 +1,5 @@
 """One account's page, laid out like a task's: Overview (who it is, how full it is, what the
-home row says, large), Agents (who runs on it) and Settings (its name, caps, login, removal).
+home row says, large), Agents (who runs on it) and Settings (its alias, cap, login, removal).
 What it says comes from `actions.account_facts` and the home row from `tui.accounts_data`."""
 from __future__ import annotations
 
@@ -21,7 +21,7 @@ from ..components.page_header import page_header
 
 BAR_W = 30
 _TABS = {"overview": "#detail_pane", "agents": "#a_agents", "settings": "#a_settings"}
-_INPUTS = {"name": "#a_name", "cap": "#a_cap", "default": "#a_default"}
+_INPUTS = {"name": "#a_name", "cap": "#a_cap"}
 
 
 class AccountPage(AccountActions, Screen):
@@ -31,8 +31,9 @@ class AccountPage(AccountActions, Screen):
     AccountPage #a_settings { height: 1fr; padding: 1 3; }
     AccountPage .frow { height: 1; margin-bottom: 1; }
     AccountPage .flabel { width: 16; color: $text-muted; }
+    AccountPage .fhint { color: $text-muted; }
     AccountPage #a_name { width: 40; }
-    AccountPage #a_cap, AccountPage #a_default { width: 8; }
+    AccountPage #a_cap { width: 8; }
     AccountPage #a_flash { height: 1; padding: 0 3; color: $text-muted; }
     """
 
@@ -56,13 +57,16 @@ class AccountPage(AccountActions, Screen):
             yield Static(id="a_status", classes="section")
         yield DataTable(id="a_agents", cursor_type="row", zebra_stripes=True)
         with Vertical(id="a_settings"):
-            for label, key, hint in (("name", "name", "  shown on the bridge; agents still call it by its own name"),
-                                     ("cap", "cap", "  most agents mid-turn on this account at once"),
-                                     ("default cap", "default", "  the cap of an account with none of its own")):
+            with Horizontal(classes="frow"):
+                yield Static("account", classes="flabel")
+                yield Static(self.account)
+            for label, key, hint in (("alias", "name", "  shown instead of the account's name on the bridge; blank shows the name"),
+                                     ("cap", "cap", "  most agents mid-turn on this account at once")):
                 with Horizontal(classes="frow"):
                     yield Static(label, classes="flabel")
-                    yield Input(id=f"a_{key}", compact=True, restrict=r"[0-9]*" if key != "name" else None)
-                    yield Static(hint, classes="flabel")
+                    yield Input(id=f"a_{key}", compact=True, restrict=r"[0-9]*" if key != "name" else None,
+                                placeholder=self.account if key == "name" else "")
+                    yield Static(hint, classes="fhint")
             for label, key in (("vendor", "vendor"), ("config dir", "config")):
                 with Horizontal(classes="frow"):
                     yield Static(label, classes="flabel")
@@ -115,8 +119,7 @@ class AccountPage(AccountActions, Screen):
         self.query_one("#a_vendor", Static).update(f["vendor"])
         self.query_one("#a_config", Static).update(textsafe.oneline(f["config"]))
         label = loadmod.label_of(self.account)
-        for key, now in (("name", "" if label == self.account else label), ("cap", str(f["cap"])),
-                         ("default", str(loadmod.default_cap()))):
+        for key, now in (("name", "" if label == self.account else label), ("cap", str(f["cap"]))):
             box = self.query_one(_INPUTS[key], Input)
             if box.value in (self._shown.get(key, ""), now):    # unedited: follow the config, never what is typed
                 box.value = self._shown[key] = now
@@ -194,7 +197,7 @@ class AccountPage(AccountActions, Screen):
 
     def _save(self) -> None:
         box = {k: self.query_one(sel, Input).value for k, sel in _INPUTS.items()}
-        _, self.flash = actions.save_account_settings(self.account, box["name"], box["cap"], box["default"])
+        _, self.flash = actions.save_account_settings(self.account, box["name"], box["cap"])
         self._load()
 
     async def _run(self, act) -> None:

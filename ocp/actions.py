@@ -2051,32 +2051,37 @@ def set_account_cap(acct: str, text: str) -> tuple[bool, str]:
     return True, f"{acct}: at most {n} agents mid-turn"
 
 
-def save_account_settings(acct: str, label: str, cap: str, default_cap: str) -> tuple[bool, str]:
-    """The account page's Settings form: what it shows under, its cap and the default cap,
-    each written only when it differs from what is there. Nothing is written if any is refused."""
+def save_account_settings(acct: str, label: str, cap: str) -> tuple[bool, str]:
+    """The account page's Settings form: its alias and its cap, each written only when it
+    differs from what is there. Nothing is written if either is refused."""
     label = label.strip()
     if textsafe.has_unsafe(label) or len(label) > 40:
-        return False, "a name is one plain line of at most 40 characters"
-    caps = {}
-    for key, text, now in (("cap", cap, loadmod.cap_of(acct)), ("default", default_cap, loadmod.default_cap())):
-        try:
-            n = int(text.strip())
-        except ValueError:
-            n = 0
-        if n < 1:
-            return False, f"the {key} cap is a whole number, at least 1"
-        caps[key] = n if n != now else None
+        return False, "an alias is one plain line of at most 40 characters"
+    try:
+        n = int(cap.strip())
+    except ValueError:
+        n = 0
+    if n < 1:
+        return False, "the cap is a whole number, at least 1"
+    now = loadmod.label_of(acct)
     said = []
-    if label != (loadmod.label_of(acct) if loadmod.label_of(acct) != acct else ""):
+    if label != ("" if now == acct else now):
         loadmod.set_label(acct, label)
-        said.append(f"named {label or acct}")
-    if caps["cap"]:
-        loadmod.set_cap(acct, caps["cap"])
-        said.append(f"{acct}: at most {caps['cap']} agents mid-turn")
-    if caps["default"]:
-        loadmod.set_default_cap(caps["default"])
-        said.append(f"default cap {caps['default']}")
+        said.append(f"alias {label}" if label else "alias cleared")
+    if n != loadmod.cap_of(acct):
+        loadmod.set_cap(acct, n)
+        said.append(f"{acct}: at most {n} agents mid-turn")
     return True, "; ".join(said) or "nothing changed"
+
+
+def set_default_cap(text: str) -> tuple[bool, str]:
+    """The cap of every account that has none of its own, from what was typed."""
+    try:
+        n = int(text.strip())
+        loadmod.set_default_cap(n)
+    except ValueError:
+        return False, "the default cap is a whole number, at least 1"
+    return True, f"default cap {n}"
 
 
 def _account_of(agent: str, con=None) -> str | None:

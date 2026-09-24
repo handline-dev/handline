@@ -9,13 +9,13 @@ import time
 from rich.text import Text
 from textual import events
 from textual.app import ComposeResult
-from textual.containers import Vertical
+from textual.containers import Horizontal, Vertical
 from textual.errors import NoWidget
 from textual.screen import Screen
-from textual.widgets import DataTable, Static, Tabs
+from textual.widgets import Button, DataTable, Input, Static, Tabs
 from textual.widgets._data_table import CellDoesNotExist
 
-from ... import db, load as loadmod, status, tui
+from ... import actions, db, load as loadmod, status, tui
 from ..components import agent_rows, gauge
 from ..components.jobs_aware import JobsAware
 from ..components.page_header import page_header
@@ -70,6 +70,11 @@ class HomePage(RowActions, JobsAware, Screen):
     HomePage #foot { height: auto; }
     HomePage DataTable > .datatable--hover { background: transparent; }
     HomePage DataTable { overflow-x: hidden; }
+    HomePage #settings_view { height: 1fr; padding: 1 3; }
+    HomePage .frow { height: 1; margin-bottom: 1; }
+    HomePage .flabel { width: 16; color: $text-muted; }
+    HomePage .fhint { color: $text-muted; }
+    HomePage #default_cap { width: 8; }
     """
     # What is stuck is said on the agent's row, on the account's mark and in the header's
     # daemon word, so there is no STUCK panel.
@@ -105,7 +110,14 @@ class HomePage(RowActions, JobsAware, Screen):
             yield Static(id="message-notes")
         yield Static(id="foot")
         yield ProposalsView(id="hr_view")
-        yield Static("Settings", id="settings_view")
+        with Vertical(id="settings_view"):
+            with Horizontal(classes="frow"):
+                yield Static("default cap", classes="flabel")
+                yield Input(id="default_cap", compact=True, restrict=r"[0-9]*")
+                yield Static("  most agents mid-turn at once on an account with no cap of its own",
+                             classes="fhint")
+            yield Static(id="settings_flash")
+            yield Button("Save", id="settings_save", variant="primary", compact=True)
 
     def on_mount(self) -> None:
         self.sub_title = "home"
@@ -124,6 +136,20 @@ class HomePage(RowActions, JobsAware, Screen):
                 self.query_one(sel).display = tab == self.tab
         if self.tab == "hr":
             self.query_one("#hr_view", ProposalsView).refresh_rows()
+        if self.tab == "settings":
+            self.query_one("#default_cap", Input).value = str(loadmod.default_cap())
+
+    def _save_settings(self) -> None:
+        _, said = actions.set_default_cap(self.query_one("#default_cap", Input).value)
+        self.query_one("#settings_flash", Static).update(Text(said))
+
+    def on_input_submitted(self, event: Input.Submitted) -> None:
+        event.stop()
+        self._save_settings()
+
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        event.stop()
+        self._save_settings()
 
     # ------------------------------------------------------------------ drawing
 
@@ -379,6 +405,8 @@ class HomePage(RowActions, JobsAware, Screen):
         if k == "b":     # task #72: "done - waiting for check" - free on every panel
             self.app.push_screen(TaskChecks())
             return
+        if k in tui.NEXT_ROW and self._on_bottom_row():
+            return      # the last row is the end: ↓ does not wrap round to the top
         moved = tui.navigate(self.panel, self.sel, k, self.PANELS)
         if moved is not None:
             self.panel = moved
@@ -401,6 +429,11 @@ class HomePage(RowActions, JobsAware, Screen):
         first = next((p for p in self.PANELS if tui._keys_of(p)), None)
         keys = tui._keys_of(first) if first is not None else []
         return first is None or (self.panel == first and self.sel.get(first) == keys[0])
+
+    def _on_bottom_row(self) -> bool:
+        """Is the cursor on the last row of the last panel that has one?"""
+        last = next((p for p in reversed(self.PANELS) if tui._keys_of(p)), None)
+        return last is not None and self.panel == last and self.sel.get(last) == tui._keys_of(last)[-1]
 
     def _enter_tab(self) -> None:
         """Take the focus from the tab bar into the tab's content."""

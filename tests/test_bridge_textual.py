@@ -301,12 +301,11 @@ async def test_the_account_page_shows_the_account_and_sets_its_cap() -> None:
                   page.query_one("#a_cap", Input).value == "5" and page.query_one("#a_buttons").display)
             page.query_one("#a_cap", Input).value = "2"
             page.query_one("#a_name", Input).value = "Work"
-            page.query_one("#a_default", Input).value = "4"
             await pilot.click("#a_save")
             await pilot.pause(0.3)
             flash = str(page.query_one("#a_flash", Static).render())
-            check("account page: Save writes the name and both caps",
-                  loadmod.cap_of("alpha") == 2 and loadmod.default_cap() == 4
+            check("account page: Save writes the alias and the cap",
+                  loadmod.cap_of("alpha") == 2
                   and loadmod.label_of("alpha") == "Work" and "at most 2" in flash, flash)
             check("account page: the title shows the new name",
                   "Work" in str(page.query_one("#t_title", Static).render()))
@@ -1428,7 +1427,8 @@ def test_the_agent_row_names_the_fold_alarm_and_why_it_is_stuck() -> None:
 
 async def test_home_tab_bar_focus_mouse_and_columns() -> None:
     from unittest import mock
-    from textual.widgets import Tabs
+    from textual.widgets import Input, Tabs
+    from ocp import load as loadmod
     _home("homekeys")
     app = bt.BridgeApp()
     async with app.run_test(size=(120, 30)) as pilot:
@@ -1454,6 +1454,21 @@ async def test_home_tab_bar_focus_mouse_and_columns() -> None:
         await pilot.press("right")
         await pilot.pause(0.1)
         check("home: with the focus back in the panels the arrows move panels again", screen.panel != tui.ACCOUNTS)
+
+        screen.query_one("#scope", Tabs).active = "settings"
+        await pilot.pause(0.2)
+        screen.query_one("#default_cap", Input).value = "7"
+        await pilot.click("#settings_save")
+        await pilot.pause(0.2)
+        check("home: the Settings tab saves the default cap", loadmod.default_cap() == 7, loadmod.default_cap())
+        screen.query_one("#scope", Tabs).active = "home"
+        await pilot.pause(0.2)
+        last = next(p for p in reversed(screen.PANELS) if tui._keys_of(p))
+        screen.panel, screen.sel[last] = last, tui._keys_of(last)[-1]
+        screen.set_focus(None)
+        await pilot.press("down")
+        check("home: down on the last row stays there, it does not wrap to the top",
+              screen.panel == last and screen.sel[last] == tui._keys_of(last)[-1], (screen.panel, screen.sel))
 
         table = screen.query_one("#agents", DataTable)
         screen.panel = tui.ACCOUNTS
