@@ -26,7 +26,7 @@ _TAB_WIDGETS = {
 
 
 class HomePage(Dashboard):
-    AUTO_FOCUS = ""     # the keys act on the dashboard until a tab is clicked
+    AUTO_FOCUS = ""     # the keys act on the dashboard until the tab bar takes the focus
     # The row cursor is the selection. DataTable's hover highlight restarts at row 0
     # each redraw, so it reads as a second, wrong selection.
     DEFAULT_CSS = """
@@ -193,9 +193,6 @@ class HomePage(Dashboard):
                 self.query_one(sel).display = tab == self.tab
         if self.tab == "hr":
             self.query_one("#hr_view", ProposalsView).refresh_rows()
-            self.query_one("#hr_table").focus()
-        else:
-            self.set_focus(None)
 
     def _redraw(self) -> None:
         super()._redraw()
@@ -206,14 +203,48 @@ class HomePage(Dashboard):
             self.query_one("#hr_view", ProposalsView).refresh_rows()
 
     def on_key(self, event: events.Key) -> None:
-        """Off the Home tab only `q` is the page's: the Dashboard's row keys would act
-        on rows that are not on screen, and the tab's own keys are its widgets'."""
+        """↑ from the first row of a tab's content puts the focus on the tab bar, where
+        ←→ change tab and ↓ goes back down. With the bar focused, or off the Home tab,
+        only `q` is the page's: the Dashboard's row keys would act on rows that are not
+        on screen, and a tab's own keys are its widgets'."""
+        k = key_token(event)
+        if isinstance(self.focused, Tabs):
+            event.prevent_default()
+            if k in tui.NEXT_ROW:
+                event.stop()
+                self._enter_tab()
+            elif k in ("q", "Q", "\x03"):
+                event.stop()
+                self.app.exit()
+            return
+        if k in tui.PREV_ROW and self._on_top_row():
+            event.prevent_default()
+            event.stop()
+            self.query_one("#scope", Tabs).focus()
+            return
         if self.tab == "home":
             return
         event.prevent_default()
-        if key_token(event) in ("q", "Q", "\x03"):
+        if k in ("q", "Q", "\x03"):
             event.stop()
             self.app.exit()
+
+    def _on_top_row(self) -> bool:
+        """Is the cursor on the first row of the tab, so that ↑ has nowhere to go?"""
+        if self.tab == "hr":
+            return self.query_one("#hr_table", DataTable).cursor_row == 0
+        if self.tab != "home":
+            return True
+        first = next((p for p in self.PANELS if tui._keys_of(p)), None)
+        keys = tui._keys_of(first) if first is not None else []
+        return first is None or (self.panel == first and self.sel.get(first) == keys[0])
+
+    def _enter_tab(self) -> None:
+        """Take the focus from the tab bar into the tab's content."""
+        if self.tab == "hr":
+            self.query_one("#hr_table").focus()
+        else:
+            self.set_focus(None)
 
     def _row_key(self, table: DataTable, panel: int, row: int):
         """The selection key of a table row, or None for a row the cursor cannot
