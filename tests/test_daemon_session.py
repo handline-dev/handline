@@ -1,4 +1,4 @@
-"""Tests: the daemon tick, parks, wakes, handoffs, quiet hours and the lock.
+"""Tests: the daemon tick, parks, wakes, handoffs and the lock.
 
 Run on its own: python3 tests/test_daemon_session.py   (all areas: python3 tests/test_ocp.py)
 """
@@ -200,7 +200,7 @@ def test_reconcile_stalls_one_agents_unreadable_config_not_the_others(home: Path
     The fix stalls only the agent whose file cannot be read (8.5's counter,
     the same ceiling tick()'s per-agent guard uses) and keeps going."""
     _daemon_home(home, 20)
-    agents.register("frontend", "alpha")
+    agents.register("frontend")
     con = db.connect()
     try:
         db.set_terminal(con, "frontend", "term_y", "wt2")
@@ -221,8 +221,8 @@ def test_reconcile_stalls_one_agents_unreadable_config_not_the_others(home: Path
         check("reconcile: the unreadable agent is counted, not silently retried forever",
               bad["failed_attempts"] == 1, str(dict(bad)))
         still_open = {h["agent"] for h in db.in_flight_handoffs(con)}
-        check("reconcile: its handoff is left in flight, to retry - not dropped",
-              "backend" in still_open, str(still_open))
+        check("reconcile: its handoff does not read agent.yaml, so it resolves",
+              "backend" not in still_open, str(still_open))
 
         good = db.get_agent_state(con, "frontend")
         check("reconcile: a healthy agent's in-flight handoff still resolves "
@@ -245,7 +245,7 @@ def test_a_hand_edited_control_character_stalls_one_agent_live_through_the_daemo
     one agent by name while a second, healthy agent's in-flight handoff
     still resolves in the same reconciliation."""
     _daemon_home(home, 20)
-    agents.register("frontend", "alpha")
+    agents.register("frontend")
     con = db.connect()
     try:
         db.set_terminal(con, "frontend", "term_y", "wt2")
@@ -275,8 +275,8 @@ def test_a_hand_edited_control_character_stalls_one_agent_live_through_the_daemo
         check("read guard: the agent carrying it is stalled by name, not retried forever",
               bad["failed_attempts"] == 1, str(dict(bad)))
         still_open = {h["agent"] for h in db.in_flight_handoffs(con)}
-        check("read guard: its handoff is left in flight, to retry - not dropped",
-              "backend" in still_open, str(still_open))
+        check("read guard: its handoff does not read agent.yaml, so it resolves",
+              "backend" not in still_open, str(still_open))
 
         good = db.get_agent_state(con, "frontend")
         check("read guard: a second, healthy agent still resolves in the "
@@ -506,60 +506,6 @@ def test_dev_mode_restart_yields_to_a_signal_that_arrived_during_the_check(home:
               "restart skipped" in out, out)
     finally:
         dmn._dev_mode_should_restart, dmn._dev_mode_restart = real_should, real_restart
-
-
-def test_quiet_hours_config_round_trips(home: Path) -> None:
-    """Task #77: off by default, `ocp quiet-hours on/off` flips config.yaml
-    (the same file `dev-mode` and `account cap` write to), and a plain
-    `ocp quiet-hours` reads it back without changing it."""
-    use_home(home)
-    check("quiet-hours: off by default", dmn.quiet_hours_enabled() is False,
-          str(dmn.quiet_hours_enabled()))
-    out = _capture(lambda: climod.main(["quiet-hours"]))
-    check("cli quiet-hours: prints the current state with no argument",
-          out.strip() == "off", out)
-    out = _capture(lambda: climod.main(["quiet-hours", "on"]))
-    check("cli quiet-hours on: confirms the flip", "on" in out, out)
-    check("quiet-hours: on reaches daemon.py's own reader",
-          dmn.quiet_hours_enabled() is True, str(dmn.quiet_hours_enabled()))
-    climod.main(["quiet-hours", "off"])
-    check("quiet-hours: off turns it back off, not just adds a second key",
-          dmn.quiet_hours_enabled() is False, str(dmn.quiet_hours_enabled()))
-
-
-def test_quiet_hours_holds_queued_work_from_an_idle_claude_agent(home: Path) -> None:
-    """Integration: `supervise` on a claude agent sitting IDLE with a request
-    already queued does not deliver it while quiet hours block it - it parks,
-    reusing PARKED/wake_at rather than a new state - and does deliver once
-    the same call is made with `now` outside the window."""
-    _daemon_home(home, 20)
-    con = db.connect()
-    try:
-        orca_seen()
-        orcamod.idle_now = lambda h: True
-        sent: list[str] = []
-        orcamod.send = lambda h, text, enter=True: (sent.append(text), (True, ""))[1]
-        sessions_are("backend")
-        db.set_agent_state(con, "backend", dmn.IDLE)
-        db.add_request(con, "marina", "backend", "carry on", None,
-                       "peer", "async", None, 0, None)
-        dmn.set_quiet_hours(True)
-        in_window = _pt_epoch(2026, 9, 21, 7, 0)
-
-        dmn.supervise(con, "backend", lambda _m: None, in_window, {}, [])
-        check("quiet hours: nothing was typed while blocked", sent == [], str(sent))
-        row = db.get_agent_state(con, "backend")
-        check("quiet hours: the agent parks instead, PARKED with a wake_at",
-              row["state"] == dmn.PARKED and row["wake_at"] == _pt_epoch(2026, 9, 21, 11, 0),
-              str(dict(row)))
-
-        out_of_window = _pt_epoch(2026, 9, 21, 12, 0)
-        dmn.supervise(con, "backend", lambda _m: None, out_of_window, {}, [])
-        check("quiet hours: past the window, the same queued work is delivered",
-              sent and "carry on" in sent[-1], str(sent))
-    finally:
-        dmn.set_quiet_hours(False)
-        con.close()
 
 
 def test_reconcile_still_propagates_a_fault_that_is_not_one_agents(home: Path) -> None:
@@ -1510,7 +1456,7 @@ def test_an_agent_is_never_handed_another_agents_session(home: Path) -> None:
     woken agent to grep a stranger's transcript, in a stranger's repository -
     which happened to auditor in production, pointed at marina's."""
     use_home(home)
-    agents.register("selfless", "beta")
+    agents.register("selfless")
     write_status(home, "beta", pct_5h=20, ctx_pct=25, session_id="MARINA-SESSION",
                  transcript_path="/tmp/marina.jsonl")
 
@@ -1607,6 +1553,7 @@ def test_an_agent_idle_past_its_prompt_cache_comes_back_fresh_with_its_work(home
     request it had in hand and its transcript, is in the new session's system
     prompt, and the request is still its own."""
     _daemon_home(home, 20)
+    credentialed(home, "alpha")
     con = db.connect()
     sent: list[str] = []
     seen: list[str] = []
@@ -1690,6 +1637,7 @@ def test_the_cache_clock_decides_a_resume_not_whether_a_handoff_exists(home: Pat
     """A close that failed leaves no handoff; that must not switch the cache
     check off. An agent with no clock is treated as cold."""
     _daemon_home(home, 20)
+    credentialed(home, "alpha")
     con = db.connect()
     try:
         now = int(time.time())
@@ -1714,6 +1662,7 @@ def test_the_cache_clock_decides_a_resume_not_whether_a_handoff_exists(home: Pat
 def test_a_cold_wake_that_fails_leaves_no_handoff_behind(home: Path) -> None:
     """A record no session was handed would be typed at the next live session."""
     _daemon_home(home, 20)
+    credentialed(home, "alpha")
     con = db.connect()
     real = (orcamod.alive, orcamod.wait_idle, orcamod.idle_now, orcamod.send,
             orcamod.available, orcamod.clear_context, orcamod.relaunch,
@@ -1892,7 +1841,7 @@ def test_the_sweep_corrects_what_it_can_see(home: Path) -> None:
             # takes its full timeout - so an agent working a long turn is a
             # suspect on every tick for as long as the turn lasts. One per tick
             # bounds the tick however many are stuck at once.
-            agents.register("stucktwo", "alpha")
+            agents.register("stucktwo")
             probed: list[str] = []
             orcamod.idle_now = lambda h: (probed.append(h), True)[1]
             old_ts = int(time.time()) - dmn.STUCK_RUNNING_S - 60
@@ -2467,10 +2416,7 @@ def test_a_walled_wake_is_not_shown_with_nothing_waiting(home: Path) -> None:
 
 def test_a_walled_wake_with_no_reset_reads_unknown(home: Path) -> None:
     """A snapshot with no `reset_5h` still reports a wall - the account read
-    95% either way - it just cannot say when that clears. The account column
-    is never set here either, so this doubles as the assumed-account wording:
-    nothing recorded or reported means agent.yaml's preference, named as a
-    guess rather than as the fact the sentence used to imply."""
+    95% either way - it just cannot say when that clears."""
     _daemon_home(home, 20)
     con = db.connect()
     try:
@@ -2481,8 +2427,7 @@ def test_a_walled_wake_with_no_reset_reads_unknown(home: Path) -> None:
         row = db.get_agent_state(con, "backend")
         reason = launch.wake_wait_reason("backend", row, con)
         check("walled: no reset_5h in the snapshot reads as unknown, not a crash",
-              reason == "waiting for assumed account alpha's 5h window "
-                        "(100%, rolls over unknown)", reason)
+              reason == "waiting for alpha's 5h window (100%, rolls over unknown)", reason)
     finally:
         con.close()
 
@@ -2500,7 +2445,7 @@ def test_a_resumed_agent_is_rescued_from_a_7d_wall_too(home: Path) -> None:
     on 7d and walled on 5h; this one is the other way around)."""
     _daemon_home(home, 20)
     accounts.register("beta")
-    agents.register("keeper", "alpha")
+    agents.register("keeper")
     credentialed(home, "alpha", "beta")
     con = db.connect()
     real = (orcamod.available, orcamod.relaunch, orcamod.resume_with, dmn.wait_for_session)
@@ -2612,8 +2557,8 @@ def test_a_parked_agent_is_unparked_by_its_own_context_limit(home: Path) -> None
     tells them apart, and only this branch's own ctx_limit= could catch a
     regression here."""
     _daemon_home(home, 20)
-    agents.register("parkreal", "alpha")
-    agents.register("parkctl", "alpha")
+    agents.register("parkreal")
+    agents.register("parkctl")
     agent_file = agents.agent_file("parkctl")
     agent_file.write_text(agent_file.read_text() + "context_tokens: 10000000\n")
     con = db.connect()
@@ -2659,8 +2604,8 @@ def test_a_context_handoff_does_not_thrash_within_min_handoff_interval_s(home: P
     limit so the same reading never fires at all - the new figure genuinely
     not applied - folds zero times across the same number of calls."""
     _daemon_home(home, 20)
-    agents.register("keeper", "alpha")
-    agents.register("keeper_ctl", "alpha")
+    agents.register("keeper")
+    agents.register("keeper_ctl")
     agent_file = agents.agent_file("keeper_ctl")
     agent_file.write_text(agent_file.read_text() + "context_tokens: 10000000\n")
     con = db.connect()
@@ -2809,8 +2754,8 @@ def test_every_call_site_actually_hands_supervise_the_per_agent_context_limit(
     can tell them apart, so all three are driven through their real code
     path, not a stand-in for it."""
     _daemon_home(home, 20)
-    agents.register("ctxreal", "alpha")
-    agents.register("ctxctl", "alpha")
+    agents.register("ctxreal")
+    agents.register("ctxctl")
     agent_file = agents.agent_file("ctxctl")
     agent_file.write_text(agent_file.read_text() + "context_tokens: 10000000\n")
     con = db.connect()
@@ -2897,10 +2842,11 @@ def test_a_resumed_hand_park_stays_forceable_too(home: Path) -> None:
     _daemon_home(home, 20)
     con = db.connect()
     try:
+        db.set_account(con, "backend", "alpha", source="assumed")
         db.start_handoff(con, "hoff-restart-hand", "backend", None, dmn.BY_HAND_MARK,
                          int(time.time()) + 90)
         row = db.in_flight_for(con, "backend")
-        check("resume hand: no account is recorded, so the reading is assumed",
+        check("resume hand: the account is only a guess, so the reading is assumed",
               agents.account_reading("backend", con).source == "assumed")
 
         dmn.resume_handoff(con, row, lambda _m: None)
@@ -2922,6 +2868,7 @@ def test_the_whole_loop_runs_on_our_own_commands(home: Path) -> None:
     press a key. An agent that cannot finish the job it was given goes looking
     for one it can - which is a subagent, dead at the end of its session."""
     _daemon_home(home, 20)
+    credentialed(home, "alpha")
     con = db.connect()
     typed: list[tuple[str, str]] = []
     real = (orcamod.available, orcamod.alive, orcamod.idle_now, orcamod.send,
@@ -2940,15 +2887,15 @@ def test_the_whole_loop_runs_on_our_own_commands(home: Path) -> None:
 teams:
   dev: [marina]
 agents:
-  manager: { intake: dedicated }
-  marina:  { intake: dedicated }
+  manager: {}
+  marina:  {}
 edges:
   - { from: "manager", to: "dev.*", relation: supervisor, response: fire_and_forget }
   - { from: "dev.*", to: "manager", relation: subordinate, response: fire_and_forget }
   - { from: "*", to: "human", kind: escalate, creates_gate: true }
 """)
-        agents.register("manager", "alpha")
-        agents.register("marina", "beta", repo=str(home / "harbor"))
+        agents.register("manager")
+        agents.register("marina", repo=str(home / "harbor"))
         db.set_terminal(con, "manager", "term_manager", "wt")
         sessions_are("manager", "marina")
 
@@ -2994,6 +2941,7 @@ def test_an_agent_can_put_another_one_to_work(home: Path) -> None:
     and appears on no screen. The daemon can make a worktree and a terminal;
     the only fact it was missing is which repository, and that is `repo:`."""
     _daemon_home(home, 20)
+    credentialed(home, "alpha")
     con = db.connect()
     started: list = []
     real = (orcamod.available, spawnmod.spawn, dmn.wait_for_session)
@@ -3008,7 +2956,7 @@ def test_an_agent_can_put_another_one_to_work(home: Path) -> None:
             return True, f"{agent}: worktree {repo}"
 
         spawnmod.spawn = fake_spawn
-        agents.register("marina", "beta")
+        agents.register("marina")
         db.set_terminal(con, "marina", None, None)
         db.add_request(con, "manager", "marina", "implement the smooth sea", None,
                        "supervisor", "fire_and_forget", None, 0, None)
@@ -3018,7 +2966,7 @@ def test_an_agent_can_put_another_one_to_work(home: Path) -> None:
         check("dispatch: with no repo it says what is missing, and does not guess",
               not started and "repo:" in said, said)
 
-        agents.register("marina", "beta", repo=str(home / "checkout"))
+        agents.register("marina", repo=str(home / "checkout"))
         said = dmn._start_for_work(con, "marina", lambda _m: None)
         check("dispatch: with one, the daemon gives it somewhere to run",
               started == [("marina", str((home / "checkout").resolve()))],
@@ -3043,7 +2991,7 @@ def test_an_agent_can_put_another_one_to_work(home: Path) -> None:
         woken: list = []
         dmn.wake_agent = lambda con_, a, log_, **kw: (woken.append(a), (False, "no terminal to wake"))[1]
         started.clear()
-        agents.register("reviewer", "alpha", repo=str(home / "checkout"))
+        agents.register("reviewer", repo=str(home / "checkout"))
         db.set_terminal(con, "reviewer", None, None)
         db.reset_counter(con, "reviewer", "wake_failures")
         rid = db.add_request(con, "reviewer", "marina", "look at this branch", None,
@@ -3153,7 +3101,7 @@ def test_stalled_survives_a_hook_that_fires_after_the_third_failed_wake(home: Pa
     _daemon_home(home, 20)
     _with_accounts("alpha", "beta")
     con = db.connect()
-    agents.register("mover", "alpha")
+    agents.register("mover")
     write_status(home, "beta", pct_5h=10, pct_7d=10, reset_5h=int(time.time()) + 3600)
     real = (orcamod.available, orcamod.alive, orcamod.close_session, orcamod.relaunch,
             orcamod.idle_now, dmn.wait_for_session)
@@ -3178,8 +3126,10 @@ def test_stalled_survives_a_hook_that_fires_after_the_third_failed_wake(home: Pa
             return False, "no session seen within the timeout"
         orcamod.relaunch = relaunch_fails_but_late
 
+        write_status(home, "alpha", pct_5h=100, pct_7d=10, reset_5h=int(time.time()) + 4 * 3600)
+        db.add_request(con, "marina", "mover", "carry on", None, "peer", "async", None, 0, None)
         t = triggers.evaluate(100, 10)
-        moved = dmn._move_to_room(con, "mover", t, lambda _m: None, dest="beta")[0]
+        moved = dmn._move_to_room(con, "mover", t, lambda _m: None)[0]
         check("stalled: the third failure is not recorded as a move", not moved)
         row = db.get_agent_state(con, "mover")
         check("stalled: it lands on STALLED, not clobbered by the late hook",
@@ -3222,7 +3172,7 @@ def test_who_is_asking_is_not_guessed(home: Path) -> None:
     most privileged node in the routing table to whatever dropped the variable."""
     use_home(home)
     (home / "team.yaml").write_text(DESIGN_TEAM)
-    agents.register("backend", "alpha")
+    agents.register("backend")
     class FakeStdin:
         def __init__(self, tty: bool) -> None:
             self.tty = tty
@@ -3265,9 +3215,10 @@ def test_one_agents_bad_tick_is_not_everyones(home: Path) -> None:
     of it used to end the tick, so every agent after it in the list went
     unsupervised with nothing saying so."""
     _daemon_home(home, 100)
-    agents.register("zzlater", "alpha")
+    agents.register("zzlater")
     con = db.connect()
     db.set_terminal(con, "zzlater", "term_z", "wt")
+    db.set_account(con, "zzlater", "alpha")
     real = dmn.supervise
     try:
         def explode(con_, agent, *a, **k):
@@ -3850,8 +3801,6 @@ def main() -> int:
         run(lambda: test_dev_mode_check_failing_degrades_not_crashes(Path(td) / 'devmodedegrade'))
         run(lambda: test_dev_mode_restart_yields_to_a_signal_that_arrived_during_the_check(
             Path(td) / 'devmodesignalrace'))
-        run(lambda: test_quiet_hours_config_round_trips(Path(td) / 'quiethourscfg'))
-        run(lambda: test_quiet_hours_holds_queued_work_from_an_idle_claude_agent(Path(td) / 'quiethourshold'))
         run(lambda: test_reconcile_still_propagates_a_fault_that_is_not_one_agents(Path(td) / 'reconsys'))
         run(lambda: test_reconcile_stalls_one_due_agents_unreadable_config_at_wake_too(Path(td) / 'reconwake'))
         run(lambda: test_daemon_handoff_timeout(Path(td) / 'd4'))

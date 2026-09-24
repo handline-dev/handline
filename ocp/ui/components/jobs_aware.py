@@ -74,7 +74,7 @@ async def dispatch_agent_verb(screen: JobsAware, con, name: str, label: str) -> 
         dest = dest.strip()
         if not await screen.app.push_screen_wait(
                 Confirm(f"move {name} to {dest} - records its handoff, ends its session, "
-                        f"and makes {dest} its preferred account")):
+                        f"and starts a new one there")):
             screen.flash = "left alone"
             return
         screen.flash = screen._start("move", name, f"moving {name} to {dest}", (name, dest))

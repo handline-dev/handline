@@ -9,6 +9,8 @@ import subprocess
 import sys
 from pathlib import Path
 
+from ..paths import user_home
+
 
 def keychain_service(config_dir: Path) -> str:
     """The macOS Keychain service name Claude Code uses for this config dir.
@@ -18,7 +20,7 @@ def keychain_service(config_dir: Path) -> str:
     that name plus the first 8 hex of the sha256 of its path. Verified against a
     live login: ~/.orcapipe/accounts/alpha/.claude -> ...-c4b0821c.
     """
-    if config_dir == Path.home() / ".claude":
+    if config_dir == user_home() / ".claude":
         return "Claude Code-credentials"
     digest = hashlib.sha256(str(config_dir).encode()).hexdigest()[:8]
     return f"Claude Code-credentials-{digest}"

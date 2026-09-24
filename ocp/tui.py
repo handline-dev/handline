@@ -410,10 +410,11 @@ def agents_data(con) -> tuple[list[AgentRow], list[str]]:
         row = state_rows[name]
         s, until = screen_state(con, row)
         try:
-            acct, cfg = agents.placed(name, con)
+            cfg = agents.read(name)
         except Exception as e:  # noqa: BLE001
             rows.append(AgentRow(name, twig, shown[name], under, urgency, s, until, str(e)))
             continue
+        acct = agents.current_account(name, con)
         st = status.read_for_agent(name, acct)
         # Only when something is actually about to happen. Measured on a
         # live team: nothing firing, six rows reading "— closed" - which
@@ -432,7 +433,7 @@ def agents_data(con) -> tuple[list[AgentRow], list[str]]:
         wall = (WallCell(w.account, launch.wait_clock(w), "?" if w.assumed else "",
                          w.account != acct or w.assumed) if w else None)
         rows.append(AgentRow(name, twig, shown[name], under, urgency, s, until, None,
-                             oneline(acct), oneline(agents.kind(cfg)), ctxs,
+                             oneline(acct or "-"), oneline(agents.kind(cfg)), ctxs,
                              len(db.queued_for(con, name)), fire, wall))
     return rows, [] if paths.list_agents() else ["no agents registered"]
 

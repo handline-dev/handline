@@ -76,7 +76,11 @@ def read(name: str) -> dict:
     p = agent_file(name)
     if not p.exists():
         raise FileNotFoundError(f"agent '{name}' is not registered ({p})")
-    data = load(p.read_text())
+    try:
+        text = p.read_text()
+    except UnicodeDecodeError as e:
+        raise ConfigError(f"{p}: not valid UTF-8 ({e.reason})") from e
+    data = load(text)
     if not isinstance(data, dict):
         raise ConfigError(f"{p}: top level is not a map")
     # REFUSE, not strip (#1571's ruling): a value dump() would not have
@@ -95,7 +99,7 @@ NOT_TEXT = ("It would not be read back as text from the YAML files it is written
             "(no, on, null, numbers and dates are not); choose another.")
 
 
-def register(name: str, account: str, role: str = "", model: str | None = None,
+def register(name: str, role: str = "", model: str | None = None,
              effort: str | None = None, weight: str | None = None,
              role_file: str | None = None, repo: str | None = None,
              vendor: str | None = None, context_tokens: int | None = None) -> Path:
@@ -108,6 +112,9 @@ def register(name: str, account: str, role: str = "", model: str | None = None,
         raise ValueError(f"bad agent name: {name!r}. {NOT_TEXT}")
     if effort and effort not in VALID_EFFORT:
         raise ValueError(f"effort must be one of {', '.join(VALID_EFFORT)}, not {effort!r}")
+    if vendor:
+        from . import vendors
+        vendors.get(vendor)
     d = paths.agent_dir(name)
     f = agent_file(name)
     text = None
@@ -115,7 +122,7 @@ def register(name: str, account: str, role: str = "", model: str | None = None,
         # Built as a map and written by dump, which reads every line back: a
         # model of 4.5, or a weight of on, is quoted and stays the text typed.
         # Built before the folder exists, so a value it refuses leaves nothing.
-        text = dump({"name": name, "account": account, "model": model or DEFAULT_MODEL,
+        text = dump({"name": name, "model": model or DEFAULT_MODEL,
                      "effort": effort or DEFAULT_EFFORT, "weight": weight or "light",
                      "enabled": True, **({"repo": repo} if repo else {}),
                      **({"vendor": vendor} if vendor and vendor != DEFAULT_VENDOR else {})})
@@ -127,12 +134,11 @@ def register(name: str, account: str, role: str = "", model: str | None = None,
     else:
         # Already registered: update what was actually asked for and leave the
         # rest of the mapping alone. Re-serialize from the parsed document
-        # rather than splicing lines - matching "account:" as a prefix broke on
-        # "account : alpha" and on any nested key of the same name.
+        # rather than splicing lines - matching a key as a prefix broke on
+        # "model : opus" and on any nested key of the same name.
         cfg = load(f.read_text())
         if not isinstance(cfg, dict):
             raise ConfigError(f"{f}: top level is not a map")
-        cfg["account"] = account
         if model:
             cfg["model"] = model
         if effort:
@@ -165,25 +171,20 @@ def register(name: str, account: str, role: str = "", model: str | None = None,
     return d
 
 
-def current_account(name: str, con=None) -> str:
-    """The account a resume of this agent's session must run under.
+def current_account(name: str, con=None) -> str | None:
+    """The account this agent's session is on, or None when none is recorded.
 
-    `account_of` is the preference in agent.yaml; this is where the session
-    actually went, when that is recorded - and a session id belongs to one
-    account's config directory, so a resume has no other answer to give
-    regardless of what the running account might otherwise turn out to be.
-    Falls back to the preference when nothing is recorded, the same silent
-    substitution `account_reading` exists to stop happening anywhere that is
-    asking about usage rather than about where `--resume` must point.
+    A session id belongs to one account's config directory, so a resume has no
+    other answer to give than this. Placement is the daemon's pick at launch
+    and is recorded then; an agent that has never run has no account.
     """
     from . import db
     if con is not None:
         row = db.get_agent_state(con, name)
-        return (row["account"] if row else None) or account_of(name)
+        return (row["account"] if row else None) or None
     own = db.connect()
     try:
-        row = db.get_agent_state(own, name)
-        return (row["account"] if row else None) or account_of(name)
+        return current_account(name, own)
     finally:
         own.close()
 
@@ -191,18 +192,19 @@ def current_account(name: str, con=None) -> str:
 @dataclass
 class AccountReading:
     account: str
-    # "recorded" - a launch, a move or the process check wrote it (the tick
+    # "recorded" - a launch, or the process check wrote it (the tick
     # reconciles it with the process); "reported" - the agent's own
     # fresh snapshot named it, better evidence than a merely assumed value;
-    # "assumed" - a guess (agent.yaml's preference, or one written before a
-    # launch had a chance to confirm it), never a destination, never a fact.
+    # "assumed" - a guess written before a launch had a chance to confirm it,
+    # never a destination, never a fact.
     source: str
 
 
-def account_reading(name: str, con=None) -> AccountReading:
+def account_reading(name: str, con=None) -> AccountReading | None:
     """Which account this agent's usage is actually landing on right now,
     and how sure of it we are - for reading, never for choosing where a
     launch or a resume goes (`choose_account`, `current_account` do that).
+    None when nothing says.
 
     Three sources, tried in order: the db column when it is itself recorded
     rather than merely assumed there; failing that, the agent's own status
@@ -210,8 +212,8 @@ def account_reading(name: str, con=None) -> AccountReading:
     evidence than a column nothing has confirmed yet, and unavailable in
     exactly the way `reported_account` already refuses a stale or absent one
     (a closed agent's snapshot among them, stale by construction); failing
-    that, whatever the column already holds if something is there at all;
-    failing that, agent.yaml's preference. Only the first counts as fact.
+    that, whatever the column already holds if something is there at all.
+    Only the first counts as fact.
     """
     from . import db, status
     if con is not None:
@@ -229,7 +231,7 @@ def account_reading(name: str, con=None) -> AccountReading:
         return AccountReading(reported, "reported")
     if row and row["account"]:
         return AccountReading(row["account"], "assumed")
-    return AccountReading(account_of(name), "assumed")
+    return None
 
 
 def repo_of(name: str) -> str | None:
@@ -245,21 +247,6 @@ def repo_of(name: str) -> str | None:
     except Exception:  # noqa: BLE001
         return None
     return str(repo) if repo else None
-
-
-def placed(name: str, con=None) -> tuple[str, dict]:
-    """(the account the agent is on, its config), or the error that stops
-    either. The AGENTS panel draws an agent's row only if this holds (else "config
-    error") and `load.roster` counts one only if it does, so the two cannot
-    place an agent differently."""
-    return current_account(name, con), read(name)
-
-
-def account_of(name: str) -> str:
-    acct = read(name).get("account")
-    if not acct:
-        raise ConfigError(f"agent '{name}' has no account")
-    return str(acct)
 
 
 def promote_to_base(name: str, item: str, force: bool = False) -> tuple[bool, str]:

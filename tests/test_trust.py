@@ -21,9 +21,9 @@ def test_trust_roots(home: Path) -> None:
     against exactly that list."""
     use_home(home)
     (home / "team.yaml").write_text(
-        "agents:\n  backend: { intake: dedicated }\n"
+        "agents:\n  backend: {}\n"
         'edges:\n  - { from: "*", to: "human", kind: escalate, creates_gate: true }\n')
-    agents.register("backend", "alpha")
+    agents.register("backend")
     root = home / "repos" / "widget"
     root.mkdir(parents=True, exist_ok=True)
 
@@ -175,8 +175,8 @@ def test_eligible_worktrees_splits_declared_from_not(home: Path) -> None:
     trust a worktree inside a declared root, and the rest are reported as
     skipped rather than silently pressed too."""
     os.environ["OCP_HOME"] = str(home)
-    agents.register("backend", "alpha")
-    agents.register("frontend", "alpha")
+    agents.register("backend")
+    agents.register("frontend")
     wt_in = home / "declared" / "backend-wt"
     wt_in.mkdir(parents=True, exist_ok=True)
     wt_out = home / "elsewhere" / "frontend-wt"
@@ -414,8 +414,8 @@ def test_offer_to_trust_worktrees_lists_paths_and_skips(home: Path) -> None:
     worktrees a yes will press, and reports the rest as skipped rather than
     acting on them silently."""
     use_home(home)
-    agents.register("backend", "alpha")
-    agents.register("frontend", "alpha")
+    agents.register("backend")
+    agents.register("frontend")
     wt_in = home / "declared" / "backend-wt"
     wt_in.mkdir(parents=True, exist_ok=True)
     wt_out = home / "elsewhere" / "frontend-wt"

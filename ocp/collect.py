@@ -136,9 +136,9 @@ def locate(cwd: str | Path, accounts: list[str] | None = None) -> Located | None
 
     Searching all accounts is what makes the account first-hand: the session
     chose the directory it writes into, so its path *is* the account, the same
-    ground truth the collector took from `CLAUDE_CONFIG_DIR`. It also follows an
-    `ocp agent move` for nothing - the transcript left under the old account is
-    simply older.
+    ground truth the collector took from `CLAUDE_CONFIG_DIR`. It also follows a
+    move between accounts for nothing - the transcript left under the old
+    account is simply older.
 
     Newest-wins is what follows a **cleared** session, which is the case that
     made it the rule rather than a convenience: `/clear` starts a new transcript

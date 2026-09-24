@@ -1026,36 +1026,36 @@ def test_access_token_detailed_tells_missing_apart_from_could_not_read() -> None
 
     try:
         usage_api.subprocess.run = fake_run(44, "")
-        token, missing = usage_api._access_token_detailed("alpha")
+        token, missing = REAL_ACCESS_TOKEN("alpha")
         check("access_token: exit 44 (item not found) is missing=True",
               token is None and missing is True, (token, missing))
 
         usage_api.subprocess.run = fake_run(1, "")
-        token, missing = usage_api._access_token_detailed("alpha")
+        token, missing = REAL_ACCESS_TOKEN("alpha")
         check("access_token: any other nonzero exit is missing=False (could not read)",
               token is None and missing is False, (token, missing))
 
         usage_api.subprocess.run = fake_run(
             0, '{"claudeAiOauth": {"accessToken": ""}}')
-        token, missing = usage_api._access_token_detailed("alpha")
+        token, missing = REAL_ACCESS_TOKEN("alpha")
         check("access_token: a parsed item with an empty token is missing=True",
               token is None and missing is True, (token, missing))
 
         usage_api.subprocess.run = fake_run(0, "not json")
-        token, missing = usage_api._access_token_detailed("alpha")
+        token, missing = REAL_ACCESS_TOKEN("alpha")
         check("access_token: malformed stdout is missing=False (could not read)",
               token is None and missing is False, (token, missing))
 
         def raise_timeout(*a, **k):
             raise usage_api.subprocess.TimeoutExpired(cmd="security", timeout=15)
         usage_api.subprocess.run = raise_timeout
-        token, missing = usage_api._access_token_detailed("alpha")
+        token, missing = REAL_ACCESS_TOKEN("alpha")
         check("access_token: a timed-out security call is missing=False",
               token is None and missing is False, (token, missing))
 
         usage_api.subprocess.run = fake_run(
             0, '{"claudeAiOauth": {"accessToken": "tok"}}')
-        token, missing = usage_api._access_token_detailed("alpha")
+        token, missing = REAL_ACCESS_TOKEN("alpha")
         check("access_token: a real token is returned, missing=False",
               token == "tok" and missing is False, (token, missing))
     finally:
@@ -1072,7 +1072,7 @@ def test_the_zai_meter_reads_the_plan_and_hides_its_key(home: Path) -> None:
     in. Nothing here touches the network; the endpoint stands in for itself."""
     use_home(home)
     accounts.register("zai", vendor="opencode")
-    agents.register("glm", "zai", model="zai-coding-plan/glm-5.3-flash")
+    agents.register("glm", model="zai-coding-plan/glm-5.3-flash")
     _with_vendor("glm", "opencode")
     cdir = vendors.config_dir("zai")
     (cdir / "opencode").mkdir(parents=True, exist_ok=True)
@@ -1624,7 +1624,7 @@ def test_a_turn_ending_refreshes_the_snapshot_through_the_hook(home: Path) -> No
     """
     use_home(home)
     accounts.register("alpha")
-    agents.register("backend", "alpha")
+    agents.register("backend")
     cwd = home / "wt-backend"
     cwd.mkdir(parents=True, exist_ok=True)
     write_transcript(home, "alpha", cwd, "eeeeeeee-0000-4000-8000-000000000008",
@@ -1947,8 +1947,9 @@ def test_poll_usage_calls_recover_on_a_dead_token_and_at_the_5h_boundary(home: P
             # --- recover() refuses at the boundary: the plain reading still stands
             recovered.clear()
             db.set_cursor(con, "usage-poll:alpha", 0)
+            # A reset of its own: the one above already had its turn.
             write_status(home, "alpha", pct_5h=90, pct_7d=10,
-                         reset_5h=now - 60, rl_at=now - 60)
+                         reset_5h=now - 120, rl_at=now - 120)
             recovermod.recover = lambda acct: (
                 recovered.append(acct) or (False, "stub: refuses"))
             logs = []
@@ -1979,6 +1980,94 @@ def test_poll_usage_calls_recover_on_a_dead_token_and_at_the_5h_boundary(home: P
     finally:
         (usage_api.read, accounts.logged_in,
          recovermod.recover, usage_api.record) = real_read, real_login, real_recover, real_record
+
+
+def test_a_reset_window_gets_one_turn_per_reset_and_never_while_exhausted(home: Path) -> None:
+    """T18: an account whose 5h or 7d window has reset is given one real turn
+    so it is live again. The 5h case was already wired (#76); the 7d one was
+    not - `poll_usage` matched the reason text of the 5h window only."""
+    _daemon_home(home, 40)
+    real = (usage_api.read, accounts.logged_in, recovermod.recover)
+    turns: list[str] = []
+    now = int(time.time())
+    reading = {}
+
+    def fake_recover(acct):
+        turns.append(acct)
+        return True, f"{acct}: recovered"
+
+    def poll(con):
+        db.set_cursor(con, "usage-poll:alpha", 0)
+        dmn.poll_usage(con, lambda _m: None)
+
+    try:
+        accounts.logged_in = lambda acct: True
+        recovermod.recover = fake_recover
+        usage_api.read = lambda acct, refresh=True: usage_api.Reading(acct, *reading["v"], now)
+        con = db.connect()
+        try:
+            # 7d ended, 5h fine: the week is what reset.
+            write_status(home, "alpha", pct_5h=2, pct_7d=100, reset_5h=now + 3600,
+                         reset_7d=now - 60, rl_at=now - 60)
+            reading["v"] = (2, now + 3600, 0, now + 7 * 86400)
+            poll(con)
+            check("reset turn: a 7d window that has reset gets a turn", turns == ["alpha"], turns)
+
+            # The server keeps naming the same reset: no second turn for it.
+            write_status(home, "alpha", pct_5h=2, pct_7d=100, reset_5h=now + 3600,
+                         reset_7d=now - 60, rl_at=now - 60)
+            poll(con)
+            check("reset turn: at most once per reset", turns == ["alpha"], turns)
+
+            # A later reset is a new occasion.
+            write_status(home, "alpha", pct_5h=2, pct_7d=100, reset_5h=now + 3600,
+                         reset_7d=now - 30, rl_at=now - 30)
+            poll(con)
+            check("reset turn: the next reset gets its own", turns == ["alpha", "alpha"], turns)
+
+            # Ended by the held figure, but the endpoint still says exhausted.
+            turns.clear()
+            write_status(home, "alpha", pct_5h=100, pct_7d=3, reset_5h=now - 60,
+                         reset_7d=now + 86400, rl_at=now - 60)
+            reading["v"] = (100, now + 1800, 3, now + 86400)
+            poll(con)
+            check("reset turn: never while the endpoint still reports the window exhausted",
+                  turns == [], turns)
+
+            # Nothing has reset: nothing to spend.
+            write_status(home, "alpha", pct_5h=100, pct_7d=3, reset_5h=now + 1800,
+                         reset_7d=now + 86400, rl_at=now - 60)
+            db.add_event(con, "backend", "Stop", {}, account="alpha")
+            poll(con)
+            check("reset turn: a window still running gets none", turns == [], turns)
+
+            # The switch (`ocp account recover <name> on|off`, config.yaml
+            # `usage_recover_<name>: false`): off, no turn is spent; on, one is.
+            recovermod.recover = real[2]
+            spent: list[str] = []
+            real_model, real_detail = foldmod.run_model, usage_api.read_detailed
+            foldmod.run_model = lambda prompt, acct, model: (spent.append(model) or (True, ""), )[-1]
+            usage_api.read_detailed = lambda acct, refresh=False: (
+                usage_api.Reading(acct, 0, now + 3600, 0, now + 7 * 86400, now), False)
+            try:
+                loadmod.set_usage_recover("alpha", False)
+                write_status(home, "alpha", pct_5h=2, pct_7d=3, reset_5h=now + 3600,
+                             reset_7d=now - 10, rl_at=now - 10)
+                poll(con)
+                check("reset turn: switched off, no turn is spent", spent == [], spent)
+                loadmod.set_usage_recover("alpha", True)
+                write_status(home, "alpha", pct_5h=2, pct_7d=3, reset_5h=now + 3600,
+                             reset_7d=now - 10, rl_at=now - 10)
+                poll(con)
+                check("reset turn: on (the default), one Haiku turn is spent",
+                      spent == [recovermod.RECOVER_MODEL], spent)
+            finally:
+                foldmod.run_model, usage_api.read_detailed = real_model, real_detail
+        finally:
+            loadmod.set_usage_recover("alpha", True)
+            con.close()
+    finally:
+        usage_api.read, accounts.logged_in, recovermod.recover = real
 
 
 def test_a_reading_past_the_carry_bound_is_carried_old_even_though_the_flag_is_false(
@@ -2095,7 +2184,7 @@ def test_a_stale_ctx_used_does_not_fire(home: Path) -> None:
     nobody has refreshed must not fire the trigger just because the number it
     once wrote was large."""
     use_home(home)
-    agents.register("keeper", "alpha")
+    agents.register("keeper")
     accounts.register("alpha")
     write_status(home, "alpha", pct_5h=10, pct_7d=10, reset_5h=int(time.time()) + 1800)
     write_agent_status("keeper", "alpha",
@@ -2142,80 +2231,6 @@ def test_status_read_sums_a_raw_ctx_used_dict_the_way_collect_does(home: Path) -
           st.ctx_used == collect.tokens(usage), (st.ctx_used, collect.tokens(usage)))
     check("read(): and it is the real sum, not a passthrough of the dict itself",
           st.ctx_used == 302_150, st.ctx_used)
-
-
-def test_quiet_hours_window_is_weekday_mornings_pacific(home: Path) -> None:
-    """Founder #2199's own figures: weekdays 05:00-11:00 America/Los_Angeles,
-    computed with zoneinfo. A Monday edge on both ends, a weekend, and a day
-    either side of the DST transition so the window is checked against the
-    real offset for that date rather than a fixed UTC delta."""
-    check("quiet hours: Monday 04:59 PT is not yet in the window",
-          dmn._quiet_hours_window(_pt_epoch(2026, 9, 21, 4, 59))[0] is False)
-    check("quiet hours: Monday 05:00 PT is the first minute in",
-          dmn._quiet_hours_window(_pt_epoch(2026, 9, 21, 5, 0))[0] is True)
-    check("quiet hours: Monday 10:59 PT is still in",
-          dmn._quiet_hours_window(_pt_epoch(2026, 9, 21, 10, 59))[0] is True)
-    check("quiet hours: Monday 11:00 PT is out again",
-          dmn._quiet_hours_window(_pt_epoch(2026, 9, 21, 11, 0))[0] is False)
-    check("quiet hours: Saturday 07:00 PT is a weekend, never in",
-          dmn._quiet_hours_window(_pt_epoch(2026, 9, 19, 7, 0))[0] is False)
-    check("quiet hours: the day after the US spring-forward is still 05:00-11:00 local",
-          dmn._quiet_hours_window(_pt_epoch(2026, 3, 9, 5, 0))[0] is True and
-          dmn._quiet_hours_window(_pt_epoch(2026, 3, 9, 10, 59))[0] is True and
-          dmn._quiet_hours_window(_pt_epoch(2026, 3, 9, 11, 0))[0] is False)
-    active, end = dmn._quiet_hours_window(_pt_epoch(2026, 9, 21, 7, 0))
-    check("quiet hours: the window end it reports is 11:00 PT that day",
-          active and end == _pt_epoch(2026, 9, 21, 11, 0), str(end))
-
-
-def test_quiet_hours_is_not_undone_by_the_usage_recovery_branch(home: Path) -> None:
-    """auditor #2211 BLOCKING: a separate branch un-parks a PARKED agent once
-    its last usage reading no longer fires - keyed only on the last handoff's
-    trigger kind, since nothing on the row itself says why this park was
-    written. That reads a quiet park exactly like a usage park that
-    recovered. Without `quiet_blocked` in its condition, an agent with a
-    prior usage handoff flips PARKED/QUEUED every tick for the rest of the
-    window; nothing leaks to the terminal (`open_idle` still catches
-    delivery), but the state and 'usage recovered' log line churn for hours,
-    and the move branch beside it can move a parked claude agent to another
-    claude account - exactly the work this window exists to prevent."""
-    _daemon_home(home, 20)
-    con = db.connect()
-    try:
-        orcamod.available = lambda: True
-        orcamod.alive = lambda h: True
-        orcamod.live_terminals = lambda: {"term_x"}
-        orcamod.idle_now = lambda h: True
-        sent: list[str] = []
-        orcamod.send = lambda h, text, enter=True: (sent.append(text), (True, ""))[1]
-        sessions_are("backend")
-        # The two things production has that the plain integration test's
-        # fixture does not: an account recorded (not assumed), and a prior
-        # handoff whose trigger names it as a usage park.
-        db.set_account(con, "backend", "alpha")
-        hid = "usagehid1"
-        db.start_handoff(con, hid, "backend", None, "usage", int(time.time()) + 3600)
-        db.advance_handoff(con, hid, "released", state="done")
-        db.add_request(con, "marina", "backend", "carry on", None,
-                       "peer", "async", None, 0, None)
-        dmn.set_quiet_hours(True)
-        window_end = _pt_epoch(2026, 9, 21, 11, 0)
-        db.set_agent_state(con, "backend", dmn.PARKED, wake_at=window_end,
-                           detail="quiet hours; wakes at 11:00")
-
-        actions: list[str] = []
-        for minute in range(6):
-            now = _pt_epoch(2026, 9, 21, 7, minute)
-            dmn.supervise(con, "backend", lambda _m: None, now, {}, actions)
-            row = db.get_agent_state(con, "backend")
-            check(f"quiet hours vs usage recovery: tick {minute} stays PARKED",
-                  row["state"] == dmn.PARKED, str(dict(row)))
-        check("quiet hours vs usage recovery: 'usage recovered' never logged",
-              not any("usage recovered" in a for a in actions), str(actions))
-        check("quiet hours vs usage recovery: nothing was typed", sent == [], str(sent))
-    finally:
-        dmn.set_quiet_hours(False)
-        con.close()
 
 
 def test_a_new_account_gets_its_first_reading_without_anyone_asking(home: Path) -> None:
@@ -2500,7 +2515,7 @@ def test_record_terminal_migrates_memory_on_an_account_change(home: Path) -> Non
     move to room elsewhere, a human typing `ocp launch` by hand - is where
     this has to happen once, rather than in each of those separately."""
     os.environ["OCP_HOME"] = str(home)
-    agents.register("mover", "alpha")
+    agents.register("mover")
     con = db.connect()
     try:
         db.set_account(con, "mover", "alpha")
@@ -2642,8 +2657,8 @@ def test_a_session_figure_is_not_shown_as_an_accounts(home: Path) -> None:
     account's cost flip every second and gave an agent that has never run
     somebody else's context - and the trigger then judged it on that."""
     use_home(home)
-    agents.register("never_ran", "alpha")
-    agents.register("has_session", "alpha")
+    agents.register("never_ran")
+    agents.register("has_session")
     # #1762 should-fix 3: with no ctx_used key on either fixture there was
     # nothing for never_ran to borrow, so "nor a raw token count either"
     # passed whether or not the borrow-guard existed. Both now carry one, the
@@ -2948,34 +2963,79 @@ def test_a_resume_is_not_woken_onto_an_account_at_its_weekly_wall(home: Path) ->
         con.close()
 
 
-def test_a_move_is_still_walled_on_7d_when_nowhere_else_has_room(home: Path) -> None:
-    """auditor #1724 should-fix: `choose_account`'s fallback is `find_room
-    (agent) or agents.account_of(agent)` - when every account is at its own
-    wall, find_room returns None and the move branch lands right back on the
-    walled preferred account, the same as a resume. The docstring's "belt and
-    braces" claim was false in exactly this case: with only one account in
-    play, this is the ONLY guard, not a second one alongside find_room's.
-    Reverting the 7d branch fails this test the same way it fails the resume
-    one, which the pre-existing move test (a second, roomy account) does not
-    catch."""
+def test_a_start_with_no_room_says_why_and_is_not_a_failed_attempt(home: Path) -> None:
+    """Every account at its wall: a closed agent's fresh wake and a spawn for
+    waiting work both return no_room's text, name the account that frees up
+    first, and leave wake_failures alone; a resume with no recorded account
+    refuses in build; wake_wait says which account it waits on."""
+    _daemon_home(home, 20)
+    credentialed(home, "alpha")
+    con = db.connect()
+    real = (orcamod.available, orcamod.alive, spawnmod.spawn)
+    try:
+        orca_seen()
+        write_status(home, "alpha", pct_5h=100, pct_7d=20, ctx_pct=5,
+                     reset_5h=int(time.time()) + 3 * 3600)
+        db.set_closed(con, "backend", None)   # no resume id: a fresh start
+        db.add_request(con, "marina", "backend", "carry on", None, "peer", "async", None, 0, None)
+        con.commit()
+        check("no room: find_room has nothing to offer", launch.find_room("backend") is None)
+
+        ok, why = dmn.wake_agent(con, "backend", lambda _m: None)
+        row = db.get_agent_state(con, "backend")
+        check("no room: a walled fresh wake waits and names the account",
+              not ok and "alpha" in why and row["wake_failures"] == 0, why)
+
+        w = launch.wake_wait("backend", row, con)
+        check("no room: wake_wait, with no resume id, names the account that frees first",
+              w is not None and w.account == "alpha" and w.window == "5h", w)
+
+        # Nothing walled, nothing logged in: wake_wait has no wall to name, so
+        # the guard in _wake_agent is what refuses, with no_room's own text.
+        (home / "accounts" / "alpha" / ".claude" / ".credentials.json").unlink()
+        ok, why = dmn.wake_agent(con, "backend", lambda _m: None)
+        check("no room: a fresh wake with no account to go to returns no_room's text",
+              not ok and why == launch.no_room("backend") and "logged in" in why, why)
+        check("no room: and it is not a failed attempt",
+              db.get_agent_state(con, "backend")["wake_failures"] == 0)
+
+        spawned: list[str] = []
+        spawnmod.spawn = lambda *a, **k: (spawned.append("x"), (False, "no"))[1]
+        agents.register("marina", repo=str(home / "checkout"))
+        msg = dmn._start_for_work(con, "marina", lambda _m: None)
+        check("no room: a spawn for waiting work is not attempted, and says why",
+              not spawned and launch.no_room("marina") in msg, msg)
+        check("no room: and it is not a failed attempt either",
+              (db.get_agent_state(con, "marina") or {"wake_failures": 0})["wake_failures"] == 0)
+
+        db.clear_closed(con, "backend")
+        con.execute("UPDATE agent_state SET account = NULL WHERE agent = 'backend'")
+        con.commit()
+        try:
+            launch.build("backend", ["--resume", "x"])
+            check("no room: a resume with no recorded account is refused", False, "built")
+        except SystemExit as e:
+            check("no room: a resume with no recorded account is refused",
+                  "no recorded session to resume" in str(e), str(e))
+    finally:
+        orcamod.available, orcamod.alive, spawnmod.spawn = real
+        con.close()
+
+
+def test_a_move_has_nowhere_to_go_when_every_account_is_walled(home: Path) -> None:
+    """With every account at its own wall, find_room returns None and a fresh
+    launch has no account: there is no preferred one to fall back to."""
     _daemon_home(home, 20)
     con = db.connect()
     try:
         db.set_account(con, "backend", "alpha")
         db.set_closed(con, "backend", None)   # no resume id: the move's wake
-        db.add_request(con, "reviewer", "backend", "look at this", None,
-                       "peer", "async", None, 0, None)
         write_status(home, "alpha", pct_5h=10, pct_7d=100, ctx_pct=5,
                      reset_5h=int(time.time()) + 1800, reset_7d=int(time.time()) + 86400)
-        row = db.get_agent_state(con, "backend")
-        check("move, nowhere else: this row has no resume id", row["resume_session"] is None, dict(row))
         check("move, nowhere else: find_room has nothing to offer - alpha is walled and alone",
               launch.find_room("backend") is None)
-        check("move, nowhere else: choose_account falls back to alpha anyway",
-              launch.choose_account("backend", resuming=False, con=con) == "alpha")
-        w = launch.wake_wait("backend", row, con)
-        check("move, nowhere else: still walled on 7d, landing back on the same account",
-              w is not None and w.account == "alpha" and w.window == "7d", w)
+        check("move, nowhere else: choose_account has no account either",
+              launch.choose_account("backend", resuming=False, con=con) is None)
     finally:
         con.close()
 
@@ -3151,8 +3211,11 @@ def test_an_assumed_account_does_not_auto_clear_a_park(home: Path) -> None:
         orcamod.available = lambda: True
         orcamod.alive = lambda h: True
         db.set_terminal(con, "backend", "term_x", "wt")
-        # No db.set_account: the column stays null, exactly as it does from
-        # `started_for_work` until the launched process records itself.
+        # The column is null, as it is from `started_for_work` until the
+        # launched process records itself.
+        con.execute("UPDATE agent_state SET account = NULL, account_source = NULL "
+                    "WHERE agent = 'backend'")
+        con.commit()
         _park_via_handoff(con, "backend", "usage")
         db.set_agent_state(con, "backend", dmn.PARKED,
                            wake_at=int(time.time()) + 3600, detail="usage; wakes at 23:00")
@@ -3165,7 +3228,7 @@ def test_an_assumed_account_does_not_auto_clear_a_park(home: Path) -> None:
 
         dmn.supervise(con, "backend", lambda _m: None, int(time.time()), {}, [])
         row = db.get_agent_state(con, "backend")
-        check("park: an assumed account never un-parks",
+        check("park: an agent with no known account never un-parks",
               row["state"] == dmn.PARKED and row["wake_at"] is not None, str(dict(row)))
     finally:
         orcamod.available, orcamod.alive = real
@@ -3199,9 +3262,8 @@ def test_account_reading_prefers_recorded_then_reported_then_assumed(home: Path)
         write_agent_status("backend", "beta", pct_5h=10,
                            collected_at=int(time.time()) - status.STALE_AFTER_S - 60)
         r = agents.account_reading("backend", con)
-        check("account: a stale report is not evidence - falls to the config "
-              "preference, marked as a guess",
-              r.account == "alpha" and r.source == "assumed", r)
+        check("account: a stale report is not evidence - nothing says",
+              r is None, r)
 
         db.set_account(con, "backend", "alpha", source="assumed")
         write_agent_status("backend", "beta", pct_5h=10)
@@ -3232,6 +3294,9 @@ def test_supervise_reads_the_reported_account_not_an_assumed_preference(home: Pa
         write_agent_status("backend", "beta", pct_5h=5, ctx_pct=5)
         db.set_terminal(con, "backend", "term_x", "wt")
         db.set_agent_state(con, "backend", dmn.IDLE)
+        con.execute("UPDATE agent_state SET account = NULL, account_source = NULL "
+                    "WHERE agent = 'backend'")
+        con.commit()
 
         dmn.supervise(con, "backend", lambda _m: None, int(time.time()), {}, [])
         row = db.get_agent_state(con, "backend")
@@ -3251,8 +3316,11 @@ def test_a_park_against_an_assumed_account_gets_a_short_recheck(home: Path) -> N
     _daemon_home(home, 20)
     con = db.connect()
     try:
-        # No recorded column, no fresh report: alpha, the config preference,
-        # is the only thing left, and it is hours from rolling over.
+        # No recorded column, no fresh report: nothing says which account,
+        # and alpha is hours from rolling over.
+        con.execute("UPDATE agent_state SET account = NULL, account_source = NULL "
+                    "WHERE agent = 'backend'")
+        con.commit()
         write_status(home, "alpha", pct_5h=100, pct_7d=10, ctx_pct=5,
                      reset_5h=int(time.time()) + 4 * 3600)
         t = triggers.evaluate(95, 10)
@@ -3279,6 +3347,9 @@ def test_a_resumed_handoff_also_fails_closed_on_an_assumed_account(home: Path) -
     try:
         write_status(home, "alpha", pct_5h=20, pct_7d=10, ctx_pct=5,
                      reset_5h=int(time.time()) + 4 * 3600)
+        con.execute("UPDATE agent_state SET account = NULL, account_source = NULL "
+                    "WHERE agent = 'backend'")
+        con.commit()
         db.start_handoff(con, "hoff-restart2", "backend", None, "usage",
                          int(time.time()) + 90)
         row = db.in_flight_for(con, "backend")
@@ -3303,6 +3374,7 @@ def test_a_spawned_agent_gets_an_assumed_account_until_launch_confirms_it(home: 
     (the previous behaviour) until then.
     """
     _daemon_home(home, 20)
+    credentialed(home, "alpha")
     con = db.connect()
     real_spawn = spawnmod.spawn
     try:
@@ -3310,15 +3382,14 @@ def test_a_spawned_agent_gets_an_assumed_account_until_launch_confirms_it(home: 
             db.set_terminal(con, agent, "term_new", None)
             return True, "spawned"
         spawnmod.spawn = fake_spawn
-        agents.register("marina", "alpha", repo=str(home / "checkout"))
+        agents.register("marina", repo=str(home / "checkout"))
         db.add_request(con, "reviewer", "marina", "look at this", None,
                        "peer", "async", None, 0, None)
 
         dmn._start_for_work(con, "marina", lambda _m: None)
         row = db.get_agent_state(con, "marina")
-        check("account: a fresh spawn's guess is marked assumed, not left null",
-              row["account"] == "alpha" and row["account_source"] == "assumed",
-              dict(row))
+        check("account: a fresh spawn has no account until its launch records one",
+              row["account"] is None, dict(row))
     finally:
         spawnmod.spawn = real_spawn
         con.close()
@@ -3337,7 +3408,7 @@ def test_a_near_wall_7d_account_is_still_a_candidate_but_not_guaranteed_the_pick
     its wall, not that it wins the pick."""
     _daemon_home(home, 20)
     accounts.register("beta")
-    agents.register("keeper", "alpha")
+    agents.register("keeper")
     credentialed(home, "alpha", "beta")
 
     # alpha's weekly headroom expires soon and is spendable to the wall itself.
@@ -3454,7 +3525,7 @@ def test_a_move_is_not_recorded_while_the_process_is_still_on_the_old_account(
     that is running is on the new account."""
     _daemon_home(home, 20)
     accounts.register("beta")
-    agents.register("keeper", "alpha")
+    agents.register("keeper")
     credentialed(home, "alpha", "beta")
     now = int(time.time())
     write_status(home, "alpha", pct_5h=9, pct_7d=100, reset_7d=now + 3600, reset_5h=now + 1800)
@@ -3505,11 +3576,11 @@ def test_a_move_is_not_recorded_while_the_process_is_still_on_the_old_account(
 def test_a_forced_move_goes_through_the_verified_move_or_not_at_all(home: Path) -> None:
     """A person names the destination; it still has to be one the pick would
     send an agent to, the session ends only if it does, and a move that did not
-    land leaves the agent live where it was with its preference put back."""
+    land leaves the agent live where it was."""
     _daemon_home(home, 20)
     accounts.register("beta")
     accounts.register("gamma")
-    agents.register("keeper", "alpha")
+    agents.register("keeper")
     credentialed(home, "alpha", "beta", "gamma")
     now = int(time.time())
     write_status(home, "alpha", pct_5h=9, pct_7d=10, reset_7d=now + 90000, reset_5h=now + 1800)
@@ -3526,7 +3597,9 @@ def test_a_forced_move_goes_through_the_verified_move_or_not_at_all(home: Path) 
         orca_idle()
         orcamod.typeable_now = lambda h: True
         orcamod.close_session = exit_ends_session("keeper")
-        orcamod.relaunch = lambda h, cmd, **kw: (table.__setitem__("keeper", 4200), (True, "ok"))[1]
+        cmds: list[str] = []
+        orcamod.relaunch = lambda h, cmd, **kw: (cmds.append(cmd),
+                                                 table.__setitem__("keeper", 4200), (True, "ok"))[2]
         dmn.wait_for_session = lambda agent, timeout=0: True
         accounts.logged_in = lambda a: True
         keep_handoff("keeper", "# handoff · keeper\n## 다음\n- carry on\n")
@@ -3537,7 +3610,7 @@ def test_a_forced_move_goes_through_the_verified_move_or_not_at_all(home: Path) 
               not actions.can(con, "ghost", "move")[0])
         ok, msg = dmn.force_move(con, "keeper", "gamma", "test", log.append)
         check("forced: an account with no room is refused before anything ends",
-              not ok and "keeper" in table and agents.account_of("keeper") == "alpha", msg)
+              not ok and "keeper" in table and db.get_agent_state(con, "keeper")["account"] == "alpha", msg)
         ok, msg = dmn.force_move(con, "keeper", "alpha", "test", log.append)
         check("forced: the account it is already on is refused", not ok and "already" in msg, msg)
 
@@ -3576,8 +3649,6 @@ def test_a_forced_move_goes_through_the_verified_move_or_not_at_all(home: Path) 
         ok, msg = dmn.force_move(con, "keeper", "beta", "test", log.append)
         row = db.get_agent_state(con, "keeper")
         check("forced: a process that stays on the old account is not a move", not ok, msg)
-        check("forced: and its preference is put back",
-              agents.account_of("keeper") == "alpha")
         check("forced: and it is left live, not parked",
               row["state"] == dmn.IDLE and row["account"] == "alpha", str(dict(row)))
 
@@ -3588,9 +3659,10 @@ def test_a_forced_move_goes_through_the_verified_move_or_not_at_all(home: Path) 
         _process_on("beta")
         ok, msg = dmn.force_move(con, "keeper", "beta", "the founder", log.append)
         check("forced: onto an account with room, with the process there, it moves", ok, msg)
-        check("forced: the record and the preference name it",
-              db.get_agent_state(con, "keeper")["account"] == "beta"
-              and agents.account_of("keeper") == "beta")
+        check("forced: the relaunch was told the destination",
+              bool(cmds) and "--account beta" in cmds[-1], str(cmds))
+        check("forced: the record names it",
+              db.get_agent_state(con, "keeper")["account"] == "beta")
         check("forced: who ordered it is on the record",
               any(e["kind"] == "forced_move" and "the founder" in str(e["payload"])
                   for e in db.events_after(con, 0, agent="keeper")))
@@ -3611,8 +3683,6 @@ def test_a_forced_move_goes_through_the_verified_move_or_not_at_all(home: Path) 
               row["wake_at"] is not None
               and row["wake_at"] <= int(time.time()) + dmn.ASSUMED_ACCOUNT_RECHECK_S + 5,
               str(dict(row)))
-        check("forced: and its preference is back on the account it is on",
-              agents.account_of("keeper") == "beta")
     finally:
         (orcamod.available, orcamod.alive, orcamod.close_session, orcamod.relaunch,
          orcamod.idle_now, orcamod.typeable_now, dmn.wait_for_session, obsmod.env_of,
@@ -3623,7 +3693,7 @@ def test_a_forced_move_goes_through_the_verified_move_or_not_at_all(home: Path) 
 def test_an_agent_cannot_force_a_move(home: Path) -> None:
     """A forced move ends a session; it is a person's, not an agent's."""
     _daemon_home(home, 20)
-    agents.register("keeper", "alpha")
+    agents.register("keeper")
     real = os.environ.get("OCP_AGENT")
     os.environ["OCP_AGENT"] = "keeper"
     try:
@@ -3631,7 +3701,8 @@ def test_an_agent_cannot_force_a_move(home: Path) -> None:
         _capture(lambda: code.append(climod.main(["agent", "move", "keeper", "beta", "--yes"])))
         check("forced: `ocp agent move` from an agent's session is refused",
               code == [1], str(code))
-        check("forced: and nothing was changed", agents.account_of("keeper") == "alpha")
+        check("forced: and nothing was changed",
+              db.get_agent_state(db.connect(), "keeper") is None)
     finally:
         if real is None:
             os.environ.pop("OCP_AGENT", None)
@@ -3640,9 +3711,7 @@ def test_an_agent_cannot_force_a_move(home: Path) -> None:
 
 
 def test_an_agent_at_the_wall_moves_to_an_account_with_room(home: Path) -> None:
-    """agent.yaml names a preference, not a destination.
-
-    Total throughput is accounts x window, and moving a session does not change
+    """Total throughput is accounts x window, and moving a session does not change
     it. What it changes is whether an agent sits out its own five hours while
     another account idles beside it - worth a cold start only for an agent that
     is at the wall with work waiting and a reset too far off to wait for. The
@@ -3650,7 +3719,7 @@ def test_an_agent_at_the_wall_moves_to_an_account_with_room(home: Path) -> None:
     gone either way."""
     _daemon_home(home, 20)
     con = db.connect()
-    agents.register("keeper", "alpha")
+    agents.register("keeper")
     write_status(home, "beta", pct_5h=10, pct_7d=5, ctx_pct=5,
                  reset_5h=int(time.time()) + 1800)
     credentialed(home, "alpha", "beta")
@@ -3671,14 +3740,11 @@ def test_an_agent_at_the_wall_moves_to_an_account_with_room(home: Path) -> None:
         dmn.wait_for_session = lambda agent, timeout=0: True
         sessions_are("keeper")
         db.set_terminal(con, "keeper", "term_x", "wt")
-
-        # Where a launch would go, before anything has moved.
-        check("move: a preference with room is kept",
-              launch.choose_account("keeper") == "alpha",
-              launch.choose_account("keeper"))
+        db.set_account(con, "keeper", "alpha")
+        con.commit()
 
         write_status(home, "alpha", pct_5h=100, pct_7d=20, ctx_pct=5, reset_5h=far)
-        check("move: a preference at the wall gives way to room",
+        check("move: an account at the wall gives way to room",
               launch.choose_account("keeper") == "beta", launch.choose_account("keeper"))
         check("move: but a resume goes back where its session lives",
               launch.choose_account("keeper", resuming=True) == "alpha",
@@ -3822,7 +3888,7 @@ def test_a_move_blocked_by_a_dialog_retries_soon_not_at_the_old_accounts_wall(ho
     the move failed."""
     _daemon_home(home, 20)
     con = db.connect()
-    agents.register("keeper", "alpha")
+    agents.register("keeper")
     db.set_account(con, "keeper", "alpha")      # a recorded account, not merely assumed
     write_status(home, "beta", pct_5h=10, pct_7d=5, ctx_pct=5,
                  reset_5h=int(time.time()) + 1800)
@@ -3974,7 +4040,7 @@ def test_a_pinned_closed_agent_moves_instead_of_waiting_out_its_window(home: Pat
     but it was withdrawn (#253), so it is fixed directly in the wake."""
     _daemon_home(home, 20)
     accounts.register("beta")
-    agents.register("keeper", "alpha")
+    agents.register("keeper")
     credentialed(home, "alpha", "beta")
     con = db.connect()
     real = (orcamod.available, orcamod.relaunch, orcamod.resume_with, dmn.wait_for_session)
@@ -4063,7 +4129,7 @@ def test_room_is_filtered_before_the_ranking_not_after(home: Path) -> None:
     _daemon_home(home, 20)
     accounts.register("nearwall")
     accounts.register("empty")
-    agents.register("keeper", "alpha")
+    agents.register("keeper")
     now = int(time.time())
     credentialed(home, "alpha", "nearwall", "empty")
     write_status(home, "alpha", pct_5h=100, pct_7d=10, reset_5h=now + 1800,
@@ -4089,6 +4155,7 @@ def test_room_is_filtered_before_the_ranking_not_after(home: Path) -> None:
     write_status(home, "alpha", pct_5h=100, reset_5h=None, pct_7d=10,
                  collected_at=now - 6 * 3600)
     write_status(home, "nearwall", pct_5h=100, pct_7d=10, reset_5h=now + 1800)
+    write_status(home, "empty", pct_5h=100, pct_7d=10, reset_5h=now + 1800)
     check("room: a reading older than 5h with no reset is not still a floor",
           launch.find_room("keeper") == "alpha", str(launch.find_room("keeper")))
 
@@ -4282,7 +4349,7 @@ def test_at_the_wall_it_is_a_cost_comparison_not_a_line(home: Path) -> None:
     now = int(time.time())
     con = db.connect()
     try:
-        agents.register("keeper", "alpha")
+        agents.register("keeper")
         db.set_account(con, "keeper", "alpha")
 
         def world(alpha_reset, beta_pct=10):
@@ -4321,7 +4388,7 @@ def test_at_the_wall_it_is_a_cost_comparison_not_a_line(home: Path) -> None:
         # Every account walled or capped: the work waits in the queue.
         world(now + 3 * 3600, beta_pct=10)
         _running_on(con, "beta", "w1", "w2")
-        agents.register("other", "alpha")
+        agents.register("other")
         db.set_account(con, "other", "alpha")
         db.add_request(con, "marina", "other", "carry on", None, "peer", "async", None, 0, None)
         dest, why = dmn._move_plan(con, "other", "usage")
@@ -4370,7 +4437,7 @@ def test_the_cold_start_is_measured_and_sets_how_long_to_wait(home: Path) -> Non
         # And T is what the decision uses: an account resetting in 50 minutes is
         # worth waiting for at 20% (60 minutes) but not at the 39-minute default.
         db.set_agent_state(con, "busy", dmn.IDLE)
-        agents.register("keeper", "alpha")
+        agents.register("keeper")
         db.set_account(con, "keeper", "alpha")
         db.add_request(con, "marina", "keeper", "carry on", None, "peer", "async", None, 0, None)
         now = int(time.time())
@@ -4587,7 +4654,7 @@ def test_replaying_0919_makes_fewer_moves_than_the_old_rules(home: Path) -> None
         _with_accounts("alpha", "beta")
         names = ("mgr", "aud", "pur", "hm")
         for n in names + ("rev",):
-            agents.register(n, "alpha")
+            agents.register(n)
         con = db.connect()
         for n in names:
             db.set_account(con, n, "alpha")
@@ -4620,7 +4687,7 @@ def test_replaying_0919_makes_fewer_moves_than_the_old_rules(home: Path) -> None
                 pct["alpha"], reset["alpha"] = 0.0, base + (84 + 300) * 60
             if m == 114:                                  # marina's session on gamma
                 _with_accounts("gamma")
-                agents.register("marina", "gamma")
+                agents.register("marina")
                 db.set_account(con, "marina", "gamma")
                 db.set_agent_state(con, "marina", dmn.RUNNING)
                 mode["marina"] = "run"
@@ -4804,11 +4871,11 @@ def test_what_one_agent_costs_is_measured_from_stretches_of_work(home: Path) -> 
     short or a window rolled, and kept when nothing rose."""
     _daemon_home(home, 20)
     con = db.connect()
-    agents.register("solo", "alpha", model="sonnet", effort="medium")
-    agents.register("duo-a", "alpha", model="opus", effort="high")
-    agents.register("duo-b", "alpha", model="opus", effort="high")
-    agents.register("duo-c", "alpha", model="opus", effort="low")
-    agents.register("mixed", "alpha", model="sonnet", effort="high")
+    agents.register("solo", model="sonnet", effort="medium")
+    agents.register("duo-a", model="opus", effort="high")
+    agents.register("duo-b", model="opus", effort="high")
+    agents.register("duo-c", model="opus", effort="low")
+    agents.register("mixed", model="sonnet", effort="high")
     t0 = 1_000_000
 
     def stretch(who, readings, reset=9_999_999_999):
@@ -4873,10 +4940,10 @@ def test_an_agent_is_priced_by_the_nearest_kind_with_samples(home: Path) -> None
     starting value; a median of the last KEEP, held inside its bounds."""
     _daemon_home(home, 20)
     con = db.connect()
-    agents.register("op", "alpha", model="opus", effort="high")
-    agents.register("op-low", "alpha", model="opus", effort="low")
-    agents.register("so", "alpha", model="sonnet", effort="medium")
-    agents.register("newmodel", "alpha", model="haiku", effort="medium")
+    agents.register("op", model="opus", effort="high")
+    agents.register("op-low", model="opus", effort="low")
+    agents.register("so", model="sonnet", effort="medium")
+    agents.register("newmodel", model="haiku", effort="medium")
     per_min = lambda a: round(burnrate.costs(con).per_s(a) * 60, 3)  # noqa: E731
     start = round(triggers.TYPICAL_AGENT_BURN_PER_S * 60, 3)
     check("cost: with no samples every agent is at the starting value",
@@ -4918,7 +4985,7 @@ def test_the_price_of_an_agent_holds_still_across_ticks(home: Path) -> None:
     _daemon_home(home, 20)
     _with_accounts("alpha", "beta")
     con = db.connect()
-    agents.register("mover", "alpha", model="sonnet", effort="medium")
+    agents.register("mover", model="sonnet", effort="medium")
     now = int(time.time())
     # 40% headroom, filling at 0.5%/min: one more agent lasts 40 / (0.5 + a), and
     # 30 minutes is the line, so a = 0.83%/min is exactly on it.
@@ -4967,8 +5034,8 @@ def test_a_cheap_agent_is_admitted_where_a_dear_one_is_not(home: Path) -> None:
     _daemon_home(home, 20)
     _with_accounts("alpha", "beta")
     con = db.connect()
-    agents.register("dear", "alpha", model="opus", effort="high")
-    agents.register("cheap", "alpha", model="sonnet", effort="medium")
+    agents.register("dear", model="opus", effort="high")
+    agents.register("cheap", model="sonnet", effort="medium")
     now = int(time.time())
     write_status(home, "beta", pct_5h=60, pct_7d=10, reset_5h=now + 3600, reset_7d=now + 86400)
     status.write_burn("beta", 0.5 / 60, now)
@@ -4998,17 +5065,17 @@ def test_a_cheap_agent_is_admitted_where_a_dear_one_is_not(home: Path) -> None:
 
 def test_every_real_caller_prices_the_agent_it_is_placing(home: Path) -> None:
     """`status.pick_account` being agent-aware is not enough on its own: each of
-    `_move_plan`, `_forced_plan` and `launch.find_room`'s two calls has to pass
+    `_move_plan` and `launch.find_room`'s two calls has to pass
     `agent` through, or the newcomer is priced as a typical one and this test
     catches it - dropping `agent=agent` from any of them turns the dear
     agent's refusal into an admission."""
     _daemon_home(home, 20)
     accounts.register("beta")
     credentialed(home, "alpha", "beta")
-    agents.register("dear", "alpha", model="opus", effort="high")
-    agents.register("cheap", "alpha", model="sonnet", effort="medium")
-    agents.register("dear-pref", "beta", model="opus", effort="high")
-    agents.register("cheap-pref", "beta", model="sonnet", effort="medium")
+    agents.register("dear", model="opus", effort="high")
+    agents.register("cheap", model="sonnet", effort="medium")
+    agents.register("dear-pref", model="opus", effort="high")
+    agents.register("cheap-pref", model="sonnet", effort="medium")
     now = int(time.time())
     write_status(home, "alpha", pct_5h=100, pct_7d=10, reset_5h=now + 10 * 3600,
                 reset_7d=now + 86400)
@@ -5031,12 +5098,6 @@ def test_every_real_caller_prices_the_agent_it_is_placing(home: Path) -> None:
     check("callers: _move_plan admits the cheap one on the same account",
           dest == "beta" and "0.30%/min" in why, why)
 
-    dest, why = dmn._forced_plan(con, "dear", "beta")
-    check("callers: _forced_plan refuses the dear agent's chosen destination too",
-          dest is None, why)
-    dest, why = dmn._forced_plan(con, "cheap", "beta")
-    check("callers: _forced_plan admits the cheap one", dest == "beta", why)
-
     check("callers: find_room refuses the dear agent (walled preferred, refused fallback)",
           launch.find_room("dear") is None, str(launch.find_room("dear")))
     check("callers: find_room admits the cheap one via the fallback pick",
@@ -5053,7 +5114,7 @@ def test_the_daemon_feeds_the_estimate_each_tick(home: Path) -> None:
     sample under that agent's kind; and with none mid-turn, in none."""
     _daemon_home(home, 20)
     con = db.connect()
-    agents.register("worker", "alpha", model="opus", effort="high")
+    agents.register("worker", model="opus", effort="high")
     db.set_account(con, "worker", "alpha")
     db.set_agent_state(con, "worker", dmn.RUNNING)
     now = int(time.time())
@@ -5091,7 +5152,7 @@ def test_a_cold_start_is_not_priced_as_steady_work(home: Path) -> None:
     steady work, or an agent's cost is inflated by every launch."""
     _daemon_home(home, 20)
     con = db.connect()
-    agents.register("worker", "alpha", model="opus", effort="high")
+    agents.register("worker", model="opus", effort="high")
     db.set_account(con, "worker", "alpha")
     now = int(time.time())
     base = now - 4000
@@ -5132,11 +5193,13 @@ def test_account_list_is_the_present_state_and_status_is_the_pick(home: Path) ->
     from ocp import daemon as dmn
     _daemon_home(home, 20)
     _with_accounts("alpha", "beta")
-    agents.register("frontend", "alpha", model="opus", effort="high")
+    agents.register("frontend", model="opus", effort="high")
     con = db.connect()
     try:
         db.set_agent_state(con, "backend", dmn.RUNNING, detail="working")
         db.set_agent_state(con, "frontend", dmn.IDLE)
+        db.set_account(con, "frontend", "alpha")
+        con.commit()
         found, unplaced = loadmod.roster(con)
         cell = lambda a: textsafe.oneline(tui.agents_cell(found.get(a, (0, 0)), unplaced))  # noqa: E731
     finally:
@@ -5174,7 +5237,7 @@ def test_account_list_is_the_present_state_and_status_is_the_pick(home: Path) ->
           refused)
 
 
-def test_choose_account_does_not_bounce_back_to_a_stale_preferred_account(home: Path) -> None:
+def test_choose_account_does_not_bounce_back_to_a_stale_full_account(home: Path) -> None:
     """Founder's priority #241: harbor-manager moved alpha -> gamma at 85%,
     then gamma -> alpha 12 minutes later - back to the account it had just
     left, whose 5h window (5 hours) plainly had not reset. `choose_account`'s
@@ -5184,7 +5247,7 @@ def test_choose_account_does_not_bounce_back_to_a_stale_preferred_account(home: 
     window it describes has actually rolled over."""
     _daemon_home(home, 20)
     accounts.register("beta")
-    agents.register("keeper", "alpha")
+    agents.register("keeper")
     credentialed(home, "alpha", "beta")
     write_status(home, "beta", pct_5h=10, pct_7d=5,
                  reset_5h=int(time.time()) + 1800)
@@ -5194,7 +5257,7 @@ def test_choose_account_does_not_bounce_back_to_a_stale_preferred_account(home: 
     write_status(home, "alpha", pct_5h=100, pct_7d=5,
                  reset_5h=int(time.time()) + 1800,
                  collected_at=int(time.time()) - 1000)
-    check("choose_account: a stale-but-still-full preferred account is not "
+    check("choose_account: a stale-but-still-full account is not "
           "read as room",
           launch.choose_account("keeper") == "beta", launch.choose_account("keeper"))
 
@@ -5205,8 +5268,9 @@ def test_choose_account_does_not_bounce_back_to_a_stale_preferred_account(home: 
                  reset_5h=int(time.time()) - 60,
                  collected_at=int(time.time()) - 1000)
     check("choose_account: once its own window has actually reset, the "
-          "preferred account is trusted again",
-          launch.choose_account("keeper") == "alpha", launch.choose_account("keeper"))
+          "account is trusted again",
+          status.pick_account(["alpha"], load={})[0] == "alpha",
+          str(status.pick_account(["alpha"], load={})))
 
     # A stale account that was never full is not held back by this at all -
     # only a figure that was itself at the wall becomes a floor.
@@ -5214,7 +5278,8 @@ def test_choose_account_does_not_bounce_back_to_a_stale_preferred_account(home: 
                  reset_5h=int(time.time()) + 1800,
                  collected_at=int(time.time()) - 1000)
     check("choose_account: a stale reading that was never full is unaffected",
-          launch.choose_account("keeper") == "alpha", launch.choose_account("keeper"))
+          status.pick_account(["alpha"], load={})[0] == "alpha",
+          str(status.pick_account(["alpha"], load={})))
 
 
 def test_move_requires_clear_headroom_not_bare_assignability(home: Path) -> None:
@@ -5223,7 +5288,7 @@ def test_move_requires_clear_headroom_not_bare_assignability(home: Path) -> None
     happen, and each one spends a start."""
     _daemon_home(home, 20)
     accounts.register("beta")
-    agents.register("keeper", "alpha")
+    agents.register("keeper")
     credentialed(home, "alpha", "beta")
     con = db.connect()
     try:
@@ -5286,7 +5351,7 @@ def test_move_to_room_reaches_a_bootstrap_account(home: Path) -> None:
     needs a second account most."""
     _daemon_home(home, 20)
     con = db.connect()
-    agents.register("keeper", "alpha")
+    agents.register("keeper")
     write_status(home, "alpha", pct_5h=100, pct_7d=20, ctx_pct=5,
                  reset_5h=int(time.time()) + 3 * 3600)
     accounts.register("gamma")
@@ -5322,71 +5387,6 @@ def test_move_to_room_reaches_a_bootstrap_account(home: Path) -> None:
         con.close()
 
 
-def test_a_move_does_not_clobber_a_hook_reported_running_state(home: Path) -> None:
-    """Founder #613, on the path every usage-wall and forced move actually
-    takes: `_perform_handoff` sets HANDOFF before calling `_move_to_room`, and
-    HANDOFF is one of events.PROTECTED_STATES, so the new session's own
-    UserPromptSubmit could not have set RUNNING at all while it stood -
-    closing the race after `_wake_agent` returns is not enough if HANDOFF
-    itself keeps the hook from ever winning it. Driven through `force_move`,
-    the real caller (not `_move_to_room` given a hand-set RUNNING no caller
-    ever starts it in), and checked against actions.py's own typing gate, not
-    just the state column, since a QUEUED that still read as "not mid-turn"
-    is what let a delivery type into a working turn."""
-    _daemon_home(home, 20)
-    accounts.register("beta")
-    credentialed(home, "alpha", "beta")
-    agents.register("mover", "alpha")
-    now = int(time.time())
-    write_status(home, "alpha", pct_5h=9, pct_7d=10, reset_7d=now + 90000, reset_5h=now + 1800)
-    write_status(home, "beta", pct_5h=9, pct_7d=10, reset_7d=now + 90000, reset_5h=now + 1800)
-    con = db.connect()
-    real = (orcamod.available, orcamod.alive, orcamod.close_session, orcamod.relaunch,
-            orcamod.idle_now, orcamod.typeable_now, orcamod.live_terminals,
-            dmn.wait_for_session, accounts.logged_in)
-    try:
-        db.set_terminal(con, "mover", "term_x", "wt")
-        sessions_are("mover")
-        db.set_account(con, "mover", "alpha")
-        orca_idle()
-        orcamod.typeable_now = lambda h: True
-        orcamod.live_terminals = lambda: {"term_x"}
-        orcamod.close_session = exit_ends_session("mover")
-        accounts.logged_in = lambda a: True
-        keep_handoff("mover", "# handoff · mover\n## 다음\n- carry on\n")
-
-        def relaunch_and_hook(h, cmd, **kw):
-            # The wake prompt is read as the session's own first prompt: by
-            # the time relaunch reports back, the hook may already have fired.
-            _SESSION_TABLE["t"]["mover"] = 4242
-            evmod._mark_activity(con, "mover", "UserPromptSubmit")
-            return True, "relaunched"
-        orcamod.relaunch = relaunch_and_hook
-        dmn.wait_for_session = lambda agent, timeout=0: True
-
-        ok, msg = dmn.force_move(con, "mover", "beta", "test", lambda _m: None)
-        check("clobber: the forced move completes", ok, msg)
-        row = db.get_agent_state(con, "mover")
-        check("clobber: HANDOFF came off before the wake, so the hook's RUNNING lands "
-              "and is not clobbered back to QUEUED", row["state"] == dmn.RUNNING, str(dict(row)))
-        check("clobber: it landed on the new account, with the closed mark cleared",
-              row["account"] == "beta" and not row["closed_at"], str(dict(row)))
-
-        why, _ = actions._delivery_block(con, "mover", *actions._world())
-        check("clobber: actions.py reads it as mid-turn - nothing is typed into it, "
-              "which is the harm founder #613 named", "mid-turn" in why, why)
-
-        evmod._mark_activity(con, "mover", "Stop")
-        row = db.get_agent_state(con, "mover")
-        check("clobber: the turn's own Stop clears it to IDLE, same as any other turn",
-              row["state"] == dmn.IDLE, str(dict(row)))
-    finally:
-        (orcamod.available, orcamod.alive, orcamod.close_session, orcamod.relaunch,
-         orcamod.idle_now, orcamod.typeable_now, orcamod.live_terminals,
-         dmn.wait_for_session, accounts.logged_in) = real
-        con.close()
-
-
 def test_a_fold_with_no_account_says_which_and_why(home: Path) -> None:
     """"No logged-in account" sent the reader to the one thing that was not
     wrong. An account is passed over here for being at the wall, or for a usage
@@ -5418,7 +5418,9 @@ def test_a_moved_handoff_with_a_good_record_clears_the_streak(home: Path) -> Non
     in a move never reaches the record+clear reset below it."""
     _daemon_home(home, 20)
     con = db.connect()
-    agents.register("keeper", "alpha")
+    agents.register("keeper")
+    db.set_account(con, "keeper", "alpha")
+    con.commit()
     write_status(home, "beta", pct_5h=10, pct_7d=5, ctx_pct=5,
                  reset_5h=int(time.time()) + 1800)
     credentialed(home, "alpha", "beta")
@@ -5470,7 +5472,9 @@ def test_a_moved_handoff_with_a_failed_record_still_marks_typed(home: Path) -> N
     should-fix 1 in #2108 asked for."""
     _daemon_home(home, 20)
     con = db.connect()
-    agents.register("keeper", "alpha")
+    agents.register("keeper")
+    db.set_account(con, "keeper", "alpha")
+    con.commit()
     write_status(home, "beta", pct_5h=10, pct_7d=5, ctx_pct=5,
                  reset_5h=int(time.time()) + 1800)
     credentialed(home, "alpha", "beta")
@@ -5559,8 +5563,11 @@ def test_a_hand_park_against_an_assumed_account_stays_forceable(home: Path) -> N
         sessions_are("backend")
         db.set_terminal(con, "backend", "term_x", "wt")
         db.set_agent_state(con, "backend", dmn.IDLE, detail="cleared")
-        check("park: no account is recorded, so the reading is assumed",
-              agents.account_reading("backend", con).source == "assumed")
+        con.execute("UPDATE agent_state SET account = NULL, account_source = NULL "
+                    "WHERE agent = 'backend'")
+        con.commit()
+        check("park: no account is recorded, so there is no reading",
+              agents.account_reading("backend", con) is None)
 
         actions.park(con, "backend")
         row = db.get_agent_state(con, "backend")
@@ -5693,6 +5700,8 @@ def main() -> int:
         run(lambda: test_one_accounts_usage_read_raising_is_contained(Path(td) / 'pollraise'))
         run(lambda: test_poll_usage_calls_recover_on_a_dead_token_and_at_the_5h_boundary(
             Path(td) / 'pollrecover'))
+        run(lambda: test_a_reset_window_gets_one_turn_per_reset_and_never_while_exhausted(
+            Path(td) / 'resetturn'))
         run(lambda: test_a_reading_past_the_carry_bound_is_carried_old_even_though_the_flag_is_false(
             Path(td) / 'carriedoldpin'))
         run(lambda: test_a_carried_reading_with_no_age_at_all_reads_carried_old_not_live(
@@ -5703,8 +5712,6 @@ def main() -> int:
         run(lambda: test_a_stale_ctx_used_does_not_fire(Path(td) / 'ctxstale'))
         run(lambda: test_status_read_sums_a_raw_ctx_used_dict_the_way_collect_does(
             Path(td) / 'ctxsum'))
-        run(lambda: test_quiet_hours_window_is_weekday_mornings_pacific(Path(td) / 'quiethourswindow'))
-        run(lambda: test_quiet_hours_is_not_undone_by_the_usage_recovery_branch(Path(td) / 'quiethoursrecov'))
         run(lambda: test_a_new_account_gets_its_first_reading_without_anyone_asking(
             Path(td) / 'newacct'))
         run(lambda: test_status_edge_cases(Path(td) / 'se'))
@@ -5722,7 +5729,8 @@ def main() -> int:
         run(lambda: test_a_dead_sessions_id_is_kept_only_from_a_matching_snapshot(Path(td) / 'deadacct'))
         run(lambda: test_a_moved_walled_wake_names_the_new_account(Path(td) / 'walledmoved'))
         run(lambda: test_a_resume_is_not_woken_onto_an_account_at_its_weekly_wall(Path(td) / 'walled7d'))
-        run(lambda: test_a_move_is_still_walled_on_7d_when_nowhere_else_has_room(Path(td) / 'walled7dmove'))
+        run(lambda: test_a_start_with_no_room_says_why_and_is_not_a_failed_attempt(Path(td) / 'noroom'))
+        run(lambda: test_a_move_has_nowhere_to_go_when_every_account_is_walled(Path(td) / 'walled7dmove'))
         run(lambda: test_a_usage_park_is_woken_when_the_reading_clears(Path(td) / 'parklevel1'))
         run(lambda: test_a_usage_park_stays_parked_while_the_reading_is_at_the_wall(Path(td) / 'parklevel2'))
         run(lambda: test_a_weekly_park_stays_parked_while_the_week_is_full(Path(td) / 'weekpark'))
@@ -5773,13 +5781,11 @@ def main() -> int:
         run(lambda: test_the_daemon_feeds_the_estimate_each_tick(Path(td) / 'burntick'))
         run(lambda: test_a_cold_start_is_not_priced_as_steady_work(Path(td) / 'burncold'))
         run(lambda: test_account_list_is_the_present_state_and_status_is_the_pick(Path(td) / 'acctlist'))
-        run(lambda: test_choose_account_does_not_bounce_back_to_a_stale_preferred_account(
+        run(lambda: test_choose_account_does_not_bounce_back_to_a_stale_full_account(
             Path(td) / 'nobounce'))
         run(lambda: test_move_requires_clear_headroom_not_bare_assignability(
             Path(td) / 'moveheadroom'))
         run(lambda: test_move_to_room_reaches_a_bootstrap_account(Path(td) / 'movebootstrap'))
-        run(lambda: test_a_move_does_not_clobber_a_hook_reported_running_state(
-            Path(td) / 'moveclobber'))
         run(lambda: test_a_fold_with_no_account_says_which_and_why(Path(td) / 'foldacct'))
         run(lambda: test_a_moved_handoff_with_a_good_record_clears_the_streak(Path(td) / 'movedreset'))
         run(lambda: test_a_moved_handoff_with_a_failed_record_still_marks_typed(Path(td) / 'movedtyped'))

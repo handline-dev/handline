@@ -17,7 +17,7 @@ from .text_prompt import TextPrompt
 from .action_bar import ActionBar
 
 # Proposal fields worth showing after the kind and agent, in this order.
-_FIELDS = ("account", "vendor", "model", "effort", "team", "repo", "to")
+_FIELDS = ("vendor", "model", "effort", "team", "repo", "to")
 
 
 DECIDE, STRANDED = "decide", "no decision"
