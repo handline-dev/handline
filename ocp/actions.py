@@ -26,7 +26,7 @@ import subprocess
 import time
 from pathlib import Path
 
-from . import (accounts, agents, ask as askmod, blocked, daemon, db, events as evmod,
+from . import (accounts, agents, ask as askmod, blocked, collect, daemon, db, events as evmod,
                fold as foldmod, hr, load as loadmod, observe as obs, orca, paths,
                spawn as spawnmod, status, team, textsafe, triggers, trust, vendors, waiting)
 from .yamlcompat import ConfigError
@@ -414,6 +414,16 @@ def cancel(con, rid: int) -> str:
     """Take a request out of an agent's queue as the founder. See `ask.cancel`."""
     ok, msg = askmod.cancel(rid)
     return msg if ok else f"not cancelled - {msg}"
+
+
+def send_now(con, rid: int) -> str:
+    """The founder's queued message is told to its agent now if the agent can be typed
+    at, else as soon as it can, even with a request already open ahead of it."""
+    row = db.get_request(con, rid)
+    if not row or row["requester"] != HUMAN or not db.mark_send_now(con, rid):
+        return "not sent - it is no longer waiting"
+    con.commit()
+    return askmod.push(con, row["target"]).strip()
 
 
 def _git(repo: Path, *args: str):
@@ -1317,6 +1327,15 @@ _WORLD: dict = {"at": 0.0, "sessions": None, "handles": None}
 WORLD_FRESH_S = 10
 
 
+def queue_reason(con, agent: str, rid: int) -> str:
+    """Why request `rid`, queued for `agent`, has not reached it, for the chat page."""
+    head = db.head_of_queue(con, agent)
+    if head and int(head["id"]) != rid:
+        return f"behind #{head['id']}"
+    why = _delivery_block(con, agent, *_world())[0].split(" - ")[0].split(" (")[0]
+    return why.removeprefix(f"{agent} ") or "waiting for the agent"
+
+
 def _world(ttl: int = WORLD_FRESH_S) -> tuple[dict | None, set | None]:
     """Orca's terminals and the running sessions, at most `ttl` seconds old.
 
@@ -2080,6 +2099,23 @@ def save_account_settings(acct: str, label: str, cap: str) -> tuple[bool, str]:
         loadmod.set_cap(acct, n)
         said.append(f"{acct}: at most {n} agents mid-turn")
     return True, "; ".join(said) or "nothing changed"
+
+
+def context_share(k_text: str, model: str) -> str:
+    """What a handoff threshold typed in thousands of tokens comes to on this model's
+    window, for the agent Settings tab to show beside the field."""
+    try:
+        k = int(k_text.strip())
+    except ValueError:
+        return ""
+    if k < 1:
+        return ""
+    size = collect.ctx_size(model.strip())
+    if not size:
+        return "window unknown for this model"
+    held = min(k * 1000, int(size * triggers.CONTEXT_CLAMP_FRACTION))
+    shown = f"{round(held * 100 / size)}% of the {size // 1000}k window"
+    return shown if held == k * 1000 else f"held to {shown}"
 
 
 def set_default_cap(text: str) -> tuple[bool, str]:

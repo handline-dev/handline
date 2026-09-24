@@ -102,7 +102,7 @@ NOT_TEXT = ("It would not be read back as text from the YAML files it is written
 def register(name: str, role: str = "", model: str | None = None,
              effort: str | None = None, weight: str | None = None,
              role_file: str | None = None, repo: str | None = None,
-             vendor: str | None = None) -> Path:
+             vendor: str | None = None, context_tokens: int | None = None) -> Path:
     # A name is stored, drawn on every screen and typed into terminals: a control
     # byte in it (an escape, a newline) is refused here, where it would stay.
     # `textsafe.UNSAFE_IN_VALUE` is the same set this spelled out for itself.
@@ -147,6 +147,8 @@ def register(name: str, role: str = "", model: str | None = None,
             cfg["weight"] = weight
         if repo:
             cfg["repo"] = repo
+        if context_tokens:
+            cfg["context_tokens"] = context_tokens
         if vendor and vendor != DEFAULT_VENDOR:
             cfg["vendor"] = vendor
         cfg.setdefault("effort", DEFAULT_EFFORT)

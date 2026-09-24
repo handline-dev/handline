@@ -1122,6 +1122,56 @@ def test_the_settings_form_checks_and_saves_only_what_changed() -> None:
           ok and agents.read("backend")["weight"] == "heavy", said)
 
 
+def test_a_message_of_yours_sits_where_the_agent_read_it_and_a_line_ahead_of_the_queue() -> None:
+    from ocp import chat_page as cp
+    def row(i, ts, delivered):
+        return {"id": i, "ts": ts, "resolved_at": None, "requester": actions.HUMAN, "target": "reviewer",
+                "state": "queued", "body": f"m{i}", "verdict": None, "dismissed_by": None,
+                "dismissed_reason": None, "delivered_at": delivered}
+    msgs = cp.messages_of([row(1, 100, 300), row(2, 200, 250), row(3, 150, None)], "reviewer")
+    check("chat: yours are ordered by when the agent read them, unread ones last",
+          [m["text"] for m in msgs] == ["m2", "m1", "m3"], str([m["text"] for m in msgs]))
+    kinds = [type(w).__name__ for w in cp.transcript_widgets(msgs, True)]
+    check("chat: one line sits ahead of the queued message", kinds == ["ChatMessage", "ChatMessage", "QueueLine", "ChatMessage"],
+          str(kinds))
+    spare = cp.transcript_widgets(msgs[:2], True)
+    check("chat: nothing queued leaves a spare row at the bottom, without a rule",
+          type(spare[-1]).__name__ == "QueueLine" and not spare[-1].rule and len(spare) == 3)
+
+
+def test_a_queued_message_says_why_it_has_not_reached_the_agent() -> None:
+    from ocp import ask as askmod
+    _home("qwhy")
+    con = db.connect()
+    try:
+        first = db.add_request(con, "reviewer", "backend", "one", None, None, None, None, 0, None)
+        second = db.add_request(con, actions.HUMAN, "backend", "two", None, None, None, None, 0, None)
+        con.commit()
+        con.execute("UPDATE agent_state SET state = 'RUNNING', terminal = 'x' WHERE agent = 'backend'")
+        con.commit()
+        check("chat: the head of the queue is waiting on the agent",
+              "mid-turn" in actions.queue_reason(con, "backend", first), actions.queue_reason(con, "backend", first))
+        check("chat: the one behind it says what is ahead",
+              f"behind #{first}" == actions.queue_reason(con, "backend", second))
+        actions.send_now(con, second)
+        check("chat: send now marks it for the daemon", [r["id"] for r in db.send_now_pending(con, "backend")] == [second])
+    finally:
+        con.close()
+
+
+def test_the_context_setting_is_in_thousands_and_shows_its_share_of_the_window() -> None:
+    from ocp import chat_page as cp
+    _home("ctxset")
+    check("settings: the share of a window is worked out", actions.context_share("200", "claude-opus-5") == "20% of the 1000k window"
+          and actions.context_share("900", "claude-opus-5") == "held to 60% of the 1000k window"
+          and actions.context_share("50", "gpt-x") == "window unknown for this model")
+    cfg = cp.settings_of("backend")
+    check("settings: the default reads as thousands", cfg["context_k"] == "200", cfg["context_k"])
+    check("settings: 0 is refused", cp.settings_problem({**{k: cfg[k] for k in cp.EDITABLE}, "repo": "", "context_k": "0"}))
+    ok, _ = cp.save_settings("backend", [("context_k", "200", "150")])
+    check("settings: a save writes it as tokens", ok and agents.read("backend")["context_tokens"] == 150_000)
+
+
 def test_what_an_agent_wrote_is_drawn_inert_on_every_part_of_the_page() -> None:
     from ocp import chat_page as cp, textsafe
     evil = "x\x9b31m y\x1b]8;;http://evil.example\x07link\x1b]8;;\x07 [red]not markup[/red] \x00\x1b[2J\ttab"
@@ -1739,6 +1789,9 @@ async def _run_all() -> None:
     await test_home_tab_bar_focus_mouse_and_columns()
     await test_hr_tab_approve_reject_withdraw_and_the_red_dot()
     await test_the_home_accounts_row_shows_the_alias()
+    test_a_message_of_yours_sits_where_the_agent_read_it_and_a_line_ahead_of_the_queue()
+    test_the_context_setting_is_in_thousands_and_shows_its_share_of_the_window()
+    test_a_queued_message_says_why_it_has_not_reached_the_agent()
     test_account_settings_alias_and_default_cap()
 
 
