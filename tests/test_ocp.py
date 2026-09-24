@@ -25315,6 +25315,124 @@ def test_resolve_finding_opens_a_task_in_the_same_step(home: Path) -> None:
         con.close()
 
 
+def test_resolve_hold_keeps_the_work_open_and_owned(home: Path) -> None:
+    """Task #11 (founder #2298): an answer that puts work on hold leaves an
+    open task owned by the holder, under the asker's task, waiting on what it
+    waits on - so nothing reads done while the work is still owed."""
+    _board_world(home)
+    con = db.connect()
+    try:
+        t_parent = db.new_task(con, "the work", "worker", "manager")
+        t_blocker = db.new_task(con, "the merge", "worker", "manager")
+    finally:
+        con.close()
+    ok, _, rid = askmod.ask("manager", "start it", requester="worker")
+    con = db.connect()
+    try:
+        db.link_request(con, t_parent, rid)
+    finally:
+        con.close()
+
+    rc, out = _cli(["resolve", str(rid), "later", "--on", str(t_blocker)], as_agent="manager")
+    check("hold: --on without --hold is refused", rc == 1 and "--hold" in out, out)
+    rc, out = _cli(["resolve", str(rid), "later", "--hold", "x", "--on", "999"],
+                   as_agent="manager")
+    check("hold: waiting on a task that does not exist is refused",
+          rc == 1 and "no task" in out, out)
+    con = db.connect()
+    try:
+        check("hold: a refusal leaves the request queued",
+              db.get_request(con, rid)["state"] == "queued")
+    finally:
+        con.close()
+
+    rc, out = _cli(["resolve", str(rid), "later", "--hold", "start it after the merge",
+                    "--on", str(t_blocker)], as_agent="manager")
+    check("hold: resolve succeeds", rc == 0, out)
+    con = db.connect()
+    try:
+        held = [t for t in db.tasks_for_request(con, rid) if t["id"] != t_parent]
+        check("hold: one task was opened and linked", len(held) == 1, str(held))
+        h = held[0]
+        check("hold: owned and opened by the holder, under the asker's task",
+              (h["owner"], h["opened_by"], h["parent_task"]) == ("manager", "manager", t_parent),
+              str(dict(h)))
+        check("hold: it waits on the named task",
+              [b["id"] for b in db.task_blockers(con, h["id"])] == [t_blocker])
+        check("hold: the verdict names the task",
+              f"#{h['id']}" in db.get_request(con, rid)["verdict"])
+        edge = con.execute("SELECT payload FROM events WHERE kind = 'block_task'").fetchall()
+        check("hold: its wait is recorded as a block_task event",
+              any(json.loads(e["payload"]).get("task_id") == h["id"] for e in edge), str(edge))
+        ok, msg = actions.close_task(con, t_parent, "manager")
+        check("hold: the parent cannot close over it", not ok, msg)
+    finally:
+        con.close()
+
+    rc, out = _cli(["task", "board"], as_agent="manager")
+    check("hold: the holder's board says what it waits on",
+          _now_line(out, h["id"]) == f"now: waiting on #{t_blocker}", out)
+    rc, out = _cli(["task", "board"], as_agent="worker")
+    check("hold: the asker's board reads it held, not done or nobody's",
+          _now_line(out, t_parent) == f"now: held as sub-task #{h['id']} (manager)", out)
+
+    rc, out = _cli(["resolve", str(rid), "again", "--hold", "y"], as_agent="manager")
+    check("hold: an answered request is not held twice", rc == 1, out)
+
+    con = db.connect()
+    try:
+        t_plain = db.new_task(con, "plain child", "worker", "manager", parent_task=t_parent)
+        db.add_block(con, t_parent, t_blocker)
+    finally:
+        con.close()
+    con = db.connect()
+    try:
+        t_lone = db.new_task(con, "lone parent", "worker", "manager")
+        db.new_task(con, "lone child", "worker", "manager", parent_task=t_lone)
+    finally:
+        con.close()
+    rc, out = _cli(["task", "board"], as_agent="worker")
+    check("hold: a child nobody asked anything of is no hold",
+          _now_line(out, t_lone) == "now: nobody holds it", out)
+    rc, out = _cli(["task", "board"], as_agent="worker")
+    check("hold: a plain child is no hold, and a blocker outranks a real one",
+          _now_line(out, t_parent) == f"now: waiting on #{t_blocker}", out)
+    con = db.connect()
+    try:
+        db.remove_block(con, t_parent, t_blocker)
+        con.execute("UPDATE tasks SET closed_by = 'manager' WHERE id = ?", (t_blocker,))
+    finally:
+        con.close()
+
+    con = db.connect()
+    try:
+        t_grand = db.new_task(con, "grandparent", "worker", "manager")
+        con.execute("UPDATE tasks SET parent_task = ? WHERE id = ?", (t_grand, t_parent))
+    finally:
+        con.close()
+    ok, _, rid2 = askmod.ask("manager", "second", requester="worker")
+    con = db.connect()
+    try:
+        db.link_request(con, t_parent, rid2)
+    finally:
+        con.close()
+    for label, argv, want in (
+            ("a blocker that is already closed", ["--hold", "z", "--on", str(t_blocker)], "closed"),
+            ("waiting on the task it sits under", ["--hold", "z", "--on", str(t_parent)], "sits under"),
+            ("waiting on the grandparent it sits under", ["--hold", "z", "--on", str(t_grand)],
+             "sits under"),
+            ("--state rejected", ["--hold", "z", "--state", "rejected"], "rejected"),
+            ("a blank title", ["--hold", "  "], "title")):
+        rc, out = _cli(["resolve", str(rid2), "later", *argv], as_agent="manager")
+        check(f"hold: refused - {label}", rc == 1 and want in out, out)
+    con = db.connect()
+    try:
+        check("hold: the refusals left the request queued",
+              db.get_request(con, rid2)["state"] == "queued")
+    finally:
+        con.close()
+
+
 def test_task_blocked_by_another_task(home: Path) -> None:
     """task #21/#1884: a task can wait on another. The board reads it as
     `waiting on #N` - never `you - a result is in` and never `nobody holds
@@ -27691,6 +27809,7 @@ def main() -> int:
         run(lambda: test_task_blocked_by_another_task(Path(td) / 'taskblock'))
         run(lambda: test_resolving_the_founders_request_says_what_it_becomes(Path(td) / 'taskguard'))
         run(lambda: test_resolve_finding_opens_a_task_in_the_same_step(Path(td) / 'findingtask'))
+        run(lambda: test_resolve_hold_keeps_the_work_open_and_owned(Path(td) / 'holdtask'))
         run(lambda: test_marking_a_task_done_needs_evidence_and_only_the_owner_or_a_linked_target(
             Path(td) / 'taskdone'))
         run(lambda: test_closing_a_task_needs_no_open_child_and_only_the_asker(Path(td) / 'taskclose'))

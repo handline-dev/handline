@@ -263,6 +263,41 @@ def open_finding_tasks(con, rid: int, findings: list[str], owner: str) -> list[i
     return tids
 
 
+def hold_refusal(con, rid: int, blocks_on: list[int]) -> str | None:
+    """The reason a hold on request `rid` cannot wait on these tasks, or None.
+    A task the hold sits under can never be one of them: the parent cannot
+    close over an open child, so the two would wait on each other."""
+    under = set()
+    for t in db.tasks_for_request(con, rid):
+        while t is not None and t["id"] not in under:
+            under.add(t["id"])
+            t = db.get_task(con, t["parent_task"]) if t["parent_task"] else None
+    for b in blocks_on:
+        why = _blocker_refusal(con, b)
+        if why:
+            return why
+        if b in under:
+            return f"task #{b} is what this hold sits under - it cannot wait on it"
+    return None
+
+
+def open_hold_task(con, rid: int, title: str, holder: str, blocks_on: list[int]) -> list[int]:
+    """An answer that puts the work on hold keeps it as an open task owned by
+    the one holding it, linked to the request and under the task that request
+    belongs to, so the parent cannot close over it. Waiting on other tasks is
+    the same block edge `ocp task link --blocks-on` writes: closing the last
+    one notifies the holder. Callers check `hold_refusal` first."""
+    linked = [t for t in db.tasks_for_request(con, rid) if not t["closed_by"]]
+    tid = db.new_task(con, textsafe.oneline(title).strip(), holder, holder,
+                      parent_task=linked[0]["id"] if linked else None)
+    db.link_request(con, tid, rid)
+    for b in blocks_on:
+        ok, msg = add_block(con, tid, b, holder)
+        if not ok:
+            raise ValueError(msg)
+    return [tid]
+
+
 def dismiss(con, rid: int, me: str | None = None, reason: str | None = None,
             tasks: list[int] | None = None, no_task: str | None = None) -> tuple[bool, str]:
     """Take one row off the mailbox without replying to it. A `reason` is
@@ -690,6 +725,16 @@ def _blocked_by_cycle(con, tid: int, blocks_on: int, seen: set[int] | None = Non
               for nxt in db.blocks_on_ids(con, blocks_on))
 
 
+def _blocker_refusal(con, blocks_on: int) -> str | None:
+    """Why `blocks_on` cannot be waited on: missing or already closed."""
+    row = db.get_task(con, blocks_on)
+    if row is None:
+        return f"no task #{blocks_on}"
+    if row["closed_by"]:
+        return f"task #{blocks_on} is closed"
+    return None
+
+
 def add_block(con, tid: int, blocks_on: int, by: str) -> tuple[bool, str]:
     """`tid` cannot be worked until `blocks_on` closes (task #21/#1884).
     Refused for a task already closed on either end - a row naming one would
@@ -701,13 +746,13 @@ def add_block(con, tid: int, blocks_on: int, by: str) -> tuple[bool, str]:
     guard = _task_edit_guard(row, tid, by)
     if guard:
         return False, guard
-    blocker_row = db.get_task(con, blocks_on)
-    if blocker_row is None:
+    if db.get_task(con, blocks_on) is None:
         return False, f"no task #{blocks_on}"
     if row["closed_by"]:
         return False, f"task #{tid} is closed"
-    if blocker_row["closed_by"]:
-        return False, f"task #{blocks_on} is closed"
+    gone = _blocker_refusal(con, blocks_on)
+    if gone:
+        return False, gone
     if blocks_on == tid:
         return False, f"task #{tid} cannot block itself"
     if _blocked_by_cycle(con, tid, blocks_on):

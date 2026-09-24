@@ -1031,6 +1031,13 @@ def link_request(con, tid: int, rid: int) -> None:
                 (tid, rid))
 
 
+def tasks_for_request(con, rid: int) -> list:
+    """The tasks a request is linked to, oldest first."""
+    return con.execute(
+        "SELECT t.* FROM tasks t JOIN task_requests l ON l.task_id = t.id "
+        "WHERE l.request_id = ? ORDER BY t.id", (rid,)).fetchall()
+
+
 def add_block(con, tid: int, blocks_on: int) -> None:
     con.execute("INSERT OR IGNORE INTO task_blocks(task_id, blocks_on, created_at) "
                 "VALUES (?, ?, ?)", (tid, blocks_on, int(time.time())))

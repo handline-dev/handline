@@ -676,6 +676,10 @@ def cmd_task_board(args) -> int:
     founder means the result is in and it is my turn to read it. Nothing
     linked, or the last exchange already closed some other way (withdrawn,
     rejected, replaced), is nobody holding it - the same as never asked.
+    A hold (`resolve --hold`) is an open child task sharing a request with
+    its parent, so the parent reads `held as sub-task #N` while it lasts -
+    below a blocker, which is the older and firmer wait. A child opened any
+    other way is no hold and changes nothing here.
     Waiting on an open blocker (task #21/#1884) reads as `waiting on #N`
     instead of either of those two - it is neither nobody's turn nor mine
     while the thing it waits on is still open.
@@ -706,9 +710,14 @@ def cmd_task_board(args) -> int:
             back = (last is not None and last["state"] == "done"
                     and last["target"] not in (me, askmod.HUMAN))
             blockers = db.task_blockers(con, t["id"])
+            linked_rids = {r["id"] for r in reqs}
+            holds = [c for c in db.open_child_tasks(con, t["id"])
+                     if linked_rids & {r["id"] for r in db.task_requests(con, c["id"])}]
             now = (", ".join(held) if held
                   else "sub-task: " + ", ".join(kids) if kids
                   else "waiting on " + ", ".join(f"#{b['id']}" for b in blockers) if blockers
+                  else "held as sub-task " + ", ".join(
+                      f"#{c['id']} ({c['owner']})" for c in holds) if holds
                   else "you - a result is in" if back
                   else "nobody holds it")
             parent = f" (under #{t['parent_task']})" if t["parent_task"] else ""
@@ -2003,6 +2012,21 @@ def cmd_read(args) -> int:
         con.close()
 
 
+def _resolve_tasks(args, owner, me):
+    """What `resolve` opens in the same transaction as the close, or None."""
+    if not (args.finding or args.hold):
+        return None
+
+    def opener(con):
+        tids = []
+        if args.finding:
+            tids += actions.open_finding_tasks(con, args.id, args.finding, owner)
+        if args.hold:
+            tids += actions.open_hold_task(con, args.id, args.hold, me, args.on or [])
+        return tids
+    return opener
+
+
 def cmd_resolve(args) -> int:
     """Answer a request - whichever end of it you are on.
 
@@ -2057,6 +2081,20 @@ def cmd_resolve(args) -> int:
             print(f"#{args.id} came from {row['requester']}, not an agent - a finding "
                   f"cannot be tied to it; open it with `ocp task new --owner NAME`")
             return 1
+        if args.on and not args.hold:
+            print("--on names what a --hold waits on; give --hold TITLE too")
+            return 1
+        if args.hold and not textsafe.oneline(args.hold).strip():
+            print("a hold needs a title")
+            return 1
+        if args.hold and args.state != "done":
+            print("a hold is an answer - it cannot go with --state rejected")
+            return 1
+        if args.hold and args.on:
+            refusal = actions.hold_refusal(con, args.id, args.on)
+            if refusal:
+                print(refusal)
+                return 1
         owner = actions.finding_owner(me) if args.finding else None
         if args.finding and owner is None:
             print(f"no registered manager for {me}'s lane - a finding cannot be owned; "
@@ -2123,8 +2161,7 @@ def cmd_resolve(args) -> int:
             con.close()
     ok, msg = askmod.resolve(
         args.id, verdict, state=args.state,
-        open_tasks=(lambda c: actions.open_finding_tasks(c, args.id, args.finding, owner))
-        if args.finding else None)
+        open_tasks=_resolve_tasks(args, owner, me))
     if ok and args.retires is not None:
         con = db.connect()
         try:
@@ -2414,6 +2451,13 @@ def build_parser() -> argparse.ArgumentParser:
                         "linked to this request - repeat for more than one")
     p.add_argument("--retires", type=int, default=None, metavar="ID",
                    help="an older request this answer makes moot")
+    p.add_argument("--hold", metavar="TITLE",
+                   help="this answer puts the work on hold: it opens as a task owned by "
+                        "you, under the task this request belongs to, so it stays on the "
+                        "board instead of reading done")
+    p.add_argument("--on", type=int, nargs="+", metavar="N",
+                   help="with --hold: the open task(s) it waits on; you are told when the "
+                        "last one closes")
     p.set_defaults(fn=cmd_resolve)
 
     p = sub.add_parser("dismiss", help="take one row off your mailbox without replying")
