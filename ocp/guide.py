@@ -74,6 +74,10 @@ its session lives on.""",
                                    to this request, its number named in the verdict;
                                    refused on a request from the founder
   ocp dismiss <id>                take one off your list without replying
+  ocp progress "<note>"           what is done and what is left on your request in
+                                   progress (replaces the last note, at most 1500
+                                   characters; no note shows it). A handoff carries it, so the
+                                   next session need not work it out from the transcript
 
 An agent is given one request at a time - the head of its queue - not the
 whole pile at once, so nobody has to hold eleven requests in their head to

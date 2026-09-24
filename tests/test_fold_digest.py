@@ -406,7 +406,7 @@ def test_the_handoff_is_three_facts_read_without_a_model(home: Path) -> None:
         text = db.get_handoff(con, "backend")
         head = subprocess.run(["git", "rev-parse", "--short", "HEAD"], cwd=wt,
                               capture_output=True, text=True).stdout.strip()
-        check("handoff: nothing is missing when the three facts can be read",
+        check("handoff: nothing is missing when the facts can be read",
               missing == [], str(missing))
         check("handoff: it names the request in hand, first line only",
               f"#{rid} from marina - fix the routing" in text and "second line" not in text,
@@ -442,6 +442,53 @@ def test_the_handoff_is_three_facts_read_without_a_model(home: Path) -> None:
         con.close()
 
 
+def test_the_handoff_carries_the_agents_progress_note_on_its_request(home: Path) -> None:
+    """T60: the agent writes what is done and what is left on the request in
+    hand (`ocp progress`); the handoff carries it, and only for that request."""
+    _daemon_home(home, 50)
+    con = db.connect()
+    try:
+        db.set_terminal(con, "backend", "term_x", str(_worktree_with_a_dirty_file(home / "wt-backend")))
+        write_agent_status("backend", "alpha", session_id="sess-1",
+                           transcript_path="/tmp/sess-1.jsonl")
+        ok, said = handoffmod.set_progress(con, "backend", "x")
+        check("progress: no request in hand, nothing to note", not ok, said)
+        rid = db.add_request(con, "marina", "backend", "fix it", None,
+                             "peer", "async", None, 0, None)
+        ok, said = handoffmod.set_progress(con, "backend", "x")
+        check("progress: a request not yet delivered is not one in hand", not ok, said)
+        db.mark_delivered(con, rid)
+        ok, said = handoffmod.set_progress(con, "backend", "done: parser\nleft: tests")
+        check("progress: kept on the delivered request", ok and said == f"#{rid}", said)
+        handoffmod.record(con, "backend")
+        text = db.get_handoff(con, "backend")
+        check("progress: the handoff carries both lines, right after the request",
+              f"#{rid} from marina" in text and "  done: parser\n  left: tests" in text
+              and text.index("progress") > text.index(f"#{rid}"), text)
+        ok, _ = handoffmod.set_progress(con, "backend", "a\x1b[31mb\x9bc\u2028d")
+        kept = handoffmod.get_progress(con, "backend")
+        check("progress: ESC, a C1 control and U+2028 never reach the handoff; U+2028 is a line break",
+              ok and kept == "abc\nd" and "\x1b" not in db.get_meta(con, f"progress:{rid}"),
+              repr(kept))
+        handoffmod.set_progress(con, "backend", "done: parser\nleft: tests")
+        ok, said = handoffmod.set_progress(con, "backend", "y" * (handoffmod.PROGRESS_MAX + 1))
+        check("progress: a note past the cap is refused and the old one stays",
+              not ok and handoffmod.get_progress(con, "backend") == "done: parser\nleft: tests", said)
+        handoffmod.set_progress(con, "backend", "")
+        handoffmod.record(con, "backend")
+        check("progress: an empty note clears it", "progress" not in db.get_handoff(con, "backend"))
+        handoffmod.set_progress(con, "backend", "old")
+        _set_request_state(con, rid, "done", "ok")
+        rid2 = db.add_request(con, "marina", "backend", "next", None,
+                              "peer", "async", None, 0, None)
+        db.mark_delivered(con, rid2)
+        handoffmod.record(con, "backend")
+        check("progress: the next request does not inherit the last one's note",
+              "progress" not in db.get_handoff(con, "backend"), db.get_handoff(con, "backend"))
+    finally:
+        con.close()
+
+
 def test_the_digest_facts_do_not_repeat_one_event_kind(home: Path) -> None:
     """The machine record in a digest counts turn boundaries and quotes what
     happened, instead of repeating one event kind sixteen times."""
@@ -471,6 +518,7 @@ def main() -> int:
         run(lambda: test_a_fold_is_a_process_not_a_session(Path(td) / 'foldproc'))
         run(lambda: test_a_rejected_fold_still_records_what_it_spent(Path(td) / 'spend'))
         run(lambda: test_the_handoff_is_three_facts_read_without_a_model(Path(td) / 'hdhome'))
+        run(lambda: test_the_handoff_carries_the_agents_progress_note_on_its_request(Path(td) / 'hdprog'))
         run(lambda: test_the_digest_facts_do_not_repeat_one_event_kind(Path(td) / 'hdfacts'))
     return run_area(tests)
 

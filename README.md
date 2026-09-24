@@ -110,7 +110,7 @@ work again. ocp names the dialog and never answers it.
 | `ocp inbox` / `ocp resolve <id> "<verdict>"` / `ocp dismiss <id>` / `ocp cancel <id>` (founder) | request queue |
 | `ocp fold [agent]` | fold events into the digest (the one model call) |
 | `ocp rollover` | midnight carry-forward, no model |
-| `ocp digest` / `ocp handoff <agent>` | the digest / the handoff waiting for an agent (three facts: its request, its transcript, its worktree) |
+| `ocp digest` / `ocp handoff <agent>` | the digest / the handoff waiting for an agent (four facts: its request, the agent's own progress note on it, its transcript, its worktree) |
 | `ocp drift <repo>` | has the base moved under this agent? |
 | `ocp hooks sync --watch` | keep Orca's agent hooks mirrored |
 | `ocp service install/uninstall/status/logs` | run the daemon as a launchd LaunchAgent |

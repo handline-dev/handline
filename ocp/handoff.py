@@ -1,10 +1,11 @@
 """handoff - what an agent is handed back when it comes back from a park or a move.
 
-Three facts, read from what is on disk and in the database, with no model call:
+Four facts, read from what is on disk and in the database, with no model call:
 
   1. the request it was working on (an agent has one delivered at a time, #189),
-  2. the path of the session's transcript,
-  3. the worktree's branch, HEAD and git status.
+  2. the progress note the agent itself wrote on that request (`ocp progress`),
+  3. the path of the session's transcript,
+  4. the worktree's branch, HEAD and git status.
 
 Nothing else. Everything a summary would add is in the transcript, and a summary
 is a model call, which fails when every account is walled - the moment a
@@ -51,6 +52,43 @@ def _request_line(con, agent: str) -> str:
         return "request: none in progress"
     first = ((head["body"] or "").splitlines() or [""])[0][:120]
     return f"request: #{head['id']} from {head['requester']} - {first}"
+
+
+# The note is the agent's own words about what is done and what is left; the
+# handoff is typed into a fresh session, so it has to stay short.
+PROGRESS_MAX = 1500
+
+
+def _progress_key(request_id: int) -> str:
+    return f"progress:{request_id}"
+
+
+def set_progress(con, agent: str, note: str) -> tuple[bool, str]:
+    """Keep `note` as the progress on the agent's delivered request, replacing
+    the last one. An empty note clears it."""
+    head = db.head_of_queue(con, agent)
+    if head is None or not head["delivered_at"]:
+        return False, "no request is in progress for you"
+    note = textsafe.text(note).strip()
+    if len(note) > PROGRESS_MAX:
+        return False, (f"{len(note)} characters; the handoff carries at most "
+                       f"{PROGRESS_MAX} - keep what is done and what is left")
+    db.set_meta(con, _progress_key(int(head["id"])), note or None)
+    return True, f"#{head['id']}"
+
+
+def get_progress(con, agent: str) -> str | None:
+    head = db.head_of_queue(con, agent)
+    if head is None or not head["delivered_at"]:
+        return None
+    return db.get_meta(con, _progress_key(int(head["id"]))) or None
+
+
+def _progress_lines(con, agent: str) -> list[str]:
+    note = get_progress(con, agent)
+    if not note:
+        return []
+    return ["progress (written by the agent):"] + ["  " + l for l in note.splitlines()]
 
 
 def find_transcript(session: str, account: str) -> Path | None:
@@ -119,7 +157,7 @@ def capture(con, agent: str, closed_session: str | None = None) -> tuple[str, li
     row = db.get_agent_state(con, agent)
     worktree = spawnmod.worktree_path(row["worktree"] if row else None)
     lines = [f"# handoff · {agent}", f"captured: {time.strftime('%Y-%m-%d %H:%M:%S')}",
-             _request_line(con, agent)]
+             _request_line(con, agent), *_progress_lines(con, agent)]
     missing: list[str] = []
     for got, gap in (_session_lines(agent, agents.current_account(agent, con), closed_session),
                      _worktree_lines(worktree)):
