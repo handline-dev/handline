@@ -6077,7 +6077,7 @@ def test_an_agent_with_background_work_is_not_idle_until_it_ends(home: Path) -> 
                     (now - dmn.NUDGE_AFTER_S - 60, head))
         db.set_agent_state(con, "backend", dmn.IDLE, detail="finished its turn")
 
-        dmn.track_background_work(con, "backend", db.get_agent_state(con, "backend"))
+        dmn.supervise(con, "backend", lambda _m: None, now, {}, [])
         row = db.get_agent_state(con, "backend")
         word, what = tui.screen_state(con, row)
         check("background: the row is shown working, and says what runs",
