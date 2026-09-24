@@ -510,6 +510,9 @@ def _reclaim_context(con, agent: str, log) -> tuple[bool, str]:
         return False, "no session process; not typing /clear at a shell prompt"
     if _past_dialog(con, agent, log):
         return False, "a dialog is open on its screen that ocp cannot get past; not typing /clear at it"
+    running = orca.background_work(handle)
+    if running:
+        return False, f"background work is running ({running}); not typing /clear at it"
     ok, why = orca.clear_context(handle, timeout_ms=orca.IDLE_PROBE_MS)
     log(f"  {agent}: {why}")
     return ok, why
@@ -656,6 +659,34 @@ FORGOTTEN_STUCK_S = STUCK_RUNNING_S
 NUDGE_RETRY_S = 60
 
 
+BACKGROUND_MARK = "background work: "
+
+
+def track_background_work(con, agent: str, row) -> None:
+    """Keep an open IDLE session's row saying what its own footer says still
+    runs behind its prompt, and stop saying it when that ends.
+
+    IDLE with the mark is not idle: the display shows it working, and nothing
+    that acts on idleness (the resolve nudge, the idle close) acts on it. The
+    session reports this, so it is read every tick, never assumed from a clock."""
+    if not row or row["state"] != IDLE or row["closed_at"] or not row["terminal"] \
+            or not orca.available():
+        return
+    running = orca.background_work(row["terminal"])
+    detail = row["detail"] or ""
+    if running:
+        if detail != BACKGROUND_MARK + running:
+            db.set_agent_state(con, agent, IDLE, wake_at=row["wake_at"],
+                               detail=BACKGROUND_MARK + running)
+    elif detail.startswith(BACKGROUND_MARK):
+        db.set_agent_state(con, agent, IDLE, wake_at=row["wake_at"],
+                           detail="background work ended")
+
+
+def has_background_work(row) -> bool:
+    return bool(row) and (row["detail"] or "").startswith(BACKGROUND_MARK)
+
+
 def forgotten_resolve(con, agent: str, row, now: int) -> dict | None:
     """The head of this agent's queue, if it looks like a resolve nobody wrote.
 
@@ -672,6 +703,8 @@ def forgotten_resolve(con, agent: str, row, now: int) -> dict | None:
     """
     if not row or row["state"] not in (IDLE, QUEUED) or row["closed_at"] or not row["terminal"]:
         return None
+    if has_background_work(row):
+        return None           # not idle: work it started is still running
     head = db.head_of_queue(con, agent)
     if not head or not head["delivered_at"] \
             or db.get_cursor(con, f"notify:{agent}") != int(head["id"]):
@@ -869,6 +902,8 @@ def should_close(con, agent: str, state: str, row, now: int, st) -> bool:
     # `deliver_queued` runs before this in the same tick, so a PARKED agent
     # that reaches here was not delivered to (quiet-hours re-park, or walled by
     # `wall_reason`); its queue is no reason to hold the session open.
+    if has_background_work(row):
+        return False          # not idle: work is still running behind the prompt
     if db.queued_for(con, agent) and state != PARKED:
         return False          # work is waiting; closing would only delay it
     if not st.session_id:
@@ -2531,6 +2566,8 @@ def supervise(con, agent: str, log, now: int, samples: dict,
     # An agent whose turn ended on the usage limit cannot run one: typing work
     # into it would start a turn that fails at once, mark the request
     # delivered, and clear the very mark that says it is at the wall.
+    track_background_work(con, agent, row)
+    row = db.get_agent_state(con, agent)
     at_wall = events.at_limit(con, agent)
     open_idle = state not in (RUNNING, HANDOFF) and not woke_now and not at_wall \
         and not (row and row["closed_at"])

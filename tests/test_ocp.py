@@ -6044,6 +6044,74 @@ def _close_at(home: Path, dialog, exits_on="1", torn=0, screen=None):
     return con, term, ok, why
 
 
+def test_an_agent_with_background_work_is_not_idle_until_it_ends(home: Path) -> None:
+    """Task #31: a Stop with work still running behind the prompt leaves the row
+    IDLE in the db, and everything that acts on idleness believed it. The
+    session's own footer count marks the row, and the mark drives all of it."""
+    _daemon_home(home, 20)
+    con = db.connect()
+    real = (orcamod.available, orcamod.alive, orcamod.typeable_now, orcamod.send,
+            orcamod.clear_context)
+    sent: list[str] = []
+    cleared: list[str] = []
+    bg = ["3 monitors"]
+    sessions_are("backend")
+    try:
+        orcamod.available = lambda: True
+        orcamod.live_terminals = lambda: {"term_x"}
+        orcamod.alive = lambda h: True
+        orcamod.typeable_now = lambda h: True
+        orcamod.send = lambda h, text, enter=True: (sent.append(text), (True, ""))[1]
+        orcamod.clear_context = lambda h, *a, **k: (cleared.append(h), (True, "cleared"))[1]
+        orcamod.background_work = lambda h: bg[0]
+        db.set_terminal(con, "backend", "term_x", "wt")
+        now = int(time.time())
+        head = db.add_request(con, "marina", "backend", "carry on", None,
+                              "peer", "async", None, 0, None)
+        db.mark_delivered(con, head)
+        db.set_cursor(con, "notify:backend", head)
+        db.add_event(con, "backend", "Stop", {})
+        con.execute("UPDATE events SET ts = ? WHERE agent = 'backend'",
+                    (now - dmn.IDLE_CLOSE_S - 60,))
+        con.execute("UPDATE requests SET delivered_at = ? WHERE id = ?",
+                    (now - dmn.NUDGE_AFTER_S - 60, head))
+        db.set_agent_state(con, "backend", dmn.IDLE, detail="finished its turn")
+
+        dmn.track_background_work(con, "backend", db.get_agent_state(con, "backend"))
+        row = db.get_agent_state(con, "backend")
+        word, what = tui.screen_state(con, row)
+        check("background: the row is shown working, and says what runs",
+              word == "RUNNING" and what == "3 monitors", f"{word} {what}")
+        check("background: no resolve nudge is typed at it",
+              not dmn.nudge_forgotten_resolve(con, "backend", row, now, lambda _m: None)
+              and not sent, str(sent))
+        ok, why = dmn._reclaim_context(con, "backend", lambda _m: None)
+        check("background: /clear is not typed at it either",
+              not ok and not cleared and "3 monitors" in why, f"{why} {cleared}")
+
+        bg[0] = ""
+        dmn.track_background_work(con, "backend", db.get_agent_state(con, "backend"))
+        row = db.get_agent_state(con, "backend")
+        check("background: once the work ends the row is IDLE again",
+              tui.screen_state(con, row)[0] == "IDLE", str(dict(row)))
+        check("background: and nudged like any idle agent",
+              dmn.nudge_forgotten_resolve(con, "backend", row, now, lambda _m: None) and sent,
+              str(sent))
+        # Nothing queued for it now, so only the work itself can keep it open.
+        con.execute("UPDATE requests SET state = 'done'")
+        st = types.SimpleNamespace(session_id="s")
+        check("background: it is idle-closable again",
+              dmn.should_close(con, "backend", dmn.IDLE, row, now, st))
+        bg[0] = "1 shell"
+        dmn.track_background_work(con, "backend", row)
+        check("background: while work runs it is not idle-closed",
+              not dmn.should_close(con, "backend", dmn.IDLE, db.get_agent_state(con, "backend"), now, st))
+    finally:
+        (orcamod.available, orcamod.alive, orcamod.typeable_now, orcamod.send,
+         orcamod.clear_context) = real
+        con.close()
+
+
 def test_a_close_never_stops_background_work(home: Path) -> None:
     """Task #31: a session whose own footer counts work still running behind its
     prompt is not idle. No close types `/exit` at it, and ocp never chooses
@@ -27646,6 +27714,7 @@ def main() -> int:
         run(lambda: test_a_failed_close_says_why_and_records_the_dialog(Path(td) / 'blk6'))
         run(lambda: test_a_close_refused_by_a_dialog_is_said_once_not_every_tick(Path(td) / 'blk11'))
         run(lambda: test_ocp_presses_only_the_key_that_declines(Path(td) / 'dcl0'))
+        run(lambda: test_an_agent_with_background_work_is_not_idle_until_it_ends(Path(td) / 'bgw0'))
         run(lambda: test_a_close_never_stops_background_work(Path(td) / 'dcl0x'))
         run(lambda: test_a_dialog_ocp_can_decline_is_cleared_and_reported(Path(td) / 'dcl1'))
         run(lambda: test_ocps_own_exit_dialog_is_pressed_at_once_and_a_working_agent_never(Path(td) / 'dcl2'))

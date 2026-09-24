@@ -973,6 +973,10 @@ def screen_state(con, row) -> tuple[str, str]:
             and vendors.account_vendor(row["account"] or "") == "opencode" \
             and _opencode_working(row["terminal"]) is True:
         return "RUNNING", ""
+    # An IDLE row the daemon marked with work still running behind the prompt
+    # is not idle, whatever the hooks last said.
+    if state == daemon.IDLE and daemon.has_background_work(row):
+        return "RUNNING", oneline(detail[len(daemon.BACKGROUND_MARK):])[:DETAIL_CAP]
     # IDLE, and anything not written above (section 8.4's own DONE, never
     # actually written - see daemon.WAKER): shown as IDLE rather than a raw
     # internal name a person was never meant to read.
