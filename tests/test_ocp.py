@@ -25376,6 +25376,42 @@ def test_resolve_hold_keeps_the_work_open_and_owned(home: Path) -> None:
     rc, out = _cli(["resolve", str(rid), "again", "--hold", "y"], as_agent="manager")
     check("hold: an answered request is not held twice", rc == 1, out)
 
+    con = db.connect()
+    try:
+        t_plain = db.new_task(con, "plain child", "worker", "manager", parent_task=t_parent)
+        db.add_block(con, t_parent, t_blocker)
+    finally:
+        con.close()
+    rc, out = _cli(["task", "board"], as_agent="worker")
+    check("hold: a plain child is no hold, and a blocker outranks a real one",
+          _now_line(out, t_parent) == f"now: waiting on #{t_blocker}", out)
+    con = db.connect()
+    try:
+        db.remove_block(con, t_parent, t_blocker)
+        con.execute("UPDATE tasks SET closed_by = 'manager' WHERE id = ?", (t_blocker,))
+    finally:
+        con.close()
+
+    ok, _, rid2 = askmod.ask("manager", "second", requester="worker")
+    con = db.connect()
+    try:
+        db.link_request(con, t_parent, rid2)
+    finally:
+        con.close()
+    for label, argv, want in (
+            ("a blocker that is already closed", ["--hold", "z", "--on", str(t_blocker)], "closed"),
+            ("waiting on the task it sits under", ["--hold", "z", "--on", str(t_parent)], "sits under"),
+            ("--state rejected", ["--hold", "z", "--state", "rejected"], "rejected"),
+            ("a blank title", ["--hold", "  "], "title")):
+        rc, out = _cli(["resolve", str(rid2), "later", *argv], as_agent="manager")
+        check(f"hold: refused - {label}", rc == 1 and want in out, out)
+    con = db.connect()
+    try:
+        check("hold: the refusals left the request queued",
+              db.get_request(con, rid2)["state"] == "queued")
+    finally:
+        con.close()
+
 
 def test_task_blocked_by_another_task(home: Path) -> None:
     """task #21/#1884: a task can wait on another. The board reads it as

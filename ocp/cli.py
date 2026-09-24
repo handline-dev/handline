@@ -676,8 +676,10 @@ def cmd_task_board(args) -> int:
     founder means the result is in and it is my turn to read it. Nothing
     linked, or the last exchange already closed some other way (withdrawn,
     rejected, replaced), is nobody holding it - the same as never asked.
-    A hold (`resolve --hold`) is an open child task owned by whoever put
-    it on hold, so the parent reads `held as sub-task #N` while it lasts.
+    A hold (`resolve --hold`) is an open child task sharing a request with
+    its parent, so the parent reads `held as sub-task #N` while it lasts -
+    below a blocker, which is the older and firmer wait. A child opened any
+    other way is no hold and changes nothing here.
     Waiting on an open blocker (task #21/#1884) reads as `waiting on #N`
     instead of either of those two - it is neither nobody's turn nor mine
     while the thing it waits on is still open.
@@ -708,12 +710,14 @@ def cmd_task_board(args) -> int:
             back = (last is not None and last["state"] == "done"
                     and last["target"] not in (me, askmod.HUMAN))
             blockers = db.task_blockers(con, t["id"])
-            open_kids = db.open_child_tasks(con, t["id"])
+            linked_rids = {r["id"] for r in reqs}
+            holds = [c for c in db.open_child_tasks(con, t["id"])
+                     if linked_rids & {r["id"] for r in db.task_requests(con, c["id"])}]
             now = (", ".join(held) if held
                   else "sub-task: " + ", ".join(kids) if kids
-                  else "held as sub-task " + ", ".join(
-                      f"#{c['id']} ({c['owner']})" for c in open_kids) if open_kids
                   else "waiting on " + ", ".join(f"#{b['id']}" for b in blockers) if blockers
+                  else "held as sub-task " + ", ".join(
+                      f"#{c['id']} ({c['owner']})" for c in holds) if holds
                   else "you - a result is in" if back
                   else "nobody holds it")
             parent = f" (under #{t['parent_task']})" if t["parent_task"] else ""
@@ -2087,7 +2091,7 @@ def cmd_resolve(args) -> int:
             print("a hold is an answer - it cannot go with --state rejected")
             return 1
         if args.hold and args.on:
-            refusal = actions.hold_refusal(con, args.on)
+            refusal = actions.hold_refusal(con, args.id, args.on)
             if refusal:
                 print(refusal)
                 return 1
