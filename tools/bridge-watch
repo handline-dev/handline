@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Run `ocp bridge` from this checkout and restart it whenever a .py file under
+# Run `ocp bridge` from this checkout and restart it whenever a .py or .tcss file under
 # ocp/ changes. Needs fswatch (brew install fswatch). Quit with Ctrl-C.
 set -uo pipefail
 
@@ -18,6 +18,6 @@ while true; do
   PYTHONDONTWRITEBYTECODE=1 "$root/bin/ocp" bridge "$@" </dev/tty &
   pid=$!
   # One batch of events (0.3s debounce) means an edit landed.
-  fswatch -1 -l 0.3 -e '.*' -i '\.py$' "$root/ocp" >/dev/null
+  fswatch -1 -l 0.3 -e '.*' -i '\.(py|tcss)$' "$root/ocp" >/dev/null
   stop
 done
