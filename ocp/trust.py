@@ -174,7 +174,8 @@ def apply(pid: str, con=None) -> tuple[bool, str]:
             _save_proposal(prop)
             return False, f"proposal {pid} was rejected: {(verdict or '').strip()[:120]}"
         if call != "approved":
-            return False, (f"#{row['id']} was answered {(verdict or '').strip()[:60]!r}, "
+            return False, (f"#{row['id']} was answered "
+                           f"{(db.shown_verdict(row) or '').strip()[:60]!r}, "
                            f"which is not a decision.")
         # What gets added is exactly what the founder read: the path on the
         # request row's first line, which this file cannot edit, must be the

@@ -1786,6 +1786,31 @@ def test_register_writes_vendor_onto_an_agent_that_already_exists(home: Path) ->
           vendors.agent_vendor("late") == "opencode")
 
 
+def test_a_dismissed_escalation_is_refused_by_its_state_not_as_a_quote(home: Path) -> None:
+    """Task #70: a proposal whose escalation somehow closed as a dismissal is
+    named as dismissed when apply refuses it, not as an empty answer."""
+    _daemon_home(home, 20)
+    accounts.register("beta")
+    agents.register("hr", "beta")
+    (home / "team.yaml").write_text("""
+agents:
+  hr: { intake: serial }
+edges:
+  - { from: "*", to: "human", kind: escalate, creates_gate: true }
+""")
+    con = db.connect()
+    try:
+        ok, said = hr.propose("add", "zed", requester="hr", why="hands", account="beta")
+        pid, rid = said.split()[1], int(said.split("#")[1].split(".")[0])
+        con.execute("UPDATE requests SET state = 'done', dismissed_by = 'ghost', "
+                    "dismissed_reason = 'not now' WHERE id = ?", (rid,))
+        ok, msg = hr.apply(pid)
+        check("dismissed escalation: apply names the state",
+              not ok and "dismissed by ghost - not now" in msg, msg)
+    finally:
+        con.close()
+
+
 def test_every_door_onto_an_open_proposal_also_needs_a_decision(home: Path) -> None:
     """#1893 SF1, #1908, #1919, #1938, #1943: `answer()` (the bridge's key)
     is not the only door onto a queued proposal escalation - `ocp resolve`,
@@ -2360,6 +2385,8 @@ def main() -> int:
         run(lambda: test_hr_add_takes_the_vendor_from_the_named_account(Path(td) / 'hrvendor'))
         run(lambda: test_register_writes_vendor_onto_an_agent_that_already_exists(
             Path(td) / 'registervendor'))
+        run(lambda: test_a_dismissed_escalation_is_refused_by_its_state_not_as_a_quote(
+            Path(td) / 'dismissedhr'))
         run(lambda: test_every_door_onto_an_open_proposal_also_needs_a_decision(
             Path(td) / 'hrresolveguard'))
         run(lambda: test_the_chokepoint_alone_refuses_every_door_onto_an_open_proposal(

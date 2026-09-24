@@ -53,7 +53,8 @@ def requests_page(con, agent: str, everyone: bool, before: int | None = None,
     `limit` when None); `since` reads every request from that id on, which is
     how a window already on screen is brought up to date."""
     where, params = _scope(agent, everyone)
-    sql = ("SELECT id, ts, resolved_at, requester, target, state, body, verdict, delivered_at "
+    sql = ("SELECT id, ts, resolved_at, requester, target, state, body, verdict, "
+           "dismissed_by, dismissed_reason, delivered_at "
            f"FROM requests WHERE state NOT IN {_GONE} AND {where}")
     if since is not None:
         rows = con.execute(sql + " AND id >= ? ORDER BY id", (*params, since)).fetchall()
@@ -84,11 +85,12 @@ def messages_of(rows, agent: str) -> list[dict]:
     human = actions.HUMAN
     msgs = []
     for r in rows:
+        shown = db.shown_verdict(r)
         for part, speaker, to, text, at in (
                 (0, r["requester"], r["target"], r["body"], r["ts"]),
-                (1, r["target"], r["requester"], r["verdict"], r["resolved_at"] or r["ts"])):
+                (1, r["target"], r["requester"], shown, r["resolved_at"] or r["ts"])):
             cancelled = r["state"] == "rejected" and r["verdict"] == askmod.CANCEL_VERDICT
-            if part == 1 and (not r["verdict"] or cancelled):
+            if part == 1 and (not shown or cancelled):
                 continue
             side = "you" if speaker == human else "agent" if speaker == agent else "other"
             who = ("you" if speaker == human else speaker) + (
@@ -97,7 +99,7 @@ def messages_of(rows, agent: str) -> list[dict]:
                          "text": (text or "").strip("\n") or "(empty)",
                          "waiting": part == 0 and r["state"] == "queued" and r["target"] == human,
                          "replyable": human in (r["requester"], r["target"]),
-                         "answered": side == "agent" and part == 0 and bool(r["verdict"]),
+                         "answered": side == "agent" and part == 0 and bool(shown),
                          "queued": (part == 0 and speaker == human and r["target"] != human
                                     and r["state"] == "queued"),
                          "delivered": bool(r["delivered_at"]),

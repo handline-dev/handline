@@ -1844,6 +1844,101 @@ edges:
         con.close()
 
 
+def test_a_dismissal_is_a_state_and_never_reads_as_words(home: Path) -> None:
+    """Task #70: a dismissal is recorded as who dismissed it and why, with no
+    verdict text, and every place that draws a verdict says dismissed as a
+    state label instead of a quote. The rows the old build wrote, holding the
+    literal, read the same way."""
+    _board_world(home)
+    con = db.connect()
+    try:
+        new = _human_request()
+        ok, msg = actions.dismiss(con, new, me="manager", reason="dup of #9",
+                                  no_task="nothing to build")
+        row = db.get_request(con, new)
+        check("dismissed: state done, who and why recorded, no verdict",
+              ok and row["state"] == "done" and row["verdict"] is None
+              and (row["dismissed_by"], row["dismissed_reason"]) == ("manager", "dup of #9")
+              and row["resolved_at"], str(dict(row)))
+        old = db.add_request(con, askmod.HUMAN, "manager", "q2", None, "supervisor",
+                             "fire_and_forget", None, 0, None, state="done",
+                             verdict="read - no reply: dup of #9")
+        old_blank = db.add_request(con, askmod.HUMAN, "manager", "q3", None, "supervisor",
+                                   "fire_and_forget", None, 0, None, state="done",
+                                   verdict="read - no reply")
+        real = db.add_request(con, askmod.HUMAN, "manager", "q4", None, "supervisor",
+                              "fire_and_forget", None, 0, None, state="done",
+                              verdict="read - no reply is not what I mean")
+        check("shown_verdict: a new dismissal is a label naming who and why",
+              db.shown_verdict(db.get_request(con, new)) == "dismissed by manager - dup of #9")
+        check("shown_verdict: the old literal reads as a dismissal too",
+              db.shown_verdict(db.get_request(con, old)) == "dismissed - dup of #9"
+              and db.shown_verdict(db.get_request(con, old_blank)) == "dismissed")
+        check("shown_verdict: a real answer that only starts alike is left alone",
+              db.shown_verdict(db.get_request(con, real))
+              == "read - no reply is not what I mean")
+
+        for rid, label in ((new, "new"), (old, "old")):
+            rc, out = _cli(["read", str(rid)])
+            check(f"dismissed ({label}): ocp read shows a state, not an answer",
+                  rc == 0 and "--- dismissed" in out and "answered by" not in out
+                  and "read - no reply" not in out, out)
+        rc, out = _cli(["inbox", "--all"], as_agent=askmod.HUMAN)
+        others = "\n".join(l for l in out.splitlines() if "what I mean" not in l)
+        check("dismissed: the founder's history says dismissed",
+              "dismissed by manager - dup of #9" in others and "read - no reply" not in others,
+              out)
+
+        con.execute("UPDATE requests SET resolved_at = ? WHERE id IN (?, ?, ?)",
+                    (int(time.time()), old, old_blank, real))
+        mail = {m["id"]: m for m in actions.mailbox_rows(con)}
+        check("dismissed: the founder's mailbox draws the label, not the literal",
+              all(rid in mail and "dismissed" in mail[rid]["body"]
+                  and "read - no reply" not in mail[rid]["body"] for rid in (old, old_blank)),
+              str({k: v["body"] for k, v in mail.items()}))
+        thread = actions._exchange(con, "manager", set())
+        check("dismissed: the exchange lines carry no verdict text",
+              thread and all("read - no reply" not in l for l in thread
+                             if "what I mean" not in l)
+              and sum("dismissed" in l for l in thread) == 3, str(thread))
+        _, drawn_lines = "", actions.conversation_and_drawn(con, "manager")[0]
+        check("dismissed: the conversation draws the label",
+              sum("dismissed" in l for l in drawn_lines) == 3
+              and all("read - no reply" not in l for l in drawn_lines
+                      if "what I mean" not in l), str(drawn_lines))
+        title, sections = actions.message_detail(con, old)
+        detail = "\n".join(l for _, ls in sections[:1] for l in ls)
+        check("dismissed: an opened message shows the label",
+              detail == "dismissed - dup of #9", detail)
+        w = db.add_request(con, "worker", "manager", "q5", None, "peer", "async", None, 0, None)
+        actions.dismiss(con, w, me="manager", reason="not now")
+        untold = [str(x) for _, ls in actions.agent_detail(con, "worker") for x in ls]
+        check("dismissed: an agent's untold answers read the label",
+              any("dismissed by manager - not now" in x for x in untold)
+              and not any("read - no reply" in x for x in untold), str(untold))
+        line, _ = dmn.answer_line(db.unannounced_answers(con, "worker")[0])
+        check("dismissed: what is typed at the asker is the label",
+              line.endswith("dismissed by manager - not now"), line)
+        con.execute("UPDATE requests SET resolved_at = ? WHERE id = ?", (int(time.time()), w))
+        rc, out = _cli(["resolve", str(new), "hello"], as_agent="manager")
+        check("dismissed: resolving it again names the state, not a quote",
+              rc == 1 and "dismissed by manager - dup of #9" in out, out)
+        seen = int(time.time())
+        db.set_cursor(con, "seen:manager", seen)
+        check("unread: nothing new after the tab was read", actions.chat_unread(con, "manager") == 0)
+        fresh = _human_request()
+        actions.dismiss(con, fresh, me="manager", reason="not mine", no_task="nothing")
+        con.execute("UPDATE requests SET ts = ?, resolved_at = ? WHERE id = ?",
+                    (seen - 5, seen + 10, fresh))
+        check("unread: an agent's dismissal of the founder's message is a new line",
+              actions.chat_unread(con, "manager") == 1, str(actions.chat_unread(con, "manager")))
+        gaps = actions.reason_gaps(con)
+        check("dismissed: the reason gap still counts both shapes (5 dismissals, 1 blank)",
+              (gaps["retirements"], gaps["retirements_blank"]) == (5, 1), str(gaps))
+    finally:
+        con.close()
+
+
 def test_a_withdraw_and_the_founders_answer_settle_to_one_outcome(home: Path) -> None:
     """Task #32: a withdraw and the founder's answer on one proposal end as
     exactly one outcome, whichever lands first, and neither leaves the
@@ -4419,7 +4514,8 @@ def test_no_other_path_closes_the_founders_request_unguarded(home: Path) -> None
         check("dismiss: --no-task on the founder's row succeeds", rc == 0, out)
         row = db.get_request(con, r2)
         check("dismiss: --no-task closes it, reason stored as typed",
-              row["state"] == "done" and row["verdict"] == "read - no reply: dup of #9",
+              row["state"] == "done" and row["verdict"] is None
+              and row["dismissed_reason"] == "dup of #9",
               str(dict(row)))
         r3 = _human_request()
         ok, out = actions.dismiss(con, r3, me=askmod.HUMAN)
@@ -4553,12 +4649,14 @@ def test_replace_withdraw_and_dismiss_store_the_reason_typed(home: Path) -> None
         check("reason: a withdraw with none stores none", db.get_request(con, f)["verdict"] is None)
         g = db.add_request(con, "worker", "manager", "q", None, "peer", "async", None, 0, None)
         actions.dismiss(con, g, me="manager", reason="duplicate of #1")
-        check("reason: a dismiss stores it",
-              db.get_request(con, g)["verdict"] == "read - no reply: duplicate of #1")
+        check("reason: a dismiss stores it, as a state and no verdict",
+              (db.get_request(con, g)["dismissed_reason"], db.get_request(con, g)["verdict"])
+              == ("duplicate of #1", None))
         h = db.add_request(con, "worker", "manager", "q", None, "peer", "async", None, 0, None)
         actions.dismiss(con, h, me="manager")
-        check("reason: a dismiss with none keeps the old verdict",
-              db.get_request(con, h)["verdict"] == "read - no reply")
+        check("reason: a dismiss with none stores no reason",
+              (db.get_request(con, h)["dismissed_by"], db.get_request(con, h)["dismissed_reason"])
+              == ("manager", None))
     finally:
         con.close()
     # #1348 should-fix: pin how a withdrawn row READS, not only what it
@@ -4993,6 +5091,8 @@ def main() -> int:
         run(lambda: test_only_one_thing_types_at_an_agent_at_a_time(Path(td) / 'locking'))
         run(lambda: test_growing_the_team_needs_a_person(Path(td) / 'hr'))
         run(lambda: test_the_founder_does_not_approve_their_own_request(Path(td) / 'hrself'))
+        run(lambda: test_a_dismissal_is_a_state_and_never_reads_as_words(
+            Path(td) / 'dismissstate'))
         run(lambda: test_a_withdraw_and_the_founders_answer_settle_to_one_outcome(
             Path(td) / 'hrrace'))
         run(lambda: test_a_permission_prompt_waits_on_the_founder_until_it_is_answered(Path(td) / 'promptwait'))

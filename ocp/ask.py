@@ -544,9 +544,9 @@ def withdraw(rid: int, requester: str | None = None,
             return False, too_late
         # Atomic: the write itself is the gate against a delivery landing
         # between the check above and here. Labelled "withdrawn: ", the same
-        # as "replaced by #N" and "read - no reply" are already read as
-        # machine text - a bare typed reason here was drawn as the target's
-        # own answer, in the founder's name on their own screen (#1348).
+        # as "replaced by #N", so it reads as machine text - a bare typed
+        # reason here was drawn as the target's own answer, in the founder's
+        # name on their own screen (#1348).
         verdict = f"withdrawn: {reason}" if reason else None
         if not db.retire_if_undelivered(con, rid, "withdrawn", verdict):
             # `db.is_still_queued` alone would not tell the two failures
@@ -675,8 +675,9 @@ def _after_close(con, rid: int, row, state: str, notify: bool) -> str:
     return f"request #{rid} -> {state}" + (f"\n{said}" if said else "")
 
 
-def resolve(rid: int, verdict: str, state: str = "done", notify: bool = True,
-            open_tasks=None) -> tuple[bool, str]:
+def resolve(rid: int, verdict: str | None, state: str = "done", notify: bool = True,
+            open_tasks=None, dismissed_by: str | None = None,
+            dismissed_reason: str | None = None) -> tuple[bool, str]:
     """`notify=False` is `dismiss`'s case: settle the row without telling the requester.
 
     `open_tasks(con) -> list[int]` opens tasks in the same transaction as the
@@ -696,7 +697,9 @@ def resolve(rid: int, verdict: str, state: str = "done", notify: bool = True,
             # Conditional on 'queued', the same as `cancel`'s close: two answers
             # landing on the same row at once must not have the second overwrite
             # the first, whichever path either comes through.
-            closed = db.close_if_queued(con, rid, state, verdict, announced=not notify)
+            closed = db.close_if_queued(con, rid, state, verdict, announced=not notify,
+                                        dismissed_by=dismissed_by,
+                                        dismissed_reason=dismissed_reason)
         except Exception:
             if open_tasks is not None:
                 con.execute("ROLLBACK")
