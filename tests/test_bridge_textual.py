@@ -1587,6 +1587,33 @@ async def test_hr_tab_approve_reject_withdraw_and_the_red_dot() -> None:
         finally:
             con.close()
 
+async def test_the_account_page_leaves_a_page_on_top_alone_and_closes_when_it_is_back() -> None:
+    from unittest import mock
+    from ocp import accounts as accountsmod
+    from ocp.ui.components.read_only import ReadOnly
+    _home("acctgone")
+    with mock.patch.object(accountsmod, "identity", lambda acct: None):
+        app = bt.BridgeApp()
+        async with app.run_test(size=(120, 34)) as pilot:
+            await pilot.pause(0.3)
+            home = app.screen
+            app.push_screen(AccountPage("alpha"))
+            await pilot.pause(0.4)
+            page = app.screen
+            app.push_screen(ReadOnly("on top", [("", ["x"])]))
+            await pilot.pause(0.2)
+            top = app.screen
+            with mock.patch("ocp.ui.pages.account.paths.list_accounts", lambda: []):
+                page._load()        # its timer keeps running under the page on top
+                await pilot.pause(0.2)
+                check("account page: the account going while another page is on top does not pop that page",
+                      app.screen is top, type(app.screen).__name__)
+                app.pop_screen()
+                await pilot.pause(0.4)
+            check("account page: back on top it sees the account is gone and closes itself",
+                  app.screen is home, type(app.screen).__name__)
+
+
 async def _run_all() -> None:
     test_only_y_n_or_escape_answers_a_confirm()
     test_the_menu_offers_what_the_text_could_become()
@@ -1622,6 +1649,7 @@ async def _run_all() -> None:
     await test_a_key_never_acts_on_a_row_nobody_pointed_at()
     await test_text_prompt_line_keeps_a_multiline_paste_and_shows_escapes_inert()
     await test_read_only_page_shows_foreign_text_inert()
+    await test_the_account_page_leaves_a_page_on_top_alone_and_closes_when_it_is_back()
     test_gauge_elapsed_fraction_bar_and_usage_cells()
     test_agent_rows_short_model_cache_and_founder_block()
     test_fold_urgency_ranks_what_a_fold_hides()
