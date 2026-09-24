@@ -969,6 +969,34 @@ def would_wake(con, row) -> bool:
                 db.unannounced_answers(con, agent))
 
 
+def _cold_before_typing(con, agent: str, row, now: int, st, log) -> bool | None:
+    """Close an open session whose cache has expired instead of typing into it.
+
+    A line typed into it makes the vendor re-read the whole transcript
+    uncached; closing it lets the wake, which starts a cold agent fresh on its
+    handoff, deliver the same line. Only when there is something to type, so an
+    idle session costs nothing until it is spoken to. None when the session is
+    warm or there is nothing to say; otherwise whether it closed - a session
+    that would not close is not typed into either. A session running background work is left alone: closing would kill it.
+    """
+    if has_background_work(con, agent) or not cache_expired(con, agent, st.session_id, now):
+        return None
+    head = db.head_of_queue(con, agent)
+    told = bool(head) and db.get_cursor(con, f"notify:{agent}") == int(head["id"]) \
+        and not _session_changed(con, agent)
+    found = forgotten_resolve(con, agent, row, now)
+    nudge = bool(found) and found["idle_s"] >= NUDGE_AFTER_S \
+        and db.get_cursor(con, f"nudge:{agent}") != int(found["head"]["id"])
+    if not (db.unannounced_answers(con, agent) or (head and not told) or nudge):
+        return None
+    ok, _ = close_agent(con, agent, log, st)
+    if ok and nudge:
+        # The wake re-tells the head, which is the reminder; closing again for
+        # the same head would be one fresh turn an hour.
+        db.set_cursor(con, f"nudge:{agent}", int(found["head"]["id"]))
+    return ok
+
+
 def close_agent(con, agent: str, log, st) -> tuple[bool, str]:
     """Give the machine back an idle agent's memory, keeping its terminal.
 
@@ -2593,9 +2621,14 @@ def supervise(con, agent: str, log, now: int, samples: dict,
         # An answer first: an agent that asked something and parked is waiting
         # on that, and telling it about new work while its own question is
         # still unanswered is the wrong order.
-        deliver_answers(con, agent, log)
-        deliver_queued(con, agent, log)
-        nudge_forgotten_resolve(con, agent, row, now, log)
+        closed = _cold_before_typing(con, agent, row, now, st, log)
+        if closed:
+            actions.append(f"{agent}: cache expired; session closed, the wake delivers")
+            row = db.get_agent_state(con, agent)
+        if closed is None:
+            deliver_answers(con, agent, log)
+            deliver_queued(con, agent, log)
+            nudge_forgotten_resolve(con, agent, row, now, log)
 
     # Memory is the scarce resource on one laptop running a team, and an
     # idle session spends it while earning nothing: it holds its context,

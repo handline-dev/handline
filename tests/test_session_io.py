@@ -2145,6 +2145,57 @@ def test_a_close_right_after_a_delivery_in_the_same_tick_must_not_type(
         con.close()
 
 
+def test_an_answer_for_a_cold_session_closes_it_instead_of_being_typed(home: Path) -> None:
+    """T84: a line typed into an open session whose cache has expired makes the
+    vendor re-read the whole transcript uncached. The daemon closes it there
+    and the wake delivers on a fresh start; a warm session, or a cold one with
+    nothing to say, is left alone."""
+    _daemon_home(home, 20)
+    con = db.connect()
+    sent: list[str] = []
+    real = (orcamod.alive, orcamod.wait_idle, orcamod.available, orcamod.send)
+    try:
+        orca_seen()
+        orcamod.wait_idle = lambda h, timeout_ms=0: True
+        table = sessions_are("backend")
+        orcamod.send = relaunching_send(sent, table)
+        db.set_terminal(con, "backend", "term_x", "wt")
+        db.set_agent_state(con, "backend", dmn.IDLE)
+        (home / "agents" / "backend").mkdir(parents=True, exist_ok=True)
+        (home / "agents" / "backend" / "status.json").write_text(json.dumps({
+            "account": "alpha", "collected_at": int(time.time()),
+            "session_id": "sess-cold", "pct_5h": 20}))
+        st = status.read_for_agent("backend", "alpha")
+        now = int(time.time())
+        db.add_event(con, "backend", "Stop", {})
+        con.execute("UPDATE events SET ts = ? WHERE agent = 'backend'",
+                    (now - dmn.RESUME_WARM_S - 60,))
+        row = db.get_agent_state(con, "backend")
+        log = lambda _m: None
+
+        check("cold typing: nothing to say, a cold session is left open",
+              dmn._cold_before_typing(con, "backend", row, now, st, log) is None
+              and not sent)
+        rid = db.add_request(con, "backend", "reviewer", "spec?", None,
+                             "peer", "async", None, 0, None)
+        con.execute("UPDATE requests SET state = 'done', verdict = 'yes' WHERE id = ?", (rid,))
+        con.execute("UPDATE events SET ts = ? WHERE agent = 'backend'",
+                    (now - dmn.RESUME_WARM_S + 600,))
+        check("cold typing: a warm session with an answer waiting is left to be typed into",
+              dmn._cold_before_typing(con, "backend", row, now, st, log) is None
+              and not sent)
+        con.execute("UPDATE events SET ts = ? WHERE agent = 'backend'",
+                    (now - dmn.RESUME_WARM_S - 60,))
+        dmn.supervise(con, "backend", log, now, {}, [])
+        check("cold typing: a cold session with an answer waiting is closed by the tick",
+              db.get_agent_state(con, "backend")["closed_at"], str(sent))
+        check("cold typing: the answer was never typed into the old session",
+              all("yes" not in t for t in sent), str(sent))
+    finally:
+        orcamod.alive, orcamod.wait_idle, orcamod.available, orcamod.send = real
+        con.close()
+
+
 def test_a_degraded_park_does_not_auto_clear(home: Path) -> None:
     """DEGRADED is not a usage park. `DEGRADED_RETRY_S` is the only thing
     that re-hands a failed handoff's own retry, and clearing it early on a
@@ -3048,6 +3099,8 @@ def main() -> int:
             Path(td) / 'deliverhandoffrace'))
         run(lambda: test_a_close_right_after_a_delivery_in_the_same_tick_must_not_type(
             Path(td) / 'closerace'))
+        run(lambda: test_an_answer_for_a_cold_session_closes_it_instead_of_being_typed(
+            Path(td) / 'coldtyping'))
         run(lambda: test_a_degraded_park_does_not_auto_clear(Path(td) / 'parklevel3'))
         run(lambda: test_a_close_gets_past_the_dialog_before_it_types_exit(Path(td) / 'limitclose'))
         run(lambda: test_a_dialog_ocp_cannot_get_past_stalls_the_agent_with_the_reason(
