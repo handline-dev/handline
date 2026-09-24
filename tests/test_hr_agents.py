@@ -19,8 +19,7 @@ def test_init_leaves_the_status_line_slot_empty(home: Path) -> None:
     """ocp installs no status line (D11): the slot is the human's. `ocp init`
     removes the ones ocp used to install, and the settings entry pointing at
     them, and leaves anyone else's statusLine where it is."""
-    home.mkdir(parents=True, exist_ok=True)
-    os.environ["OCP_HOME"] = str(home)
+    use_home(home)
     orcamod.live_terminals = lambda: None
     shared = paths.shared_claude()
     shared.mkdir(parents=True, exist_ok=True)
@@ -54,8 +53,7 @@ def test_a_failed_settings_write_keeps_the_old_scripts(home: Path) -> None:
     """ensure_shared deletes ocp's old status line scripts only after the
     settings no longer point at them: a write that fails in between must leave
     every session with a script that still exists."""
-    home.mkdir(parents=True, exist_ok=True)
-    os.environ["OCP_HOME"] = str(home)
+    use_home(home)
     shared = paths.shared_claude()
     shared.mkdir(parents=True, exist_ok=True)
     old = shared / accounts.OLD_STATUSLINES[0]
@@ -85,8 +83,7 @@ def test_an_unreadable_settings_file_is_refused_and_left_alone(home: Path) -> No
     """shared/settings.json holds the human's settings as well as ocp's. One
     that cannot be read as a JSON object is refused, naming the file, and
     nothing is changed - never rewritten from {}."""
-    home.mkdir(parents=True, exist_ok=True)
-    os.environ["OCP_HOME"] = str(home)
+    use_home(home)
     shared = paths.shared_claude()
     shared.mkdir(parents=True, exist_ok=True)
     old = shared / accounts.OLD_STATUSLINES[0]
@@ -109,8 +106,7 @@ def test_an_unreadable_settings_file_is_refused_and_left_alone(home: Path) -> No
 def test_a_settings_write_that_dies_leaves_the_old_file(home: Path) -> None:
     """The write goes through a temp file and a rename, so a write that dies
     half way leaves the previous settings.json whole, not half of the new one."""
-    home.mkdir(parents=True, exist_ok=True)
-    os.environ["OCP_HOME"] = str(home)
+    use_home(home)
     shared = paths.shared_claude()
     shared.mkdir(parents=True, exist_ok=True)
     settings = shared / "settings.json"
@@ -176,8 +172,7 @@ def test_trust_roots(home: Path) -> None:
     sets, never inferred from the roster or Orca's own layout - propose/apply
     for an agent, enact directly for the founder, is_declared checks a path
     against exactly that list."""
-    home.mkdir(parents=True, exist_ok=True)
-    os.environ["OCP_HOME"] = str(home)
+    use_home(home)
     (home / "team.yaml").write_text(
         "agents:\n  backend: { intake: dedicated }\n"
         'edges:\n  - { from: "*", to: "human", kind: escalate, creates_gate: true }\n')
@@ -303,8 +298,7 @@ def test_trust_roots(home: Path) -> None:
 def test_ocp_trust_cli_is_wired(home: Path) -> None:
     """`ocp trust add/list/remove` reach the same trust.py the daemon reads,
     the founder's own path through the argparse layer."""
-    home.mkdir(parents=True, exist_ok=True)
-    os.environ["OCP_HOME"] = str(home)
+    use_home(home)
     root = home / "repos" / "widget"
     root.mkdir(parents=True, exist_ok=True)
 
@@ -813,8 +807,7 @@ def test_a_name_that_yaml_would_not_read_as_text_is_refused_where_it_is_typed(ho
     key makes the whole file unloadable, so the name is turned away when it is
     typed and not when every command next reads the roster."""
     restore_world()
-    home.mkdir(parents=True, exist_ok=True)
-    os.environ["OCP_HOME"] = str(home)
+    use_home(home)
     bad = ("no", "on", "off", "yes", "1", "2026-09-20", "null", "~", "true", "0x10", "a: b")
     good = ("harbor", "harbor.deck", "orcapipe.purser", "a-b_c", "y", "1e3", "é")
     check("names: what yaml reads as something else is not plain text",
@@ -905,8 +898,7 @@ def test_one_unreadable_proposal_does_not_take_the_hr_listing_down(home: Path) -
     left out and named, and a file that parses to something that is not a
     proposal is treated the same way."""
     restore_world()
-    home.mkdir(parents=True, exist_ok=True)
-    os.environ["OCP_HOME"] = str(home)
+    use_home(home)
     d = hr.dir_()
     (d / "good.yaml").write_text("id: good\nkind: add\nagent: newone\nstate: proposed\n"
                                  "requested_by: x\n")
@@ -1331,8 +1323,7 @@ def test_agent_yaml_is_written_by_dump_so_what_was_typed_reads_back(home: Path) 
     a map and written by dump, which quotes what a reader would take for
     something else, so each value reads back as the text that was typed."""
     restore_world()
-    home.mkdir(parents=True, exist_ok=True)
-    os.environ["OCP_HOME"] = str(home)
+    use_home(home)
     agents.register("plain", "alpha")
     agents.register("full", "alpha", model="opus", effort="high", weight="heavy",
                     repo="/Users/ron/some repo")
@@ -2174,8 +2165,7 @@ def test_an_opencode_row_takes_its_state_word_from_orca(home: Path) -> None:
     start screen - is no evidence, so the db state stands. A closed row is
     never screened at all. A claude row is never screened: its hooks already
     said."""
-    home.mkdir(parents=True, exist_ok=True)
-    os.environ["OCP_HOME"] = str(home)
+    use_home(home)
     accounts.register("alpha")
     accounts.register("zai", vendor="opencode")
     agents.register("backend", "alpha")
@@ -2284,8 +2274,7 @@ def test_a_launch_does_not_inherit_an_opencode_sessions_config(home: Path) -> No
     opens for its opencode status plugin (busy/idle), and dropping it would
     strip that plugin from every relaunch. The opencode launch's own
     OPENCODE_CONFIG_CONTENT comes back from its driver's launch_env."""
-    home.mkdir(parents=True, exist_ok=True)
-    os.environ["OCP_HOME"] = str(home)
+    use_home(home)
     accounts.register("alpha")
     accounts.register("zai", vendor="opencode")
     agents.register("backend", "alpha")
@@ -2324,8 +2313,7 @@ def test_a_launch_does_not_inherit_an_opencode_sessions_config(home: Path) -> No
 
 
 def test_launch_refuses_stale(home: Path) -> None:
-    home.mkdir(parents=True, exist_ok=True)
-    os.environ["OCP_HOME"] = str(home)
+    use_home(home)
     bindir = home / "stub"
     bindir.mkdir(parents=True, exist_ok=True)
     (bindir / "claude").write_text("#!/bin/sh\necho started\n")
@@ -2365,8 +2353,7 @@ def test_shared_account_context_isolation(home: Path) -> None:
     Rate limits are account-wide and shared correctly; context is per session,
     and each agent's comes from the transcript its own session is writing.
     """
-    home.mkdir(parents=True, exist_ok=True)
-    os.environ["OCP_HOME"] = str(home)
+    use_home(home)
     agents.register("ag_a", "shared")
     agents.register("ag_b", "shared")
     accounts.register("shared")
@@ -2407,8 +2394,7 @@ def test_shared_account_context_isolation(home: Path) -> None:
 
 
 def test_agent_rewrite_uses_parser(home: Path) -> None:
-    home.mkdir(parents=True, exist_ok=True)
-    os.environ["OCP_HOME"] = str(home)
+    use_home(home)
     agents.register("rw", "alpha", model="opus")
     # A spacing variant that prefix-matching would have duplicated.
     agents.agent_file("rw").write_text("name: rw\naccount : alpha\nmodel: opus\n")
@@ -2435,8 +2421,7 @@ def test_init_keeps_the_lock_file_out_of_the_home_repo(home: Path) -> None:
 
 
 def test_doctor_service_check(home: Path) -> None:
-    home.mkdir(parents=True, exist_ok=True)
-    os.environ["OCP_HOME"] = str(home)
+    use_home(home)
     orig = service.status
     orig_loop = service.crash_loop_detected
     try:
@@ -2599,8 +2584,7 @@ def test_launch_judges_on_the_figure_it_may_act_on(home: Path) -> None:
     """Inside a window usage only rises, so a carried figure is a floor - and a
     floor at the wall is at the wall. Reading the raw field let a launch start
     on an account a carry had just placed at 100%."""
-    home.mkdir(parents=True, exist_ok=True)
-    os.environ["OCP_HOME"] = str(home)
+    use_home(home)
     agents.register("late", "alpha")
     now = int(time.time())
     write_status(home, "alpha", pct_5h=100, reset_5h=now + 1800,
@@ -2632,8 +2616,7 @@ def test_doctor_says_one_thing_per_account(home: Path) -> None:
     """doctor's whole job is to say why assignment is refused, so it must not
     warn that a reading was lost and then report "rate_limits present" about the
     same account. The 7d check wedged into the 5h chain stole that chain's else."""
-    home.mkdir(parents=True, exist_ok=True)
-    os.environ["OCP_HOME"] = str(home)
+    use_home(home)
     now = int(time.time())
     write_status(home, "a_quiet", pct_5h=None, pct_7d=10)
     write_status(home, "b_ok", pct_5h=42, reset_5h=now + 1800, pct_7d=10)
@@ -2745,8 +2728,7 @@ def test_installing_hooks_twice_does_not_double_them(home: Path) -> None:
     """`ocp` is on PATH as a symlink into the repo, so one installation spells
     itself two ways. Matching the exact string added a second entry the first
     time the spelling changed, and then every hook fired twice."""
-    home.mkdir(parents=True, exist_ok=True)
-    os.environ["OCP_HOME"] = str(home)
+    use_home(home)
     target = home / "shared" / ".claude" / "settings.json"
     target.parent.mkdir(parents=True, exist_ok=True)
     target.write_text(json.dumps({"hooks": {
@@ -3275,8 +3257,7 @@ def test_login_points_at_the_account_and_touches_no_credential(home: Path) -> No
     """Logging in is the one thing ocp may not do for a human: a refresh token
     rotates on single use, so a second copy of one credential invalidates the
     first. All this decides is which config directory claude is pointed at."""
-    home.mkdir(parents=True, exist_ok=True)
-    os.environ["OCP_HOME"] = str(home)
+    use_home(home)
     accounts.register("alpha")
 
     action, msg = accounts.login_plan("beta")
@@ -3589,8 +3570,7 @@ def test_a_declared_root_gets_standing_consent(home: Path) -> None:
 def test_an_account_is_added_and_removed_from_ocp(home: Path) -> None:
     """Adding and removing an account are ocp commands, and removing one
     cannot strand an agent, orphan a credential, or lose what was spent."""
-    home.mkdir(parents=True, exist_ok=True)
-    os.environ["OCP_HOME"] = str(home)
+    use_home(home)
     (home / "team.yaml").write_text("agents:\n  backend: { intake: dedicated }\n")
     for a in ("alpha", "beta", "gamma"):
         accounts.register(a)
@@ -3650,8 +3630,7 @@ def test_account_add_login_preflight_names_the_actual_blocker(home: Path) -> Non
     binary is not on PATH, or stdin is not a terminal. One message for both
     sends a reader without the binary hunting for a terminal, and a reader
     in a script off to install something they have."""
-    home.mkdir(parents=True, exist_ok=True)
-    os.environ["OCP_HOME"] = str(home)
+    use_home(home)
 
     def run_cli(*argv):
         buf, err = io.StringIO(), io.StringIO()
@@ -3688,8 +3667,7 @@ def test_offer_to_trust_worktrees_lists_paths_and_skips(home: Path) -> None:
     """Should-fix 5 (auditor's #304): the y/N question names exactly the
     worktrees a yes will press, and reports the rest as skipped rather than
     acting on them silently."""
-    home.mkdir(parents=True, exist_ok=True)
-    os.environ["OCP_HOME"] = str(home)
+    use_home(home)
     agents.register("backend", "alpha")
     agents.register("frontend", "alpha")
     wt_in = home / "declared" / "backend-wt"
@@ -3723,8 +3701,7 @@ def test_offer_to_trust_worktrees_lists_paths_and_skips(home: Path) -> None:
 def test_a_second_name_for_one_login_is_caught(home: Path) -> None:
     """Two accounts on one Anthropic login are one usage limit under two
     names, and their two copies of the credential invalidate each other."""
-    home.mkdir(parents=True, exist_ok=True)
-    os.environ["OCP_HOME"] = str(home)
+    use_home(home)
     for a in ("alpha", "beta", "gamma"):
         accounts.register(a)
     who = {"alpha": "a@x", "beta": "b@x", "gamma": "a@x"}
@@ -3751,8 +3728,7 @@ def test_a_file_added_to_shared_reaches_every_existing_account(home: Path) -> No
     when they were made. A fixture that creates the accounts after the file
     exists would pass on the broken code; this creates them before it, the way
     they actually are today."""
-    home.mkdir(parents=True, exist_ok=True)
-    os.environ["OCP_HOME"] = str(home)
+    use_home(home)
     accounts.register("alpha")
     accounts.register("beta")
     accounts.register("gamma")

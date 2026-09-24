@@ -1070,8 +1070,7 @@ def test_the_zai_meter_reads_the_plan_and_hides_its_key(home: Path) -> None:
     pinned with the same sentinel: the key reaches no agent - not the launch
     env, not what `ocp usage` prints, not the status file the reading lands
     in. Nothing here touches the network; the endpoint stands in for itself."""
-    home.mkdir(parents=True, exist_ok=True)
-    os.environ["OCP_HOME"] = str(home)
+    use_home(home)
     accounts.register("zai", vendor="opencode")
     agents.register("glm", "zai", model="zai-coding-plan/glm-5.3-flash")
     _with_vendor("glm", "opencode")
@@ -1220,8 +1219,7 @@ def test_usage_api_record_stands_in_for_a_probe(home: Path) -> None:
     reset (#1369).
     """
     restore_world()
-    home.mkdir(parents=True, exist_ok=True)
-    os.environ["OCP_HOME"] = str(home)
+    use_home(home)
     p_ = home / "status.json"
     now = int(time.time())
 
@@ -1273,8 +1271,7 @@ def test_usage_recover_is_a_per_account_switch(home: Path) -> None:
     """load.py's own idiom (`cap_of`/`set_cap`), for #1885: on by default,
     off only where config.yaml names the account, and every other account and
     setting untouched by flipping one."""
-    home.mkdir(parents=True, exist_ok=True)
-    os.environ["OCP_HOME"] = str(home)
+    use_home(home)
     check("usage recover: on by default, nothing written yet",
           loadmod.usage_recover_enabled("omega"))
     loadmod.set_cap("omega", 3)
@@ -1295,8 +1292,7 @@ def test_recover_marks_and_clears_needs_relogin(home: Path) -> None:
     """The one file this writes, and the one thing that reads it: `recover`
     itself, not fail-closed (status.py never looks at this mark - an account
     stays refused there by the ordinary staleness rule either way)."""
-    home.mkdir(parents=True, exist_ok=True)
-    os.environ["OCP_HOME"] = str(home)
+    use_home(home)
     check("recover: not marked to start", not recovermod.needs_relogin("omega"))
     recovermod.mark_relogin("omega", "still 401 after a real turn")
     check("recover: marked", recovermod.needs_relogin("omega"))
@@ -1315,8 +1311,7 @@ def test_recover_spends_one_turn_and_rereads(home: Path) -> None:
     already does - `recover` is a caller of `fold.run_model` and
     `usage_api.read_detailed`, never the network itself.
     """
-    home.mkdir(parents=True, exist_ok=True)
-    os.environ["OCP_HOME"] = str(home)
+    use_home(home)
     (paths.account_dir("omega") / ".claude").mkdir(parents=True, exist_ok=True)
 
     real_run_model, real_read_detailed, real_record = (
@@ -1430,8 +1425,7 @@ def test_the_pull_reads_the_context_the_statusline_used_to_push(home: Path) -> N
     Here it is pinned, along with the two records that must not be mistaken for
     the last turn - a synthetic message and a cost-state.
     """
-    home.mkdir(parents=True, exist_ok=True)
-    os.environ["OCP_HOME"] = str(home)
+    use_home(home)
     accounts.register("alpha")
     cwd = home / "wt-backend"
     cwd.mkdir(parents=True, exist_ok=True)
@@ -1493,8 +1487,7 @@ def test_a_cleared_session_reads_zero_and_an_unsearchable_one_reads_unknown(home
     unknown: reading it as 0 would tell the daemon an agent near its window's
     end had an empty context, and nothing would ever park it.
     """
-    home.mkdir(parents=True, exist_ok=True)
-    os.environ["OCP_HOME"] = str(home)
+    use_home(home)
     accounts.register("alpha")
     cwd = home / "wt-chat"
     cwd.mkdir(parents=True, exist_ok=True)
@@ -1540,8 +1533,7 @@ def test_the_newest_transcript_across_accounts_is_the_session(home: Path) -> Non
     account is simply older. Measured live: `orcapipe.chat` moved alpha -> sigma
     and the pull reported sigma on the next read.
     """
-    home.mkdir(parents=True, exist_ok=True)
-    os.environ["OCP_HOME"] = str(home)
+    use_home(home)
     accounts.register("alpha")
     accounts.register("sigma")
     cwd = home / "wt-chat"
@@ -1571,8 +1563,7 @@ def test_an_unknown_model_gets_no_context_figure(home: Path) -> None:
     goes unknown and the session's identity still comes back, because that part
     was never a guess.
     """
-    home.mkdir(parents=True, exist_ok=True)
-    os.environ["OCP_HOME"] = str(home)
+    use_home(home)
     accounts.register("alpha")
     cwd = home / "wt-next"
     cwd.mkdir(parents=True, exist_ok=True)
@@ -1631,8 +1622,7 @@ def test_a_turn_ending_refreshes_the_snapshot_through_the_hook(home: Path) -> No
     fires while the agent waits on a human, and treating that as a turn would
     keep rewriting the snapshot of a session that is doing nothing.
     """
-    home.mkdir(parents=True, exist_ok=True)
-    os.environ["OCP_HOME"] = str(home)
+    use_home(home)
     accounts.register("alpha")
     agents.register("backend", "alpha")
     cwd = home / "wt-backend"
@@ -2001,8 +1991,7 @@ def test_a_reading_past_the_carry_bound_is_carried_old_even_though_the_flag_is_f
     rl_carried False, rl_at old, collected_at fresh (something else, unrelated
     to rate limits, kept it that way). Must read carried_old and must not be
     assignable on that shape alone - not on a flag nobody sets."""
-    home.mkdir(parents=True, exist_ok=True)
-    os.environ["OCP_HOME"] = str(home)
+    use_home(home)
     write_status(home, "alpha", pct_5h=55, reset_5h=int(time.time()) + 9000,
                  rl_carried=False, rl_lost=False,
                  rl_at=int(time.time()) - status.CARRY_MAX_AGE_S - 60,
@@ -2024,8 +2013,7 @@ def test_a_carried_reading_with_no_age_at_all_reads_carried_old_not_live(
     production (usage_api's only writer always sets rl_at alongside
     rl_carried), but a payload that omits it must still read as too old to
     trust, not as newly live - the same test for pct_7d_source/rl7_at."""
-    home.mkdir(parents=True, exist_ok=True)
-    os.environ["OCP_HOME"] = str(home)
+    use_home(home)
     now = int(time.time())
     write_status(home, "alpha", pct_5h=40, reset_5h=now + 9000,
                  rl_carried=True, rl_at=None, collected_at=now,
@@ -2086,8 +2074,7 @@ def test_an_unknown_model_now_hands_off_on_tokens(home: Path) -> None:
     and the context trigger never fires - silently, forever, no refusal, no
     log line. ctx_used needs no window at all, so the same agent now hands
     off exactly like any other."""
-    home.mkdir(parents=True, exist_ok=True)
-    os.environ["OCP_HOME"] = str(home)
+    use_home(home)
     model = "some-future-model-nobody-has-priced"
     check("unknown model: collect genuinely does not know its window",
           collect.ctx_size(model) is None)
@@ -2107,8 +2094,7 @@ def test_a_stale_ctx_used_does_not_fire(home: Path) -> None:
     trusted_ctx_pct already has (status.py's stale property) - a snapshot
     nobody has refreshed must not fire the trigger just because the number it
     once wrote was large."""
-    home.mkdir(parents=True, exist_ok=True)
-    os.environ["OCP_HOME"] = str(home)
+    use_home(home)
     agents.register("keeper", "alpha")
     accounts.register("alpha")
     write_status(home, "alpha", pct_5h=10, pct_7d=10, reset_5h=int(time.time()) + 1800)
@@ -2147,8 +2133,7 @@ def test_status_read_sums_a_raw_ctx_used_dict_the_way_collect_does(home: Path) -
     named for account isolation that happens to assert a context trigger
     fires. Pinned directly here, against the same four-key shape
     collect.snapshot actually writes."""
-    home.mkdir(parents=True, exist_ok=True)
-    os.environ["OCP_HOME"] = str(home)
+    use_home(home)
     usage = {"input_tokens": 100, "output_tokens": 50,
              "cache_creation_input_tokens": 2_000, "cache_read_input_tokens": 300_000}
     write_status(home, "alpha", pct_5h=10, ctx_used=usage)
@@ -2301,8 +2286,7 @@ def test_a_new_account_gets_its_first_reading_without_anyone_asking(home: Path) 
 
 # ---------------------------------------------------------------- regressions
 def test_status_edge_cases(home: Path) -> None:
-    home.mkdir(parents=True, exist_ok=True)
-    os.environ["OCP_HOME"] = str(home)
+    use_home(home)
 
     # json.loads accepts bare NaN/Infinity; these must read as unknown, not
     # crash the daemon mid-tick.
@@ -2345,8 +2329,7 @@ def test_carry_bounds_and_losses(home: Path) -> None:
     longer exists at all is the carry: the endpoint states both windows or
     answers nothing, so there is no payload that quietly omits one.
     """
-    home.mkdir(parents=True, exist_ok=True)
-    os.environ["OCP_HOME"] = str(home)
+    use_home(home)
     now = int(time.time())
     path = home / "accounts" / "carry" / "status.json"
     read = lambda: status.read("carry", path)  # noqa: E731
@@ -2551,8 +2534,7 @@ def test_unobserved_spend_stays_off_unreadable_accounts(home: Path) -> None:
     is the one spender no collector ever sees. Choosing by the raw figure sent
     it to the accounts whose usage is already unobserved, because None passed
     the "not at the hard stop" test."""
-    home.mkdir(parents=True, exist_ok=True)
-    os.environ["OCP_HOME"] = str(home)
+    use_home(home)
     real_login = accounts.logged_in
     try:
         accounts.logged_in = lambda a: True  # noqa: E731 - keychain is not the subject
@@ -2603,8 +2585,7 @@ def test_subscription_type_is_recorded_and_cached(home: Path) -> None:
     claude's own report of what it is signed in as - never a credential file
     (KICKOFF rule 1) - and is cached so the panel does not shell out to
     `claude` on every refresh."""
-    home.mkdir(parents=True, exist_ok=True)
-    os.environ["OCP_HOME"] = str(home)
+    use_home(home)
     accounts.register("gamma")
     real_login, real_run = accounts.logged_in, subprocess.run
     calls: list = []
@@ -2660,8 +2641,7 @@ def test_a_session_figure_is_not_shown_as_an_accounts(home: Path) -> None:
     by whichever session rendered last. Reading them from there made an
     account's cost flip every second and gave an agent that has never run
     somebody else's context - and the trigger then judged it on that."""
-    home.mkdir(parents=True, exist_ok=True)
-    os.environ["OCP_HOME"] = str(home)
+    use_home(home)
     agents.register("never_ran", "alpha")
     agents.register("has_session", "alpha")
     # #1762 should-fix 3: with no ctx_used key on either fixture there was
@@ -2718,9 +2698,7 @@ def test_a_woken_agent_is_not_judged_on_the_snapshot_it_left(home: Path) -> None
     real = (orcamod.alive, orcamod.wait_idle, orcamod.idle_now, orcamod.send,
             orcamod.available, orcamod.clear_context)
     try:
-        orcamod.available = lambda: True
-        orcamod.live_terminals = lambda: {"term_x"}
-        orcamod.alive = lambda h: True
+        orca_seen()
         orcamod.wait_idle = lambda h, timeout_ms=0: True
         orcamod.idle_now = lambda h: True     # the probe must not be what saves us
         orcamod.clear_context = lambda h, wait=True, timeout_ms=0: (True, "context cleared")
@@ -3360,9 +3338,7 @@ def test_a_near_wall_7d_account_is_still_a_candidate_but_not_guaranteed_the_pick
     _daemon_home(home, 20)
     accounts.register("beta")
     agents.register("keeper", "alpha")
-    for acct in ("alpha", "beta"):
-        (home / "accounts" / acct / ".claude").mkdir(parents=True, exist_ok=True)
-        (home / "accounts" / acct / ".claude" / ".credentials.json").write_text("{}")
+    credentialed(home, "alpha", "beta")
 
     # alpha's weekly headroom expires soon and is spendable to the wall itself.
     now = int(time.time())
@@ -3410,9 +3386,7 @@ def test_a_near_wall_7d_account_is_still_a_candidate_but_not_guaranteed_the_pick
         real = (orcamod.available, orcamod.alive, orcamod.close_session,
                orcamod.relaunch, orcamod.idle_now, dmn.wait_for_session)
         try:
-            orcamod.available = lambda: True
-            orcamod.alive = lambda h: True
-            orcamod.idle_now = lambda h: True
+            orca_idle()
             orcamod.close_session = exit_ends_session("keeper")
             orcamod.relaunch = lambda h, cmd, **kw: (True, "relaunched")
             dmn.wait_for_session = lambda agent, timeout=0: True
@@ -3481,9 +3455,7 @@ def test_a_move_is_not_recorded_while_the_process_is_still_on_the_old_account(
     _daemon_home(home, 20)
     accounts.register("beta")
     agents.register("keeper", "alpha")
-    for acct in ("alpha", "beta"):
-        (home / "accounts" / acct / ".claude").mkdir(parents=True, exist_ok=True)
-        (home / "accounts" / acct / ".claude" / ".credentials.json").write_text("{}")
+    credentialed(home, "alpha", "beta")
     now = int(time.time())
     write_status(home, "alpha", pct_5h=9, pct_7d=100, reset_7d=now + 3600, reset_5h=now + 1800)
     write_status(home, "beta", pct_5h=9, pct_7d=10, reset_7d=now + 90000, reset_5h=now + 1800)
@@ -3496,9 +3468,7 @@ def test_a_move_is_not_recorded_while_the_process_is_still_on_the_old_account(
         db.set_account(con, "keeper", "alpha")
         db.add_request(con, "marina", "keeper", "carry on", None, "peer", "async", None, 0, None)
         t = triggers.evaluate(9, 10, pct_7d=100)
-        orcamod.available = lambda: True
-        orcamod.alive = lambda h: True
-        orcamod.idle_now = lambda h: True
+        orca_idle()
         orcamod.close_session = exit_ends_session("keeper")
         orcamod.relaunch = lambda h, cmd, **kw: (table.__setitem__("keeper", 4200), (True, "ok"))[1]
         dmn.wait_for_session = lambda agent, timeout=0: True
@@ -3540,9 +3510,7 @@ def test_a_forced_move_goes_through_the_verified_move_or_not_at_all(home: Path) 
     accounts.register("beta")
     accounts.register("gamma")
     agents.register("keeper", "alpha")
-    for acct in ("alpha", "beta", "gamma"):
-        (home / "accounts" / acct / ".claude").mkdir(parents=True, exist_ok=True)
-        (home / "accounts" / acct / ".claude" / ".credentials.json").write_text("{}")
+    credentialed(home, "alpha", "beta", "gamma")
     now = int(time.time())
     write_status(home, "alpha", pct_5h=9, pct_7d=10, reset_7d=now + 90000, reset_5h=now + 1800)
     write_status(home, "beta", pct_5h=9, pct_7d=10, reset_7d=now + 90000, reset_5h=now + 1800)
@@ -3555,9 +3523,7 @@ def test_a_forced_move_goes_through_the_verified_move_or_not_at_all(home: Path) 
         db.set_terminal(con, "keeper", "term_x", "wt")
         table = sessions_are("keeper")
         db.set_account(con, "keeper", "alpha")
-        orcamod.available = lambda: True
-        orcamod.alive = lambda h: True
-        orcamod.idle_now = lambda h: True
+        orca_idle()
         orcamod.typeable_now = lambda h: True
         orcamod.close_session = exit_ends_session("keeper")
         orcamod.relaunch = lambda h, cmd, **kw: (table.__setitem__("keeper", 4200), (True, "ok"))[1]
@@ -3687,9 +3653,7 @@ def test_an_agent_at_the_wall_moves_to_an_account_with_room(home: Path) -> None:
     agents.register("keeper", "alpha")
     write_status(home, "beta", pct_5h=10, pct_7d=5, ctx_pct=5,
                  reset_5h=int(time.time()) + 1800)
-    for acct in ("alpha", "beta"):
-        (home / "accounts" / acct / ".claude").mkdir(parents=True, exist_ok=True)
-        (home / "accounts" / acct / ".claude" / ".credentials.json").write_text("{}")
+    credentialed(home, "alpha", "beta")
     keep_handoff("keeper", "# handoff · keeper\n## 다음\n- carry on\n")
     db.add_request(con, "marina", "keeper", "carry on", None, "peer", "async", None, 0, None)
     far = int(time.time()) + 3 * 3600
@@ -3698,9 +3662,7 @@ def test_an_agent_at_the_wall_moves_to_an_account_with_room(home: Path) -> None:
             dmn.wait_for_session)
     launched: list[str] = []
     try:
-        orcamod.available = lambda: True
-        orcamod.alive = lambda h: True
-        orcamod.idle_now = lambda h: True
+        orca_idle()
         orcamod.clear_context = lambda h, **kw: (True, "cleared")
         orcamod.close_session = exit_ends_session("keeper")
         orcamod.resume_with = lambda h, text: (True, "handed back")
@@ -3866,9 +3828,7 @@ def test_a_move_blocked_by_a_dialog_retries_soon_not_at_the_old_accounts_wall(ho
                  reset_5h=int(time.time()) + 1800)
     write_status(home, "alpha", pct_5h=100, pct_7d=20, ctx_pct=5,
                  reset_5h=int(time.time()) + 3 * 3600)
-    for acct in ("alpha", "beta"):
-        (home / "accounts" / acct / ".claude").mkdir(parents=True, exist_ok=True)
-        (home / "accounts" / acct / ".claude" / ".credentials.json").write_text("{}")
+    credentialed(home, "alpha", "beta")
     keep_handoff("keeper", "# handoff · keeper\n## 다음\n- carry on\n")
     db.add_request(con, "marina", "keeper", "carry on", None, "peer", "async", None, 0, None)
     # The turn ended on the usage limit and has long since settled, so
@@ -3881,9 +3841,7 @@ def test_a_move_blocked_by_a_dialog_retries_soon_not_at_the_old_accounts_wall(ho
     real = (orcamod.available, orcamod.alive, orcamod.close_session, orcamod.clear_context,
             orcamod.idle_now, orcamod.screen_blocker)
     try:
-        orcamod.available = lambda: True
-        orcamod.alive = lambda h: True
-        orcamod.idle_now = lambda h: True
+        orca_idle()
         orcamod.clear_context = lambda h, **kw: (False, "a modal is open on its screen; not typing /clear at it")
         orcamod.close_session = lambda h, **kw: (False, "a modal is open on its screen; not typing /exit at it")
         orcamod.screen_blocker = lambda h: orcamod.Blocker(orcamod.MODAL, '"Stay in this session?"')
@@ -4017,9 +3975,7 @@ def test_a_pinned_closed_agent_moves_instead_of_waiting_out_its_window(home: Pat
     _daemon_home(home, 20)
     accounts.register("beta")
     agents.register("keeper", "alpha")
-    for acct in ("alpha", "beta"):
-        (home / "accounts" / acct / ".claude").mkdir(parents=True, exist_ok=True)
-        (home / "accounts" / acct / ".claude" / ".credentials.json").write_text("{}")
+    credentialed(home, "alpha", "beta")
     con = db.connect()
     real = (orcamod.available, orcamod.relaunch, orcamod.resume_with, dmn.wait_for_session)
     launched: list[str] = []
@@ -4109,9 +4065,7 @@ def test_room_is_filtered_before_the_ranking_not_after(home: Path) -> None:
     accounts.register("empty")
     agents.register("keeper", "alpha")
     now = int(time.time())
-    for acct in ("alpha", "nearwall", "empty"):
-        (home / "accounts" / acct / ".claude").mkdir(parents=True, exist_ok=True)
-        (home / "accounts" / acct / ".claude" / ".credentials.json").write_text("{}")
+    credentialed(home, "alpha", "nearwall", "empty")
     write_status(home, "alpha", pct_5h=100, pct_7d=10, reset_5h=now + 1800,
                  reset_7d=now + 86400 * 3)
     write_status(home, "nearwall", pct_5h=80, pct_7d=10, reset_5h=now + 1800,
@@ -4140,9 +4094,7 @@ def test_room_is_filtered_before_the_ranking_not_after(home: Path) -> None:
 
     write_status(home, "alpha", pct_5h=100, pct_7d=5, reset_5h=now + 3 * 3600)
     write_status(home, "spare", pct_5h=10, pct_7d=5, reset_5h=now + 1800)
-    for acct in ("alpha", "spare"):
-        (home / "accounts" / acct / ".claude").mkdir(parents=True, exist_ok=True)
-        (home / "accounts" / acct / ".claude" / ".credentials.json").write_text("{}")
+    credentialed(home, "alpha", "spare")
     con = db.connect()
     real = orcamod.available
     try:
@@ -4620,8 +4572,7 @@ def test_replaying_0919_makes_fewer_moves_than_the_old_rules(home: Path) -> None
     same half hour, divided by the agents on it), and a cold start costs the
     destination 13%."""
     restore_world()
-    home.mkdir(parents=True, exist_ok=True)
-    os.environ["OCP_HOME"] = str(home)
+    use_home(home)
     (home / "team.yaml").write_text(DESIGN_TEAM)
     orcamod.available = lambda: False
     obsmod.live_sessions = lambda: None
@@ -5051,9 +5002,7 @@ def test_every_real_caller_prices_the_agent_it_is_placing(home: Path) -> None:
     agent's refusal into an admission."""
     _daemon_home(home, 20)
     accounts.register("beta")
-    for acct in ("alpha", "beta"):
-        (home / "accounts" / acct / ".claude").mkdir(parents=True, exist_ok=True)
-        (home / "accounts" / acct / ".claude" / ".credentials.json").write_text("{}")
+    credentialed(home, "alpha", "beta")
     agents.register("dear", "alpha", model="opus", effort="high")
     agents.register("cheap", "alpha", model="sonnet", effort="medium")
     agents.register("dear-pref", "beta", model="opus", effort="high")
@@ -5234,9 +5183,7 @@ def test_choose_account_does_not_bounce_back_to_a_stale_preferred_account(home: 
     _daemon_home(home, 20)
     accounts.register("beta")
     agents.register("keeper", "alpha")
-    for acct in ("alpha", "beta"):
-        (home / "accounts" / acct / ".claude").mkdir(parents=True, exist_ok=True)
-        (home / "accounts" / acct / ".claude" / ".credentials.json").write_text("{}")
+    credentialed(home, "alpha", "beta")
     write_status(home, "beta", pct_5h=10, pct_7d=5,
                  reset_5h=int(time.time()) + 1800)
 
@@ -5275,9 +5222,7 @@ def test_move_requires_clear_headroom_not_bare_assignability(home: Path) -> None
     _daemon_home(home, 20)
     accounts.register("beta")
     agents.register("keeper", "alpha")
-    for acct in ("alpha", "beta"):
-        (home / "accounts" / acct / ".claude").mkdir(parents=True, exist_ok=True)
-        (home / "accounts" / acct / ".claude" / ".credentials.json").write_text("{}")
+    credentialed(home, "alpha", "beta")
     con = db.connect()
     try:
         db.set_terminal(con, "keeper", "term_x", "wt")
@@ -5309,9 +5254,7 @@ def test_move_requires_clear_headroom_not_bare_assignability(home: Path) -> None
         real = (orcamod.available, orcamod.alive, orcamod.close_session,
                orcamod.relaunch, orcamod.idle_now, dmn.wait_for_session)
         try:
-            orcamod.available = lambda: True
-            orcamod.alive = lambda h: True
-            orcamod.idle_now = lambda h: True
+            orca_idle()
             orcamod.close_session = exit_ends_session("keeper")
             orcamod.relaunch = lambda h, cmd, **kw: (True, "relaunched")
             dmn.wait_for_session = lambda agent, timeout=0: True
@@ -5352,9 +5295,7 @@ def test_move_to_room_reaches_a_bootstrap_account(home: Path) -> None:
             orcamod.clear_context, orcamod.resume_with, orcamod.idle_now,
             dmn.wait_for_session)
     try:
-        orcamod.available = lambda: True
-        orcamod.alive = lambda h: True
-        orcamod.idle_now = lambda h: True
+        orca_idle()
         orcamod.clear_context = lambda h, **kw: (True, "cleared")
         orcamod.close_session = exit_ends_session("keeper")
         orcamod.resume_with = lambda h, text: (True, "handed back")
@@ -5392,9 +5333,7 @@ def test_a_move_does_not_clobber_a_hook_reported_running_state(home: Path) -> No
     is what let a delivery type into a working turn."""
     _daemon_home(home, 20)
     accounts.register("beta")
-    for acct in ("alpha", "beta"):
-        (home / "accounts" / acct / ".claude").mkdir(parents=True, exist_ok=True)
-        (home / "accounts" / acct / ".claude" / ".credentials.json").write_text("{}")
+    credentialed(home, "alpha", "beta")
     agents.register("mover", "alpha")
     now = int(time.time())
     write_status(home, "alpha", pct_5h=9, pct_7d=10, reset_7d=now + 90000, reset_5h=now + 1800)
@@ -5407,9 +5346,7 @@ def test_a_move_does_not_clobber_a_hook_reported_running_state(home: Path) -> No
         db.set_terminal(con, "mover", "term_x", "wt")
         sessions_are("mover")
         db.set_account(con, "mover", "alpha")
-        orcamod.available = lambda: True
-        orcamod.alive = lambda h: True
-        orcamod.idle_now = lambda h: True
+        orca_idle()
         orcamod.typeable_now = lambda h: True
         orcamod.live_terminals = lambda: {"term_x"}
         orcamod.close_session = exit_ends_session("mover")
@@ -5452,8 +5389,7 @@ def test_a_fold_with_no_account_says_which_and_why(home: Path) -> None:
     """"No logged-in account" sent the reader to the one thing that was not
     wrong. An account is passed over here for being at the wall, or for a usage
     figure nothing can read, far more often than for credentials."""
-    home.mkdir(parents=True, exist_ok=True)
-    os.environ["OCP_HOME"] = str(home)
+    use_home(home)
     for name in ("full", "unreadable", "out"):
         accounts.register(name)
     (paths.account_claude("full") / ".credentials.json").write_text("{}")
@@ -5483,16 +5419,12 @@ def test_a_moved_handoff_with_a_good_record_clears_the_streak(home: Path) -> Non
     agents.register("keeper", "alpha")
     write_status(home, "beta", pct_5h=10, pct_7d=5, ctx_pct=5,
                  reset_5h=int(time.time()) + 1800)
-    for acct in ("alpha", "beta"):
-        (home / "accounts" / acct / ".claude").mkdir(parents=True, exist_ok=True)
-        (home / "accounts" / acct / ".claude" / ".credentials.json").write_text("{}")
+    credentialed(home, "alpha", "beta")
     real = (orcamod.available, orcamod.alive, orcamod.close_session, orcamod.relaunch,
             orcamod.clear_context, orcamod.resume_with, orcamod.idle_now,
             dmn.wait_for_session)
     try:
-        orcamod.available = lambda: True
-        orcamod.alive = lambda h: True
-        orcamod.idle_now = lambda h: True
+        orca_idle()
         orcamod.clear_context = lambda h, **kw: (True, "cleared")
         orcamod.close_session = exit_ends_session("keeper")
         orcamod.resume_with = lambda h, text: (True, "handed back")
@@ -5539,16 +5471,12 @@ def test_a_moved_handoff_with_a_failed_record_still_marks_typed(home: Path) -> N
     agents.register("keeper", "alpha")
     write_status(home, "beta", pct_5h=10, pct_7d=5, ctx_pct=5,
                  reset_5h=int(time.time()) + 1800)
-    for acct in ("alpha", "beta"):
-        (home / "accounts" / acct / ".claude").mkdir(parents=True, exist_ok=True)
-        (home / "accounts" / acct / ".claude" / ".credentials.json").write_text("{}")
+    credentialed(home, "alpha", "beta")
     real = (orcamod.available, orcamod.alive, orcamod.close_session, orcamod.relaunch,
             orcamod.clear_context, orcamod.resume_with, orcamod.idle_now,
             dmn.wait_for_session)
     try:
-        orcamod.available = lambda: True
-        orcamod.alive = lambda h: True
-        orcamod.idle_now = lambda h: True
+        orca_idle()
         orcamod.clear_context = lambda h, **kw: (True, "cleared")
         orcamod.close_session = exit_ends_session("keeper")
         orcamod.resume_with = lambda h, text: (True, "handed back")
@@ -5593,9 +5521,7 @@ def test_a_usage_5h_handoff_still_parks_until_reset(home: Path) -> None:
         db.set_account(con, "backend", "alpha")
         reset_at = int(time.time()) + 9000
         write_status(home, "alpha", pct_5h=100, pct_7d=10, ctx_pct=5, reset_5h=reset_at)
-        orcamod.available = lambda: True
-        orcamod.alive = lambda h: True
-        orcamod.idle_now = lambda h: True
+        orca_idle()
         orcamod.clear_context = lambda h, wait=True, timeout_ms=0: (True, "context cleared")
         sessions_are("backend")
 
@@ -5626,9 +5552,7 @@ def test_a_hand_park_against_an_assumed_account_stays_forceable(home: Path) -> N
     con = db.connect()
     real_alive, real_idle = orcamod.alive, orcamod.idle_now
     try:
-        orcamod.available = lambda: True
-        orcamod.alive = lambda h: True
-        orcamod.idle_now = lambda h: True
+        orca_idle()
         orcamod.clear_context = lambda h, wait=True, timeout_ms=0: (True, "context cleared")
         sessions_are("backend")
         db.set_terminal(con, "backend", "term_x", "wt")

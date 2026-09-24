@@ -1688,6 +1688,48 @@ def _states_written_in(path) -> set[str]:
     text = Path(path).read_text()
     return set(re.findall(r'set_agent_state\(\s*con\s*,\s*[^,]+,\s*(?:\w+\.)?"?([A-Z_]+)"?', text))
 
+def use_home(home: Path) -> Path:
+    """This test's OCP_HOME: the directory made, and ocp pointed at it."""
+    home.mkdir(parents=True, exist_ok=True)
+    os.environ["OCP_HOME"] = str(home)
+    return home
+
+
+def credentialed(home: Path, *accts: str) -> None:
+    """A credentials file under each account, so it reads as logged in; the
+    account itself is registered separately."""
+    for acct in accts:
+        (home / "accounts" / acct / ".claude").mkdir(parents=True, exist_ok=True)
+        (home / "accounts" / acct / ".claude" / ".credentials.json").write_text("{}")
+
+
+def write_status_json(agent_dir: Path, fields: dict) -> None:
+    """A fake agent's status.json: the hook-written record `status.read_for_agent` reads."""
+    agent_dir.mkdir(parents=True, exist_ok=True)
+    (agent_dir / "status.json").write_text(json.dumps(fields))
+
+
+def orca_seen() -> None:
+    """Orca is there and term_x is a live terminal."""
+    orcamod.available = lambda: True
+    orcamod.live_terminals = lambda: {"term_x"}
+    orcamod.alive = lambda h: True
+
+
+def orca_idle() -> None:
+    """Orca is there and every terminal is idle."""
+    orcamod.available = lambda: True
+    orcamod.alive = lambda h: True
+    orcamod.idle_now = lambda h: True
+
+
+def orca_settled() -> None:
+    """term_x is live and settled: both idle probes answer yes."""
+    orcamod.live_terminals = lambda: {"term_x"}
+    orcamod.alive = lambda h: True
+    orcamod.wait_idle = lambda h, timeout_ms=0: True
+
+
 __all__ = [
     'argparse',
     'atexit',
@@ -1895,6 +1937,12 @@ __all__ = [
     'WRITE_LABELS_TO',
     '_states_written_in',
     'run_area',
+    'use_home',
+    'credentialed',
+    'write_status_json',
+    'orca_seen',
+    'orca_idle',
+    'orca_settled',
 ]
 
 

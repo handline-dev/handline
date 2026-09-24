@@ -291,8 +291,7 @@ def test_dev_mode_config_round_trips(home: Path) -> None:
     """Task #64: off by default, `ocp dev-mode on/off` flips config.yaml
     (the same file `account cap` writes to), and a plain `ocp dev-mode`
     reads it back without changing it."""
-    home.mkdir(parents=True, exist_ok=True)
-    os.environ["OCP_HOME"] = str(home)
+    use_home(home)
     check("dev-mode: off by default", dmn.dev_mode_enabled() is False,
           str(dmn.dev_mode_enabled()))
     out = _capture(lambda: climod.main(["dev-mode"]))
@@ -315,8 +314,7 @@ def test_dev_mode_fingerprint_and_restart_decision(tmp_path: Path, home: Path) -
     untouched tree is quiet; one whose watched files actually changed asks
     to restart only when the import check passes, and remembers a broken
     version so it is not re-logged every tick."""
-    home.mkdir(parents=True, exist_ok=True)
-    os.environ["OCP_HOME"] = str(home)
+    use_home(home)
     root = tmp_path / "repo"
     (root / "ocp").mkdir(parents=True)
     (root / "bin").mkdir()
@@ -400,8 +398,7 @@ def test_dev_mode_import_check_runs_the_real_entrypoint(home: Path) -> None:
     """`_dev_import_check` execs `bin/ocp --help` - the actual restart path,
     not a bare `python -c import` - so a broken bash wrapper or a broken
     venv selection is caught the same way a broken module would be."""
-    home.mkdir(parents=True, exist_ok=True)
-    os.environ["OCP_HOME"] = str(home)
+    use_home(home)
     logs: list[str] = []
     check("dev-mode: the real bin/ocp --help passes its own import check",
           dmn._dev_import_check(logs.append) is True, str(logs))
@@ -515,8 +512,7 @@ def test_quiet_hours_config_round_trips(home: Path) -> None:
     """Task #77: off by default, `ocp quiet-hours on/off` flips config.yaml
     (the same file `dev-mode` and `account cap` write to), and a plain
     `ocp quiet-hours` reads it back without changing it."""
-    home.mkdir(parents=True, exist_ok=True)
-    os.environ["OCP_HOME"] = str(home)
+    use_home(home)
     check("quiet-hours: off by default", dmn.quiet_hours_enabled() is False,
           str(dmn.quiet_hours_enabled()))
     out = _capture(lambda: climod.main(["quiet-hours"]))
@@ -539,9 +535,7 @@ def test_quiet_hours_holds_queued_work_from_an_idle_claude_agent(home: Path) -> 
     _daemon_home(home, 20)
     con = db.connect()
     try:
-        orcamod.available = lambda: True
-        orcamod.live_terminals = lambda: {"term_x"}
-        orcamod.alive = lambda h: True
+        orca_seen()
         orcamod.idle_now = lambda h: True
         sent: list[str] = []
         orcamod.send = lambda h, text, enter=True: (sent.append(text), (True, ""))[1]
@@ -973,9 +967,7 @@ def test_an_agent_with_background_work_is_not_idle_until_it_ends(home: Path) -> 
     sessions_are("backend")
     st = types.SimpleNamespace(session_id="s")
     try:
-        orcamod.available = lambda: True
-        orcamod.live_terminals = lambda: {"term_x"}
-        orcamod.alive = lambda h: True
+        orca_seen()
         orcamod.typeable_now = lambda h: True
         orcamod.send = lambda h, text, enter=True: (sent.append(text), (True, ""))[1]
         orcamod.clear_context = lambda h, *a, **k: (cleared.append(h), (True, "cleared"))[1]
@@ -1096,8 +1088,7 @@ def test_a_running_daemon_is_reported_whatever_daemon_pid_says(home: Path) -> No
     moves kern.boottime by a second when the clock steps). Every screen read
     the file and said the daemon was not running; the start path asked the lock
     and said it was. Both now ask the lock."""
-    home.mkdir(parents=True, exist_ok=True)
-    os.environ["OCP_HOME"] = str(home)
+    use_home(home)
     env = {**os.environ, "OCP_HOME": str(home)}
     (home / "daemon.pid").write_text(json.dumps({"pid": 999999, "boot": 1}))
 
@@ -1134,8 +1125,7 @@ def test_a_daemon_that_never_wrote_its_name_is_still_reported(home: Path) -> Non
     """A daemon started before the lock recorded its holder, still running under
     the service, holds the lock and names nobody. It is named from the process
     table, not read as not running."""
-    home.mkdir(parents=True, exist_ok=True)
-    os.environ["OCP_HOME"] = str(home)
+    use_home(home)
     env = {**os.environ, "OCP_HOME": str(home)}
     holder, pid = _hold_daemon_lock_in_another_process(env, write_name=False)
     orig = dmn.processes
@@ -1151,8 +1141,7 @@ def test_a_daemon_that_never_wrote_its_name_is_still_reported(home: Path) -> Non
 
 
 def test_the_lock_names_only_its_current_holder(home: Path) -> None:
-    home.mkdir(parents=True, exist_ok=True)
-    os.environ["OCP_HOME"] = str(home)
+    use_home(home)
     check("lock: no file yet, no holder", lock.holder(dmn.DAEMON_LOCK) is None)
     with lock.singleton(dmn.DAEMON_LOCK) as mine:
         check("lock: taken", mine)
@@ -1172,8 +1161,7 @@ def test_a_daemon_process_that_does_not_hold_the_lock_is_not_called_absent(home:
     silence: a daemon that is starting reads that way for an instant, and a
     screen that answers "no daemon" over a list it just computed contradicts
     itself."""
-    home.mkdir(parents=True, exist_ok=True)
-    os.environ["OCP_HOME"] = str(home)
+    use_home(home)
     orig = dmn.processes
     try:
         dmn.processes = lambda: [4242]
@@ -1404,8 +1392,7 @@ def test_daemon_refusal_logs_through_the_same_path(home: Path) -> None:
     import contextlib
     import io
 
-    home.mkdir(parents=True, exist_ok=True)
-    os.environ["OCP_HOME"] = str(home)
+    use_home(home)
     buf = io.StringIO()
     with lock.singleton(dmn.DAEMON_LOCK) as held:
         check("daemon: the lock is free to take in a fresh home", held)
@@ -1458,9 +1445,7 @@ def test_a_running_agent_is_told_when_work_arrives(home: Path) -> None:
     sent: list[str] = []
     real = (orcamod.alive, orcamod.idle_now, orcamod.send, orcamod.available)
     try:
-        orcamod.available = lambda: True
-        orcamod.live_terminals = lambda: {"term_x"}
-        orcamod.alive = lambda h: True
+        orca_seen()
         orcamod.idle_now = lambda h: True
         orcamod.send = lambda h, text, enter=True: (sent.append(text), (True, ""))[1]
         # A running agent, so there is something in that terminal to tell.
@@ -1524,8 +1509,7 @@ def test_an_agent_is_never_handed_another_agents_session(home: Path) -> None:
     session wrote it last. Carrying its session id through the fallbacks told a
     woken agent to grep a stranger's transcript, in a stranger's repository -
     which happened to auditor in production, pointed at marina's."""
-    home.mkdir(parents=True, exist_ok=True)
-    os.environ["OCP_HOME"] = str(home)
+    use_home(home)
     agents.register("selfless", "beta")
     write_status(home, "beta", pct_5h=20, ctx_pct=25, session_id="MARINA-SESSION",
                  transcript_path="/tmp/marina.jsonl")
@@ -1581,9 +1565,7 @@ def test_a_woken_agent_is_told_on_the_following_tick(home: Path) -> None:
     real = (orcamod.alive, orcamod.wait_idle, orcamod.idle_now, orcamod.send,
             orcamod.available)
     try:
-        orcamod.available = lambda: True
-        orcamod.live_terminals = lambda: {"term_x"}
-        orcamod.alive = lambda h: True
+        orca_seen()
         orcamod.wait_idle = lambda h, timeout_ms=0: True
         orcamod.idle_now = lambda h: True      # even so, it must not be told yet
         # A session runs in that terminal until close_agent ends it, and
@@ -1631,9 +1613,7 @@ def test_an_agent_idle_past_its_prompt_cache_comes_back_fresh_with_its_work(home
     real = (orcamod.alive, orcamod.wait_idle, orcamod.idle_now, orcamod.send,
             orcamod.available, orcamod.clear_context)
     try:
-        orcamod.available = lambda: True
-        orcamod.live_terminals = lambda: {"term_x"}
-        orcamod.alive = lambda h: True
+        orca_seen()
         orcamod.wait_idle = lambda h, timeout_ms=0: True
         orcamod.idle_now = lambda h: True
         table = sessions_are("backend")
@@ -1740,9 +1720,7 @@ def test_a_cold_wake_that_fails_leaves_no_handoff_behind(home: Path) -> None:
             orcamod.typeable_now, orcamod.resume_with)
     logs: list[str] = []
     try:
-        orcamod.available = lambda: True
-        orcamod.live_terminals = lambda: {"term_x"}
-        orcamod.alive = lambda h: True
+        orca_seen()
         orcamod.relaunch = lambda handle, cmd, started=None: (False, "no session started")
         con.execute("DELETE FROM events WHERE agent = 'backend'")
         db.set_closed(con, "backend", "sess-7")
@@ -2019,9 +1997,7 @@ def test_a_wake_is_believed_only_when_a_session_appears(home: Path) -> None:
             orcamod.resume_with, dmn.WAKE_SESSION_TIMEOUT_S)
     try:
         dmn.WAKE_SESSION_TIMEOUT_S = 1
-        orcamod.available = lambda: True
-        orcamod.live_terminals = lambda: {"term_x"}
-        orcamod.alive = lambda h: True
+        orca_seen()
         waits: list[int] = []
         orcamod.wait_idle = lambda h, timeout_ms=0: (waits.append(timeout_ms), True)[1]
         orcamod.resume_with = lambda h, text: (sent.append(text), (True, "handoff injected"))[1]
@@ -2190,9 +2166,7 @@ def test_a_wake_does_not_claim_a_session_it_did_not_start(home: Path) -> None:
             dmn.WAKE_SESSION_TIMEOUT_S)
     try:
         dmn.WAKE_SESSION_TIMEOUT_S = 1
-        orcamod.available = lambda: True
-        orcamod.live_terminals = lambda: {"term_x"}
-        orcamod.alive = lambda h: True
+        orca_seen()
         orcamod.wait_idle = lambda h, timeout_ms=0: True
         table = sessions_are()
 
@@ -2541,9 +2515,7 @@ def test_a_resumed_agent_is_rescued_from_a_7d_wall_too(home: Path) -> None:
     _daemon_home(home, 20)
     accounts.register("beta")
     agents.register("keeper", "alpha")
-    for acct in ("alpha", "beta"):
-        (home / "accounts" / acct / ".claude").mkdir(parents=True, exist_ok=True)
-        (home / "accounts" / acct / ".claude" / ".credentials.json").write_text("{}")
+    credentialed(home, "alpha", "beta")
     con = db.connect()
     real = (orcamod.available, orcamod.relaunch, orcamod.resume_with, dmn.wait_for_session)
     launched: list[str] = []
@@ -2589,9 +2561,7 @@ def test_a_park_that_cannot_be_woken_keeps_its_deadline(home: Path) -> None:
     sent: list[str] = []
     real = (orcamod.available, orcamod.alive, orcamod.send)
     try:
-        orcamod.available = lambda: True
-        orcamod.live_terminals = lambda: {"term_x"}
-        orcamod.alive = lambda h: True
+        orca_seen()
         orcamod.wait_idle = lambda h, timeout_ms=0: True     # the relaunch waits for the shell
         orcamod.send = lambda h, text, enter=True: (sent.append(text), (True, ""))[1]
         sessions_are()
@@ -2971,9 +2941,7 @@ def test_the_whole_loop_runs_on_our_own_commands(home: Path) -> None:
     real = (orcamod.available, orcamod.alive, orcamod.idle_now, orcamod.send,
             spawnmod.spawn, dmn.wait_for_session)
     try:
-        orcamod.available = lambda: True
-        orcamod.alive = lambda h: True
-        orcamod.idle_now = lambda h: True
+        orca_idle()
         orcamod.send = lambda h, text, enter=True: (typed.append((h, text)), (True, ""))[1]
         dmn.wait_for_session = lambda agent, timeout=0: True
 
@@ -3204,9 +3172,7 @@ def test_stalled_survives_a_hook_that_fires_after_the_third_failed_wake(home: Pa
     real = (orcamod.available, orcamod.alive, orcamod.close_session, orcamod.relaunch,
             orcamod.idle_now, dmn.wait_for_session)
     try:
-        orcamod.available = lambda: True
-        orcamod.alive = lambda h: True
-        orcamod.idle_now = lambda h: True
+        orca_idle()
         orcamod.close_session = exit_ends_session("mover")
         sessions_are("mover")
         db.set_terminal(con, "mover", "term_x", "wt")
@@ -3268,8 +3234,7 @@ def test_who_is_asking_is_not_guessed(home: Path) -> None:
     """A human at their own prompt is the human; a process that merely
     lost OCP_AGENT is not. Conflating them hands the escalation target and the
     most privileged node in the routing table to whatever dropped the variable."""
-    home.mkdir(parents=True, exist_ok=True)
-    os.environ["OCP_HOME"] = str(home)
+    use_home(home)
     (home / "team.yaml").write_text(DESIGN_TEAM)
     agents.register("backend", "alpha")
     class FakeStdin:
@@ -3351,9 +3316,7 @@ def test_handoff_reclaims_context(home: Path) -> None:
     cleared = []
     real_clear, real_alive, real_idle = orcamod.clear_context, orcamod.alive, orcamod.idle_now
     try:
-        orcamod.available = lambda: True
-        orcamod.alive = lambda h: True
-        orcamod.idle_now = lambda h: True
+        orca_idle()
         orcamod.clear_context = lambda h, wait=True, timeout_ms=0: (
             cleared.append(h), (True, "context cleared"))[1]
         # The agent is running: a handoff is for a session that has a context
@@ -3414,9 +3377,7 @@ def test_a_context_handoff_wakes_at_once_with_its_record(home: Path) -> None:
         db.set_account(con, "backend", "alpha")
         write_status(home, "alpha", pct_5h=19, pct_7d=10, ctx_pct=5,
                      reset_5h=int(time.time()) + 9000)
-        orcamod.available = lambda: True
-        orcamod.alive = lambda h: True
-        orcamod.idle_now = lambda h: True
+        orca_idle()
         orcamod.typeable_now = lambda h: True
         orcamod.clear_context = lambda h, wait=True, timeout_ms=0: (True, "context cleared")
         orcamod.resume_with = lambda h, text: (typed.append(text), (True, "typed"))[1]
@@ -3482,9 +3443,7 @@ def test_wake_injects_handoff(home: Path) -> None:
     sent = []
     real_resume, real_alive = orcamod.resume_with, orcamod.alive
     try:
-        orcamod.available = lambda: True
-        orcamod.alive = lambda h: True
-        orcamod.idle_now = lambda h: True
+        orca_idle()
         orcamod.resume_with = lambda h, text: (sent.append(text), (True, "handoff injected"))[1]
         # Cleared, not closed - the session is still there to be handed its
         # own record back.
@@ -3710,8 +3669,7 @@ def test_a_second_daemon_is_refused_by_the_lock_alone(home: Path) -> None:
     import contextlib
     import io
 
-    home.mkdir(parents=True, exist_ok=True)
-    os.environ["OCP_HOME"] = str(home)
+    use_home(home)
     buf = io.StringIO()
     with lock.singleton(dmn.DAEMON_LOCK):
         with contextlib.redirect_stdout(buf):
@@ -3727,8 +3685,7 @@ def test_a_second_daemon_is_refused_by_the_lock_alone(home: Path) -> None:
 
 def test_an_exiting_daemon_leaves_the_live_ones_name(home: Path) -> None:
     """A second daemon's refusal and exit must not disturb the live one's name."""
-    home.mkdir(parents=True, exist_ok=True)
-    os.environ["OCP_HOME"] = str(home)
+    use_home(home)
     env = {**os.environ, "OCP_HOME": str(home)}
     holder, pid = _hold_daemon_lock_in_another_process(env)
     try:
@@ -3746,8 +3703,7 @@ def test_one_daemon_is_counted_in_the_process_table(home: Path) -> None:
     """A supervisor nobody recorded exists only there. The words `ocp daemon`
     on a command line do not make one: a grep for them carries both, and so
     does an agent session whose system prompt quotes the command."""
-    home.mkdir(parents=True, exist_ok=True)
-    os.environ["OCP_HOME"] = str(home)
+    use_home(home)
     table = [
         (4707, "/usr/bin/python /Users/x/workspaces/orcapipe/bin/ocp daemon"),
         (4801, "grep -n ocp daemon"),
@@ -3851,8 +3807,7 @@ def test_process_env_reads_a_gone_pid_as_unreadable(home: Path) -> None:
 def test_two_processes_cannot_both_supervise_one_home(home: Path) -> None:
     """The failure this exists to prevent is two processes, not two calls: an
     in-process check would pass on a lock that never leaves the process."""
-    home.mkdir(parents=True, exist_ok=True)
-    os.environ["OCP_HOME"] = str(home)
+    use_home(home)
     env = {**os.environ, "OCP_HOME": str(home)}
     holder = subprocess.Popen(
         [sys.executable, "-c",

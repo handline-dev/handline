@@ -167,8 +167,7 @@ def test_quiet_hours_blocks_only_a_claude_agent_with_the_flag_on(home: Path) -> 
     flag, the window and the vendor all have to agree, or nothing is held.
     opencode/Z.ai agents (founder's own words) are unaffected whether or not
     the flag is on."""
-    home.mkdir(parents=True, exist_ok=True)
-    os.environ["OCP_HOME"] = str(home)
+    use_home(home)
     (home / "team.yaml").write_text(DESIGN_TEAM)
     agents.register("backend", "alpha")
     agents.register("coder", "alpha", vendor="opencode")
@@ -199,9 +198,7 @@ def test_quiet_hours_wakes_on_its_own_when_the_window_closes(home: Path) -> None
     con = db.connect()
     real_time = time.time
     try:
-        orcamod.available = lambda: True
-        orcamod.live_terminals = lambda: {"term_x"}
-        orcamod.alive = lambda h: True
+        orca_seen()
         orcamod.idle_now = lambda h: True
         sent: list[str] = []
         orcamod.send = lambda h, text, enter=True: (sent.append(text), (True, ""))[1]
@@ -245,9 +242,7 @@ def test_daemon_success_clears_streak(home: Path) -> None:
     con = db.connect()
     real = (orcamod.clear_context, orcamod.alive, orcamod.idle_now, orcamod.live_terminals)
     try:
-        orcamod.available = lambda: True
-        orcamod.alive = lambda h: True
-        orcamod.idle_now = lambda h: True
+        orca_idle()
         orcamod.clear_context = lambda h, wait=True, timeout_ms=0: (True, "context cleared")
         orcamod.live_terminals = lambda: {"term_x"}
         for _ in range(3):
@@ -766,9 +761,8 @@ def test_a_failed_close_says_why_and_records_the_dialog(home: Path) -> None:
     try:
         write_status(home, "alpha", pct_5h=20, pct_7d=10, ctx_pct=8, reset_5h=now + 1800)
         agent_dir = home / "agents" / "backend"
-        agent_dir.mkdir(parents=True, exist_ok=True)
-        (agent_dir / "status.json").write_text(json.dumps({
-            "account": "alpha", "collected_at": now, "session_id": "sess-1", "pct_5h": 20, "ctx_pct": 8}))
+        write_status_json(agent_dir, {
+            "account": "alpha", "collected_at": now, "session_id": "sess-1", "pct_5h": 20, "ctx_pct": 8})
         db.add_event(con, "backend", "Stop", {})
         con.execute("UPDATE events SET ts = ? WHERE agent = 'backend'", (now - dmn.IDLE_CLOSE_S - 60,))
         for _ in range(3):
@@ -794,9 +788,8 @@ def test_a_close_refused_by_a_dialog_is_said_once_not_every_tick(home: Path) -> 
     try:
         write_status(home, "alpha", pct_5h=20, pct_7d=10, ctx_pct=8, reset_5h=now + 1800)
         agent_dir = home / "agents" / "backend"
-        agent_dir.mkdir(parents=True, exist_ok=True)
-        (agent_dir / "status.json").write_text(json.dumps({
-            "account": "alpha", "collected_at": now, "session_id": "sess-1", "pct_5h": 20, "ctx_pct": 8}))
+        write_status_json(agent_dir, {
+            "account": "alpha", "collected_at": now, "session_id": "sess-1", "pct_5h": 20, "ctx_pct": 8})
         db.add_event(con, "backend", "Stop", {})
         con.execute("UPDATE events SET ts = ? WHERE agent = 'backend'", (now - dmn.IDLE_CLOSE_S - 60,))
         for _ in range(4):
@@ -1113,9 +1106,7 @@ def test_idle_session_is_closed_and_resumed(home: Path) -> None:
     sent: list[tuple[str, str]] = []
     real = (orcamod.alive, orcamod.wait_idle, orcamod.send, orcamod.available)
     try:
-        orcamod.available = lambda: True
-        orcamod.live_terminals = lambda: {"term_x"}
-        orcamod.alive = lambda h: True
+        orca_seen()
         orcamod.wait_idle = lambda h, timeout_ms=0: True
         # A session is running in that terminal - nothing is typed into one
         # where the process table says there is only a shell - and it is gone
@@ -1135,10 +1126,9 @@ def test_idle_session_is_closed_and_resumed(home: Path) -> None:
         db.set_terminal(con, "backend", "term_x", "wt")
         now = int(time.time())
         agent_dir = home / "agents" / "backend"
-        agent_dir.mkdir(parents=True, exist_ok=True)
-        (agent_dir / "status.json").write_text(json.dumps({
+        write_status_json(agent_dir, {
             "account": "alpha", "collected_at": now, "session_id": "sess-1",
-            "pct_5h": 20, "ctx_pct": 8, "transcript_path": "/tmp/sess-1.jsonl"}))
+            "pct_5h": 20, "ctx_pct": 8, "transcript_path": "/tmp/sess-1.jsonl"})
         st = status.read_for_agent("backend", "alpha")
 
         # Nothing has been seen from it yet - that is not the same as idle.
@@ -1227,9 +1217,7 @@ def test_a_close_is_recorded_only_once_the_process_has_ended(home: Path) -> None
     state = {"exiting": False, "reads": 0, "leaves_after": 3, "modal": False}
     seen_at_mark: list[dict] = []
     try:
-        orcamod.available = lambda: True
-        orcamod.live_terminals = lambda: {"term_x"}
-        orcamod.alive = lambda h: True
+        orca_seen()
         orcamod.wait_idle = lambda h, timeout_ms=0: True
         orcamod.screen_blocker = lambda h: orcamod.Blocker(orcamod.MODAL, "dialog") if state["modal"] else None
         sessions_are("backend")
@@ -1255,10 +1243,9 @@ def test_a_close_is_recorded_only_once_the_process_has_ended(home: Path) -> None
 
         db.set_terminal(con, "backend", "term_x", "wt")
         agent_dir = home / "agents" / "backend"
-        agent_dir.mkdir(parents=True, exist_ok=True)
-        (agent_dir / "status.json").write_text(json.dumps({
+        write_status_json(agent_dir, {
             "account": "alpha", "collected_at": int(time.time()), "session_id": "sess-1",
-            "pct_5h": 20, "ctx_pct": 8}))
+            "pct_5h": 20, "ctx_pct": 8})
         st = status.read_for_agent("backend", "alpha")
 
         # It dies a few reads after /exit, as a slow teardown does.
@@ -1306,9 +1293,7 @@ def test_a_close_that_will_not_take_is_not_tried_again_every_tick(home: Path) ->
     real = (orcamod.alive, orcamod.wait_idle, orcamod.send, orcamod.available,
             orcamod.modal_open, dmn._wait_session_gone)
     try:
-        orcamod.available = lambda: True
-        orcamod.live_terminals = lambda: {"term_x"}
-        orcamod.alive = lambda h: True
+        orca_seen()
         orcamod.wait_idle = lambda h, timeout_ms=0: True
         orcamod.modal_open = lambda h: False
         orcamod.send = lambda h, text, enter=True: (typed.append(text), (True, ""))[1]
@@ -1319,10 +1304,9 @@ def test_a_close_that_will_not_take_is_not_tried_again_every_tick(home: Path) ->
         write_status(home, "alpha", pct_5h=20, pct_7d=10, ctx_pct=8,
                      reset_5h=now + 1800)
         agent_dir = home / "agents" / "backend"
-        agent_dir.mkdir(parents=True, exist_ok=True)
-        (agent_dir / "status.json").write_text(json.dumps({
+        write_status_json(agent_dir, {
             "account": "alpha", "collected_at": now, "session_id": "sess-1",
-            "pct_5h": 20, "ctx_pct": 8}))
+            "pct_5h": 20, "ctx_pct": 8})
         db.add_event(con, "backend", "Stop", {})
         con.execute("UPDATE events SET ts = ? WHERE agent = 'backend'",
                     (now - dmn.IDLE_CLOSE_S - 60,))
@@ -1360,9 +1344,7 @@ def test_wake_without_a_closed_session_uses_the_handoff(home: Path) -> None:
     con = db.connect()
     real = (orcamod.alive, orcamod.available, orcamod.send)
     try:
-        orcamod.available = lambda: True
-        orcamod.live_terminals = lambda: {"term_x"}
-        orcamod.alive = lambda h: True
+        orca_seen()
         orcamod.idle_now = lambda h: True
         sent: list[str] = []
         orcamod.send = lambda h, text, enter=True: (sent.append(text), (True, ""))[1]
@@ -1453,9 +1435,7 @@ def test_the_daemon_never_types_into_a_trust_prompt_via_deliver(home: Path) -> N
     real = (orcamod.send, orcamod.alive, orcamod.idle_now, orcamod.available,
             orcamod.screen_blocker, orcamod._screen)
     try:
-        orcamod.available = lambda: True
-        orcamod.alive = lambda h: True
-        orcamod.idle_now = lambda h: True
+        orca_idle()
         orcamod.send = lambda h, text, enter=True: (sent.append(text), (True, ""))[1]
         orcamod.screen_blocker = REAL_ORCA["screen_blocker"]
         orcamod._screen = lambda h: _screen_of(LIVE_TRUST_PROMPT_CAPTURE.split("\n"))
@@ -1495,9 +1475,7 @@ def test_work_arriving_wakes_a_closed_agent(home: Path) -> None:
     sent: list[str] = []
     real = (orcamod.alive, orcamod.wait_idle, orcamod.send, orcamod.available)
     try:
-        orcamod.available = lambda: True
-        orcamod.live_terminals = lambda: {"term_x"}
-        orcamod.alive = lambda h: True
+        orca_seen()
         orcamod.wait_idle = lambda h, timeout_ms=0: True
         # The session runs until close_agent ends it, and then it does not -
         # which is what the tick below has to work out for itself.
@@ -1547,9 +1525,7 @@ def test_a_delivery_belongs_to_the_session_it_was_typed_into(home: Path) -> None
     con = db.connect()
     sent: list[str] = []
     try:
-        orcamod.available = lambda: True
-        orcamod.live_terminals = lambda: {"term_x"}
-        orcamod.alive = lambda h: True
+        orca_seen()
         orcamod.idle_now = lambda h: True
         orcamod.send = lambda h, text, enter=True: (sent.append(text), (True, ""))[1]
         sessions_are("backend")
@@ -1594,9 +1570,7 @@ def test_nothing_is_typed_at_a_modal(home: Path) -> None:
     con = db.connect()
     sent: list[str] = []
     try:
-        orcamod.available = lambda: True
-        orcamod.live_terminals = lambda: {"term_x"}
-        orcamod.alive = lambda h: True
+        orca_seen()
         orcamod.idle_now = lambda h: True
         orcamod.send = lambda h, text, enter=True: (sent.append(text), (True, ""))[1]
         sessions_are("backend")
@@ -1699,9 +1673,7 @@ def test_a_wake_types_nothing_at_a_shell_when_the_session_dies(home: Path) -> No
     sent: list[str] = []
     resumed_with: list[str] = []
     try:
-        orcamod.available = lambda: True
-        orcamod.live_terminals = lambda: {"term_x"}
-        orcamod.alive = lambda h: True
+        orca_seen()
         orcamod.idle_now = lambda h: True
         orcamod.wait_idle = lambda h, timeout_ms=0: True
         orcamod.resume_with = lambda h, text: (resumed_with.append(text), (True, ""))[1]
@@ -1750,9 +1722,7 @@ def test_a_closed_agent_is_not_handed_off(home: Path) -> None:
     real = (orcamod.alive, orcamod.wait_idle, orcamod.idle_now, orcamod.send,
             orcamod.available, orcamod.clear_context)
     try:
-        orcamod.available = lambda: True
-        orcamod.live_terminals = lambda: {"term_x"}
-        orcamod.alive = lambda h: True
+        orca_seen()
         orcamod.wait_idle = lambda h, timeout_ms=0: True
         orcamod.idle_now = lambda h: True
         orcamod.clear_context = lambda h, wait=True, timeout_ms=0: (True, "context cleared")
@@ -1863,9 +1833,7 @@ def test_a_park_that_was_also_closed_is_woken_without_being_judged(home: Path) -
     real = (orcamod.alive, orcamod.wait_idle, orcamod.idle_now, orcamod.send,
             orcamod.available, orcamod.clear_context)
     try:
-        orcamod.available = lambda: True
-        orcamod.live_terminals = lambda: {"term_x"}
-        orcamod.alive = lambda h: True
+        orca_seen()
         orcamod.wait_idle = lambda h, timeout_ms=0: True
         orcamod.idle_now = lambda h: True
         orcamod.clear_context = lambda h, wait=True, timeout_ms=0: (True, "context cleared")
@@ -2146,9 +2114,7 @@ def test_a_close_right_after_a_delivery_in_the_same_tick_must_not_type(
     sent: list[str] = []
     real = (orcamod.alive, orcamod.wait_idle, orcamod.available, orcamod.send)
     try:
-        orcamod.available = lambda: True
-        orcamod.live_terminals = lambda: {"term_x"}
-        orcamod.alive = lambda h: True
+        orca_seen()
         orcamod.wait_idle = lambda h, timeout_ms=0: True
         table = sessions_are("backend")
         orcamod.send = relaunching_send(sent, table)
@@ -2491,9 +2457,7 @@ def test_a_context_handoff_backs_off_when_the_clear_keeps_failing(home: Path) ->
         db.set_account(con, "backend", "alpha")
         write_status(home, "alpha", pct_5h=19, pct_7d=10, ctx_pct=5,
                      reset_5h=int(time.time()) + 9000)
-        orcamod.available = lambda: True
-        orcamod.alive = lambda h: True
-        orcamod.idle_now = lambda h: True
+        orca_idle()
         orcamod.clear_context = lambda h, wait=True, timeout_ms=0: (False, "still mid-turn")
         readable_agent(con, home, "backend")
         sessions_are("backend")
@@ -2526,9 +2490,7 @@ def test_repeated_failed_clears_reach_the_throttle_cap(home: Path) -> None:
         db.set_account(con, "backend", "alpha")
         write_status(home, "alpha", pct_5h=19, pct_7d=10, ctx_pct=5,
                      reset_5h=int(time.time()) + 9000)
-        orcamod.available = lambda: True
-        orcamod.alive = lambda h: True
-        orcamod.idle_now = lambda h: True
+        orca_idle()
         orcamod.clear_context = lambda h, wait=True, timeout_ms=0: (False, "still mid-turn")
         readable_agent(con, home, "backend")
         sessions_are("backend")
@@ -2753,8 +2715,7 @@ def test_hooks_report_activity(home: Path) -> None:
     would "wake" it mid-task by injecting a handoff it never needed.
     """
     orcamod.live_terminals = lambda: None    # doctor.run() below asks Orca; nothing here is about it
-    home.mkdir(parents=True, exist_ok=True)
-    os.environ["OCP_HOME"] = str(home)
+    use_home(home)
     agents.register("hooky", "alpha")
     env = dict(os.environ, OCP_AGENT="hooky", OCP_ACCOUNT="alpha", OCP_HOME=str(home))
 
@@ -2877,8 +2838,7 @@ def test_clear_does_not_look_like_waking(home: Path) -> None:
     activity, the daemon's own context reclaim would clear the park it had just
     set, the unchanged usage would trigger again, and the agent would hand off
     in a loop - which is exactly what happened: 42 folds in seven minutes."""
-    home.mkdir(parents=True, exist_ok=True)
-    os.environ["OCP_HOME"] = str(home)
+    use_home(home)
     agents.register("loopy", "alpha")
     env = dict(os.environ, OCP_AGENT="loopy", OCP_ACCOUNT="alpha", OCP_HOME=str(home))
 

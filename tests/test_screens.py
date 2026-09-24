@@ -363,8 +363,7 @@ def test_display_agrees_with_the_daemon(home: Path) -> None:
     `ocp triggers` once printed "-" in the 5h column beside a reason reading
     "pct_5h 0%", which is the dashboard arguing with the daemon.
     """
-    home.mkdir(parents=True, exist_ok=True)
-    os.environ["OCP_HOME"] = str(home)
+    use_home(home)
     agents.register("quietone", "alpha")
     write_status(home, "alpha", pct_5h=None, pct_7d=10, ctx_pct=5)
     st = status.read("alpha")
@@ -633,9 +632,7 @@ def test_top_acts_through_the_same_calls_the_daemon_makes(home: Path) -> None:
     sent: list[str] = []
     real = (orcamod.available, orcamod.alive, orcamod.wait_idle, orcamod.send)
     try:
-        orcamod.available = lambda: True
-        orcamod.live_terminals = lambda: {"term_x"}
-        orcamod.alive = lambda h: True
+        orca_seen()
         orcamod.wait_idle = lambda h, timeout_ms=0: True
         table = sessions_are("backend")
         orcamod.send = relaunching_send(sent, table)
@@ -1323,8 +1320,7 @@ def test_the_cursor_follows_a_row_that_leaves_the_list(home: Path) -> None:
 
 def test_each_account_guard_fails_under_its_own_mutation(home: Path) -> None:
     """One condition per check, so removing any one guard fails a test."""
-    home.mkdir(parents=True, exist_ok=True)
-    os.environ["OCP_HOME"] = str(home)
+    use_home(home)
     (home / "team.yaml").write_text("agents:\n  backend: { intake: dedicated }\n")
     for a in ("alpha", "beta", "gamma"):
         accounts.register(a)
@@ -3253,8 +3249,7 @@ def test_a_refused_ask_is_not_a_new_message(home: Path) -> None:
 def test_the_screen_says_when_two_daemons_are_running(home: Path) -> None:
     """The warning is the whole of what can be done about a duplicate that
     predates the lock: nothing else on any screen can see one."""
-    home.mkdir(parents=True, exist_ok=True)
-    os.environ["OCP_HOME"] = str(home)
+    use_home(home)
     orig = dmn.processes
     try:
         dmn.processes = lambda: [111, 222]

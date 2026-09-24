@@ -22,8 +22,7 @@ def test_the_quota_request_never_follows_a_redirect(home: Path) -> None:
     a second one holding a perfectly good quota answer. Refused, the read is
     could-not-look and the second endpoint is never asked; followed, it would
     be a reading and the key would have arrived there."""
-    home.mkdir(parents=True, exist_ok=True)
-    os.environ["OCP_HOME"] = str(home)
+    use_home(home)
     accounts.register("zai", vendor="opencode")
     cdir = vendors.config_dir("zai")
     (cdir / "opencode").mkdir(parents=True, exist_ok=True)
@@ -90,8 +89,7 @@ def test_db_dedup(home: Path) -> None:
 
 
 def test_ask_flow(home: Path) -> None:
-    home.mkdir(parents=True, exist_ok=True)
-    os.environ["OCP_HOME"] = str(home)
+    use_home(home)
     (home / "team.yaml").write_text(DESIGN_TEAM)
     for name in ("backend", "reviewer", "archivist", "marketing"):
         agents.register(name, "alpha")
@@ -166,8 +164,7 @@ def test_one_request_at_a_time(home: Path) -> None:
     its queue - and the next only once it resolves or dismisses this one.
     Before delivery its own requester may still replace or withdraw it;
     once delivered, neither applies."""
-    home.mkdir(parents=True, exist_ok=True)
-    os.environ["OCP_HOME"] = str(home)
+    use_home(home)
     (home / "team.yaml").write_text(DESIGN_TEAM)
     for name in ("backend", "reviewer"):
         agents.register(name, "alpha")
@@ -312,8 +309,7 @@ def test_replace_and_merge_respect_delivered_at(home: Path) -> None:
     already-delivered row (changing what the target was already reading, with
     nobody told), and --replaces --mergeable together returned before the
     replaced row was retired."""
-    home.mkdir(parents=True, exist_ok=True)
-    os.environ["OCP_HOME"] = str(home)
+    use_home(home)
     (home / "team.yaml").write_text(DESIGN_TEAM)
     for name in ("backend", "reviewer"):
         agents.register(name, "alpha")
@@ -347,8 +343,7 @@ def test_chain_members_excludes_a_row_about_to_be_replaced(home: Path) -> None:
     """Review note: a replace's cycle/ping-pong check ran while the row it is
     about to retire was still 'queued', counting a round that, from the
     target's side, never happened."""
-    home.mkdir(parents=True, exist_ok=True)
-    os.environ["OCP_HOME"] = str(home)
+    use_home(home)
     con = db.connect()
     try:
         a = db.add_request(con, "x", "y", "one", None, "peer", "async", None, 0, None)
@@ -367,8 +362,7 @@ def test_retire_if_undelivered_is_the_gate_against_the_delivery_race(home: Path)
     """Review of buddyron/one-task-at-a-time: a plain read-then-write let a
     delivery land between checking delivered_at and retiring the row. The
     atomic conditional update is the only thing withdraw/replace may trust."""
-    home.mkdir(parents=True, exist_ok=True)
-    os.environ["OCP_HOME"] = str(home)
+    use_home(home)
     con = db.connect()
     try:
         rid = db.add_request(con, "backend", "reviewer", "task", None,
@@ -392,8 +386,7 @@ def test_retire_if_undelivered_is_the_gate_against_the_delivery_race(home: Path)
 
 
 def test_ask_rate_limit(home: Path) -> None:
-    home.mkdir(parents=True, exist_ok=True)
-    os.environ["OCP_HOME"] = str(home)
+    use_home(home)
     (home / "team.yaml").write_text(
         "agents:\n  a: { intake: dedicated }\n  b: { intake: dedicated }\n"
         'edges:\n  - { from: "*", to: "*", relation: peer, response: fire_and_forget }\n'
@@ -409,8 +402,7 @@ def test_ask_rate_limit(home: Path) -> None:
 def test_cycle_and_escalation(home: Path) -> None:
     """A runaway must be stopped AND escalated - a request that silently
     vanishes leaves the team stuck with nobody knowing why."""
-    home.mkdir(parents=True, exist_ok=True)
-    os.environ["OCP_HOME"] = str(home)
+    use_home(home)
     (home / "team.yaml").write_text(DESIGN_TEAM)
     for n in ("backend", "reviewer", "product", "marketing", "archivist"):
         agents.register(n, "alpha")
@@ -438,8 +430,7 @@ def test_cycle_and_escalation(home: Path) -> None:
 
 
 def test_review_pingpong(home: Path) -> None:
-    home.mkdir(parents=True, exist_ok=True)
-    os.environ["OCP_HOME"] = str(home)
+    use_home(home)
     (home / "team.yaml").write_text(DESIGN_TEAM)
     for n in ("backend", "reviewer", "product"):
         agents.register(n, "alpha")
@@ -471,8 +462,7 @@ def test_review_pingpong(home: Path) -> None:
 def test_rate_limit_throttles(home: Path) -> None:
     """Too many asks is a resource problem: it throttles and clears itself,
     rather than needing a human the way a task defect does (section 8.6)."""
-    home.mkdir(parents=True, exist_ok=True)
-    os.environ["OCP_HOME"] = str(home)
+    use_home(home)
     (home / "team.yaml").write_text(
         "agents:\n  a: { intake: dedicated }\n  b: { intake: dedicated }\n"
         'edges:\n  - { from: "*", to: "*", relation: peer, response: fire_and_forget }\n'
@@ -501,8 +491,7 @@ def test_a_resolved_ask_does_not_stay_in_progress_across_a_park(home: Path) -> N
     an agent that was parked when the answer landed, there may be no event at
     all yet. Either way the store already knows; the fold has to check it
     directly rather than wait for an event that may never name the id."""
-    home.mkdir(parents=True, exist_ok=True)
-    os.environ["OCP_HOME"] = str(home)
+    use_home(home)
     (home / "team.yaml").write_text(DESIGN_TEAM)
     agents.register("backend", "alpha")
 
@@ -755,8 +744,7 @@ def test_a_wake_with_only_an_answer_waiting_still_reads_queued(home: Path) -> No
 
 
 def test_ask_respects_terminal_state(home: Path) -> None:
-    home.mkdir(parents=True, exist_ok=True)
-    os.environ["OCP_HOME"] = str(home)
+    use_home(home)
     (home / "team.yaml").write_text(DESIGN_TEAM)
     for n in ("backend", "reviewer"):
         agents.register(n, "alpha")
@@ -1000,9 +988,7 @@ def test_an_open_head_request_on_an_idle_agent_is_nudged_then_shown(home: Path) 
     real = (orcamod.alive, orcamod.send, orcamod.available, orcamod.typeable_now,
             dmn.wall_reason)
     try:
-        orcamod.available = lambda: True
-        orcamod.live_terminals = lambda: {"term_x"}
-        orcamod.alive = lambda h: True
+        orca_seen()
         orcamod.typeable_now = lambda h: True
         orcamod.send = lambda h, text, enter=True: (sent.append(text), (True, ""))[1]
         sessions_are("backend")
@@ -1179,9 +1165,7 @@ def test_a_cold_wake_with_no_handoff_still_tells_the_agent_its_transcript_and_re
     real = (orcamod.alive, orcamod.wait_idle, orcamod.idle_now, orcamod.send,
             orcamod.available, orcamod.clear_context)
     try:
-        orcamod.available = lambda: True
-        orcamod.live_terminals = lambda: {"term_x"}
-        orcamod.alive = lambda h: True
+        orca_seen()
         orcamod.wait_idle = lambda h, timeout_ms=0: True
         orcamod.idle_now = lambda h: True
         table = sessions_are("backend")
@@ -1252,9 +1236,7 @@ def test_an_answer_reaches_the_agent_that_asked(home: Path) -> None:
     sent: list[str] = []
     real = (orcamod.available, orcamod.alive, orcamod.idle_now, orcamod.send)
     try:
-        orcamod.available = lambda: True
-        orcamod.live_terminals = lambda: {"term_x"}
-        orcamod.alive = lambda h: True
+        orca_seen()
         orcamod.idle_now = lambda h: True
         orcamod.send = lambda h, text, enter=True: (sent.append(text), (True, ""))[1]
         sessions_are("backend")
@@ -1361,9 +1343,7 @@ def test_an_answer_wakes_the_agent_that_was_waiting_for_it(home: Path) -> None:
     sent: list[str] = []
     real = (orcamod.available, orcamod.alive, orcamod.wait_idle, orcamod.send)
     try:
-        orcamod.available = lambda: True
-        orcamod.live_terminals = lambda: {"term_x"}
-        orcamod.alive = lambda h: True
+        orca_seen()
         orcamod.wait_idle = lambda h, timeout_ms=0: True
         orcamod.idle_now = lambda h: True
         table = sessions_are()
@@ -1561,9 +1541,7 @@ def test_only_one_thing_types_at_an_agent_at_a_time(home: Path) -> None:
     sent: list[str] = []
     real = (orcamod.available, orcamod.alive, orcamod.wait_idle, orcamod.send)
     try:
-        orcamod.available = lambda: True
-        orcamod.live_terminals = lambda: {"term_x"}
-        orcamod.alive = lambda h: True
+        orca_seen()
         orcamod.wait_idle = lambda h, timeout_ms=0: True
         orcamod.idle_now = lambda h: True
         table = sessions_are()          # closed below - no session running yet
@@ -2462,9 +2440,7 @@ def test_a_move_still_records_a_session_the_wait_missed_but_a_hook_saw(home: Pat
     real = (orcamod.available, orcamod.alive, orcamod.close_session, orcamod.relaunch,
             orcamod.idle_now, dmn.wait_for_session)
     try:
-        orcamod.available = lambda: True
-        orcamod.alive = lambda h: True
-        orcamod.idle_now = lambda h: True
+        orca_idle()
         orcamod.close_session = exit_ends_session("mover")
         sessions_are("mover")
         db.set_terminal(con, "mover", "term_x", "wt")
@@ -2932,9 +2908,7 @@ def test_a_queued_agent_with_a_told_head_gets_the_same_forgotten_resolve_nudge_a
     sent: list[str] = []
     sessions_are("backend")
     try:
-        orcamod.available = lambda: True
-        orcamod.live_terminals = lambda: {"term_x"}
-        orcamod.alive = lambda h: True
+        orca_seen()
         orcamod.typeable_now = lambda h: True
         orcamod.send = lambda h, text, enter=True: (sent.append(text), (True, ""))[1]
         db.set_terminal(con, "backend", "term_x", "wt")
@@ -2975,9 +2949,7 @@ def test_handoff_rate_limited(home: Path) -> None:
     con = db.connect()
     real_alive, real_idle, real_clear = orcamod.alive, orcamod.idle_now, orcamod.clear_context
     try:
-        orcamod.available = lambda: True
-        orcamod.alive = lambda h: True
-        orcamod.idle_now = lambda h: True
+        orca_idle()
         orcamod.clear_context = lambda h, wait=True, timeout_ms=0: (True, "context cleared")
         db.set_terminal(con, "backend", "term_x", "wt")
         t = triggers.Trigger(True, "usage", "pct_5h 100% - at the wall")
@@ -4711,8 +4683,7 @@ def test_retires_is_refused_on_a_row_that_is_not_the_resolvers(home: Path) -> No
     not the one being retired). Two other retirement paths already refuse
     this - `ocp withdraw` and `ask --replaces` - and only this third one
     did not."""
-    home.mkdir(parents=True, exist_ok=True)
-    os.environ["OCP_HOME"] = str(home)
+    use_home(home)
     (home / "team.yaml").write_text("""
 agents:
   reviewer: { intake: dedicated }
