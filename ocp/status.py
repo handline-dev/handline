@@ -204,6 +204,13 @@ class AccountStatus:
     transcript_path: str | None = None
     model_id: str | None = None
     collected_at: int | None = None
+    # The moment to judge ages against; None is the wall clock. A reader that
+    # must stay pure (stats) or replay a past tick sets it instead of patching
+    # time.time.
+    as_of: float | None = None
+
+    def _now(self) -> float:
+        return time.time() if self.as_of is None else self.as_of
 
     @property
     def age_s(self) -> float | None:
@@ -215,7 +222,7 @@ class AccountStatus:
         """
         if self.collected_at is None:
             return None
-        age = time.time() - self.collected_at
+        age = self._now() - self.collected_at
         if age < -CLOCK_SKEW_GRACE_S:
             return None
         return max(0.0, age)
@@ -230,7 +237,7 @@ class AccountStatus:
         """How long ago the 5h figure was observed, not when it was copied."""
         if self.rl_at is None:
             return None
-        age = time.time() - self.rl_at
+        age = self._now() - self.rl_at
         if age < -CLOCK_SKEW_GRACE_S:
             return None
         return max(0.0, age)
@@ -318,7 +325,7 @@ class AccountStatus:
         """
         if not self.exists or self.error or self.rl7_lost or self.pct_7d is None:
             return "unknown"
-        now = int(time.time())
+        now = int(self._now())
         if self.reset_7d and self.reset_7d <= now:
             return "unknown"
         age = None if self.rl7_at is None else now - self.rl7_at
