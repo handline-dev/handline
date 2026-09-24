@@ -374,20 +374,13 @@ def dismiss(con, rid: int, me: str | None = None, reason: str | None = None,
         # Linked before the row is closed: a failure between the two leaves a
         # link on a still-queued row, never an answered row attached to nothing.
         record_human_resolve(con, rid, tasks, no_task, me)
-    if row["response"] != "async":
-        # Nobody is waiting on this one, so nobody is told: no push_answer, no
-        # wake. Typing "read" at an agent as though it were an answer costs it
-        # a turn to discover that it is not one - manager was mid-sentence
-        # when a dismissal arrived as "#60 from human: read". resolve() itself
-        # stamps announced_at, in the same write as the state change.
-        ok, msg = askmod.resolve(rid, None, state="done", notify=False,
-                                 dismissed_by=by, dismissed_reason=reason)
-        return ok, f"{msg} (dismissed; {row['requester']} is not waiting on it)"
-    # An `async` sender parked on a reply and nothing else will ever unpark it,
-    # so it is told - and what it is told says it was read, not answered.
-    ok, msg = askmod.resolve(rid, None, state="done", dismissed_by=by,
-                             dismissed_reason=reason)
-    return ok, msg
+    # Closed, not announced: a dismissal is not an answer, so nothing is typed
+    # at the asker. An async asker is still woken by the close itself
+    # (`_after_close` queues it), and resolve() stamps announced_at in the same
+    # write as the state change.
+    ok, msg = askmod.resolve(rid, None, state="done", notify=False,
+                             dismissed_by=by, dismissed_reason=reason)
+    return ok, f"{msg} (dismissed; {row['requester']} is not told)"
 
 
 def waiting_ids(con, agent: str) -> list[int]:
