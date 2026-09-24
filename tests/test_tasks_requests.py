@@ -2326,7 +2326,7 @@ def test_a_permission_prompt_waits_on_the_founder_until_it_is_answered(home: Pat
         real_out = sys.stdout
         sys.stdout = out
         try:
-            climod.cmd_daemon_status(argparse.Namespace())
+            clidaemon.cmd_daemon_status(argparse.Namespace())
         finally:
             sys.stdout = real_out
         said = out.getvalue()
@@ -2827,7 +2827,7 @@ def test_a_wait_returns_when_the_answer_lands_not_when_it_gives_up(home: Path) -
     args = parser.parse_args(["read", str(rid), "--wait", "--timeout", "6"])
     threading.Timer(1.0, lambda: askmod.resolve(rid, "MERGE.")).start()
     started = time.time()
-    rc = cli.cmd_read(args)
+    rc = cliask.cmd_read(args)
     took = time.time() - started
     check("wait: read --wait returns as soon as the verdict is written",
           rc == 0 and took < 5, f"rc={rc} took={took:.1f}s")
@@ -2835,14 +2835,14 @@ def test_a_wait_returns_when_the_answer_lands_not_when_it_gives_up(home: Path) -
     ok, _, rid2 = askmod.ask("reviewer", "second order", requester=actions.HUMAN)
     check("wait: a second order is sent", ok)
     check("wait: an unanswered row times out and says so, rather than printing a half row",
-          cli.cmd_read(parser.parse_args(
+          cliask.cmd_read(parser.parse_args(
               ["read", str(rid2), "--wait", "--timeout", "1"])) == 1)
 
     check("wait: --wait sits next to the positional instead of swallowing it",
           parser.parse_args(["inbox", "reviewer", "--wait"]).agent == "reviewer")
     con = db.connect()
     try:
-        seen = cli._waiting_ids(con, "reviewer")
+        seen = cliask._waiting_ids(con, "reviewer")
     finally:
         con.close()
     check("wait: what is already on the list is not what a wait is waiting for",
@@ -3349,7 +3349,7 @@ def test_a_refusal_is_not_read_back_as_an_answer(home: Path) -> None:
 
     buf = io.StringIO()
     with contextlib.redirect_stdout(buf):
-        climod.cmd_read(climod.build_parser().parse_args(["read", str(rid)]))
+        cliask.cmd_read(climod.build_parser().parse_args(["read", str(rid)]))
     out = buf.getvalue()
     check("read: a refused request does not name an answerer",
           "answered by b" not in out, out)
@@ -3374,24 +3374,24 @@ def test_a_withdrawn_or_replaced_request_is_not_read_back_as_an_answer(home: Pat
     for rid, label in ((a, "withdrawn"), (c, "replaced")):
         buf = io.StringIO()
         with contextlib.redirect_stdout(buf):
-            climod.cmd_read(climod.build_parser().parse_args(["read", str(rid)]))
+            cliask.cmd_read(climod.build_parser().parse_args(["read", str(rid)]))
         out = buf.getvalue()
         check(f"read: a {label} request does not name an answerer",
               "answered by b" not in out, out)
         check(f"read: it says it was {label}", f"--- {label} ---" in out, out)
 
-    # auditor's #1565 NOTE 1: the header dict in cli.cmd_read and this test's
+    # auditor's #1565 NOTE 1: the header dict in cliask.cmd_read and this test's
     # own labels both hardcode the three state names; neither reads
     # db.NEVER_REACHED_TARGET, so a state added to that constant later gets
     # "answered by {target}" again and nothing here would notice. This does
     # not derive the header from the constant (the wording genuinely differs
     # - "denied" prints "refused") but it does make an unlabelled state fail
     # here rather than pass silently: every name the constant holds must
-    # appear as a state in cli.cmd_read's own header keys.
+    # appear as a state in cliask.cmd_read's own header keys.
     check("read: every db.NEVER_REACHED_TARGET state has its own header, "
           "not just the ones hardcoded above",
-          set(db.NEVER_REACHED_TARGET) <= climod._NEVER_ANSWERED_HEADERS.keys(),
-          str(set(db.NEVER_REACHED_TARGET) - climod._NEVER_ANSWERED_HEADERS.keys()))
+          set(db.NEVER_REACHED_TARGET) <= cliask._NEVER_ANSWERED_HEADERS.keys(),
+          str(set(db.NEVER_REACHED_TARGET) - cliask._NEVER_ANSWERED_HEADERS.keys()))
 
 
 def test_dismissing_an_agents_own_answered_request_keeps_its_verdict(home: Path) -> None:
@@ -3498,13 +3498,13 @@ def test_a_task_row_holds_its_fields_and_nothing_else(home: Path) -> None:
         before = dict(db.get_task(con, tid))
         buf = io.StringIO()
         with contextlib.redirect_stdout(buf):
-            climod._print_board(con, db.open_tasks(con))
+            clitask._print_board(con, db.open_tasks(con))
         check("task row: the board shows the request's state as it is now",
               "queued" in buf.getvalue(), buf.getvalue())
         con.execute("UPDATE requests SET state = 'done', verdict = 'x' WHERE id = ?", (rid,))
         buf = io.StringIO()
         with contextlib.redirect_stdout(buf):
-            climod._print_board(con, db.open_tasks(con))
+            clitask._print_board(con, db.open_tasks(con))
         check("task row: it reads the new state, from the request",
               "done" in buf.getvalue() and "queued" not in buf.getvalue(), buf.getvalue())
         check("task row: and the task row itself did not change",
@@ -5278,7 +5278,7 @@ def test_jobs_runs_the_real_actrun_and_answers_or_refuses(home: Path) -> None:
 
 
 def test_bin_ocp_resolves_a_symlink(home: Path) -> None:
-    """ocp/cli.py and ocp/service.py both describe the installed `ocp` as a
+    """ocp/cli/ and ocp/service.py both describe the installed `ocp` as a
     symlink into the repo (~/.local/bin/ocp on the founder's own machine) -
     the one path every real invocation runs through, and one every other
     test in this suite skips by calling bin/ocp at its real location. Auditor

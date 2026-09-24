@@ -927,7 +927,7 @@ def test_a_claude_agent_is_never_placed_on_another_vendors_account(home: Path) -
                 con.close()
             out = io.StringIO()
             with contextlib.redirect_stdout(out):
-                climod.cmd_status(argparse.Namespace(json=True))
+                clihealth.cmd_status(argparse.Namespace(json=True))
             check("vendor pick: ocp status does not name it next",
                   json.loads(out.getvalue())["picked"] != "zeta", out.getvalue()[:200])
             accounts.logged_in = lambda a: True
