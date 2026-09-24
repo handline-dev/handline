@@ -70,7 +70,12 @@ CREATE TABLE IF NOT EXISTS requests (
   -- depth, the cycle guard or any limit may read it, the same reason
   -- parent_id does not fit that job. Set once, by the verb that already
   -- knows both ids (a replace, or `ocp resolve --retires`).
-  moot_by     INTEGER
+  moot_by     INTEGER,
+  -- Task #70: a dismissal is a state of the row, not words anyone said. Who
+  -- dismissed it and the reason they gave (when is resolved_at); the verdict
+  -- stays NULL, so no screen can draw a dismissal as the answerer's own text.
+  dismissed_by     TEXT,
+  dismissed_reason TEXT
 );
 CREATE INDEX IF NOT EXISTS requests_target ON requests(target, state);
 CREATE INDEX IF NOT EXISTS requests_requester ON requests(requester, ts);
@@ -541,7 +546,7 @@ def unannounced_answers(con, agent: str) -> list:
     """
     return con.execute(
         "SELECT id, ts, resolved_at, target, kind, state, verdict, body, parent_id, "
-        "chain_id FROM requests WHERE requester = ? "
+        "chain_id, dismissed_by, dismissed_reason FROM requests WHERE requester = ? "
         "AND state IN ('done', 'rejected') AND announced_at IS NULL ORDER BY id",
         (agent,),
     ).fetchall()
@@ -554,6 +559,10 @@ def mark_announced(con, ids: list[int]) -> None:
 
 
 def _add_missing_columns(con) -> None:
+    request_cols = _cols(con, "requests")
+    for col in ("dismissed_by", "dismissed_reason"):
+        if col not in request_cols:
+            con.execute(f"ALTER TABLE requests ADD COLUMN {col} TEXT")
     task_cols = _cols(con, "tasks")
     for col in ("discarded_by", "discard_reason"):
         if col not in task_cols:
@@ -886,7 +895,41 @@ def retire_queued(con, rid: int, state: str, verdict: str | None = None) -> bool
     return cur.rowcount > 0
 
 
-def close_if_queued(con, rid: int, state: str, verdict: str, announced: bool = False) -> bool:
+# What `ocp dismiss` wrote into the verdict before a dismissal was a state.
+# Rows from then still hold it, and read as dismissals through `dismissal`.
+LEGACY_DISMISS = "read - no reply"
+
+
+def dismissal(row) -> tuple[bool, str | None, str | None]:
+    """(dismissed, by, reason) for a request row. A row is dismissed when it
+    says so in its own columns, or holds the old literal verdict (whose
+    author is unknown). A row read from a SELECT that leaves the columns out
+    reads as not dismissed unless it is the old literal."""
+    keys = row.keys()
+    by = row["dismissed_by"] if "dismissed_by" in keys else None
+    if by:
+        return True, by, row["dismissed_reason"]
+    verdict = row["verdict"] if "verdict" in keys else None
+    if verdict == LEGACY_DISMISS:
+        return True, None, None
+    if verdict and verdict.startswith(LEGACY_DISMISS + ": "):
+        return True, None, verdict[len(LEGACY_DISMISS) + 2:]
+    return False, None, None
+
+
+def shown_verdict(row) -> str | None:
+    """What a screen may print as this row's answer: the verdict, or for a
+    dismissal a state label that cannot be read as anyone's words."""
+    dismissed, by, reason = dismissal(row)
+    if not dismissed:
+        return row["verdict"]
+    return ("dismissed" + (f" by {by}" if by else "")
+            + (f" - {reason}" if reason else ""))
+
+
+def close_if_queued(con, rid: int, state: str, verdict: str | None,
+                    announced: bool = False, dismissed_by: str | None = None,
+                    dismissed_reason: str | None = None) -> bool:
     """Close a request that is still open, atomically. True only if this call
     was the one that closed it: an agent resolving it in the same instant wins,
     and its answer is not overwritten. `announced=True` is `resolve`'s
@@ -899,8 +942,9 @@ def close_if_queued(con, rid: int, state: str, verdict: str, announced: bool = F
     now = int(time.time())
     cur = con.execute(
         "UPDATE requests SET state = ?, verdict = ?, resolved_at = ?, "
-        "announced_at = COALESCE(announced_at, ?) WHERE id = ? AND state = 'queued'",
-        (state, verdict, now, now if announced else None, rid))
+        "announced_at = COALESCE(announced_at, ?), dismissed_by = ?, dismissed_reason = ? "
+        "WHERE id = ? AND state = 'queued'",
+        (state, verdict, now, now if announced else None, dismissed_by, dismissed_reason, rid))
     return cur.rowcount > 0
 
 

@@ -300,9 +300,10 @@ def open_hold_task(con, rid: int, title: str, holder: str, blocks_on: list[int])
 
 def dismiss(con, rid: int, me: str | None = None, reason: str | None = None,
             tasks: list[int] | None = None, no_task: str | None = None) -> tuple[bool, str]:
-    """Take one row off the mailbox without replying to it. A `reason` is
-    stored, as typed, after "read - no reply" in the verdict of a still-queued
-    row; a row that already carries a real verdict keeps it.
+    """Take one row off the mailbox without replying to it. A still-queued
+    row is closed as dismissed - by `me`, with `reason` as typed, at the
+    time resolved_at holds - and carries no verdict, so nothing draws it as
+    anyone's words; a row that already carries a real verdict keeps it.
 
     A row that has already left 'queued' carries somebody's real verdict.
     Read by whoever asked for it (`me`, when known), it is marked told - the
@@ -335,7 +336,7 @@ def dismiss(con, rid: int, me: str | None = None, reason: str | None = None,
             return True, f"#{rid} was already answered - nothing more for you to do"
         db.mark_announced(con, [rid])
         return True, f"#{rid} marked read"
-    verdict = "read - no reply" + (f": {reason}" if reason else "")
+    by = me or "unknown"
     if guarded or tasks or no_task:
         # Linked before the row is closed: a failure between the two leaves a
         # link on a still-queued row, never an answered row attached to nothing.
@@ -346,11 +347,13 @@ def dismiss(con, rid: int, me: str | None = None, reason: str | None = None,
         # a turn to discover that it is not one - manager was mid-sentence
         # when a dismissal arrived as "#60 from human: read". resolve() itself
         # stamps announced_at, in the same write as the state change.
-        ok, msg = askmod.resolve(rid, verdict, state="done", notify=False)
+        ok, msg = askmod.resolve(rid, None, state="done", notify=False,
+                                 dismissed_by=by, dismissed_reason=reason)
         return ok, f"{msg} (dismissed; {row['requester']} is not waiting on it)"
     # An `async` sender parked on a reply and nothing else will ever unpark it,
     # so it is told - and what it is told says it was read, not answered.
-    ok, msg = askmod.resolve(rid, verdict, state="done")
+    ok, msg = askmod.resolve(rid, None, state="done", dismissed_by=by,
+                             dismissed_reason=reason)
     return ok, msg
 
 
@@ -870,8 +873,10 @@ def reason_gaps(con, window_days: int = 30) -> dict:
             (cutoff,)).fetchone()[0]
     withdrawn_total = one("state = 'withdrawn'")
     withdrawn_blank = one("state = 'withdrawn' AND verdict IS NULL")
-    dismissed_total = one("(verdict = 'read - no reply' OR verdict LIKE 'read - no reply: %')")
-    dismissed_blank = one("verdict = 'read - no reply'")
+    dismissed_total = one("(dismissed_by IS NOT NULL OR verdict = 'read - no reply' "
+                          "OR verdict LIKE 'read - no reply: %')")
+    dismissed_blank = one("((dismissed_by IS NOT NULL AND dismissed_reason IS NULL) "
+                          "OR verdict = 'read - no reply')")
     replaced_total = one("state = 'replaced'")
     replaced_blank = one("state = 'replaced' AND verdict NOT LIKE '%: %'")
     def closures(via: str) -> int:
@@ -986,7 +991,7 @@ def mailbox_rows(con) -> list[dict]:
             # it is the one that means do something else - and drawing it as an
             # answer would lose the only word that distinguishes them.
             "kind": "answer" if r["state"] == "done" else "refused",
-            "body": r["verdict"] or "(answered with nothing written)",
+            "body": db.shown_verdict(r) or "(answered with nothing written)",
             "gate": False,
             "waiting": False,
             "answer": True,
@@ -1131,7 +1136,7 @@ def message_detail(con, rid: int) -> tuple[str, list[tuple[str, list[str]]]] | N
     kind = ("answer" if row["state"] == "done" else "refusal") if answer \
         else (row["kind"] or "ask")
     title = f"#{rid} from {other} · {kind} · {when}"
-    text = (row["verdict"] if answer else row["body"]) or ""
+    text = (db.shown_verdict(row) if answer else row["body"]) or ""
     sections: list[tuple[str, list[str]]] = [("", text.splitlines() or ["(empty)"])]
 
     quoted = {rid}
@@ -1186,7 +1191,8 @@ def _exchange(con, other: str, skip: set[int]) -> list[str]:
     of things the human sent.
     """
     rows = con.execute(
-        "SELECT id, ts, resolved_at, requester, target, state, body, verdict "
+        "SELECT id, ts, resolved_at, requester, target, state, body, verdict, "
+        "dismissed_by, dismissed_reason "
         "FROM requests WHERE ((requester = ? AND target = ?) OR (requester = ? AND target = ?)) "
         "AND state != 'denied' ORDER BY id DESC LIMIT ?",
         (HUMAN, other, other, HUMAN, EXCHANGE_ROWS + len(skip)),
@@ -1198,10 +1204,11 @@ def _exchange(con, other: str, skip: set[int]) -> list[str]:
         mine = r["requester"] == HUMAN
         arrow = f"you → {other}" if mine else f"{other} → you"
         out.append(f"#{r['id']:<5} {arrow:<24} {_at(r['ts'])}  {_gist(r['body'])}")
-        if r["verdict"]:
+        shown = db.shown_verdict(r)
+        if shown:
             who = other if mine else "you"
             out.append(f"{'':<6} ↩ {who:<22} {_at(r['resolved_at'] or r['ts'])}  "
-                       f"{_gist(r['verdict'])}")
+                       f"{_gist(shown)}")
     return out
 
 
@@ -1636,7 +1643,7 @@ def _chat_rows(con, agent: str) -> list:
     """Every row of every chain the human and `agent` have a row in."""
     return con.execute(
         "SELECT id, ts, resolved_at, requester, target, state, body, verdict, "
-        "chain_id, delivered_at, fyi FROM requests "
+        "dismissed_by, dismissed_reason, chain_id, delivered_at, fyi FROM requests "
         "WHERE state != 'denied' AND chain_id IN ("
         "  SELECT chain_id FROM requests WHERE "
         "  (requester = ? AND target = ?) OR (requester = ? AND target = ?)) "
@@ -1754,9 +1761,10 @@ def conversation_and_drawn(con, agent: str, hint: bool = True) -> tuple[list[str
             msgs.append((r["ts"], r["id"], 0,
                          said(r["requester"], r["target"], r["body"], r["ts"], tail,
                               r["state"] == "queued" and r["target"] == HUMAN, r["id"], 0)))
-            if r["verdict"]:
+            shown = db.shown_verdict(r)
+            if shown:
                 at = r["resolved_at"] or r["ts"]
-                msgs.append((at, r["id"], 1, said(r["target"], r["requester"], r["verdict"],
+                msgs.append((at, r["id"], 1, said(r["target"], r["requester"], shown,
                                                   at, f"answers #{r['id']}",
                                                   rid=r["id"], part=1)))
         msgs.sort(key=lambda m: m[:3])
@@ -1852,13 +1860,15 @@ def chat_unread(con, agent: str) -> int:
     Counted from a time, not a row id: an answer lands on an old row, so ids
     arrive out of order and an id cursor would step past the older one for good.
     Times are whole seconds, so what lands in the very second the tab was marked
-    counts as read; the other way, what was just read would stay new.
+    counts as read; the other way, what was just read would stay new. A
+    dismissal counts: the conversation draws it as a new line.
     """
     seen = db.get_cursor(con, _seen_key(agent))
     row = con.execute(
         "SELECT COUNT(*) AS n FROM requests WHERE state != 'denied' AND "
         "((requester = ? AND target = ? AND ts > ?) OR "
-        " (requester = ? AND target = ? AND verdict IS NOT NULL AND resolved_at > ?))",
+        " (requester = ? AND target = ? AND (verdict IS NOT NULL OR dismissed_by IS NOT NULL) "
+        "  AND resolved_at > ?))",
         (agent, HUMAN, seen, HUMAN, agent, seen)).fetchone()
     return int(row["n"])
 
@@ -1907,7 +1917,7 @@ def agent_detail(con, agent: str, hint: bool = True) -> list[tuple[str, list[str
     chat, drawn = conversation_and_drawn(con, agent, hint)
     others = [Entry(r["id"], r["requester"], r["body"] or "", r["ts"])
               for r in db.queued_for(con, agent) if r["id"] not in drawn]
-    untold = [Entry(r["id"], r["target"], r["verdict"] or r["state"], r["resolved_at"] or r["ts"])
+    untold = [Entry(r["id"], r["target"], db.shown_verdict(r) or r["state"], r["resolved_at"] or r["ts"])
               for r in db.unannounced_answers(con, agent) if r["id"] not in drawn]
     if others or untold:
         # Where the reader is left, at the end of the conversation.

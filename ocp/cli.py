@@ -1879,7 +1879,8 @@ def _human_inbox(show_all: bool = False) -> int:
             # not "already dealt with", and printing it twice would say it was.
             waiting = {m["id"] for m in rows}
             done = con.execute(
-                "SELECT id, ts, requester, target, state, body, verdict FROM requests "
+                "SELECT id, ts, requester, target, state, body, verdict, "
+                "dismissed_by, dismissed_reason FROM requests "
                 "WHERE (target = ? OR requester = ?) AND state != 'queued' "
                 "ORDER BY id DESC LIMIT 20", (actions.HUMAN, actions.HUMAN)).fetchall()
             done = [r for r in done if r["id"] not in waiting]
@@ -1888,7 +1889,7 @@ def _human_inbox(show_all: bool = False) -> int:
                 other = r["target"] if r["requester"] == actions.HUMAN else r["requester"]
                 arrow = "→" if r["requester"] == actions.HUMAN else "←"
                 print(f"  #{r['id']:<5} {arrow} {other:<12} {r['state']:<9} "
-                      f"{textsafe.oneline(actions.first_line(r['verdict'] or r['body']))[:60]}")
+                      f"{textsafe.oneline(actions.first_line(db.shown_verdict(r) or r['body']))[:60]}")
         return 0
     finally:
         con.close()
@@ -2013,7 +2014,13 @@ def cmd_read(args) -> int:
               f"depth {row['chain_depth']}")
         print()
         print(textsafe.text(row["body"] or "(empty)"))
-        if row["verdict"]:
+        dismissed, by, reason = db.dismissal(row)
+        if dismissed:
+            print()
+            print("--- dismissed" + (f" by {textsafe.oneline(by)}" if by else "") + " ---")
+            if reason:
+                print(textsafe.text(reason))
+        elif row["verdict"]:
             print()
             # db.NEVER_REACHED_TARGET (denied, withdrawn, replaced) never
             # reached the target, so none of them came back as an answer -
@@ -2085,7 +2092,8 @@ def cmd_resolve(args) -> int:
             # was being worked on. A second verdict would overwrite the first
             # and be sent to the requester as though it were the answer.
             print(f"#{args.id} is already {row['state']}"
-                  + (f" ({textsafe.oneline(row['verdict'])[:120]})" if row["verdict"] else "")
+                  + (f" ({textsafe.oneline(db.shown_verdict(row))[:120]})"
+                     if db.shown_verdict(row) else "")
                   + " - nothing to resolve.")
             return 1
         refusal = actions.check_human_resolve(con, row, args.task, args.no_task, me)

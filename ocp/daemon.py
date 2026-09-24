@@ -829,6 +829,14 @@ def _tell(con, agent: str, head, depth: int, handle: str, log) -> bool:
     return ok
 
 
+def answer_line(r) -> tuple[str, bool]:
+    """One answered request as the line typed at its asker, and whether the
+    answer has more than that line to read. A dismissal is said as a label."""
+    text = db.shown_verdict(r) or ""
+    said = (text.splitlines() or [r["state"]])[0]
+    return f"#{r['id']} from {r['target']}: {said[:160]}", len(said) > 160 or "\n" in text
+
+
 def deliver_answers(con, agent: str, log) -> bool:
     """Tell an agent what came back from something it asked.
 
@@ -858,9 +866,9 @@ def deliver_answers(con, agent: str, log) -> bool:
     shown, rest = answered[-3:], answered[:-3]
     lines, cut = [], False
     for r in shown:
-        said = ((r["verdict"] or "").splitlines() or [r["state"]])[0]
-        cut = cut or len(said) > 160 or "\n" in (r["verdict"] or "")
-        lines.append(f"#{r['id']} from {r['target']}: {said[:160]}")
+        line, more = answer_line(r)
+        cut = cut or more
+        lines.append(line)
     if rest:
         # Named, not counted: every id that is marked told has to have been
         # said, or this is the same silence with a number on it.

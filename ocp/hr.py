@@ -319,7 +319,8 @@ def apply(pid: str, con=None) -> tuple[bool, str]:
             return False, (f"proposal {pid} was rejected: "
                            f"{textsafe.oneline((verdict or '').strip())[:120]}")
         if call != "approved":
-            return False, (f"#{row['id']} was answered {(verdict or '').strip()[:60]!r}, "
+            return False, (f"#{row['id']} was answered "
+                           f"{(db.shown_verdict(row) or '').strip()[:60]!r}, "
                            f"which is not a decision. Ask the founder to answer "
                            f"`approve` or `reject`, or `ocp hr withdraw {pid}`.")
         doer = {"add": _add, "retire": _retire, "rename": _rename, "move": _move}[prop["kind"]]
