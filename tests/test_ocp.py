@@ -37,15 +37,6 @@ def area_files() -> list[Path]:
     return sorted(files, key=lambda p: -p.stat().st_size)
 
 
-def textual_python() -> str | None:
-    """A python that can import textual: this one, else the venv's."""
-    for py in (sys.executable, str(venvmod.venv_python())):
-        if Path(py).exists() and subprocess.run(
-                [py, "-c", "import textual"], capture_output=True).returncode == 0:
-            return py
-    return None
-
-
 def _run_one(path: Path, args: list[str], python: str | None = None) -> tuple[Path, int, str]:
     env = {k: v for k, v in os.environ.items() if k not in ("OCP_AGENT", "OCP_ACCOUNT")}
     done = subprocess.run([python or sys.executable, str(path), *args], capture_output=True,
@@ -80,7 +71,7 @@ def run_all(argv: list[str]) -> int:
                 out += ["--write-labels", label_paths[p]]
             return out
 
-        bridge_py = textual_python() if args.filter is None else None
+        bridge_py = _python_with_textual() if args.filter is None else None
         jobs = [(p, child_args(p), None) for p in files]
         if bridge_py:
             jobs.insert(0, (BRIDGE, [], bridge_py))
@@ -91,7 +82,8 @@ def run_all(argv: list[str]) -> int:
             skipped = f"SKIPPED  {BRIDGE.name}: it has no -k filter; run the whole suite to include it"
         elif not bridge_py:
             skipped = (f"SKIPPED  {BRIDGE.name}: textual is importable from neither {sys.executable} "
-                       f"nor the venv ({venvmod.venv_python()}); run `ocp venv` to install it")
+                       f"nor the machine's venv ({venvmod.venv_python(paths.default_home() / 'venv')}); "
+                       "run `ocp venv` to install it")
         if args.write_labels:
             with open(args.write_labels, "w") as out:
                 for p in files:
