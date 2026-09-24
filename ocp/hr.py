@@ -336,39 +336,73 @@ def apply(pid: str, con=None) -> tuple[bool, str]:
             con.close()
 
 
+class _Unwound(Exception):
+    """A withdraw that had to be taken back, with the reason to show."""
+
+
 def withdraw(pid: str, me: str, con=None) -> tuple[bool, str]:
     """The proposal's own author, or the founder, takes it back.
 
     The way out of a proposal that will get no decision: an escalation closed
     without approve or reject leaves `apply` refusing it and nothing else able
-    to end it. Anything still proposed can be withdrawn, an approved but
-    unapplied one included, and `apply` refuses a withdrawn one. A still-queued
-    escalation is closed with it and marked told: the proposer is not
-    messaged, whoever withdrew.
+    to end it. A still-queued escalation is closed with it and marked told:
+    the proposer is not messaged, whoever withdrew.
+
+    A withdraw and the founder's answer settle to exactly one outcome, decided
+    under one write lock. The escalation is read there: an approve or reject
+    already on it is the founder's answer and stands, so the withdraw refuses
+    and `apply` reads that answer; still queued, the withdraw wins and the
+    founder's answer then finds the row closed and refuses. Anything else on
+    the row (closed with no decision, or no row) is the stranded case this
+    verb exists for.
     """
     prop = load_proposal(pid)
     if not prop:
         return False, f"no proposal {pid}"
     if me not in (prop.get("requested_by"), askmod.HUMAN):
         return False, f"proposal {pid} is {prop.get('requested_by')}'s to withdraw, not yours"
-    if prop.get("state") != "proposed":
-        return False, f"proposal {pid} is already {prop.get('state')} - nothing to withdraw"
     own = con is None
     con = con or db.connect()
     try:
-        # Marked withdrawn before the row is closed: `_would_strand_a_proposal`
-        # reads `is_open_proposal` off this same file, and this call is the
-        # one legitimate way to close the row with something other than
-        # approve or reject - so it must already read as no-longer-open by
-        # the time the close below runs, or the chokepoint refuses its own
-        # escape valve.
-        prop["state"] = "withdrawn"
-        save(prop)
-        if int(prop.get("request") or 0):
-            row = db.get_request(con, int(prop["request"]))
-            if row is not None and row["state"] == "queued":
-                db.close_if_queued(con, row["id"], "rejected", f"withdrawn by {me}",
-                                   announced=True)
+        con.execute("BEGIN IMMEDIATE")
+        saved = False
+        try:
+            # Read again under the lock: the state read above may be from
+            # before another withdraw landed.
+            prop = load_proposal(pid) or prop
+            if prop.get("state") != "proposed":
+                con.execute("ROLLBACK")
+                return False, f"proposal {pid} is already {prop.get('state')} - nothing to withdraw"
+            row = (db.get_request(con, int(prop["request"]))
+                   if int(prop.get("request") or 0) else None)
+            if row is not None and row["state"] != "queued" \
+                    and decision(row["verdict"]) != "unclear":
+                con.execute("ROLLBACK")
+                return False, (f"the founder already answered #{row['id']} "
+                               f"({textsafe.oneline((row['verdict'] or '').strip())[:60]!r}) - "
+                               f"nothing to withdraw; `ocp hr apply {pid}` reads that answer")
+            # Marked withdrawn before the row is closed: `_would_strand_a_proposal`
+            # reads `is_open_proposal` off this same file, and this call is the
+            # one legitimate way to close the row with something other than
+            # approve or reject - so it must already read as no-longer-open by
+            # the time the close below runs, or the chokepoint refuses its own
+            # escape valve. Put back if the transaction does not commit.
+            prop["state"] = "withdrawn"
+            save(prop)
+            saved = True
+            if row is not None and row["state"] == "queued" and not db.close_if_queued(
+                    con, row["id"], "rejected", f"withdrawn by {me}", announced=True):
+                raise _Unwound(f"#{row['id']} could not be closed - nothing was withdrawn")
+            con.execute("COMMIT")
+        except BaseException as e:
+            if con.in_transaction:
+                con.execute("ROLLBACK")
+            if saved:
+                prop["state"] = "proposed"
+                save(prop)
+            if isinstance(e, _Unwound):
+                return False, str(e)
+            raise
         return True, f"proposal {pid} withdrawn"
     finally:
         if own:

@@ -15003,20 +15003,6 @@ edges:
         ok, said = hr.withdraw(pid, "hr")
         check("withdraw: and cannot be withdrawn twice", not ok, said)
 
-        # An approved but unapplied one, withdrawn: nothing enacts it after.
-        ok, said = hr.propose("add", "dohyun", requester="hr", why="third", account="beta")
-        pid3 = said.split()[1]
-        rid3 = int(said.split("#")[1].split(".")[0])
-        check("answer: an open proposal refuses a non-decision",
-              "approve" in actions.answer(con, rid3, "later")
-              and db.get_request(con, rid3)["state"] == "queued")
-        actions.answer(con, rid3, "approve")
-        ok, said = hr.withdraw(pid3, actions.HUMAN)
-        check("withdraw: the founder may withdraw an approved, unapplied proposal", ok, said)
-        ok, said = hr.apply(pid3)
-        check("withdraw: and apply then refuses it - approve, withdraw, apply enacts nothing",
-              not ok and "withdrawn" in said and "dohyun" not in paths.list_agents(), said)
-
         # Withdrawn while still unanswered: the escalation closes with it.
         ok, said = hr.propose("add", "dohyun", requester="hr", why="again", account="beta")
         pid2 = said.split()[1]
@@ -15025,8 +15011,105 @@ edges:
         check("withdraw: an unanswered one leaves the list and closes its escalation",
               ok and rows() == [] and db.get_request(con, rid2)["state"] != "queued",
               str(rows()))
+
+        # Answered first, withdrawn after: the founder's answer stands and the
+        # withdraw refuses, leaving apply to read it (task #32).
+        ok, said = hr.propose("add", "dohyun", requester="hr", why="third", account="beta")
+        pid3 = said.split()[1]
+        rid3 = int(said.split("#")[1].split(".")[0])
+        check("answer: an open proposal refuses a non-decision",
+              "approve" in actions.answer(con, rid3, "later")
+              and db.get_request(con, rid3)["state"] == "queued")
+        actions.answer(con, rid3, "approve")
+        ok, said = hr.withdraw(pid3, actions.HUMAN)
+        check("withdraw: an approved proposal is not withdrawn - the founder answered first",
+              not ok and "already answered" in said and "apply" in said, said)
+        check("withdraw: and it stays proposed, for apply to enact",
+              hr.load_proposal(pid3)["state"] == "proposed"
+              and db.get_request(con, rid3)["verdict"] == "approve")
     finally:
         con.close()
+
+
+def test_a_withdraw_and_the_founders_answer_settle_to_one_outcome(home: Path) -> None:
+    """Task #32: a withdraw and the founder's answer on one proposal end as
+    exactly one outcome, whichever lands first, and neither leaves the
+    proposal stuck. The two are interleaved at the two points a check-then-act
+    withdraw could be overtaken: after it has read the proposal, and after it
+    has marked it withdrawn."""
+    _daemon_home(home, 20)
+    accounts.register("beta")
+    agents.register("hr", "beta")
+    (home / "team.yaml").write_text("""
+agents:
+  hr: { intake: serial }
+edges:
+  - { from: "*", to: "human", kind: escalate, creates_gate: true }
+""")
+
+    def propose(name):
+        ok, said = hr.propose("add", name, requester="hr", why="hands", account="beta")
+        return said.split()[1], int(said.split("#")[1].split(".")[0])
+
+    def founder(rid, verdict, out):
+        c = db.connect()
+        try:
+            out.append(actions.answer_ok(c, rid, verdict))
+        finally:
+            c.close()
+
+    orig_load, orig_save = hr.load_proposal, hr.save
+    try:
+        # 1. The founder approves after the withdraw has read the proposal.
+        pid, rid = propose("racer")
+        got, fired = [], []
+
+        def load_then_answer(p):
+            r = orig_load(p)
+            if not fired:
+                fired.append(1)
+                founder(rid, "approve", got)
+            return r
+        hr.load_proposal = load_then_answer
+        ok, said = hr.withdraw(pid, "hr")
+        hr.load_proposal = orig_load
+        check("race 1: the founder's approve went through", got and got[0][0], str(got))
+        check("race 1: so the withdraw refuses and says so",
+              not ok and "already answered" in said, said)
+        ok, said = hr.apply(pid)
+        check("race 1: and the approve is enacted, not lost",
+              ok and "racer" in paths.list_agents(), said)
+
+        # 2. The founder answers while the withdraw is mid-way. The withdraw
+        # holds the write lock, so the answer can only land after it.
+        pid2, rid2 = propose("racer2")
+        got2, threads = [], []
+
+        def save_then_answer(prop):
+            r = orig_save(prop)
+            if not threads:
+                t = threading.Thread(target=founder, args=(rid2, "approve", got2))
+                threads.append(t)
+                t.start()
+                t.join(1.5)
+            return r
+        hr.save = save_then_answer
+        ok, said = hr.withdraw(pid2, "hr")
+        hr.save = orig_save
+        threads[0].join(15)
+        con = db.connect()
+        try:
+            row = db.get_request(con, rid2)
+            check("race 2: the withdraw won", ok and hr.load_proposal(pid2)["state"] == "withdrawn",
+                  said)
+            check("race 2: the founder's answer refuses, the row keeps the withdraw",
+                  got2 and not got2[0][0] and row["verdict"] == "withdrawn by hr", str(got2))
+            ok, said = hr.apply(pid2)
+            check("race 2: apply enacts nothing", not ok and "racer2" not in paths.list_agents(), said)
+        finally:
+            con.close()
+    finally:
+        hr.load_proposal, hr.save = orig_load, orig_save
 
 
 def test_every_door_onto_an_open_proposal_also_needs_a_decision(home: Path) -> None:
@@ -27709,6 +27792,8 @@ def main() -> int:
             Path(td) / 'registervendor'))
         run(lambda: test_a_proposal_dismissed_in_the_bridge_is_never_stranded(
             Path(td) / 'hrdismiss'))
+        run(lambda: test_a_withdraw_and_the_founders_answer_settle_to_one_outcome(
+            Path(td) / 'hrrace'))
         run(lambda: test_every_door_onto_an_open_proposal_also_needs_a_decision(
             Path(td) / 'hrresolveguard'))
         run(lambda: test_the_chokepoint_alone_refuses_every_door_onto_an_open_proposal(
