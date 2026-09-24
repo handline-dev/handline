@@ -25,7 +25,7 @@ sys.path.insert(0, str(ROOT))
 
 from textual import events  # noqa: E402
 from ocp import (actions, agents, bridge_textual as bt, daemon as daemonmod,  # noqa: E402
-                 db, jobs as jobsmod, tui)
+                 db, hr, jobs as jobsmod, tui)
 from ocp.chat_page import ChatPage  # noqa: E402
 from ocp.ui.components.confirm import Confirm, confirm_answer  # noqa: E402
 from ocp.ui.components.read_only import ReadOnly  # noqa: E402
@@ -1055,6 +1055,449 @@ def test_what_an_agent_wrote_is_drawn_inert_on_every_part_of_the_page() -> None:
           note is not None and "told to stop" in note.plain)
 
 
+# ---------------------------------------------------------------- ui components
+
+def _plain(s: str) -> str:
+    return tui._ANSI.sub("", s)
+
+
+def test_gauge_elapsed_fraction_bar_and_usage_cells() -> None:
+    from types import SimpleNamespace
+    from ocp import status
+    from ocp.ui.components import gauge
+    ef = gauge.elapsed_fraction
+    check("gauge: a reset that is unknown or already passed has no fraction",
+          ef(None, 3600, now=1000) is None and ef(0, 3600, now=1000) is None
+          and ef(900, 3600, now=1000) is None and ef(1000, 3600, now=1000) is None)
+    check("gauge: partway through the window is the share of it already gone",
+          abs(ef(1000 + 900, 3600, now=1000) - 0.75) < 1e-9
+          and ef(1000 + 3600, 3600, now=1000) == 0.0)
+    check("gauge: a reset further off than the window never goes below 0",
+          ef(1000 + 7200, 3600, now=1000) == 0.0)
+
+    check("gauge: no figure is a row of dots",
+          _plain(gauge.bar(None, 6)) == "·" * 6)
+    check("gauge: the fill is round(pct * width)", _plain(gauge.bar(50, 10)).count("█") == 5)
+    check("gauge: a figure past 100 or below 0 stays inside the bar",
+          _plain(gauge.bar(250, 4)) == "████" and _plain(gauge.bar(-5, 4)) == "░░░░")
+    for pct, colour, name in ((59, tui.GRN, "green"), (60, tui.YEL, "yellow"),
+                              (84, tui.YEL, "yellow"), (85, tui.RED, "red")):
+        check(f"gauge: {pct}% is drawn {name}", gauge.bar(pct, 10).startswith(colour), repr(gauge.bar(pct, 10)))
+    last = gauge.bar(90, 10, last_seen=True)
+    check("gauge: a last-seen figure keeps its fill but has no colour",
+          last.startswith(tui.DIM) and not any(c in last for c in (tui.RED, tui.YEL, tui.GRN))
+          and _plain(last).count("█") == 9)
+
+    def at(elapsed, width=10, pct=50):
+        return _plain(gauge.bar(pct, width, elapsed=elapsed)).index("│")
+    check("gauge: the pace mark sits at its share of the width",
+          at(0.0) == 0 and at(0.5) == 5 and at(0.95) == 9)
+    check("gauge: the mark takes the place of a cell, it does not add one",
+          len(_plain(gauge.bar(50, 10, elapsed=0.5))) == 10)
+    check("gauge: past the end and on a one-cell bar the mark clamps inside the bar",
+          at(1.0) == 9 and at(2.0) == 9 and _plain(gauge.bar(50, 1, elapsed=0.9)) == "│")
+    check("gauge: no elapsed, no mark", "│" not in gauge.bar(50, 10))
+
+    now = time.time()
+    metered = SimpleNamespace(unmetered=False, reset_5h=int(now + 9000), reset_7d=int(now + 86400),
+                              trusted_pct_7d=40, pct_7d_source="live",
+                              shown_pct_5h=lambda: (70, status.mark("live")))
+    five, seven = gauge.usage_cells(metered, True, now=now)
+    check("gauge: a metered account has a 5h and a 7d cell, each with its bar and figure",
+          "70%" in _plain(five) and "40%" in _plain(seven) and "│" in _plain(five) and "│" in _plain(seven),
+          (_plain(five), _plain(seven)))
+    bare_five, _ = gauge.usage_cells(metered, False, now=now)
+    check("gauge: without show_pct only the bar is drawn", "%" not in _plain(bare_five))
+    check("gauge: an unmetered account has no meter to draw",
+          gauge.usage_cells(SimpleNamespace(unmetered=True)) is None)
+
+
+def test_agent_rows_short_model_cache_and_founder_block() -> None:
+    from ocp.ui.components import agent_rows as ar
+    check("agent_rows: the model loses its provider prefix",
+          ar.kind_short({"vendor": "zai", "model": "zai-coding-plan/glm-5.3-flash", "effort": "high"})
+          == "glm-5.3-flash high")
+    check("agent_rows: nor does it carry the vendor, and the effort is its short form",
+          ar.kind_short({"vendor": "claude", "model": "opus", "effort": "medium"}) == "opus mid"
+          and "claude" not in ar.kind_short({"vendor": "claude", "model": "opus", "effort": "medium"}))
+    check("agent_rows: a model with no slash is shown as it is",
+          ar.kind_short({"model": "sonnet"}).startswith("sonnet "))
+
+    home = _home("agentrows")
+    con = db.connect()
+    try:
+        check("agent_rows: no activity on record is no cache figure", ar.cache_left(con, "nobody", now=10_000) is None)
+        db.add_event(con, "nobody", "Stop")
+        last = db.last_activity(con, "nobody")
+        check("agent_rows: the cache left is what remains of PROMPT_CACHE_S since the last activity",
+              ar.cache_left(con, "nobody", now=last + 600) == daemonmod.PROMPT_CACHE_S - 600)
+        check("agent_rows: it goes negative once the cache has lapsed",
+              ar.cache_left(con, "nobody", now=last + daemonmod.PROMPT_CACHE_S + 5) == -5)
+
+        cell = lambda left: _plain(ar.cache_cell(left))
+        check("agent_rows: the cache cell is minutes, then m:ss in the last ten, then gone",
+              cell(3480) == "58m" and cell(600) == "10m" and cell(599) == "9:59"
+              and cell(65) == "1:05" and cell(0) == "gone" and cell(-30) == "gone" and cell(None) == "·")
+        check("agent_rows: the last ten minutes are yellow, the rest plain",
+              tui.YEL in ar.cache_cell(599) and tui.YEL not in ar.cache_cell(3480))
+
+        now = 5_000
+        db.block_open(con, "backend", "modal", "a dialog", "w", now=now, show_at=now + 100)
+        check("agent_rows: a block not yet old enough to be said is not the founder's yet",
+              ar.founder_block(con, "backend", now=now + 99) is None)
+        check("agent_rows: at show_at it is",
+              ar.founder_block(con, "backend", now=now + 100) is not None)
+        check("agent_rows: an agent with no block has none", ar.founder_block(con, "nobody", now=now + 100) is None)
+    finally:
+        con.close()
+
+
+def test_fold_urgency_ranks_what_a_fold_hides() -> None:
+    from ocp import ask as askmod
+    from ocp.ui.components import agent_rows as ar
+    _home("foldurg")
+    for n in ("w1", "w2", "w3", "w4"):
+        agents.register(n, "alpha")
+    con = db.connect()
+    try:
+        check("fold_urgency: nothing to say is None", ar.fold_urgency(con, ["w1", "w2"], {}) is None)
+        db.set_agent_state(con, "w1", "RUNNING")
+        check("fold_urgency: work going on is a green ▶",
+              ar.fold_urgency(con, ["w1", "w2"], {}) == ("▶", 1, tui.STATE_COLOR["RUNNING"]))
+        db.set_agent_state(con, "w2", "RUNNING")
+        check("fold_urgency: it counts the agents that share it",
+              ar.fold_urgency(con, ["w1", "w2"], {})[1] == 2)
+        check("fold_urgency: a stuck delivery is a yellow !, above work",
+              ar.fold_urgency(con, ["w1", "w2"], {"w2": {}}) == ("!", 1, tui.YEL))
+        db.set_agent_state(con, "w3", daemonmod.STALLED, detail="dead")
+        check("fold_urgency: an error is a red !, above a stuck delivery",
+              ar.fold_urgency(con, ["w1", "w2", "w3"], {"w2": {}}) == ("!", 2, tui.RED))
+        askmod.ask("human", "a question", requester="w4")
+        check("fold_urgency: an open ask to the founder is the ✉, above an error",
+              ar.fold_urgency(con, ["w1", "w3", "w4"], {})[0] == "✉")
+        check("fold_urgency: a red among yellows of the same rank makes the whole one red",
+              ar.fold_urgency(con, ["w2", "w3"], {"w2": {}}) == ("!", 2, tui.RED))
+    finally:
+        con.close()
+
+
+def test_agent_rows_collect_says_why_a_row_needs_the_founder() -> None:
+    from ocp import ask as askmod
+    from ocp.ui.components import agent_rows as ar
+    _home("collect")
+    agents.register("reviewer", "alpha")
+    askmod.ask("human", "please look", requester="reviewer")
+    con = db.connect()
+    try:
+        rows, _notes = tui.agents_data(con)
+        extra = ar.collect(con, rows)
+        check("collect: one Extra per row with cells, by name", set(extra) == {r.name for r in rows}, extra)
+        x = extra["reviewer"]
+        check("collect: an open ask to the founder is counted on its row",
+              x.asks == 1 and extra["backend"].asks == 0, x)
+        check("collect: a row with nothing to say has no block, no stuck reason, no urgency",
+              extra["backend"].block == "" and extra["backend"].urgency is None
+              , extra["backend"])
+    finally:
+        con.close()
+
+
+def test_open_proposals_lists_only_what_is_the_founders_move() -> None:
+    from ocp import ask as askmod
+    from ocp.ui.components import proposals as pr
+    home = _home("openprops")
+    agents.register("hr", "alpha")
+    con = db.connect()
+    try:
+        pids = {}
+        for name in ("queued", "unclear", "approved", "rejected"):
+            ok, said = hr.propose("add", name, requester="hr", why=f"why {name}", account="alpha")
+            check(f"proposals: {name} was raised", ok, said)
+            pids[name] = int(said.split("#")[1].split(".")[0])
+        # `resolve` refuses a non-decision on a proposal now; one closed that way by an
+        # older ocp is what is stranded.
+        con.execute("UPDATE requests SET state = 'done', verdict = 'sounds good' WHERE id = ?",
+                    (pids["unclear"],))
+        askmod.resolve(pids["approved"], "approve")
+        askmod.resolve(pids["rejected"], "reject not now")
+        got = {p["agent"]: p for p in pr.open_proposals(con)}
+        check("proposals: a queued escalation is 'decide'",
+              got.get("queued", {}).get("status") == pr.DECIDE, got)
+        check("proposals: one closed with an unclear reply is 'no decision', and keeps the reply",
+              got.get("unclear", {}).get("status") == pr.STRANDED
+              and got["unclear"]["reply"] == "sounds good", got)
+        check("proposals: an approved or a rejected one is left out",
+              "approved" not in got and "rejected" not in got, sorted(got))
+        check("proposals: each carries its request's id",
+              got["queued"]["rid"] == pids["queued"])
+        check("proposals: they are oldest first", [p["asked"] for p in pr.open_proposals(con)]
+              == sorted(p["asked"] for p in pr.open_proposals(con)))
+        check("proposals: the age is the biggest whole unit",
+              pr.age(0, now=59) == "0m" and pr.age(0, now=3600) == "1h" and pr.age(0, now=86400 * 2) == "2d")
+    finally:
+        con.close()
+
+
+def test_summary_line_and_tightest_account() -> None:
+    from types import SimpleNamespace
+    from unittest import mock
+    from ocp.ui.components import summary as sm
+    text = lambda running, s: sm.summary_text(running, "12:00:00", s).plain
+    check("summary: the daemon word comes first, and a quiet team says only that",
+          text(True, sm.Summary(0, 0, 0, None)) == "daemon running · 12:00:00")
+    check("summary: a daemon that is down says so", "NOT RUNNING" in text(False, sm.Summary(0, 0, 0, None)))
+    check("summary: working, to decide and to check follow, in that order, each only when not zero",
+          text(True, sm.Summary(1, 2, 3, None)) == "daemon running · 1 working · 2 to decide · 3 to check · 12:00:00"
+          and "working" not in text(True, sm.Summary(0, 2, 0, None)))
+    check("summary: the tight account is named with its window and figure",
+          text(True, sm.Summary(0, 0, 0, ("sigma", "5h", 87))) == "daemon running · sigma 5h 87% · 12:00:00")
+    check("summary: past LIMIT_PCT it is bold red, below it yellow",
+          sm.summary_text(True, "t", sm.Summary(0, 0, 0, ("a", "5h", sm.LIMIT_PCT))).spans[-2].style == "bold red"
+          and sm.summary_text(True, "t", sm.Summary(0, 0, 0, ("a", "5h", sm.TIGHT_PCT))).spans[-2].style == "yellow")
+
+    reads = {"a": SimpleNamespace(trusted_pct_5h=50, trusted_pct_7d=81),
+             "b": SimpleNamespace(trusted_pct_5h=92, trusted_pct_7d=None),
+             "c": SimpleNamespace(trusted_pct_5h=None, trusted_pct_7d=None)}
+    with mock.patch.object(sm.paths, "list_accounts", lambda: list(reads)), \
+            mock.patch.object(sm.status, "read", lambda n: reads[n]):
+        check("summary: tightest is the fullest window at TIGHT_PCT or more",
+              sm.tightest() == ("b", "5h", 92), sm.tightest())
+        reads["b"].trusted_pct_5h = 79
+        check("summary: the other window of another account can be the one",
+              sm.tightest() == ("a", "7d", 81), sm.tightest())
+        reads["a"].trusted_pct_7d = 79
+        check("summary: nothing at TIGHT_PCT, and an unreadable figure, is None", sm.tightest() is None)
+
+    _home("summarize")
+    con = db.connect()
+    try:
+        with mock.patch.object(sm, "tightest", lambda: None):
+            check("summary: nothing running or waiting counts zero",
+                  sm.summarize(con) == sm.Summary(0, 0, 0, None), sm.summarize(con))
+            db.set_agent_state(con, "backend", "RUNNING")
+            check("summary: a running agent counts", sm.summarize(con).running == 1)
+    finally:
+        con.close()
+
+
+def test_key_token_translates_textual_keys() -> None:
+    from ocp.ui.keys import key_token
+    ev = lambda key, ch=None: events.Key(key, ch)
+    check("keys: a named key is its byte token",
+          key_token(ev("up")) == "\033[A" and key_token(ev("enter")) == "\r"
+          and key_token(ev("escape")) == "\033" and key_token(ev("ctrl+c")) == "\x03")
+    check("keys: a printable character is itself", key_token(ev("q", "q")) == "q" and key_token(ev("question_mark", "?")) == "?")
+    check("keys: a bare modifier or an unbound function key has nothing to say",
+          key_token(ev("shift")) is None and key_token(ev("f5")) is None and key_token(ev("x", "\x00")) is None)
+
+
+def test_the_agent_row_names_the_fold_alarm_and_why_it_is_stuck() -> None:
+    from types import SimpleNamespace
+    from ocp.ui.components.agent_rows import Extra
+    row = lambda **kw: SimpleNamespace(**{"twig": "", "shown": "boss", "under": 0, "state": "IDLE",
+                                          "until": "", **kw})
+    extra = lambda **kw: Extra(**{"kind_short": "m", "cache_left": None, "block": "", "stuck": "",
+                                  "asks": 0, "urgency": None, **kw})
+    page = HomePage.__new__(HomePage)
+    name = lambda r, x, on: page._name_cell(r, x, on).plain
+    err = ("!", 2, tui.RED)
+    check("home: a fold hiding an error wears ⚠ and its count while the blink is on",
+          "+3 ⚠2" in name(row(under=3), extra(urgency=err), True))
+    check("home: and the icon is blank in the off phase, keeping the row's width",
+          name(row(under=3), extra(urgency=err), False) == "boss +3 " + " " * 2
+          and len(name(row(under=3), extra(urgency=err), False)) == len(name(row(under=3), extra(urgency=err), True)))
+    check("home: a fold hiding only a limit does not blink",
+          "⚠2" in name(row(under=3), extra(urgency=("!", 2, tui.YEL)), False))
+    check("home: a fold hiding an ask or work shows its glyph and count",
+          "✉1" in name(row(under=1), extra(urgency=("✉", 1, tui.YEL)), True)
+          and "▶4" in name(row(under=4), extra(urgency=("▶", 4, "g")), True))
+    check("home: the blink is only for an error under a fold",
+          HomePage._fold_errs(row(under=3), extra(urgency=err))
+          and not HomePage._fold_errs(row(under=3), extra(urgency=("!", 1, tui.YEL)))
+          and not HomePage._fold_errs(row(under=0), extra(urgency=err))
+          and not HomePage._fold_errs(row(under=3), extra()))
+    check("home: a row is an alarm on a dialog or a block, not on plain work",
+          HomePage._alarm(row(state="DIALOG"), extra()) and HomePage._alarm(row(), extra(block="b"))
+          and not HomePage._alarm(row(state="RUNNING"), extra()))
+    state = lambda r, x: page._state_cell(r, x, False).plain
+    check("home: the agent's row says why it is stuck, and a block in its own words",
+          "⚠ its delivery is not moving" in state(row(), extra(stuck="its delivery is not moving"))
+          and state(row(), extra(block="dialog open")).endswith(" dialog open")
+          and "⚠" not in state(row(), extra()))
+
+
+async def test_home_tab_bar_focus_mouse_and_columns() -> None:
+    from unittest import mock
+    from textual.widgets import Tabs
+    _home("homekeys")
+    app = bt.BridgeApp()
+    async with app.run_test(size=(120, 30)) as pilot:
+        await pilot.pause(0.3)
+        screen = app.screen
+        await pilot.press("up")            # AGENTS' first row -> ACCOUNTS' last: the panels are one list
+        await pilot.pause(0.1)
+        check("home: up from a panel's first row crosses into the panel above, not the tab bar",
+              not isinstance(screen.focused, Tabs) and screen.panel == tui.ACCOUNTS, screen.panel)
+        await pilot.press("up")
+        await pilot.pause(0.1)
+        check("home: up from the very first row does", isinstance(screen.focused, Tabs), screen.focused)
+        await pilot.press("right")
+        await pilot.pause(0.2)
+        check("home: right on the tab bar changes tab", screen.tab == "hr", screen.tab)
+        await pilot.press("left")
+        await pilot.pause(0.2)
+        check("home: left changes it back", screen.tab == "home", screen.tab)
+        await pilot.press("down")
+        await pilot.pause(0.1)
+        check("home: down goes back into the tab's content", screen.focused is None, screen.focused)
+        await pilot.press("right")
+        await pilot.press("right")
+        await pilot.pause(0.1)
+        check("home: with the focus back in the panels the arrows move panels again", screen.panel != tui.ACCOUNTS)
+
+        table = screen.query_one("#agents", DataTable)
+        screen.panel = tui.ACCOUNTS
+        screen._redraw()
+        await pilot.pause(0.1)
+        with mock.patch("ocp.ui.pages.home.marks_on_screen", lambda: True):
+            screen._redraw()
+            sub = screen.query_one("#accounts-box").border_subtitle
+        check("home: with a mark on screen the legend joins the window note on the border",
+              "│ time passed in the window" in sub and "inferred" in sub, sub)
+        with mock.patch("ocp.ui.pages.home.marks_on_screen", lambda: False):
+            screen._redraw()
+            check("home: and it is gone again without one",
+                  "inferred" not in screen.query_one("#accounts-box").border_subtitle)
+
+        # a mouse press picks the row under the pointer
+        agents.register("second", "alpha")
+        screen._redraw()
+        await pilot.pause(0.1)
+        agents_table = screen.query_one("#agents", DataTable)
+        keys = [k.value for k in agents_table.rows]
+        check("home: two agents are drawn", len(keys) >= 2, keys)
+        want = keys[-1]
+        await pilot.mouse_down(agents_table, offset=(3, agents_table.row_count - 1 + (1 if agents_table.show_header else 0)))
+        await pilot.pause(0.1)
+        check("home: a mouse press picks the row under the pointer",
+              screen.panel == tui.AGENTS and screen.sel.get(tui.AGENTS) == want, (screen.panel, screen.sel))
+
+    widths = {}
+    for w in (200, 70):
+        app = bt.BridgeApp()
+        async with app.run_test(size=(w, 30)) as pilot:
+            await pilot.pause(0.3)
+            widths[w] = len(app.screen.query_one("#accounts", DataTable).columns)
+    check("home: the account columns drop as the terminal narrows", widths[200] > widths[70], widths)
+
+
+async def test_hr_tab_approve_reject_withdraw_and_the_red_dot() -> None:
+    from textual.widgets import Button, Tabs
+    from ocp import ask as askmod
+    from ocp.ui.components.proposals import ProposalsView
+    _home("hrtab")
+    agents.register("hr", "alpha")
+    ok, said = hr.propose("add", "newbie", requester="hr", why="more hands", account="alpha")
+    check("hr tab: a proposal was raised", ok, said)
+    rid = int(said.split("#")[1].split(".")[0])
+    app = bt.BridgeApp()
+    async with app.run_test(size=(120, 34)) as pilot:
+        await pilot.pause(0.3)
+        screen = app.screen
+        tabs = screen.query_one("#scope", Tabs)
+        check("hr tab: the tab wears a red dot while a proposal waits",
+              "●" in tabs.get_tab("hr").label.plain, tabs.get_tab("hr").label)
+        tabs.active = "hr"
+        await pilot.pause(0.3)
+        view = screen.query_one("#hr_view", ProposalsView)
+        check("hr tab: the proposal is listed and selected",
+              [p["rid"] for p in view.rows] == [rid] and view.current["agent"] == "newbie", view.rows)
+        check("hr tab: a decidable one offers approve and reject",
+              not screen.query_one("#hr_approve", Button).disabled
+              and not screen.query_one("#hr_reject", Button).disabled)
+
+        view.action_reject()
+        await pilot.pause(0.2)
+        check("hr tab: reject asks for a reason", isinstance(app.screen, TextPrompt), type(app.screen).__name__)
+        await pilot.press("space", "enter")
+        await pilot.pause(0.3)
+        con = db.connect()
+        try:
+            check("hr tab: a blank reason rejects nothing",
+                  db.get_request(con, rid)["state"] == "queued", dict(db.get_request(con, rid)))
+        finally:
+            con.close()
+
+        view.action_approve()
+        await pilot.pause(0.2)
+        check("hr tab: approve goes through a Confirm", isinstance(app.screen, Confirm), type(app.screen).__name__)
+        await pilot.press("n")
+        await pilot.pause(0.2)
+        con = db.connect()
+        try:
+            check("hr tab: answering no to it approves nothing", db.get_request(con, rid)["state"] == "queued")
+        finally:
+            con.close()
+        view.action_approve()
+        await pilot.pause(0.2)
+        await pilot.press("y")
+        await pilot.pause(0.5)
+        con = db.connect()
+        try:
+            req = db.get_request(con, rid)
+            check("hr tab: yes answers the escalation `approve`, through answer_ok",
+                  req["state"] == "done" and hr.decision(req["verdict"]) == "approved", dict(req))
+        finally:
+            con.close()
+        check("hr tab: the answered proposal leaves the list, and nothing is left to decide",
+              view.rows == [] and screen.query_one("#hr_approve", Button).disabled)
+        screen._redraw()
+        check("hr tab: the dot goes with it", "●" not in tabs.get_tab("hr").label.plain)
+
+    ok, said = hr.propose("add", "second", requester="hr", why="w", account="alpha")
+    rid2 = int(said.split("#")[1].split(".")[0])
+    ok, said = hr.propose("add", "third", requester="hr", why="w", account="alpha")
+    rid3 = int(said.split("#")[1].split(".")[0])
+    con = db.connect()
+    try:
+        con.execute("UPDATE requests SET state = 'done', verdict = 'sounds good' WHERE id = ?", (rid3,))
+    finally:
+        con.close()
+    app = bt.BridgeApp()
+    async with app.run_test(size=(120, 34)) as pilot:
+        await pilot.pause(0.3)
+        screen = app.screen
+        screen.query_one("#scope", Tabs).active = "hr"
+        await pilot.pause(0.3)
+        view = screen.query_one("#hr_view", ProposalsView)
+        check("hr tab: a decide row and a no-decision row are both listed",
+              [p["status"] for p in view.rows] == ["decide", "no decision"], [p["status"] for p in view.rows])
+        view.query_one("#hr_table", DataTable).move_cursor(row=1)
+        await pilot.pause(0.2)
+        check("hr tab: a no-decision proposal only offers withdraw",
+              screen.query_one("#hr_approve", Button).disabled and screen.query_one("#hr_reject", Button).disabled
+              and not screen.query_one("#hr_withdraw", Button).disabled)
+        view.action_approve()
+        view.action_reject()
+        await pilot.pause(0.2)
+        check("hr tab: approve and reject do nothing on it", not isinstance(app.screen, (Confirm, TextPrompt)),
+              type(app.screen).__name__)
+        view.query_one("#hr_table", DataTable).move_cursor(row=0)
+        await pilot.pause(0.2)
+        view.action_reject()
+        await pilot.pause(0.2)
+        for ch in "too many":
+            await pilot.press("space" if ch == " " else ch)
+        await pilot.press("enter")
+        await pilot.pause(0.5)
+        con = db.connect()
+        try:
+            req = db.get_request(con, rid2)
+            check("hr tab: reject with a reason answers `reject <why>`",
+                  req["state"] == "done" and req["verdict"] == "reject too many", dict(req))
+        finally:
+            con.close()
+
 async def _run_all() -> None:
     test_only_y_n_or_escape_answers_a_confirm()
     test_the_menu_offers_what_the_text_could_become()
@@ -1088,6 +1531,16 @@ async def _run_all() -> None:
     await test_a_key_never_acts_on_a_row_nobody_pointed_at()
     await test_text_prompt_line_keeps_a_multiline_paste_and_shows_escapes_inert()
     await test_read_only_page_shows_foreign_text_inert()
+    test_gauge_elapsed_fraction_bar_and_usage_cells()
+    test_agent_rows_short_model_cache_and_founder_block()
+    test_fold_urgency_ranks_what_a_fold_hides()
+    test_agent_rows_collect_says_why_a_row_needs_the_founder()
+    test_open_proposals_lists_only_what_is_the_founders_move()
+    test_summary_line_and_tightest_account()
+    test_key_token_translates_textual_keys()
+    test_the_agent_row_names_the_fold_alarm_and_why_it_is_stuck()
+    await test_home_tab_bar_focus_mouse_and_columns()
+    await test_hr_tab_approve_reject_withdraw_and_the_red_dot()
 
 
 def main() -> int:
