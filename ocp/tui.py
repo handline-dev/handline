@@ -1,5 +1,5 @@
 """What the bridge shows (design section 11): its panels' rows, header and keys as
-data, and `snapshot`, the same as plain text. `bridge_textual` draws them.
+data, and `snapshot`, the same as plain text. `ui/pages/home.py` draws them.
 
 A join view over the same state the daemon decides on, so the two cannot
 disagree: if a number looks wrong here, the daemon is acting on that same wrong
@@ -1320,7 +1320,7 @@ def move(keys: list, current, delta: int):
     return keys[i] if 0 <= i < len(keys) else None
 
 
-def step(panel: int, sel: dict, delta: int) -> int:
+def step(panel: int, sel: dict, delta: int, panels: tuple = PANELS) -> int:
     """One row down or up, crossing into the next panel at the end of one.
 
     The panels are four lists stacked on one screen, and a reader arrowing down
@@ -1334,8 +1334,8 @@ def step(panel: int, sel: dict, delta: int) -> int:
     if nxt is not None:
         sel[panel] = nxt
         return panel
-    for _ in range(len(PANELS) - 1):
-        panel = (panel + delta) % len(PANELS)
+    for _ in range(len(panels) - 1):
+        panel = panels[(panels.index(panel) + delta) % len(panels)]
         keys = _keys_of(panel)
         if keys:
             sel[panel] = keys[0] if delta > 0 else keys[-1]
@@ -1576,7 +1576,7 @@ NEXT_ROW = ("j", "\033[B", "\033OB")
 PREV_ROW = ("k", "\033[A", "\033OA")
 
 
-def navigate(panel: int, sel: dict, k: str) -> int | None:
+def navigate(panel: int, sel: dict, k: str, panels: tuple = PANELS) -> int | None:
     """Where this keypress leaves the cursor, or None if it was not a move.
 
     ←→ and tab jump a whole panel; ↑↓ walk the screen and cross into the next
@@ -1587,13 +1587,13 @@ def navigate(panel: int, sel: dict, k: str) -> int | None:
     if panel == AGENTS and k in ARROWS and _fold(sel, k):
         return panel
     if k in NEXT_PANEL:
-        return _enter((panel + 1) % len(PANELS), sel)
+        return _enter(panels[(panels.index(panel) + 1) % len(panels)], sel)
     if k in PREV_PANEL:
-        return _enter((panel - 1) % len(PANELS), sel)
+        return _enter(panels[(panels.index(panel) - 1) % len(panels)], sel)
     if k in NEXT_ROW:
-        return step(panel, sel, 1)
+        return step(panel, sel, 1, panels)
     if k in PREV_ROW:
-        return step(panel, sel, -1)
+        return step(panel, sel, -1, panels)
     if k in ("r", "R"):
         return panel
     return None
