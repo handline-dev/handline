@@ -842,12 +842,23 @@ def _tell(con, agent: str, head, depth: int, handle: str, log) -> bool:
     return ok
 
 
+# How much of the original question an answer line quotes.
+ASKED_SHOWN = 40
+
+
 def answer_line(r) -> tuple[str, bool]:
     """One answered request as the line typed at its asker, and whether the
-    answer has more than that line to read. A dismissal is said as a label."""
+    answer has more than that line to read. A dismissal is said as a label.
+
+    The start of the question rides along: a bare number is not something an
+    agent can place once it has asked several things."""
     text = db.shown_verdict(r) or ""
     said = (text.splitlines() or [r["state"]])[0]
-    return f"#{r['id']} from {r['target']}: {said[:160]}", len(said) > 160 or "\n" in text
+    asked = textsafe.oneline(r["body"] or "").strip()
+    if len(asked) > ASKED_SHOWN:
+        asked = asked[:ASKED_SHOWN].rstrip() + "…"
+    head = f"#{r['id']} (you asked: {asked})" if asked else f"#{r['id']}"
+    return f"{head} {r['target']}: {said[:160]}", len(said) > 160 or "\n" in text
 
 
 def deliver_answers(con, agent: str, log) -> bool:
