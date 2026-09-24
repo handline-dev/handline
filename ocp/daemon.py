@@ -507,12 +507,14 @@ def _reclaim_context(con, agent: str, log) -> tuple[bool, str]:
     if not orca.available():
         return False, "orca is not on PATH"
     if not session_present(agent):
-        return False, "no session process; not typing /clear at a shell prompt"
+        return False, f"no session process; not typing {orca.clear_command(handle)} at a shell prompt"
     if _past_dialog(con, agent, log):
-        return False, "a dialog is open on its screen that ocp cannot get past; not typing /clear at it"
+        return False, ("a dialog is open on its screen that ocp cannot get past; "
+                       f"not typing {orca.clear_command(handle)} at it")
     running = orca.background_work(handle)
     if running:
-        return False, f"background work is running ({running}); not typing /clear at it"
+        return False, (f"background work is running ({running}); "
+                       f"not typing {orca.clear_command(handle)} at it")
     ok, why = orca.clear_context(handle, timeout_ms=orca.IDLE_PROBE_MS)
     log(f"  {agent}: {why}")
     return ok, why
