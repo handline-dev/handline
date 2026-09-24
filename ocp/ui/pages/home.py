@@ -56,6 +56,7 @@ class HomePage(Dashboard):
     # The bars carry a `│` for how far through the window we are, so the reset
     # countdowns are left out; the account's page has the times.
     PACE = True
+    SEVEN_W = tui.ACCT_BAR_W["five"]     # as long as the 5h bar
     _ACCT_COLS = [k for k in tui.ACCT_W if k not in ("name", "reset5", "reset7")]
     SHOW_LEGEND = False   # it explains the ACCOUNTS figures, so it sits on that panel
     SHOW_WAITS = False   # what waits on the founder shows on the rows it is about

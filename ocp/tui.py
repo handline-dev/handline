@@ -277,7 +277,7 @@ def agents_cell(counts: tuple[int, int] | None, unplaced: int = 0,
 def account_cells(name: str, st, now: float | None = None,
                   counts: tuple[int, int] | None = None,
                   unplaced: int = 0, at_cap: bool = False, ld=None,
-                  pace: bool = False) -> dict[str, str]:
+                  pace: bool = False, seven_w: int = ACCT_BAR_W["seven"]) -> dict[str, str]:
     """The bounded cells of an ACCOUNTS row, unpadded and keyed like ACCT_W.
     The name is free text and is cut to fit where it is drawn. `counts` is the
     account's (assigned, running) from `load.roster`, None where it was not read;
@@ -302,7 +302,7 @@ def account_cells(name: str, st, now: float | None = None,
         # The weekly figure carries its provenance like the 5h one. Drawn
         # bare, a number from a stale snapshot - or from a week that has since
         # rolled over - reads as this week's measurement.
-        "seven": _gauge(st.trusted_pct_7d, ACCT_BAR_W["seven"], status.mark(st.pct_7d_source),
+        "seven": _gauge(st.trusted_pct_7d, seven_w, status.mark(st.pct_7d_source),
                         elapsed_fraction(st.reset_7d, 7 * 86400, now) if pace else None),
         # The deadline the ordering spends against: when this window's
         # headroom is lost if nobody uses it.
@@ -318,7 +318,8 @@ class AccountRow(NamedTuple):
     next: str                # " next" on the one account work goes to, else ""
 
 
-def accounts_data(con, pace: bool = False) -> tuple[list[AccountRow], list[str]]:
+def accounts_data(con, pace: bool = False,
+                  seven_w: int = ACCT_BAR_W["seven"]) -> tuple[list[AccountRow], list[str]]:
     """What the ACCOUNTS panel shows, before any of it is laid out: one row per
     account and the notes under them (none registered, the team's outlook)."""
     # The account with the most headroom: where work goes when an agent's
@@ -343,7 +344,7 @@ def accounts_data(con, pace: bool = False) -> tuple[list[AccountRow], list[str]]
         # on 0% is the dashboard and the daemon disagreeing.
         cells = account_cells(name, st, counts=roster.get(name, (0, 0)), unplaced=unplaced,
                               at_cap=bool(loads.get(name) and loads[name].at_cap),
-                              ld=loads.get(name), pace=pace)
+                              ld=loads.get(name), pace=pace, seven_w=seven_w)
         rows.append(AccountRow(
             name, cells, f"{GRN}✔{R}" if allowed else f"{RED}✘{R}",
             # Where work goes next is said in a word after the tick, not drawn
