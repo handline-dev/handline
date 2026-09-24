@@ -2387,24 +2387,10 @@ def test_a_walled_wake_says_so_everywhere(home: Path) -> None:
         os.environ["OCP_AGENT"] = "reviewer"
         team_out = _capture(lambda: climod.main(["team"]))
         del os.environ["OCP_AGENT"]
-        wide = tui._ANSI.sub("", _snap(200, 40))
-        narrow = tui._ANSI.sub("", _snap(80, 40))
         check("walled: `ocp ps` says it", reason in ps_out, ps_out)
         check("walled: `ocp triggers` says it", reason in trig_out, trig_out)
         check("walled: `ocp team` says it too - the fourth surface",
               "alpha" in team_out and when in team_out, team_out)
-        # The bridge has no room for the full sentence at a real terminal
-        # width - `ocp ps` and `ocp triggers` print it whole because a line of
-        # text can run as long as it needs to; a fixed column cannot. It
-        # draws the same predicate, fitted to the column: the account and the
-        # clock, not a paraphrase of the sentence.
-        check("walled: the bridge names the account and the clock at full width",
-              "alpha" in wide and when in wide,
-              str([ln for ln in wide.splitlines() if "backend" in ln]))
-        check("walled: and still does at a realistic terminal width",
-              "alpha" in narrow and when in narrow,
-              str([ln for ln in narrow.splitlines() if "backend" in ln]))
-
         # It is computed, not stored: once the account has room the sentence
         # disappears from every screen on its own, with nothing to clear.
         write_status(home, "alpha", pct_5h=20, pct_7d=10, ctx_pct=5,

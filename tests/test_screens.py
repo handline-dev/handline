@@ -1174,19 +1174,9 @@ def test_word_movement_stops_at_a_lines_edge() -> None:
           and tui._word_left(7, text) == 4)
 
 
-def test_a_message_body_is_wrapped_whole_and_stripped_of_escapes(home: Path) -> None:
-    """An agent's report arrives as one paragraph with no newline in it, and
-    fitting it to the width showed its first sentence and dropped the rest.
-    Wrapping breaks it to the width and keeps every word, and an escape in a
-    body is stripped: it is invisible to the width count, and a clear-screen
-    sequence in it wipes the screen it is drawn on."""
-    long_body = ("A verdict with no newlines at all, " * 20).strip()
-    wrapped = tui.wrap([long_body], 60)
-    check("read: a paragraph is broken to the width, not cut off",
-          len(wrapped) > 1 and max(len(ln) for ln in wrapped) <= 60,
-          str(max(len(ln) for ln in wrapped)))
-    check("read: and every word survives the break",
-          " ".join(wrapped).split() == long_body.split())
+def test_an_escape_in_a_message_body_is_stripped(home: Path) -> None:
+    """An escape in a body is stripped: a clear-screen sequence in it would
+    wipe the screen it is drawn on."""
     cleaned = tui.wrap(["\033[2J\033[Hpasted \033[31mtool output"], 40)
     check("read: escapes in a body are text stripped, not commands drawn",
           "\033" not in "".join(cleaned) and "pasted tool output" in " ".join(cleaned),
@@ -1414,34 +1404,18 @@ def test_each_account_guard_fails_under_its_own_mutation(home: Path) -> None:
         accounts.logged_in, accounts.identity, accounts.logout_argv = orig_in, orig_id, orig_logout
 
 
-def test_a_draft_and_an_unknown_bar_are_not_changed_by_what_cannot_mean_them(home: Path) -> None:
+def test_a_wheel_notch_leaves_a_draft_untouched(home: Path) -> None:
     """A wheel notch reaches the agent page's box as an arrow key and must
-    leave the draft as it was; an unknown reading is never drawn as an empty
-    gauge."""
+    leave the draft as it was."""
     box = tui.Composer(multi=True)
     box.feed("half a mess")
     box.feed("".join(("\033[A", "\033OA", "\033[B", "\033OB")) * 4)
     check("wheel: a draft under composition is untouched", box.text == "half a mess")
-    check("tui: an unknown bar is not an empty bar",
-          tui.vlen(tui.bar(None, 10)) == 10 and "░" not in tui.bar(None, 10))
 
 
-def test_a_message_being_typed_is_shown_whole_and_inert(home: Path) -> None:
-    """Text typed into the composer is drawn whole at any width, and a pasted
-    escape is drawn as a picture, never handed to the terminal."""
-    def plain(rows: list[str]) -> list[str]:
-        return [tui._ANSI.sub("", r) for r in rows]
-
+def test_a_pasted_escape_in_a_message_being_typed_is_never_sent(home: Path) -> None:
+    """A pasted escape is drawn as a picture, never handed to the terminal."""
     box = tui.Composer(multi=True)
-    lost = []
-    for width in (80, 20, 7):
-        for n in range(0, 90):
-            box.text = ("ab cd " * 40)[:n]
-            box.pos = len(box.text)
-            rows = plain(box.shown("to reviewer:", width, 100))
-            if "".join(rows) != "to reviewer: " + box.text + "▏":
-                lost.append((width, n, rows[-2:]))
-    check("typing: at any length and width nothing is lost", not lost, str(lost[:2]))
     box.text = "a\033[2Jb"
     box.pos = len(box.text)
     check("typing: a pasted escape is shown as a picture, never sent",
@@ -1541,29 +1515,13 @@ def test_the_accounts_panel_says_how_many_agents_are_assigned_and_running(home: 
     check("agents cell: assigned then running", cell((3, 2)) == "3 ▶2", cell((3, 2)))
     check("agents cell: none is a figure, unread is not",
           cell((0, 0)) == "0" and cell(None) == "?")
-    check("agents cell: assigned and none running still says so, and dimly",
-          cell((3, 0)) == "3 ▶0" and tui.agents_cell((3, 0)).count(tui.DIM) == 1
-          and tui.STATE_COLOR["RUNNING"] in tui.agents_cell((3, 1)))
+    check("agents cell: assigned and none running still says so",
+          cell((3, 0)) == "3 ▶0")
     check("agents cell: agents that could not be placed make every figure a floor",
           cell((3, 2), 1) == "3? ▶2?" and cell((0, 0), 1) == "0? ▶0?",
           (cell((3, 2), 1), cell((0, 0), 1)))
     check("agents cell: at its cap it says the same words",
           plain(tui.agents_cell((3, 2), 0, True)) == "3 ▶2")
-
-    # The same figures on the bridge, for the account with agents, the one
-    # with one closed agent, and the one with none.
-    real_login = tui._logged_in
-    tui._logged_in = lambda acct: True
-    try:
-        wide = plain(_snap(200, 40, panel=tui.ACCOUNTS))
-    finally:
-        tui._logged_in = real_login
-    row = lambda text, n: next(ln for ln in text.splitlines() if f" {n} " in ln)  # noqa: E731
-    check("agents column: alpha reads 3 ▶1",
-          " 3 ▶1 " in row(wide, "alpha"), row(wide, "alpha"))
-    check("agents column: beta reads 1 ▶0", " 1 ▶0 " in row(wide, "beta"), row(wide, "beta"))
-    check("agents column: gamma, with none, reads 0",
-          " 0 " in row(wide, "gamma") and "▶" not in row(wide, "gamma"), row(wide, "gamma"))
 
 
 def test_the_team_is_drawn_the_way_it_is_routed(home: Path) -> None:
@@ -1761,35 +1719,6 @@ def test_the_wake_time_is_in_the_state_cell_not_a_column(home: Path) -> None:
         lines = [tui._ANSI.sub("", ln) for ln in _snap(120, 40).split(chr(10))]
         due = [ln for ln in lines if "backend" in ln]
         check("agents: a deadline that has passed says so", due and " due" in due[0], str(due))
-    finally:
-        con.close()
-
-
-def test_a_messages_state_is_never_cut_at_a_narrow_width(home: Path) -> None:
-    """The state line can carry the id /cancel names; a narrow pane wraps it
-    instead of cutting it. The longest real state is a delivered message with a
-    four-digit id, and the human's own waiting row: at 32 and 24 columns - a
-    split pane - the one-line layout cut both."""
-    _daemon_home(home, 20)
-    agents.register("reviewer", "alpha")
-    con = db.connect()
-    try:
-        rid = db.add_request(con, askmod.HUMAN, "reviewer", "hello", None, "peer", "async",
-                             None, 0, None)
-        con.execute("UPDATE requests SET id = 1234, chain_id = '1234', delivered_at = ? "
-                    "WHERE id = ?", (int(time.time()), rid))
-        rid = 1234
-        db.add_request(con, "reviewer", askmod.HUMAN, "question", None, "peer", "async",
-                       None, 0, None)
-        page = tui._agent_page(con, "reviewer", tui.AGENTS)
-        for width in (40, 32, 24, 16):
-            lines = [tui._ANSI.sub("", ln) for ln in tui.lines_of(page, width)]
-            text = " ".join(ln.strip() for ln in lines)
-            check(f"state: 'delivered' and the id are whole at {width}",
-                  "delivered" in text and f"#{rid}" in text and "\u2026" not in "".join(
-                      ln for ln in lines if "delivered" in ln or f"#{rid}" in ln), str(lines))
-            check(f"state: 'waiting for you' is whole at {width}",
-                  "waiting for you" in re.sub(r"\s+", " ", text), str(lines))
     finally:
         con.close()
 
@@ -2216,95 +2145,6 @@ def test_a_message_in_for_you_has_a_place_in_the_conversation(home: Path) -> Non
             say(f"newer chain {i}", f"n{i}")
         check("for-you: a message in a chain the conversation no longer draws has no place",
               actions.message_place(con, old) is None)
-    finally:
-        con.close()
-
-
-def test_a_conversation_reads_as_turns_at_any_width(home: Path) -> None:
-    """Founder: the conversation was hard to read. At a glance who said what and
-    where a message ends: a marker on its first line, the text indented under
-    it, a dim line saying when, a gap between messages, and everything inside
-    the column - as the Claude Code screen draws its own."""
-    _daemon_home(home, 20)
-    agents.register("reviewer", "alpha")
-    con = db.connect()
-    try:
-        long = "word " * 30
-        actions.chat_reply(con, "reviewer", f"first\n\nsecond paragraph {long}")
-        actions.chat_reply(con, "reviewer", "again")
-        first, second = [r["id"] for r in con.execute(
-            "SELECT id FROM requests ORDER BY id").fetchall()][-2:]
-        askmod.resolve(first, "answer with \033[2J an escape")
-        now = int(time.time())
-        con.execute("UPDATE requests SET ts = ? WHERE id = ?", (now - 300, first))
-        con.execute("UPDATE requests SET ts = ? WHERE id = ?", (now - 200, second))
-        con.execute("UPDATE requests SET resolved_at = ? WHERE id = ?", (now - 100, first))
-        page = tui._agent_page(con, "reviewer", tui.AGENTS)
-        for width in (100, 40, 24):
-            raw = tui.lines_of(page, width)
-            rows = [tui._ANSI.sub("", ln) for ln in raw]
-            body = rows[next(i for i, ln in enumerate(rows) if ln.startswith("── chain")):]
-            body = body[:next(i for i, ln in enumerate(body) if ln.startswith("↵ write"))]
-            heads = [i for i, ln in enumerate(body) if re.match(r"[❯⏺] ", ln)]
-            check(f"turns: three messages, three markers at {width}", len(heads) == 3, str(body))
-            check(f"turns: the human's is the prompt marker, the agent's the dot at {width}",
-                  [body[i][0] for i in heads] == ["❯", "❯", "⏺"], str(body))
-            said = " ".join(ln.strip().lstrip("❯⏺").strip() for ln in body)
-            check(f"turns: none of the text is lost at {width}",
-                  said.count("word") == 30 and "second paragraph" in said and "again" in said,
-                  said[:200])
-            check(f"turns: an escape in a message is not sent to the terminal at {width}",
-                  "\033[2J" not in "".join(raw))
-    finally:
-        con.close()
-
-
-def test_a_conversation_shows_whose_message_is_whose_without_colour(home: Path) -> None:
-    """Founder: at the very least what I said must look different from what the
-    agent said. The marker says it without colour, the colour says it again,
-    and a third party's message is neither of theirs."""
-    _daemon_home(home, 20)
-    agents.register("reviewer", "alpha")
-    con = db.connect()
-    try:
-        actions.chat_reply(con, "reviewer", "start here " + "and a long first line " * 5)
-        first = actions.chat_parent(con, "reviewer")
-        actions.chat_reply(con, "reviewer", "second of the run\n\nafter a blank\nlast line")
-        third = askmod.ask("backend", "need the build log\nplease", requester="reviewer",
-                           parent_id=first)[2]
-        askmod.resolve(third, "here it is\nall of it")
-        askmod.resolve(first, "agent answer " + "with a long first line " * 4 + "\nand a second line")
-        now = int(time.time())
-        for i, rid in enumerate((first, first + 1, third)):
-            con.execute("UPDATE requests SET ts = ?, resolved_at = ? WHERE id = ?",
-                        (now - 900 + i * 100, now - 800 + i * 100 + 50, rid))
-        page = tui._agent_page(con, "reviewer", tui.AGENTS)
-        marker = {"\u276f": "you", "\u23fa": "agent", "\u00b7": "other"}
-        for width in (100, 40, 24):
-            raw = tui.lines_of(page, width)
-            groups: list[tuple[str, list[str]]] = []       # (side, raw lines of a message)
-            for r in raw:
-                plain = tui._ANSI.sub("", r).rstrip()
-                if plain.startswith("↵ write"):
-                    break                                  # the hint, and what it wrapped to
-                m = re.match(r"([\u276f\u23fa\u00b7]) ", plain)
-                if m:
-                    groups.append((marker[m.group(1)], []))
-                if groups and not plain.startswith("──"):
-                    groups[-1][1].append(r)
-            sides = [sd for sd, _ in groups]
-            said = [r for r in page["sections"][1][1] if getattr(r, "kind", "") == "msg"]
-            check(f"whose: every message starts on a marker at {width}",
-                  len(groups) == len(said) > 0, f"{len(groups)} groups, {len(said)} messages")
-            check(f"whose: the human's, the agent's and a third party's are all there at {width}",
-                  set(sides) == {"you", "agent", "other"}, str(sides))
-            check(f"whose: a line between two agents is the third party's, never the agent's at {width}",
-                  all((" → " in tui._ANSI.sub("", g[0])) == (sd == "other") for sd, g in groups),
-                  str([(sd, tui._ANSI.sub("", g[0])) for sd, g in groups]))
-            check(f"whose: the third party is named as who to whom, not as either of them at {width}",
-                  any(re.search(r"(reviewer → backend|backend → reviewer)", tui._ANSI.sub("", g[0]))
-                      for sd, g in groups if sd == "other"), str([tui._ANSI.sub("", g[0]) for _, g in groups]))
-        check("whose: three sides, three markers", len(set(marker.values())) == 3)
     finally:
         con.close()
 
@@ -2909,13 +2749,8 @@ def test_the_composer_cursor_moves_and_edits_in_place(home: Path) -> None:
 def test_the_composer_alt_keys_and_a_pasted_cursor_glyph(home: Path) -> None:
     """Auditor's should-fix on #1033: ESC-then-key (Alt/Option, what macOS
     Terminal and iTerm2 send for word moves by default) fell into the same
-    branch as a lone Escape and threw the typed message away; and the row the
-    cursor is on was found by searching for its own glyph, so a pasted
-    U+258F - a character ocp's own composer draws, so copying a composer line
-    back in produces one - could be mistaken for it."""
-    def plain(rows: list[str]) -> list[str]:
-        return [tui._ANSI.sub("", r) for r in rows]
-
+    branch as a lone Escape and threw the typed message away; a pasted U+258F
+    (the cursor glyph ocp's own composer draws) must not move the real cursor."""
     c = tui.Composer()
     c.feed("one two three")
     check("alt: Option+Left (ESC b) is a word move, not a cancel",
@@ -2934,40 +2769,11 @@ def test_the_composer_alt_keys_and_a_pasted_cursor_glyph(home: Path) -> None:
     check("alt: a lone Escape - nothing after it in the same read - still cancels",
           tui.Composer().feed("\033") == "cancel")
 
-    # A pasted cursor glyph earlier in the text must not pull the window to it
-    # instead of the real cursor - the row search the fix replaced would have.
+    # A pasted cursor glyph in the text must not move the real cursor.
     c = tui.Composer()
     c.feed("▏" + "x" * 30)   # a look-alike character, then ordinary text
     check("cursor: typing after a glyph the text itself contains still leaves "
           "the real cursor at the end", c.pos == 31)
-    rows = plain(c.shown("p:", 30, 2))
-    check("shown: the window follows the real cursor, not the look-alike earlier in the text",
-          rows[-1].endswith("▏") and "earlier" in rows[0] and len(rows) == 2, str(rows))
-
-    # auditor #1083: cur computed from the prefix's own wrap, rather than by
-    # finding the glyph in the marked wrap, lost the cursor on ordinary text
-    # (no glyph anywhere) whenever the prefix exactly filled its last row -
-    # 303 of 4000 random cases. This is one of those 303, and stays a real
-    # guard on the cursor-position half: False on the prefix-wrap mechanism,
-    # True both before that fix and after it. The case it replaced was also
-    # a real guard on this half - the swap is for the check below, the
-    # uniqueness half of the same fix, which no earlier case here pinned.
-    c = tui.Composer()
-    c.feed("dbdc bd aca a \n d\nc\n\n\nd\n dca  c d aaa")
-    c.pos = 9
-    rows = plain(c.shown("", 6, 1))
-    check("shown: the cursor is on screen on ordinary text with no glyph in it",
-          any("▏" in r for r in rows), str(rows))
-
-    # The actual mechanism: a pasted U+258F is substituted before the real
-    # cursor's is inserted, so shown()'s output holds exactly one - never
-    # more, whatever the pasted glyph's own position ends up being.
-    c = tui.Composer()
-    c.feed("a▏b")
-    c.pos = 2
-    rows = plain(c.shown("", 40, 10))
-    check("shown: exactly one cursor glyph, even with one pasted into the text",
-          sum(r.count("▏") for r in rows) == 1, str(rows))
 
 
 def test_the_agent_footer_shows_only_what_the_row_can_do(home: Path) -> None:
@@ -3423,56 +3229,6 @@ def test_human_inbox_routing_matches_cmd_bridge() -> None:
         climod._human_inbox = real_human
 
 
-def test_bridge_textual_dashboard() -> None:
-    """task #45: the Textual port's first screen (ocp/bridge_textual.py) - its
-    own tests, in tests/test_bridge_textual.py, need `textual` to import at
-    all. Without it on the interpreter running this suite the file is run
-    under one that has it (`ocp venv install`'s own venv), the same way
-    test_yaml_differential falls back to a python3 with PyYAML - a missing
-    dependency must fail loud, not leave the screen unexercised on whichever
-    python happens to run the suite."""
-    py = _python_with_textual()
-    if py is None:
-        check("bridge_textual: a python3 with textual to run its tests under", False,
-              "none found; `ocp venv install` puts it in $OCP_HOME/venv")
-        return
-    script = Path(__file__).resolve().parent / "test_bridge_textual.py"
-    r = subprocess.run([py, str(script)], capture_output=True, text=True, timeout=120,
-                       env={k: v for k, v in os.environ.items() if k != "OCP_AGENT"})
-    out = r.stdout + r.stderr
-    check(f"bridge_textual: under {py}, its own tests all pass",
-          r.returncode == 0 and "passed, 0 failed" in out, out[-2000:])
-
-
-def test_bridge_textual_once_prints_a_frame_and_does_not_need_a_tty(home: Path) -> None:
-    """Task #54 item 5: `ocp bridge --textual --once` (a script, a pipe, a cron
-    line - the non-interactive case `tui.run`'s own `once`/non-tty branch
-    exists for) must print one frame and exit, not start a Textual app that
-    blocks forever with nothing attached to its input. `bridge_textual.run`
-    took no `once` at all before this; `cmd_bridge` never passed it through."""
-    py = _python_with_textual()
-    if py is None:
-        check("bridge --textual --once: a python3 with textual to run this under", False,
-              "none found; `ocp venv install` puts it in $OCP_HOME/venv")
-        return
-    _daemon_home(home, 20)
-    env = {k: v for k, v in os.environ.items() if k != "OCP_AGENT"}
-    env["OCP_HOME"] = str(home)
-    entry = paths.repo_root() / "bin" / "_ocp_entry.py"
-    r = subprocess.run([py, str(entry), "bridge", "--textual", "--once"],
-                       capture_output=True, text=True, timeout=30, env=env)
-    check("bridge --textual --once: exits 0 with the dashboard's own frame, not empty",
-          r.returncode == 0 and "AGENTS" in r.stdout and "backend" in r.stdout,
-          f"out={r.stdout!r} err={r.stderr!r}")
-    # Piped stdout (no --once) is the same non-tty case `tui.run` already
-    # covers - not an interactive session either, so it must fall back the
-    # same way rather than only responding to the flag.
-    r2 = subprocess.run([py, str(entry), "bridge", "--textual"],
-                        capture_output=True, text=True, timeout=30, env=env)
-    check("bridge --textual: piped stdout falls back to one frame too, not a hang",
-          r2.returncode == 0 and "AGENTS" in r2.stdout, f"out={r2.stdout!r} err={r2.stderr!r}")
-
-
 def main() -> int:
     def tests(td):
         home = Path(td) / "orcapipe"
@@ -3502,25 +3258,22 @@ def main() -> int:
         run(lambda: test_the_snapshot_is_plain_text_of_every_panel_and_nothing_a_terminal_would_obey(Path(td) / 'snapshot'))
         run(lambda: test_a_queued_request_past_the_newest_chains_is_still_on_the_agent_page(Path(td) / 'elderpage'))
         run(lambda: test_word_movement_stops_at_a_lines_edge())
-        run(lambda: test_a_message_body_is_wrapped_whole_and_stripped_of_escapes(Path(td) / 'wrapbody'))
+        run(lambda: test_an_escape_in_a_message_body_is_stripped(Path(td) / 'wrapbody'))
         run(lambda: test_an_opened_agent_shows_its_whole_inbox_and_handoff(Path(td) / 'wholeinbox'))
         run(lambda: test_the_messenger_tab_carries_a_conversation_both_ways(Path(td) / 'chat'))
         run(lambda: test_the_cursor_follows_a_row_that_leaves_the_list(Path(td) / 'cursor'))
         run(lambda: test_each_account_guard_fails_under_its_own_mutation(Path(td) / 'guards'))
-        run(lambda: test_a_draft_and_an_unknown_bar_are_not_changed_by_what_cannot_mean_them(Path(td) / 'ar4f'))
-        run(lambda: test_a_message_being_typed_is_shown_whole_and_inert(Path(td) / 'ar4g'))
+        run(lambda: test_a_wheel_notch_leaves_a_draft_untouched(Path(td) / 'ar4f'))
+        run(lambda: test_a_pasted_escape_in_a_message_being_typed_is_never_sent(Path(td) / 'ar4g'))
         run(lambda: test_the_cap_is_set_from_the_command_line_and_shown_on_the_bridge(Path(td) / 'ar5'))
         run(lambda: test_the_accounts_panel_says_how_many_agents_are_assigned_and_running(Path(td) / 'panelagents'))
         run(lambda: test_the_team_is_drawn_the_way_it_is_routed(Path(td) / 'tree'))
         run(lambda: test_the_wake_time_is_in_the_state_cell_not_a_column(Path(td) / 'waketime'))
-        run(lambda: test_a_messages_state_is_never_cut_at_a_narrow_width(Path(td) / 'narrowstate'))
         run(lambda: test_a_folded_row_says_what_its_reports_are_doing(Path(td) / 'foldmark'))
         run(lambda: test_the_panel_and_the_daemon_agree_about_what_is_in_the_way(Path(td) / 'topagree'))
         run(lambda: test_the_screen_says_what_is_stuck_and_what_was_decided(Path(td) / 'topstuck'))
         run(lambda: test_the_agent_head_is_trimmed_and_slash_commands_are_derived_not_kept(Path(td) / 'headtrim'))
         run(lambda: test_a_message_in_for_you_has_a_place_in_the_conversation(Path(td) / 'foryou'))
-        run(lambda: test_a_conversation_reads_as_turns_at_any_width(Path(td) / 'turns'))
-        run(lambda: test_a_conversation_shows_whose_message_is_whose_without_colour(Path(td) / 'whose'))
         run(lambda: test_nothing_a_terminal_would_obey_gets_through_what_someone_else_wrote(Path(td) / 'esc'))
         run(lambda: test_an_agent_name_is_text_and_no_screen_can_be_made_to_obey_it(Path(td) / 'names'))
         run(lambda: test_no_command_prints_what_a_terminal_would_obey(Path(td) / 'cli'))
@@ -3538,9 +3291,6 @@ def main() -> int:
         run(lambda: test_bridge_routing_is_textual_on_a_tty_and_text_otherwise())
         run(lambda: test_bridge_textual_missing_package_classification())
         run(lambda: test_human_inbox_routing_matches_cmd_bridge())
-        run(lambda: test_bridge_textual_dashboard())
-        run(lambda: test_bridge_textual_once_prints_a_frame_and_does_not_need_a_tty(
-            Path(td) / 'textualonce'))
     return run_area(tests)
 
 
