@@ -3,7 +3,6 @@ be approved or rejected: the same answer the MESSAGES panel gives, in the
 verdict words `hr.decision` reads."""
 from __future__ import annotations
 
-import time
 
 from rich.text import Text
 from textual.app import ComposeResult
@@ -11,7 +10,7 @@ from textual.binding import Binding
 from textual.containers import Vertical, VerticalScroll
 from textual.widgets import Button, DataTable, Static
 
-from ... import actions, db, hr, textsafe
+from ... import actions, db, hr, textsafe, timefmt
 from .confirm import Confirm
 from .text_prompt import TextPrompt
 from .action_bar import ActionBar
@@ -47,18 +46,12 @@ def open_proposals(con) -> list[dict]:
     return sorted(out, key=lambda p: (p["asked"], p["rid"]))
 
 
-def age(ts: int, now: float | None = None) -> str:
-    secs = max(0, int((time.time() if now is None else now) - ts))
-    return f"{secs // 86400}d" if secs >= 86400 else f"{secs // 3600}h" if secs >= 3600 \
-        else f"{secs // 60}m"
-
-
 def describe(p: dict) -> Text:
     """One proposal for the detail pane; every value came from an agent, so each is
     made one safe line and the reason a safe block."""
     out = Text(f"{p['kind']} {textsafe.oneline(str(p['agent']))}", style="bold")
     out.append(f"   #{p['rid']} from {textsafe.oneline(str(p.get('requested_by') or '?'))}, "
-               f"{age(p['asked'])} ago\n", style="dim")
+               f"{timefmt.ago_short(p['asked'])} ago\n", style="dim")
     for key in _FIELDS:
         if p.get(key):
             out.append(f"{key:<8}", style="dim")
@@ -121,7 +114,7 @@ class ProposalsView(Vertical):
             table.add_row(Text(f"#{p['rid']}", style="cyan"), Text(p["kind"]),
                           Text(textsafe.oneline(str(p["agent"]))),
                           Text(textsafe.oneline(str(p.get("requested_by") or "?")), style="dim"),
-                          Text(age(p["asked"]), style="dim"),
+                          Text(timefmt.ago_short(p["asked"]), style="dim"),
                           Text(p["status"], style="yellow" if p["status"] == DECIDE else "red"),
                           key=str(p["rid"]))
         if self.rows:

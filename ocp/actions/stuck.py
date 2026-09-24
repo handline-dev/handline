@@ -4,8 +4,9 @@ from __future__ import annotations
 import time
 
 from .. import agents
+from .. import timefmt
 from .. import blocked
-from .. import daemon
+from ..daemon import delivery as dmn_delivery, locks as dmn_locks, states as dmn_states
 from .. import db
 from .. import load as loadmod
 from .. import observe as obs
@@ -20,7 +21,7 @@ from .routing import HUMAN
 # closed agent is woken on the next tick, and a long turn is what this system
 # is for - the daemon calls an agent healthy up to STUCK_RUNNING_S with nothing
 # heard. A reason that does not resolve itself counts at once.
-STUCK_AFTER_S = daemon.STUCK_RUNNING_S
+STUCK_AFTER_S = dmn_states.STUCK_RUNNING_S
 
 
 def _delivery_state(con, agent: str, sessions: dict | None,
@@ -40,7 +41,7 @@ def _delivery_state(con, agent: str, sessions: dict | None,
     row = db.get_agent_state(con, agent)
     if not row:
         return "never started", f"{agent} has never been started (t starts it)", False
-    if row["state"] == daemon.STALLED:
+    if row["state"] == dmn_states.STALLED:
         # First, because `supervise` returns on STALLED before delivery is
         # considered at all. Reporting a missing terminal ahead of it sent the
         # reader to start one, which would not have moved the request.
@@ -61,11 +62,11 @@ def _delivery_state(con, agent: str, sessions: dict | None,
         return "closed, waking", f"{agent} is closed; the next tick wakes it", True
     if sessions is not None and not sessions.get(agent):
         return "no session", f"no session is running in {agent}'s terminal", False
-    if row["state"] == daemon.RUNNING:
+    if row["state"] == dmn_states.RUNNING:
         return "mid-turn", f"{agent} is mid-turn - nothing is typed at a working agent", True
-    if row["state"] == daemon.HANDOFF:
+    if row["state"] == dmn_states.HANDOFF:
         return "mid-handoff", f"{agent} is mid-handoff", True
-    walled = daemon.wall_reason(con, agent, row)
+    walled = dmn_delivery.wall_reason(con, agent, row)
     if walled:
         return "account at the wall", f"{walled} - delivered when it wakes or moves", True
     return "", "", True
@@ -130,7 +131,7 @@ def stuck(con) -> list[dict]:
     an hour.
     """
     now = int(time.time())
-    alive = bool(daemon.running_elsewhere())
+    alive = bool(dmn_locks.running_elsewhere())
     out: list[dict] = []
 
     def add(what: str, age: int, why: str, agent: str | None = None) -> None:
@@ -150,7 +151,7 @@ def stuck(con) -> list[dict]:
     for h in db.in_flight_handoffs(con):
         left = (h["deadline"] or now) - now
         add(f"handoff {h['agent']} at '{h['step']}'", 0,
-            f"deadline in {status.ago(left)}" if left > 0 else "past its deadline",
+            f"deadline in {timefmt.ago(left)}" if left > 0 else "past its deadline",
             h["agent"])
 
     queued = con.execute(
@@ -170,8 +171,8 @@ def stuck(con) -> list[dict]:
     forgotten: dict[str, dict] = {}
     for st_row in db.all_agent_states(con):
         who = st_row["agent"]
-        found = daemon.forgotten_resolve(con, who, st_row, now)
-        if found and found["idle_s"] >= daemon.FORGOTTEN_STUCK_S \
+        found = dmn_delivery.forgotten_resolve(con, who, st_row, now)
+        if found and found["idle_s"] >= dmn_delivery.FORGOTTEN_STUCK_S \
                 and db.get_cursor(con, f"nudge:{who}") == int(found["head"]["id"]) \
                 and (sessions is None or sessions.get(who)):
             forgotten[who] = found
@@ -224,11 +225,11 @@ def stuck(con) -> list[dict]:
             b["agent"])
 
     for row in db.all_agent_states(con):
-        if row["state"] in (daemon.STALLED, daemon.DEGRADED) \
+        if row["state"] in (dmn_states.STALLED, dmn_states.DEGRADED) \
                 and not (row["agent"] in blks and blks[row["agent"]]["kind"] == blocked.STALLED):
             # FATAL, not the internal name STALLED - the agents panel below
             # reads the same row through tui.screen_state and must not disagree.
-            word = "FATAL" if row["state"] == daemon.STALLED else row["state"]
+            word = "FATAL" if row["state"] == dmn_states.STALLED else row["state"]
             add(f"{row['agent']} is {word}", now - int(row["updated"]),
                 row["detail"] or "", row["agent"])
     loads = loadmod.read_all(con)

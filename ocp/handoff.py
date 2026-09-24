@@ -24,11 +24,10 @@ has been handed.
 from __future__ import annotations
 
 import re
-import subprocess
 import time
 from pathlib import Path
 
-from . import agents, db, paths, spawn as spawnmod, status, textsafe, vendors
+from . import agents, db, gitrun, paths, spawn as spawnmod, status, textsafe, vendors
 
 # Enough to see what is in flight; the rest is `git status` away.
 _STATUS_LINES = 20
@@ -36,12 +35,8 @@ _STATUS_LINES = 20
 
 def _git(worktree: str, *args: str) -> str | None:
     """git's stdout, or None when it could not be run or exited non-zero."""
-    try:
-        r = subprocess.run(["git", *args], cwd=worktree, capture_output=True,
-                           text=True, timeout=15)
-    except (OSError, subprocess.SubprocessError):
-        return None
-    return r.stdout.rstrip("\n") if r.returncode == 0 else None
+    rc, out, _ = gitrun.run(worktree, *args)
+    return out.rstrip("\n") if rc == 0 else None
 
 
 def _request_line(con, agent: str) -> str:

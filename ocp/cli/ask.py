@@ -6,6 +6,7 @@ import time
 from pathlib import Path
 
 from .. import actions
+from .. import timefmt
 from .. import ask as askmod
 from .. import db
 from .. import fold as foldmod
@@ -395,7 +396,7 @@ def cmd_read(args) -> int:
             return 1
         if askmod.asking_agent() == actions.HUMAN:
             actions.opened_by_human(con, args.id)
-        when = time.strftime("%Y-%m-%d %H:%M", time.localtime(row["ts"]))
+        when = timefmt.stamp(row["ts"], timefmt.DATE_TIME)
         print(f"#{row['id']}  {row['requester']} → {row['target']}  "
               f"{row['kind'] or 'ask'}  {row['state']}  {when}")
         print(f"relation {row['relation']}   response {row['response']}   "

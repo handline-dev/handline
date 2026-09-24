@@ -29,7 +29,7 @@ from __future__ import annotations
 
 import time
 
-from . import ask as askmod, db, orca, paths, status, waiting
+from . import ask as askmod, db, orca, paths, timefmt, waiting
 
 # The same obstacle, with work waiting, this long before it is said. A dialog
 # does not clear itself, so the wait is only for the person who is at the
@@ -107,20 +107,20 @@ def work_waiting(con, agent: str, row, now: int) -> str:
     """What ocp wants to type at this agent and has not: the head of its queue
     while it is untold, answers it asked for (`would_wake`'s own terms), and the
     reminder to resolve a request it has sat idle on. Empty when there is nothing."""
-    from . import daemon
+    from .daemon import delivery as dmn_delivery
 
     parts = []
     head = db.head_of_queue(con, agent)
     if head and (db.get_cursor(con, f"notify:{agent}") != int(head["id"])
-                 or daemon._session_changed(con, agent)):
+                 or dmn_delivery._session_changed(con, agent)):
         behind = db.queue_depth(con, agent) - 1
         parts.append(f"request #{head['id']}" + (f" (+{behind} behind)" if behind > 0 else ""))
     answers = db.unannounced_answers(con, agent)
     if answers:
         parts.append("answer " + ", ".join(f"#{r['id']}" for r in answers[:3])
                      + (f" (+{len(answers) - 3})" if len(answers) > 3 else ""))
-    idle = daemon.forgotten_resolve(con, agent, row, now)
-    if idle and idle["idle_s"] >= daemon.NUDGE_AFTER_S \
+    idle = dmn_delivery.forgotten_resolve(con, agent, row, now)
+    if idle and idle["idle_s"] >= dmn_delivery.NUDGE_AFTER_S \
             and db.get_cursor(con, f"nudge:{agent}") != int(idle["head"]["id"]):
         parts.append(f"reminder to resolve #{idle['head']['id']}")
     return "; ".join(parts)
@@ -139,11 +139,11 @@ def classify(con, agent: str, row) -> tuple[str, str, str] | None:
     failures end in STALLED; and a permission prompt, which the hooks already
     put on the founder's list.
     """
-    from . import daemon
+    from .daemon import delivery as dmn_delivery, states as dmn_states
 
     if not row or row["closed_at"] or waiting.of(con, row):
         return None
-    if row["state"] == daemon.STALLED:
+    if row["state"] == dmn_states.STALLED:
         return STALLED, row["detail"] or "", ""
     handle = row["terminal"]
     if not handle:
@@ -155,9 +155,9 @@ def classify(con, agent: str, row) -> tuple[str, str, str] | None:
         return ORCA_DOWN, "", ""
     if not orca.alive(handle):
         return NO_TERMINAL, "its terminal is gone - Orca no longer has it", ""
-    if daemon.wall_reason(con, agent, row):
+    if dmn_delivery.wall_reason(con, agent, row):
         return None
-    if row["state"] not in (daemon.RUNNING, daemon.HANDOFF) and not daemon.session_present(agent):
+    if row["state"] not in (dmn_states.RUNNING, dmn_states.HANDOFF) and not dmn_delivery.session_present(agent):
         return NO_SESSION, "", ""
     seen = orca.screen_blocker(handle)
     if seen is None:
@@ -249,14 +249,14 @@ def stopped_pressing(con, agent: str, rec, now: int) -> str:
     if all_cleared >= MAX_PRESSES_AGENT:
         titles = {p["title"] for p in all_history if p["outcome"] == "cleared"}
         if len(titles) == 1:
-            return (f"ocp cleared it {all_cleared} times in {status.ago(PRESS_WINDOW_S)} and it "
+            return (f"ocp cleared it {all_cleared} times in {timefmt.ago(PRESS_WINDOW_S)} and it "
                     f"came back each time, so it has stopped pressing")
-        return (f"ocp cleared {all_cleared} dialogs on this agent in {status.ago(PRESS_WINDOW_S)} "
+        return (f"ocp cleared {all_cleared} dialogs on this agent in {timefmt.ago(PRESS_WINDOW_S)} "
                 f"({len(titles)} different titles), so it has stopped pressing")
     history = [p for p in all_history if p["title"] == title]
     cleared = sum(1 for p in history if p["outcome"] == "cleared")
     if cleared >= MAX_PRESSES:
-        return (f"ocp cleared it {cleared} times in {status.ago(PRESS_WINDOW_S)} and it "
+        return (f"ocp cleared it {cleared} times in {timefmt.ago(PRESS_WINDOW_S)} and it "
                 f"came back each time, so it has stopped pressing")
     pressed = [p for p in history if p["outcome"] != "not-pressed"]
     if len(pressed) >= MAX_IGNORED and all(p["outcome"] == "still-open" for p in pressed[-MAX_IGNORED:]):
@@ -300,7 +300,7 @@ def _decline(con, agent: str, rec, now: int, log):
                   f"while it was open: {reason(rec['kind'], rec['detail'])}.\nThe dialog's own footer "
                   f"says Esc cancels it, and Esc is a key that only declines it, so that was the "
                   f"only key ocp pressed; nothing was chosen. If it comes back {MAX_PRESSES} times "
-                  f"in {status.ago(PRESS_WINDOW_S)} ocp stops pressing and tells you.",
+                  f"in {timefmt.ago(PRESS_WINDOW_S)} ocp stops pressing and tells you.",
                   "dialog declined")
     _end(con, agent, rec, how, log)
     return None
@@ -337,7 +337,7 @@ def sweep(con, log, now: int | None = None) -> None:
 
 
 def _track(con, agent: str, row, now: int, log):
-    from . import daemon
+    from .daemon import states as dmn_states
 
     rec = db.block_get(con, agent)
     work = work_waiting(con, agent, row, now)
@@ -364,7 +364,7 @@ def _track(con, agent: str, row, now: int, log):
     rec = db.block_get(con, agent)
     # An agent that is working may be waiting on a person for that very dialog;
     # only an idle one's is pressed.
-    if rec["kind"] == orca.MODAL and row["state"] not in (daemon.RUNNING, daemon.HANDOFF):
+    if rec["kind"] == orca.MODAL and row["state"] not in (dmn_states.RUNNING, dmn_states.HANDOFF):
         return _decline(con, agent, rec, now, log)
     return rec
 
@@ -384,7 +384,7 @@ def _raise(con, recs, now: int, log) -> None:
     for r in recs:
         held = now - r["since"]
         note = press_note(con, r["agent"], r, now)
-        lines.append(f"{r['agent']} cannot be given its work ({status.ago(held)}).\n"
+        lines.append(f"{r['agent']} cannot be given its work ({timefmt.ago(held)}).\n"
                      f"  In the way: {reason(r['kind'], r['detail'])}\n"
                      f"  Waiting: {r['work'] or 'nothing yet'}\n"
                      + (f"  {note[0].upper() + note[1:]}.\n" if note else "")

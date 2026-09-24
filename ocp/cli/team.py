@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from .. import actions
 from .. import ask as askmod
-from .. import daemon as daemonmod
+from ..daemon import lifecycle as dmn_lifecycle
 from .. import db
 from .. import launch
 from .. import orca
@@ -131,7 +131,7 @@ def _doing(con, agent: str) -> str:
     waiting = len(db.queued_for(con, agent))
     if waiting:
         state += f" · {waiting} waiting"
-    if daemonmod.would_wake(con, row):
+    if dmn_lifecycle.would_wake(con, row):
         walled = launch.wake_wait_reason(agent, row, con)
         if walled:
             state += f" · {walled}"

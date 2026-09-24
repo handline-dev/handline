@@ -4,8 +4,9 @@ from __future__ import annotations
 import time
 
 from .. import actions
+from .. import timefmt
 from .. import blocked as blockedmod
-from .. import daemon as daemonmod
+from ..daemon import devmode as dmn_devmode, lifecycle as dmn_lifecycle, locks as dmn_locks, loop as dmn_loop
 from .. import db
 from .. import launch
 from .. import observe as obs
@@ -20,7 +21,7 @@ from .health import _name_col
 
 # ---------------------------------------------------------------- daemon
 def cmd_daemon(args) -> int:
-    return daemonmod.run(once=args.once, verbose=not args.quiet,
+    return dmn_loop.run(once=args.once, verbose=not args.quiet,
                          max_ticks=args.max_ticks)
 
 
@@ -29,9 +30,9 @@ def cmd_dev_mode(args) -> int:
     tick, right after that tick finishes, so `ocp dev-mode on` takes effect
     on its next tick - no restart needed to turn it on."""
     if args.state is None:
-        print("on" if daemonmod.dev_mode_enabled() else "off")
+        print("on" if dmn_devmode.dev_mode_enabled() else "off")
         return 0
-    daemonmod.set_dev_mode(args.state == "on")
+    dmn_devmode.set_dev_mode(args.state == "on")
     print(f"dev-mode: {args.state}")
     return 0
 
@@ -49,16 +50,16 @@ def _print_waits() -> None:
     now = time.time()
     print(f"{tui.WAITING_ON_YOU} ({len(waits)})")
     for w in waits:
-        print(f"  {textsafe.oneline(w['who'])} · {textsafe.oneline(w['what'])} · {tui.age(now - w['since'])}")
+        print(f"  {textsafe.oneline(w['who'])} · {textsafe.oneline(w['what'])} · {timefmt.ago(now - w['since'])}")
     print()
 
 
 def cmd_daemon_status(args) -> int:
     _print_waits()
-    pid = daemonmod.running_elsewhere()
+    pid = dmn_locks.running_elsewhere()
     supervisor = service.supervisor_of(pid)
     print(f"daemon: {'running, pid ' + str(pid) if pid else 'not running'} - {supervisor}")
-    live = daemonmod.processes()
+    live = dmn_locks.processes()
     if len(live) > 1:
         print(f"  WARNING: {len(live)} daemons are running (pid "
               f"{', '.join(str(x) for x in live)}). Two supervisors notify, park and wake "
@@ -81,7 +82,7 @@ def cmd_daemon_status(args) -> int:
             now = int(time.time())
             sessions = obs.live_sessions()
             for r in rows:
-                wake = "-" if not r["wake_at"] else time.strftime("%H:%M", time.localtime(r["wake_at"]))
+                wake = "-" if not r["wake_at"] else timefmt.stamp(r["wake_at"], timefmt.CLOCK)
                 if r["wake_at"] and r["wake_at"] <= now:
                     wake += "!"
                 # A running session with a stale launch is not closed, so it
@@ -98,7 +99,7 @@ def cmd_daemon_status(args) -> int:
                     detail = textsafe.oneline(f"{held['tool']}: {held['command']}")
                 elif block and block["kind"] in (orca.MODAL, orca.BACKGROUNDED):
                     detail = textsafe.oneline(blockedmod.headline(block["kind"], block["detail"]))
-                walled = (daemonmod.would_wake(con, r) and
+                walled = (dmn_lifecycle.would_wake(con, r) and
                           launch.wake_wait_reason(r["agent"], r, con))
                 if walled:
                     # The reason is budgeted first and the agent's own detail
@@ -117,7 +118,7 @@ def cmd_daemon_status(args) -> int:
             print("\nin-flight handoffs (resume from these steps):")
             for h in flight:
                 print(f"  {h['agent']:<14} step={h['step']:<11} state={h['state']:<10} "
-                      f"deadline={time.strftime('%H:%M:%S', time.localtime(h['deadline']))}")
+                      f"deadline={timefmt.stamp(h['deadline'], '%H:%M:%S')}")
     finally:
         con.close()
     return 0

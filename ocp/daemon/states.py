@@ -1,9 +1,9 @@
 """The states an agent is in, what wakes each, and the timing constants the daemon runs on."""
 from __future__ import annotations
 
-import time
 
 from .. import ask as askmod
+from .. import timefmt
 
 
 # Section 8.2 states.
@@ -22,7 +22,7 @@ EVALUATED = {RUNNING, HANDOFF, PARKED, QUEUED, THROTTLED, IDLE, DEGRADED}
 # the permanent-stop guard section 8.4 warns about: a state with no way back
 # sits idle forever once an agent lands in it. Checked by a test that scans
 # every `set_agent_state(con, ..., <STATE>)` call in ocp/*.py (this file,
-# ask.py, events.py, actions.py, cli.py - wherever one is added) and fails
+# ask.py, events.py, ocp/actions/, ocp/cli/ - wherever one is added) and fails
 # if the state it writes is not a key here. DONE is declared above but never
 # written by anything, so it carries no entry and the guard does not need one.
 WAKER = {
@@ -60,7 +60,7 @@ def park_wakeable(row) -> tuple[bool, str]:
         return False, f"{row['agent']} is moving accounts - it retries on its own shortly"
     if detail.startswith(BY_HAND_MARK):
         return True, ""
-    when = time.strftime("%H:%M", time.localtime(row["wake_at"])) if row["wake_at"] else "?"
+    when = timefmt.stamp(row["wake_at"], timefmt.CLOCK) if row["wake_at"] else "?"
     return False, f"{row['agent']} clears on its own - starts {when} when the window rolls over"
 
 # How long after a limit StopFailure the agent counts as settled.

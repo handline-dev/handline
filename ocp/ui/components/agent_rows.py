@@ -8,7 +8,8 @@ import time
 from typing import NamedTuple
 
 from ...yamlcompat import ConfigError
-from ... import actions, agents, blocked, daemon, db, load as loadmod, textsafe, tui
+from ... import actions, agents, blocked, db, load as loadmod, textsafe, tui
+from ...daemon import delivery as dmn_delivery, states as dmn_states
 
 
 class Extra(NamedTuple):
@@ -33,7 +34,7 @@ def cache_left(con, agent: str, now: int | None = None) -> int | None:
     last = db.last_activity(con, agent)
     if last is None:
         return None
-    return daemon.PROMPT_CACHE_S - ((int(time.time()) if now is None else now) - last)
+    return dmn_states.PROMPT_CACHE_S - ((int(time.time()) if now is None else now) - last)
 
 
 def cache_cell(left: int | None) -> str:
@@ -78,7 +79,7 @@ def fold_urgency(con, names: list[str], stuck: dict) -> tuple[str, int, str] | N
         word, _ = tui.screen_state(con, row)
         if word in tui.NEEDS_A_HUMAN or founder_block(con, name):
             found.setdefault(1, []).append(tui.RED)
-        elif name in stuck or daemon.wall_reason(con, name, row):
+        elif name in stuck or dmn_delivery.wall_reason(con, name, row):
             found.setdefault(1, []).append(tui.YEL)
         elif loadmod.is_running(row):
             found.setdefault(2, []).append(tui.STATE_COLOR["RUNNING"])
@@ -104,7 +105,7 @@ def collect(con, rows: list[tui.AgentRow]) -> dict[str, Extra]:
             cfg = {}
         fb = founder_block(con, r.name)
         block = textsafe.oneline(blocked.headline(fb["kind"], fb["detail"]))[:tui.DETAIL_CAP] if fb else ""
-        limit = daemon.wall_reason(con, r.name, db.get_agent_state(con, r.name))
+        limit = dmn_delivery.wall_reason(con, r.name, db.get_agent_state(con, r.name))
         why = textsafe.oneline(stuck[r.name]["why"] if r.name in stuck else limit or "")
         asks = con.execute("SELECT COUNT(*) FROM requests WHERE requester = ? AND target = ? "
                            "AND state = 'queued'", (r.name, actions.HUMAN)).fetchone()[0]

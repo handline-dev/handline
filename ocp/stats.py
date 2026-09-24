@@ -10,10 +10,10 @@ reading.
 """
 from __future__ import annotations
 
-import time
 from dataclasses import dataclass, field
 
 from . import db, replay
+from . import timefmt
 
 WINDOWS = {"5h": 5 * 3600, "7d": 7 * 86400}
 BURN_LOOKBACK = 24 * 3600
@@ -168,7 +168,7 @@ def forecasts(con, now: int) -> list[dict]:
 # ------------------------------------------------------------ insight
 
 def _clock(ts: int) -> str:
-    return time.strftime("%H:%M", time.localtime(ts))
+    return timefmt.stamp(ts, timefmt.CLOCK)
 
 
 def insight(con, now: int, clock=_clock) -> str:

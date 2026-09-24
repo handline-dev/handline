@@ -22,6 +22,7 @@ import time
 from pathlib import Path
 
 from . import paths, service
+from . import timefmt
 
 LABEL = "dev.orcapipe.backup"
 INTERVAL_S = 60
@@ -104,7 +105,7 @@ def _write(home: Path, dest: Path, db_copy: Path | None, now: float) -> Path:
     whatever replaced it is the next run's change - and any other failure
     removes the partial, since nothing else ever would.
     """
-    stem = PREFIX + time.strftime("%Y%m%d-%H%M%S", time.localtime(now))
+    stem = PREFIX + timefmt.stamp(now, "%Y%m%d-%H%M%S")
     fd, tmp = tempfile.mkstemp(prefix=stem + ".", suffix=PARTIAL, dir=dest)
     partial = Path(tmp)
     try:

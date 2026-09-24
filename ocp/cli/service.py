@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 
-from .. import daemon as daemonmod
+from ..daemon import locks as dmn_locks
 from .. import service
 from .. import textsafe
 from .. import venv as venvmod
@@ -10,7 +10,7 @@ from .. import venv as venvmod
 
 # ---------------------------------------------------------------- service
 def cmd_service_install(args) -> int:
-    pid = daemonmod.running_elsewhere()
+    pid = dmn_locks.running_elsewhere()
     if pid:
         print(f"note: pid {pid} is already running by hand - the launchd job will "
               f"refuse to start (it cannot have the daemon lock) until it exits")

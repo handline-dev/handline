@@ -6,7 +6,8 @@ from typing import NamedTuple
 
 from rich.text import Text
 
-from ... import actions, daemon, db, load as loadmod, paths, status
+from ... import actions, db, load as loadmod, paths, status
+from ...daemon import locks as dmn_locks
 
 # Usage from which an account is worth a word in the header.
 TIGHT_PCT = 80
@@ -60,7 +61,7 @@ def summary_text(daemon_running: bool, clock: str, s: Summary) -> Text:
 
 
 def daemon_running() -> bool:
-    return bool(daemon.running_elsewhere())
+    return bool(dmn_locks.running_elsewhere())
 
 
 def clock() -> str:

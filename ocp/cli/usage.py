@@ -4,6 +4,7 @@ from __future__ import annotations
 import time
 
 from .. import collect
+from .. import timefmt
 from .. import db
 from .. import observe as obs
 from .. import paths
@@ -38,11 +39,11 @@ def cmd_usage(args) -> int:
         if st.unmetered:
             print(f"{acct:10} {'':4} unmetered")
             continue
-        age = status.span(time.time() - st.collected_at) if st.collected_at else "never"
+        age = timefmt.span(time.time() - st.collected_at) if st.collected_at else "never"
         trusted5 = str(st.trusted_pct_5h) if st.trusted_pct_5h is not None else "?"
         trusted7 = str(st.trusted_pct_7d) if st.trusted_pct_7d is not None else "?"
         print(f"{acct:10} {'ocp':>4} {trusted5:>5} {trusted7:>5}  "
-              f"{_when(st.reset_7d):16}  snapshot {age} old"
+              f"{timefmt.stamp(st.reset_7d, timefmt.SHORT, '-'):16}  snapshot {age} old"
               f" ({st.pct_5h_source}/{st.pct_7d_source})")
         t0 = time.time()
         r = usage_api.read(acct, refresh=acct not in live)
@@ -57,13 +58,9 @@ def cmd_usage(args) -> int:
         if acct in live:
             flags.append("no renewal - session live")
         print(f"{'':10} {'api':>4} {str(r.pct_5h):>5} {str(r.pct_7d):>5}  "
-              f"{_when(r.reset_7d):16}  {(time.time()-t0)*1000:.0f}ms"
+              f"{timefmt.stamp(r.reset_7d, timefmt.SHORT, '-'):16}  {(time.time()-t0)*1000:.0f}ms"
               + ("  " + "; ".join(flags) if flags else ""))
     return 0
-
-
-def _when(ts: int | None) -> str:
-    return time.strftime("%m-%d %H:%M", time.localtime(ts)) if ts else "-"
 
 
 # ---------------------------------------------------------------- collect
@@ -101,6 +98,6 @@ def cmd_collect(args) -> int:
                    if have and have.get(k) != snap.get(k)]
         print(f"{agent:22}{snap['account']:9}{snap['session_id'][:8]:10}"
               f"{str(snap['ctx_pct']):>5}{collect.tokens(snap['ctx_used']):>9}"
-              f"{status.ago(time.time() - snap['collected_at']):>7}  "
+              f"{timefmt.ago(time.time() - snap['collected_at']):>7}  "
               f"{', '.join(differs) if differs else '-'}")
     return 0

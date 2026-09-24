@@ -302,7 +302,7 @@ def test_a_declared_root_gets_standing_consent(home: Path) -> None:
         trusted.clear()
         # A typed handoff is consumed, so each case parks with a fresh one.
         keep_handoff("backend", "# handoff · backend\n## next\n- carry on\n")
-        db.set_agent_state(con, "backend", dmn.PARKED, detail="reset for the next case")
+        db.set_agent_state(con, "backend", dmn_states.PARKED, detail="reset for the next case")
 
     try:
         orcamod.available = lambda: True
@@ -325,7 +325,7 @@ def test_a_declared_root_gets_standing_consent(home: Path) -> None:
         check("wake: an undeclared root escalates, nothing confirmed or typed",
               not ok and not sent and not trusted, str((ok, sent, trusted)))
         check("wake: ...and the agent is stalled",
-              db.get_agent_state(con, "backend")["state"] == dmn.STALLED)
+              db.get_agent_state(con, "backend")["state"] == dmn_states.STALLED)
 
         # 2. Declared, but the dialog names a folder the record does not.
         reset()
@@ -378,7 +378,7 @@ def test_a_declared_root_gets_standing_consent(home: Path) -> None:
         ok, why = dmn_lifecycle.wake_agent(con, "backend", lambda _m: None)
         check("wake: a redraw that outlasts the press is waited out, not escalated",
               ok and sent and reads["n"] >= 3
-              and db.get_agent_state(con, "backend")["state"] != dmn.STALLED,
+              and db.get_agent_state(con, "backend")["state"] != dmn_states.STALLED,
               str((ok, why, reads, sent)))
         orcamod.time.sleep = real[-1]
         orcamod.trust_prompt_showing = lambda h: showing["v"]
@@ -396,7 +396,7 @@ def test_a_declared_root_gets_standing_consent(home: Path) -> None:
         asked = db.add_request(con, "backend", "reviewer", "did it land?", None,
                                "peer", "async", None, 0, None)
         _set_request_state(con, asked, "done", "yes")
-        db.set_agent_state(con, "backend", dmn.RUNNING)
+        db.set_agent_state(con, "backend", dmn_states.RUNNING)
         dmn_delivery.deliver_answers(con, "backend", lambda _m: None)
         dmn_delivery.deliver_queued(con, "backend", lambda _m: None)
         check("trust: the deliver paths neither type nor press at the screen",

@@ -13,7 +13,7 @@ second way to do the same spend.
 
 This module is the mechanism only: what one recovery attempt does, and the
 two things that must stop it (the weekly wall, the account's own switch). Ocp
-has to notice a call is worth making, and that is `daemon.py` (a poll whose
+has to notice a call is worth making, and that is `ocp/daemon/` (a poll whose
 read still fails after a renewal, or whose 5h window just ended) - a decision
 that belongs where the poll already runs, and is not made here.
 """

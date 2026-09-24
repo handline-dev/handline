@@ -5,9 +5,9 @@ import json
 import shutil
 import subprocess
 import sys
-import time
 
 from .. import accounts
+from .. import timefmt
 from .. import actions
 from .. import agents
 from .. import db
@@ -131,7 +131,7 @@ def cmd_account_recover(args) -> int:
     """#1885's per-account switch: whether a dead read may spend one real turn
     to fix itself. With no on/off/--now, says where it stands, needs-re-login
     mark included since that is the other way this stops running on its own.
-    `--now` is the only caller of `recover.recover` until #76 wires daemon.py's
+    `--now` is the only caller of `recover.recover` until #76 wires ocp/daemon/'s
     poll into it - the one way to run this by hand before then."""
     if args.clear_relogin:
         recovermod.clear_relogin(args.name)
@@ -193,8 +193,8 @@ def cmd_account_list(args) -> int:
         st = status.read(a)
         allowed, why = _can_start(st, loads.get(a))
         cell = lambda v: "  -" if v is None else f"{v:>3}"  # noqa: E731
-        age = status.ago(st.age_s)
-        resets = "-" if not st.reset_7d else time.strftime("%m-%d %H:%M", time.localtime(st.reset_7d))
+        age = timefmt.ago(st.age_s)
+        resets = "-" if not st.reset_7d else timefmt.stamp(st.reset_7d, timefmt.SHORT)
         plan = accounts.subscription_type(a) or "-"
         # A figure we inferred is marked, never dressed up as one we read.
         shown, src = st.shown_pct_5h()

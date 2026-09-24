@@ -4,6 +4,7 @@ from __future__ import annotations
 import time
 
 from .. import ask as askmod
+from .. import timefmt
 from .. import blocked
 from .. import db
 from .. import hr
@@ -427,7 +428,7 @@ def message_detail(con, rid: int) -> tuple[str, list[tuple[str, list[str]]]] | N
 
     quoted = {rid}
     if answer:
-        asked = time.strftime("%m-%d %H:%M", time.localtime(row["ts"]))
+        asked = timefmt.stamp(row["ts"], timefmt.SHORT)
         sections.append((f"WHAT YOU ASKED · {asked}",
                          _clip((row["body"] or "").splitlines(), rid)))
     elif row["parent_id"]:
@@ -504,7 +505,7 @@ def _gist(text: str | None) -> str:
 
 
 def _at(ts) -> str:
-    return time.strftime("%m-%d %H:%M", time.localtime(ts or 0))
+    return timefmt.stamp(ts or 0, timefmt.SHORT)
 
 
 def first_line(text: str | None) -> str:

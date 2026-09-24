@@ -51,18 +51,19 @@ atexit.register(shutil.rmtree, TEST_ROOT, True)
 
 from ocp.cli import (account as cliaccount, ask as cliask, bridge as clibridge, daemon as clidaemon,  # noqa: E402
                      health as clihealth, setup as clisetup, task as clitask)
-from ocp import (accounts, actions, agents, ask as askmod, blocked as blockedmod, burnrate, cli as climod, collect, daemon as dmn, db, hr,
+from ocp import (accounts, actions, agents, ask as askmod, blocked as blockedmod, burnrate, cli as climod, collect, db, hr,
                  digest,
                  doctor, drift, events as evmod, fold as foldmod,
                  handoff as handoffmod, jobs as jobsmod, launch, load as loadmod, lock, measure,
                  observe as obsmod, orca as orcamod, paths, recover as recovermod, rehome,
                  replay as replaymod, service,
                  spawn as spawnmod,
-                 status, team, textsafe, triggers, trust as trustmod, tui, usage_api, vendors,
+                 status, team, textsafe, timefmt, triggers, trust as trustmod, tui, usage_api, vendors,
                  venv as venvmod, waiting,
                  yamlcompat)  # noqa: E402
 from ocp.daemon import (delivery as dmn_delivery, devmode as dmn_devmode, evaluate as dmn_evaluate,  # noqa: E402
                         handoff as dmn_handoff, lifecycle as dmn_lifecycle, locks as dmn_locks,
+                        loop as dmn_loop, reconciler as dmn_reconciler, states as dmn_states,
                         usage_poll as dmn_usage_poll)
 from ocp.vendors import opencode as ocmod  # noqa: E402
 
@@ -225,7 +226,7 @@ def _snap(*_geometry, **_cursor) -> str:
 def _set_request_state(con, rid: int, state: str, verdict: str | None = None,
                        announced: bool = False) -> None:
     """Force a request row to any state, for setup only - never a production
-    closer, so it carries none of `db.py`'s chokepoint guard (#2024): tests
+    closer, so it carries none of `ocp/db/`'s chokepoint guard (#2024): tests
     that need to reach a row's own defense-in-depth past that guard (past
     `_would_strand_a_proposal`, for one) use this to get there."""
     now = int(time.time())
@@ -671,7 +672,7 @@ def _blocked_world(home: Path):
     orcamod.alive = lambda h: True
     sessions_are("backend")
     con = db.connect()
-    db.set_agent_state(con, "backend", dmn.IDLE)
+    db.set_agent_state(con, "backend", dmn_states.IDLE)
     db.add_request(con, "marina", "backend", "carry on", None, "peer", "async", None, 0, None)
     return con
 
@@ -1242,7 +1243,7 @@ def _park_behind(home: Path, tail, ends_at_limit: bool = True, **term_kw):
     if ends_at_limit:
         db.add_event(con, "keeper", "StopFailure", {"limit": "5h"})
         con.execute("UPDATE events SET ts = ? WHERE agent = 'keeper' AND kind = 'StopFailure'",
-                    (int(time.time()) - dmn.LIMIT_SETTLE_S - 60,))
+                    (int(time.time()) - dmn_states.LIMIT_SETTLE_S - 60,))
     orcamod.available = lambda: True
     orcamod.alive = lambda h: True
     orcamod.wait_idle = lambda h, timeout_ms=0: True
@@ -1293,7 +1294,7 @@ def _running_on(con, acct: str, *names: str) -> None:
     for n in names:
         agents.register(n)
         db.set_account(con, n, acct)
-        db.set_agent_state(con, n, dmn.RUNNING)
+        db.set_agent_state(con, n, dmn_states.RUNNING)
 
 
 def _reference_text(text: str) -> str:
@@ -1333,7 +1334,9 @@ def _leaks(dirty: dict[str, str], clean: dict[str, str], skip_counts: tuple = ()
 def _touches_subprocess_text(tree) -> bool:
     """Calls `subprocess.run`/`Popen` and reads `.stdout` or `.stderr` off the
     result - somewhere in the module, not necessarily the same function: the
-    two together are what makes foreign bytes reachable at all."""
+    two together are what makes foreign bytes reachable at all. A call to
+    `gitrun.run` is the same thing on its own: it hands git's text back as a
+    tuple, with no attribute to read."""
     import ast
     calls = any(isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute)
                and n.func.attr in ("run", "Popen")
@@ -1341,7 +1344,11 @@ def _touches_subprocess_text(tree) -> bool:
                for n in ast.walk(tree))
     reads = any(isinstance(n, ast.Attribute) and n.attr in ("stdout", "stderr")
                for n in ast.walk(tree))
-    return calls and reads
+    via_gitrun = any(isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute)
+                     and n.func.attr == "run"
+                     and isinstance(n.func.value, ast.Name) and n.func.value.id == "gitrun"
+                     for n in ast.walk(tree))
+    return (calls and reads) or via_gitrun
 
 
 def _builds_a_returned_message(tree) -> bool:
@@ -1701,9 +1708,9 @@ WRITE_LABELS_TO: str | None = None  # set by --write-labels
 def _states_written_in(path) -> set[str]:
     """Every literal state name a call to `set_agent_state` writes in one
     source file, however it spells the state: a bare constant (already equal
-    to its own name in daemon.py, e.g. `PARKED = "PARKED"`), a quoted literal
+    to its own name in ocp/daemon/, e.g. `PARKED = "PARKED"`), a quoted literal
     (ask.py's own style), or one qualified by its module (`daemon.QUEUED` in
-    actions.py, `daemonmod.QUEUED` in ocp/cli/ - a miss here read both of those
+    ocp/actions/, `dmn_states.QUEUED` in ocp/cli/ - a miss here read both of those
     real call sites as writing nothing, which defeats the guard exactly where
     a state without one would be silent). Not a full parser - a regex over
     source text - but the one property this needs is only ever a name right
@@ -1798,13 +1805,15 @@ __all__ = [
     'clisetup',
     'clitask',
     'collect',
-    'dmn',
     'dmn_delivery',
     'dmn_devmode',
     'dmn_evaluate',
     'dmn_handoff',
     'dmn_lifecycle',
     'dmn_locks',
+    'dmn_states',
+    'dmn_reconciler',
+    'dmn_loop',
     'dmn_usage_poll',
     'db',
     'hr',
@@ -1830,6 +1839,7 @@ __all__ = [
     'status',
     'team',
     'textsafe',
+    'timefmt',
     'triggers',
     'trustmod',
     'tui',

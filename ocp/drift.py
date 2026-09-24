@@ -13,11 +13,10 @@ or silently lost.
 """
 from __future__ import annotations
 
-import subprocess
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from . import textsafe
+from . import gitrun, textsafe
 
 NO_OVERLAP_HEADER = (
     "아래 \"완료\" 항목은 이미 끝났습니다. 재수행하지 마십시오."
@@ -77,14 +76,10 @@ def _git(args: list[str], cwd: Path, timeout: int = 30) -> tuple[bool, str]:
     breaks on (U+0085, U+2028), which would make one file two. On failure it
     is git's own error text, sanitised the same way for `check` to embed into
     `d.error`."""
-    try:
-        r = subprocess.run(["git", *args], cwd=cwd, capture_output=True,
-                           text=True, timeout=timeout)
-    except (OSError, subprocess.SubprocessError) as e:
-        return False, textsafe.oneline(str(e))
-    if r.returncode != 0:
-        return False, textsafe.oneline(r.stderr.strip())
-    return True, "\n".join(textsafe.oneline(ln) for ln in r.stdout.strip().split("\n"))
+    rc, out, err = gitrun.run(cwd, *args, timeout=timeout)
+    if rc != 0:
+        return False, textsafe.oneline(err.strip())
+    return True, "\n".join(textsafe.oneline(ln) for ln in out.strip().split("\n"))
 
 
 def touched_files(repo: Path, base: str) -> list[str]:

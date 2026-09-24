@@ -26,7 +26,7 @@ import time
 from datetime import datetime
 from pathlib import Path
 
-from . import accounts, agents, db, digest, events as evmod, paths, status, textsafe
+from . import accounts, agents, db, digest, events as evmod, gitrun, paths, status, textsafe, timefmt
 
 FOLD_TIMEOUT_S = 180
 
@@ -48,13 +48,10 @@ def _git(args: list[str], cwd: Path, strip: bool = True) -> str:
     columns wide and the first can be a space, so stripping the whole output
     eats a character off the first filename.
     """
-    try:
-        r = subprocess.run(["git", *args], cwd=cwd, capture_output=True, text=True, timeout=15)
-        if r.returncode != 0:
-            return ""
-        return r.stdout.strip() if strip else r.stdout.rstrip("\n")
-    except (OSError, subprocess.SubprocessError):
+    rc, out, _ = gitrun.run(cwd, *args)
+    if rc != 0:
         return ""
+    return out.strip() if strip else out.rstrip("\n")
 
 
 def deterministic_facts(agent: str, events, repo: Path | None = None) -> str:
@@ -91,7 +88,7 @@ def deterministic_facts(agent: str, events, repo: Path | None = None) -> str:
         if told:
             lines.append("- last events:")
             for e in told:
-                when = time.strftime("%H:%M", time.localtime(e["ts"]))
+                when = timefmt.stamp(e["ts"], timefmt.CLOCK)
                 lines.append(f"    {when} {e['kind']} {(e['payload'] or '')[:90]}")
     else:
         lines.append("- events folded: 0 (nothing new since the last fold)")
@@ -100,7 +97,7 @@ def deterministic_facts(agent: str, events, repo: Path | None = None) -> str:
 
 
 # A fold's own event delta cannot tell it which of an agent's outstanding
-# asks an "answered" event closed - that event carries only a count (daemon.py
+# asks an "answered" event closed - that event carries only a count (ocp/daemon/
 # deliver_answers), never the ids, because the row itself is the record and a
 # second copy in the event log would just be one more place to drift from it.
 # So a request an agent is still asking about, in the 진행중/막힌 것 prose the
@@ -112,7 +109,7 @@ def deterministic_facts(agent: str, events, repo: Path | None = None) -> str:
 # reconcile_resolved's errors are one-way: build_prompt (below) forbids the
 # very next fold from ever moving a line back out of 완료, so a wrong close
 # here is permanent, in the document an agent is told to read when it has no
-# handoff (daemon.py's no-handoff branch) and that the next fold itself reads
+# handoff (ocp/daemon/'s no-handoff branch) and that the next fold itself reads
 # back as `previous`. That rules out guessing an id out of prose - \d+ moved
 # "step 2 of 7", "3 conflicts left" and "7d reset tracking needs founder
 # call" to 완료 once request ids 1-8 happened to be resolved, none of them
@@ -164,7 +161,7 @@ def build_prompt(agent: str, previous: digest.Digest, events, day: str) -> str:
     prev_text = digest.render(previous) if previous.agent else "(no previous digest)"
     delta = []
     for e in events:
-        when = time.strftime("%H:%M", time.localtime(e["ts"]))
+        when = timefmt.stamp(e["ts"], timefmt.CLOCK)
         delta.append(f"{when} [{e['kind']}] {e['payload'] or ''}")
     headings = "\n".join(f"## {h}" for _, h in digest.SECTIONS)
     return f"""Rewrite the work digest below. Output ONLY the digest in markdown, nothing else.

@@ -2,12 +2,11 @@
 from __future__ import annotations
 
 import re
-import subprocess
 import time
 from pathlib import Path
 
 from .. import ask as askmod
-from .. import db
+from .. import db, gitrun
 from .. import paths
 from .. import team
 from .. import textsafe
@@ -112,10 +111,6 @@ def open_hold_task(con, rid: int, title: str, holder: str, blocks_on: list[int])
     return [tid]
 
 
-def _git(repo: Path, *args: str):
-    return subprocess.run(["git", *args], cwd=repo, capture_output=True, text=True, timeout=15)
-
-
 def looks_like_sha(text: str) -> bool:
     """Hex of a length a person types a sha at - short ones included."""
     return re.fullmatch(r"[0-9a-fA-F]{4,40}", text) is not None
@@ -130,17 +125,18 @@ def _sha_on_main(repo: Path, sha: str) -> tuple[str | None, str]:
     runs before anything is written, and what is stored is the full sha it
     resolved to, whatever length was typed.
     """
-    try:
-        r = _git(repo, "rev-parse", "--verify", "--quiet", f"{sha}^{{commit}}")
-        if r.returncode != 0:
-            return None, "no such commit in this repo"
-        full = r.stdout.strip()
-        r = _git(repo, "merge-base", "--is-ancestor", full, "main")
-    except (OSError, subprocess.SubprocessError) as e:
-        return None, str(e)
-    if r.returncode == 0:
+    rc, out, err = gitrun.run(repo, "rev-parse", "--verify", "--quiet", f"{sha}^{{commit}}")
+    if rc is None:
+        return None, err
+    if rc != 0:
+        return None, "no such commit in this repo"
+    full = out.strip()
+    rc, out, err = gitrun.run(repo, "merge-base", "--is-ancestor", full, "main")
+    if rc is None:
+        return None, err
+    if rc == 0:
         return full, ""
-    return None, textsafe.oneline((r.stderr or r.stdout).strip())
+    return None, textsafe.oneline((err or out).strip())
 
 
 # task #21/#1884: the requester an unblock notice carries. Never a real

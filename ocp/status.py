@@ -59,7 +59,7 @@ import time
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from . import accounts, agents, collect, paths, triggers, usage_api
+from . import accounts, agents, collect, paths, timefmt, triggers, usage_api
 
 # statusLine only refreshes while a session is alive, so a snapshot older than
 # this is not trusted as "current" (section 4 constraint - refreshInterval
@@ -91,25 +91,6 @@ SOURCE_LEGEND_SHORT = "* inferred · ~ carried · ! too old · ? last seen"
 
 def mark(src: str) -> str:
     return SOURCE_MARK.get(src, " ")
-
-
-def ago(secs: float | None) -> str:
-    """A duration in the largest unit that still says something.
-
-    The one formatter for an age or a wait: every screen that prints one calls
-    this, so a reading three hours old is not "3h" on one and "13118s" on
-    another, and nothing writes 162h for what is six and a half days.
-    """
-    if secs is None:
-        return "?"
-    secs = int(secs)
-    if secs < 120:
-        return f"{secs}s"
-    if secs < 5400:
-        return f"{secs // 60}m"
-    if secs < 86400:
-        return f"{secs // 3600}h"
-    return span(secs)
 
 
 # The wall: at these nothing can run at all, and nothing is handed work.
@@ -358,7 +339,7 @@ class AccountStatus:
         if not self.exists or self.error or self.pct_5h is None:
             return ""
         now = time.time()
-        age = "unknown age" if self.age_s is None else f"{ago(self.age_s)} old"
+        age = "unknown age" if self.age_s is None else f"{timefmt.ago(self.age_s)} old"
         gone = ", reset since" if self.reset_5h and self.reset_5h <= now else ""
         text = f"5h {self.pct_5h}% ({age}{gone})"
         if self.pct_7d is not None:
@@ -386,7 +367,7 @@ class AccountStatus:
             # In the units a reader thinks in. "59213s > 900s" is two numbers
             # nobody subtracts; the line is on a dashboard, and what it has to
             # say is how long ago anything ran on this account.
-            shown = "unknown" if self.age_s is None else ago(self.age_s)
+            shown = "unknown" if self.age_s is None else timefmt.ago(self.age_s)
             return False, (f"nothing has run on it for {shown} - the snapshot is "
                            f"stale (fail-closed)")
         pct = self.trusted_pct_5h
@@ -764,21 +745,6 @@ def read_burn(acct: str, now: float | None = None) -> float | None:
     return burn if (now or time.time()) - at <= BURN_MAX_AGE_S else None
 
 
-def span(secs: float, precise: bool = False) -> str:
-    """A length of time, every form ending in its unit: 6d18h from a day up,
-    5h03m from an hour, then minutes (`precise` adds the seconds: 12m05s).
-    Ages (`ago`) are coarser below a day - 3h, 40m - and call this from a day
-    up, so no surface writes 162h."""
-    secs = int(secs)
-    if secs >= 86400:
-        return f"{secs // 86400}d{(secs % 86400) // 3600}h"
-    if secs >= 3600:
-        return f"{secs // 3600}h{(secs % 3600) // 60:02d}m"
-    if precise:
-        return f"{secs // 60:>2}m{secs % 60:02d}s"
-    return f"{max(1, secs // 60)}m"
-
-
 @dataclass
 class Runway:
     left_5h: int              # points of 5h usage left before the wall
@@ -831,10 +797,10 @@ def describe_runway(r: Runway | None) -> str:
     # comes first does not run out at all.
     five = r.eta_s if r.burning and not r.past_reset else None
     if r.week_s is not None and (five is None or r.week_s < five):
-        return f"~{span(r.week_s)} to 7d"
+        return f"~{timefmt.span(r.week_s)} to 7d"
     if not r.burning:
         return "no recent burn"
-    return "outlasts reset" if r.past_reset else f"~{span(r.eta_s)} to wall"
+    return "outlasts reset" if r.past_reset else f"~{timefmt.span(r.eta_s)} to wall"
 
 
 def team_outlook(names: list[str] | None = None, now: float | None = None) -> str:
@@ -855,7 +821,7 @@ def team_outlook(names: list[str] | None = None, now: float | None = None) -> st
     pace = sum(b for _, _, b in counted)
     resets = [st.reset_5h for st, _, _ in counted if st.reset_5h and st.reset_5h > now]
     nxt = min(resets) if resets else None
-    clock = lambda t: time.strftime("%H:%M", time.localtime(t))  # noqa: E731
+    clock = lambda t: timefmt.stamp(t, timefmt.CLOCK)  # noqa: E731
     n = f"{len(counted)} account{'s' if len(counted) != 1 else ''}"
     if pace <= 0:
         return f"estimate: {room} points of 5h headroom across {n}, no recent burn"
@@ -1030,9 +996,9 @@ def _no_week_room(st: "AccountStatus", ld, agent: str | None = None) -> str | No
     left = (st.reset_7d - time.time()) if st.reset_7d else None
     if left is not None and left <= lasts:
         return None
-    reset = f", resets in {span(left)}" if left and left > 0 else ""
-    return (f"7d {st.trusted_pct_7d}%{reset}: one more agent lasts ~{span(lasts)} of it - "
-            f"under the {span(triggers.MIN_STRETCH_S)} a start is worth")
+    reset = f", resets in {timefmt.span(left)}" if left and left > 0 else ""
+    return (f"7d {st.trusted_pct_7d}%{reset}: one more agent lasts ~{timefmt.span(lasts)} of it - "
+            f"under the {timefmt.span(triggers.MIN_STRETCH_S)} a start is worth")
 
 
 def _no_room(st: "AccountStatus", ld, pct: int | None,
@@ -1052,7 +1018,7 @@ def _no_room(st: "AccountStatus", ld, pct: int | None,
                                agent_burn(ld, agent))
     if lasts < triggers.MIN_STRETCH_S:
         return (_stretch_reason(st, ld, lasts, pct, agent) + f" - under the "
-                f"{span(triggers.MIN_STRETCH_S)} a start is worth"), lasts
+                f"{timefmt.span(triggers.MIN_STRETCH_S)} a start is worth"), lasts
     return None, lasts
 
 
@@ -1069,7 +1035,7 @@ def _stretch_reason(st: "AccountStatus", ld, lasts: float, pct: int,
     fill = ld.burn if ld and ld.burn else 0.0
     agents_ = f", {ld.active}/{ld.cap} agents" if ld else ""
     return (f"5h {pct}%, fill {_per_min(fill)}{agents_}, one more agent "
-            f"({_per_min(agent_burn(ld, agent), 2)}) lasts ~{span(lasts)}")
+            f"({_per_min(agent_burn(ld, agent), 2)}) lasts ~{timefmt.span(lasts)}")
 
 
 def _pick_reason(st: "AccountStatus", ld, lasts: float | None, picked: bool,
@@ -1081,7 +1047,7 @@ def _pick_reason(st: "AccountStatus", ld, lasts: float | None, picked: bool,
     for stale_ok, stale_why in (st.rolled_over(), st.idle_floor(ld.active if ld else 0)):
         if stale_ok:
             return stale_why + tag
-    when = "unknown" if not st.reset_7d else ago(max(0.0, st.reset_7d - time.time()))
+    when = "unknown" if not st.reset_7d else timefmt.ago(max(0.0, st.reset_7d - time.time()))
     pace = pace_7d(st)
     pace_s = "unknown pace" if pace == float("inf") else f"{pace:.2f}x its weekly pace"
     # Neither early return above fired, so this account is live, not stale -

@@ -5,6 +5,7 @@ import shlex
 import time
 
 from .. import accounts
+from .. import timefmt
 from .. import agents
 from .. import collect
 from .. import db
@@ -18,7 +19,6 @@ from .. import triggers
 from .. import trust
 from .. import vendors
 
-from .control import worktree_path
 from .conversation import CHAT_TAB, Entry, Event, Fact, OTHERS_TAB, UNTOLD_TAB, chat_unread, conversation_and_drawn
 
 
@@ -45,7 +45,7 @@ def agent_detail(con, agent: str, hint: bool = True) -> list[tuple[str, list[str
     if row:
         closed = "  ·closed" if row["closed_at"] else ""
         head.append(Fact(("state", f"{row['state']}{closed}"),
-                         *([("wakes", time.strftime("%H:%M", time.localtime(row["wake_at"])))]
+                         *([("wakes", timefmt.stamp(row["wake_at"], timefmt.CLOCK))]
                            if row["wake_at"] else [])))
         if row["detail"]:
             head.append(row["detail"])
@@ -108,7 +108,7 @@ def agent_worktree(con, agent: str) -> str:
     row = db.get_agent_state(con, agent)
     if not row or not row["worktree"]:
         return f"{agent} has no worktree"
-    return worktree_path(row["worktree"]) or row["worktree"]
+    return spawnmod.worktree_path(row["worktree"]) or row["worktree"]
 
 
 def _config_line(acct: str) -> str:

@@ -10,11 +10,12 @@ import os
 import re
 import shutil
 import subprocess
-import time
 from pathlib import Path
 
-from . import (accounts, agents, daemon, db, hooks, launch, load as loadmod, observe as obs,
+from . import (accounts, agents, db, hooks, launch, load as loadmod, observe as obs,
                orca, paths, service, status, textsafe, vendors)
+from . import timefmt
+from .daemon import reconciler as dmn_reconciler
 
 OK, WARN, FAIL = "ok", "warn", "fail"
 
@@ -237,7 +238,7 @@ def _check_stuck_running(r: Report) -> None:
     con = db.connect()
     try:
         for row in db.all_agent_states(con):
-            mins = daemon.silent_minutes(con, row["agent"], row)
+            mins = dmn_reconciler.silent_minutes(con, row["agent"], row)
             if mins is None:
                 continue
             r.add(WARN, f"agent {row['agent']}: RUNNING with nothing heard for {mins}m",
@@ -371,7 +372,7 @@ def _check_rate_limits_present(r: Report) -> None:
         elif src == "carried_old":
             age = st.rl_age_s
             r.add(WARN, f"account {acct}: the 5h figure is older than we assign on",
-                  f"5h {st.pct_5h}% observed {status.ago(age)} ago; "
+                  f"5h {st.pct_5h}% observed {timefmt.ago(age)} ago; "
                   f"still a floor for triggers, but no new work goes here")
         elif src == "quiet":
             r.add(OK, f"account {acct}: 5h window quiet",
@@ -408,15 +409,15 @@ def _check_one_daemon(r: Report) -> None:
     one runs whatever code it was started with. The lock names only the one
     holding it, so a duplicate that predates it shows up only here.
     """
-    from . import daemon
+    from .daemon import locks as dmn_locks
 
-    live = daemon.processes()
+    live = dmn_locks.processes()
     if len(live) > 1:
         r.add(WARN, f"{len(live)} daemons are running: pid "
                     f"{', '.join(str(x) for x in live)}",
               "end all but one - the others supervise unrecorded")
     else:
-        pid = daemon.running_elsewhere()
+        pid = dmn_locks.running_elsewhere()
         if pid:
             r.add(OK, f"daemon running (pid {pid})")
         elif live:
@@ -430,14 +431,14 @@ def _check_service(r: Report) -> None:
     """The daemon surviving overnight is the point of `ocp service` - a
     plist on disk that launchd never loaded, or a job stuck respawning, is
     the same as no supervisor at all."""
-    from . import daemon
+    from .daemon import locks as dmn_locks
 
     st = service.status()
     if not st["installed"]:
         # A human deliberately running it by hand in a terminal is a real,
         # working setup, not a defect - only flag the case that is actually
         # silent: nothing installed and nothing running either.
-        if daemon.running_elsewhere():
+        if dmn_locks.running_elsewhere():
             r.add(OK, "no launchd service installed", "a daemon is running by hand")
         else:
             r.add(WARN, "no launchd service installed, no daemon running",
