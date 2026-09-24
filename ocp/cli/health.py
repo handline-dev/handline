@@ -8,7 +8,7 @@ from .. import actions
 from .. import agents
 from .. import ask as askmod
 from .. import backup as backupmod
-from .. import daemon as daemonmod
+from ..daemon import lifecycle as dmn_lifecycle
 from .. import db
 from .. import doctor
 from .. import drift
@@ -98,11 +98,11 @@ def cmd_triggers(args) -> int:
             shown, src = st.shown_pct_5h()
             five = f"{cell(shown)}{src}"
             row = db.get_agent_state(con, a)
-            if daemonmod.triggers_apply(row):
+            if dmn_lifecycle.triggers_apply(row):
                 fires, reason = "YES" if t.fired else "no ", t.reason
             else:
                 fires = "no "
-                walled = daemonmod.would_wake(con, row) and launch.wake_wait_reason(a, row, con)
+                walled = dmn_lifecycle.would_wake(con, row) and launch.wake_wait_reason(a, row, con)
                 reason = walled or "session closed; nothing to hand off"
             print(f"{a:<{w}}{acct or '-':<10}{five:>5}{cell(st.ctx_pct):>5}  "
                   f"{fires:<6} {reason}")

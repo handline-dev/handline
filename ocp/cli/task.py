@@ -9,7 +9,7 @@ from pathlib import Path
 from .. import actions
 from .. import agents
 from .. import ask as askmod
-from .. import daemon as daemonmod
+from ..daemon import lifecycle as dmn_lifecycle
 from .. import db
 from .. import handoff as handoffmod
 from .. import paths
@@ -101,7 +101,7 @@ def cmd_close(args) -> int:
     con = db.connect()
     try:
         st = status.read_for_agent(args.agent, agents.current_account(args.agent, con))
-        ok, msg = daemonmod.close_agent(con, args.agent, print, st)
+        ok, msg = dmn_lifecycle.close_agent(con, args.agent, print, st)
         print(msg)
     finally:
         con.close()

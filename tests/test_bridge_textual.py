@@ -26,8 +26,9 @@ sys.path.insert(0, str(ROOT))
 # First, so OCP_TEST_ROOT is set before any ocp module reads a path.
 import test_ocp as t  # noqa: E402 - its `_daemon_home`/`DESIGN_TEAM` fixture, not re-derived here
 from textual import events  # noqa: E402
-from ocp import (actions, agents, bridge_textual as bt, daemon as daemonmod,  # noqa: E402
+from ocp import (actions, agents, bridge_textual as bt, # noqa: E402
                  db, hr, jobs as jobsmod, tui)
+from ocp.daemon import states as dmn_states
 from ocp.chat_page import ChatPage  # noqa: E402
 from ocp.ui.components.confirm import Confirm, confirm_answer  # noqa: E402
 from ocp.ui.components.read_only import ReadOnly  # noqa: E402
@@ -157,7 +158,7 @@ async def test_confirm_rechecks_can_if_the_state_changed_while_it_was_open() -> 
               isinstance(app.screen, Confirm), type(app.screen).__name__)
         con = db.connect()
         try:
-            db.set_agent_state(con, "backend", daemonmod.HANDOFF)
+            db.set_agent_state(con, "backend", dmn_states.HANDOFF)
         finally:
             con.close()
         await pilot.press("y")
@@ -445,7 +446,7 @@ async def test_wake_on_a_stalled_agent_asks_first() -> None:
     con = db.connect()
     try:
         db.set_terminal(con, "backend", "term_x", "wt")
-        db.set_agent_state(con, "backend", daemonmod.STALLED)
+        db.set_agent_state(con, "backend", dmn_states.STALLED)
     finally:
         con.close()
     app = bt.BridgeApp()
@@ -1287,9 +1288,9 @@ def test_agent_rows_short_model_cache_and_founder_block() -> None:
         db.add_event(con, "nobody", "Stop")
         last = db.last_activity(con, "nobody")
         check("agent_rows: the cache left is what remains of PROMPT_CACHE_S since the last activity",
-              ar.cache_left(con, "nobody", now=last + 600) == daemonmod.PROMPT_CACHE_S - 600)
+              ar.cache_left(con, "nobody", now=last + 600) == dmn_states.PROMPT_CACHE_S - 600)
         check("agent_rows: it goes negative once the cache has lapsed",
-              ar.cache_left(con, "nobody", now=last + daemonmod.PROMPT_CACHE_S + 5) == -5)
+              ar.cache_left(con, "nobody", now=last + dmn_states.PROMPT_CACHE_S + 5) == -5)
 
         cell = lambda left: _plain(ar.cache_cell(left))
         check("agent_rows: the cache cell is minutes, then m:ss in the last ten, then gone",
@@ -1340,7 +1341,7 @@ def test_fold_urgency_ranks_what_a_fold_hides() -> None:
               ar.fold_urgency(con, ["w1", "w2"], {})[1] == 2)
         check("fold_urgency: a stuck delivery is a yellow !, above work",
               ar.fold_urgency(con, ["w1", "w2"], {"w2": {}}) == ("!", 1, tui.YEL))
-        db.set_agent_state(con, "w3", daemonmod.STALLED, detail="dead")
+        db.set_agent_state(con, "w3", dmn_states.STALLED, detail="dead")
         check("fold_urgency: an error is a red !, above a stuck delivery",
               ar.fold_urgency(con, ["w1", "w2", "w3"], {"w2": {}}) == ("!", 2, tui.RED))
         askmod.ask("human", "a question", requester="w4")

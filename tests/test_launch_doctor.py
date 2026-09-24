@@ -303,7 +303,7 @@ def test_a_walled_wake_is_said_once_not_every_tick(home: Path) -> None:
         db.set_closed(con, "backend", "sess-1")
         db.add_request(con, "marina", "backend", "please look", None, "peer", "async",
                        None, 0, None)
-        dmn._SAID.clear()
+        dmn_evaluate._SAID.clear()
         logged: list[str] = []
         for _ in range(4):
             dmn_evaluate.supervise(con, "backend", logged.append, int(time.time()), {}, [])
@@ -321,7 +321,7 @@ def test_a_walled_wake_is_said_once_not_every_tick(home: Path) -> None:
               not [m for m in logged if "5h window" in m], str(logged))
     finally:
         orcamod.available, orcamod.alive, orcamod._run = real_avail, real_alive, real_run
-        dmn._SAID.clear()
+        dmn_evaluate._SAID.clear()
         con.close()
 
 
@@ -569,7 +569,7 @@ def test_doctor_service_check(home: Path) -> None:
         # A human deliberately running it by hand is a working setup, not a
         # defect - doctor's warnings are what we read to know something is
         # actually wrong, so this must not be one of them.
-        with lock.singleton(dmn.DAEMON_LOCK):
+        with lock.singleton(dmn_locks.DAEMON_LOCK):
             r = doctor.Report()
             doctor._check_service(r)
             check("doctor: not-installed is fine when a daemon is running by hand",
@@ -1181,7 +1181,7 @@ def test_a_file_added_to_shared_reaches_every_existing_account(home: Path) -> No
     logs: list[str] = []
     con = db.connect()
     try:
-        dmn.tick(con, logs.append)
+        dmn_evaluate.tick(con, logs.append)
     finally:
         con.close()
     check("relink: the daemon's own tick catches up an account with nothing to run for it",

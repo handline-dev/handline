@@ -735,12 +735,12 @@ def test_a_wake_with_only_an_answer_waiting_still_reads_queued(home: Path) -> No
               db.close_if_queued(con, rid, "done", "like this", announced=False)
               and [r["id"] for r in db.unannounced_answers(con, "backend")] == [rid]
               and db.head_of_queue(con, "backend") is None)
-        db.set_agent_state(con, "backend", dmn.THROTTLED, wake_at=int(time.time()) - 1,
+        db.set_agent_state(con, "backend", dmn_states.THROTTLED, wake_at=int(time.time()) - 1,
                            detail="throttled for an unrelated reason")
         dmn_evaluate.supervise(con, "backend", lambda _m: None, int(time.time()), {}, [])
         row = db.get_agent_state(con, "backend")
         check("answer wake: with only an answer waiting, the wake still reads QUEUED",
-              row["state"] == dmn.QUEUED and row["wake_at"] is None, str(dict(row)))
+              row["state"] == dmn_states.QUEUED and row["wake_at"] is None, str(dict(row)))
     finally:
         con.close()
 
@@ -895,7 +895,7 @@ def test_blocked_agents_come_due_in_one_request(home: Path) -> None:
     for name in ("worker", "reviewer"):
         agents.register(name)
         db.set_terminal(con, name, f"term_{name}", "wt")
-        db.set_agent_state(con, name, dmn.IDLE)
+        db.set_agent_state(con, name, dmn_states.IDLE)
         db.add_request(con, "marina", name, "carry on", None, "peer", "async", None, 0, None)
     sessions_are("backend", "worker", "reviewer")
     screens = {"backend": orcamod.Blocker(orcamod.MODAL, '"A"'),
@@ -946,7 +946,7 @@ def test_a_trust_screen_is_one_founder_request(home: Path) -> None:
         ok, _why = dmn_lifecycle.wake_agent(con, "backend", lambda _m: None)
         check("trust once: the wake escalates and stalls",
               not ok and len(_escalations(con)) == 1
-              and db.get_agent_state(con, "backend")["state"] == dmn.STALLED,
+              and db.get_agent_state(con, "backend")["state"] == dmn_states.STALLED,
               str((ok, _why, [dict(r) for r in _escalations(con)])))
         for at in (0, blockedmod.ESCALATE_AFTER_S, blockedmod.ESCALATE_AFTER_S + 900):
             blockedmod._checked.clear()
@@ -965,7 +965,7 @@ def test_a_trust_screen_is_one_founder_request(home: Path) -> None:
 
         # Only a stall is taken as already said: a dialog is a different
         # obstacle from whatever the agent's open escalation is about.
-        db.set_agent_state(con, "backend", dmn.IDLE)
+        db.set_agent_state(con, "backend", dmn_states.IDLE)
         db.block_clear(con, "backend")
         con.execute("UPDATE requests SET state = 'done' WHERE kind = 'escalate'")
         askmod.escalate(con, "backend", "something else", "unrelated")
@@ -996,7 +996,7 @@ def test_an_open_head_request_on_an_idle_agent_is_nudged_then_shown(home: Path) 
         sessions_are("backend")
         agents.register("backend")
         db.set_terminal(con, "backend", "term_x", "wt")
-        db.set_agent_state(con, "backend", dmn.IDLE, detail="finished its turn")
+        db.set_agent_state(con, "backend", dmn_states.IDLE, detail="finished its turn")
         now = int(time.time())
         head = db.add_request(con, "marina", "backend", "the first thing", None,
                               "peer", "async", None, 0, None)
@@ -1014,14 +1014,14 @@ def test_an_open_head_request_on_an_idle_agent_is_nudged_then_shown(home: Path) 
             return now
 
         def nudge(at: int) -> bool:
-            return dmn.nudge_forgotten_resolve(
+            return dmn_delivery.nudge_forgotten_resolve(
                 con, "backend", db.get_agent_state(con, "backend"), at, said.append)
 
-        idle_for(dmn.NUDGE_AFTER_S - 60)
+        idle_for(dmn_delivery.NUDGE_AFTER_S - 60)
         check("nudge: an agent idle for less than the interval is left alone",
               not nudge(now) and not sent, str(sent))
 
-        idle_for(dmn.NUDGE_AFTER_S + 60)
+        idle_for(dmn_delivery.NUDGE_AFTER_S + 60)
         # What it may be waiting on is not a forgotten resolve.
         ask = db.add_request(con, "backend", "auditor", "review this", None,
                              "peer", "async", None, 0, None)
@@ -1040,7 +1040,7 @@ def test_an_open_head_request_on_an_idle_agent_is_nudged_then_shown(home: Path) 
               "every tick", not nudge(now + 1) and not sent, str(sent))
 
         check("nudge: once the retry spacing has passed it goes",
-              nudge(now + dmn.NUDGE_RETRY_S + 1) and len(sent) == 1, str(sent))
+              nudge(now + dmn_delivery.NUDGE_RETRY_S + 1) and len(sent) == 1, str(sent))
         text = sent[0] if sent else ""
         check("nudge: names the request and how long it has been idle",
               f"#{head}" in text and "idle" in text, text)
@@ -1052,13 +1052,13 @@ def test_an_open_head_request_on_an_idle_agent_is_nudged_then_shown(home: Path) 
         check("nudge: and recorded as an event",
               con.execute("SELECT 1 FROM events WHERE kind = 'nudged'").fetchone() is not None)
         check("nudge: which is not activity, so it does not restart the idle clock",
-              db.last_activity(con, "backend") == now - dmn.NUDGE_AFTER_S - 60)
+              db.last_activity(con, "backend") == now - dmn_delivery.NUDGE_AFTER_S - 60)
         check("nudge: and is never counted against the agent",
-              db.get_agent_state(con, "backend")["state"] == dmn.IDLE
+              db.get_agent_state(con, "backend")["state"] == dmn_states.IDLE
               and db.get_agent_state(con, "backend")["failed_attempts"] == 0
               and db.get_agent_state(con, "backend")["wake_failures"] == 0)
         check("nudge: not repeated for the same request",
-              not nudge(now + 10 * dmn.NUDGE_AFTER_S) and len(sent) == 1, str(sent))
+              not nudge(now + 10 * dmn_delivery.NUDGE_AFTER_S) and len(sent) == 1, str(sent))
 
         # The tick reaches it, gated the same way.
         sent.clear()
@@ -1074,7 +1074,7 @@ def test_an_open_head_request_on_an_idle_agent_is_nudged_then_shown(home: Path) 
         # The bridge: nothing until the second interval, then one row.
         check("stuck: nothing on the screen for it before the second interval",
               not any("idle on" in b["what"] for b in actions.stuck(con)))
-        idle_for(dmn.FORGOTTEN_STUCK_S + 60)
+        idle_for(dmn_delivery.FORGOTTEN_STUCK_S + 60)
         rows = [b for b in actions.stuck(con) if b["agent"] == "backend"]
         check("stuck: one row for the agent, naming the request",
               len(rows) == 1 and f"#{head}" in rows[0]["what"], str(rows))
@@ -1090,7 +1090,7 @@ def test_an_open_head_request_on_an_idle_agent_is_nudged_then_shown(home: Path) 
         check("stuck: an agent that has just answered the nudge is not shown until it "
               "has been idle again",
               not any("idle on" in b["what"] for b in actions.stuck(con)))
-        idle_for(dmn.FORGOTTEN_STUCK_S + 60)
+        idle_for(dmn_delivery.FORGOTTEN_STUCK_S + 60)
         check("stuck: and is shown again once it has",
               any("idle on" in b["what"] for b in actions.stuck(con)))
         _set_request_state(con, head, "done", verdict="did it")
@@ -1121,7 +1121,7 @@ def test_a_withdraw_landing_before_the_send_stops_the_send(home: Path) -> None:
         check("race: the withdraw lands",
               db.retire_if_undelivered(con, rid, "withdrawn"))
         check("race: _tell refuses instead of sending a dead request",
-              not dmn._tell(con, "backend", head, 1, "term_x", lambda _m: None) and not sent,
+              not dmn_delivery._tell(con, "backend", head, 1, "term_x", lambda _m: None) and not sent,
               str(sent))
         check("race: the row was not marked delivered underneath the withdraw",
               db.get_request(con, rid)["delivered_at"] is None)
@@ -1141,13 +1141,13 @@ def test_a_report_notice_is_told_as_something_to_dismiss(home: Path) -> None:
         orcamod.send = lambda h, text, enter=True: (sent.append(text), (True, ""))[1]
         note = db.add_request(con, "ocp", "backend", "T5 is unblocked", None, None,
                               "fire_and_forget", "report", 0, None)
-        dmn._tell(con, "backend", db.head_of_queue(con, "backend"), 1, "term_x", lambda _m: None)
+        dmn_delivery._tell(con, "backend", db.head_of_queue(con, "backend"), 1, "term_x", lambda _m: None)
         check("report notice: told to dismiss it", f"`ocp dismiss {note}`" in sent[-1]
               and "ocp resolve" not in sent[-1], sent[-1])
         con.execute("UPDATE requests SET state = 'done' WHERE id = ?", (note,))
         rid = db.add_request(con, "reviewer", "backend", "look at this", None,
                              "peer", "async", None, 0, None)
-        dmn._tell(con, "backend", db.head_of_queue(con, "backend"), 1, "term_x", lambda _m: None)
+        dmn_delivery._tell(con, "backend", db.head_of_queue(con, "backend"), 1, "term_x", lambda _m: None)
         check("report notice: any other request is told to resolve it",
               f"`ocp resolve {rid} " in sent[-1] and "ocp dismiss" not in sent[-1], sent[-1])
     finally:
@@ -1169,7 +1169,7 @@ def test_a_forgotten_report_notice_is_nudged_to_dismiss_not_resolve(home: Path) 
         sessions_are("backend")
         agents.register("backend")
         db.set_terminal(con, "backend", "term_x", "wt")
-        db.set_agent_state(con, "backend", dmn.IDLE, detail="finished its turn")
+        db.set_agent_state(con, "backend", dmn_states.IDLE, detail="finished its turn")
         now = int(time.time())
         note = db.add_request(con, "ocp", "backend", "T5 is unblocked", None, None,
                               "fire_and_forget", "report", 0, None)
@@ -1177,10 +1177,10 @@ def test_a_forgotten_report_notice_is_nudged_to_dismiss_not_resolve(home: Path) 
         db.set_cursor(con, "notify:backend", note)
         db.add_event(con, "backend", "Stop", {})
         con.execute("UPDATE events SET ts = ? WHERE agent = 'backend'",
-                    (now - dmn.NUDGE_AFTER_S - 60,))
+                    (now - dmn_delivery.NUDGE_AFTER_S - 60,))
         con.execute("UPDATE requests SET delivered_at = ? WHERE id = ?",
-                    (now - dmn.NUDGE_AFTER_S - 60, note))
-        check("report nudge: it goes", dmn.nudge_forgotten_resolve(
+                    (now - dmn_delivery.NUDGE_AFTER_S - 60, note))
+        check("report nudge: it goes", dmn_delivery.nudge_forgotten_resolve(
             con, "backend", db.get_agent_state(con, "backend"), now, lambda _m: None)
             and len(sent) == 1, str(sent))
         check("report nudge: and says dismiss, not resolve",
@@ -1246,7 +1246,7 @@ def test_a_cold_wake_with_no_handoff_still_tells_the_agent_its_transcript_and_re
         transcript.parent.mkdir(parents=True)
         transcript.write_text("{}\n")
         db.set_terminal(con, "backend", "term_x", str(wt))
-        db.set_agent_state(con, "backend", dmn.IDLE)
+        db.set_agent_state(con, "backend", dmn_states.IDLE)
         rid = db.add_request(con, "reviewer", "backend", "review the picker branch", None,
                              "peer", "async", None, 0, None)
         db.mark_delivered(con, rid)
@@ -1267,7 +1267,7 @@ def test_a_cold_wake_with_no_handoff_still_tells_the_agent_its_transcript_and_re
             table["backend"] = 4242
             return list(sent)
 
-        for idle in (dmn.RESUME_WARM_S + 60, None):
+        for idle in (dmn_states.RESUME_WARM_S + 60, None):
             label = "past the window" if idle else "with no clock"
             s1 = wake(idle)
             check(f"cache: {label}, no handoff, it is not resumed",
@@ -1278,7 +1278,7 @@ def test_a_cold_wake_with_no_handoff_still_tells_the_agent_its_transcript_and_re
             check(f"cache: {label}, the request is still its own",
                   (db.head_of_queue(con, "backend") or {"id": 0})["id"] == rid)
         # Control: inside the window, no handoff needed, resumed as before.
-        s2 = wake(dmn.RESUME_WARM_S - 120)
+        s2 = wake(dmn_states.RESUME_WARM_S - 120)
         check("cache: inside the window it resumes and takes no handoff",
               any("--resume sess-7" in t for t in s2) and not seen[0].count("Where you left off"),
               str(s2))
@@ -1304,7 +1304,7 @@ def test_an_answer_reaches_the_agent_that_asked(home: Path) -> None:
         orcamod.send = lambda h, text, enter=True: (sent.append(text), (True, ""))[1]
         sessions_are("backend")
         db.set_terminal(con, "backend", "term_x", "wt")
-        db.set_agent_state(con, "backend", dmn.IDLE)
+        db.set_agent_state(con, "backend", dmn_states.IDLE)
 
         rid = db.add_request(con, "backend", "reviewer", "is this ready?", None,
                              "peer", "async", None, 0, None)
@@ -1407,26 +1407,26 @@ def test_an_answer_line_says_what_it_answers(home: Path) -> None:
             askmod.resolve(rid, verdict)
             return [r for r in db.unannounced_answers(con, "backend") if r["id"] == rid][0]
 
-        line, more = dmn.answer_line(answered("T18 main 반영, supervisor 재시작"))
+        line, more = dmn_delivery.answer_line(answered("T18 main 반영, supervisor 재시작"))
         rid = int(line.split()[0][1:])
         check("answer line: a short question is quoted whole, then who answered and what",
               line == f"#{rid} (you asked: T18 main 반영, supervisor 재시작) reviewer: done", line)
         check("answer line: and nothing more to read", more is False)
 
-        line, _ = dmn.answer_line(answered("q" * 100))
+        line, _ = dmn_delivery.answer_line(answered("q" * 100))
         check("answer line: a long question is cut at the limit with an ellipsis",
-              f"(you asked: {'q' * dmn.ASKED_SHOWN}…)" in line and "q" * (dmn.ASKED_SHOWN + 1) not in line,
+              f"(you asked: {'q' * dmn_delivery.ASKED_SHOWN}…)" in line and "q" * (dmn_delivery.ASKED_SHOWN + 1) not in line,
               line)
 
-        line, _ = dmn.answer_line(answered("first line\n\nsecond\tline \x1b[31mred"))
+        line, _ = dmn_delivery.answer_line(answered("first line\n\nsecond\tline \x1b[31mred"))
         check("answer line: a multi-line question is one line, controls blanked",
               "\n" not in line and "\x1b" not in line and "first line" in line, repr(line))
 
-        line, _ = dmn.answer_line(answered("", "ok"))
+        line, _ = dmn_delivery.answer_line(answered("", "ok"))
         check("answer line: no question, no empty parenthesis",
               "you asked" not in line and line.endswith("reviewer: ok"), line)
 
-        line, more = dmn.answer_line(answered("why?", "v" * 200))
+        line, more = dmn_delivery.answer_line(answered("why?", "v" * 200))
         check("answer line: a long verdict is still cut and flagged as having more",
               more and line.endswith("reviewer: " + "v" * 160) and "(you asked: why?)" in line, line)
     finally:
@@ -1458,7 +1458,7 @@ def test_an_answer_wakes_the_agent_that_was_waiting_for_it(home: Path) -> None:
         rid = db.add_request(con, "backend", "reviewer", "which way?", None,
                              "peer", "async", None, 0, None)
         db.set_closed(con, "backend", "sess-4")
-        db.set_agent_state(con, "backend", dmn.PARKED, wake_at=int(time.time()) + 3600,
+        db.set_agent_state(con, "backend", dmn_states.PARKED, wake_at=int(time.time()) + 3600,
                            detail=f"awaiting reply to request {rid}")
 
         # Resolving hands the answer over itself when it can reach the agent.
@@ -2286,7 +2286,7 @@ def test_a_permission_prompt_waits_on_the_founder_until_it_is_answered(home: Pat
     con = db.connect()
     try:
         db.set_terminal(con, "backend", "term_x", "wt")
-        db.set_agent_state(con, "backend", dmn.RUNNING, detail="active")
+        db.set_agent_state(con, "backend", dmn_states.RUNNING, detail="active")
         # This test is about the event-driven clearing paths, not the live
         # screen - its own screen check is exercised in
         # test_a_wait_clears_when_the_terminals_own_screen_no_longer_shows_it.
@@ -2309,7 +2309,7 @@ def test_a_permission_prompt_waits_on_the_founder_until_it_is_answered(home: Pat
         check("prompt: the event carries the command too", ev and ev[-1].get("command") == cmd[:120],
               str(ev))
         check("prompt: its state underneath is still RUNNING",
-              db.get_agent_state(con, "backend")["state"] == dmn.RUNNING)
+              db.get_agent_state(con, "backend")["state"] == dmn_states.RUNNING)
 
         frame = _snap(120, 40)
         plain = [tui._ANSI.sub("", ln) for ln in frame.split("\n")]
@@ -2355,10 +2355,10 @@ def test_a_permission_prompt_waits_on_the_founder_until_it_is_answered(home: Pat
             check(f"prompt: {ends} clears it whatever else was missed", not waits())
 
         _fire_hook("PermissionRequest", tool_name="Bash", tool_input={"command": "ls"})
-        db.set_agent_state(con, "backend", dmn.IDLE)
+        db.set_agent_state(con, "backend", dmn_states.IDLE)
         check("prompt: a session the daemon has moved off RUNNING is not at that prompt",
               not waits())
-        db.set_agent_state(con, "backend", dmn.RUNNING)
+        db.set_agent_state(con, "backend", dmn_states.RUNNING)
         db.set_closed(con, "backend", "sess-1")
         check("prompt: nor is a closed one", not waits())
     finally:
@@ -2378,7 +2378,7 @@ def test_a_wait_does_not_outlive_the_prompt_that_raised_it(home: Path) -> None:
     os.environ["OCP_AGENT"], os.environ["OCP_ACCOUNT"] = "backend", "alpha"
     con = db.connect()
     try:
-        db.set_agent_state(con, "backend", dmn.RUNNING, detail="active")
+        db.set_agent_state(con, "backend", dmn_states.RUNNING, detail="active")
         # This test is about the event-driven clearing paths, not the live
         # screen - its own screen check is exercised in
         # test_a_wait_clears_when_the_terminals_own_screen_no_longer_shows_it.
@@ -2469,7 +2469,7 @@ def test_a_wait_clears_when_the_terminals_own_screen_no_longer_shows_it(home: Pa
     os.environ["OCP_AGENT"], os.environ["OCP_ACCOUNT"] = "backend", "alpha"
     con = db.connect()
     try:
-        db.set_agent_state(con, "backend", dmn.RUNNING, detail="active")
+        db.set_agent_state(con, "backend", dmn_states.RUNNING, detail="active")
 
         def stub(blocker) -> None:
             # screen_blocker_cached (orca.SCREEN_CACHE_TTL_S) would otherwise
@@ -2531,7 +2531,7 @@ def test_the_founders_own_shape_end_to_end(home: Path) -> None:
     con = db.connect()
     try:
         db.set_terminal(con, "backend", "term_x", "wt")
-        db.set_agent_state(con, "backend", dmn.RUNNING, detail="active")
+        db.set_agent_state(con, "backend", dmn_states.RUNNING, detail="active")
 
         def waiting_now() -> bool:
             return waiting.of(con, db.get_agent_state(con, "backend")) is not None
@@ -2580,7 +2580,7 @@ def test_classify_reads_the_screen_again_after_waiting_of_hides_a_wait_by_it(hom
     orcamod.screen_blocker = fake_screen_blocker
     con = db.connect()
     try:
-        db.set_agent_state(con, "backend", dmn.RUNNING, detail="active")
+        db.set_agent_state(con, "backend", dmn_states.RUNNING, detail="active")
         waiting.note("backend", "Bash", {"command": "rm -rf /x"})
         row = db.get_agent_state(con, "backend")
         found = blockedmod.classify(con, "backend", row)
@@ -2607,7 +2607,7 @@ def test_a_stale_cached_read_does_not_hide_a_later_prompt(home: Path) -> None:
     os.environ["OCP_AGENT"], os.environ["OCP_ACCOUNT"] = "backend", "alpha"
     con = db.connect()
     try:
-        db.set_agent_state(con, "backend", dmn.RUNNING, detail="active")
+        db.set_agent_state(con, "backend", dmn_states.RUNNING, detail="active")
 
         def waiting_now() -> bool:
             return waiting.of(con, db.get_agent_state(con, "backend")) is not None
@@ -2703,8 +2703,8 @@ def test_ask_and_resolve_do_not_type_at_an_agent_at_the_wall(home: Path) -> None
         sessions_are("backend", "product")
         db.set_terminal(con, "backend", "term_x", "wt")
         db.set_terminal(con, "product", "term_p", "wt")
-        db.set_agent_state(con, "backend", dmn.IDLE)
-        db.set_agent_state(con, "product", dmn.IDLE)
+        db.set_agent_state(con, "backend", dmn_states.IDLE)
+        db.set_agent_state(con, "product", dmn_states.IDLE)
 
         # ---- a turn that ended on the usage limit
         hook("StopFailure", error="rate_limit", error_details="You've hit your session limit")
@@ -2731,11 +2731,11 @@ def test_ask_and_resolve_do_not_type_at_an_agent_at_the_wall(home: Path) -> None
         hid = "h-usage"
         db.start_handoff(con, hid, "product", "sess", "usage", int(time.time()) + 60)
         db.advance_handoff(con, hid, "released", state="done")
-        db.set_agent_state(con, "product", dmn.PARKED, wake_at=int(time.time()) + 3600)
+        db.set_agent_state(con, "product", dmn_states.PARKED, wake_at=int(time.time()) + 3600)
         ok, said = askmod.resolve(rid, "looked, fine")
         check("wall: resolving to an agent parked on usage types nothing", not sent, str(sent))
         check("wall: and the answer does not unpark it - that is the window's to end",
-              db.get_agent_state(con, "product")["state"] == dmn.PARKED,
+              db.get_agent_state(con, "product")["state"] == dmn_states.PARKED,
               db.get_agent_state(con, "product")["state"])
         check("wall: the answer stays unannounced",
               [r["id"] for r in db.unannounced_answers(con, "product")] == [rid])
@@ -2780,7 +2780,7 @@ def test_a_move_still_records_a_session_the_wait_missed_but_a_hook_saw(home: Pat
         sessions_are("mover")
         db.set_terminal(con, "mover", "term_x", "wt")
         db.set_account(con, "mover", "alpha")
-        db.set_agent_state(con, "mover", dmn.PARKED, detail="parked earlier")
+        db.set_agent_state(con, "mover", dmn_states.PARKED, detail="parked earlier")
         db.bump_counter(con, "mover", "wake_failures")
         db.add_request(con, "marina", "mover", "carry on", None, "peer", "async", None, 0, None)
         keep_handoff("mover", "# handoff · mover\n## 다음\n- carry on\n")
@@ -2801,7 +2801,7 @@ def test_a_move_still_records_a_session_the_wait_missed_but_a_hook_saw(home: Pat
               "the move is recorded, not discarded", moved)
         row = db.get_agent_state(con, "mover")
         check("clobber: the row lands on the new account with the hook's state kept",
-              row["account"] == "beta" and row["state"] == dmn.RUNNING
+              row["account"] == "beta" and row["state"] == dmn_states.RUNNING
               and not row["closed_at"], str(dict(row)))
         check("clobber: the wake's own failed-attempt bookkeeping is cleared too, "
               "since the hook says it did not fail",
@@ -2992,7 +2992,7 @@ def test_an_answer_to_the_human_is_in_the_human_mailbox(home: Path) -> None:
             actions.dismiss(con, parked2)
             check("mailbox: nor is a parked one told; with nothing else waiting it is idle",
                   not woken and not delivered
-                  and db.get_agent_state(con, "marina")["state"] == dmn.IDLE,
+                  and db.get_agent_state(con, "marina")["state"] == dmn_states.IDLE,
                   f"woken={woken} delivered={delivered}")
             other = db.add_request(con, "marina", "reviewer", "another?", None,
                                    "peer", "async", None, 0, None)
@@ -3001,7 +3001,7 @@ def test_an_answer_to_the_human_is_in_the_human_mailbox(home: Path) -> None:
                                      "peer", "async", None, 0, None)
             actions.dismiss(con, parked3)
             check("mailbox: with another answer untold it reads QUEUED, and only for that",
-                  db.get_agent_state(con, "marina")["state"] == dmn.QUEUED
+                  db.get_agent_state(con, "marina")["state"] == dmn_states.QUEUED
                   and [r["id"] for r in db.unannounced_answers(con, "marina")] == [other],
                   str(dict(db.get_agent_state(con, "marina"))))
 
@@ -3105,7 +3105,7 @@ def test_the_founder_can_cancel_a_request_in_an_agents_queue(home: Path) -> None
         for name, term in (("backend", "term_b"), ("marina", "term_m")):
             agents.register(name)
             db.set_terminal(con, name, term, "wt")
-            db.set_agent_state(con, name, dmn.IDLE)
+            db.set_agent_state(con, name, dmn_states.IDLE)
 
         def ask(requester: str, body: str) -> int:
             return db.add_request(con, requester, "backend", body, None,
@@ -3268,21 +3268,21 @@ def test_a_queued_agent_with_a_told_head_gets_the_same_forgotten_resolve_nudge_a
         db.set_cursor(con, "notify:backend", head)
         db.add_event(con, "backend", "Stop", {})
         con.execute("UPDATE events SET ts = ? WHERE agent = 'backend'",
-                    (now - dmn.NUDGE_AFTER_S - 60,))
+                    (now - dmn_delivery.NUDGE_AFTER_S - 60,))
         con.execute("UPDATE requests SET delivered_at = ? WHERE id = ?",
-                    (now - dmn.NUDGE_AFTER_S - 60, head))
+                    (now - dmn_delivery.NUDGE_AFTER_S - 60, head))
         # QUEUED, not IDLE - a wake, a move, an unstall or a reply can all
         # leave an agent here with its own head already told.
-        db.set_agent_state(con, "backend", dmn.QUEUED)
+        db.set_agent_state(con, "backend", dmn_states.QUEUED)
 
-        ok = dmn.nudge_forgotten_resolve(con, "backend", db.get_agent_state(con, "backend"),
+        ok = dmn_delivery.nudge_forgotten_resolve(con, "backend", db.get_agent_state(con, "backend"),
                                          now, lambda _m: None)
         check("queued nudge: it is typed for a QUEUED agent, same as an IDLE one",
               ok and sent, str(sent))
         check("queued nudge: names the head and the one behind it",
               sent and f"#{head}" in sent[0] and "1 more waiting" in sent[0], str(sent))
         check("queued nudge: the state and the queue are untouched by the nudge itself",
-              db.get_agent_state(con, "backend")["state"] == dmn.QUEUED
+              db.get_agent_state(con, "backend")["state"] == dmn_states.QUEUED
               and db.get_request(con, head)["state"] == "queued")
     finally:
         orcamod.available, orcamod.alive, orcamod.typeable_now, orcamod.send = real
@@ -3301,12 +3301,12 @@ def test_handoff_rate_limited(home: Path) -> None:
         db.set_terminal(con, "backend", "term_x", "wt")
         t = triggers.Trigger(True, "usage", "pct_5h 100% - at the wall")
 
-        dmn.perform_handoff(con, "backend", t, lambda _m: None)
+        dmn_handoff.perform_handoff(con, "backend", t, lambda _m: None)
         first = con.execute("SELECT COUNT(*) c FROM handoff WHERE agent='backend'").fetchone()["c"]
 
         # Simulate something un-parking it and the trigger firing again at once.
-        db.set_agent_state(con, "backend", dmn.RUNNING, detail="un-parked somehow")
-        dmn.perform_handoff(con, "backend", t, lambda _m: None)
+        db.set_agent_state(con, "backend", dmn_states.RUNNING, detail="un-parked somehow")
+        dmn_handoff.perform_handoff(con, "backend", t, lambda _m: None)
         second = con.execute("SELECT COUNT(*) c FROM handoff WHERE agent='backend'").fetchone()["c"]
 
         check("handoff: a second handoff right after the first is skipped",

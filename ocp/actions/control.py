@@ -6,7 +6,7 @@ from pathlib import Path
 
 from .. import accounts
 from .. import agents
-from .. import daemon
+from ..daemon import delivery as dmn_delivery, handoff as dmn_handoff, lifecycle as dmn_lifecycle, states as dmn_states
 from .. import db
 from .. import fold as foldmod
 from .. import orca
@@ -24,25 +24,25 @@ def wake(con, agent: str) -> str:
     clear the stall (founder #1620/#1631: unstall folded into wake, behind
     the same confirmation `can()` already asks for a STALLED row)."""
     row = db.get_agent_state(con, agent)
-    if row and row["state"] == daemon.STALLED:
+    if row and row["state"] == dmn_states.STALLED:
         return unstall(con, agent)
-    ok, why = daemon.wake_agent(con, agent, lambda _m: None)
+    ok, why = dmn_lifecycle.wake_agent(con, agent, lambda _m: None)
     return f"{agent}: {why}" if ok else f"{agent}: not woken - {why}"
 
 
 def close(con, agent: str) -> str:
     """Give the machine back an idle agent's memory, keeping its terminal."""
     st = status.read_for_agent(agent, agents.current_account(agent, con))
-    ok, why = daemon.close_agent(con, agent, lambda _m: None, st)
+    ok, why = dmn_lifecycle.close_agent(con, agent, lambda _m: None, st)
     return why if ok else f"{agent}: not closed - {why}"
 
 
 def unstall(con, agent: str) -> str:
     """Clear a stall, which is the one state the daemon will not leave alone."""
     row = db.get_agent_state(con, agent)
-    if not row or row["state"] != daemon.STALLED:
+    if not row or row["state"] != dmn_states.STALLED:
         return f"{agent}: not STALLED ({row['state'] if row else 'no state'})"
-    db.set_agent_state(con, agent, daemon.QUEUED, detail="cleared by a human")
+    db.set_agent_state(con, agent, dmn_states.QUEUED, detail="cleared by a human")
     for counter in ("failed_attempts", "throttle_count", "wake_failures"):
         db.reset_counter(con, agent, counter)
     db.clear_cursor(con, f"dialog_since:{agent}")
@@ -59,9 +59,9 @@ def park(con, agent: str) -> str:
     state afterwards. Reporting the state read RUNNING as though it were a
     result.
     """
-    t = triggers.Trigger(True, daemon.BY_HAND_MARK, "parked by a human from the screen")
+    t = triggers.Trigger(True, dmn_states.BY_HAND_MARK, "parked by a human from the screen")
     said: list[str] = []
-    ok = daemon.perform_handoff(con, agent, t, said.append)
+    ok = dmn_handoff.perform_handoff(con, agent, t, said.append)
     if said:
         return said[-1].strip()
     row = db.get_agent_state(con, agent)
@@ -105,7 +105,7 @@ def start(con, agent: str, repo: str | None = None, base: str = "main") -> str:
     # mid-login - leaving the shell prompt the command was typed at. That looks
     # exactly like a terminal where nothing ran, and saying "started" over it
     # sends the reader looking for an agent that is not there.
-    if not daemon.wait_for_session(agent, STARTED_TIMEOUT_S):
+    if not dmn_delivery.wait_for_session(agent, STARTED_TIMEOUT_S):
         return (f"{msg}\n  but no session is running in it after {STARTED_TIMEOUT_S}s - "
                 f"the terminal is there and claude is not. Go and look (t): "
                 f"whatever it printed is on that shell.")
@@ -161,7 +161,7 @@ def login_argv(acct: str, force: bool = False) -> tuple[str, list[str], dict]:
 
 def move(con, agent: str, account: str) -> str:
     """Force this agent's live session onto `account`, recording its handoff first."""
-    ok, msg = daemon.force_move(con, agent, account, "human (bridge)", lambda _m: None)
+    ok, msg = dmn_handoff.force_move(con, agent, account, "human (bridge)", lambda _m: None)
     return msg
 
 
@@ -185,14 +185,14 @@ def can(con, agent: str, key: str) -> tuple[bool, str]:
     # mid-something, and STALLED is the one state the daemon deliberately does
     # not touch - handing a stalled agent off would clear the stall a human was
     # meant to read.
-    busy = state in (daemon.RUNNING, daemon.HANDOFF, daemon.STALLED)
+    busy = state in (dmn_states.RUNNING, dmn_states.HANDOFF, dmn_states.STALLED)
     busy_why = f"{agent} is {state}" + (" - only a human clears that (w)"
-                                        if state == daemon.STALLED else "")
+                                        if state == dmn_states.STALLED else "")
     if key == "wake":
-        if closed or state == daemon.STALLED:
+        if closed or state == dmn_states.STALLED:
             return True, ""
-        if state in (daemon.PARKED, daemon.THROTTLED, daemon.DEGRADED):
-            return daemon.park_wakeable(row)
+        if state in (dmn_states.PARKED, dmn_states.THROTTLED, dmn_states.DEGRADED):
+            return dmn_states.park_wakeable(row)
         return False, f"{agent} is {state}, not parked or closed - there is nothing to wake"
     if key == "close":
         # Work waiting is the one case where closing only adds delay: the very
@@ -224,7 +224,7 @@ def can(con, agent: str, key: str) -> tuple[bool, str]:
     if key == "move":
         if closed or not row["terminal"]:
             return False, f"{agent} has no live session to move"
-        if state in (daemon.HANDOFF, daemon.STALLED):
+        if state in (dmn_states.HANDOFF, dmn_states.STALLED):
             return False, f"{agent} is {state}"
         return True, ""
     if key == "start":
@@ -250,7 +250,7 @@ ASYNC_VERBS = ("wake", "close", "park", "fold", "unstall", "terminal", "message"
                "dismiss", "cancel", "move", "chat_reply")
 
 _IDLE_WAIT_S = orca.IDLE_TIMEOUT_MS // 1000 + 30       # wait_idle's own subprocess bound
-_DELIVERY_S = daemon.WAKE_SESSION_TIMEOUT_S + _IDLE_WAIT_S + 60
+_DELIVERY_S = dmn_delivery.WAKE_SESSION_TIMEOUT_S + _IDLE_WAIT_S + 60
 
 # verb -> (what it can be waiting for, the longest that can take in seconds). The
 # longest is the sum of the waits on the path, each bounded by the constant that
@@ -260,7 +260,7 @@ _DELIVERY_S = daemon.WAKE_SESSION_TIMEOUT_S + _IDLE_WAIT_S + 60
 WAITS: dict[str, tuple[str, int]] = {
     "wake": ("its session to start and settle", _DELIVERY_S),
     "close": ("it to finish its turn, then its session to end",
-              _IDLE_WAIT_S + 30 + daemon.END_WAIT_S + 15),
+              _IDLE_WAIT_S + 30 + dmn_delivery.END_WAIT_S + 15),
     "park": ("its handoff to be recorded and its context cleared", _DELIVERY_S),
     "move": ("its handoff, then its session to end and start elsewhere", 2 * _DELIVERY_S),
     "fold": ("the model to fold the day's events", foldmod.FOLD_TIMEOUT_S + 30),

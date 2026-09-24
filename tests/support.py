@@ -51,7 +51,7 @@ atexit.register(shutil.rmtree, TEST_ROOT, True)
 
 from ocp.cli import (account as cliaccount, ask as cliask, bridge as clibridge, daemon as clidaemon,  # noqa: E402
                      health as clihealth, setup as clisetup, task as clitask)
-from ocp import (accounts, actions, agents, ask as askmod, blocked as blockedmod, burnrate, cli as climod, collect, daemon as dmn, db, hr,
+from ocp import (accounts, actions, agents, ask as askmod, blocked as blockedmod, burnrate, cli as climod, collect, db, hr,
                  digest,
                  doctor, drift, events as evmod, fold as foldmod,
                  handoff as handoffmod, jobs as jobsmod, launch, load as loadmod, lock, measure,
@@ -63,6 +63,7 @@ from ocp import (accounts, actions, agents, ask as askmod, blocked as blockedmod
                  yamlcompat)  # noqa: E402
 from ocp.daemon import (delivery as dmn_delivery, devmode as dmn_devmode, evaluate as dmn_evaluate,  # noqa: E402
                         handoff as dmn_handoff, lifecycle as dmn_lifecycle, locks as dmn_locks,
+                        loop as dmn_loop, reconciler as dmn_reconciler, states as dmn_states,
                         usage_poll as dmn_usage_poll)
 from ocp.vendors import opencode as ocmod  # noqa: E402
 
@@ -671,7 +672,7 @@ def _blocked_world(home: Path):
     orcamod.alive = lambda h: True
     sessions_are("backend")
     con = db.connect()
-    db.set_agent_state(con, "backend", dmn.IDLE)
+    db.set_agent_state(con, "backend", dmn_states.IDLE)
     db.add_request(con, "marina", "backend", "carry on", None, "peer", "async", None, 0, None)
     return con
 
@@ -1242,7 +1243,7 @@ def _park_behind(home: Path, tail, ends_at_limit: bool = True, **term_kw):
     if ends_at_limit:
         db.add_event(con, "keeper", "StopFailure", {"limit": "5h"})
         con.execute("UPDATE events SET ts = ? WHERE agent = 'keeper' AND kind = 'StopFailure'",
-                    (int(time.time()) - dmn.LIMIT_SETTLE_S - 60,))
+                    (int(time.time()) - dmn_states.LIMIT_SETTLE_S - 60,))
     orcamod.available = lambda: True
     orcamod.alive = lambda h: True
     orcamod.wait_idle = lambda h, timeout_ms=0: True
@@ -1293,7 +1294,7 @@ def _running_on(con, acct: str, *names: str) -> None:
     for n in names:
         agents.register(n)
         db.set_account(con, n, acct)
-        db.set_agent_state(con, n, dmn.RUNNING)
+        db.set_agent_state(con, n, dmn_states.RUNNING)
 
 
 def _reference_text(text: str) -> str:
@@ -1798,13 +1799,15 @@ __all__ = [
     'clisetup',
     'clitask',
     'collect',
-    'dmn',
     'dmn_delivery',
     'dmn_devmode',
     'dmn_evaluate',
     'dmn_handoff',
     'dmn_lifecycle',
     'dmn_locks',
+    'dmn_states',
+    'dmn_reconciler',
+    'dmn_loop',
     'dmn_usage_poll',
     'db',
     'hr',

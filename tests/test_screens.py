@@ -637,7 +637,7 @@ def test_top_acts_through_the_same_calls_the_daemon_makes(home: Path) -> None:
         table = sessions_are("backend")
         orcamod.send = relaunching_send(sent, table)
         db.set_terminal(con, "backend", "term_x", "wt")
-        db.set_agent_state(con, "backend", dmn.IDLE)
+        db.set_agent_state(con, "backend", dmn_states.IDLE)
         (home / "agents" / "backend").mkdir(parents=True, exist_ok=True)
         (home / "agents" / "backend" / "status.json").write_text(json.dumps({
             "account": "alpha", "collected_at": int(time.time()),
@@ -663,13 +663,13 @@ def test_top_acts_through_the_same_calls_the_daemon_makes(home: Path) -> None:
         # A stall is the one state the daemon will not leave on its own, so the
         # screen is where it is cleared - including the wake streak, or the
         # sweep would later read it as a stall of its own making.
-        db.set_agent_state(con, "backend", dmn.STALLED, detail="by hand")
-        for _ in range(dmn.MAX_FAILED_ATTEMPTS):
+        db.set_agent_state(con, "backend", dmn_states.STALLED, detail="by hand")
+        for _ in range(dmn_states.MAX_FAILED_ATTEMPTS):
             db.bump_counter(con, "backend", "wake_failures")
         said = actions.unstall(con, "backend")
         row = db.get_agent_state(con, "backend")
         check("top: unstall clears the state and every count behind it",
-              row["state"] == dmn.QUEUED and row["wake_failures"] == 0
+              row["state"] == dmn_states.QUEUED and row["wake_failures"] == 0
               and row["failed_attempts"] == 0, said)
 
         # Sending work from the screen is an ordinary ask, from the human -
@@ -700,7 +700,7 @@ def test_top_acts_through_the_same_calls_the_daemon_makes(home: Path) -> None:
         # screen must not offer the keys that would clear it by accident: a
         # handoff pays for a fold and ends PARKED, and the stall a human was
         # meant to read is gone with none of the counters unstall resets.
-        db.set_agent_state(con, "backend", dmn.STALLED, detail="stalled")
+        db.set_agent_state(con, "backend", dmn_states.STALLED, detail="stalled")
         check("top: a stalled agent is offered unstall and nothing that hides it",
               actions.can(con, "backend", "unstall")[0]
               and not actions.can(con, "backend", "park")[0]
@@ -708,13 +708,13 @@ def test_top_acts_through_the_same_calls_the_daemon_makes(home: Path) -> None:
               and not actions.can(con, "backend", "fold")[0])
         # A fold never types into the terminal, so a lost terminal does not
         # stand in its way - that agent is a likelier one to want folded.
-        db.set_agent_state(con, "backend", dmn.IDLE, detail="cleared")
+        db.set_agent_state(con, "backend", dmn_states.IDLE, detail="cleared")
         db.set_terminal(con, "backend", None, None)
         check("top: folding is offered to an agent whose terminal is gone",
               actions.can(con, "backend", "fold")[0]
               and not actions.can(con, "backend", "park")[0])
         db.set_terminal(con, "backend", "term_x", "wt")
-        db.set_agent_state(con, "backend", dmn.IDLE, detail="cleared")
+        db.set_agent_state(con, "backend", dmn_states.IDLE, detail="cleared")
 
         # Work waiting is the one case where closing only adds delay - the next
         # tick wakes it straight back up. should_close refuses for that reason.
@@ -727,13 +727,13 @@ def test_top_acts_through_the_same_calls_the_daemon_makes(home: Path) -> None:
         # perform_handoff returns True for three things that are not a handoff.
         # Reporting the state afterwards read "RUNNING" as though it were a
         # result; the line it logged is the answer.
-        db.set_agent_state(con, "backend", dmn.RUNNING, detail="mid-turn")
+        db.set_agent_state(con, "backend", dmn_states.RUNNING, detail="mid-turn")
         orcamod.idle_now = lambda h: False
         said = actions.park(con, "backend")
         check("top: parking a busy agent says it was deferred, not its state",
               "defer" in said and "RUNNING" not in said, said)
         orcamod.idle_now = lambda h: True
-        db.set_agent_state(con, "backend", dmn.IDLE, detail="cleared")
+        db.set_agent_state(con, "backend", dmn_states.IDLE, detail="cleared")
 
         # A terminal can be closed by a human or lost when Orca restarts, and
         # nothing happens to the work: the branch and the checkout are still
@@ -744,7 +744,7 @@ def test_top_acts_through_the_same_calls_the_daemon_makes(home: Path) -> None:
         db.set_terminal(con, "backend", "term_x", str(wt))
         obsmod.live_sessions = lambda: {}
         orcamod.live_terminals = lambda: set()      # Orca no longer has it
-        dmn.sweep(con, lambda _m: None, [])
+        dmn_reconciler.sweep(con, lambda _m: None, [])
         row = db.get_agent_state(con, "backend")
         check("start: a dropped terminal does not take the worktree with it",
               row["terminal"] is None and row["worktree"] == str(wt),
@@ -1456,7 +1456,7 @@ def test_the_accounts_panel_says_how_many_agents_are_assigned_and_running(home: 
     AGENTS panel's acct column puts them) and how many of those are running,
     drawn "3 ▶1". None on an account is a dim 0, a roster not read is "?"."""
     from ocp import load as loadmod
-    from ocp import daemon as dmn
+    from ocp.daemon import states as dmn_states
     _daemon_home(home, 20)
     accounts.register("beta")
     accounts.register("gamma")
@@ -1465,14 +1465,14 @@ def test_the_accounts_panel_says_how_many_agents_are_assigned_and_running(home: 
     agents.register("mover")
     con = db.connect()
     try:
-        db.set_agent_state(con, "backend", dmn.RUNNING, detail="working")
-        db.set_agent_state(con, "frontend", dmn.IDLE)
+        db.set_agent_state(con, "backend", dmn_states.RUNNING, detail="working")
+        db.set_agent_state(con, "frontend", dmn_states.IDLE)
         db.set_account(con, "frontend", "alpha")
         # RUNNING but closed: a session that is not there is not running.
-        db.set_agent_state(con, "worker", dmn.RUNNING)
+        db.set_agent_state(con, "worker", dmn_states.RUNNING)
         db.set_closed(con, "worker", None)
         db.set_account(con, "worker", "beta")
-        db.set_agent_state(con, "mover", dmn.IDLE)
+        db.set_agent_state(con, "mover", dmn_states.IDLE)
         db.set_account(con, "mover", "alpha")
         found, unplaced = loadmod.roster(con)
     finally:
@@ -1622,7 +1622,7 @@ edges:
         # Folding must not hide the one row this screen is for.
         con2 = db.connect()
         try:
-            db.set_agent_state(con2, "keeper", dmn.STALLED, detail="wedged")
+            db.set_agent_state(con2, "keeper", dmn_states.STALLED, detail="wedged")
         finally:
             con2.close()
         drawn = [n for n, _d, _u in tui.visible_tree()]
@@ -1633,7 +1633,7 @@ edges:
               str(tui.visible_tree()))
         con2 = db.connect()
         try:
-            db.set_agent_state(con2, "keeper", dmn.IDLE, detail="fine")
+            db.set_agent_state(con2, "keeper", dmn_states.IDLE, detail="fine")
         finally:
             con2.close()
 
@@ -1711,9 +1711,9 @@ def test_the_wake_time_is_in_the_state_cell_not_a_column(home: Path) -> None:
     try:
         for name in ("backend", "frontend"):
             agents.register(name)
-        db.set_agent_state(con, "backend", dmn.PARKED, wake_at=int(time.time()) + 12 * 60 + 30,
+        db.set_agent_state(con, "backend", dmn_states.PARKED, wake_at=int(time.time()) + 12 * 60 + 30,
                            detail="usage")
-        db.set_agent_state(con, "frontend", dmn.IDLE)
+        db.set_agent_state(con, "frontend", dmn_states.IDLE)
         lines = [tui._ANSI.sub("", ln) for ln in _snap(120, 40).split(chr(10))]
         parked = [ln for ln in lines if "backend" in ln]
         idle = [ln for ln in lines if "frontend" in ln]
@@ -1728,7 +1728,7 @@ def test_the_wake_time_is_in_the_state_cell_not_a_column(home: Path) -> None:
         check("agents: a closed parked row still fits its time, with no ·closed",
               closed and re.search(r"PENDING\s+\d\d:\d\d", closed[0])
               and "closed" not in closed[0], str(closed))
-        db.set_agent_state(con, "backend", dmn.PARKED, wake_at=int(time.time()) - 5)
+        db.set_agent_state(con, "backend", dmn_states.PARKED, wake_at=int(time.time()) - 5)
         lines = [tui._ANSI.sub("", ln) for ln in _snap(120, 40).split(chr(10))]
         due = [ln for ln in lines if "backend" in ln]
         check("agents: a deadline that has passed says so", due and " due" in due[0], str(due))
@@ -1769,20 +1769,20 @@ edges:
         check("fold: idle reports add nothing to the marker",
               "manager +2" in manager_line() and "▶" not in manager_line()
               and "!" not in manager_line(), manager_line())
-        db.set_agent_state(con, "marina", dmn.RUNNING)
+        db.set_agent_state(con, "marina", dmn_states.RUNNING)
         check("fold: a running report is counted after the +N",
               "manager +2 ▶1" in manager_line(), manager_line())
-        db.set_agent_state(con, "keeper", dmn.RUNNING)
+        db.set_agent_state(con, "keeper", dmn_states.RUNNING)
         check("fold: and so are two", "manager +2 ▶2" in manager_line(), manager_line())
         check("fold: the manager's own state cell is still its own",
               re.search(r"manager \+2 ▶2\s+alpha\s.*IDLE", manager_line()), manager_line())
 
         # Most urgent first: needs-you, then stuck, then running.
-        db.set_agent_state(con, "keeper", dmn.STALLED, detail="wedged")
+        db.set_agent_state(con, "keeper", dmn_states.STALLED, detail="wedged")
         check("fold: a hidden stalled report beats running, and is red",
               tui.hidden_urgency(con, ["marina", "keeper"]) == ("!", 1, tui.RED),
               str(tui.hidden_urgency(con, ["marina", "keeper"])))
-        db.set_agent_state(con, "keeper", dmn.RUNNING)
+        db.set_agent_state(con, "keeper", dmn_states.RUNNING)
         dmn_delivery.wall_reason = lambda con_, agent, row=None: "at the wall" if agent == "marina" else None
         check("fold: a report at the usage wall beats running",
               tui.hidden_urgency(con, ["marina", "keeper"]) == ("!", 1, tui.YEL),
@@ -1790,7 +1790,7 @@ edges:
         dmn_delivery.wall_reason = real_wall
         db.add_request(con, "marina", "human", "need your call", None,
                        "peer", "async", "escalate", 0, None)
-        db.set_agent_state(con, "keeper", dmn.STALLED, detail="wedged")
+        db.set_agent_state(con, "keeper", dmn_states.STALLED, detail="wedged")
         check("fold: one waiting on the human beats stuck, and only its own class is counted",
               tui.hidden_urgency(con, ["marina", "keeper"]) == ("!", 1, tui.YEL),
               str(tui.hidden_urgency(con, ["marina", "keeper"])))
@@ -1815,8 +1815,8 @@ edges:
 """)
         for name in ("idle1", "lead", "worker"):
             agents.register(name)
-        for name, state in (("marina", dmn.IDLE), ("keeper", dmn.IDLE), ("idle1", dmn.IDLE),
-                            ("lead", dmn.STALLED), ("worker", dmn.RUNNING)):
+        for name, state in (("marina", dmn_states.IDLE), ("keeper", dmn_states.IDLE), ("idle1", dmn_states.IDLE),
+                            ("lead", dmn_states.STALLED), ("worker", dmn_states.RUNNING)):
             db.set_agent_state(con, name, state, detail="x")
         lines = {n: next((tui._ANSI.sub("", ln) for ln in _snap(120, 60).split(chr(10))
                           if re.search(rf"(^|[ │└]){n}( |$)", tui._ANSI.sub("", ln))), "")
@@ -1896,7 +1896,7 @@ def test_the_panel_and_the_daemon_agree_about_what_is_in_the_way(home: Path) -> 
             return dmn_delivery.deliver_queued(con, "backend", lambda _m: None), (said[0] if said else "")
 
         live = {"term_x"}, {"backend": 4242}
-        delivered, said = world(*live, dmn.IDLE, told=False, age=5)
+        delivered, said = world(*live, dmn_states.IDLE, told=False, age=5)
         check("agree: what the daemon is about to deliver is not drawn as stuck",
               delivered and not said, f"{delivered} {said}")
 
@@ -1904,40 +1904,40 @@ def test_the_panel_and_the_daemon_agree_about_what_is_in_the_way(home: Path) -> 
         # explains a request this old that has still not been told, and the
         # things that do - a probe that never says yes, a send that fails - are
         # exactly what left four requests sitting for two days.
-        _, said = world(*live, dmn.IDLE, told=False, idle=False)
+        _, said = world(*live, dmn_states.IDLE, told=False, idle=False)
         check("agree: one that has gone untold for too long is a finding, not silence",
               "has not been told yet" in said, said)
 
-        delivered, said = world(*live, dmn.IDLE, told=True)
+        delivered, said = world(*live, dmn_states.IDLE, told=True)
         check("agree: the idle parameter is used, not decoration",
               not dmn_delivery.deliver_queued(con, "backend", lambda _m: None) or True)
         check("agree: told and unanswered is the agent's turn, and says so",
               not delivered and "told and has not answered" in said, said)
 
-        delivered, said = world({"term_x"}, {}, dmn.IDLE, told=False)
+        delivered, said = world({"term_x"}, {}, dmn_states.IDLE, told=False)
         check("agree: no session names the session, not the state",
               not delivered and "no session is running" in said, said)
 
-        delivered, said = world(set(), {"backend": 4242}, dmn.IDLE, told=False)
+        delivered, said = world(set(), {"backend": 4242}, dmn_states.IDLE, told=False)
         check("agree: a terminal Orca lost names the terminal",
               not delivered and "terminal is gone" in said, said)
 
-        delivered, said = world({"term_x"}, {}, dmn.IDLE, told=False, closed=True)
+        delivered, said = world({"term_x"}, {}, dmn_states.IDLE, told=False, closed=True)
         check("agree: a closed agent says the wake is coming",
               not delivered and "the next tick wakes it" in said, said)
 
-        _, said = world(*live, dmn.RUNNING, told=False)
+        _, said = world(*live, dmn_states.RUNNING, told=False)
         check("agree: a working agent is named as working, not as idle",
               "mid-turn" in said, said)
 
         # Told, and now working on it: the age is of the request, not of the
         # wait, so a two-day-old ask handed over a minute ago is a queue doing
         # its job. It drew as stuck the moment it was finally delivered.
-        _, said = world(*live, dmn.RUNNING, told=True)
+        _, said = world(*live, dmn_states.RUNNING, told=True)
         check("agree: one it has been told about and is working on is not stuck",
               not said, said)
 
-        _, said = world(*live, dmn.STALLED, told=False)
+        _, said = world(*live, dmn_states.STALLED, told=False)
         check("agree: a stall names itself, as FATAL - the same word the agents "
               "panel reads for this row - and the key that clears it",
               "FATAL" in said and "w clears it" in said, said)
@@ -1946,10 +1946,10 @@ def test_the_panel_and_the_daemon_agree_about_what_is_in_the_way(home: Path) -> 
         # one fact that explains the rest of the panel.
         dmn_locks.running_elsewhere = lambda: None
         actions._WORLD["at"] = 0.0
-        _, said = world(*live, dmn.IDLE, told=False, age=5)
+        _, said = world(*live, dmn_states.IDLE, told=False, age=5)
         check("agree: with no daemon, what is about to be delivered is stuck now",
               "has not been told yet" in said, said)
-        _, said = world({"term_x"}, {}, dmn.IDLE, told=False, closed=True)
+        _, said = world({"term_x"}, {}, dmn_states.IDLE, told=False, closed=True)
         check("agree: and a closed agent is not promised a tick that is not coming",
               "no daemon is running to wake it" in said, said)
         check("agree: the panel says so once, at the top",
@@ -1995,7 +1995,7 @@ def test_the_screen_says_what_is_stuck_and_what_was_decided(home: Path) -> None:
         check("stuck: something that has just arrived is not called stuck", not fresh)
 
         db.set_terminal(con, "backend", "term_x", "wt")
-        db.set_agent_state(con, "backend", dmn.STALLED, detail="by hand")
+        db.set_agent_state(con, "backend", dmn_states.STALLED, detail="by hand")
         check("stuck: a stalled agent is on the list with its reason, as FATAL - "
               "the same word the agents panel below it reads for this row",
               any("backend is FATAL" in b["what"] for b in actions.stuck(con)),
@@ -2003,7 +2003,7 @@ def test_the_screen_says_what_is_stuck_and_what_was_decided(home: Path) -> None:
 
         # The reason has to be the daemon's reason, or the panel is a second
         # opinion about what is wrong. These are deliver_queued's own checks.
-        db.set_agent_state(con, "backend", dmn.IDLE, detail="idle")
+        db.set_agent_state(con, "backend", dmn_states.IDLE, detail="idle")
         db.set_terminal(con, "backend", "term_x", "wt")
         real = (orcamod.available, orcamod.live_terminals, obsmod.live_sessions)
         try:
@@ -2039,7 +2039,7 @@ def test_the_screen_says_what_is_stuck_and_what_was_decided(home: Path) -> None:
             check("stuck: once it has outlasted that, it says it was told and not answered",
                   told and "told and has not answered" in told[0], str(told))
             check("stuck: and the threshold is the daemon's own, not a second number",
-                  actions.STUCK_AFTER_S == dmn.STUCK_RUNNING_S)
+                  actions.STUCK_AFTER_S == dmn_states.STUCK_RUNNING_S)
         finally:
             orcamod.available, orcamod.live_terminals, obsmod.live_sessions = real
 
@@ -2197,7 +2197,7 @@ def test_nothing_a_terminal_would_obey_gets_through_what_someone_else_wrote(home
             told = askmod.ask("backend", "a question", requester="reviewer")[2]
             askmod.resolve(told, shout)
             keep_handoff("reviewer", shout + "\n" + shout)
-            db.set_agent_state(con, "reviewer", dmn.IDLE, detail=shout)
+            db.set_agent_state(con, "reviewer", dmn_states.IDLE, detail=shout)
             askmod.ask(actions.HUMAN, shout, requester="reviewer")
             # (An event's payload is stored as JSON, which escapes C0 bytes into
             # text; C1 stays a byte there, and `drawable` takes it out on the way
@@ -2819,29 +2819,29 @@ def test_the_agent_footer_shows_only_what_the_row_can_do(home: Path) -> None:
 
         common = ("open", "terminal", "message", "editor")
 
-        got = labels(dmn.RUNNING)
+        got = labels(dmn_states.RUNNING)
         check("footer: a running agent gets only the always-on keys",
               got == list(common), got)
 
-        got = labels(dmn.PARKED, detail="by hand; wakes at 16:40")
+        got = labels(dmn_states.PARKED, detail="by hand; wakes at 16:40")
         check("footer: a park started by hand adds wake, close and park",
               set(got) == set(common) | {"wake", "close", "park"}, got)
 
-        got = labels(dmn.PARKED, detail="usage; wakes at 16:40")
+        got = labels(dmn_states.PARKED, detail="usage; wakes at 16:40")
         check("footer: a usage-wall park - it clears on its own - does not offer wake",
               set(got) == set(common) | {"close", "park"}, got)
 
-        got = labels(dmn.STALLED)
+        got = labels(dmn_states.STALLED)
         check("footer: a FATAL (STALLED) agent adds only wake - unstall is gone",
               set(got) == set(common) | {"wake"} and "unstall" not in got, got)
 
-        got = labels(dmn.PARKED, closed=True, detail="usage; wakes at 16:40")
+        got = labels(dmn_states.PARKED, closed=True, detail="usage; wakes at 16:40")
         check("footer: a closed agent adds only wake, not close or park - "
               "closed always wakes, whatever parked it",
               set(got) == set(common) | {"wake"}, got)
 
-        for got in (labels(dmn.RUNNING), labels(dmn.PARKED, detail="by hand; wakes at 16:40"),
-                    labels(dmn.STALLED), labels(dmn.PARKED, closed=True)):
+        for got in (labels(dmn_states.RUNNING), labels(dmn_states.PARKED, detail="by hand; wakes at 16:40"),
+                    labels(dmn_states.STALLED), labels(dmn_states.PARKED, closed=True)):
             check("footer: fold and move never appear",
                   "fold" not in got and "move" not in got, got)
 
@@ -2872,7 +2872,7 @@ def test_every_state_the_daemon_can_write_has_a_waker() -> None:
           "(the scan itself is not vacuous)",
           {"PARKED", "STALLED", "IDLE", "QUEUED", "HANDOFF", "DEGRADED",
            "THROTTLED", "RUNNING"} <= written, str(written))
-    missing = written - set(dmn.WAKER)
+    missing = written - set(dmn_states.WAKER)
     check("waker: every state the daemon can write has a way back",
           not missing, str(missing))
 
@@ -2892,41 +2892,41 @@ def test_the_screen_word_mapping_is_the_founders_six(home: Path) -> None:
             return word, extra
 
         check("map: no row at all is IDLE", tui.screen_state(con, None) == ("IDLE", ""))
-        check("map: RUNNING is RUNNING", state(state=dmn.RUNNING) == ("RUNNING", ""))
+        check("map: RUNNING is RUNNING", state(state=dmn_states.RUNNING) == ("RUNNING", ""))
         check("map: HANDOFF is RUNNING too - the daemon finishing this agent's "
               "own turn, not something a person or the agent is doing",
-              state(state=dmn.HANDOFF) == ("RUNNING", ""))
-        check("map: plain IDLE is IDLE", state(state=dmn.IDLE, detail="") == ("IDLE", ""))
+              state(state=dmn_states.HANDOFF) == ("RUNNING", ""))
+        check("map: plain IDLE is IDLE", state(state=dmn_states.IDLE, detail="") == ("IDLE", ""))
         check("map: QUEUED (work waiting) is PENDING, with no time - it is "
-              "dispatched this tick", state(state=dmn.QUEUED, detail="wake") == ("PENDING", ""))
+              "dispatched this tick", state(state=dmn_states.QUEUED, detail="wake") == ("PENDING", ""))
         check("map: QUEUED with the moving marker is MOVING, never with a time",
-              state(state=dmn.QUEUED, detail="moving alpha -> beta") == ("MOVING", ""))
+              state(state=dmn_states.QUEUED, detail="moving alpha -> beta") == ("MOVING", ""))
         wake = int(time.time()) + 900
         clock = time.strftime("%H:%M", time.localtime(wake))
         check("map: a usage-wall PARKED is PENDING, with the clock it wakes at",
-              state(state=dmn.PARKED, wake_at=wake, detail="usage; wakes at x")
+              state(state=dmn_states.PARKED, wake_at=wake, detail="usage; wakes at x")
               == ("PENDING", clock))
         check("map: a by-hand PARKED is PENDING too - only wake permission tells them apart",
-              state(state=dmn.PARKED, wake_at=wake, detail="by hand; wakes at x")
+              state(state=dmn_states.PARKED, wake_at=wake, detail="by hand; wakes at x")
               == ("PENDING", clock))
         check("map: a PARKED past its own wake_at says due, not a clock behind now",
-              state(state=dmn.PARKED, wake_at=int(time.time()) - 5, detail="usage; wakes at x")
+              state(state=dmn_states.PARKED, wake_at=int(time.time()) - 5, detail="usage; wakes at x")
               == ("PENDING", "due"))
         check("map: a PARKED carrying the moving marker is MOVING, with no time",
-              state(state=dmn.PARKED, wake_at=wake, detail="moving; wakes at x")
+              state(state=dmn_states.PARKED, wake_at=wake, detail="moving; wakes at x")
               == ("MOVING", ""))
         check("map: DEGRADED is PENDING - the daemon's own retry, not a person's",
-              state(state=dmn.DEGRADED, wake_at=wake, detail="handoff timed out at 'x'")
+              state(state=dmn_states.DEGRADED, wake_at=wake, detail="handoff timed out at 'x'")
               == ("PENDING", clock))
         check("map: THROTTLED is PENDING too - the ask window rolling over",
-              state(state=dmn.THROTTLED, wake_at=wake, detail="too many asks")
+              state(state=dmn_states.THROTTLED, wake_at=wake, detail="too many asks")
               == ("PENDING", clock))
         check("map: a PARKED requester on its own async ask is IDLE, with who it waits for",
-              state(state=dmn.PARKED, wake_at=wake,
+              state(state=dmn_states.PARKED, wake_at=wake,
                    detail=askmod.await_reply_detail(1627, "keeper"))
               == ("IDLE", "#1627 keeper"))
         check("map: FATAL is today's STALLED, with its own detail",
-              state(state=dmn.STALLED, detail="ran out of attempts")
+              state(state=dmn_states.STALLED, detail="ran out of attempts")
               == ("FATAL", "ran out of attempts"))
 
         # DIALOG, from each of its two sources - neither is a stored state.
@@ -2934,7 +2934,7 @@ def test_the_screen_word_mapping_is_the_founders_six(home: Path) -> None:
         real_screen_blocker = orcamod.screen_blocker
         try:
             db.set_terminal(con, "backend", "term_x", "wt")
-            db.set_agent_state(con, "backend", dmn.RUNNING, detail="active")
+            db.set_agent_state(con, "backend", dmn_states.RUNNING, detail="active")
             # waiting.of() confirms a permission wait against the terminal's
             # own live screen (auditor #1721) - a stub stands in for it here.
             orcamod.screen_blocker = lambda h: orcamod.Blocker(orcamod.MODAL, "permission")
@@ -2947,7 +2947,7 @@ def test_the_screen_word_mapping_is_the_founders_six(home: Path) -> None:
             orcamod.screen_blocker = real_screen_blocker
             os.environ.pop("OCP_AGENT", None); os.environ.pop("OCP_ACCOUNT", None)
 
-        db.set_agent_state(con, "backend", dmn.IDLE)
+        db.set_agent_state(con, "backend", dmn_states.IDLE)
         db.add_request(con, "reviewer", "backend", "look at this", None,
                        "peer", "async", None, 0, None)
         db.block_open(con, "backend", orcamod.MODAL, "a dialog", "request #1",

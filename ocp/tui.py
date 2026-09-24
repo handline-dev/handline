@@ -22,8 +22,9 @@ import re
 import time
 from typing import NamedTuple
 
-from . import (accounts, actions, agents, ask as askmod, blocked as blockedmod, daemon, db,
+from . import (accounts, actions, agents, ask as askmod, blocked as blockedmod, db,
                launch, load as loadmod, orca, paths, status, triggers, vendors)
+from .daemon import delivery as dmn_delivery, lifecycle as dmn_lifecycle, locks as dmn_locks, states as dmn_states
 from . import waiting as promptwait
 from .textsafe import cwidth, drawable, oneline, wrap
 
@@ -91,7 +92,7 @@ def _needs_confirm(con, name: str, label: str) -> bool:
     """
     if label == "wake":
         row = db.get_agent_state(con, name)
-        return bool(row and row["state"] == daemon.STALLED)
+        return bool(row and row["state"] == dmn_states.STALLED)
     return label in CONFIRM
 
 
@@ -423,13 +424,13 @@ def agents_data(con) -> tuple[list[AgentRow], list[str]]:
         # that trains a reader not to look at it.
         ctx_limit = status.effective_context_limit(cfg, st.model_id)
         t = triggers.evaluate(st.trusted_pct_5h, st.trusted_ctx_used, ctx_limit=ctx_limit)
-        fire = f"{YEL}⚠ {t.kind}{R}" if t.fired and daemon.triggers_apply(row) else ""
+        fire = f"{YEL}⚠ {t.kind}{R}" if t.fired and dmn_lifecycle.triggers_apply(row) else ""
         ctxs = f"{pct(st.ctx_pct)}%"
         if st.ctx_used is not None and st.ctx_used >= ctx_limit:
             ctxs = YEL + ctxs + R
         # Same predicate `ocp ps` and `ocp triggers` ask for this - so this
         # screen cannot disagree with the daemon that actually acts on it.
-        w = daemon.would_wake(con, row) and launch.wake_wait(name, row, con)
+        w = dmn_lifecycle.would_wake(con, row) and launch.wake_wait(name, row, con)
         wall = (WallCell(w.account, launch.wait_clock(w), "?" if w.assumed else "",
                          w.account != acct or w.assumed) if w else None)
         rows.append(AgentRow(name, twig, shown[name], under, urgency, s, until, None,
@@ -543,7 +544,7 @@ def header_data(con) -> HeaderData:
     for a in paths.list_accounts():
         st_ = status.read(a)
         marks |= {status.mark(st_.pct_5h_source), status.mark(st_.pct_7d_source)}
-    return HeaderData(daemon.running_elsewhere(), time.strftime("%H:%M:%S"),
+    return HeaderData(dmn_locks.running_elsewhere(), time.strftime("%H:%M:%S"),
                       any(m.strip() for m in marks), actions.founder_waits(con))
 
 
@@ -639,7 +640,7 @@ def hidden_urgency(con, names: list[str]) -> tuple[str, int, str] | None:
         word, _ = screen_state(con, row)
         if word in NEEDS_A_HUMAN:
             found.setdefault(1, []).append(STATE_COLOR[word])
-        elif daemon.wall_reason(con, name, row):
+        elif dmn_delivery.wall_reason(con, name, row):
             found.setdefault(1, []).append(YEL)
         elif loadmod.is_running(row):
             found.setdefault(2, []).append(STATE_COLOR["RUNNING"])
@@ -939,28 +940,28 @@ def screen_state(con, row) -> tuple[str, str]:
         return "DIALOG", oneline(blockedmod.headline(block["kind"], block["detail"]))[:DETAIL_CAP]
 
     state, detail = row["state"], row["detail"] or ""
-    if state == daemon.STALLED:
+    if state == dmn_states.STALLED:
         return "FATAL", oneline(detail)[:DETAIL_CAP]
-    if state in (daemon.RUNNING, daemon.HANDOFF):
+    if state in (dmn_states.RUNNING, dmn_states.HANDOFF):
         # An opencode row's word is its pane's screen (see _opencode_working).
         # HANDOFF stays RUNNING - it is the daemon's protected mid-move, and
         # moving is working. A closed row's word is the db's, and so is any
         # row when the screen cannot be read.
-        if state == daemon.RUNNING and row["terminal"] and not row["closed_at"] \
+        if state == dmn_states.RUNNING and row["terminal"] and not row["closed_at"] \
                 and vendors.account_vendor(row["account"] or "") == "opencode" \
                 and _opencode_working(row["terminal"]) is False:
             return "IDLE", ""
         return "RUNNING", ""
-    if state == daemon.QUEUED:
-        if detail.startswith(daemon.MOVING_MARK):
+    if state == dmn_states.QUEUED:
+        if detail.startswith(dmn_states.MOVING_MARK):
             return "MOVING", ""
-        if daemon.has_background_work(con, row["agent"]):
+        if dmn_delivery.has_background_work(con, row["agent"]):
             return "RUNNING", "background work"
         return "PENDING", ""
-    if state in (daemon.PARKED, daemon.DEGRADED, daemon.THROTTLED):
+    if state in (dmn_states.PARKED, dmn_states.DEGRADED, dmn_states.THROTTLED):
         if detail.startswith(askmod.AWAIT_REPLY_MARK):
             return "IDLE", oneline(detail[len(askmod.AWAIT_REPLY_MARK):])[:DETAIL_CAP]
-        if detail.startswith(daemon.MOVING_MARK):
+        if detail.startswith(dmn_states.MOVING_MARK):
             return "MOVING", ""
         if not row["wake_at"]:
             return "PENDING", ""
@@ -974,13 +975,13 @@ def screen_state(con, row) -> tuple[str, str]:
     # agent that IS working sits here in the db and the plain IDLE below would
     # hide it. The same witness speaks first, but never for a closed agent:
     # its pane is a shell prompt, and its word is the db's.
-    if state == daemon.IDLE and not row["closed_at"] and row["terminal"] \
+    if state == dmn_states.IDLE and not row["closed_at"] and row["terminal"] \
             and vendors.account_vendor(row["account"] or "") == "opencode" \
             and _opencode_working(row["terminal"]) is True:
         return "RUNNING", ""
     # A row the daemon marked with work still running behind the prompt is not
     # idle, whatever the hooks last said.
-    if state == daemon.IDLE and daemon.has_background_work(con, row["agent"]):
+    if state == dmn_states.IDLE and dmn_delivery.has_background_work(con, row["agent"]):
         return "RUNNING", "background work"
     # IDLE, and anything not written above (section 8.4's own DONE, never
     # actually written - see daemon.WAKER): shown as IDLE rather than a raw

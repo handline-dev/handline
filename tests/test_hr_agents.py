@@ -908,7 +908,7 @@ def test_a_claude_agent_is_never_placed_on_another_vendors_account(home: Path) -
             try:
                 db.add_request(con, "orcapipe", "backend", "work", None, "supervisor",
                                "async", None, 0, None)
-                plan = dmn._move_plan(con, "backend", "usage_5h")
+                plan = dmn_handoff._move_plan(con, "backend", "usage_5h")
                 check("vendor pick: the daemon's move off the wall does not go there",
                       plan[0] is None and "zeta: a zai account, not claude" in plan[1], str(plan))
                 # The page and the panel carry no agent, so their verdict is
@@ -1031,7 +1031,7 @@ def test_a_second_vendors_live_session_is_seen_by_the_sweep(home: Path) -> None:
             con = db.connect()
             try:
                 db.set_terminal(con, "glm", "term_z", "wt")
-                db.set_agent_state(con, "glm", dmn.RUNNING, detail="working")
+                db.set_agent_state(con, "glm", dmn_states.RUNNING, detail="working")
                 table = [(4301, "/opt/zai/bin/glmcode --model glm-4.6")]
                 obsmod.process_table = lambda: list(table)
                 obsmod.process_env = lambda pid: f"OCP_AGENT={'glm' if pid == 4301 else 'x'}"
@@ -1039,7 +1039,7 @@ def test_a_second_vendors_live_session_is_seen_by_the_sweep(home: Path) -> None:
                       obsmod.live_sessions() == {"glm": 4301},
                       str(obsmod.live_sessions()))
                 said: list[str] = []
-                dmn.sweep(con, lambda _m: None, said)
+                dmn_reconciler.sweep(con, lambda _m: None, said)
                 row = db.get_agent_state(con, "glm")
                 check("vendor sweep: a live second-vendor session is not recorded closed",
                       not row["closed_at"]
@@ -1052,7 +1052,7 @@ def test_a_second_vendors_live_session_is_seen_by_the_sweep(home: Path) -> None:
                 # reached this agent.
                 table.clear()
                 said = []
-                dmn.sweep(con, lambda _m: None, said)
+                dmn_reconciler.sweep(con, lambda _m: None, said)
                 row = db.get_agent_state(con, "glm")
                 check("vendor sweep: and when it really is gone, it is recorded closed",
                       row["closed_at"]
@@ -1421,13 +1421,13 @@ def test_a_clear_looks_the_vendor_up_once_and_refuses_in_its_own_words(home: Pat
 
         orcamod.available = lambda: True
         dmn_delivery.session_present = lambda agent: False
-        _, why = dmn._reclaim_context(con, "glm", lambda _m: None)
+        _, why = dmn_delivery._reclaim_context(con, "glm", lambda _m: None)
         check("refusal: a shell prompt under opencode names /new", "/new" in why and "/clear" not in why, why)
-        _, why = dmn._reclaim_context(con, "backend", lambda _m: None)
+        _, why = dmn_delivery._reclaim_context(con, "backend", lambda _m: None)
         check("refusal: and under claude still names /clear", "/clear" in why, why)
         dmn_delivery.session_present = lambda agent: True
         orcamod.background_work = lambda h: ["a job"]
-        _, why = dmn._reclaim_context(con, "glm", lambda _m: None)
+        _, why = dmn_delivery._reclaim_context(con, "glm", lambda _m: None)
         check("refusal: background work under opencode names /new too",
               "/new" in why and "/clear" not in why, why)
     finally:
@@ -1601,11 +1601,11 @@ def test_an_opencode_row_takes_its_state_word_from_orca(home: Path) -> None:
         return db.get_agent_state(con, agent)
 
     try:
-        db.set_agent_state(con, "backend", dmn.RUNNING)
+        db.set_agent_state(con, "backend", dmn_states.RUNNING)
         db.set_terminal(con, "backend", "term_cl", "wt")
         db.set_account(con, "backend", "alpha")
         # What production writes for an opencode agent: IDLE.
-        db.set_agent_state(con, "glm", dmn.IDLE)
+        db.set_agent_state(con, "glm", dmn_states.IDLE)
         db.set_terminal(con, "glm", "term_oc", "wt")
         db.set_account(con, "glm", "zai")
 
@@ -1621,7 +1621,7 @@ def test_an_opencode_row_takes_its_state_word_from_orca(home: Path) -> None:
               tui.screen_state(con, row("glm"))[0] == "IDLE")
 
         # And the other direction: a RUNNING row over an idle screen.
-        db.set_agent_state(con, "glm", dmn.RUNNING)
+        db.set_agent_state(con, "glm", dmn_states.RUNNING)
         check("opencode row: an idle screen keeps a RUNNING row honest",
               tui.screen_state(con, row("glm"))[0] == "IDLE")
 
@@ -1630,7 +1630,7 @@ def test_an_opencode_row_takes_its_state_word_from_orca(home: Path) -> None:
         shell = ["Resume this session with:",
                  "claude --resume 9f2289d7-3b45-4e86-9653-efb48c2d46da",
                  "ron@Ron-MacBookAir  ~/orca/workspaces/orcapipe/orcapipe.glm "]
-        db.set_agent_state(con, "glm", dmn.IDLE)
+        db.set_agent_state(con, "glm", dmn_states.IDLE)
         con.execute("UPDATE agent_state SET closed_at = ? WHERE agent = 'glm'",
                     (int(time.time()),))
         con.commit()
@@ -2157,10 +2157,10 @@ def test_agents_that_wall_together_respect_the_cap_and_a_start_is_not_its_own_ri
             db.add_request(con, "marina", n, "carry on", None, "peer", "async", None, 0, None)
         moved = []
         for n in names:
-            dest, _ = dmn._move_plan(con, n, "usage")
+            dest, _ = dmn_handoff._move_plan(con, n, "usage")
             if dest:
                 db.set_account(con, n, dest)
-                db.set_agent_state(con, n, dmn.QUEUED)
+                db.set_agent_state(con, n, dmn_states.QUEUED)
                 db.add_event(con, n, "moved_account", {"from": "alpha", "to": dest})
                 moved.append(n)
         check("cap: of four walled together, two move", len(moved) == 2, str(moved))
@@ -2171,14 +2171,14 @@ def test_agents_that_wall_together_respect_the_cap_and_a_start_is_not_its_own_ri
 
         write_status(home, "alpha", pct_5h=20, pct_7d=10, reset_5h=now + 3600,
                      reset_7d=now + 86400)
-        db.set_agent_state(con, "a3", dmn.IDLE)
-        db.set_agent_state(con, "a4", dmn.IDLE)
-        db.set_agent_state(con, moved[1], dmn.IDLE)
+        db.set_agent_state(con, "a3", dmn_states.IDLE)
+        db.set_agent_state(con, "a4", dmn_states.IDLE)
+        db.set_agent_state(con, moved[1], dmn_states.IDLE)
         db.set_account(con, "a1", "alpha")
-        db.set_agent_state(con, "a1", dmn.QUEUED)
+        db.set_agent_state(con, "a1", dmn_states.QUEUED)
         measure.begin(con, "a1", "alpha")
         db.add_event(con, "a1", "Stop", {})
-        db.set_agent_state(con, "a1", dmn.RUNNING)
+        db.set_agent_state(con, "a1", dmn_states.RUNNING)
         write_status(home, "alpha", pct_5h=33, pct_7d=10, reset_5h=now + 3600,
                      reset_7d=now + 86400)
         measure.settle(con, "a1")

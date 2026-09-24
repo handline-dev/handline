@@ -7,7 +7,7 @@ from pathlib import Path
 
 from .. import actions
 from .. import agents
-from .. import daemon as daemonmod
+from ..daemon import handoff as dmn_handoff, lifecycle as dmn_lifecycle, states as dmn_states
 from .. import db
 from .. import handoff as handoffmod
 from .. import launch
@@ -34,7 +34,7 @@ def cmd_agent_move(args) -> int:
             return 1
     con = db.connect()
     try:
-        ok, msg = daemonmod.force_move(con, args.agent, args.account, "human (cli)", print)
+        ok, msg = dmn_handoff.force_move(con, args.agent, args.account, "human (cli)", print)
     finally:
         con.close()
     print(msg, file=None if ok else sys.stderr)
@@ -108,9 +108,9 @@ def cmd_handoff_write(args) -> int:
 def cmd_resume(args) -> int:
     con = db.connect()
     try:
-        ok, msg = daemonmod.wake_agent(con, args.agent, print)
+        ok, msg = dmn_lifecycle.wake_agent(con, args.agent, print)
         if ok:
-            db.set_agent_state(con, args.agent, daemonmod.QUEUED, wake_at=None,
+            db.set_agent_state(con, args.agent, dmn_states.QUEUED, wake_at=None,
                                detail="resumed by hand")
         print(msg)
     finally:
@@ -173,7 +173,7 @@ def cmd_unstall(args) -> int:
         if not row:
             print(f"no state for {args.agent}")
             return 1
-        if row["state"] != daemonmod.STALLED:
+        if row["state"] != dmn_states.STALLED:
             print(f"{args.agent} is {row['state']}, not STALLED")
             return 1
         print(actions.unstall(con, args.agent))

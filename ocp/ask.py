@@ -445,7 +445,7 @@ def push(con, target: str) -> str:
     sender and one delivered by the tick are the same delivery. The daemon
     stays the safety net: anything this could not finish is still queued.
     """
-    from . import daemon
+    from .daemon import delivery as dmn_delivery, lifecycle as dmn_lifecycle
 
     if target == HUMAN:
         return "it is on the founder's screen (`ocp bridge`)"
@@ -456,12 +456,12 @@ def push(con, target: str) -> str:
     if not (row and row["terminal"]):
         # No row at all is the same case as a row with no terminal: an agent
         # that has never been started has nowhere to be told anything.
-        said.append(daemon._start_for_work(con, target, lambda _m: None))
+        said.append(dmn_lifecycle._start_for_work(con, target, lambda _m: None))
         row = db.get_agent_state(con, target)
     if row and row["closed_at"]:
-        ok, why = daemon.wake_agent(con, target, lambda _m: None)
+        ok, why = dmn_lifecycle.wake_agent(con, target, lambda _m: None)
         said.append(f"{target}: {why}")
-    if daemon.deliver_queued(con, target, lambda _m: None):
+    if dmn_delivery.deliver_queued(con, target, lambda _m: None):
         said.append(f"delivered to {target}")
     elif not said:
         why, _clears = _delivery_reason(con, target)
@@ -477,7 +477,7 @@ def push_answer(con, requester: str) -> str:
     row until a daemon tick happened to read it out. Down and up are the same
     loop, so they are finished the same way.
     """
-    from . import daemon
+    from .daemon import delivery as dmn_delivery, lifecycle as dmn_lifecycle
 
     if requester == HUMAN:
         return "  the founder reads it on `ocp bridge`"
@@ -486,9 +486,9 @@ def push_answer(con, requester: str) -> str:
     row = db.get_agent_state(con, requester)
     said = []
     if row and row["closed_at"]:
-        ok, why = daemon.wake_agent(con, requester, lambda _m: None)
+        ok, why = dmn_lifecycle.wake_agent(con, requester, lambda _m: None)
         said.append(f"{requester}: {why}")
-    if daemon.deliver_answers(con, requester, lambda _m: None):
+    if dmn_delivery.deliver_answers(con, requester, lambda _m: None):
         said.append(f"{requester} has been told")
     elif not said:
         said.append(f"{requester} will be told when it is free")
@@ -591,7 +591,8 @@ def cancel(rid: int) -> tuple[bool, str]:
     mid-work on it - is typed a notice with delivery's gates when it had been
     delivered. Whatever is behind it delivers next.
     """
-    from . import daemon, hr
+    from . import hr
+    from .daemon import delivery as dmn_delivery
 
     con = db.connect()
     try:
@@ -620,7 +621,7 @@ def cancel(rid: int) -> tuple[bool, str]:
             return False, f"#{rid} was closed while this ran - nothing to cancel"
         said = []
         if row["delivered_at"]:
-            typed, why = daemon.notify_cancelled(con, row, CANCEL_VERDICT)
+            typed, why = dmn_delivery.notify_cancelled(con, row, CANCEL_VERDICT)
             said.append(f"{target} was told to stop" if typed else
                         f"{target} could not be told now ({why}); resolving #{rid} "
                         f"is refused to it, so it cannot undo this")
@@ -649,18 +650,18 @@ def _after_close(con, rid: int, row, state: str, notify: bool) -> str:
     # usage park: an answer is not evidence the window rolled over, and
     # queueing it would open the session to the very typing the park is
     # there to prevent.
-    from . import daemon
+    from .daemon import delivery as dmn_delivery, evaluate as dmn_evaluate
 
     if row["response"] == "async" and row["requester"] != HUMAN \
             and not _terminal(con, row["requester"]) \
-            and not daemon.wall_reason(con, row["requester"]):
+            and not dmn_delivery.wall_reason(con, row["requester"]):
         outstanding = con.execute(
             "SELECT COUNT(*) c FROM requests WHERE requester = ? AND state = 'queued' "
             "AND response = 'async'", (row["requester"],)).fetchone()["c"]
         if outstanding == 0:
             # QUEUED only if something is queued or untold: a quiet dismissal
             # leaves neither, and the asker just goes back to idle.
-            daemon._queued_or_idle(con, row["requester"], f"request {rid} resolved: {state}")
+            dmn_evaluate._queued_or_idle(con, row["requester"], f"request {rid} resolved: {state}")
     p = _inbox(row["target"]) / f"{rid:06d}.json"
     if p.exists():
         p.unlink()
