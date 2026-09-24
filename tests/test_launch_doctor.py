@@ -956,10 +956,10 @@ def test_init_installs_the_hooks_and_lets_agents_write_the_home(home: Path) -> N
     target.parent.mkdir(parents=True, exist_ok=True)
     target.write_text(json.dumps({"sandbox": {"enabled": True, "filesystem": {
         "allowWrite": ["/elsewhere", str(home / "db.sqlite"), str(home / "locks" / "x")],
-        "denyWrite": [str(home.parent), "/backups"]}}}))
+        "denyWrite": [str(home.parent), str(home), "/backups"]}}}))
     env = dict(os.environ, OCP_HOME=str(home), OCP_BIN="/usr/local/bin/ocp")
-    for _ in range(2):
-        subprocess.run([str(ROOT / "bin" / "ocp"), "init"], capture_output=True, text=True, env=env)
+    outs = [subprocess.run([str(ROOT / "bin" / "ocp"), "init"], capture_output=True, text=True,
+                           env=env).stdout for _ in range(2)]
     data = json.loads(target.read_text())
     fs = data["sandbox"]["filesystem"]
     check("init: the hooks ocp install-hooks writes are there",
@@ -969,8 +969,10 @@ def test_init_installs_the_hooks_and_lets_agents_write_the_home(home: Path) -> N
           str(sorted(data.get("hooks", {}))))
     check("init: the whole home is writable, once, and per-file entries under it are gone",
           fs["allowWrite"] == ["/elsewhere", str(home)], str(fs))
-    check("init: a denyWrite that holds the home is removed, another is kept",
-          fs["denyWrite"] == ["/backups"], str(fs))
+    check("init: a denyWrite that is exactly the home is removed; a parent's and another are kept",
+          fs["denyWrite"] == [str(home.parent), "/backups"], str(fs))
+    check("init: and the parent's deny is named, each time, for the founder to decide",
+          all(f"denyWrite '{home.parent}' holds" in o for o in outs), str(outs))
     check("init: the rest of the sandbox block is left alone", data["sandbox"]["enabled"] is True)
     r = subprocess.run([str(ROOT / "bin" / "ocp"), "hook", "install"], capture_output=True,
                        text=True, env=env, stdin=subprocess.DEVNULL, timeout=20)

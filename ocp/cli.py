@@ -92,8 +92,12 @@ def cmd_init(args) -> int:
         cfg.write_text("version: 1\n")
     hooks.sync()
     cmd_hook_install(args)
-    if hooks.allow_home_writes():
+    changed, blockers = hooks.allow_home_writes()
+    if changed:
         print(f"sandbox: agents may write under {h}")
+    for entry in blockers:
+        print(f"sandbox: denyWrite '{entry}' holds {h} and still blocks agents from it; "
+              f"remove it from {hooks.target_settings()} if that is not what you want")
 
     # Section 3 keeps the whole home in git, so digest generations, rollback
     # and change history come for free. accounts/ stays ignored.

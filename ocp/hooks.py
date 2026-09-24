@@ -59,13 +59,15 @@ def _within(child: Path, parent: Path) -> bool:
     return child == parent or parent in child.parents
 
 
-def allow_home_writes() -> bool:
-    """Let a sandboxed agent write anywhere under OCP_HOME. True if it changed.
+def allow_home_writes() -> tuple[bool, list[str]]:
+    """Let a sandboxed agent write anywhere under OCP_HOME: (changed, blockers).
 
     The whole directory, not a list of files: SQLite creates its journal and
     WAL files beside the database, and `ask` writes into agents/, locks/ and
     wake/. Per-file entries fail on the first file nobody listed. A `denyWrite`
-    that is the home, or holds it, would win over the allow, so it goes.
+    that is exactly the home would win over the allow, so it goes. One on a
+    parent guards more than the home: it stays, and is returned as a blocker
+    for the founder to decide.
     """
     home = paths.home()
     target = target_settings()
@@ -79,12 +81,14 @@ def allow_home_writes() -> bool:
     fs["allowWrite"] = allow
     if "denyWrite" in fs:
         fs["denyWrite"] = [e for e in fs["denyWrite"]
-                           if not (isinstance(e, str) and _within(home, Path(e)))]
+                           if not (isinstance(e, str) and Path(e) == home)]
+    blockers = [e for e in fs.get("denyWrite", [])
+                if isinstance(e, str) and _within(home, Path(e))]
     if json.dumps(data, sort_keys=True) == before:
-        return False
+        return False, blockers
     target.parent.mkdir(parents=True, exist_ok=True)
     write_settings(target, data)
-    return True
+    return True, blockers
 
 
 def _is_orca_entry(entry: dict) -> bool:
