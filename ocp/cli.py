@@ -473,6 +473,22 @@ def cmd_task_done(args) -> int:
     return 0 if ok else 1
 
 
+def cmd_task_discard(args) -> int:
+    """Throw away a task that is not done - the asker's own call, with a
+    one-line reason."""
+    me = askmod.asking_agent()
+    if me is None:
+        print(_who_refusal("discard a task"))
+        return 1
+    con = db.connect()
+    try:
+        ok, msg = actions.discard_task(con, args.task, me, args.reason)
+        print(msg)
+    finally:
+        con.close()
+    return 0 if ok else 1
+
+
 def cmd_task_reopen(args) -> int:
     """Send a done task back to doing (#71) - the asker's own call, needing
     a one-line reason."""
@@ -611,8 +627,8 @@ def cmd_task_edit(args) -> int:
 def _print_board(con, tasks: list) -> None:
     """Each task, then the requests linked to it as they stand now: state and
     date are read from the request, never held on the task. `state` (#71) is
-    one of waiting, doing, done, closed - waiting and doing read live off
-    those same requests, done and closed off the task's own evidence."""
+    one of waiting, doing, done, closed, discarded - waiting and doing read live
+    off those same requests, the rest off the task's own evidence."""
     if not tasks:
         print("no open tasks.")
         return
@@ -621,7 +637,10 @@ def _print_board(con, tasks: list) -> None:
         edited = f"  edited by {textsafe.oneline(t['edited_by'])}" if t["edited_by"] else ""
         state = actions.task_state(con, t)
         done = f"  DONE: {textsafe.oneline(t['done_evidence'])}" if t["done_evidence"] else ""
-        closed = f"  CLOSED by {textsafe.oneline(t['closed_by'])}" if t["closed_by"] else ""
+        closed = (f"  DISCARDED by {textsafe.oneline(t['discarded_by'])}: "
+                  f"{textsafe.oneline(t['discard_reason'])}" if t["discarded_by"]
+                  else f"  CLOSED by {textsafe.oneline(t['closed_by'])}" if t["closed_by"]
+                  else "")
         print(f"#{t['id']:<4} {textsafe.oneline(t['title'])}  [{t['owner']}] {state}"
               f"{parent}{edited}{done}{closed}")
         for r in db.task_requests(con, t["id"]):
@@ -2634,6 +2653,11 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("task", type=int)
     p.add_argument("reason")
     p.set_defaults(fn=cmd_task_reopen)
+    p = tk.add_parser("discard", help="throw away a task that is not done (#85) - the asker "
+                                      "only, needs a one-line reason")
+    p.add_argument("task", type=int)
+    p.add_argument("reason")
+    p.set_defaults(fn=cmd_task_discard)
     p = tk.add_parser("board", help="your own open tasks, and who holds each one now")
     p.set_defaults(fn=cmd_task_board)
 

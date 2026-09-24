@@ -440,12 +440,14 @@ def task_asker(con, row) -> str:
 
 
 def task_state(con, row) -> str:
-    """One of waiting, doing, done, closed (#71). done and closed are
-    written, once each; waiting and doing are never stored - read live from
+    """One of waiting, doing, done, closed (#71), or discarded (#85). done,
+    closed and discarded are written, once each; waiting and doing are never stored - read live from
     whether a request is currently queued against this task or an open child
     of it, the same live read the board already does for "who holds it now",
     so there is nothing here that a write path must remember to keep in
     sync."""
+    if row["discarded_by"]:
+        return "discarded"
     if row["closed_by"]:
         return "closed"
     if row["done_evidence"]:
@@ -586,6 +588,57 @@ def close_task(con, tid: int, by: str) -> tuple[bool, str]:
     return True, f"task #{tid} closed by {by}"
 
 
+def discard_task(con, tid: int, by: str, reason: str) -> tuple[bool, str]:
+    """Throw a task away before it is done (task #85) - the asker's own call
+    (see `task_asker`), in one step with a one-line reason. It is recorded as
+    discarded (who, why, and when in closed_at), never as finished work: no
+    board, list or 'waiting for check' group reads it as done.
+
+    close_task's guards hold: refused while a child task is open or while this
+    task waits on an open blocker, and refused once it is done or already
+    closed. Every block naming it clears in the same transaction, and a task
+    left with no open blocker is told, as close does."""
+    row = db.get_task(con, tid)
+    if row is None:
+        return False, f"no task #{tid}"
+    if row["closed_by"]:
+        what = "discarded" if row["discarded_by"] else "closed"
+        return False, f"task #{tid} is already {what} ({row['closed_by']})"
+    if row["done_evidence"]:
+        return False, f"task #{tid} is done - `ocp close {tid}` signs it off"
+    asker = task_asker(con, row)
+    if by != asker:
+        return False, f"task #{tid} can only be discarded by {asker} - whoever asked for it"
+    said = textsafe.oneline(reason).strip()
+    if not said:
+        return False, "discarding needs a one-line reason"
+    kids = db.open_child_tasks(con, tid)
+    if kids:
+        ids = ", ".join(f"#{k['id']}" for k in kids)
+        return False, f"task #{tid} still has open child tasks ({ids}) - deal with them first"
+    blockers = db.task_blockers(con, tid)
+    if blockers:
+        ids = ", ".join(f"#{b['id']}" for b in blockers)
+        return False, f"task #{tid} is waiting on {ids} - it cannot be discarded until they close"
+    con.execute("BEGIN IMMEDIATE")
+    try:
+        if not db.discard_task(con, tid, by, said):
+            con.execute("ROLLBACK")
+            return False, f"task #{tid} was done or closed by someone else just now"
+        db.add_event(con, by, "discard_task", {"task_id": tid, "reason": said})
+        notices = _clear_blocks_on(con, tid, by, "discarded")
+        con.execute("COMMIT")
+    except Exception:
+        con.execute("ROLLBACK")
+        raise
+    for rid, owner, text in notices:
+        askmod.deliver(rid, _UNBLOCK_REQUESTER, owner, text, None,
+                       team.Decision(True, "task unblocked", kind="report",
+                                     response="fire_and_forget", creates_gate=False,
+                                     chain_depth=0))
+    return True, f"task #{tid} discarded by {by}: {said}"
+
+
 def reopen_task(con, tid: int, by: str, reason: str) -> tuple[bool, str]:
     """Send a done task back to doing (#71) - the asker's own call, the
     opposite of closing it. Needs a one-line reason, the same as any other
@@ -610,7 +663,8 @@ def reopen_task(con, tid: int, by: str, reason: str) -> tuple[bool, str]:
     return True, f"task #{tid} reopened by {by}: {said}"
 
 
-def _notify_unblocked(con, dep_tid: int, owner: str, closer: str, closed_tid: int) -> tuple[int, str, str]:
+def _notify_unblocked(con, dep_tid: int, owner: str, closer: str, closed_tid: int,
+                      how: str = "closed") -> tuple[int, str, str]:
     """task #21/#1884: told once, as a durable request linked to the task -
     not a typed-only notice that a park or a crash between here and the
     agent reading its screen would lose. Only the database row (and the
@@ -621,7 +675,7 @@ def _notify_unblocked(con, dep_tid: int, owner: str, closer: str, closed_tid: in
     Never called when `closer == owner` (`_clear_blocks_on` checks before
     calling): the owner who just closed the blocker themselves does not need
     telling."""
-    text = f"task #{dep_tid} is unblocked - #{closed_tid}, its last open blocker, closed"
+    text = f"task #{dep_tid} is unblocked - #{closed_tid}, its last open blocker, {how}"
     rid = db.add_request(con, _UNBLOCK_REQUESTER, owner, text, None, None,
                          "fire_and_forget", "report", 0, None)
     db.link_request(con, dep_tid, rid)
@@ -630,7 +684,7 @@ def _notify_unblocked(con, dep_tid: int, owner: str, closer: str, closed_tid: in
     return rid, owner, text
 
 
-def _clear_blocks_on(con, tid: int, closer: str) -> list[tuple[int, str, str]]:
+def _clear_blocks_on(con, tid: int, closer: str, how: str = "closed") -> list[tuple[int, str, str]]:
     """After `tid` closes: drop every block row naming it, and for each task
     that leaves with no open blocker left, write a notice for its owner.
     Dropping the row here - not on read - is what makes "once" true: the row
@@ -650,7 +704,7 @@ def _clear_blocks_on(con, tid: int, closer: str) -> list[tuple[int, str, str]]:
             continue
         if dep_row["owner"] == closer:
             continue
-        notices.append(_notify_unblocked(con, dep["task_id"], dep_row["owner"], closer, tid))
+        notices.append(_notify_unblocked(con, dep["task_id"], dep_row["owner"], closer, tid, how))
     return notices
 
 

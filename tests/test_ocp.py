@@ -11630,7 +11630,7 @@ def test_only_the_agents_own_events_move_its_activity_clock(home: Path) -> None:
     clock to when it was closed) all share. Every classification is proven
     individually, not just asserted in bulk."""
     daemon_kinds = {"account_mismatch", "answered", "close", "close_failed", "close_task",
-                    "mark_task_done", "reopen_task",
+                    "mark_task_done", "reopen_task", "discard_task",
                     "cold_start", "dialog_declined", "dialog_exit_chosen", "edit_task",
                     "block_task", "unblock_task", "task_unblocked",
                     "fold", "fold_failed",
@@ -20502,6 +20502,7 @@ def test_no_command_prints_what_a_terminal_would_obey(home: Path) -> None:
         "task new": "writes a row; prints its id and an owner already checked against the registry",
         "task link": "writes a row; prints two ids",
         "task done": "writes a row; driven in test_marking_a_task_done_needs_evidence_and_only_the_owner_or_a_linked_target, not this scene",
+        "task discard": "writes a row; driven in test_task_discard, not this scene",
         "task reopen": "writes a row; driven in test_reopening_a_done_task_needs_a_reason_and_only_the_asker, not this scene",
         "task edit": "writes a row; driven in "
                      "test_editing_a_task_needs_the_opener_or_the_founder_and_is_never_silent, "
@@ -25315,6 +25316,93 @@ def test_resolve_finding_opens_a_task_in_the_same_step(home: Path) -> None:
         con.close()
 
 
+def test_task_discard(home: Path) -> None:
+    """Task #85: the asker throws a not-done task away in one step. It is
+    recorded as discarded and never reads as finished work; close_task's
+    guards hold; every block naming it clears and the freed task is told."""
+    _board_world(home)
+    con = db.connect()
+    try:
+        t = db.new_task(con, "drop me", "worker", "manager")
+        kid = db.new_task(con, "kid", "worker", "manager", parent_task=t)
+        dep = db.new_task(con, "dependent", "worker", "manager")
+        db.add_block(con, dep, t)
+        gate = db.new_task(con, "gate", "worker", "manager")
+        waiting = db.new_task(con, "waits", "worker", "manager")
+        db.add_block(con, waiting, gate)
+        done = db.new_task(con, "done one", "worker", "manager")
+        db.mark_task_done(con, done, "did it")
+    finally:
+        con.close()
+
+    def go(tid, who="manager", reason="not needed"):
+        return _cli(["task", "discard", str(tid), reason], as_agent=who)
+
+    rc, out = go(t, who="worker")
+    check("discard: only the asker may", rc == 1 and "manager" in out, out)
+    rc, out = go(t, reason="   ")
+    check("discard: a reason is required", rc == 1 and "reason" in out, out)
+    rc, out = go(t)
+    check("discard: an open child task refuses it", rc == 1 and f"#{kid}" in out, out)
+    rc, out = go(waiting)
+    check("discard: a task waiting on a blocker refuses it", rc == 1 and f"#{gate}" in out, out)
+    rc, out = go(done)
+    check("discard: a done task refuses it", rc == 1 and "done" in out, out)
+    rc, out = go(999)
+    check("discard: an unknown task is refused", rc == 1 and "no task" in out, out)
+
+    con = db.connect()
+    try:
+        db.close_task(con, kid, "manager")
+    finally:
+        con.close()
+    rc, out = go(t, reason="  the plan changed  ")
+    check("discard: the asker discards it in one step", rc == 0 and "discarded" in out, out)
+
+    con = db.connect()
+    try:
+        row = db.get_task(con, t)
+        check("discard: who, why and when are recorded",
+              (row["discarded_by"], row["discard_reason"]) == ("manager", "the plan changed")
+              and row["closed_at"], str(dict(row)))
+        check("discard: it reads discarded, not closed or done",
+              actions.task_state(con, row) == "discarded")
+        check("discard: it is on no open list",
+              t not in [r["id"] for r in db.open_tasks(con)]
+              and t not in [r["id"] for r in db.tasks_needing_close(con)])
+        check("discard: its event is recorded",
+              con.execute("SELECT COUNT(*) c FROM events WHERE kind = 'discard_task'"
+                          ).fetchone()["c"] == 1)
+        check("discard: the block naming it is gone",
+              db.task_blockers(con, dep) == [])
+        notes = [r for r in db.task_requests(con, dep) if "unblocked" in r["body"]]
+        check("discard: the freed task is told it was discarded, not closed",
+              len(notes) == 1 and "discarded" in notes[0]["body"], str(notes))
+    finally:
+        con.close()
+
+    rc, out = _cli(["task", "list", "--all"])
+    line = [l for l in out.splitlines() if l.startswith(f"#{t} ")]
+    check("discard: the list marks it discarded with the reason",
+          line and "discarded" in line[0] and "DISCARDED by manager: the plan changed" in line[0]
+          and "CLOSED" not in line[0], out)
+    rc, out = _cli(["task", "board"], as_agent="worker")
+    check("discard: it is on nobody's board", f"#{t} " not in out, out)
+
+    rc, out = go(t)
+    check("discard: a discarded task refuses a second", rc == 1 and "already discarded" in out, out)
+    rc, out = _cli(["close", str(t)])
+    check("discard: and cannot be signed off as finished", rc == 1, out)
+    con = db.connect()
+    try:
+        db.close_task(con, dep, "manager")
+        db.mark_task_done(con, dep, "x")
+    finally:
+        con.close()
+    rc, out = go(dep)
+    check("discard: an already closed task refuses it", rc == 1 and "already closed" in out, out)
+
+
 def test_resolve_hold_keeps_the_work_open_and_owned(home: Path) -> None:
     """Task #11 (founder #2298): an answer that puts work on hold leaves an
     open task owned by the holder, under the asker's task, waiting on what it
@@ -27810,6 +27898,7 @@ def main() -> int:
         run(lambda: test_resolving_the_founders_request_says_what_it_becomes(Path(td) / 'taskguard'))
         run(lambda: test_resolve_finding_opens_a_task_in_the_same_step(Path(td) / 'findingtask'))
         run(lambda: test_resolve_hold_keeps_the_work_open_and_owned(Path(td) / 'holdtask'))
+        run(lambda: test_task_discard(Path(td) / 'discardtask'))
         run(lambda: test_marking_a_task_done_needs_evidence_and_only_the_owner_or_a_linked_target(
             Path(td) / 'taskdone'))
         run(lambda: test_closing_a_task_needs_no_open_child_and_only_the_asker(Path(td) / 'taskclose'))
