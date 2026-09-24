@@ -1,19 +1,55 @@
 """The bridge's home page. `bridge_textual.Dashboard` is the previous home page,
-kept unchanged; `HomePage` starts as the same screen and is the one `BridgeApp`
-opens, so edits here never touch the Dashboard."""
+kept unchanged; `HomePage` is the one `BridgeApp` opens, so edits here never
+touch the Dashboard. Its header is the chat page's (`page_header`)."""
 from __future__ import annotations
 
 from textual import events
-from textual.widgets import DataTable
+from textual.app import ComposeResult
+from textual.widgets import DataTable, Static, Tabs
 
 from . import db, tui
-from .bridge_textual import Dashboard
+from .bridge_textual import Dashboard, key_token
+from .page_header import page_header
 
 _PANEL_OF_TABLE = {"accounts": tui.ACCOUNTS, "agents": tui.AGENTS,
                    "messages": tui.MESSAGES, "stuck": tui.STUCK}
+# The Dashboard's own widgets: what the Home tab shows and the Settings tab hides.
+_HOME_WIDGETS = ("#header", "#accounts-box", "#agents-box", "#messages-box", "#stuck-box", "#foot")
 
 
 class HomePage(Dashboard):
+    AUTO_FOCUS = ""     # the keys act on the dashboard until a tab is clicked
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.showing_settings = False
+
+    def compose(self) -> ComposeResult:
+        yield from page_header([("Home", "home"), ("Settings", "settings")])
+        yield from super().compose()
+        yield Static("Settings", id="settings_view")
+
+    def on_mount(self) -> None:
+        self.sub_title = "home"
+        self.query_one("#settings_view").display = False
+
+    def on_tabs_tab_activated(self, event: Tabs.TabActivated) -> None:
+        self.showing_settings = event.tab.id == "settings"
+        for sel in _HOME_WIDGETS:
+            self.query_one(sel).display = not self.showing_settings
+        self.query_one("#settings_view").display = self.showing_settings
+        self.set_focus(None)
+
+    def on_key(self, event: events.Key) -> None:
+        """On Settings only `q` does anything; the Dashboard's row keys would act on
+        rows that are not on screen."""
+        if not self.showing_settings:
+            return
+        event.prevent_default()
+        event.stop()
+        if key_token(event) in ("q", "Q", "\x03"):
+            self.app.exit()
+
     def _row_key(self, table: DataTable, panel: int, row: int):
         """The selection key of a table row, or None for a row the cursor cannot
         sit on. The stuck table's rows carry no key: its cursor is on an agent."""
@@ -40,6 +76,7 @@ class HomePage(Dashboard):
         if key is None:
             return
         event.stop()
+        self.set_focus(None)
         self.panel = panel
         self.sel[panel] = key
         self._redraw()

@@ -21,11 +21,12 @@ from textual.containers import Horizontal, Vertical, VerticalScroll
 from textual.binding import Binding
 from textual.coordinate import Coordinate
 from textual.screen import Screen
-from textual.widgets import Button, DataTable, Header, Input, OptionList, Select, Static, Tab, Tabs, TextArea
+from textual.widgets import Button, DataTable, Header, Input, OptionList, Select, Static, Tabs, TextArea
 from textual.widgets.option_list import Option
 
 from . import actions, agents, ask as askmod, db, paths, textsafe, tui
 from .bridge_textual import Confirm, TextPrompt, _TextBox
+from .page_header import page_header
 
 # States of a request that never reached its target: withdrawn, replaced, denied.
 # They are not part of the conversation, so no chat query reads them.
@@ -770,10 +771,8 @@ class ChatPage(Screen):
         self._tasks: list | None = None
 
     def compose(self) -> ComposeResult:
-        yield Header()
-        with Horizontal(id="topbar"):
-            yield Button("‹ Back", id="leave", compact=True)
-            yield Tabs(Tab("My chat", id="mine"), Tab("All chat", id="all"), Tab("Tasks", id="tasks"), Tab("Settings", id="settings"), id="scope")
+        yield from page_header([("My chat", "mine"), ("All chat", "all"), ("Tasks", "tasks"),
+                                ("Settings", "settings")], back=True)
         with Horizontal(id="body"):
             yield VerticalScroll(id="transcript")
         yield TaskTable(id="task_table", cursor_type="row", zebra_stripes=True)
