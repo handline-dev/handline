@@ -19,7 +19,6 @@ from .. import triggers
 from .. import trust
 from .. import vendors
 
-from .control import worktree_path
 from .conversation import CHAT_TAB, Entry, Event, Fact, OTHERS_TAB, UNTOLD_TAB, chat_unread, conversation_and_drawn
 
 
@@ -109,7 +108,7 @@ def agent_worktree(con, agent: str) -> str:
     row = db.get_agent_state(con, agent)
     if not row or not row["worktree"]:
         return f"{agent} has no worktree"
-    return worktree_path(row["worktree"]) or row["worktree"]
+    return spawnmod.worktree_path(row["worktree"]) or row["worktree"]
 
 
 def _config_line(acct: str) -> str:

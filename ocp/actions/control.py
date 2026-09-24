@@ -92,7 +92,7 @@ def start(con, agent: str, repo: str | None = None, base: str = "main") -> str:
     row = db.get_agent_state(con, agent)
     if row and row["terminal"]:
         return f"{agent}: already has a terminal ({row['terminal']}) - wake it instead"
-    wt = worktree_path(row["worktree"] if row else None)
+    wt = spawnmod.worktree_path(row["worktree"] if row else None)
     if wt:
         # It has somewhere to run already; it lost the window it ran in.
         ok, msg = spawnmod.start_in(agent, wt)
@@ -110,11 +110,6 @@ def start(con, agent: str, repo: str | None = None, base: str = "main") -> str:
                 f"the terminal is there and claude is not. Go and look (t): "
                 f"whatever it printed is on that shell.")
     return msg
-
-
-def worktree_path(recorded: str | None) -> str | None:
-    """Where this agent works, out of what its row holds. See `spawn`."""
-    return spawnmod.worktree_path(recorded)
 
 
 def terminal(con, agent: str, repo: str | None = None) -> str:

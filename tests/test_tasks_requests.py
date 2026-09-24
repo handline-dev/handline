@@ -489,7 +489,7 @@ def test_rate_limit_throttles(home: Path) -> None:
 
 def test_a_resolved_ask_does_not_stay_in_progress_across_a_park(home: Path) -> None:
     """The event that would tell a fold an outstanding ask closed only ever
-    carries a count (daemon.py's `answered` event), never which id - and for
+    carries a count (ocp/daemon/'s `answered` event), never which id - and for
     an agent that was parked when the answer landed, there may be no event at
     all yet. Either way the store already knows; the fold has to check it
     directly rather than wait for an event that may never name the id."""
@@ -565,7 +565,7 @@ def test_a_resolved_ask_does_not_stay_in_progress_across_a_park(home: Path) -> N
 def test_reconcile_resolved_needs_an_explicit_reference_not_a_bare_number(home: Path) -> None:
     """auditor's #499/#1573: a fold's own errors are one-way - build_prompt
     forbids the very next fold from ever moving a line back out of 완료 - so
-    a wrong close is permanent in the document daemon.py tells an agent with
+    a wrong close is permanent in the document ocp/daemon/ tells an agent with
     no handoff to read. \\d+ read every number in a line as a request id, and
     request ids are small integers that nearly all resolve. Reproduced with
     requests 1-8 done: "Phase 4 daemon rewrite, step 2 of 7" (ids 4, 2, 7,

@@ -557,7 +557,7 @@ def withdraw(rid: int, requester: str | None = None,
             if hr.is_open_proposal(rid):
                 # #1943: a roster proposal's own escalation is `requester`'s
                 # to withdraw here too - ordinary ownership, since it is
-                # `requester`'s own row - but the db.py chokepoint refuses
+                # `requester`'s own row - but the ocp/db/requests.py chokepoint refuses
                 # this generic verdict on it the same way it refuses every
                 # other non-decision close. `hr withdraw` is the door built
                 # for it: it marks the proposal withdrawn first, which is

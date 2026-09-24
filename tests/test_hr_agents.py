@@ -2043,7 +2043,7 @@ edges:
 def test_the_chokepoint_alone_refuses_every_door_onto_an_open_proposal(home: Path) -> None:
     """#1943: the test above proves each door's own, friendlier check works.
     This one proves the check those doors share does too - by calling the
-    three db.py functions that can move a request row out of 'queued'
+    three ocp/db/ functions that can move a request row out of 'queued'
     directly, the way each door's own write eventually does, with none of
     the doors' own checks anywhere in the call path to catch it first. If
     this passed only because a door's check ran, deleting that check would
@@ -2088,18 +2088,18 @@ edges:
         check("close_if_queued: and the row is no longer queued",
               db.get_request(con, rid)["state"] == "done")
 
-        # #2024: db.py once also held an unguarded state-setter, so the
+        # #2024: ocp/db/ once also held an unguarded state-setter, so the
         # docstring's "every function below" was false for it. That function
         # moved to this file as `_set_request_state`, test-only. Auditor
         # #2072 should-fix: pinning set_request_state's absence by name only
         # catches that name coming back, not a new unguarded door under a
-        # different one - assert the property db.py must hold instead: every
+        # different one - assert the property ocp/db/ must hold instead: every
         # function that writes requests.state calls _would_strand_a_proposal,
         # and the three that do are named here so this cannot pass by
         # finding none. Auditor #2094 should-fix: a raw substring match on
         # the function's source missed a writer whose SET clause orders
         # `state` after another column, and one written as two adjacent
-        # string literals (a style db.py already uses) - Python folds
+        # string literals (a style ocp/db/ already uses) - Python folds
         # adjacent literals into one ast.Constant, so walk those instead of
         # the source text, and isolate the SET clause before looking for
         # `state =` in it, or a WHERE clause naming `state` (mark_delivered's

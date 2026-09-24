@@ -226,7 +226,7 @@ def _snap(*_geometry, **_cursor) -> str:
 def _set_request_state(con, rid: int, state: str, verdict: str | None = None,
                        announced: bool = False) -> None:
     """Force a request row to any state, for setup only - never a production
-    closer, so it carries none of `db.py`'s chokepoint guard (#2024): tests
+    closer, so it carries none of `ocp/db/`'s chokepoint guard (#2024): tests
     that need to reach a row's own defense-in-depth past that guard (past
     `_would_strand_a_proposal`, for one) use this to get there."""
     now = int(time.time())
@@ -1702,9 +1702,9 @@ WRITE_LABELS_TO: str | None = None  # set by --write-labels
 def _states_written_in(path) -> set[str]:
     """Every literal state name a call to `set_agent_state` writes in one
     source file, however it spells the state: a bare constant (already equal
-    to its own name in daemon.py, e.g. `PARKED = "PARKED"`), a quoted literal
+    to its own name in ocp/daemon/, e.g. `PARKED = "PARKED"`), a quoted literal
     (ask.py's own style), or one qualified by its module (`daemon.QUEUED` in
-    actions.py, `daemonmod.QUEUED` in ocp/cli/ - a miss here read both of those
+    ocp/actions/, `dmn_states.QUEUED` in ocp/cli/ - a miss here read both of those
     real call sites as writing nothing, which defeats the guard exactly where
     a state without one would be silent). Not a full parser - a regex over
     source text - but the one property this needs is only ever a name right

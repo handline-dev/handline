@@ -1733,7 +1733,7 @@ def test_a_closed_agent_is_not_handed_off(home: Path) -> None:
 
 def test_a_close_that_stamps_sessionend_does_not_unexpire_a_stale_cache(home: Path) -> None:
     """The real shape: an agent quiet past RESUME_WARM_S, then closed by ocp
-    a minute ago. ocp's own `/exit` fires SessionEnd at once (daemon.py's
+    a minute ago. ocp's own `/exit` fires SessionEnd at once (ocp/daemon/'s
     END_WAIT_S comment), in the same second as the `close` event - before the
     fix this pinned the clock to the close and a wake one minute later read
     the cache warm and resumed it dead. It must read cold instead."""

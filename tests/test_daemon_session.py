@@ -695,7 +695,7 @@ def test_a_stale_wake_at_does_not_claim_work_that_does_not_exist(home: Path) -> 
     or no work, until this wake_at comes due. QUEUED is a claim about the
     queue; the write must look at it before making that claim, the same way
     `_move_plan`'s own "work waiting" does. Driven both ways on the same
-    agent: an empty queue reads IDLE, not QUEUED - what actions.py's delivery
+    agent: an empty queue reads IDLE, not QUEUED - what ocp/actions/'s delivery
     gate and the bridge would both read as nothing to do - and a real
     undelivered request still reads QUEUED, so the fix narrows the claim
     rather than removing it."""
@@ -2675,7 +2675,7 @@ def test_a_park_that_cannot_be_woken_keeps_its_deadline(home: Path) -> None:
 
 def test_a_parked_agent_is_unparked_by_its_own_context_limit(home: Path) -> None:
     """auditor #1813 should-fix 2: the PARKED branch's own triggers.evaluate
-    call (daemon.py's un-park check, above the main evaluate a few lines
+    call (ocp/daemon/'s un-park check, above the main evaluate a few lines
     down) shares only the ctx_limit *variable* with that other call, not the
     keyword argument itself - each call can drop its own ctx_limit=
     independently, and the earlier call-site test (built to reach the main

@@ -36,7 +36,7 @@ RED, YEL, GRN, CYA = "\033[31m", "\033[33m", "\033[32m", "\033[36m"
 _ANSI = re.compile(r"\033\[[0-9;?]*[a-zA-Z]")
 
 # The screen's whole vocabulary for what an agent's row shows - drawn here and
-# by `ocp ps` (cli.py) through the one function below, screen_state(), so the
+# by `ocp ps` (ocp/cli/) through the one function below, screen_state(), so the
 # two cannot disagree about a word. Only DIALOG and FATAL are red: the two
 # states a person, not the daemon, clears.
 SCREEN_WORDS = ("RUNNING", "IDLE", "PENDING", "MOVING", "DIALOG", "FATAL")
@@ -912,12 +912,12 @@ def _opencode_working(handle: str) -> bool | None:
 def screen_state(con, row) -> tuple[str, str]:
     """The one word this agent's row shows - from SCREEN_WORDS - and what to
     say beside it: a clock time, or what it is doing or waiting for. Drawn
-    here and read by `ocp ps` (cli.py) alike, through this one function, so
+    here and read by `ocp ps` (ocp/cli/) alike, through this one function, so
     the two screens cannot disagree about a row.
 
     No `·closed` suffix (founder #1639/#1640: information nobody needs on
     this screen - `closed_at` still decides whether the daemon can wake the
-    agent, in `daemon.py`, untouched here).
+    agent, in `ocp/daemon/`, untouched here).
 
     DIALOG overlays whatever the row's own state is, from either of two live
     person-facing sources - never a stored state, so there is nothing to
