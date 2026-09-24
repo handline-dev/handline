@@ -644,12 +644,12 @@ def deliver_queued(con, agent: str, log) -> bool:
             return False          # something else is mid-send; next tick
         if _type_gate(con, agent, handle):
             return False          # stale reading above; next tick
-        told = False
-        for row in marked:
-            if not _tell(con, agent, row, depth, handle, log, ahead_of=head):
-                return told
-            told = True
-        return _tell(con, agent, head, depth, handle, log) if head_due else told
+        # One message per pass: it starts the agent's turn, so a second would be
+        # typed mid-turn. The rest go out on later ticks, each behind its own
+        # typeable_now.
+        if marked:
+            return _tell(con, agent, marked[0], depth, handle, log, ahead_of=head)
+        return _tell(con, agent, head, depth, handle, log)
 
 
 # An agent is asked to resolve the request at the head of its queue once it has

@@ -1502,6 +1502,44 @@ def test_send_now_reaches_an_agent_whose_head_is_already_open(home: Path) -> Non
         check("send now: each is told once",
               not dmn.deliver_queued(con, "backend", say) and not sent and not db.send_now_pending(con, "backend"))
 
+        # Each send starts the agent's turn: two due at once go out one per pass,
+        # the second only after the agent is idle again.
+        two = db.add_request(con, "human", "backend", "second urgent", None,
+                             "peer", "async", None, 0, None)
+        three = db.add_request(con, "human", "backend", "third urgent", None,
+                               "peer", "async", None, 0, None)
+        db.mark_send_now(con, two)
+        db.mark_send_now(con, three)
+        orcamod.send = lambda h, text, enter=True: (sent.append(text), busy.__setitem__(0, True),
+                                                   (True, ""))[2]
+        sent.clear()
+        check("send now: two marked at once - the first goes out",
+              dmn.deliver_queued(con, "backend", say) and len(sent) == 1 and f"#{two}" in sent[0],
+              str(sent))
+        check("send now: the second waits while the agent works",
+              not dmn.deliver_queued(con, "backend", say) and len(sent) == 1, str(sent))
+        busy[0] = False
+        check("send now: and goes out on the pass after it is idle again",
+              dmn.deliver_queued(con, "backend", say) and len(sent) == 2 and f"#{three}" in sent[1],
+              str(sent))
+        busy[0] = False
+        four = db.add_request(con, "human", "backend", "fourth urgent", None,
+                              "peer", "async", None, 0, None)
+        db.mark_send_now(con, four)
+        db.clear_cursor(con, "notify:backend")          # the head is due again as well
+        sent.clear()
+        dmn.deliver_queued(con, "backend", say)
+        check("send now: a marked request and a due head are not typed in one pass",
+              len(sent) == 1 and f"#{four}" in sent[0], str(sent))
+        busy[0] = False
+        dmn.deliver_queued(con, "backend", say)
+        check("send now: the head follows on the next pass",
+              len(sent) == 2 and f"#{head}" in sent[1], str(sent))
+        orcamod.send = lambda h, text, enter=True: (sent.append(text), (True, ""))[1]
+        for r in (two, three, four):
+            askmod.resolve(r, "ok")
+        sent.clear()
+
         askmod.resolve(head, "done")
         check("send now: becoming the head later is not a second telling",
               not dmn.deliver_queued(con, "backend", say) and not sent, str(sent))
