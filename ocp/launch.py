@@ -19,6 +19,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import shlex
 import shutil
 import sys
 import time
@@ -66,7 +67,8 @@ def find_room(agent: str) -> str | None:
                            and status.unfit(status.read(a), load.get(a), agent) is None), None)
 
 
-def choose_account(agent: str, resuming: bool = False, con=None) -> str | None:
+def choose_account(agent: str, resuming: bool = False, con=None,
+                   account: str | None = None) -> str | None:
     """Which account this launch runs on, or None when there is none.
 
     The moment a session is made is the only moment its account can be chosen,
@@ -76,13 +78,16 @@ def choose_account(agent: str, resuming: bool = False, con=None) -> str | None:
     directory, so a resumed session goes back to the account it was recorded
     on, or the run is not a resume at all.
 
+    `account` is a destination someone already chose (a move): `build` still
+    holds it to the vendor, login and wall checks.
+
     `con`, when the caller already has one open, saves `current_account` its
     own connect-and-migrate: a caller repainting a screen has this on every
     row already and would otherwise open a database per row to ask.
     """
     if resuming:
         return agents.current_account(agent, con)
-    return find_room(agent)
+    return account or find_room(agent)
 
 
 @dataclass
@@ -241,14 +246,15 @@ def mcp_config_arg() -> tuple[list[str], str | None]:
     return ["--mcp-config", str(p)], None
 
 
-def build(agent: str, extra: list[str] | None = None, force: bool = False) -> tuple[list[str], dict]:
+def build(agent: str, extra: list[str] | None = None, force: bool = False,
+          account: str | None = None) -> tuple[list[str], dict]:
     """Return (argv, env) ready to hand to execve."""
     try:
         drv = vendors.for_agent(agent)
     except vendors.UnknownVendor as e:
         raise SystemExit(f"agent '{agent}': {e}") from None
     resuming = drv.is_resume(extra)
-    acct = choose_account(agent, resuming=resuming)
+    acct = choose_account(agent, resuming=resuming, account=account)
     if acct is None:
         raise SystemExit(f"agent '{agent}' has no recorded session to resume" if resuming
                          else f"agent '{agent}': {no_room(agent)}")
@@ -466,8 +472,8 @@ def take_prompt(path: str | None) -> str | None:
 
 
 def exec_agent(agent: str, extra: list[str] | None = None, force: bool = False,
-               prompt_file: str | None = None) -> None:
-    argv, env = build(agent, list(extra or []), force)
+               prompt_file: str | None = None, account: str | None = None) -> None:
+    argv, env = build(agent, list(extra or []), force, account)
     prompt = take_prompt(prompt_file)
     if prompt:
         argv += vendors.for_agent(agent).prompt_argv(prompt)
@@ -556,7 +562,7 @@ def _record_terminal(agent: str, acct: str | None = None, fp: str | None = None)
               file=sys.stderr)
 
 
-def command_for(agent: str) -> str:
-    """The --command string to hand to Orca."""
+def command_for(agent: str, account: str | None = None) -> str:
+    """The --command string to hand to Orca; `account` fixes where a move lands."""
     exe = os.environ.get("OCP_BIN") or shutil.which("ocp") or "ocp"
-    return f"{exe} launch {agent}"
+    return f"{exe} launch {agent}" + (f" --account {shlex.quote(account)}" if account else "")

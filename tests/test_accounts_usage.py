@@ -3582,7 +3582,9 @@ def test_a_forced_move_goes_through_the_verified_move_or_not_at_all(home: Path) 
         orca_idle()
         orcamod.typeable_now = lambda h: True
         orcamod.close_session = exit_ends_session("keeper")
-        orcamod.relaunch = lambda h, cmd, **kw: (table.__setitem__("keeper", 4200), (True, "ok"))[1]
+        cmds: list[str] = []
+        orcamod.relaunch = lambda h, cmd, **kw: (cmds.append(cmd),
+                                                 table.__setitem__("keeper", 4200), (True, "ok"))[2]
         dmn.wait_for_session = lambda agent, timeout=0: True
         accounts.logged_in = lambda a: True
         keep_handoff("keeper", "# handoff · keeper\n## 다음\n- carry on\n")
@@ -3642,6 +3644,8 @@ def test_a_forced_move_goes_through_the_verified_move_or_not_at_all(home: Path) 
         _process_on("beta")
         ok, msg = dmn.force_move(con, "keeper", "beta", "the founder", log.append)
         check("forced: onto an account with room, with the process there, it moves", ok, msg)
+        check("forced: the relaunch was told the destination",
+              bool(cmds) and "--account beta" in cmds[-1], str(cmds))
         check("forced: the record names it",
               db.get_agent_state(con, "keeper")["account"] == "beta")
         check("forced: who ordered it is on the record",

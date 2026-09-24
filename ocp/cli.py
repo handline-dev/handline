@@ -826,7 +826,7 @@ def cmd_agent_list(args) -> int:
 # ---------------------------------------------------------------- launch
 def cmd_launch(args) -> int:
     launch.exec_agent(args.agent, args.extra, force=args.force,
-                      prompt_file=args.prompt_file)
+                      prompt_file=args.prompt_file, account=args.account)
     return 0  # unreachable when execve succeeds
 
 
@@ -2347,6 +2347,8 @@ def build_parser() -> argparse.ArgumentParser:
     p = sub.add_parser("launch", help="exec claude as this agent's account")
     p.add_argument("agent")
     p.add_argument("--force", action="store_true", help="start even when over the usage limit")
+    p.add_argument("--account", help="start on this account instead of picking one "
+                   "(a move's destination)")
     p.add_argument("--prompt-file", help="a file holding the session's first prompt; "
                    "read and deleted at launch")
     p.add_argument("extra", nargs="*", help="passed through to claude")

@@ -398,6 +398,33 @@ def test_doctor_looks_for_the_vendors_executable_not_its_name(home: Path) -> Non
               row and row[0][0] == doctor.OK and row[0][2] == "/opt/zai/bin/glmcode", str(r.rows))
 
 
+def test_a_launch_given_a_destination_lands_there_not_where_the_pick_would(home: Path) -> None:
+    """A move names its destination. The relaunch has to carry it: the pick over
+    every account would send the session to the roomier one."""
+    _daemon_home(home, 20)
+    accounts.register("beta")
+    agents.register("keeper")
+    credentialed(home, "alpha", "beta")
+    now = int(time.time())
+    write_status(home, "alpha", pct_5h=5, pct_7d=5, reset_7d=now + 90000, reset_5h=now + 1800)
+    write_status(home, "beta", pct_5h=60, pct_7d=10, reset_7d=now + 90000, reset_5h=now + 1800)
+    check("dest: the pick alone chooses the roomier account",
+          launch.find_room("keeper") == "alpha", str(launch.find_room("keeper")))
+    env = launch.build("keeper", account="beta")[1]
+    check("dest: a launch given beta starts on beta", env.get("OCP_ACCOUNT") == "beta", str(env))
+    cmd = launch.command_for("keeper", account="beta")
+    check("dest: the command a move relaunches with names it",
+          cmd.endswith("launch keeper --account beta"), cmd)
+    check("dest: an ordinary launch's command does not",
+          "--account" not in launch.command_for("keeper"))
+    write_status(home, "beta", pct_5h=100, pct_7d=10, reset_7d=now + 90000, reset_5h=now + 1800)
+    try:
+        launch.build("keeper", account="beta")
+        check("dest: a destination at the wall is still refused", False, "built")
+    except SystemExit as e:
+        check("dest: a destination at the wall is still refused", "refusing to start" in str(e), str(e))
+
+
 def test_an_agent_is_never_launched_on_another_vendors_account(home: Path) -> None:
     """The pick never offers another vendor's account, and the last line before
     the exec still refuses a resume whose recorded account is one: a session is
@@ -1490,6 +1517,7 @@ def main() -> int:
         run(lambda: test_the_relabel_recovery_command_quotes_what_it_names(Path(td) / 'relabelquote'))
         run(lambda: test_a_vendor_with_no_driver_refuses_the_launch(Path(td) / 'novendor'))
         run(lambda: test_doctor_looks_for_the_vendors_executable_not_its_name(Path(td) / 'doctorbin'))
+        run(lambda: test_a_launch_given_a_destination_lands_there_not_where_the_pick_would(Path(td) / 'destlaunch'))
         run(lambda: test_an_agent_is_never_launched_on_another_vendors_account(Path(td) / 'vendorlaunch'))
         run(lambda: test_a_launch_does_not_inherit_an_opencode_sessions_config(Path(td) / 'ocleak'))
         run(lambda: test_launch_refuses_stale(Path(td) / 'stale'))

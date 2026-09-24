@@ -1398,7 +1398,7 @@ def _wake_agent(con, agent: str, log, moved_to: str | None = None) -> tuple[bool
         # The shell is still there; put the agent back into it. Resuming the
         # same session is what makes closing cheap, so it is tried first and
         # a fresh start is the fallback, not the plan.
-        base = launch.command_for(agent)
+        base = launch.command_for(agent, account=moved_to)
         # Resuming the session is what makes closing cheap, so it is tried
         # first - but a resume can be the very thing that fails: an id whose
         # transcript was pruned, or a worktree moved out from under it, gives
