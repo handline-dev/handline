@@ -813,11 +813,15 @@ def test_the_menu_offers_what_the_text_could_become() -> None:
     check("menu: a slash lists every page command",
           names("/") == ["/chat", "/all", "/task", "/sort", "/settings", "/back"], str(names("/")))
     check("menu: a slash narrows by the letters typed", names("/ta") == ["/task"], str(names("/ta")))
-    check("menu: /task lists the tasks, newest change first", names("/task ") == ["#84", "#85", "#7"])
-    check("menu: /task narrows by a word of the title", names("/task audit") == ["#7"])
-    check("menu: /task narrows by the digits of the number", names("/task 8") == ["#84", "#85"])
+    check("menu: /task lists the tasks, newest change first", names("/task ") == ["T84", "T85", "T7"])
+    check("menu: /task narrows by a word of the title", names("/task audit") == ["T7"])
+    check("menu: /task narrows by the digits of the number", names("/task 8") == ["T84", "T85"])
     check("menu: /sort names the columns", names("/sort ti") == ["title"], str(names("/sort ti")))
-    check("menu: a hash lists tasks then requests", names("see #") == ["#84", "#85", "#7", "#2305", "#2289"])
+    check("menu: a hash lists tasks then requests", names("see #") == ["T84", "T85", "T7", "#2305", "#2289"])
+    check("menu: /task also takes the T form, and a task inserts as T<n> but a request as its bare number",
+          names("/task t8") == ["T84", "T85"]
+          and [x.arg for x in cp.suggest("see #", tasks, reqs)][:1] == ["T84"]
+          and [x.arg for x in cp.suggest("see #", tasks, reqs)][3:4] == ["2305"])
     check("menu: a hash narrows by the digits after it", names("see #23") == ["#2305"])
     check("menu: a hash not after a space, or with letters, offers nothing",
           names("a#2") == [] and names("a #zz") == [])
@@ -827,7 +831,7 @@ def test_the_menu_offers_what_the_text_could_become() -> None:
     check("menu: Tab on a task fills the command, Enter opens it",
           pick.tab == "/task 84" and pick.action == "open" and pick.arg == "84")
     ref = cp.suggest("see #", tasks, reqs)[0]
-    check("menu: a reference inserts only the number", ref.action == "insert" and ref.arg == "84")
+    check("menu: a task reference inserts T<n>", ref.action == "insert" and ref.arg == "T84")
 
 
 def test_the_typed_history_keeps_the_newest_and_never_repeats() -> None:

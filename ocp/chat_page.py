@@ -291,7 +291,7 @@ def task_cells(row: tuple) -> tuple:
 
     def cell(value) -> Text:
         return Text(safe(value), no_wrap=True, overflow="ellipsis")
-    return (f"#{tid}", role, state, time.strftime("%m-%d %H:%M", time.localtime(updated)),
+    return (actions.task_ref(tid), role, state, time.strftime("%m-%d %H:%M", time.localtime(updated)),
             cell(title), cell(other))
 
 
@@ -308,7 +308,7 @@ def task_page(d: dict) -> dict:
         ("owner", Text(safe(d["owner"]))),
         ("opened by", Text.assemble(safe(d["opened_by"]) + "  ", when(d["created_at"])))]
     if d["parent"]:
-        facts.append(("parent", link(d["parent"][0], f"#{d['parent'][0]}  {safe(d['parent'][1])}")))
+        facts.append(("parent", link(d["parent"][0], f"{actions.task_ref(d['parent'][0])}  {safe(d['parent'][1])}")))
     if d["done"]:
         facts.append(("done", Text.assemble(safe(d["done"][0]) + "  ", when(d["done"][1]))))
     if d["closed"]:
@@ -320,10 +320,10 @@ def task_page(d: dict) -> dict:
         meta.append_text(value)
         meta.append("\n")
     badge = Text(f" {d['state']} ", style=STATE_STYLE.get(d["state"], ""))
-    badge.append(f"   #{d['id']}", style="dim")
+    badge.append(f"   {actions.task_ref(d['id'])}", style="dim")
     return {
         "title": Text(safe(d["title"]), style="bold"), "badge": badge, "meta": meta,
-        "kids": [Text.assemble(link(i, f"#{i}  "), (f"{st:<8}", STATE_STYLE_FG.get(st, "")),
+        "kids": [Text.assemble(link(i, f"{actions.task_ref(i)}  "), (f"{st:<8}", STATE_STYLE_FG.get(st, "")),
                                link(i, safe(title))) for i, title, st in d["children"]],
         "reqs": [Text.assemble((f"#{i}  ", "dim"), f"{safe(a)} → {safe(b)}  ", (f"{st}  ", "dim"), safe(line))
                  for i, a, b, st, line in d["requests"]]}
@@ -460,10 +460,10 @@ def suggest(before: str, tasks: list[tuple], requests: list[tuple]) -> list[Sugg
                     for n, what, _ in PAGE_COMMANDS if n.startswith(name)]
         arg = arg.strip().lower()
         if name == "task":
-            hits = [t for t in tasks if not arg or str(t[0]).startswith(arg.lstrip("#"))
+            hits = [t for t in tasks if not arg or str(t[0]).startswith(arg.lstrip("#").lstrip("t"))
                     or arg in t[3].lower()]
             hits.sort(key=lambda t: t[5], reverse=True)
-            return [Suggestion("open", str(t[0]), f"/task {t[0]}", (f"#{t[0]}", f"  {t[2]}  {safe(t[3])}"))
+            return [Suggestion("open", str(t[0]), f"/task {t[0]}", (actions.task_ref(t[0]), f"  {t[2]}  {safe(t[3])}"))
                     for t in hits[:MENU_MAX]]
         if name == "sort":
             return [Suggestion("sort", c, f"/sort {c}", (c, "   sort the tasks by this column"))
@@ -473,7 +473,7 @@ def suggest(before: str, tasks: list[tuple], requests: list[tuple]) -> list[Sugg
     if not m:
         return []
     digits = m.group(1)
-    out = [Suggestion("insert", str(t[0]), str(t[0]), (f"#{t[0]}", f"  task · {safe(t[3])}"))
+    out = [Suggestion("insert", actions.task_ref(t[0]), actions.task_ref(t[0]), (actions.task_ref(t[0]), f"  task · {safe(t[3])}"))
            for t in sorted(tasks, key=lambda t: t[5], reverse=True) if str(t[0]).startswith(digits)]
     out += [Suggestion("insert", str(rid), str(rid), (f"#{rid}", f"  {safe(who)} · {safe(line)}"))
             for rid, who, line in requests if str(rid).startswith(digits)]
@@ -632,7 +632,7 @@ class TaskDetail(Screen):
             yield Button("Discard  d", id="discard", variant="error", compact=True)
 
     def on_mount(self) -> None:
-        self.sub_title = f"task #{self.tid}"
+        self.sub_title = f"task {actions.task_ref(self.tid)}"
         self.load()
 
     def load(self) -> None:
@@ -643,7 +643,7 @@ class TaskDetail(Screen):
             con.close()
         d = self.d
         if d is None:
-            self.query_one("#t_title", Static).update(f"task #{self.tid} is gone")
+            self.query_one("#t_title", Static).update(f"task {actions.task_ref(self.tid)} is gone")
             return
         page = task_page(d)
         self.query_one("#t_title", Static).update(page["title"])
@@ -671,8 +671,8 @@ class TaskDetail(Screen):
     def report(self, verb: str, ok: bool, said: str) -> None:
         """Say what came of an action where it cannot be missed - a notice over
         the page, not only the small line under it - and log it."""
-        log_action(f"task #{self.tid} {verb}: {'ok' if ok else 'refused'} - {said}")
-        self.notify(safe(said), title=f"{verb} #{self.tid}", severity="information" if ok else "error",
+        log_action(f"task {actions.task_ref(self.tid)} {verb}: {'ok' if ok else 'refused'} - {said}")
+        self.notify(safe(said), title=f"{verb} {actions.task_ref(self.tid)}", severity="information" if ok else "error",
                     timeout=10, markup=False)
         self.flash(said)
 
@@ -686,7 +686,7 @@ class TaskDetail(Screen):
             return
 
         def answered(yes: bool | None) -> None:
-            log_action(f"task #{self.tid} close: answered {'yes' if yes else 'no'}")
+            log_action(f"task {actions.task_ref(self.tid)} close: answered {'yes' if yes else 'no'}")
             if yes:
                 con = db.connect()
                 try:
@@ -695,7 +695,7 @@ class TaskDetail(Screen):
                     con.close()
                 self.report("close", ok, said)
         self.app.push_screen(
-            Confirm(f"Close task #{self.tid}", "Your sign-off, and final: a closed task cannot be reopened.",
+            Confirm(f"Close task {actions.task_ref(self.tid)}", "Your sign-off, and final: a closed task cannot be reopened.",
                     yes="Close", danger=True), answered)
 
     def action_reopen_task(self) -> None:
@@ -704,7 +704,7 @@ class TaskDetail(Screen):
             return
 
         def answered(reason: str | None) -> None:
-            log_action(f"task #{self.tid} reopen: reason {'given' if reason and reason.strip() else 'not given'}")
+            log_action(f"task {actions.task_ref(self.tid)} reopen: reason {'given' if reason and reason.strip() else 'not given'}")
             if reason and reason.strip():
                 con = db.connect()
                 try:
@@ -720,7 +720,7 @@ class TaskDetail(Screen):
             return
 
         def answered(reason: str | None) -> None:
-            log_action(f"task #{self.tid} discard: reason {'given' if reason and reason.strip() else 'not given'}")
+            log_action(f"task {actions.task_ref(self.tid)} discard: reason {'given' if reason and reason.strip() else 'not given'}")
             if reason and reason.strip():
                 con = db.connect()
                 try:
@@ -1090,7 +1090,8 @@ class ChatPage(Screen):
     def _insert_ref(self, number: str) -> None:
         before, after = self._before_cursor()
         m = _REF_TAIL.search(before)
-        before = before[:m.start(1) - 1] + f"#{number} " if m else before
+        ref = number if number[:1] == "T" else f"#{number}"
+        before = before[:m.start(1) - 1] + f"{ref} " if m else before
         box = self.query_one("#compose", ChatBox)
         box.text = before + after
         lines = before.split("\n")
