@@ -13,7 +13,7 @@ from __future__ import annotations
 import time
 from dataclasses import dataclass, field
 
-from . import db
+from . import db, replay
 
 WINDOWS = {"5h": 5 * 3600, "7d": 7 * 86400}
 BURN_LOOKBACK = 24 * 3600
@@ -31,17 +31,23 @@ def _accounts(con, since: int) -> list[str]:
     return [r["account"] for r in rows]
 
 
-def _readable(row, window: str) -> bool:
-    suffix = "5h" if window == "5h" else "7d"
-    if row[f"pct_{suffix}"] is None or not row["exists_"]:
-        return False
-    if window == "5h":
-        return bool(row["pct_5h_readable"]) and not row["rl_lost"]
-    return not row["rl7_lost"]
+def _status(row, as_of: float):
+    """The AccountStatus this sample held, judged as of `as_of` by status's own rules."""
+    st = replay.status_from_row(row)
+    st.as_of = as_of
+    return st
+
+
+def _measured(row, window: str) -> bool:
+    """The sample's figure was a real reading when it was taken: live or freshly
+    carried, not stale, lost, unreadable or too old to trust."""
+    st = _status(row, row["ts"])
+    src = st.pct_5h_source if window == "5h" else st.pct_7d_source
+    return src in ("live", "carried") and row[f"pct_{window}"] is not None
 
 
 def _points(rows, window: str) -> list[tuple[int, int]]:
-    return [(r["ts"], r[f"pct_{window}"]) for r in rows if _readable(r, window)]
+    return [(r["ts"], r[f"pct_{window}"]) for r in rows if _measured(r, window)]
 
 
 # ------------------------------------------------------------ burn rate
@@ -74,16 +80,24 @@ class Window:
 
 def _window(rows, window: str, now: int) -> Window:
     pts = _points(rows, window)
-    last = next((r for r in reversed(rows) if _readable(r, window)), None)
+    last = rows[-1] if rows else None
     reset = last[f"reset_{window}"] if last else None
-    live = last is not None and (reset is None or reset > now)
-    pct = last[f"pct_{window}"] if live else None
-    reset_at = reset if live and reset else None
-    rate = _burn([p for p in pts if p[0] >= now - BURN_LOOKBACK])
+    pct = fresh = None
+    if last is not None and (reset is None or reset > now):
+        st = _status(last, now)
+        if window == "5h":
+            fresh = st.pct_5h_source in ("live", "carried")
+            pct = st.trusted_pct_5h if fresh or st.pct_5h_source == "quiet" else None
+        else:
+            # An old weekly figure is a floor, and a floor still blocks (status.py).
+            pct = st.trusted_pct_7d
+            fresh = st.pct_7d_source in ("live", "carried")
+    reset_at = reset if pct is not None and reset else None
+    rate = _burn([p for p in pts if p[0] >= now - BURN_LOOKBACK]) if fresh else None
     runs_out = before = None
     if pct is not None:
         if pct >= 100:
-            runs_out, before = now, True if reset_at else None
+            runs_out, before = now, (True if reset_at else None)
         elif rate:
             runs_out = now + int((100 - pct) / rate * 3600)
             before = runs_out < reset_at if reset_at else None
@@ -93,6 +107,7 @@ def _window(rows, window: str, now: int) -> Window:
             if p < 100:
                 break
             since = ts
+        since = since or now
     return Window(pct, reset_at, pct if reset_at else None, rate, runs_out, before, since)
 
 
@@ -231,37 +246,51 @@ def agent_for_cwd(cwd: str, worktrees: list[tuple[str, str]]) -> str:
     return UNATTRIBUTED
 
 
+def _by_agent(con, lo: int, hi: int, trees) -> dict[tuple[str, str], dict[str, int]]:
+    by: dict[tuple[str, str], dict[str, int]] = {}
+    for r in con.execute(
+            "SELECT account, cwd, inp, cc, cr, out, thinking FROM token_calls "
+            "WHERE ts > ? AND ts <= ?", (lo, hi)):
+        c = by.setdefault((agent_for_cwd(r["cwd"], trees), r["account"]),
+                          dict.fromkeys(("inp", "cc", "cr", "out", "thinking"), 0))
+        for f in c:
+            c[f] += r[f]
+    return by
+
+
+def _shares(by) -> dict[tuple[str, str], float]:
+    totals: dict[str, int] = {}
+    for (_, acct), c in by.items():
+        totals[acct] = totals.get(acct, 0) + sum(c.values())
+    return {k: (sum(c.values()) / totals[k[1]] if totals[k[1]] else 0.0) for k, c in by.items()}
+
+
 def token_share(con, now: int) -> list[Share]:
     """Each agent's tokens per account over 5h, 24h and 7d, largest first.
 
     The agent is the one whose worktree holds the call's cwd. `share` is exact
-    arithmetic over what was logged; `est_pct` applies it to the account's
-    reported 5h/7d percent and is an estimate, because tokens are not what the
-    plan charges. The 24h window has no reported percent, so no `est_pct`."""
+    arithmetic over what was logged in that sliding span. `est_pct` is an
+    estimate: the agent's share of the account's tokens within the reported
+    window's own span (reset_at - 5h/7d up to now) times that window's reported
+    percent, because tokens are not what the plan charges. It is None when the
+    reset is unknown or for 24h, which has no reported percent."""
     trees = _worktrees(con)
     stats = {a.account: a for a in account_stats(con, now)}
     out: list[Share] = []
     for wname, span in SHARE_WINDOWS.items():
-        rows = con.execute(
-            "SELECT account, cwd, inp, cc, cr, out, thinking FROM token_calls "
-            "WHERE ts > ? AND ts <= ?", (now - span, now)).fetchall()
-        by: dict[tuple[str, str], dict[str, int]] = {}
-        for r in rows:
-            k = (agent_for_cwd(r["cwd"], trees), r["account"])
-            c = by.setdefault(k, dict.fromkeys(("inp", "cc", "cr", "out", "thinking"), 0))
-            for f in c:
-                c[f] += r[f]
-        totals: dict[str, int] = {}
-        for (_, acct), c in by.items():
-            totals[acct] = totals.get(acct, 0) + sum(c.values())
+        by = _by_agent(con, now - span, now, trees)
+        share = _shares(by)
+        own: dict[tuple[str, str], float] = {}
+        pcts: dict[str, int] = {}
+        if wname in WINDOWS:
+            for acct, a in stats.items():
+                w = a.w5h if wname == "5h" else a.w7d
+                if w.reset_at and w.pct is not None:
+                    pcts[acct] = w.pct
+                    mine = _by_agent(con, w.reset_at - span, now, trees)
+                    own.update(_shares({k: c for k, c in mine.items() if k[1] == acct}))
         for (agent, acct), c in by.items():
-            n = sum(c.values())
-            share = n / totals[acct] if totals[acct] else 0.0
-            pct = None
-            a = stats.get(acct)
-            if a and wname in ("5h", "7d"):
-                pct = (a.w5h if wname == "5h" else a.w7d).pct
-            out.append(Share(agent, acct, wname, n, c, share,
-                             None if pct is None else share * pct))
+            est = own.get((agent, acct), 0.0) * pcts[acct] if acct in pcts else None
+            out.append(Share(agent, acct, wname, sum(c.values()), c, share[(agent, acct)], est))
     return sorted(out, key=lambda s: (list(SHARE_WINDOWS).index(s.window), -s.tokens,
                                       s.agent, s.account))

@@ -17,10 +17,16 @@ H = 3600
 
 
 def _sample(con, account, ago_h, p5=None, r5=None, p7=None, r7=None, **kw) -> None:
+    """A live reading taken `ago_h` hours before NOW; `rl_ago_h` makes the figure
+    older than the sample, `carried` marks it carried, `lost` marks it lost."""
+    ts = NOW - int(ago_h * H)
+    seen = ts - int(kw.get("rl_ago_h", 0) * H)
     con.execute(
         "INSERT INTO usage_samples(account, ts, exists_, pct_5h, reset_5h, pct_7d, reset_7d, "
-        "rl_lost) VALUES(?,?,1,?,?,?,?,?)",
-        (account, NOW - int(ago_h * H), p5, r5, p7, r7, kw.get("lost", 0)))
+        "rl_lost, rl_at, rl_carried, rl7_at, rl7_carried, collected_at) "
+        "VALUES(?,?,1,?,?,?,?,?,?,?,?,?,?)",
+        (account, ts, p5, r5, p7, r7, kw.get("lost", 0), seen, kw.get("carried", 0),
+         seen, kw.get("carried", 0), ts))
 
 
 def _call(con, account, ago_h, cwd, n, i=[0]) -> None:
@@ -106,14 +112,34 @@ def test_an_ended_window_and_unreadable_samples(home: Path) -> None:
     try:
         # A window whose reset has passed describes nothing: no pct, no reset.
         _sample(con, "old", 0, p5=80, r5=NOW - 60)
-        # An unreadable (lost) newest sample is skipped for the reading.
+        # A lost newest sample is not a reading, whatever an earlier one said.
         _sample(con, "lossy", 1, p5=20, r5=NOW + H)
         _sample(con, "lossy", 0, p5=99, r5=NOW + H, lost=1)
+        # The poll stopped 4h ago at 100% with the reset still ahead: not "blocked" now.
+        for ago, p in ((5, 60), (4.5, 90), (4, 100)):
+            _sample(con, "frozen", ago, p5=p, r5=NOW + H // 2, p7=10, r7=NOW + 86400)
+        # Still being sampled, but the figure itself was seen 2h before the
+        # newest sample and only carried since: too old to trust.
+        _sample(con, "oldcarry", 1, p5=50, r5=NOW + H, carried=1)
+        _sample(con, "oldcarry", 0, p5=100, r5=NOW + H, carried=1, rl_ago_h=2)
+        # Carried, but recent enough to trust.
+        _sample(con, "newcarry", 0, p5=30, r5=NOW + H, carried=1, rl_ago_h=0.1)
         con.commit()
         st = {a.account: a for a in stats.account_stats(con, NOW)}
         check("stats: an ended window has no pct and no reset",
               st["old"].w5h.pct is None and st["old"].w5h.reset_at is None, str(st["old"].w5h))
-        check("stats: a lost sample is not the reading", st["lossy"].w5h.pct == 20)
+        check("stats: a lost sample is not the reading", st["lossy"].w5h.pct is None)
+        w = st["frozen"].w5h
+        check("stats: a reading gone stale is unknown: no pct, no forecast, not blocked",
+              w.pct is None and w.runs_out_at is None and w.blocked_since is None
+              and not st["frozen"].blocked, str(w))
+        w = st["oldcarry"].w5h
+        check("stats: a carried figure past the carry bound is unknown too",
+              w.pct is None and not st["oldcarry"].blocked, str(w))
+        check("stats: a recently carried figure is still a reading",
+              st["newcarry"].w5h.pct == 30)
+        check("stats: the insight does not call a frozen account blocked",
+              "frozen" not in stats.insight(con, NOW), stats.insight(con, NOW))
     finally:
         con.close()
 
@@ -174,6 +200,33 @@ def test_token_share(home: Path) -> None:
         con.close()
 
 
+def test_estimate_uses_the_windows_own_span(home: Path) -> None:
+    con = _fixture(home)
+    try:
+        con.execute("INSERT INTO agent_state(agent, state, updated, worktree) VALUES "
+                    "('before', 'IDLE', 0, '/w/before'), ('after', 'IDLE', 0, '/w/after')")
+        # alpha's 5h window began 3h ago (reset in 2h). 'before' spent only in the
+        # previous window, 'after' only in this one; both are inside the sliding 5h.
+        _call(con, "alpha", 4, "/w/before", 900)
+        _call(con, "alpha", 1, "/w/after", 100)
+        con.commit()
+        by = {(r.window, r.agent): r for r in stats.token_share(con, NOW) if r.account == "alpha"}
+        check("stats: the sliding share still counts both agents",
+              abs(by[("5h", "before")].share - 0.9) < 1e-9)
+        check("stats: the estimate gives nothing to who spent before the window began",
+              by[("5h", "before")].est_pct == 0.0, str(by[("5h", "before")]))
+        check("stats: the estimate gives the whole reported percent to who spent in it",
+              abs(by[("5h", "after")].est_pct - 40.0) < 1e-9, str(by[("5h", "after")]))
+        con.execute("DELETE FROM usage_samples WHERE account = 'alpha'")
+        _sample(con, "alpha", 0, p5=40)  # a reading with no reset: window start unknown
+        con.commit()
+        by = {(r.window, r.agent): r for r in stats.token_share(con, NOW) if r.account == "alpha"}
+        check("stats: with no known window start there is no estimate",
+              by[("5h", "after")].est_pct is None)
+    finally:
+        con.close()
+
+
 def main() -> int:
     def tests(td):
         run(lambda: test_recovery_and_burn(Path(td) / 'stats1'))
@@ -181,6 +234,7 @@ def main() -> int:
         run(lambda: test_an_ended_window_and_unreadable_samples(Path(td) / 'stats3'))
         run(lambda: test_series(Path(td) / 'stats4'))
         run(lambda: test_token_share(Path(td) / 'stats5'))
+        run(lambda: test_estimate_uses_the_windows_own_span(Path(td) / 'stats6'))
     return run_area(tests)
 
 
