@@ -1501,7 +1501,9 @@ def cmd_hr(args) -> int:
         return 1
     kw = dict(why=args.why, team_name=args.team,
               repo=args.repo, model=args.model, to=getattr(args, "to", None),
-              effort=args.effort, vendor=getattr(args, "vendor", None))
+              effort=args.effort, vendor=getattr(args, "vendor", None),
+              response=getattr(args, "response", None),
+              relation=getattr(args, "relation", None))
     # The founder is the approval, so their own change is made, not proposed.
     if me == askmod.HUMAN:
         ok, said = hr.enact(args.hr_cmd, args.name, **kw)
@@ -2402,6 +2404,17 @@ def build_parser() -> argparse.ArgumentParser:
             q.set_defaults(repo=None, model=None, effort=None, vendor=None)
         else:
             q.set_defaults(team=None, repo=None, model=None, effort=None, vendor=None)
+    for kind, what in (("link", "let one agent ask another"),
+                       ("unlink", "take that permission away")):
+        q = hrsub.add_parser(kind, help=f"propose to {what} (one edge in team.yaml)")
+        q.add_argument("name", help="the agent that asks")
+        q.add_argument("to", help="the agent asked")
+        q.add_argument("--why", required=True, help="what the founder is deciding")
+        if kind == "link":
+            q.add_argument("--response", default=None, choices=sorted(team.VALID_RESPONSE),
+                           help="async (default) waits for a reply; fire_and_forget does not")
+            q.add_argument("--relation", default=None, help="e.g. peer")
+        q.set_defaults(team=None, repo=None, model=None, effort=None, vendor=None)
     q = hrsub.add_parser("list", help="proposals and what became of them")
     q.set_defaults(name=None, why=None, team=None, repo=None,
                    model=None, effort=None)
