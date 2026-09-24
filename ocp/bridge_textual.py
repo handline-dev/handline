@@ -1,7 +1,6 @@
 """ocp bridge: the Textual app the team is run from.
 
-The app opens on the home page (`ui.pages.home.HomePage`; `ui.pages.dashboard.Dashboard`
-is the previous one), from which Enter opens an agent's chat page
+The app opens on the home page (`ui.pages.home.HomePage`), from which Enter opens an agent's chat page
 (`chat_page.ChatPage`); the founder's "done - waiting for check" list is
 `ui.pages.task_checks.TaskChecks`. Pages draw what the data functions in `tui.py`
 and `actions` say and decide nothing themselves, so a row or a page means the same
@@ -24,19 +23,11 @@ from pathlib import Path
 from textual.app import App
 
 from . import jobs as jobsmod, tui
-# The names other modules and the tests reach through here.
-from .ui.components.confirm import Confirm, confirm_answer  # noqa: F401
-from .ui.components.jobs_aware import JobsAware, dispatch_agent_verb  # noqa: F401
-from .ui.components.read_only import ReadOnly  # noqa: F401
-from .ui.components.text_prompt import TextPrompt, _LineBox, _TextBox  # noqa: F401
-from .ui.keys import KEY_TOKENS, key_token  # noqa: F401
-from .ui.pages.dashboard import Dashboard  # noqa: F401
-from .ui.pages.task_checks import TaskChecks  # noqa: F401
 
 
 class BridgeApp(App):
-    """The Textual bridge (`ocp bridge --textual`, task #45): the dashboard, and
-    from it an agent's chat page - see `Dashboard`, `chat_page.ChatPage`."""
+    """The Textual bridge: the home page, and from it an agent's chat page - see
+    `HomePage`, `chat_page.ChatPage`."""
 
     TITLE = "ocp bridge"
     CSS_PATH = Path(__file__).with_name("chat_page.tcss")

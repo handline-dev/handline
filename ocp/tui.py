@@ -1,5 +1,5 @@
 """What the bridge shows (design section 11): its panels' rows, header and keys as
-data, and `snapshot`, the same as plain text. `bridge_textual` draws them.
+data, and `snapshot`, the same as plain text. `ui/pages/home.py` draws them.
 
 A join view over the same state the daemon decides on, so the two cannot
 disagree: if a number looks wrong here, the daemon is acting on that same wrong

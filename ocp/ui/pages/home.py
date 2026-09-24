@@ -1,29 +1,31 @@
-"""The bridge's home page: Home, HR and Settings tabs under the page header.
-
-`Dashboard` is the previous home page and stays as it was; this page inherits its
-selection, jobs and row actions and draws its own panels, so nothing here changes the
-Dashboard. What only this page shows is in `ui.components` (`gauge`, `agent_rows`,
-`summary`, `proposals`)."""
+"""The bridge's home page: Home, HR and Settings tabs under the page header. The Home tab
+is three panels - ACCOUNTS, AGENTS, FOR YOU - with the cursor kept as `panel` and `sel`
+and the row keys in `RowActions`; what only this page shows is in `ui.components`
+(`gauge`, `agent_rows`, `summary`, `proposals`)."""
 from __future__ import annotations
 
 from rich.text import Text
 from textual import events
 from textual.app import ComposeResult
+from textual.containers import Vertical
 from textual.errors import NoWidget
+from textual.screen import Screen
 from textual.widgets import DataTable, Static, Tabs
 from textual.widgets._data_table import CellDoesNotExist
 
 from ... import db, status, tui
 from ..components import agent_rows, gauge
+from ..components.jobs_aware import JobsAware
 from ..components.page_header import page_header
 from ..components.proposals import ProposalsView, open_proposals
+from ..components.row_actions import RowActions
 from ..components.summary import clock, daemon_running, marks_on_screen, summarize, summary_text
 from ..keys import key_token
-from .dashboard import _LEVEL_STYLE, Dashboard
+from .task_checks import TaskChecks
 
-_PANEL_OF_TABLE = {"accounts": tui.ACCOUNTS, "agents": tui.AGENTS,
-                   "messages": tui.MESSAGES, "stuck": tui.STUCK}
-# Each tab's widgets: what it shows and the others hide. Home's are the Dashboard's own.
+_PANEL_OF_TABLE = {"accounts": tui.ACCOUNTS, "agents": tui.AGENTS, "messages": tui.MESSAGES}
+_LEVEL_STYLE = {"normal": "dim", "slow": "yellow", "danger": "red"}
+# Each tab's widgets: what it shows and the others hide.
 _TAB_WIDGETS = {
     "home": ("#header", "#accounts-box", "#agents-box", "#messages-box", "#foot"),
     "hr": ("#hr_view",),
@@ -42,30 +44,41 @@ _MESSAGE_HEADS = ("", "", "from", "message")
 
 
 def _set_columns(table: DataTable, heads: tuple) -> None:
-    """Give a table these columns, once: Dashboard's own are replaced on the first draw."""
+    """Give a table these columns, and again only when the set changes."""
     if getattr(table, "_heads", None) != heads:
         table.clear(columns=True)
         table.add_columns(*heads)
         table._heads = heads
 
 
-class HomePage(Dashboard):
-    AUTO_FOCUS = ""     # the keys act on the dashboard until the tab bar takes the focus
+class HomePage(RowActions, JobsAware, Screen):
+    AUTO_FOCUS = ""     # the keys act on the panels until the tab bar takes the focus
     # The row cursor is the selection. DataTable's hover highlight restarts at row 0
     # each redraw, so it reads as a second, wrong selection.
     DEFAULT_CSS = """
+    HomePage #header { height: auto; }
+    HomePage #accounts-box { height: auto; max-height: 40%; border: round $panel; }
+    HomePage #agents-box { height: auto; max-height: 50%; border: round $panel; }
+    HomePage #messages-box { height: 1fr; border: round $panel; }
+    HomePage #accounts-box.focused, HomePage #agents-box.focused,
+    HomePage #messages-box.focused { border: round cyan; }
+    HomePage #accounts, HomePage #agents { height: auto; }
+    HomePage #acct-notes, HomePage #agent-notes, HomePage #message-notes { height: auto; padding: 0 1; }
+    HomePage #foot { height: auto; }
     HomePage DataTable > .datatable--hover { background: transparent; }
     HomePage DataTable { overflow-x: hidden; }
-    HomePage #stuck-box { display: none; }
-    HomePage #messages-box { height: 1fr; max-height: 100%; }
     """
     # What is stuck is said on the agent's row, on the account's mark and in the header's
-    # daemon word, so the STUCK panel is not drawn and the keys skip it.
+    # daemon word, so there is no STUCK panel.
     PANELS = (tui.ACCOUNTS, tui.AGENTS, tui.MESSAGES)
     BLINK_S = 0.6
 
     def __init__(self) -> None:
         super().__init__()
+        self.panel = tui.AGENTS
+        self.sel: dict = {}
+        self.flash = ""
+        tui._enter(self.panel, self.sel)
         self.tab = "home"
         self._hr_dot = False            # whether the HR tab wears its dot
         self._on = True                 # the blink phase
@@ -73,15 +86,31 @@ class HomePage(Dashboard):
 
     def compose(self) -> ComposeResult:
         yield from page_header([("Home", "home"), ("HR", "hr"), ("Settings", "settings")])
-        yield from super().compose()
+        yield Static(id="header")
+        with Vertical(id="accounts-box") as box:
+            box.border_title = "ACCOUNTS"
+            yield DataTable(id="accounts", cursor_type="row", show_cursor=False)
+            yield Static(id="acct-notes")
+        with Vertical(id="agents-box") as box:
+            box.border_title = "AGENTS"
+            yield DataTable(id="agents", cursor_type="row", show_cursor=False)
+            yield Static(id="agent-notes")
+        with Vertical(id="messages-box"):
+            yield DataTable(id="messages", cursor_type="row", show_cursor=False)
+            yield Static(id="message-notes")
+        yield Static(id="foot")
         yield ProposalsView(id="hr_view")
         yield Static("Settings", id="settings_view")
 
     def on_mount(self) -> None:
         self.sub_title = "home"
+        for table in ("#accounts", "#agents", "#messages"):
+            self.query_one(table, DataTable).can_focus = False
         self.set_interval(self.BLINK_S, self._blink)
         self.query_one("#hr_view").display = False
         self.query_one("#settings_view").display = False
+        self._retime()
+        self._redraw()
 
     def on_tabs_tab_activated(self, event: Tabs.TabActivated) -> None:
         self.tab = event.tab.id
@@ -217,8 +246,23 @@ class HomePage(Dashboard):
         self.call_after_refresh(self._fit, "#messages", 3)
 
     def on_resize(self) -> None:
-        super().on_resize()
+        self._redraw()
         self._fit("#messages", 3)
+
+    def _sync_cursor(self, table: DataTable, box: str, panel: int, names: list) -> None:
+        """A panel's table is display only: its row cursor is the page's own selection,
+        and is drawn only while that panel is the one the keys act on."""
+        focused = self.panel == panel
+        table.show_cursor = focused
+        want = self.sel.get(panel)
+        if focused and want is not None and want in names:
+            table.move_cursor(row=names.index(want))
+        self.query_one(box).set_class(focused, "focused")
+
+    def _notes(self, widget: str, notes: list[str]) -> None:
+        w = self.query_one(widget, Static)
+        w.update(Text.from_ansi("\n".join(f"{tui.DIM}{n}{tui.R}" for n in notes)))
+        w.display = bool(notes)
 
     def _fit(self, table_id: str, col: int) -> None:
         """Give column `col` of a table the width the others leave, so its text is
@@ -305,11 +349,10 @@ class HomePage(Dashboard):
     def on_key(self, event: events.Key) -> None:
         """↑ from the first row of a tab's content puts the focus on the tab bar, where
         ←→ change tab and ↓ goes back down. With the bar focused, or off the Home tab,
-        only `q` is the page's: the Dashboard's row keys would act on rows that are not
-        on screen, and a tab's own keys are its widgets'."""
+        only `q` is the page's: the row keys would act on rows that are not on screen,
+        and a tab's own keys are its widgets'."""
         k = key_token(event)
         if isinstance(self.focused, Tabs):
-            event.prevent_default()
             if k in tui.NEXT_ROW:
                 event.stop()
                 self._enter_tab()
@@ -318,16 +361,28 @@ class HomePage(Dashboard):
                 self.app.exit()
             return
         if k in tui.PREV_ROW and self._on_top_row():
-            event.prevent_default()
             event.stop()
             self.query_one("#scope", Tabs).focus()
             return
-        if self.tab == "home":
-            return
-        event.prevent_default()
         if k in ("q", "Q", "\x03"):
             event.stop()
             self.app.exit()
+            return
+        if self.tab != "home" or k is None:
+            return
+        event.stop()
+        if k == "b":     # task #72: "done - waiting for check" - free on every panel
+            self.app.push_screen(TaskChecks())
+            return
+        moved = tui.navigate(self.panel, self.sel, k, self.PANELS)
+        if moved is not None:
+            self.panel = moved
+            self._redraw()
+            return
+        self.flash = ""
+        # `_act` can open a modal (`push_screen_wait`), which Textual only allows from
+        # inside a worker - not straight from an event handler.
+        self.run_worker(self._act_and_redraw(k), exclusive=True, group="act")
 
     def _on_top_row(self) -> bool:
         """Is the cursor on the first row of the tab, so that ↑ has nowhere to go?"""
@@ -346,16 +401,8 @@ class HomePage(Dashboard):
         else:
             self.set_focus(None)
 
-    def _row_key(self, table: DataTable, panel: int, row: int):
-        """The selection key of a table row, or None for a row the cursor cannot
-        sit on. The stuck table's rows carry no key: its cursor is on an agent."""
-        if panel == tui.STUCK:
-            con = db.connect()
-            try:
-                _title, rows = tui.stuck_data(con)
-            finally:
-                con.close()
-            return rows[row].agent or None if 0 <= row < len(rows) else None
+    def _row_key(self, table: DataTable, row: int):
+        """The selection key of a table row, or None for a row the cursor cannot sit on."""
         if not 0 <= row < table.row_count:
             return None
         return table.coordinate_to_cell_key((row, 0)).row_key.value
@@ -374,7 +421,7 @@ class HomePage(Dashboard):
         panel = _PANEL_OF_TABLE.get(table.id) if table is not None else None
         if panel is None or row is None:
             return
-        key = self._row_key(table, panel, row)
+        key = self._row_key(table, row)
         if key is None:
             return
         event.stop()
