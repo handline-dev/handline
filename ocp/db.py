@@ -59,6 +59,9 @@ CREATE TABLE IF NOT EXISTS requests (
   -- (request #189). NULL is what makes a request still withdrawable/
   -- replaceable by its own requester.
   delivered_at INTEGER,
+  -- When the human pressed "send now" on this (still undelivered) request: it
+  -- is told to its target at once, ahead of a head that is already open.
+  send_now INTEGER,
   -- A report to the human that asks nothing of them: shown, never counted as
   -- waiting on them, and closed once read or superseded by the sender's next.
   fyi INTEGER NOT NULL DEFAULT 0,
@@ -382,6 +385,8 @@ def _pre_schema_migrate(con) -> None:
                 SELECT MIN(id) FROM requests WHERE state = 'queued' GROUP BY target
             )
         """)
+    if request_cols and "send_now" not in request_cols:
+        con.execute("ALTER TABLE requests ADD COLUMN send_now INTEGER")
     if request_cols and "moot_by" not in request_cols:
         con.execute("ALTER TABLE requests ADD COLUMN moot_by INTEGER")
         # No backfill: which existing "replaced by #N" row retired which is
@@ -843,6 +848,27 @@ def mark_delivered(con, rid: int) -> bool:
         "WHERE id = ? AND state = 'queued'",
         (int(time.time()), rid))
     return cur.rowcount > 0
+
+
+def mark_send_now(con, rid: int) -> bool:
+    """Mark a queued, still undelivered request to be told to its target as
+    soon as the target can be typed at, even with a delivered head ahead of it.
+    Idempotent; False when the row is delivered, closed or missing. The mark
+    is a request to the daemon (`deliver_queued`), not a delivery.
+    """
+    cur = con.execute(
+        "UPDATE requests SET send_now = COALESCE(send_now, ?) "
+        "WHERE id = ? AND state = 'queued' AND delivered_at IS NULL",
+        (int(time.time()), rid))
+    return cur.rowcount > 0
+
+
+def send_now_pending(con, target: str):
+    """Marked requests for `target` not yet shown to it, in the order pressed."""
+    return con.execute(
+        "SELECT * FROM requests WHERE target = ? AND state = 'queued' "
+        "AND send_now IS NOT NULL AND delivered_at IS NULL ORDER BY send_now, id",
+        (target,)).fetchall()
 
 
 def _would_strand_a_proposal(con, rid: int, state: str, verdict: str | None) -> bool:

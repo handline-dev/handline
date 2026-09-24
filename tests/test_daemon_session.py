@@ -1450,6 +1450,80 @@ def test_a_running_agent_is_told_when_work_arrives(home: Path) -> None:
         con.close()
 
 
+def test_send_now_reaches_an_agent_whose_head_is_already_open(home: Path) -> None:
+    """The chat's "send now": the head is delivered and unanswered, so the
+    ordinary path has nothing to say - the marked request must still be told,
+    once, and only when the agent can be typed at."""
+    _daemon_home(home, 20)
+    con = db.connect()
+    sent: list[str] = []
+    busy = [True]
+    real = (orcamod.alive, orcamod.idle_now, orcamod.send, orcamod.available)
+    say = lambda _m: None
+    try:
+        orca_seen()
+        orcamod.idle_now = lambda h: not busy[0]
+        orcamod.send = lambda h, text, enter=True: (sent.append(text), (True, ""))[1]
+        sessions_are("backend")
+        db.set_terminal(con, "backend", "term_x", "wt")
+        db.set_agent_state(con, "backend", dmn.IDLE)
+
+        head = db.add_request(con, "reviewer", "backend", "the open one", None,
+                              "peer", "async", None, 0, None)
+        busy[0] = False
+        check("send now: the head is delivered as ever", dmn.deliver_queued(con, "backend", say))
+        later = db.add_request(con, "human", "backend", "urgent", None,
+                               "peer", "async", None, 0, None)
+        sent.clear()
+        check("send now: a request nobody marked stays behind an open head",
+              not dmn.deliver_queued(con, "backend", say) and not sent)
+
+        check("send now: an undelivered queued request can be marked",
+              db.mark_send_now(con, later))
+        check("send now: marking again is harmless", db.mark_send_now(con, later))
+        busy[0] = True
+        check("send now: a working agent is never typed at",
+              not dmn.deliver_queued(con, "backend", say) and not sent)
+        check("send now: and the mark waits for it",
+              [r["id"] for r in db.send_now_pending(con, "backend")] == [later])
+
+        busy[0] = False
+        check("send now: an agent that can be typed at is told", dmn.deliver_queued(con, "backend", say))
+        check("send now: with the marked request, not the head",
+              len(sent) == 1 and "urgent" in sent[0] and f"#{later}" in sent[0]
+              and "the open one" not in sent[0], str(sent))
+        check("send now: and it says the open one is still open", f"#{head}" in sent[0], sent[0])
+        check("send now: it counts as delivered, so it can no longer be withdrawn",
+              db.get_request(con, later)["delivered_at"] is not None)
+        check("send now: the head's own notice is left as it was",
+              db.get_cursor(con, "notify:backend") == head)
+
+        sent.clear()
+        check("send now: each is told once",
+              not dmn.deliver_queued(con, "backend", say) and not sent and not db.send_now_pending(con, "backend"))
+
+        askmod.resolve(head, "done")
+        check("send now: becoming the head later is not a second telling",
+              not dmn.deliver_queued(con, "backend", say) and not sent, str(sent))
+        check("send now: it is the head the resolve-nudge watches",
+              db.get_cursor(con, "notify:backend") == later)
+
+        gone = db.add_request(con, "human", "backend", "never mind", None,
+                              "peer", "async", None, 0, None)
+        db.mark_delivered(con, gone)
+        check("send now: a delivered request cannot be marked", not db.mark_send_now(con, gone))
+        withdrawn = db.add_request(con, "human", "backend", "withdrawn", None,
+                                   "peer", "async", None, 0, None)
+        db.mark_send_now(con, withdrawn)
+        askmod.resolve(later, "ok")
+        con.execute("UPDATE requests SET state = 'withdrawn' WHERE id = ?", (withdrawn,))
+        check("send now: a withdrawn request is not told",
+              not db.send_now_pending(con, "backend"))
+    finally:
+        orcamod.alive, orcamod.idle_now, orcamod.send, orcamod.available = real
+        con.close()
+
+
 def test_an_agent_is_never_handed_another_agents_session(home: Path) -> None:
     """Two agents share an account, and the account file belongs to whichever
     session wrote it last. Carrying its session id through the fallbacks told a
@@ -3827,6 +3901,7 @@ def main() -> int:
         run(lambda: test_daemon_refusal_logs_through_the_same_path(Path(td) / 'svc5b'))
         run(lambda: test_service_log_rotation(Path(td) / 'svc6'))
         run(lambda: test_a_running_agent_is_told_when_work_arrives(Path(td) / 'deliver'))
+        run(lambda: test_send_now_reaches_an_agent_whose_head_is_already_open(Path(td) / 'sendnow'))
         run(lambda: test_an_agent_is_never_handed_another_agents_session(Path(td) / 'ident'))
         run(lambda: test_a_woken_agent_is_told_on_the_following_tick(Path(td) / 'woketick'))
         run(lambda: test_an_agent_idle_past_its_prompt_cache_comes_back_fresh_with_its_work(Path(td) / 'coldwake'))
