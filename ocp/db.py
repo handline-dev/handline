@@ -59,6 +59,9 @@ CREATE TABLE IF NOT EXISTS requests (
   -- (request #189). NULL is what makes a request still withdrawable/
   -- replaceable by its own requester.
   delivered_at INTEGER,
+  -- When the human pressed "send now" on this (still undelivered) request: it
+  -- is told to its target at once, ahead of a head that is already open.
+  send_now INTEGER,
   -- A report to the human that asks nothing of them: shown, never counted as
   -- waiting on them, and closed once read or superseded by the sender's next.
   fyi INTEGER NOT NULL DEFAULT 0,
@@ -382,6 +385,8 @@ def _pre_schema_migrate(con) -> None:
                 SELECT MIN(id) FROM requests WHERE state = 'queued' GROUP BY target
             )
         """)
+    if request_cols and "send_now" not in request_cols:
+        con.execute("ALTER TABLE requests ADD COLUMN send_now INTEGER")
     if request_cols and "moot_by" not in request_cols:
         con.execute("ALTER TABLE requests ADD COLUMN moot_by INTEGER")
         # No backfill: which existing "replaced by #N" row retired which is
@@ -630,13 +635,21 @@ def add_event(con, agent: str, kind: str, payload: dict | None = None,
 FOLD_META_KINDS = ("fold", "fold_failed")
 
 
+def _only(clauses: list, params: list, only: tuple[str, ...] | None) -> None:
+    """Restrict an events query to these agents; None is everyone."""
+    if only is not None:
+        clauses.append(f"agent IN ({','.join('?' * len(only))})")
+        params.extend(only)
+
+
 def events_after(con, row_id: int, agent: str | None = None, limit: int = 10000,
-                 exclude_kinds: tuple[str, ...] = ()):
+                 exclude_kinds: tuple[str, ...] = (), only: tuple[str, ...] | None = None):
     clauses = ["id > ?"]
     params: list = [row_id]
     if agent:
         clauses.append("agent = ?")
         params.append(agent)
+    _only(clauses, params, only)
     if exclude_kinds:
         clauses.append(f"kind NOT IN ({','.join('?' * len(exclude_kinds))})")
         params.extend(exclude_kinds)
@@ -645,27 +658,34 @@ def events_after(con, row_id: int, agent: str | None = None, limit: int = 10000,
     return con.execute(q, params).fetchall()
 
 
-def latest_events(con, agent: str | None = None, limit: int = 50):
+def latest_events(con, agent: str | None = None, limit: int = 50,
+                  only: tuple[str, ...] | None = None):
     """The most recent events, returned oldest first so they read downward.
 
     events_after() is the fold's cursor primitive and starts at the beginning
     on purpose. An operator asking what just happened wants the other end.
     """
-    q = "SELECT * FROM events"
+    clauses: list = []
     params: list = []
     if agent:
-        q += " WHERE agent = ?"
+        clauses.append("agent = ?")
         params.append(agent)
+    _only(clauses, params, only)
+    q = "SELECT * FROM events"
+    if clauses:
+        q += f" WHERE {' AND '.join(clauses)}"
     q += " ORDER BY id DESC LIMIT ?"
     params.append(limit)
     return list(reversed(con.execute(q, params).fetchall()))
 
 
-def count_events(con, agent: str | None = None, after: int = 0) -> int:
+def count_events(con, agent: str | None = None, after: int = 0,
+                 only: tuple[str, ...] | None = None) -> int:
     clauses, params = [], []
     if agent:
         clauses.append("agent = ?")
         params.append(agent)
+    _only(clauses, params, only)
     if after:
         clauses.append("id > ?")
         params.append(int(after))
@@ -851,6 +871,27 @@ def mark_delivered(con, rid: int) -> bool:
         "WHERE id = ? AND state = 'queued'",
         (int(time.time()), rid))
     return cur.rowcount > 0
+
+
+def mark_send_now(con, rid: int) -> bool:
+    """Mark a queued, still undelivered request to be told to its target as
+    soon as the target can be typed at, even with a delivered head ahead of it.
+    Idempotent; False when the row is delivered, closed or missing. The mark
+    is a request to the daemon (`deliver_queued`), not a delivery.
+    """
+    cur = con.execute(
+        "UPDATE requests SET send_now = COALESCE(send_now, ?) "
+        "WHERE id = ? AND state = 'queued' AND delivered_at IS NULL",
+        (int(time.time()), rid))
+    return cur.rowcount > 0
+
+
+def send_now_pending(con, target: str):
+    """Marked requests for `target` not yet shown to it, in the order pressed."""
+    return con.execute(
+        "SELECT * FROM requests WHERE target = ? AND state = 'queued' "
+        "AND send_now IS NOT NULL AND delivered_at IS NULL ORDER BY send_now, id",
+        (target,)).fetchall()
 
 
 def _would_strand_a_proposal(con, rid: int, state: str, verdict: str | None) -> bool:

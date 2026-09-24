@@ -1571,6 +1571,75 @@ def test_ask_and_resolve_take_their_text_from_a_file_too(home: Path) -> None:
         pass
 
 
+def test_an_agent_may_not_list_another_agents_messages(home: Path) -> None:
+    """T39: inbox, digest, handoff and events naming another agent are refused
+    to an agent, unless it is that agent's supervisor; the human is exempt."""
+    _daemon_home(home, 20)
+    (home / "team.yaml").write_text("""
+teams:
+  dev: [marina, dohyun]
+agents:
+  manager: {}
+  marina:  {}
+  dohyun:  {}
+edges:
+  - { from: "manager", to: "dev.*", relation: supervisor, response: fire_and_forget }
+  - { from: "*", to: "human", kind: escalate, creates_gate: true }
+  - { from: "human", to: "*", relation: supervisor, response: fire_and_forget }
+""")
+    for n in ("manager", "marina", "dohyun"):
+        agents.register(n)
+    con = db.connect()
+    try:
+        db.add_request(con, "manager", "marina", "secret of marina", None,
+                       "peer", "async", None, 0, None)
+    finally:
+        con.close()
+    for cmd in (["inbox", "marina"], ["inbox", "marina", "--all"], ["digest", "marina"],
+                ["handoff", "marina"], ["events", "--agent", "marina"]):
+        rc, out = _cli(cmd, as_agent="dohyun")
+        check(f"T39: a peer is refused `ocp {' '.join(cmd)}`",
+              rc == 1 and "may not list marina's messages" in out
+              and "secret of marina" not in out, out)
+    con = db.connect()
+    try:
+        for who in ("marina", "dohyun", "manager"):
+            con.execute("INSERT INTO events (ts, agent, kind, payload) VALUES (?, ?, 'decision', ?)",
+                        (int(time.time()), who, f"note of {who}"))
+        con.commit()
+    finally:
+        con.close()
+    rc, out = _cli(["events"], as_agent="dohyun")
+    check("T39: plain `ocp events` as a peer shows only its own rows",
+          rc == 0 and "note of dohyun" in out and "note of marina" not in out
+          and "note of manager" not in out, out)
+    rc, out = _cli(["events"], as_agent="manager")
+    check("T39: plain `ocp events` as a supervisor adds its reports",
+          "note of marina" in out and "note of dohyun" in out and "note of manager" in out, out)
+    rc, out = _cli(["events"], as_agent=askmod.HUMAN)
+    check("T39: plain `ocp events` as the human shows everyone",
+          "note of marina" in out and "note of dohyun" in out, out)
+    rc, out = _cli(["inbox", "marina"], as_agent="marina")
+    check("T39: an agent lists its own inbox", rc == 0 and "secret of marina" in out, out)
+    rc, out = _cli(["inbox", "marina", "--all"], as_agent="manager")
+    check("T39: a supervisor lists its report's queue", rc == 0 and "secret of marina" in out, out)
+    rc, out = _cli(["inbox", "manager"], as_agent="marina")
+    check("T39: a report may not list its supervisor's queue",
+          rc == 1 and "may not list manager's messages" in out, out)
+    rc, out = _cli(["inbox", "marina", "--all"], as_agent=askmod.HUMAN)
+    check("T39: the human lists any agent's queue", rc == 0 and "secret of marina" in out, out)
+    rc, out = _cli(["handoff", "marina"], as_agent=None)
+    check("T39: a caller with no name is not refused by this rule",
+          "may not list" not in out, out)
+    con = db.connect()
+    try:
+        first = con.execute("SELECT id FROM requests ORDER BY id LIMIT 1").fetchone()[0]
+    finally:
+        con.close()
+    rc, out = _cli(["read", str(first)], as_agent="dohyun")
+    check("T39: `ocp read <id>` by number stays allowed", rc == 0 and "secret of marina" in out, out)
+
+
 def test_inbox_and_withdraw_cli(home: Path) -> None:
     """`ocp inbox` shows the head and a count, not the whole queue (request
     #189); `ocp withdraw` takes back an undelivered request of your own."""
@@ -5273,6 +5342,7 @@ def main() -> int:
         run(lambda: test_an_answer_wakes_the_agent_that_was_waiting_for_it(Path(td) / 'waiting'))
         run(lambda: test_a_request_can_be_read_whole(Path(td) / 'readone'))
         run(lambda: test_ask_and_resolve_take_their_text_from_a_file_too(Path(td) / 'askfile'))
+        run(lambda: test_an_agent_may_not_list_another_agents_messages(Path(td) / 'nopeek'))
         run(lambda: test_inbox_and_withdraw_cli(Path(td) / 'inboxcli'))
         run(lambda: test_only_one_thing_types_at_an_agent_at_a_time(Path(td) / 'locking'))
         run(lambda: test_growing_the_team_needs_a_person(Path(td) / 'hr'))

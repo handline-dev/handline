@@ -1304,7 +1304,19 @@ def cmd_backup(args) -> int:
     return 0
 
 
+def _refused_listing(target: str | None) -> bool:
+    """Print why and return True when the caller may not list `target`."""
+    if not target:
+        return False
+    why = actions.listing_refusal(askmod.current_agent(), target)
+    if why:
+        print(why)
+    return bool(why)
+
+
 def cmd_digest(args) -> int:
+    if _refused_listing(args.agent):
+        return 1
     p = foldmod.journal_path(args.agent, args.date or foldmod.today())
     if not p.exists():
         print(f"no digest at {p}")
@@ -1314,6 +1326,8 @@ def cmd_digest(args) -> int:
 
 
 def cmd_handoff(args) -> int:
+    if _refused_listing(args.agent):
+        return 1
     con = db.connect()
     try:
         text = db.get_handoff(con, args.agent)
@@ -1327,15 +1341,19 @@ def cmd_handoff(args) -> int:
 
 
 def cmd_events(args) -> int:
+    if _refused_listing(args.agent):
+        return 1
+    only = None if args.agent else actions.listable_agents(askmod.current_agent())
     con = db.connect()
     try:
         # Without --after this is "what just happened", so it starts at the
         # newest end. Reporting the page size as the total, from the oldest
         # end, told an operator there were 50 events when there were 187.
         if args.after:
-            rows = db.events_after(con, args.after, agent=args.agent, limit=args.limit)
+            rows = db.events_after(con, args.after, agent=args.agent, limit=args.limit,
+                                    only=only)
         else:
-            rows = db.latest_events(con, agent=args.agent, limit=args.limit)
+            rows = db.latest_events(con, agent=args.agent, limit=args.limit, only=only)
         if not args.all:
             # The hook events that only mark the edges of a turn are what an
             # agent's state column says already, and there are six of them for
@@ -1351,7 +1369,7 @@ def cmd_events(args) -> int:
                   f"{textsafe.oneline(r['payload'] or '')[:70]}")
         # With --after the whole table is not the population being paged, and
         # saying it is misleads in the same direction as the bug this replaced.
-        total = db.count_events(con, agent=args.agent, after=args.after)
+        total = db.count_events(con, agent=args.agent, after=args.after, only=only)
         scope = f" after {args.after}" if args.after else ""
         print(f"\nshowing {len(rows)} of {total} events{scope}; "
               f"cursor for fold:<agent> advances only after a valid fold")
@@ -1839,6 +1857,8 @@ def cmd_inbox(args) -> int:
     if not agent:
         print("cannot tell whose inbox this is: OCP_AGENT is unset and this is not "
               "an interactive shell. Name the agent.")
+        return 1
+    if _refused_listing(agent):
         return 1
     if args.wait:
         con = db.connect()
