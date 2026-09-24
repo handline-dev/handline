@@ -596,7 +596,9 @@ def discard_task(con, tid: int, by: str, reason: str) -> tuple[bool, str]:
 
     close_task's guards hold: refused while a child task is open or while this
     task waits on an open blocker, and refused once it is done or already
-    closed. Every block naming it clears in the same transaction, and a task
+    closed. A request still queued against it also refuses: discarding
+    leaves nothing on the board pointing at that request, so its target
+    would keep working on it. Every block naming it clears in the same transaction, and a task
     left with no open blocker is told, as close does."""
     row = db.get_task(con, tid)
     if row is None:
@@ -620,6 +622,11 @@ def discard_task(con, tid: int, by: str, reason: str) -> tuple[bool, str]:
     if blockers:
         ids = ", ".join(f"#{b['id']}" for b in blockers)
         return False, f"task #{tid} is waiting on {ids} - it cannot be discarded until they close"
+    live = [r for r in db.task_requests(con, tid) if r["state"] == "queued"]
+    if live:
+        ids = ", ".join(f"#{r['id']} (with {r['target']})" for r in live)
+        return False, (f"task #{tid} still has a request open: {ids} - withdraw or cancel it "
+                       "first, or its target keeps working on thrown-away work")
     con.execute("BEGIN IMMEDIATE")
     try:
         if not db.discard_task(con, tid, by, said):

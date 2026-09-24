@@ -25346,6 +25346,23 @@ def test_task_discard(home: Path) -> None:
     check("discard: an open child task refuses it", rc == 1 and f"#{kid}" in out, out)
     rc, out = go(waiting)
     check("discard: a task waiting on a blocker refuses it", rc == 1 and f"#{gate}" in out, out)
+    ok, _, rid_live = askmod.ask("manager", "work on it", requester="worker")
+    con = db.connect()
+    try:
+        live_t = db.new_task(con, "in progress", "worker", "manager")
+        db.link_request(con, live_t, rid_live)
+    finally:
+        con.close()
+    rc, out = go(live_t)
+    check("discard: a task with a request still queued refuses it, naming the request",
+          rc == 1 and f"#{rid_live}" in out and "withdraw" in out, out)
+    con = db.connect()
+    try:
+        check("discard: and the refusal changed nothing",
+              db.get_task(con, live_t)["closed_by"] is None
+              and db.get_request(con, rid_live)["state"] == "queued")
+    finally:
+        con.close()
     rc, out = go(done)
     check("discard: a done task refuses it", rc == 1 and "signs it off" in out, out)
     rc, out = go(999)

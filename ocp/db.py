@@ -461,10 +461,6 @@ def _pre_schema_migrate(con) -> None:
         except Exception:
             con.execute("ROLLBACK")
             raise
-    task_cols = _cols(con, "tasks")
-    if task_cols and "discarded_by" not in task_cols:
-        con.execute("ALTER TABLE tasks ADD COLUMN discarded_by TEXT")
-        con.execute("ALTER TABLE tasks ADD COLUMN discard_reason TEXT")
 
 
 def _unhide_the_humans_answers(con) -> None:
@@ -558,6 +554,10 @@ def mark_announced(con, ids: list[int]) -> None:
 
 
 def _add_missing_columns(con) -> None:
+    task_cols = _cols(con, "tasks")
+    for col in ("discarded_by", "discard_reason"):
+        if col not in task_cols:
+            con.execute(f"ALTER TABLE tasks ADD COLUMN {col} TEXT")
     state_cols = _cols(con, "agent_state")
     for col in ("failed_attempts", "continuations", "throttle_count", "wake_failures"):
         if col not in state_cols:
