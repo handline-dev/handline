@@ -86,6 +86,137 @@ def test_logs_locks_and_status_files_are_not_a_change(home: Path) -> None:
     check("backup: a log line, a lock and a status.json alone write no snapshot",
           backupmod.snapshot(home, dest, now=1_000_300) is None)
 
+def _partials(dest: Path) -> list[Path]:
+    return sorted(dest.glob("*.partial"))
+
+
+def test_a_file_that_vanishes_or_a_failed_write_leaves_no_partial(home: Path) -> None:
+    """A snapshot is written while the home is live: a lock or a status.json
+    that is replaced between the walk and the read raised FileNotFoundError,
+    and the half-written .partial stayed for ever (prune only sees *.tar.gz)."""
+    _world(home)
+    dest = home.parent / "bk"
+    real_files = backupmod._files
+    backupmod._files = lambda h: real_files(h) + [Path("gone.json")]
+    try:
+        out = backupmod.snapshot(home, dest, now=1_000_000)
+    finally:
+        backupmod._files = real_files
+    check("backup: a file that vanished mid-walk does not fail the snapshot", out is not None)
+    names = _names(out)
+    check("backup: it is left out and the rest is kept",
+          "gone.json" not in names and "team.yaml" in names, str(names))
+    check("backup: no partial is left behind", _partials(dest) == [], str(_partials(dest)))
+
+    # Any other failure: the partial is removed, nothing is recorded as taken,
+    # so the next run tries again.
+    (home / "team.yaml").write_text("agents: {y: {}}\n")
+    import tarfile
+    real_add = tarfile.TarFile.add
+
+    def broken(self, *a, **kw):
+        raise OSError("disk full")
+    tarfile.TarFile.add = broken
+    try:
+        try:
+            backupmod.snapshot(home, dest, now=1_000_300)
+            raised = False
+        except OSError:
+            raised = True
+    finally:
+        tarfile.TarFile.add = real_add
+    check("backup: a write that fails raises", raised)
+    check("backup: and leaves no partial", _partials(dest) == [], str(_partials(dest)))
+    check("backup: nor a record that it was taken",
+          backupmod.snapshot(home, dest, now=1_000_600) is not None)
+
+
+def test_a_partial_from_a_killed_run_is_pruned_once_stale(home: Path) -> None:
+    dest = home / "bk"
+    dest.mkdir(parents=True)
+    now = 1_700_000_000.0
+    old, young = dest / "orcapipe-a.partial", dest / "orcapipe-b.partial"
+    for f, age in ((old, backupmod.PARTIAL_STALE_S + 60), (young, 5)):
+        f.write_text("")
+        os.utime(f, (now - age, now - age))
+    backupmod.prune(dest, now)
+    check("backup: a partial older than any live run is removed", not old.exists())
+    check("backup: one a run may still be writing is kept", young.exists())
+
+
+def test_two_snapshots_in_one_second_keep_both(home: Path) -> None:
+    """Names have one-second resolution, and a rename over an existing name
+    replaced it silently: a manual `ocp backup` racing launchd lost a snapshot."""
+    _world(home)
+    dest = home.parent / "bk"
+    first = backupmod.snapshot(home, dest, now=1_000_000)
+    body = first.read_bytes()
+    (home / "team.yaml").write_text("agents: {z: {}}\n")
+    second = backupmod.snapshot(home, dest, now=1_000_000)
+    check("backup: a second snapshot in the same second is a different file",
+          second is not None and second != first and second.exists(), str((first, second)))
+    check("backup: the first is untouched", first.read_bytes() == body)
+    (home / "team.yaml").write_text("agents: {w: {}}\n")
+    third = backupmod.snapshot(home, dest, now=1_000_000)
+    # (Retention may drop the middle one by now - what matters is no reuse.)
+    check("backup: and a third gets its own name too",
+          len({first, second, third}) == 3 and third.exists() and first.exists())
+    check("backup: every one is a snapshot prune knows",
+          all(p.name.startswith(backupmod.PREFIX) and p.name.endswith(backupmod.SUFFIX)
+              for p in (first, second, third)))
+    check("backup: no partial is left", _partials(dest) == [])
+
+
+def test_install_boots_out_then_bootstraps_and_reports_a_refusal(home: Path) -> None:
+    """The launchctl path had no test. Every call goes through
+    service.run_launchctl, so replacing that name fakes the whole of it."""
+    from ocp import service
+    use_home(home)
+
+    class Res:
+        def __init__(self, code=0, out="", err=""):
+            self.returncode, self.stdout, self.stderr = code, out, err
+
+    calls: list[list[str]] = []
+    answer = {"bootstrap": Res()}
+
+    def fake(args):
+        calls.append(args)
+        return answer.get(args[0], Res())
+
+    real = service.run_launchctl
+    service.run_launchctl = fake
+    try:
+        ok, msg = backupmod.install(home)
+        check("backup install: succeeds when launchctl does", ok, msg)
+        check("backup install: boots any old job out, then bootstraps the plist",
+              [c[0] for c in calls] == ["bootout", "bootstrap"]
+              and calls[0][1].endswith("/" + backupmod.LABEL)
+              and calls[1][1:] == [service.domain_target(), str(backupmod.plist_path())],
+              str(calls))
+        import plistlib
+        with open(backupmod.plist_path(), "rb") as f:
+            plist = plistlib.load(f)
+        check("backup install: the plist written is the built one",
+              plist == backupmod.build_plist(home), str(plist))
+        check("backup install: and it lands in the stand-in home, not the real one",
+              TEST_ROOT in backupmod.plist_path().parents)
+        check("backup install: the message names the interval and the folder",
+              f"{backupmod.INTERVAL_S}s" in msg and str(backupmod.backup_dir(home)) in msg, msg)
+
+        calls.clear()
+        answer["bootstrap"] = Res(5, "", "Bootstrap failed: 5: Input/output error\n")
+        ok, msg = backupmod.install(home)
+        check("backup install: a refused bootstrap is reported, with launchctl's words",
+              not ok and "Input/output error" in msg, msg)
+        answer["bootstrap"] = Res(1, "", "")
+        ok, msg = backupmod.install(home)
+        check("backup install: a refusal that says nothing still says something",
+              not ok and msg, msg)
+    finally:
+        service.run_launchctl = real
+
+
 def _snapshots(dest: Path, now: float, ages_s: list[int]) -> dict[int, Path]:
     dest.mkdir(parents=True, exist_ok=True)
     made = {}
@@ -181,6 +312,10 @@ def main() -> int:
         run(lambda: test_the_ladder_keeps_something_near_every_rung_over_a_month(Path(td) / 'b3'))
         run(lambda: test_the_ladder_has_no_gap_at_any_point_in_its_history(Path(td) / 'b6'))
         run(lambda: test_prune_reads_the_files_and_deletes_only_what_the_ladder_lets_go(Path(td) / 'b7'))
+        run(lambda: test_a_file_that_vanishes_or_a_failed_write_leaves_no_partial(Path(td) / 'b8' / 'home'))
+        run(lambda: test_a_partial_from_a_killed_run_is_pruned_once_stale(Path(td) / 'b9'))
+        run(lambda: test_two_snapshots_in_one_second_keep_both(Path(td) / 'b10' / 'home'))
+        run(lambda: test_install_boots_out_then_bootstraps_and_reports_a_refusal(Path(td) / 'b11' / 'home'))
         run(lambda: test_the_backups_live_beside_the_home_not_in_it(Path(td) / 'b4' / 'home'))
     return run_area(tests)
 

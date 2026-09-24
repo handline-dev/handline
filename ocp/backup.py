@@ -37,6 +37,8 @@ MAX_AGE_S = LADDER_S[-1][0]
 DB_NAMES = ("db.sqlite", "db.sqlite-wal", "db.sqlite-shm")
 PREFIX = "orcapipe-"
 SUFFIX = ".tar.gz"
+PARTIAL = ".partial"
+PARTIAL_STALE_S = 600   # a run still writing one is younger than this
 
 
 def backup_dir(home: Path | None = None) -> Path:
@@ -77,7 +79,10 @@ def _fingerprint(home: Path, db_copy: Path | None) -> str:
     for rel in _files(home):
         if rel.name == "status.json":
             continue  # rewritten by every live session; kept in the snapshot, not a change
-        st = (home / rel).stat()
+        try:
+            st = (home / rel).stat()
+        except FileNotFoundError:
+            continue  # went between the walk and here: a change the next run will see
         h.update(f"{rel}\0{st.st_size}\0{st.st_mtime_ns}\n".encode())
     if db_copy is not None:
         con = sqlite3.connect(db_copy)
@@ -87,6 +92,40 @@ def _fingerprint(home: Path, db_copy: Path | None) -> str:
         finally:
             con.close()
     return h.hexdigest()
+
+
+def _write(home: Path, dest: Path, db_copy: Path | None, now: float) -> Path:
+    """Write the archive under a name nothing else has, and return it.
+
+    Built in a partial of its own and linked into place, so two runs in one
+    second (a manual `ocp backup` racing launchd) each keep theirs: `link`
+    refuses a name that exists, where a rename would replace it. A file that
+    vanishes between the walk and the read is left out - it is gone, and
+    whatever replaced it is the next run's change - and any other failure
+    removes the partial, since nothing else ever would.
+    """
+    stem = PREFIX + time.strftime("%Y%m%d-%H%M%S", time.localtime(now))
+    fd, tmp = tempfile.mkstemp(prefix=stem + ".", suffix=PARTIAL, dir=dest)
+    partial = Path(tmp)
+    try:
+        with os.fdopen(fd, "wb") as raw, tarfile.open(fileobj=raw, mode="w:gz") as tar:
+            for rel in _files(home):
+                try:
+                    tar.add(home / rel, arcname=str(rel), recursive=False)
+                except FileNotFoundError:
+                    continue
+            if db_copy is not None:
+                tar.add(db_copy, arcname="db.sqlite")
+        n = 1
+        while True:
+            out = dest / (stem + ("" if n == 1 else f"-{n}") + SUFFIX)
+            try:
+                os.link(partial, out)
+                return out
+            except FileExistsError:
+                n += 1
+    finally:
+        partial.unlink(missing_ok=True)
 
 
 def snapshot(home: Path | None = None, dest: Path | None = None,
@@ -106,15 +145,7 @@ def snapshot(home: Path | None = None, dest: Path | None = None,
         last = dest / ".last-fingerprint"
         if last.exists() and last.read_text() == fp:
             return None
-        name = PREFIX + time.strftime("%Y%m%d-%H%M%S", time.localtime(now)) + SUFFIX
-        out = dest / name
-        partial = dest / (name + ".partial")
-        with tarfile.open(partial, "w:gz") as tar:
-            for rel in _files(home):
-                tar.add(home / rel, arcname=str(rel), recursive=False)
-            if db_copy is not None:
-                tar.add(db_copy, arcname="db.sqlite")
-        partial.rename(out)
+        out = _write(home, dest, db_copy, now)
         last.write_text(fp)
     prune(dest, now)
     return out
@@ -143,6 +174,14 @@ def prune(dest: Path, now: float) -> list[Path]:
     removed = [p for p, t in sorted(found.items()) if t in gone]
     for p in removed:
         p.unlink()
+    # A run killed mid-write leaves its partial behind, and it matches no
+    # snapshot name. A live run's is young.
+    for p in dest.glob(PREFIX + "*" + PARTIAL):
+        try:
+            if now - p.stat().st_mtime > PARTIAL_STALE_S:
+                p.unlink()
+        except FileNotFoundError:
+            pass  # its own run finished it
     return removed
 
 
