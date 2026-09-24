@@ -13,7 +13,7 @@ from textual.widgets import DataTable, Static, Tabs
 from ... import db, tui
 from ...bridge_textual import Dashboard, key_token
 from ..components.page_header import page_header
-from ..components.proposals import ProposalsView
+from ..components.proposals import ProposalsView, open_proposals
 
 _PANEL_OF_TABLE = {"accounts": tui.ACCOUNTS, "agents": tui.AGENTS,
                    "messages": tui.MESSAGES, "stuck": tui.STUCK}
@@ -96,6 +96,19 @@ class HomePage(Dashboard):
         self._blinking: dict = {}
         super()._draw_agents()
 
+    def _count_hr(self) -> None:
+        """The HR tab says how many proposals wait on the founder, so it is seen from
+        the other tabs."""
+        con = db.connect()
+        try:
+            n = len(open_proposals(con))
+        finally:
+            con.close()
+        label = f"HR ({n})" if n else "HR"
+        tab = self.query_one("#scope", Tabs).get_tab("hr")
+        if str(tab.label) != label:
+            tab.label = label
+
     def _blink(self) -> None:
         """Flip the phase and repaint only the cells that blink; a redraw would read
         every agent again."""
@@ -134,6 +147,7 @@ class HomePage(Dashboard):
 
     def _redraw(self) -> None:
         super()._redraw()
+        self._count_hr()
         if self.tab == "hr":
             self.query_one("#hr_view", ProposalsView).refresh_rows()
 

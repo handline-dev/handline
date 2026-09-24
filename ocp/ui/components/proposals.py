@@ -20,18 +20,30 @@ from .action_bar import ActionBar
 _FIELDS = ("account", "vendor", "model", "effort", "team", "repo", "to")
 
 
-def awaiting(con) -> list[dict]:
-    """The proposals whose escalation is still queued for the founder, oldest
-    first: each proposal's own fields plus `rid` and `asked` (the request's id and
-    time). One already answered stays out even before the proposer applies it."""
+DECIDE, STRANDED = "decide", "no decision"
+
+
+def open_proposals(con) -> list[dict]:
+    """The proposals that are the founder's move, oldest first: each proposal's own
+    fields plus `rid` and `asked` (the request's id and time) and `status`.
+    DECIDE is one whose escalation is still queued; STRANDED is one closed with a
+    reply that is neither approve nor reject (`reply` holds it), which only a
+    withdraw can end. One approved or rejected is out: it waits on the proposer."""
     out = []
     for prop in hr.listing():
         if prop.get("state") != "proposed":
             continue
         req = db.get_request(con, int(prop.get("request") or 0))
-        if req is None or req["state"] != "queued":
+        if req is None:
             continue
-        out.append({**prop, "rid": int(req["id"]), "asked": int(req["ts"])})
+        if req["state"] == "queued":
+            status, reply = DECIDE, ""
+        elif req["state"] == "done" and hr.decision(req["verdict"]) == "unclear":
+            status, reply = STRANDED, req["verdict"] or ""
+        else:
+            continue
+        out.append({**prop, "rid": int(req["id"]), "asked": int(req["ts"]),
+                    "status": status, "reply": reply})
     return sorted(out, key=lambda p: p["asked"])
 
 
@@ -53,6 +65,10 @@ def describe(p: dict) -> Text:
             out.append(textsafe.oneline(str(p[key])) + "\n")
     out.append("why\n", style="dim")
     out.append("\n".join(textsafe.drawable(str(p.get("why") or ""))))
+    if p["status"] == STRANDED:
+        out.append("\n\nanswered, but not approve or reject - the reply was\n", style="red")
+        out.append("\n".join(textsafe.drawable(p["reply"]))[:400])
+        out.append("\nWithdraw ends it; the proposer can raise it again.", style="dim")
     return out
 
 
@@ -60,7 +76,8 @@ class ProposalsView(Vertical):
     """A table of the proposals awaiting a decision, the selected one in full, and
     Approve / Reject. `refresh_rows` redraws it and is called on the page's tick."""
 
-    BINDINGS = [Binding("a", "approve", "approve"), Binding("r", "reject", "reject")]
+    BINDINGS = [Binding("a", "approve", "approve"), Binding("r", "reject", "reject"),
+                Binding("w", "withdraw", "withdraw")]
     DEFAULT_CSS = """
     ProposalsView { height: 1fr; }
     ProposalsView #hr_table { height: auto; max-height: 40%; }
@@ -80,9 +97,10 @@ class ProposalsView(Vertical):
         with ActionBar():
             yield Button("Approve  a", id="hr_approve", variant="success", compact=True)
             yield Button("Reject  r", id="hr_reject", variant="error", compact=True)
+            yield Button("Withdraw  w", id="hr_withdraw", compact=True)
 
     def on_mount(self) -> None:
-        self.query_one("#hr_table", DataTable).add_columns("#", "kind", "agent", "from", "asked")
+        self.query_one("#hr_table", DataTable).add_columns("#", "kind", "agent", "from", "asked", "")
         self.refresh_rows()
 
     @property
@@ -95,7 +113,7 @@ class ProposalsView(Vertical):
         keep = self.current["rid"] if self.current else None
         con = db.connect()
         try:
-            self.rows = awaiting(con)
+            self.rows = open_proposals(con)
         finally:
             con.close()
         table.clear()
@@ -103,7 +121,9 @@ class ProposalsView(Vertical):
             table.add_row(Text(f"#{p['rid']}", style="cyan"), Text(p["kind"]),
                           Text(textsafe.oneline(str(p["agent"]))),
                           Text(textsafe.oneline(str(p.get("requested_by") or "?")), style="dim"),
-                          Text(age(p["asked"]), style="dim"), key=str(p["rid"]))
+                          Text(age(p["asked"]), style="dim"),
+                          Text(p["status"], style="yellow" if p["status"] == DECIDE else "red"),
+                          key=str(p["rid"]))
         if self.rows:
             table.move_cursor(row=next((i for i, p in enumerate(self.rows) if p["rid"] == keep), 0))
         self._show()
@@ -112,8 +132,10 @@ class ProposalsView(Vertical):
         p = self.current
         self.query_one("#hr_text", Static).update(
             describe(p) if p else Text("no proposal is waiting for your decision", style="dim"))
-        for b in ("#hr_approve", "#hr_reject"):
-            self.query_one(b, Button).disabled = p is None
+        decidable = p is not None and p["status"] == DECIDE
+        self.query_one("#hr_approve", Button).disabled = not decidable
+        self.query_one("#hr_reject", Button).disabled = not decidable
+        self.query_one("#hr_withdraw", Button).disabled = p is None
 
     def on_data_table_row_highlighted(self, event: DataTable.RowHighlighted) -> None:
         event.stop()
@@ -135,7 +157,7 @@ class ProposalsView(Vertical):
 
     def action_approve(self) -> None:
         p = self.current
-        if p is None:
+        if p is None or p["status"] != DECIDE:
             return
         rid = p["rid"]
         self.app.push_screen(
@@ -143,9 +165,28 @@ class ProposalsView(Vertical):
                     "Your decision, and it is what the proposing agent acts on.", yes="Approve"),
             lambda yes: yes and self._answer(rid, "approve"))
 
-    def action_reject(self) -> None:
+    def action_withdraw(self) -> None:
         p = self.current
         if p is None:
+            return
+        pid = p["id"]
+        self.app.push_screen(
+            Confirm(f"Withdraw {p['kind']} {textsafe.oneline(str(p['agent']))}",
+                    "Takes the proposal back; whoever raised it can raise it again.",
+                    yes="Withdraw", danger=True),
+            lambda yes: yes and self._withdraw(pid))
+
+    def _withdraw(self, pid: str) -> None:
+        con = db.connect()
+        try:
+            ok, said = hr.withdraw(pid, actions.HUMAN, con)
+        finally:
+            con.close()
+        self._say(ok, said)
+
+    def action_reject(self) -> None:
+        p = self.current
+        if p is None or p["status"] != DECIDE:
             return
         rid = p["rid"]
         self.app.push_screen(
@@ -154,4 +195,5 @@ class ProposalsView(Vertical):
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
         event.stop()
-        (self.action_approve if event.button.id == "hr_approve" else self.action_reject)()
+        {"hr_approve": self.action_approve, "hr_reject": self.action_reject,
+         "hr_withdraw": self.action_withdraw}[event.button.id]()
