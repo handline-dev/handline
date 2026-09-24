@@ -510,6 +510,9 @@ def _reclaim_context(con, agent: str, log) -> tuple[bool, str]:
         return False, "no session process; not typing /clear at a shell prompt"
     if _past_dialog(con, agent, log):
         return False, "a dialog is open on its screen that ocp cannot get past; not typing /clear at it"
+    running = orca.background_work(handle)
+    if running:
+        return False, f"background work is running ({running}); not typing /clear at it"
     ok, why = orca.clear_context(handle, timeout_ms=orca.IDLE_PROBE_MS)
     log(f"  {agent}: {why}")
     return ok, why
@@ -656,6 +659,41 @@ FORGOTTEN_STUCK_S = STUCK_RUNNING_S
 NUDGE_RETRY_S = 60
 
 
+def track_background_work(con, agent: str, row) -> None:
+    """Record whether an open session's own footer reports work still running
+    behind its prompt, in whatever state it is waiting.
+
+    A session with such work is not idle: the display shows it working, and
+    nothing that acts on idleness (the resolve nudge, the idle close) acts on
+    it. The session reports this, so it is read every tick, never assumed from
+    a clock. When the footer stops reporting it, the idle clock starts there
+    (`idle_since`), not at its last hook event; the end is not a model turn, so
+    it stays out of `db.last_activity`, which the prompt cache is judged by."""
+    if not row or row["state"] in (RUNNING, HANDOFF, STALLED) or row["closed_at"] \
+            or not row["terminal"] or not orca.available():
+        return
+    running = orca.background_work(row["terminal"])
+    key = f"bgwork:{agent}"
+    if running is None:
+        return                # unreadable is not "ended"
+    if running and not db.get_cursor(con, key):
+        db.set_cursor(con, key, 1)
+    elif not running and db.get_cursor(con, key):
+        db.clear_cursor(con, key)
+        db.add_event(con, agent, "background_work_ended", {})
+
+
+def idle_since(con, agent: str) -> int | None:
+    """When this agent last did anything, or its background work last ended."""
+    times = [t for t in (db.last_activity(con, agent),
+                         db.last_event_ts(con, agent, "background_work_ended")) if t is not None]
+    return max(times) if times else None
+
+
+def has_background_work(con, agent: str) -> bool:
+    return bool(db.get_cursor(con, f"bgwork:{agent}"))
+
+
 def forgotten_resolve(con, agent: str, row, now: int) -> dict | None:
     """The head of this agent's queue, if it looks like a resolve nobody wrote.
 
@@ -672,13 +710,15 @@ def forgotten_resolve(con, agent: str, row, now: int) -> dict | None:
     """
     if not row or row["state"] not in (IDLE, QUEUED) or row["closed_at"] or not row["terminal"]:
         return None
+    if has_background_work(con, agent):
+        return None           # not idle: work it started is still running
     head = db.head_of_queue(con, agent)
     if not head or not head["delivered_at"] \
             or db.get_cursor(con, f"notify:{agent}") != int(head["id"]):
         return None
     if db.open_asks_of(con, agent) or db.unannounced_answers(con, agent):
         return None
-    idle = now - max(int(head["delivered_at"]), db.last_activity(con, agent) or 0)
+    idle = now - max(int(head["delivered_at"]), idle_since(con, agent) or 0)
     return {"head": head, "idle_s": idle, "behind": db.queue_depth(con, agent) - 1}
 
 
@@ -869,6 +909,8 @@ def should_close(con, agent: str, state: str, row, now: int, st) -> bool:
     # `deliver_queued` runs before this in the same tick, so a PARKED agent
     # that reaches here was not delivered to (quiet-hours re-park, or walled by
     # `wall_reason`); its queue is no reason to hold the session open.
+    if has_background_work(con, agent):
+        return False          # not idle: work is still running behind the prompt
     if db.queued_for(con, agent) and state != PARKED:
         return False          # work is waiting; closing would only delay it
     if not st.session_id:
@@ -876,7 +918,7 @@ def should_close(con, agent: str, state: str, row, now: int, st) -> bool:
     failed = db.last_event_ts(con, agent, "close_failed")
     if failed is not None and now - failed < IDLE_CLOSE_S:
         return False          # /exit did not end it; asking every tick types it every tick
-    last = db.last_activity(con, agent)
+    last = idle_since(con, agent)
     if last is None:
         return False          # nothing has ever been seen from it - leave it alone
     return (now - last) >= IDLE_CLOSE_S
@@ -980,22 +1022,24 @@ def _close_agent(con, agent: str, log, st) -> tuple[bool, str]:
     return ok, why
 
 
-def _answer_exit_dialog(con, agent: str, log) -> None:
-    """The `/exit` just typed can raise a dialog (background work is running)
-    that offers to exit: choose it, once. Stops when the session is gone, when
-    the choice is made, or when a dialog with no such option is up - that one is
-    left to the failed-close path - and gives up after EXIT_DIALOG_WAIT_S."""
+def _decline_exit_dialog(con, agent: str, log) -> bool:
+    """The `/exit` just typed can raise a dialog offering to stop background
+    work: decline it (Esc keeps the session), never choose it. True when one
+    was declined; a dialog that would not be, or none, is left to the
+    session-still-running report. Stops when the session is gone, or after
+    EXIT_DIALOG_WAIT_S."""
     # END_WAIT_S bounds it too, which is what lets the suite run it in tenths of a second.
     deadline = time.time() + min(EXIT_DIALOG_WAIT_S, END_WAIT_S)
+    handle = db.get_terminal(con, agent)
     while time.time() < deadline:
         sessions = obs.live_sessions()
         if sessions is not None and not sessions.get(agent):
-            return
-        # One read decides: a footer with nothing readable above it is a torn
-        # read and is read again, not given up on.
-        if blocked.choose_exit(con, agent, log) in (orca.CHOSEN, orca.NO_OPTION):
-            return
+            return False
+        seen = orca.screen_blocker(handle) if handle else None
+        if seen is not None and seen.kind == orca.MODAL:
+            return not blocked.past_dialog(con, agent, log)[0]
         time.sleep(END_POLL_S)
+    return False
 
 
 def _end_session(con, agent: str, log, st, resume: str | None) -> tuple[bool, str]:
@@ -1018,15 +1062,16 @@ def _end_session(con, agent: str, log, st, resume: str | None) -> tuple[bool, st
         # There is nothing to reclaim either; the memory came back when the
         # session did whatever it did.
         return False, "no session process; nothing to close"
+    # Work the session says it still runs is not ours to stop: an agent with
+    # background work is not idle, whichever path is closing it.
+    running = orca.background_work(handle)
+    if running:
+        return False, f"background work is running ({running}); not closing"
     # A dialog on screen is what `/exit` would answer instead of ending anything.
     # Past it first, so the close is one act and not a refusal the next tick
     # meets again; when it cannot be, the refusal says why.
-    # A dialog that offers to end the session is answered by ending it: declining
-    # it would keep the session ocp has decided to end. The exit is then already
-    # under way, and typing `/exit` at it would reach the shell.
-    chosen = blocked.choose_exit(con, agent, log) == orca.CHOSEN
-    stuck = "" if chosen else _past_dialog(con, agent, log)
-    ok, why = (True, "exit chosen at its dialog") if chosen else orca.close_session(handle)
+    stuck = _past_dialog(con, agent, log)
+    ok, why = orca.close_session(handle)
     if not ok and stuck:
         why = f"{why} ({stuck})"
     if not ok:
@@ -1037,18 +1082,21 @@ def _end_session(con, agent: str, log, st, resume: str | None) -> tuple[bool, st
         # own next pass over this agent.
         blocked.note_close_failure(con, agent, log)
         return False, why
+    # A dialog that offers to stop background work only appears now; declining
+    # it is the answer, so this is a refusal and not a failed close.
+    if _decline_exit_dialog(con, agent, log):
+        why = "background work is running; the exit dialog was declined, session kept"
+        db.add_event(con, agent, "close_failed", {"why": why, "pid": None})
+        return False, why
     # Typed is not ended: the `/exit` can be eaten or slow, and a closed row
     # over a live process is cleared by the sweep, while a relaunch typed at
     # that terminal reaches the old session as a prompt. A session that does
     # not end is reported, neither retried (a second `/exit` goes to whatever
     # ate the first) nor killed (that skips its own shutdown); the sweep
     # records the close if it does end later.
-    if not chosen:
-        _answer_exit_dialog(con, agent, log)
     if not _wait_session_gone(agent):
         pid = (obs.live_sessions() or {}).get(agent)
-        did = "'Exit and stop tasks' was chosen" if chosen else "/exit was typed"
-        why = (f"{did} but the session is still running"
+        why = (f"/exit was typed but the session is still running"
                f"{f' (pid {pid})' if pid else ''} after {END_WAIT_S}s; not marked closed")
         db.add_event(con, agent, "close_failed", {"why": why, "pid": pid})
         blocked.note_close_failure(con, agent, log)
@@ -2525,6 +2573,8 @@ def supervise(con, agent: str, log, now: int, samples: dict,
     # An agent whose turn ended on the usage limit cannot run one: typing work
     # into it would start a turn that fails at once, mark the request
     # delivered, and clear the very mark that says it is at the wall.
+    track_background_work(con, agent, row)
+    row = db.get_agent_state(con, agent)
     at_wall = events.at_limit(con, agent)
     open_idle = state not in (RUNNING, HANDOFF) and not woke_now and not at_wall \
         and not (row and row["closed_at"])
