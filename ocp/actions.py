@@ -26,7 +26,7 @@ import subprocess
 import time
 from pathlib import Path
 
-from . import (accounts, agents, ask as askmod, blocked, daemon, db, events as evmod,
+from . import (accounts, agents, ask as askmod, blocked, collect, daemon, db, events as evmod,
                fold as foldmod, hr, load as loadmod, observe as obs, orca, paths,
                spawn as spawnmod, status, team, textsafe, triggers, trust, vendors, waiting)
 from .yamlcompat import ConfigError
@@ -2072,6 +2072,23 @@ def save_account_settings(acct: str, label: str, cap: str) -> tuple[bool, str]:
         loadmod.set_cap(acct, n)
         said.append(f"{acct}: at most {n} agents mid-turn")
     return True, "; ".join(said) or "nothing changed"
+
+
+def context_share(k_text: str, model: str) -> str:
+    """What a handoff threshold typed in thousands of tokens comes to on this model's
+    window, for the agent Settings tab to show beside the field."""
+    try:
+        k = int(k_text.strip())
+    except ValueError:
+        return ""
+    if k < 1:
+        return ""
+    size = collect.ctx_size(model.strip())
+    if not size:
+        return "window unknown for this model"
+    held = min(k * 1000, int(size * triggers.CONTEXT_CLAMP_FRACTION))
+    shown = f"{round(held * 100 / size)}% of the {size // 1000}k window"
+    return shown if held == k * 1000 else f"held to {shown}"
 
 
 def set_default_cap(text: str) -> tuple[bool, str]:

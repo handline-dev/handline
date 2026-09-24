@@ -35,6 +35,7 @@ ChatPage { overflow: hidden; }
     #menu > .option-list--option-highlighted { background: $primary 30%; }
 
     .msg.pending { opacity: 60%; }
+    .queueline { height: 1; margin: 1 0 0 0; }
 
     .qrow { height: 1; margin-top: 1; }
     .qstate { width: 1fr; color: $text-muted; }
@@ -49,5 +50,7 @@ ChatPage { overflow: hidden; }
     .flabel { width: 18; color: $text-muted; }
     .fvalue { width: 1fr; }
     .frow Input, .frow Select { width: 40; }
+    .frow #s_context_k { width: 10; }
+    .frow .unit { width: 10; padding-left: 1; }
     .flash { height: 1; padding: 0 3; color: $text-muted; }
 }

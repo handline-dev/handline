@@ -24,7 +24,7 @@ from textual.screen import Screen
 from textual.widgets import Button, DataTable, Header, Input, OptionList, Select, Static, Tabs, TextArea
 from textual.widgets.option_list import Option
 
-from . import actions, agents, ask as askmod, db, paths, textsafe, tui
+from . import actions, agents, ask as askmod, db, paths, status, textsafe, tui
 from .ui.components.confirm import Confirm
 from .ui.components.text_prompt import TextPrompt, _TextBox
 from .ui.components.action_bar import ActionBar
@@ -96,6 +96,11 @@ def messages_of(rows, agent: str) -> list[dict]:
             if part == 1 and (not shown or cancelled):
                 continue
             side = "you" if speaker == human else "agent" if speaker == agent else "other"
+            queued = (part == 0 and speaker == human and r["target"] != human
+                      and r["state"] == "queued")
+            waiting_to_go = queued and not r["delivered_at"]
+            if part == 0 and speaker == human and r["delivered_at"]:
+                at = r["delivered_at"]      # a message of yours sits where the agent read it
             who = ("you" if speaker == human else speaker) + (
                 "" if human in (speaker, to) else f" → {to}")
             msgs.append({"who": who, "when": at or 0, "rid": r["id"], "part": part, "side": side,
@@ -103,11 +108,10 @@ def messages_of(rows, agent: str) -> list[dict]:
                          "waiting": part == 0 and r["state"] == "queued" and r["target"] == human,
                          "replyable": human in (r["requester"], r["target"]),
                          "answered": side == "agent" and part == 0 and bool(shown),
-                         "queued": (part == 0 and speaker == human and r["target"] != human
-                                    and r["state"] == "queued"),
+                         "queued": queued,
                          "delivered": bool(r["delivered_at"]),
                          "cancelled": part == 0 and cancelled,
-                         "_key": (at or 0, r["id"], part)})
+                         "_key": (float("inf") if waiting_to_go else at or 0, r["id"], part)})
     msgs.sort(key=lambda m: m["_key"])
     for m in msgs:
         del m["_key"]
@@ -177,7 +181,7 @@ def task_detail(con, tid: int) -> dict | None:
             "can_discard": state == "waiting" and mine}
 
 
-EDITABLE = ("model", "effort", "weight", "repo")
+EDITABLE = ("model", "effort", "weight", "repo", "context_k")
 WEIGHTS = ("light", "heavy")
 
 
@@ -185,12 +189,13 @@ def settings_of(agent: str) -> dict:
     """An agent's configuration as the settings tab shows it: what its agent
     file says, and the account its session is actually on."""
     cfg = agents.read(agent)
-    return {"account": str(cfg.get("account") or ""), "session_account": agents.current_account(agent),
+    return {"model_id": status.read_for_agent(agent, agents.current_account(agent)).model_id or "", "account": str(cfg.get("account") or ""), "session_account": agents.current_account(agent),
             "vendor": str(cfg.get("vendor") or agents.DEFAULT_VENDOR),
             "enabled": bool(cfg.get("enabled", True)),
             "model": str(cfg.get("model") or agents.DEFAULT_MODEL),
             "effort": str(cfg.get("effort") or agents.DEFAULT_EFFORT),
-            "weight": str(cfg.get("weight") or "light"), "repo": str(cfg.get("repo") or "")}
+            "weight": str(cfg.get("weight") or "light"), "repo": str(cfg.get("repo") or ""),
+            "context_k": str(agents.context_tokens(cfg) // 1000)}
 
 
 def settings_problem(form: dict) -> str | None:
@@ -205,6 +210,8 @@ def settings_problem(form: dict) -> str | None:
         return f"effort must be one of {', '.join(agents.VALID_EFFORT)}"
     if form["weight"] not in WEIGHTS:
         return f"weight must be one of {', '.join(WEIGHTS)}"
+    if not form["context_k"].strip().isdigit() or int(form["context_k"]) < 1:
+        return "context must be a whole number of thousands of tokens, at least 1"
     if repo and (textsafe.has_unsafe(repo) or not Path(repo).expanduser().is_dir()):
         return f"repo {repo!r} is not a folder"
     return None
@@ -231,7 +238,8 @@ def save_settings(agent: str, changes: list[tuple[str, str, str]]) -> tuple[bool
     new = {k: v for k, _, v in changes}
     try:
         agents.register(agent, str(agents.read(agent).get("account") or ""), model=new.get("model"), effort=new.get("effort"),
-                        weight=new.get("weight"), repo=new.get("repo"))
+                        weight=new.get("weight"), repo=new.get("repo"),
+                        context_tokens=int(new["context_k"]) * 1000 if "context_k" in new else None)
     except (ValueError, agents.ConfigError, OSError) as e:
         return False, f"not saved: {e}"
     return True, "saved: " + ", ".join(f"{k} {v}" for k, _, v in changes)
@@ -330,6 +338,44 @@ def task_page(d: dict) -> dict:
                                link(i, safe(title))) for i, title, st in d["children"]],
         "reqs": [Text.assemble((f"#{i}  ", "dim"), f"{safe(a)} → {safe(b)}  ", (f"{st}  ", "dim"), safe(line))
                  for i, a, b, st, line in d["requests"]]}
+
+
+class QueueLine(Static):
+    """The line between what the agent has read and what is still queued for
+    it; a spinner sits in it while the agent is working."""
+
+    SPINNER = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"
+
+    def __init__(self, working: bool) -> None:
+        super().__init__(classes="queueline")
+        self.working, self._frame = working, 0
+
+    def on_mount(self) -> None:
+        self.set_interval(0.1, self._tick)
+
+    def _tick(self) -> None:
+        if self.working:
+            self._frame += 1
+            self.refresh()
+
+    def render(self) -> Text:
+        mid = f" {self.SPINNER[self._frame % len(self.SPINNER)]} working " if self.working else ""
+        side = max(self.size.width - len(mid), 0)
+        left = side // 2
+        return Text("─" * left + mid + "─" * (side - left), style="dim")
+
+
+def transcript_widgets(msgs: list[dict], working: bool) -> list:
+    """The messages as widgets, the queue line ahead of the first message the
+    agent has not read yet."""
+    out: list = []
+    line = False
+    for m in msgs:
+        if m.get("queued") and not m.get("delivered") and not line:
+            out.append(QueueLine(working))
+            line = True
+        out.append(ChatMessage(m))
+    return out
 
 
 class ChatMessage(Vertical):
@@ -787,6 +833,11 @@ class ChatPage(Screen):
                 with Horizontal(classes="frow"):
                     yield Static("repo", classes="flabel")
                     yield Input(id="s_repo", compact=True, placeholder="where it works")
+                with Horizontal(classes="frow"):
+                    yield Static("hand off at", classes="flabel")
+                    yield Input(id="s_context_k", compact=True, restrict=r"[0-9]*", max_length=6)
+                    yield Static("k tokens", classes="unit")
+                    yield Static(id="s_context_share", classes="fvalue")
             yield Static(id="s_msg", classes="flash")
             with ActionBar(id="s_buttons"):
                 yield Button("Save", id="s_save", variant="primary", compact=True)
@@ -884,6 +935,8 @@ class ChatPage(Screen):
             con.close()
         if state != self.agent_state:
             self.agent_state = state
+            for line in self.query(QueueLine):
+                line.working = state[0] == "RUNNING"
             self.query_one("#status", Static).update(self._status())
 
     def refresh_pools(self) -> None:
@@ -938,12 +991,12 @@ class ChatPage(Screen):
         keep = (self.replying.m["rid"], self.replying.m["part"]) if self.replying else None
         pane = self.query_one("#transcript", VerticalScroll)
         pane.remove_children()
-        widgets = [ChatMessage(m) for m in messages_of(rows, self.agent)]
+        widgets = transcript_widgets(messages_of(rows, self.agent), self.agent_state[0] == "RUNNING")
         pane.mount(*widgets)
         pane.scroll_end(animate=False)
         self.replying = None
         for w in widgets:
-            if keep and (w.m["rid"], w.m["part"]) == keep:
+            if keep and isinstance(w, ChatMessage) and (w.m["rid"], w.m["part"]) == keep:
                 self.reply_to(w)
 
     def load_older(self) -> None:
@@ -1176,6 +1229,8 @@ class ChatPage(Screen):
         self.query_one("#s_enabled", Static).update("yes" if cfg["enabled"] else "no")
         self.query_one("#s_model", Input).value = safe(cfg["model"])
         self.query_one("#s_repo", Input).value = safe(cfg["repo"])
+        self.query_one("#s_context_k", Input).value = cfg["context_k"]
+        self.show_context_share()
         self.query_one("#s_effort", Select).value = cfg["effort"] if cfg["effort"] in agents.VALID_EFFORT else "medium"
         self.query_one("#s_weight", Select).value = cfg["weight"] if cfg["weight"] in WEIGHTS else "light"
 
@@ -1183,7 +1238,18 @@ class ChatPage(Screen):
         return {"model": self.query_one("#s_model", Input).value,
                 "effort": str(self.query_one("#s_effort", Select).value),
                 "weight": str(self.query_one("#s_weight", Select).value),
-                "repo": self.query_one("#s_repo", Input).value}
+                "repo": self.query_one("#s_repo", Input).value,
+                "context_k": self.query_one("#s_context_k", Input).value}
+
+    def show_context_share(self) -> None:
+        self.query_one("#s_context_share", Static).update(
+            Text("= " + actions.context_share(self.query_one("#s_context_k", Input).value,
+                                              self.settings["model_id"] or self.query_one("#s_model", Input).value)
+                 if self.query_one("#s_context_k", Input).value else ""))
+
+    def on_input_changed(self, event: Input.Changed) -> None:
+        if event.input.id in ("s_context_k", "s_model") and self.settings is not None:
+            self.show_context_share()
 
     def save_form(self) -> None:
         """Save what the form changes, after showing exactly what that is."""
