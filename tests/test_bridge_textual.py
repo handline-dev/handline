@@ -1152,12 +1152,26 @@ def test_agent_rows_short_model_cache_and_founder_block() -> None:
         con.close()
 
 
+def test_agent_rows_collect_carries_the_agents_own_model_and_effort() -> None:
+    from ocp.ui.components import agent_rows as ar
+    _home("collectcfg")
+    agents.register("opusy", model="claude-opus-5-5", effort="high")
+    con = db.connect()
+    try:
+        row = tui.AgentRow("opusy", "", "opusy", False, None, "IDLE", "", None)
+        extra = ar.collect(con, [row])["opusy"]
+        check("agent_rows: collect shows the agent's own model and effort, not the defaults",
+              extra[0] == ar.kind_short(agents.read("opusy")) and "opus" in extra[0], str(extra))
+    finally:
+        con.close()
+
+
 def test_fold_urgency_ranks_what_a_fold_hides() -> None:
     from ocp import ask as askmod
     from ocp.ui.components import agent_rows as ar
     _home("foldurg")
     for n in ("w1", "w2", "w3", "w4"):
-        agents.register(n, "alpha")
+        agents.register(n)
     con = db.connect()
     try:
         check("fold_urgency: nothing to say is None", ar.fold_urgency(con, ["w1", "w2"], {}) is None)
@@ -1185,7 +1199,7 @@ def test_agent_rows_collect_says_why_a_row_needs_the_founder() -> None:
     from ocp import ask as askmod
     from ocp.ui.components import agent_rows as ar
     _home("collect")
-    agents.register("reviewer", "alpha")
+    agents.register("reviewer")
     askmod.ask("human", "please look", requester="reviewer")
     con = db.connect()
     try:
@@ -1206,7 +1220,7 @@ def test_open_proposals_lists_only_what_is_the_founders_move() -> None:
     from ocp import ask as askmod
     from ocp.ui.components import proposals as pr
     home = _home("openprops")
-    agents.register("hr", "alpha")
+    agents.register("hr")
     con = db.connect()
     try:
         pids = {}
@@ -1378,7 +1392,7 @@ async def test_home_tab_bar_focus_mouse_and_columns() -> None:
                   "inferred" not in screen.query_one("#accounts-box").border_subtitle)
 
         # a mouse press picks the row under the pointer
-        agents.register("second", "alpha")
+        agents.register("second")
         screen._redraw()
         await pilot.pause(0.1)
         agents_table = screen.query_one("#agents", DataTable)
@@ -1404,7 +1418,7 @@ async def test_hr_tab_approve_reject_withdraw_and_the_red_dot() -> None:
     from ocp import ask as askmod
     from ocp.ui.components.proposals import ProposalsView
     _home("hrtab")
-    agents.register("hr", "alpha")
+    agents.register("hr")
     ok, said = hr.propose("add", "newbie", requester="hr", why="more hands")
     check("hr tab: a proposal was raised", ok, said)
     rid = int(said.split("#")[1].split(".")[0])
@@ -1541,6 +1555,7 @@ async def _run_all() -> None:
     await test_read_only_page_shows_foreign_text_inert()
     test_gauge_elapsed_fraction_bar_and_usage_cells()
     test_agent_rows_short_model_cache_and_founder_block()
+    test_agent_rows_collect_carries_the_agents_own_model_and_effort()
     test_fold_urgency_ranks_what_a_fold_hides()
     test_agent_rows_collect_says_why_a_row_needs_the_founder()
     test_open_proposals_lists_only_what_is_the_founders_move()
