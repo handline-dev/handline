@@ -1206,7 +1206,7 @@ def test_an_account_records_its_vendor(home: Path) -> None:
     try:
         agents.read("broken")
         check("agents.read: a non-UTF-8 agent.yaml is a ConfigError", False, "read")
-    except ConfigError as e:
+    except yamlcompat.ConfigError as e:
         check("agents.read: a non-UTF-8 agent.yaml is a ConfigError", "UTF-8" in str(e), str(e))
     with second_vendor():
         accounts.register("zeta", vendor="zai")
