@@ -635,13 +635,21 @@ def add_event(con, agent: str, kind: str, payload: dict | None = None,
 FOLD_META_KINDS = ("fold", "fold_failed")
 
 
+def _only(clauses: list, params: list, only: tuple[str, ...] | None) -> None:
+    """Restrict an events query to these agents; None is everyone."""
+    if only is not None:
+        clauses.append(f"agent IN ({','.join('?' * len(only))})")
+        params.extend(only)
+
+
 def events_after(con, row_id: int, agent: str | None = None, limit: int = 10000,
-                 exclude_kinds: tuple[str, ...] = ()):
+                 exclude_kinds: tuple[str, ...] = (), only: tuple[str, ...] | None = None):
     clauses = ["id > ?"]
     params: list = [row_id]
     if agent:
         clauses.append("agent = ?")
         params.append(agent)
+    _only(clauses, params, only)
     if exclude_kinds:
         clauses.append(f"kind NOT IN ({','.join('?' * len(exclude_kinds))})")
         params.extend(exclude_kinds)
@@ -650,27 +658,34 @@ def events_after(con, row_id: int, agent: str | None = None, limit: int = 10000,
     return con.execute(q, params).fetchall()
 
 
-def latest_events(con, agent: str | None = None, limit: int = 50):
+def latest_events(con, agent: str | None = None, limit: int = 50,
+                  only: tuple[str, ...] | None = None):
     """The most recent events, returned oldest first so they read downward.
 
     events_after() is the fold's cursor primitive and starts at the beginning
     on purpose. An operator asking what just happened wants the other end.
     """
-    q = "SELECT * FROM events"
+    clauses: list = []
     params: list = []
     if agent:
-        q += " WHERE agent = ?"
+        clauses.append("agent = ?")
         params.append(agent)
+    _only(clauses, params, only)
+    q = "SELECT * FROM events"
+    if clauses:
+        q += f" WHERE {' AND '.join(clauses)}"
     q += " ORDER BY id DESC LIMIT ?"
     params.append(limit)
     return list(reversed(con.execute(q, params).fetchall()))
 
 
-def count_events(con, agent: str | None = None, after: int = 0) -> int:
+def count_events(con, agent: str | None = None, after: int = 0,
+                 only: tuple[str, ...] | None = None) -> int:
     clauses, params = [], []
     if agent:
         clauses.append("agent = ?")
         params.append(agent)
+    _only(clauses, params, only)
     if after:
         clauses.append("id > ?")
         params.append(int(after))
