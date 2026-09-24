@@ -4,6 +4,8 @@ and the row keys in `RowActions`; what only this page shows is in `ui.components
 (`gauge`, `agent_rows`, `summary`, `proposals`)."""
 from __future__ import annotations
 
+import time
+
 from rich.text import Text
 from textual import events
 from textual.app import ComposeResult
@@ -23,6 +25,7 @@ from ..components.summary import clock, daemon_running, marks_on_screen, summari
 from ..keys import key_token
 from .task_checks import TaskChecks
 
+DOUBLE_PRESS_S = 0.5     # two presses on one row this close are a double press
 _PANEL_OF_TABLE = {"accounts": tui.ACCOUNTS, "agents": tui.AGENTS, "messages": tui.MESSAGES}
 _LEVEL_STYLE = {"normal": "dim", "slow": "yellow", "danger": "red"}
 # Each tab's widgets: what it shows and the others hide.
@@ -82,6 +85,8 @@ class HomePage(RowActions, JobsAware, Screen):
         self.tab = "home"
         self._hr_dot = False            # whether the HR tab wears its dot
         self._on = True                 # the blink phase
+        self._pressed: tuple | None = None      # the last row a mouse press picked, and when
+        self._pressed_at = 0.0
         self._blinking: dict = {}       # agent -> (its AgentRow, its Extra), for the rows that blink
 
     def compose(self) -> ComposeResult:
@@ -379,6 +384,9 @@ class HomePage(RowActions, JobsAware, Screen):
             self.panel = moved
             self._redraw()
             return
+        self._press(k)
+
+    def _press(self, k: str) -> None:
         self.flash = ""
         # `_act` can open a modal (`push_screen_wait`), which Textual only allows from
         # inside a worker - not straight from an event handler.
@@ -408,7 +416,7 @@ class HomePage(RowActions, JobsAware, Screen):
         return table.coordinate_to_cell_key((row, 0)).row_key.value
 
     def on_mouse_down(self, event: events.MouseDown) -> None:
-        """Pressing on a row puts the cursor there, as the arrow keys would. Not on
+        """Pressing on a row puts the cursor there, as the arrow keys would; pressing twice opens it, as Enter does. Not on
         Click: the focused panel's DataTable moves its own cursor on Click and stops
         the event, so the screen never sees it and the next redraw undoes the move."""
         row = event.style.meta.get("row")
@@ -429,3 +437,9 @@ class HomePage(RowActions, JobsAware, Screen):
         self.panel = panel
         self.sel[panel] = key
         self._redraw()
+        now = time.monotonic()
+        if self._pressed == (panel, key) and now - self._pressed_at <= DOUBLE_PRESS_S:
+            self._pressed = None
+            self._press("\r")
+        else:
+            self._pressed, self._pressed_at = (panel, key), now

@@ -343,6 +343,24 @@ async def test_enter_on_an_agent_opens_its_chat_page_and_esc_comes_back() -> Non
               type(app.screen).__name__)
 
 
+async def test_a_double_click_on_a_row_is_enter() -> None:
+    _home("dblclick")
+    app = bt.BridgeApp()
+    async with app.run_test(size=(120, 30)) as pilot:
+        await pilot.pause(0.3)
+        dash = app.screen
+        table = dash.query_one("#agents", DataTable)
+        await pilot.click(table, offset=(5, 1))
+        await pilot.pause(0.3)
+        check("double click: one click only selects the row", app.screen is dash and dash.sel[tui.AGENTS] == "backend",
+              type(app.screen).__name__)
+        await pilot.pause(0.7)     # past DOUBLE_PRESS_S
+        await pilot.click(table, offset=(5, 1), times=2)
+        await pilot.pause(0.4)
+        check("double click: two open the agent's chat page, as Enter does",
+              isinstance(app.screen, ChatPage) and app.screen.agent == "backend", type(app.screen).__name__)
+
+
 async def test_wake_on_a_stalled_agent_asks_first() -> None:
     """auditor #2008 BLOCKING 2a: waking a STALLED agent needs a yes first in
     curses (`_needs_confirm`, founder #1620/#1631) - checking only `label in
@@ -1527,6 +1545,7 @@ async def _run_all() -> None:
     await test_accounts_remove_only_fires_on_the_typed_name()
     await test_messages_panel_open_reaches_the_agents_page()
     await test_enter_on_an_agent_opens_its_chat_page_and_esc_comes_back()
+    await test_a_double_click_on_a_row_is_enter()
     await test_wake_on_a_stalled_agent_asks_first()
     await test_messages_panel_acts_on_a_folded_row()
     await test_text_prompt_keeps_a_paste_instead_of_dropping_it()
