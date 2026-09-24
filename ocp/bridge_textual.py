@@ -353,6 +353,7 @@ class Dashboard(JobsAware, Screen):
     """
     _ACCT_COLS = [k for k in tui.ACCT_W if k != "name"]
     AGENT_COLUMNS = ("agent", "acct", "kind", "state", "ctx", "in", "")
+    MESSAGE_COLUMNS = ("", "", "#", "from", "kind", "message")
     SHOW_WAITS = True     # the WAITING ON YOU list under the header
     WITH_BLOCKS = False   # whether an agent's delivery block counts on its AGENTS row
 
@@ -382,7 +383,7 @@ class Dashboard(JobsAware, Screen):
         agents_table.add_columns(*self.AGENT_COLUMNS)
         messages_table = self.query_one("#messages", DataTable)
         messages_table.can_focus = False
-        messages_table.add_columns("", "", "#", "from", "kind", "message")
+        messages_table.add_columns(*self.MESSAGE_COLUMNS)
         stuck_table = self.query_one("#stuck", DataTable)
         stuck_table.can_focus = False
         stuck_table.add_columns("what", "for", "why")
@@ -466,6 +467,14 @@ class Dashboard(JobsAware, Screen):
                           Text(r.why, style="dim"))
         self._sync_cursor(table, "#stuck-box", tui.STUCK, [r.agent for r in rows])
 
+    def _message_cells(self, r: tui.MessageRow) -> list:
+        """One FOR YOU row, a cell per `MESSAGE_COLUMNS`."""
+        glyph, _ = tui.message_mark(r.flavour)
+        return [Text(r.when, style="dim"), Text.from_ansi(glyph),
+                Text(f"#{r.id}", style="cyan"),
+                Text(r.sender, style="dim" if r.flavour == "read" else "bold"),
+                Text(r.kind), Text.from_ansi(r.first + r.behind)]
+
     def _draw_messages(self) -> None:
         con = db.connect()
         try:
@@ -476,11 +485,7 @@ class Dashboard(JobsAware, Screen):
         table = self.query_one("#messages", DataTable)
         table.clear()
         for r in rows:
-            glyph, _ = tui.message_mark(r.flavour)
-            table.add_row(Text(r.when, style="dim"), Text.from_ansi(glyph),
-                          Text(f"#{r.id}", style="cyan"),
-                          Text(r.sender, style="dim" if r.flavour == "read" else "bold"),
-                          Text(r.kind), Text.from_ansi(r.first + r.behind), key=r.key)
+            table.add_row(*self._message_cells(r), key=r.key)
         self._sync_cursor(table, "#messages-box", tui.MESSAGES, [r.key for r in rows])
         self._notes("#message-notes", notes)
 

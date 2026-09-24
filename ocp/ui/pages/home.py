@@ -31,6 +31,7 @@ class HomePage(Dashboard):
     # each redraw, so it reads as a second, wrong selection.
     DEFAULT_CSS = """
     HomePage DataTable > .datatable--hover { background: transparent; }
+    HomePage DataTable { overflow-x: hidden; }
     """
 
     def __init__(self) -> None:
@@ -41,9 +42,43 @@ class HomePage(Dashboard):
 
     AGENT_COLUMNS = ("agent", "acct", "model", "state", "cache", "ctx", "in", "")
 
+    # The glyph already says what kind of message a row is (⚠ decide, ◷ asked for a
+    # reply, ↩ came back, · to read), so the kind column is left out, and the id too; `refused`, the
+    # one kind the glyph shares with `answer`, is said in the text.
+    MESSAGE_COLUMNS = ("", "", "from", "message")
     SHOW_WAITS = False   # what waits on the founder shows on the rows it is about
     WITH_BLOCKS = True
     BLINK_S = 0.6
+
+    def _message_cells(self, r) -> list:
+        cells = super()._message_cells(r)
+        del cells[4], cells[2]      # the kind, and the id
+        if r.kind == "refused":
+            cells[3] = Text.assemble(("refused ", "red"), cells[3])
+        cells[3].no_wrap, cells[3].overflow = True, "ellipsis"
+        return cells
+
+    def _draw_messages(self) -> None:
+        super()._draw_messages()
+        self.call_after_refresh(self._fit, "#messages", 3)
+
+    def on_resize(self) -> None:
+        super().on_resize()
+        self._fit("#messages", 3)
+
+    def _fit(self, table_id: str, col: int) -> None:
+        """Give column `col` of a table the width the others leave, so its text is
+        cut with an ellipsis instead of scrolling the table sideways."""
+        table = self.query_one(table_id, DataTable)
+        cols = table.ordered_columns
+        if col >= len(cols):
+            return
+        taken = sum(c.get_render_width(table) for i, c in enumerate(cols) if i != col)
+        width = max(10, table.scrollable_content_region.width - taken - 2 * table.cell_padding)
+        if cols[col].auto_width or cols[col].width != width:
+            cols[col].auto_width, cols[col].width = False, width
+            table._require_update_dimensions = True
+            table.refresh(layout=True)
 
     @staticmethod
     def _alarm(r) -> bool:
