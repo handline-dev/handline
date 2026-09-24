@@ -2005,13 +2005,11 @@ def test_a_dismissal_is_a_state_and_never_reads_as_words(home: Path) -> None:
               detail == "dismissed - dup of #9", detail)
         w = db.add_request(con, "worker", "manager", "q5", None, "peer", "async", None, 0, None)
         actions.dismiss(con, w, me="manager", reason="not now")
-        untold = [str(x) for _, ls in actions.agent_detail(con, "worker") for x in ls]
-        check("dismissed: an agent's untold answers read the label",
-              any("dismissed by manager - not now" in x for x in untold)
-              and not any("read - no reply" in x for x in untold), str(untold))
-        line, _ = dmn.answer_line(db.unannounced_answers(con, "worker")[0])
-        check("dismissed: what is typed at the asker is the label",
-              line.endswith("dismissed by manager - not now"), line)
+        check("dismissed: nothing is left to tell the asker",
+              not db.unannounced_answers(con, "worker"),
+              str([dict(r) for r in db.unannounced_answers(con, "worker")]))
+        check("dismissed: the label is still how the row reads",
+              db.shown_verdict(db.get_request(con, w)) == "dismissed by manager - not now")
         con.execute("UPDATE requests SET resolved_at = ? WHERE id = ?", (int(time.time()), w))
         rc, out = _cli(["resolve", str(new), "hello"], as_agent="manager")
         check("dismissed: resolving it again names the state, not a quote",
@@ -2875,10 +2873,8 @@ def test_an_answer_to_the_human_is_in_the_human_mailbox(home: Path) -> None:
               db.get_agent_state(con, actions.HUMAN) is None,
               str(dict(db.get_agent_state(con, actions.HUMAN) or {})))
 
-        # Dismissing is not answering. A sender that parked on a reply has to
-        # be unparked, but one that fired and forgot is not told: typing "read"
-        # at an agent as though it were an answer costs it a turn to find out
-        # it is not one.
+        # Dismissing is not answering: no sender is told, parked or not.
+        # Typing "dismissed" at an agent costs it a turn for nothing.
         ff = db.add_request(con, "reviewer", actions.HUMAN, "FYI, shipped it", None,
                             "peer", "fire_and_forget", None, 0, None)
         actions.dismiss(con, ff)
@@ -2889,8 +2885,9 @@ def test_an_answer_to_the_human_is_in_the_human_mailbox(home: Path) -> None:
         parked = db.add_request(con, "reviewer", actions.HUMAN, "which one ships?", None,
                                 "peer", "async", None, 0, None)
         actions.dismiss(con, parked)
-        check("mailbox: but one that parked on a reply is still told",
-              parked in [r["id"] for r in db.unannounced_answers(con, "reviewer")],
+        check("mailbox: nor is one that parked on a reply - the close is all it gets",
+              db.get_request(con, parked)["announced_at"] is not None
+              and parked not in [r["id"] for r in db.unannounced_answers(con, "reviewer")],
               str(dict(db.get_request(con, parked))))
 
         # #185: `resolve` used to call push_answer unconditionally, so a
@@ -2922,8 +2919,20 @@ def test_an_answer_to_the_human_is_in_the_human_mailbox(home: Path) -> None:
             parked2 = db.add_request(con, "marina", actions.HUMAN, "which one?", None,
                                      "peer", "async", None, 0, None)
             actions.dismiss(con, parked2)
-            check("mailbox: but an async dismissal still wakes its parked requester",
-                  woken == ["marina"], f"woken={woken} delivered={delivered}")
+            check("mailbox: nor is a parked one told; with nothing else waiting it is idle",
+                  not woken and not delivered
+                  and db.get_agent_state(con, "marina")["state"] == dmn.IDLE,
+                  f"woken={woken} delivered={delivered}")
+            other = db.add_request(con, "marina", "reviewer", "another?", None,
+                                   "peer", "async", None, 0, None)
+            db.close_if_queued(con, other, "done", "yes")
+            parked3 = db.add_request(con, "marina", actions.HUMAN, "which now?", None,
+                                     "peer", "async", None, 0, None)
+            actions.dismiss(con, parked3)
+            check("mailbox: with another answer untold it reads QUEUED, and only for that",
+                  db.get_agent_state(con, "marina")["state"] == dmn.QUEUED
+                  and [r["id"] for r in db.unannounced_answers(con, "marina")] == [other],
+                  str(dict(db.get_agent_state(con, "marina"))))
 
             # #264: resolve(notify=False) committed 'done' with announced_at
             # still NULL, and dismiss stamped it afterwards with its own

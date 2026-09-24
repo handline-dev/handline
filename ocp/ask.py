@@ -660,8 +660,9 @@ def _after_close(con, rid: int, row, state: str, notify: bool) -> str:
             "SELECT COUNT(*) c FROM requests WHERE requester = ? AND state = 'queued' "
             "AND response = 'async'", (row["requester"],)).fetchone()["c"]
         if outstanding == 0:
-            db.set_agent_state(con, row["requester"], "QUEUED", wake_at=None,
-                               detail=f"request {rid} resolved: {state}")
+            # QUEUED only if something is queued or untold: a quiet dismissal
+            # leaves neither, and the asker just goes back to idle.
+            daemon._queued_or_idle(con, row["requester"], f"request {rid} resolved: {state}")
     p = _inbox(row["target"]) / f"{rid:06d}.json"
     if p.exists():
         p.unlink()
