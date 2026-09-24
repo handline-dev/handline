@@ -54,7 +54,7 @@ def test_the_suite_and_the_package_name_only_what_exists() -> None:
     areas = sorted(p for p in here.parent.glob("test_*.py")
                    if p.name not in ("test_ocp.py", "test_bridge_textual.py"))
     for path in (areas + [here.parent / "support.py", here.parent / "test_ocp.py"]
-                 + sorted((root / "ocp").glob("*.py"))
+                 + sorted((root / "ocp").rglob("*.py"))
                  + [root / "bin" / "_ocp_entry.py", root / "libexec" / "ptyrun.py"]):
         bad = sorted(_undefined_globals(path))
         check(f"names: {path.relative_to(root)} reads no name that is not defined",
