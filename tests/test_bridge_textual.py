@@ -1640,6 +1640,42 @@ async def test_the_account_page_leaves_a_page_on_top_alone_and_closes_when_it_is
                   app.screen is home, type(app.screen).__name__)
 
 
+async def test_the_home_accounts_row_shows_the_alias() -> None:
+    from ocp import load as loadmod
+    _home("alias_row")
+    loadmod.set_label("alpha", "Work")
+    app = bt.BridgeApp()
+    async with app.run_test(size=(120, 30)) as pilot:
+        await pilot.pause(0.3)
+        first = app.screen.query_one("#accounts", DataTable).get_row_at(0)[0]
+        check("home: the ACCOUNTS row shows the alias, not the account's name",
+              first.plain.strip() == "Work", first.plain)
+
+
+def test_account_settings_alias_and_default_cap() -> None:
+    from ocp import load as loadmod, triggers
+    _home("settings")
+    ok, _ = actions.save_account_settings("alpha", "x" * 41, "3")
+    check("settings: an alias over 40 characters is refused", not ok and loadmod.label_of("alpha") == "alpha")
+    ok, _ = actions.save_account_settings("alpha", "a\x1bb", "3")
+    check("settings: an alias with a control character is refused", not ok and loadmod.label_of("alpha") == "alpha")
+
+    actions.save_account_settings("alpha", "Work", "3")
+    ok, _ = actions.save_account_settings("alpha", "Other", "0")
+    check("settings: a bad cap leaves the new alias unwritten", not ok and loadmod.label_of("alpha") == "Work",
+          loadmod.label_of("alpha"))
+    ok, _ = actions.save_account_settings("alpha", "  ", "3")
+    check("settings: a blank alias goes back to the account's own name",
+          ok and loadmod.label_of("alpha") == "alpha" and "label_alpha" not in loadmod._config())
+
+    cfg = loadmod._config()
+    for bad in (None, 0, -1, True, "3"):
+        cfg["active_cap"] = bad
+        check(f"default cap: {bad!r} falls back to the built-in", loadmod.default_cap(cfg) == triggers.DEFAULT_ACTIVE_CAP)
+    loadmod.set_default_cap(6)
+    check("default cap: an account with no cap of its own follows it", loadmod.cap_of("beta") == 6)
+
+
 async def _run_all() -> None:
     test_only_y_n_or_escape_answers_a_confirm()
     test_the_menu_offers_what_the_text_could_become()
@@ -1686,6 +1722,8 @@ async def _run_all() -> None:
     test_the_agent_row_names_the_fold_alarm_and_why_it_is_stuck()
     await test_home_tab_bar_focus_mouse_and_columns()
     await test_hr_tab_approve_reject_withdraw_and_the_red_dot()
+    await test_the_home_accounts_row_shows_the_alias()
+    test_account_settings_alias_and_default_cap()
 
 
 def main() -> int:
