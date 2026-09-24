@@ -417,12 +417,11 @@ def cancel(con, rid: int) -> str:
 
 
 def send_now(con, rid: int) -> str:
-    """The founder's queued message goes to the front of the agent's queue and is
-    delivered now if the agent can take it, else as soon as it can."""
+    """The founder's queued message is told to its agent now if the agent can be typed
+    at, else as soon as it can, even with a request already open ahead of it."""
     row = db.get_request(con, rid)
-    if not row or row["state"] != "queued" or row["requester"] != HUMAN or row["delivered_at"]:
+    if not row or row["requester"] != HUMAN or not db.mark_send_now(con, rid):
         return "not sent - it is no longer waiting"
-    db.move_to_front(con, rid)
     con.commit()
     return askmod.push(con, row["target"]).strip()
 

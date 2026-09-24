@@ -789,14 +789,6 @@ def add_request(con, requester: str, target: str, body: str, files: str | None,
     return rid
 
 
-def move_to_front(con, rid: int) -> None:
-    """Put a queued, undelivered request ahead of every other undelivered one for its target."""
-    row = con.execute("SELECT target FROM requests WHERE id = ?", (rid,)).fetchone()
-    low = con.execute("SELECT MIN(queue_order) FROM requests WHERE target = ? AND state = 'queued' "
-                      "AND delivered_at IS NULL", (row["target"],)).fetchone()[0]
-    con.execute("UPDATE requests SET queue_order = ? WHERE id = ?", (float(low) - 1, rid))
-
-
 # States a request can leave 'queued' for without ever having reached its
 # target: denied by routing, withdrawn by its own requester, or superseded by
 # a replacement. None of the three is evidence of a real exchange, so a cycle
