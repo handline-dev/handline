@@ -1133,8 +1133,9 @@ def test_a_message_of_yours_sits_where_the_agent_read_it_and_a_line_ahead_of_the
     kinds = [type(w).__name__ for w in cp.transcript_widgets(msgs, True)]
     check("chat: one line sits ahead of the queued message", kinds == ["ChatMessage", "ChatMessage", "QueueLine", "ChatMessage"],
           str(kinds))
-    check("chat: no line when nothing is queued",
-          "QueueLine" not in [type(w).__name__ for w in cp.transcript_widgets(msgs[:2], True)])
+    spare = cp.transcript_widgets(msgs[:2], True)
+    check("chat: nothing queued leaves a spare row at the bottom, without a rule",
+          type(spare[-1]).__name__ == "QueueLine" and not spare[-1].rule and len(spare) == 3)
 
 
 def test_the_context_setting_is_in_thousands_and_shows_its_share_of_the_window() -> None:

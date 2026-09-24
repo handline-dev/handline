@@ -346,9 +346,9 @@ class QueueLine(Static):
 
     SPINNER = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"
 
-    def __init__(self, working: bool) -> None:
+    def __init__(self, working: bool, rule: bool = True) -> None:
         super().__init__(classes="queueline")
-        self.working, self._frame = working, 0
+        self.working, self.rule, self._frame = working, rule, 0
 
     def on_mount(self) -> None:
         self.set_interval(0.1, self._tick)
@@ -360,6 +360,8 @@ class QueueLine(Static):
 
     def render(self) -> Text:
         mid = f" {self.SPINNER[self._frame % len(self.SPINNER)]} working " if self.working else ""
+        if not self.rule:
+            return Text(mid, style="dim")
         side = max(self.size.width - len(mid), 0)
         left = side // 2
         return Text("─" * left + mid + "─" * (side - left), style="dim")
@@ -367,7 +369,8 @@ class QueueLine(Static):
 
 def transcript_widgets(msgs: list[dict], working: bool) -> list:
     """The messages as widgets, the queue line ahead of the first message the
-    agent has not read yet."""
+    agent has not read yet; with none unread, a spare row at the bottom that
+    only shows the spinner."""
     out: list = []
     line = False
     for m in msgs:
@@ -375,6 +378,8 @@ def transcript_widgets(msgs: list[dict], working: bool) -> list:
             out.append(QueueLine(working))
             line = True
         out.append(ChatMessage(m))
+    if not line:
+        out.append(QueueLine(working, rule=False))
     return out
 
 
