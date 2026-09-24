@@ -76,7 +76,11 @@ def read(name: str) -> dict:
     p = agent_file(name)
     if not p.exists():
         raise FileNotFoundError(f"agent '{name}' is not registered ({p})")
-    data = load(p.read_text())
+    try:
+        text = p.read_text()
+    except UnicodeDecodeError as e:
+        raise ConfigError(f"{p}: not valid UTF-8 ({e.reason})") from e
+    data = load(text)
     if not isinstance(data, dict):
         raise ConfigError(f"{p}: top level is not a map")
     # REFUSE, not strip (#1571's ruling): a value dump() would not have

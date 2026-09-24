@@ -860,6 +860,17 @@ def test_team_deny_validation() -> None:
           not t.route("backend", "marketing").allowed)
 
 
+def test_keychain_service_is_keyed_by_the_user_home(home: Path) -> None:
+    import hashlib
+    from ocp.vendors.claude import keychain_service
+    check("keychain: the default config dir under the user home is the bare service",
+          keychain_service(paths.user_home() / ".claude") == "Claude Code-credentials")
+    other = paths.user_home() / ".orcapipe" / "accounts" / "alpha" / ".claude"
+    digest = hashlib.sha256(str(other).encode()).hexdigest()[:8]
+    check("keychain: any other dir is suffixed with its path's sha256",
+          keychain_service(other) == f"Claude Code-credentials-{digest}", keychain_service(other))
+
+
 def test_a_claude_agent_is_never_placed_on_another_vendors_account(home: Path) -> None:
     """#1776: a second vendor's account that reads as logged in and has room
     is still never a place for a claude agent - it would run claude against
@@ -1203,6 +1214,12 @@ def test_an_account_records_its_vendor(home: Path) -> None:
     check("vendor record: an agent whose vendor cannot be read is placed nowhere",
           picked is None and dict(ranked)["alpha"].startswith("agent.yaml unreadable"),
           str((picked, ranked)))
+    agents.agent_file("broken").write_bytes(b"role: \xff\xfe\n")
+    try:
+        agents.read("broken")
+        check("agents.read: a non-UTF-8 agent.yaml is a ConfigError", False, "read")
+    except yamlcompat.ConfigError as e:
+        check("agents.read: a non-UTF-8 agent.yaml is a ConfigError", "UTF-8" in str(e), str(e))
     with second_vendor():
         accounts.register("zeta", vendor="zai")
         check("vendor record: a second vendor is written down",
@@ -2364,6 +2381,7 @@ def main() -> int:
         run(lambda: test_yaml_booleans())
         run(lambda: test_team_validation())
         run(lambda: test_team_deny_validation())
+        run(lambda: test_keychain_service_is_keyed_by_the_user_home(Path(td) / 'keychain'))
         run(lambda: test_a_claude_agent_is_never_placed_on_another_vendors_account(Path(td) / 'vendorpick'))
         run(lambda: test_another_vendors_account_never_spends_a_live_refresh(
             Path(td) / 'vendorrefresh'))

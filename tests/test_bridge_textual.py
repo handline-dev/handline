@@ -23,6 +23,8 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
+# First, so OCP_TEST_ROOT is set before any ocp module reads a path.
+import test_ocp as t  # noqa: E402 - its `_daemon_home`/`DESIGN_TEAM` fixture, not re-derived here
 from textual import events  # noqa: E402
 from ocp import (actions, agents, bridge_textual as bt, daemon as daemonmod,  # noqa: E402
                  db, hr, jobs as jobsmod, tui)
@@ -33,7 +35,6 @@ from ocp.ui.components.text_prompt import TextPrompt  # noqa: E402
 from ocp.ui.pages.home import HomePage  # noqa: E402
 from ocp.ui.pages.task_checks import TaskChecks  # noqa: E402
 from textual.widgets import DataTable, Static  # noqa: E402
-import test_ocp as t  # noqa: E402 - its `_daemon_home`/`DESIGN_TEAM` fixture, not re-derived here
 
 PASS: list[str] = []
 FAIL: list[str] = []
