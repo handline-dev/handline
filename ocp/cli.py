@@ -392,6 +392,27 @@ def cmd_handoff_write(args) -> int:
     return 1 if missing else 0
 
 
+def cmd_progress(args) -> int:
+    """Keep or show the agent's note on its request in progress."""
+    agent = askmod.current_agent()
+    if not agent:
+        print("cannot tell who is writing: OCP_AGENT is unset", file=sys.stderr)
+        return 1
+    con = db.connect()
+    try:
+        if args.note is None:
+            print(textsafe.text(handoffmod.get_progress(con, agent) or "no progress note"))
+            return 0
+        ok, said = handoffmod.set_progress(con, agent, args.note)
+        if ok:
+            print(f"progress on {said} kept; the handoff and the wake prompt carry it")
+        else:
+            print(said, file=sys.stderr)
+        return 0 if ok else 1
+    finally:
+        con.close()
+
+
 def _ambiguous_number(raw: str) -> str:
     return actions.parse_task_ref_error(raw)
 
@@ -2626,6 +2647,11 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--item", required=True)
     p.add_argument("--force", action="store_true", help="accept going over budget")
     p.set_defaults(fn=cmd_base_promote)
+
+    p = sub.add_parser("progress", help="keep a note of what is done and what is left on "
+                       "your request in progress (no note shows it; '' clears it)")
+    p.add_argument("note", nargs="?", default=None)
+    p.set_defaults(fn=cmd_progress)
 
     p = sub.add_parser("write-handoff", help="record a handoff now")
     p.add_argument("agent")

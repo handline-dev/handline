@@ -2439,6 +2439,7 @@ def test_no_command_prints_what_a_terminal_would_obey(home: Path) -> None:
             "guide": [["guide"]], "task list": [["task", "list"]],
             "top": [["top", "--once"]], "watch": [["watch", "--once"]], "bridge": [["bridge", "--once"]],
             "write-handoff": [["write-handoff", "reviewer"]],
+            "progress": [(["progress"], {"OCP_AGENT": "reviewer"}, "progress")],
             "ask": [(["ask", "reviewer", f"a new one {p}", "--of", "marina"], None, "ask")],
             "withdraw": [["withdraw", str(d + 1), "--of", "marina"]],
             "unstall": [["unstall", "reviewer"]],

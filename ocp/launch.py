@@ -329,7 +329,9 @@ def _static_preamble(agent: str) -> str:
              "a file, use `git show <ref>:<path>` - it needs nothing outside the "
              "worktree. Copying a file out to /tmp to read it stops you on a "
              "permission prompt only a human can answer, and you will sit there "
-             "until one does."]
+             "until one does.",
+             "On a long request, keep `ocp progress \"done: ... left: ...\"` current: "
+             "your handoff carries it to the session that takes over."]
     team_line = _your_team(agent)
     if team_line:
         parts.append(team_line)
