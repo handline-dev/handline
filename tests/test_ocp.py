@@ -22238,81 +22238,104 @@ def test_a_drifted_wake_that_cannot_relaunch_says_why(home: Path) -> None:
         con.close()
 
 
-def test_a_queued_agent_stalled_after_a_silent_wake_logs_why_every_tick(home: Path) -> None:
-    """#83 (founder #2284/#2286/#2287), the production trace: parked for
-    quiet hours with an idle session left open (task #77's own park never
-    takes a handoff - no new state, no context clear), the launch recipe
-    changed underneath it while it slept (main moved on), and with no
-    session id recorded the wake could only try typing in place - but there
-    was no handoff to type. `supervise` still moved PARKED -> QUEUED as if
-    the wake had worked, and from there `deliver_queued` declined every tick
-    with nothing said: two queued asks sat for five hours with no line about
-    this agent in the log at all.
-
-    Drives exactly that shape through `supervise` over several ticks. What
-    must hold (the founder's own words): a QUEUED agent with queued asks
-    either starts on an account that can take it, or the daemon logs the
-    reason - every tick it is still true, not once."""
+def test_a_queued_agent_with_a_told_head_gets_the_same_forgotten_resolve_nudge_as_idle(
+        home: Path) -> None:
+    """#83 (founder #2284/#2286/#2287), the production trace: keeper's head
+    (#2200) was already delivered and told, then a later wake moved it from
+    PARKED to QUEUED without retyping anything - QUEUED means only "something
+    is queued for this agent", not that the current head is untold. Idle for
+    six hours after that with nothing else outstanding is exactly the
+    forgotten-resolve case `forgotten_resolve` already catches for IDLE - it
+    only excluded QUEUED, so nothing ever reminded it and it never surfaced
+    on `blocked.py` either, which reads this same function. Auditor #2296
+    measured it live: keeper's queue never moved because of this, not
+    because of any silent wake."""
     _daemon_home(home, 20)
     con = db.connect()
-    real = (orcamod.available, orcamod.alive, orcamod.idle_now, orcamod.resume_with,
-            orcamod.live_terminals)
+    real = (orcamod.available, orcamod.alive, orcamod.typeable_now, orcamod.send)
+    sent: list[str] = []
     sessions_are("backend")
     try:
         orcamod.available = lambda: True
-        orcamod.alive = lambda h: True
         orcamod.live_terminals = lambda: {"term_x"}
-        orcamod.resume_with = lambda h, text: (False, "should not be reached")
+        orcamod.alive = lambda h: True
+        orcamod.typeable_now = lambda h: True
+        orcamod.send = lambda h, text, enter=True: (sent.append(text), (True, ""))[1]
         db.set_terminal(con, "backend", "term_x", "wt")
-        db.set_account(con, "backend", "alpha")
-        write_status(home, "alpha", pct_5h=20, pct_7d=10, ctx_pct=5,
-                     reset_5h=int(time.time()) + 1800)
-        # A drifted session with no session id recorded to end and resume -
-        # exactly what "waking it in place" falls back to instead of a clean
-        # relaunch.
-        f = paths.agent_status_file("backend")
-        f.parent.mkdir(parents=True, exist_ok=True)
-        f.write_text(json.dumps({"account": "alpha", "collected_at": int(time.time()),
-                                 "ctx_pct": 5}))
-        db.set_launch_fingerprint(con, "backend", "stale-fingerprint")
-        # A quiet-hours park's own shape (task #77): PARKED/wake_at, and
-        # nothing else - no db.set_handoff, unlike an ordinary usage park.
-        db.set_agent_state(con, "backend", dmn.PARKED, wake_at=int(time.time()) - 10,
-                           detail="quiet hours; wakes at 11:00")
-        db.add_request(con, "marina", "backend", "carry on", None,
-                       "peer", "async", None, 0, None)
+        now = int(time.time())
+        head = db.add_request(con, "marina", "backend", "carry on", None,
+                              "peer", "async", None, 0, None)
         db.add_request(con, "marina", "backend", "and this too", None,
                        "peer", "async", None, 0, None)
+        db.mark_delivered(con, head)
+        db.set_cursor(con, "notify:backend", head)
+        db.add_event(con, "backend", "Stop", {})
+        con.execute("UPDATE events SET ts = ? WHERE agent = 'backend'",
+                    (now - dmn.NUDGE_AFTER_S - 60,))
+        con.execute("UPDATE requests SET delivered_at = ? WHERE id = ?",
+                    (now - dmn.NUDGE_AFTER_S - 60, head))
+        # QUEUED, not IDLE - a wake, a move, an unstall or a reply can all
+        # leave an agent here with its own head already told.
+        db.set_agent_state(con, "backend", dmn.QUEUED)
 
-        # The session never becomes typeable again - standing in for whatever
-        # kept it stuck in production; this alone must not stay silent.
-        orcamod.idle_now = lambda h: False
-        actions: list[str] = []
-        logs: list[str] = []
-        for _ in range(5):
-            dmn.supervise(con, "backend", logs.append, int(time.time()), {}, actions)
-        row = db.get_agent_state(con, "backend")
-        check("stalled wake: the wake-in-place path is the one taken, not a relaunch",
-              any("no session id" in m and "in place" in m for m in logs), str(logs))
-        check("stalled wake: the wake did not actually happen, but the row still "
-              "reads QUEUED - the work really is waiting",
-              row["state"] == dmn.QUEUED, str(dict(row)))
-        check("stalled wake: every tick it is still stuck says why - not just the "
-              "first tick, all five",
-              sum("not delivered" in m for m in logs) == 5, str(logs))
+        ok = dmn.nudge_forgotten_resolve(con, "backend", db.get_agent_state(con, "backend"),
+                                         now, lambda _m: None)
+        check("queued nudge: it is typed for a QUEUED agent, same as an IDLE one",
+              ok and sent, str(sent))
+        check("queued nudge: names the head and the one behind it",
+              sent and f"#{head}" in sent[0] and "1 more waiting" in sent[0], str(sent))
+        check("queued nudge: the state and the queue are untouched by the nudge itself",
+              db.get_agent_state(con, "backend")["state"] == dmn.QUEUED
+              and db.get_request(con, head)["state"] == "queued")
     finally:
-        (orcamod.available, orcamod.alive, orcamod.idle_now, orcamod.resume_with,
-         orcamod.live_terminals) = real
+        orcamod.available, orcamod.alive, orcamod.typeable_now, orcamod.send = real
+        con.close()
+
+
+def test_a_queued_agents_blocked_reminder_surfaces_like_an_idle_ones(home: Path) -> None:
+    """The other half of #83: `blocked.py`'s own row for a reminder that
+    cannot land (`test_a_reminder_a_dialog_blocks_is_said` above, for IDLE)
+    reads `forgotten_resolve` through `work_waiting` - so once that admits
+    QUEUED, a QUEUED agent whose reminder is blocked by a dialog gets the
+    same `delivery_blocks` row, the same bridge line, and the same
+    escalation at `ESCALATE_AFTER_S` that an IDLE one already does."""
+    _daemon_home(home, 20)
+    orcamod.available = lambda: True
+    orcamod.alive = lambda h: True
+    sessions_are("backend")
+    con = db.connect()
+    now = int(time.time())
+    try:
+        db.set_agent_state(con, "backend", dmn.QUEUED)
+        head = db.add_request(con, "marina", "backend", "the first thing", None,
+                              "peer", "async", None, 0, None)
+        db.mark_delivered(con, head)
+        db.set_cursor(con, "notify:backend", head)
+        db.add_event(con, "backend", "Stop", {})
+        con.execute("UPDATE events SET ts = ? WHERE agent = 'backend'", (now - 3600,))
+        con.execute("UPDATE requests SET delivered_at = ? WHERE id = ?", (now - 3600, head))
+        orcamod.screen_blocker = lambda h: orcamod.Blocker(orcamod.MODAL, '"Continue?"')
+        blockedmod.sweep(con, lambda _m: None, now)
+        rec = db.block_get(con, "backend")
+        check("queued reminder: a dialog on a QUEUED agent's screen is recorded too",
+              rec and rec["kind"] == "modal" and rec["detail"] == '"Continue?"'
+              and f"reminder to resolve #{head}" in rec["work"], str(rec and dict(rec)))
+    finally:
         con.close()
 
 
 def test_a_parked_agent_with_queued_work_is_still_closed_while_idle(home: Path) -> None:
-    """#83: a parked agent cannot be delivered to anyway - `supervise` gates
-    delivery on `wake_at`, not on this check - so refusing to close it over
-    queued work buys nothing and leaves the session (250-500MB) open for the
-    rest of the park. A closed PARKED agent's wake already resumes the same
-    session by its own session id (`_wake_agent`'s `closed` branch), so
-    nothing about waking it back up is worse for having been closed."""
+    """#83: a PARKED agent already had its one chance at delivery this same
+    tick - `deliver_queued` runs before `should_close` in `supervise`, and a
+    quiet park re-parks over it, a usage/forced park is walled, and a
+    context/backoff/hand park with an open session was just delivered to -
+    so by the time `should_close` runs, refusing over the queue only holds a
+    session open that either could not be delivered to, or already was
+    (task #83: a quiet-hours park sat open the whole window, undelivered and
+    unclosed, with two asks queued for it). A closed PARKED agent's wake
+    already resumes the same session by its own session id (`_wake_agent`'s
+    `closed` branch), so nothing about waking it back up is worse for having
+    been closed."""
     _daemon_home(home, 20)
     con = db.connect()
     try:
@@ -22325,7 +22348,7 @@ def test_a_parked_agent_with_queued_work_is_still_closed_while_idle(home: Path) 
               "it is about to be delivered to instead",
               not dmn.should_close(con, "backend", dmn.IDLE, row, int(time.time()) + 10_000, st))
         check("parked+queued close: a PARKED agent with the same queued work is - "
-              "nothing here will deliver it until wake_at either way",
+              "it already had its one shot at delivery this tick",
               dmn.should_close(con, "backend", dmn.PARKED, row, int(time.time()) + 10_000, st))
     finally:
         con.close()
@@ -27621,8 +27644,10 @@ def main() -> int:
         run(lambda: test_a_parked_row_with_no_fingerprint_also_relaunches(Path(td) / 'nofp'))
         run(lambda: test_a_launch_records_its_fingerprint_and_says_when_it_cannot(Path(td) / 'recfp'))
         run(lambda: test_a_drifted_wake_that_cannot_relaunch_says_why(Path(td) / 'driftlog'))
-        run(lambda: test_a_queued_agent_stalled_after_a_silent_wake_logs_why_every_tick(
-            Path(td) / 'stalledqueued'))
+        run(lambda: test_a_queued_agent_with_a_told_head_gets_the_same_forgotten_resolve_nudge_as_idle(
+            Path(td) / 'queuednudge'))
+        run(lambda: test_a_queued_agents_blocked_reminder_surfaces_like_an_idle_ones(
+            Path(td) / 'queuedblocked'))
         run(lambda: test_a_parked_agent_with_queued_work_is_still_closed_while_idle(
             Path(td) / 'parkedqueuedclose'))
         run(lambda: test_a_wake_reads_the_screen_before_typing_into_it(Path(td) / 'trustscreen'))
