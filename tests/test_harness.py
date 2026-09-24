@@ -68,6 +68,12 @@ def test_the_suite_and_the_package_name_only_what_exists() -> None:
               all(d in registered for d in defined),
               str([d for d in defined if d not in registered][:5]))
         everywhere += defined
+    bridge = (here.parent / "test_bridge_textual.py").read_text()
+    bdefined = re.findall(r"^(?:async )?def (test_\w+)\(", bridge, re.M)
+    bregistered = set(re.findall(r"(test_\w+)\(", bridge[bridge.index("async def _run_all"):]))
+    check("suite: every test function in test_bridge_textual.py is in its _run_all list",
+          all(d in bregistered for d in bdefined),
+          str([d for d in bdefined if d not in bregistered][:5]))
     check("suite: no test function is defined twice, in one file or across them",
           len(everywhere) == len(set(everywhere)))
 

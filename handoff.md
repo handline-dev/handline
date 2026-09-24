@@ -8,7 +8,7 @@ not merged.
     56a4e6e  feat: the statusLine shows the agent instead of collecting from it
     0b6b81a  feat: read a session's own file instead of its status line
 
-`tests/test_ocp.py`: **2581 passed, 0 failed** (`/usr/bin/python3`, 100s).
+`tests/test_ocp.py` (then one file; now a runner over the per-area files, see README): **2581 passed, 0 failed** (`/usr/bin/python3`, 100s) at the time of this handoff.
 13 mutation controls, one per new condition, each caught by a check of its own.
 
 ## Done

@@ -9,7 +9,7 @@ Two parsers that quietly read the same routing policy differently is worse than
 having no fallback at all - `creates_gate: no` meaning True under one and False
 under the other decides whether an escalation needs a human. So anything the
 fallback is not sure it reads the same way raises ConfigError instead of
-guessing. tests/test_ocp.py compares the two on a fixed list of sources and
+guessing. tests/test_hr_agents.py compares the two on a fixed list of sources and
 fails if it cannot find a python3 that has PyYAML to compare against.
 
 Supported: nested maps, lists (including lists of maps), comments, quoted
