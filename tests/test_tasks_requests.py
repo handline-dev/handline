@@ -1392,6 +1392,44 @@ def test_an_answer_reaches_the_agent_that_asked(home: Path) -> None:
         con.close()
 
 
+def test_an_answer_line_says_what_it_answers(home: Path) -> None:
+    """`#85 from human: done` cannot be placed by an agent that has asked
+    several things; the start of its own question rides along."""
+    _daemon_home(home, 20)
+    con = db.connect()
+    try:
+        def answered(body: str, verdict: str = "done"):
+            rid = db.add_request(con, "backend", "reviewer", body, None,
+                                 "peer", "async", None, 0, None)
+            askmod.resolve(rid, verdict)
+            return [r for r in db.unannounced_answers(con, "backend") if r["id"] == rid][0]
+
+        line, more = dmn.answer_line(answered("T18 main 반영, supervisor 재시작"))
+        rid = int(line.split()[0][1:])
+        check("answer line: a short question is quoted whole, then who answered and what",
+              line == f"#{rid} (you asked: T18 main 반영, supervisor 재시작) reviewer: done", line)
+        check("answer line: and nothing more to read", more is False)
+
+        line, _ = dmn.answer_line(answered("q" * 100))
+        check("answer line: a long question is cut at the limit with an ellipsis",
+              f"(you asked: {'q' * dmn.ASKED_SHOWN}…)" in line and "q" * (dmn.ASKED_SHOWN + 1) not in line,
+              line)
+
+        line, _ = dmn.answer_line(answered("first line\n\nsecond\tline \x1b[31mred"))
+        check("answer line: a multi-line question is one line, controls blanked",
+              "\n" not in line and "\x1b" not in line and "first line" in line, repr(line))
+
+        line, _ = dmn.answer_line(answered("", "ok"))
+        check("answer line: no question, no empty parenthesis",
+              "you asked" not in line and line.endswith("reviewer: ok"), line)
+
+        line, more = dmn.answer_line(answered("why?", "v" * 200))
+        check("answer line: a long verdict is still cut and flagged as having more",
+              more and line.endswith("reviewer: " + "v" * 160) and "(you asked: why?)" in line, line)
+    finally:
+        con.close()
+
+
 def test_an_answer_wakes_the_agent_that_was_waiting_for_it(home: Path) -> None:
     """An agent that asked something, parked on the reply and was then closed
     is waiting on an answer, not on work - and resolving its request writes
@@ -3018,7 +3056,7 @@ def test_the_founder_can_cancel_a_request_in_an_agents_queue(home: Path) -> None
               any(h == "term_b" and f"#{head}" in t and "cancelled" in t and "Stop work" in t
                   for h, t in sent), str(sent))
         check("cancel: the requester is told through the answer path",
-              any(h == "term_m" and f"#{head} from backend: withdrawn by the founder" in t
+              any(h == "term_m" and f"#{head} (you asked: " in t and ") backend: withdrawn by the founder" in t
                   for h, t in sent), str(sent))
         check("cancel: the item behind it is now the head and is delivered",
               db.head_of_queue(con, "backend")["id"] == mine
@@ -5224,6 +5262,7 @@ def main() -> int:
         run(lambda: test_spawn_confirms_the_task_landed(Path(td) / 'spawnland'))
         run(lambda: test_a_cold_wake_with_no_handoff_still_tells_the_agent_its_transcript_and_request(Path(td) / 'coldnone2'))
         run(lambda: test_an_answer_reaches_the_agent_that_asked(Path(td) / 'answered'))
+        run(lambda: test_an_answer_line_says_what_it_answers(Path(td) / 'ansline'))
         run(lambda: test_an_answer_wakes_the_agent_that_was_waiting_for_it(Path(td) / 'waiting'))
         run(lambda: test_a_request_can_be_read_whole(Path(td) / 'readone'))
         run(lambda: test_ask_and_resolve_take_their_text_from_a_file_too(Path(td) / 'askfile'))
