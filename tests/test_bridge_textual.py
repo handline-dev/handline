@@ -1144,14 +1144,17 @@ def test_a_queued_message_says_why_it_has_not_reached_the_agent() -> None:
     _home("qwhy")
     con = db.connect()
     try:
-        ok, _, first = askmod.ask("backend", "one", requester="reviewer")
-        ok, _, second = askmod.ask("backend", "two", requester=actions.HUMAN)
+        first = db.add_request(con, "reviewer", "backend", "one", None, None, None, None, 0, None)
+        second = db.add_request(con, actions.HUMAN, "backend", "two", None, None, None, None, 0, None)
+        con.commit()
         con.execute("UPDATE agent_state SET state = 'RUNNING', terminal = 'x' WHERE agent = 'backend'")
         con.commit()
         check("chat: the head of the queue is waiting on the agent",
               "mid-turn" in actions.queue_reason(con, "backend", first), actions.queue_reason(con, "backend", first))
         check("chat: the one behind it says what is ahead",
               f"#{first} is ahead" in actions.queue_reason(con, "backend", second))
+        actions.send_now(con, second)
+        check("chat: send now puts it ahead of what was ahead", db.head_of_queue(con, "backend")["id"] == second)
     finally:
         con.close()
 

@@ -402,6 +402,7 @@ class ChatMessage(Vertical):
             parts.append(Horizontal(
                 Static("delivered, not answered yet" if m.get("delivered") else "queued, not delivered",
                        classes="qstate"),
+                *([Button("⚡ send now", classes="sendnow", compact=True)] if not m.get("delivered") else []),
                 Button("✕ cancel", classes="cancel", compact=True),
                 classes="qrow"))
         super().__init__(*parts, classes=f"msg {side}")
@@ -409,7 +410,10 @@ class ChatMessage(Vertical):
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
         event.stop()
-        self.screen.cancel_message(self.m["rid"], self.m["text"])
+        if event.button.has_class("sendnow"):
+            self.screen.send_now(self.m["rid"])
+        else:
+            self.screen.cancel_message(self.m["rid"], self.m["text"])
 
     def on_click(self) -> None:
         if self.m["replyable"]:
@@ -1004,7 +1008,7 @@ class ChatPage(Screen):
         msgs = messages_of(rows, self.agent)
         waiting = [m for m in msgs if m["queued"] and not m["delivered"]]
         why = ""
-        if waiting:
+        if waiting and self.agent_state[0] != "RUNNING":     # the spinner already says it
             con = db.connect()
             try:
                 why = actions.queue_reason(con, self.agent, waiting[0]["rid"])
@@ -1378,6 +1382,21 @@ class ChatPage(Screen):
         finally:
             con.close()
         return row is not None and self.cancel_message(row["id"], row["body"])
+
+    def send_now(self, rid: int) -> None:
+        def work() -> None:
+            con = db.connect()
+            try:
+                said = actions.send_now(con, rid)
+            finally:
+                con.close()
+            self.app.call_from_thread(self._sent_now, said)
+        self.run_worker(work, thread=True, group="send_now", exit_on_error=False)
+
+    def _sent_now(self, said: str) -> None:
+        if self.is_attached:
+            self.sub_title = f"agent {self.agent} · {safe(said)}"
+            self.refresh_conversation(force=True)
 
     def cancel_message(self, rid: int, body: str) -> bool:
         """Take request `rid` back and put its text in the box. Not yet

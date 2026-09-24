@@ -416,6 +416,17 @@ def cancel(con, rid: int) -> str:
     return msg if ok else f"not cancelled - {msg}"
 
 
+def send_now(con, rid: int) -> str:
+    """The founder's queued message goes to the front of the agent's queue and is
+    delivered now if the agent can take it, else as soon as it can."""
+    row = db.get_request(con, rid)
+    if not row or row["state"] != "queued" or row["requester"] != HUMAN or row["delivered_at"]:
+        return "not sent - it is no longer waiting"
+    db.move_to_front(con, rid)
+    con.commit()
+    return askmod.push(con, row["target"]).strip()
+
+
 def _git(repo: Path, *args: str):
     return subprocess.run(["git", *args], cwd=repo, capture_output=True, text=True, timeout=15)
 
