@@ -204,16 +204,31 @@ def pad(s: str, width: int) -> str:
     return s + " " * max(0, width - vlen(s))
 
 
-def bar(pct: int | None, width: int = 10, last_seen: bool = False) -> str:
+def bar(pct: int | None, width: int = 10, last_seen: bool = False,
+        elapsed: float | None = None) -> str:
     """`last_seen` draws the fill at the value but with no colour: the figure is
-    what an account was last seen at, not a gauge anyone is reading now."""
+    what an account was last seen at, not a gauge anyone is reading now.
+    `elapsed`, the fraction of the window that has passed, puts a `│` at that
+    position: a fill short of it is under pace, past it ahead."""
     if pct is None:
         return DIM + "·" * width + R
     filled = max(0, min(width, round(pct / 100 * width)))
     if last_seen:
-        return DIM + "█" * filled + "░" * (width - filled) + R
-    color = RED if pct >= 85 else (YEL if pct >= 60 else GRN)
-    return color + "█" * filled + DIM + "░" * (width - filled) + R
+        cells, head = ["█"] * filled + ["░"] * (width - filled), DIM
+    else:
+        head = RED if pct >= 85 else (YEL if pct >= 60 else GRN)
+        cells = ["█"] * filled + [DIM + "░"] * (width - filled)
+    if elapsed is not None:
+        at = max(0, min(width - 1, int(elapsed * width)))
+        cells[at] = f"{R}{BOLD}│{R}{head if at < filled else DIM}"
+    return head + "".join(cells) + R
+
+
+def elapsed_fraction(reset: int | None, window_s: int, now: float | None = None) -> float | None:
+    """How far through a usage window we are, from when it resets; None when the
+    reset is unknown or already passed, where the window on the figure is gone."""
+    left = (reset or 0) - (time.time() if now is None else now)
+    return None if not reset or left <= 0 else max(0.0, 1 - left / window_s)
 
 
 # The ACCOUNTS panel's columns, in the order they are drawn: the heading, every
@@ -228,11 +243,11 @@ ACCT_HEAD = {"name": "account", "five": "5h usage", "reset5": "reset", "agents":
 ACCT_BAR_W = {"five": 10, "seven": 5}
 
 
-def _gauge(value: int | None, width: int, src: str) -> str:
+def _gauge(value: int | None, width: int, src: str, elapsed: float | None = None) -> str:
     """A bar and its figure, where `src` is the mark saying where it came from."""
     if src == status.IDLE_MARK:
-        return f"{bar(value, width, last_seen=True)} {DIM}{pct(value)}%{src}{R}"
-    return f"{bar(value, width)} {pct(value)}%{src}"
+        return f"{bar(value, width, last_seen=True, elapsed=elapsed)} {DIM}{pct(value)}%{src}{R}"
+    return f"{bar(value, width, elapsed=elapsed)} {pct(value)}%{src}"
 
 
 def agents_cell(counts: tuple[int, int] | None, unplaced: int = 0,
@@ -261,7 +276,8 @@ def agents_cell(counts: tuple[int, int] | None, unplaced: int = 0,
 
 def account_cells(name: str, st, now: float | None = None,
                   counts: tuple[int, int] | None = None,
-                  unplaced: int = 0, at_cap: bool = False, ld=None) -> dict[str, str]:
+                  unplaced: int = 0, at_cap: bool = False, ld=None,
+                  pace: bool = False) -> dict[str, str]:
     """The bounded cells of an ACCOUNTS row, unpadded and keyed like ACCT_W.
     The name is free text and is cut to fit where it is drawn. `counts` is the
     account's (assigned, running) from `load.roster`, None where it was not read;
@@ -277,7 +293,8 @@ def account_cells(name: str, st, now: float | None = None,
     # "?", so it cannot be read as a live gauge at the same number and is not
     # drawn as an unknown either. Display only.
     shown, src = st.shown_pct_5h()
-    five = _gauge(shown, ACCT_BAR_W["five"], src)
+    five = _gauge(shown, ACCT_BAR_W["five"], src,
+                  elapsed_fraction(st.reset_5h, 5 * 3600, now) if pace else None)
     return {
         "agents": agents_cell(counts, unplaced, at_cap),
         "five": five,
@@ -285,8 +302,8 @@ def account_cells(name: str, st, now: float | None = None,
         # The weekly figure carries its provenance like the 5h one. Drawn
         # bare, a number from a stale snapshot - or from a week that has since
         # rolled over - reads as this week's measurement.
-        "seven": _gauge(st.trusted_pct_7d, ACCT_BAR_W["seven"],
-                        status.mark(st.pct_7d_source)),
+        "seven": _gauge(st.trusted_pct_7d, ACCT_BAR_W["seven"], status.mark(st.pct_7d_source),
+                        elapsed_fraction(st.reset_7d, 7 * 86400, now) if pace else None),
         # The deadline the ordering spends against: when this window's
         # headroom is lost if nobody uses it.
         "reset7": countdown(st.reset_7d),
@@ -301,7 +318,7 @@ class AccountRow(NamedTuple):
     next: str                # " next" on the one account work goes to, else ""
 
 
-def accounts_data(con) -> tuple[list[AccountRow], list[str]]:
+def accounts_data(con, pace: bool = False) -> tuple[list[AccountRow], list[str]]:
     """What the ACCOUNTS panel shows, before any of it is laid out: one row per
     account and the notes under them (none registered, the team's outlook)."""
     # The account with the most headroom: where work goes when an agent's
@@ -326,7 +343,7 @@ def accounts_data(con) -> tuple[list[AccountRow], list[str]]:
         # on 0% is the dashboard and the daemon disagreeing.
         cells = account_cells(name, st, counts=roster.get(name, (0, 0)), unplaced=unplaced,
                               at_cap=bool(loads.get(name) and loads[name].at_cap),
-                              ld=loads.get(name))
+                              ld=loads.get(name), pace=pace)
         rows.append(AccountRow(
             name, cells, f"{GRN}✔{R}" if allowed else f"{RED}✘{R}",
             # Where work goes next is said in a word after the tick, not drawn

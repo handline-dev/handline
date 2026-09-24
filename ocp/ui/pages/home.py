@@ -53,6 +53,10 @@ class HomePage(Dashboard):
     # What is stuck is said on the agent's row, on the account's mark and in the header's
     # daemon word, so the STUCK panel is not drawn and the keys skip it.
     PANELS = (tui.ACCOUNTS, tui.AGENTS, tui.MESSAGES)
+    # The bars carry a `│` for how far through the window we are, so the reset
+    # countdowns are left out; the account's page has the times.
+    PACE = True
+    _ACCT_COLS = [k for k in tui.ACCT_W if k not in ("name", "reset5", "reset7")]
     SHOW_LEGEND = False   # it explains the ACCOUNTS figures, so it sits on that panel
     SHOW_WAITS = False   # what waits on the founder shows on the rows it is about
     FOUNDER_VIEW = True
@@ -197,8 +201,9 @@ class HomePage(Dashboard):
 
     def _redraw(self) -> None:
         super()._redraw()
-        self.query_one("#accounts-box").border_subtitle = (
-            status.SOURCE_LEGEND_SHORT if self.head.legend else "")
+        self.query_one("#accounts-box").border_subtitle = " · ".join(
+            (["│ time passed in the window"]
+             + ([status.SOURCE_LEGEND_SHORT] if self.head.legend else [])))
         self._count_hr()
         con = db.connect()
         try:

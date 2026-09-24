@@ -352,6 +352,7 @@ class Dashboard(JobsAware, Screen):
     Dashboard #foot { height: auto; }
     """
     _ACCT_COLS = [k for k in tui.ACCT_W if k != "name"]
+    PACE = False          # whether the usage bars mark how far through the window we are
     AGENT_COLUMNS = ("agent", "acct", "kind", "state", "ctx", "in", "")
     MESSAGE_COLUMNS = ("", "", "#", "from", "kind", "message")
     PANELS = tui.PANELS   # the panels ←→ and the row keys walk
@@ -429,7 +430,7 @@ class Dashboard(JobsAware, Screen):
     def _draw_accounts(self) -> None:
         con = db.connect()
         try:
-            rows, notes = tui.accounts_data(con)
+            rows, notes = tui.accounts_data(con, self.PACE)
         finally:
             con.close()
         table = self.query_one("#accounts", DataTable)
