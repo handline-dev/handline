@@ -693,7 +693,7 @@ def resolve(rid: int, verdict: str | None, state: str = "done", notify: bool = T
         try:
             if open_tasks is not None:
                 tids = open_tasks(con)
-                verdict += "\n\nOpened as task(s): " + ", ".join(f"#{t}" for t in tids)
+                verdict += "\n\nOpened as task(s): " + ", ".join(f"T{t}" for t in tids)
             # Conditional on 'queued', the same as `cancel`'s close: two answers
             # landing on the same row at once must not have the second overwrite
             # the first, whichever path either comes through.

@@ -1549,7 +1549,7 @@ def _request(requester: str, target: str) -> int:
 def _now_line(out: str, tid: int) -> str:
     lines = out.splitlines()
     for i, line in enumerate(lines):
-        if line.split()[:1] == [f"#{tid}"]:
+        if line.split()[:1] == [f"T{tid}"]:
             return lines[i + 1].strip()
     return ""
 
@@ -1569,10 +1569,10 @@ def _done_and_close(tid: int, owner: str, evidence: str = "done",
     """#71: the two-step close most tests just need - mark it done as its
     owner, then close it as `closer` (the task's opener, the default asker
     for a task nobody linked a founder request to)."""
-    rc, out = _cli(["task", "done", str(tid), evidence], as_agent=owner)
+    rc, out = _cli(["task", "done", f"T{tid}", evidence], as_agent=owner)
     if rc != 0:
         return rc, out
-    return _cli(["close", str(tid)], as_agent=closer)
+    return _cli(["close", f"T{tid}"], as_agent=closer)
 
 
 def _two_lanes(home: Path) -> None:

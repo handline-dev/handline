@@ -1939,6 +1939,78 @@ def test_a_dismissal_is_a_state_and_never_reads_as_words(home: Path) -> None:
         con.close()
 
 
+def test_a_task_is_written_T_and_a_bare_number_is_never_a_task(home: Path) -> None:
+    """Task #79: a task is T<n> wherever it is typed or printed, and a bare
+    number is a request, so one typo cannot act on the wrong kind of thing.
+    A task command refuses a bare number with both readings named, and
+    changes nothing."""
+    _board_world(home)
+    con = db.connect()
+    try:
+        t = db.new_task(con, "the work", "worker", "manager")
+        kid = db.new_task(con, "kid", "worker", "manager", parent_task=t)
+        other = db.new_task(con, "other", "worker", "manager")
+    finally:
+        con.close()
+    n = str(t)
+
+    def refused(argv, as_agent):
+        """argparse rejects a bad argument by exiting: (code, its message)."""
+        err = io.StringIO()
+        try:
+            with contextlib.redirect_stderr(err):
+                rc, out = _cli(argv, as_agent=as_agent)
+            return rc, out + err.getvalue()
+        except SystemExit as e:
+            return int(e.code or 0), err.getvalue()
+    calls = {
+        "close": ["close", n],
+        "task done": ["task", "done", n, "why"],
+        "task reopen": ["task", "reopen", n, "why"],
+        "task discard": ["task", "discard", n, "why"],
+        "task edit": ["task", "edit", n, "--title", "x"],
+        "task edit --blocked-by": ["task", "edit", f"T{other}", "--blocked-by", n],
+        "task edit --unblock": ["task", "edit", f"T{other}", "--unblock", n],
+        "task link": ["task", "link", n, "1"],
+        "task new --parent": ["task", "new", "--owner", "worker", "y", "--parent", n],
+        "task new --blocked-by": ["task", "new", "--owner", "worker", "y", "--blocked-by", n],
+        "resolve --task": ["resolve", "1", "ok", "--task", n],
+        "dismiss --task": ["dismiss", "1", "--task", n],
+        "resolve --hold --on": ["resolve", "1", "ok", "--hold", "h", "--on", n],
+    }
+    for label, argv in calls.items():
+        rc, out = refused(argv, "worker")
+        check(f"bare number: {label} refuses it, naming both readings",
+              rc != 0 and f"task {n} or request {n}" in out and f"T{n}" in out
+              and f"ocp read {n}" in out, out)
+    con = db.connect()
+    try:
+        check("bare number: and none of those changed anything",
+              db.get_task(con, t)["title"] == "the work" and not db.get_task(con, t)["closed_by"]
+              and not db.get_task(con, t)["done_evidence"]
+              and db.tasks_for_request(con, 1) == []
+              and db.open_child_tasks(con, t)[0]["id"] == kid
+              and con.execute("SELECT COUNT(*) c FROM tasks").fetchone()["c"] == 3)
+    finally:
+        con.close()
+
+    rc, out = _cli(["task", "done", f"T{t}", "why"], as_agent="worker")
+    check("T form: T<n> is accepted", rc == 0 and f"task T{t} done" in out, out)
+    rc, out = _cli(["task", "reopen", f"t{t}", "again"], as_agent="manager")
+    check("T form: a lower-case t is the same", rc == 0 and f"task T{t} reopened" in out, out)
+    rc, out = refused(["task", "done", "task7", "why"], "worker")
+    check("T form: anything else is not a task", rc != 0 and "not a task" in out, out)
+    rc, out = _cli(["task", "list"])
+    check("printed: the list shows the task as T<n>",
+          any(l.split()[:1] == [f"T{t}"] for l in out.splitlines())
+          and not any(l.startswith(f"#{t} ") for l in out.splitlines()), out)
+    rc, out = _cli(["close", "worker"], as_agent="manager")
+    check("agent: a name is still an agent, not a task", "not a task" not in out
+          and "could be task" not in out, out)
+    rc, out = _cli(["read", "1"], as_agent="manager")
+    check("request: a bare number still reads a request", rc == 0 or "no request" in out, out)
+
+
 def test_a_withdraw_and_the_founders_answer_settle_to_one_outcome(home: Path) -> None:
     """Task #32: a withdraw and the founder's answer on one proposal end as
     exactly one outcome, whichever lands first, and neither leaves the
@@ -3338,21 +3410,21 @@ def test_the_done_close_migration_upgrades_an_old_tasks_table(home: Path) -> Non
 def test_task_new_list_and_link(home: Path) -> None:
     _board_world(home)
     rc, out = _cli(["task", "new", "--owner", "worker", "build the board"])
-    check("task new: opens a task", rc == 0 and "task #1" in out, out)
+    check("task new: opens a task", rc == 0 and "task T1" in out, out)
     rc, out = _cli(["task", "new", "--owner", "nobody", "x"])
     check("task new: an owner that is not an agent is refused", rc == 1, out)
     rc, out = _cli(["task", "new", "--owner", "worker", "x"], as_agent=askmod.HUMAN)
     check("task new: never in the founder's name", rc == 1, out)
-    rc, out = _cli(["task", "new", "--owner", "worker", "part", "--parent", "9"])
+    rc, out = _cli(["task", "new", "--owner", "worker", "part", "--parent", "T9"])
     check("task new: a parent that does not exist is refused", rc == 1, out)
-    rc, out = _cli(["task", "new", "--owner", "worker", "part one", "--parent", "1"])
+    rc, out = _cli(["task", "new", "--owner", "worker", "part one", "--parent", "T1"])
     check("task new: a child task", rc == 0, out)
     rid = _human_request()
-    rc, out = _cli(["task", "link", "1", str(rid)])
+    rc, out = _cli(["task", "link", "T1", str(rid)])
     check("task link: attaches a further request", rc == 0, out)
     rc, out = _cli(["task", "list"])
     check("task list: the board shows title, owner, child and linked request",
-          "build the board" in out and "[worker]" in out and "under #1" in out
+          "build the board" in out and "[worker]" in out and "under T1" in out
           and f"request #{rid}" in out, out)
 
 
@@ -3367,7 +3439,7 @@ def test_editing_a_task_needs_the_opener_or_the_founder_and_is_never_silent(home
     finally:
         con.close()
 
-    rc, out = _cli(["task", "edit", str(tid), "--title", "renamed"], as_agent="worker")
+    rc, out = _cli(["task", "edit", f"T{tid}", "--title", "renamed"], as_agent="worker")
     check("edit: refused for anyone but the opener or the founder", rc == 1, out)
     con = db.connect()
     try:
@@ -3379,7 +3451,7 @@ def test_editing_a_task_needs_the_opener_or_the_founder_and_is_never_silent(home
     finally:
         con.close()
 
-    rc, out = _cli(["task", "edit", str(tid), "--title", "renamed by opener"], as_agent="manager")
+    rc, out = _cli(["task", "edit", f"T{tid}", "--title", "renamed by opener"], as_agent="manager")
     check("edit: the opener may edit", rc == 0 and "renamed by opener" in out, out)
     con = db.connect()
     try:
@@ -3396,7 +3468,7 @@ def test_editing_a_task_needs_the_opener_or_the_founder_and_is_never_silent(home
     finally:
         con.close()
 
-    rc, out = _cli(["task", "edit", str(tid), "--owner", "manager"], as_agent=askmod.HUMAN)
+    rc, out = _cli(["task", "edit", f"T{tid}", "--owner", "manager"], as_agent=askmod.HUMAN)
     check("edit: the founder may edit a task it did not open", rc == 0 and "owner" in out, out)
     con = db.connect()
     try:
@@ -3406,17 +3478,17 @@ def test_editing_a_task_needs_the_opener_or_the_founder_and_is_never_silent(home
     finally:
         con.close()
 
-    rc, out = _cli(["task", "edit", str(tid), "--owner", "nobody"], as_agent="manager")
+    rc, out = _cli(["task", "edit", f"T{tid}", "--owner", "nobody"], as_agent="manager")
     check("edit: an owner that is not an agent is refused", rc == 1 and "no agent" in out, out)
-    rc, out = _cli(["task", "edit", str(tid)], as_agent="manager")
+    rc, out = _cli(["task", "edit", f"T{tid}"], as_agent="manager")
     check("edit: needs at least one field to change", rc == 1, out)
-    rc, out = _cli(["task", "edit", str(tid), "--owner", "manager"], as_agent="manager")
+    rc, out = _cli(["task", "edit", f"T{tid}", "--owner", "manager"], as_agent="manager")
     check("edit: a no-op edit (same value) is refused, not written as an event",
           rc == 1 and "nothing to edit" in out, out)
-    rc, out = _cli(["task", "edit", "99", "--title", "x"], as_agent="manager")
+    rc, out = _cli(["task", "edit", "T99", "--title", "x"], as_agent="manager")
     check("edit: no such task", rc == 1 and "no task" in out, out)
 
-    rc, out = _cli(["task", "edit", str(tid), "--title", "x"], as_agent=None)
+    rc, out = _cli(["task", "edit", f"T{tid}", "--title", "x"], as_agent=None)
     check("edit: with no identity and no tty, refused rather than guessed at",
           rc == 1 and "OCP_AGENT" in out, out)
 
@@ -3489,22 +3561,22 @@ def test_done_tasks_show_as_a_waiting_for_check_group(home: Path) -> None:
     finally:
         con.close()
     _link(t_founders, _request(askmod.HUMAN, "manager"))
-    _cli(["task", "done", str(t_mine), "shipped it"], as_agent="worker")
-    _cli(["task", "done", str(t_founders), "shipped that too"], as_agent="worker")
+    _cli(["task", "done", f"T{t_mine}", "shipped it"], as_agent="worker")
+    _cli(["task", "done", f"T{t_founders}", "shipped that too"], as_agent="worker")
 
     rc, out = _cli(["task", "list"])
     check("list: the group header is shown", "done - waiting for check:" in out, out)
     check("list: both done tasks are in it, the open one is not",
-          f"#{t_mine} " in out.split("done - waiting for check:", 1)[1]
-          and f"#{t_founders} " in out.split("done - waiting for check:", 1)[1]
-          and f"#{t_open} " not in out.split("done - waiting for check:", 1)[1], out)
+          f"T{t_mine} " in out.split("done - waiting for check:", 1)[1]
+          and f"T{t_founders} " in out.split("done - waiting for check:", 1)[1]
+          and f"T{t_open} " not in out.split("done - waiting for check:", 1)[1], out)
     check("list: the evidence is shown", "done: shipped it" in out, out)
 
     rc, out = _cli(["task", "board"], as_agent="manager")
     check("board: manager is the asker for its own task, sees it in the group",
-          "done - waiting for check:" in out and f"#{t_mine} " in out, out)
+          "done - waiting for check:" in out and f"T{t_mine} " in out, out)
     check("board: not the founder's - manager is not that task's asker",
-          f"#{t_founders} " not in out.split("done - waiting for check:", 1)[1], out)
+          f"T{t_founders} " not in out.split("done - waiting for check:", 1)[1], out)
 
     rc, out = _cli(["task", "board"], as_agent="worker")
     check("board: worker owns both done tasks but asks neither, so no group at all",
@@ -3512,13 +3584,13 @@ def test_done_tasks_show_as_a_waiting_for_check_group(home: Path) -> None:
 
     rc, out = _cli(["task", "board"], as_agent=askmod.HUMAN)
     check("board: the founder is the asker for the linked task, sees only that one",
-          "done - waiting for check:" in out and f"#{t_founders} " in out
-          and f"#{t_mine} " not in out, out)
+          "done - waiting for check:" in out and f"T{t_founders} " in out
+          and f"T{t_mine} " not in out, out)
 
 
 def test_task_blocked_by_another_task(home: Path) -> None:
     """task #21/#1884: a task can wait on another. The board reads it as
-    `waiting on #N` - never `you - a result is in` and never `nobody holds
+    `waiting on T<n>` - never `you - a result is in` and never `nobody holds
     it` - while #N is open; a cycle is refused; and closing #N tells the
     blocked task's owner once, as a durable request linked to that task -
     opened by manager, owned by worker, so the notice (manager -> worker) is
@@ -3531,19 +3603,19 @@ def test_task_blocked_by_another_task(home: Path) -> None:
         con.close()
 
     rc, out = _cli(["task", "new", "--owner", "worker", "dependent",
-                    "--blocked-by", str(t_blocker)])
+                    "--blocked-by", f"T{t_blocker}"])
     check("task new --blocked-by: opens the task blocked", rc == 0, out)
-    t_dep = int(out.split("#", 1)[1].split()[0])
+    t_dep = int(out.split("task T", 1)[1].split()[0])
 
-    rc, out = _cli(["task", "new", "--owner", "worker", "x", "--blocked-by", "999"])
+    rc, out = _cli(["task", "new", "--owner", "worker", "x", "--blocked-by", "T999"])
     check("task new --blocked-by: a blocker that does not exist is refused",
           rc == 1 and "no task" in out, out)
 
     rc, out = _cli(["task", "board"], as_agent="worker")
     check("board: waiting on an open blocker, not mine and not nobody's",
-          _now_line(out, t_dep) == f"now: waiting on #{t_blocker}", out)
+          _now_line(out, t_dep) == f"now: waiting on T{t_blocker}", out)
 
-    rc, out = _cli(["task", "edit", str(t_blocker), "--blocked-by", str(t_dep)])
+    rc, out = _cli(["task", "edit", f"T{t_blocker}", "--blocked-by", f"T{t_dep}"])
     check("edit --blocked-by: a direct cycle is refused", rc == 1 and "cycle" in out, out)
 
     con = db.connect()
@@ -3553,21 +3625,21 @@ def test_task_blocked_by_another_task(home: Path) -> None:
         con.close()
     # third -> dep -> blocker, neither of these two edges touching the other
     # directly - the cycle below only closes through both hops.
-    rc, out = _cli(["task", "edit", str(t_third), "--blocked-by", str(t_dep)])
+    rc, out = _cli(["task", "edit", f"T{t_third}", "--blocked-by", f"T{t_dep}"])
     check("edit --blocked-by: a chain, not yet a cycle, is fine", rc == 0, out)
-    rc, out = _cli(["task", "edit", str(t_blocker), "--blocked-by", str(t_third)])
+    rc, out = _cli(["task", "edit", f"T{t_blocker}", "--blocked-by", f"T{t_third}"])
     check("edit --blocked-by: closing the loop two hops away is refused too",
           rc == 1 and "cycle" in out, out)
-    rc, out = _cli(["task", "edit", str(t_third), "--unblock", str(t_dep)])
+    rc, out = _cli(["task", "edit", f"T{t_third}", "--unblock", f"T{t_dep}"])
     check("edit --unblock: drops the chained blocker again", rc == 0, out)
 
     rc, out = _done_and_close(t_third, "worker")
     check("close: third has no blocker left, closes fine", rc == 0, out)
-    rc, out = _cli(["task", "edit", str(t_dep), "--blocked-by", str(t_third)])
+    rc, out = _cli(["task", "edit", f"T{t_dep}", "--blocked-by", f"T{t_third}"])
     check("edit --blocked-by: refused on an already-closed blocker (auditor's "
           "#2042 SHOULD-FIX 2) - a row naming it would never be cleared",
           rc == 1 and "closed" in out, out)
-    rc, out = _cli(["task", "edit", str(t_third), "--blocked-by", str(t_blocker)])
+    rc, out = _cli(["task", "edit", f"T{t_third}", "--blocked-by", f"T{t_blocker}"])
     check("edit --blocked-by: refused blocking an already-closed task too - "
           "not just naming one as the blocker", rc == 1 and "closed" in out, out)
 
@@ -3576,7 +3648,7 @@ def test_task_blocked_by_another_task(home: Path) -> None:
         before_count = con.execute("SELECT COUNT(*) c FROM tasks").fetchone()["c"]
     finally:
         con.close()
-    rc, out = _cli(["task", "new", "--owner", "worker", "late", "--blocked-by", str(t_third)])
+    rc, out = _cli(["task", "new", "--owner", "worker", "late", "--blocked-by", f"T{t_third}"])
     check("task new --blocked-by: refused for an already-closed blocker too",
           rc == 1 and "closed" in out, out)
     con = db.connect()
@@ -3588,7 +3660,7 @@ def test_task_blocked_by_another_task(home: Path) -> None:
     finally:
         con.close()
 
-    rc, out = _cli(["task", "edit", str(t_dep), "--blocked-by", str(t_dep)])
+    rc, out = _cli(["task", "edit", f"T{t_dep}", "--blocked-by", f"T{t_dep}"])
     check("edit --blocked-by: a task cannot block itself", rc == 1, out)
 
     # SHOULD-FIX 5: a multi-part edit is one transaction - a later part's
@@ -3598,8 +3670,8 @@ def test_task_blocked_by_another_task(home: Path) -> None:
         before_owner = db.get_task(con, t_dep)["owner"]
     finally:
         con.close()
-    rc, out = _cli(["task", "edit", str(t_dep), "--owner", "manager",
-                    "--blocked-by", str(t_dep)])
+    rc, out = _cli(["task", "edit", f"T{t_dep}", "--owner", "manager",
+                    "--blocked-by", f"T{t_dep}"])
     check("edit: a combined --owner and a refused --blocked-by is refused "
           "as a whole", rc == 1, out)
     check("edit: the output says nothing was edited, since the owner change "
@@ -3614,15 +3686,15 @@ def test_task_blocked_by_another_task(home: Path) -> None:
     finally:
         con.close()
 
-    rc, out = _cli(["task", "edit", str(t_dep), "--unblock", "999"])
+    rc, out = _cli(["task", "edit", f"T{t_dep}", "--unblock", "T999"])
     check("edit --unblock: not actually waiting on that one is refused",
           rc == 1, out)
 
-    rc, out = _cli(["task", "edit", str(t_dep), "--blocked-by", str(t_blocker)], as_agent="worker")
+    rc, out = _cli(["task", "edit", f"T{t_dep}", "--blocked-by", f"T{t_blocker}"], as_agent="worker")
     check("edit --blocked-by: refused for anyone but the opener or the founder "
           "(worker owns it, but manager opened it)", rc == 1, out)
 
-    rc, out = _cli(["task", "edit", str(t_dep), "--unblock", str(t_blocker)], as_agent="worker")
+    rc, out = _cli(["task", "edit", f"T{t_dep}", "--unblock", f"T{t_blocker}"], as_agent="worker")
     check("edit --unblock: refused for anyone but the opener or the founder "
           "too (auditor's #2065 SHOULD-FIX A - no test drove this before)",
           rc == 1, out)
@@ -3633,8 +3705,8 @@ def test_task_blocked_by_another_task(home: Path) -> None:
     finally:
         con.close()
 
-    _cli(["task", "done", str(t_dep), "done"], as_agent="worker")
-    rc, out = _cli(["close", str(t_dep)])
+    _cli(["task", "done", f"T{t_dep}", "done"], as_agent="worker")
+    rc, out = _cli(["close", f"T{t_dep}"])
     check("close: closing the blocked task itself is refused while its "
           "blocker is still open - a back door around the wait it exists to "
           "enforce", rc == 1 and "waiting on" in out, out)
@@ -3644,7 +3716,7 @@ def test_task_blocked_by_another_task(home: Path) -> None:
 
     rc, out = _cli(["task", "board"], as_agent="worker")
     check("board: no longer reads as waiting once the blocker closes",
-          _now_line(out, t_dep) != f"now: waiting on #{t_blocker}", out)
+          _now_line(out, t_dep) != f"now: waiting on T{t_blocker}", out)
     check("board: the durable notice is what the board now shows worker holds",
           _now_line(out, t_dep) == "now: worker", out)
 
@@ -3686,7 +3758,7 @@ def test_task_blocked_by_another_task(home: Path) -> None:
     finally:
         dmn.wake_agent, dmn.deliver_answers = real_wake, real_deliver
 
-    rc, out = _cli(["close", str(t_blocker)])
+    rc, out = _cli(["close", f"T{t_blocker}"])
     check("close: an already-closed task is refused, no second notice risked",
           rc == 1, out)
     con = db.connect()
@@ -3816,11 +3888,11 @@ def test_resolving_the_founders_request_says_what_it_becomes(home: Path) -> None
               db.get_request(con, r1)["state"] == "queued")
     finally:
         con.close()
-    rc, out = _cli(["resolve", str(r1), "ok", "--task", "1", "--no-task", "why"])
+    rc, out = _cli(["resolve", str(r1), "ok", "--task", "T1", "--no-task", "why"])
     check("guard: both --task and --no-task is refused", rc == 1, out)
-    rc, out = _cli(["resolve", str(r1), "ok", "--task", "7"])
-    check("guard: a task that does not exist is refused", rc == 1 and "no task #7" in out, out)
-    rc, out = _cli(["resolve", str(r1), "ok", "--task", "1", "2"])
+    rc, out = _cli(["resolve", str(r1), "ok", "--task", "T7"])
+    check("guard: a task that does not exist is refused", rc == 1 and "no task T7" in out, out)
+    rc, out = _cli(["resolve", str(r1), "ok", "--task", "T1", "T2"])
     check("guard: --task takes a list and resolves", rc == 0, out)
     con = db.connect()
     try:
@@ -3869,7 +3941,7 @@ def test_resolving_the_founders_request_says_what_it_becomes(home: Path) -> None
     # the founder now, not whoever opened the task.
     _done_and_close(1, "worker", closer=askmod.HUMAN)
     r4 = _human_request()
-    rc, out = _cli(["resolve", str(r4), "ok", "--task", "1"])
+    rc, out = _cli(["resolve", str(r4), "ok", "--task", "T1"])
     check("guard: a closed task cannot be attached to", rc == 1 and "closed" in out, out)
 
 
@@ -3903,7 +3975,7 @@ def test_resolve_finding_opens_a_task_in_the_same_step(home: Path) -> None:
         check("finding: and opened by that manager",
               all(t["opened_by"] == "manager" for t in tasks.values()), str(tasks))
         check("finding: the verdict names the new task numbers",
-              all(f"#{tid}" in row["verdict"] for tid in tasks)
+              all(f"T{tid}" in row["verdict"] for tid in tasks)
               and "Opened as task" in row["verdict"], row["verdict"])
     finally:
         con.close()
@@ -4022,9 +4094,9 @@ def test_resolve_hold_keeps_the_work_open_and_owned(home: Path) -> None:
     finally:
         con.close()
 
-    rc, out = _cli(["resolve", str(rid), "later", "--on", str(t_blocker)], as_agent="manager")
+    rc, out = _cli(["resolve", str(rid), "later", "--on", f"T{t_blocker}"], as_agent="manager")
     check("hold: --on without --hold is refused", rc == 1 and "--hold" in out, out)
-    rc, out = _cli(["resolve", str(rid), "later", "--hold", "x", "--on", "999"],
+    rc, out = _cli(["resolve", str(rid), "later", "--hold", "x", "--on", "T999"],
                    as_agent="manager")
     check("hold: waiting on a task that does not exist is refused",
           rc == 1 and "no task" in out, out)
@@ -4036,7 +4108,7 @@ def test_resolve_hold_keeps_the_work_open_and_owned(home: Path) -> None:
         con.close()
 
     rc, out = _cli(["resolve", str(rid), "later", "--hold", "start it after the merge",
-                    "--on", str(t_blocker)], as_agent="manager")
+                    "--on", f"T{t_blocker}"], as_agent="manager")
     check("hold: resolve succeeds", rc == 0, out)
     con = db.connect()
     try:
@@ -4049,7 +4121,7 @@ def test_resolve_hold_keeps_the_work_open_and_owned(home: Path) -> None:
         check("hold: it waits on the named task",
               [b["id"] for b in db.task_blockers(con, h["id"])] == [t_blocker])
         check("hold: the verdict names the task",
-              f"#{h['id']}" in db.get_request(con, rid)["verdict"])
+              f"T{h['id']}" in db.get_request(con, rid)["verdict"])
         edge = con.execute("SELECT payload FROM events WHERE kind = 'block_task'").fetchall()
         check("hold: its wait is recorded as a block_task event",
               any(json.loads(e["payload"]).get("task_id") == h["id"] for e in edge), str(edge))
@@ -4060,10 +4132,10 @@ def test_resolve_hold_keeps_the_work_open_and_owned(home: Path) -> None:
 
     rc, out = _cli(["task", "board"], as_agent="manager")
     check("hold: the holder's board says what it waits on",
-          _now_line(out, h["id"]) == f"now: waiting on #{t_blocker}", out)
+          _now_line(out, h["id"]) == f"now: waiting on T{t_blocker}", out)
     rc, out = _cli(["task", "board"], as_agent="worker")
     check("hold: the asker's board reads it held, not done or nobody's",
-          _now_line(out, t_parent) == f"now: held as sub-task #{h['id']} (manager)", out)
+          _now_line(out, t_parent) == f"now: held as sub-task T{h['id']} (manager)", out)
 
     rc, out = _cli(["resolve", str(rid), "again", "--hold", "y"], as_agent="manager")
     check("hold: an answered request is not held twice", rc == 1, out)
@@ -4085,7 +4157,7 @@ def test_resolve_hold_keeps_the_work_open_and_owned(home: Path) -> None:
           _now_line(out, t_lone) == "now: nobody holds it", out)
     rc, out = _cli(["task", "board"], as_agent="worker")
     check("hold: a plain child is no hold, and a blocker outranks a real one",
-          _now_line(out, t_parent) == f"now: waiting on #{t_blocker}", out)
+          _now_line(out, t_parent) == f"now: waiting on T{t_blocker}", out)
     con = db.connect()
     try:
         db.remove_block(con, t_parent, t_blocker)
@@ -4106,9 +4178,9 @@ def test_resolve_hold_keeps_the_work_open_and_owned(home: Path) -> None:
     finally:
         con.close()
     for label, argv, want in (
-            ("a blocker that is already closed", ["--hold", "z", "--on", str(t_blocker)], "closed"),
-            ("waiting on the task it sits under", ["--hold", "z", "--on", str(t_parent)], "sits under"),
-            ("waiting on the grandparent it sits under", ["--hold", "z", "--on", str(t_grand)],
+            ("a blocker that is already closed", ["--hold", "z", "--on", f"T{t_blocker}"], "closed"),
+            ("waiting on the task it sits under", ["--hold", "z", "--on", f"T{t_parent}"], "sits under"),
+            ("waiting on the grandparent it sits under", ["--hold", "z", "--on", f"T{t_grand}"],
              "sits under"),
             ("--state rejected", ["--hold", "z", "--state", "rejected"], "rejected"),
             ("a blank title", ["--hold", "  "], "title")):
@@ -4142,16 +4214,16 @@ def test_task_discard(home: Path) -> None:
         con.close()
 
     def go(tid, who="manager", reason="not needed"):
-        return _cli(["task", "discard", str(tid), reason], as_agent=who)
+        return _cli(["task", "discard", f"T{tid}", reason], as_agent=who)
 
     rc, out = go(t, who="worker")
     check("discard: only the asker may", rc == 1 and "manager" in out, out)
     rc, out = go(t, reason="   ")
     check("discard: a reason is required", rc == 1 and "reason" in out, out)
     rc, out = go(t)
-    check("discard: an open child task refuses it", rc == 1 and f"#{kid}" in out, out)
+    check("discard: an open child task refuses it", rc == 1 and f"T{kid}" in out, out)
     rc, out = go(waiting)
-    check("discard: a task waiting on a blocker refuses it", rc == 1 and f"#{gate}" in out, out)
+    check("discard: a task waiting on a blocker refuses it", rc == 1 and f"T{gate}" in out, out)
     ok, _, rid_live = askmod.ask("manager", "work on it", requester="worker")
     con = db.connect()
     try:
@@ -4205,16 +4277,16 @@ def test_task_discard(home: Path) -> None:
         con.close()
 
     rc, out = _cli(["task", "list", "--all"])
-    line = [l for l in out.splitlines() if l.startswith(f"#{t} ")]
+    line = [l for l in out.splitlines() if l.startswith(f"T{t} ")]
     check("discard: the list marks it discarded with the reason",
           line and "discarded" in line[0] and "DISCARDED by manager: the plan changed" in line[0]
           and "CLOSED" not in line[0], out)
     rc, out = _cli(["task", "board"], as_agent="worker")
-    check("discard: it is on nobody's board", f"#{t} " not in out, out)
+    check("discard: it is on nobody's board", f"T{t} " not in out, out)
 
     rc, out = go(t)
     check("discard: a discarded task refuses a second", rc == 1 and "already discarded" in out, out)
-    rc, out = _cli(["close", str(t)])
+    rc, out = _cli(["close", f"T{t}"])
     check("discard: and cannot be signed off as finished", rc == 1, out)
     con = db.connect()
     try:
@@ -4330,13 +4402,13 @@ def test_marking_a_task_done_needs_evidence_and_only_the_owner_or_a_linked_targe
 
     t3 = db.new_task(con := db.connect(), "three", "worker", "manager")
     con.close()
-    rc, out = _cli(["task", "done", str(t3), "fine, a reason"], as_agent="worker")
+    rc, out = _cli(["task", "done", f"T{t3}", "fine, a reason"], as_agent="worker")
     check("done: the verb takes a reason", rc == 0 and "done" in out, out)
-    rc, out = _cli(["task", "done", str(t3), "again"], as_agent="worker")
+    rc, out = _cli(["task", "done", f"T{t3}", "again"], as_agent="worker")
     check("done: the verb refuses an already-done task", rc == 1, out)
-    rc, out = _cli(["task", "done", "99999", "x"], as_agent="worker")
+    rc, out = _cli(["task", "done", "T99999", "x"], as_agent="worker")
     check("done: the verb refuses a task that does not exist", rc == 1 and "no task" in out, out)
-    rc, out = _cli(["task", "done", str(t1), "x"], as_agent=None)
+    rc, out = _cli(["task", "done", f"T{t1}", "x"], as_agent=None)
     check("done: refused with no identity", rc == 1, out)
 
 
@@ -4367,11 +4439,11 @@ def test_closing_a_task_needs_no_open_child_and_only_the_asker(home: Path) -> No
         actions.mark_task_done(con, child, "worker", reason="part done")
     finally:
         con.close()
-    rc, out = _cli(["close", str(parent)])
-    check("close: refused while a child task is open", rc == 1 and f"#{child}" in out, out)
-    rc, out = _cli(["close", str(child)])
+    rc, out = _cli(["close", f"T{parent}"])
+    check("close: refused while a child task is open", rc == 1 and f"T{child}" in out, out)
+    rc, out = _cli(["close", f"T{child}"])
     check("close: the child closes on its own", rc == 0, out)
-    rc, out = _cli(["close", str(parent)])
+    rc, out = _cli(["close", f"T{parent}"])
     check("close: the parent then closes", rc == 0, out)
 
     con = db.connect()
@@ -4381,11 +4453,11 @@ def test_closing_a_task_needs_no_open_child_and_only_the_asker(home: Path) -> No
         con.close()
     rc, out = _done_and_close(t2, "worker")
     check("close: the verb takes no evidence and succeeds", rc == 0 and "closed" in out, out)
-    rc, out = _cli(["close", "99999"])
+    rc, out = _cli(["close", "T99999"])
     check("close: no such task", rc == 1 and "no task" in out, out)
     rc, out = _cli(["close", "worker", "a reason"])
     check("close: evidence on an agent's name is refused, not an agent close", rc == 1, out)
-    rc, out = _cli(["close", str(t2), "a reason"])
+    rc, out = _cli(["close", f"T{t2}", "a reason"])
     check("close: evidence on a task number is refused now - `ocp task done` takes it",
           rc == 1, out)
 
@@ -4403,7 +4475,7 @@ def test_close_task_refuses_without_an_identity_and_does_not_move_a_clock(home: 
     finally:
         con.close()
 
-    rc, out = _cli(["task", "done", str(t), "a reason"], as_agent=None)
+    rc, out = _cli(["task", "done", f"T{t}", "a reason"], as_agent=None)
     check("done: refused with no identity, not attributed to the owner", rc == 1, out)
     con = db.connect()
     try:
@@ -4411,9 +4483,9 @@ def test_close_task_refuses_without_an_identity_and_does_not_move_a_clock(home: 
     finally:
         con.close()
 
-    rc, out = _cli(["task", "done", str(t), "a reason"], as_agent="worker")
+    rc, out = _cli(["task", "done", f"T{t}", "a reason"], as_agent="worker")
     check("done: succeeds once someone real is running it", rc == 0, out)
-    rc, out = _cli(["close", str(t)], as_agent=None)
+    rc, out = _cli(["close", f"T{t}"], as_agent=None)
     check("close: refused with no identity, not attributed to the asker", rc == 1, out)
     con = db.connect()
     try:
@@ -4423,7 +4495,7 @@ def test_close_task_refuses_without_an_identity_and_does_not_move_a_clock(home: 
     finally:
         con.close()
 
-    rc, out = _cli(["close", str(t)], as_agent="manager")
+    rc, out = _cli(["close", f"T{t}"], as_agent="manager")
     check("close: succeeds once someone real is running it", rc == 0, out)
     con = db.connect()
     try:
@@ -4478,13 +4550,13 @@ def test_reopening_a_done_task_needs_a_reason_and_only_the_asker(home: Path) -> 
         t2 = db.new_task(con, "cli reopenable", "worker", "manager")
     finally:
         con.close()
-    rc, out = _cli(["task", "done", str(t2), "done"], as_agent="worker")
+    rc, out = _cli(["task", "done", f"T{t2}", "done"], as_agent="worker")
     check("reopen cli: setup - done", rc == 0, out)
-    rc, out = _cli(["task", "reopen", str(t2), "needs work"], as_agent="manager")
+    rc, out = _cli(["task", "reopen", f"T{t2}", "needs work"], as_agent="manager")
     check("reopen cli: succeeds", rc == 0 and "reopened" in out, out)
-    rc, out = _cli(["task", "reopen", "99999", "x"], as_agent="manager")
+    rc, out = _cli(["task", "reopen", "T99999", "x"], as_agent="manager")
     check("reopen cli: no such task", rc == 1 and "no task" in out, out)
-    rc, out = _cli(["task", "reopen", str(t2), "x"], as_agent=None)
+    rc, out = _cli(["task", "reopen", f"T{t2}", "x"], as_agent=None)
     check("reopen cli: refused with no identity", rc == 1, out)
 
 
@@ -4502,7 +4574,7 @@ def test_no_other_path_closes_the_founders_request_unguarded(home: Path) -> None
         check("dismiss: refused, still queued", db.get_request(con, r)["state"] == "queued")
     finally:
         con.close()
-    rc, out = _cli(["dismiss", str(r), "--task", "1"])
+    rc, out = _cli(["dismiss", str(r), "--task", "T1"])
     check("dismiss: --task on the founder's row succeeds", rc == 0, out)
     con = db.connect()
     try:
@@ -4564,11 +4636,11 @@ def test_task_ids_are_checked_before_any_answer_and_short_shas_are_resolved(home
         peer = db.add_request(con, "worker", "manager", "q", None, "peer", "async", None, 0, None)
     finally:
         con.close()
-    rc, out = _cli(["resolve", str(peer), "answer", "--task", "999"])
+    rc, out = _cli(["resolve", str(peer), "answer", "--task", "T999"])
     con = db.connect()
     try:
         check("task ids: a bad id on a peer row is refused, and the row is not answered",
-              rc == 1 and "no task #999" in out and db.get_request(con, peer)["state"] == "queued",
+              rc == 1 and "no task T999" in out and db.get_request(con, peer)["state"] == "queued",
               out)
     finally:
         con.close()
@@ -4589,17 +4661,17 @@ def test_task_ids_are_checked_before_any_answer_and_short_shas_are_resolved(home
     _cli(["task", "new", "--owner", "worker", "one"])
     _cli(["task", "new", "--owner", "worker", "two"])
     _cli(["task", "new", "--owner", "worker", "three"])
-    rc, out = _cli(["task", "done", "1", "abc123", "--repo", str(repo)], as_agent="worker")
+    rc, out = _cli(["task", "done", "T1", "abc123", "--repo", str(repo)], as_agent="worker")
     check("sha: hex that names no commit is refused, not recorded as a reason",
           rc == 1 and "not an ancestor of main" in out, out)
-    rc, out = _cli(["task", "done", "1", full[:6], "--repo", str(repo)], as_agent="worker")
+    rc, out = _cli(["task", "done", "T1", full[:6], "--repo", str(repo)], as_agent="worker")
     con = db.connect()
     try:
         check("sha: a short sha resolves and the full one is what is stored",
               rc == 0 and db.get_task(con, 1)["done_evidence"] == full, out)
     finally:
         con.close()
-    rc, out = _cli(["task", "done", "2", "deadbeef", "--reason", "--repo", str(repo)],
+    rc, out = _cli(["task", "done", "T2", "deadbeef", "--reason", "--repo", str(repo)],
                    as_agent="worker")
     con = db.connect()
     try:
@@ -4607,8 +4679,8 @@ def test_task_ids_are_checked_before_any_answer_and_short_shas_are_resolved(home
               rc == 0 and db.get_task(con, 2)["done_evidence"] == "deadbeef", out)
     finally:
         con.close()
-    _cli(["close", "1"])
-    _cli(["close", "2"])
+    _cli(["close", "T1"])
+    _cli(["close", "T2"])
     rc, out = _cli(["task", "list"])
     check("board: closed tasks are not on the plain list", "two" not in out and "one" not in out, out)
     rc, out = _cli(["task", "list", "--all"])
@@ -4762,7 +4834,7 @@ def test_moot_by_records_who_retired_a_row(home: Path) -> None:
     finally:
         con.close()
     try:
-        _cli(["close", str(t), "closed as duplicate", "--retires", "999999"])
+        _cli(["close", f"T{t}", "closed as duplicate", "--retires", "999999"])
         check("close: --retires is gone (#1366) - task and request ids share no namespace",
               False, "argparse accepted it")
     except SystemExit as e:
@@ -5093,6 +5165,8 @@ def main() -> int:
         run(lambda: test_the_founder_does_not_approve_their_own_request(Path(td) / 'hrself'))
         run(lambda: test_a_dismissal_is_a_state_and_never_reads_as_words(
             Path(td) / 'dismissstate'))
+        run(lambda: test_a_task_is_written_T_and_a_bare_number_is_never_a_task(
+            Path(td) / 'taskref'))
         run(lambda: test_a_withdraw_and_the_founders_answer_settle_to_one_outcome(
             Path(td) / 'hrrace'))
         run(lambda: test_a_permission_prompt_waits_on_the_founder_until_it_is_answered(Path(td) / 'promptwait'))

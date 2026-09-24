@@ -250,6 +250,39 @@ def finding_owner(me: str) -> str | None:
     return owner if owner in paths.list_agents() else None
 
 
+TASK_REF = re.compile(r"[Tt](\d+)")
+
+
+def task_ref(tid) -> str:
+    """How a task is written wherever it is printed or typed: T79. A request
+    is a bare number, so the two can never be read for each other."""
+    return f"T{int(tid)}"
+
+
+def parse_task_ref_error(text) -> str:
+    """Why `text` is not a task reference: the refusal `parse_task_ref` raises."""
+    try:
+        parse_task_ref(text)
+    except ValueError as e:
+        return str(e)
+    return ""
+
+
+def parse_task_ref(text) -> int:
+    """The task number in `T79` (or `t79`). A bare number is refused, naming
+    both things it could mean; anything else is not a task at all."""
+    text = str(text).strip()
+    m = TASK_REF.fullmatch(text)
+    if m:
+        return int(m.group(1))
+    if text.isdigit():
+        raise ValueError(
+            f"'{text}' could be task {text} or request {text}: a task is written "
+            f"{task_ref(text)}, a request is the bare number (`ocp read {text}` reads "
+            f"request {text}). Write {task_ref(text)} for the task.")
+    raise ValueError(f"'{text}' is not a task - write it T<number>, like {task_ref(79)}")
+
+
 def open_finding_tasks(con, rid: int, findings: list[str], owner: str) -> list[int]:
     """Task #73 (founder #2150, #2154 point 2): a finding the resolver is
     deferring rather than blocking the review on becomes a task in the same
@@ -277,7 +310,7 @@ def hold_refusal(con, rid: int, blocks_on: list[int]) -> str | None:
         if why:
             return why
         if b in under:
-            return f"task #{b} is what this hold sits under - it cannot wait on it"
+            return f"task T{b} is what this hold sits under - it cannot wait on it"
     return None
 
 
@@ -501,13 +534,13 @@ def mark_task_done(con, tid: int, by: str, sha: str | None = None,
     """
     row = db.get_task(con, tid)
     if row is None:
-        return False, f"no task #{tid}"
+        return False, f"no task T{tid}"
     if row["closed_by"]:
-        return False, f"task #{tid} is already closed ({row['closed_by']})"
+        return False, f"task T{tid} is already closed ({row['closed_by']})"
     if row["done_evidence"]:
-        return False, f"task #{tid} is already done ({row['done_evidence']})"
+        return False, f"task T{tid} is already done ({row['done_evidence']})"
     if by != row["owner"] and by not in _task_done_targets(con, tid):
-        return False, (f"task #{tid} can only be marked done by its owner "
+        return False, (f"task T{tid} can only be marked done by its owner "
                        f"({row['owner']}) or the target of a request linked to it")
     given = [x for x in (sha, request_id, reason) if x is not None]
     if len(given) != 1:
@@ -527,9 +560,9 @@ def mark_task_done(con, tid: int, by: str, sha: str | None = None,
     else:
         mark, via = reason, "reason"
     if not db.mark_task_done(con, tid, mark, via):
-        return False, f"task #{tid} was marked done by someone else just now"
+        return False, f"task T{tid} was marked done by someone else just now"
     db.add_event(con, by, "mark_task_done", {"task_id": tid, "done": mark})
-    return True, f"task #{tid} done ({mark})"
+    return True, f"task T{tid} done ({mark})"
 
 
 def close_task(con, tid: int, by: str) -> tuple[bool, str]:
@@ -556,27 +589,27 @@ def close_task(con, tid: int, by: str) -> tuple[bool, str]:
     """
     row = db.get_task(con, tid)
     if row is None:
-        return False, f"no task #{tid}"
+        return False, f"no task T{tid}"
     if row["closed_by"]:
-        return False, f"task #{tid} is already closed ({row['closed_by']})"
+        return False, f"task T{tid} is already closed ({row['closed_by']})"
     if not row["done_evidence"]:
-        return False, f"task #{tid} is not done yet - `ocp task done` first"
+        return False, f"task T{tid} is not done yet - `ocp task done` first"
     asker = task_asker(con, row)
     if by != asker:
-        return False, f"task #{tid} can only be closed by {asker} - whoever asked for it"
+        return False, f"task T{tid} can only be closed by {asker} - whoever asked for it"
     kids = db.open_child_tasks(con, tid)
     if kids:
-        ids = ", ".join(f"#{k['id']}" for k in kids)
-        return False, f"task #{tid} still has open child tasks ({ids}) - close them first"
+        ids = ", ".join(f"T{k['id']}" for k in kids)
+        return False, f"task T{tid} still has open child tasks ({ids}) - close them first"
     blockers = db.task_blockers(con, tid)
     if blockers:
-        ids = ", ".join(f"#{b['id']}" for b in blockers)
-        return False, f"task #{tid} is waiting on {ids} - it closes only once they do"
+        ids = ", ".join(f"T{b['id']}" for b in blockers)
+        return False, f"task T{tid} is waiting on {ids} - it closes only once they do"
     con.execute("BEGIN IMMEDIATE")
     try:
         if not db.close_task(con, tid, by):
             con.execute("ROLLBACK")
-            return False, f"task #{tid} was closed by someone else just now"
+            return False, f"task T{tid} was closed by someone else just now"
         db.add_event(con, by, "close_task", {"task_id": tid, "closed_by": by})
         notices = _clear_blocks_on(con, tid, by)
         con.execute("COMMIT")
@@ -588,7 +621,7 @@ def close_task(con, tid: int, by: str) -> tuple[bool, str]:
                        team.Decision(True, "task unblocked", kind="report",
                                      response="fire_and_forget", creates_gate=False,
                                      chain_depth=0))
-    return True, f"task #{tid} closed by {by}"
+    return True, f"task T{tid} closed by {by}"
 
 
 def discard_task(con, tid: int, by: str, reason: str) -> tuple[bool, str]:
@@ -605,36 +638,36 @@ def discard_task(con, tid: int, by: str, reason: str) -> tuple[bool, str]:
     left with no open blocker is told, as close does."""
     row = db.get_task(con, tid)
     if row is None:
-        return False, f"no task #{tid}"
+        return False, f"no task T{tid}"
     if row["closed_by"]:
         what = "discarded" if row["discarded_by"] else "closed"
-        return False, f"task #{tid} is already {what} ({row['closed_by']})"
+        return False, f"task T{tid} is already {what} ({row['closed_by']})"
     if row["done_evidence"]:
-        return False, f"task #{tid} is done - `ocp close {tid}` signs it off"
+        return False, f"task T{tid} is done - `ocp close T{tid}` signs it off"
     asker = task_asker(con, row)
     if by != asker:
-        return False, f"task #{tid} can only be discarded by {asker} - whoever asked for it"
+        return False, f"task T{tid} can only be discarded by {asker} - whoever asked for it"
     said = textsafe.oneline(reason).strip()
     if not said:
         return False, "discarding needs a one-line reason"
     kids = db.open_child_tasks(con, tid)
     if kids:
-        ids = ", ".join(f"#{k['id']}" for k in kids)
-        return False, f"task #{tid} still has open child tasks ({ids}) - deal with them first"
+        ids = ", ".join(f"T{k['id']}" for k in kids)
+        return False, f"task T{tid} still has open child tasks ({ids}) - deal with them first"
     blockers = db.task_blockers(con, tid)
     if blockers:
-        ids = ", ".join(f"#{b['id']}" for b in blockers)
-        return False, f"task #{tid} is waiting on {ids} - it cannot be discarded until they close"
+        ids = ", ".join(f"T{b['id']}" for b in blockers)
+        return False, f"task T{tid} is waiting on {ids} - it cannot be discarded until they close"
     live = [r for r in db.task_requests(con, tid) if r["state"] == "queued"]
     if live:
         ids = ", ".join(f"#{r['id']} (with {r['target']})" for r in live)
-        return False, (f"task #{tid} still has a request open: {ids} - withdraw or cancel it "
+        return False, (f"task T{tid} still has a request open: {ids} - withdraw or cancel it "
                        "first, or its target keeps working on thrown-away work")
     con.execute("BEGIN IMMEDIATE")
     try:
         if not db.discard_task(con, tid, by, said):
             con.execute("ROLLBACK")
-            return False, f"task #{tid} was done or closed by someone else just now"
+            return False, f"task T{tid} was done or closed by someone else just now"
         db.add_event(con, by, "discard_task", {"task_id": tid, "reason": said})
         notices = _clear_blocks_on(con, tid, by, "discarded")
         con.execute("COMMIT")
@@ -646,7 +679,7 @@ def discard_task(con, tid: int, by: str, reason: str) -> tuple[bool, str]:
                        team.Decision(True, "task unblocked", kind="report",
                                      response="fire_and_forget", creates_gate=False,
                                      chain_depth=0))
-    return True, f"task #{tid} discarded by {by}: {said}"
+    return True, f"task T{tid} discarded by {by}: {said}"
 
 
 def reopen_task(con, tid: int, by: str, reason: str) -> tuple[bool, str]:
@@ -656,21 +689,21 @@ def reopen_task(con, tid: int, by: str, reason: str) -> tuple[bool, str]:
     undo) or already closed (closing is final - see close_task)."""
     row = db.get_task(con, tid)
     if row is None:
-        return False, f"no task #{tid}"
+        return False, f"no task T{tid}"
     if row["closed_by"]:
-        return False, f"task #{tid} is closed - closing is final, nothing to reopen"
+        return False, f"task T{tid} is closed - closing is final, nothing to reopen"
     if not row["done_evidence"]:
-        return False, f"task #{tid} is not done - nothing to reopen"
+        return False, f"task T{tid} is not done - nothing to reopen"
     asker = task_asker(con, row)
     if by != asker:
-        return False, f"task #{tid} can only be reopened by {asker} - whoever asked for it"
+        return False, f"task T{tid} can only be reopened by {asker} - whoever asked for it"
     said = textsafe.oneline(reason).strip()
     if not said:
         return False, "reopening needs a one-line reason"
     if not db.reopen_task(con, tid):
-        return False, f"task #{tid} was closed or reopened by someone else just now"
+        return False, f"task T{tid} was closed or reopened by someone else just now"
     db.add_event(con, by, "reopen_task", {"task_id": tid, "reason": said})
-    return True, f"task #{tid} reopened by {by}: {said}"
+    return True, f"task T{tid} reopened by {by}: {said}"
 
 
 def _notify_unblocked(con, dep_tid: int, owner: str, closer: str, closed_tid: int,
@@ -685,7 +718,7 @@ def _notify_unblocked(con, dep_tid: int, owner: str, closer: str, closed_tid: in
     Never called when `closer == owner` (`_clear_blocks_on` checks before
     calling): the owner who just closed the blocker themselves does not need
     telling."""
-    text = f"task #{dep_tid} is unblocked - #{closed_tid}, its last open blocker, {how}"
+    text = f"task T{dep_tid} is unblocked - T{closed_tid}, its last open blocker, {how}"
     rid = db.add_request(con, _UNBLOCK_REQUESTER, owner, text, None, None,
                          "fire_and_forget", "report", 0, None)
     db.link_request(con, dep_tid, rid)
@@ -724,7 +757,7 @@ def _task_edit_guard(row, tid: int, by: str) -> str | None:
     otherwise the refusal to show. Shared by every verb that changes a task
     without changing whose it is (edit_task, add_block, unblock)."""
     if by != row["opened_by"] and by != HUMAN:
-        return (f"task #{tid} can only be edited by whoever opened it "
+        return (f"task T{tid} can only be edited by whoever opened it "
                f"({row['opened_by']}) or the founder")
     return None
 
@@ -742,7 +775,7 @@ def edit_task(con, tid: int, by: str, owner: str | None = None,
     """
     row = db.get_task(con, tid)
     if row is None:
-        return False, f"no task #{tid}"
+        return False, f"no task T{tid}"
     guard = _task_edit_guard(row, tid, by)
     if guard:
         return False, guard
@@ -764,11 +797,11 @@ def edit_task(con, tid: int, by: str, owner: str | None = None,
             new_title = t
             changes["title"] = {"old": row["title"], "new": new_title}
     if not changes:
-        return False, f"task #{tid} already reads that way - nothing to edit"
+        return False, f"task T{tid} already reads that way - nothing to edit"
     db.edit_task(con, tid, by, owner=new_owner, title=new_title)
     db.add_event(con, by, "edit_task", {"task_id": tid, **changes})
     said = ", ".join(f"{k} {v['old']!r} -> {v['new']!r}" for k, v in changes.items())
-    return True, f"task #{tid} edited by {by}: {said}"
+    return True, f"task T{tid} edited by {by}: {said}"
 
 
 def _blocked_by_cycle(con, tid: int, blocks_on: int, seen: set[int] | None = None) -> bool:
@@ -793,9 +826,9 @@ def _blocker_refusal(con, blocks_on: int) -> str | None:
     """Why `blocks_on` cannot be waited on: missing or already closed."""
     row = db.get_task(con, blocks_on)
     if row is None:
-        return f"no task #{blocks_on}"
+        return f"no task T{blocks_on}"
     if row["closed_by"]:
-        return f"task #{blocks_on} is closed"
+        return f"task T{blocks_on} is closed"
     return None
 
 
@@ -806,38 +839,38 @@ def add_block(con, tid: int, blocks_on: int, by: str) -> tuple[bool, str]:
     an already-closed task is not a thing this board does."""
     row = db.get_task(con, tid)
     if row is None:
-        return False, f"no task #{tid}"
+        return False, f"no task T{tid}"
     guard = _task_edit_guard(row, tid, by)
     if guard:
         return False, guard
     if db.get_task(con, blocks_on) is None:
-        return False, f"no task #{blocks_on}"
+        return False, f"no task T{blocks_on}"
     if row["closed_by"]:
-        return False, f"task #{tid} is closed"
+        return False, f"task T{tid} is closed"
     gone = _blocker_refusal(con, blocks_on)
     if gone:
         return False, gone
     if blocks_on == tid:
-        return False, f"task #{tid} cannot block itself"
+        return False, f"task T{tid} cannot block itself"
     if _blocked_by_cycle(con, tid, blocks_on):
-        return False, f"task #{tid} cannot wait on #{blocks_on}: that would be a cycle"
+        return False, f"task T{tid} cannot wait on T{blocks_on}: that would be a cycle"
     db.add_block(con, tid, blocks_on)
     db.add_event(con, by, "block_task", {"task_id": tid, "blocks_on": blocks_on})
-    return True, f"task #{tid} now waits on #{blocks_on}"
+    return True, f"task T{tid} now waits on T{blocks_on}"
 
 
 def unblock(con, tid: int, blocks_on: int, by: str) -> tuple[bool, str]:
     """Remove one blocking edge - the counterpart of `add_block`."""
     row = db.get_task(con, tid)
     if row is None:
-        return False, f"no task #{tid}"
+        return False, f"no task T{tid}"
     guard = _task_edit_guard(row, tid, by)
     if guard:
         return False, guard
     if not db.remove_block(con, tid, blocks_on):
-        return False, f"task #{tid} is not waiting on #{blocks_on}"
+        return False, f"task T{tid} is not waiting on T{blocks_on}"
     db.add_event(con, by, "unblock_task", {"task_id": tid, "blocks_on": blocks_on})
-    return True, f"task #{tid} no longer waits on #{blocks_on}"
+    return True, f"task T{tid} no longer waits on T{blocks_on}"
 
 
 def reason_gaps(con, window_days: int = 30) -> dict:
@@ -910,13 +943,13 @@ def check_human_resolve(con, row, tasks: list[int] | None, no_task: str | None,
     for tid in tasks or []:
         t = db.get_task(con, tid)
         if t is None:
-            return f"no task #{tid}"
+            return f"no task T{tid}"
         if t["closed_by"]:
-            return f"task #{tid} is already closed ({t['closed_by']})"
+            return f"task T{tid} is already closed ({t['closed_by']})"
     if row["requester"] != HUMAN or me == HUMAN:
         return None
     if bool(tasks) == bool(no_task):
-        return (f"#{row['id']} is the founder's: say what it becomes. --task N [N ...] "
+        return (f"#{row['id']} is the founder's: say what it becomes. --task T<n> [T<n> ...] "
                 "names the tasks this answer belongs to (one per deliverable "
                 "promised), --no-task 'reason' says nothing needs building. "
                 "`ocp task new --owner NAME 'title'` makes a task.")

@@ -392,16 +392,34 @@ def cmd_handoff_write(args) -> int:
     return 1 if missing else 0
 
 
+def _ambiguous_number(raw: str) -> str:
+    return actions.parse_task_ref_error(raw)
+
+
+def _task_arg(text: str) -> int:
+    """argparse `type` for a task: T79 only. A bare number is refused with
+    both of its readings, so a request id typed here cannot act on a task."""
+    try:
+        return actions.parse_task_ref(text)
+    except ValueError as e:
+        raise argparse.ArgumentTypeError(str(e))
+
+
 def cmd_close(args) -> int:
-    """One verb, two things it can close: a task by its number (`ocp close
-    7`) - the asker's own sign-off, once it is done (`ocp task done` first;
-    #71) - or an agent's session by its name, keeping its terminal. An agent
-    is never named with a number, so the argument decides; evidence given to
-    either is refused rather than guessed at - marking a task done, with its
-    evidence, is `ocp task done` now, not this verb.
+    """One verb, two things it can close: a task by its reference (`ocp close
+    T7`) - the asker's own sign-off, once it is done (`ocp task done` first;
+    #71) - or an agent's session by its name, keeping its terminal. A task
+    is always T<number> and a bare number is refused (it could as well be a
+    request), so the argument decides; evidence given to either is refused
+    rather than guessed at - marking a task done, with its evidence, is `ocp
+    task done` now, not this verb.
     """
     raw = args.target
     if raw.isdigit():
+        print(_ambiguous_number(raw))
+        return 1
+    if actions.TASK_REF.fullmatch(raw):
+        tnum = actions.parse_task_ref(raw)
         # close_task's event names whoever ran this - unlike an agent's
         # session below, which needs no identity to close - so an identity
         # is required here too, the same refusal cmd_resolve and cmd_dismiss
@@ -412,23 +430,23 @@ def cmd_close(args) -> int:
             return 1
         con = db.connect()
         try:
-            if db.get_task(con, int(raw)) is None:
-                print(f"no task #{raw}. A number is read as a task, never as an agent "
+            if db.get_task(con, tnum) is None:
+                print(f"no task T{tnum}. A T-number is a task, never an agent "
                       "(agents are named); `ocp task list` shows the open ones.")
                 return 1
             if args.evidence:
-                print(f"read {raw} as task #{raw} (a number is a task): closing it takes no "
-                      f"evidence any more - `ocp task done {raw} <sha, --request N, or a "
-                      f"reason>` marks it done, then `ocp close {raw}` closes it.")
+                print(f"closing task T{tnum} takes no evidence any more - `ocp task done "
+                      f"T{tnum} <sha, --request N, or a reason>` marks it done, then "
+                      f"`ocp close T{tnum}` closes it.")
                 return 1
-            ok, msg = actions.close_task(con, int(raw), me)
+            ok, msg = actions.close_task(con, tnum, me)
             print(msg)
         finally:
             con.close()
         return 0 if ok else 1
     if args.evidence:
         print(f"read '{raw}' as an agent's name, so this would end its session - but a "
-              "task closes by its number, and says nothing about a session. Nothing "
+              "task closes by its T-number, and says nothing about a session. Nothing "
               "was closed.")
         return 1
     args.agent = raw
@@ -455,7 +473,7 @@ def cmd_task_done(args) -> int:
     con = db.connect()
     try:
         if db.get_task(con, args.task) is None:
-            print(f"no task #{args.task}")
+            print(f"no task T{args.task}")
             return 1
         sha, reason = None, None
         if args.evidence is not None:
@@ -499,7 +517,7 @@ def cmd_task_reopen(args) -> int:
     con = db.connect()
     try:
         if db.get_task(con, args.task) is None:
-            print(f"no task #{args.task}")
+            print(f"no task T{args.task}")
             return 1
         ok, msg = actions.reopen_task(con, args.task, me, args.reason)
         print(msg)
@@ -530,10 +548,10 @@ def cmd_task_new(args) -> int:
     con = db.connect()
     try:
         if args.parent is not None and db.get_task(con, args.parent) is None:
-            print(f"no task #{args.parent}")
+            print(f"no task T{args.parent}")
             return 1
         if args.blocked_by is not None and db.get_task(con, args.blocked_by) is None:
-            print(f"no task #{args.blocked_by}")
+            print(f"no task T{args.blocked_by}")
             return 1
         # new_task and a refused add_block are one transaction (auditor's
         # #2065 SHOULD-FIX C: add_block's own closed-blocker refusal used to
@@ -555,7 +573,7 @@ def cmd_task_new(args) -> int:
         con.execute("COMMIT")
     finally:
         con.close()
-    print(f"task #{tid} opened for {args.owner}")
+    print(f"task T{tid} opened for {args.owner}")
     return 0
 
 
@@ -563,7 +581,7 @@ def cmd_task_link(args) -> int:
     con = db.connect()
     try:
         if db.get_task(con, args.task) is None:
-            print(f"no task #{args.task}")
+            print(f"no task T{args.task}")
             return 1
         if db.get_request(con, args.request) is None:
             print(f"no request #{args.request}")
@@ -571,7 +589,7 @@ def cmd_task_link(args) -> int:
         db.link_request(con, args.task, args.request)
     finally:
         con.close()
-    print(f"request #{args.request} linked to task #{args.task}")
+    print(f"request #{args.request} linked to task T{args.task}")
     return 0
 
 
@@ -633,7 +651,7 @@ def _print_board(con, tasks: list) -> None:
         print("no open tasks.")
         return
     for t in tasks:
-        parent = f" (under #{t['parent_task']})" if t["parent_task"] else ""
+        parent = f" (under T{t['parent_task']})" if t["parent_task"] else ""
         edited = f"  edited by {textsafe.oneline(t['edited_by'])}" if t["edited_by"] else ""
         state = actions.task_state(con, t)
         done = f"  DONE: {textsafe.oneline(t['done_evidence'])}" if t["done_evidence"] else ""
@@ -641,7 +659,7 @@ def _print_board(con, tasks: list) -> None:
                   f"{textsafe.oneline(t['discard_reason'])}" if t["discarded_by"]
                   else f"  CLOSED by {textsafe.oneline(t['closed_by'])}" if t["closed_by"]
                   else "")
-        print(f"#{t['id']:<4} {textsafe.oneline(t['title'])}  [{t['owner']}] {state}"
+        print(f"{actions.task_ref(t['id']):<5} {textsafe.oneline(t['title'])}  [{t['owner']}] {state}"
               f"{parent}{edited}{done}{closed}")
         for r in db.task_requests(con, t["id"]):
             when = time.strftime("%Y-%m-%d %H:%M", time.localtime(r["ts"]))
@@ -658,8 +676,8 @@ def _print_needing_close(con, tasks: list) -> None:
         return
     print("done - waiting for check:")
     for t in tasks:
-        parent = f" (under #{t['parent_task']})" if t["parent_task"] else ""
-        print(_fit100(f"#{t['id']:<4} {textsafe.oneline(t['title'])}  [{t['owner']}]{parent}"))
+        parent = f" (under T{t['parent_task']})" if t["parent_task"] else ""
+        print(_fit100(f"{actions.task_ref(t['id']):<5} {textsafe.oneline(t['title'])}  [{t['owner']}]{parent}"))
         print(_fit100(f"      done: {textsafe.oneline(t['done_evidence'])}"))
 
 
@@ -696,10 +714,10 @@ def cmd_task_board(args) -> int:
     linked, or the last exchange already closed some other way (withdrawn,
     rejected, replaced), is nobody holding it - the same as never asked.
     A hold (`resolve --hold`) is an open child task sharing a request with
-    its parent, so the parent reads `held as sub-task #N` while it lasts -
+    its parent, so the parent reads `held as sub-task T<n>` while it lasts -
     below a blocker, which is the older and firmer wait. A child opened any
     other way is no hold and changes nothing here.
-    Waiting on an open blocker (task #21/#1884) reads as `waiting on #N`
+    Waiting on an open blocker (task #21/#1884) reads as `waiting on T<n>`
     instead of either of those two - it is neither nobody's turn nor mine
     while the thing it waits on is still open.
 
@@ -734,13 +752,13 @@ def cmd_task_board(args) -> int:
                      if linked_rids & {r["id"] for r in db.task_requests(con, c["id"])}]
             now = (", ".join(held) if held
                   else "sub-task: " + ", ".join(kids) if kids
-                  else "waiting on " + ", ".join(f"#{b['id']}" for b in blockers) if blockers
+                  else "waiting on " + ", ".join(f"T{b['id']}" for b in blockers) if blockers
                   else "held as sub-task " + ", ".join(
-                      f"#{c['id']} ({c['owner']})" for c in holds) if holds
+                      f"T{c['id']} ({c['owner']})" for c in holds) if holds
                   else "you - a result is in" if back
                   else "nobody holds it")
-            parent = f" (under #{t['parent_task']})" if t["parent_task"] else ""
-            print(_fit100(f"#{t['id']:<4} {textsafe.oneline(t['title'])}{parent}"))
+            parent = f" (under T{t['parent_task']})" if t["parent_task"] else ""
+            print(_fit100(f"{actions.task_ref(t['id']):<5} {textsafe.oneline(t['title'])}{parent}"))
             print(_fit100(f"      now: {now}"))
         _print_needing_close(con, needing_close)
     finally:
@@ -2467,7 +2485,7 @@ def build_parser() -> argparse.ArgumentParser:
                    help="read the verdict from this file instead of the inline argument - "
                         "safe against a shell expanding backticks or $() in the text")
     p.add_argument("--state", default="done", choices=["done", "rejected"])
-    p.add_argument("--task", type=int, nargs="+", metavar="N",
+    p.add_argument("--task", type=_task_arg, nargs="+", metavar="T",
                    help="the task(s) this answer belongs to; required on the founder's requests")
     p.add_argument("--no-task", metavar="REASON",
                    help="answered, nothing to build; required on the founder's requests "
@@ -2482,7 +2500,7 @@ def build_parser() -> argparse.ArgumentParser:
                    help="this answer puts the work on hold: it opens as a task owned by "
                         "you, under the task this request belongs to, so it stays on the "
                         "board instead of reading done")
-    p.add_argument("--on", type=int, nargs="+", metavar="N",
+    p.add_argument("--on", type=_task_arg, nargs="+", metavar="T",
                    help="with --hold: the open task(s) it waits on; you are told when the "
                         "last one closes")
     p.set_defaults(fn=cmd_resolve)
@@ -2490,7 +2508,7 @@ def build_parser() -> argparse.ArgumentParser:
     p = sub.add_parser("dismiss", help="take one row off your mailbox without replying")
     p.add_argument("id", type=int)
     p.add_argument("--reason", default=None, help="why; stored as typed")
-    p.add_argument("--task", type=int, nargs="+", metavar="N",
+    p.add_argument("--task", type=_task_arg, nargs="+", metavar="T",
                    help="the task(s) this belongs to; required to dismiss a request the founder made")
     p.add_argument("--no-task", metavar="REASON",
                    help="nothing to build; required to dismiss a founder request unless --task is given")
@@ -2625,30 +2643,31 @@ def build_parser() -> argparse.ArgumentParser:
     p = tk.add_parser("new", help="open a task")
     p.add_argument("title")
     p.add_argument("--owner", required=True)
-    p.add_argument("--parent", type=int, default=None, help="the task this is a part of")
-    p.add_argument("--blocked-by", type=int, default=None,
+    p.add_argument("--parent", type=_task_arg, default=None, metavar="T",
+                   help="the task this is a part of, written T<number>")
+    p.add_argument("--blocked-by", type=_task_arg, default=None, metavar="T",
                    help="cannot be worked until this task closes")
     p.set_defaults(fn=cmd_task_new)
     p = tk.add_parser("list", help="the open tasks and their requests")
     p.add_argument("--all", action="store_true", help="closed tasks too, with what closed them")
     p.set_defaults(fn=cmd_task_list)
     p = tk.add_parser("link", help="attach a further request to a task")
-    p.add_argument("task", type=int)
+    p.add_argument("task", type=_task_arg, metavar="T")
     p.add_argument("request", type=int)
     p.set_defaults(fn=cmd_task_link)
     p = tk.add_parser("edit", help="change a task's owner and/or title - opener or "
                                    "founder only, and never silent about it")
-    p.add_argument("task", type=int)
+    p.add_argument("task", type=_task_arg, metavar="T")
     p.add_argument("--owner", default=None, help="fixing who was named, not handing off work")
     p.add_argument("--title", default=None)
-    p.add_argument("--blocked-by", type=int, default=None,
+    p.add_argument("--blocked-by", type=_task_arg, default=None, metavar="T",
                    help="cannot be worked until this task closes")
-    p.add_argument("--unblock", type=int, default=None,
+    p.add_argument("--unblock", type=_task_arg, default=None, metavar="T",
                    help="remove that blocking task")
     p.set_defaults(fn=cmd_task_edit)
     p = tk.add_parser("done", help="mark a task done (#71) - owner or a linked request's "
                                    "target only, exactly one of a sha, --request N, or a reason")
-    p.add_argument("task", type=int)
+    p.add_argument("task", type=_task_arg, metavar="T")
     p.add_argument("evidence", nargs="?", help="a merge sha on main, or a reason")
     p.add_argument("--request", type=int, default=None,
                    help="a request where the result was already reported")
@@ -2658,12 +2677,12 @@ def build_parser() -> argparse.ArgumentParser:
     p.set_defaults(fn=cmd_task_done)
     p = tk.add_parser("reopen", help="send a done task back to doing (#71) - the asker "
                                      "only, needs a one-line reason")
-    p.add_argument("task", type=int)
+    p.add_argument("task", type=_task_arg, metavar="T")
     p.add_argument("reason")
     p.set_defaults(fn=cmd_task_reopen)
     p = tk.add_parser("discard", help="throw away a task that is not done (#85) - the asker "
                                       "only, needs a one-line reason")
-    p.add_argument("task", type=int)
+    p.add_argument("task", type=_task_arg, metavar="T")
     p.add_argument("reason")
     p.set_defaults(fn=cmd_task_discard)
     p = tk.add_parser("board", help="your own open tasks, and who holds each one now")
