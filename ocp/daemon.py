@@ -603,16 +603,25 @@ def _mark_typed(con, agent: str) -> None:
 
 def deliver_queued(con, agent: str, log) -> bool:
     """Tell an agent about the head of its own queue (`db.head_of_queue`) -
-    and only the head, per request #189. `ocp ask` writes a row and puts a
-    file in the target's inbox; neither reaches the target's screen, which is
-    why this exists at all. Told once per head: the cursor holds the id last
-    announced, so a reminder only goes out once the head actually changes.
+    and only the head, per request #189 - plus any request the human marked
+    "send now" (`db.mark_send_now`), which goes ahead of an open head.
+    `ocp ask` writes a row and puts a file in the target's inbox; neither
+    reaches the target's screen, which is why this exists at all. Told once
+    per head: the cursor holds the id last announced, so a reminder only goes
+    out once the head actually changes.
     """
     head = db.head_of_queue(con, agent)
     if not head:
         return False
-    if db.get_cursor(con, f"notify:{agent}") == int(head["id"]) \
+    marked = [r for r in db.send_now_pending(con, agent) if r["id"] != head["id"]]
+    head_due = db.get_cursor(con, f"notify:{agent}") != int(head["id"]) \
+        or _session_changed(con, agent)
+    if head_due and head["send_now"] and db.get_cursor(con, f"sendnow_told:{head['id']}") \
             and not _session_changed(con, agent):
+        # Told already, out of turn, as "send now"; becoming the head is not news.
+        db.set_cursor(con, f"notify:{agent}", int(head["id"]))
+        head_due = False
+    if not head_due and not marked:
         return False
     if wall_reason(con, agent):
         return False              # stays queued; told when it wakes or moves
@@ -635,6 +644,11 @@ def deliver_queued(con, agent: str, log) -> bool:
             return False          # something else is mid-send; next tick
         if _type_gate(con, agent, handle):
             return False          # stale reading above; next tick
+        # One message per pass: it starts the agent's turn, so a second would be
+        # typed mid-turn. The rest go out on later ticks, each behind its own
+        # typeable_now.
+        if marked:
+            return _tell(con, agent, marked[0], depth, handle, log, ahead_of=head)
         return _tell(con, agent, head, depth, handle, log)
 
 
@@ -806,13 +820,17 @@ def _answer_verb(head) -> str:
     return f"answer with `ocp resolve {head['id']} \"<verdict>\"`"
 
 
-def _tell(con, agent: str, head, depth: int, handle: str, log) -> bool:
+def _tell(con, agent: str, head, depth: int, handle: str, log, ahead_of=None) -> bool:
+    """`ahead_of` is the head a "send now" request is jumping: it is told
+    without touching the head's own cursor, so that head is not told twice."""
     more = depth - 1
     body = head["body"] or "(empty)"
     # Capped at 400; `ocp read` has the rest.
     shown = body if len(body) <= 400 else body[:400] + "…"
     tail = (f"\n{more} more waiting - the next comes when you resolve or dismiss this one."
             if more else "")
+    if ahead_of is not None:
+        tail = f"\nSent now, ahead of #{ahead_of['id']}, which is still open."
     # Before the send, not after: this is what closes withdraw/replace's race
     # against delivery (request #189). A send that then fails leaves the row
     # marked anyway - its requester can no longer withdraw it, but the cursor
@@ -829,10 +847,15 @@ def _tell(con, agent: str, head, depth: int, handle: str, log) -> bool:
         f"or `ocp inbox` any time.")
     if ok:
         _mark_typed(con, agent)
-        db.set_cursor(con, f"notify:{agent}", int(head["id"]))
-        db.set_notified_session(con, agent, _live_session(con, agent))
+        if ahead_of is None:
+            db.set_cursor(con, f"notify:{agent}", int(head["id"]))
+            db.set_notified_session(con, agent, _live_session(con, agent))
+        else:
+            db.set_cursor(con, f"sendnow_told:{head['id']}", 1)
         db.add_event(con, agent, "notified", {"request_id": head["id"], "more_waiting": more})
-        log(f"  {agent}: told about #{head['id']}" + (f" ({more} more waiting)" if more else ""))
+        log(f"  {agent}: told about #{head['id']}"
+            + (" (send now)" if ahead_of is not None else "")
+            + (f" ({more} more waiting)" if more else ""))
     return ok
 
 
