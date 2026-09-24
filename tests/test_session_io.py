@@ -162,73 +162,6 @@ def test_failclosed(home: Path) -> None:
           picked is None, str(picked))
 
 
-def test_quiet_hours_blocks_only_a_claude_agent_with_the_flag_on(home: Path) -> None:
-    """`_quiet_hours_blocks` is the one question every call site asks: the
-    flag, the window and the vendor all have to agree, or nothing is held.
-    opencode/Z.ai agents (founder's own words) are unaffected whether or not
-    the flag is on."""
-    use_home(home)
-    (home / "team.yaml").write_text(DESIGN_TEAM)
-    agents.register("backend")
-    agents.register("coder", vendor="opencode")
-    in_window = _pt_epoch(2026, 9, 21, 7, 0)
-    out_of_window = _pt_epoch(2026, 9, 21, 12, 0)
-
-    dmn.set_quiet_hours(False)
-    check("quiet hours: flag off blocks nobody, even inside the window",
-          dmn._quiet_hours_blocks("backend", in_window) == (False, 0))
-
-    dmn.set_quiet_hours(True)
-    check("quiet hours: flag on, outside the window blocks nobody",
-          dmn._quiet_hours_blocks("backend", out_of_window) == (False, 0))
-    blocked, until = dmn._quiet_hours_blocks("backend", in_window)
-    check("quiet hours: flag on and inside the window blocks the claude agent",
-          blocked and until == _pt_epoch(2026, 9, 21, 11, 0), str((blocked, until)))
-    check("quiet hours: an opencode agent is unaffected, same flag, same clock",
-          dmn._quiet_hours_blocks("coder", in_window) == (False, 0))
-
-
-def test_quiet_hours_wakes_on_its_own_when_the_window_closes(home: Path) -> None:
-    """orcapipe #2201: parked at 10:59 PT is still ticked at 11:00 PT, and
-    resumes through the ordinary wake path - no new code for waking, and
-    nothing typed by hand - picking up the queued work it was parked on.
-    Driven through `tick()` itself, with the real clock stood in for, since
-    that is the daemon's own entry point and the one #2201 named."""
-    _daemon_home(home, 20)
-    con = db.connect()
-    real_time = time.time
-    try:
-        orca_seen()
-        orcamod.idle_now = lambda h: True
-        sent: list[str] = []
-        orcamod.send = lambda h, text, enter=True: (sent.append(text), (True, ""))[1]
-        sessions_are("backend")
-        db.set_agent_state(con, "backend", dmn.IDLE)
-        db.add_request(con, "marina", "backend", "carry on", None,
-                       "peer", "async", None, 0, None)
-        dmn.set_quiet_hours(True)
-
-        time.time = lambda: float(_pt_epoch(2026, 9, 21, 10, 59))
-        dmn.tick(con, lambda _m: None)
-        row = db.get_agent_state(con, "backend")
-        check("quiet hours wake: 10:59 PT still parks it",
-              row["state"] == dmn.PARKED and row["wake_at"] == _pt_epoch(2026, 9, 21, 11, 0),
-              str(dict(row)))
-        check("quiet hours wake: nothing typed at 10:59 PT", sent == [], str(sent))
-
-        time.time = lambda: float(_pt_epoch(2026, 9, 21, 11, 0))
-        dmn.tick(con, lambda _m: None)
-        row = db.get_agent_state(con, "backend")
-        check("quiet hours wake: 11:00 PT wakes it on its own, no hand typing",
-              row["state"] != dmn.PARKED, str(dict(row)))
-        check("quiet hours wake: and it picks up the queued work",
-              sent and "carry on" in sent[-1], str(sent))
-    finally:
-        time.time = real_time
-        dmn.set_quiet_hours(False)
-        con.close()
-
-
 def test_daemon_success_clears_streak(home: Path) -> None:
     """A handoff that works - record AND clear both land - must end the
     streak, or every agent eventually stalls just from having been busy.
@@ -2706,12 +2639,10 @@ def test_a_queued_agents_blocked_reminder_surfaces_like_an_idle_ones(home: Path)
 def test_a_parked_agent_with_queued_work_is_still_closed_while_idle(home: Path) -> None:
     """#83: a PARKED agent already had its one chance at delivery this same
     tick - `deliver_queued` runs before `should_close` in `supervise`, and a
-    quiet park re-parks over it, a usage/forced park is walled, and a
-    context/backoff/hand park with an open session was just delivered to -
-    so by the time `should_close` runs, refusing over the queue only holds a
-    session open that either could not be delivered to, or already was
-    (task #83: a quiet-hours park sat open the whole window, undelivered and
-    unclosed, with two asks queued for it). A closed PARKED agent's wake
+    usage/forced park is walled, and a context/backoff/hand park with an open
+    session was just delivered to - so by the time `should_close` runs,
+    refusing over the queue only holds a session open that either could not
+    be delivered to, or already was. A closed PARKED agent's wake
     already resumes the same session by its own session id (`_wake_agent`'s
     `closed` branch), so nothing about waking it back up is worse for having
     been closed."""
@@ -3144,8 +3075,6 @@ def main() -> int:
         home = Path(td) / "orcapipe"
         home.mkdir()
         run(lambda: test_failclosed(home))
-        run(lambda: test_quiet_hours_blocks_only_a_claude_agent_with_the_flag_on(Path(td) / 'quiethoursvendor'))
-        run(lambda: test_quiet_hours_wakes_on_its_own_when_the_window_closes(Path(td) / 'quiethourswake'))
         run(lambda: test_daemon_success_clears_streak(Path(td) / 'd5b'))
         run(lambda: test_the_screen_names_what_is_in_the_way(Path(td) / 'blk1'))
         run(lambda: test_a_dialog_in_the_way_of_work_is_said_once_and_clears_itself(Path(td) / 'blk2'))

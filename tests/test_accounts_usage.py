@@ -2233,80 +2233,6 @@ def test_status_read_sums_a_raw_ctx_used_dict_the_way_collect_does(home: Path) -
           st.ctx_used == 302_150, st.ctx_used)
 
 
-def test_quiet_hours_window_is_weekday_mornings_pacific(home: Path) -> None:
-    """Founder #2199's own figures: weekdays 05:00-11:00 America/Los_Angeles,
-    computed with zoneinfo. A Monday edge on both ends, a weekend, and a day
-    either side of the DST transition so the window is checked against the
-    real offset for that date rather than a fixed UTC delta."""
-    check("quiet hours: Monday 04:59 PT is not yet in the window",
-          dmn._quiet_hours_window(_pt_epoch(2026, 9, 21, 4, 59))[0] is False)
-    check("quiet hours: Monday 05:00 PT is the first minute in",
-          dmn._quiet_hours_window(_pt_epoch(2026, 9, 21, 5, 0))[0] is True)
-    check("quiet hours: Monday 10:59 PT is still in",
-          dmn._quiet_hours_window(_pt_epoch(2026, 9, 21, 10, 59))[0] is True)
-    check("quiet hours: Monday 11:00 PT is out again",
-          dmn._quiet_hours_window(_pt_epoch(2026, 9, 21, 11, 0))[0] is False)
-    check("quiet hours: Saturday 07:00 PT is a weekend, never in",
-          dmn._quiet_hours_window(_pt_epoch(2026, 9, 19, 7, 0))[0] is False)
-    check("quiet hours: the day after the US spring-forward is still 05:00-11:00 local",
-          dmn._quiet_hours_window(_pt_epoch(2026, 3, 9, 5, 0))[0] is True and
-          dmn._quiet_hours_window(_pt_epoch(2026, 3, 9, 10, 59))[0] is True and
-          dmn._quiet_hours_window(_pt_epoch(2026, 3, 9, 11, 0))[0] is False)
-    active, end = dmn._quiet_hours_window(_pt_epoch(2026, 9, 21, 7, 0))
-    check("quiet hours: the window end it reports is 11:00 PT that day",
-          active and end == _pt_epoch(2026, 9, 21, 11, 0), str(end))
-
-
-def test_quiet_hours_is_not_undone_by_the_usage_recovery_branch(home: Path) -> None:
-    """auditor #2211 BLOCKING: a separate branch un-parks a PARKED agent once
-    its last usage reading no longer fires - keyed only on the last handoff's
-    trigger kind, since nothing on the row itself says why this park was
-    written. That reads a quiet park exactly like a usage park that
-    recovered. Without `quiet_blocked` in its condition, an agent with a
-    prior usage handoff flips PARKED/QUEUED every tick for the rest of the
-    window; nothing leaks to the terminal (`open_idle` still catches
-    delivery), but the state and 'usage recovered' log line churn for hours,
-    and the move branch beside it can move a parked claude agent to another
-    claude account - exactly the work this window exists to prevent."""
-    _daemon_home(home, 20)
-    con = db.connect()
-    try:
-        orcamod.available = lambda: True
-        orcamod.alive = lambda h: True
-        orcamod.live_terminals = lambda: {"term_x"}
-        orcamod.idle_now = lambda h: True
-        sent: list[str] = []
-        orcamod.send = lambda h, text, enter=True: (sent.append(text), (True, ""))[1]
-        sessions_are("backend")
-        # The two things production has that the plain integration test's
-        # fixture does not: an account recorded (not assumed), and a prior
-        # handoff whose trigger names it as a usage park.
-        db.set_account(con, "backend", "alpha")
-        hid = "usagehid1"
-        db.start_handoff(con, hid, "backend", None, "usage", int(time.time()) + 3600)
-        db.advance_handoff(con, hid, "released", state="done")
-        db.add_request(con, "marina", "backend", "carry on", None,
-                       "peer", "async", None, 0, None)
-        dmn.set_quiet_hours(True)
-        window_end = _pt_epoch(2026, 9, 21, 11, 0)
-        db.set_agent_state(con, "backend", dmn.PARKED, wake_at=window_end,
-                           detail="quiet hours; wakes at 11:00")
-
-        actions: list[str] = []
-        for minute in range(6):
-            now = _pt_epoch(2026, 9, 21, 7, minute)
-            dmn.supervise(con, "backend", lambda _m: None, now, {}, actions)
-            row = db.get_agent_state(con, "backend")
-            check(f"quiet hours vs usage recovery: tick {minute} stays PARKED",
-                  row["state"] == dmn.PARKED, str(dict(row)))
-        check("quiet hours vs usage recovery: 'usage recovered' never logged",
-              not any("usage recovered" in a for a in actions), str(actions))
-        check("quiet hours vs usage recovery: nothing was typed", sent == [], str(sent))
-    finally:
-        dmn.set_quiet_hours(False)
-        con.close()
-
-
 def test_a_new_account_gets_its_first_reading_without_anyone_asking(home: Path) -> None:
     """An account that exists, is logged in and has no status.json is asked
     about once by the daemon, with nobody waiting; asked once, it is not asked
@@ -5784,8 +5710,6 @@ def main() -> int:
         run(lambda: test_a_stale_ctx_used_does_not_fire(Path(td) / 'ctxstale'))
         run(lambda: test_status_read_sums_a_raw_ctx_used_dict_the_way_collect_does(
             Path(td) / 'ctxsum'))
-        run(lambda: test_quiet_hours_window_is_weekday_mornings_pacific(Path(td) / 'quiethourswindow'))
-        run(lambda: test_quiet_hours_is_not_undone_by_the_usage_recovery_branch(Path(td) / 'quiethoursrecov'))
         run(lambda: test_a_new_account_gets_its_first_reading_without_anyone_asking(
             Path(td) / 'newacct'))
         run(lambda: test_status_edge_cases(Path(td) / 'se'))

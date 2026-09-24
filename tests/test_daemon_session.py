@@ -1,4 +1,4 @@
-"""Tests: the daemon tick, parks, wakes, handoffs, quiet hours and the lock.
+"""Tests: the daemon tick, parks, wakes, handoffs and the lock.
 
 Run on its own: python3 tests/test_daemon_session.py   (all areas: python3 tests/test_ocp.py)
 """
@@ -506,60 +506,6 @@ def test_dev_mode_restart_yields_to_a_signal_that_arrived_during_the_check(home:
               "restart skipped" in out, out)
     finally:
         dmn._dev_mode_should_restart, dmn._dev_mode_restart = real_should, real_restart
-
-
-def test_quiet_hours_config_round_trips(home: Path) -> None:
-    """Task #77: off by default, `ocp quiet-hours on/off` flips config.yaml
-    (the same file `dev-mode` and `account cap` write to), and a plain
-    `ocp quiet-hours` reads it back without changing it."""
-    use_home(home)
-    check("quiet-hours: off by default", dmn.quiet_hours_enabled() is False,
-          str(dmn.quiet_hours_enabled()))
-    out = _capture(lambda: climod.main(["quiet-hours"]))
-    check("cli quiet-hours: prints the current state with no argument",
-          out.strip() == "off", out)
-    out = _capture(lambda: climod.main(["quiet-hours", "on"]))
-    check("cli quiet-hours on: confirms the flip", "on" in out, out)
-    check("quiet-hours: on reaches daemon.py's own reader",
-          dmn.quiet_hours_enabled() is True, str(dmn.quiet_hours_enabled()))
-    climod.main(["quiet-hours", "off"])
-    check("quiet-hours: off turns it back off, not just adds a second key",
-          dmn.quiet_hours_enabled() is False, str(dmn.quiet_hours_enabled()))
-
-
-def test_quiet_hours_holds_queued_work_from_an_idle_claude_agent(home: Path) -> None:
-    """Integration: `supervise` on a claude agent sitting IDLE with a request
-    already queued does not deliver it while quiet hours block it - it parks,
-    reusing PARKED/wake_at rather than a new state - and does deliver once
-    the same call is made with `now` outside the window."""
-    _daemon_home(home, 20)
-    con = db.connect()
-    try:
-        orca_seen()
-        orcamod.idle_now = lambda h: True
-        sent: list[str] = []
-        orcamod.send = lambda h, text, enter=True: (sent.append(text), (True, ""))[1]
-        sessions_are("backend")
-        db.set_agent_state(con, "backend", dmn.IDLE)
-        db.add_request(con, "marina", "backend", "carry on", None,
-                       "peer", "async", None, 0, None)
-        dmn.set_quiet_hours(True)
-        in_window = _pt_epoch(2026, 9, 21, 7, 0)
-
-        dmn.supervise(con, "backend", lambda _m: None, in_window, {}, [])
-        check("quiet hours: nothing was typed while blocked", sent == [], str(sent))
-        row = db.get_agent_state(con, "backend")
-        check("quiet hours: the agent parks instead, PARKED with a wake_at",
-              row["state"] == dmn.PARKED and row["wake_at"] == _pt_epoch(2026, 9, 21, 11, 0),
-              str(dict(row)))
-
-        out_of_window = _pt_epoch(2026, 9, 21, 12, 0)
-        dmn.supervise(con, "backend", lambda _m: None, out_of_window, {}, [])
-        check("quiet hours: past the window, the same queued work is delivered",
-              sent and "carry on" in sent[-1], str(sent))
-    finally:
-        dmn.set_quiet_hours(False)
-        con.close()
 
 
 def test_reconcile_still_propagates_a_fault_that_is_not_one_agents(home: Path) -> None:
@@ -3855,8 +3801,6 @@ def main() -> int:
         run(lambda: test_dev_mode_check_failing_degrades_not_crashes(Path(td) / 'devmodedegrade'))
         run(lambda: test_dev_mode_restart_yields_to_a_signal_that_arrived_during_the_check(
             Path(td) / 'devmodesignalrace'))
-        run(lambda: test_quiet_hours_config_round_trips(Path(td) / 'quiethourscfg'))
-        run(lambda: test_quiet_hours_holds_queued_work_from_an_idle_claude_agent(Path(td) / 'quiethourshold'))
         run(lambda: test_reconcile_still_propagates_a_fault_that_is_not_one_agents(Path(td) / 'reconsys'))
         run(lambda: test_reconcile_stalls_one_due_agents_unreadable_config_at_wake_too(Path(td) / 'reconwake'))
         run(lambda: test_daemon_handoff_timeout(Path(td) / 'd4'))
