@@ -1,0 +1,5052 @@
+"""Tests: requests, asks, tasks, answers and the inbox.
+
+Run on its own: python3 tests/test_tasks_requests.py   (all areas: python3 tests/test_ocp.py)
+"""
+from __future__ import annotations
+
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import support  # noqa: E402
+from support import *  # noqa: E402,F401,F403
+
+
+
+
+def test_the_quota_request_never_follows_a_redirect(home: Path) -> None:
+    """auditor #2025's note: urllib's redirect handler copies Authorization
+    onto the redirect, to any host. The quota request is sent with the
+    account's key, so a redirect must be refused outright - exercised here
+    against a real local server that answers the first request with a 301 to
+    a second one holding a perfectly good quota answer. Refused, the read is
+    could-not-look and the second endpoint is never asked; followed, it would
+    be a reading and the key would have arrived there."""
+    use_home(home)
+    accounts.register("zai", vendor="opencode")
+    cdir = vendors.config_dir("zai")
+    (cdir / "opencode").mkdir(parents=True, exist_ok=True)
+    (cdir / "opencode" / "auth.json").write_text(
+        '{"zai-coding-plan": {"type": "api", "key": "SECRET-ZAI-KEY"}}')
+
+    hits: list[str] = []
+
+    class Handler(http.server.BaseHTTPRequestHandler):
+        def do_GET(self):
+            path = self.path.split("?")[0]
+            hits.append(path)
+            if path == "/elsewhere":
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json")
+                self.end_headers()
+                self.wfile.write(json.dumps(zai_quota(time.time() * 1000)).encode())
+            else:
+                self.send_response(301)
+                self.send_header("Location", f"/elsewhere?from={self.path}")
+                self.end_headers()
+
+        def log_message(self, *a):
+            pass
+
+    srv = http.server.HTTPServer(("127.0.0.1", 0), Handler)
+    thread = threading.Thread(target=srv.serve_forever, daemon=True)
+    thread.start()
+    drv = vendors.get("opencode")
+    real_url = drv.QUOTA_URL
+    drv.QUOTA_URL = f"http://127.0.0.1:{srv.server_port}/quota"
+    try:
+        check("zai redirect: a redirect is could-not-look, not a reading",
+              drv.usage_reading(cdir) is None)
+        check("zai redirect: and the redirect target was never asked",
+              hits == ["/quota"], str(hits))
+    finally:
+        drv.QUOTA_URL = real_url
+        srv.shutdown()
+        srv.server_close()
+
+
+def test_db_dedup(home: Path) -> None:
+    con = db.connect(home / "dedup.sqlite")
+    try:
+        first = db.add_event(con, "backend", "usage", {"in": 10}, dedup_key="msg_abc")
+        second = db.add_event(con, "backend", "usage", {"in": 10}, dedup_key="msg_abc")
+        check("db: first usage event stored", first is not None)
+        check("db: duplicate message.id is dropped", second is None)
+        check("db: no dedup key means always stored",
+              db.add_event(con, "backend", "note") is not None)
+
+        db.set_cursor(con, "fold", 0)
+        for i in range(5):
+            db.add_event(con, "backend", "e", {"i": i})
+        rows = db.events_after(con, db.get_cursor(con, "fold"), agent="backend")
+        check("db: cursor reads by row id", len(rows) >= 5)
+        top = max(r["id"] for r in rows)
+        db.set_cursor(con, "fold", top)
+        check("db: advanced cursor yields nothing new",
+              db.events_after(con, db.get_cursor(con, "fold"), agent="backend") == [])
+    finally:
+        con.close()
+
+
+def test_ask_flow(home: Path) -> None:
+    use_home(home)
+    (home / "team.yaml").write_text(DESIGN_TEAM)
+    for name in ("backend", "reviewer", "archivist", "marketing"):
+        agents.register(name, "alpha")
+
+    ok, msg, rid = askmod.ask("reviewer", "review this", requester="backend")
+    check("ask: allowed edge queues", ok and rid is not None, msg)
+    inbox_file = home / "agents" / "reviewer" / "inbox" / f"{rid:06d}.json"
+    check("ask: writes an inbox file", inbox_file.exists())
+    payload = json.loads(inbox_file.read_text())
+    check("ask: inbox payload carries routing", payload["intake"] == "serial", str(payload))
+
+    ok, msg, _ = askmod.ask("marketing", "do this", requester="backend")
+    check("ask: denied edge refuses", not ok and "product" in msg, msg)
+
+    ok, msg, _ = askmod.ask("frontend", "do this", requester="backend")
+    check("ask: unlisted edge refuses", not ok, msg)
+
+    con = db.connect()
+    try:
+        denied = con.execute("SELECT COUNT(*) c FROM requests WHERE state='denied'").fetchone()["c"]
+        check("ask: denials are recorded, not silent", denied == 2, str(denied))
+        st = db.get_agent_state(con, "backend")
+        check("ask: async requester parks", st["state"] == "PARKED", str(dict(st)))
+        check("ask: parking a requester sets a fallback wake_at so a lost "
+              "reply cannot strand it", st["wake_at"] is not None, str(dict(st)))
+    finally:
+        con.close()
+
+    ok, msg = askmod.resolve(rid, "looks good")
+    check("resolve: closes the request", ok, msg)
+    check("resolve: drains the inbox file", not inbox_file.exists())
+    con = db.connect()
+    try:
+        st = db.get_agent_state(con, "backend")
+        check("resolve: the reply queues the requester", st["state"] == "QUEUED", str(dict(st)))
+        check("resolve: queueing clears the fallback wake_at", st["wake_at"] is None)
+    finally:
+        con.close()
+
+    # fire_and_forget must not park the requester. Asked from marketing, whose
+    # first matching edge really is `* -> archivist`. (From reviewer it would
+    # not be: `reviewer -> *` appears earlier and edges are first-match-wins.)
+    ok, _, _ = askmod.ask("archivist", "log this", requester="marketing")
+    check("ask: fire_and_forget ask is accepted", ok)
+    con = db.connect()
+    try:
+        st = db.get_agent_state(con, "marketing")
+        check("ask: fire_and_forget does not park the requester", st is None, str(st and dict(st)))
+    finally:
+        con.close()
+
+    # Edge order is significant, and the design's own policy relies on it.
+    t = team.Team(yamlcompat.parse(DESIGN_TEAM))
+    check("ask: earlier edge wins over a later one",
+          t.route("reviewer", "archivist").response == "async",
+          t.route("reviewer", "archivist").reason)
+
+    # Chain depth must actually stop a loop.
+    parent = rid
+    depth_blocked = False
+    for _ in range(6):
+        ok, msg, new = askmod.ask("reviewer", "again", requester="backend", parent_id=parent)
+        if not ok and "chain depth" in msg:
+            depth_blocked = True
+            break
+        parent = new
+    check("ask: chain depth stops runaway loops", depth_blocked)
+
+
+def test_one_request_at_a_time(home: Path) -> None:
+    """Request #189: an agent is given one request at a time - the head of
+    its queue - and the next only once it resolves or dismisses this one.
+    Before delivery its own requester may still replace or withdraw it;
+    once delivered, neither applies."""
+    use_home(home)
+    (home / "team.yaml").write_text(DESIGN_TEAM)
+    for name in ("backend", "reviewer"):
+        agents.register(name, "alpha")
+    con = db.connect()
+    try:
+        ok, msg, first = askmod.ask("reviewer", "task one", requester="backend")
+        check("one-at-a-time: the first ask queues", ok, msg)
+        check("one-at-a-time: the head is the first request",
+              db.head_of_queue(con, "reviewer")["id"] == first,
+              db.head_of_queue(con, "reviewer")["id"])
+        # Delivery itself - the daemon actually typing this into a terminal -
+        # is exercised in daemon tests; here the head is marked delivered
+        # directly, the way `deliver_queued` or a self-view of `ocp inbox`
+        # would, to set up what withdraw/replace are gated on.
+        db.mark_delivered(con, first)
+
+        ok, msg, second = askmod.ask("reviewer", "task two", requester="backend")
+        check("one-at-a-time: a second ask still queues", ok, msg)
+        check("one-at-a-time: the head is still the first - the second waits behind it",
+              db.head_of_queue(con, "reviewer")["id"] == first,
+              db.head_of_queue(con, "reviewer")["id"])
+        check("one-at-a-time: the second was never marked delivered",
+              db.get_request(con, second)["delivered_at"] is None)
+        check("one-at-a-time: two are queued for reviewer",
+              db.queue_depth(con, "reviewer") == 2, db.queue_depth(con, "reviewer"))
+
+        # --first jumps a third request ahead of the (undelivered) second one,
+        # but never ahead of the first, which is already delivered.
+        ok, msg, third = askmod.ask("reviewer", "task three - urgent", requester="backend",
+                                    first=True)
+        check("one-at-a-time: --first is accepted", ok, msg)
+        order = [r["id"] for r in db.queued_for(con, "reviewer")]
+        check("one-at-a-time: --first jumps ahead of what was not yet delivered",
+              order == [first, third, second], str(order))
+
+        # A second --first must not compute its ceiling from the first
+        # --first's row and walk straight past the delivered floor - the
+        # exact repro of the bug the review found: two --first asks in a row.
+        ok, msg, fourth = askmod.ask("reviewer", "task four - even more urgent",
+                                     requester="backend", first=True)
+        check("one-at-a-time: a second --first is accepted", ok, msg)
+        order = [r["id"] for r in db.queued_for(con, "reviewer")]
+        check("one-at-a-time: a second --first still never crosses the delivered head",
+              order == [first, fourth, third, second], str(order))
+        ok, msg = askmod.withdraw(fourth, requester="backend")
+        check("one-at-a-time: cleaning up the extra probe", ok, msg)
+
+        # A requester may replace its own undelivered request; a foreign
+        # requester, or a delivered one, may not.
+        ok, msg = askmod.ask("reviewer", "not yours", requester="reviewer",
+                             replaces=second)[:2]
+        check("one-at-a-time: only the original requester may replace a request",
+              not ok and "not yours" in msg, msg)
+
+        ok, msg, replacement = askmod.ask("reviewer", "task two, corrected",
+                                          requester="backend", replaces=second)
+        check("one-at-a-time: replacing an undelivered request is allowed", ok, msg)
+        check("one-at-a-time: the old one is retired", db.get_request(con, second)["state"],
+              db.get_request(con, second)["state"])
+        check("one-at-a-time: as 'replaced'",
+              db.get_request(con, second)["state"] == "replaced")
+        order = [r["id"] for r in db.queued_for(con, "reviewer")]
+        check("one-at-a-time: the replacement keeps the same place in line",
+              order == [first, third, replacement], str(order))
+
+        ok, msg = askmod.ask("reviewer", "too late", requester="backend", replaces=first)[:2]
+        check("one-at-a-time: a delivered request cannot be replaced",
+              not ok and "already delivered" in msg, msg)
+
+        ok, msg = askmod.withdraw(third, requester="backend")
+        check("one-at-a-time: withdrawing an undelivered request is allowed", ok, msg)
+        check("one-at-a-time: it is gone from the queue", db.get_request(con, third)["state"],
+              db.get_request(con, third)["state"])
+        check("one-at-a-time: as 'withdrawn'", db.get_request(con, third)["state"] == "withdrawn")
+
+        ok, msg = askmod.withdraw(first, requester="backend")
+        check("one-at-a-time: a delivered request cannot be withdrawn",
+              not ok and "already delivered" in msg, msg)
+
+        # Resolving the head hands delivery to the next one - the replacement,
+        # not the request it replaced.
+        ok, msg = askmod.resolve(first, "done")
+        check("one-at-a-time: resolving the head succeeds", ok, msg)
+        new_head = db.head_of_queue(con, "reviewer")
+        check("one-at-a-time: the replacement becomes the head",
+              new_head["id"] == replacement, new_head["id"])
+        check("one-at-a-time: withdrawn/replaced rows never become the head",
+              new_head["body"] == "task two, corrected", new_head["body"])
+    finally:
+        con.close()
+
+
+def test_migration_marks_only_each_targets_head_delivered(home: Path) -> None:
+    """Review of buddyron/one-task-at-a-time: the first version of this
+    migration marked every existing queued row delivered, which left --first
+    nothing to land in front of and sent it to the back of a live queue."""
+    import sqlite3
+    home.mkdir(parents=True, exist_ok=True)
+    p = home / "old.sqlite"
+    old = sqlite3.connect(p)
+    old.execute("""
+        CREATE TABLE requests (
+          id INTEGER PRIMARY KEY AUTOINCREMENT, ts INTEGER NOT NULL,
+          requester TEXT NOT NULL, target TEXT NOT NULL, body TEXT NOT NULL,
+          files TEXT, relation TEXT, response TEXT, kind TEXT,
+          chain_depth INTEGER NOT NULL DEFAULT 0, parent_id INTEGER,
+          chain_id TEXT, state TEXT NOT NULL DEFAULT 'queued', verdict TEXT,
+          announced_at INTEGER, resolved_at INTEGER
+        )
+    """)
+    now = int(time.time())
+    for i, body in enumerate(["first", "second", "third"]):
+        old.execute(
+            "INSERT INTO requests(ts, requester, target, body, state, chain_id) "
+            "VALUES(?,?,?,?,?,?)", (now, "backend", "keeper", body, "queued", str(i + 1)))
+    old.commit()
+    old.close()
+
+    con = db.connect(p)
+    try:
+        rows = con.execute(
+            "SELECT id, body, queue_order, delivered_at FROM requests ORDER BY id").fetchall()
+        check("migration: queue_order backfilled to id",
+              [r["queue_order"] for r in rows] == [r["id"] for r in rows], str([dict(r) for r in rows]))
+        check("migration: only the head is marked delivered",
+              rows[0]["delivered_at"] is not None and rows[1]["delivered_at"] is None
+              and rows[2]["delivered_at"] is None, str([dict(r) for r in rows]))
+
+        # --first now has room to land right after the migrated head, not at
+        # the back of the whole queue.
+        new_id = db.add_request(con, "someone", "keeper", "urgent", None,
+                                "peer", "async", None, 0, None, first=True)
+        order = [r["id"] for r in db.queued_for(con, "keeper")]
+        check("migration: --first lands right after the migrated head",
+              order == [rows[0]["id"], new_id, rows[1]["id"], rows[2]["id"]], str(order))
+    finally:
+        con.close()
+
+
+def test_replace_and_merge_respect_delivered_at(home: Path) -> None:
+    """Review of buddyron/one-task-at-a-time: --mergeable folded into an
+    already-delivered row (changing what the target was already reading, with
+    nobody told), and --replaces --mergeable together returned before the
+    replaced row was retired."""
+    use_home(home)
+    (home / "team.yaml").write_text(DESIGN_TEAM)
+    for name in ("backend", "reviewer"):
+        agents.register(name, "alpha")
+    con = db.connect()
+    try:
+        ok, msg, rid = askmod.ask("reviewer", "please look", requester="backend",
+                                  files="a.py")
+        db.mark_delivered(con, rid)
+        ok, msg, merged = askmod.ask("reviewer", "also this", requester="backend",
+                                     files="a.py", mergeable=True)
+        check("mergeable: does not fold into an already-delivered row",
+              merged != rid, str((rid, merged)))
+        check("mergeable: a separate request queues instead",
+              db.get_request(con, merged)["body"] == "also this",
+              db.get_request(con, merged)["body"])
+
+        # --replaces --mergeable: the replaced row must be retired, not left
+        # 'queued' because a merge path returned first.
+        ok, msg, third = askmod.ask("reviewer", "another one", requester="backend")
+        ok, msg, fourth = askmod.ask("reviewer", "another one, corrected",
+                                     requester="backend", replaces=third, mergeable=True)
+        check("replaces+mergeable: the ask succeeds", ok, msg)
+        check("replaces+mergeable: the replaced row is retired, not left queued",
+              db.get_request(con, third)["state"] == "replaced",
+              db.get_request(con, third)["state"])
+    finally:
+        con.close()
+
+
+def test_chain_members_excludes_a_row_about_to_be_replaced(home: Path) -> None:
+    """Review note: a replace's cycle/ping-pong check ran while the row it is
+    about to retire was still 'queued', counting a round that, from the
+    target's side, never happened."""
+    use_home(home)
+    con = db.connect()
+    try:
+        a = db.add_request(con, "x", "y", "one", None, "peer", "async", None, 0, None)
+        b = db.add_request(con, "y", "x", "two", None, "peer", "async", None, 0, None,
+                           chain_id=db.get_request(con, a)["chain_id"])
+        chain_id = db.get_request(con, a)["chain_id"]
+        check("chain_members: both rows count without exclusion",
+              len(db.chain_members(con, chain_id)) == 2)
+        check("chain_members: exclude_id drops just that one row",
+              [r["id"] for r in db.chain_members(con, chain_id, exclude_id=b)] == [a])
+    finally:
+        con.close()
+
+
+def test_retire_if_undelivered_is_the_gate_against_the_delivery_race(home: Path) -> None:
+    """Review of buddyron/one-task-at-a-time: a plain read-then-write let a
+    delivery land between checking delivered_at and retiring the row. The
+    atomic conditional update is the only thing withdraw/replace may trust."""
+    use_home(home)
+    con = db.connect()
+    try:
+        rid = db.add_request(con, "backend", "reviewer", "task", None,
+                             "peer", "async", None, 0, None)
+        check("retire_if_undelivered: succeeds on an undelivered row",
+              db.retire_if_undelivered(con, rid, "withdrawn"))
+        check("retire_if_undelivered: the row actually moved",
+              db.get_request(con, rid)["state"] == "withdrawn")
+
+        rid2 = db.add_request(con, "backend", "reviewer", "task two", None,
+                              "peer", "async", None, 0, None)
+        # A delivery "landing" between a caller's own check and its write is
+        # exactly db.mark_delivered running first.
+        db.mark_delivered(con, rid2)
+        check("retire_if_undelivered: refuses once delivered_at is set",
+              not db.retire_if_undelivered(con, rid2, "withdrawn"))
+        check("retire_if_undelivered: and does not touch the row",
+              db.get_request(con, rid2)["state"] == "queued")
+    finally:
+        con.close()
+
+
+def test_ask_rate_limit(home: Path) -> None:
+    use_home(home)
+    (home / "team.yaml").write_text(
+        "agents:\n  a: { intake: dedicated }\n  b: { intake: dedicated }\n"
+        'edges:\n  - { from: "*", to: "*", relation: peer, response: fire_and_forget }\n'
+        "limits:\n  max_chain_depth: 99\n  ask_rate_per_hour: 3\n"
+    )
+    agents.register("a", "alpha")
+    agents.register("b", "alpha")
+    results = [askmod.ask("b", f"n{i}", requester="a")[0] for i in range(5)]
+    check("rate limit: allows up to the cap", results[:3] == [True, True, True], str(results))
+    check("rate limit: refuses past the cap", results[3:] == [False, False], str(results))
+
+
+def test_cycle_and_escalation(home: Path) -> None:
+    """A runaway must be stopped AND escalated - a request that silently
+    vanishes leaves the team stuck with nobody knowing why."""
+    use_home(home)
+    (home / "team.yaml").write_text(DESIGN_TEAM)
+    for n in ("backend", "reviewer", "product", "marketing", "archivist"):
+        agents.register(n, "alpha")
+
+    # A -> B, then B -> A inside the same chain is a cycle.
+    ok, _, first = askmod.ask("reviewer", "please review", requester="backend")
+    check("chain: the first ask starts a chain", ok)
+    ok, msg, _ = askmod.ask("backend", "here are my notes", requester="reviewer",
+                            parent_id=first)
+    check("chain: A->B->A is stopped", not ok and "cycle" in msg, msg)
+    check("chain: and escalated, not dropped", "Escalated to human" in msg, msg)
+
+    con = db.connect()
+    try:
+        esc = con.execute(
+            "SELECT * FROM requests WHERE target='human' AND kind='escalate'"
+        ).fetchall()
+        check("chain: the escalation is a real queued request", len(esc) == 1, str(len(esc)))
+        check("chain: it carries the original body",
+              "here are my notes" in esc[0]["body"], esc[0]["body"][:80])
+        chain = db.chain_members(con, str(first))
+        check("chain: everything shares one chain_id", len(chain) >= 2, str(len(chain)))
+    finally:
+        con.close()
+
+
+def test_review_pingpong(home: Path) -> None:
+    use_home(home)
+    (home / "team.yaml").write_text(DESIGN_TEAM)
+    for n in ("backend", "reviewer", "product"):
+        agents.register(n, "alpha")
+
+    parent = None
+    outcomes = []
+    for i in range(5):
+        ok, msg, rid = askmod.ask("reviewer", f"round {i}", files="src/auth.ts",
+                                  requester="backend", parent_id=parent)
+        outcomes.append((ok, msg))
+        if not ok:
+            break
+        # The reviewer's answer continues the same chain without being a cycle.
+        parent = rid
+        con = db.connect()
+        try:
+            _set_request_state(con, rid, "done", "ok")
+        finally:
+            con.close()
+
+    stopped = [m for ok, m in outcomes if not ok]
+    check("review: ping-pong on one file is eventually stopped", stopped, str(outcomes[-1]))
+    check("review: the reason names the file",
+          stopped and "src/auth.ts" in stopped[0], stopped[0] if stopped else "")
+    check("review: and says it is probably a spec question",
+          stopped and "spec question" in stopped[0], stopped[0] if stopped else "")
+
+
+def test_rate_limit_throttles(home: Path) -> None:
+    """Too many asks is a resource problem: it throttles and clears itself,
+    rather than needing a human the way a task defect does (section 8.6)."""
+    use_home(home)
+    (home / "team.yaml").write_text(
+        "agents:\n  a: { intake: dedicated }\n  b: { intake: dedicated }\n"
+        'edges:\n  - { from: "*", to: "*", relation: peer, response: fire_and_forget }\n'
+        "limits:\n  max_chain_depth: 99\n  ask_rate_per_hour: 2\n"
+    )
+    agents.register("a", "alpha")
+    agents.register("b", "alpha")
+    for i in range(3):
+        ok, msg, _ = askmod.ask("b", f"n{i}", requester="a")
+    check("rate limit: the over-cap ask is refused", not ok, msg)
+    check("rate limit: and says the agent is throttled", "THROTTLED" in msg, msg)
+    con = db.connect()
+    try:
+        row = db.get_agent_state(con, "a")
+        check("rate limit: the agent really is THROTTLED", row["state"] == "THROTTLED",
+              str(dict(row)))
+        check("rate limit: with a wake_at so it clears itself",
+              row["wake_at"] is not None, str(dict(row)))
+    finally:
+        con.close()
+
+
+def test_a_resolved_ask_does_not_stay_in_progress_across_a_park(home: Path) -> None:
+    """The event that would tell a fold an outstanding ask closed only ever
+    carries a count (daemon.py's `answered` event), never which id - and for
+    an agent that was parked when the answer landed, there may be no event at
+    all yet. Either way the store already knows; the fold has to check it
+    directly rather than wait for an event that may never name the id."""
+    use_home(home)
+    (home / "team.yaml").write_text(DESIGN_TEAM)
+    agents.register("backend", "alpha")
+
+    con = db.connect()
+    try:
+        rid = db.add_request(con, "backend", "auditor", "review this", None,
+                             "peer", "fire_and_forget", None, 0, None)
+        db.add_event(con, "backend", "ask", {"request_id": rid, "target": "auditor"})
+        top = db.max_event_id(con)
+        # A fold already ran and published the ask as in progress, before the
+        # park - the cursor is past it, same as in production.
+        db.set_cursor(con, "fold:backend", top)
+    finally:
+        con.close()
+
+    day = foldmod.today()
+    previous = digest.Digest(
+        date=day, agent="backend", updated="09:00", folded_through=top,
+        sections={"done": ["set up the branch"], "in_progress": [f"Auditor request {rid} dispatched"],
+                  "decided": [], "blocked": [], "next": [], "base_candidates": []})
+    foldmod.journal_path("backend", day).write_text(digest.render(previous))
+
+    # Answered while backend was parked: the store is updated, but nothing
+    # tells the agent's own event log which id it was - the daemon's delivery
+    # path only fires that event into a live session (design section 5).
+    con = db.connect()
+    try:
+        _set_request_state(con, rid, "done", verdict="looks good", announced=True)
+    finally:
+        con.close()
+
+    # --- no new event at all: the "nothing to fold" path still checks the store
+    ok, msg = foldmod.fold("backend", use_model=True, fold_account="alpha")
+    check("fold: an unchanged cursor still says there was nothing new", "nothing new" in msg, msg)
+    handed = digest.parse(foldmod.journal_path("backend", day).read_text())
+    check("fold: the resolved ask is not still in progress after an event-free refresh",
+          not any(str(rid) in i for i in handed.items("in_progress")), handed.items("in_progress"))
+    check("fold: and it reads as done", any(str(rid) in i for i in handed.items("done")),
+          handed.items("done"))
+
+    # --- a fold with a model that fails to reconcile it is still corrected
+    # (the refresh above already corrected the journal, so put the stale line back)
+    foldmod.journal_path("backend", day).write_text(digest.render(previous))
+    con = db.connect()
+    try:
+        db.add_event(con, "backend", "commit", {"sha": "abc", "subject": "more work"})
+        top2 = db.max_event_id(con)
+    finally:
+        con.close()
+    stuck = digest.render(digest.Digest(
+        date=day, agent="backend", updated="09:05", folded_through=top2,
+        sections={"done": ["set up the branch"], "in_progress": [f"Auditor request {rid} dispatched"],
+                  "decided": [], "blocked": [], "next": [], "base_candidates": []}))
+    real = foldmod.run_model
+    try:
+        foldmod.run_model = lambda *a, **k: (True, stuck)
+        ok, msg = foldmod.fold("backend", use_model=True, fold_account="alpha")
+        check("fold: succeeds even though the model carried the resolved ask forward", ok, msg)
+    finally:
+        foldmod.run_model = real
+    published = digest.parse(foldmod.journal_path("backend", day).read_text())
+    check("fold: the store overrules a model that left a resolved ask in progress",
+          not any(str(rid) in i for i in published.items("in_progress")),
+          published.items("in_progress"))
+    check("fold: completed work named earlier is not lost in the correction",
+          "set up the branch" in published.items("done"))
+
+
+def test_reconcile_resolved_needs_an_explicit_reference_not_a_bare_number(home: Path) -> None:
+    """auditor's #499/#1573: a fold's own errors are one-way - build_prompt
+    forbids the very next fold from ever moving a line back out of 완료 - so
+    a wrong close is permanent in the document daemon.py tells an agent with
+    no handoff to read. \\d+ read every number in a line as a request id, and
+    request ids are small integers that nearly all resolve. Reproduced with
+    requests 1-8 done: "Phase 4 daemon rewrite, step 2 of 7" (ids 4, 2, 7,
+    all done), "rebase onto main, 3 conflicts left" and "7d reset tracking
+    needs founder call" (auditor's exact three) all moved to 완료 under the
+    old regex. Only #N or "request N" is close enough to certain."""
+    _reconcile_world(home)
+    con = db.connect()
+    try:
+        for _ in range(8):
+            rid = db.add_request(con, "backend", "auditor", "x", None, "peer",
+                                 "fire_and_forget", None, 0, None)
+            _set_request_state(con, rid, "done", verdict="ok")
+
+        prose = ["Phase 4 daemon rewrite, step 2 of 7",
+                "rebase onto main, 3 conflicts left",
+                "7d reset tracking needs founder call"]
+        d = digest.Digest(date="2026-09-22", agent="backend", updated="09:00",
+                          folded_through=1,
+                          sections={"in_progress": prose[:2], "blocked": prose[2:],
+                                   "done": [], "decided": [], "next": [], "base_candidates": []})
+        out = foldmod.reconcile_resolved(con, d)
+        check("reconcile: a bare number in prose is not read as a request id",
+              out.items("in_progress") == prose[:2] and out.items("blocked") == prose[2:],
+              str(out.sections))
+        check("reconcile: nothing moved to 완료 on prose alone",
+              out.items("done") == [], out.items("done"))
+
+        # The control: an explicit #N to that same resolved request IS closed.
+        explicit = digest.Digest(date="2026-09-22", agent="backend", updated="09:00",
+                                 folded_through=1,
+                                 sections={"in_progress": [f"waiting on #{rid}"],
+                                          "blocked": [], "done": [], "decided": [],
+                                          "next": [], "base_candidates": []})
+        out2 = foldmod.reconcile_resolved(con, explicit)
+        check("reconcile: an explicit #N to a done request is closed",
+              out2.items("in_progress") == [] and f"waiting on #{rid}" in out2.items("done"),
+              str(out2.sections))
+    finally:
+        con.close()
+
+
+def test_reconcile_resolved_only_state_done_counts(home: Path) -> None:
+    """auditor's #499 should-fix, raised to blocking by #1573: `state !=
+    'queued'` let denied, withdrawn and replaced asks - work that never
+    happened - count as done. Only 'done' does."""
+    _reconcile_world(home)
+    con = db.connect()
+    try:
+        never_happened = {}
+        for state in ("denied", "withdrawn", "replaced", "rejected"):
+            rid = db.add_request(con, "backend", "auditor", "x", None, "peer",
+                                 "fire_and_forget", None, 0, None)
+            _set_request_state(con, rid, state)
+            never_happened[state] = rid
+        done_rid = db.add_request(con, "backend", "auditor", "y", None, "peer",
+                                  "fire_and_forget", None, 0, None)
+        _set_request_state(con, done_rid, "done", verdict="ok")
+        queued_rid = db.add_request(con, "backend", "auditor", "z", None, "peer",
+                                    "fire_and_forget", None, 0, None)
+
+        d = digest.Digest(date="2026-09-22", agent="backend", updated="09:00", folded_through=1,
+                          sections={"in_progress": [f"waiting on #{rid}" for rid in never_happened.values()]
+                                   + [f"waiting on #{done_rid}", f"waiting on #{queued_rid}"],
+                                   "blocked": [], "done": [], "decided": [], "next": [],
+                                   "base_candidates": []})
+        out = foldmod.reconcile_resolved(con, d)
+        for state, rid in never_happened.items():
+            line = f"waiting on #{rid}"
+            check(f"reconcile: {state} is not done - the ask never reached its target",
+                  line in out.items("in_progress") and line not in out.items("done"),
+                  str(out.sections))
+        check("reconcile: a done request is closed",
+              f"waiting on #{done_rid}" in out.items("done"), str(out.sections))
+        check("reconcile: a still-queued one stays put",
+              f"waiting on #{queued_rid}" in out.items("in_progress"), str(out.sections))
+    finally:
+        con.close()
+
+
+def test_fold_degraded_path_also_reconciles_resolved_asks(home: Path) -> None:
+    """#499 should-fix: only the no-event and model paths were exercised.
+    _degraded carries previous's in_progress/blocked lines forward verbatim
+    (design section 5's deterministic fallback), and reconcile_resolved runs
+    on that too - a fold that could not reach a model must not leave a
+    provably-done line stuck forever either."""
+    _reconcile_world(home)
+    con = db.connect()
+    try:
+        rid = db.add_request(con, "backend", "auditor", "review this", None,
+                             "peer", "fire_and_forget", None, 0, None)
+        db.add_event(con, "backend", "ask", {"request_id": rid, "target": "auditor"})
+    finally:
+        con.close()
+
+    day = foldmod.today()
+    previous = digest.Digest(
+        date=day, agent="backend", updated="09:00", folded_through=0,
+        sections={"done": ["set up the branch"], "in_progress": [f"waiting on #{rid}"],
+                  "decided": [], "blocked": [], "next": [], "base_candidates": []})
+    foldmod.journal_path("backend", day).write_text(digest.render(previous))
+
+    con = db.connect()
+    try:
+        _set_request_state(con, rid, "done", verdict="looks good", announced=True)
+        # A second, unrelated event so the fold is not the no-event path.
+        db.add_event(con, "backend", "commit", {"sha": "abc", "subject": "more work"})
+    finally:
+        con.close()
+
+    ok, msg = foldmod.fold("backend", use_model=False, fold_account="alpha")
+    check("fold: the degraded path runs (no model requested)", not ok, msg)
+    published = digest.parse(foldmod.journal_path("backend", day).read_text())
+    check("fold: the degraded fold also closes a provably-done ask",
+          f"waiting on #{rid}" in published.items("done")
+          and f"waiting on #{rid}" not in published.items("in_progress"),
+          str(published.sections))
+    check("fold: and does not lose completed work already on the page",
+          "set up the branch" in published.items("done"), published.items("done"))
+
+
+def test_agents_stays_a_leaf_no_cycle_through_collect_or_vendors() -> None:
+    """#1784: agents.py -> collect -> vendors -> agents was a real cycle,
+    surviving only because vendors/__init__.py happens to touch `agents.X`
+    inside function bodies rather than at module level - an accident holding
+    a door shut, not a guarantee. effective_context_limit moved to status.py
+    (whose three callers already import status) so agents.py would not have
+    to reach upward at all. This is the guard that keeps it that way: nothing
+    else needs agents to import collect or vendors, so if either import
+    reappears at module level, this is the fastest possible failure, not a
+    hang or a partial-module AttributeError three imports later.
+
+    auditor #1813: the first cut of this guard collected `n.module` off
+    every ImportFrom node - which is None for `from . import collect, ...`
+    (a relative import with no module name; the imported names live in
+    `n.names` instead), so it saw only {None, ...} and passed whatever
+    agents.py imported, the exact cycle #1784 asked removed. Also walked the
+    whole tree, which would have caught agents.py's own deliberate
+    function-body `from . import db, status` (already on main, unrelated to
+    this cycle) had it named collect or vendors. Fixed: only `tree.body`
+    (module level), and both shapes of a relative import - `from . import X`
+    (X in `n.names`) and `from .X import Y` (X is `n.module`)."""
+    import ast
+    tree = ast.parse((ROOT / "ocp" / "agents.py").read_text())
+    imported: set[str] = set()
+    for n in tree.body:
+        if not isinstance(n, ast.ImportFrom):
+            continue
+        if n.module:
+            imported.add(n.module.split(".")[0])
+        else:
+            imported.update(a.name for a in n.names)
+    check("agents.py imports neither collect nor vendors",
+          not ({"collect", "vendors"} & imported), imported)
+
+
+def test_a_wake_with_only_an_answer_waiting_still_reads_queued(home: Path) -> None:
+    """An answer an agent asked for and has not been told is work waiting, the
+    same as a queued request (`would_wake` counts both): the wake that reads
+    the queue must not turn it into IDLE."""
+    _daemon_home(home, 50)
+    con = db.connect()
+    try:
+        rid = db.add_request(con, "backend", "marina", "how", None, "peer", "async",
+                             None, 0, None)
+        check("answer wake: the answer is closed and not yet told",
+              db.close_if_queued(con, rid, "done", "like this", announced=False)
+              and [r["id"] for r in db.unannounced_answers(con, "backend")] == [rid]
+              and db.head_of_queue(con, "backend") is None)
+        db.set_agent_state(con, "backend", dmn.THROTTLED, wake_at=int(time.time()) - 1,
+                           detail="throttled for an unrelated reason")
+        dmn.supervise(con, "backend", lambda _m: None, int(time.time()), {}, [])
+        row = db.get_agent_state(con, "backend")
+        check("answer wake: with only an answer waiting, the wake still reads QUEUED",
+              row["state"] == dmn.QUEUED and row["wake_at"] is None, str(dict(row)))
+    finally:
+        con.close()
+
+
+def test_ask_respects_terminal_state(home: Path) -> None:
+    use_home(home)
+    (home / "team.yaml").write_text(DESIGN_TEAM)
+    for n in ("backend", "reviewer"):
+        agents.register(n, "alpha")
+    con = db.connect()
+    try:
+        db.set_agent_state(con, "backend", "STALLED", detail="needs a human")
+    finally:
+        con.close()
+    askmod.ask("reviewer", "review this", requester="backend")
+    con = db.connect()
+    try:
+        st = db.get_agent_state(con, "backend")
+        check("ask: an agent cannot park its own STALLED away",
+              st["state"] == "STALLED", str(dict(st)))
+    finally:
+        con.close()
+
+
+def test_the_config_dir_and_its_layout_are_the_drivers_answers(home: Path) -> None:
+    """Step 2 of design/03 §7: which variable pins a session to one account,
+    and how that directory is laid out inside, are the vendor's answers - here
+    the vendor the account records, not the default's.
+    """
+    os.environ["OCP_HOME"] = str(home)
+    real = obsmod.env_of
+    try:
+        with second_vendor(logged_in=False):
+            accounts.register("gamma", vendor="zai")
+            cdir = vendors.config_dir("gamma")
+            check("accounts: the config dir is named by the account's vendor",
+                  cdir == paths.account_dir("gamma") / ".zai" and cdir.is_dir(), str(cdir))
+            env = accounts.env_for("gamma")
+            check("accounts: the launch environment sets the driver's variable to it",
+                  env.get("ZAI_HOME") == str(cdir), str({k: v for k, v in env.items() if "HOME" in k}))
+            os.environ["CLAUDE_CONFIG_DIR"] = str(paths.account_dir("alpha") / ".claude")
+            try:
+                env = accounts.env_for("gamma")
+            finally:
+                os.environ.pop("CLAUDE_CONFIG_DIR", None)
+            check("accounts: and drops another vendor's variable inherited from the caller",
+                  "CLAUDE_CONFIG_DIR" not in env, env.get("CLAUDE_CONFIG_DIR", ""))
+            check("accounts: the login command is the driver's, with its variable",
+                  accounts.login_command("gamma") == f'ZAI_HOME="{cdir}" glmcode login',
+                  accounts.login_command("gamma"))
+
+            # account_of_process: every vendor's variable is asked; the layout
+            # under accounts/ is ours, so the account still falls out of the path.
+            asked: list[str] = []
+
+            def env_of(pid, name):
+                asked.append(name)
+                return str(cdir) if name == "ZAI_HOME" else None
+
+            obsmod.env_of = env_of
+            got = obsmod.account_of_process(1)
+            check("observe: the config-dir variable read off the process is each driver's",
+                  "ZAI_HOME" in asked and "CLAUDE_CONFIG_DIR" in asked, str(asked))
+            check("observe: and the account still comes out of the path under accounts/",
+                  got == "gamma", repr(got))
+
+            # The layout inside that directory: what a working directory is called
+            # there, and where its transcripts hang off.
+            check("collect: a working directory is named the vendor's way",
+                  collect.encode_cwd("gamma", "/tmp/a/b") == "_tmp_a_b",
+                  collect.encode_cwd("gamma", "/tmp/a/b"))
+            check("collect: and the transcript directory hangs off the driver's memory root",
+                  collect.project_dir("gamma", "/tmp/a/b") == cdir / "sessions" / "_tmp_a_b",
+                  str(collect.project_dir("gamma", "/tmp/a/b")))
+
+            # What is linked into an account's config dir is the vendor's list,
+            # less what it never touches - here "skills", which claude shares.
+            shared = paths.shared_claude()
+            (shared / "skills").mkdir(parents=True, exist_ok=True)
+            accounts.register("gamma")
+            check("accounts: an item the driver never touches is not linked",
+                  not (cdir / "skills").exists())
+            check("accounts: and it is not reported as an account's to relink either",
+                  ("gamma", "skills") not in accounts.unlinked(), str(accounts.unlinked()))
+            accounts.relink_all()
+            check("accounts: nor linked by the catch-up pass",
+                  not (cdir / "skills").exists())
+
+            # The transcript search runs down the same root, one level deep.
+            tdir = cdir / "sessions" / "_tmp_a_b"
+            tdir.mkdir(parents=True, exist_ok=True)
+            (tdir / "sess1.jsonl").write_text("{}\n")
+            check("handoff: a transcript is looked for under the driver's memory root",
+                  handoffmod.find_transcript("sess1", "gamma") == tdir / "sess1.jsonl",
+                  str(handoffmod.find_transcript("sess1", "gamma")))
+
+            # The token log walks that root too: the decoy sits where claude keeps
+            # its transcripts, and must not be read for a vendor that does not.
+            from ocp import tokenlog
+            (tdir / "s2.jsonl").write_text(_call_line("req_driver", 10))
+            decoy = cdir / "projects" / "-w-x"
+            decoy.mkdir(parents=True, exist_ok=True)
+            (decoy / "s3.jsonl").write_text(_call_line("req_claudes_place", 10))
+            con = db.connect()
+            try:
+                tokenlog.ingest(con, "gamma")
+                reqs = {r["req"] for r in con.execute("SELECT req FROM token_calls")}
+            finally:
+                con.close()
+            check("tokenlog: the transcripts read are the ones under the driver's root",
+                  reqs == {"req_driver"}, str(reqs))
+
+            # The command the founder is handed to trust a worktree names the
+            # variable their tool reads, and their tool, not claude's.
+            made: list[str] = []
+            real_ct = orcamod.create_terminal
+            try:
+                orcamod.create_terminal = lambda cmd, **k: (made.append(cmd), None)[1]
+                actions.trust_worktrees("gamma", [("backend", "/w/backend")])
+            finally:
+                orcamod.create_terminal = real_ct
+            check("actions: the trust command sets the driver's config-dir variable",
+                  made and "ZAI_HOME=" in made[0] and "CLAUDE_CONFIG_DIR" not in made[0]
+                  and made[0].endswith(" /opt/zai/bin/glmcode"), str(made))
+
+            # And the name doctor prints, so its reader is told which variable to
+            # go and set rather than claude's.
+            cdir.rename(cdir.with_name(".zai-gone"))
+            r = doctor.Report()
+            doctor._check_accounts(r)
+            lines = [name for _lv, name, _d in r.rows]
+            check("doctor: the missing-config-dir line names the driver's variable",
+                  "account gamma: ZAI_HOME missing" in lines, str(lines))
+    finally:
+        obsmod.env_of = real
+
+
+def test_db_dedup_only_swallows_dedup(home: Path) -> None:
+    con = db.connect(home / "strict.sqlite")
+    try:
+        check("db: a real constraint violation is not silently swallowed",
+              _raises(lambda: con.execute(
+                  "INSERT INTO events(ts, agent, kind) VALUES(?,NULL,?)", (1, "k"))))
+    finally:
+        con.close()
+
+
+def test_blocked_agents_come_due_in_one_request(home: Path) -> None:
+    """Three at once - what the first tick after this ships would find - are one
+    request, and it closes when the last of them clears, not the first."""
+    con = _blocked_world(home)
+    for name in ("worker", "reviewer"):
+        agents.register(name, "alpha")
+        db.set_terminal(con, name, f"term_{name}", "wt")
+        db.set_agent_state(con, name, dmn.IDLE)
+        db.add_request(con, "marina", name, "carry on", None, "peer", "async", None, 0, None)
+    sessions_are("backend", "worker", "reviewer")
+    screens = {"backend": orcamod.Blocker(orcamod.MODAL, '"A"'),
+               "worker": orcamod.Blocker(orcamod.MODAL, '"B"'),
+               "reviewer": orcamod.Blocker(orcamod.UNREADABLE)}
+    handles = {"term_x": "backend", "term_worker": "worker", "term_reviewer": "reviewer"}
+    orcamod.screen_blocker = lambda h: screens[handles[h]]
+    t0 = int(time.time())
+    try:
+        blockedmod.sweep(con, lambda _m: None, t0)
+        blockedmod.sweep(con, lambda _m: None, t0 + blockedmod.ESCALATE_AFTER_S)
+        esc = _escalations(con)
+        check("blocked: three due in the same pass are one request", len(esc) == 1, str(esc))
+        body = db.get_request(con, esc[0]["id"])["body"]
+        check("blocked: naming each", all(n in body for n in ("backend", "worker", "reviewer")), body)
+
+        screens["backend"] = None
+        blockedmod._checked.clear()
+        blockedmod.sweep(con, lambda _m: None, t0 + blockedmod.ESCALATE_AFTER_S + 20)
+        check("blocked: one clearing leaves the request open for the others",
+              _escalations(con)[0]["state"] == "queued", str([dict(r) for r in _escalations(con)]))
+        screens["worker"] = screens["reviewer"] = None
+        blockedmod._checked.clear()
+        blockedmod.sweep(con, lambda _m: None, t0 + blockedmod.ESCALATE_AFTER_S + 40)
+        check("blocked: the last one closes it", _escalations(con)[0]["state"] == "done")
+    finally:
+        con.close()
+
+
+def test_a_trust_screen_is_one_founder_request(home: Path) -> None:
+    """The wake escalates the trust screen and stalls the agent; the sweep then
+    sees a STALLED block with work waiting. Past ESCALATE_AFTER_S that is still
+    one request - and the block row stays, for the bridge. Once the founder
+    closes the trust request with the agent still stuck, the block is raised."""
+    con = _blocked_world(home)
+    wt = home / "worktree"
+    wt.mkdir(parents=True, exist_ok=True)
+    db.set_terminal(con, "backend", "term_x", str(wt))
+    real = (orcamod.trust_prompt_showing, orcamod.screen_text, trustmod.is_declared)
+    orcamod.trust_prompt_showing = lambda h: True
+    orcamod.screen_text = lambda h: (f"Accessing workspace:\n{wt}\nQuick safety check: Is this "
+                                     f"a project you created or one you trust?\n")
+    trustmod.is_declared = lambda p: False
+    orcamod.screen_blocker = lambda h: orcamod.Blocker(orcamod.MODAL, '"trust"')
+    t0 = int(time.time()) - 2 * blockedmod.ESCALATE_AFTER_S - 3000
+    try:
+        keep_handoff("backend", "# handoff · backend\n## next\n- carry on\n")
+        ok, _why = dmn.wake_agent(con, "backend", lambda _m: None)
+        check("trust once: the wake escalates and stalls",
+              not ok and len(_escalations(con)) == 1
+              and db.get_agent_state(con, "backend")["state"] == dmn.STALLED,
+              str((ok, _why, [dict(r) for r in _escalations(con)])))
+        for at in (0, blockedmod.ESCALATE_AFTER_S, blockedmod.ESCALATE_AFTER_S + 900):
+            blockedmod._checked.clear()
+            blockedmod.sweep(con, lambda _m: None, t0 + at)
+        check("trust once: past ESCALATE_AFTER_S, still one founder request",
+              len(_escalations(con)) == 1, str([dict(r) for r in _escalations(con)]))
+        rec = db.block_get(con, "backend")
+        check("trust once: the block row stays, for the bridge",
+              rec is not None and rec["kind"] == blockedmod.STALLED, str(rec and dict(rec)))
+
+        askmod.resolve(_escalations(con)[0]["id"], "looked", state="done", notify=False)
+        blockedmod._checked.clear()
+        blockedmod.sweep(con, lambda _m: None, t0 + blockedmod.ESCALATE_AFTER_S + 1000)
+        check("trust once: closed while it is still stuck, the block is raised",
+              len(_escalations(con)) == 2, str([dict(r) for r in _escalations(con)]))
+
+        # Only a stall is taken as already said: a dialog is a different
+        # obstacle from whatever the agent's open escalation is about.
+        db.set_agent_state(con, "backend", dmn.IDLE)
+        db.block_clear(con, "backend")
+        con.execute("UPDATE requests SET state = 'done' WHERE kind = 'escalate'")
+        askmod.escalate(con, "backend", "something else", "unrelated")
+        blockedmod._checked.clear()
+        blockedmod.sweep(con, lambda _m: None, t0 + 5000)
+        blockedmod.sweep(con, lambda _m: None, t0 + 5000 + blockedmod.ESCALATE_AFTER_S)
+        check("trust once: a dialog is raised beside an unrelated open escalation",
+              len(_escalations(con)) == 4, str([dict(r) for r in _escalations(con)]))
+    finally:
+        (orcamod.trust_prompt_showing, orcamod.screen_text, trustmod.is_declared) = real
+        con.close()
+
+
+def test_an_open_head_request_on_an_idle_agent_is_nudged_then_shown(home: Path) -> None:
+    """purser finished #492, reported it as a new ask and never resolved it. The
+    queue gives an agent one request at a time, so three more waited behind it
+    for 53 minutes while it sat IDLE, and nothing said so."""
+    _daemon_home(home, 20)
+    con = db.connect()
+    sent: list[str] = []
+    said: list[str] = []
+    real = (orcamod.alive, orcamod.send, orcamod.available, orcamod.typeable_now,
+            dmn.wall_reason)
+    try:
+        orca_seen()
+        orcamod.typeable_now = lambda h: True
+        orcamod.send = lambda h, text, enter=True: (sent.append(text), (True, ""))[1]
+        sessions_are("backend")
+        agents.register("backend", "alpha")
+        db.set_terminal(con, "backend", "term_x", "wt")
+        db.set_agent_state(con, "backend", dmn.IDLE, detail="finished its turn")
+        now = int(time.time())
+        head = db.add_request(con, "marina", "backend", "the first thing", None,
+                              "peer", "async", None, 0, None)
+        behind = [db.add_request(con, "marina", "backend", f"then thing {i}", None,
+                                 "peer", "async", None, 0, None) for i in (2, 3)]
+        db.mark_delivered(con, head)
+        db.set_cursor(con, "notify:backend", head)
+
+        def idle_for(secs: int) -> int:
+            """The agent's last act, and the delivery, `secs` ago."""
+            con.execute("DELETE FROM events WHERE agent = 'backend'")
+            db.add_event(con, "backend", "Stop", {})
+            con.execute("UPDATE events SET ts = ? WHERE agent = 'backend'", (now - secs,))
+            con.execute("UPDATE requests SET delivered_at = ? WHERE id = ?", (now - secs, head))
+            return now
+
+        def nudge(at: int) -> bool:
+            return dmn.nudge_forgotten_resolve(
+                con, "backend", db.get_agent_state(con, "backend"), at, said.append)
+
+        idle_for(dmn.NUDGE_AFTER_S - 60)
+        check("nudge: an agent idle for less than the interval is left alone",
+              not nudge(now) and not sent, str(sent))
+
+        idle_for(dmn.NUDGE_AFTER_S + 60)
+        # What it may be waiting on is not a forgotten resolve.
+        ask = db.add_request(con, "backend", "auditor", "review this", None,
+                             "peer", "async", None, 0, None)
+        check("nudge: an agent with an ask of its own outstanding is waiting, not forgetful",
+              not nudge(now) and not sent, str(sent))
+        _set_request_state(con, ask, "done", verdict="fine", announced=True)
+
+        # The gates delivery has.
+        dmn.wall_reason = lambda con_, agent, row=None: "at its 5h limit"
+        check("nudge: not at the usage wall", not nudge(now) and not sent, str(sent))
+        dmn.wall_reason = real[4]
+        orcamod.typeable_now = lambda h: False
+        check("nudge: not at a modal or a working agent", not nudge(now) and not sent, str(sent))
+        orcamod.typeable_now = lambda h: True
+        check("nudge: and a refusal is not asked again the next tick, which would probe "
+              "every tick", not nudge(now + 1) and not sent, str(sent))
+
+        check("nudge: once the retry spacing has passed it goes",
+              nudge(now + dmn.NUDGE_RETRY_S + 1) and len(sent) == 1, str(sent))
+        text = sent[0] if sent else ""
+        check("nudge: names the request and how long it has been idle",
+              f"#{head}" in text and "idle" in text, text)
+        check("nudge: says what to do, and how many are behind it",
+              "ocp resolve" in text and "2 more waiting" in text, text)
+        check("nudge: does not resolve it for the agent",
+              db.get_request(con, head)["state"] == "queued")
+        check("nudge: is logged", any("nudged" in m and f"#{head}" in m for m in said), str(said))
+        check("nudge: and recorded as an event",
+              con.execute("SELECT 1 FROM events WHERE kind = 'nudged'").fetchone() is not None)
+        check("nudge: which is not activity, so it does not restart the idle clock",
+              db.last_activity(con, "backend") == now - dmn.NUDGE_AFTER_S - 60)
+        check("nudge: and is never counted against the agent",
+              db.get_agent_state(con, "backend")["state"] == dmn.IDLE
+              and db.get_agent_state(con, "backend")["failed_attempts"] == 0
+              and db.get_agent_state(con, "backend")["wake_failures"] == 0)
+        check("nudge: not repeated for the same request",
+              not nudge(now + 10 * dmn.NUDGE_AFTER_S) and len(sent) == 1, str(sent))
+
+        # The tick reaches it, gated the same way.
+        sent.clear()
+        db.set_cursor(con, "nudge:backend", 0)
+        db.set_cursor(con, "nudge_try:backend", 0)
+        write_status(home, "alpha", pct_5h=20, pct_7d=10, ctx_pct=5,
+                     reset_5h=now + 1800)
+        db.set_cursor(con, "notify:backend", head)
+        dmn.supervise(con, "backend", lambda _m: None, int(time.time()), {}, [])
+        check("nudge: supervise makes the same call", len(sent) == 1 and "ocp resolve" in sent[0],
+              str(sent))
+
+        # The bridge: nothing until the second interval, then one row.
+        check("stuck: nothing on the screen for it before the second interval",
+              not any("idle on" in b["what"] for b in actions.stuck(con)))
+        idle_for(dmn.FORGOTTEN_STUCK_S + 60)
+        rows = [b for b in actions.stuck(con) if b["agent"] == "backend"]
+        check("stuck: one row for the agent, naming the request",
+              len(rows) == 1 and f"#{head}" in rows[0]["what"], str(rows))
+        check("stuck: and how many are waiting behind it",
+              rows and "2 waiting behind it" in rows[0]["why"]
+              and all(f"#{b}" in rows[0]["why"] for b in behind), str(rows))
+        check("stuck: not a row per queued request saying nobody told it",
+              not any("has not been told" in b["why"] for b in rows), str(rows))
+        # The nudge is typed as a prompt, so the agent's answer to it is its own
+        # activity and the thirty minutes run again from there.
+        for kind in ("UserPromptSubmit", "Stop"):
+            db.add_event(con, "backend", kind, {})
+        check("stuck: an agent that has just answered the nudge is not shown until it "
+              "has been idle again",
+              not any("idle on" in b["what"] for b in actions.stuck(con)))
+        idle_for(dmn.FORGOTTEN_STUCK_S + 60)
+        check("stuck: and is shown again once it has",
+              any("idle on" in b["what"] for b in actions.stuck(con)))
+        _set_request_state(con, head, "done", verdict="did it")
+        check("stuck: resolving it clears the row",
+              not any("idle on" in b["what"] for b in actions.stuck(con)))
+    finally:
+        (orcamod.alive, orcamod.send, orcamod.available, orcamod.typeable_now,
+         dmn.wall_reason) = real
+        con.close()
+
+
+def test_a_withdraw_landing_before_the_send_stops_the_send(home: Path) -> None:
+    """Review of buddyron/one-task-at-a-time, fix #5: deliver_queued reads
+    head_of_queue, then waits on idle_now and lock.terminal before _tell marks
+    the row and sends it - a withdraw or replace fitting in that gap must not
+    still get typed into the target's terminal."""
+    _daemon_home(home, 20)
+    con = db.connect()
+    sent: list[str] = []
+    real = orcamod.send
+    try:
+        orcamod.send = lambda h, text, enter=True: (sent.append(text), (True, ""))[1]
+        rid = db.add_request(con, "reviewer", "backend", "look at this", None,
+                             "peer", "async", None, 0, None)
+        head = db.head_of_queue(con, "backend")
+        # The gap: something retires the row after deliver_queued already read
+        # it as the head, but before _tell gets to mark_delivered.
+        check("race: the withdraw lands",
+              db.retire_if_undelivered(con, rid, "withdrawn"))
+        check("race: _tell refuses instead of sending a dead request",
+              not dmn._tell(con, "backend", head, 1, "term_x", lambda _m: None) and not sent,
+              str(sent))
+        check("race: the row was not marked delivered underneath the withdraw",
+              db.get_request(con, rid)["delivered_at"] is None)
+    finally:
+        orcamod.send = real
+        con.close()
+
+
+def test_spawn_confirms_the_task_landed(home: Path) -> None:
+    """Orca reports input as accepted even when the TUI never submitted it.
+
+    Three agents once came up with the prompt sitting unsent in the input box
+    while the spawn output claimed success, so the only acceptable proof is the
+    agent's own UserPromptSubmit.
+    """
+    os.environ["OCP_HOME"] = str(home)
+    con = db.connect()
+    try:
+        since = db.max_event_id(con)
+        check("spawn: no prompt event yet means not landed",
+              spawnmod.prompt_landed("scout", since, timeout_s=0) is False)
+        db.add_event(con, "scout", "SessionStart", {})
+        check("spawn: a session starting is not a task arriving",
+              spawnmod.prompt_landed("scout", since, timeout_s=0) is False)
+        db.add_event(con, "other", "UserPromptSubmit", {})
+        check("spawn: another agent's prompt does not count",
+              spawnmod.prompt_landed("scout", since, timeout_s=0) is False)
+        db.add_event(con, "scout", "UserPromptSubmit", {})
+        check("spawn: the agent's own prompt event confirms it",
+              spawnmod.prompt_landed("scout", since, timeout_s=0) is True)
+    finally:
+        con.close()
+
+
+def test_a_cold_wake_with_no_handoff_still_tells_the_agent_its_transcript_and_request(home: Path) -> None:
+    """The handoff was never taken (the close failed), the snapshot is stale, and
+    the cache is gone: the fresh session is still handed the request in hand and
+    the transcript's path, found by the session id on the row."""
+    _daemon_home(home, 20)
+    con = db.connect()
+    sent: list[str] = []
+    seen: list[str] = []
+    real = (orcamod.alive, orcamod.wait_idle, orcamod.idle_now, orcamod.send,
+            orcamod.available, orcamod.clear_context)
+    try:
+        orca_seen()
+        orcamod.wait_idle = lambda h, timeout_ms=0: True
+        orcamod.idle_now = lambda h: True
+        table = sessions_are("backend")
+        relaunch = relaunching_send(sent, table)
+
+        def send(handle, text, enter=True):
+            if " launch " in text:
+                seen.append(launch.context_for("backend"))
+            return relaunch(handle, text, enter)
+        orcamod.send = send
+        wt = home / "wt"
+        wt.mkdir()
+        subprocess.run(["git", "init", "-q", str(wt)], check=True)
+        transcript = paths.account_claude("alpha") / "projects" / "-wt" / "sess-7.jsonl"
+        transcript.parent.mkdir(parents=True)
+        transcript.write_text("{}\n")
+        db.set_terminal(con, "backend", "term_x", str(wt))
+        db.set_agent_state(con, "backend", dmn.IDLE)
+        rid = db.add_request(con, "reviewer", "backend", "review the picker branch", None,
+                             "peer", "async", None, 0, None)
+        db.mark_delivered(con, rid)
+
+        def wake(idle_s: int | None) -> list[str]:
+            con.execute("DELETE FROM events WHERE agent = 'backend'")
+            if idle_s is not None:
+                db.add_event(con, "backend", "Stop", {})
+                con.execute("UPDATE events SET ts = ? WHERE agent = 'backend'",
+                            (int(time.time()) - idle_s,))
+            db.set_closed(con, "backend", "sess-7")
+            db.set_handoff(con, "backend", None)
+            table.clear()
+            sent.clear()
+            seen.clear()
+            ok, why = dmn.wake_agent(con, "backend", lambda _m: None)
+            check(f"cache: the wake after {idle_s}s with no handoff goes through", ok, why)
+            table["backend"] = 4242
+            return list(sent)
+
+        for idle in (dmn.RESUME_WARM_S + 60, None):
+            label = "past the window" if idle else "with no clock"
+            s1 = wake(idle)
+            check(f"cache: {label}, no handoff, it is not resumed",
+                  s1 and not any("--resume" in t for t in s1), str(s1))
+            check(f"cache: {label}, the new session's system prompt has the request and transcript",
+                  seen and f"request: #{rid}" in seen[0] and str(transcript) in seen[0]
+                  and "sess-7" in seen[0], str(seen))
+            check(f"cache: {label}, the request is still its own",
+                  (db.head_of_queue(con, "backend") or {"id": 0})["id"] == rid)
+        # Control: inside the window, no handoff needed, resumed as before.
+        s2 = wake(dmn.RESUME_WARM_S - 120)
+        check("cache: inside the window it resumes and takes no handoff",
+              any("--resume sess-7" in t for t in s2) and not seen[0].count("Where you left off"),
+              str(s2))
+    finally:
+        (orcamod.alive, orcamod.wait_idle, orcamod.idle_now, orcamod.send,
+         orcamod.available, orcamod.clear_context) = real
+        con.close()
+
+
+def test_an_answer_reaches_the_agent_that_asked(home: Path) -> None:
+    """Answering wrote the verdict on the row and stopped. The agent that asked
+    - which may have parked waiting for it - was never told, so a founder
+    answering an escalation on the screen and the agent never hearing it is the
+    same hole seen from the other end. An answer is delivered the way work is,
+    once, through a cursor of its own."""
+    _daemon_home(home, 20)
+    con = db.connect()
+    sent: list[str] = []
+    real = (orcamod.available, orcamod.alive, orcamod.idle_now, orcamod.send)
+    try:
+        orca_seen()
+        orcamod.idle_now = lambda h: True
+        orcamod.send = lambda h, text, enter=True: (sent.append(text), (True, ""))[1]
+        sessions_are("backend")
+        db.set_terminal(con, "backend", "term_x", "wt")
+        db.set_agent_state(con, "backend", dmn.IDLE)
+
+        rid = db.add_request(con, "backend", "reviewer", "is this ready?", None,
+                             "peer", "async", None, 0, None)
+        check("answered: nothing is announced while it is still open",
+              not dmn.deliver_answers(con, "backend", lambda _m: None) and not sent)
+
+        # Resolving is reporting: the answer goes to whoever asked as part of
+        # the same command, and the tick is the safety net rather than the only
+        # path. So by the time resolve returns there is nothing left to deliver.
+        askmod.resolve(rid, "ship it, with the one nit fixed")
+        check("answered: once it comes back, the agent is told",
+              sent and not dmn.deliver_answers(con, "backend", lambda _m: None),
+              str(sent))
+        check("answered: with who answered and what they said",
+              "reviewer" in sent[-1] and "ship it" in sent[-1], sent[-1][:120])
+        # Only when there is more than it was shown. A two-word verdict with an
+        # instruction to go and read it whole is ceremony typed at an agent
+        # that was in the middle of something.
+        check("answered: a short answer is said and nothing else",
+              "ocp read" not in sent[-1], sent[-1][:160])
+        askmod.resolve(db.add_request(con, "backend", "reviewer", "and this?", None,
+                                      "peer", "async", None, 0, None),
+                       "a verdict long enough to be cut: " + "x" * 200)
+        dmn.deliver_answers(con, "backend", lambda _m: None)
+        check("answered: one that was cut says where the rest is",
+              "ocp read" in sent[-1], sent[-1][-80:])
+
+        sent.clear()
+        check("answered: and it is not told twice",
+              not dmn.deliver_answers(con, "backend", lambda _m: None) and not sent)
+
+        # Answering is not monotonic in id: two asks, the later one answered
+        # first. A high-water cursor put the earlier answer behind it forever,
+        # which is the hole this path exists to close, one layer down.
+        early = db.add_request(con, "backend", "reviewer", "the one it parked on",
+                               None, "peer", "async", None, 0, None)
+        late = db.add_request(con, "backend", "keeper", "a second question",
+                              None, "peer", "async", None, 0, None)
+        askmod.resolve(late, "keeper answers first")
+        dmn.deliver_answers(con, "backend", lambda _m: None)
+        sent.clear()
+        askmod.resolve(early, "and the one it was waiting for")
+        check("answered: an answer that comes back late is still delivered",
+              sent and "waiting for" in sent[-1], str(sent[-1:])[:120])
+
+        # A refusal is the answer that means do something else; a routing denial
+        # was refused before anything was sent and the agent already read it.
+        rejected = db.add_request(con, "backend", "reviewer", "may I?", None,
+                                  "peer", "async", None, 0, None)
+        sent.clear()
+        askmod.resolve(rejected, "no, not this week", state="rejected")
+        check("answered: a refusal is delivered", sent and "not this week" in sent[-1],
+              str(sent[-1:])[:120])
+        denied = db.add_request(con, "backend", "nobody", "unroutable", None,
+                                "peer", "async", None, 0, None)
+        _set_request_state(con, denied, "denied", "unknown target")
+        dmn.deliver_answers(con, "backend", lambda _m: None)
+        check("answered: an ask routing refused is not typed back at it",
+              "unroutable" not in sent[-1] and "unknown target" not in sent[-1],
+              sent[-1][:160])
+
+        # Everything marked told has to have been said: the ones not shown in
+        # full are named, not counted. They pile up while the agent cannot be
+        # reached - resolving delivers its own answer when it can - so this is
+        # the tick catching up after a session was away.
+        sessions_are()
+        for i in range(5):
+            rid_i = db.add_request(con, "backend", "reviewer", f"q{i}", None,
+                                   "peer", "async", None, 0, None)
+            askmod.resolve(rid_i, f"a{i}")
+        sessions_are("backend")
+        sent.clear()
+        dmn.deliver_answers(con, "backend", lambda _m: None)
+        unshown = [r["id"] for r in db.unannounced_answers(con, "backend")]
+        check("answered: nothing is marked told that was not named",
+              not unshown and "also answered: #" in sent[-1], sent[-1][:200])
+
+        # The same gates as any other send: nothing is typed at a shell.
+        rid2 = db.add_request(con, "backend", "reviewer", "and this?", None,
+                              "peer", "async", None, 0, None)
+        askmod.resolve(rid2, "no")
+        sent.clear()
+        sessions_are()
+        check("answered: an answer is not typed at a terminal with no session",
+              not dmn.deliver_answers(con, "backend", lambda _m: None) and not sent)
+    finally:
+        (orcamod.available, orcamod.alive, orcamod.idle_now, orcamod.send) = real
+        con.close()
+
+
+def test_an_answer_wakes_the_agent_that_was_waiting_for_it(home: Path) -> None:
+    """An agent that asked something, parked on the reply and was then closed
+    is waiting on an answer, not on work - and resolving its request writes
+    QUEUED over the park and clears the wake_at that would have brought it
+    back. Nothing else in the system wakes an agent for an answer, so without
+    this it waits forever, and a restart does not rescue it."""
+    _daemon_home(home, 20)
+    con = db.connect()
+    sent: list[str] = []
+    real = (orcamod.available, orcamod.alive, orcamod.wait_idle, orcamod.send)
+    try:
+        orca_seen()
+        orcamod.wait_idle = lambda h, timeout_ms=0: True
+        orcamod.idle_now = lambda h: True
+        table = sessions_are()
+        orcamod.send = relaunching_send(sent, table)
+        db.set_terminal(con, "backend", "term_x", "wt")
+        (home / "agents" / "backend").mkdir(parents=True, exist_ok=True)
+        (home / "agents" / "backend" / "status.json").write_text(json.dumps({
+            "account": "alpha", "collected_at": int(time.time()),
+            "session_id": "sess-4", "pct_5h": 20}))
+
+        rid = db.add_request(con, "backend", "reviewer", "which way?", None,
+                             "peer", "async", None, 0, None)
+        db.set_closed(con, "backend", "sess-4")
+        db.set_agent_state(con, "backend", dmn.PARKED, wake_at=int(time.time()) + 3600,
+                           detail=f"awaiting reply to request {rid}")
+
+        # Resolving hands the answer over itself when it can reach the agent.
+        # Here it cannot - Orca has lost the terminal - which is the world this
+        # test is about: the park is written off and nothing has been told.
+        orcamod.alive = lambda h: False
+        askmod.resolve(rid, "this way, and here is why")
+        orcamod.alive = lambda h: True
+        row = db.get_agent_state(con, "backend")
+        check("waiting: resolving leaves it closed, with no deadline left",
+              row["closed_at"] is not None and row["wake_at"] is None, str(dict(row)))
+
+        dmn.supervise(con, "backend", lambda _m: None, int(time.time()), {}, [])
+        check("waiting: the tick wakes it for the answer it asked for",
+              any("--resume sess-4" in t for t in sent), str(sent))
+        check("waiting: and it is no longer closed",
+              db.get_agent_state(con, "backend")["closed_at"] is None)
+
+        sent.clear()
+        dmn.supervise(con, "backend", lambda _m: None, int(time.time()), {}, [])
+        check("waiting: the next tick hands it the answer",
+              any("this way" in t for t in sent), str(sent)[:160])
+
+        # And when it can be reached, resolving is the delivery: the answer
+        # does not wait for a tick that may be two seconds or a restart away.
+        sent.clear()
+        second = db.add_request(con, "backend", "reviewer", "and after that?", None,
+                                "peer", "async", None, 0, None)
+        askmod.resolve(second, "then the other thing")
+        check("waiting: an agent that can be reached is told by the resolve itself",
+              any("then the other thing" in t for t in sent), str(sent)[:160])
+    finally:
+        (orcamod.available, orcamod.alive, orcamod.wait_idle, orcamod.send) = real
+        con.close()
+
+
+def test_a_request_can_be_read_whole(home: Path) -> None:
+    """`ocp inbox` shows a line each, cut to fit, and the rest was only
+    reachable by knowing where the raw JSON lives - which an agent found out by
+    trial. An agent that cannot read the whole of what it was asked answers the
+    half it could see."""
+    _daemon_home(home, 20)
+    con = db.connect()
+    try:
+        body = "line one of the order\n" + ("x" * 200) + "\nlast line of the order"
+        rid = db.add_request(con, actions.HUMAN, "backend", body, None,
+                             "peer", "async", None, 0, None)
+        con.close()
+        out = _capture(lambda: climod.main(["read", str(rid)]))
+        check("read: the whole body is printed, not a cut line",
+              "last line of the order" in out and "x" * 200 in out, out[:120])
+        check("read: with who asked whom, and in what state",
+              f"{actions.HUMAN} → backend" in out and "queued" in out, out[:120])
+
+        askmod.resolve(rid, "done, and here is why: " + "y" * 120)
+        out = _capture(lambda: climod.main(["read", str(rid)]))
+        check("read: and the answer comes with it", "y" * 120 in out, out[-80:])
+        check("read: an id nobody has says so, without pretending",
+              "no request" in _capture(lambda: climod.main(["read", "99999"])))
+    finally:
+        pass
+
+
+def test_ask_and_resolve_take_their_text_from_a_file_too(home: Path) -> None:
+    """Founder incident: a message typed inline with backticks in it is
+    rewritten - or run - by the caller's own shell before ocp ever sees
+    argv. `--file` is the way out: text a caller wrote with a quoted heredoc
+    or a file tool never goes through a shell at all."""
+    _daemon_home(home, 20)
+    try:
+        hostile = "see `describe_modal` and $(orca terminal send --terminal x --text boom)"
+        f = home / "ask_body.txt"
+        f.write_text(hostile)
+        out = _capture(lambda: climod.main(["ask", "reviewer", "--file", str(f), "--of", "backend"]))
+        check("ask --file: it went through", "queued" in out or "delivered" in out, out)
+        con = db.connect()
+        try:
+            row = db.head_of_queue(con, "reviewer")
+            check("ask --file: the text landed whole, backticks and all - nothing a shell "
+                  "would have expanded ever reached one", row and row["body"] == hostile,
+                  str(dict(row) if row else None))
+            rid = row["id"]
+        finally:
+            con.close()
+
+        out = _capture(lambda: climod.main(["ask", "reviewer", "--of", "backend"]))
+        check("ask: neither inline nor --file is a clear refusal, not a crash",
+              "required" in out or "--file" in out, out)
+        out = _capture(lambda: climod.main(
+            ["ask", "reviewer", "inline text", "--file", str(f), "--of", "backend"]))
+        check("ask: both inline and --file is refused too - one source, not a merge",
+              "not both" in out, out)
+
+        vf = home / "verdict.txt"
+        vf.write_text("done - `also not run`")
+        os.environ["OCP_AGENT"] = "reviewer"
+        try:
+            out = _capture(lambda: climod.main(["resolve", str(rid), "--file", str(vf)]))
+        finally:
+            del os.environ["OCP_AGENT"]
+        check("resolve --file: it went through", "done" in out or "->" in out, out)
+        con = db.connect()
+        try:
+            check("resolve --file: the verdict landed whole too",
+                  db.get_request(con, rid)["verdict"] == "done - `also not run`",
+                  db.get_request(con, rid)["verdict"])
+        finally:
+            con.close()
+    finally:
+        pass
+
+
+def test_inbox_and_withdraw_cli(home: Path) -> None:
+    """`ocp inbox` shows the head and a count, not the whole queue (request
+    #189); `ocp withdraw` takes back an undelivered request of your own."""
+    _daemon_home(home, 20)
+    agents.register("reviewer", "alpha")
+    con = db.connect()
+    try:
+        rid1 = db.add_request(con, "backend", "reviewer", "task one", None,
+                              "peer", "async", None, 0, None)
+        rid2 = db.add_request(con, "backend", "reviewer", "task two", None,
+                              "peer", "async", None, 0, None)
+    finally:
+        con.close()
+
+    real_agent = os.environ.get("OCP_AGENT")
+    try:
+        os.environ["OCP_AGENT"] = "reviewer"
+        out = _capture(lambda: climod.main(["inbox"]))
+        check("inbox: shows the head's body", "task one" in out, out)
+        check("inbox: not the one behind it", "task two" not in out, out)
+        check("inbox: says how many more are waiting", "1 more waiting" in out, out)
+
+        con = db.connect()
+        try:
+            check("inbox: viewing your own head marks it delivered",
+                  db.get_request(con, rid1)["delivered_at"] is not None)
+        finally:
+            con.close()
+
+        out = _capture(lambda: climod.main(["inbox", "--all"]))
+        check("inbox --all: shows the whole queue",
+              "task one" in out and "task two" in out, out)
+
+        os.environ["OCP_AGENT"] = "backend"
+        out = _capture(lambda: climod.main(["withdraw", str(rid2)]))
+        check("withdraw: an undelivered request of your own can be taken back",
+              "withdrawn" in out, out)
+        con = db.connect()
+        try:
+            check("withdraw: it leaves the queue",
+                  db.get_request(con, rid2)["state"] == "withdrawn",
+                  db.get_request(con, rid2)["state"])
+        finally:
+            con.close()
+
+        out = _capture(lambda: climod.main(["withdraw", str(rid1)]))
+        check("withdraw: a delivered request refuses",
+              "already delivered" in out, out)
+    finally:
+        if real_agent is None:
+            os.environ.pop("OCP_AGENT", None)
+        else:
+            os.environ["OCP_AGENT"] = real_agent
+
+
+def test_only_one_thing_types_at_an_agent_at_a_time(home: Path) -> None:
+    """A wake holds an agent's terminal for as long as a session takes to
+    appear - up to fifteen seconds - and the daemon ticks every two. Seven
+    ticks fit in that window, so the daemon and a human pressing `w` both typed
+    `ocp launch` into the same terminal: the second lands beside the session
+    the first started, or inside its input box, unsent.
+
+    Everything else in this system is settled by writing to the database. The
+    terminal is the one place two writers can spoil, so the paths that type
+    take a lock, and the one that cannot have it does nothing rather than
+    waiting - a tick must not queue up behind a human mid-confirmation."""
+    _daemon_home(home, 20)
+    con = db.connect()
+    sent: list[str] = []
+    real = (orcamod.available, orcamod.alive, orcamod.wait_idle, orcamod.send)
+    try:
+        orca_seen()
+        orcamod.wait_idle = lambda h, timeout_ms=0: True
+        orcamod.idle_now = lambda h: True
+        table = sessions_are()          # closed below - no session running yet
+        orcamod.send = relaunching_send(sent, table)
+        db.set_terminal(con, "backend", "term_x", "wt")
+        db.set_closed(con, "backend", "sess-1")
+
+        # Another process is mid-wake on this agent.
+        holder = subprocess.Popen(
+            [sys.executable, "-c",
+             "import sys, time; sys.path.insert(0, %r);"
+             "from ocp import lock;"
+             "ctx = lock.terminal('backend'); print(ctx.__enter__(), flush=True);"
+             "time.sleep(30)" % str(ROOT)],
+            stdout=subprocess.PIPE, text=True, env=dict(os.environ))
+        try:
+            check("lock: the other process has it", holder.stdout.readline().strip() == "True")
+            ok, why = dmn.wake_agent(con, "backend", lambda _m: None)
+            check("lock: a second wake types nothing at all",
+                  not ok and not sent and "someone else" in why, f"{why} {sent}")
+            row = db.get_agent_state(con, "backend")
+            check("lock: and it stays closed, so the next attempt still has its way back",
+                  row["closed_at"] is not None and row["resume_session"] == "sess-1",
+                  str(dict(row)))
+        finally:
+            holder.kill()
+            holder.wait()
+
+        # The kernel releases it when the holder dies, so a daemon killed
+        # mid-wake does not leave an agent unreachable.
+        ok, why = dmn.wake_agent(con, "backend", lambda _m: None)
+        check("lock: once the holder is gone the wake goes through",
+              ok and any("--resume sess-1" in t for t in sent), f"{why} {sent}")
+    finally:
+        (orcamod.available, orcamod.alive, orcamod.wait_idle, orcamod.send) = real
+        con.close()
+
+
+def test_growing_the_team_needs_a_person(home: Path) -> None:
+    """A team that cannot grow has one way to take on more work: each agent
+    quietly making helpers that die with the session that made them. So growing
+    is a first-class operation - and the one with the least business being
+    automatic, because an agent that can hire can spend an account into the
+    ground with nobody having decided to.
+
+    Any agent proposes, only the founder approves, and the change is made from
+    the file the proposal wrote. The approval is read, never interpreted: a
+    model taking "maybe next week" for a yes is the failure this prevents."""
+    _daemon_home(home, 20)
+    con = db.connect()
+    try:
+        accounts.register("beta")
+        agents.register("manager", "alpha")
+        (home / "team.yaml").write_text("""
+teams:
+  dev: [marina]
+agents:
+  manager: { intake: dedicated }
+  marina:  { intake: dedicated }
+  hr:      { intake: serial }
+edges:
+  - { from: "manager", to: "dev.*", relation: supervisor, response: fire_and_forget }
+  - { from: "*", to: "hr", relation: peer, response: async }
+  - { from: "*", to: "human", kind: escalate, creates_gate: true }
+  - { from: "human", to: "*", relation: supervisor, response: fire_and_forget }
+""")
+        agents.register("marina", "beta")
+        agents.register("hr", "beta")
+
+        # Nothing happens on the proposal itself.
+        ok, said = hr.propose("add", "dohyun", requester="hr", why="two branches are "
+                              "waiting on one developer", account="beta", team_name="dev",
+                              repo=str(home / "harbor"))
+        pid = said.split()[1]
+        # A why the record cannot hold is refused before anything is raised.
+        before = len(actions.messages(con))
+        ok2, said2 = hr.propose("add", "twoline", requester="hr", why="one\ntwo",
+                                account="beta", team_name="dev", repo=str(home / "harbor"))
+        check("hr: a why with a line break is refused, and nothing reaches the founder",
+              not ok2 and "nothing was raised" in said2
+              and len(actions.messages(con)) == before
+              and not any("twoline" in (m["body"] or "") for m in actions.messages(con)), said2)
+        check("hr: proposing raises it to the founder and changes nothing",
+              ok and "dohyun" not in paths.list_agents(), said)
+        rid = [m["id"] for m in actions.messages(con) if "dohyun" in (m["body"] or "")]
+        check("hr: and it is in front of the founder, with the words to answer with",
+              rid and "approve" in db.get_request(con, rid[0])["body"], said)
+
+        # Unanswered, and answered with something that is not a decision.
+        ok, said = hr.apply(pid)
+        check("hr: it cannot be applied before it is answered",
+              not ok and "has not answered" in said, said)
+        # #1943: `askmod.resolve` itself now refuses this verdict on an open
+        # proposal - `_set_request_state` (test-only, see #2024) bypasses that
+        # guard to reach the row hr.apply's own decision check exists for:
+        # one closed by something other than this fix, such as data from
+        # before it shipped.
+        _set_request_state(con, rid[0], "done", "hmm, maybe next week")
+        ok, said = hr.apply(pid)
+        check("hr: nor on an answer that is not a decision",
+              not ok and "not a decision" in said and "dohyun" not in paths.list_agents(),
+              said)
+
+        # Approved, and the two writes a human would have made.
+        con.execute("UPDATE requests SET verdict = ? WHERE id = ?", ("approve", rid[0]))
+        ok, said = hr.apply(pid)
+        table = yamlcompat.load((home / "team.yaml").read_text())
+        check("hr: an approved proposal registers the agent", ok and "dohyun" in paths.list_agents(), said)
+        check("hr: and puts it in the team, which is what the routing is keyed on",
+              "dohyun" in (table["teams"]["dev"] or []) and "dohyun" in table["agents"],
+              str(table["teams"]))
+        check("hr: the manager may now ask it, because the wildcard covers it",
+              team.Team(table).route("manager", "dohyun").allowed)
+        check("hr: applying twice is refused", not hr.apply(pid)[0])
+
+        # Retiring archives rather than deletes: the journal is the record of
+        # work that was actually done.
+        ok, said = hr.propose("retire", "dohyun", requester="hr", why="branch landed")
+        pid2 = said.split()[1]
+        rid2 = [m["id"] for m in actions.messages(con) if "retire dohyun" in (m["body"] or "")]
+        askmod.resolve(rid2[0], "approve")
+        ok, said = hr.apply(pid2)
+        table = yamlcompat.load((home / "team.yaml").read_text())
+        archived = list((home / "agents" / "archive").glob("*dohyun*"))
+        check("hr: retiring takes it out of the table", ok and "dohyun" not in table["agents"], said)
+        check("hr: and keeps its folder", archived and (archived[0] / "journal").exists(),
+              str(archived))
+        check("hr: and takes its scheduling row with it - nothing lists an agent "
+              "that is not there",
+              db.get_agent_state(con, "dohyun") is None,
+              str(db.get_agent_state(con, "dohyun")))
+
+        # A rename takes the whole identity with it - folder, table, and every
+        # row that ever named it - and not while a session is running under it.
+        db.add_request(con, "marina", "manager", "a report from before", None,
+                       "subordinate", "fire_and_forget", None, 0, None)
+        sessions_are("manager")
+        ok, said = hr.propose("rename", "manager", requester="hr", to="harbor-manager",
+                              why="it only ever runs the harbor project", team_name=None)
+        pid_r = said.split()[1]
+        rid_r = [m["id"] for m in actions.messages(con) if "harbor-manager" in (m["body"] or "")]
+        askmod.resolve(rid_r[0], "approve")
+        ok, said = hr.apply(pid_r)
+        check("hr: an identity does not change under a running session",
+              not ok and "session running" in said, said)
+        sessions_are()
+        ok, said = hr.apply(pid_r)
+        table = yamlcompat.load((home / "team.yaml").read_text())
+        check("hr: with the session closed, the rename lands",
+              ok and "harbor-manager" in paths.list_agents()
+              and "manager" not in table["agents"], said)
+        check("hr: and the edges name it too - the renamed manager still "
+              "supervises its team",
+              team.Team(table).route("harbor-manager", "marina").allowed
+              and "\"manager\"" not in (home / "team.yaml").read_text(),
+              (home / "team.yaml").read_text())
+        check("hr: and its folder came with it",
+              (home / "agents" / "harbor-manager").is_dir()
+              and not (home / "agents" / "manager").exists())
+        check("hr: as did every row that named it",
+              con.execute("SELECT COUNT(*) c FROM requests WHERE target = ?",
+                          ("harbor-manager",)).fetchone()["c"] == 1
+              and con.execute("SELECT COUNT(*) c FROM requests WHERE target = ?",
+                              ("manager",)).fetchone()["c"] == 0)
+
+        # An edge the text edit cannot rewrite is refused, not guessed at: the
+        # table is what routing runs on, and a rename that dropped an edge
+        # would leave the renamed supervisor supervising nobody.
+        (home / "team.yaml").write_text("""
+teams:
+  dev: [marina]
+agents:
+  harbor-manager: { intake: dedicated }
+  marina:         { intake: dedicated }
+edges:
+  - from: harbor-manager
+    to: marina
+    relation: supervisor
+    response: fire_and_forget
+  - { from: "*", to: "human", kind: escalate, creates_gate: true }
+  - { from: "human", to: "*", relation: supervisor, response: fire_and_forget }
+""")
+        ok, said = hr.enact("rename", "harbor-manager", to="boss",
+                            why="an edge this cannot rewrite")
+        table = yamlcompat.load((home / "team.yaml").read_text())
+        check("hr: a rename that would drop an edge is refused, and writes nothing",
+              not ok and "by hand" in said and "harbor-manager" in table["agents"],
+              said)
+        check("hr: and the agent is left where it was",
+              "harbor-manager" in paths.list_agents() and "boss" not in paths.list_agents())
+
+        # A rejection is recorded and never applied.
+        ok, said = hr.propose("add", "seoyun", requester="hr", why="third lane",
+                              account="beta", team_name="dev")
+        pid3 = said.split()[1]
+        rid3 = [m["id"] for m in actions.messages(con) if "seoyun" in (m["body"] or "")]
+        askmod.resolve(rid3[0], "reject - one lane at a time")
+        ok, said = hr.apply(pid3)
+        check("hr: a rejected proposal stays rejected",
+              not ok and "rejected" in said and "seoyun" not in paths.list_agents(), said)
+        check("hr: and the file says so",
+              hr.load_proposal(pid3)["state"] == "rejected", str(hr.load_proposal(pid3)))
+
+        # An edit that would break the routing table is not written at all.
+        check("hr: a proposal for an account nobody logged in is refused up front",
+              not hr.propose("add", "x", requester="hr", why="w", account="nope")[0])
+    finally:
+        con.close()
+
+
+def test_the_founder_does_not_approve_their_own_request(home: Path) -> None:
+    """HR gates *agents*, and the founder is the thing on the other side of the
+    gate. Asked to propose, they got "an agent cannot ask itself" - the one
+    person allowed to change the roster could not use the tool that changes it,
+    and the first agent could never be made, since a proposal needs an agent to
+    raise it. Who is routed where is the whole risk: a shell that merely lost
+    OCP_AGENT must not be taken for the founder and hire at will."""
+    _daemon_home(home, 20)
+    con = db.connect()
+
+    class FakeStdin:
+        def __init__(self, tty: bool) -> None:
+            self.tty = tty
+
+        def isatty(self) -> bool:
+            return self.tty
+
+    real_env, real_stdin = os.environ.pop("OCP_AGENT", None), sys.stdin
+    try:
+        accounts.register("beta")
+        (home / "team.yaml").write_text("""
+teams:
+  dev: [marina]
+agents:
+  marina:  { intake: dedicated }
+edges:
+  - { from: "*", to: "human", kind: escalate, creates_gate: true }
+  - { from: "human", to: "*", relation: supervisor, response: fire_and_forget }
+""")
+        agents.register("marina", "beta")
+        hire = ["hr", "add", "dohyun", "--account", "beta", "--team", "dev",
+                "--model", "opus", "--effort", "high",
+                "--why", "a second pair of hands on the sea work"]
+
+        # A process with no identity and no terminal: an agent's tool shell,
+        # a hook, a cron job. It is nobody, and nobody hires.
+        sys.stdin = FakeStdin(False)
+        rc = climod.main(hire)
+        check("hr: a shell that lost its identity is refused, not taken for the founder",
+              rc != 0 and "dohyun" not in paths.list_agents()
+              and not hr.listing(), str(rc))
+
+        # An agent proposes; nothing changes until the founder answers.
+        os.environ["OCP_AGENT"] = "marina"
+        before = len(actions.messages(con))
+        rc = climod.main(hire)
+        check("hr: an agent's request is a proposal, and changes nothing",
+              rc == 0 and "dohyun" not in paths.list_agents()
+              and len(actions.messages(con)) == before + 1, str(rc))
+        del os.environ["OCP_AGENT"]
+        for p_ in hr.listing():
+            hr.path_of(p_["id"]).unlink()
+
+        # The founder, at their own prompt.
+        sys.stdin = FakeStdin(True)
+        before = len(actions.messages(con))
+        rc = climod.main(hire)
+        check("hr: the founder's own change lands without a proposal to approve",
+              rc == 0 and "dohyun" in paths.list_agents(), str(rc))
+        check("hr: and raises nothing to themselves",
+              len(actions.messages(con)) == before)
+        cfg = yamlcompat.load(agents.agent_file("dohyun").read_text())
+        check("hr: with the model and the effort it was hired at",
+              cfg.get("model") == "opus" and cfg.get("effort") == "high", str(cfg))
+        applied = [p_ for p_ in hr.listing() if p_["agent"] == "dohyun"]
+        check("hr: and the record is still a file",
+              len(applied) == 1 and applied[0]["state"] == "applied"
+              and applied[0]["requested_by"] == "human", str(applied))
+
+        # A change that fails halfway is recorded as having failed, and leaves
+        # no agent the routing table does not know.
+        (home / "team.yaml").write_text("teams:\n  dev: [marina]\n")
+        ok, said = hr.enact("add", "halfborn", why="w", account="beta", team_name="dev")
+        rec = [p_ for p_ in hr.listing() if p_["agent"] == "halfborn"]
+        check("hr: a refused edit registers nobody",
+              not ok and "halfborn" not in paths.list_agents(), said)
+        check("hr: and says so in the record",
+              len(rec) == 1 and rec[0]["state"] == "failed", str(rec))
+
+        check("hr: and the founder is refused the same nonsense an agent is",
+              not hr.enact("add", "x", why="w", account="nope")[0]
+              and not hr.enact("retire", "nobody", why="w")[0]
+              and not hr.enact("add", "y", why="", account="beta")[0]
+              and not hr.enact("add", "z", why="w", account="beta", effort="ultra")[0])
+    finally:
+        sys.stdin = real_stdin
+        os.environ.pop("OCP_AGENT", None)
+        if real_env is not None:
+            os.environ["OCP_AGENT"] = real_env
+        con.close()
+
+
+def test_a_withdraw_and_the_founders_answer_settle_to_one_outcome(home: Path) -> None:
+    """Task #32: a withdraw and the founder's answer on one proposal end as
+    exactly one outcome, whichever lands first, and neither leaves the
+    proposal stuck. The two are interleaved at the two points a check-then-act
+    withdraw could be overtaken: after it has read the proposal, and after it
+    has marked it withdrawn."""
+    _daemon_home(home, 20)
+    accounts.register("beta")
+    agents.register("hr", "beta")
+    (home / "team.yaml").write_text("""
+agents:
+  hr: { intake: serial }
+edges:
+  - { from: "*", to: "human", kind: escalate, creates_gate: true }
+""")
+
+    def propose(name):
+        ok, said = hr.propose("add", name, requester="hr", why="hands", account="beta")
+        return said.split()[1], int(said.split("#")[1].split(".")[0])
+
+    def founder(rid, verdict, out):
+        c = db.connect()
+        try:
+            out.append(actions.answer_ok(c, rid, verdict))
+        finally:
+            c.close()
+
+    orig_load, orig_save = hr.load_proposal, hr.save
+    try:
+        # 1. The founder approves after the withdraw has read the proposal.
+        pid, rid = propose("racer")
+        got, fired = [], []
+
+        def load_then_answer(p):
+            r = orig_load(p)
+            if not fired:
+                fired.append(1)
+                founder(rid, "approve", got)
+            return r
+        hr.load_proposal = load_then_answer
+        ok, said = hr.withdraw(pid, "hr")
+        hr.load_proposal = orig_load
+        check("race 1: the founder's approve went through", got and got[0][0], str(got))
+        check("race 1: so the withdraw refuses and says so",
+              not ok and "already answered" in said, said)
+        ok, said = hr.apply(pid)
+        check("race 1: and the approve is enacted, not lost",
+              ok and "racer" in paths.list_agents(), said)
+
+        # 2. The founder answers while the withdraw is mid-way. The withdraw
+        # holds the write lock, so the answer can only land after it.
+        pid2, rid2 = propose("racer2")
+        got2, threads = [], []
+
+        def save_then_answer(prop):
+            r = orig_save(prop)
+            if not threads:
+                t = threading.Thread(target=founder, args=(rid2, "approve", got2))
+                threads.append(t)
+                t.start()
+                t.join(1.5)
+            return r
+        hr.save = save_then_answer
+        ok, said = hr.withdraw(pid2, "hr")
+        hr.save = orig_save
+        threads[0].join(15)
+        con = db.connect()
+        try:
+            row = db.get_request(con, rid2)
+            check("race 2: the withdraw won", ok and hr.load_proposal(pid2)["state"] == "withdrawn",
+                  said)
+            check("race 2: the founder's answer refuses, the row keeps the withdraw",
+                  got2 and not got2[0][0] and row["verdict"] == "withdrawn by hr", str(got2))
+            ok, said = hr.apply(pid2)
+            check("race 2: apply enacts nothing", not ok and "racer2" not in paths.list_agents(), said)
+        finally:
+            con.close()
+
+        # 3. The close cannot go through: nothing is withdrawn, and the file
+        # is put back so the proposal is still open.
+        pid3, rid3 = propose("racer3")
+        orig_close = db.close_if_queued
+        db.close_if_queued = lambda *a, **k: False
+        try:
+            ok, said = hr.withdraw(pid3, "hr")
+        finally:
+            db.close_if_queued = orig_close
+        con = db.connect()
+        try:
+            check("race 3: a close that fails withdraws nothing",
+                  not ok and hr.load_proposal(pid3)["state"] == "proposed"
+                  and db.get_request(con, rid3)["state"] == "queued", said)
+        finally:
+            con.close()
+    finally:
+        hr.load_proposal, hr.save = orig_load, orig_save
+
+
+def test_a_permission_prompt_waits_on_the_founder_until_it_is_answered(home: Path) -> None:
+    """A PermissionRequest turns the row red and pins it above everything, in
+    the bridge and in ps; the answer clears it at once, not at the next Stop,
+    and clearing writes no event row."""
+    _daemon_home(home, 20)
+    os.environ["OCP_AGENT"], os.environ["OCP_ACCOUNT"] = "backend", "alpha"
+    con = db.connect()
+    try:
+        db.set_terminal(con, "backend", "term_x", "wt")
+        db.set_agent_state(con, "backend", dmn.RUNNING, detail="active")
+        # This test is about the event-driven clearing paths, not the live
+        # screen - its own screen check is exercised in
+        # test_a_wait_clears_when_the_terminals_own_screen_no_longer_shows_it.
+        orcamod.screen_blocker = lambda handle: orcamod.Blocker(orcamod.MODAL, "dialog")
+        cmd = "git push origin main " + "x" * 200
+
+        def waits():
+            return [w for w in actions.founder_waits(con) if w["kind"] == "permission"]
+
+        check("prompt: nothing is waiting before one is raised", not waits())
+        _fire_hook("PermissionRequest", tool_name="Bash", tool_input={"command": cmd})
+        w = waits()
+        check("prompt: the agent is waiting, with its tool and its command",
+              len(w) == 1 and w[0]["who"] == "backend" and w[0]["red"]
+              and w[0]["what"].startswith("Bash: git push origin main"), str(w))
+        check("prompt: the command is cut to 120 characters",
+              len(w[0]["what"]) == len("Bash: ") + 120, str(len(w[0]["what"])))
+        ev = [json.loads(e["payload"]) for e in db.events_after(con, 0, agent="backend")
+              if e["kind"] == "PermissionRequest"]
+        check("prompt: the event carries the command too", ev and ev[-1].get("command") == cmd[:120],
+              str(ev))
+        check("prompt: its state underneath is still RUNNING",
+              db.get_agent_state(con, "backend")["state"] == dmn.RUNNING)
+
+        frame = _snap(120, 40)
+        plain = [tui._ANSI.sub("", ln) for ln in frame.split("\n")]
+        first = next(i for i, ln in enumerate(plain) if "WAITING ON YOU" in ln)
+        check("bridge: the block is pinned above the accounts",
+              first < next(i for i, ln in enumerate(plain) if "ACCOUNTS" in ln), str(plain[:6]))
+        check("bridge: it names the command",
+              any("git push origin main" in ln for ln in plain), str(plain[:6]))
+        check("bridge: and the agent's own row reads DIALOG, not RUNNING",
+              any(ln.lstrip("│ ").startswith("backend") and "DIALOG" in ln
+                  for ln in plain), str([ln for ln in plain if "backend" in ln]))
+
+        out = io.StringIO()
+        real_out = sys.stdout
+        sys.stdout = out
+        try:
+            climod.cmd_daemon_status(argparse.Namespace())
+        finally:
+            sys.stdout = real_out
+        said = out.getvalue()
+        check("ps: the pinned block comes first and the state column says DIALOG",
+              said.startswith("WAITING ON YOU (1)") and "backend " in said
+              and said.count("WAITING ON YOU") == 1 and "DIALOG" in said
+              and "Bash: git push" in said, said[:400])
+
+        rows_before = len(db.events_after(con, 0, agent="backend"))
+        _fire_hook("PostToolUse", tool_name="Read", tool_input={"file_path": "/x"})
+        check("prompt: another tool finishing is not the answer", len(waits()) == 1)
+        _fire_hook("PostToolUse", tool_name="Bash", tool_input={"command": cmd})
+        check("prompt: the answered call clears it at once", not waits())
+        check("prompt: and clearing wrote no event row",
+              len(db.events_after(con, 0, agent="backend")) == rows_before)
+        check("prompt: PostToolUse is still not a recorded event",
+              "PostToolUse" not in evmod.CAPTURED and "PostToolUse" in evmod.ANSWERS)
+
+        _fire_hook("PermissionRequest", tool_name="Bash", tool_input={"command": "rm x"})
+        _fire_hook("PostToolUseFailure", tool_name="Bash", tool_input={"command": "rm x"})
+        check("prompt: a refused call clears it as well", not waits())
+
+        for ends in ("Stop", "UserPromptSubmit", "SessionEnd"):
+            _fire_hook("PermissionRequest", tool_name="Edit", tool_input={"file_path": "/a"})
+            _fire_hook(ends)
+            check(f"prompt: {ends} clears it whatever else was missed", not waits())
+
+        _fire_hook("PermissionRequest", tool_name="Bash", tool_input={"command": "ls"})
+        db.set_agent_state(con, "backend", dmn.IDLE)
+        check("prompt: a session the daemon has moved off RUNNING is not at that prompt",
+              not waits())
+        db.set_agent_state(con, "backend", dmn.RUNNING)
+        db.set_closed(con, "backend", "sess-1")
+        check("prompt: nor is a closed one", not waits())
+    finally:
+        os.environ.pop("OCP_AGENT", None); os.environ.pop("OCP_ACCOUNT", None)
+        con.close()
+
+
+def test_a_wait_does_not_outlive_the_prompt_that_raised_it(home: Path) -> None:
+    """clear() only unlinks the wait file for the exact tool call that raised
+    it - which never fires its own PostToolUse when the call was denied or the
+    session was interrupted, so nothing else was ever built to take the file
+    away. waiting.of() closes that gap: it asks whether the agent has recorded
+    activity of one of MOVED_ON_KINDS - never a side effect of some other tool
+    call finishing - after the row id of the PermissionRequest that raised
+    this wait, not whether time has passed."""
+    _daemon_home(home, 20)
+    os.environ["OCP_AGENT"], os.environ["OCP_ACCOUNT"] = "backend", "alpha"
+    con = db.connect()
+    try:
+        db.set_agent_state(con, "backend", dmn.RUNNING, detail="active")
+        # This test is about the event-driven clearing paths, not the live
+        # screen - its own screen check is exercised in
+        # test_a_wait_clears_when_the_terminals_own_screen_no_longer_shows_it.
+        orcamod.screen_blocker = lambda handle: orcamod.Blocker(orcamod.MODAL, "dialog")
+
+        def waiting_now() -> bool:
+            return waiting.of(con, db.get_agent_state(con, "backend")) is not None
+
+        # A wait file noted with no id to compare - written by note() before
+        # this field existed, or by a caller that never got one - is left
+        # showing even with real MOVED_ON_KINDS activity after it, rather
+        # than guessed at either way.
+        waiting.note("backend", "Bash", {"command": "no id"})
+        db.add_event(con, "backend", "commit", {})
+        check("outlive: a wait with no id to compare is left showing, not guessed at",
+              waiting_now())
+        waiting.clear("backend")
+
+        # Denied or interrupted: no PostToolUse ever arrives for "rm -rf /x"
+        # itself. A sibling dispatched in the same batch, which does not need
+        # permission, finishes on its own and fires its own PostToolUse - that
+        # must not read as the denied call's answer.
+        _fire_hook("PermissionRequest", tool_name="Bash", tool_input={"command": "rm -rf /x"})
+        check("outlive: raised", waiting_now())
+        _fire_hook("PostToolUse", tool_name="Read", tool_input={"file_path": "/y"})
+        check("outlive: a mismatched sibling finishing does not clear it", waiting_now())
+
+        # A subagent dispatched in the same batch as the denied call finishes
+        # on its own too, the same shape as the sibling above: the Agent tool
+        # can run several subagents at once, and SubagentStop is not this
+        # agent's own turn continuing any more than PostToolUse is (auditor
+        # #1654 SHOULD-FIX 1 - measured on the live db, same-agent
+        # SubagentStop pairs land under two seconds apart, which is what
+        # parallel subagents look like).
+        _fire_hook("SubagentStop")
+        check("outlive: a sibling subagent finishing does not clear it either", waiting_now())
+
+        # TeammateIdle is not this agent's own turn continuing either - it is
+        # another agent's status reaching this session (auditor #1654 NOTE 5;
+        # dropping it from MOVED_ON_KINDS was pinned by nothing until now -
+        # auditor #1667 NOTE 1).
+        _fire_hook("TeammateIdle")
+        check("outlive: another agent going idle does not clear it", waiting_now())
+
+        # PostCompact is this session's own transcript growing - nothing
+        # compacts a context that is not there to grow, so this can only
+        # follow the turn actually continuing (auditor #1667 NOTE 2: the only
+        # non-verb member of MOVED_ON_KINDS, and the only one nothing
+        # exercised).
+        _fire_hook("PostCompact")
+        check("outlive: this session's own PostCompact clears it",
+              not waiting_now())
+
+        _fire_hook("PermissionRequest", tool_name="Bash", tool_input={"command": "rm -rf /y"})
+        check("outlive: raised a third time", waiting_now())
+
+        # The agent goes on working past the denial: it runs an `ocp` verb,
+        # which can only happen once the tool call that ran it has itself
+        # returned - unlike the two siblings above, nothing else could have
+        # produced this event.
+        db.add_event(con, "backend", "commit", {})
+        check("outlive: an `ocp` verb the agent ran itself clears it",
+              not waiting_now())
+
+        # A wait that really is still pending must not read as stale merely
+        # because it is old - there is no clock here, only whether the agent's
+        # own row id has moved past the prompt's.
+        _fire_hook("PermissionRequest", tool_name="Bash", tool_input={"command": "rm -rf /z"})
+        check("outlive: raised again", waiting_now())
+        w = waiting.read("backend")
+        w["since"] -= 6 * 3600
+        (paths.home() / "waiting" / "backend.json").write_text(json.dumps(w))
+        check("outlive: a genuinely pending wait keeps showing, however old", waiting_now())
+    finally:
+        os.environ.pop("OCP_AGENT", None); os.environ.pop("OCP_ACCOUNT", None)
+        con.close()
+
+
+def test_a_wait_clears_when_the_terminals_own_screen_no_longer_shows_it(home: Path) -> None:
+    """#1698: a founder incident where a dialog was answered but nothing was
+    ever recorded to say so - PostToolUse is deliberately never written while
+    an agent is mid-turn, so the two tests above's event-driven paths alone
+    left the wait showing for 26 minutes. waiting.of() also reads the
+    terminal's own screen, live, and a screen with no dialog on it hides the
+    wait - it never restores one an event has already cleared, only the
+    other direction."""
+    _daemon_home(home, 20)
+    os.environ["OCP_AGENT"], os.environ["OCP_ACCOUNT"] = "backend", "alpha"
+    con = db.connect()
+    try:
+        db.set_agent_state(con, "backend", dmn.RUNNING, detail="active")
+
+        def stub(blocker) -> None:
+            # screen_blocker_cached (orca.SCREEN_CACHE_TTL_S) would otherwise
+            # answer from the previous stub for a few real seconds - well
+            # inside how long this test takes to run.
+            orcamod.screen_blocker = lambda handle: blocker
+            orcamod._screen_cache.clear()
+
+        def waiting_now() -> bool:
+            return waiting.of(con, db.get_agent_state(con, "backend")) is not None
+
+        stub(orcamod.Blocker(orcamod.MODAL, "dialog"))
+        _fire_hook("PermissionRequest", tool_name="Bash", tool_input={"command": "rm -rf /x"})
+        check("screen: raised, with the dialog still on screen",
+              waiting_now())
+
+        stub(None)
+        check("screen: gone - a clean composer hides it with no event at all",
+              not waiting_now())
+        check("screen: hides, does not delete - the file is still there",
+              waiting.read("backend") is not None)
+
+        stub(orcamod.Blocker(orcamod.MODAL, "dialog"))
+        check("screen: shown again the moment a fresh read finds it still up - "
+              "nothing was lost while it was hidden",
+              waiting_now())
+
+        stub(None)
+        check("screen: hidden again", not waiting_now())
+        _fire_hook("PermissionRequest", tool_name="Bash", tool_input={"command": "rm -rf /y"})
+        stub(orcamod.Blocker(orcamod.UNREADABLE))
+        check("screen: a screen that cannot be read fails closed, keeping it",
+              waiting_now())
+
+        stub(orcamod.Blocker(orcamod.BACKGROUNDED, "picker"))
+        check("screen: the session picker showing instead is not a dialog either",
+              not waiting_now())
+
+        _fire_hook("PermissionRequest", tool_name="Bash", tool_input={"command": "rm -rf /z"})
+        db.set_terminal(con, "backend", None, "wt")
+        orcamod.screen_blocker = lambda handle: (_ for _ in ()).throw(
+            AssertionError("no handle to read"))
+        orcamod._screen_cache.clear()
+        check("screen: an agent with no terminal at all is not read, and fails closed",
+              waiting_now())
+    finally:
+        os.environ.pop("OCP_AGENT", None); os.environ.pop("OCP_ACCOUNT", None)
+        con.close()
+
+
+def test_the_founders_own_shape_end_to_end(home: Path) -> None:
+    """#1698, literally: PermissionRequest, then 26 minutes 24 seconds of no
+    orcapipe.keeper event at all (the founder's own trace, events.id 14057 to
+    its resolve), the screen answered elsewhere in the meantime, and the wait
+    is gone well before the Stop that follows nine seconds later - not merely
+    "the logic has no clock so any elapsed time works", but the actual gap."""
+    _daemon_home(home, 20)
+    os.environ["OCP_AGENT"], os.environ["OCP_ACCOUNT"] = "backend", "alpha"
+    con = db.connect()
+    try:
+        db.set_terminal(con, "backend", "term_x", "wt")
+        db.set_agent_state(con, "backend", dmn.RUNNING, detail="active")
+
+        def waiting_now() -> bool:
+            return waiting.of(con, db.get_agent_state(con, "backend")) is not None
+
+        orcamod.screen_blocker = lambda handle: orcamod.Blocker(orcamod.MODAL, "dialog")
+        orcamod._screen_cache.clear()
+        _fire_hook("PermissionRequest", tool_name="Bash", tool_input={"command": "rm -rf /x"})
+        check("shape: raised", waiting_now())
+
+        w = waiting.read("backend")
+        w["since"] -= 26 * 60 + 24
+        (paths.home() / "waiting" / "backend.json").write_text(json.dumps(w))
+        check("shape: 26m24s later, with no event at all recorded in between, "
+              "the dialog is still on screen and the wait still shows",
+              waiting_now())
+
+        orcamod.screen_blocker = lambda handle: None
+        orcamod._screen_cache.clear()
+        check("shape: the founder answers it - the wait is gone the moment a "
+              "fresh read sees the clean screen, before anything else fires",
+              not waiting_now())
+
+        _fire_hook("Stop")
+        check("shape: Stop, nine seconds later in his trace, finds nothing left to clear",
+              not waiting_now())
+    finally:
+        os.environ.pop("OCP_AGENT", None); os.environ.pop("OCP_ACCOUNT", None)
+        con.close()
+
+
+def test_classify_reads_the_screen_again_after_waiting_of_hides_a_wait_by_it(home: Path) -> None:
+    """waiting.of()'s own screen check, just above classify()'s, answers a
+    different question - is the founder's own prompt still up - and hiding a
+    stale one there does not excuse classify()'s read: a dialog can be on
+    screen the instant after, and nothing else would catch it this tick."""
+    _daemon_home(home, 20)
+    orcamod.available = lambda: True
+    orcamod.alive = lambda h: True
+    reads: list[str] = []
+    blocker = orcamod.Blocker(orcamod.MODAL, "a different dialog")
+
+    def fake_screen_blocker(h):
+        reads.append(h)
+        return None if len(reads) == 1 else blocker
+
+    orcamod.screen_blocker = fake_screen_blocker
+    con = db.connect()
+    try:
+        db.set_agent_state(con, "backend", dmn.RUNNING, detail="active")
+        waiting.note("backend", "Bash", {"command": "rm -rf /x"})
+        row = db.get_agent_state(con, "backend")
+        found = blockedmod.classify(con, "backend", row)
+        check("classify: the permission wait hidden, but a fresh dialog still shows",
+              found == (orcamod.MODAL, "a different dialog", ""), str(found))
+        check("classify: two live reads - waiting.of()'s own and classify()'s own",
+              reads == ["term_x", "term_x"], str(reads))
+    finally:
+        con.close()
+
+
+def test_a_stale_cached_read_does_not_hide_a_later_prompt(home: Path) -> None:
+    """auditor #1721 BLOCKING: screen_blocker_cached's own TTL means a read
+    taken while an earlier prompt was up, or just after it was answered, can
+    still be "fresh enough" the instant the very next prompt is raised - the
+    two can land in the same few-second window when an agent runs several
+    commands back to back, which is the ordinary shape of a batch of tool
+    calls, not a corner case. Answering the new prompt from a cache entry
+    timestamped before it even existed would hide a wait that was never
+    actually shown false - reproduced directly: a cache entry timestamped
+    well before this wait's own `since`, with the screen itself (once read
+    fresh) showing the dialog the whole time."""
+    _daemon_home(home, 20)
+    os.environ["OCP_AGENT"], os.environ["OCP_ACCOUNT"] = "backend", "alpha"
+    con = db.connect()
+    try:
+        db.set_agent_state(con, "backend", dmn.RUNNING, detail="active")
+
+        def waiting_now() -> bool:
+            return waiting.of(con, db.get_agent_state(con, "backend")) is not None
+
+        # Within SCREEN_CACHE_TTL_S of "now" - the old code would trust it -
+        # but strictly older than the wait `note()` is about to write below,
+        # by more than the whole-second `since` this compares against ever
+        # ties on: an earlier prompt's own "no dialog" answer, cached.
+        orcamod._screen_cache["term_x"] = (time.time() - 3, None)
+        orcamod.screen_blocker = lambda handle: orcamod.Blocker(orcamod.MODAL, "genuinely up")
+
+        waiting.note("backend", "Bash", {"command": "rm -rf /y"})
+        check("stale: a genuinely later prompt is not answered by an older cached absence",
+              waiting_now())
+    finally:
+        os.environ.pop("OCP_AGENT", None); os.environ.pop("OCP_ACCOUNT", None)
+        con.close()
+
+
+def test_a_proposal_and_an_escalation_wait_on_the_founder_too(home: Path) -> None:
+    """An hr proposal shows from the moment it is raised until it is applied or
+    refused; an escalation shows until it is answered."""
+    _daemon_home(home, 20)
+    accounts.register("beta")
+    con = db.connect()
+    try:
+        def waits(kind):
+            return [w for w in actions.founder_waits(con) if w["kind"] == kind]
+
+        ok, said = hr.propose("move", "backend", requester="backend", why="beta is quieter",
+                              account="beta")
+        pid = said.split()[1]
+        w = waits("proposal")
+        check("hr wait: a raised proposal is waiting on the founder, in red",
+              ok and len(w) == 1 and w[0]["red"] and "awaiting your decision" in w[0]["what"]
+              and "backend" in w[0]["what"], str(w))
+        check("hr wait: it is not also drawn as a bare escalation", not waits("escalation"))
+        check("hr wait: and the bridge pins it",
+              "hr move backend" in tui._ANSI.sub("", _snap(120, 40)))
+
+        rid = hr.load_proposal(pid)["request"]
+        askmod.resolve(rid, "approve", notify=False)
+        w = waits("proposal")
+        check("hr wait: approved but not applied it stays, no longer red",
+              len(w) == 1 and not w[0]["red"] and "not yet applied" in w[0]["what"], str(w))
+        ok, said = hr.apply(pid)
+        check("hr wait: applied, it is gone", ok and not waits("proposal"), said)
+
+        agents.register("marina", "beta")
+        ok, said = hr.propose("move", "marina", requester="marina", why="w", account="alpha")
+        askmod.resolve(hr.load_proposal(said.split()[1])["request"], "reject", notify=False)
+        check("hr wait: refused, it is gone", not waits("proposal"), str(waits("proposal")))
+
+        db.add_request(con, "marina", actions.HUMAN, "which branch do we cut?", None,
+                       "peer", "async", "escalate", 0, None)
+        w = waits("escalation")
+        check("escalation: an unanswered one is waiting on the founder, in red",
+              len(w) == 1 and w[0]["red"] and w[0]["who"] == "marina"
+              and "which branch" in w[0]["what"], str(w))
+        con.execute("UPDATE requests SET state = 'done', verdict = 'the release one' "
+                    "WHERE body LIKE 'which branch%'")
+        con.commit()
+        check("escalation: answered, it is gone", not waits("escalation"))
+    finally:
+        con.close()
+
+
+def test_ask_and_resolve_do_not_type_at_an_agent_at_the_wall(home: Path) -> None:
+    """`ocp ask` and `ocp resolve` call the deliver functions directly, not
+    through `supervise`, so the gate has to live in them: typing at an agent
+    whose turn ended on the usage limit, or that a usage trigger parked, starts
+    a turn that fails at once and the whole park cycle over again."""
+    _daemon_home(home, 20)
+    agents.register("product", "alpha")
+    os.environ["OCP_AGENT"], os.environ["OCP_ACCOUNT"] = "backend", "alpha"
+    con = db.connect()
+    sent: list[str] = []
+
+    def hook(event: str, **fields) -> None:
+        real_in = sys.stdin
+        sys.stdin = io.StringIO(json.dumps({"hook_event_name": event, "session_id": "s",
+                                            **fields}))
+        try:
+            evmod.record_from_stdin([event])
+        finally:
+            sys.stdin = real_in
+    real = (orcamod.alive, orcamod.idle_now, orcamod.send, orcamod.available)
+    try:
+        orcamod.available = lambda: True
+        orcamod.live_terminals = lambda: {"term_x", "term_p"}
+        orcamod.alive = lambda h: True
+        orcamod.idle_now = lambda h: True
+        orcamod.send = lambda h, text, enter=True: (sent.append(text), (True, ""))[1]
+        sessions_are("backend", "product")
+        db.set_terminal(con, "backend", "term_x", "wt")
+        db.set_terminal(con, "product", "term_p", "wt")
+        db.set_agent_state(con, "backend", dmn.IDLE)
+        db.set_agent_state(con, "product", dmn.IDLE)
+
+        # ---- a turn that ended on the usage limit
+        hook("StopFailure", error="rate_limit", error_details="You've hit your session limit")
+        actions._WORLD["at"] = 0.0
+        ok, msg, rid = askmod.ask("backend", "please look at this", requester="product")
+        row = db.get_request(con, rid)
+        check("wall: an ask to an agent at its usage limit types nothing", not sent, str(sent))
+        check("wall: it stays queued and undelivered",
+              row["state"] == "queued" and not row["delivered_at"]
+              and db.get_cursor(con, "notify:backend") != rid, str(dict(row)))
+        check("wall: and says why to whoever asked", "usage limit" in msg, msg)
+        check("wall: the daemon's own path is held the same way",
+              not dmn.deliver_queued(con, "backend", lambda _m: None) and not sent)
+        check("wall: the mark that says it is at the wall is still there",
+              evmod.at_limit(con, "backend") is not None)
+
+        hook("UserPromptSubmit")
+        check("wall: once it is running again the queued request is delivered",
+              dmn.deliver_queued(con, "backend", lambda _m: None)
+              and any("please look at this" in t for t in sent), str(sent))
+
+        # ---- an answer to an agent parked on usage
+        sent.clear()
+        hid = "h-usage"
+        db.start_handoff(con, hid, "product", "sess", "usage", int(time.time()) + 60)
+        db.advance_handoff(con, hid, "released", state="done")
+        db.set_agent_state(con, "product", dmn.PARKED, wake_at=int(time.time()) + 3600)
+        ok, said = askmod.resolve(rid, "looked, fine")
+        check("wall: resolving to an agent parked on usage types nothing", not sent, str(sent))
+        check("wall: and the answer does not unpark it - that is the window's to end",
+              db.get_agent_state(con, "product")["state"] == dmn.PARKED,
+              db.get_agent_state(con, "product")["state"])
+        check("wall: the answer stays unannounced",
+              [r["id"] for r in db.unannounced_answers(con, "product")] == [rid])
+        check("wall: the daemon's own path is held the same way",
+              not dmn.deliver_answers(con, "product", lambda _m: None) and not sent)
+
+        # A park for any other reason is an ordinary open session.
+        db.start_handoff(con, "h-ctx", "product", "sess", "context", int(time.time()) + 60)
+        db.advance_handoff(con, "h-ctx", "released", state="done")
+        con.execute("UPDATE handoff SET updated = updated + 5 WHERE id = 'h-ctx'")
+        con.commit()
+        check("wall: a context park is not the wall - the answer is delivered",
+              dmn.deliver_answers(con, "product", lambda _m: None)
+              and any("looked, fine" in t for t in sent), str(sent))
+    finally:
+        orcamod.alive, orcamod.idle_now, orcamod.send, orcamod.available = real
+        os.environ.pop("OCP_AGENT", None); os.environ.pop("OCP_ACCOUNT", None)
+        con.close()
+
+
+def test_a_move_still_records_a_session_the_wait_missed_but_a_hook_saw(home: Path) -> None:
+    """The edge founder #613 did not name, on the other real caller: the
+    move off a parked account (`supervise`'s own `_move_to_room` call, where
+    the row is genuinely PARKED - not in PROTECTED_STATES, so this path never
+    needed the HANDOFF fix above). `wait_for_session` can time out while the
+    session is genuinely up - a false negative, not a failed handback. A
+    hook's RUNNING is better evidence than that timeout, so the move is still
+    recorded, not discarded as `_wake_agent`'s failure path would otherwise
+    do - and the bookkeeping for a wake it believed had failed (the streak,
+    the still-pending handoff) is cleared along with it, not left stale."""
+    _daemon_home(home, 20)
+    _with_accounts("alpha", "beta")
+    con = db.connect()
+    agents.register("mover", "alpha")
+    write_status(home, "beta", pct_5h=10, pct_7d=10, reset_5h=int(time.time()) + 3600)
+    real = (orcamod.available, orcamod.alive, orcamod.close_session, orcamod.relaunch,
+            orcamod.idle_now, dmn.wait_for_session)
+    try:
+        orca_idle()
+        orcamod.close_session = exit_ends_session("mover")
+        sessions_are("mover")
+        db.set_terminal(con, "mover", "term_x", "wt")
+        db.set_account(con, "mover", "alpha")
+        db.set_agent_state(con, "mover", dmn.PARKED, detail="parked earlier")
+        db.bump_counter(con, "mover", "wake_failures")
+        keep_handoff("mover", "# handoff · mover\n## 다음\n- carry on\n")
+
+        def relaunch_but_miss(h, cmd, **kw):
+            # The session starts and its hook fires, but the wait `_wake_agent`
+            # gave it read as a timeout - what `relaunch` reports is "not woke".
+            take_launched_prompt(cmd)
+            _SESSION_TABLE["t"]["mover"] = 4242
+            evmod._mark_activity(con, "mover", "UserPromptSubmit")
+            return False, "no session seen within the timeout"
+        orcamod.relaunch = relaunch_but_miss
+        dmn.wait_for_session = lambda agent, timeout=0: False
+
+        t = triggers.evaluate(100, 10)
+        moved = dmn._move_to_room(con, "mover", t, lambda _m: None, dest="beta")[0]
+        check("clobber: a hook's RUNNING outweighs a wake the wait missed - "
+              "the move is recorded, not discarded", moved)
+        row = db.get_agent_state(con, "mover")
+        check("clobber: the row lands on the new account with the hook's state kept",
+              row["account"] == "beta" and row["state"] == dmn.RUNNING
+              and not row["closed_at"], str(dict(row)))
+        check("clobber: the wake's own failed-attempt bookkeeping is cleared too, "
+              "since the hook says it did not fail",
+              row["wake_failures"] == 0 and db.get_handoff(con, "mover") is None,
+              str(dict(row)))
+    finally:
+        (orcamod.available, orcamod.alive, orcamod.close_session, orcamod.relaunch,
+         orcamod.idle_now, dmn.wait_for_session) = real
+        con.close()
+
+
+def test_a_wait_returns_when_the_answer_lands_not_when_it_gives_up(home: Path) -> None:
+    """`--wait` turns "a row changed" into "a command finished", which is the
+    only one of the two that anything can be told about."""
+    import threading
+    from ocp import cli
+    _daemon_home(home, 20)
+    agents.register("reviewer", "alpha")
+    ok, _, rid = askmod.ask("reviewer", "audit branch keeper", requester=actions.HUMAN)
+    check("wait: the order is sent", ok)
+
+    parser = cli.build_parser()
+    args = parser.parse_args(["read", str(rid), "--wait", "--timeout", "6"])
+    threading.Timer(1.0, lambda: askmod.resolve(rid, "MERGE.")).start()
+    started = time.time()
+    rc = cli.cmd_read(args)
+    took = time.time() - started
+    check("wait: read --wait returns as soon as the verdict is written",
+          rc == 0 and took < 5, f"rc={rc} took={took:.1f}s")
+
+    ok, _, rid2 = askmod.ask("reviewer", "second order", requester=actions.HUMAN)
+    check("wait: a second order is sent", ok)
+    check("wait: an unanswered row times out and says so, rather than printing a half row",
+          cli.cmd_read(parser.parse_args(
+              ["read", str(rid2), "--wait", "--timeout", "1"])) == 1)
+
+    check("wait: --wait sits next to the positional instead of swallowing it",
+          parser.parse_args(["inbox", "reviewer", "--wait"]).agent == "reviewer")
+    con = db.connect()
+    try:
+        seen = cli._waiting_ids(con, "reviewer")
+    finally:
+        con.close()
+    check("wait: what is already on the list is not what a wait is waiting for",
+          rid2 in seen and rid not in seen, str(seen))
+
+
+def test_an_answer_to_the_human_is_in_the_human_mailbox(home: Path) -> None:
+    """The reply loop was open at the human's end.
+
+    An agent is told what came back by the daemon typing into its terminal.
+    Nobody types into a human, so a verdict written on a row the founder asked
+    for landed nowhere any screen drew - measured on the live database: twenty
+    consecutive orders answered with `ocp resolve`, and the two agents that
+    wanted to be seen had learnt to send a second, unrelated request saying the
+    same thing. The mailbox holds both directions, and the same two keys work
+    on both."""
+    _daemon_home(home, 20)
+    con = db.connect()
+    try:
+        agents.register("reviewer", "alpha")
+        ok, said, rid = askmod.ask("reviewer", "audit branch keeper",
+                                   requester=actions.HUMAN)
+        check("mailbox: the human's own order is sent", ok, said)
+        check("mailbox: and is not in their own mailbox",
+              rid not in [m["id"] for m in actions.messages(con)])
+
+        askmod.resolve(rid, "MERGE.")
+        back = [m for m in actions.messages(con) if m["id"] == rid]
+        check("mailbox: a verdict on it comes back to the human", len(back) == 1,
+              str(actions.messages(con)))
+        check("mailbox: from the agent that answered, as an answer",
+              back[0]["from"] == "reviewer" and back[0]["kind"] == "answer"
+              and back[0]["answer"], str(back[0]))
+        check("mailbox: carrying what was said, not what was asked",
+              back[0]["body"] == "MERGE.", back[0]["body"])
+        check("mailbox: timed by when it came back, not when it was asked",
+              back[0]["ts"] >= db.get_request(con, rid)["ts"])
+
+        # Reading it is reading a verdict, which is unreadable on its own:
+        # "MERGE." says nothing without the branch it is about.
+        title, sections = actions.message_detail(con, rid)
+        headings = [h for h, _rows in sections]
+        check("mailbox: an opened answer shows what was asked underneath it",
+              any("WHAT YOU ASKED" in h for h in headings), str(headings))
+        check("mailbox: and the answer itself is the body",
+              "MERGE." in "\n".join(sections[0][1]))
+
+        # Replying to an answer is a new request in that answer's thread. It is
+        # the one place a parent id is known rather than guessed.
+        said = actions.answer(con, rid, "merged, thank you")
+        follow = db.get_request(con, rid + 1)
+        check("mailbox: replying sends it back to the agent that answered",
+              follow["target"] == "reviewer" and follow["requester"] == actions.HUMAN,
+              said)
+        check("mailbox: in the thread it replies to",
+              follow["parent_id"] == rid
+              and follow["chain_id"] == db.get_request(con, rid)["chain_id"],
+              f"parent={follow['parent_id']} chain={follow['chain_id']}")
+        check("mailbox: and what was replied to leaves the mailbox",
+              rid not in [m["id"] for m in actions.messages(con)])
+        check("mailbox: without overwriting what the agent said",
+              db.get_request(con, rid)["verdict"] == "MERGE.")
+
+        # A conversation with a human cannot be a runaway: the limit exists to
+        # reach a human, and one is typing. Five turns is past max_chain_depth.
+        parent = follow["id"]
+        for turn in range(5):
+            askmod.resolve(parent, f"done {turn}")
+            ok, said, parent = askmod.ask("reviewer", f"and now {turn}",
+                                          requester=actions.HUMAN, parent_id=parent)
+            check(f"mailbox: turn {turn + 1} of the conversation is allowed", ok, said)
+        check("mailbox: and it is still one thread",
+              db.get_request(con, parent)["chain_id"]
+              == db.get_request(con, rid)["chain_id"])
+        check("mailbox: with the depth reset by the human's turn",
+              db.get_request(con, parent)["chain_depth"] == 0)
+
+        # Dismissing an answer is not resolving it a second time.
+        askmod.resolve(parent, "last word")
+        actions.dismiss(con, parent)
+        check("mailbox: dismissing an answer takes it off the list",
+              parent not in [m["id"] for m in actions.messages(con)])
+        check("mailbox: and leaves the verdict standing",
+              db.get_request(con, parent)["verdict"] == "last word")
+
+        # The human's name is the human's. It reaches every agent and
+        # it is exempt from the loop guards, so an agent that could borrow it
+        # would hold both privileges - one spoofed hop makes a refused
+        # A->B->A legal.
+        os.environ["OCP_AGENT"] = "backend"
+        spoofed, why, _rid = askmod.ask("reviewer", "as you", requester=actions.HUMAN)
+        check("mailbox: an agent may not ask in the human's name",
+              not spoofed and "may not ask as" in why, why)
+        os.environ.pop("OCP_AGENT", None)
+
+        # The human is not an agent: no account, no session, nothing to park
+        # and nothing that will ever wake them.
+        check("mailbox: asking does not park the human",
+              db.get_agent_state(con, actions.HUMAN) is None,
+              str(dict(db.get_agent_state(con, actions.HUMAN) or {})))
+
+        # Dismissing is not answering. A sender that parked on a reply has to
+        # be unparked, but one that fired and forgot is not told: typing "read"
+        # at an agent as though it were an answer costs it a turn to find out
+        # it is not one.
+        ff = db.add_request(con, "reviewer", actions.HUMAN, "FYI, shipped it", None,
+                            "peer", "fire_and_forget", None, 0, None)
+        actions.dismiss(con, ff)
+        check("mailbox: a dismissal nobody waited on is not read out to anyone",
+              db.get_request(con, ff)["announced_at"] is not None
+              and ff not in [r["id"] for r in db.unannounced_answers(con, "reviewer")],
+              str(dict(db.get_request(con, ff))))
+        parked = db.add_request(con, "reviewer", actions.HUMAN, "which one ships?", None,
+                                "peer", "async", None, 0, None)
+        actions.dismiss(con, parked)
+        check("mailbox: but one that parked on a reply is still told",
+              parked in [r["id"] for r in db.unannounced_answers(con, "reviewer")],
+              str(dict(db.get_request(con, parked))))
+
+        # #185: `resolve` used to call push_answer unconditionally, so a
+        # fire_and_forget dismissal delivered and even woke the requester
+        # before dismiss ever got to check whether anyone was waiting. Proven
+        # here against both an open requester (deliver_answers) and a closed
+        # one (wake_agent), by watching the daemon calls dismiss must not make.
+        woken: list = []
+        delivered: list = []
+        real_wake, real_deliver = dmn.wake_agent, dmn.deliver_answers
+        dmn.wake_agent = lambda con_, a, log_: (woken.append(a), (True, "woken"))[1]
+        dmn.deliver_answers = lambda con_, a, log_: (delivered.append(a), True)[1]
+        try:
+            agents.register("marina", "alpha")
+            db.set_terminal(con, "marina", "term_marina", None)
+            ff_open = db.add_request(con, "marina", actions.HUMAN, "FYI, open", None,
+                                     "peer", "fire_and_forget", None, 0, None)
+            actions.dismiss(con, ff_open)
+            check("mailbox: a fire_and_forget dismissal tells an open requester nothing",
+                  not delivered and not woken, f"woken={woken} delivered={delivered}")
+
+            db.set_closed(con, "marina", "sess_marina")
+            ff_closed = db.add_request(con, "marina", actions.HUMAN, "FYI, closed", None,
+                                       "peer", "fire_and_forget", None, 0, None)
+            actions.dismiss(con, ff_closed)
+            check("mailbox: nor wakes one whose session is closed",
+                  not delivered and not woken, f"woken={woken} delivered={delivered}")
+
+            parked2 = db.add_request(con, "marina", actions.HUMAN, "which one?", None,
+                                     "peer", "async", None, 0, None)
+            actions.dismiss(con, parked2)
+            check("mailbox: but an async dismissal still wakes its parked requester",
+                  woken == ["marina"], f"woken={woken} delivered={delivered}")
+
+            # #264: resolve(notify=False) committed 'done' with announced_at
+            # still NULL, and dismiss stamped it afterwards with its own
+            # db.mark_announced() call on a separate connection - a daemon
+            # sweep landing in that gap found the row 'done' with
+            # announced_at unset and announced it as news. Called directly,
+            # not through dismiss, so this proves resolve() itself does the
+            # stamping rather than relying on a caller's follow-up call.
+            direct = db.add_request(con, "marina", actions.HUMAN, "direct check", None,
+                                    "peer", "fire_and_forget", None, 0, None)
+            askmod.resolve(direct, "read - no reply", state="done", notify=False)
+            check("resolve: notify=False stamps announced_at in its own UPDATE",
+                  db.get_request(con, direct)["announced_at"] is not None,
+                  str(dict(db.get_request(con, direct))))
+            check("resolve: ...so it is never in unannounced_answers, even transiently",
+                  direct not in [r["id"] for r in db.unannounced_answers(con, "marina")])
+
+            # Skipping the requester's own answer is not the same as skipping
+            # the target's queue: one-task-at-a-time (#189) means resolving or
+            # dismissing the head of a target's queue is what makes the next
+            # request in it deliverable, and that must happen whether or not
+            # the requester was told anything.
+            woken.clear()
+            delivered.clear()
+            pushed: list = []
+            real_deliver_queued = dmn.deliver_queued
+            dmn.deliver_queued = lambda con_, a, log_: (pushed.append(a), True)[1]
+            try:
+                agents.register("nora", "beta")
+                db.set_terminal(con, "nora", "term_nora", None)
+                head_rid = db.add_request(con, "marina", "nora", "first", None,
+                                          "peer", "fire_and_forget", None, 0, None)
+                db.add_request(con, "marina", "nora", "second", None,
+                               "peer", "fire_and_forget", None, 0, None)
+                actions.dismiss(con, head_rid)
+                check("mailbox: dismissing the head still skips the requester's own answer",
+                      not woken and not delivered, f"woken={woken} delivered={delivered}")
+                check("mailbox: ...but pushes the target's next queued request",
+                      pushed == ["nora"], str(pushed))
+            finally:
+                dmn.deliver_queued = real_deliver_queued
+        finally:
+            dmn.wake_agent, dmn.deliver_answers = real_wake, real_deliver
+
+        # A refusal is an answer too - the one that means do something else.
+        ok, _said, rid2 = askmod.ask("reviewer", "rebase it", requester=actions.HUMAN)
+        askmod.resolve(rid2, "no - the base moved", state="rejected")
+        refused = [m for m in actions.messages(con) if m["id"] == rid2]
+        check("mailbox: a refusal comes back, and says it is one",
+              len(refused) == 1 and refused[0]["kind"] == "refused", str(refused))
+
+        # And the CLI holds the same rows, or clearing one leaves the other
+        # still asking.
+        os.environ.pop("OCP_AGENT", None)
+        out = _capture(lambda: climod.main(["inbox", actions.HUMAN]))
+        check("mailbox: `ocp inbox` shows the answer too", f"#{rid2}" in out, out[:200])
+
+        # Whose row it is is checked against who is asking, and a caller we
+        # cannot name is nobody - the same fail-closed rule `ocp ask` uses.
+        out = _capture(lambda: climod.main(["dismiss", str(rid2)]))
+        check("mailbox: an unnamed caller dismisses nothing",
+              "cannot tell who" in out and rid2 in [m["id"] for m in actions.messages(con)],
+              out[:120])
+        os.environ["OCP_AGENT"] = "backend"
+        gate = [m["id"] for m in actions.messages(con) if m["gate"]]
+        out = _capture(lambda: climod.main(["dismiss", str(gate[0])])) if gate else ""
+        check("mailbox: and an agent cannot clear the human's decisions",
+              not gate or ("not yours" in out
+                           and gate[0] in [m["id"] for m in actions.messages(con)]),
+              out[:120])
+        out = _capture(lambda: climod.main(["resolve", str(rid2), "mine now"]))
+        check("mailbox: nor answer in the human's name",
+              "not yours" in out and db.get_request(con, rid2)["verdict"] != "mine now",
+              out[:120])
+        os.environ.pop("OCP_AGENT", None)
+        actions.dismiss(con, rid2)
+        check("mailbox: and `ocp dismiss` clears it from both",
+              rid2 not in [m["id"] for m in actions.messages(con)])
+    finally:
+        con.close()
+
+
+def test_the_founder_can_cancel_a_request_in_an_agents_queue(home: Path) -> None:
+    """A delivered head its agent never resolved held everything behind it for
+    an hour, and `withdraw` refuses anything already delivered. `cancel` closes
+    it as rejected - never deletes it - and tells everyone it touches."""
+    _daemon_home(home, 20)
+    con = db.connect()
+    sent: list[tuple[str, str]] = []
+    real = (orcamod.alive, orcamod.send, orcamod.available, orcamod.typeable_now,
+            askmod.asking_agent)
+    try:
+        orcamod.available = lambda: True
+        orcamod.live_terminals = lambda: {"term_b", "term_m"}
+        orcamod.alive = lambda h: True
+        orcamod.typeable_now = lambda h: True
+        orcamod.send = lambda h, text, enter=True: (sent.append((h, text)), (True, ""))[1]
+        sessions_are("backend", "marina")
+        for name, term in (("backend", "term_b"), ("marina", "term_m")):
+            agents.register(name, "alpha")
+            db.set_terminal(con, name, term, "wt")
+            db.set_agent_state(con, name, dmn.IDLE)
+
+        def ask(requester: str, body: str) -> int:
+            return db.add_request(con, requester, "backend", body, None,
+                                  "peer", "async", None, 0, None)
+
+        head = ask("marina", "the stuck one")
+        mine = ask(askmod.HUMAN, "founder's own, behind it")
+        other = ask("marina", "marina's second")
+        db.mark_delivered(con, head)
+        db.set_cursor(con, "notify:backend", head)
+
+        # Case 2/3: a delivered head, another agent's request.
+        ok, why = actions.cancel_plan(con, head)
+        check("cancel: the plan says what happens and who is told",
+              ok and "closed as rejected" in why and "backend is told to stop" in why
+              and "marina is told" in why and f"#{mine} delivers next" in why, why)
+        said = actions.cancel(con, head)
+        row = db.get_request(con, head)
+        check("cancel: a delivered head is closed as rejected with the verdict",
+              row["state"] == "rejected" and row["verdict"] == "withdrawn by the founder",
+              str(dict(row)))
+        check("cancel: and is still in the log, not deleted", row is not None)
+        check("cancel: the target is told to stop, at its own terminal",
+              any(h == "term_b" and f"#{head}" in t and "cancelled" in t and "Stop work" in t
+                  for h, t in sent), str(sent))
+        check("cancel: the requester is told through the answer path",
+              any(h == "term_m" and f"#{head} from backend: withdrawn by the founder" in t
+                  for h, t in sent), str(sent))
+        check("cancel: the item behind it is now the head and is delivered",
+              db.head_of_queue(con, "backend")["id"] == mine
+              and any(h == "term_b" and f"#{mine} from human" in t for h, t in sent), str(sent))
+        check("cancel: the cancel is on the record",
+              con.execute("SELECT 1 FROM events WHERE kind = 'cancel'").fetchone() is not None)
+        check("cancel: and the result says what was done", "cancelled" in said, said)
+
+        # The founder's own request, delivered: closed like any other, but the
+        # founder is not handed their own cancellation as news.
+        db.mark_delivered(con, mine)
+        sent.clear()
+        actions.cancel(con, mine)
+        check("cancel: the founder's own delivered request is closed as rejected",
+              db.get_request(con, mine)["state"] == "rejected")
+        check("cancel: and the founder is not told about their own cancel",
+              not db.unannounced_answers(con, askmod.HUMAN), str(db.unannounced_answers(con, askmod.HUMAN)))
+
+        # Case 3, undelivered: the target never saw it, so nothing is typed at it.
+        # (`other` became the head when the ones before it were cancelled, so it
+        # is a request behind it that has not been shown.)
+        check("cancel: what was behind a cancelled head was delivered in turn",
+              db.get_request(con, other)["delivered_at"] is not None)
+        tail = ask("marina", "marina's third, behind a delivered one")
+        sent.clear()
+        actions.cancel(con, tail)
+        other = tail
+        check("cancel: an undelivered request of another agent's is closed and its requester told",
+              db.get_request(con, other)["state"] == "rejected"
+              and any(h == "term_m" and f"#{other}" in t for h, t in sent), str(sent))
+        check("cancel: with nothing typed at a target that never saw it",
+              not any(h == "term_b" and "cancelled" in t for h, t in sent), str(sent))
+
+        # Case 1: the founder's own, not yet delivered - a plain withdraw.
+        undelivered = ask(askmod.HUMAN, "changed my mind")
+        sent.clear()
+        ok, why = actions.cancel_plan(con, undelivered)
+        check("cancel: an undelivered request of the founder's is planned as a withdraw",
+              ok and why.startswith("withdraw") and "nobody is told" in why, why)
+        actions.cancel(con, undelivered)
+        check("cancel: it is withdrawn, exactly as `ocp withdraw` does",
+              db.get_request(con, undelivered)["state"] == "withdrawn")
+        check("cancel: and nothing is typed anywhere", not sent, str(sent))
+
+        # An agent mid-work cannot be typed at; the row closes anyway, and the
+        # agent cannot undo it by resolving it later.
+        busy = ask("marina", "worked on right now")
+        db.mark_delivered(con, busy)
+        db.set_cursor(con, "notify:backend", busy)
+        orcamod.typeable_now = lambda h: False
+        sent.clear()
+        said = actions.cancel(con, busy)
+        check("cancel: a target it cannot type at is not told now, and the founder is told so",
+              db.get_request(con, busy)["state"] == "rejected"
+              and "could not be told" in said and not any(h == "term_b" for h, _t in sent), said)
+        orcamod.typeable_now = lambda h: True
+        os.environ["OCP_AGENT"] = "backend"
+        try:
+            out = _capture(lambda: climod.main(["resolve", str(busy), "did it anyway"]))
+        finally:
+            del os.environ["OCP_AGENT"]
+        check("cancel: the target resolving it later is refused, the verdict stands",
+              "already rejected" in out
+              and db.get_request(con, busy)["verdict"] == "withdrawn by the founder", out)
+
+        racer = ask("marina", "resolved at the same instant")
+        check("cancel: the close is one write - it loses to a resolve that got there first",
+              db.close_if_queued(con, racer, "done", "agent's own answer")
+              and not db.close_if_queued(con, racer, "rejected", "withdrawn by the founder")
+              and db.get_request(con, racer)["verdict"] == "agent's own answer")
+
+        # The other direction: cancel's own close wins, and the resolve that
+        # lands after it - the target typing an answer to a row the founder
+        # just cancelled - is refused rather than overwriting the verdict.
+        overtaken = ask("marina", "cancelled just before its answer lands")
+        db.close_if_queued(con, overtaken, "rejected", askmod.CANCEL_VERDICT)
+        ok, msg = askmod.resolve(overtaken, "did it anyway")
+        check("cancel: a resolve landing after the close is refused, not applied",
+              not ok and "already rejected" in msg
+              and db.get_request(con, overtaken)["verdict"] == askmod.CANCEL_VERDICT, msg)
+        check("cancel: a request that is already closed says so",
+              "already" in actions.cancel(con, head), actions.cancel(con, head))
+        ok, why = actions.cancel_plan(con, 99999)
+        check("cancel: and one that is not there says so", not ok, why)
+
+        # The terminal's version: the founder only.
+        again = ask("marina", "for the CLI")
+        os.environ["OCP_AGENT"] = "marina"
+        try:
+            out = _capture(lambda: climod.main(["cancel", str(again), "--yes"]))
+        finally:
+            del os.environ["OCP_AGENT"]
+        check("cancel: `ocp cancel` refuses an agent", "founder's" in out
+              and db.get_request(con, again)["state"] == "queued", out)
+        askmod.asking_agent = lambda: askmod.HUMAN
+        out = _capture(lambda: climod.main(["cancel", str(again), "--yes"]))
+        check("cancel: and does the same action for the founder",
+              db.get_request(con, again)["state"] == "rejected" and "cancelled" in out, out)
+    finally:
+        (orcamod.alive, orcamod.send, orcamod.available, orcamod.typeable_now,
+         askmod.asking_agent) = real
+        con.close()
+
+
+def test_a_queued_agent_with_a_told_head_gets_the_same_forgotten_resolve_nudge_as_idle(
+        home: Path) -> None:
+    """#83 (founder #2284/#2286/#2287), the production trace: keeper's head
+    (#2200) was already delivered and told, then a later wake moved it from
+    PARKED to QUEUED without retyping anything - QUEUED means only "something
+    is queued for this agent", not that the current head is untold. Idle for
+    six hours after that with nothing else outstanding is exactly the
+    forgotten-resolve case `forgotten_resolve` already catches for IDLE - it
+    only excluded QUEUED, so nothing ever reminded it and it never surfaced
+    on `blocked.py` either, which reads this same function. Auditor #2296
+    measured it live: keeper's queue never moved because of this, not
+    because of any silent wake."""
+    _daemon_home(home, 20)
+    con = db.connect()
+    real = (orcamod.available, orcamod.alive, orcamod.typeable_now, orcamod.send)
+    sent: list[str] = []
+    sessions_are("backend")
+    try:
+        orca_seen()
+        orcamod.typeable_now = lambda h: True
+        orcamod.send = lambda h, text, enter=True: (sent.append(text), (True, ""))[1]
+        db.set_terminal(con, "backend", "term_x", "wt")
+        now = int(time.time())
+        head = db.add_request(con, "marina", "backend", "carry on", None,
+                              "peer", "async", None, 0, None)
+        db.add_request(con, "marina", "backend", "and this too", None,
+                       "peer", "async", None, 0, None)
+        db.mark_delivered(con, head)
+        db.set_cursor(con, "notify:backend", head)
+        db.add_event(con, "backend", "Stop", {})
+        con.execute("UPDATE events SET ts = ? WHERE agent = 'backend'",
+                    (now - dmn.NUDGE_AFTER_S - 60,))
+        con.execute("UPDATE requests SET delivered_at = ? WHERE id = ?",
+                    (now - dmn.NUDGE_AFTER_S - 60, head))
+        # QUEUED, not IDLE - a wake, a move, an unstall or a reply can all
+        # leave an agent here with its own head already told.
+        db.set_agent_state(con, "backend", dmn.QUEUED)
+
+        ok = dmn.nudge_forgotten_resolve(con, "backend", db.get_agent_state(con, "backend"),
+                                         now, lambda _m: None)
+        check("queued nudge: it is typed for a QUEUED agent, same as an IDLE one",
+              ok and sent, str(sent))
+        check("queued nudge: names the head and the one behind it",
+              sent and f"#{head}" in sent[0] and "1 more waiting" in sent[0], str(sent))
+        check("queued nudge: the state and the queue are untouched by the nudge itself",
+              db.get_agent_state(con, "backend")["state"] == dmn.QUEUED
+              and db.get_request(con, head)["state"] == "queued")
+    finally:
+        orcamod.available, orcamod.alive, orcamod.typeable_now, orcamod.send = real
+        con.close()
+
+
+def test_handoff_rate_limited(home: Path) -> None:
+    """Two handoffs in quick succession is never right: the usage that caused
+    the first cannot have meaningfully changed. A fold is not free."""
+    _daemon_home(home, 100)
+    con = db.connect()
+    real_alive, real_idle, real_clear = orcamod.alive, orcamod.idle_now, orcamod.clear_context
+    try:
+        orca_idle()
+        orcamod.clear_context = lambda h, wait=True, timeout_ms=0: (True, "context cleared")
+        db.set_terminal(con, "backend", "term_x", "wt")
+        t = triggers.Trigger(True, "usage", "pct_5h 100% - at the wall")
+
+        dmn.perform_handoff(con, "backend", t, lambda _m: None)
+        first = con.execute("SELECT COUNT(*) c FROM handoff WHERE agent='backend'").fetchone()["c"]
+
+        # Simulate something un-parking it and the trigger firing again at once.
+        db.set_agent_state(con, "backend", dmn.RUNNING, detail="un-parked somehow")
+        dmn.perform_handoff(con, "backend", t, lambda _m: None)
+        second = con.execute("SELECT COUNT(*) c FROM handoff WHERE agent='backend'").fetchone()["c"]
+
+        check("handoff: a second handoff right after the first is skipped",
+              second == first, f"{first} -> {second}")
+    finally:
+        orcamod.alive, orcamod.idle_now, orcamod.clear_context = real_alive, real_idle, real_clear
+        con.close()
+
+
+def test_a_refused_ask_is_never_announced_as_an_answer(home: Path) -> None:
+    """A refused ask reached nobody, so nothing can come back from it. Told
+    otherwise, an agent reads 34 of its own refusals as replies from the agent
+    it never got to ask."""
+    _two_agents_one_slot(home)
+    for i in range(3):
+        askmod.ask("b", f"n{i}", requester="a")
+
+    con = db.connect()
+    try:
+        denied = con.execute("SELECT COUNT(*) c FROM requests WHERE state = 'denied'").fetchone()
+        check("announce: the refusal is on the record", denied["c"] == 1, str(denied["c"]))
+        waiting = db.unannounced_answers(con, "a")
+        check("announce: but it is not an answer to anything",
+              not waiting, str([dict(r) for r in waiting]))
+    finally:
+        con.close()
+
+
+def test_a_refusal_is_not_read_back_as_an_answer(home: Path) -> None:
+    """`ocp read` labels a verdict with who answered. On a denied row the
+    verdict is this system's refusal, and the row reached no one."""
+    _two_agents_one_slot(home)
+    for i in range(3):
+        askmod.ask("b", f"n{i}", requester="a")
+    con = db.connect()
+    try:
+        rid = con.execute("SELECT id FROM requests WHERE state = 'denied'").fetchone()["id"]
+    finally:
+        con.close()
+
+    buf = io.StringIO()
+    with contextlib.redirect_stdout(buf):
+        climod.cmd_read(climod.build_parser().parse_args(["read", str(rid)]))
+    out = buf.getvalue()
+    check("read: a refused request does not name an answerer",
+          "answered by b" not in out, out)
+    check("read: it says it was refused", "refused" in out, out)
+
+
+def test_a_withdrawn_or_replaced_request_is_not_read_back_as_an_answer(home: Path) -> None:
+    """The same mislabel as the refused case, for the other two states in
+    db.NEVER_REACHED_TARGET: #1348 gave a withdrawn row's verdict its own
+    label ('withdrawn: <reason>'), but `ocp read` still printed '--- answered
+    by <target> ---' above it - a row the target never received, read back
+    as though it had answered (auditor's #1565, the residual left open at
+    #1348)."""
+    _two_agents_one_slot(home, cap=10)
+    ok, _, a = askmod.ask("b", "first", requester="a")
+    askmod.withdraw(a, requester="a", reason="typo")
+    ok, first, c = askmod.ask("b", "spec", requester="a")
+    check("read: setup - the row to replace lands", ok, first)
+    ok, msg, d = askmod.ask("b", "spec v2", requester="a", replaces=c)
+    check("read: setup - the replace lands", ok, msg)
+
+    for rid, label in ((a, "withdrawn"), (c, "replaced")):
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            climod.cmd_read(climod.build_parser().parse_args(["read", str(rid)]))
+        out = buf.getvalue()
+        check(f"read: a {label} request does not name an answerer",
+              "answered by b" not in out, out)
+        check(f"read: it says it was {label}", f"--- {label} ---" in out, out)
+
+    # auditor's #1565 NOTE 1: the header dict in cli.cmd_read and this test's
+    # own labels both hardcode the three state names; neither reads
+    # db.NEVER_REACHED_TARGET, so a state added to that constant later gets
+    # "answered by {target}" again and nothing here would notice. This does
+    # not derive the header from the constant (the wording genuinely differs
+    # - "denied" prints "refused") but it does make an unlabelled state fail
+    # here rather than pass silently: every name the constant holds must
+    # appear as a state in cli.cmd_read's own header keys.
+    check("read: every db.NEVER_REACHED_TARGET state has its own header, "
+          "not just the ones hardcoded above",
+          set(db.NEVER_REACHED_TARGET) <= climod._NEVER_ANSWERED_HEADERS.keys(),
+          str(set(db.NEVER_REACHED_TARGET) - climod._NEVER_ANSWERED_HEADERS.keys()))
+
+
+def test_dismissing_an_agents_own_answered_request_keeps_its_verdict(home: Path) -> None:
+    """Auditor's should-fix on #283: `cmd_dismiss` lets a requester clear its
+    own row once it has left 'queued', but `actions.dismiss` only special-cased
+    that for the human - an agent's own answered request fell through to
+    `resolve`, which stamped "read - no reply" over the verdict the target
+    actually wrote. Dismissing must never rewrite an answer, whoever asked for
+    it, and doing it twice must not either."""
+    _two_agents_one_slot(home)
+    ok, said, rid = askmod.ask("b", "spec?", requester="a")
+    check("dismiss: the ask went through", ok, said)
+    askmod.resolve(rid, "yes, ship it")
+
+    con = db.connect()
+    try:
+        actions.dismiss(con, rid)
+        check("dismiss: an agent's own answered request keeps its verdict",
+              db.get_request(con, rid)["verdict"] == "yes, ship it",
+              db.get_request(con, rid)["verdict"])
+        check("dismiss: and is marked read",
+              db.get_request(con, rid)["announced_at"] is not None)
+
+        actions.dismiss(con, rid)
+        check("dismiss: dismissing it a second time still keeps the verdict",
+              db.get_request(con, rid)["verdict"] == "yes, ship it",
+              db.get_request(con, rid)["verdict"])
+    finally:
+        con.close()
+
+    # The same, through the CLI path `cmd_dismiss` actually takes.
+    ok, said, rid2 = askmod.ask("b", "spec 2?", requester="a")
+    check("dismiss: the second ask went through", ok, said)
+    askmod.resolve(rid2, "no, hold it")
+    os.environ["OCP_AGENT"] = "a"
+    try:
+        out = _capture(lambda: climod.main(["dismiss", str(rid2)]))
+    finally:
+        os.environ.pop("OCP_AGENT", None)
+    con = db.connect()
+    try:
+        check("dismiss: `ocp dismiss` on your own answered row keeps it too",
+              db.get_request(con, rid2)["verdict"] == "no, hold it", out)
+    finally:
+        con.close()
+
+
+def test_dismissing_your_own_answer_does_not_announce_it_for_the_requester(
+        home: Path) -> None:
+    """Auditor's should-fix on #313: a TARGET dismissing a row it already
+    answered must not stamp announced_at on the requester's behalf - that
+    would mark the row as told when the requester has never actually seen
+    it."""
+    _two_agents_one_slot(home)
+    ok, said, rid = askmod.ask("b", "spec?", requester="a")
+    check("dismiss: the ask went through", ok, said)
+    askmod.resolve(rid, "yes, ship it")
+
+    con = db.connect()
+    try:
+        check("dismiss: unannounced to start",
+              rid in [r["id"] for r in db.unannounced_answers(con, "a")])
+        ok, out = actions.dismiss(con, rid, me="b")
+        check("dismiss: the target is told there is nothing more to do",
+              ok and "nothing more" in out, out)
+        check("dismiss: the verdict is untouched",
+              db.get_request(con, rid)["verdict"] == "yes, ship it")
+        check("dismiss: ...and the requester is still owed the answer",
+              rid in [r["id"] for r in db.unannounced_answers(con, "a")],
+              str(dict(db.get_request(con, rid))))
+    finally:
+        con.close()
+
+    # Through the CLI: `b` dismissing its own outgoing answer is the same no-op.
+    os.environ["OCP_AGENT"] = "b"
+    try:
+        out = _capture(lambda: climod.main(["dismiss", str(rid)]))
+    finally:
+        os.environ.pop("OCP_AGENT", None)
+    con = db.connect()
+    try:
+        check("dismiss: `ocp dismiss` from the target is the same no-op",
+              rid in [r["id"] for r in db.unannounced_answers(con, "a")], out)
+    finally:
+        con.close()
+
+
+def test_a_task_row_holds_its_fields_and_nothing_else(home: Path) -> None:
+    """The invariant (#1259): the tasks table is exactly db.TASK_FIELDS, and the
+    board reads a linked request's state live - the task row never changes when
+    the request does."""
+    _board_world(home)
+    con = db.connect()
+    try:
+        cols = tuple(r["name"] for r in con.execute("PRAGMA table_info(tasks)"))
+        check("task row: the table holds TASK_FIELDS and nothing else",
+              set(cols) == set(db.TASK_FIELDS), str(cols))
+        reqcols = {r["name"] for r in con.execute("PRAGMA table_info(requests)")}
+        check("task row: requests gained no title or closed_by column",
+              not ({"title", "closed_by"} & reqcols), str(reqcols))
+        rid = _human_request()
+        tid = db.new_task(con, "build it", "worker", "manager")
+        db.link_request(con, tid, rid)
+        before = dict(db.get_task(con, tid))
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            climod._print_board(con, db.open_tasks(con))
+        check("task row: the board shows the request's state as it is now",
+              "queued" in buf.getvalue(), buf.getvalue())
+        con.execute("UPDATE requests SET state = 'done', verdict = 'x' WHERE id = ?", (rid,))
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            climod._print_board(con, db.open_tasks(con))
+        check("task row: it reads the new state, from the request",
+              "done" in buf.getvalue() and "queued" not in buf.getvalue(), buf.getvalue())
+        check("task row: and the task row itself did not change",
+              dict(db.get_task(con, tid)) == before, str(dict(db.get_task(con, tid))))
+        check("task row: a resolved request does not close its task",
+              db.get_task(con, tid)["closed_by"] is None)
+        out = buf.getvalue().lower()
+        check("task row: no derived status is drawn",
+              "awaiting" not in out and "merge" not in out and "pending" not in out, out)
+    finally:
+        con.close()
+
+
+def test_the_done_close_migration_upgrades_an_old_tasks_table(home: Path) -> None:
+    """Auditor's #2187 SHOULD-FIX 2: nothing built the pre-#71 schema and ran
+    the migration against it. Without the backfill this drives (`closed_by =
+    done_evidence, closed_at = done_at`), every existing closed task would
+    come back reading as done-but-not-closed - on the founder's board, every
+    one of them in the 'done - waiting for check' group."""
+    import sqlite3
+    home.mkdir(parents=True, exist_ok=True)
+    p = home / "old.sqlite"
+    old = sqlite3.connect(p)
+    old.execute("""
+        CREATE TABLE tasks (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          title TEXT NOT NULL, owner TEXT NOT NULL,
+          parent_task INTEGER, opened_by TEXT NOT NULL,
+          closed_by TEXT, closed_at INTEGER, closed_via TEXT,
+          edited_by TEXT, edited_at INTEGER, created_at INTEGER NOT NULL
+        )
+    """)
+    now = int(time.time())
+    old.execute(
+        "INSERT INTO tasks(title, owner, opened_by, closed_by, closed_at, closed_via, "
+        "created_at) VALUES (?,?,?,?,?,?,?)",
+        ("shipped it", "worker", "manager", "abc123def456", now - 100, "sha", now - 200))
+    old.execute(
+        "INSERT INTO tasks(title, owner, opened_by, created_at) VALUES (?,?,?,?)",
+        ("still open", "worker", "manager", now - 50))
+    old.commit()
+    old.close()
+
+    con = db.connect(p)
+    try:
+        cols = tuple(r["name"] for r in con.execute("PRAGMA table_info(tasks)"))
+        check("migration: the new column set, exactly",
+              set(cols) == set(db.TASK_FIELDS), str(cols))
+        rows = {r["title"]: r for r in con.execute("SELECT * FROM tasks").fetchall()}
+
+        closed = rows["shipped it"]
+        check("migration: the old evidence reads as done_evidence/done_via/done_at",
+              closed["done_evidence"] == "abc123def456" and closed["done_via"] == "sha"
+              and closed["done_at"] == now - 100, str(dict(closed)))
+        check("migration: closed_by is backfilled from the evidence, closed_at from done_at",
+              closed["closed_by"] == "abc123def456" and closed["closed_at"] == now - 100,
+              str(dict(closed)))
+        check("migration: it reads as closed", actions.task_state(con, closed) == "closed",
+              actions.task_state(con, closed))
+        check("migration: not in the done-waiting-for-check group - #2156 asked existing "
+              "closed tasks to stay closed", db.tasks_needing_close(con) == [])
+
+        open_row = rows["still open"]
+        check("migration: an old open row is untouched - done_evidence and closed_by both NULL",
+              open_row["done_evidence"] is None and open_row["closed_by"] is None,
+              str(dict(open_row)))
+        check("migration: it reads as waiting", actions.task_state(con, open_row) == "waiting",
+              actions.task_state(con, open_row))
+
+        # A second connect (every ocp command, and the daemon) re-runs the
+        # migration guard - it must be a no-op the second time, not a second
+        # rename onto columns that no longer exist.
+        con2 = db.connect(p)
+        try:
+            check("migration: idempotent - a second connect changes nothing",
+                  dict(db.get_task(con2, closed["id"])) == dict(closed))
+        finally:
+            con2.close()
+    finally:
+        con.close()
+
+
+def test_task_new_list_and_link(home: Path) -> None:
+    _board_world(home)
+    rc, out = _cli(["task", "new", "--owner", "worker", "build the board"])
+    check("task new: opens a task", rc == 0 and "task #1" in out, out)
+    rc, out = _cli(["task", "new", "--owner", "nobody", "x"])
+    check("task new: an owner that is not an agent is refused", rc == 1, out)
+    rc, out = _cli(["task", "new", "--owner", "worker", "x"], as_agent=askmod.HUMAN)
+    check("task new: never in the founder's name", rc == 1, out)
+    rc, out = _cli(["task", "new", "--owner", "worker", "part", "--parent", "9"])
+    check("task new: a parent that does not exist is refused", rc == 1, out)
+    rc, out = _cli(["task", "new", "--owner", "worker", "part one", "--parent", "1"])
+    check("task new: a child task", rc == 0, out)
+    rid = _human_request()
+    rc, out = _cli(["task", "link", "1", str(rid)])
+    check("task link: attaches a further request", rc == 0, out)
+    rc, out = _cli(["task", "list"])
+    check("task list: the board shows title, owner, child and linked request",
+          "build the board" in out and "[worker]" in out and "under #1" in out
+          and f"request #{rid}" in out, out)
+
+
+def test_editing_a_task_needs_the_opener_or_the_founder_and_is_never_silent(home: Path) -> None:
+    """#1880/#19: change a task's owner and/or title, only for the opener or
+    the founder, and always stamped with who and when (the same evidence
+    close_task leaves on closed_by/closed_at)."""
+    _board_world(home)
+    con = db.connect()
+    try:
+        tid = db.new_task(con, "first title", "worker", "manager")
+    finally:
+        con.close()
+
+    rc, out = _cli(["task", "edit", str(tid), "--title", "renamed"], as_agent="worker")
+    check("edit: refused for anyone but the opener or the founder", rc == 1, out)
+    con = db.connect()
+    try:
+        row = db.get_task(con, tid)
+        check("edit: refused, the title did not move", row["title"] == "first title", str(dict(row)))
+        check("edit: refused, no evidence was written", row["edited_by"] is None)
+        n = con.execute("SELECT COUNT(*) c FROM events WHERE kind = 'edit_task'").fetchone()["c"]
+        check("edit: refused, no event was written", n == 0)
+    finally:
+        con.close()
+
+    rc, out = _cli(["task", "edit", str(tid), "--title", "renamed by opener"], as_agent="manager")
+    check("edit: the opener may edit", rc == 0 and "renamed by opener" in out, out)
+    con = db.connect()
+    try:
+        row = db.get_task(con, tid)
+        check("edit: the title changed", row["title"] == "renamed by opener", str(dict(row)))
+        check("edit: edited_by records who", row["edited_by"] == "manager")
+        check("edit: edited_at records when", row["edited_at"] is not None)
+        ev = con.execute("SELECT * FROM events WHERE kind = 'edit_task' ORDER BY id"
+                         ).fetchall()
+        check("edit: one event, naming the old and new title", len(ev) == 1
+              and json.loads(ev[0]["payload"])["title"] == {"old": "first title",
+                                                             "new": "renamed by opener"},
+              str([dict(e) for e in ev]))
+    finally:
+        con.close()
+
+    rc, out = _cli(["task", "edit", str(tid), "--owner", "manager"], as_agent=askmod.HUMAN)
+    check("edit: the founder may edit a task it did not open", rc == 0 and "owner" in out, out)
+    con = db.connect()
+    try:
+        row = db.get_task(con, tid)
+        check("edit: the owner changed", row["owner"] == "manager", str(dict(row)))
+        check("edit: edited_by now records the founder", row["edited_by"] == askmod.HUMAN)
+    finally:
+        con.close()
+
+    rc, out = _cli(["task", "edit", str(tid), "--owner", "nobody"], as_agent="manager")
+    check("edit: an owner that is not an agent is refused", rc == 1 and "no agent" in out, out)
+    rc, out = _cli(["task", "edit", str(tid)], as_agent="manager")
+    check("edit: needs at least one field to change", rc == 1, out)
+    rc, out = _cli(["task", "edit", str(tid), "--owner", "manager"], as_agent="manager")
+    check("edit: a no-op edit (same value) is refused, not written as an event",
+          rc == 1 and "nothing to edit" in out, out)
+    rc, out = _cli(["task", "edit", "99", "--title", "x"], as_agent="manager")
+    check("edit: no such task", rc == 1 and "no task" in out, out)
+
+    rc, out = _cli(["task", "edit", str(tid), "--title", "x"], as_agent=None)
+    check("edit: with no identity and no tty, refused rather than guessed at",
+          rc == 1 and "OCP_AGENT" in out, out)
+
+
+def test_task_board_shows_who_holds_each_open_task(home: Path) -> None:
+    """task #36 (#1945): exercises the four rules documented on
+    `cmd_task_board` itself."""
+    _board_world(home)
+    rc, out = _cli(["task", "board"])
+    check("board: nothing open reads as nothing open",
+          rc == 0 and "no open tasks." in out, out)
+
+    con = db.connect()
+    try:
+        t_nobody = db.new_task(con, "nobody yet", "manager", "manager")
+        t_held = db.new_task(con, "with worker now", "manager", "manager")
+        t_back = db.new_task(con, "worker answered", "manager", "manager")
+        t_closed_other = db.new_task(con, "withdrawn, not my turn", "manager", "manager")
+        t_parent = db.new_task(con, "parent task", "manager", "manager")
+        t_child = db.new_task(con, "child does the work", "worker", "manager", t_parent)
+        t_not_mine = db.new_task(con, "not mine", "worker", "manager")
+        t_human_to_me = db.new_task(con, "human resolved to me", "manager", "manager")
+        t_me_to_human = db.new_task(con, "I asked the founder", "manager", "manager")
+    finally:
+        con.close()
+
+    _link(t_held, _request("manager", "worker"))
+    _link(t_back, _request("manager", "worker"), state="done")
+    _link(t_closed_other, _request("manager", "worker"), state="withdrawn")
+    _link(t_child, _request("manager", "worker"))
+    _link(t_human_to_me, _request(askmod.HUMAN, "manager"), state="done")
+    _link(t_me_to_human, _request("manager", askmod.HUMAN), state="done")
+
+    rc, out = _cli(["task", "board"])
+    check("board: rc 0", rc == 0, out)
+    check("board: an unlinked task holds nothing", _now_line(out, t_nobody) == "now: nobody holds it",
+          out)
+    check("board: a queued request's target holds it", _now_line(out, t_held) == "now: worker", out)
+    check("board: a request back done from someone else is my own turn to read",
+          _now_line(out, t_back) == "now: you - a result is in", out)
+    check("board: a request closed some other way is nobody holding it, not my turn",
+          _now_line(out, t_closed_other) == "now: nobody holds it", out)
+    check("board: an open child task's own queued request is not shown as my own task",
+          f"#{t_child} " not in out, out)
+    check("board: the parent shows the child's held target as a sub-task",
+          _now_line(out, t_parent) == "now: sub-task: worker", out)
+    check("board: a task owned by someone else is not on my board",
+          f"#{t_not_mine} " not in out, out)
+    check("board: what record_human_resolve --task links (human's request, done to me) "
+          "is not read back as someone else's answer waiting on me",
+          _now_line(out, t_human_to_me) == "now: nobody holds it", out)
+    check("board: a request I sent the founder, done, is not read back as my own turn",
+          _now_line(out, t_me_to_human) == "now: nobody holds it", out)
+
+    rc, out = _cli(["task", "board"], as_agent=None)
+    check("board: with no identity and no tty, refused rather than guessed at",
+          rc == 1 and "OCP_AGENT" in out, out)
+
+
+def test_done_tasks_show_as_a_waiting_for_check_group(home: Path) -> None:
+    """#71: `ocp task list` (what status-sync.sh polls into 요청-현황.md) and
+    `ocp task board` both surface done-not-yet-closed tasks as their own
+    group - list shows every one, board only the ones *I* am the asker of."""
+    _board_world(home)
+    con = db.connect()
+    try:
+        t_mine = db.new_task(con, "manager's own", "worker", "manager")
+        t_founders = db.new_task(con, "founder's own", "worker", "manager")
+        t_open = db.new_task(con, "not done yet", "worker", "manager")
+    finally:
+        con.close()
+    _link(t_founders, _request(askmod.HUMAN, "manager"))
+    _cli(["task", "done", str(t_mine), "shipped it"], as_agent="worker")
+    _cli(["task", "done", str(t_founders), "shipped that too"], as_agent="worker")
+
+    rc, out = _cli(["task", "list"])
+    check("list: the group header is shown", "done - waiting for check:" in out, out)
+    check("list: both done tasks are in it, the open one is not",
+          f"#{t_mine} " in out.split("done - waiting for check:", 1)[1]
+          and f"#{t_founders} " in out.split("done - waiting for check:", 1)[1]
+          and f"#{t_open} " not in out.split("done - waiting for check:", 1)[1], out)
+    check("list: the evidence is shown", "done: shipped it" in out, out)
+
+    rc, out = _cli(["task", "board"], as_agent="manager")
+    check("board: manager is the asker for its own task, sees it in the group",
+          "done - waiting for check:" in out and f"#{t_mine} " in out, out)
+    check("board: not the founder's - manager is not that task's asker",
+          f"#{t_founders} " not in out.split("done - waiting for check:", 1)[1], out)
+
+    rc, out = _cli(["task", "board"], as_agent="worker")
+    check("board: worker owns both done tasks but asks neither, so no group at all",
+          "done - waiting for check:" not in out, out)
+
+    rc, out = _cli(["task", "board"], as_agent=askmod.HUMAN)
+    check("board: the founder is the asker for the linked task, sees only that one",
+          "done - waiting for check:" in out and f"#{t_founders} " in out
+          and f"#{t_mine} " not in out, out)
+
+
+def test_task_blocked_by_another_task(home: Path) -> None:
+    """task #21/#1884: a task can wait on another. The board reads it as
+    `waiting on #N` - never `you - a result is in` and never `nobody holds
+    it` - while #N is open; a cycle is refused; and closing #N tells the
+    blocked task's owner once, as a durable request linked to that task -
+    opened by manager, owned by worker, so the notice (manager -> worker) is
+    not a self-request that would muddy what it proves."""
+    _board_world(home)
+    con = db.connect()
+    try:
+        t_blocker = db.new_task(con, "blocker", "worker", "manager")
+    finally:
+        con.close()
+
+    rc, out = _cli(["task", "new", "--owner", "worker", "dependent",
+                    "--blocked-by", str(t_blocker)])
+    check("task new --blocked-by: opens the task blocked", rc == 0, out)
+    t_dep = int(out.split("#", 1)[1].split()[0])
+
+    rc, out = _cli(["task", "new", "--owner", "worker", "x", "--blocked-by", "999"])
+    check("task new --blocked-by: a blocker that does not exist is refused",
+          rc == 1 and "no task" in out, out)
+
+    rc, out = _cli(["task", "board"], as_agent="worker")
+    check("board: waiting on an open blocker, not mine and not nobody's",
+          _now_line(out, t_dep) == f"now: waiting on #{t_blocker}", out)
+
+    rc, out = _cli(["task", "edit", str(t_blocker), "--blocked-by", str(t_dep)])
+    check("edit --blocked-by: a direct cycle is refused", rc == 1 and "cycle" in out, out)
+
+    con = db.connect()
+    try:
+        t_third = db.new_task(con, "third", "worker", "manager")
+    finally:
+        con.close()
+    # third -> dep -> blocker, neither of these two edges touching the other
+    # directly - the cycle below only closes through both hops.
+    rc, out = _cli(["task", "edit", str(t_third), "--blocked-by", str(t_dep)])
+    check("edit --blocked-by: a chain, not yet a cycle, is fine", rc == 0, out)
+    rc, out = _cli(["task", "edit", str(t_blocker), "--blocked-by", str(t_third)])
+    check("edit --blocked-by: closing the loop two hops away is refused too",
+          rc == 1 and "cycle" in out, out)
+    rc, out = _cli(["task", "edit", str(t_third), "--unblock", str(t_dep)])
+    check("edit --unblock: drops the chained blocker again", rc == 0, out)
+
+    rc, out = _done_and_close(t_third, "worker")
+    check("close: third has no blocker left, closes fine", rc == 0, out)
+    rc, out = _cli(["task", "edit", str(t_dep), "--blocked-by", str(t_third)])
+    check("edit --blocked-by: refused on an already-closed blocker (auditor's "
+          "#2042 SHOULD-FIX 2) - a row naming it would never be cleared",
+          rc == 1 and "closed" in out, out)
+    rc, out = _cli(["task", "edit", str(t_third), "--blocked-by", str(t_blocker)])
+    check("edit --blocked-by: refused blocking an already-closed task too - "
+          "not just naming one as the blocker", rc == 1 and "closed" in out, out)
+
+    con = db.connect()
+    try:
+        before_count = con.execute("SELECT COUNT(*) c FROM tasks").fetchone()["c"]
+    finally:
+        con.close()
+    rc, out = _cli(["task", "new", "--owner", "worker", "late", "--blocked-by", str(t_third)])
+    check("task new --blocked-by: refused for an already-closed blocker too",
+          rc == 1 and "closed" in out, out)
+    con = db.connect()
+    try:
+        after_count = con.execute("SELECT COUNT(*) c FROM tasks").fetchone()["c"]
+        check("task new --blocked-by: no orphan task row left behind by the "
+              "refused block (auditor's #2065 SHOULD-FIX C)",
+              after_count == before_count, f"{before_count} -> {after_count}")
+    finally:
+        con.close()
+
+    rc, out = _cli(["task", "edit", str(t_dep), "--blocked-by", str(t_dep)])
+    check("edit --blocked-by: a task cannot block itself", rc == 1, out)
+
+    # SHOULD-FIX 5: a multi-part edit is one transaction - a later part's
+    # refusal must not leave an earlier part applied.
+    con = db.connect()
+    try:
+        before_owner = db.get_task(con, t_dep)["owner"]
+    finally:
+        con.close()
+    rc, out = _cli(["task", "edit", str(t_dep), "--owner", "manager",
+                    "--blocked-by", str(t_dep)])
+    check("edit: a combined --owner and a refused --blocked-by is refused "
+          "as a whole", rc == 1, out)
+    check("edit: the output says nothing was edited, since the owner change "
+          "that would have said so was rolled back (auditor's #2065 "
+          "SHOULD-FIX B)", "edited" not in out, out)
+    con = db.connect()
+    try:
+        check("edit: the owner change from the same call was rolled back, "
+              "not left half-applied (auditor's #2042 SHOULD-FIX 5)",
+              db.get_task(con, t_dep)["owner"] == before_owner,
+              db.get_task(con, t_dep)["owner"])
+    finally:
+        con.close()
+
+    rc, out = _cli(["task", "edit", str(t_dep), "--unblock", "999"])
+    check("edit --unblock: not actually waiting on that one is refused",
+          rc == 1, out)
+
+    rc, out = _cli(["task", "edit", str(t_dep), "--blocked-by", str(t_blocker)], as_agent="worker")
+    check("edit --blocked-by: refused for anyone but the opener or the founder "
+          "(worker owns it, but manager opened it)", rc == 1, out)
+
+    rc, out = _cli(["task", "edit", str(t_dep), "--unblock", str(t_blocker)], as_agent="worker")
+    check("edit --unblock: refused for anyone but the opener or the founder "
+          "too (auditor's #2065 SHOULD-FIX A - no test drove this before)",
+          rc == 1, out)
+    con = db.connect()
+    try:
+        check("edit --unblock: the refused non-opener attempt left the block "
+              "row in place", db.blocks_on_ids(con, t_dep) == [t_blocker])
+    finally:
+        con.close()
+
+    _cli(["task", "done", str(t_dep), "done"], as_agent="worker")
+    rc, out = _cli(["close", str(t_dep)])
+    check("close: closing the blocked task itself is refused while its "
+          "blocker is still open - a back door around the wait it exists to "
+          "enforce", rc == 1 and "waiting on" in out, out)
+
+    rc, out = _done_and_close(t_blocker, "worker")
+    check("close: the blocker closes", rc == 0, out)
+
+    rc, out = _cli(["task", "board"], as_agent="worker")
+    check("board: no longer reads as waiting once the blocker closes",
+          _now_line(out, t_dep) != f"now: waiting on #{t_blocker}", out)
+    check("board: the durable notice is what the board now shows worker holds",
+          _now_line(out, t_dep) == "now: worker", out)
+
+    con = db.connect()
+    try:
+        reqs = db.task_requests(con, t_dep)
+        check("close: the owner is told once, as a request linked to the blocked task",
+              len(reqs) == 1 and reqs[0]["target"] == "worker", str([dict(r) for r in reqs]))
+        check("close: the notice's requester is never a real agent or the "
+              "founder, whoever actually closed the blocker - so resolving "
+              "or dismissing it routes no answer back and it never reads as "
+              "from human (auditor's #2042 SHOULD-FIX 3)",
+              len(reqs) == 1 and reqs[0]["requester"] == actions._UNBLOCK_REQUESTER
+              and reqs[0]["requester"] not in ("manager", "worker", askmod.HUMAN),
+              str([dict(r) for r in reqs]))
+        check("close: not left as a stale block row for a second notice to fire "
+              "from - queried against task_blocks directly (auditor's #2065 "
+              "SHOULD-FIX A: task_blockers filters closed blockers out, so it "
+              "cannot see the row this check is named for)",
+              db.blocks_on_ids(con, t_dep) == [])
+        notice_rid = reqs[0]["id"]
+    finally:
+        con.close()
+
+    # Resolving the notice must not route an answer back to manager, who
+    # closed the blocker (auditor's #2042 SHOULD-FIX 3) - watched the same
+    # way #185's regression test watches it, by catching the daemon calls
+    # that deliver an answer.
+    woken: list = []
+    delivered: list = []
+    real_wake, real_deliver = dmn.wake_agent, dmn.deliver_answers
+    dmn.wake_agent = lambda con_, a, log_: (woken.append(a), (True, "woken"))[1]
+    dmn.deliver_answers = lambda con_, a, log_: (delivered.append(a), True)[1]
+    try:
+        rc, out = _cli(["resolve", str(notice_rid), "ok"], as_agent="worker")
+        check("resolve: the owner can acknowledge the notice", rc == 0, out)
+        check("resolve: nothing was pushed back to manager or anyone else",
+              not woken and not delivered, f"woken={woken} delivered={delivered}")
+    finally:
+        dmn.wake_agent, dmn.deliver_answers = real_wake, real_deliver
+
+    rc, out = _cli(["close", str(t_blocker)])
+    check("close: an already-closed task is refused, no second notice risked",
+          rc == 1, out)
+    con = db.connect()
+    try:
+        check("close: still exactly one linked request after the refused re-close",
+              len(db.task_requests(con, t_dep)) == 1)
+    finally:
+        con.close()
+
+    # Same owner on both sides of the block, closed by that owner itself
+    # (worker chaining its own two tasks) - the owner who just closed the
+    # blocker does not need telling, so no notice should fire.
+    con = db.connect()
+    try:
+        t_self_blocker = db.new_task(con, "self blocker", "worker", "worker")
+        t_self_dep = db.new_task(con, "self dep", "worker", "worker")
+    finally:
+        con.close()
+    ok, msg = actions.add_block(con := db.connect(), t_self_dep, t_self_blocker, "worker")
+    con.close()
+    check("add_block: same-owner chain sets up fine", ok, msg)
+
+    rc, out = _done_and_close(t_self_blocker, "worker", closer="worker")
+    check("close: worker closes its own blocker", rc == 0, out)
+
+    con = db.connect()
+    try:
+        check("close: no self-targeted request was created for the same-owner case",
+              db.task_requests(con, t_self_dep) == [])
+        check("close: the block row is still cleared even without a notice, "
+              "checked against task_blocks directly",
+              db.blocks_on_ids(con, t_self_dep) == [])
+    finally:
+        con.close()
+
+    # A dependent with two blockers: the first one closing must not notify -
+    # the second is still open - and the second closing must notify exactly
+    # once. This is the shape auditor's #2042 BLOCKING drove through
+    # decoupled writes to get two notices; close_task's transaction makes
+    # each close's view of task_blockers strictly before or after the
+    # other's commit, never overlapping.
+    con = db.connect()
+    try:
+        t_alice = db.new_task(con, "alice's part", "worker", "manager")
+        t_bob = db.new_task(con, "bob's part", "worker", "manager")
+        t_carol = db.new_task(con, "carol's part", "worker", "manager")
+        ok1, msg1 = actions.add_block(con, t_carol, t_alice, "manager")
+        ok2, msg2 = actions.add_block(con, t_carol, t_bob, "manager")
+    finally:
+        con.close()
+    check("add_block: carol's task waits on both", ok1 and ok2, f"{msg1} {msg2}")
+
+    rc, out = _done_and_close(t_alice, "worker")
+    check("close: alice's part closes", rc == 0, out)
+    con = db.connect()
+    try:
+        check("close: no notice yet - bob's part is still open",
+              db.task_requests(con, t_carol) == [])
+    finally:
+        con.close()
+
+    rc, out = _done_and_close(t_bob, "worker")
+    check("close: bob's part closes too", rc == 0, out)
+    con = db.connect()
+    try:
+        reqs = db.task_requests(con, t_carol)
+        check("close: exactly one notice once both blockers are closed, "
+              "never two", len(reqs) == 1, str([dict(r) for r in reqs]))
+    finally:
+        con.close()
+
+    # BLOCKING: the close, its event and any resulting notice are one
+    # transaction. Made `db.add_request` raise mid-close, and the task must
+    # still read open, with its block row still in place - not half-closed
+    # with the notice lost.
+    con = db.connect()
+    try:
+        t_boom_blocker = db.new_task(con, "boom blocker", "worker", "manager")
+        # Owned by someone other than manager (#71's asker, and closer
+        # below) - the same owner would be read as needing no notice.
+        t_boom_dep = db.new_task(con, "boom dep", "worker", "manager")
+    finally:
+        con.close()
+    con = db.connect()
+    try:
+        actions.add_block(con, t_boom_dep, t_boom_blocker, "manager")
+        actions.mark_task_done(con, t_boom_blocker, "worker", reason="done")
+    finally:
+        con.close()
+    real_add_request = db.add_request
+    db.add_request = lambda *a, **k: (_ for _ in ()).throw(RuntimeError("boom"))
+    boom_con = db.connect()
+    try:
+        raised = False
+        try:
+            actions.close_task(boom_con, t_boom_blocker, "manager")
+        except RuntimeError:
+            raised = True
+        check("close: add_request raising propagates rather than being swallowed",
+              raised)
+    finally:
+        db.add_request = real_add_request
+        boom_con.close()
+    con = db.connect()
+    try:
+        row = db.get_task(con, t_boom_blocker)
+        check("close: the task itself is still open after the rollback",
+              row["closed_by"] is None, str(dict(row)))
+        check("close: the block row is still there too - nothing half-applied",
+              db.task_blockers(con, t_boom_dep) != [])
+    finally:
+        con.close()
+
+
+def test_resolving_the_founders_request_says_what_it_becomes(home: Path) -> None:
+    """The guard (#1259): every human-requester resolve, including a reply in a
+    running thread, needs --task or --no-task; nothing else is guarded."""
+    _board_world(home)
+    _cli(["task", "new", "--owner", "worker", "deliverable one"])
+    _cli(["task", "new", "--owner", "worker", "deliverable two"])
+    r1 = _human_request()
+    rc, out = _cli(["resolve", str(r1), "ok"])
+    check("guard: a bare resolve of the founder's request is refused", rc == 1 and "--task" in out, out)
+    con = db.connect()
+    try:
+        check("guard: refused, the request is still queued",
+              db.get_request(con, r1)["state"] == "queued")
+    finally:
+        con.close()
+    rc, out = _cli(["resolve", str(r1), "ok", "--task", "1", "--no-task", "why"])
+    check("guard: both --task and --no-task is refused", rc == 1, out)
+    rc, out = _cli(["resolve", str(r1), "ok", "--task", "7"])
+    check("guard: a task that does not exist is refused", rc == 1 and "no task #7" in out, out)
+    rc, out = _cli(["resolve", str(r1), "ok", "--task", "1", "2"])
+    check("guard: --task takes a list and resolves", rc == 0, out)
+    con = db.connect()
+    try:
+        linked = {(t, r["id"]) for t in (1, 2) for r in db.task_requests(con, t)}
+        check("guard: --task linked the request to every task it names",
+              linked == {(1, r1), (2, r1)}, str(linked))
+    finally:
+        con.close()
+
+    r2 = _human_request()
+    rc, out = _cli(["resolve", str(r2), "nothing to build", "--no-task", "a question"])
+    check("guard: --no-task resolves without a link", rc == 0, out)
+    con = db.connect()
+    try:
+        check("guard: and links nothing",
+              not con.execute("SELECT 1 FROM task_requests WHERE request_id = ?", (r2,)).fetchone())
+    finally:
+        con.close()
+
+    # A reply inside a running thread is guarded too (#1059, #1183, #1215).
+    r3 = _human_request(parent=r1)
+    rc, out = _cli(["resolve", str(r3), "ok"])
+    check("guard: a reply inside a running thread is guarded", rc == 1, out)
+
+    # Conversation is never guarded.
+    ok, _, a2a = askmod.ask("worker", "peer chat", requester="manager")
+    rc, out = _cli(["resolve", str(a2a), "fine"], as_agent="worker")
+    check("guard: a manager-to-agent ask resolves with no flag", rc == 0, out)
+    con = db.connect()
+    try:
+        rid = db.add_request(con, "worker", "manager", "a question", None, "peer", "async",
+                             None, 0, None)
+    finally:
+        con.close()
+    rc, out = _cli(["resolve", str(rid), "answer"])
+    check("guard: an agent-to-agent ask resolves with no flag", rc == 0, out)
+    con = db.connect()
+    try:
+        check("guard: neither made a task link",
+              not con.execute("SELECT 1 FROM task_requests WHERE request_id IN (?, ?)",
+                              (a2a, rid)).fetchone())
+    finally:
+        con.close()
+
+    # Task #1 has r1 (a founder request) linked to it, so #71's task_asker is
+    # the founder now, not whoever opened the task.
+    _done_and_close(1, "worker", closer=askmod.HUMAN)
+    r4 = _human_request()
+    rc, out = _cli(["resolve", str(r4), "ok", "--task", "1"])
+    check("guard: a closed task cannot be attached to", rc == 1 and "closed" in out, out)
+
+
+def test_resolve_finding_opens_a_task_in_the_same_step(home: Path) -> None:
+    """Task #73 (founder #2150, #2154 point 2): a finding the resolver defers
+    rather than blocks on opens as its own task, owned by whoever asked,
+    linked to the row, in the same `ocp resolve` call - not left only in the
+    resolver's own prose for someone else to remember to open."""
+    _board_world(home)
+    _two_lanes(home)
+    ok, _, rid = askmod.ask("manager", "please review", requester="worker")
+    check("setup: the review request went through", ok, rid)
+
+    rc, out = _cli(["resolve", str(rid), "PASS",
+                    "--finding", "note 1 - tighten the retry",
+                    "--finding", "note 2 - rename the flag"], as_agent="manager")
+    check("finding: resolve still succeeds", rc == 0, out)
+    con = db.connect()
+    try:
+        row = db.get_request(con, rid)
+        tasks = {r["id"]: dict(r) for r in
+                 con.execute("SELECT t.* FROM tasks t JOIN task_requests tr "
+                             "ON tr.task_id = t.id WHERE tr.request_id = ?", (rid,)).fetchall()}
+        check("finding: exactly two tasks were opened and linked",
+              len(tasks) == 2, str(tasks))
+        titles = {t["title"] for t in tasks.values()}
+        check("finding: each finding's text became a task's title",
+              titles == {"note 1 - tighten the retry", "note 2 - rename the flag"}, titles)
+        check("finding: every task is owned by the resolver's lane manager",
+              all(t["owner"] == "manager" for t in tasks.values()), str(tasks))
+        check("finding: and opened by that manager",
+              all(t["opened_by"] == "manager" for t in tasks.values()), str(tasks))
+        check("finding: the verdict names the new task numbers",
+              all(f"#{tid}" in row["verdict"] for tid in tasks)
+              and "Opened as task" in row["verdict"], row["verdict"])
+    finally:
+        con.close()
+
+    ok, _, rid2 = askmod.ask("manager", "another review", requester="worker")
+    rc, out = _cli(["resolve", str(rid2), "PASS", "--finding", "   "], as_agent="manager")
+    check("finding: a blank finding title is refused", rc == 1 and "title" in out, out)
+    con = db.connect()
+    try:
+        check("finding: refused, the request is still queued",
+              db.get_request(con, rid2)["state"] == "queued")
+        check("finding: and no task was opened for it",
+              not con.execute("SELECT 1 FROM task_requests WHERE request_id = ?",
+                              (rid2,)).fetchone())
+        before = con.execute("SELECT COUNT(*) c FROM tasks").fetchone()["c"]
+    finally:
+        con.close()
+
+    hid = _human_request("manager")
+    rc, out = _cli(["resolve", str(hid), "PASS", "--no-task", "nothing",
+                    "--finding", "fnd A"], as_agent="manager")
+    con = db.connect()
+    try:
+        check("finding: refused on a founder's request, naming ocp task new",
+              rc == 1 and "ocp task new --owner" in out, out)
+        check("finding: founder's request stays queued and no task row was written",
+              db.get_request(con, hid)["state"] == "queued"
+              and con.execute("SELECT COUNT(*) c FROM tasks").fetchone()["c"] == before)
+    finally:
+        con.close()
+
+    ok, _, rid3 = askmod.ask("manager", "third review", requester="worker")
+    _cli(["resolve", str(rid3), "PASS"], as_agent="manager")
+    rc, out = _cli(["resolve", str(rid3), "thanks", "--finding", "fnd B"], as_agent="worker")
+    con = db.connect()
+    try:
+        check("finding: refused on the requester's side, not dropped with rc 0",
+              rc == 1 and "your own request" in out, out)
+        check("finding: and no task was opened by it",
+              con.execute("SELECT COUNT(*) c FROM tasks").fetchone()["c"] == before)
+    finally:
+        con.close()
+
+    ok, _, rid5 = askmod.ask("reviewer", "other lane review", requester="worker")
+    rc, out = _cli(["resolve", str(rid5), "PASS", "--finding", "fnd C"], as_agent="reviewer")
+    con = db.connect()
+    try:
+        row5 = con.execute("SELECT t.* FROM tasks t JOIN task_requests tr ON tr.task_id = t.id "
+                           "WHERE tr.request_id = ?", (rid5,)).fetchone()
+        check("finding: a second lane's finding is owned by its own manager",
+              rc == 0 and row5 and row5["owner"] == "boss" and row5["opened_by"] == "boss",
+              out + str(dict(row5) if row5 else None))
+    finally:
+        con.close()
+    ok, _, ridx = askmod.ask("lane.x", "key differs from manager", requester="worker")
+    rc, out = _cli(["resolve", str(ridx), "PASS", "--finding", "fnd X"], as_agent="lane.x")
+    con = db.connect()
+    try:
+        rowx = con.execute("SELECT t.* FROM tasks t JOIN task_requests tr ON tr.task_id = t.id "
+                           "WHERE tr.request_id = ?", (ridx,)).fetchone()
+        check("finding: a lane whose key is not its manager's name still finds the manager",
+              rc == 0 and rowx and rowx["owner"] == "boss", out + str(dict(rowx) if rowx else None))
+    finally:
+        con.close()
+    before = None
+    con = db.connect()
+    try:
+        before = con.execute("SELECT COUNT(*) c FROM tasks").fetchone()["c"]
+    finally:
+        con.close()
+
+    ok, _, rid6 = askmod.ask("reviewer", "unmanaged lane", requester="worker")
+    (home / "team.yaml").write_text((home / "team.yaml").read_text().replace(
+        "from: \"boss\", to: \"reviewer\"", "from: \"ghost\", to: \"reviewer\""))
+    rc, out = _cli(["resolve", str(rid6), "PASS", "--finding", "fnd D"], as_agent="reviewer")
+    con = db.connect()
+    try:
+        check("finding: an owner that is not a registered agent is refused, nothing written",
+              rc == 1 and "no registered manager" in out and db.get_request(con, rid6)["state"] == "queued"
+              and con.execute("SELECT COUNT(*) c FROM tasks").fetchone()["c"] == before,
+              out)
+    finally:
+        con.close()
+
+    ok, _, rid4 = askmod.ask("manager", "fourth review", requester="worker")
+    real = askmod.db.close_if_queued
+    askmod.db.close_if_queued = lambda *a, **k: False
+    try:
+        ok4, _ = askmod.resolve(rid4, "PASS", open_tasks=lambda c: actions.open_finding_tasks(
+            c, rid4, ["lost race"], "manager"))
+    finally:
+        askmod.db.close_if_queued = real
+    con = db.connect()
+    try:
+        check("finding: a close that fails takes its tasks back",
+              not ok4 and con.execute("SELECT COUNT(*) c FROM tasks").fetchone()["c"] == before)
+    finally:
+        con.close()
+
+
+def test_resolve_hold_keeps_the_work_open_and_owned(home: Path) -> None:
+    """Task #11 (founder #2298): an answer that puts work on hold leaves an
+    open task owned by the holder, under the asker's task, waiting on what it
+    waits on - so nothing reads done while the work is still owed."""
+    _board_world(home)
+    con = db.connect()
+    try:
+        t_parent = db.new_task(con, "the work", "worker", "manager")
+        t_blocker = db.new_task(con, "the merge", "worker", "manager")
+    finally:
+        con.close()
+    ok, _, rid = askmod.ask("manager", "start it", requester="worker")
+    con = db.connect()
+    try:
+        db.link_request(con, t_parent, rid)
+    finally:
+        con.close()
+
+    rc, out = _cli(["resolve", str(rid), "later", "--on", str(t_blocker)], as_agent="manager")
+    check("hold: --on without --hold is refused", rc == 1 and "--hold" in out, out)
+    rc, out = _cli(["resolve", str(rid), "later", "--hold", "x", "--on", "999"],
+                   as_agent="manager")
+    check("hold: waiting on a task that does not exist is refused",
+          rc == 1 and "no task" in out, out)
+    con = db.connect()
+    try:
+        check("hold: a refusal leaves the request queued",
+              db.get_request(con, rid)["state"] == "queued")
+    finally:
+        con.close()
+
+    rc, out = _cli(["resolve", str(rid), "later", "--hold", "start it after the merge",
+                    "--on", str(t_blocker)], as_agent="manager")
+    check("hold: resolve succeeds", rc == 0, out)
+    con = db.connect()
+    try:
+        held = [t for t in db.tasks_for_request(con, rid) if t["id"] != t_parent]
+        check("hold: one task was opened and linked", len(held) == 1, str(held))
+        h = held[0]
+        check("hold: owned and opened by the holder, under the asker's task",
+              (h["owner"], h["opened_by"], h["parent_task"]) == ("manager", "manager", t_parent),
+              str(dict(h)))
+        check("hold: it waits on the named task",
+              [b["id"] for b in db.task_blockers(con, h["id"])] == [t_blocker])
+        check("hold: the verdict names the task",
+              f"#{h['id']}" in db.get_request(con, rid)["verdict"])
+        edge = con.execute("SELECT payload FROM events WHERE kind = 'block_task'").fetchall()
+        check("hold: its wait is recorded as a block_task event",
+              any(json.loads(e["payload"]).get("task_id") == h["id"] for e in edge), str(edge))
+        ok, msg = actions.close_task(con, t_parent, "manager")
+        check("hold: the parent cannot close over it", not ok, msg)
+    finally:
+        con.close()
+
+    rc, out = _cli(["task", "board"], as_agent="manager")
+    check("hold: the holder's board says what it waits on",
+          _now_line(out, h["id"]) == f"now: waiting on #{t_blocker}", out)
+    rc, out = _cli(["task", "board"], as_agent="worker")
+    check("hold: the asker's board reads it held, not done or nobody's",
+          _now_line(out, t_parent) == f"now: held as sub-task #{h['id']} (manager)", out)
+
+    rc, out = _cli(["resolve", str(rid), "again", "--hold", "y"], as_agent="manager")
+    check("hold: an answered request is not held twice", rc == 1, out)
+
+    con = db.connect()
+    try:
+        t_plain = db.new_task(con, "plain child", "worker", "manager", parent_task=t_parent)
+        db.add_block(con, t_parent, t_blocker)
+    finally:
+        con.close()
+    con = db.connect()
+    try:
+        t_lone = db.new_task(con, "lone parent", "worker", "manager")
+        db.new_task(con, "lone child", "worker", "manager", parent_task=t_lone)
+    finally:
+        con.close()
+    rc, out = _cli(["task", "board"], as_agent="worker")
+    check("hold: a child nobody asked anything of is no hold",
+          _now_line(out, t_lone) == "now: nobody holds it", out)
+    rc, out = _cli(["task", "board"], as_agent="worker")
+    check("hold: a plain child is no hold, and a blocker outranks a real one",
+          _now_line(out, t_parent) == f"now: waiting on #{t_blocker}", out)
+    con = db.connect()
+    try:
+        db.remove_block(con, t_parent, t_blocker)
+        con.execute("UPDATE tasks SET closed_by = 'manager' WHERE id = ?", (t_blocker,))
+    finally:
+        con.close()
+
+    con = db.connect()
+    try:
+        t_grand = db.new_task(con, "grandparent", "worker", "manager")
+        con.execute("UPDATE tasks SET parent_task = ? WHERE id = ?", (t_grand, t_parent))
+    finally:
+        con.close()
+    ok, _, rid2 = askmod.ask("manager", "second", requester="worker")
+    con = db.connect()
+    try:
+        db.link_request(con, t_parent, rid2)
+    finally:
+        con.close()
+    for label, argv, want in (
+            ("a blocker that is already closed", ["--hold", "z", "--on", str(t_blocker)], "closed"),
+            ("waiting on the task it sits under", ["--hold", "z", "--on", str(t_parent)], "sits under"),
+            ("waiting on the grandparent it sits under", ["--hold", "z", "--on", str(t_grand)],
+             "sits under"),
+            ("--state rejected", ["--hold", "z", "--state", "rejected"], "rejected"),
+            ("a blank title", ["--hold", "  "], "title")):
+        rc, out = _cli(["resolve", str(rid2), "later", *argv], as_agent="manager")
+        check(f"hold: refused - {label}", rc == 1 and want in out, out)
+    con = db.connect()
+    try:
+        check("hold: the refusals left the request queued",
+              db.get_request(con, rid2)["state"] == "queued")
+    finally:
+        con.close()
+
+
+def test_task_discard(home: Path) -> None:
+    """Task #85: the asker throws a not-done task away in one step. It is
+    recorded as discarded and never reads as finished work; close_task's
+    guards hold; every block naming it clears and the freed task is told."""
+    _board_world(home)
+    con = db.connect()
+    try:
+        t = db.new_task(con, "drop me", "worker", "manager")
+        kid = db.new_task(con, "kid", "worker", "manager", parent_task=t)
+        dep = db.new_task(con, "dependent", "worker", "manager")
+        db.add_block(con, dep, t)
+        gate = db.new_task(con, "gate", "worker", "manager")
+        waiting = db.new_task(con, "waits", "worker", "manager")
+        db.add_block(con, waiting, gate)
+        done = db.new_task(con, "done one", "worker", "manager")
+        db.mark_task_done(con, done, "did it")
+    finally:
+        con.close()
+
+    def go(tid, who="manager", reason="not needed"):
+        return _cli(["task", "discard", str(tid), reason], as_agent=who)
+
+    rc, out = go(t, who="worker")
+    check("discard: only the asker may", rc == 1 and "manager" in out, out)
+    rc, out = go(t, reason="   ")
+    check("discard: a reason is required", rc == 1 and "reason" in out, out)
+    rc, out = go(t)
+    check("discard: an open child task refuses it", rc == 1 and f"#{kid}" in out, out)
+    rc, out = go(waiting)
+    check("discard: a task waiting on a blocker refuses it", rc == 1 and f"#{gate}" in out, out)
+    ok, _, rid_live = askmod.ask("manager", "work on it", requester="worker")
+    con = db.connect()
+    try:
+        live_t = db.new_task(con, "in progress", "worker", "manager")
+        db.link_request(con, live_t, rid_live)
+    finally:
+        con.close()
+    rc, out = go(live_t)
+    check("discard: a task with a request still queued refuses it, naming the request",
+          rc == 1 and f"#{rid_live}" in out and "withdraw" in out, out)
+    con = db.connect()
+    try:
+        check("discard: and the refusal changed nothing",
+              db.get_task(con, live_t)["closed_by"] is None
+              and db.get_request(con, rid_live)["state"] == "queued")
+    finally:
+        con.close()
+    rc, out = go(done)
+    check("discard: a done task refuses it", rc == 1 and "signs it off" in out, out)
+    rc, out = go(999)
+    check("discard: an unknown task is refused", rc == 1 and "no task" in out, out)
+
+    con = db.connect()
+    try:
+        db.close_task(con, kid, "manager")
+    finally:
+        con.close()
+    rc, out = go(t, reason="  the plan changed  ")
+    check("discard: the asker discards it in one step", rc == 0 and "discarded" in out, out)
+
+    con = db.connect()
+    try:
+        row = db.get_task(con, t)
+        check("discard: who, why and when are recorded",
+              (row["discarded_by"], row["discard_reason"]) == ("manager", "the plan changed")
+              and row["closed_at"], str(dict(row)))
+        check("discard: it reads discarded, not closed or done",
+              actions.task_state(con, row) == "discarded")
+        check("discard: it is on no open list",
+              t not in [r["id"] for r in db.open_tasks(con)]
+              and t not in [r["id"] for r in db.tasks_needing_close(con)])
+        check("discard: its event is recorded",
+              con.execute("SELECT COUNT(*) c FROM events WHERE kind = 'discard_task'"
+                          ).fetchone()["c"] == 1)
+        check("discard: the block naming it is gone, the row too",
+              db.task_blockers(con, dep) == [] and db.blocks_on_ids(con, dep) == [])
+        notes = [r for r in db.task_requests(con, dep) if "unblocked" in r["body"]]
+        check("discard: the freed task is told it was discarded, not closed",
+              len(notes) == 1 and "discarded" in notes[0]["body"], str(notes))
+    finally:
+        con.close()
+
+    rc, out = _cli(["task", "list", "--all"])
+    line = [l for l in out.splitlines() if l.startswith(f"#{t} ")]
+    check("discard: the list marks it discarded with the reason",
+          line and "discarded" in line[0] and "DISCARDED by manager: the plan changed" in line[0]
+          and "CLOSED" not in line[0], out)
+    rc, out = _cli(["task", "board"], as_agent="worker")
+    check("discard: it is on nobody's board", f"#{t} " not in out, out)
+
+    rc, out = go(t)
+    check("discard: a discarded task refuses a second", rc == 1 and "already discarded" in out, out)
+    rc, out = _cli(["close", str(t)])
+    check("discard: and cannot be signed off as finished", rc == 1, out)
+    con = db.connect()
+    try:
+        db.close_task(con, dep, "manager")
+        db.mark_task_done(con, dep, "x")
+    finally:
+        con.close()
+    rc, out = go(dep)
+    check("discard: an already closed task refuses it", rc == 1 and "already closed" in out, out)
+
+
+def test_marking_a_task_done_needs_evidence_and_only_the_owner_or_a_linked_target(
+        home: Path) -> None:
+    """#71: mark_task_done takes exactly one of a sha (checked against
+    main), a --request (must exist and be answered), or a reason - and only
+    the task's own owner, or the target of a request linked to it that is
+    open or done, may write it (auditor's #2187 SHOULD-FIX 1, orcapipe's
+    #2195 decision - #1914 means the owner alone would leave only orcapipe
+    itself able to mark anything done)."""
+    _board_world(home)
+    repo = home / "repo"
+    repo.mkdir()
+
+    def git(*args: str) -> str:
+        return subprocess.run(["git", *args], cwd=repo, check=True, capture_output=True,
+                              text=True).stdout.strip()
+    git("init", "-q", "-b", "main")
+    git("config", "user.email", "t@example.com")
+    git("config", "user.name", "t")
+    (repo / "a.txt").write_text("1")
+    git("add", ".")
+    git("commit", "-q", "-m", "on main")
+    main_sha = git("rev-parse", "HEAD")
+    git("checkout", "-q", "-b", "feature")
+    (repo / "a.txt").write_text("2")
+    git("commit", "-q", "-am", "never merged")
+    feature_sha = git("rev-parse", "HEAD")
+
+    con = db.connect()
+    try:
+        t1 = db.new_task(con, "one", "worker", "manager")
+        ok, msg = actions.mark_task_done(con, t1, "manager", sha=main_sha, repo=repo)
+        check("done: refused for anyone but the owner", not ok and "owner" in msg, msg)
+        ok, msg = actions.mark_task_done(con, t1, "worker", sha=feature_sha, repo=repo)
+        check("done: a sha not on main is refused", not ok and "ancestor" in msg, msg)
+        check("done: refused, still not done", db.get_task(con, t1)["done_evidence"] is None)
+        ok, msg = actions.mark_task_done(con, t1, "worker")
+        check("done: none of sha, --request, or reason is refused", not ok, msg)
+        ok, msg = actions.mark_task_done(con, t1, "worker", sha=main_sha, reason="both")
+        check("done: both is refused", not ok, msg)
+        ok, msg = actions.mark_task_done(con, t1, "worker", sha=main_sha, repo=repo)
+        check("done: a sha that is an ancestor of main marks it done", ok, msg)
+        check("done: done_evidence records the sha", db.get_task(con, t1)["done_evidence"] == main_sha)
+        ok, msg = actions.mark_task_done(con, t1, "worker", reason="again")
+        check("done: already done is refused", not ok and "already done" in msg, msg)
+        ok, msg = actions.mark_task_done(con, 99, "worker", reason="x")
+        check("done: no such task", not ok, msg)
+
+        # SHOULD-FIX 1: owner alone and target-alone are each sufficient
+        # (mutated separately, not just together) - t_o is owned by worker
+        # with no linked request at all, t_t is owned by manager (so worker
+        # is never the owner) with a request linking worker in.
+        t_o = db.new_task(con, "owner only, no link at all", "worker", "manager")
+        ok, msg = actions.mark_task_done(con, t_o, "worker", reason="owner works alone")
+        check("done: the owner marks it done with no linked request at all", ok, msg)
+
+        t_t = db.new_task(con, "target only, not the owner", "manager", "manager")
+        r_queued = db.add_request(con, "manager", "worker", "go", None, "supervisor",
+                                  "fire_and_forget", None, 0, None)
+        db.link_request(con, t_t, r_queued)
+        ok, msg = actions.mark_task_done(con, t_t, "worker", reason="target works alone")
+        check("done: the target of a still-queued linked request marks it done, "
+              "not the owner", ok, msg)
+
+        t_t2 = db.new_task(con, "target of a done request", "manager", "manager")
+        r_done = db.add_request(con, "manager", "worker", "go", None, "supervisor",
+                                "fire_and_forget", None, 0, None)
+        askmod.resolve(r_done, "shipped")
+        db.link_request(con, t_t2, r_done)
+        ok, msg = actions.mark_task_done(con, t_t2, "worker", reason="a done link works too")
+        check("done: the target of a done linked request marks it done too", ok, msg)
+
+        t_neither = db.new_task(con, "neither owner nor target", "manager", "manager")
+        ok, msg = actions.mark_task_done(con, t_neither, "worker", reason="not allowed")
+        check("done: refused - worker is neither the owner nor a linked target",
+              not ok and "owner" in msg and "target" in msg, msg)
+
+        t_withdrawn = db.new_task(con, "target of a withdrawn request", "manager", "manager")
+        r_withdrawn = db.add_request(con, "manager", "worker", "go", None, "supervisor",
+                                     "fire_and_forget", None, 0, None)
+        askmod.withdraw(r_withdrawn, requester="manager")
+        db.link_request(con, t_withdrawn, r_withdrawn)
+        ok, msg = actions.mark_task_done(con, t_withdrawn, "worker", reason="too late")
+        check("done: refused - a withdrawn linked request named nobody real for this",
+              not ok, msg)
+
+        r = db.add_request(con, "manager", "worker", "go", None, "supervisor",
+                           "fire_and_forget", None, 0, None)
+        t2 = db.new_task(con, "two", "worker", "manager")
+        ok, msg = actions.mark_task_done(con, t2, "worker", request_id=r)
+        check("done: a still-queued request is not evidence yet",
+              not ok and "queued" in msg, msg)
+        askmod.resolve(r, "shipped")
+        ok, msg = actions.mark_task_done(con, t2, "worker", request_id=r)
+        check("done: an answered request is evidence", ok, msg)
+        check("done: done_via records 'request'", db.get_task(con, t2)["done_via"] == "request")
+        t2b = db.new_task(con, "two-b", "worker", "manager")
+        ok, msg = actions.mark_task_done(con, t2b, "worker", request_id=999999)
+        check("done: a request that does not exist is refused",
+              not ok and "no request" in msg, msg)
+    finally:
+        con.close()
+
+    t3 = db.new_task(con := db.connect(), "three", "worker", "manager")
+    con.close()
+    rc, out = _cli(["task", "done", str(t3), "fine, a reason"], as_agent="worker")
+    check("done: the verb takes a reason", rc == 0 and "done" in out, out)
+    rc, out = _cli(["task", "done", str(t3), "again"], as_agent="worker")
+    check("done: the verb refuses an already-done task", rc == 1, out)
+    rc, out = _cli(["task", "done", "99999", "x"], as_agent="worker")
+    check("done: the verb refuses a task that does not exist", rc == 1 and "no task" in out, out)
+    rc, out = _cli(["task", "done", str(t1), "x"], as_agent=None)
+    check("done: refused with no identity", rc == 1, out)
+
+
+def test_closing_a_task_needs_no_open_child_and_only_the_asker(home: Path) -> None:
+    """#71: close_task is the asker's own sign-off - refused before the task
+    is done, for anyone but the asker (see task_asker), and while a child
+    task is open."""
+    _board_world(home)
+    con = db.connect()
+    try:
+        t = db.new_task(con, "not done yet", "worker", "manager")
+        ok, msg = actions.close_task(con, t, "manager")
+        check("close: refused before the task is done", not ok and "not done" in msg, msg)
+        actions.mark_task_done(con, t, "worker", reason="finished")
+        ok, msg = actions.close_task(con, t, "worker")
+        check("close: refused for anyone but the asker", not ok and "manager" in msg, msg)
+        ok, msg = actions.close_task(con, t, "manager")
+        check("close: the asker (the opener, since no founder request is "
+              "linked) closes it", ok, msg)
+    finally:
+        con.close()
+
+    con = db.connect()
+    try:
+        parent = db.new_task(con, "parent", "worker", "manager")
+        child = db.new_task(con, "child", "worker", "manager", parent)
+        actions.mark_task_done(con, parent, "worker", reason="looks done")
+        actions.mark_task_done(con, child, "worker", reason="part done")
+    finally:
+        con.close()
+    rc, out = _cli(["close", str(parent)])
+    check("close: refused while a child task is open", rc == 1 and f"#{child}" in out, out)
+    rc, out = _cli(["close", str(child)])
+    check("close: the child closes on its own", rc == 0, out)
+    rc, out = _cli(["close", str(parent)])
+    check("close: the parent then closes", rc == 0, out)
+
+    con = db.connect()
+    try:
+        t2 = db.new_task(con, "two", "worker", "manager")
+    finally:
+        con.close()
+    rc, out = _done_and_close(t2, "worker")
+    check("close: the verb takes no evidence and succeeds", rc == 0 and "closed" in out, out)
+    rc, out = _cli(["close", "99999"])
+    check("close: no such task", rc == 1 and "no task" in out, out)
+    rc, out = _cli(["close", "worker", "a reason"])
+    check("close: evidence on an agent's name is refused, not an agent close", rc == 1, out)
+    rc, out = _cli(["close", str(t2), "a reason"])
+    check("close: evidence on a task number is refused now - `ocp task done` takes it",
+          rc == 1, out)
+
+
+def test_close_task_refuses_without_an_identity_and_does_not_move_a_clock(home: Path) -> None:
+    """#1565 SF3, carried over to #71's split. Neither `ocp task done` nor
+    `ocp close` falls back to the task's owner when no identity is given -
+    cli refuses outright before either call, and close_task/mark_task_done
+    are kept out of AGENT_ACTIVITY_KINDS as a second line of defense for any
+    future caller that does not refuse."""
+    _board_world(home)
+    con = db.connect()
+    try:
+        t = db.new_task(con, "owned by worker", "worker", "manager")
+    finally:
+        con.close()
+
+    rc, out = _cli(["task", "done", str(t), "a reason"], as_agent=None)
+    check("done: refused with no identity, not attributed to the owner", rc == 1, out)
+    con = db.connect()
+    try:
+        check("done: nothing marked it done", db.get_task(con, t)["done_evidence"] is None)
+    finally:
+        con.close()
+
+    rc, out = _cli(["task", "done", str(t), "a reason"], as_agent="worker")
+    check("done: succeeds once someone real is running it", rc == 0, out)
+    rc, out = _cli(["close", str(t)], as_agent=None)
+    check("close: refused with no identity, not attributed to the asker", rc == 1, out)
+    con = db.connect()
+    try:
+        check("close: nothing closed it", db.get_task(con, t)["closed_by"] is None)
+        n = con.execute("SELECT COUNT(*) c FROM events WHERE kind = 'close_task'").fetchone()["c"]
+        check("close: no event was written either", n == 0, str(n))
+    finally:
+        con.close()
+
+    rc, out = _cli(["close", str(t)], as_agent="manager")
+    check("close: succeeds once someone real is running it", rc == 0, out)
+    con = db.connect()
+    try:
+        db.add_event(con, "manager", "Stop", {})
+        stamp = db.last_activity(con, "manager")
+        db.add_event(con, "manager", "close_task", {"task_id": t, "closed_by": "manager"})
+        db.add_event(con, "manager", "mark_task_done", {"task_id": t, "done": "x"})
+        db.add_event(con, "manager", "reopen_task", {"task_id": t, "reason": "x"})
+        check("close task: none of the three move the clock of the agent it is "
+              "(correctly) attributed to",
+              db.last_activity(con, "manager") == stamp)
+    finally:
+        con.close()
+
+
+def test_reopening_a_done_task_needs_a_reason_and_only_the_asker(home: Path) -> None:
+    """#71: the opposite of closing - only the asker, only from done, and
+    needs a one-line reason. Clears the evidence, so it reads as not-done
+    again."""
+    _board_world(home)
+    con = db.connect()
+    t = db.new_task(con, "reopenable", "worker", "manager")
+    ok, msg = actions.reopen_task(con, t, "manager", "not enough")
+    check("reopen: refused before the task is done", not ok and "not done" in msg, msg)
+
+    actions.mark_task_done(con, t, "worker", reason="looks done")
+    ok, msg = actions.reopen_task(con, t, "worker", "not enough")
+    check("reopen: refused for anyone but the asker", not ok, msg)
+    ok, msg = actions.reopen_task(con, t, "manager", "")
+    check("reopen: refused with no reason", not ok and "reason" in msg, msg)
+    ok, msg = actions.reopen_task(con, t, "manager", "needs another pass")
+    check("reopen: the asker reopens it", ok, msg)
+    row = db.get_task(con, t)
+    check("reopen: done_evidence is cleared", row["done_evidence"] is None, str(dict(row)))
+    check("reopen: still open, not closed", row["closed_by"] is None)
+    ev = con.execute("SELECT payload FROM events WHERE kind = 'reopen_task'").fetchall()
+    check("reopen: the reason is recorded", len(ev) == 1
+          and json.loads(ev[0]["payload"])["reason"] == "needs another pass", str(ev))
+
+    ok, msg = actions.reopen_task(con, t, "manager", "again")
+    check("reopen: refused - it is not done any more, nothing to undo",
+          not ok and "not done" in msg, msg)
+
+    actions.mark_task_done(con, t, "worker", reason="done again")
+    actions.close_task(con, t, "manager")
+    ok, msg = actions.reopen_task(con, t, "manager", "too late")
+    check("reopen: refused once closed - closing is final", not ok and "final" in msg, msg)
+    con.close()
+
+    con = db.connect()
+    try:
+        t2 = db.new_task(con, "cli reopenable", "worker", "manager")
+    finally:
+        con.close()
+    rc, out = _cli(["task", "done", str(t2), "done"], as_agent="worker")
+    check("reopen cli: setup - done", rc == 0, out)
+    rc, out = _cli(["task", "reopen", str(t2), "needs work"], as_agent="manager")
+    check("reopen cli: succeeds", rc == 0 and "reopened" in out, out)
+    rc, out = _cli(["task", "reopen", "99999", "x"], as_agent="manager")
+    check("reopen cli: no such task", rc == 1 and "no task" in out, out)
+    rc, out = _cli(["task", "reopen", str(t2), "x"], as_agent=None)
+    check("reopen cli: refused with no identity", rc == 1, out)
+
+
+def test_no_other_path_closes_the_founders_request_unguarded(home: Path) -> None:
+    """#1341: dismiss is the second way an agent closes a request the founder
+    made, so it takes the same guard; the founder's own hands do not."""
+    _board_world(home)
+    _cli(["task", "new", "--owner", "worker", "the work"])
+    r = _human_request()
+    rc, out = _cli(["dismiss", str(r)])
+    check("dismiss: a founder request is refused without --task or --no-task",
+          rc == 1 and "--task" in out, out)
+    con = db.connect()
+    try:
+        check("dismiss: refused, still queued", db.get_request(con, r)["state"] == "queued")
+    finally:
+        con.close()
+    rc, out = _cli(["dismiss", str(r), "--task", "1"])
+    check("dismiss: --task on the founder's row succeeds", rc == 0, out)
+    con = db.connect()
+    try:
+        check("dismiss: --task closes it and links it",
+              db.get_request(con, r)["state"] == "done"
+              and [x["id"] for x in db.task_requests(con, 1)] == [r], out)
+        r2 = _human_request()
+        rc, out = _cli(["dismiss", str(r2), "--no-task", "duplicate", "--reason", "dup of #9"])
+        check("dismiss: --no-task on the founder's row succeeds", rc == 0, out)
+        row = db.get_request(con, r2)
+        check("dismiss: --no-task closes it, reason stored as typed",
+              row["state"] == "done" and row["verdict"] == "read - no reply: dup of #9",
+              str(dict(row)))
+        r3 = _human_request()
+        ok, out = actions.dismiss(con, r3, me=askmod.HUMAN)
+        check("dismiss: the founder's own dismiss is not guarded",
+              ok and db.get_request(con, r3)["state"] == "done", out)
+    finally:
+        con.close()
+    # #1350 should-fix 1: a refused dismiss must not report success.
+    r4 = _human_request()
+    rc, out = _cli(["dismiss", str(r4)])
+    check("dismiss: a guard refusal is exit 1, not the exit 0 every other outcome uses",
+          rc == 1, out)
+    con = db.connect()
+    try:
+        check("dismiss: and the row it refused on is still queued",
+              db.get_request(con, r4)["state"] == "queued")
+    finally:
+        con.close()
+    # #1350 should-fix 2: --no-task on an ordinary (non-founder) row must
+    # record the same way --task does, not only close it silently.
+    con = db.connect()
+    try:
+        peer = db.add_request(con, "manager", "worker", "q", None, "peer",
+                              "fire_and_forget", None, 0, None)
+    finally:
+        con.close()
+    rc, out = _cli(["dismiss", str(peer), "--no-task", "nothing to build"], as_agent="worker")
+    check("dismiss: --no-task on a peer row succeeds", rc == 0, out)
+    con = db.connect()
+    try:
+        rows = con.execute(
+            "SELECT payload FROM events WHERE kind = 'no_task'").fetchall()
+        ids = [json.loads(r["payload"])["request_id"] for r in rows]
+        check("dismiss: --no-task on a peer row is recorded too, same as resolve",
+              peer in ids, str(ids))
+    finally:
+        con.close()
+
+
+def test_task_ids_are_checked_before_any_answer_and_short_shas_are_resolved(home: Path) -> None:
+    """auditor's #1340 should-fixes, notes 1, 3."""
+    _board_world(home)
+    # A bad --task id on a row that is not the founder's is refused before the answer.
+    con = db.connect()
+    try:
+        peer = db.add_request(con, "worker", "manager", "q", None, "peer", "async", None, 0, None)
+    finally:
+        con.close()
+    rc, out = _cli(["resolve", str(peer), "answer", "--task", "999"])
+    con = db.connect()
+    try:
+        check("task ids: a bad id on a peer row is refused, and the row is not answered",
+              rc == 1 and "no task #999" in out and db.get_request(con, peer)["state"] == "queued",
+              out)
+    finally:
+        con.close()
+
+    repo = home / "repo"
+    repo.mkdir()
+
+    def git(*args: str) -> str:
+        return subprocess.run(["git", *args], cwd=repo, check=True, capture_output=True,
+                              text=True).stdout.strip()
+    git("init", "-q", "-b", "main")
+    git("config", "user.email", "t@example.com")
+    git("config", "user.name", "t")
+    (repo / "a.txt").write_text("1")
+    git("add", ".")
+    git("commit", "-q", "-m", "on main")
+    full = git("rev-parse", "HEAD")
+    _cli(["task", "new", "--owner", "worker", "one"])
+    _cli(["task", "new", "--owner", "worker", "two"])
+    _cli(["task", "new", "--owner", "worker", "three"])
+    rc, out = _cli(["task", "done", "1", "abc123", "--repo", str(repo)], as_agent="worker")
+    check("sha: hex that names no commit is refused, not recorded as a reason",
+          rc == 1 and "not an ancestor of main" in out, out)
+    rc, out = _cli(["task", "done", "1", full[:6], "--repo", str(repo)], as_agent="worker")
+    con = db.connect()
+    try:
+        check("sha: a short sha resolves and the full one is what is stored",
+              rc == 0 and db.get_task(con, 1)["done_evidence"] == full, out)
+    finally:
+        con.close()
+    rc, out = _cli(["task", "done", "2", "deadbeef", "--reason", "--repo", str(repo)],
+                   as_agent="worker")
+    con = db.connect()
+    try:
+        check("sha: --reason records hex-looking words as words",
+              rc == 0 and db.get_task(con, 2)["done_evidence"] == "deadbeef", out)
+    finally:
+        con.close()
+    _cli(["close", "1"])
+    _cli(["close", "2"])
+    rc, out = _cli(["task", "list"])
+    check("board: closed tasks are not on the plain list", "two" not in out and "one" not in out, out)
+    rc, out = _cli(["task", "list", "--all"])
+    check("board: --all shows what closed each task",
+          "CLOSED by manager" in out and "DONE: " + full in out and "DONE: deadbeef" in out, out)
+    try:
+        agents.register("7", "alpha")
+        refused = False
+    except Exception:
+        refused = True
+    check("close: a number is never an agent name (the dispatch rests on it)", refused)
+
+
+def test_replace_withdraw_and_dismiss_store_the_reason_typed(home: Path) -> None:
+    """#1337: what was typed is what the record holds, and without a reason the
+    old verdicts are unchanged."""
+    _board_world(home)
+    con = db.connect()
+    try:
+        ok, _, a = askmod.ask("worker", "first", requester="manager")
+        ok, _, b = askmod.ask("worker", "first, corrected", requester="manager",
+                              replaces=a, reason="wrong repo")
+        check("reason: a replace stores the reason after the id that replaced it",
+              db.get_request(con, a)["verdict"] == f"replaced by #{b}: wrong repo",
+              str(dict(db.get_request(con, a))))
+        ok, _, c = askmod.ask("worker", "second", requester="manager")
+        ok, _, d = askmod.ask("worker", "second again", requester="manager", replaces=c)
+        check("reason: a replace with none keeps the old verdict",
+              db.get_request(con, c)["verdict"] == f"replaced by #{d}")
+        ok, _, e = askmod.ask("worker", "third", requester="manager", mergeable=False)
+        ok, msg = askmod.withdraw(e, requester="manager", reason="not needed after all")
+        row = db.get_request(con, e)
+        check("reason: a withdraw stores it, labelled like the other two", ok
+              and row["state"] == "withdrawn"
+              and row["verdict"] == "withdrawn: not needed after all", str(dict(row)))
+        ok, _, f = askmod.ask("worker", "fourth", requester="manager")
+        askmod.withdraw(f, requester="manager")
+        check("reason: a withdraw with none stores none", db.get_request(con, f)["verdict"] is None)
+        g = db.add_request(con, "worker", "manager", "q", None, "peer", "async", None, 0, None)
+        actions.dismiss(con, g, me="manager", reason="duplicate of #1")
+        check("reason: a dismiss stores it",
+              db.get_request(con, g)["verdict"] == "read - no reply: duplicate of #1")
+        h = db.add_request(con, "worker", "manager", "q", None, "peer", "async", None, 0, None)
+        actions.dismiss(con, h, me="manager")
+        check("reason: a dismiss with none keeps the old verdict",
+              db.get_request(con, h)["verdict"] == "read - no reply")
+    finally:
+        con.close()
+    # #1348 should-fix: pin how a withdrawn row READS, not only what it
+    # stores - `ocp read` draws it under "answered by <target>" the same as
+    # any other verdict, so a bare typed reason there would look like the
+    # target's own words rather than a record that it never received it.
+    rc, out = _cli(["read", str(e)])
+    check("reason: a withdrawn row's reason reads as a label, not the target's answer",
+          rc == 0 and "withdrawn: not needed after all" in out, out)
+    rc, out = _cli(["ask", "worker", "x", "--reason", "why"])
+    check("reason: --reason without --replaces is refused", rc == 1 and "--replaces" in out, out)
+    # #1348 note 1: a typed empty --reason is not "no reason" - taking it as
+    # one would silently drop what was typed.
+    ok, _, i = askmod.ask("worker", "fifth", requester="manager")
+    rc, out = _cli(["ask", "worker", "x", "--replaces", str(i), "--reason", ""])
+    check("reason: an empty --reason on ask is refused, not silently dropped",
+          rc == 1 and "empty" in out, out)
+    rc, out = _cli(["withdraw", str(i), "--reason", ""])
+    check("reason: an empty --reason on withdraw is refused", rc == 1 and "empty" in out, out)
+    con = db.connect()
+    try:
+        j = db.add_request(con, "worker", "manager", "q", None, "peer", "async", None, 0, None)
+    finally:
+        con.close()
+    rc, out = _cli(["dismiss", str(j), "--reason", ""])
+    check("reason: an empty --reason on dismiss is refused", rc == 1 and "empty" in out, out)
+
+
+def test_moot_by_records_who_retired_a_row(home: Path) -> None:
+    """#1349: moot_by is a record, not a relation - set once, from the row
+    that went moot, by whichever verb already knows both ids."""
+    _board_world(home)
+    con = db.connect()
+    try:
+        ok, _, a = askmod.ask("worker", "first", requester="manager")
+        ok, _, b = askmod.ask("worker", "corrected", requester="manager", replaces=a)
+        check("moot: a replace points the old row at the new one",
+              db.get_request(con, a)["moot_by"] == b, str(dict(db.get_request(con, a))))
+
+        c = db.add_request(con, "manager", "worker", "dup", None, "supervisor",
+                           "fire_and_forget", None, 0, None)
+        d = db.add_request(con, "manager", "worker", "the real one", None, "supervisor",
+                           "fire_and_forget", None, 0, None)
+        d2 = db.add_request(con, "manager", "worker", "another", None, "supervisor",
+                            "fire_and_forget", None, 0, None)
+        d3 = db.add_request(con, "manager", "worker", "a third", None, "supervisor",
+                            "fire_and_forget", None, 0, None)
+    finally:
+        con.close()
+    rc, out = _cli(["resolve", str(d), "done", "--retires", str(c)], as_agent="worker")
+    check("moot: resolve --retires succeeds and says so", rc == 0 and f"#{c}" in out, out)
+    con = db.connect()
+    try:
+        check("moot: resolve --retires points the old row at the resolving one",
+              db.get_request(con, c)["moot_by"] == d)
+        # #1565 SF1: moot_by alone is a record, not the retirement - #1366's
+        # own blocking bug was moot_by written with the row left queued, and
+        # a check on moot_by only never noticed. db.retire_queued is what
+        # actually takes it out of the queue.
+        check("moot: ...and the row is actually out of the queue, not just recorded",
+              db.get_request(con, c)["state"] == "replaced", str(dict(db.get_request(con, c))))
+    finally:
+        con.close()
+    rc, out = _cli(["resolve", str(d2), "done", "--retires", str(c)], as_agent="worker")
+    check("moot: retiring an already-moot row is refused, not overwritten",
+          rc == 1 and "already moot" in out, out)
+    rc, out = _cli(["resolve", str(d3), "done", "--retires", "999999"], as_agent="worker")
+    check("moot: --retires naming nothing is refused before any answer is written",
+          rc == 1 and "no request" in out, out)
+    con = db.connect()
+    try:
+        check("moot: neither refused resolve wrote an answer",
+              db.get_request(con, d2)["state"] == "queued"
+              and db.get_request(con, d3)["state"] == "queued")
+    finally:
+        con.close()
+
+    # code review of #1366: --retires on a row that is already answered its
+    # own way (never queued when this resolve runs, moot_by still NULL) must
+    # be refused up front, not left to read as a race that did not happen.
+    con = db.connect()
+    try:
+        e2 = db.add_request(con, "manager", "worker", "already answered", None,
+                            "supervisor", "fire_and_forget", None, 0, None)
+    finally:
+        con.close()
+    ok, msg = askmod.resolve(e2, "some real answer")
+    check("moot: setup - the row to retire is already done", ok, msg)
+    rc, out = _cli(["resolve", str(d3), "done", "--retires", str(e2)], as_agent="worker")
+    check("moot: --retires on an already-answered (never queued) row is refused",
+          rc == 1 and "already done" in out and "left 'queued'" not in out, out)
+    con = db.connect()
+    try:
+        check("moot: the refused resolve did not touch either row",
+              db.get_request(con, d3)["state"] == "queued"
+              and db.get_request(con, e2)["verdict"] == "some real answer")
+    finally:
+        con.close()
+
+    con = db.connect()
+    try:
+        t = db.new_task(con, "one", "worker", "manager")
+    finally:
+        con.close()
+    try:
+        _cli(["close", str(t), "closed as duplicate", "--retires", "999999"])
+        check("close: --retires is gone (#1366) - task and request ids share no namespace",
+              False, "argparse accepted it")
+    except SystemExit as e:
+        check("close: --retires is gone (#1366) - task and request ids share no namespace",
+              e.code == 2, str(e.code))
+
+
+def test_retires_is_refused_on_a_row_that_is_not_the_resolvers(home: Path) -> None:
+    """#1565 BLOCKING: --retires's pre-check tested existence, moot_by and
+    state but never whose row it is, so any agent could silently close any
+    queued request in the system, including the founder's - measured live:
+    OCP_AGENT=backend `ocp resolve 4 "answered" --retires 3` closed the
+    founder's own #3 to reviewer, with db.retire_queued stamping
+    announced_at as though it had already been reported and
+    check_human_resolve never running (it guards the row being resolved,
+    not the one being retired). Two other retirement paths already refuse
+    this - `ocp withdraw` and `ask --replaces` - and only this third one
+    did not."""
+    use_home(home)
+    (home / "team.yaml").write_text("""
+agents:
+  reviewer: { intake: dedicated }
+  backend:  { intake: dedicated }
+  frontend: { intake: dedicated }
+
+edges:
+  - { from: "*",         to: "human", kind: escalate,  creates_gate: true }
+  - { from: "human",     to: "*",     relation: supervisor, response: fire_and_forget }
+  - { from: "reviewer",  to: "backend", relation: peer, response: fire_and_forget }
+  - { from: "backend",   to: "reviewer", relation: peer, response: fire_and_forget }
+  - { from: "reviewer",  to: "frontend", relation: peer, response: fire_and_forget }
+
+limits:
+  max_chain_depth: 4
+  ask_rate_per_hour: 50
+""")
+    for n in ("reviewer", "backend", "frontend"):
+        agents.register(n, "alpha")
+    con = db.connect()
+    try:
+        founders = db.add_request(con, askmod.HUMAN, "reviewer", "founder's own",
+                                  None, "supervisor", "fire_and_forget", None, 0, None)
+        unrelated = db.add_request(con, "reviewer", "backend", "unrelated ask",
+                                   None, "peer", "fire_and_forget", None, 0, None)
+    finally:
+        con.close()
+
+    rc, out = _cli(["resolve", str(unrelated), "answered", "--retires", str(founders)],
+                   as_agent="backend")
+    check("retires: refused - the row is not backend's to retire",
+          rc == 1 and "not yours to retire" in out, out)
+    con = db.connect()
+    try:
+        row = db.get_request(con, founders)
+        check("retires: the founder's row is untouched - still queued, "
+              "moot_by unset, not marked as delivered/reported",
+              row["state"] == "queued" and row["moot_by"] is None
+              and not row["announced_at"], str(dict(row)))
+        check("retires: the resolve of backend's own row also did not go "
+              "through, since the whole command is refused up front",
+              db.get_request(con, unrelated)["state"] == "queued")
+    finally:
+        con.close()
+
+    # auditor's #1582 SHOULD-FIX: the founder case above is now
+    # double-guarded (the ownership check AND check_human_resolve both
+    # refuse it), so deleting the ownership check alone does not reproduce
+    # #1565's bug there - check_human_resolve still catches it. The case
+    # that is ONLY protected by the ownership check has no founder in it at
+    # all: any agent closing any OTHER two agents' queued row, "any agent
+    # can silently close any queued work" in its general form. A second
+    # unrelated row, between reviewer and frontend, that backend is neither
+    # requester nor target of.
+    con = db.connect()
+    try:
+        thirdparty = db.add_request(con, "reviewer", "frontend", "not backend's business",
+                                    None, "peer", "fire_and_forget", None, 0, None)
+        unrelated2 = db.add_request(con, "reviewer", "backend", "another unrelated ask",
+                                    None, "peer", "fire_and_forget", None, 0, None)
+    finally:
+        con.close()
+    rc, out = _cli(["resolve", str(unrelated2), "answered", "--retires", str(thirdparty)],
+                   as_agent="backend")
+    check("retires: refused - a row between two other agents entirely is not backend's either",
+          rc == 1 and "not yours to retire" in out, out)
+    con = db.connect()
+    try:
+        row = db.get_request(con, thirdparty)
+        check("retires: the third-party row is untouched too - "
+              "still queued, moot_by unset, not marked as reported",
+              row["state"] == "queued" and row["moot_by"] is None
+              and not row["announced_at"], str(dict(row)))
+    finally:
+        con.close()
+
+    # The control: backend retiring its OWN unanswered duplicate (backend is
+    # the target of both, same as the legitimate case in
+    # test_moot_by_records_who_retired_a_row) is not swept up by the guard.
+    con = db.connect()
+    try:
+        dup = db.add_request(con, "reviewer", "backend", "dup ask",
+                             None, "peer", "fire_and_forget", None, 0, None)
+    finally:
+        con.close()
+    rc, out = _cli(["resolve", str(unrelated), "answered again", "--retires", str(dup)],
+                   as_agent="backend")
+    check("retires: still allowed on a row backend is actually the target of",
+          rc == 0 and f"#{dup}" in out, out)
+
+    # And a founder row IS retireable by its own legitimate target, but only
+    # once it says what the closure becomes - the same rule answering it
+    # directly already enforces.
+    con = db.connect()
+    try:
+        founders2 = db.add_request(con, askmod.HUMAN, "reviewer", "founder's second",
+                                   None, "supervisor", "fire_and_forget", None, 0, None)
+        own = db.add_request(con, "backend", "reviewer", "reviewer's own answer target",
+                             None, "peer", "fire_and_forget", None, 0, None)
+    finally:
+        con.close()
+    rc, out = _cli(["resolve", str(own), "answered", "--retires", str(founders2)],
+                   as_agent="reviewer")
+    check("retires: a legitimate target retiring a founder row must still "
+          "say what it becomes",
+          rc == 1 and "say what it becomes" in out, out)
+    rc, out = _cli(["resolve", str(own), "answered", "--retires", str(founders2),
+                    "--no-task", "closed via the other answer"], as_agent="reviewer")
+    check("retires: ...and succeeds once it does",
+          rc == 0 and f"#{founders2}" in out, out)
+
+
+def test_reason_gaps_count_from_the_shapes_the_verbs_write(home: Path) -> None:
+    """#1349: a blank reason must be visible, counted from the exact strings
+    `--reason` writes (or omits) rather than a grep over free text - the
+    measurement orcapipe refused."""
+    _board_world(home)
+    con = db.connect()
+    try:
+        before = actions.reason_gaps(con)
+        ok, _, a = askmod.ask("worker", "x", requester="manager")
+        askmod.withdraw(a, requester="manager")
+        ok, _, b = askmod.ask("worker", "y", requester="manager")
+        askmod.withdraw(b, requester="manager", reason="stale")
+        gaps = actions.reason_gaps(con)
+        check("reason gaps: two more retirements, one more blank",
+              gaps["retirements"] == before["retirements"] + 2
+              and gaps["retirements_blank"] == before["retirements_blank"] + 1,
+              str(gaps))
+
+        t1 = db.new_task(con, "merged", "worker", "manager")
+        # db.mark_task_done directly: a real merge needs a git repo, and the
+        # count only cares about the shape done_evidence ends up holding.
+        db.mark_task_done(con, t1, "f" * 40, via="sha")
+        t2 = db.new_task(con, "worded", "worker", "manager")
+        ok, msg = actions.mark_task_done(con, t2, "worker", reason="a decision, nothing to merge")
+        check("done: worded close succeeds", ok, msg)
+
+        # code review of #1366: a --reason forced past looks_like_sha (hex-
+        # looking words, still a reason) must count as a reason close, not a
+        # sha close - done_via records the caller's own choice, not a
+        # guess made later from the text.
+        t3 = db.new_task(con, "hex-looking reason", "worker", "manager")
+        ok, msg = actions.mark_task_done(con, t3, "worker", reason="deadbeef")
+        check("done: a hex-looking --reason still succeeds as a reason close", ok, msg)
+
+        gaps2 = actions.reason_gaps(con)
+        check("reason gaps: a sha close and two worded closes (one hex-looking) land in "
+              "their own counts, neither read as blank (#1366 should-fix 2c)",
+              gaps2["closures_sha"] == gaps["closures_sha"] + 1
+              and gaps2["closures_reason"] == gaps["closures_reason"] + 2,
+              str(gaps2))
+
+        # #1366 should-fix 2a: the fyi supersede loop retires a row without
+        # ever asking anyone for a reason, so it must not count as one.
+        #
+        # auditor's #1565 SF2: _board_world routes only manager<->worker, so
+        # `askmod.ask(HUMAN, ..., fyi=True)` was DENIED ("unknown target
+        # 'human'") both times - no fyi row was ever built, the supersede
+        # loop never ran, and "gaps3['retirements'] == gaps2['retirements']"
+        # compared 0 retirements to 0. A route to human, added here rather
+        # than in the shared fixture every other test using _board_world also
+        # gets, makes the ask actually land so the real supersede loop
+        # (ask.py's own retire, not a hand-built row) is what is measured.
+        (home / "team.yaml").write_text("""
+agents:
+  manager: { intake: dedicated }
+  worker:  { intake: dedicated }
+
+edges:
+  - { from: "manager", to: "worker", relation: supervisor, response: fire_and_forget }
+  - { from: "worker", to: "manager", relation: subordinate, response: fire_and_forget }
+  - { from: "manager", to: "human", kind: escalate, creates_gate: true }
+
+limits:
+  max_chain_depth: 4
+  ask_rate_per_hour: 50
+""")
+        ok, msg1, f1 = askmod.ask(askmod.HUMAN, "fyi one", requester="manager", fyi=True)
+        check("reason gaps: setup - the fyi actually lands", ok, msg1)
+        ok, msg2, f2 = askmod.ask(askmod.HUMAN, "fyi two", requester="manager", fyi=True)
+        check("reason gaps: setup - the second fyi lands and supersedes the first", ok, msg2)
+        check("reason gaps: setup - the loop actually retired the first fyi",
+              db.get_request(con, f1)["state"] == "replaced", str(dict(db.get_request(con, f1))))
+        gaps3 = actions.reason_gaps(con)
+        check("reason gaps: an fyi superseding an fyi is not counted as a retirement",
+              gaps3["retirements"] == gaps2["retirements"], str(gaps3))
+
+        # #1366 should-fix 2b: a retirement outside the window does not count.
+        old = db.add_request(con, "manager", "worker", "ancient", None, "peer",
+                             "fire_and_forget", None, 0, None)
+        _set_request_state(con, old, "withdrawn", None)
+        con.execute("UPDATE requests SET resolved_at = ? WHERE id = ?",
+                    (int(time.time()) - 31 * 86400, old))
+        gaps4 = actions.reason_gaps(con)
+        check("reason gaps: a retirement older than the window does not count",
+              gaps4["retirements"] == gaps3["retirements"], str(gaps4))
+    finally:
+        con.close()
+    rc, out = _cli(["task", "list", "--all"])
+    check("board: the reason-gap line is shown", rc == 0 and "carry no reason" in out, out)
+
+
+def test_jobs_runs_the_real_actrun_and_answers_or_refuses(home: Path) -> None:
+    """`ocp.actrun` is the process `Jobs.start` hands a verb to: it runs through
+    `actions.perform` and answers as JSON, and refuses anything that is not one
+    of `actions.ASYNC_VERBS`. Every verb has something to say while it runs."""
+    _daemon_home(home, 20)
+    agents.register("reviewer", "alpha")
+    check("jobs: every verb the screen may run has what it waits for and how long",
+          set(actions.ASYNC_VERBS) == set(actions.WAITS)
+          and all(isinstance(v[1], int) and v[1] > 0 for v in actions.WAITS.values()),
+          str(set(actions.ASYNC_VERBS) ^ set(actions.WAITS)))
+    check("jobs: the long ones say what they wait on, the writes to the record say nothing",
+          all(actions.WAITS[v][0] for v in ("wake", "close", "park", "move", "fold", "terminal",
+                                            "message", "answer", "cancel"))
+          and not actions.WAITS["dismiss"][0] and not actions.WAITS["unstall"][0])
+
+    def ask(request: dict) -> tuple[dict, int]:
+        r = subprocess.run([sys.executable, "-m", "ocp.actrun"], input=json.dumps(request),
+                           capture_output=True, text=True, cwd=str(ROOT), env=dict(os.environ),
+                           timeout=60)
+        return json.loads(r.stdout.strip().splitlines()[-1]), r.returncode
+
+    said, code = ask({"verb": "unstall", "args": ["reviewer"]})
+    check("jobs: a verb answers as the action does", said["ok"] and "not STALLED" in said["said"]
+          and code == 0, str(said))
+    said, code = ask({"verb": "dismiss", "args": [999], "kwargs": {"me": "human"}})
+    check("jobs: keyword arguments arrive", said["ok"] and "gone" in said["said"], str(said))
+    said, code = ask({"verb": "os.system", "args": ["true"]})
+    check("jobs: anything that is not an action is refused, and says so",
+          not said["ok"] and "not an action" in said["said"] and code == 1, str(said))
+
+    jobs = jobsmod.Jobs()
+    check("jobs: through Jobs itself, with the real runner, it starts",
+          jobs.start("unstall", "reviewer", "unstalling reviewer", ("reviewer",)) == "")
+    deadline, out = time.time() + 20, []
+    while time.time() < deadline and not out:
+        out = jobs.reap()
+        time.sleep(0.05)
+    check("jobs: and its answer comes back the same way", out and "not STALLED" in out[0], str(out))
+
+
+def test_bin_ocp_resolves_a_symlink(home: Path) -> None:
+    """ocp/cli.py and ocp/service.py both describe the installed `ocp` as a
+    symlink into the repo (~/.local/bin/ocp on the founder's own machine) -
+    the one path every real invocation runs through, and one every other
+    test in this suite skips by calling bin/ocp at its real location. Auditor
+    #2096 should-fix 1: an unresolved BASH_SOURCE broke exactly this, silently,
+    with the rest of the suite still green."""
+    home.mkdir(parents=True, exist_ok=True)
+    real_ocp = paths.repo_root() / "bin" / "ocp"
+
+    direct = home / "direct-link"
+    direct.symlink_to(real_ocp)
+    r = subprocess.run([str(direct), "--version"], capture_output=True, text=True, timeout=30)
+    check("symlink: a direct symlink to bin/ocp still finds _ocp_entry.py",
+          r.returncode == 0 and r.stdout.strip() == "ocp 0.1.0", f"out={r.stdout!r} err={r.stderr!r}")
+
+    chained = home / "chained-link"
+    chained.symlink_to(Path("direct-link"))  # relative, same directory
+    r = subprocess.run([str(chained), "--version"], capture_output=True, text=True, timeout=30)
+    check("symlink: a link to a link resolves the same way",
+          r.returncode == 0 and r.stdout.strip() == "ocp 0.1.0", f"out={r.stdout!r} err={r.stderr!r}")
+
+
+def main() -> int:
+    def tests(td):
+        home = Path(td) / "orcapipe"
+        home.mkdir()
+        run(lambda: test_the_quota_request_never_follows_a_redirect(Path(td) / 'zairedir'))
+        run(lambda: test_db_dedup(home))
+        run(lambda: test_ask_flow(Path(td) / 'askhome'))
+        run(lambda: test_one_request_at_a_time(Path(td) / 'onetask'))
+        run(lambda: test_migration_marks_only_each_targets_head_delivered(Path(td) / 'oldmig'))
+        run(lambda: test_replace_and_merge_respect_delivered_at(Path(td) / 'mergedeliv'))
+        run(lambda: test_chain_members_excludes_a_row_about_to_be_replaced(Path(td) / 'chainexc'))
+        run(lambda: test_retire_if_undelivered_is_the_gate_against_the_delivery_race(
+            Path(td) / 'retirerace'))
+        run(lambda: test_ask_rate_limit(Path(td) / 'ratehome'))
+        run(lambda: test_cycle_and_escalation(Path(td) / 'cyc'))
+        run(lambda: test_review_pingpong(Path(td) / 'pingpong'))
+        run(lambda: test_rate_limit_throttles(Path(td) / 'throt'))
+        run(lambda: test_a_resolved_ask_does_not_stay_in_progress_across_a_park(Path(td) / 'foldparkhome'))
+        run(lambda: test_reconcile_resolved_needs_an_explicit_reference_not_a_bare_number(Path(td) / 'reconid'))
+        run(lambda: test_reconcile_resolved_only_state_done_counts(Path(td) / 'reconstate'))
+        run(lambda: test_fold_degraded_path_also_reconciles_resolved_asks(Path(td) / 'reconderaded'))
+        run(lambda: test_agents_stays_a_leaf_no_cycle_through_collect_or_vendors())
+        run(lambda: test_a_wake_with_only_an_answer_waiting_still_reads_queued(
+            Path(td) / 'answerwake'))
+        run(lambda: test_ask_respects_terminal_state(Path(td) / 'term'))
+        run(lambda: test_the_config_dir_and_its_layout_are_the_drivers_answers(
+            Path(td) / 'vendorcfg'))
+        run(lambda: test_db_dedup_only_swallows_dedup(Path(td) / 'strict'))
+        run(lambda: test_blocked_agents_come_due_in_one_request(Path(td) / 'blk4'))
+        run(lambda: test_a_trust_screen_is_one_founder_request(Path(td) / 'trustonce'))
+        run(lambda: test_an_open_head_request_on_an_idle_agent_is_nudged_then_shown(Path(td) / 'nudge'))
+        run(lambda: test_a_withdraw_landing_before_the_send_stops_the_send(Path(td) / 'withdrawrace'))
+        run(lambda: test_a_withdraw_landing_before_the_send_stops_the_send(Path(td) / 'withdrawrace'))
+        run(lambda: test_spawn_confirms_the_task_landed(Path(td) / 'spawnland'))
+        run(lambda: test_a_cold_wake_with_no_handoff_still_tells_the_agent_its_transcript_and_request(Path(td) / 'coldnone2'))
+        run(lambda: test_an_answer_reaches_the_agent_that_asked(Path(td) / 'answered'))
+        run(lambda: test_an_answer_wakes_the_agent_that_was_waiting_for_it(Path(td) / 'waiting'))
+        run(lambda: test_a_request_can_be_read_whole(Path(td) / 'readone'))
+        run(lambda: test_ask_and_resolve_take_their_text_from_a_file_too(Path(td) / 'askfile'))
+        run(lambda: test_inbox_and_withdraw_cli(Path(td) / 'inboxcli'))
+        run(lambda: test_only_one_thing_types_at_an_agent_at_a_time(Path(td) / 'locking'))
+        run(lambda: test_growing_the_team_needs_a_person(Path(td) / 'hr'))
+        run(lambda: test_the_founder_does_not_approve_their_own_request(Path(td) / 'hrself'))
+        run(lambda: test_a_withdraw_and_the_founders_answer_settle_to_one_outcome(
+            Path(td) / 'hrrace'))
+        run(lambda: test_a_permission_prompt_waits_on_the_founder_until_it_is_answered(Path(td) / 'promptwait'))
+        run(lambda: test_a_wait_does_not_outlive_the_prompt_that_raised_it(Path(td) / 'outlive'))
+        run(lambda: test_a_wait_clears_when_the_terminals_own_screen_no_longer_shows_it(
+            Path(td) / 'waitscreen'))
+        run(lambda: test_the_founders_own_shape_end_to_end(Path(td) / 'foundershape'))
+        run(lambda: test_classify_reads_the_screen_again_after_waiting_of_hides_a_wait_by_it(
+            Path(td) / 'classifyreuse'))
+        run(lambda: test_a_stale_cached_read_does_not_hide_a_later_prompt(Path(td) / 'stalecache'))
+        run(lambda: test_a_proposal_and_an_escalation_wait_on_the_founder_too(Path(td) / 'founderwaits'))
+        run(lambda: test_ask_and_resolve_do_not_type_at_an_agent_at_the_wall(Path(td) / 'askwall'))
+        run(lambda: test_a_move_still_records_a_session_the_wait_missed_but_a_hook_saw(
+            Path(td) / 'movemissed'))
+        run(lambda: test_a_wait_returns_when_the_answer_lands_not_when_it_gives_up(Path(td) / 'waitrow'))
+        run(lambda: test_an_answer_to_the_human_is_in_the_human_mailbox(Path(td) / 'mailbox'))
+        run(lambda: test_the_founder_can_cancel_a_request_in_an_agents_queue(Path(td) / 'cancel'))
+        run(lambda: test_a_queued_agent_with_a_told_head_gets_the_same_forgotten_resolve_nudge_as_idle(
+            Path(td) / 'queuednudge'))
+        run(lambda: test_handoff_rate_limited(Path(td) / 'hrate'))
+        run(lambda: test_a_refused_ask_is_never_announced_as_an_answer(Path(td) / 'noannounce'))
+        run(lambda: test_a_refusal_is_not_read_back_as_an_answer(Path(td) / 'readref'))
+        run(lambda: test_a_withdrawn_or_replaced_request_is_not_read_back_as_an_answer(Path(td) / 'readwdrn'))
+        run(lambda: test_dismissing_an_agents_own_answered_request_keeps_its_verdict(
+            Path(td) / 'dismissverdict'))
+        run(lambda: test_dismissing_your_own_answer_does_not_announce_it_for_the_requester(
+            Path(td) / 'dismissownanswer'))
+        run(lambda: test_a_task_row_holds_its_fields_and_nothing_else(Path(td) / 'taskinv'))
+        run(lambda: test_the_done_close_migration_upgrades_an_old_tasks_table(Path(td) / 'taskmigrate'))
+        run(lambda: test_task_new_list_and_link(Path(td) / 'tasknew'))
+        run(lambda: test_editing_a_task_needs_the_opener_or_the_founder_and_is_never_silent(
+            Path(td) / 'taskedit'))
+        run(lambda: test_task_board_shows_who_holds_each_open_task(Path(td) / 'taskboard'))
+        run(lambda: test_done_tasks_show_as_a_waiting_for_check_group(Path(td) / 'taskdonegroup'))
+        run(lambda: test_task_blocked_by_another_task(Path(td) / 'taskblock'))
+        run(lambda: test_resolving_the_founders_request_says_what_it_becomes(Path(td) / 'taskguard'))
+        run(lambda: test_resolve_finding_opens_a_task_in_the_same_step(Path(td) / 'findingtask'))
+        run(lambda: test_resolve_hold_keeps_the_work_open_and_owned(Path(td) / 'holdtask'))
+        run(lambda: test_task_discard(Path(td) / 'discardtask'))
+        run(lambda: test_marking_a_task_done_needs_evidence_and_only_the_owner_or_a_linked_target(
+            Path(td) / 'taskdone'))
+        run(lambda: test_closing_a_task_needs_no_open_child_and_only_the_asker(Path(td) / 'taskclose'))
+        run(lambda: test_close_task_refuses_without_an_identity_and_does_not_move_a_clock(Path(td) / 'taskcloseid'))
+        run(lambda: test_reopening_a_done_task_needs_a_reason_and_only_the_asker(Path(td) / 'taskreopen'))
+        run(lambda: test_no_other_path_closes_the_founders_request_unguarded(Path(td) / 'taskdismiss'))
+        run(lambda: test_task_ids_are_checked_before_any_answer_and_short_shas_are_resolved(Path(td) / 'taskshas'))
+        run(lambda: test_replace_withdraw_and_dismiss_store_the_reason_typed(Path(td) / 'taskreason'))
+        run(lambda: test_moot_by_records_who_retired_a_row(Path(td) / 'mootby'))
+        run(lambda: test_retires_is_refused_on_a_row_that_is_not_the_resolvers(Path(td) / 'retiresown'))
+        run(lambda: test_reason_gaps_count_from_the_shapes_the_verbs_write(Path(td) / 'reasongaps'))
+        run(lambda: test_jobs_runs_the_real_actrun_and_answers_or_refuses(Path(td) / 'jobsrun'))
+        run(lambda: test_bin_ocp_resolves_a_symlink(Path(td) / 'symlinkhome'))
+    return run_area(tests)
+
+
+if __name__ == "__main__":
+    sys.exit(main())
