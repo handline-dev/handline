@@ -25347,7 +25347,7 @@ def test_task_discard(home: Path) -> None:
     rc, out = go(waiting)
     check("discard: a task waiting on a blocker refuses it", rc == 1 and f"#{gate}" in out, out)
     rc, out = go(done)
-    check("discard: a done task refuses it", rc == 1 and "done" in out, out)
+    check("discard: a done task refuses it", rc == 1 and "signs it off" in out, out)
     rc, out = go(999)
     check("discard: an unknown task is refused", rc == 1 and "no task" in out, out)
 
@@ -25373,8 +25373,8 @@ def test_task_discard(home: Path) -> None:
         check("discard: its event is recorded",
               con.execute("SELECT COUNT(*) c FROM events WHERE kind = 'discard_task'"
                           ).fetchone()["c"] == 1)
-        check("discard: the block naming it is gone",
-              db.task_blockers(con, dep) == [])
+        check("discard: the block naming it is gone, the row too",
+              db.task_blockers(con, dep) == [] and db.blocks_on_ids(con, dep) == [])
         notes = [r for r in db.task_requests(con, dep) if "unblocked" in r["body"]]
         check("discard: the freed task is told it was discarded, not closed",
               len(notes) == 1 and "discarded" in notes[0]["body"], str(notes))
