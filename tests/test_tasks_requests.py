@@ -2004,6 +2004,12 @@ def test_a_task_is_written_T_and_a_bare_number_is_never_a_task(home: Path) -> No
     check("printed: the list shows the task as T<n>",
           any(l.split()[:1] == [f"T{t}"] for l in out.splitlines())
           and not any(l.startswith(f"#{t} ") for l in out.splitlines()), out)
+    ap = climod.build_parser()
+    listing = " ".join(ap.format_help().split())
+    detail = ap._subparsers._group_actions[0].choices["close"].format_help()
+    check("help: close teaches T<n> in the command list and its own help, not a bare number",
+          "ocp close T7" in listing and "ocp close 7" not in listing and "T<n>" in detail,
+          listing[:300] + detail)
     rc, out = _cli(["close", "worker"], as_agent="manager")
     check("agent: a name is still an agent, not a task", "not a task" not in out
           and "could be task" not in out, out)

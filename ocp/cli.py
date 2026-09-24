@@ -2631,10 +2631,10 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("agent")
     p.set_defaults(fn=cmd_handoff_write)
 
-    p = sub.add_parser("close", help="close a done task (ocp close 7), the asker's own "
+    p = sub.add_parser("close", help="close a done task (ocp close T7), the asker's own "
                                      "sign-off, or end an idle agent's session, keeping "
                                      "its terminal")
-    p.add_argument("target", help="a task number, or an agent's name")
+    p.add_argument("target", help="a task (T<n>), or an agent's name")
     p.add_argument("evidence", nargs="?",
                    help="refused - `ocp task done` takes the evidence now")
     p.set_defaults(fn=cmd_close)
