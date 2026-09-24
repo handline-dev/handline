@@ -13,6 +13,7 @@ from textual.widgets import DataTable, Static, Tabs
 from ... import db, status, tui
 from ...bridge_textual import Dashboard, key_token
 from ..components.page_header import page_header
+from ..components.summary import summarize, summary_text
 from ..components.proposals import ProposalsView, open_proposals
 
 _PANEL_OF_TABLE = {"accounts": tui.ACCOUNTS, "agents": tui.AGENTS,
@@ -199,6 +200,13 @@ class HomePage(Dashboard):
         self.query_one("#accounts-box").border_subtitle = (
             status.SOURCE_LEGEND_SHORT if self.head.legend else "")
         self._count_hr()
+        con = db.connect()
+        try:
+            summary = summarize(con)
+        finally:
+            con.close()
+        self.query_one("#header", Static).update(
+            summary_text(self.head.running, self.head.clock, summary))
         if self.tab == "hr":
             self.query_one("#hr_view", ProposalsView).refresh_rows()
 
