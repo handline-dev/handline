@@ -834,6 +834,19 @@ def test_the_menu_offers_what_the_text_could_become() -> None:
     check("menu: a task reference inserts T<n>", ref.action == "insert" and ref.arg == "T84")
 
 
+def test_the_task_pages_write_a_task_as_T_and_a_request_as_a_bare_number() -> None:
+    from ocp import chat_page as cp
+    d = {"id": 1, "title": "t", "state": "doing", "owner": "o", "opened_by": "o", "created_at": 1,
+         "parent": (9, "up"), "done": None, "closed": None, "asker": "o",
+         "children": [(2, "kid", "waiting")], "requests": [(3, "a", "b", "queued", "line")]}
+    page = cp.task_page(d)
+    check("page: the badge and the parent and the sub-tasks say T<n>",
+          "T1" in page["badge"].plain and "T9" in page["meta"].plain
+          and page["kids"][0].plain.startswith("T2"), str((page["badge"].plain, page["meta"].plain)))
+    check("page: a request under it is still a bare #<n>", page["reqs"][0].plain.startswith("#3"))
+    check("table: the task column says T<n>", cp.task_cells((5, "owns", "waiting", "t", "o", 1))[0] == "T5")
+
+
 def test_the_typed_history_keeps_the_newest_and_never_repeats() -> None:
     from ocp import chat_page as cp, paths
     _home("hist")
@@ -1044,6 +1057,7 @@ def test_what_an_agent_wrote_is_drawn_inert_on_every_part_of_the_page() -> None:
 async def _run_all() -> None:
     test_only_y_n_or_escape_answers_a_confirm()
     test_the_menu_offers_what_the_text_could_become()
+    test_the_task_pages_write_a_task_as_T_and_a_request_as_a_bare_number()
     test_the_typed_history_keeps_the_newest_and_never_repeats()
     test_the_chat_is_paged_and_hides_what_never_reached_the_agent()
     test_a_reply_closes_a_waiting_question_or_starts_a_new_request()
