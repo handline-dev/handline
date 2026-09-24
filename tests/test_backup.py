@@ -86,32 +86,77 @@ def test_logs_locks_and_status_files_are_not_a_change(home: Path) -> None:
     check("backup: a log line, a lock and a status.json alone write no snapshot",
           backupmod.snapshot(home, dest, now=1_000_300) is None)
 
-def test_prune_keeps_the_last_day_then_one_a_day(home: Path) -> None:
-    dest = home / "bk"
-    dest.mkdir(parents=True)
-    now = time.mktime((2026, 9, 24, 12, 0, 0, 0, 0, -1))
-    ages_h = [1, 20, 30, 31, 55, 24 * 40]
+def _snapshots(dest: Path, now: float, ages_s: list[int]) -> dict[int, Path]:
+    dest.mkdir(parents=True, exist_ok=True)
     made = {}
-    for h in ages_h:
-        t = now - h * 3600
+    for a in ages_s:
+        t = now - a
         p = dest / (backupmod.PREFIX + time.strftime("%Y%m%d-%H%M%S", time.localtime(t)) + backupmod.SUFFIX)
         p.write_text("")
         os.utime(p, (t, t))
-        made[h] = p
-    backupmod.prune(dest, now)
-    kept = {h for h, p in made.items() if p.exists()}
-    check("backup: every snapshot of the last day is kept", {1, 20} <= kept, str(kept))
-    check("backup: an older day keeps only its first snapshot",
-          (31 in kept) and (30 not in kept), str(kept))
-    check("backup: past 30 days nothing is kept", 24 * 40 not in kept, str(kept))
+        made[a] = p
+    return made
+
+
+def test_prune_keeps_the_newest_and_one_near_each_rung(home: Path) -> None:
+    now = time.mktime((2026, 9, 24, 12, 0, 0, 0, 0, -1))
+    m, h, d = 60, 3600, 86400
+    # Two candidates near every rung, one far from all, and two beyond 30 days.
+    ages = [10, 50, 4 * m, 6 * m, 22 * m, 35 * m, 45 * m, 62 * m, 5 * h, 7 * h,
+            20 * h, 26 * h, 6 * d, 8 * d, 29 * d, 29 * d + h, 31 * d, 90 * d]
+    made = _snapshots(home / "bk", now, ages)
+    backupmod.prune(home / "bk", now)
+    kept = {a for a, p in made.items() if p.exists()}
+    check("backup: the newest snapshot is kept", 10 in kept, str(sorted(kept)))
+    check("backup: the 1m rung keeps the snapshot nearest a minute old (50s, not 10s)",
+          50 in kept, str(sorted(kept)))
+    check("backup: the 5m rung keeps the one nearest five minutes",
+          4 * m in kept and 6 * m not in kept, str(sorted(kept)))
+    check("backup: the 30m rung keeps the one nearest half an hour",
+          35 * m in kept and 22 * m not in kept, str(sorted(kept)))
+    check("backup: the 1h rung keeps the one nearest an hour",
+          62 * m in kept and 45 * m not in kept, str(sorted(kept)))
+    check("backup: the 6h rung keeps the one nearest six hours",
+          5 * h in kept and 7 * h not in kept, str(sorted(kept)))
+    check("backup: the 1d rung keeps the one nearest a day",
+          26 * h in kept and 20 * h not in kept, str(sorted(kept)))
+    check("backup: the 7d rung keeps the one nearest a week",
+          6 * d in kept and 8 * d not in kept, str(sorted(kept)))
+    check("backup: the 30d rung keeps the one nearest thirty days",
+          29 * d + h in kept and 29 * d not in kept, str(sorted(kept)))
+    check("backup: nothing older than thirty days is kept",
+          31 * d not in kept and 90 * d not in kept, str(sorted(kept)))
+    check("backup: a second prune removes nothing more",
+          backupmod.prune(home / "bk", now) == [])
+
+
+def test_prune_keeps_the_newest_even_when_it_is_old(home: Path) -> None:
+    now = time.mktime((2026, 9, 24, 12, 0, 0, 0, 0, -1))
+    made = _snapshots(home / "bk", now, [40 * 86400, 60 * 86400])
+    backupmod.prune(home / "bk", now)
+    check("backup: with only old snapshots the newest survives, the rest go",
+          made[40 * 86400].exists() and not made[60 * 86400].exists())
+    check("backup: an empty folder prunes to nothing", backupmod.prune(home / "none", now) == [])
+
+
+def test_a_minute_of_snapshots_for_days_stays_bounded(home: Path) -> None:
+    now = time.mktime((2026, 9, 24, 12, 0, 0, 0, 0, -1))
+    dest = home / "bk"
+    # Replay the clock: a snapshot every minute for three days, pruning each time.
+    for minute in range(3 * 24 * 60, -1, -1):
+        _snapshots(dest, now - minute * 60, [0])
+        backupmod.prune(dest, now - minute * 60)
+    n = len(list(dest.glob(backupmod.PREFIX + "*" + backupmod.SUFFIX)))
+    check("backup: three days of one-a-minute leave at most one per rung and the newest",
+          n <= len(backupmod.LADDER_S) + 1, str(n))
 
 
 def test_the_backups_live_beside_the_home_not_in_it(home: Path) -> None:
     check("backup: the folder is a sibling of OCP_HOME",
           backupmod.backup_dir(home) == home.with_name(home.name + "-backups"))
     plist = backupmod.build_plist(home)
-    check("backup: launchd runs `ocp backup` every five minutes",
-          plist["ProgramArguments"][-1] == "backup" and plist["StartInterval"] == 300)
+    check("backup: launchd runs `ocp backup` every minute",
+          plist["ProgramArguments"][-1] == "backup" and plist["StartInterval"] == 60)
     check("backup: the plist lands in the stand-in home under the suite",
           TEST_ROOT in backupmod.plist_path().parents)
 
@@ -121,7 +166,9 @@ def main() -> int:
         run(lambda: test_a_snapshot_holds_the_state_and_never_a_login(Path(td) / 'b1' / 'home'))
         run(lambda: test_an_unchanged_home_writes_no_second_snapshot(Path(td) / 'b2' / 'home'))
         run(lambda: test_logs_locks_and_status_files_are_not_a_change(Path(td) / 'b5' / 'home'))
-        run(lambda: test_prune_keeps_the_last_day_then_one_a_day(Path(td) / 'b3'))
+        run(lambda: test_prune_keeps_the_newest_and_one_near_each_rung(Path(td) / 'b3'))
+        run(lambda: test_prune_keeps_the_newest_even_when_it_is_old(Path(td) / 'b6'))
+        run(lambda: test_a_minute_of_snapshots_for_days_stays_bounded(Path(td) / 'b7'))
         run(lambda: test_the_backups_live_beside_the_home_not_in_it(Path(td) / 'b4' / 'home'))
     return run_area(tests)
 

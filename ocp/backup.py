@@ -1,7 +1,7 @@
 """Compressed snapshots of OCP_HOME, taken when it changed (`ocp backup`).
 
 A test run once deleted the whole of ~/.orcapipe. launchd runs `ocp backup`
-every five minutes, outside any agent's sandbox, and writes into a folder
+every minute, outside any agent's sandbox, and writes into a folder
 beside OCP_HOME that agents cannot write to either.
 
 accounts/*/.claude is never copied: it holds logins and transcripts, and
@@ -24,9 +24,12 @@ from pathlib import Path
 from . import paths, service
 
 LABEL = "dev.orcapipe.backup"
-INTERVAL_S = 300
-KEEP_ALL_S = 24 * 3600      # every snapshot of the last day
-KEEP_DAILY_S = 30 * 86400   # then the first of each day, for 30 days
+INTERVAL_S = 60
+# The ladder: the newest snapshot, and for each of these ages the one nearest
+# it, so the history thins out the further back it goes. Nothing is kept
+# beyond the last rung.
+LADDER_S = tuple(m * 60 for m in (1, 5, 30, 60, 6 * 60, 24 * 60, 7 * 24 * 60, 30 * 24 * 60))
+MAX_AGE_S = LADDER_S[-1]
 DB_NAMES = ("db.sqlite", "db.sqlite-wal", "db.sqlite-shm")
 PREFIX = "orcapipe-"
 SUFFIX = ".tar.gz"
@@ -114,19 +117,17 @@ def snapshot(home: Path | None = None, dest: Path | None = None,
 
 
 def prune(dest: Path, now: float) -> list[Path]:
-    """Keep every snapshot of the last day, then the first of each day for 30 days."""
-    removed, days_seen = [], set()
-    for p in sorted(dest.glob(PREFIX + "*" + SUFFIX)):
-        taken = p.stat().st_mtime
-        age = now - taken
-        day = time.strftime("%Y%m%d", time.localtime(taken))
-        if age <= KEEP_ALL_S:
-            continue
-        if age <= KEEP_DAILY_S and day not in days_seen:
-            days_seen.add(day)
-            continue
+    """Keep the newest snapshot and the one nearest each age on LADDER_S."""
+    aged = sorted(((now - p.stat().st_mtime, p) for p in dest.glob(PREFIX + "*" + SUFFIX)),
+                  key=lambda a: a[0])
+    keep = {aged[0][1]} if aged else set()
+    within = [a for a in aged if a[0] <= MAX_AGE_S]
+    for target in LADDER_S:
+        if within:
+            keep.add(min(within, key=lambda a: abs(a[0] - target))[1])
+    removed = [p for _, p in aged if p not in keep]
+    for p in removed:
         p.unlink()
-        removed.append(p)
     return removed
 
 
