@@ -1232,6 +1232,14 @@ def test_open_proposals_lists_only_what_is_the_founders_move() -> None:
               got["queued"]["rid"] == pids["queued"])
         check("proposals: they are oldest first", [p["asked"] for p in pr.open_proposals(con)]
               == sorted(p["asked"] for p in pr.open_proposals(con)))
+        ids = []
+        for name in ("tie1", "tie2", "tie3", "tie4"):
+            ok, said = hr.propose("add", name, requester="hr", why="w", account="alpha")
+            ids.append(int(said.split("#")[1].split(".")[0]))
+        con.execute("UPDATE requests SET ts = 1000 WHERE id IN (%s)" % ",".join(map(str, ids)))
+        tied = [p["rid"] for p in pr.open_proposals(con) if p["rid"] in ids]
+        check("proposals: proposals raised in the same second come oldest first by request id",
+              tied == sorted(ids), tied)
         check("proposals: the age is the biggest whole unit",
               pr.age(0, now=59) == "0m" and pr.age(0, now=3600) == "1h" and pr.age(0, now=86400 * 2) == "2d")
     finally:
