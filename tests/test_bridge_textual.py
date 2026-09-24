@@ -1107,8 +1107,214 @@ async def test_a_confirm_on_screen_ignores_an_arrow_and_answers_n() -> None:
         check("confirm: n then answers it False", answers == [False], answers)
 
 
+def test_the_menu_offers_what_the_text_could_become() -> None:
+    from ocp import chat_page as cp
+    tasks = [(84, "owns", "waiting", "keeper fix cache", "orcapipe", 300),
+             (85, "owns", "doing", "clerk discard", "orcapipe", 200),
+             (7, "opened", "done", "auditor pass", "orcapipe", 100)]
+    reqs = [(2305, "human -> orcapipe", "first line"), (2289, "human -> orcapipe", "other")]
+
+    def names(text):
+        return [x.label[0] for x in cp.suggest(text, tasks, reqs)]
+    check("menu: a slash lists every page command",
+          names("/") == ["/chat", "/all", "/task", "/sort", "/settings", "/back"], str(names("/")))
+    check("menu: a slash narrows by the letters typed", names("/ta") == ["/task"], str(names("/ta")))
+    check("menu: /task lists the tasks, newest change first", names("/task ") == ["#84", "#85", "#7"])
+    check("menu: /task narrows by a word of the title", names("/task audit") == ["#7"])
+    check("menu: /task narrows by the digits of the number", names("/task 8") == ["#84", "#85"])
+    check("menu: /sort names the columns", names("/sort ti") == ["title"], str(names("/sort ti")))
+    check("menu: a hash lists tasks then requests", names("see #") == ["#84", "#85", "#7", "#2305", "#2289"])
+    check("menu: a hash narrows by the digits after it", names("see #23") == ["#2305"])
+    check("menu: a hash not after a space, or with letters, offers nothing",
+          names("a#2") == [] and names("a #zz") == [])
+    check("menu: plain text and unknown commands offer nothing", names("hello") == [] and names("/nope") == [])
+    check("menu: text after a newline is never a command", names("hi\n/task") == [])
+    pick = cp.suggest("/task 8", tasks, reqs)[0]
+    check("menu: Tab on a task fills the command, Enter opens it",
+          pick.tab == "/task 84" and pick.action == "open" and pick.arg == "84")
+    ref = cp.suggest("see #", tasks, reqs)[0]
+    check("menu: a reference inserts only the number", ref.action == "insert" and ref.arg == "84")
+
+
+def test_the_typed_history_keeps_the_newest_and_never_repeats() -> None:
+    from ocp import chat_page as cp, paths
+    _home("hist")
+    check("history: a repeat moves up instead of doubling", cp.remember(["a", "b", "c"], "b") == ["a", "c", "b"])
+    check("history: blank is not remembered", cp.remember(["a"], "  \n") == ["a"])
+    full = [str(i) for i in range(cp.HISTORY_MAX)]
+    grown = cp.remember(full, "new")
+    check("history: only the newest HISTORY_MAX are kept",
+          len(grown) == cp.HISTORY_MAX and grown[-1] == "new" and grown[0] == "1")
+    check("history: matches are newest first and ignore case",
+          cp.history_matches("AB", ["xab", "no", "ab2"]) == ["ab2", "xab"])
+    check("history: no file is an empty history", cp.load_history() == [])
+    cp.save_history(["one", "two é"])
+    check("history: it survives a reload", cp.load_history() == ["one", "two é"]
+          and str(cp.history_file()).startswith(str(paths.home())))
+    cp.history_file().write_text("{not json")
+    check("history: a corrupt file is an empty history, not an error", cp.load_history() == [])
+    cp.history_file().write_text('[1, "ok", null]')
+    check("history: only strings are read back", cp.load_history() == ["ok"])
+
+
+def test_the_chat_is_paged_and_hides_what_never_reached_the_agent() -> None:
+    from ocp import ask as askmod, chat_page as cp
+    _home("chat")
+    agents.register("reviewer", "alpha")
+    con = db.connect()
+    try:
+        for body in ("one", "two", "three"):
+            actions.chat_reply(con, "reviewer", body)
+        rows, more = cp.requests_page(con, "reviewer", False, limit=2)
+        check("chat: a page is the newest requests, oldest first, and says more remain",
+              [r["body"] for r in rows] == ["two", "three"] and more)
+        older, more = cp.requests_page(con, "reviewer", False, before=rows[0]["id"], limit=2)
+        check("chat: the page before it holds the rest", [r["body"] for r in older] == ["one"] and not more)
+        sig = cp.signature(con, "reviewer", False)
+        second = rows[0]["id"]
+        first = second - 1
+        askmod.cancel(second)
+        check("chat: a request taken back before delivery leaves the chat",
+              [r["body"] for r in cp.requests_page(con, "reviewer", False)[0]] == ["one", "three"])
+        check("chat: and the change is seen by the cheap reading", cp.signature(con, "reviewer", False) != sig)
+        msgs = cp.messages_of(cp.requests_page(con, "reviewer", False)[0], "reviewer")
+        check("chat: a queued message can be cancelled, not yet delivered",
+              msgs[0]["queued"] and not msgs[0]["delivered"] and msgs[0]["side"] == "you", str(msgs[0]))
+        con.execute("UPDATE requests SET delivered_at = ? WHERE id = ?", (int(time.time()), first))
+        con.commit()
+        check("chat: once delivered it says so",
+              cp.messages_of(cp.requests_page(con, "reviewer", False)[0], "reviewer")[0]["delivered"])
+        askmod.cancel(first)
+        cancelled = cp.messages_of(cp.requests_page(con, "reviewer", False)[0], "reviewer")
+        check("chat: a request cancelled after delivery stays, marked, without a reply from the agent",
+              cancelled[0]["cancelled"] and all(m["part"] == 0 for m in cancelled), str(cancelled[0]))
+    finally:
+        con.close()
+
+
+def test_a_reply_closes_a_waiting_question_or_starts_a_new_request() -> None:
+    from ocp import ask as askmod, chat_page as cp
+    _home("reply")
+    agents.register("reviewer", "alpha")
+    con = db.connect()
+    try:
+        ok, _, rid = askmod.ask("human", "merge it?", requester="reviewer")
+        check("reply: the agent's question is waiting for the human",
+              ok and cp.messages_of([db.get_request(con, rid)], "reviewer")[0]["waiting"])
+        ok1, _ = cp.send_reply(con, "reviewer", rid, "yes")
+        after = db.get_request(con, rid)
+        check("reply: a reply to a waiting question is its verdict",
+              ok1 and after["state"] == "done" and after["verdict"] == "yes", str(dict(after)))
+        check("reply: the question then reads as answered", cp.messages_of([after], "reviewer")[0]["answered"])
+        ok2, _ = cp.send_reply(con, "reviewer", rid, "and again")
+        child = db.get_request(con, rid + 1)
+        check("reply: a second reply is a new request to the agent under it",
+              ok2 and child is not None and child["parent_id"] == rid and child["target"] == "reviewer"
+              and child["requester"] == actions.HUMAN)
+        check("reply: a blank reply is refused", cp.send_reply(con, "reviewer", rid, "  ")[0] is False)
+        check("reply: a reply to a request that is gone is refused",
+              cp.send_reply(con, "reviewer", 99999, "x")[0] is False)
+    finally:
+        con.close()
+
+
+def test_the_tasks_table_lists_owned_and_opened_and_sorts() -> None:
+    from ocp import chat_page as cp
+    _home("tasks")
+    agents.register("reviewer", "alpha")
+    con = db.connect()
+    try:
+        a = db.new_task(con, "bravo", "backend", "orcapipe")
+        b = db.new_task(con, "alpha", "backend", "zed")
+        c = db.new_task(con, "opened by it", "orcapipe", "backend")
+        db.new_task(con, "someone else's", "orcapipe", "orcapipe")
+        closed = db.new_task(con, "closed", "backend", "orcapipe")
+        con.execute("UPDATE tasks SET closed_by = 'human' WHERE id = ?", (closed,))
+        con.execute("UPDATE tasks SET created_at = created_at - 5000 WHERE id = ?", (a,))
+        con.commit()
+        rows = cp.tasks_of(con, "backend")
+        check("tasks: what it owns or opened, not others', not closed",
+              sorted(r[0] for r in rows) == sorted([a, b, c]), str([r[0] for r in rows]))
+        check("tasks: the role is owns or opened",
+              {r[0]: r[1] for r in rows} == {a: "owns", b: "owns", c: "opened"})
+        check("tasks: the other party is shown",
+              {r[0]: r[4] for r in rows} == {a: "orcapipe", b: "zed", c: "orcapipe"})
+        actions.chat_reply(con, "reviewer", "touch")
+        db.link_request(con, a, actions.chat_parent(con, "reviewer"))
+        newer = {r[0]: r[5] for r in cp.tasks_of(con, "backend")}
+        check("tasks: a linked request is a change to the task", newer[a] > {r[0]: r[5] for r in rows}[a])
+        check("tasks: sorted by title", [r[3] for r in cp.sort_tasks(rows, "title", False)]
+              == sorted(r[3] for r in rows))
+        check("tasks: reversed is the reverse",
+              [r[0] for r in cp.sort_tasks(rows, "task", True)] == sorted((r[0] for r in rows), reverse=True))
+        check("tasks: state sorts waiting before done",
+              cp.sort_tasks([(1, "owns", "done", "x", "y", 1), (2, "owns", "waiting", "x", "y", 1)],
+                            "state", False)[0][0] == 2)
+    finally:
+        con.close()
+
+
+def test_the_settings_form_checks_and_saves_only_what_changed() -> None:
+    from ocp import chat_page as cp
+    home = _home("settings")
+    cfg = cp.settings_of("backend")
+    check("settings: the agent file is read", cfg["account"] and cfg["effort"] in agents.VALID_EFFORT
+          and cfg["model"] and cfg["weight"] in cp.WEIGHTS, str(cfg))
+    form = {k: cfg[k] for k in cp.EDITABLE}
+    check("settings: an untouched form has no changes", cp.settings_changes(cfg, form) == [])
+    check("settings: a blank repo means leave it", cp.settings_changes(cfg, {**form, "repo": " "}) == [])
+    check("settings: a changed field is reported old to new",
+          cp.settings_changes(cfg, {**form, "model": "opus"}) == [("model", cfg["model"], "opus")])
+    check("settings: a good form has no problem", cp.settings_problem({**form, "repo": ""}) is None)
+    for name, bad in (("empty model", {"model": " "}), ("control character in model", {"model": "a\x1bb"}),
+                      ("yaml would not read it as text", {"model": "no"}), ("unknown effort", {"effort": "loud"}),
+                      ("unknown weight", {"weight": "huge"}), ("repo that is not a folder", {"repo": "/no/such/dir"})):
+        check(f"settings: refused - {name}", cp.settings_problem({**form, "repo": "", **bad}) is not None)
+    repo = home / "work"
+    repo.mkdir()
+    changes = cp.settings_changes(cfg, {**form, "model": "opus", "effort": "high", "repo": str(repo)})
+    ok, said = cp.save_settings("backend", cfg, changes)
+    now = agents.read("backend")
+    check("settings: a save writes the changed fields", ok and now["model"] == "opus"
+          and now["effort"] == "high" and now["repo"] == str(repo), said)
+    check("settings: and leaves the rest of the file as it was",
+          now["account"] == cfg["account"] and now["weight"] == cfg["weight"] and now.get("enabled") is True)
+
+
+def test_what_an_agent_wrote_is_drawn_inert_on_every_part_of_the_page() -> None:
+    from ocp import chat_page as cp, textsafe
+    evil = "x\x9b31m y\x1b]8;;http://evil.example\x07link\x1b]8;;\x07 [red]not markup[/red] \x00\x1b[2J\ttab"
+    m = {"who": evil, "when": 1, "rid": 1, "part": 0, "side": "agent", "text": evil, "waiting": False,
+         "replyable": True, "answered": True, "queued": False, "delivered": True, "cancelled": True}
+    head, body, note = cp.message_parts(m)
+    d = {"id": 1, "title": evil, "state": "doing", "owner": evil, "opened_by": evil, "created_at": 1,
+         "parent": (9, evil), "done": (evil, 1), "closed": (evil, 1), "asker": evil,
+         "children": [(2, evil, "waiting")], "requests": [(3, evil, evil, "queued", evil)]}
+    page = cp.task_page(d)
+    texts = [head, body, *page["kids"], *page["reqs"], page["title"], page["meta"],
+             *[c for c in cp.task_cells((1, "owns", "waiting", evil, evil, 1)) if hasattr(c, "plain")],
+             cp.agent_badge("FATAL", evil)]
+    suggestions = (cp.suggest("/task ", [(1, "owns", "waiting", evil, evil, 1)], [])
+                   + cp.suggest("#", [(1, "owns", "waiting", evil, evil, 1)], [(2, evil, evil)]))
+    leaks = [ln for t in texts for ln in t.plain.split("\n") if textsafe.has_unsafe(ln)]
+    check("inert: nothing drawn carries a control character or a link", not leaks, str(leaks[:1]))
+    check("inert: text that looks like markup is shown as typed, not interpreted",
+          all("[red]not markup[/red]" in t.plain for t in (body, page["title"])), body.plain)
+    leaked = [x.label for x in suggestions if textsafe.has_unsafe("".join(x.label))]
+    check("inert: the menu labels are safe too", not leaked, str(leaked[:1]))
+    check("inert: a cancelled message is struck through and says why",
+          note is not None and "strike" in str(body.style) and "told to stop" in note.plain)
+
+
 async def _run_all() -> None:
     test_only_y_n_or_escape_answers_a_confirm()
+    test_the_menu_offers_what_the_text_could_become()
+    test_the_typed_history_keeps_the_newest_and_never_repeats()
+    test_the_chat_is_paged_and_hides_what_never_reached_the_agent()
+    test_a_reply_closes_a_waiting_question_or_starts_a_new_request()
+    test_the_tasks_table_lists_owned_and_opened_and_sorts()
+    test_the_settings_form_checks_and_saves_only_what_changed()
+    test_what_an_agent_wrote_is_drawn_inert_on_every_part_of_the_page()
     await test_a_confirm_on_screen_ignores_an_arrow_and_answers_n()
     await test_dashboard_shows_a_registered_agent_and_moves_the_cursor()
     await test_help_key_names_every_agent_verb_the_footer_folds_out()
