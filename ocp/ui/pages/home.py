@@ -7,6 +7,7 @@ from textual import events
 from rich.text import Text
 from textual.app import ComposeResult
 from textual.errors import NoWidget
+from textual.widgets._data_table import CellDoesNotExist
 from textual.widgets import DataTable, Static, Tabs
 
 from ... import db, tui
@@ -35,17 +36,78 @@ class HomePage(Dashboard):
     def __init__(self) -> None:
         super().__init__()
         self.tab = "home"
+        self._on = True                 # the blink phase
+        self._blinking: dict = {}       # agent -> its AgentRow, for the rows that blink
 
     AGENT_COLUMNS = ("agent", "acct", "model", "state", "cache", "ctx", "in", "")
+
+    SHOW_WAITS = False   # what waits on the founder shows on the rows it is about
+    WITH_BLOCKS = True
+    BLINK_S = 0.6
+
+    @staticmethod
+    def _alarm(r) -> bool:
+        """Does this row need the founder: a dialog or a fatal state, or a block."""
+        return not r.error and (r.state in tui.NEEDS_A_HUMAN or bool(r.block))
+
+    def _name_cell(self, r, on: bool) -> Text:
+        """The name, its fold count, and a warning icon that blinks: on the row itself
+        when it needs the founder, on the count when the reports it hides do."""
+        out = Text.from_ansi(r.twig + f"{tui.BOLD}{r.shown}{tui.R}")
+        if r.under:
+            out.append(f" +{r.under}", style="dim")
+            if r.urgency:
+                glyph, n, _colour = r.urgency
+                if glyph == "!":
+                    out.append(f" ⚠{n}" if on else " " * (len(str(n)) + 2), style="bold red")
+                else:
+                    out.append(f" {glyph}{n}", style="green")
+        if self._alarm(r):
+            out.append(" ⚠" if on else "  ", style="bold red")
+        return out
+
+    def _state_cell(self, r, on: bool) -> Text:
+        cell = Text.from_ansi(tui.state_cell(r.state, r.until))
+        if r.block and r.state not in tui.NEEDS_A_HUMAN:
+            cell.append(f" {r.block}", style="red")
+        if self._alarm(r) and on:
+            cell.stylize("reverse")
+        return cell
+
+    def _blinks(self, r) -> bool:
+        return self._alarm(r) or (not r.error and r.under and r.urgency and r.urgency[0] == "!")
 
     def _agent_cells(self, r, name) -> list:
         """The Dashboard's cells with the short model and the prompt-cache time left after
         the state. The full model and vendor are on the agent's chat page, Settings tab."""
         cells = super()._agent_cells(r, name)
-        if not r.error:
-            cells[2] = Text(r.kind_short, style="dim")
-        cells.insert(4, Text.from_ansi(tui.cache_cell(r.cache_left)) if not r.error else "")
+        if r.error:
+            cells.insert(4, "")
+            return cells
+        cells[0] = self._name_cell(r, self._on)
+        cells[2] = Text(r.kind_short, style="dim")
+        cells[3] = self._state_cell(r, self._on)
+        cells.insert(4, Text.from_ansi(tui.cache_cell(r.cache_left)))
+        if self._blinks(r):
+            self._blinking[r.name] = r
         return cells
+
+    def _draw_agents(self) -> None:
+        self._blinking: dict = {}
+        super()._draw_agents()
+
+    def _blink(self) -> None:
+        """Flip the phase and repaint only the cells that blink; a redraw would read
+        every agent again."""
+        self._on = not self._on
+        table = self.query_one("#agents", DataTable)
+        keys = [c.key for c in table.ordered_columns]
+        for name, r in self._blinking.items():
+            try:
+                table.update_cell(name, keys[0], self._name_cell(r, self._on))
+                table.update_cell(name, keys[3], self._state_cell(r, self._on))
+            except CellDoesNotExist:
+                pass
 
     def compose(self) -> ComposeResult:
         yield from page_header([("Home", "home"), ("HR", "hr"), ("Settings", "settings")])
@@ -55,6 +117,7 @@ class HomePage(Dashboard):
 
     def on_mount(self) -> None:
         self.sub_title = "home"
+        self.set_interval(self.BLINK_S, self._blink)
         self.query_one("#hr_view").display = False
         self.query_one("#settings_view").display = False
 

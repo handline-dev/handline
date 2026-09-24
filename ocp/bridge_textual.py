@@ -81,7 +81,7 @@ def key_token(event: events.Key) -> str | None:
 _LEVEL_STYLE = {"normal": "dim", "slow": "yellow", "danger": "red"}
 
 
-def _header_text(head: tui.HeaderData) -> Text:
+def _header_text(head: tui.HeaderData, show_waits: bool = True) -> Text:
     """The bar and, under it, what is stopped until the founder acts."""
     out = Text()
     out.append("ocp", "bold")
@@ -90,7 +90,7 @@ def _header_text(head: tui.HeaderData) -> Text:
     out.append(f" · {head.clock}", "dim")
     if head.legend:
         out.append(f" · {status.SOURCE_LEGEND_SHORT}", "dim")
-    if head.waits:
+    if head.waits and show_waits:
         now = time.time()
         out.append(f"\n{tui.WAITING_ON_YOU}", "bold red")
         out.append(f" ({len(head.waits)})", "dim")
@@ -353,6 +353,8 @@ class Dashboard(JobsAware, Screen):
     """
     _ACCT_COLS = [k for k in tui.ACCT_W if k != "name"]
     AGENT_COLUMNS = ("agent", "acct", "kind", "state", "ctx", "in", "")
+    SHOW_WAITS = True     # the WAITING ON YOU list under the header
+    WITH_BLOCKS = False   # whether an agent's delivery block counts on its AGENTS row
 
     def compose(self) -> ComposeResult:
         yield Static(id="header")
@@ -399,7 +401,7 @@ class Dashboard(JobsAware, Screen):
                           if self.panel in (tui.AGENTS, tui.STUCK) else None)
         finally:
             con.close()
-        self.query_one("#header", Static).update(_header_text(head))
+        self.query_one("#header", Static).update(_header_text(head, self.SHOW_WAITS))
         self._draw_accounts()
         self._draw_agents()
         self._draw_messages()
@@ -499,7 +501,7 @@ class Dashboard(JobsAware, Screen):
     def _draw_agents(self) -> None:
         con = db.connect()
         try:
-            rows, notes = tui.agents_data(con)
+            rows, notes = tui.agents_data(con, self.WITH_BLOCKS)
         finally:
             con.close()
         table = self.query_one("#agents", DataTable)

@@ -362,6 +362,7 @@ class AgentRow(NamedTuple):
     fire: str = ""               # ANSI: a trigger about to fire
     wall: WallCell | None = None
     kind_short: str = ""            # `agents.kind_short`
+    block: str = ""                  # what stops ocp reaching it, once it is on the founder's list
     cache_left: int | None = None   # seconds of prompt cache left; None with no activity on record
 
 
@@ -406,7 +407,7 @@ def fold_suffix(under: int, urgency: tuple[str, int, str] | None) -> str:
     return count
 
 
-def agents_data(con) -> tuple[list[AgentRow], list[str]]:
+def agents_data(con, with_blocks: bool = False) -> tuple[list[AgentRow], list[str]]:
     """What the AGENTS panel shows, before any of it is laid out: one row per
     drawn agent, in tree order, and the notes under them."""
     drawn_tree = _walk_tree()
@@ -430,7 +431,7 @@ def agents_data(con) -> tuple[list[AgentRow], list[str]]:
         twig = f"{DIM}{'  ' * (depth - 1)}└ {R}" if depth else ""
         # How many of its reports are not drawn, and the most urgent thing
         # among them.
-        urgency = hidden_urgency(con, hidden) if under else None
+        urgency = hidden_urgency(con, hidden, with_blocks) if under else None
         row = state_rows[name]
         s, until = screen_state(con, row)
         try:
@@ -455,10 +456,12 @@ def agents_data(con) -> tuple[list[AgentRow], list[str]]:
         w = daemon.would_wake(con, row) and launch.wake_wait(name, row, con)
         wall = (WallCell(w.account, launch.wait_clock(w), "?" if w.assumed else "",
                          w.account != acct or w.assumed) if w else None)
+        fb = founder_block(con, name) if with_blocks else None
+        blk = oneline(blockedmod.headline(fb["kind"], fb["detail"]))[:DETAIL_CAP] if fb else ""
         rows.append(AgentRow(name, twig, shown[name], under, urgency, s, until, None,
                              oneline(acct), oneline(agents.kind(cfg)), ctxs,
                              len(db.queued_for(con, name)), fire, wall, oneline(agents.kind_short(cfg)),
-                             cache_left(con, name)))
+                             blk, cache_left(con, name)))
     return rows, [] if paths.list_agents() else ["no agents registered"]
 
 
@@ -644,7 +647,14 @@ def age(secs: float | None) -> str:
     return status.ago(secs)
 
 
-def hidden_urgency(con, names: list[str]) -> tuple[str, int, str] | None:
+def founder_block(con, agent: str, now: float | None = None):
+    """The delivery block on `agent` that is on the founder's list - old enough to be
+    said (`show_at`) - or None."""
+    b = db.block_get(con, agent)
+    return b if b and (time.time() if now is None else now) >= b["show_at"] else None
+
+
+def hidden_urgency(con, names: list[str], with_blocks: bool = False) -> tuple[str, int, str] | None:
     """The most urgent thing among agents a fold hides: (glyph, how many share
     it, colour), or None when there is nothing to say.
 
@@ -663,6 +673,8 @@ def hidden_urgency(con, names: list[str]) -> tuple[str, int, str] | None:
         word, _ = screen_state(con, row)
         if word in NEEDS_A_HUMAN:
             found.setdefault(1, []).append(STATE_COLOR[word])
+        elif with_blocks and founder_block(con, name):
+            found.setdefault(1, []).append(RED)
         elif daemon.wall_reason(con, name, row):
             found.setdefault(1, []).append(YEL)
         elif loadmod.is_running(row):
