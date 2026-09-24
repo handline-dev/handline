@@ -13,7 +13,8 @@ from textual.containers import Vertical, VerticalScroll
 from textual.widgets import Button, DataTable, Static
 
 from ... import actions, db, hr, textsafe
-from ...bridge_textual import Confirm, TextPrompt
+from .confirm import Confirm
+from .text_prompt import TextPrompt
 from .action_bar import ActionBar
 
 # Proposal fields worth showing after the kind and agent, in this order.

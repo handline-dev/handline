@@ -25,7 +25,8 @@ from textual.widgets import Button, DataTable, Header, Input, OptionList, Select
 from textual.widgets.option_list import Option
 
 from . import actions, agents, ask as askmod, db, paths, textsafe, tui
-from .bridge_textual import Confirm, TextPrompt, _TextBox
+from .ui.components.confirm import Confirm
+from .ui.components.text_prompt import TextPrompt, _TextBox
 from .ui.components.action_bar import ActionBar
 from .ui.components.page_header import page_header
 

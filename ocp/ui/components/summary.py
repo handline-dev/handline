@@ -1,11 +1,12 @@
 """The header line of the home page: the daemon, then only what there is to act on."""
 from __future__ import annotations
 
+import time
 from typing import NamedTuple
 
 from rich.text import Text
 
-from ... import actions, db, load as loadmod, paths, status
+from ... import actions, daemon, db, load as loadmod, paths, status
 
 # Usage from which an account is worth a word in the header.
 TIGHT_PCT = 80
@@ -56,3 +57,18 @@ def summary_text(daemon_running: bool, clock: str, s: Summary) -> Text:
         out.append(f" · {name} {window} {pct}%", "bold red" if pct >= LIMIT_PCT else "yellow")
     out.append(f" · {clock}", "dim")
     return out
+
+
+def daemon_running() -> bool:
+    return bool(daemon.running_elsewhere())
+
+
+def clock() -> str:
+    return time.strftime("%H:%M:%S")
+
+
+def marks_on_screen() -> bool:
+    """Is any usage figure drawn with a mark the legend explains?"""
+    return any(status.mark(src).strip()
+               for a in paths.list_accounts()
+               for src in (status.read(a).pct_5h_source, status.read(a).pct_7d_source))

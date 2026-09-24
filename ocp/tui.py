@@ -204,31 +204,16 @@ def pad(s: str, width: int) -> str:
     return s + " " * max(0, width - vlen(s))
 
 
-def bar(pct: int | None, width: int = 10, last_seen: bool = False,
-        elapsed: float | None = None) -> str:
+def bar(pct: int | None, width: int = 10, last_seen: bool = False) -> str:
     """`last_seen` draws the fill at the value but with no colour: the figure is
-    what an account was last seen at, not a gauge anyone is reading now.
-    `elapsed`, the fraction of the window that has passed, puts a `│` at that
-    position: a fill short of it is under pace, past it ahead."""
+    what an account was last seen at, not a gauge anyone is reading now."""
     if pct is None:
         return DIM + "·" * width + R
     filled = max(0, min(width, round(pct / 100 * width)))
     if last_seen:
-        cells, head = ["█"] * filled + ["░"] * (width - filled), DIM
-    else:
-        head = RED if pct >= 85 else (YEL if pct >= 60 else GRN)
-        cells = ["█"] * filled + [DIM + "░"] * (width - filled)
-    if elapsed is not None:
-        at = max(0, min(width - 1, int(elapsed * width)))
-        cells[at] = f"{R}{BOLD}│{R}{head if at < filled else DIM}"
-    return head + "".join(cells) + R
-
-
-def elapsed_fraction(reset: int | None, window_s: int, now: float | None = None) -> float | None:
-    """How far through a usage window we are, from when it resets; None when the
-    reset is unknown or already passed, where the window on the figure is gone."""
-    left = (reset or 0) - (time.time() if now is None else now)
-    return None if not reset or left <= 0 else max(0.0, 1 - left / window_s)
+        return DIM + "█" * filled + "░" * (width - filled) + R
+    color = RED if pct >= 85 else (YEL if pct >= 60 else GRN)
+    return color + "█" * filled + DIM + "░" * (width - filled) + R
 
 
 # The ACCOUNTS panel's columns, in the order they are drawn: the heading, every
@@ -243,11 +228,11 @@ ACCT_HEAD = {"name": "account", "five": "5h usage", "reset5": "reset", "agents":
 ACCT_BAR_W = {"five": 10, "seven": 5}
 
 
-def _gauge(value: int | None, width: int, src: str, elapsed: float | None = None) -> str:
+def _gauge(value: int | None, width: int, src: str) -> str:
     """A bar and its figure, where `src` is the mark saying where it came from."""
     if src == status.IDLE_MARK:
-        return f"{bar(value, width, last_seen=True, elapsed=elapsed)} {DIM}{pct(value)}%{src}{R}"
-    return f"{bar(value, width, elapsed=elapsed)} {pct(value)}%{src}"
+        return f"{bar(value, width, last_seen=True)} {DIM}{pct(value)}%{src}{R}"
+    return f"{bar(value, width)} {pct(value)}%{src}"
 
 
 def agents_cell(counts: tuple[int, int] | None, unplaced: int = 0,
@@ -276,8 +261,7 @@ def agents_cell(counts: tuple[int, int] | None, unplaced: int = 0,
 
 def account_cells(name: str, st, now: float | None = None,
                   counts: tuple[int, int] | None = None,
-                  unplaced: int = 0, at_cap: bool = False, ld=None,
-                  pace: bool = False, seven_w: int = ACCT_BAR_W["seven"]) -> dict[str, str]:
+                  unplaced: int = 0, at_cap: bool = False, ld=None) -> dict[str, str]:
     """The bounded cells of an ACCOUNTS row, unpadded and keyed like ACCT_W.
     The name is free text and is cut to fit where it is drawn. `counts` is the
     account's (assigned, running) from `load.roster`, None where it was not read;
@@ -293,8 +277,7 @@ def account_cells(name: str, st, now: float | None = None,
     # "?", so it cannot be read as a live gauge at the same number and is not
     # drawn as an unknown either. Display only.
     shown, src = st.shown_pct_5h()
-    five = _gauge(shown, ACCT_BAR_W["five"], src,
-                  elapsed_fraction(st.reset_5h, 5 * 3600, now) if pace else None)
+    five = _gauge(shown, ACCT_BAR_W["five"], src)
     return {
         "agents": agents_cell(counts, unplaced, at_cap),
         "five": five,
@@ -302,8 +285,8 @@ def account_cells(name: str, st, now: float | None = None,
         # The weekly figure carries its provenance like the 5h one. Drawn
         # bare, a number from a stale snapshot - or from a week that has since
         # rolled over - reads as this week's measurement.
-        "seven": _gauge(st.trusted_pct_7d, seven_w, status.mark(st.pct_7d_source),
-                        elapsed_fraction(st.reset_7d, 7 * 86400, now) if pace else None),
+        "seven": _gauge(st.trusted_pct_7d, ACCT_BAR_W["seven"],
+                        status.mark(st.pct_7d_source)),
         # The deadline the ordering spends against: when this window's
         # headroom is lost if nobody uses it.
         "reset7": countdown(st.reset_7d),
@@ -318,8 +301,7 @@ class AccountRow(NamedTuple):
     next: str                # " next" on the one account work goes to, else ""
 
 
-def accounts_data(con, pace: bool = False,
-                  seven_w: int = ACCT_BAR_W["seven"]) -> tuple[list[AccountRow], list[str]]:
+def accounts_data(con) -> tuple[list[AccountRow], list[str]]:
     """What the ACCOUNTS panel shows, before any of it is laid out: one row per
     account and the notes under them (none registered, the team's outlook)."""
     # The account with the most headroom: where work goes when an agent's
@@ -344,7 +326,7 @@ def accounts_data(con, pace: bool = False,
         # on 0% is the dashboard and the daemon disagreeing.
         cells = account_cells(name, st, counts=roster.get(name, (0, 0)), unplaced=unplaced,
                               at_cap=bool(loads.get(name) and loads[name].at_cap),
-                              ld=loads.get(name), pace=pace, seven_w=seven_w)
+                              ld=loads.get(name))
         rows.append(AccountRow(
             name, cells, f"{GRN}✔{R}" if allowed else f"{RED}✘{R}",
             # Where work goes next is said in a word after the tick, not drawn
@@ -379,33 +361,6 @@ class AgentRow(NamedTuple):
     inbox: int = 0
     fire: str = ""               # ANSI: a trigger about to fire
     wall: WallCell | None = None
-    kind_short: str = ""            # `agents.kind_short`
-    block: str = ""                  # what stops ocp reaching it, once it is on the founder's list
-    stuck: str = ""                  # why it is not moving: `actions.stuck`, or its usage limit; or ""
-    asks: int = 0                    # its open asks to the founder
-    cache_left: int | None = None   # seconds of prompt cache left; None with no activity on record
-
-
-def cache_left(con, agent: str, now: int | None = None) -> int | None:
-    """Seconds until this agent's prompt cache lapses, negative once it has: the
-    cache lives PROMPT_CACHE_S from the agent's last activity (`db.last_activity`,
-    the clock `daemon.cache_expired` uses)."""
-    last = db.last_activity(con, agent)
-    if last is None:
-        return None
-    return daemon.PROMPT_CACHE_S - ((int(time.time()) if now is None else now) - last)
-
-
-def cache_cell(left: int | None) -> str:
-    """ANSI: `58m`, then `m:ss` in the last ten minutes, yellow from there; `gone`
-    once the cache has lapsed, `·` with nothing to measure from."""
-    if left is None:
-        return f"{DIM}·{R}"
-    if left <= 0:
-        return f"{DIM}gone{R}"
-    if left >= 600:
-        return f"{left // 60}m"
-    return f"{YEL}{left // 60}:{left % 60:02d}{R}"
 
 
 def state_cell(s: str, until: str, width: int | None = None) -> str:
@@ -427,17 +382,10 @@ def fold_suffix(under: int, urgency: tuple[str, int, str] | None) -> str:
     return count
 
 
-def agents_data(con, founder_view: bool = False) -> tuple[list[AgentRow], list[str]]:
+def agents_data(con) -> tuple[list[AgentRow], list[str]]:
     """What the AGENTS panel shows, before any of it is laid out: one row per
     drawn agent, in tree order, and the notes under them."""
     drawn_tree = _walk_tree()
-    # What is not moving, by the agent it is about: the STUCK panel's rows, said on the
-    # agent's own row instead. Read once, it is the costly part of a frame.
-    stuck: dict = {}
-    if founder_view:
-        for b in actions.stuck(con):
-            if b["agent"]:
-                stuck.setdefault(b["agent"], b)
     # Model and effort are configuration and do not change while anyone is
     # watching, which was the case for leaving them off. What changed is
     # that they will not all be claude: with a second vendor coming, what
@@ -458,7 +406,7 @@ def agents_data(con, founder_view: bool = False) -> tuple[list[AgentRow], list[s
         twig = f"{DIM}{'  ' * (depth - 1)}└ {R}" if depth else ""
         # How many of its reports are not drawn, and the most urgent thing
         # among them.
-        urgency = hidden_urgency(con, hidden, founder_view, stuck) if under else None
+        urgency = hidden_urgency(con, hidden) if under else None
         row = state_rows[name]
         s, until = screen_state(con, row)
         try:
@@ -483,22 +431,9 @@ def agents_data(con, founder_view: bool = False) -> tuple[list[AgentRow], list[s
         w = daemon.would_wake(con, row) and launch.wake_wait(name, row, con)
         wall = (WallCell(w.account, launch.wait_clock(w), "?" if w.assumed else "",
                          w.account != acct or w.assumed) if w else None)
-        fb = founder_block(con, name) if founder_view else None
-        blk = oneline(blockedmod.headline(fb["kind"], fb["detail"]))[:DETAIL_CAP] if fb else ""
-        why_stuck = asks = 0
-        if founder_view:
-            limit = daemon.wall_reason(con, name, row)
-            why_stuck = oneline(stuck[name]["why"] if name in stuck else limit or "")
-            why_stuck = why_stuck.removeprefix(f"{name} is ")[:DETAIL_CAP]
-            asks = con.execute("SELECT COUNT(*) FROM requests WHERE requester = ? AND target = ? "
-                               "AND state = 'queued'", (name, actions.HUMAN)).fetchone()[0]
-        else:
-            why_stuck = ""
         rows.append(AgentRow(name, twig, shown[name], under, urgency, s, until, None,
                              oneline(acct), oneline(agents.kind(cfg)), ctxs,
-                             len(db.queued_for(con, name)), fire, wall, oneline(agents.kind_short(cfg)),
-                             blk, why_stuck, asks,
-                             cache_left(con, name)))
+                             len(db.queued_for(con, name)), fire, wall))
     return rows, [] if paths.list_agents() else ["no agents registered"]
 
 
@@ -684,15 +619,7 @@ def age(secs: float | None) -> str:
     return status.ago(secs)
 
 
-def founder_block(con, agent: str, now: float | None = None):
-    """The delivery block on `agent` that is on the founder's list - old enough to be
-    said (`show_at`) - or None."""
-    b = db.block_get(con, agent)
-    return b if b and (time.time() if now is None else now) >= b["show_at"] else None
-
-
-def hidden_urgency(con, names: list[str], founder_view: bool = False,
-                   stuck: dict | None = None) -> tuple[str, int, str] | None:
+def hidden_urgency(con, names: list[str]) -> tuple[str, int, str] | None:
     """The most urgent thing among agents a fold hides: (glyph, how many share
     it, colour), or None when there is nothing to say.
 
@@ -711,10 +638,6 @@ def hidden_urgency(con, names: list[str], founder_view: bool = False,
         word, _ = screen_state(con, row)
         if word in NEEDS_A_HUMAN:
             found.setdefault(1, []).append(STATE_COLOR[word])
-        elif founder_view and founder_block(con, name):
-            found.setdefault(1, []).append(RED)
-        elif stuck and name in stuck:
-            found.setdefault(1, []).append(YEL)
         elif daemon.wall_reason(con, name, row):
             found.setdefault(1, []).append(YEL)
         elif loadmod.is_running(row):
@@ -723,8 +646,7 @@ def hidden_urgency(con, names: list[str], founder_view: bool = False,
         return None
     worst = min(found)
     colours = found[worst]
-    glyph = "▶" if worst == 2 else "✉" if founder_view and worst == 0 else "!"
-    return glyph, len(colours), RED if RED in colours else colours[0]
+    return ("▶" if worst == 2 else "!", len(colours), RED if RED in colours else colours[0])
 
 
 # Supervisors whose reports are drawn. Closed by default: the screen is for

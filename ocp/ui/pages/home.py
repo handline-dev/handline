@@ -1,20 +1,25 @@
-"""The bridge's home page. `bridge_textual.Dashboard` is the previous home page,
-kept unchanged; `HomePage` is the one `BridgeApp` opens, so edits here never
-touch the Dashboard. Its header is the chat page's (`page_header`)."""
+"""The bridge's home page: Home, HR and Settings tabs under the page header.
+
+`Dashboard` is the previous home page and stays as it was; this page inherits its
+selection, jobs and row actions and draws its own panels, so nothing here changes the
+Dashboard. What only this page shows is in `ui.components` (`gauge`, `agent_rows`,
+`summary`, `proposals`)."""
 from __future__ import annotations
 
-from textual import events
 from rich.text import Text
+from textual import events
 from textual.app import ComposeResult
 from textual.errors import NoWidget
-from textual.widgets._data_table import CellDoesNotExist
 from textual.widgets import DataTable, Static, Tabs
+from textual.widgets._data_table import CellDoesNotExist
 
 from ... import db, status, tui
-from ...bridge_textual import Dashboard, key_token
+from ..components import agent_rows, gauge
 from ..components.page_header import page_header
-from ..components.summary import summarize, summary_text
 from ..components.proposals import ProposalsView, open_proposals
+from ..components.summary import clock, daemon_running, marks_on_screen, summarize, summary_text
+from ..keys import key_token
+from .dashboard import _LEVEL_STYLE, Dashboard
 
 _PANEL_OF_TABLE = {"accounts": tui.ACCOUNTS, "agents": tui.AGENTS,
                    "messages": tui.MESSAGES, "stuck": tui.STUCK}
@@ -24,6 +29,24 @@ _TAB_WIDGETS = {
     "hr": ("#hr_view",),
     "settings": ("#settings_view",),
 }
+# The ACCOUNTS columns from the richest layout to the barest; the first that fits the
+# width is drawn. The bars carry a `│` for how far through the window we are, so a
+# narrow layout drops the reset countdowns, then the percentages.
+_ACCT_TIERS = (
+    (("five", "reset5", "agents", "seven", "reset7", "runway"), True),
+    (("five", "agents", "seven", "runway"), True),
+    (("five", "agents", "seven", "runway"), False),
+)
+_AGENT_HEADS = ("agent", "acct", "model", "state", "cache", "ctx", "in", "")
+_MESSAGE_HEADS = ("", "", "from", "message")
+
+
+def _set_columns(table: DataTable, heads: tuple) -> None:
+    """Give a table these columns, once: Dashboard's own are replaced on the first draw."""
+    if getattr(table, "_heads", None) != heads:
+        table.clear(columns=True)
+        table.add_columns(*heads)
+        table._heads = heads
 
 
 class HomePage(Dashboard):
@@ -36,149 +59,17 @@ class HomePage(Dashboard):
     HomePage #stuck-box { display: none; }
     HomePage #messages-box { height: 1fr; max-height: 100%; }
     """
+    # What is stuck is said on the agent's row, on the account's mark and in the header's
+    # daemon word, so the STUCK panel is not drawn and the keys skip it.
+    PANELS = (tui.ACCOUNTS, tui.AGENTS, tui.MESSAGES)
+    BLINK_S = 0.6
 
     def __init__(self) -> None:
         super().__init__()
         self.tab = "home"
-        self._hr_dot = False           # whether the HR tab wears its dot
+        self._hr_dot = False            # whether the HR tab wears its dot
         self._on = True                 # the blink phase
-        self._blinking: dict = {}       # agent -> its AgentRow, for the rows that blink
-
-    AGENT_COLUMNS = ("agent", "acct", "model", "state", "cache", "ctx", "in", "")
-
-    # The glyph already says what kind of message a row is (⚠ decide, ◷ asked for a
-    # reply, ↩ came back, · to read), so the kind column is left out, and the id too; `refused`, the
-    # one kind the glyph shares with `answer`, is said in the text.
-    MESSAGE_COLUMNS = ("", "", "from", "message")
-    # What is stuck is said on the agent's row, on the account's mark and in the header's
-    # daemon word, so the STUCK panel is not drawn and the keys skip it.
-    PANELS = (tui.ACCOUNTS, tui.AGENTS, tui.MESSAGES)
-    # The bars carry a `│` for how far through the window we are, so the reset
-    # countdowns are left out; the account's page has the times.
-    PACE = True
-    SEVEN_W = tui.ACCT_BAR_W["five"]     # as long as the 5h bar
-    _ACCT_COLS = [k for k in tui.ACCT_W if k not in ("name", "reset5", "reset7")]
-    SHOW_LEGEND = False   # it explains the ACCOUNTS figures, so it sits on that panel
-    SHOW_WAITS = False   # what waits on the founder shows on the rows it is about
-    FOUNDER_VIEW = True
-    BLINK_S = 0.6
-
-    def _message_cells(self, r) -> list:
-        cells = super()._message_cells(r)
-        del cells[4], cells[2]      # the kind, and the id
-        if r.kind == "refused":
-            cells[3] = Text.assemble(("refused ", "red"), cells[3])
-        cells[3].no_wrap, cells[3].overflow = True, "ellipsis"
-        return cells
-
-    def _draw_stuck(self) -> None:
-        pass
-
-    def _draw_messages(self) -> None:
-        super()._draw_messages()
-        self.call_after_refresh(self._fit, "#messages", 3)
-
-    def on_resize(self) -> None:
-        super().on_resize()
-        self._fit("#messages", 3)
-
-    def _fit(self, table_id: str, col: int) -> None:
-        """Give column `col` of a table the width the others leave, so its text is
-        cut with an ellipsis instead of scrolling the table sideways."""
-        table = self.query_one(table_id, DataTable)
-        cols = table.ordered_columns
-        if col >= len(cols):
-            return
-        taken = sum(c.get_render_width(table) for i, c in enumerate(cols) if i != col)
-        width = max(10, table.scrollable_content_region.width - taken - 2 * table.cell_padding)
-        if cols[col].auto_width or cols[col].width != width:
-            cols[col].auto_width, cols[col].width = False, width
-            table._require_update_dimensions = True
-            table.refresh(layout=True)
-
-    @staticmethod
-    def _alarm(r) -> bool:
-        """Does this row need the founder: a dialog or a fatal state, or a block."""
-        return not r.error and (r.state in tui.NEEDS_A_HUMAN or bool(r.block))
-
-    def _name_cell(self, r, on: bool) -> Text:
-        """The name, its fold count, and a warning icon that blinks: on the row itself
-        when it needs the founder, on the count when the reports it hides do."""
-        out = Text.from_ansi(r.twig + f"{tui.BOLD}{r.shown}{tui.R}")
-        if r.under:
-            out.append(f" +{r.under}", style="dim")
-            if r.urgency:
-                glyph, n, colour = r.urgency
-                if glyph == "!" and colour == tui.RED:      # hides an error: blinks
-                    out.append(f" ⚠{n}" if on else " " * (len(str(n)) + 2), style="bold red")
-                elif glyph == "!":                          # hides a limit or a delay
-                    out.append(f" ⚠{n}", style="yellow")
-                else:                                       # ✉ asks of the founder, ▶ running
-                    out.append(f" {glyph}{n}", style="yellow" if glyph == "✉" else "green")
-        if r.asks:
-            out.append(f" ✉{r.asks}", style="yellow")
-        if self._alarm(r):
-            out.append(" ⚠" if on else "  ", style="bold red")
-        return out
-
-    def _state_cell(self, r, on: bool) -> Text:
-        cell = Text.from_ansi(tui.state_cell(r.state, r.until))
-        if r.block and r.state not in tui.NEEDS_A_HUMAN:
-            cell.append(f" {r.block}", style="red")
-        elif r.stuck:
-            cell.append(f" ⚠ {r.stuck}", style="yellow")
-        if self._alarm(r) and on:
-            cell.stylize("reverse")
-        return cell
-
-    def _blinks(self, r) -> bool:
-        return self._alarm(r) or (not r.error and r.under and r.urgency
-                                  and r.urgency[0] == "!" and r.urgency[2] == tui.RED)
-
-    def _agent_cells(self, r, name) -> list:
-        """The Dashboard's cells with the short model and the prompt-cache time left after
-        the state. The full model and vendor are on the agent's chat page, Settings tab."""
-        cells = super()._agent_cells(r, name)
-        if r.error:
-            cells.insert(4, "")
-            return cells
-        cells[0] = self._name_cell(r, self._on)
-        cells[2] = Text(r.kind_short, style="dim")
-        cells[3] = self._state_cell(r, self._on)
-        cells.insert(4, Text.from_ansi(tui.cache_cell(r.cache_left)))
-        if self._blinks(r):
-            self._blinking[r.name] = r
-        return cells
-
-    def _draw_agents(self) -> None:
-        self._blinking: dict = {}
-        super()._draw_agents()
-
-    def _count_hr(self) -> None:
-        """The HR tab wears a red dot while a proposal waits on the founder, so it is
-        seen from the other tabs."""
-        con = db.connect()
-        try:
-            n = len(open_proposals(con))
-        finally:
-            con.close()
-        if (n > 0) != self._hr_dot:
-            self._hr_dot = n > 0
-            self.query_one("#scope", Tabs).get_tab("hr").label = (
-                Text.assemble("HR", (" ●", "bold red")) if n else Text("HR"))
-
-    def _blink(self) -> None:
-        """Flip the phase and repaint only the cells that blink; a redraw would read
-        every agent again."""
-        self._on = not self._on
-        table = self.query_one("#agents", DataTable)
-        keys = [c.key for c in table.ordered_columns]
-        for name, r in self._blinking.items():
-            try:
-                table.update_cell(name, keys[0], self._name_cell(r, self._on))
-                table.update_cell(name, keys[3], self._state_cell(r, self._on))
-            except CellDoesNotExist:
-                pass
+        self._blinking: dict = {}       # agent -> (its AgentRow, its Extra), for the rows that blink
 
     def compose(self) -> ComposeResult:
         yield from page_header([("Home", "home"), ("HR", "hr"), ("Settings", "settings")])
@@ -200,21 +91,216 @@ class HomePage(Dashboard):
         if self.tab == "hr":
             self.query_one("#hr_view", ProposalsView).refresh_rows()
 
+    # ------------------------------------------------------------------ drawing
+
     def _redraw(self) -> None:
-        super()._redraw()
-        self.query_one("#accounts-box").border_subtitle = " · ".join(
-            (["│ time passed in the window"]
-             + ([status.SOURCE_LEGEND_SHORT] if self.head.legend else [])))
-        self._count_hr()
         con = db.connect()
         try:
+            target = self.sel.get(self.panel)
+            agent_keys = (tui.agent_footer_keys(con, str(target) if target is not None else None)
+                          if self.panel == tui.AGENTS else None)
             summary = summarize(con)
         finally:
             con.close()
-        self.query_one("#header", Static).update(
-            summary_text(self.head.running, self.head.clock, summary))
+        self.query_one("#header", Static).update(summary_text(daemon_running(), clock(), summary))
+        self._draw_accounts()
+        self._draw_agents()
+        self._draw_messages()
+        self.query_one("#accounts-box").border_subtitle = " · ".join(
+            ["│ time passed in the window"] + ([status.SOURCE_LEGEND_SHORT] if marks_on_screen() else []))
+        foot = Text()
+        for jl in self.jobs.lines():
+            foot.append(jl.text + "\n", _LEVEL_STYLE.get(jl.level, ""))
+        if self.flash:
+            foot.append(tui.oneline(self.flash) + "\n")
+        foot.append(f"{tui.PANEL_NAME[self.panel]}: ", "dim")
+        for i, (k, label) in enumerate(tui.panel_keys(self.panel, agent_keys)):
+            foot.append(" · " if i else "", "dim")
+            foot.append(k, "bold")
+            foot.append(f" {label}", "dim")
+        foot.append(" · ←→ panel ↑↓ row · q quit · ", "dim")
+        foot.append("b", "bold")
+        foot.append(" checks", "dim")
+        self.query_one("#foot", Static).update(foot)
+        self._count_hr()
         if self.tab == "hr":
             self.query_one("#hr_view", ProposalsView).refresh_rows()
+
+    def _draw_accounts(self) -> None:
+        con = db.connect()
+        try:
+            rows, notes = tui.accounts_data(con)
+        finally:
+            con.close()
+        table = self.query_one("#accounts", DataTable)
+        meters = {r.name: gauge.usage_cells(status.read(r.name), True) for r in rows}
+        room = table.scrollable_content_region.width or self.size.width - 4
+        for cols, with_pct in _ACCT_TIERS:
+            heads = ("account", *(tui.ACCT_HEAD[c] for c in cols), "")
+            body = []
+            for r in rows:
+                cells = dict(r.cells)
+                if meters[r.name]:
+                    five, seven = gauge.usage_cells(status.read(r.name), with_pct)
+                    cells["five"], cells["seven"] = five, seven
+                body.append([Text.from_ansi(f"{tui.BOLD}{tui.oneline(r.name)}{tui.R}"),
+                             *(Text.from_ansi(cells[c]) for c in cols),
+                             Text.from_ansi(r.mark + r.next)])
+            widths = [max(len(h), *(c.cell_len for c in col)) + 2 for h, col in zip(heads, zip(*body))] \
+                if body else [0]
+            if sum(widths) <= room:
+                break
+        _set_columns(table, heads)
+        table.clear()
+        for r, cells in zip(rows, body):
+            table.add_row(*cells, key=r.name)
+        self._sync_cursor(table, "#accounts-box", tui.ACCOUNTS, [r.name for r in rows])
+        self._notes("#acct-notes", notes)
+
+    def _draw_agents(self) -> None:
+        con = db.connect()
+        try:
+            rows, notes = tui.agents_data(con)
+            extra = agent_rows.collect(con, rows)
+        finally:
+            con.close()
+        table = self.query_one("#agents", DataTable)
+        _set_columns(table, _AGENT_HEADS)
+        table.clear()
+        self._blinking = {}
+        for r in rows:
+            x = extra.get(r.name)
+            if x is None:       # a config error: no cells beyond the message
+                name = Text.from_ansi(r.twig + f"{tui.BOLD}{r.shown}{tui.R}"
+                                      + tui.fold_suffix(r.under, r.urgency))
+                table.add_row(name, "", "", Text(f"config error: {tui.oneline(r.error or '')}", style="red"),
+                              "", "", "", "", key=r.name)
+                continue
+            wall = ""
+            if r.wall:
+                who = f"{r.wall.account}{r.wall.mark} " if r.wall.elsewhere else ""
+                wall = f"{tui.YEL}⏳ {who}{r.wall.when}{r.wall.mark if not who else ''}{tui.R}"
+            table.add_row(self._name_cell(r, x, self._on), Text(r.acct), Text(x.kind_short, style="dim"),
+                          self._state_cell(r, x, self._on),
+                          Text.from_ansi(agent_rows.cache_cell(x.cache_left)),
+                          Text.from_ansi(r.ctx), Text(str(r.inbox) if r.inbox else "·"),
+                          Text.from_ansi(r.fire or wall), key=r.name)
+            if self._alarm(r, x) or self._fold_errs(r, x):
+                self._blinking[r.name] = (r, x)
+        self._sync_cursor(table, "#agents-box", tui.AGENTS, [r.name for r in rows])
+        self._notes("#agent-notes", notes)
+
+    def _draw_messages(self) -> None:
+        con = db.connect()
+        try:
+            title, rows, notes = tui.messages_data(con)
+        finally:
+            con.close()
+        # The glyph already says what kind of message a row is (⚠ decide, ◷ asked for a
+        # reply, ↩ came back, · to read), so there is no kind column and no id; `refused`,
+        # the one kind the glyph shares with `answer`, is said in the text.
+        self.query_one("#messages-box").border_title = title
+        table = self.query_one("#messages", DataTable)
+        _set_columns(table, _MESSAGE_HEADS)
+        table.clear()
+        for r in rows:
+            glyph, _ = tui.message_mark(r.flavour)
+            text = Text.from_ansi(r.first + r.behind)
+            if r.kind == "refused":
+                text = Text.assemble(("refused ", "red"), text)
+            text.no_wrap, text.overflow = True, "ellipsis"
+            table.add_row(Text(r.when, style="dim"), Text.from_ansi(glyph),
+                          Text(r.sender, style="dim" if r.flavour == "read" else "bold"), text,
+                          key=r.key)
+        self._sync_cursor(table, "#messages-box", tui.MESSAGES, [r.key for r in rows])
+        self._notes("#message-notes", notes)
+        self.call_after_refresh(self._fit, "#messages", 3)
+
+    def on_resize(self) -> None:
+        super().on_resize()
+        self._fit("#messages", 3)
+
+    def _fit(self, table_id: str, col: int) -> None:
+        """Give column `col` of a table the width the others leave, so its text is
+        cut with an ellipsis instead of scrolling the table sideways."""
+        table = self.query_one(table_id, DataTable)
+        cols = table.ordered_columns
+        if col >= len(cols):
+            return
+        taken = sum(c.get_render_width(table) for i, c in enumerate(cols) if i != col)
+        width = max(10, table.scrollable_content_region.width - taken - 2 * table.cell_padding)
+        if cols[col].auto_width or cols[col].width != width:
+            cols[col].auto_width, cols[col].width = False, width
+            table._require_update_dimensions = True
+            table.refresh(layout=True)
+
+    @staticmethod
+    def _alarm(r, x) -> bool:
+        """Does this row need the founder: a dialog or a fatal state, or a block."""
+        return r.state in tui.NEEDS_A_HUMAN or bool(x.block)
+
+    @staticmethod
+    def _fold_errs(r, x) -> bool:
+        """Does the fold on this row hide an error?"""
+        return bool(r.under and x.urgency and x.urgency[0] == "!" and x.urgency[2] == tui.RED)
+
+    def _name_cell(self, r, x, on: bool) -> Text:
+        """The name, its fold count, and a warning icon that blinks: on the row itself
+        when it needs the founder, on the count when the reports it hides do."""
+        out = Text.from_ansi(r.twig + f"{tui.BOLD}{r.shown}{tui.R}")
+        if r.under:
+            out.append(f" +{r.under}", style="dim")
+            if x.urgency:
+                glyph, n, colour = x.urgency
+                if glyph == "!" and colour == tui.RED:      # hides an error: blinks
+                    out.append(f" ⚠{n}" if on else " " * (len(str(n)) + 2), style="bold red")
+                elif glyph == "!":                          # hides a limit or a delay
+                    out.append(f" ⚠{n}", style="yellow")
+                else:                                       # ✉ asks of the founder, ▶ running
+                    out.append(f" {glyph}{n}", style="yellow" if glyph == "✉" else "green")
+        if x.asks:
+            out.append(f" ✉{x.asks}", style="yellow")
+        if self._alarm(r, x):
+            out.append(" ⚠" if on else "  ", style="bold red")
+        return out
+
+    def _state_cell(self, r, x, on: bool) -> Text:
+        cell = Text.from_ansi(tui.state_cell(r.state, r.until))
+        if x.block and r.state not in tui.NEEDS_A_HUMAN:
+            cell.append(f" {x.block}", style="red")
+        elif x.stuck:
+            cell.append(f" ⚠ {x.stuck}", style="yellow")
+        if self._alarm(r, x) and on:
+            cell.stylize("reverse")
+        return cell
+
+    def _blink(self) -> None:
+        """Flip the phase and repaint only the cells that blink; a redraw would read
+        every agent again."""
+        self._on = not self._on
+        table = self.query_one("#agents", DataTable)
+        keys = [c.key for c in table.ordered_columns]
+        for name, (r, x) in self._blinking.items():
+            try:
+                table.update_cell(name, keys[0], self._name_cell(r, x, self._on))
+                table.update_cell(name, keys[3], self._state_cell(r, x, self._on))
+            except CellDoesNotExist:
+                pass
+
+    def _count_hr(self) -> None:
+        """The HR tab wears a red dot while a proposal waits on the founder, so it is
+        seen from the other tabs."""
+        con = db.connect()
+        try:
+            n = len(open_proposals(con))
+        finally:
+            con.close()
+        if (n > 0) != self._hr_dot:
+            self._hr_dot = n > 0
+            self.query_one("#scope", Tabs).get_tab("hr").label = (
+                Text.assemble("HR", (" ●", "bold red")) if n else Text("HR"))
+
+    # --------------------------------------------------------------------- keys
 
     def on_key(self, event: events.Key) -> None:
         """↑ from the first row of a tab's content puts the focus on the tab bar, where
