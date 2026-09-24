@@ -1879,8 +1879,9 @@ def cmd_inbox(args) -> int:
     print(textsafe.text(head["body"] or "(empty)"))
     if more:
         print(f"\n{more} more waiting - the next comes when you resolve or dismiss this one.")
-    print("\n`ocp resolve <id> \"<verdict>\"` answers it. `ocp inbox --all` shows the whole "
-          "queue and its history.")
+    closes = ("`ocp dismiss <id>` closes it, it asks nothing" if head["kind"] == "report"
+              else "`ocp resolve <id> \"<verdict>\"` answers it")
+    print(f"\n{closes}. `ocp inbox --all` shows the whole queue and its history.")
     return 0
 
 
