@@ -2794,57 +2794,72 @@ def poll_usage(con, log) -> None:
     """
     now = int(time.time())
     for acct in paths.list_accounts():
-        if now < db.get_cursor(con, f"usage-poll:{acct}"):
-            continue
-        st = status.read(acct)
-        if st.unmetered:
-            continue
-        why = usage_due(con, acct, st, now)
-        if why is None:
-            continue
-        if not accounts.logged_in(acct):
-            db.set_cursor(con, f"usage-poll:{acct}", now + LOGIN_CHECK_COOLDOWN_S)
-            continue
-        # No renewal on the common path: a session on the account keeps its own
-        # token fresh, and two writers of one keychain entry race.
-        reading = usage_api.read(acct, refresh=False)
-        if reading is None and now >= db.get_cursor(con, f"usage-refresh:{acct}"):
-            db.set_cursor(con, f"usage-refresh:{acct}", now + USAGE_REFRESH_COOLDOWN_S)
-            reading = usage_api.read(acct, refresh=True)
-        if reading is None:
-            # #1885: a dead token reads as None forever without a real turn to
-            # renew it. recover() records on success itself, so a success here
-            # is handled exactly like an ordinary successful reading below.
-            ok, msg = recovermod.recover(acct)
-            if ok:
-                db.set_meta(con, f"usage-fail:{acct}", None)
-                db.set_cursor(con, f"usage-poll:{acct}", now + USAGE_POLL_S)
-                log(f"  usage: {msg}")
+        try:
+            if _poll_account(con, acct, now, log):
                 return
-            streak = int(db.get_meta(con, f"usage-fail:{acct}") or 0) + 1
-            db.set_meta(con, f"usage-fail:{acct}", str(streak))
-            backoff = min(USAGE_POLL_S * 2 ** (streak - 1), USAGE_FAIL_BACKOFF_CAP_S)
-            db.set_cursor(con, f"usage-poll:{acct}", now + backoff)
-            log(f"  usage: {acct}: could not ask (next try in {backoff}s)")
-            continue
-        if why == "its 5h window has ended":
-            # A stale reading can still report success right up to the
-            # boundary (#1885, task #76): nothing else forces the account to
-            # actually roll over to its new window, so spend the same real
-            # turn recover() spends on a dead token. A refusal here (off,
-            # already needs re-login, at the 7d wall) is not a failure of
-            # this poll - the plain reading just fetched still stands.
-            ok, msg = recovermod.recover(acct)
-            if ok:
-                db.set_meta(con, f"usage-fail:{acct}", None)
-                db.set_cursor(con, f"usage-poll:{acct}", now + USAGE_POLL_S)
-                log(f"  usage: {msg}")
-                return
-        db.set_meta(con, f"usage-fail:{acct}", None)
-        db.set_cursor(con, f"usage-poll:{acct}", now + USAGE_POLL_S)
-        usage_api.record(reading)
-        log(f"  usage: {acct}: {why} - 5h {reading.pct_5h}% 7d {reading.pct_7d}%")
-        return
+        except Exception as e:  # noqa: BLE001 - one account's reading is not the tick's failure
+            log(f"  usage: {acct}: reading raised {type(e).__name__}: {e}")
+            _usage_backoff(con, acct, now, log)
+
+
+def _usage_backoff(con, acct: str, now: int, log) -> None:
+    streak = int(db.get_meta(con, f"usage-fail:{acct}") or 0) + 1
+    db.set_meta(con, f"usage-fail:{acct}", str(streak))
+    backoff = min(USAGE_POLL_S * 2 ** (streak - 1), USAGE_FAIL_BACKOFF_CAP_S)
+    db.set_cursor(con, f"usage-poll:{acct}", now + backoff)
+    log(f"  usage: {acct}: could not ask (next try in {backoff}s)")
+
+
+def _poll_account(con, acct: str, now: int, log) -> bool:
+    """One account's turn in `poll_usage`; True when it took the tick's one
+    successful reading."""
+    if now < db.get_cursor(con, f"usage-poll:{acct}"):
+        return False
+    st = status.read(acct)
+    if st.unmetered:
+        return False
+    why = usage_due(con, acct, st, now)
+    if why is None:
+        return False
+    if not accounts.logged_in(acct):
+        db.set_cursor(con, f"usage-poll:{acct}", now + LOGIN_CHECK_COOLDOWN_S)
+        return False
+    # No renewal on the common path: a session on the account keeps its own
+    # token fresh, and two writers of one keychain entry race.
+    reading = usage_api.read(acct, refresh=False)
+    if reading is None and now >= db.get_cursor(con, f"usage-refresh:{acct}"):
+        db.set_cursor(con, f"usage-refresh:{acct}", now + USAGE_REFRESH_COOLDOWN_S)
+        reading = usage_api.read(acct, refresh=True)
+    if reading is None:
+        # #1885: a dead token reads as None forever without a real turn to
+        # renew it. recover() records on success itself, so a success here
+        # is handled exactly like an ordinary successful reading below.
+        ok, msg = recovermod.recover(acct)
+        if ok:
+            db.set_meta(con, f"usage-fail:{acct}", None)
+            db.set_cursor(con, f"usage-poll:{acct}", now + USAGE_POLL_S)
+            log(f"  usage: {msg}")
+            return True
+        _usage_backoff(con, acct, now, log)
+        return False
+    if why == "its 5h window has ended":
+        # A stale reading can still report success right up to the
+        # boundary (#1885, task #76): nothing else forces the account to
+        # actually roll over to its new window, so spend the same real
+        # turn recover() spends on a dead token. A refusal here (off,
+        # already needs re-login, at the 7d wall) is not a failure of
+        # this poll - the plain reading just fetched still stands.
+        ok, msg = recovermod.recover(acct)
+        if ok:
+            db.set_meta(con, f"usage-fail:{acct}", None)
+            db.set_cursor(con, f"usage-poll:{acct}", now + USAGE_POLL_S)
+            log(f"  usage: {msg}")
+            return True
+    db.set_meta(con, f"usage-fail:{acct}", None)
+    db.set_cursor(con, f"usage-poll:{acct}", now + USAGE_POLL_S)
+    usage_api.record(reading)
+    log(f"  usage: {acct}: {why} - 5h {reading.pct_5h}% 7d {reading.pct_7d}%")
+    return True
 
 
 # ---------------------------------------------------------------- quiet hours
@@ -3035,7 +3050,10 @@ def tick(con, log, samples: dict | None = None) -> Tick:
     # on. Both are pulls now (D11), so they happen here rather than arriving
     # whenever a session happens to render a status line.
     collect_snapshots(con, log)
-    poll_usage(con, log)
+    try:
+        poll_usage(con, log)
+    except Exception as e:  # noqa: BLE001 - a failure outside any one account is not the tick's failure either
+        log(f"  usage: poll failed: {type(e).__name__}: {e}")
 
     # Link a file added to shared/.claude into accounts registered before it.
     try:

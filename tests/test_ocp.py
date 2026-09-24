@@ -1843,6 +1843,71 @@ def test_a_failing_account_never_blocks_the_ones_behind_it(home: Path) -> None:
         usage_api.read, accounts.logged_in, recovermod.recover = real_read, real_login, real_recover
 
 
+def test_one_accounts_usage_read_raising_is_contained(home: Path) -> None:
+    """Task #51: an exception out of one account's reading (a dropped HTTPS body,
+    a recover() that blows up) used to leave `poll_usage`, then the tick, and
+    launchd restarted the daemon into the same raise. It is now that account's
+    failure: logged by name, backed off, and the accounts behind it still read."""
+    import http.client
+    _daemon_home(home, 40)
+    accounts.register("beta")
+    asked: list[str] = []
+
+    def fake_read(acct, refresh=True):
+        asked.append(acct)
+        if acct == "alpha":
+            raise http.client.IncompleteRead(b"par")
+        return usage_api.Reading(acct, 7, None, 11, None, int(time.time()))
+
+    real_read, real_login, real_recover = usage_api.read, accounts.logged_in, recovermod.recover
+    real_poll = dmn.poll_usage
+    try:
+        accounts.logged_in = lambda acct: True
+        usage_api.read = fake_read
+        recovermod.recover = lambda acct: (False, "stub")
+        con = db.connect()
+        try:
+            logs: list[str] = []
+            dmn.poll_usage(con, logs.append)
+            check("poll raise: it does not leave poll_usage, and names the account",
+                  any("alpha" in m and "IncompleteRead" in m for m in logs), str(logs))
+            check("poll raise: the account behind it is read in the same tick",
+                  asked == ["alpha", "beta"] and status.read("beta").pct_5h == 7, str(asked))
+            check("poll raise: the failing account falls into its backoff",
+                  db.get_meta(con, "usage-fail:alpha") == "1"
+                  and db.get_cursor(con, "usage-poll:alpha") > int(time.time()), str(logs))
+            asked.clear()
+            dmn.poll_usage(con, logs.append)
+            check("poll raise: and is not asked again inside it", "alpha" not in asked, str(asked))
+
+            # recover() raising on a dead token is the same containment.
+            asked.clear()
+            db.set_cursor(con, "usage-poll:beta", 0)
+            db.add_event(con, "backend", "Stop", {}, account="beta")
+            usage_api.read = lambda acct, refresh=True: None
+            def boom(acct):
+                raise RuntimeError("recover blew up")
+            recovermod.recover = boom
+            logs.clear()
+            dmn.poll_usage(con, logs.append)
+            check("poll raise: a recover() that raises is contained too",
+                  any("beta" in m and "recover blew up" in m for m in logs), str(logs))
+
+            # A failure outside any one account must not end the tick either.
+            def no_poll(_con, _log):
+                raise OSError("accounts directory unreadable")
+            dmn.poll_usage = no_poll
+            logs.clear()
+            dmn.tick(con, logs.append)
+            check("poll raise: a failure outside any account does not crash the tick",
+                  any("poll failed" in m and "unreadable" in m for m in logs), str(logs))
+        finally:
+            con.close()
+    finally:
+        usage_api.read, accounts.logged_in, recovermod.recover = real_read, real_login, real_recover
+        dmn.poll_usage = real_poll
+
+
 def test_poll_usage_calls_recover_on_a_dead_token_and_at_the_5h_boundary(home: Path) -> None:
     """Task #76: `poll_usage` is the one place that notices a reading is worth
     a real turn - `recover.recover(acct)` is the mechanism (#1885), this is
@@ -27604,6 +27669,7 @@ def main() -> int:
         run(lambda: test_the_usage_poll_asks_one_account_per_tick_and_renews_only_on_failure(
             Path(td) / 'pullpoll'))
         run(lambda: test_a_failing_account_never_blocks_the_ones_behind_it(Path(td) / 'pollstarve'))
+        run(lambda: test_one_accounts_usage_read_raising_is_contained(Path(td) / 'pollraise'))
         run(lambda: test_poll_usage_calls_recover_on_a_dead_token_and_at_the_5h_boundary(
             Path(td) / 'pollrecover'))
         run(lambda: test_a_reading_past_the_carry_bound_is_carried_old_even_though_the_flag_is_false(
