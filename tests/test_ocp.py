@@ -6083,6 +6083,7 @@ def test_an_agent_with_background_work_is_not_idle_until_it_ends(home: Path) -> 
             db.clear_cursor(con, "bgwork:backend")
             db.clear_cursor(con, "nudge:backend")
             db.clear_cursor(con, "nudge_try:backend")
+            con.execute("UPDATE events SET ts = ? WHERE agent = 'backend'", (now - dmn.IDLE_CLOSE_S - 60,))
             db.set_agent_state(con, "backend", state, detail=detail)
             del sent[:]
             bg[0] = "3 monitors"
