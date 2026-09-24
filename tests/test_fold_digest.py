@@ -406,7 +406,7 @@ def test_the_handoff_is_three_facts_read_without_a_model(home: Path) -> None:
         text = db.get_handoff(con, "backend")
         head = subprocess.run(["git", "rev-parse", "--short", "HEAD"], cwd=wt,
                               capture_output=True, text=True).stdout.strip()
-        check("handoff: nothing is missing when the three facts can be read",
+        check("handoff: nothing is missing when the facts can be read",
               missing == [], str(missing))
         check("handoff: it names the request in hand, first line only",
               f"#{rid} from marina - fix the routing" in text and "second line" not in text,
@@ -465,6 +465,12 @@ def test_the_handoff_carries_the_agents_progress_note_on_its_request(home: Path)
         check("progress: the handoff carries both lines, right after the request",
               f"#{rid} from marina" in text and "  done: parser\n  left: tests" in text
               and text.index("progress") > text.index(f"#{rid}"), text)
+        ok, _ = handoffmod.set_progress(con, "backend", "a\x1b[31mb\x9bc\u2028d")
+        kept = handoffmod.get_progress(con, "backend")
+        check("progress: ESC, a C1 control and U+2028 never reach the handoff; U+2028 is a line break",
+              ok and kept == "abc\nd" and "\x1b" not in db.get_meta(con, f"progress:{rid}"),
+              repr(kept))
+        handoffmod.set_progress(con, "backend", "done: parser\nleft: tests")
         ok, said = handoffmod.set_progress(con, "backend", "y" * (handoffmod.PROGRESS_MAX + 1))
         check("progress: a note past the cap is refused and the old one stays",
               not ok and handoffmod.get_progress(con, "backend") == "done: parser\nleft: tests", said)
