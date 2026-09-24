@@ -91,6 +91,9 @@ def cmd_init(args) -> int:
     if not cfg.exists():
         cfg.write_text("version: 1\n")
     hooks.sync()
+    cmd_hook_install(args)
+    if hooks.allow_home_writes():
+        print(f"sandbox: agents may write under {h}")
 
     # Section 3 keeps the whole home in git, so digest generations, rollback
     # and change history come for free. accounts/ stays ignored.
@@ -1365,6 +1368,10 @@ def cmd_events(args) -> int:
 
 
 def cmd_hook(args) -> int:
+    if args.event == "install":
+        print("`ocp hook` records one event from stdin. To add ocp's hooks to the "
+              "shared settings, run `ocp install-hooks`.", file=sys.stderr)
+        return 1
     if args.event == "commit":
         agent = askmod.current_agent()
         if not agent:

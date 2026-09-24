@@ -947,6 +947,37 @@ def test_installing_hooks_twice_does_not_double_them(home: Path) -> None:
           {"PermissionRequest", "TeammateIdle"} <= evmod.CAPTURED)
 
 
+def test_init_installs_the_hooks_and_lets_agents_write_the_home(home: Path) -> None:
+    """A fresh home needs both before an agent can run in a sandbox: ocp's state
+    hooks, and write access to the whole home (SQLite makes its own files there,
+    and `ask` writes agents/, locks/ and wake/), which no denyWrite may cover."""
+    use_home(home)
+    target = home / "shared" / ".claude" / "settings.json"
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text(json.dumps({"sandbox": {"enabled": True, "filesystem": {
+        "allowWrite": ["/elsewhere", str(home / "db.sqlite"), str(home / "locks" / "x")],
+        "denyWrite": [str(home.parent), "/backups"]}}}))
+    env = dict(os.environ, OCP_HOME=str(home), OCP_BIN="/usr/local/bin/ocp")
+    for _ in range(2):
+        subprocess.run([str(ROOT / "bin" / "ocp"), "init"], capture_output=True, text=True, env=env)
+    data = json.loads(target.read_text())
+    fs = data["sandbox"]["filesystem"]
+    check("init: the hooks ocp install-hooks writes are there",
+          {ev for ev in data["hooks"]
+           if any(" hook " in h.get("command", "") for g in data["hooks"][ev]
+                  for h in g.get("hooks", []))} >= set(evmod.CAPTURED | evmod.ANSWERS),
+          str(sorted(data.get("hooks", {}))))
+    check("init: the whole home is writable, once, and per-file entries under it are gone",
+          fs["allowWrite"] == ["/elsewhere", str(home)], str(fs))
+    check("init: a denyWrite that holds the home is removed, another is kept",
+          fs["denyWrite"] == ["/backups"], str(fs))
+    check("init: the rest of the sandbox block is left alone", data["sandbox"]["enabled"] is True)
+    r = subprocess.run([str(ROOT / "bin" / "ocp"), "hook", "install"], capture_output=True,
+                       text=True, env=env, stdin=subprocess.DEVNULL, timeout=20)
+    check("hook install: points to install-hooks instead of reading stdin",
+          r.returncode != 0 and "ocp install-hooks" in r.stderr, r.stdout + r.stderr)
+
+
 def test_doctor_says_when_the_record_and_the_process_table_disagree(home: Path) -> None:
     """The check that has to fire when `observe.is_session` stops matching - and
     stay quiet in the states that are not that. It fires on a status line still
@@ -1587,6 +1618,7 @@ def main() -> int:
         run(lambda: test_spawn_survives_its_own_main_path(Path(td) / 'spawnmain'))
         run(lambda: test_spawn_keeps_the_worktree_an_agent_still_has(Path(td) / 'spawnkeep'))
         run(lambda: test_installing_hooks_twice_does_not_double_them(Path(td) / 'hookdup'))
+        run(lambda: test_init_installs_the_hooks_and_lets_agents_write_the_home(Path(td) / 'initw'))
         run(lambda: test_doctor_says_when_the_record_and_the_process_table_disagree(Path(td) / 'docsess'))
         run(lambda: test_doctor_and_ps_report_a_drifted_launch(Path(td) / 'docdrift'))
         run(lambda: test_a_file_added_to_shared_reaches_every_existing_account(Path(td) / 'relink'))

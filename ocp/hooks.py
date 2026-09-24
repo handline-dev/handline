@@ -55,6 +55,38 @@ def write_settings(target: Path, data: dict) -> None:
     tmp.replace(target)
 
 
+def _within(child: Path, parent: Path) -> bool:
+    return child == parent or parent in child.parents
+
+
+def allow_home_writes() -> bool:
+    """Let a sandboxed agent write anywhere under OCP_HOME. True if it changed.
+
+    The whole directory, not a list of files: SQLite creates its journal and
+    WAL files beside the database, and `ask` writes into agents/, locks/ and
+    wake/. Per-file entries fail on the first file nobody listed. A `denyWrite`
+    that is the home, or holds it, would win over the allow, so it goes.
+    """
+    home = paths.home()
+    target = target_settings()
+    data = _read_json(target) if target.exists() else {}
+    fs = data.setdefault("sandbox", {}).setdefault("filesystem", {})
+    before = json.dumps(data, sort_keys=True)
+    allow = [e for e in fs.get("allowWrite", [])
+             if not (isinstance(e, str) and _within(Path(e), home) and Path(e) != home)]
+    if str(home) not in allow:
+        allow.append(str(home))
+    fs["allowWrite"] = allow
+    if "denyWrite" in fs:
+        fs["denyWrite"] = [e for e in fs["denyWrite"]
+                           if not (isinstance(e, str) and _within(home, Path(e)))]
+    if json.dumps(data, sort_keys=True) == before:
+        return False
+    target.parent.mkdir(parents=True, exist_ok=True)
+    write_settings(target, data)
+    return True
+
+
 def _is_orca_entry(entry: dict) -> bool:
     cmd = entry.get("command")
     return isinstance(cmd, str) and any(m in cmd for m in ORCA_MARKERS)
