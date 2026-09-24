@@ -225,7 +225,7 @@ async def test_accounts_panel_cap_add_remove_and_open() -> None:
         await pilot.pause(0.2)
         check("accounts: removing one an agent is on refuses through remove_plan, "
               "before the human is ever asked to type its name",
-              "in use by" in screen.flash and not isinstance(app.screen, bt.TextPrompt),
+              "session open" in screen.flash and not isinstance(app.screen, bt.TextPrompt),
               screen.flash)
 
         await pilot.press("enter")

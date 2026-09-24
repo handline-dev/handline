@@ -1256,6 +1256,10 @@ def _start_for_work(con, agent: str, log) -> str:
                          + ([f"{answers} answer(s)"] if answers else [])) or "work"
         return (f"{agent}: {what} waiting and it has no terminal - set `repo:` in "
                 f"its agent.yaml, or start it by hand (t)")
+    # With no room `ocp launch` would refuse in the new terminal, and the
+    # refusal would count against the agent though it is the accounts that are full.
+    if not launch.choose_account(agent, con=con):
+        return f"{agent}: not started - {launch.no_room(agent)}"
     row = db.get_agent_state(con, agent)
     if row and int(row["wake_failures"]) >= MAX_FAILED_ATTEMPTS:
         return f"{agent}: not started again - {row['wake_failures']} attempts have failed"

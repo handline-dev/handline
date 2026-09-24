@@ -2922,6 +2922,7 @@ def test_the_whole_loop_runs_on_our_own_commands(home: Path) -> None:
     press a key. An agent that cannot finish the job it was given goes looking
     for one it can - which is a subagent, dead at the end of its session."""
     _daemon_home(home, 20)
+    credentialed(home, "alpha")
     con = db.connect()
     typed: list[tuple[str, str]] = []
     real = (orcamod.available, orcamod.alive, orcamod.idle_now, orcamod.send,
@@ -2994,6 +2995,7 @@ def test_an_agent_can_put_another_one_to_work(home: Path) -> None:
     and appears on no screen. The daemon can make a worktree and a terminal;
     the only fact it was missing is which repository, and that is `repo:`."""
     _daemon_home(home, 20)
+    credentialed(home, "alpha")
     con = db.connect()
     started: list = []
     real = (orcamod.available, spawnmod.spawn, dmn.wait_for_session)

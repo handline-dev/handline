@@ -2948,6 +2948,65 @@ def test_a_resume_is_not_woken_onto_an_account_at_its_weekly_wall(home: Path) ->
         con.close()
 
 
+def test_a_start_with_no_room_says_why_and_is_not_a_failed_attempt(home: Path) -> None:
+    """Every account at its wall: a closed agent's fresh wake and a spawn for
+    waiting work both return no_room's text, name the account that frees up
+    first, and leave wake_failures alone; a resume with no recorded account
+    refuses in build; wake_wait says which account it waits on."""
+    _daemon_home(home, 20)
+    credentialed(home, "alpha")
+    con = db.connect()
+    real = (orcamod.available, orcamod.alive, spawnmod.spawn)
+    try:
+        orca_seen()
+        write_status(home, "alpha", pct_5h=100, pct_7d=20, ctx_pct=5,
+                     reset_5h=int(time.time()) + 3 * 3600)
+        db.set_closed(con, "backend", None)   # no resume id: a fresh start
+        db.add_request(con, "marina", "backend", "carry on", None, "peer", "async", None, 0, None)
+        con.commit()
+        check("no room: find_room has nothing to offer", launch.find_room("backend") is None)
+
+        ok, why = dmn.wake_agent(con, "backend", lambda _m: None)
+        row = db.get_agent_state(con, "backend")
+        check("no room: a walled fresh wake waits and names the account",
+              not ok and "alpha" in why and row["wake_failures"] == 0, why)
+
+        w = launch.wake_wait("backend", row, con)
+        check("no room: wake_wait, with no resume id, names the account that frees first",
+              w is not None and w.account == "alpha" and w.window == "5h", w)
+
+        # Nothing walled, nothing logged in: wake_wait has no wall to name, so
+        # the guard in _wake_agent is what refuses, with no_room's own text.
+        (home / "accounts" / "alpha" / ".claude" / ".credentials.json").unlink()
+        ok, why = dmn.wake_agent(con, "backend", lambda _m: None)
+        check("no room: a fresh wake with no account to go to returns no_room's text",
+              not ok and why == launch.no_room("backend") and "logged in" in why, why)
+        check("no room: and it is not a failed attempt",
+              db.get_agent_state(con, "backend")["wake_failures"] == 0)
+
+        spawned: list[str] = []
+        spawnmod.spawn = lambda *a, **k: (spawned.append("x"), (False, "no"))[1]
+        agents.register("marina", repo=str(home / "checkout"))
+        msg = dmn._start_for_work(con, "marina", lambda _m: None)
+        check("no room: a spawn for waiting work is not attempted, and says why",
+              not spawned and launch.no_room("marina") in msg, msg)
+        check("no room: and it is not a failed attempt either",
+              (db.get_agent_state(con, "marina") or {"wake_failures": 0})["wake_failures"] == 0)
+
+        db.clear_closed(con, "backend")
+        con.execute("UPDATE agent_state SET account = NULL WHERE agent = 'backend'")
+        con.commit()
+        try:
+            launch.build("backend", ["--resume", "x"])
+            check("no room: a resume with no recorded account is refused", False, "built")
+        except SystemExit as e:
+            check("no room: a resume with no recorded account is refused",
+                  "no recorded session to resume" in str(e), str(e))
+    finally:
+        orcamod.available, orcamod.alive, spawnmod.spawn = real
+        con.close()
+
+
 def test_a_move_has_nowhere_to_go_when_every_account_is_walled(home: Path) -> None:
     """With every account at its own wall, find_room returns None and a fresh
     launch has no account: there is no preferred one to fall back to."""
@@ -3300,6 +3359,7 @@ def test_a_spawned_agent_gets_an_assumed_account_until_launch_confirms_it(home: 
     (the previous behaviour) until then.
     """
     _daemon_home(home, 20)
+    credentialed(home, "alpha")
     con = db.connect()
     real_spawn = spawnmod.spawn
     try:
@@ -5515,6 +5575,7 @@ def main() -> int:
         run(lambda: test_a_dead_sessions_id_is_kept_only_from_a_matching_snapshot(Path(td) / 'deadacct'))
         run(lambda: test_a_moved_walled_wake_names_the_new_account(Path(td) / 'walledmoved'))
         run(lambda: test_a_resume_is_not_woken_onto_an_account_at_its_weekly_wall(Path(td) / 'walled7d'))
+        run(lambda: test_a_start_with_no_room_says_why_and_is_not_a_failed_attempt(Path(td) / 'noroom'))
         run(lambda: test_a_move_has_nowhere_to_go_when_every_account_is_walled(Path(td) / 'walled7dmove'))
         run(lambda: test_a_usage_park_is_woken_when_the_reading_clears(Path(td) / 'parklevel1'))
         run(lambda: test_a_usage_park_stays_parked_while_the_reading_is_at_the_wall(Path(td) / 'parklevel2'))

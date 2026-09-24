@@ -2144,6 +2144,26 @@ def test_an_account_is_added_and_removed_from_ocp(home: Path) -> None:
     rc, out = run_cli("account", "remove", "beta", "--yes")
     check("account remove: refused while an agent's session is on it",
           rc == 1 and "backend" in out and "beta" in paths.list_accounts(), out)
+    check("account remove: and the refusal names the action that frees it",
+          "close" in out and "bridge" in out, out)
+    # A closed agent has no session to strand: it stops holding the account, and
+    # once the account is removed its dead resume id goes with it.
+    con = db.connect()
+    try:
+        db.set_closed(con, "backend", "sess-old")
+        con.commit()
+    finally:
+        con.close()
+    rc, out = run_cli("account", "remove", "beta", "--yes")
+    con = db.connect()
+    try:
+        row = db.get_agent_state(con, "backend")
+        check("account remove: an account whose only user is closed is removed",
+              rc == 0 and "beta" not in paths.list_accounts(), out)
+        check("account remove: and the closed agent's record of it is cleared",
+              row["account"] is None and row["resume_session"] is None, dict(row))
+    finally:
+        con.close()
 
     # A logout that does not take leaves the account where it is: moving the
     # directory would change the name its credential is filed under.
