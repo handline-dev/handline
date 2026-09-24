@@ -14,11 +14,13 @@ destroyed and recreated to be cheap.
 """
 from __future__ import annotations
 
+import contextlib
 import json
 import os
 import re
 import shutil
 import subprocess
+import threading
 import time
 from dataclasses import dataclass
 
@@ -117,9 +119,38 @@ def _orca_idle(handle: str, timeout_ms: int) -> bool:
         return False
 
 
+# Drivers already looked up inside the running `driver_scope`, by handle. Each
+# lookup opens a database connection, and one clear or close asks several times.
+_scope = threading.local()
+
+
+@contextlib.contextmanager
+def driver_scope():
+    """Within it, `_driver_for` answers each handle from the database once.
+    Nested scopes share the outer one; nothing outlives the outermost."""
+    outer = getattr(_scope, "memo", None) is not None
+    if not outer:
+        _scope.memo = {}
+    try:
+        yield
+    finally:
+        if not outer:
+            _scope.memo = None
+
+
 def _driver_for(handle: str):
     """The driver of the agent ocp recorded in this terminal, or the default
     vendor's for one it did not launch (a probe, a human's own)."""
+    memo = getattr(_scope, "memo", None)
+    if memo is not None and handle in memo:
+        return memo[handle]
+    drv = _lookup_driver(handle)
+    if memo is not None:
+        memo[handle] = drv
+    return drv
+
+
+def _lookup_driver(handle: str):
     # Late: vendors and db sit above this module.
     import sqlite3
     from . import agents, db, vendors
@@ -134,6 +165,12 @@ def _driver_for(handle: str):
     except (OSError, sqlite3.Error, agents.ConfigError, vendors.UnknownVendor):
         pass
     return vendors.get(agents.DEFAULT_VENDOR)
+
+
+def clear_command(handle: str) -> str:
+    """What is typed at this terminal's agent to clear its context - the
+    vendor's own, for a message that names it."""
+    return _driver_for(handle).clear_command()
 
 
 def send(handle: str, text: str, enter: bool = True) -> tuple[bool, str]:
@@ -884,7 +921,8 @@ def typeable_now(handle: str) -> bool:
     """Idle and nothing on screen that a typed line would answer."""
     # Nothing at all is asked with one read, not one per kind, so a dialog
     # that opens between two separate reads cannot be read as neither.
-    return idle_now(handle) and screen_blocker(handle) is None
+    with driver_scope():
+        return idle_now(handle) and screen_blocker(handle) is None
 
 
 def clear_context(handle: str, wait: bool = True,
@@ -896,10 +934,11 @@ def clear_context(handle: str, wait: bool = True,
     """
     if not alive(handle):
         return False, f"terminal {handle} is not alive"
-    if wait and not wait_idle(handle, timeout_ms):
-        return False, "agent is mid-turn; not clearing"
-    blocked = screen_blocker(handle)          # one read, not modal_open() twice
-    cmd = _driver_for(handle).clear_command()
+    with driver_scope():
+        if wait and not wait_idle(handle, timeout_ms):
+            return False, "agent is mid-turn; not clearing"
+        blocked = screen_blocker(handle)          # one read, not modal_open() twice
+        cmd = clear_command(handle)
     if blocked:
         return False, f"{blocked.reason()}; not typing {cmd} at it"
     ok, out = send(handle, cmd)
@@ -924,10 +963,11 @@ def close_session(handle: str, wait: bool = True,
     """
     if not alive(handle):
         return False, f"terminal {handle} is not alive"
-    if wait and not wait_idle(handle, timeout_ms):
-        return False, "agent is mid-turn; not closing"
-    blocked = screen_blocker(handle)          # one read, not modal_open() twice
-    cmd = _driver_for(handle).exit_command()
+    with driver_scope():
+        if wait and not wait_idle(handle, timeout_ms):
+            return False, "agent is mid-turn; not closing"
+        blocked = screen_blocker(handle)          # one read, not modal_open() twice
+        cmd = _driver_for(handle).exit_command()
     if blocked:
         return False, f"{blocked.reason()}; not typing {cmd} at it"
     ok, out = send(handle, cmd)

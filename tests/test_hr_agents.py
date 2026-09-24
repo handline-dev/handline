@@ -1371,6 +1371,62 @@ def test_the_opencode_driver(home: Path) -> None:
         del drv.binary
 
 
+def test_a_clear_looks_the_vendor_up_once_and_refuses_in_its_own_words(home: Path) -> None:
+    """T39 (auditor #1946): one clear asks for the terminal's driver once, not
+    once per step, and the daemon's refusals name the vendor's own clear
+    command - opencode's /new, not claude's /clear."""
+    os.environ["OCP_HOME"] = str(home)
+    real = {n: getattr(orcamod, n) for n in
+            ("_lookup_driver", "_orca_idle", "_screen", "alive", "send", "available",
+             "background_work", "screen_blocker", "close_session", "clear_context")}
+    real_present = dmn.session_present
+    con = db.connect()
+    try:
+        accounts.register("alpha")
+        accounts.register("zai", vendor="opencode")
+        agents.register("glm", "zai", model="zai-coding-plan/glm-5.3-flash")
+        _with_vendor("glm", "opencode")
+        agents.register("backend", "alpha")
+        db.set_terminal(con, "glm", "term_oc", "wt")
+        db.set_terminal(con, "backend", "term_cl", "wt")
+
+        # The suite stubs these; this test is about the real ones.
+        for n in ("screen_blocker", "close_session", "clear_context"):
+            setattr(orcamod, n, REAL_ORCA[n])
+        looked: list[str] = []
+        lookup = real["_lookup_driver"]
+        orcamod._lookup_driver = lambda h: (looked.append(h), lookup(h))[1]
+        sent: list[str] = []
+        orcamod.alive = lambda h: True
+        orcamod._orca_idle = lambda h, t: True
+        orcamod.send = lambda h, text, enter=True: (sent.append(text), (True, ""))[1]
+        orcamod._screen = lambda h: _screen_of(OC_IDLE if h == "term_oc" else COMPOSER_EMPTY)
+        orcamod.clear_context("term_oc", wait=False)
+        check("clear: opencode is sent its own /new", sent == ["/new"], str(sent))
+        check("clear: the driver was looked up once for the whole clear",
+              looked == ["term_oc"], str(looked))
+        looked.clear()
+        orcamod.close_session("term_cl", wait=False)
+        check("close: and once for a whole close", looked == ["term_cl"], str(looked))
+
+        orcamod.available = lambda: True
+        dmn.session_present = lambda agent: False
+        _, why = dmn._reclaim_context(con, "glm", lambda _m: None)
+        check("refusal: a shell prompt under opencode names /new", "/new" in why and "/clear" not in why, why)
+        _, why = dmn._reclaim_context(con, "backend", lambda _m: None)
+        check("refusal: and under claude still names /clear", "/clear" in why, why)
+        dmn.session_present = lambda agent: True
+        orcamod.background_work = lambda h: ["a job"]
+        _, why = dmn._reclaim_context(con, "glm", lambda _m: None)
+        check("refusal: background work under opencode names /new too",
+              "/new" in why and "/clear" not in why, why)
+    finally:
+        for n, v in real.items():
+            setattr(orcamod, n, v)
+        dmn.session_present = real_present
+        con.close()
+
+
 def test_an_opencode_session_under_ocp(home: Path) -> None:
     """#1926, each part measured on opencode 1.18.32 in an Orca terminal: the
     preamble reaches the session as an instructions file, the start prompt
@@ -2379,6 +2435,7 @@ def main() -> int:
         run(lambda: test_an_account_records_its_vendor(Path(td) / 'vendorrecord'))
         run(lambda: test_the_opencode_driver(Path(td) / 'opencode'))
         run(lambda: test_an_opencode_session_under_ocp(Path(td) / 'ocsession'))
+        run(lambda: test_a_clear_looks_the_vendor_up_once_and_refuses_in_its_own_words(Path(td) / 'clearonce'))
         run(lambda: test_an_opencode_row_takes_its_state_word_from_orca(Path(td) / 'ocrow'))
         run(lambda: test_shared_account_context_isolation(Path(td) / 'shared'))
         run(lambda: test_agent_rewrite_uses_parser(Path(td) / 'rw'))
