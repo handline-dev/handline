@@ -109,7 +109,7 @@ def messages_of(rows, agent: str) -> list[dict]:
     return msgs
 
 
-STATE_ORDER = {"waiting": 0, "doing": 1, "done": 2, "closed": 3}
+STATE_ORDER = {"waiting": 0, "doing": 1, "done": 2, "closed": 3, "discarded": 4}
 TASK_SORTS = {"task": lambda r: r[0], "role": lambda r: (r[1], r[0]),
               "state": lambda r: (STATE_ORDER.get(r[2], 9), r[0]),
               "updated": lambda r: r[5], "title": lambda r: (r[3].lower(), r[0]),
@@ -218,13 +218,14 @@ def settings_changes(current: dict, form: dict) -> list[tuple[str, str, str]]:
     return out
 
 
-def save_settings(agent: str, current: dict, changes: list[tuple[str, str, str]]) -> tuple[bool, str]:
+def save_settings(agent: str, changes: list[tuple[str, str, str]]) -> tuple[bool, str]:
     """Write `changes` to the agent's file through the same call `ocp agent
-    register` uses, which keeps every other field as it is. A running session
-    is not restarted."""
+    register` uses, which keeps every other field as it is - the account is
+    read again here, so a move made while the tab was open is not undone. A
+    running session is not restarted."""
     new = {k: v for k, _, v in changes}
     try:
-        agents.register(agent, current["account"], model=new.get("model"), effort=new.get("effort"),
+        agents.register(agent, str(agents.read(agent).get("account") or ""), model=new.get("model"), effort=new.get("effort"),
                         weight=new.get("weight"), repo=new.get("repo"))
     except (ValueError, agents.ConfigError, OSError) as e:
         return False, f"not saved: {e}"
@@ -234,15 +235,15 @@ def save_settings(agent: str, current: dict, changes: list[tuple[str, str, str]]
 def send_reply(con, agent: str, rid: int | None, body: str) -> tuple[bool, str]:
     """Send `body` as a reply to request `rid`, or where the conversation says
     it goes when `rid` is None. A question the agent is waiting on is closed
-    with `body` as its verdict; anything else - an answer already given, a
-    question already closed, the human's own message - is a new request to the
-    agent under it."""
+    with `body` as its verdict, and an answer to the human's own request gets a
+    new request and is marked read (both `actions.answer_ok`); anything else -
+    a question already closed - is a new request to the agent under it."""
     if rid is None:
         return actions.chat_reply_ok(con, agent, body)
     row = db.get_request(con, rid)
     if row is None:
         return False, f"#{rid} is gone"
-    if row["target"] == actions.HUMAN and row["state"] == "queued":
+    if (row["target"] == actions.HUMAN and row["state"] == "queued") or actions._is_answer_to_human(row):
         return actions.answer_ok(con, rid, body)
     if not body.strip():
         return False, "nothing sent: no message typed"
@@ -1205,13 +1206,12 @@ class ChatPage(Screen):
             msg.update(Text("nothing changed", style="dim"))
             return
         detail = "\n".join(f"{k}:  {old or '(none)'}  →  {new}" for k, old, new in changes)
-        current = self.settings
 
         def answered(yes: bool | None) -> None:
             log_action(f"settings {self.agent}: answered {'yes' if yes else 'no'} - {detail!r}")
             if not yes:
                 return
-            ok, said = save_settings(self.agent, current, changes)
+            ok, said = save_settings(self.agent, changes)
             log_action(f"settings {self.agent}: {'ok' if ok else 'refused'} - {said}")
             self.notify(safe(said), title=f"settings {self.agent}", severity="information" if ok else "error",
                         timeout=10, markup=False)
@@ -1271,10 +1271,15 @@ class ChatPage(Screen):
         for rec in reversed(self.pending):
             if rec.cancelled:
                 continue
-            if rec.started:
+            # The lock is the worker's: holding it, the flag cannot be read
+            # after the worker has checked it and before it has started.
+            if rec.started or not self._send_lock.acquire(blocking=False):
                 self.sub_title = f"agent {self.agent} · being handed over - cannot be taken back yet"
                 return True
-            rec.cancelled = True
+            try:
+                rec.cancelled = True
+            finally:
+                self._send_lock.release()
             self.sending -= 1
             self.pending.remove(rec)
             rec.widget.remove()

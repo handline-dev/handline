@@ -1211,6 +1211,12 @@ def test_a_reply_closes_a_waiting_question_or_starts_a_new_request() -> None:
         check("reply: a second reply is a new request to the agent under it",
               ok2 and child is not None and child["parent_id"] == rid and child["target"] == "reviewer"
               and child["requester"] == actions.HUMAN)
+        ok3, _, mine = askmod.ask("reviewer", "status?", requester=actions.HUMAN)
+        con.execute("UPDATE requests SET state = 'done', verdict = 'fine' WHERE id = ?", (mine,))
+        con.commit()
+        ok4, _ = cp.send_reply(con, "reviewer", mine, "thanks, now ship it")
+        check("reply: an answer to the human's own request is marked read, as the mailbox does",
+              ok3 and ok4 and db.get_request(con, mine)["announced_at"], str(dict(db.get_request(con, mine))))
         check("reply: a blank reply is refused", cp.send_reply(con, "reviewer", rid, "  ")[0] is False)
         check("reply: a reply to a request that is gone is refused",
               cp.send_reply(con, "reviewer", 99999, "x")[0] is False)
@@ -1294,12 +1300,16 @@ def test_the_settings_form_checks_and_saves_only_what_changed() -> None:
     repo = home / "work"
     repo.mkdir()
     changes = cp.settings_changes(cfg, {**form, "model": "opus", "effort": "high", "repo": str(repo)})
-    ok, said = cp.save_settings("backend", cfg, changes)
+    ok, said = cp.save_settings("backend", changes)
     now = agents.read("backend")
     check("settings: a save writes the changed fields", ok and now["model"] == "opus"
           and now["effort"] == "high" and now["repo"] == str(repo), said)
     check("settings: and leaves the rest of the file as it was",
           now["account"] == cfg["account"] and now["weight"] == cfg["weight"] and now.get("enabled") is True)
+    agents.register("backend", "beta")
+    ok, said = cp.save_settings("backend", [("effort", now["effort"], "low")])
+    check("settings: a save leaves an account moved since the tab was read",
+          ok and agents.read("backend")["account"] == "beta", said)
 
 
 def test_what_an_agent_wrote_is_drawn_inert_on_every_part_of_the_page() -> None:
