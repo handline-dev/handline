@@ -25,11 +25,15 @@ from . import paths, service
 
 LABEL = "dev.orcapipe.backup"
 INTERVAL_S = 60
-# The ladder: the newest snapshot, and for each of these ages the one nearest
-# it, so the history thins out the further back it goes. Nothing is kept
-# beyond the last rung.
-LADDER_S = tuple(m * 60 for m in (1, 5, 30, 60, 6 * 60, 24 * 60, 7 * 24 * 60, 30 * 24 * 60))
-MAX_AGE_S = LADDER_S[-1]
+# The ladder: up to each age, the first snapshot of every clock-aligned slot of
+# that width (age limit, slot width, both in seconds). A snapshot's slot never
+# changes as it ages, so what is kept stays kept; the newest is always kept, and
+# nothing is kept past the last limit. Slot widths divide the next, so a
+# snapshot kept at one width is the first of its slot at the next.
+LADDER_S = tuple((limit * 60, width * 60) for limit, width in (
+    (5, 1), (30, 5), (60, 30), (6 * 60, 60), (24 * 60, 6 * 60),
+    (7 * 24 * 60, 24 * 60), (30 * 24 * 60, 7 * 24 * 60)))
+MAX_AGE_S = LADDER_S[-1][0]
 DB_NAMES = ("db.sqlite", "db.sqlite-wal", "db.sqlite-shm")
 PREFIX = "orcapipe-"
 SUFFIX = ".tar.gz"
@@ -116,16 +120,27 @@ def snapshot(home: Path | None = None, dest: Path | None = None,
     return out
 
 
+def expired(taken: list[float], now: float) -> set[float]:
+    """Which of these snapshot times LADDER_S lets go."""
+    if not taken:
+        return set()
+    keep = {max(taken)}
+    first: dict[tuple[int, int], float] = {}
+    for t in sorted(taken):
+        for limit, width in LADDER_S:
+            if now - t <= limit:
+                # Earliest in the slot wins, whatever width the older ones were kept at.
+                first.setdefault((width, int(t // width)), t)
+                break
+    keep |= set(first.values())
+    return {t for t in taken if t not in keep}
+
+
 def prune(dest: Path, now: float) -> list[Path]:
-    """Keep the newest snapshot and the one nearest each age on LADDER_S."""
-    aged = sorted(((now - p.stat().st_mtime, p) for p in dest.glob(PREFIX + "*" + SUFFIX)),
-                  key=lambda a: a[0])
-    keep = {aged[0][1]} if aged else set()
-    within = [a for a in aged if a[0] <= MAX_AGE_S]
-    for target in LADDER_S:
-        if within:
-            keep.add(min(within, key=lambda a: abs(a[0] - target))[1])
-    removed = [p for _, p in aged if p not in keep]
+    """Delete the snapshots in `dest` that LADDER_S lets go."""
+    found = {p: p.stat().st_mtime for p in dest.glob(PREFIX + "*" + SUFFIX)}
+    gone = expired(list(found.values()), now)
+    removed = [p for p, t in sorted(found.items()) if t in gone]
     for p in removed:
         p.unlink()
     return removed
