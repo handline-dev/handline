@@ -276,7 +276,7 @@ def hold_refusal(con, rid: int, blocks_on: list[int]) -> str | None:
         why = _blocker_refusal(con, b)
         if why:
             return why
-        if False:
+        if b in under:
             return f"task #{b} is what this hold sits under - it cannot wait on it"
     return None
 
