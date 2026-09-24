@@ -1522,6 +1522,22 @@ def supervisor_of(t, agent: str) -> str | None:
     return best[1] if best else None
 
 
+def listing_refusal(caller: str | None, target: str) -> str | None:
+    """Why `caller` may not list `target`'s messages, or None when it may.
+
+    Another agent's queue, digest or handoff is context that agent's project
+    owns: an agent reading it carries it into its own, and may leak it. The
+    human, the agent itself and its supervisor may. A caller with no name is
+    not refused here; the commands that need one already say so.
+    """
+    if caller in (None, HUMAN, target):
+        return None
+    if supervisor_of(routing(), target) == caller:
+        return None
+    return (f"{caller} may not list {target}'s messages: only {target}, its supervisor "
+            f"and the human may. `ocp read <id>` shows one request by number.")
+
+
 def agent_tree() -> list[tuple[str, int]]:
     """Every registered agent as (name, depth), supervisors above their reports.
 

@@ -1304,7 +1304,19 @@ def cmd_backup(args) -> int:
     return 0
 
 
+def _refused_listing(target: str | None) -> bool:
+    """Print why and return True when the caller may not list `target`."""
+    if not target:
+        return False
+    why = actions.listing_refusal(askmod.current_agent(), target)
+    if why:
+        print(why)
+    return bool(why)
+
+
 def cmd_digest(args) -> int:
+    if _refused_listing(args.agent):
+        return 1
     p = foldmod.journal_path(args.agent, args.date or foldmod.today())
     if not p.exists():
         print(f"no digest at {p}")
@@ -1314,6 +1326,8 @@ def cmd_digest(args) -> int:
 
 
 def cmd_handoff(args) -> int:
+    if _refused_listing(args.agent):
+        return 1
     con = db.connect()
     try:
         text = db.get_handoff(con, args.agent)
@@ -1327,6 +1341,8 @@ def cmd_handoff(args) -> int:
 
 
 def cmd_events(args) -> int:
+    if _refused_listing(args.agent):
+        return 1
     con = db.connect()
     try:
         # Without --after this is "what just happened", so it starts at the
@@ -1839,6 +1855,8 @@ def cmd_inbox(args) -> int:
     if not agent:
         print("cannot tell whose inbox this is: OCP_AGENT is unset and this is not "
               "an interactive shell. Name the agent.")
+        return 1
+    if _refused_listing(agent):
         return 1
     if args.wait:
         con = db.connect()
