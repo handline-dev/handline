@@ -799,6 +799,14 @@ def notify_cancelled(con, row, verdict: str) -> tuple[bool, str]:
     return ok, "" if ok else "the send failed"
 
 
+def _answer_verb(head) -> str:
+    """How the agent closes what it was just told: a report asks nothing, so
+    it is dismissed, not answered."""
+    if head["kind"] == "report":
+        return f"it asks nothing - `ocp dismiss {head['id']}` when read"
+    return f"answer with `ocp resolve {head['id']} \"<verdict>\"`"
+
+
 def _tell(con, agent: str, head, depth: int, handle: str, log) -> bool:
     more = depth - 1
     body = head["body"] or "(empty)"
@@ -818,8 +826,8 @@ def _tell(con, agent: str, head, depth: int, handle: str, log) -> bool:
     ok, _ = orca.send(
         handle,
         f"#{head['id']} from {head['requester']}, waiting for you:\n{shown}{tail}\n"
-        f"`ocp read {head['id']}` shows it whole; answer with "
-        f"`ocp resolve {head['id']} \"<verdict>\"`, or `ocp inbox` any time.")
+        f"`ocp read {head['id']}` shows it whole; {_answer_verb(head)}, "
+        f"or `ocp inbox` any time.")
     if ok:
         _mark_typed(con, agent)
         db.set_cursor(con, f"notify:{agent}", int(head["id"]))

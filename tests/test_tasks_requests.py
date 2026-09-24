@@ -1128,6 +1128,31 @@ def test_a_withdraw_landing_before_the_send_stops_the_send(home: Path) -> None:
         con.close()
 
 
+def test_a_report_notice_is_told_as_something_to_dismiss(home: Path) -> None:
+    """T57: a report (the unblock notice) asks nothing, so the line typed at its
+    target says to dismiss it; any other request says to resolve it."""
+    _daemon_home(home, 20)
+    con = db.connect()
+    sent: list[str] = []
+    real = orcamod.send
+    try:
+        orcamod.send = lambda h, text, enter=True: (sent.append(text), (True, ""))[1]
+        note = db.add_request(con, "ocp", "backend", "T5 is unblocked", None, None,
+                              "fire_and_forget", "report", 0, None)
+        dmn._tell(con, "backend", db.head_of_queue(con, "backend"), 1, "term_x", lambda _m: None)
+        check("report notice: told to dismiss it", f"`ocp dismiss {note}`" in sent[-1]
+              and "ocp resolve" not in sent[-1], sent[-1])
+        con.execute("UPDATE requests SET state = 'done' WHERE id = ?", (note,))
+        rid = db.add_request(con, "reviewer", "backend", "look at this", None,
+                             "peer", "async", None, 0, None)
+        dmn._tell(con, "backend", db.head_of_queue(con, "backend"), 1, "term_x", lambda _m: None)
+        check("report notice: any other request is told to resolve it",
+              f"`ocp resolve {rid} " in sent[-1] and "ocp dismiss" not in sent[-1], sent[-1])
+    finally:
+        orcamod.send = real
+        con.close()
+
+
 def test_spawn_confirms_the_task_landed(home: Path) -> None:
     """Orca reports input as accepted even when the TUI never submitted it.
 
@@ -5159,6 +5184,7 @@ def main() -> int:
         run(lambda: test_an_open_head_request_on_an_idle_agent_is_nudged_then_shown(Path(td) / 'nudge'))
         run(lambda: test_a_withdraw_landing_before_the_send_stops_the_send(Path(td) / 'withdrawrace'))
         run(lambda: test_a_withdraw_landing_before_the_send_stops_the_send(Path(td) / 'withdrawrace'))
+        run(lambda: test_a_report_notice_is_told_as_something_to_dismiss(Path(td) / 'reportnotice'))
         run(lambda: test_spawn_confirms_the_task_landed(Path(td) / 'spawnland'))
         run(lambda: test_a_cold_wake_with_no_handoff_still_tells_the_agent_its_transcript_and_request(Path(td) / 'coldnone2'))
         run(lambda: test_an_answer_reaches_the_agent_that_asked(Path(td) / 'answered'))
