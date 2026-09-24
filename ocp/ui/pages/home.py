@@ -5,6 +5,7 @@ from __future__ import annotations
 
 from textual import events
 from textual.app import ComposeResult
+from textual.errors import NoWidget
 from textual.widgets import DataTable, Static, Tabs
 
 from ... import db, tui
@@ -69,8 +70,12 @@ class HomePage(Dashboard):
         Click: the focused panel's DataTable moves its own cursor on Click and stops
         the event, so the screen never sees it and the next redraw undoes the move."""
         row = event.style.meta.get("row")
-        table = next((w for w in event.widget.ancestors_with_self
-                      if isinstance(w, DataTable)), None) if event.widget else None
+        # A real MouseDown carries no widget (only a Click does): ask the screen.
+        try:
+            table = self.get_widget_at(event.screen_x, event.screen_y)[0]
+        except NoWidget:
+            return
+        table = next((w for w in table.ancestors_with_self if isinstance(w, DataTable)), None)
         panel = _PANEL_OF_TABLE.get(table.id) if table is not None else None
         if panel is None or row is None:
             return
