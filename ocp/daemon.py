@@ -749,13 +749,16 @@ def nudge_forgotten_resolve(con, agent: str, row, now: int, log) -> bool:
             return False
         if _type_gate(con, agent, handle):
             return False
+        what = (f"It asks nothing - `ocp dismiss {head['id']}` when read."
+                if head["kind"] == "report" else
+                f"If the work is done, `ocp resolve {head['id']} \"<verdict>\"`; if it is "
+                f"not, say what you are waiting on.")
         ok, _ = orca.send(
             handle,
             f"#{head['id']} was delivered to you and is still open, and you have been "
             f"idle {status.ago(found['idle_s'])}"
             + (f" with {behind} more waiting behind it" if behind else "")
-            + f". If the work is done, `ocp resolve {head['id']} \"<verdict>\"`; if it is "
-            f"not, say what you are waiting on.")
+            + f". {what}")
         if ok:
             _mark_typed(con, agent)
     if ok:

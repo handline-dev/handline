@@ -1153,6 +1153,41 @@ def test_a_report_notice_is_told_as_something_to_dismiss(home: Path) -> None:
         con.close()
 
 
+def test_a_forgotten_report_notice_is_nudged_to_dismiss_not_resolve(home: Path) -> None:
+    """T57 review #2405: the reminder for a told report head says the same
+    thing the delivery did."""
+    _daemon_home(home, 20)
+    con = db.connect()
+    sent: list[str] = []
+    real = (orcamod.alive, orcamod.send, orcamod.available, orcamod.typeable_now)
+    try:
+        orca_seen()
+        orcamod.typeable_now = lambda h: True
+        orcamod.send = lambda h, text, enter=True: (sent.append(text), (True, ""))[1]
+        sessions_are("backend")
+        agents.register("backend", "alpha")
+        db.set_terminal(con, "backend", "term_x", "wt")
+        db.set_agent_state(con, "backend", dmn.IDLE, detail="finished its turn")
+        now = int(time.time())
+        note = db.add_request(con, "ocp", "backend", "T5 is unblocked", None, None,
+                              "fire_and_forget", "report", 0, None)
+        db.mark_delivered(con, note)
+        db.set_cursor(con, "notify:backend", note)
+        db.add_event(con, "backend", "Stop", {})
+        con.execute("UPDATE events SET ts = ? WHERE agent = 'backend'",
+                    (now - dmn.NUDGE_AFTER_S - 60,))
+        con.execute("UPDATE requests SET delivered_at = ? WHERE id = ?",
+                    (now - dmn.NUDGE_AFTER_S - 60, note))
+        check("report nudge: it goes", dmn.nudge_forgotten_resolve(
+            con, "backend", db.get_agent_state(con, "backend"), now, lambda _m: None)
+            and len(sent) == 1, str(sent))
+        check("report nudge: and says dismiss, not resolve",
+              f"`ocp dismiss {note}`" in sent[0] and "ocp resolve" not in sent[0], sent[0])
+    finally:
+        (orcamod.alive, orcamod.send, orcamod.available, orcamod.typeable_now) = real
+        con.close()
+
+
 def test_spawn_confirms_the_task_landed(home: Path) -> None:
     """Orca reports input as accepted even when the TUI never submitted it.
 
@@ -5185,6 +5220,7 @@ def main() -> int:
         run(lambda: test_a_withdraw_landing_before_the_send_stops_the_send(Path(td) / 'withdrawrace'))
         run(lambda: test_a_withdraw_landing_before_the_send_stops_the_send(Path(td) / 'withdrawrace'))
         run(lambda: test_a_report_notice_is_told_as_something_to_dismiss(Path(td) / 'reportnotice'))
+        run(lambda: test_a_forgotten_report_notice_is_nudged_to_dismiss_not_resolve(Path(td) / 'reportnudge'))
         run(lambda: test_spawn_confirms_the_task_landed(Path(td) / 'spawnland'))
         run(lambda: test_a_cold_wake_with_no_handoff_still_tells_the_agent_its_transcript_and_request(Path(td) / 'coldnone2'))
         run(lambda: test_an_answer_reaches_the_agent_that_asked(Path(td) / 'answered'))
