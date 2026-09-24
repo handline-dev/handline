@@ -20,6 +20,11 @@ _HOME_WIDGETS = ("#header", "#accounts-box", "#agents-box", "#messages-box", "#s
 
 class HomePage(Dashboard):
     AUTO_FOCUS = ""     # the keys act on the dashboard until a tab is clicked
+    # The row cursor is the selection. DataTable's hover highlight restarts at row 0
+    # each redraw, so it reads as a second, wrong selection.
+    DEFAULT_CSS = """
+    HomePage DataTable > .datatable--hover { background: transparent; }
+    """
 
     def __init__(self) -> None:
         super().__init__()
