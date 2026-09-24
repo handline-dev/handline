@@ -926,7 +926,7 @@ class BridgeApp(App):
         self.jobs = jobsmod.Jobs()
 
     def on_mount(self) -> None:
-        from .home_page import HomePage   # home_page imports this module
+        from .ui.pages.home import HomePage   # the page imports this module
         self.push_screen(HomePage())
 
 

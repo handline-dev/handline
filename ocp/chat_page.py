@@ -26,7 +26,7 @@ from textual.widgets.option_list import Option
 
 from . import actions, agents, ask as askmod, db, paths, textsafe, tui
 from .bridge_textual import Confirm, TextPrompt, _TextBox
-from .page_header import page_header
+from .ui.components.page_header import page_header
 
 # States of a request that never reached its target: withdrawn, replaced, denied.
 # They are not part of the conversation, so no chat query reads them.

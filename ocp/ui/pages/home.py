@@ -7,9 +7,9 @@ from textual import events
 from textual.app import ComposeResult
 from textual.widgets import DataTable, Static, Tabs
 
-from . import db, tui
-from .bridge_textual import Dashboard, key_token
-from .page_header import page_header
+from ... import db, tui
+from ...bridge_textual import Dashboard, key_token
+from ..components.page_header import page_header
 
 _PANEL_OF_TABLE = {"accounts": tui.ACCOUNTS, "agents": tui.AGENTS,
                    "messages": tui.MESSAGES, "stuck": tui.STUCK}
