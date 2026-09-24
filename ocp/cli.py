@@ -18,7 +18,7 @@ import sys
 import time
 from pathlib import Path
 
-from . import (accounts, actions, agents, ask as askmod, blocked as blockedmod, collect,
+from . import (accounts, actions, agents, ask as askmod, backup as backupmod, blocked as blockedmod, collect,
                daemon as daemonmod, db,
                tui,
                digest, doctor,
@@ -1298,6 +1298,16 @@ def cmd_rollover(args) -> int:
     return 0
 
 
+def cmd_backup(args) -> int:
+    if args.action == "install":
+        ok, msg = backupmod.install()
+        print(msg)
+        return 0 if ok else 1
+    out = backupmod.snapshot()
+    print(f"wrote {out}" if out else "unchanged since the last snapshot")
+    return 0
+
+
 def cmd_digest(args) -> int:
     p = foldmod.journal_path(args.agent, args.date or foldmod.today())
     if not p.exists():
@@ -2547,6 +2557,10 @@ def build_parser() -> argparse.ArgumentParser:
     p = sub.add_parser("rollover", help="midnight rollover (no model)")
     p.add_argument("agent", nargs="?")
     p.set_defaults(fn=cmd_rollover)
+
+    p = sub.add_parser("backup", help="snapshot OCP_HOME if it changed; `install` runs it every 5 minutes")
+    p.add_argument("action", nargs="?", choices=["install"])
+    p.set_defaults(fn=cmd_backup)
 
     p = sub.add_parser("digest", help="print an agent's digest")
     p.add_argument("agent")

@@ -2,16 +2,44 @@
 from __future__ import annotations
 
 import os
+import pwd
 from pathlib import Path
+
+# Set by tests/support.py to a temp directory that stands in for the user's
+# home. While it is set, nothing ocp does may reach the real one.
+TEST_ROOT_ENV = "OCP_TEST_ROOT"
+
+
+class RealHomeInTest(RuntimeError):
+    pass
+
+
+def _real_user_home() -> Path:
+    # From the password database, not $HOME, so a test that sets HOME cannot
+    # move what the guard protects.
+    return Path(pwd.getpwuid(os.getuid()).pw_dir)
+
+
+def user_home() -> Path:
+    """The user's home directory, or its stand-in under the test suite.
+
+    Every path ocp builds under ~ starts here, never at Path.home()."""
+    test_root = os.environ.get(TEST_ROOT_ENV)
+    return Path(test_root) if test_root else Path.home()
 
 
 def default_home() -> Path:
     """Where OCP_HOME points when nothing has set it."""
-    return Path.home() / ".orcapipe"
+    return user_home() / ".orcapipe"
 
 
 def home() -> Path:
-    return Path(os.environ.get("OCP_HOME", default_home())).expanduser()
+    h = Path(os.environ.get("OCP_HOME", default_home())).expanduser()
+    if os.environ.get(TEST_ROOT_ENV):
+        real = (_real_user_home() / ".orcapipe").resolve()
+        if real == h.resolve() or real in h.resolve().parents:
+            raise RealHomeInTest(f"a test reached the real OCP_HOME: {h}")
+    return h
 
 
 def config_file() -> Path:

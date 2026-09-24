@@ -82,7 +82,7 @@ def run_all(argv: list[str]) -> int:
             skipped = f"SKIPPED  {BRIDGE.name}: it has no -k filter; run the whole suite to include it"
         elif not bridge_py:
             skipped = (f"SKIPPED  {BRIDGE.name}: textual is importable from neither {sys.executable} "
-                       f"nor the machine's venv ({venvmod.venv_python(paths.default_home() / 'venv')}); "
+                       f"nor the machine's venv ({venvmod.venv_python(MACHINE_VENV)}); "
                        "run `ocp venv` to install it")
         if args.write_labels:
             with open(args.write_labels, "w") as out:
