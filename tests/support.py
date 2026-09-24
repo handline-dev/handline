@@ -1334,7 +1334,9 @@ def _leaks(dirty: dict[str, str], clean: dict[str, str], skip_counts: tuple = ()
 def _touches_subprocess_text(tree) -> bool:
     """Calls `subprocess.run`/`Popen` and reads `.stdout` or `.stderr` off the
     result - somewhere in the module, not necessarily the same function: the
-    two together are what makes foreign bytes reachable at all."""
+    two together are what makes foreign bytes reachable at all. A call to
+    `gitrun.run` is the same thing on its own: it hands git's text back as a
+    tuple, with no attribute to read."""
     import ast
     calls = any(isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute)
                and n.func.attr in ("run", "Popen")
@@ -1342,7 +1344,11 @@ def _touches_subprocess_text(tree) -> bool:
                for n in ast.walk(tree))
     reads = any(isinstance(n, ast.Attribute) and n.attr in ("stdout", "stderr")
                for n in ast.walk(tree))
-    return calls and reads
+    via_gitrun = any(isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute)
+                     and n.func.attr == "run"
+                     and isinstance(n.func.value, ast.Name) and n.func.value.id == "gitrun"
+                     for n in ast.walk(tree))
+    return (calls and reads) or via_gitrun
 
 
 def _builds_a_returned_message(tree) -> bool:

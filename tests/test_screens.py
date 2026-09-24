@@ -2639,11 +2639,10 @@ def test_a_module_that_returns_subprocess_text_as_a_message_imports_textsafe(hom
           not (set(exempt) & set(clean)), str(exempt.keys() & set(clean)))
     # Real files today, both directions: cli/hr/tui/textsafe pass on the merits
     # (hr never touches a subprocess at all; the other three do and are clean),
-    # and orca.py/spawn.py are exactly the ones this branch touched (drift, fold
-    # and handoff read git through gitrun, which hands the text back untouched
-    # for them to sanitise).
+    # and orca.py/spawn.py/drift.py/fold.py/handoff.py are exactly the ones
+    # this branch touched (the last three read git through gitrun).
     check("boundary: the modules this branch closed are the ones found dirty",
-          {"orca.py", "spawn.py"} <= set(clean),
+          {"orca.py", "spawn.py", "drift.py", "fold.py", "handoff.py"} <= set(clean),
           str(clean))
 
     # Proof by mutation: the same two functions, run on synthetic source, so
@@ -2671,6 +2670,15 @@ def test_a_module_that_returns_subprocess_text_as_a_message_imports_textsafe(hom
           _imports_textsafe(ast.parse(clean_src)))
     check("boundary: the fold.py shape (`a or b or default`, no f-string) is caught too",
           _builds_a_returned_message(ast.parse(fallback_src)))
+    gitrun_src = (
+        "from . import gitrun\n"
+        "def _g(cwd):\n"
+        "    rc, out, err = gitrun.run(cwd, 'status')\n"
+        "    return False, f'failed: {err}'\n")
+    check("boundary: a message built from gitrun.run's text is caught too",
+          _touches_subprocess_text(ast.parse(gitrun_src))
+          and _builds_a_returned_message(ast.parse(gitrun_src))
+          and not _imports_textsafe(ast.parse(gitrun_src)))
     check("boundary: a module with no subprocess call at all is not named, whatever it returns",
           not _touches_subprocess_text(ast.parse('def f():\n    return f"{x}"\n')))
     check("boundary: reading .stdout with nothing returned as a message is not named either "
