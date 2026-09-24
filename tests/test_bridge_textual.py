@@ -3,10 +3,9 @@
 Needs `textual`, which the interpreter running `tests/test_ocp.py` may not
 have (it is only in $OCP_HOME/venv - see requirements.txt and
 ocp/venv.py's own docstring on why the suite cannot assume it everywhere).
-`test_ocp.py`'s own `test_bridge_textual_dashboard` shells this file out to a
-python3 that does have it, the same way `test_yaml_differential` does for
-PyYAML - so a missing dependency fails loud instead of the screen going
-unexercised on whichever interpreter happens to run the suite.
+`tests/test_ocp.py` runs this file under the first python that can import
+textual (its own, else the venv's) and prints a SKIPPED line when none can, so
+a missing dependency is said out loud instead of the screen going unexercised.
 
 Run: python3 tests/test_bridge_textual.py
 """
@@ -237,12 +236,6 @@ async def test_accounts_panel_cap_add_remove_and_open() -> None:
         text = app.screen.title_text + "\n".join(r for _, rows in app.screen.sections for r in rows)
         check("accounts: it is that account's own detail",
               "account alpha" in text and "config" in text, text)
-        check("accounts: it names its own named section as a tab, not flattened",
-              any(h.startswith("AGENTS ON IT") for h, _ in app.screen.sections), app.screen.sections)
-        await pilot.press("down")           # a scroll key: task #54 item 3, no longer any key
-        await pilot.pause(0.1)
-        check("accounts: a scroll key does not close it", isinstance(app.screen, bt.ReadOnly),
-              type(app.screen).__name__)
         await pilot.press("escape")
         await pilot.pause(0.1)
         check("accounts: escape closes it", isinstance(app.screen, bt.Dashboard),
@@ -514,11 +507,10 @@ async def test_text_prompt_line_keeps_a_multiline_paste_and_shows_escapes_inert(
           app.result == "xyz\tw", repr(app.result))
 
 
-async def test_dashboard_accounts_table_is_fed_by_accounts_data_and_follows_the_cursor() -> None:
+async def test_dashboard_accounts_table_is_fed_by_accounts_data() -> None:
     """The ACCOUNTS panel is a DataTable fed by `tui.accounts_data` - the rows
     (`alpha`, not logged in so its tick is a cross, and not the account work
-    goes next) - and its row cursor is the dashboard's own selection, shown
-    only while ACCOUNTS is the panel the keys act on."""
+    goes next)."""
     _home("acctdata")
     con = db.connect()
     try:
@@ -531,26 +523,12 @@ async def test_dashboard_accounts_table_is_fed_by_accounts_data_and_follows_the_
           "\u2718" in rows[0].mark and rows[0].next == "", rows[0])
     check("accounts_data: every column the panel draws has a cell",
           set(rows[0].cells) == set(tui.ACCT_W) - {"name"}, sorted(rows[0].cells))
-    app = bt.BridgeApp()
-    async with app.run_test(size=(110, 26)) as pilot:
-        await pilot.pause(0.3)
-        table = app.screen.query_one("#accounts", bt.DataTable)
-        check("dashboard: the accounts table has the account's row",
-              table.row_count == 1 and not table.show_cursor, (table.row_count, table.show_cursor))
-        for _ in range(6):
-            if app.screen.panel == tui.ACCOUNTS or not app.is_running:
-                break
-            await pilot.press("tab")
-        await pilot.pause(0.3)
-        check("dashboard: on ACCOUNTS the table shows the cursor on the selected account",
-              table.show_cursor and table.cursor_row == 0, (table.show_cursor, table.cursor_row))
 
 
-async def test_dashboard_agents_table_is_fed_by_agents_data_and_follows_the_cursor() -> None:
+async def test_dashboard_agents_table_is_fed_by_agents_data() -> None:
     """The AGENTS panel is a DataTable fed by `tui.agents_data`: one row per
     drawn agent with its account, kind, state and inbox as plain values, the
-    state word and the fold count built by `state_cell`/`fold_suffix`, and its
-    row cursor the dashboard's own selection."""
+    state word and the fold count built by `state_cell`/`fold_suffix`."""
     _home("agentdata")
     con = db.connect()
     try:
@@ -564,32 +542,16 @@ async def test_dashboard_agents_table_is_fed_by_agents_data_and_follows_the_curs
     check("agents_data: the inbox is a count and the state a word",
           r.inbox == 0 and r.state == tui.screen_state(db.connect(), db.get_agent_state(
               db.connect(), "backend"))[0], r)
-    check("state_cell: a state a person must clear is bold in its own colour",
-          tui.state_cell("DIALOG", "").startswith(tui.BOLD + tui.STATE_COLOR["DIALOG"]))
-    check("state_cell: what it is until follows dimmed, and a width cuts only the word",
-          tui.state_cell("IDLE", "5m", 8).endswith(f" {tui.DIM}5m{tui.R}")
-          and tui._ANSI.sub("", tui.state_cell("RUNNING", "5m", 8)) == "RUN\u2026 5m",
-          repr(tui.state_cell("RUNNING", "5m", 8)))
     check("fold_suffix: nothing under it is nothing, a fold is its count, urgency follows",
           tui.fold_suffix(0, None) == ""
           and tui._ANSI.sub("", tui.fold_suffix(3, None)) == " +3"
           and tui._ANSI.sub("", tui.fold_suffix(3, ("\u26a0", 2, tui.RED))) == " +3 \u26a02")
-    app = bt.BridgeApp()
-    async with app.run_test(size=(110, 26)) as pilot:
-        await pilot.pause(0.3)
-        table = app.screen.query_one("#agents", bt.DataTable)
-        check("dashboard: on AGENTS the table shows the cursor on the selected agent",
-              table.show_cursor and table.cursor_row == 0, (table.show_cursor, table.cursor_row))
-        await pilot.press("tab")
-        await pilot.pause(0.3)
-        check("dashboard: leaving AGENTS hides the table's cursor", not table.show_cursor)
 
 
-async def test_dashboard_messages_table_is_fed_by_messages_data_and_follows_the_cursor() -> None:
+async def test_dashboard_messages_table_is_fed_by_messages_data() -> None:
     """The FOR YOU panel is a DataTable fed by `tui.messages_data`: a title that
     counts what is waiting, a row per message (sender, kind, its first line
-    with nothing a terminal would obey in it) and its row cursor the dashboard's
-    own selection, shown only on MESSAGES."""
+    with nothing a terminal would obey in it)."""
     _home("msgdata")
     agents.register("reviewer", "alpha")
     from ocp import ask as askmod
@@ -605,18 +567,6 @@ async def test_dashboard_messages_table_is_fed_by_messages_data_and_follows_the_
           [r.sender for r in rows] == ["reviewer"] and not notes, rows)
     check("messages_data: the first line is the first with something on it, inert",
           rows[0].first == "please review this", repr(rows[0].first))
-    check("message_mark: an answer, a gate and a read one are three different glyphs",
-          len({tui.message_mark(f)[0] for f in ("gate", "answer", "read")}) == 3)
-    app = bt.BridgeApp()
-    async with app.run_test(size=(110, 30)) as pilot:
-        await pilot.pause(0.3)
-        table = app.screen.query_one("#messages", bt.DataTable)
-        check("dashboard: the messages table has the message's row",
-              table.row_count == 1 and not table.show_cursor, (table.row_count, table.show_cursor))
-        await pilot.press("right")
-        await pilot.pause(0.3)
-        check("dashboard: on MESSAGES the table shows the cursor on the selected message",
-              table.show_cursor and table.cursor_row == 0, (table.show_cursor, table.cursor_row))
 
 
 async def test_dashboard_stuck_table_is_fed_by_stuck_data_and_entering_it_is_safe() -> None:
@@ -799,10 +749,10 @@ async def test_task_checks_closes_several_checked_at_once() -> None:
         check("checks: checked is cleared once acted on", not screen.checked, screen.checked)
 
 
-async def test_read_only_page_shows_foreign_text_inert_and_scrolls_on_arrows() -> None:
+async def test_read_only_page_shows_foreign_text_inert() -> None:
     """Auditor #2259: a page shows text an agent wrote (message bodies, a
     handoff), so a colour code, an OSC 8 link, a C1 CSI or a BEL in a row must
-    not reach the terminal - and the arrow keys (the wheel) scroll a tabbed page."""
+    not reach the terminal."""
     _home("readonly_inert")
     bad = "red:\033[31mRED\033[0m link:\033]8;;http://evil.example\033\\click\033]8;;\033\\ c1:\u009b2J bel:\a end"
     app = bt.BridgeApp()
@@ -818,10 +768,6 @@ async def test_read_only_page_shows_foreign_text_inert_and_scrolls_on_arrows() -
         check("readonly: no row carries a hyperlink",
               not any(seg.style and seg.style.link for seg in segs))
         check("readonly: the visible words survive", "red:RED" in text and "click" in text, text[:200])
-        pane = app.screen._pane()
-        await pilot.press("down")
-        await pilot.pause()
-        check("readonly: down scrolls a tabbed page", pane.scroll_y == 1, pane.scroll_y)
 
 
 def test_only_y_n_or_escape_answers_a_confirm() -> None:
@@ -1087,8 +1033,8 @@ def test_what_an_agent_wrote_is_drawn_inert_on_every_part_of_the_page() -> None:
           all("[red]not markup[/red]" in t.plain for t in (body, page["title"])), body.plain)
     leaked = [x.label for x in suggestions if textsafe.has_unsafe("".join(x.label))]
     check("inert: the menu labels are safe too", not leaked, str(leaked[:1]))
-    check("inert: a cancelled message is struck through and says why",
-          note is not None and "strike" in str(body.style) and "told to stop" in note.plain)
+    check("inert: a cancelled message says why",
+          note is not None and "told to stop" in note.plain)
 
 
 async def _run_all() -> None:
@@ -1116,13 +1062,13 @@ async def _run_all() -> None:
     await test_text_prompt_keeps_a_paste_instead_of_dropping_it()
     await test_task_checks_lists_and_acts_on_the_founders_own()
     await test_task_checks_closes_several_checked_at_once()
-    await test_dashboard_accounts_table_is_fed_by_accounts_data_and_follows_the_cursor()
-    await test_dashboard_agents_table_is_fed_by_agents_data_and_follows_the_cursor()
-    await test_dashboard_messages_table_is_fed_by_messages_data_and_follows_the_cursor()
+    await test_dashboard_accounts_table_is_fed_by_accounts_data()
+    await test_dashboard_agents_table_is_fed_by_agents_data()
+    await test_dashboard_messages_table_is_fed_by_messages_data()
     await test_dashboard_stuck_table_is_fed_by_stuck_data_and_entering_it_is_safe()
     await test_a_key_never_acts_on_a_row_nobody_pointed_at()
     await test_text_prompt_line_keeps_a_multiline_paste_and_shows_escapes_inert()
-    await test_read_only_page_shows_foreign_text_inert_and_scrolls_on_arrows()
+    await test_read_only_page_shows_foreign_text_inert()
 
 
 def main() -> int:

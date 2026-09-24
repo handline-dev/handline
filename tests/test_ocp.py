@@ -7,7 +7,9 @@ Run: python3 tests/test_ocp.py            (all areas)
      python3 tests/test_ocp.py -j 2       (at most two areas at once)
 
 The tests live in tests/test_<area>.py over the shared tests/support.py, which
-this module also re-exports for tests/test_bridge_textual.py.
+this module also re-exports for tests/test_bridge_textual.py. That file needs
+`textual`, so it runs under whichever python can import it (this one, else the
+venv's) and is reported as skipped, loudly, when none can.
 """
 from __future__ import annotations
 
@@ -26,6 +28,7 @@ from support import diff_labels  # noqa: E402
 
 HERE = Path(__file__).resolve().parent
 NOT_AREAS = {"test_ocp.py", "test_bridge_textual.py"}
+BRIDGE = HERE / "test_bridge_textual.py"
 
 
 def area_files() -> list[Path]:
@@ -34,9 +37,18 @@ def area_files() -> list[Path]:
     return sorted(files, key=lambda p: -p.stat().st_size)
 
 
-def _run_one(path: Path, args: list[str]) -> tuple[Path, int, str]:
+def textual_python() -> str | None:
+    """A python that can import textual: this one, else the venv's."""
+    for py in (sys.executable, str(venvmod.venv_python())):
+        if Path(py).exists() and subprocess.run(
+                [py, "-c", "import textual"], capture_output=True).returncode == 0:
+            return py
+    return None
+
+
+def _run_one(path: Path, args: list[str], python: str | None = None) -> tuple[Path, int, str]:
     env = {k: v for k, v in os.environ.items() if k not in ("OCP_AGENT", "OCP_ACCOUNT")}
-    done = subprocess.run([sys.executable, str(path), *args], capture_output=True,
+    done = subprocess.run([python or sys.executable, str(path), *args], capture_output=True,
                           text=True, env=env)
     return path, done.returncode, done.stdout + done.stderr
 
@@ -68,8 +80,18 @@ def run_all(argv: list[str]) -> int:
                 out += ["--write-labels", label_paths[p]]
             return out
 
+        bridge_py = textual_python() if args.filter is None else None
+        jobs = [(p, child_args(p), None) for p in files]
+        if bridge_py:
+            jobs.insert(0, (BRIDGE, [], bridge_py))
         with concurrent.futures.ThreadPoolExecutor(max_workers=max(1, args.jobs)) as pool:
-            results = list(pool.map(lambda p: _run_one(p, child_args(p)), files))
+            results = list(pool.map(lambda j: _run_one(*j), jobs))
+        skipped = ""
+        if args.filter is not None:
+            skipped = f"SKIPPED  {BRIDGE.name}: it has no -k filter; run the whole suite to include it"
+        elif not bridge_py:
+            skipped = (f"SKIPPED  {BRIDGE.name}: textual is importable from neither {sys.executable} "
+                       f"nor the venv ({venvmod.venv_python()}); run `ocp venv` to install it")
         if args.write_labels:
             with open(args.write_labels, "w") as out:
                 for p in files:
@@ -87,7 +109,12 @@ def run_all(argv: list[str]) -> int:
         else:
             crashed = True
             failures.append(f"{path.name} did not finish (exit {code})")
+        if code != 0 and counted and not int(counted[-1][1]):
+            crashed = True
+            failures.append(f"{path.name} exited {code} after reporting no failure")
         failures += re.findall(r"^  FAILED: (.*)$", output, re.M)
+    if skipped:
+        print(skipped)
     print(f"\n{passed} passed, {failed} failed")
     for f in failures:
         print(f"  FAILED: {f}")

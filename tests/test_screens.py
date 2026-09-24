@@ -1406,11 +1406,14 @@ def test_each_account_guard_fails_under_its_own_mutation(home: Path) -> None:
 
 def test_a_wheel_notch_leaves_a_draft_untouched(home: Path) -> None:
     """A wheel notch reaches the agent page's box as an arrow key and must
-    leave the draft as it was."""
+    leave the draft as it was; an unknown reading is never drawn as an empty
+    gauge."""
     box = tui.Composer(multi=True)
     box.feed("half a mess")
     box.feed("".join(("\033[A", "\033OA", "\033[B", "\033OB")) * 4)
     check("wheel: a draft under composition is untouched", box.text == "half a mess")
+    check("tui: an unknown bar is not an empty bar",
+          tui.vlen(tui.bar(None, 10)) == 10 and "░" not in tui.bar(None, 10))
 
 
 def test_a_pasted_escape_in_a_message_being_typed_is_never_sent(home: Path) -> None:
@@ -1522,6 +1525,21 @@ def test_the_accounts_panel_says_how_many_agents_are_assigned_and_running(home: 
           (cell((3, 2), 1), cell((0, 0), 1)))
     check("agents cell: at its cap it says the same words",
           plain(tui.agents_cell((3, 2), 0, True)) == "3 ▶2")
+
+    # The roster's figures reach the ACCOUNTS rows' agents cell: alpha has three
+    # agents and one running, beta one and none, gamma none.
+    real_login = tui._logged_in
+    tui._logged_in = lambda acct: True
+    con = db.connect()
+    try:
+        rows, _notes = tui.accounts_data(con)
+    finally:
+        con.close()
+        tui._logged_in = real_login
+    by = {r.name: plain(r.cells["agents"]) for r in rows}
+    check("agents column: alpha reads 3 ▶1", by.get("alpha") == "3 ▶1", by)
+    check("agents column: beta reads 1 ▶0", by.get("beta") == "1 ▶0", by)
+    check("agents column: gamma, with none, reads 0", by.get("gamma") == "0", by)
 
 
 def test_the_team_is_drawn_the_way_it_is_routed(home: Path) -> None:
