@@ -132,11 +132,11 @@ def test_a_report_to_the_founder_is_not_a_wait(home: Path) -> None:
         real_who = askmod.asking_agent
         try:
             askmod.asking_agent = lambda: "backend"
-            _capture(lambda: climod.cmd_read(argparse.Namespace(id=f2, wait=False)))
+            _capture(lambda: cliask.cmd_read(argparse.Namespace(id=f2, wait=False)))
             check("fyi: an agent reading it does not close it",
                   db.get_request(con, f2)["state"] == "queued")
             askmod.asking_agent = lambda: actions.HUMAN
-            _capture(lambda: climod.cmd_read(argparse.Namespace(id=f2, wait=False)))
+            _capture(lambda: cliask.cmd_read(argparse.Namespace(id=f2, wait=False)))
             check("fyi: the founder's `ocp read` closes it",
                   db.get_request(con, f2)["state"] == "done")
             check("fyi: `ocp read` closing it leaves no verdict either",
@@ -291,11 +291,11 @@ def test_for_you_folds_to_one_line_per_agent(home: Path) -> None:
               not edited["waiting"] and not edited["gate"], str(edited))
 
         # messages() backs `ocp inbox --wait` on the human's own mailbox too
-        # (cli._waiting_ids); a new report from an agent that already has a
+        # (cli.ask._waiting_ids); a new report from an agent that already has a
         # folded row must still show up as a new id to wait for.
-        before_ids = climod._waiting_ids(con, actions.HUMAN)
+        before_ids = cliask._waiting_ids(con, actions.HUMAN)
         ok, _m, r5 = askmod.ask(actions.HUMAN, "one more", requester="backend", fyi=True)
-        after_ids = climod._waiting_ids(con, actions.HUMAN)
+        after_ids = cliask._waiting_ids(con, actions.HUMAN)
         check("fold: a new folded message is still a new id to wait for",
               after_ids - before_ids, f"{before_ids} -> {after_ids}")
 
@@ -313,8 +313,8 @@ def test_for_you_folds_to_one_line_per_agent(home: Path) -> None:
         check("fold: two rows from one agent are still one line",
               multi_line["unread"] == 2, str(multi_line))
         check("fold: but the wait set holds both ids behind it, not just the shown one",
-              {m1, m2} <= climod._waiting_ids(con, actions.HUMAN),
-              str(climod._waiting_ids(con, actions.HUMAN)))
+              {m1, m2} <= cliask._waiting_ids(con, actions.HUMAN),
+              str(cliask._waiting_ids(con, actions.HUMAN)))
 
         for name in ("alpha", "zeta"):
             db.add_request(con, name, actions.HUMAN, f"{name} report", None, "peer",
@@ -2866,7 +2866,7 @@ def test_every_state_the_daemon_can_write_has_a_waker() -> None:
     import ocp
     pkg_dir = Path(ocp.__file__).parent
     written: set[str] = set()
-    for path in pkg_dir.glob("*.py"):
+    for path in pkg_dir.rglob("*.py"):
         written |= _states_written_in(path)
     check("waker: at least the states this suite knows are written are found "
           "(the scan itself is not vacuous)",
@@ -3081,7 +3081,7 @@ def test_the_screen_says_when_two_daemons_are_running(home: Path) -> None:
 
         buf = io.StringIO()
         with contextlib.redirect_stdout(buf):
-            climod.cmd_daemon_status(None)
+            clidaemon.cmd_daemon_status(None)
         check("ps: the screen says it too", "WARNING" in buf.getvalue(), buf.getvalue())
 
     finally:
@@ -3101,8 +3101,8 @@ def test_bridge_routing_is_textual_on_a_tty_and_text_otherwise() -> None:
     calls: list[tuple] = []
     fake = types.ModuleType("ocp.bridge_textual")
     fake.run = lambda once=False: calls.append("textual") or 0
-    real_snapshot = climod.tui.snapshot
-    climod.tui.snapshot = lambda: calls.append("snapshot") or "SNAP"
+    real_snapshot = tui.snapshot
+    tui.snapshot = lambda: calls.append("snapshot") or "SNAP"
     real_module = sys.modules.get("ocp.bridge_textual")
     had_module = "ocp.bridge_textual" in sys.modules
     had_textual = "textual" in sys.modules
@@ -3117,18 +3117,18 @@ def test_bridge_routing_is_textual_on_a_tty_and_text_otherwise() -> None:
     try:
         sys.modules["ocp.bridge_textual"] = fake
         sys.stdout.isatty = lambda: True
-        code = climod.cmd_bridge(ns())
+        code = clibridge.cmd_bridge(ns())
         check("bridge routing: on a terminal the default is the Textual app",
               calls == ["textual"] and code == 0, calls)
 
         calls.clear()
-        out = _capture(lambda: climod.cmd_bridge(ns(once=True)))
+        out = _capture(lambda: clibridge.cmd_bridge(ns(once=True)))
         check("bridge routing: --once prints the snapshot and starts no app",
               calls == ["snapshot"] and "SNAP" in out, (calls, out))
 
         calls.clear()
         sys.stdout.isatty = lambda: False
-        out = _capture(lambda: climod.cmd_bridge(ns()))
+        out = _capture(lambda: clibridge.cmd_bridge(ns()))
         check("bridge routing: into a pipe it is the snapshot too, not a hang",
               calls == ["snapshot"] and "SNAP" in out, (calls, out))
 
@@ -3141,18 +3141,18 @@ def test_bridge_routing_is_textual_on_a_tty_and_text_otherwise() -> None:
                 return True
         buf = _Tty()
         with contextlib.redirect_stdout(buf):
-            code = climod.cmd_bridge(ns())
+            code = clibridge.cmd_bridge(ns())
         check("bridge routing: without the package on a terminal it fails loud with the fix",
               calls == [] and code == 1 and "ocp venv install" in buf.getvalue(),
               (calls, code, buf.getvalue()))
 
         calls.clear()
         sys.stdout.isatty = lambda: True
-        out = _capture(lambda: climod.cmd_bridge(ns(once=True)))
+        out = _capture(lambda: clibridge.cmd_bridge(ns(once=True)))
         check("bridge routing: --once needs no textual at all",
               calls == ["snapshot"] and "SNAP" in out, (calls, out))
     finally:
-        climod.tui.snapshot = real_snapshot
+        tui.snapshot = real_snapshot
         sys.stdout.isatty = real_isatty
         if had_module:
             sys.modules["ocp.bridge_textual"] = real_module
@@ -3170,34 +3170,34 @@ def test_bridge_textual_missing_package_classification() -> None:
     `ModuleNotFoundError` a broken import behind them raises (a real bug -
     must be seen, not served the founder the old screen with nothing said)."""
     check("missing-package: a bare `textual` import is the missing case",
-          climod._missing_bridge_package(ModuleNotFoundError(name="textual")))
+          clibridge._missing_bridge_package(ModuleNotFoundError(name="textual")))
     check("missing-package: a submodule of it is too",
-          climod._missing_bridge_package(ModuleNotFoundError(name="textual.widgets")))
+          clibridge._missing_bridge_package(ModuleNotFoundError(name="textual.widgets")))
     check("missing-package: `rich` is the other one bridge_textual needs",
-          climod._missing_bridge_package(ModuleNotFoundError(name="rich")))
+          clibridge._missing_bridge_package(ModuleNotFoundError(name="rich")))
     check("missing-package: an unrelated missing module is not",
-          not climod._missing_bridge_package(ModuleNotFoundError(name="ocp.no_such_module")))
+          not clibridge._missing_bridge_package(ModuleNotFoundError(name="ocp.no_such_module")))
     check("missing-package: no name at all is not",
-          not climod._missing_bridge_package(ModuleNotFoundError()))
+          not clibridge._missing_bridge_package(ModuleNotFoundError()))
 
-    real_import = climod._import_bridge_textual
+    real_import = clibridge._import_bridge_textual
     try:
-        climod._import_bridge_textual = lambda: (_ for _ in ()).throw(
+        clibridge._import_bridge_textual = lambda: (_ for _ in ()).throw(
             ModuleNotFoundError("cannot import name 'no_such_name' from 'ocp.tui'", name="ocp.tui"))
         raised = False
         try:
-            climod._bridge_textual_module()
+            clibridge._bridge_textual_module()
         except ModuleNotFoundError:
             raised = True
         check("missing-package: _bridge_textual_module re-raises an unrelated ModuleNotFoundError",
               raised)
 
-        climod._import_bridge_textual = lambda: (_ for _ in ()).throw(
+        clibridge._import_bridge_textual = lambda: (_ for _ in ()).throw(
             ModuleNotFoundError("No module named 'textual'", name="textual"))
         check("missing-package: _bridge_textual_module returns None for textual itself",
-              climod._bridge_textual_module() is None)
+              clibridge._bridge_textual_module() is None)
     finally:
-        climod._import_bridge_textual = real_import
+        clibridge._import_bridge_textual = real_import
 
 
 def test_human_inbox_routing_matches_cmd_bridge() -> None:
@@ -3216,9 +3216,9 @@ def test_human_inbox_routing_matches_cmd_bridge() -> None:
     fake.run = lambda once=False: calls.append(("textual",)) or 0
     real_isatty = sys.stdout.isatty
     sys.stdout.isatty = lambda: True
-    real_import = climod._import_bridge_textual
-    real_human = climod._human_inbox
-    climod._human_inbox = lambda all_: calls.append(("text",)) or 0
+    real_import = clibridge._import_bridge_textual
+    real_human = cliask._human_inbox
+    cliask._human_inbox = lambda all_: calls.append(("text",)) or 0
 
     def ns(**kw):
         base = dict(agent=actions.HUMAN, wait=False, all=False, timeout=60)
@@ -3226,21 +3226,21 @@ def test_human_inbox_routing_matches_cmd_bridge() -> None:
         return argparse.Namespace(**base)
 
     try:
-        climod._import_bridge_textual = lambda: fake
-        climod.cmd_inbox(ns())
+        clibridge._import_bridge_textual = lambda: fake
+        cliask.cmd_inbox(ns())
         check("inbox routing: a tty with no --all/--wait opens the screen",
               calls == [("textual",)], calls)
 
         calls.clear()
-        climod._import_bridge_textual = lambda: (_ for _ in ()).throw(
+        clibridge._import_bridge_textual = lambda: (_ for _ in ()).throw(
             ModuleNotFoundError("No module named 'textual'", name="textual"))
-        climod.cmd_inbox(ns())
+        cliask.cmd_inbox(ns())
         check("inbox routing: without the package it lists the mailbox as text",
               calls == [("text",)], calls)
     finally:
         sys.stdout.isatty = real_isatty
-        climod._import_bridge_textual = real_import
-        climod._human_inbox = real_human
+        clibridge._import_bridge_textual = real_import
+        cliask._human_inbox = real_human
 
 
 def main() -> int:

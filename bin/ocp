@@ -19,7 +19,7 @@ home_dir="${OCP_HOME:-$HOME/.orcapipe}"
 venv="$home_dir/venv"
 py="$venv/bin/python3"
 
-# ocp/cli.py and ocp/service.py both describe the installed `ocp` as a
+# ocp/cli/ and ocp/service.py both describe the installed `ocp` as a
 # symlink into the repo, not a copy - so BASH_SOURCE (the symlink's own
 # path) has to be resolved to where the real bin/ocp lives before script_dir
 # is derived from it, or _ocp_entry.py and requirements.txt are looked for

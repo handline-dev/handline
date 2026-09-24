@@ -1050,7 +1050,7 @@ def test_a_running_daemon_is_reported_whatever_daemon_pid_says(home: Path) -> No
             check("daemon: and a second daemon is refused, by the same fact", not free)
         buf = io.StringIO()
         with contextlib.redirect_stdout(buf):
-            climod.cmd_daemon_status(None)
+            clidaemon.cmd_daemon_status(None)
         check("ps: says running, and names the pid",
               f"daemon: running, pid {pid}" in buf.getvalue(), buf.getvalue())
         r = doctor.Report()
@@ -1117,7 +1117,7 @@ def test_a_daemon_process_that_does_not_hold_the_lock_is_not_called_absent(home:
               r.rows[-1][0] == doctor.WARN and "4242" in r.rows[-1][1], str(r.rows))
         buf = io.StringIO()
         with contextlib.redirect_stdout(buf):
-            climod.cmd_daemon_status(None)
+            clidaemon.cmd_daemon_status(None)
         check("ps: says the same, beside 'not running'",
               "daemon: not running" in buf.getvalue() and "pid 4242" in buf.getvalue(),
               buf.getvalue())
@@ -2901,7 +2901,7 @@ def test_every_call_site_actually_hands_supervise_the_per_agent_context_limit(
               "the daemon's own call site honoured agent.yaml, not just evaluate()",
               cleared["term_ctl"] == 0, cleared)
 
-        # 2. cli.cmd_triggers.
+        # 2. cli.health.cmd_triggers.
         trig_out = _capture(lambda: climod.main(["triggers"]))
         real_line = next(ln for ln in trig_out.splitlines() if "ctxreal" in ln)
         ctl_line = next(ln for ln in trig_out.splitlines() if "ctxctl" in ln)

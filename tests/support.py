@@ -49,6 +49,8 @@ os.environ[paths.TEST_ROOT_ENV] = str(TEST_ROOT)
 os.environ["OCP_HOME"] = str(TEST_ROOT / ".orcapipe")
 atexit.register(shutil.rmtree, TEST_ROOT, True)
 
+from ocp.cli import (account as cliaccount, ask as cliask, bridge as clibridge, daemon as clidaemon,  # noqa: E402
+                     health as clihealth, setup as clisetup, task as clitask)
 from ocp import (accounts, actions, agents, ask as askmod, blocked as blockedmod, burnrate, cli as climod, collect, daemon as dmn, db, hr,
                  digest,
                  doctor, drift, events as evmod, fold as foldmod,
@@ -1698,7 +1700,7 @@ def _states_written_in(path) -> set[str]:
     source file, however it spells the state: a bare constant (already equal
     to its own name in daemon.py, e.g. `PARKED = "PARKED"`), a quoted literal
     (ask.py's own style), or one qualified by its module (`daemon.QUEUED` in
-    actions.py, `daemonmod.QUEUED` in cli.py - a miss here read both of those
+    actions.py, `daemonmod.QUEUED` in ocp/cli/ - a miss here read both of those
     real call sites as writing nothing, which defeats the guard exactly where
     a state without one would be silent). Not a full parser - a regex over
     source text - but the one property this needs is only ever a name right
@@ -1785,6 +1787,13 @@ __all__ = [
     'blockedmod',
     'burnrate',
     'climod',
+    'cliaccount',
+    'cliask',
+    'clibridge',
+    'clidaemon',
+    'clihealth',
+    'clisetup',
+    'clitask',
     'collect',
     'dmn',
     'db',

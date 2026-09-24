@@ -547,7 +547,7 @@ def test_init_keeps_the_lock_file_out_of_the_home_repo(home: Path) -> None:
     change `git status` shows forever."""
     os.environ["OCP_HOME"] = str(home)
     with contextlib.redirect_stdout(io.StringIO()):
-        climod.cmd_init(argparse.Namespace())
+        clisetup.cmd_init(argparse.Namespace())
     lines = (home / ".gitignore").read_text().split()
     check("init: locks/ is ignored", "locks/" in lines, str(lines))
     check("init: and nothing names the pidfile that no longer exists",
@@ -1079,7 +1079,7 @@ def test_doctor_and_ps_report_a_drifted_launch(home: Path) -> None:
               "not produce now is reported",
               r.rows and r.rows[-1][0] == doctor.WARN
               and "backend" in r.rows[-1][1], str(r.rows))
-        printed = _capture(lambda: climod.cmd_daemon_status(None))
+        printed = _capture(lambda: clidaemon.cmd_daemon_status(None))
         check("ps: the screen says it too",
               any(l.startswith("backend") and "·drift" in l for l in printed.splitlines()),
               printed)
@@ -1099,7 +1099,7 @@ def test_doctor_and_ps_report_a_drifted_launch(home: Path) -> None:
         check("doctor: a session with no recorded fingerprint reads as drift too",
               r.rows and r.rows[-1][0] == doctor.WARN
               and "backend" in r.rows[-1][1], str(r.rows))
-        printed = _capture(lambda: climod.cmd_daemon_status(None))
+        printed = _capture(lambda: clidaemon.cmd_daemon_status(None))
         check("ps: and the screen marks it the same way",
               any(l.startswith("backend") and "·drift" in l for l in printed.splitlines()),
               printed)

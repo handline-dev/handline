@@ -432,7 +432,7 @@ def test_offer_to_trust_worktrees_lists_paths_and_skips(home: Path) -> None:
     asked: list[str] = []
     try:
         actions.trust_worktrees = lambda acct, wts: [f"{a}: trusted" for a, w in wts]
-        out = _capture(lambda: climod._offer_to_trust_worktrees(
+        out = _capture(lambda: cliaccount._offer_to_trust_worktrees(
             "gamma", lambda p: (asked.append(p), "y")[1]))
     finally:
         actions.trust_worktrees = real_trust
